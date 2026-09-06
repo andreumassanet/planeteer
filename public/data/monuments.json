@@ -1,0 +1,857 @@
+{
+ "monuments": [
+  {
+   "id": "eiffel-tower",
+   "name": "Eiffel Tower",
+   "iso": "FRA",
+   "lat": 48.7445,
+   "lon": 2.2908,
+   "footprint": 35,
+   "height": 330,
+   "year": 1889,
+   "clearance": 35
+  },
+  {
+   "id": "arc-de-triomphe",
+   "name": "Arc de Triomphe",
+   "iso": "FRA",
+   "lat": 48.9879,
+   "lon": 2.2987,
+   "footprint": 21,
+   "height": 50,
+   "year": 1836,
+   "clearance": 21
+  },
+  {
+   "id": "mont-saint-michel",
+   "name": "Mont-Saint-Michel",
+   "iso": "FRA",
+   "lat": 48.636,
+   "lon": -1.511,
+   "footprint": 52,
+   "clearance": 0
+  },
+  {
+   "id": "colosseum",
+   "name": "Colosseum",
+   "iso": "ITA",
+   "lat": 41.7436,
+   "lon": 12.967,
+   "footprint": 52,
+   "height": 48,
+   "year": 80,
+   "clearance": 52
+  },
+  {
+   "id": "leaning-tower-pisa",
+   "name": "Leaning Tower of Pisa",
+   "iso": "ITA",
+   "lat": 43.723,
+   "lon": 10.396,
+   "footprint": 15,
+   "height": 57,
+   "year": 1372,
+   "clearance": 15
+  },
+  {
+   "id": "st-peters-basilica",
+   "name": "St Peter's Basilica",
+   "iso": "ITA",
+   "lat": 41.9067,
+   "lon": 12.4387,
+   "footprint": 55,
+   "height": 136,
+   "year": 1626,
+   "clearance": 55
+  },
+  {
+   "id": "sagrada-familia",
+   "name": "Sagrada Familia",
+   "iso": "ESP",
+   "lat": 41.404,
+   "lon": 2.174,
+   "footprint": 38,
+   "clearance": 8
+  },
+  {
+   "id": "alhambra",
+   "name": "Alhambra",
+   "iso": "ESP",
+   "lat": 37.176,
+   "lon": -3.588,
+   "footprint": 48,
+   "clearance": 48
+  },
+  {
+   "id": "guggenheim-bilbao",
+   "name": "Guggenheim Bilbao",
+   "iso": "ESP",
+   "lat": 43.269,
+   "lon": -2.934,
+   "footprint": 37,
+   "year": 1997,
+   "clearance": 37
+  },
+  {
+   "id": "big-ben",
+   "name": "Elizabeth Tower",
+   "iso": "GBR",
+   "lat": 51.4816,
+   "lon": -0.3187,
+   "footprint": 10,
+   "height": 96,
+   "year": 1859,
+   "clearance": 10
+  },
+  {
+   "id": "tower-bridge",
+   "name": "Tower Bridge",
+   "iso": "GBR",
+   "lat": 51.5254,
+   "lon": 0.1187,
+   "footprint": 55,
+   "height": 65,
+   "year": 1894,
+   "clearance": 55
+  },
+  {
+   "id": "stonehenge",
+   "name": "Stonehenge",
+   "iso": "GBR",
+   "lat": 51.179,
+   "lon": -1.826,
+   "footprint": 14,
+   "clearance": 14
+  },
+  {
+   "id": "brandenburg-gate",
+   "name": "Brandenburg Gate",
+   "iso": "DEU",
+   "lat": 52.516,
+   "lon": 13.378,
+   "footprint": 44,
+   "height": 26,
+   "year": 1791,
+   "clearance": 44
+  },
+  {
+   "id": "neuschwanstein",
+   "name": "Neuschwanstein Castle",
+   "iso": "DEU",
+   "lat": 47.558,
+   "lon": 10.75,
+   "footprint": 40,
+   "year": 1886,
+   "clearance": 40
+  },
+  {
+   "id": "atomium",
+   "name": "Atomium",
+   "iso": "BEL",
+   "lat": 50.895,
+   "lon": 4.341,
+   "footprint": 39,
+   "height": 102,
+   "year": 1958,
+   "clearance": 39
+  },
+  {
+   "id": "kinderdijk",
+   "name": "Kinderdijk Windmills",
+   "iso": "NLD",
+   "lat": 51.884,
+   "lon": 4.64,
+   "footprint": 55,
+   "clearance": 55
+  },
+  {
+   "id": "charles-bridge",
+   "name": "Charles Bridge",
+   "iso": "CZE",
+   "lat": 50.086,
+   "lon": 14.411,
+   "footprint": 54,
+   "clearance": 54
+  },
+  {
+   "id": "st-basils-cathedral",
+   "name": "Saint Basil's Cathedral",
+   "iso": "RUS",
+   "lat": 55.752,
+   "lon": 37.623,
+   "footprint": 12.3,
+   "height": 65,
+   "year": 1561,
+   "clearance": 12.3
+  },
+  {
+   "id": "parthenon",
+   "name": "Parthenon",
+   "iso": "GRC",
+   "lat": 37.971,
+   "lon": 23.727,
+   "footprint": 51,
+   "clearance": 16
+  },
+  {
+   "id": "hagia-sophia",
+   "name": "Hagia Sophia",
+   "iso": "TUR",
+   "lat": 41.0275,
+   "lon": 28.9699,
+   "footprint": 30,
+   "height": 55,
+   "year": 537,
+   "snappedKm": 2.2,
+   "clearance": 0
+  },
+  {
+   "id": "little-mermaid",
+   "name": "The Little Mermaid",
+   "iso": "DNK",
+   "lat": 55.7023,
+   "lon": 12.5059,
+   "footprint": 9.5,
+   "year": 1913,
+   "snappedKm": 2.2,
+   "clearance": 9.5
+  },
+  {
+   "id": "hallgrimskirkja",
+   "name": "Hallgrímskirkja",
+   "iso": "ISL",
+   "lat": 64.1417,
+   "lon": -21.9266,
+   "footprint": 27.6,
+   "height": 74.5,
+   "year": 1986,
+   "clearance": 0
+  },
+  {
+   "id": "borgund-stave-church",
+   "name": "Borgund Stave Church",
+   "iso": "NOR",
+   "lat": 61.0472,
+   "lon": 7.8125,
+   "footprint": 24,
+   "year": 1180,
+   "clearance": 24
+  },
+  {
+   "id": "gergeti-trinity",
+   "name": "Gergeti Trinity Church",
+   "iso": "GEO",
+   "lat": 42.6624,
+   "lon": 44.6203,
+   "footprint": 34,
+   "clearance": 34
+  },
+  {
+   "id": "registan",
+   "name": "The Registan",
+   "iso": "UZB",
+   "lat": 39.6548,
+   "lon": 66.9758,
+   "footprint": 36.5,
+   "year": 1660,
+   "clearance": 36.5
+  },
+  {
+   "id": "persepolis",
+   "name": "Persepolis",
+   "iso": "IRN",
+   "lat": 29.9354,
+   "lon": 52.8916,
+   "footprint": 33.5,
+   "clearance": 33.5
+  },
+  {
+   "id": "baalbek",
+   "name": "Baalbek",
+   "iso": "LBN",
+   "lat": 34.0069,
+   "lon": 36.2039,
+   "footprint": 27,
+   "clearance": 27
+  },
+  {
+   "id": "ziggurat-of-ur",
+   "name": "Ziggurat of Ur",
+   "iso": "IRQ",
+   "lat": 30.9626,
+   "lon": 46.1031,
+   "footprint": 38,
+   "clearance": 38
+  },
+  {
+   "id": "taj-mahal",
+   "name": "Taj Mahal",
+   "iso": "IND",
+   "lat": 27.175,
+   "lon": 78.042,
+   "footprint": 39,
+   "height": 73,
+   "year": 1653,
+   "clearance": 39
+  },
+  {
+   "id": "sigiriya",
+   "name": "Sigiriya",
+   "iso": "LKA",
+   "lat": 7.957,
+   "lon": 80.7603,
+   "footprint": 23.5,
+   "clearance": 23.5
+  },
+  {
+   "id": "golden-temple",
+   "name": "Golden Temple",
+   "iso": "IND",
+   "lat": 31.62,
+   "lon": 74.877,
+   "footprint": 39,
+   "clearance": 39
+  },
+  {
+   "id": "great-wall",
+   "name": "Great Wall of China",
+   "iso": "CHN",
+   "lat": 40.356,
+   "lon": 116.008,
+   "footprint": 52,
+   "clearance": 52
+  },
+  {
+   "id": "forbidden-city",
+   "name": "Forbidden City",
+   "iso": "CHN",
+   "lat": 39.916,
+   "lon": 116.397,
+   "footprint": 48,
+   "clearance": 48
+  },
+  {
+   "id": "terracotta-army",
+   "name": "Terracotta Army",
+   "iso": "CHN",
+   "lat": 34.385,
+   "lon": 109.278,
+   "footprint": 34,
+   "clearance": 34
+  },
+  {
+   "id": "potala-palace",
+   "name": "Potala Palace",
+   "iso": "CHN",
+   "lat": 29.658,
+   "lon": 91.117,
+   "footprint": 52,
+   "clearance": 52
+  },
+  {
+   "id": "bagan",
+   "name": "Bagan",
+   "iso": "MMR",
+   "lat": 21.1703,
+   "lon": 94.8672,
+   "footprint": 43,
+   "clearance": 43
+  },
+  {
+   "id": "angkor-wat",
+   "name": "Angkor Wat",
+   "iso": "KHM",
+   "lat": 13.412,
+   "lon": 103.867,
+   "footprint": 48,
+   "height": 65,
+   "clearance": 48
+  },
+  {
+   "id": "petra",
+   "name": "Petra",
+   "iso": "JOR",
+   "lat": 30.329,
+   "lon": 35.444,
+   "footprint": 48,
+   "clearance": 48
+  },
+  {
+   "id": "burj-khalifa",
+   "name": "Burj Khalifa",
+   "iso": "ARE",
+   "lat": 25.1615,
+   "lon": 55.3159,
+   "footprint": 14.5,
+   "height": 828,
+   "year": 2010,
+   "clearance": 14.5
+  },
+  {
+   "id": "tokyo-tower",
+   "name": "Tokyo Tower",
+   "iso": "JPN",
+   "lat": 35.6841,
+   "lon": 139.6926,
+   "footprint": 26,
+   "height": 333,
+   "year": 1958,
+   "clearance": 26
+  },
+  {
+   "id": "mount-fuji",
+   "name": "Mount Fuji",
+   "iso": "JPN",
+   "lat": 35.361,
+   "lon": 138.728,
+   "footprint": 55,
+   "height": 3776,
+   "clearance": 55
+  },
+  {
+   "id": "himeji-castle",
+   "name": "Himeji Castle",
+   "iso": "JPN",
+   "lat": 34.882,
+   "lon": 134.6956,
+   "footprint": 28,
+   "clearance": 28
+  },
+  {
+   "id": "petronas-towers",
+   "name": "Petronas Towers",
+   "iso": "MYS",
+   "lat": 3.158,
+   "lon": 101.712,
+   "footprint": 15.2,
+   "height": 452,
+   "year": 1998,
+   "clearance": 15.2
+  },
+  {
+   "id": "marina-bay-sands",
+   "name": "Marina Bay Sands",
+   "iso": "SGP",
+   "lat": 1.284,
+   "lon": 103.861,
+   "footprint": 31,
+   "year": 2010,
+   "clearance": 0
+  },
+  {
+   "id": "borobudur",
+   "name": "Borobudur",
+   "iso": "IDN",
+   "lat": -7.608,
+   "lon": 110.204,
+   "footprint": 51,
+   "clearance": 51
+  },
+  {
+   "id": "taipei-101",
+   "name": "Taipei 101",
+   "iso": "TWN",
+   "lat": 25.034,
+   "lon": 121.565,
+   "footprint": 14.5,
+   "height": 508,
+   "year": 2004,
+   "clearance": 14.5
+  },
+  {
+   "id": "gyeongbokgung",
+   "name": "Gyeongbokgung Palace",
+   "iso": "KOR",
+   "lat": 37.579,
+   "lon": 126.977,
+   "footprint": 42,
+   "clearance": 42
+  },
+  {
+   "id": "mount-everest",
+   "name": "Mount Everest",
+   "iso": "NPL",
+   "lat": 27.9739,
+   "lon": 86.909,
+   "footprint": 55,
+   "height": 8849,
+   "snappedKm": 2.2,
+   "clearance": 55
+  },
+  {
+   "id": "genghis-khan-statue",
+   "name": "Genghis Khan Equestrian Statue",
+   "iso": "MNG",
+   "lat": 47.8083,
+   "lon": 107.5306,
+   "footprint": 20,
+   "height": 40,
+   "year": 2008,
+   "clearance": 20
+  },
+  {
+   "id": "hassan-ii-mosque",
+   "name": "Hassan II Mosque",
+   "iso": "MAR",
+   "lat": 33.6086,
+   "lon": -7.6327,
+   "footprint": 27,
+   "height": 210,
+   "year": 1993,
+   "clearance": 0
+  },
+  {
+   "id": "pyramids-of-giza",
+   "name": "Pyramids of Giza",
+   "iso": "EGY",
+   "lat": 30.1218,
+   "lon": 30.9912,
+   "footprint": 55,
+   "height": 139,
+   "clearance": 55
+  },
+  {
+   "id": "great-sphinx",
+   "name": "Great Sphinx",
+   "iso": "EGY",
+   "lat": 29.8322,
+   "lon": 31.2808,
+   "footprint": 40,
+   "clearance": 40
+  },
+  {
+   "id": "abu-simbel",
+   "name": "Abu Simbel",
+   "iso": "EGY",
+   "lat": 22.337,
+   "lon": 31.626,
+   "footprint": 54,
+   "clearance": 54
+  },
+  {
+   "id": "djenne-mosque",
+   "name": "Great Mosque of Djenne",
+   "iso": "MLI",
+   "lat": 13.905,
+   "lon": -4.555,
+   "footprint": 41,
+   "clearance": 41
+  },
+  {
+   "id": "elmina-castle",
+   "name": "Elmina Castle",
+   "iso": "GHA",
+   "lat": 5.0988,
+   "lon": -1.3352,
+   "footprint": 43,
+   "year": 1482,
+   "snappedKm": 2.2,
+   "clearance": 0
+  },
+  {
+   "id": "lalibela",
+   "name": "Rock-Hewn Churches of Lalibela",
+   "iso": "ETH",
+   "lat": 12.032,
+   "lon": 39.043,
+   "footprint": 46.7,
+   "clearance": 46.7
+  },
+  {
+   "id": "kilimanjaro",
+   "name": "Mount Kilimanjaro",
+   "iso": "TZA",
+   "lat": -3.067,
+   "lon": 37.355,
+   "footprint": 55,
+   "height": 5895,
+   "clearance": 55
+  },
+  {
+   "id": "victoria-falls",
+   "name": "Victoria Falls",
+   "iso": "ZWE",
+   "lat": -17.9391,
+   "lon": 25.8431,
+   "footprint": 54,
+   "snappedKm": 2.2,
+   "clearance": 54
+  },
+  {
+   "id": "avenue-of-the-baobabs",
+   "name": "Avenue of the Baobabs",
+   "iso": "MDG",
+   "lat": -20.2656,
+   "lon": 44.4528,
+   "footprint": 34,
+   "clearance": 34
+  },
+  {
+   "id": "table-mountain",
+   "name": "Table Mountain",
+   "iso": "ZAF",
+   "lat": -33.957,
+   "lon": 18.403,
+   "footprint": 55,
+   "height": 1085,
+   "clearance": 8
+  },
+  {
+   "id": "statue-of-liberty",
+   "name": "Statue of Liberty",
+   "iso": "USA",
+   "lat": 40.6039,
+   "lon": -74.0101,
+   "footprint": 24,
+   "height": 93,
+   "year": 1886,
+   "snappedKm": 4.4,
+   "clearance": 0
+  },
+  {
+   "id": "empire-state",
+   "name": "Empire State Building",
+   "iso": "USA",
+   "lat": 40.7949,
+   "lon": -73.9699,
+   "footprint": 18,
+   "height": 443,
+   "year": 1931,
+   "snappedKm": 2.2,
+   "clearance": 0
+  },
+  {
+   "id": "golden-gate-bridge",
+   "name": "Golden Gate Bridge",
+   "iso": "USA",
+   "lat": 37.84,
+   "lon": -122.478,
+   "footprint": 55,
+   "height": 227,
+   "year": 1937,
+   "snappedKm": 2.2,
+   "clearance": 0
+  },
+  {
+   "id": "mount-rushmore",
+   "name": "Mount Rushmore",
+   "iso": "USA",
+   "lat": 43.879,
+   "lon": -103.459,
+   "footprint": 55,
+   "year": 1941,
+   "clearance": 55
+  },
+  {
+   "id": "space-needle",
+   "name": "Space Needle",
+   "iso": "USA",
+   "lat": 47.6268,
+   "lon": -122.3115,
+   "footprint": 11.3,
+   "height": 184,
+   "year": 1962,
+   "clearance": 11.3
+  },
+  {
+   "id": "cn-tower",
+   "name": "CN Tower",
+   "iso": "CAN",
+   "lat": 43.6764,
+   "lon": -79.3883,
+   "footprint": 4.8,
+   "height": 553,
+   "year": 1976,
+   "snappedKm": 2.2,
+   "clearance": 4.8
+  },
+  {
+   "id": "niagara-falls",
+   "name": "Niagara Falls",
+   "iso": "CAN",
+   "lat": 43.083,
+   "lon": -79.075,
+   "footprint": 52,
+   "clearance": 0
+  },
+  {
+   "id": "chateau-frontenac",
+   "name": "Château Frontenac",
+   "iso": "CAN",
+   "lat": 46.7939,
+   "lon": -71.1938,
+   "footprint": 32,
+   "height": 79,
+   "year": 1893,
+   "snappedKm": 2.2,
+   "clearance": 0
+  },
+  {
+   "id": "citadelle-laferriere",
+   "name": "Citadelle Laferrière",
+   "iso": "HTI",
+   "lat": 19.5744,
+   "lon": -72.2437,
+   "footprint": 31,
+   "year": 1820,
+   "clearance": 31
+  },
+  {
+   "id": "the-pitons",
+   "name": "The Pitons",
+   "iso": "LCA",
+   "lat": 13.81,
+   "lon": -61.06,
+   "footprint": 38,
+   "height": 771,
+   "clearance": 0
+  },
+  {
+   "id": "chichen-itza",
+   "name": "Chichen Itza",
+   "iso": "MEX",
+   "lat": 20.683,
+   "lon": -88.569,
+   "footprint": 50,
+   "height": 30,
+   "clearance": 50
+  },
+  {
+   "id": "teotihuacan",
+   "name": "Teotihuacan",
+   "iso": "MEX",
+   "lat": 19.692,
+   "lon": -98.844,
+   "footprint": 54.5,
+   "clearance": 54.5
+  },
+  {
+   "id": "christ-the-redeemer",
+   "name": "Christ the Redeemer",
+   "iso": "BRA",
+   "lat": -22.9519,
+   "lon": -43.2105,
+   "footprint": 48,
+   "height": 38,
+   "year": 1931,
+   "clearance": 0
+  },
+  {
+   "id": "angel-falls",
+   "name": "Angel Falls",
+   "iso": "VEN",
+   "lat": 5.9701,
+   "lon": -62.5362,
+   "footprint": 47,
+   "height": 979,
+   "clearance": 47
+  },
+  {
+   "id": "las-lajas",
+   "name": "Las Lajas Sanctuary",
+   "iso": "COL",
+   "lat": 0.8047,
+   "lon": -77.5854,
+   "footprint": 27,
+   "year": 1949,
+   "clearance": 27
+  },
+  {
+   "id": "machu-picchu",
+   "name": "Machu Picchu",
+   "iso": "PER",
+   "lat": -13.163,
+   "lon": -72.545,
+   "footprint": 52,
+   "clearance": 52
+  },
+  {
+   "id": "moai-rapa-nui",
+   "name": "Moai of Rapa Nui",
+   "iso": "CHL",
+   "lat": -27.125,
+   "lon": -109.277,
+   "footprint": 29,
+   "clearance": 0
+  },
+  {
+   "id": "perito-moreno",
+   "name": "Perito Moreno Glacier",
+   "iso": "ARG",
+   "lat": -50.496,
+   "lon": -73.138,
+   "footprint": 54,
+   "clearance": 54
+  },
+  {
+   "id": "sydney-opera-house",
+   "name": "Sydney Opera House",
+   "iso": "AUS",
+   "lat": -33.897,
+   "lon": 151.247,
+   "footprint": 45,
+   "year": 1973,
+   "clearance": 8
+  },
+  {
+   "id": "sydney-harbour-bridge",
+   "name": "Sydney Harbour Bridge",
+   "iso": "AUS",
+   "lat": -33.5719,
+   "lon": 150.987,
+   "footprint": 52,
+   "height": 134,
+   "year": 1932,
+   "clearance": 52
+  },
+  {
+   "id": "uluru",
+   "name": "Uluru",
+   "iso": "AUS",
+   "lat": -25.345,
+   "lon": 131.036,
+   "footprint": 55,
+   "height": 348,
+   "clearance": 55
+  },
+  {
+   "id": "moeraki-boulders",
+   "name": "Moeraki Boulders",
+   "iso": "NZL",
+   "lat": -45.3312,
+   "lon": 170.7473,
+   "footprint": 28,
+   "clearance": 28
+  },
+  {
+   "id": "nan-madol",
+   "name": "Nan Madol",
+   "iso": "FSM",
+   "lat": 6.8789,
+   "lon": 158.319,
+   "footprint": 25,
+   "year": 1200,
+   "snappedKm": 4.4,
+   "clearance": 0
+  },
+  {
+   "id": "mount-yasur",
+   "name": "Mount Yasur",
+   "iso": "VUT",
+   "lat": -19.53,
+   "lon": 169.447,
+   "footprint": 26,
+   "height": 361,
+   "clearance": 4
+  },
+  {
+   "id": "south-pole",
+   "name": "The South Pole",
+   "iso": "ATA",
+   "lat": -89.999,
+   "lon": 0,
+   "footprint": 14,
+   "clearance": 14
+  }
+ ]
+}

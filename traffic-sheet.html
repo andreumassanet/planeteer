@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>atlas · traffic sheet</title>
+    <style>
+      :root {
+        --ink: #1e0603;
+        --card: #fff2e8;
+        --sky: #6fc9d8;
+        --bad: #c30e3a;
+        --dim: rgba(30, 6, 3, 0.55);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html { background: var(--sky); }
+      body {
+        min-height: 100%;
+        font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        padding: 0 20px 60px;
+      }
+      canvas { display: block; }
+
+      /* One WebGL context, scissored per cell — browsers cap contexts at about
+         sixteen, and this page wants forty. Same trick as the other two sheets. */
+      #view { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+      header, .grid, .band, #empty, #notices, .table { position: relative; z-index: 1; }
+
+      header {
+        position: sticky; top: 0; z-index: 2;
+        margin: 0 -20px 18px; padding: 12px 20px;
+        background: var(--card); border-bottom: 3px solid var(--ink);
+        display: flex; flex-wrap: wrap; align-items: center; gap: 9px 16px;
+      }
+      h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+      h1 small { font-weight: 600; color: var(--dim); font-size: 12px; }
+      .totals { font-size: 12.5px; font-weight: 700; color: var(--dim); }
+      .totals b { color: var(--ink); }
+      .grow { flex: 1; }
+
+      label.control { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; user-select: none; cursor: pointer; }
+      input[type="search"], select {
+        font: inherit; font-size: 13px; font-weight: 600; padding: 4px 8px;
+        border: 2px solid var(--ink); border-radius: 8px; background: #fff; color: inherit;
+      }
+      input[type="search"] { width: 170px; }
+      input[type="checkbox"] { width: 15px; height: 15px; accent-color: #ec3f1c; }
+
+      .band { margin: 26px 0 12px; display: flex; align-items: baseline; gap: 10px; border-bottom: 3px solid var(--ink); padding-bottom: 5px; flex-wrap: wrap; }
+      .band h2 { font-size: 15px; font-weight: 800; }
+      .band p { font-size: 12px; font-weight: 600; color: var(--dim); }
+
+      #notices { margin-bottom: 16px; display: grid; gap: 6px; }
+      .notice { background: var(--bad); color: var(--card); border: 3px solid var(--ink); border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 700; }
+      .notice.calm { background: var(--card); color: var(--ink); }
+
+      .grid { display: grid; gap: 18px; }
+      #regions { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+      #vehicles { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+      .cell {
+        background: transparent; border: 3px solid var(--ink); border-radius: 12px;
+        box-shadow: 0 5px 0 var(--ink); overflow: hidden; display: flex; flex-direction: column;
+      }
+      .cell.broken { border-color: var(--bad); box-shadow: 0 5px 0 var(--bad); }
+      .stage { height: 250px; border-bottom: 3px solid var(--ink); background: transparent; }
+      #regions .stage { height: 290px; }
+      .cell.broken .stage { border-bottom-color: var(--bad); }
+      .caption { padding: 9px 12px 11px; background: var(--card); }
+      .title { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+      .name { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+      .kind {
+        font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+        padding: 2px 7px; border-radius: 20px; border: 2px solid var(--ink);
+      }
+      .kind.cycle { background: #91ad78; }
+      .kind.car { background: #f8a658; }
+      .kind.utility { background: #e4a90c; }
+      .kind.heavy { background: #ec3f1c; color: #fff2e8; }
+      .kind.craft { background: #3dbbe7; }
+      .kind.air { background: #c366ef; }
+      .kind.region { background: #eec3af; }
+      .meta { margin-top: 3px; font-size: 11.5px; font-weight: 600; color: var(--dim); font-variant-numeric: tabular-nums; line-height: 1.4; }
+      .stats { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .stats span.over { color: var(--bad); }
+      .stats i { font-style: normal; color: var(--dim); font-weight: 600; }
+      .swatches { margin-top: 7px; display: flex; gap: 4px; flex-wrap: wrap; }
+      .swatch { width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--ink); }
+      .problems { margin-top: 8px; padding-left: 15px; color: var(--bad); font-size: 11.5px; font-weight: 700; line-height: 1.45; }
+      #empty { padding: 40px; text-align: center; font-size: 15px; font-weight: 700; color: var(--dim); }
+      #empty[hidden] { display: none; }
+
+      .table { background: var(--card); border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 5px 0 var(--ink); padding: 12px 14px; overflow-x: auto; }
+      table { border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+      th, td { padding: 2px 5px; text-align: right; white-space: nowrap; }
+      th.row, td.row { text-align: left; font-weight: 700; }
+      thead th { font-weight: 700; color: var(--dim); }
+      td.hot { background: #ec3f1c; color: var(--card); font-weight: 800; border-radius: 3px; }
+      td.warm { background: #f8a658; border-radius: 3px; }
+      td.self { color: rgba(30, 6, 3, 0.25); }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <header>
+      <h1>traffic sheet <small>atlas</small></h1>
+      <div class="totals" id="totals"></div>
+      <div class="grow"></div>
+      <label class="control">
+        read at
+        <select id="distance">
+          <option value="40">40 u — at the kerb</option>
+          <option value="120" selected>120 u — across the street</option>
+          <option value="360">360 u — from the hill</option>
+          <option value="0">fit — inspect the geometry</option>
+        </select>
+      </label>
+      <label class="control">
+        region
+        <select id="style"></select>
+      </label>
+      <input id="filter" type="search" placeholder="filter by name or kind" />
+      <label class="control"><input id="scale" type="checkbox" checked /> scale figures</label>
+      <label class="control"><input id="variants" type="checkbox" checked /> all variants</label>
+      <label class="control"><input id="spin" type="checkbox" /> turntable</label>
+    </header>
+    <div id="notices"></div>
+
+    <div class="band">
+      <h2>Regions</h2>
+      <p id="regions-note"></p>
+    </div>
+    <main class="grid" id="regions"></main>
+
+    <div class="band">
+      <h2>Vehicles</h2>
+      <p id="vehicles-note"></p>
+    </div>
+    <main class="grid" id="vehicles"></main>
+    <div id="empty" hidden>nothing matches that filter.</div>
+
+    <div class="band">
+      <h2>Distinctness</h2>
+      <p id="distinct-note"></p>
+    </div>
+    <div class="table" id="distinct"></div>
+
+    <div class="band">
+      <h2>What fits what</h2>
+      <p id="fit-note"></p>
+    </div>
+    <div class="table" id="fit"></div>
+
+    <script type="module" src="/src/traffic-sheet.ts"></script>
+  </body>
+</html>

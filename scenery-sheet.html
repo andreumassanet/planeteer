@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>atlas · scenery sheet</title>
+    <style>
+      :root {
+        --ink: #1e0603;
+        --card: #fff2e8;
+        --sky: #6fc9d8;
+        --bad: #c30e3a;
+        --dim: rgba(30, 6, 3, 0.55);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html { background: var(--sky); }
+      body {
+        min-height: 100%;
+        font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        padding: 0 20px 60px;
+      }
+      canvas { display: block; }
+
+      /* One WebGL context, scissored per cell — the same reason as the monument
+         contact sheet: a context per cell dies at about sixteen. */
+      #view {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+        pointer-events: none;
+      }
+      header, .grid, .band, #empty { position: relative; z-index: 1; }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        margin: 0 -20px 18px;
+        padding: 12px 20px;
+        background: var(--card);
+        border-bottom: 3px solid var(--ink);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px 16px;
+      }
+      h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+      h1 small { font-weight: 600; color: var(--dim); font-size: 12px; }
+      .totals { font-size: 12.5px; font-weight: 700; color: var(--dim); }
+      .totals b { color: var(--ink); }
+      .grow { flex: 1; }
+
+      label.control {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        font-weight: 700;
+        user-select: none;
+        cursor: pointer;
+      }
+      input[type="search"], select {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 4px 8px;
+        border: 2px solid var(--ink);
+        border-radius: 8px;
+        background: #fff;
+        color: inherit;
+      }
+      input[type="search"] { width: 180px; }
+      input[type="checkbox"] { width: 15px; height: 15px; accent-color: #ec3f1c; }
+
+      .band {
+        margin: 26px 0 12px;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        border-bottom: 3px solid var(--ink);
+        padding-bottom: 5px;
+      }
+      .band h2 { font-size: 15px; font-weight: 800; }
+      .band p { font-size: 12px; font-weight: 600; color: var(--dim); }
+
+      #notices { position: relative; z-index: 1; margin-bottom: 16px; display: grid; gap: 6px; }
+      .notice {
+        background: var(--bad);
+        color: var(--card);
+        border: 3px solid var(--ink);
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .notice.calm { background: var(--card); color: var(--ink); }
+
+      .grid { display: grid; gap: 18px; }
+      #regions { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+      #parts { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+      #people { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+      #people .stage { height: 300px; }
+
+      .cell {
+        background: transparent;
+        border: 3px solid var(--ink);
+        border-radius: 12px;
+        box-shadow: 0 5px 0 var(--ink);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .cell.broken { border-color: var(--bad); box-shadow: 0 5px 0 var(--bad); }
+      /* Transparent: the shared canvas shows through exactly here. */
+      .stage { height: 260px; border-bottom: 3px solid var(--ink); background: transparent; }
+      #regions .stage { height: 300px; }
+      .cell.broken .stage { border-bottom-color: var(--bad); }
+      .caption { padding: 9px 12px 11px; background: var(--card); }
+      .title { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+      .name { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+      .kind {
+        font-size: 10.5px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 2px 7px;
+        border-radius: 20px;
+        border: 2px solid var(--ink);
+      }
+      .kind.scatter { background: #c8c2c1; }
+      .kind.tree { background: #91ad78; }
+      .kind.dwelling { background: #f8a658; }
+      .kind.block { background: #3dbbe7; }
+      .kind.civic { background: #ed719f; }
+      .kind.region { background: #e4a90c; }
+      .kind.person { background: #e49a78; }
+      .meta {
+        margin-top: 3px;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--dim);
+        font-variant-numeric: tabular-nums;
+        line-height: 1.4;
+      }
+      .stats {
+        margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        font-size: 11.5px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .stats span.over { color: var(--bad); }
+      .stats i { font-style: normal; color: var(--dim); font-weight: 600; }
+      .swatches { margin-top: 7px; display: flex; gap: 4px; flex-wrap: wrap; }
+      .swatch { width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--ink); }
+      .problems {
+        margin-top: 8px;
+        padding-left: 15px;
+        color: var(--bad);
+        font-size: 11.5px;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+      #empty { padding: 40px; text-align: center; font-size: 15px; font-weight: 700; color: var(--dim); }
+      #empty[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <header>
+      <h1>scenery sheet <small>atlas</small></h1>
+      <div class="totals" id="totals"></div>
+      <div class="grow"></div>
+      <label class="control">
+        read at
+        <select id="distance">
+          <option value="40">40 u — beside it</option>
+          <option value="120" selected>120 u — across the square</option>
+          <option value="360">360 u — from the next hill</option>
+          <option value="0">fit — inspect the geometry</option>
+        </select>
+      </label>
+      <label class="control">
+        style
+        <select id="style"></select>
+      </label>
+      <input id="filter" type="search" placeholder="filter by name or kind" />
+      <label class="control"><input id="cluster" type="checkbox" checked /> cluster</label>
+      <label class="control"><input id="spin" type="checkbox" /> turntable</label>
+    </header>
+    <div id="notices"></div>
+
+    <div class="band">
+      <h2>Regions</h2>
+      <p id="regions-note"></p>
+    </div>
+    <main class="grid" id="regions"></main>
+
+    <div class="band">
+      <h2>People</h2>
+      <p id="people-note"></p>
+    </div>
+    <main class="grid" id="people"></main>
+
+    <div class="band">
+      <h2>Parts</h2>
+      <p id="parts-note"></p>
+    </div>
+    <main class="grid" id="parts"></main>
+    <div id="empty" hidden>nothing matches that filter.</div>
+
+    <script type="module" src="/src/scenery-sheet.ts"></script>
+  </body>
+</html>

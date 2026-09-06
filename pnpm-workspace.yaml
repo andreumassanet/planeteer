@@ -1,0 +1,11 @@
+# pnpm 11 reads these settings from here, single-package projects included.
+packages:
+  - '.'
+
+# esbuild's postinstall only resolves which prebuilt binary to link, and pnpm
+# already unpacks the right one for this platform. Declining it is the whole
+# reason `pnpm check` used to die on `ERR_PNPM_IGNORED_BUILDS` before running a
+# single assertion: pnpm treats an undecided build script as a failure, not a
+# warning, so every `pnpm <script>` stopped at the dependency check.
+allowBuilds:
+  esbuild: false

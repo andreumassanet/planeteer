@@ -1,0 +1,32 @@
+{
+  "name": "atlas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "data": "node scripts/build-countries.mjs",
+    "monuments": "node scripts/build-monuments.ts",
+    "places": "node scripts/build-places.mjs",
+    "lakes": "node scripts/build-lakes.mjs",
+    "rivers": "node scripts/build-rivers.mjs",
+    "roads": "node scripts/build-roads.ts",
+    "check": "node scripts/check-world.ts",
+    "people": "node scripts/check-people.ts",
+    "life": "node scripts/check-life.ts",
+    "fauna": "node scripts/check-fauna.ts",
+    "system": "node scripts/check-system.ts",
+    "traffic": "node scripts/check-traffic.ts",
+    "scenery": "node scripts/check-scenery.ts",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.182.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}

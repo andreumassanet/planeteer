@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>atlas</title>
+    <style>
+      :root {
+        --ink: #1e0603;
+        --card: #fff2e8;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; overflow: hidden; background: #6fc9d8; }
+      body {
+        font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      canvas { display: block; }
+
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 24px;
+      }
+      .card {
+        background: var(--card);
+        border: 3px solid var(--ink);
+        border-radius: 12px;
+        box-shadow: 0 5px 0 var(--ink);
+        padding: 10px 20px;
+      }
+      #controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        row-gap: 6px;
+        gap: 18px;
+        max-width: min(760px, calc(100vw - 48px));
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      kbd {
+        font: inherit;
+        font-weight: 800;
+        background: rgba(30, 6, 3, 0.1);
+        border-radius: 5px;
+        padding: 2px 6px;
+      }
+      #minimap {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        /* Pointer lock is requested by clicking the canvas underneath. Without
+           this the minimap swallows the click and mouse look never engages. */
+        pointer-events: none;
+      }
+
+      #found {
+        position: fixed;
+        top: 24px;
+        left: 24px;
+        font-size: 15px;
+        font-weight: 800;
+        padding: 8px 14px;
+      }
+      #found .quiet {
+        font-weight: 600;
+        opacity: 0.5;
+        margin-left: 5px;
+      }
+      #toast {
+        position: fixed;
+        left: 50%;
+        bottom: 96px;
+        transform: translateX(-50%);
+        font-size: 17px;
+        font-weight: 800;
+        background: #e4a90c;
+      }
+      #toast[hidden], #found[hidden] { display: none; }
+
+      #hint {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 14px;
+        font-weight: 700;
+        transition: opacity 0.25s;
+      }
+      #hint[hidden] { display: none; }
+
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #6fc9d8;
+        text-align: center;
+      }
+      #loading .card { padding: 18px 32px; }
+      #loading-title {
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+      }
+      #loading-stage {
+        font-size: 13px;
+        font-weight: 600;
+        opacity: 0.65;
+        margin-top: 2px;
+      }
+      /* GeoNames is CC BY 4.0 and the licence asks for a credit somewhere a
+         player sees it. The loading card is that place; README.md is the other
+         half. Natural Earth is public domain and is named for good manners. */
+      #loading-credit {
+        font-size: 11px;
+        font-weight: 600;
+        opacity: 0.45;
+        margin-top: 12px;
+        line-height: 1.5;
+      }
+      #loading-credit a { color: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div id="controls" class="card">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
+        <span>mouse look</span>
+        <span><kbd>Shift</kbd> run</span>
+        <span><kbd>Space</kbd> jump · climb</span>
+        <span><kbd>C</kbd> descend</span>
+        <span><kbd>F</kbd> fly · land</span>
+        <span><kbd>E</kbd> go ashore</span>
+        <span><kbd>V</kbd> first person</span>
+        <span><kbd>M</kbd> map</span>
+        <span><kbd>Tab</kbd> destination</span>
+        <span><kbd>B</kbd> flags</span>
+        <span><kbd>[</kbd> <kbd>]</kbd> render detail</span>
+      </div>
+    </div>
+    <div id="minimap"></div>
+    <div id="found" class="card" hidden>
+      <span id="found-count">0 / 0</span>
+      <span class="quiet">found</span>
+    </div>
+    <div id="toast" class="card" hidden></div>
+    <div id="hint" class="card">click to look around</div>
+    <div id="loading">
+      <div class="card">
+        <div id="loading-title">atlas</div>
+        <div id="loading-stage">starting up</div>
+        <div id="loading-credit">
+          coastlines from <a href="https://www.naturalearthdata.com/">Natural Earth</a><br />
+          towns from <a href="https://www.geonames.org/">GeoNames</a>,
+          <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

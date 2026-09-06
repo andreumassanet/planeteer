@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>atlas · avatar sheet</title>
+    <style>
+      :root {
+        --ink: #1e0603;
+        --card: #fff2e8;
+        --sky: #6fc9d8;
+        --dim: rgba(30, 6, 3, 0.55);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html { background: var(--sky); }
+      body {
+        min-height: 100%;
+        font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        padding: 0 20px 60px;
+      }
+      canvas { display: block; }
+      /* One canvas for the whole sheet, scissored per cell: a canvas each is a
+         WebGL context each, and browsers cap those at about sixteen. */
+      #view { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; }
+      header { position: relative; z-index: 1; padding: 26px 0 14px; }
+      h1 { font-size: 20px; letter-spacing: -0.01em; }
+      p.note { color: var(--dim); font-size: 13px; margin-top: 4px; max-width: 70ch; }
+      .controls { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
+      label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+      .grid {
+        position: relative; z-index: 1;
+        display: grid; gap: 14px;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      }
+      .cell {
+        border: 2px solid var(--ink);
+        border-radius: 10px;
+        overflow: hidden;
+        background: transparent;
+      }
+      .cell .frame { aspect-ratio: 4 / 5; }
+      .cell .bar {
+        background: var(--card);
+        border-top: 2px solid var(--ink);
+        padding: 6px 9px;
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .cell .bar b { font-weight: 600; }
+      .cell .bar span { color: var(--dim); }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <header>
+      <h1>avatar sheet</h1>
+      <p class="note">
+        The same body, the same lights and the same pen as the world, at the
+        game's own framing — 30 units back, 15 up, a 55 degree lens — so what is
+        on this page is the size it is actually seen at. The camera lives
+        <b>behind</b> the avatar for the whole session, which is why half of
+        these cells are.
+      </p>
+      <div class="controls">
+        <label><input id="close" type="checkbox" /> close up (half the distance)</label>
+        <label><input id="freeze" type="checkbox" /> freeze</label>
+        <label><input id="turn" type="checkbox" /> turntable</label>
+      </div>
+    </header>
+    <div class="grid" id="grid"></div>
+    <script type="module" src="/src/avatar-sheet.ts"></script>
+  </body>
+</html>
