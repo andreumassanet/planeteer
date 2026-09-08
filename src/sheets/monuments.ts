@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { OutlineEffect } from './outline.ts';
-import { PALETTE, SKY_TOP } from './theme.ts';
+import { OutlineEffect } from '../outline.ts';
+import { PALETTE, SKY_TOP } from '../theme.ts';
 import {
   MONUMENTS,
   REGISTRY_PROBLEMS,
@@ -10,11 +10,11 @@ import {
   paletteName,
   reviewMonument,
   validate,
-} from './monuments/index.ts';
-import type { MonumentContext, Review } from './monuments/index.ts';
+} from '../monuments/index.ts';
+import type { MonumentContext, Review } from '../monuments/index.ts';
 
 /**
- * The contact sheet.
+ * `/sheets/monuments.html` — the contact sheet.
  *
  * A hundred monuments cannot be reviewed by opening a hundred files, and they
  * cannot be reviewed in the world either — you would have to walk to each one.

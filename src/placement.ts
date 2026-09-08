@@ -191,6 +191,27 @@ export function createMonuments(
   // that `settlements.ts` inks a house with the same material cache, the same
   // ramp and the same pen as the monument it stands behind. One world.
   ctx: MonumentContext = createContext(),
+  /**
+   * How high the ground people made stands here, or 0 — `settlements.ts`'s
+   * `madeHeightAt`, handed in the same way and for a sharper reason.
+   *
+   * **A town is a terraced platform now** (`GROUND_LIFT`, `TERRACE_STEP`), and
+   * 28 of the world's landmark cities have their landmark *inside* them:
+   * Beijing stands 4 units from the Forbidden City, Berlin 4 from the
+   * Brandenburg Gate, Athens 4 from the Parthenon. A monument left standing on
+   * the relief while the town around it rose three units is a monument in a
+   * pit, with the town's own retaining wall facing inwards at it.
+   *
+   * So a monument stands on the floor when there is one under it, and on the
+   * ground when there is not — which is every landmark in open country, where
+   * `terrain.ts` has already levelled a pad and there is nothing to be level
+   * with. Optional, because the streamer and the sheet build monuments with no
+   * settlements at all.
+   *
+   * It is asked at `raise` rather than when the slot is made: the town under a
+   * monument is streamed and may not have been standing when the planet loaded.
+   */
+  madeHeightAt?: (point: THREE.Vector3) => number,
 ): Monuments {
   const group = new THREE.Group();
   group.name = 'monuments';
@@ -278,7 +299,13 @@ export function createMonuments(
     right.crossVectors(slot.direction, facing).normalize();
     basis.makeBasis(right, slot.direction, facing);
 
+    // On the town's floor where there is one, and on the ground where there is
+    // not; see `madeHeightAt` in the arguments. `slot.anchor` is the ground
+    // point and the floor is a radius, so the lift is the difference of the two
+    // along the same direction.
     model.position.copy(slot.anchor);
+    const made = madeHeightAt?.(slot.direction) ?? 0;
+    if (made > slot.anchor.length()) model.position.copy(slot.direction).multiplyScalar(made);
     model.quaternion.setFromRotationMatrix(basis);
     // Every mesh in it casts and receives; three reads the flags per mesh, not
     // per group.

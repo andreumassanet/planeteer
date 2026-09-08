@@ -646,6 +646,129 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   const sea = at(30.0, -40.0, 8);
   for (let frame = 0; frame < 20; frame++) life.update(sea, 8, undefined, frame * 0.05);
   check(life.stats.herd === 0, 'and nothing grazes the open ocean', `${life.stats.herd} herds`);
+
+  // -------------------------------------------------------------------------
+  console.log('\n  and nothing grazes a mountain face');
+  // -------------------------------------------------------------------------
+  //
+  // **The gate has to bite where the ground is steep and nowhere else**, and
+  // both halves of that are the check: a slope rule that refuses everywhere is
+  // the 40-unit town margin that emptied Europe, and one that refuses nowhere
+  // is not installed. `life.herds` counts every gate in the order the scan
+  // applies them, so the pair to read is `clearOfTown` — everything that
+  // reached the slope — against `clearOfSlope`.
+
+  const gateAt = (lat: number, lon: number): { reached: number; kept: number } => {
+    const spot = at(lat, lon, 8);
+    const fresh = createLife(world, raw, { animals: ANIMALS });
+    for (let frame = 0; frame < 40; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
+    return { reached: fresh.herds.clearOfTown, kept: fresh.herds.clearOfSlope };
+  };
+  const STEEP: [string, number, number][] = [
+    ['the Alps', 46.5, 8.0],
+    ['a Norwegian fjord', 61.1, 7.1],
+  ];
+  const GENTLE: [string, number, number][] = [
+    ['the Sahara', 23.0, 12.0],
+    ['the Mongolian steppe', 46.5, 103.0],
+    ['Cornwall', 50.3, -5.0],
+  ];
+  let bit = 0;
+  let spared = 0;
+  for (const [name, lat, lon] of STEEP) {
+    const { reached, kept } = gateAt(lat, lon);
+    const lost = reached === 0 ? 0 : (1 - kept / reached) * 100;
+    console.log(`  ${name.padEnd(24)} ${kept} of ${reached} cells kept — the slope refused ${n(lost, 0)}%`);
+    if (reached > 0 && kept < reached) bit++;
+  }
+  for (const [name, lat, lon] of GENTLE) {
+    const { reached, kept } = gateAt(lat, lon);
+    console.log(`  ${name.padEnd(24)} ${kept} of ${reached} cells kept`);
+    if (kept === reached) spared++;
+  }
+  check(bit === STEEP.length, 'the slope gate empties the steep places', `${bit} of ${STEEP.length}`);
+  check(spared === GENTLE.length, 'and takes nothing at all where the ground is flat',
+    `${spared} of ${GENTLE.length}`);
+
+  // -------------------------------------------------------------------------
+  //
+  // **And each animal is seated on its own ground inside the herd it belongs
+  // to**, which is a property of the *buffer* rather than of the scan: every
+  // animal used to sit at `y = 0` in the herd's tangent plane, so the whole
+  // slab floated on one side of a hill and sank on the other. The witness is
+  // that the seats now differ — and that they differ by an amount the site gate
+  // bounds, because a seat computed against the wrong frame is the one failure
+  // here that no still frame would show.
+  //
+  // `MAX_SLOPE` (0.577) over the widest spread a herd takes puts a ceiling on
+  // it; 30 units is that with room, and the worst actually seen is printed.
+
+  const seatsAt = (lat: number, lon: number): { herds: number; worst: number; tilted: number } => {
+    const spot = at(lat, lon, 8);
+    const fresh = createLife(world, raw, { animals: ANIMALS });
+    for (let frame = 0; frame < 60; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
+    let herdCount = 0;
+    let worst = 0;
+    let tilted = 0;
+    for (const child of fresh.group.children) {
+      if (!child.visible || !child.name.startsWith('herd:')) continue;
+      const mesh = child as THREE.Mesh;
+      const box = new THREE.Box3().setFromBufferAttribute(
+        mesh.geometry.getAttribute('position') as THREE.BufferAttribute,
+      );
+      herdCount++;
+      worst = Math.max(worst, Math.abs(box.min.y));
+      // A herd whose lowest animal is a tenth of a unit under the origin is a
+      // herd whose animals were not all put on one plane.
+      if (box.min.y < -0.1) tilted++;
+    }
+    return { herds: herdCount, worst, tilted };
+  };
+  const hilly = seatsAt(-16.5, -68.2);
+  const flat = seatsAt(46.5, 103.0);
+  console.log(
+    `\n  the Altiplano: ${hilly.tilted} of ${hilly.herds} herds are seated below their own origin, ` +
+    `deepest ${n(hilly.worst, 2)} units`,
+  );
+  console.log(
+    `  the Mongolian steppe: ${flat.tilted} of ${flat.herds}, deepest ${n(flat.worst, 2)} units`,
+  );
+  check(hilly.tilted > 0, 'an animal on a hillside is seated on its own ground, not on the herd\'s plane',
+    `${hilly.tilted} of ${hilly.herds} herds`);
+  check(hilly.worst < 30 && flat.worst < 30, 'and no seat runs away with itself',
+    `worst ${n(Math.max(hilly.worst, flat.worst), 2)} units against the 30 the site gate allows`);
+
+  // -------------------------------------------------------------------------
+  //
+  // **Determinism, with the terrain in it.** A herd's buffer is keyed on its
+  // site now and seated on `reliefAt`, so it is a pure function of a
+  // coordinate, a seed and nothing else — and `check-life.ts` cannot say so,
+  // because it runs `createLife` without an animal registry. Two worlds at one
+  // instant, compared on the vertices themselves rather than on a count.
+
+  const hashHerds = (lat: number, lon: number): string => {
+    const spot = at(lat, lon, 8);
+    const fresh = createLife(world, raw, { animals: ANIMALS });
+    for (let frame = 0; frame < 60; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
+    const rows: string[] = [];
+    for (const child of fresh.group.children) {
+      if (!child.visible || !child.name.startsWith('herd:')) continue;
+      const array = (child as THREE.Mesh).geometry.getAttribute('position').array as Float32Array;
+      let sum = 0;
+      for (let i = 0; i < array.length; i++) sum = (sum * 31 + Math.round(array[i]! * 64)) % 1e12;
+      rows.push(`${child.name}@${array.length}:${sum}:${child.position.toArray().map((v) => v.toFixed(3)).join(',')}`);
+    }
+    rows.sort();
+    return rows.join('|');
+  };
+  let identical = 0;
+  const WHERE: [number, number][] = [[48.40, 9.99], [-16.5, -68.2], [46.5, 103.0]];
+  for (const [lat, lon] of WHERE) {
+    const a = hashHerds(lat, lon);
+    if (a.length > 0 && a === hashHerds(lat, lon)) identical++;
+  }
+  check(identical === WHERE.length, 'two worlds build the same herds, vertex for vertex',
+    `${identical} of ${WHERE.length} places identical`);
 }
 
 // ---------------------------------------------------------------------------

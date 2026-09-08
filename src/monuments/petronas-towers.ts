@@ -87,7 +87,7 @@ import type { Monument } from './contract.ts';
  * five piers being the +Z point, the two 45-degree shoulder points and the two
  * silhouette edges. At true scale that is 7.13 units of face over nine bands,
  * 0.79 units each; `empire-state.ts` puts the floor at about 4 px in a
- * contact-sheet cell and measures ~1.4 units to get there. At 1.3x the bands are
+ * monument-sheet cell and measures ~1.4 units to get there. At 1.3x the bands are
  * 1.03 units. Going further would buy another tenth of a unit and start costing
  * the slenderness, which is the other half of what this building looks like:
  * after the stretch it is still **7.6 : 1**, the most slender thing on the sheet.

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
-import { PALETTE, SKY_TOP } from './theme.ts';
+import { PALETTE, SKY_TOP } from '../theme.ts';
 import {
   AVATAR_HEIGHT,
   KINDS,
@@ -20,11 +20,11 @@ import {
   reviewPart,
   rngFrom,
   variantRng,
-} from './scenery/index.ts';
-import { loadCountries } from './geo.ts';
-import { CONTINENT_REGIONS, ISO_REGIONS } from './scenery/regions.ts';
-import { POSES, buildPerson, crowd, heroLook } from './scenery/people.ts';
-import type { Carry, Garment, Headwear, Look, Pose } from './scenery/people.ts';
+} from '../scenery/index.ts';
+import { loadCountries } from '../geo.ts';
+import { CONTINENT_REGIONS, ISO_REGIONS } from '../scenery/regions.ts';
+import { POSES, buildPerson, crowd, heroLook } from '../scenery/people.ts';
+import type { Carry, Garment, Headwear, Look, Pose } from '../scenery/people.ts';
 import {
   CROWD_MIX,
   DRESS_IDS,
@@ -32,15 +32,15 @@ import {
   SKIN_TONES,
   dressFor,
   lookFor,
-} from './scenery/dress.ts';
-import { BIOMES, BIOME_IDS } from './biome.ts';
+} from '../scenery/dress.ts';
+import { BIOMES, BIOME_IDS } from '../biome.ts';
 import type {
   Measurements,
   PartReview,
   RegionStyle,
   SceneryContext,
   ScenicPart,
-} from './scenery/index.ts';
+} from '../scenery/index.ts';
 
 /**
  * The scenery sheet.

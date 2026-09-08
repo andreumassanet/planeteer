@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS } from './globe.ts';
-import { flattenWeightAt } from './terrain.ts';
+import { MAX_SLOPE, flattenWeightAt, gradeAt, reliefAt } from './terrain.ts';
+import type { Slope } from './terrain.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { RIBBON_LIFT, ROAD_CLASSES, placeDirection, roadClearance, roadIndexFor, roadPoint, roadPole } from './roads.ts';
-import { riverClearance, riverIndexFor, riverPoint, widestRiverClearance } from './rivers.ts';
-import type { RiverLine } from './rivers.ts';
 import type { Road } from './roads.ts';
 import { isShown, prominenceVersion, radiusFor } from './places.ts';
 import type { Place } from './places.ts';
@@ -92,13 +91,14 @@ import type { MonumentContext } from './monuments/contract.ts';
  * - It is deterministic for the same reason the rest of the world is: identity,
  *   a seed, and a time. No `Math.random()`, no `Date`.
  *
- * ## What is here, and what is deliberately not
+ * ## What is here
  *
- * `road`, `water`, `air` and `foot`. **Animals are not here and should not be
- * faked**: a herd wants a quadruped kit with its own gait, and the nearest thing
- * in this repo is a two-legged rig whose entire design rests on a knee only
- * lifting a foot while the thigh is behind vertical. A bad cow is worse than no
- * cow, and the kit that would make a good one is a day's work on its own.
+ * `road`, `water`, `air`, `foot` and `herd`. The herd arrived last and it
+ * arrived as a **merged** thing rather than as a mover, which is the split
+ * above read the other way: grazing is the one activity in this world that is
+ * honestly motionless, so five animals cost one draw call. The kit it is built
+ * from is `src/fauna/`, whose gait this file never touches — a herd is frozen —
+ * and whose sizes it reads only through `Animal.size`.
  *
  * ## Importable in Node, on purpose
  *
@@ -343,6 +343,15 @@ const BIRD_SPAN = 4.2;
 const BIRD_LENGTH = 2.4;
 const FLOCK_MIN = 3;
 const FLOCK_MAX = 8;
+/**
+ * How wide a flock's ring is, and it is named because two lines read it.
+ *
+ * One draws the radius. The other lifts the whole flock clear of the highest
+ * ground inside it — see the scan — and a second copy of 120 there would be the
+ * failure `CLAUDE.md` opens with, sitting on a number nothing would ever
+ * disagree about until somebody widened the ring.
+ */
+const FLOCK_RADIUS: readonly [number, number] = [38, 120];
 /** Birds drawn at once, across every flock. The one mesh is sized for it. */
 const MAX_BIRDS = 64;
 
@@ -831,17 +840,20 @@ export interface HerdProbe {
   dense: number;
   /** ...that were not inside a settlement's keep-out. */
   clearOfTown: number;
-  /** ...that were not standing in a carriageway, in a river or inside a monument. */
-  clearOfMade: number;
   /**
-   * ...and how many of the refusals at that gate were the water.
+   * ...whose ground is gentle enough to graze, over the herd's own spread.
    *
-   * A count of what one of the three gates threw away rather than what passed
-   * it, because the whole point of `atlas.life.herds` is to say *why* the scan
-   * admitted what it did, and the water arriving as a silent drop inside
-   * `clearOfMade` would be the one gate the diagnostic cannot see.
+   * Its own gate and not a line folded into the one below, for the reason the
+   * whole record exists: `stats.herd` reading 0 in the Alps has to say *the
+   * ground is a mountain face* rather than *something refused it*. It is the
+   * one gate that empties a whole region: of the cells that reach it at detail 1
+   * it drops 38% in the Alps, 29% over a Norwegian fjord and 23% around Ulm,
+   * and **none at all** in the Sahara, in Mongolia, in Finnmark or in Cornwall
+   * (2026-09-08).
    */
-  inWater: number;
+  clearOfSlope: number;
+  /** ...that were not standing in a carriageway or inside a monument. */
+  clearOfMade: number;
   /** ...that reached `consider`, and what it kept. */
   offered: number;
   admitted: number;
@@ -887,16 +899,6 @@ export interface LifeOptions {
    * and importing it would put this file out of reach of the headless checks.
    */
   animals?: readonly Animal[];
-  /**
-   * The baked river lines, so a herd does not stand in the water.
-   *
-   * The third of the three things that are built and are not a town, arriving
-   * the way the road did: the user found a cow in a carriageway and a road is a
-   * line rather than a disc, and a river is the same line with a different
-   * index behind it. Optional and independent of `roads`, so `pnpm life` can
-   * run with either, both or neither.
-   */
-  rivers?: readonly RiverLine[];
 }
 
 /**
@@ -967,7 +969,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const herds: HerdProbe = {
     frame: 0, registry: 0, altitude: 0, ceiling: CEILING.herd, range: 0,
     cells: 0, chanced: 0, inRange: 0, land: 0, stocked: 0, dense: 0,
-    clearOfTown: 0, clearOfMade: 0, inWater: 0, offered: 0, admitted: 0,
+    clearOfTown: 0, clearOfSlope: 0, clearOfMade: 0, offered: 0, admitted: 0,
   };
 
   const stats: LifeStats = {
@@ -1202,6 +1204,13 @@ export function createLife(world: World, places: readonly Place[], options: Life
     geometry: THREE.BufferGeometry;
     triangles: number;
     bytes: number;
+    /**
+     * How many animals this buffer ended up holding. Herds only, and it is not
+     * the count the scan asked for: an animal whose own patch is too steep is
+     * dropped at build time, so `stats.animals` reads this rather than the
+     * request or it reports cattle that are not on the screen.
+     */
+    heads?: number;
   }
 
   const pool = new Map<string, Pooled>();
@@ -1220,9 +1229,19 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * that never has more than ninety movers standing in it.** A cap and a
    * least-recently-used eviction cost one integer a lookup and hold it near 12.
    *
-   * It is a *count* and not a byte budget because the two kinds of entry are
-   * within 50% of each other in size and a byte budget would need a second
-   * number kept in step with the merge.
+   * It is a *count* and not a byte budget, and there were two kinds of entry
+   * when that was decided: they were within 50% of each other in size and a
+   * byte budget would have needed a second number kept in step with the merge.
+   * **There are three now and the third is the odd one out.** A herd is 140 to
+   * 157 KB — measured at Ulm, Mongolia and the Serengeti at detail 3
+   * (2026-09-08) — which is four to seven times a vehicle, and since a herd's
+   * key became its site it shares nothing: 42 buffers for 42 standing herds at
+   * those three places, exactly one each. So the honest worst case is a session
+   * flown over pasture at a high detail filling all 420 slots with herds, which
+   * is about 60 MB against the 49 above. It has not been seen — the cap binds
+   * on travel and the herds are evicted first because they are the entries a
+   * moving viewer stops asking for — but a byte budget is the fix if it ever
+   * is, and it is written here rather than found later.
    */
   const POOL_CAP = 420;
   /** The frame each key was last drawn on. Cheaper than a linked list. */
@@ -1392,6 +1411,17 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * the first herd in a region pays six builds at 0.35 ms and every herd after
    * it is three array copies. Without the cache a herd is 2 ms, which is the
    * whole frame budget.
+   *
+   * **And the herd's own buffer is keyed on the site now, where it used to be
+   * keyed on (species, region, heads, spread).** That is the price of seating
+   * each animal on the ground it actually stands over — see `buildHerd` — and
+   * it was not much of a price, because the old key was already nearly unique:
+   * measured over ten places at detail 1 (2026-09-08) the pool held 2 to 78
+   * herd buffers for 5 to 8 resident herds, so the sharing it bought was
+   * between neighbours that had drawn the same species *and* the same count.
+   * What it bought instead is worth more than the sharing: two herds that
+   * shared a buffer were the same five animals in the same arrangement, and
+   * `contract.ts` calls six identical cows a bug you can see from the road.
    */
   const bodyCache = new Map<string, Merged>();
   const BODY_CACHE_CAP = 120;
@@ -1417,6 +1447,37 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const herdQuat = new THREE.Quaternion();
   const herdUp = new THREE.Vector3(0, 1, 0);
   const herdScale = new THREE.Vector3();
+  const herdSeat = new THREE.Vector3();
+  /** What `gradeAt` fills for one animal's own patch. Reused: it is asked per head. */
+  const headSlope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
+
+  /**
+   * Where one herd stands, and the frame it will be drawn in.
+   *
+   * **The scan works all of this out and `buildHerd` reads it**, rather than
+   * the key carrying it and the builder re-deriving it. The centre comes out of
+   * two seeded draws inside `forEachCell` and the frame out of a third, so a
+   * builder that re-derived them would be a second copy of a draw *order* — the
+   * exact shape of the fault `CLAUDE.md` opens with, and one that would fail
+   * silently by seating every animal on ground a few units from the ground it
+   * is standing on.
+   */
+  interface HerdSite {
+    species: string;
+    region: RegionId;
+    heads: number;
+    spread: number;
+    /** Unit vector at the herd's origin, which is where its mesh is placed. */
+    centre: THREE.Vector3;
+    /** The mesh's own local X and Z, as `update` will build them from `route`. */
+    right: THREE.Vector3;
+    forward: THREE.Vector3;
+    /** `reliefAt` at the centre: every animal's seat is measured against it. */
+    relief: number;
+  }
+  /** Bounded the way `chains` is, and emptied at the top of a scan for the same reason. */
+  const herdSites = new Map<string, HerdSite>();
+
   /**
    * What a member of a herd is doing.
    *
@@ -1430,18 +1491,70 @@ export function createLife(world: World, places: readonly Place[], options: Life
     { item: 'alert', weight: 1 },
   ];
 
-  function buildHerd(key: string, species: string, region: string, count: number, spread: number): Pooled | null {
+  /**
+   * The animals of one herd, each on the ground it is standing over.
+   *
+   * **A herd is a flat slab and the ground under it is not**, and that is the
+   * whole of what this function had wrong. Every animal sat at `y = 0` in the
+   * herd's own tangent plane, so on any tilt at all the uphill half floated and
+   * the downhill half sank. Measured over 12,000 head on admitted sites, cattle
+   * at their own spread (2026-09-08): an animal was off its own ground by
+   * **0.39 units at the median, 1.71 at the p90 and 9.57 at the worst** —
+   * against a sheep that is 2.2 to 7.5 units tall, so the tail of that
+   * distribution is a whole animal in the air. The site gate below cannot fix
+   * it, because it is a *mean* over the spread and the mean of a hillside is a
+   * hillside.
+   *
+   * So each animal is bedded to the lowest of four probes at its own stance,
+   * exactly the way `vegetation.ts` beds a plant, and for the same reason: the
+   * lowest is what keeps no part of the footprint above the base. `reliefAt` is
+   * the right field to ask rather than `elevationAt` — the shelf is a property
+   * of the *ring* and a herd is 26 units across, so inside one herd the two
+   * differ by a constant that cancels, and `reliefAt` is what `gradeAt` reads,
+   * so the seat and the gate cannot disagree.
+   *
+   * **And an animal whose own patch is too steep is dropped rather than laid on
+   * it.** `vegetation.ts`'s `TILT_OF` is the other answer and this kit does not
+   * want it: `solveLeg` puts all four hooves exactly on `y = 0` and `pnpm
+   * fauna` asserts the highest of them never leaves the floor by more than
+   * 0.153 units, so rotating a body onto the surface normal lifts the two
+   * uphill hooves by about its width times the grade — 2.3 units on a cow at
+   * `MAX_SLOPE`, fifteen times the tolerance that assertion holds. A boulder
+   * gets `tilt: 1` because it has no legs; an animal has four and stands plumb
+   * on the hill, which is what an animal does.
+   *
+   * **What it costs is written down rather than hidden.** Bedding to the lowest
+   * probe buries the uphill hooves by the relief's own range across the stance:
+   * over 12,000 head a species, that is **0.46 to 0.86 units at the median,
+   * 1.5 to 2.7 at the p90 and 3.9 to 7.4 at the worst** (sheep to horse,
+   * 2026-09-08). Nothing floats, which is the half of the trade this project
+   * has already made twice — `people.ts` measured its standing poses into
+   * double support for it and `vegetation.ts` beds a plant to `slope.lowest`
+   * for it — and a hoof in the grass is invisible where a hoof in the air is
+   * not. The drop refuses **0.6 to 0.9% of animals** by species over the same
+   * sample. At three head minimum a herd that loses every one of them is a
+   * refusal of the whole site, which is the right answer and is why it is not
+   * guarded against.
+   */
+  function buildHerd(key: string, site: HerdSite): Pooled | null {
     const rng = rngFrom(key, 'herd');
     const members: { merged: Merged; matrix: THREE.Matrix4 }[] = [];
+    const shape = bestiary.get(site.species);
+    if (shape === undefined) return null;
+    // The animal's own stance: `gradeAt` puts its four probes at `reach` on the
+    // diagonals, so half the diagonal of the box the animal stands in puts a
+    // probe under each hoof. `size` is [length, width, height] and it is why
+    // `Animal.size` is three numbers rather than a radius.
+    const stance = Math.max(1.2, Math.hypot(shape.size[0], shape.size[1]) * 0.5);
     let vertices = 0;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < site.heads; i++) {
       const each = rngFrom(key, 'head', i);
-      const merged = animalBuffer(species, region, each.int(FAUNA_VARIANTS), { kind: each.weighted(HERD_POSES) } as AnimalPose);
+      const merged = animalBuffer(site.species, site.region, each.int(FAUNA_VARIANTS), { kind: each.weighted(HERD_POSES) } as AnimalPose);
       if (merged === null) return null;
       // Scattered on the herd's own tangent plane. A ring rather than a disc
       // would be a corral; a grid would be a car park.
       const angle = each.unit() * TAU;
-      const radius = Math.sqrt(each.unit()) * spread;
+      const radius = Math.sqrt(each.unit()) * site.spread;
       // Yaw is free variety and it is the only kind a merged mesh can have per
       // instance — a per-instance *scale* is baked into the vertices here, which
       // is `OutlineEffect` rather than thrift: a non-uniform scale at draw time
@@ -1450,7 +1563,25 @@ export function createLife(world: World, places: readonly Place[], options: Life
       const scale = each.spread(1, 0.07);
       herdQuat.setFromAxisAngle(herdUp, each.unit() * TAU);
       herdScale.set(scale, scale, scale);
-      herdPoint.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+
+      // Where this one really is, in the frame `update` will draw the mesh in:
+      // local X is `right` and local Z is `forward`, both handed over by the
+      // scan. The probes go out along the same pair rather than along tangents
+      // rebuilt at the animal — over 26 units of a 16,000-unit radius they are
+      // 0.0016 rad apart, which moves a probe by two hundredths of a unit.
+      herdSeat
+        .copy(site.centre)
+        .addScaledVector(site.right, (Math.cos(angle) * radius) / PLANET_RADIUS)
+        .addScaledVector(site.forward, (Math.sin(angle) * radius) / PLANET_RADIUS)
+        .normalize();
+      gradeAt(herdSeat, site.right, site.forward, stance, headSlope);
+      // Nothing grazes the scree either; see `MAX_SLOPE`. The site gate is a
+      // mean over the whole spread, so this is what catches the outcrop inside
+      // an otherwise gentle field.
+      if (headSlope.grade > MAX_SLOPE) continue;
+      const seat = Math.min(reliefAt(herdSeat.x, herdSeat.y, herdSeat.z), headSlope.lowest) - site.relief;
+
+      herdPoint.set(Math.cos(angle) * radius, seat, Math.sin(angle) * radius);
       const matrix = new THREE.Matrix4().compose(herdPoint, herdQuat, herdScale);
       members.push({ merged, matrix });
       vertices += merged.position.length / 3;
@@ -1481,7 +1612,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
     void rng;
     const geometry = geometryOf({ position, normal, color, triangles: vertices / 3 });
-    return { geometry, triangles: vertices / 3, bytes: position.byteLength * 3 };
+    return { geometry, triangles: vertices / 3, bytes: position.byteLength * 3, heads: members.length };
   }
 
   /** Builds whatever the last frame asked for, under a millisecond budget. */
@@ -1505,9 +1636,16 @@ export function createLife(world: World, places: readonly Place[], options: Life
         if (built === null) refused.add(key);
         else built.forEach((entry, phase) => pool.set(`${key}|${phase}`, entry));
       } else if (parts[0] === 'h') {
-        const built = buildHerd(key, parts[1]!, parts[2]!, Number(parts[3]), Number(parts[4]));
-        if (built === null) refused.add(key);
-        else pool.set(key, built);
+        // A site the scan has not described is **not** a refusal, and the
+        // distinction matters because `refused` is permanent: `herdSites` is
+        // bounded the way `chains` is, so a key can outlive its record by one
+        // scan, and refusing it would delete that herd for the session.
+        const site = herdSites.get(key);
+        if (site !== undefined) {
+          const built = buildHerd(key, site);
+          if (built === null) refused.add(key);
+          else pool.set(key, built);
+        }
       }
       if (performance.now() - started > budget) break;
     }
@@ -1597,11 +1735,17 @@ export function createLife(world: World, places: readonly Place[], options: Life
    */
   const birdLife = new Map<string, number>();
   const birdGround = new Map<string, number>();
+  const birdAcross = new THREE.Vector3();
+  const birdNorth = new THREE.Vector3();
+  /** What `gradeAt` fills for a flock's ring. See the lift in the sky scan. */
+  const birdSlope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
   /** The same memory, for the pasture. Cleared wholesale at the same bound. */
   const herdGround = new Map<string, number>();
   const herdStock = new Map<string, { list: Weighted<string>[]; region: RegionId; density: number }>();
   const herdSample = biomeSample();
   const herdProbe = new THREE.Vector3();
+  /** What `gradeAt` fills for a whole herd's ground. Reused: one per candidate cell. */
+  const herdSlope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
   const CACHE_CAP = 20_000;
   function trim(): void {
     if (birdLife.size > CACHE_CAP) { birdLife.clear(); birdGround.clear(); }
@@ -1609,6 +1753,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     if (wetness.size > CACHE_CAP) { wetness.clear(); dryCentres.clear(); }
     if (nearestCache.size > CACHE_CAP) nearestCache.clear();
     if (shownCache.size > CACHE_CAP) shownCache.clear();
+    // A herd's pool key is its *site* now, so a refusal is a coordinate rather
+    // than one of the 1,008 vehicle keys and the set grows with how far you
+    // have flown. Emptying it costs one retry each; leaving it unbounded is a
+    // string per steep field crossed in a session.
+    if (refused.size > CACHE_CAP) refused.clear();
   }
 
   /** Whether a stretch of sea really is sea. Cached per candidate for ever. */
@@ -1736,53 +1885,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const roadIndex =
     roads.length > 0 && places.length > 0 ? roadIndexFor(roads, places) : null;
 
-  /**
-   * And the water, which is the same test with the bake's own polyline in place
-   * of a curve that has to be re-walked.
-   *
-   * Split out of `clearOfMade` rather than folded into it because it runs
-   * *first*: it is the cheaper of the two — no `roadPoint`, no pole, no
-   * resampling, just the stored chords — and a herd standing in the Danube is
-   * refused before the road index is asked anything at all.
-   */
-  const riverLines = options.rivers ?? [];
-  const riverIndex = riverLines.length > 0 ? riverIndexFor(riverLines) : null;
-  const riverHits: number[] = [];
-  const riverHere = new THREE.Vector3();
-  const riverLast = new THREE.Vector3();
-
-  function clearOfWater(centre: THREE.Vector3, spread: number): boolean {
-    if (riverIndex === null) return true;
-    madeToward.copy(centre).multiplyScalar(PLANET_RADIUS);
-    for (const hit of riverIndex.near(centre, spread + widestRiverClearance(), riverHits)) {
-      const line = riverLines[hit]!;
-      for (let i = 0; i < line.points.length; i++) {
-        const p = line.points[i]!;
-        riverPoint(p[0]!, p[1]!, riverHere).multiplyScalar(PLANET_RADIUS);
-        if (i > 0) {
-          const clear = spread + riverClearance(Math.max(line.classes[i - 1] ?? 0, line.classes[i] ?? 0));
-          madeLeg.subVectors(riverHere, riverLast);
-          const lengthSq = madeLeg.lengthSq();
-          let t = 0;
-          if (lengthSq > 1e-6) {
-            t = madeFoot.subVectors(madeToward, riverLast).dot(madeLeg) / lengthSq;
-            t = t < 0 ? 0 : t > 1 ? 1 : t;
-          }
-          madeFoot.copy(riverLast).addScaledVector(madeLeg, t);
-          if (madeFoot.distanceTo(madeToward) < clear) {
-            herds.inWater++;
-            return false;
-          }
-        }
-        riverLast.copy(riverHere);
-      }
-    }
-    return true;
-  }
-
   function clearOfMade(centre: THREE.Vector3, spread: number): boolean {
     if (flattenWeightAt(centre.x, centre.y, centre.z) > 0) return false;
-    if (!clearOfWater(centre, spread)) return false;
     if (roadIndex === null) return true;
     const widest = spread + roadClearance(ROAD_CLASSES.length - 1);
     madeToward.copy(centre).multiplyScalar(PLANET_RADIUS);
@@ -2030,8 +2134,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     herds.altitude = altitude;
     herds.range = herdRange;
     herds.cells = 0; herds.chanced = 0; herds.inRange = 0; herds.land = 0;
-    herds.stocked = 0; herds.dense = 0; herds.clearOfTown = 0; herds.clearOfMade = 0; herds.inWater = 0;
-    herds.offered = 0;
+    herds.stocked = 0; herds.dense = 0; herds.clearOfTown = 0; herds.clearOfSlope = 0;
+    herds.clearOfMade = 0; herds.offered = 0;
+    // Bounded here rather than inside the loop, so that everything one scan
+    // writes survives that scan: `serve` reads these back on the same frame.
+    if (herdSites.size > 4000) herdSites.clear();
     if (herdRange > 0 && bestiary.size > 0) {
       forEachCell(viewer, HERD_CELL, herdRange, (row, col) => {
         herds.cells++;
@@ -2144,6 +2251,40 @@ export function createLife(world: World, places: readonly Place[], options: Life
         // the space three cattle would take. `size[0]` is the animal's own
         // length and it is why `Animal.size` is three numbers and not a radius.
         const spread = Math.max(HERD_SPREAD, entry.size[0] * 0.55 * Math.sqrt(heads));
+
+        // **And nothing grazes a mountain face.** The same rule the vegetation
+        // is held to and the same one definition of it — `MAX_SLOPE` and
+        // `gradeAt` in `terrain.ts`, never a second gradient — asked **over the
+        // ground the herd occupies rather than under its centre**, because a
+        // herd has a spread and a herd on a 30-degree face with one animal on
+        // level ground is still a herd on a face. `gradeAt`'s four probes go
+        // out at `spread`, so the answer is the mean tilt across the disc the
+        // animals are scattered over.
+        //
+        // Its own gate rather than a line inside the next one, so the
+        // diagnostic can say which line returned. Two measurements, and they
+        // are different questions (2026-09-08). Of the **ground**, over a
+        // 1.2-degree box, it refuses 73.9% of a Norwegian fjord, 46.7% of the
+        // Alps, 34.0% of the Rift escarpment behind the Serengeti and 25.7% of
+        // the Altiplano, against **4.65% of the world's land** — which is
+        // `MAX_SLOPE`'s own 4.9% asked at this reach. Of the **cells that reach
+        // it** in a scan at detail 1, which is the number that decides what you
+        // see, it drops 50% in Nepal, 38% in the Alps, 29% over the fjord, 23%
+        // around Ulm, 20% on the Altiplano, 7% at the Serengeti and **nothing**
+        // in the Sahara, in Mongolia, in Finnmark or in Cornwall.
+        //
+        // It runs before `clearOfMade` because it is the cheaper of the two —
+        // four `reliefAt` calls and no index, where that one buckets the road
+        // network and re-walks every carriageway near enough to matter — which
+        // is the argument this file already made for the order of the gates
+        // inside it.
+        northward.set(0, 1, 0).projectOnPlane(centre);
+        if (northward.lengthSq() < 1e-8) northward.set(1, 0, 0).projectOnPlane(centre);
+        northward.normalize();
+        eastward.crossVectors(centre, northward).normalize();
+        if (gradeAt(centre, eastward, northward, spread, herdSlope).grade > MAX_SLOPE) return;
+        herds.clearOfSlope++;
+
         // **And off the two other things that are built.** The town gate above
         // is a disc and it was the only one: a herd could stand in a
         // carriageway, which is where the user found one, or inside a
@@ -2158,31 +2299,53 @@ export function createLife(world: World, places: readonly Place[], options: Life
         const bearing = rng.unit() * TAU;
         const height = PLANET_RADIUS + ground;
         const moverKey = `g${row}.${col}`;
+        // **A herd is a mover that does not move**, which is what lets it share
+        // every piece of machinery in this file — the view cone, the
+        // nearest-first budget, the least-recently-used pool — for no new code
+        // at all. Grazing is the one activity in the world that is honestly
+        // static.
+        const route = (_clock: number, out: Frame): void => {
+          out.dir.copy(centre);
+          out.height = height;
+          northward.set(0, 1, 0).projectOnPlane(centre);
+          if (northward.lengthSq() < 1e-8) northward.set(1, 0, 0).projectOnPlane(centre);
+          northward.normalize();
+          eastward.crossVectors(centre, northward).normalize();
+          out.forward
+            .copy(northward).multiplyScalar(Math.cos(bearing))
+            .addScaledVector(eastward, Math.sin(bearing))
+            .normalize();
+          out.roll = 0;
+          out.live = true;
+        };
+
+        // The site, for `buildHerd` to seat its animals against. **The frame is
+        // taken from the route and from `update`'s own two lines rather than
+        // written a third time**: the mesh's local X and Z are what those
+        // produce, and a builder that derived them again would seat every
+        // animal a few units from where it is drawn — which is a herd sunk into
+        // the hill, and invisible in any still that does not have the hill in
+        // it.
+        const pooled = `h|${row}.${col}`;
+        route(0, probeFrame);
+        const forwardAt = probeFrame.forward.clone().projectOnPlane(centre).normalize();
+        herdSites.set(pooled, {
+          species,
+          region: choices.region,
+          heads,
+          spread,
+          centre,
+          forward: forwardAt,
+          right: new THREE.Vector3().crossVectors(centre, forwardAt).normalize(),
+          relief: reliefAt(centre.x, centre.y, centre.z),
+        });
         consider({
           family: 'herd',
           key: moverKey,
-          pool: `h|${species}|${choices.region}|${heads}|${spread.toFixed(1)}`,
+          pool: pooled,
           speed: 0,
           heads,
-          // **A herd is a mover that does not move**, which is what lets it
-          // share every piece of machinery in this file — the view cone, the
-          // nearest-first budget, the least-recently-used pool — for no new
-          // code at all. Grazing is the one activity in the world that is
-          // honestly static.
-          route: (_clock, out) => {
-            out.dir.copy(centre);
-            out.height = height;
-            northward.set(0, 1, 0).projectOnPlane(centre);
-            if (northward.lengthSq() < 1e-8) northward.set(1, 0, 0).projectOnPlane(centre);
-            northward.normalize();
-            eastward.crossVectors(centre, northward).normalize();
-            out.forward
-              .copy(northward).multiplyScalar(Math.cos(bearing))
-              .addScaledVector(eastward, Math.sin(bearing))
-              .normalize();
-            out.roll = 0;
-            out.live = true;
-          },
+          route,
         }, viewer, herdRange);
         herds.offered++;
       });
@@ -2219,7 +2382,31 @@ export function createLife(world: World, places: readonly Place[], options: Life
                 Math.atan2(-centre.z, centre.x) / DEG,
                 Math.max(0, elevation), biomeSample(),
               ).id].cover;
-          birdGround.set(key, Math.max(0, elevation));
+          // **And the ground it is asked about is the ground the flock circles
+          // over, not the point under its centre.** A flock's altitude was one
+          // `elevationAt` at the cell centre plus 45 to 130 of air, and its
+          // members ride a ring up to `FLOCK_RADIUS[1]` out — so over a
+          // hillside the far side of the ring was inside the rock. Measured
+          // over 20,000 land cells (2026-09-08): the air under a circling bird
+          // is 79 units at the median and **-0.3 at the p01**, and 1.01% of
+          // flocks had a bird in the hill. After the lift, and measured against
+          // a 24-point ring rather than against the four probes it is computed
+          // from: **none**, at a p01 clearance of 45.4 units.
+          //
+          // The lift is the highest of `gradeAt`'s four probes at that radius,
+          // which is `terrain.ts`'s one definition of the ground again and not
+          // a fifth sampler — the same call the herds' gate is built on. It is
+          // free: this cell's answer is cached for ever, and on flat ground the
+          // highest probe *is* the centre, so nothing moves where nothing is
+          // steep. It is not `MAX_SLOPE`: a bird is the one thing here that is
+          // allowed over a mountain face, it just may not be inside it.
+          birdAcross.set(0, 1, 0).projectOnPlane(centre);
+          if (birdAcross.lengthSq() < 1e-8) birdAcross.set(1, 0, 0).projectOnPlane(centre);
+          birdAcross.normalize();
+          birdNorth.crossVectors(centre, birdAcross).normalize();
+          gradeAt(centre, birdAcross, birdNorth, FLOCK_RADIUS[1], birdSlope);
+          const rise = Math.max(0, birdSlope.highest - reliefAt(centre.x, centre.y, centre.z));
+          birdGround.set(key, Math.max(0, elevation) + rise);
           birdLife.set(key, living);
         }
         if (!rng.chance(living)) return;
@@ -2231,7 +2418,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
         if (flocks.has(key)) return;
         flocks.set(key, {
           centre,
-          radius: rng.range(38, 120),
+          radius: rng.range(FLOCK_RADIUS[0], FLOCK_RADIUS[1]),
           altitude: altitudeOf,
           rate: (rng.chance(0.5) ? 1 : -1) * rng.range(0.14, 0.3),
           count: rng.int(FLOCK_MAX - FLOCK_MIN + 1) + FLOCK_MIN,
@@ -2499,7 +2686,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
       if (frame.roll !== 0) mesh.rotateZ(frame.roll);
 
       stats[mover.family]++;
-      if (mover.family === 'herd') stats.animals += mover.heads ?? 0;
+      // What was *built*, not what was asked for: `buildHerd` drops an animal
+      // whose own patch is scree, and a count taken from the request would
+      // report cattle that are not on the screen.
+      if (mover.family === 'herd') stats.animals += pooled.heads ?? mover.heads ?? 0;
       stats.meshes++;
       stats.triangles += pooled.triangles;
     }

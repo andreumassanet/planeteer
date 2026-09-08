@@ -15,9 +15,11 @@ import {
   horizonAt,
   slantRange,
 } from './view.ts';
+import { MAX_SLOPE, gradeAt } from './terrain.ts';
+import type { Slope } from './terrain.ts';
 import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
-import { dirt, groundStyleFor, trodden } from './scenery/ground.ts';
+import { groundStyleFor, trodden } from './scenery/ground.ts';
 
 /**
  * The road network: which settlements are joined, and what that looks like.
@@ -92,28 +94,46 @@ export interface RoadClass {
    * drops the lanes first and leaves the trunks, which is what a map does.
    *
    * **The lane's reach came down from 3,200 to 1,300 and the road's from 11,000
-   * to 5,000, and the reason is that the argument above has a limit the old
-   * numbers were past.** One line a pixel wide is the coastline; forty thousand
-   * of them is a texture. `places.bin` went from 7,320 towns to 29,545 at the
-   * same Gabriel degree, so the network went from 12,789 roads to **49,287** and
-   * the lanes alone from 4,647 to 36,694 — and at 380 units over the Costa del
-   * Sol every field between villages came out bounded by carriageway on three
-   * sides. It read as a road atlas printed on the land.
+   * to 5,000, and the reason is that the argument above has a limit.** One line
+   * a pixel wide is the coastline; forty thousand of them is a texture, and the
+   * network was forty thousand when it was baked over the whole gazetteer — at
+   * 380 units over the Costa del Sol every field between villages came out
+   * bounded by carriageway on three sides, and it read as a road atlas printed
+   * on the land.
    *
-   * The new numbers are a width test after all, worked out once here rather
-   * than measured per frame: at `937 * width / distance`, a lane is **5.9 px at
-   * 1,300** and a road 2.4 at 5,000, which is the point at which a mark stops
-   * being a road and starts being grey. What the table is compared against is a
-   * road's own distance **from the eye** — see `classReaches` and `cutFor`, and
-   * the trap that says what comparing a tile's distance from the *player* cost. The trunk keeps the horizon because
-   * there are only 178 of them on the planet — 178 lines is a map and 36,694
-   * is a wash, and that difference is density and not legibility.
+   * The numbers are a width test worked out once here rather than measured per
+   * frame: at `937 * width / distance`, a lane is **5.9 px at 1,300** and a road
+   * 2.4 at 5,000, which is the point at which a mark stops being a road and
+   * starts being grey. What the table is compared against is a road's own
+   * distance **from the eye** — see `classReaches` and `priceRoads`, and the
+   * trap that says what comparing a tile's distance from the *player* cost. The
+   * trunk keeps the horizon because there are only 275 of them: 275 lines is a
+   * map and 7,456 is a wash, and that difference is density and not legibility.
    *
-   * **A reach is a cull and it could not reach the ground you stand on**, which
-   * is what `build-roads.ts`'s thinning pass answers instead: the network is
-   * **42,804** roads and **31,271** lanes now — it grew again when the
-   * settlement size law kept 29,545 places — and none of these three numbers
-   * moved to get there. See *The road network* in `docs/traps.md`.
+   * **All three classes are drawn, and all three are asphalt** (2026-09-08). A
+   * `lane` used to be a dirt track and the user's word for it was *caminos*;
+   * what they asked for was one material and not a smaller network, so a lane is
+   * a narrow made road between two small towns and the class is nothing but this
+   * lever. **It is the lever to reach for if the world reads as busy, and the
+   * row to move is the `road` and not the `lane`** — which is not what it looks
+   * like, so it was measured. Same standpoints, headless at detail 0.5, over the
+   * 17,238-road network:
+   *
+   * ```
+   *                        shipped   lane 1,300 -> 650   road 5,000 -> 3,000
+   *   Alps, on foot            337                 337                   252
+   *   Ulm, on foot             357                 356                   269
+   *   Ulm, 700 up              580                 580                   222
+   *   Ulm, 1,200 up            491                 491                    81
+   * ```
+   *
+   * The lane's reach does nothing because at the shipped detail it is already
+   * 650 units from the **eye**, which a camera 700 units up has left behind
+   * before it sees any ground at all: above a few hundred units of altitude the
+   * lanes are gone whatever this number says. The `road` class is what is on the
+   * screen from the air, and 5,000 -> 3,000 is a sixth of the marks at 1,200 up.
+   * Neither touches a single connection, which is the difference between this
+   * lever and the thinning that was tried instead and left Madrid with no road.
    */
   reach: number;
 }
@@ -178,6 +198,19 @@ const BAND_WIDTH = [1, 0.8, 0.62];
  *   road      22,300         26.0         17.1
  *   trunk    587,000         48.0         55.5
  * ```
+ *
+ * **The pairs it is asked about are adjacent again, which is what the
+ * derivation above assumes.** For one round it also priced the two towns a
+ * *route* ran between, because the network was baked over the whole gazetteer
+ * and a city's own edges all ran to unbuilt suburbs. Repricing every edge that
+ * way was measured and rejected: in a dense region the nearest built place is
+ * over 22,300 people in every direction, so `classOf` answers `road` for the
+ * whole lattice without being wrong — the thresholds were read off a
+ * distribution of *adjacent* pairs, and re-pairing is a different distribution
+ * rather than a different rule. The graph is over the built towns now
+ * (`builtGraph`), so every pair this sees is one road's own two ends. What it
+ * produces over the shipped bake (2026-09-08): **lane 7,456 · road 9,507 ·
+ * trunk 275**.
  */
 export function classOf(popA: number, popB: number): number {
   const importance = Math.min(radiusFor(popA), radiusFor(popB));
@@ -224,7 +257,7 @@ export function roadPole(a: THREE.Vector3, b: THREE.Vector3, target: THREE.Vecto
 // ---------------------------------------------------------------------------
 
 /**
- * How far a ribbon is allowed *inside* a built town's edge, in world units.
+ * How far *outside* a built town's edge the ribbon stops, in world units.
  *
  * **Everything else in this world yields to something and the road yielded to
  * nothing** — a town gets pushed off a monument, a tree and a herd get pushed
@@ -232,33 +265,45 @@ export function roadPole(a: THREE.Vector3, b: THREE.Vector3, target: THREE.Vecto
  * it. The town already draws its own half of the join: `settlements.ts` paves
  * its streets out of the ground's own cells and aims *tracks* along the real
  * road bearings out to `slot.radius * 0.8 + TRACK_REACH`. So the arrangement
- * was always meant to read ribbon -> track -> paving, and only the first of the
- * three ever stopped.
+ * reads ribbon -> track -> paving, and only the first of the three ever stopped.
  *
- * The clip is at `radiusFor(pop) - TOWN_OVERLAP` rather than at the radius
- * itself because a ribbon that stops exactly on the built edge stops in the
- * open, and a squared-off end cap in the open reads as a cut rather than as an
- * arrival. Eight units is a little over one avatar: enough that the track,
- * which is laid at the paving's own lift and is the higher of the two, covers
- * the seam. The track always reaches past it — `0.8 r + 45 > r` for every
- * radius under 225 and the largest town on the planet is 150 — so the overlap
- * cannot open a gap, whatever the size law does next.
+ * **It was eight units *inside* the built radius and it is four units outside
+ * it, and what changed is the town.** The overlap was there because a ribbon
+ * that stops exactly on the built edge stops in the open, and a squared-off end
+ * cap in the open reads as a cut rather than as an arrival — true while the
+ * town's edge was a colour change. A town is a terraced platform now
+ * (`GROUND_LIFT` 3.0, `TERRACE_STEP` 4 in `scenery/ground.ts`) whose rim is a
+ * vertical retaining wall of up to 11.8 units, so a ribbon laid eight units
+ * inside that rim is a carriageway drawn through a wall and along the tops of
+ * the plots behind it, which is what the user photographed: *las carreteras
+ * irían hasta esta plataforma, ahora llegan al centro y se solapa con las
+ * casas.*
+ *
+ * Four units is a little over half an avatar — near enough that the town's own
+ * track, which now draws a ramp down off the last paved cell to `RIBBON_LIFT`
+ * (see `buildTracks`), still runs past the ribbon's cap and covers the seam.
+ * **The track always reaches past it**: it runs to `0.8 r + 45` and the ribbon
+ * starts at `r + 4`, so the overlap is `41 - 0.2 r` — eleven units at the
+ * 150-unit size cap and forty at the 12-unit floor, positive for every radius
+ * under 205. `pnpm check` asserts that over the whole range the size law
+ * produces rather than leaving it as arithmetic in a comment.
  */
-export const TOWN_OVERLAP = 8;
+export const TOWN_STANDOFF = 4;
 
 /**
  * How near a place a road may be drawn: nothing at a hidden one, the built
- * radius less the overlap at a shown one.
+ * radius plus the standoff at a shown one.
  *
- * **Hidden places keep the ribbon**, and that is the whole reason this is a
- * function of `isShown` rather than of the place: two thirds of the network's
- * vertices are villages that `PROMINENCE_RADIUS` does not build, nothing stands
- * on that ground, and a road that stopped at each of them would be a dashed
- * line across the map. See `pruneHiddenLeaves` for the other half of the same
- * observation.
+ * **Every endpoint in the file is built, so the second branch is a guard and
+ * not a case.** `builtGraph` only joins places `isShown` returns true for, so
+ * at the shipped `PROMINENCE_RADIUS` this always returns a radius. It stays a
+ * function of `isShown` because the knob is live and the network is not: turn
+ * `atlas.prominence(r)` up and some endpoints stop being built, and a ribbon
+ * that went on stopping at the edge of a town nobody had built would be a gap
+ * in the road with nothing to explain it.
  */
 export function roadClip(place: Place): number {
-  return isShown(place) ? Math.max(0, radiusFor(place.pop) - TOWN_OVERLAP) : 0;
+  return isShown(place) ? radiusFor(place.pop) + TOWN_STANDOFF : 0;
 }
 
 /** Where a road's ribbon starts and stops, in `t`; see `roadSpan`. */
@@ -279,7 +324,7 @@ const clipProbe = new THREE.Vector3();
  * `t * span` for the clip would put the cut a quarter of a town too far in on
  * exactly the coastal roads that needed the bow. Fourteen halvings of a whole
  * road is a resolution of 0.06 units on the longest one the network builds,
- * against an overlap of eight; the comparison is a dot product rather than an
+ * against a standoff of four; the comparison is a dot product rather than an
  * angle because `roadPoint` returns a unit vector and this is the one loop in
  * the build that runs per road rather than per section.
  *
@@ -289,10 +334,17 @@ const clipProbe = new THREE.Vector3();
  * radius 140 has a road whose whole middle is inside the city, and the right
  * answer there is a fifteen-unit stub at the village. Bracketing at 0.5 threw
  * the road away instead — **2,279 roads, 5.3% of the network, came out
- * swallowed whole**, and `pnpm check` counting them is what said so. What does
- * hold is the far end being outside: the bake thins `places.bin` so that no two
- * built discs touch, so the distance exceeds both radii and therefore either
- * clip.
+ * swallowed whole**, and `pnpm check` counting them is what said so.
+ *
+ * **The far end being outside is no longer free either, and that is what
+ * `TOWN_STANDOFF` bought.** The bake thins `places.bin` so that no two *built*
+ * discs touch, which is why the old clip at `radiusFor - 8` always left the far
+ * end outside; a clip at `radiusFor + 4` reaches four units past that promise at
+ * both ends, and over the shipped network 150 pairs of clip discs meet
+ * (2026-09-08). 143 come back swallowed whole, which is the right answer: the
+ * two are joined by their own paving and a ribbon between them would be a few
+ * units of stub. `pnpm check` counts them so a size law that swallowed a
+ * thousand would fail rather than quietly delete them.
  */
 function leavesDisc(
   a: THREE.Vector3,
@@ -514,6 +566,71 @@ export function pairKey(places: number, a: number, b: number): number {
   return Math.min(a, b) * places + Math.max(a, b);
 }
 
+/**
+ * The candidate pairs, over the places that are actually **built**.
+ *
+ * **The network is a graph over the 9,734 towns that stand, not over the 29,545
+ * rows of the gazetteer, and that one line is the whole of this round.** Gabriel
+ * over the gazetteer joins a place to its nearest neighbours, and a city's
+ * nearest neighbours are its own suburbs — `PROMINENCE_RADIUS` hides two thirds
+ * of the file, so every edge out of Madrid ran to a village that is not built,
+ * `classOf` called it a lane because it reads the *smaller* end, and a whole
+ * layer of machinery grew up to reconstruct city-to-city connections out of a
+ * graph that never held them: a prune for dead ends at unbuilt villages, routes
+ * chained through hidden junctions, a floor putting one road back at each
+ * orphaned metropolis. None of that exists here. Every endpoint is a town you
+ * can walk into, every road joins two of them, and the user's sentence is the
+ * specification: *solo conexiones entre ciudades.*
+ *
+ * Measured over the shipped `places.bin` (2026-09-08), carried through the water
+ * and slope tests below:
+ *
+ * ```
+ *                       candidates   roads    wet   steep   towns with none
+ *   gabriel                 20,022  17,196  1,236   1,590     733   7.5%
+ *   rng                     12,595  10,918    731     946     806   8.3%
+ * ```
+ *
+ * Gabriel is what ships, unthinned. It is a **median degree of 4** — *no hace
+ * falta que conectes una ciudad con 20* — where the relative neighbourhood graph
+ * is a median of 2 and reads as a chain, and the thinning pass that used to sit
+ * between them is gone with the lattice it was invented for: Gabriel over the
+ * gazetteer was 4.14 at a 106-unit spacing and Gabriel over the built towns is
+ * not, because the points are 260 units apart to begin with.
+ *
+ * The indices that come back are indices into the **whole** `places.bin`, so
+ * `roads.bin` still stores what it always stored and everything downstream reads
+ * a place the same way. It lives here for the reason `proximityGraph` does: the
+ * bake chooses the edges and `pnpm check` has to be able to re-derive them
+ * without believing the file.
+ *
+ * **It is a function of `isShown`, so it is a function of `PROMINENCE_RADIUS`.**
+ * `atlas.prominence(r)` moves the towns live and the network no longer follows
+ * it at all — the roads are a **re-bake** now, not a reload. `pnpm check`
+ * asserts the file against this function, so a knob left turned in
+ * `places.ts` fails there rather than showing up as roads to nowhere.
+ */
+export function builtGraph(
+  places: readonly Place[],
+  kind: ProximityGraph,
+  maxLength = MAX_ROAD_LENGTH,
+): GraphEdge[] {
+  const index: number[] = [];
+  const built: Place[] = [];
+  places.forEach((place, i) => {
+    if (!isShown(place)) return;
+    index.push(i);
+    built.push(place);
+  });
+  // `proximityGraph` emits `a < b` in the order it was given, and `index` is
+  // increasing, so the remapped pair is still ordered and `pairKey` still works.
+  return proximityGraph(built, kind, maxLength).map((edge) => ({
+    a: index[edge.a]!,
+    b: index[edge.b]!,
+    length: edge.length,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
@@ -533,55 +650,82 @@ export async function loadRoads(url = '/data/roads.bin'): Promise<RoadData> {
 }
 
 /**
- * Takes the roads to nowhere out of the baked network, once, at load.
+ * How often the slope test asks how steep the ground is, in world units.
  *
- * `places.bin` carries every place and `isShown` says which of them is built,
- * so two thirds of the towns the network was baked between are open country
- * now. Measured (2026-09-05, at `PROMINENCE_RADIUS`): 39.0% of the roads have
- * one hidden end and 46.7% have two, and **filtering on "both ends shown" is
- * not an option** — it keeps 14% of the network and leaves a third of the
- * shown towns with no road. Nor is it needed: 98.5% of the hidden places stand
- * on two or more roads, so they are junctions a road passes *through*, which is
- * what Gabriel over a gazetteer already looks like between towns.
- *
- * What is wrong is the dead end: a lane that leaves a shown town and stops at
- * a village that is not there. That is a hidden place of degree one, and
- * removing its road can turn its neighbour into one, so the pass repeats until
- * nothing is left — 292 roads, 0.7% of the network. It cannot change which
- * shown places reach which, because every road it removes ends at a vertex
- * with no other road, and `pnpm check` asserts that anyway rather than
- * trusting the argument.
- *
- * Not a re-bake on the shown subset, deliberately: that is a different
- * network — 20,017 candidates at a mean of 260 units against 61,204 at 123 —
- * and it would tie `roads.bin` to one radius. The order is kept and the
- * indices still point into `places.bin`, so everything downstream reads the
- * pruned list exactly as it read the baked one.
+ * The water test's own `PROBE_STEP`, and for the same reason: it is the step at
+ * which a road is already known to be sampled finely enough to catch a feature
+ * it must not cross. `gradeAt` measures over the road's own half-width — 11.5
+ * units for a `road`, 16.2 for a trunk, from `roadClearance` — so the probes
+ * overlap along the whole carriageway rather than leaving gaps between them.
  */
-export function pruneHiddenLeaves(roads: readonly Road[], places: readonly Place[]): Road[] {
-  const degree = new Int32Array(places.length);
-  for (const road of roads) {
-    degree[road.a]!++;
-    degree[road.b]!++;
+const SLOPE_STEP = 18;
+
+const slopeAt = new THREE.Vector3();
+const slopeTail = new THREE.Vector3();
+const slopeAhead = new THREE.Vector3();
+const slopeSide = new THREE.Vector3();
+const slopeNorth = new THREE.Vector3();
+const slopePole = new THREE.Vector3();
+const slopeA = new THREE.Vector3();
+const slopeB = new THREE.Vector3();
+const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
+
+/**
+ * Whether a road crosses ground steeper than anything is built on.
+ *
+ * **A road on a mountain face is a carriageway sunk into rock, and the user
+ * asked for it to go**: *en las pendientes hemos quitado la decoración, está
+ * muy bien, pero también hay que quitar las carreteras y caminos.* The
+ * vegetation had already answered the same question — nothing grows on scree —
+ * and `MAX_SLOPE` is `terrain.ts`'s one definition of how steep that is, the
+ * angle of repose, so this asks it through `gradeAt` rather than writing a
+ * second gradient.
+ *
+ * **All or nothing, and it is asked in the bake.** Clipping a road at the foot
+ * of the slope would leave a carriageway stopping in a field, so a pair whose
+ * road touches scree anywhere is simply not joined — *si en ningún momento se
+ * pasa por una montaña.* It ran as a load-time pass over the shipped file for
+ * one round, at 350 ms of `reliefAt` every time the world started; a road that
+ * is refused for good is a road that should not be in the file, so
+ * `build-roads.ts` asks it now and `bendThatWorks` uses it to **bow round the
+ * mountain** the way it already bows round a bay. Over the 20,022 candidates,
+ * 1,928 are steep on their own seeded bow, the search saves 338 of them, and
+ * 1,590 are refused (2026-09-08).
+ *
+ * The refusal is emphatic rather than knife-edge, which is the measurement that
+ * says the rule means what it claims: the worst grade along a refused road runs
+ * p10 0.64, median 0.97, p90 1.51 against a `MAX_SLOPE` of 0.577, and only 24 of
+ * 241 sampled fall within a tenth of the threshold.
+ *
+ * The **interior** and not the whole curve, the same walk the water test makes:
+ * the two ends are towns, and a town cuts its own terraces into the hill
+ * (`TERRACE_STEP`, `MAX_CUT`) so the ground it stands on is not the ground the
+ * ribbon has to lie on. It is `SLOPE_STEP` apart and four `reliefAt` calls a
+ * probe. `pnpm check` re-walks all 17,238 shipped roads with it in **984 ms**
+ * (2026-09-08) rather than trusting the bake, for the reason the water test is
+ * re-walked: the bake tests a path and writes down a `bend`, and if the two ever
+ * drift every road in the world would still be a road between two real towns and
+ * some of them would climb a scree face.
+ */
+export function crossesScree(road: Road, places: readonly Place[]): boolean {
+  placeDirection(places[road.a]!, slopeA);
+  placeDirection(places[road.b]!, slopeB);
+  roadPole(slopeA, slopeB, slopePole);
+  const length = slopeA.angleTo(slopeB) * PLANET_RADIUS;
+  const steps = Math.max(2, Math.ceil(length / SLOPE_STEP));
+  const reach = roadClearance(road.cls);
+  for (let step = 1; step < steps; step++) {
+    const t = step / steps;
+    roadPoint(slopeA, slopeB, road.bend, t, slopeAt, slopePole);
+    roadPoint(slopeA, slopeB, road.bend, Math.min(1, t + 0.004), slopeTail, slopePole);
+    // The road's own frame, so `gradeAt`'s four probes straddle the carriageway
+    // rather than an arbitrary square: across it, and along it.
+    slopeAhead.subVectors(slopeTail, slopeAt).normalize();
+    slopeSide.crossVectors(slopeAt, slopeAhead).normalize();
+    slopeNorth.crossVectors(slopeSide, slopeAt).normalize();
+    if (gradeAt(slopeAt, slopeSide, slopeNorth, reach, slope).grade > MAX_SLOPE) return true;
   }
-  const hidden = new Uint8Array(places.length);
-  for (let i = 0; i < places.length; i++) hidden[i] = isShown(places[i]!) ? 0 : 1;
-  const alive = new Uint8Array(roads.length).fill(1);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let k = 0; k < roads.length; k++) {
-      if (alive[k] === 0) continue;
-      const { a, b } = roads[k]!;
-      if ((hidden[a] === 1 && degree[a]! <= 1) || (hidden[b] === 1 && degree[b]! <= 1)) {
-        alive[k] = 0;
-        degree[a]!--;
-        degree[b]!--;
-        changed = true;
-      }
-    }
-  }
-  return roads.filter((_, k) => alive[k] === 1);
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -593,10 +737,11 @@ export function pruneHiddenLeaves(roads: readonly Road[], places: readonly Place
  *
  * **Exported, because a town's own tracks have to arrive at this height.**
  * `settlements.ts` draws the last 45 units of every road as a track on its own
- * paving and the two overlap by `TOWN_OVERLAP`; a track that gave up its lift
- * where the ribbon still had its own left a step across the join. The two
- * halves are still separate surfaces in separate frames — see `buildTracks` —
- * but they now agree about how high a carriageway rides.
+ * paving and the two overlap by `41 - 0.2 r` units (see `TOWN_STANDOFF`); a
+ * track that gave up its lift where the ribbon still had its own left a step
+ * across the join. The two halves are still separate surfaces in separate
+ * frames — see `buildTracks` — but they now agree about how high a carriageway
+ * rides.
  *
  * The same fight `settlements.ts` documents, and it is worth saying why roads
  * cannot use the fix that settlements got. `setDetailSites` tightens the mesh's
@@ -614,30 +759,46 @@ export function pruneHiddenLeaves(roads: readonly Road[], places: readonly Place
  * over `elevationAt` (2026-09-06):
  *
  * ```
- *   over    0.5    1.1    1.5    2.0    2.6    3.5    5.0
- *   land  24.4%  12.9%  8.45%  4.92%  3.54%  3.20%  3.07%
+ *   over    0.5    1.1    1.5    2.0    2.6    3.0    3.5    5.0
+ *   land  24.43% 12.88%  8.45%  4.92%  3.54%  3.31%  3.20%  3.07%
  * ```
  *
- * A road laid 1.1 above the relief is under the ground you can see on **12.9%**
- * of it, and the flat tail past 2.6 is the coastal shelf's own 20-unit step
- * rather than anything a lift could reach. 1.5 takes it to 8.45% and stops
- * there for the same reason `GROUND_LIFT` stops at 1.0: the player walks at
- * `elevationAt`, `FIGURE` puts his knee at 1.66, and a carriageway he wades
- * through to the knee is a worse bug than one the hill occasionally eats.
- * `SHOULDER_DROP` went up by the same 0.4 so the shoulders bury themselves
- * exactly as far as they always did, and `life.ts` reads this constant now
- * rather than restating it, so the wheels came up with the tarmac.
+ * (Re-measured 2026-09-07 over the same 1,234,410 upward-facing land triangles;
+ * every column that existed before came back to the digit, and 3.0 is the new
+ * one.) A road laid 1.1 above the relief is under the ground you can see on
+ * **12.9%** of it, and the flat tail past 2.6 is the coastal shelf's own
+ * 20-unit step rather than anything a lift could reach.
+ *
+ * **It is 3.0, and what capped it at 1.5 has been deleted twice over.** The cap
+ * was the avatar — the player walked at `elevationAt` and `FIGURE` puts his knee
+ * at 1.66, so the lift was how deep he waded through the carriageway — and
+ * `ribbonHeightAt` ended that: `player.ts` stands *on* the ribbon now, so the
+ * number is free to be what the road wants rather than what the wading would
+ * bear. And what the road wants is **exactly `GROUND_LIFT`**, which is also 3.0:
+ * on flat ground a town's paving and a road's crown are then the same height
+ * over the same relief, so the ramp `buildTracks` draws off the last paved cell
+ * has nothing to climb down and a road entering a town needs no step at all.
+ * The residue goes from **8.45% of the land to 3.31%** — the knee of the
+ * distribution, past which only the coastal shelf is left.
+ *
+ * `SHOULDER_DROP` is written as `RIBBON_LIFT + 1.5` rather than as a number, so
+ * the shoulders bury themselves exactly as far as they always did and this move
+ * cannot quietly un-bury them; `life.ts` and `settlements.ts` read this constant
+ * rather than restating it, so the wheels and the town's own track came up with
+ * the tarmac.
  *
  * **The sag along the road is a different question and it is measured and
  * small**: `pnpm check` walks the drawn ribbon at the near band's own span and
  * compares the ground at each section's midpoint against the chord its ends
- * draw — 285 of 81,538 sections cut through, 0.35%, worst 4.84 units. That is
+ * draw — **6 of 62,601 sections cut through, 0.01%, worst 8.39 units**
+ * (2026-09-08, over the whole shipped network at this lift; it was 140 of
+ * 81,538, 0.17%, at a lift of 1.5 over a network four times as large). That is
  * the number `SPANS` bought at 18 units, and it is not what the user saw.
  *
  * See the trap in CLAUDE.md for what a detail claim along the network — the fix
  * that would actually delete this — would cost.
  */
-export const RIBBON_LIFT = 1.5;
+export const RIBBON_LIFT = 3.0;
 
 /**
  * Longest piece of road drawn as one quad, by how far away it is.
@@ -701,28 +862,6 @@ function classReaches(into: number[]): number[] {
 }
 
 /**
- * The lowest class still worth drawing at a distance, as an index into
- * `ROAD_CLASSES`: 0 draws everything, 3 draws nothing.
- *
- * **It is a rebuild key, not the test.** The test is per road and runs inside
- * `raise`; this is the same question asked of the tile's *nearest possible
- * point*, so it only moves when no road in the tile can pass the class it just
- * dropped. Keying the rebuild on the tile's centre instead would delete the
- * lane under your feet the moment the tile's middle crossed the lane's reach,
- * which is the tile-granularity bug this whole change is about, arriving one
- * level up.
- *
- * The loop leans on the reaches rising with the class — a lane is dropped
- * before a road and a road before a trunk — which is what `ROAD_CLASSES` is
- * ordered by and what makes the drawn set a suffix rather than a subset.
- */
-function cutFor(distance: number, reaches: readonly number[]): number {
-  let cut = 0;
-  while (cut < ROAD_CLASSES.length && distance > reaches[cut]!) cut++;
-  return cut;
-}
-
-/**
  * How far the verge either side drops below the carriageway.
  *
  * The same trick the settlement tracks and the paving apron use: the shoulders
@@ -735,8 +874,8 @@ function cutFor(distance: number, reaches: readonly number[]): number {
  * **It is written as the lift plus 1.5 and that is the rule rather than the
  * number**: the outer edge is laid a fixed depth *under the relief* whatever the
  * crown is doing, so raising the lift to clear the land mesh cannot quietly
- * un-bury the shoulder. It was 2.6 against a lift of 1.1 and it is 3.0 against
- * 1.5, which is the same 1.5 of burial either way.
+ * un-bury the shoulder. It has been 2.6 against a lift of 1.1, 3.0 against 1.5
+ * and 4.5 against 3.0, which is the same 1.5 of burial every time.
  */
 const SHOULDER_DROP = RIBBON_LIFT + 1.5;
 /** And how far out, as a multiple of the carriageway's own half-width. */
@@ -775,9 +914,9 @@ export interface RoadIndex {
  *
  * **The scan it exists to prevent is plants times roads.** `vegetation.ts` has
  * to keep a wood off a carriageway and it holds a couple of hundred plants
- * against 42,512 roads; testing the second against the first is the wrong way
- * round, and so is testing every road against every tile — at 42,512 dot
- * products a tile that is about half a millisecond, against a whole tile build
+ * against 17,238 roads; testing the second against the first is the wrong way
+ * round, and so is testing every road against every tile — at 17,238 dot
+ * products a tile that is a fifth of a millisecond, against a whole tile build
  * of 1.2. So a road is bucketed on its own middle, exactly as the streamer's
  * own tiles are, and a query walks the block of cells a road of the longest
  * possible reach could have arrived from.
@@ -793,8 +932,8 @@ export interface RoadIndex {
  * The one index over the shipped network, built once and shared.
  *
  * Two files have to keep something off a carriageway now — `vegetation.ts` a
- * plant and `life.ts` a herd — and the index is **28 ms and a bucket per road**
- * over 42,804 of them. Building it twice is the whole of that cost paid again
+ * plant and `life.ts` a herd — and the index is **13 ms and a bucket per road**
+ * over 17,238 of them (2026-09-08). Building it twice is that cost paid again
  * for an identical answer, so the second caller gets the first one's. Keyed on
  * the arrays themselves rather than on a flag: `main.ts` hands the same pruned
  * list to both, and a caller that arrives with a *different* network — a check
@@ -945,7 +1084,11 @@ export interface RoadStats {
 export interface Roads {
   group: THREE.Group;
   stats: RoadStats;
-  /** Every road, as baked. For the console and for `check-world.ts`. */
+  /**
+   * Every road in `roads.bin`, which is every road that is drawn: the bake
+   * joins the built towns and there is no load-time pass left. For the console
+   * and for `check-world.ts`.
+   */
   all: readonly Road[];
   /** Degree of every place in the graph, for the console. */
   degrees(): { mean: number; max: number; isolated: number; histogram: number[] };
@@ -966,14 +1109,25 @@ export interface Roads {
  * **Read off the drawn geometry rather than chosen.** A cross-section is four
  * points: the crown at `±half` sits at `RIBBON_LIFT` and the shoulder at
  * `±half * SHOULDER_SPREAD` sits at `RIBBON_LIFT - SHOULDER_DROP`, which is 1.5
- * *below* the relief. The straight line between them crosses the ground exactly
- * half way, because `SHOULDER_DROP` is `RIBBON_LIFT + 1.5` and the two halves of
- * that are equal — so the surface a foot stands on runs from full lift at 1.0 of
- * the half-width to nothing at `1 + (SHOULDER_SPREAD - 1) / 2` = 1.4 of it, and
- * the ramp is a fact about the road rather than a courtesy to the player. That
- * is why a kerb needs `KERB_BLEND` and a road does not.
+ * *below* the relief. The straight line between them crosses the ground where
+ * the lift has been used up, which is `RIBBON_LIFT / SHOULDER_DROP` of the way
+ * out — so the surface a foot stands on runs from full lift at 1.0 of the
+ * half-width to nothing at 1.533 of it, and the ramp is a fact about the road
+ * rather than a courtesy to the player. That is why a kerb needs `KERB_BLEND`
+ * and a road does not.
+ *
+ * **The ratio is not a half any more and the arithmetic never was one.** At a
+ * lift of 1.5 the drop was 3.0 and the crossing landed exactly half way, at
+ * 1.400; at 3.0 against 4.5 it is two thirds of the way, at 1.533. The formula
+ * is unchanged — it was already written as the ratio — and this is the sentence
+ * that used to say "half" and would have been wrong.
+ *
+ * **Exported, because `pnpm check` had this arithmetic written out longhand**:
+ * `half * (1 + 0.8 * (RIBBON_LIFT / (RIBBON_LIFT + 1.5)))`, which is two files
+ * answering "where does the drawn shoulder cross the ground?" and therefore two
+ * chances to disagree the next time either constant moves.
  */
-const CROWN_FALL = 1 + (SHOULDER_SPREAD - 1) * (RIBBON_LIFT / SHOULDER_DROP);
+export const CROWN_FALL = 1 + (SHOULDER_SPREAD - 1) * (RIBBON_LIFT / SHOULDER_DROP);
 
 interface Tile {
   /** Indices into `roads`. */
@@ -985,9 +1139,20 @@ interface Tile {
   mesh: THREE.Mesh | null;
   /** The band this tile is currently built for, or -1 if it is not built. */
   band: number;
-  /** And the lowest class it was built to draw; see `cutFor`. */
-  cut: number;
-  /** Roads it actually drew, which is not `members.length` once the class LOD bites. */
+  /**
+   * And which of its members were admitted when it was, as a hash; see `scan`.
+   *
+   * **The rebuild key is the admitted *set* and not a bound on it.** It used to
+   * be a *class cut*: a conservative question about the whole tile — a class was
+   * only dropped when no road in it could pass that class — with the fine work
+   * done per road inside `raise`, which meant a tile went on drawing whatever it
+   * was built with until its cut moved. The exact key costs one FNV pass over
+   * the tile's members per scan and it is what lets a road appear the frame the
+   * eye comes into its reach rather than the frame the tile's cut happens to
+   * change. 0 means it is not built.
+   */
+  sign: number;
+  /** Roads it actually drew, which is not `members.length` once the LOD bites. */
   drawn: number;
   triangles: number;
   bytes: number;
@@ -1062,7 +1227,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         bound: 0,
         mesh: null,
         band: -1,
-        cut: -1,
+        sign: 0,
         drawn: 0,
         triangles: 0,
         bytes: 0,
@@ -1090,6 +1255,39 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     tile.bound = reach * PLANET_RADIUS + 60;
     tile.anchor.copy(tile.centre).multiplyScalar(groundRadius(world, scratch.copy(tile.centre).multiplyScalar(PLANET_RADIUS)));
   }
+
+  // ------------------------------------------------------------------
+  // Which routes are worth drawing
+  // ------------------------------------------------------------------
+
+  /**
+   * The three points a road is priced at, on the sea-level sphere.
+   *
+   * **Three and not one, because a road is up to a thousand units long and its
+   * middle is not what you are looking at.** They used to be worked out inside
+   * the per-road test — a `roadPole` and a `roadPoint` every time a tile was
+   * rebuilt or estimated — and they are a pure function of the network, so they
+   * are worked out once here instead: 24 bytes a road against two normalises and
+   * a cross product per road per rescan. Sampled at sea level rather than on the
+   * relief because the tallest ground on the planet is 620 units against the
+   * shortest reach this is compared to, which is a couple of percent of a
+   * decision that is already a step function.
+   */
+  const samples = new Float64Array(roads.length * 9);
+  roads.forEach((road, i) => {
+    readEnd(road.a, endA);
+    readEnd(road.b, endB);
+    roadPole(endA, endB, pole);
+    roadPoint(endA, endB, road.bend, 0.5, point, pole);
+    for (const [k, v] of [endA, endB, point].entries()) {
+      samples[i * 9 + k * 3] = v.x * PLANET_RADIUS;
+      samples[i * 9 + k * 3 + 1] = v.y * PLANET_RADIUS;
+      samples[i * 9 + k * 3 + 2] = v.z * PLANET_RADIUS;
+    }
+  });
+
+  /** Set by `scan`: whether each road is close enough to be worth drawing. */
+  const roadDrawn = new Uint8Array(roads.length);
 
   // ------------------------------------------------------------------
   // Building one tile
@@ -1162,27 +1360,44 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   };
 
   /**
-   * How far the nearest end of a road is from the eye.
+   * Which roads are worth drawing from where the eye is now.
    *
-   * **Three points and not one, because a road is up to a thousand units long
-   * and its middle is not what you are looking at.** Sampled on the sea-level
-   * sphere rather than on the relief: the tallest ground on the planet is 620
-   * units and the shortest reach this is compared against is a lane's, so the
-   * error is a couple of percent of a decision that is already a step function.
+   * **The whole network at once, and it is the cheapest half of a scan.** A road
+   * is drawn when its *nearest* of three sample points is inside its class's
+   * reach — three squared distances, no square roots and no trigonometry — and
+   * the answer is global rather than per tile, so two tiles that share a
+   * junction cannot disagree about what is drawn near it.
+   *
+   * **It used to be per *route*, and the graph that needed that is gone.** When
+   * `roads.bin` was baked over the whole gazetteer a junction could stand on a
+   * place `isShown` does not build: two roads meeting there had distances
+   * differing by their own length, so one was drawn and the other was not and
+   * the carriageway ended in a field with nothing to explain it. The network is
+   * baked over the **built** towns now (see `builtGraph`), so every junction is
+   * a town you can walk into and a road that stops at one stops at something.
+   *
+   * The reach is a *class* table and not a pixel test, for the reason
+   * `ROAD_CLASSES` gives.
    */
-  const eyeDistanceTo = (road: Road): number => {
-    readEnd(road.a, endA);
-    readEnd(road.b, endB);
-    roadPole(endA, endB, pole);
-    roadPoint(endA, endB, road.bend, 0.5, point, pole);
-    return Math.min(
-      eye.distanceTo(scratch.copy(endA).multiplyScalar(PLANET_RADIUS)),
-      eye.distanceTo(scratch.copy(endB).multiplyScalar(PLANET_RADIUS)),
-      eye.distanceTo(scratch.copy(point).multiplyScalar(PLANET_RADIUS)),
-    );
-  };
+  function priceRoads(): void {
+    for (let i = 0; i < roads.length; i++) {
+      const reach = reaches[roads[i]!.cls] ?? reaches[0]!;
+      const limit = reach * reach;
+      let drawn = 0;
+      for (let k = 0; k < 3; k++) {
+        const dx = samples[i * 9 + k * 3]! - eye.x;
+        const dy = samples[i * 9 + k * 3 + 1]! - eye.y;
+        const dz = samples[i * 9 + k * 3 + 2]! - eye.z;
+        if (dx * dx + dy * dy + dz * dz <= limit) {
+          drawn = 1;
+          break;
+        }
+      }
+      roadDrawn[i] = drawn;
+    }
+  }
 
-  function raise(tile: Tile, band: number, cut: number): void {
+  function raise(tile: Tile, band: number, sign: number): void {
     const span = SPANS[band]!.span;
     const positions: number[] = [];
     const colors: number[] = [];
@@ -1212,22 +1427,18 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     for (const index of tile.members) {
       const road = roads[index]!;
       const style = ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!;
-      // The class reach, and it has to be applied *here* rather than only in
+      // The level of detail, and it has to be applied *here* rather than only in
       // the table it is written in. The first version admitted a tile and then
       // drew everything in it, so `ROAD_CLASSES[].reach` documented a
       // level-of-detail scheme that did not exist: at 6,000 units up the
       // streamer held 10,057 roads and 818 draw calls, nearly all of them lanes
-      // between villages three pixels apart.
-      //
-      // **And it is measured from the eye and per road, which is where the
-      // second half of that same bug was hiding.** The reach was compared
-      // against the *tile's* distance from the *player*, so a tile four degrees
-      // across admitted or refused a thousand units of road on one number, and
-      // pulling the camera up left the player on the ground deciding what a
-      // lane six thousand units below was worth. `cut` is the tile's own
-      // conservative answer and this is the honest one.
-      if (road.cls < cut) continue;
-      if (eyeDistanceTo(road) > reaches[road.cls]!) continue;
+      // between villages three pixels apart. It is per road and from the eye —
+      // see `priceRoads` — and `tile.sign` is what rebuilds a tile when the
+      // drawn set moves.
+      if (roadDrawn[index] === 0) continue;
+      readEnd(road.a, endA);
+      readEnd(road.b, endB);
+      roadPole(endA, endB, pole);
       // Where the ribbon stops: a town's plots are not carriageway, and the
       // town's own track is what covers the last few units. See `roadSpan`.
       if (!roadSpan(endA, endB, road.bend, pole, roadClip(places[road.a]!), roadClip(places[road.b]!), stretch)) {
@@ -1243,16 +1454,18 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       /**
        * The surface, sampled once per road at its middle.
        *
-       * **A trunk road and a lane are different substances, not the same one at
-       * two widths**, and that is the distinction the user asked for after the
-       * first version: *las carreteras asfaltadas con caminos de hierbas.* So a
-       * `road` or a `trunk` is *made* and takes the region's own carriageway
-       * colour — the same `GroundStyle.road` the streets inside the towns at
-       * either end are paved with, so a road entering a town continues rather
-       * than changing surface at the sign. A `lane` is a **dirt track**: earth,
-       * from `dirt`, which is the local ground shifted to brown rather than the
-       * local ground with its saturation taken off, because the second of those
-       * is what the eye calls grass.
+       * **Every road drawn is made ground.** It takes the region's own
+       * carriageway colour — the same `GroundStyle.road` the streets inside the
+       * towns at either end are paved with, so a road entering a town continues
+       * rather than changing surface at the sign — and a trunk is that same
+       * surface worn darker by what runs on it.
+       *
+       * There used to be a third answer here: a `lane` was drawn as a dirt
+       * track, `dirt(ground)`, the local ground shifted to brown. It was the
+       * right colour for the wrong object — *¿son caminos? Fuera, solo
+       * carreteras* — and what the user wanted was **one material**, so a lane
+       * is drawn in the same made surface as everything else and is narrower.
+       * The branch is gone rather than unreachable.
        *
        * The region comes from the road's own end rather than from the ground it
        * crosses, because a carriageway is a thing people built and `regions.ts`
@@ -1260,14 +1473,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
        */
       roadPoint(endA, endB, road.bend, 0.5, point, pole);
       groundColorAt(world, scratch.copy(point).multiplyScalar(PLANET_RADIUS), ground);
-      const surfaceStyle = groundStyleFor(regionOf(road.a).id);
-      if (road.cls === 0) {
-        dirt(ground, crown);
-      } else {
-        crown.setHex(surfaceStyle.road);
-        // A trunk is the same surface worn darker by what runs on it.
-        if (road.cls === 2) crown.lerp(ink, 0.12);
-      }
+      crown.setHex(groundStyleFor(regionOf(road.a).id).road);
+      if (road.cls === 2) crown.lerp(ink, 0.12);
       trodden(ground, verge);
       /**
        * The edge of the carriageway, and it costs **no triangle at all**.
@@ -1294,7 +1501,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
        * a dark neutral band on the ground is what a *shadow* looks like in this
        * scene. `ink` is a warm brown and the mix is small.
        */
-      kerb.copy(crown).lerp(ink, road.cls === 0 ? 0.16 : 0.26);
+      kerb.copy(crown).lerp(ink, 0.26);
 
       /**
        * One cross-section, into four points.
@@ -1332,11 +1539,11 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       }
     }
 
-    // A tile every one of whose roads is too minor to draw at this distance is
+    // A tile every one of whose roads was clipped away by its two towns is
     // *built* — it is built as nothing. Leaving `band` at -1 would put it back
     // in the queue on every scan for as long as the viewer stood still.
     tile.band = band;
-    tile.cut = cut;
+    tile.sign = sign;
     if (positions.length === 0) return;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -1363,7 +1570,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     tile.mesh.geometry.dispose();
     tile.mesh = null;
     tile.band = -1;
-    tile.cut = -1;
+    tile.sign = 0;
     tile.drawn = 0;
     tile.triangles = 0;
     tile.bytes = 0;
@@ -1386,21 +1593,48 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   };
 
   let wanted: Tile[] = [];
-  let queue: { tile: Tile; band: number; cut: number }[] = [];
+  let queue: { tile: Tile; band: number; sign: number }[] = [];
   const scannedAt = new THREE.Vector3(Infinity, Infinity, Infinity);
   const scannedAxis = new THREE.Vector3(0, 0, 1);
   let scannedRange = -1;
   /** Turning the knob forces a rescan; nothing else can see that it moved. */
   let scannedDetail = -1;
   /**
-   * And so does the prominence knob, which is new: `roadClip` asks `isShown`,
-   * so `atlas.prominence(0)` changes where every ribbon stops. The *prune*
-   * still ran at load and stays as it was — that is a different question and
-   * `pruneHiddenLeaves` says why — but the clip is live and a stale one would
-   * leave a ribbon stopping at the edge of a town that is no longer built.
+   * And so does the prominence knob: `roadClip` asks `isShown`, so
+   * `atlas.prominence(0)` changes where every ribbon stops. The *network* does
+   * not follow it at all — `roads.bin` is a graph over the places that were
+   * built when it was baked, so the knob is a re-bake and not a reload — but
+   * the clip is live, and a stale one would leave a ribbon stopping at the edge
+   * of a town that is no longer built.
    */
   let scannedProminence = -1;
   const cone = createViewCone(keepAllWithin);
+
+  /**
+   * The admitted members of a tile, as a hash, and 0 for none of them.
+   *
+   * **The rebuild key, and it is the drawn set itself rather than a bound on
+   * it.** The key used to be a class cut — the tile's *nearest possible* road
+   * against the class table — and the fine per-road test ran inside `raise`, so
+   * a tile went on drawing whatever it was built with until its cut moved. That
+   * was tolerable when the test was per road and it is not now that it is per
+   * route: a unit spanning two tiles would be drawn by the one that happened to
+   * be rebuilt. FNV-1a over the admitted indices, in `members` order, so a swap
+   * of one road for another shows where a count would not.
+   */
+  function signOf(tile: Tile): number {
+    let sign = 2166136261;
+    let count = 0;
+    for (const index of tile.members) {
+      if (roadDrawn[index] === 0) continue;
+      count++;
+      sign = Math.imul(sign ^ (index + 1), 16777619);
+    }
+    // 0 means "nothing here is worth drawing"; a hash that lands on it is
+    // bumped rather than confused with it.
+    if (count === 0) return 0;
+    return (sign >>> 0) || 1;
+  }
 
   function scan(viewer: THREE.Vector3, altitude: number): void {
     const reach = reachFor(altitude);
@@ -1410,7 +1644,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     // what `check-world.ts` gets.
     eye.copy(cone.active ? cone.apex : viewer);
     classReaches(reaches);
-    const candidates: { tile: Tile; distance: number; band: number; cut: number }[] = [];
+    priceRoads();
+    const candidates: { tile: Tile; distance: number; band: number; sign: number }[] = [];
     for (const tile of list) {
       const distance = tile.anchor.distanceTo(viewer);
       if (distance - tile.bound > slantRange(altitude, reach)) continue;
@@ -1418,13 +1653,12 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         ? cone.keeps(tile.anchor, tile.bound)
         : cone.admits(tile.anchor, tile.bound);
       if (!admitted) continue;
-      const fromEye = tile.anchor.distanceTo(eye);
-      // The tile's *nearest possible* road for the class cut and its middle for
-      // the span band: the first is a promise that nothing inside was wrongly
-      // dropped, the second is a chord error and the middle is where it is.
-      const cut = cutFor(Math.max(0, fromEye - tile.bound), reaches);
-      if (cut >= ROAD_CLASSES.length) continue;
-      candidates.push({ tile, distance, band: bandFor(fromEye), cut });
+      const sign = signOf(tile);
+      // Nothing in it is worth drawing from here. It is dropped rather than
+      // built as nothing, which is where the class cut's early exit used to go.
+      if (sign === 0) continue;
+      // The band is a chord error and the tile's middle is where it is.
+      candidates.push({ tile, distance, band: bandFor(tile.anchor.distanceTo(eye)), sign });
     }
     candidates.sort((x, y) => x.distance - y.distance);
 
@@ -1435,17 +1669,17 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     for (const candidate of candidates) {
       const cost = candidate.tile.triangles > 0
         ? candidate.tile.triangles
-        : estimate(candidate.tile, candidate.band, candidate.cut);
+        : estimate(candidate.tile, candidate.band);
       if (triangles + cost > triangleBudget() && wanted.length > 0) continue;
       triangles += cost;
       wanted.push(candidate.tile);
       keep.add(candidate.tile);
       // A tile whose band changed is rebuilt: the spans it was built with are
-      // the wrong length for where it is now. So is one whose cut changed —
-      // a class it was drawing has gone out of reach, or one it was not has
+      // the wrong length for where it is now. So is one whose drawn set changed
+      // — a route it was drawing has gone out of reach, or one it was not has
       // come back in.
-      if (candidate.tile.band !== candidate.band || candidate.tile.cut !== candidate.cut) {
-        queue.push({ tile: candidate.tile, band: candidate.band, cut: candidate.cut });
+      if (candidate.tile.band !== candidate.band || candidate.tile.sign !== candidate.sign) {
+        queue.push({ tile: candidate.tile, band: candidate.band, sign: candidate.sign });
       }
     }
     for (const tile of list) if (!keep.has(tile)) drop(tile);
@@ -1455,17 +1689,16 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    * Roughly what a tile costs before it is built. Six triangles a span.
    *
    * The clip comes off the length rather than being solved for: `roadSpan` is
-   * twelve halvings a road and this runs over every member of every candidate
+   * fourteen halvings a road and this runs over every member of every candidate
    * tile on every rescan, where `raise` runs over one tile that is being built.
    * Subtracting the two clearances is the same number to within the bow.
    */
-  function estimate(tile: Tile, band: number, cut: number): number {
+  function estimate(tile: Tile, band: number): number {
     const span = SPANS[band]!.span;
     let total = 0;
     for (const index of tile.members) {
       const road = roads[index]!;
-      if (road.cls < cut) continue;
-      if (eyeDistanceTo(road) > reaches[road.cls]!) continue;
+      if (roadDrawn[index] === 0) continue;
       readEnd(road.a, endA);
       readEnd(road.b, endB);
       const length = endA.angleTo(endB) * PLANET_RADIUS
@@ -1484,8 +1717,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    * How high the ribbon rides at a point, as a radius, or 0 if the point is not
    * on one.
    *
-   * **The player used to walk at `elevationAt` and the ribbon is 1.5 above it,
-   * so he waded through every road in the world to the shin.** This is the half
+   * **The player used to walk at `elevationAt` and the ribbon is 3.0 above it,
+   * so he waded through every road in the world to the thigh.** This is the half
    * of the answer that belongs to `roads.ts`: the ribbon's own surface at a
    * point, on the terms the ribbon is actually laid — the same `roadPoint`
    * curve, the same `roadSpan` clip, the same `RIBBON_LIFT`, and the same
@@ -1494,21 +1727,21 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    *
    * Four things about it are deliberate:
    *
-   * - **The clip is applied.** A road stops at `radiusFor - TOWN_OVERLAP` at a
-   *   *shown* town and the town's own plinth takes over from there, so inside
-   *   that disc this answers nothing and `madeHeightAt` answers instead.
+   * - **The clip is applied.** A road stops at `radiusFor + TOWN_STANDOFF` at a
+   *   *shown* town and the town's own track and plinth take over from there, so
+   *   inside that disc this answers nothing and `madeHeightAt` answers instead.
    * - **The band taper is not.** `BAND_WIDTH` narrows the drawn strip at
    *   distance, which is a level of detail; the ground under your feet is
    *   always band 0 and a surface that changed width with the camera's altitude
    *   would be a road you fall off by climbing.
-   * - **The class reach is not either**, for the same reason: whether a lane is
-   *   worth *drawing* from here has nothing to do with whether it is there.
+   * - **The route's reach is not either**, for the same reason: whether a road
+   *   is worth *drawing* from here has nothing to do with whether it is there.
    * - **The ramp is the geometry.** Full lift out to `half`, then down to the
    *   relief by `CROWN_FALL * half`, which is where the drawn shoulder crosses
    *   the ground. There is no smoothing constant in it.
    *
    * The cost is one grid query — `roadIndexFor`'s, shared with the wood and the
-   * herd, so the 28 ms of bucketing is paid once for the planet — and a
+   * herd, so the 13 ms of bucketing is paid once for the planet — and a
    * point-to-chord walk over the handful of roads it returns. Called once a
    * frame from `player.ts`.
    */
@@ -1683,9 +1916,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         let built = 0;
         while (queue.length > 0 && performance.now() - began < detailBuild(BUILD_BUDGET_MS)) {
           const next = queue.shift()!;
-          if (next.tile.band === next.band && next.tile.cut === next.cut) continue;
+          if (next.tile.band === next.band && next.tile.sign === next.sign) continue;
           drop(next.tile);
-          raise(next.tile, next.band, next.cut);
+          raise(next.tile, next.band, next.sign);
           built++;
         }
         if (built > 0) {

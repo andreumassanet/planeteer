@@ -1,5 +1,5 @@
 /**
- * `/fauna-sheet.html` — every animal, its variants, its poses, a herd of them,
+ * `/sheets/fauna.html` — every animal, its variants, its poses, a herd of them,
  * and the walk cycle laid out as phases.
  *
  * **The gait band is the reason this page exists.** `pnpm fauna` can say that no
@@ -15,17 +15,16 @@
  * nothing until the two things are in the same frame. So the last band stands
  * one of each beside a villager out of `people.ts`.
  *
- * Dev-only, like `flags.html`: it is not in `vite.config.ts`'s `input`, and the
- * reason that file gives applies here too — an extra entry splits the Three
- * chunk and the world's first load pays for a page nobody opens in production.
+ * Dev-only, like every sheet in this directory: none of them is in
+ * `vite.config.ts`'s `input`, and that file carries the measurement saying why.
  */
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
-import { PALETTE, SKY_TOP } from './theme.ts';
-import { createSceneryContext } from './scenery/contract.ts';
-import { buildPerson } from './scenery/people.ts';
-import { lookFor } from './scenery/dress.ts';
-import { rngFrom } from './scenery/random.ts';
+import { PALETTE, SKY_TOP } from '../theme.ts';
+import { createSceneryContext } from '../scenery/contract.ts';
+import { buildPerson } from '../scenery/people.ts';
+import { lookFor } from '../scenery/dress.ts';
+import { rngFrom } from '../scenery/random.ts';
 import {
   ANIMALS,
   FAUNA_STYLES,
@@ -41,9 +40,9 @@ import {
   namedByTables,
   reviewAnimal,
   variantRng,
-} from './fauna/index.ts';
-import type { Animal, FaunaContext, FaunaStyle, RegionId } from './fauna/index.ts';
-import type { Pose } from './fauna/body.ts';
+} from '../fauna/index.ts';
+import type { Animal, FaunaContext, FaunaStyle, RegionId } from '../fauna/index.ts';
+import type { Pose } from '../fauna/body.ts';
 
 const sceneryCtx = createSceneryContext();
 const ctx: FaunaContext = createFaunaContext(sceneryCtx);

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar } from './avatar.ts';
-import type { Avatar } from './avatar.ts';
-import { measure } from './monuments/contract.ts';
-import { OutlineEffect } from './outline.ts';
-import { PALETTE, SKY_TOP } from './theme.ts';
-import { BOAT_DECK, PLANE_SEAT, buildBoat, buildPlane } from './vehicles.ts';
+import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar } from '../avatar.ts';
+import type { Avatar } from '../avatar.ts';
+import { measure } from '../monuments/contract.ts';
+import { OutlineEffect } from '../outline.ts';
+import { PALETTE, SKY_TOP } from '../theme.ts';
+import { BOAT_DECK, PLANE_SEAT, buildBoat, buildPlane } from '../vehicles.ts';
 
 /**
  * The avatar's review sheet, and the reason it exists is the one in the brief:

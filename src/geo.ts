@@ -152,8 +152,8 @@ export function insideRing(points: number[][], x: number, y: number): boolean {
  * **It is 168 KB and it used to be 456**, and nothing about the data changed:
  * `countries.json` spent fourteen characters on `[66.52,37.35]` to carry a step
  * along a coastline, and `src/pack.ts` spends two. Exported on its own because
- * two review sheets want the country list without the planet — `flags.html`
- * draws every flag from it and `scenery-sheet.html` checks its region table
+ * two review sheets want the country list without the planet — `sheets/flags.html`
+ * draws every flag from it and `sheets/scenery.html` checks its region table
  * against it — and a second `fetch` of a format that is no longer self-
  * describing is a second place to get it wrong.
  */

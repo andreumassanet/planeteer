@@ -12,7 +12,7 @@ import type { Monument } from './contract.ts';
  *    this toolkit draws neither texture nor motion. So the monument is the
  *    landform and the water is what makes it visible.
  * 2. **The contact sheet's quarter camera sits 13.4 degrees above the model**
- *    (`VIEWS` in `contact-sheet.ts`), so a gorge narrower than it is deep cannot
+ *    (`VIEWS` in `sheets/monuments.ts`), so a gorge narrower than it is deep cannot
  *    be seen into and has to be cut open. The arithmetic is Victoria's; the
  *    conclusion here is the opposite one, and that is the whole point — see
  *    below.

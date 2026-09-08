@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, groundColorAt, groundRadius } from './globe.ts';
-import { reliefAt } from './terrain.ts';
+import { gradeAt, reliefAt } from './terrain.ts';
+import type { Slope } from './terrain.ts';
 import { createToonRamp } from './theme.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolByte } from './lights.ts';
 import {
@@ -9,6 +10,8 @@ import {
   GROUND_LIFT,
   KERB_BLEND,
   KERB_DROP,
+  MAX_CUT,
+  TERRACE_STEP,
   cellKey,
   dirt,
   floorColor,
@@ -19,8 +22,6 @@ import {
 import { RIBBON_LIFT, roadPoint, roadPole } from './roads.ts';
 import type { Road } from './roads.ts';
 import type { FloorField, GroundStyle } from './scenery/ground.ts';
-import { TOWN_BANK, inRiverCorridor, riverCorridorsNear, riverIndexFor, widestRiverClearance } from './rivers.ts';
-import type { RiverCorridor, RiverLine } from './rivers.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
 import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor } from './places.ts';
@@ -408,32 +409,36 @@ const MONUMENT_CLEARANCE = 8;
 const WIDEST_FOOTPRINT = 55;
 
 /**
- * How much of its own height a building may be buried by the ground behind it.
+ * **What used to be here was `MAX_BURIAL`, and the history is worth keeping
+ * because it is the argument the terracing had to answer.**
  *
- * `placement.ts` asks the ground once, at a monument's centre, and `terrain.ts`
- * answers the extent problem by flattening a pad under it. A settlement cannot
- * have that — 29,545 pads of a hundred units with a skirt four times as wide
- * would level about a third of the planet's land — so each building beds itself
- * to the *lowest* corner under its own footprint and takes whatever burial the
- * slope gives it, and the only question is when to refuse.
+ * `placement.ts` asks the ground once at a monument's centre and `terrain.ts`
+ * flattens a pad under it. A settlement could not have that — 29,545 pads of a
+ * hundred units with a skirt four times as wide would level about a third of
+ * the planet's land — so a building bedded itself into the relief, to the
+ * *lowest* corner under its own footprint, and took whatever burial the slope
+ * gave it. The only question left was when to refuse, and two answers were
+ * tried:
  *
- * **The first version of this asked the wrong question and deleted every
- * mountain city on the planet.** It capped the *gradient* at 0.6, which is a
- * sane-sounding 31 degrees — and the relief at La Paz runs at 1.19, at Quito
- * 1.12, at Innsbruck 0.97, measured over both 7 units and 30 and identical at
- * both, because up there the land is not rough, it is a smooth plane tilted at
- * 45 degrees. So La Paz built 0 of 35 plots, Quito 0 of 31, Bogota 0 of 63:
- * every capital in the Andes was an empty field.
+ * - **A gradient cap, at 0.6.** It deleted every mountain city on the planet:
+ *   the relief runs at 1.19 at La Paz, 1.12 at Quito and 0.97 at Innsbruck,
+ *   measured over 7 units and over 30 and identical at both, because up there
+ *   the land is not rough, it is a smooth plane tilted at 45 degrees. La Paz
+ *   built 0 of 35 plots, Quito 0 of 31, Bogota 0 of 63.
+ * - **`MAX_BURIAL`, the drop across a footprint against the height of what
+ *   stands on it.** Right for a bedded building, because a slope does not hide
+ *   a house — the ground uphill of it does — and a tower survives ground a hut
+ *   cannot.
  *
- * A gradient is the wrong measure because a slope does not hide a building —
- * *the ground uphill of it* does, and how much it hides depends on how tall the
- * building is. On a hillside a house bedded to its low corner is fully visible
- * from below and buried to the eaves from above, which is what a hill town looks
- * like. It only stops being a building when the ground behind it rises past its
- * own roof. So the test is the drop across the footprint against the height of
- * what stands there, and a tower survives ground a hut cannot.
+ * A building stands on a **terrace** now (`terraceAt`, and `TERRACE_STEP` in
+ * `scenery/ground.ts`), which is a level surface cut into the hill, so the hill
+ * cannot bury it at all and neither question applies to it. What the terrace
+ * asks instead is `MAX_CUT`: how deep the town may cut one cell, which is the
+ * same thing as how tall a wall it may show. The bedding rule survives for the
+ * things that are *not* on the floor — the trees and the scatter in the green
+ * between the cells — and it reads `gradeAt` in `terrain.ts` rather than a copy
+ * of its own probes.
  */
-const MAX_BURIAL = 1.0;
 
 // ---------------------------------------------------------------------------
 // The ground a town stands on
@@ -1023,15 +1028,6 @@ interface Plan {
    * about where the town ends the first time either is tuned.
    */
   core: number;
-  /**
-   * Positions the water refused: plots, yards and the centre, counted as
-   * *refusals* rather than as plots because a plot that is blocked is asked
-   * about once and a garden beside a plot is asked about again.
-   *
-   * Reported so `survey` can say how many towns a river actually costs
-   * something and what the worst of them is. See `RiverCorridor` in `rivers.ts`.
-   */
-  riverCut: number;
 }
 
 /**
@@ -1050,7 +1046,6 @@ function planFor(
   radius: number,
   pop: number,
   keepouts: readonly Keepout[],
-  corridors: readonly RiverCorridor[],
 ): Plan {
   const urbanity = urbanityOf(pop);
   const pitch = pitchFor(style);
@@ -1126,16 +1121,11 @@ function planFor(
     });
   }
 
-  let riverCut = 0;
   const blocked = (x: number, z: number, extra: number): boolean => {
     for (const keepout of keepouts) {
       const dx = x - keepout.x;
       const dz = z - keepout.z;
       if (dx * dx + dz * dz < (keepout.radius + extra) ** 2) return true;
-    }
-    if (inRiverCorridor(corridors, x, z, extra)) {
-      riverCut++;
-      return true;
     }
     return false;
   };
@@ -1252,7 +1242,7 @@ function planFor(
       placed.push({ partId: rng.weighted(scatter), variant: rng.int(VARIANTS), plot, scale: rng.spread(1, 0.2) });
     }
   }
-  return { placed, cleared, core, riverCut };
+  return { placed, cleared, core };
 }
 
 // ---------------------------------------------------------------------------
@@ -1445,9 +1435,6 @@ interface Slot {
   buildings: number;
   /** Cells of floor under it. See `Ground.paved`; `survey` reads it. */
   paved: number;
-  /** What the water refused it: plan positions, and cells of floor. */
-  riverCut: number;
-  riverCells: number;
   /**
    * The floor this town is standing on, for `madeHeightAt`, or null while it is
    * not standing.
@@ -1494,13 +1481,6 @@ export interface SettlementOptions {
    * what they were before `roads.json` existed.
    */
   roads?: readonly Road[];
-  /**
-   * The baked river lines, so a town's plots and its floor keep off the water.
-   *
-   * Omit them and a settlement is built as it was before rivers existed, which
-   * is a town with the Danube running under its paving — see `RiverCorridor`.
-   */
-  rivers?: readonly RiverLine[];
 }
 
 export function createSettlements(
@@ -1552,8 +1532,6 @@ export function createSettlements(
       buried: 0,
       buildings: 0,
       paved: 0,
-      riverCut: 0,
-      riverCells: 0,
       floor: null,
       failed: false,
       peopled: false,
@@ -1745,21 +1723,6 @@ export function createSettlements(
   /** Where one lamp stands, reused: `raise` places up to thirty of them a town. */
   const lampAt = new THREE.Vector3();
   const keepouts: Keepout[] = [];
-  /** And the water, which is a line rather than a disc. See `RiverCorridor` in `rivers.ts`. */
-  const corridors: RiverCorridor[] = [];
-  const riverLines = options.rivers ?? [];
-  const riverIndex = riverLines.length > 0 ? riverIndexFor(riverLines) : null;
-  const riverHits: number[] = [];
-  /**
-   * How far out of a town a river chord still matters, in world units.
-   *
-   * The largest settlement is `BIGGEST_SETTLEMENT` of radius, its plots reach
-   * that far, and the floor's own grow-by-one reaches one lattice cell past
-   * them — the widest pitch the kit builds is 20.9. Add the widest bank (5.5)
-   * and the margin, and a chord whose middle is further out than this cannot
-   * reach anything the town places.
-   */
-  const RIVER_GATHER = BIGGEST_SETTLEMENT + 21 + widestRiverClearance() + TOWN_BANK;
 
   /** Where a local offset from the settlement's centre lands on the sphere. */
   function directionAt(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
@@ -1771,6 +1734,112 @@ export function createSettlements(
   }
 
   /** Rebuilds the tangent frame, the ground origin and the keepouts about `up`. */
+  /**
+   * The lattice of the town being built: its pitch, its seed, and the elevation
+   * every terrace is quantised about.
+   *
+   * **Hoisted out of `buildGround`, and that is the terracing in one sentence.**
+   * The floor used to be decided after the buildings were placed, because a
+   * floor was a constant offset from the relief and a building could be seated
+   * against the relief directly. A terrace is a *choice* — which of a few level
+   * surfaces this cell is cut to — and a house has to stand on the same one its
+   * cell will be paved at, so the choice has to exist before either.
+   */
+  let cellPitch = 0;
+  let cellSeed = '';
+  let baseElevation = 0;
+  /** One lattice corner per key, and one terrace per cell. `raise` clears both. */
+  const corners = new Map<number, Corner>();
+  const terraces = new Map<number, number | null>();
+
+  /**
+   * One corner of the lattice, cached: where it is, how high the ground is, and
+   * which way up is.
+   *
+   * The jitter is seeded on the corner rather than on the cell, so the two cells
+   * either side of an edge agree about where it runs.
+   */
+  function cornerAt(i: number, j: number): Corner {
+    const key = cellKey(i, j);
+    const known = corners.get(key);
+    if (known !== undefined) return known;
+    const rng = rngFrom(cellSeed, 'corner', i, j);
+    const x = (i - 0.5) * cellPitch + rng.jitter() * cellPitch * CORNER_JITTER;
+    const z = (j - 0.5) * cellPitch + rng.jitter() * cellPitch * CORNER_JITTER;
+    directionAt(x, z, groundDir);
+    // One query answers both questions: elevation 0 *is* the sea, because the
+    // coast is a shelf with a cliff and there is no mesh below it.
+    const elevation = world.elevationAt(groundDir);
+    groundLocal
+      .copy(groundDir)
+      .multiplyScalar(PLANET_RADIUS + Math.max(0, elevation))
+      .sub(origin)
+      .applyMatrix4(inverse);
+    // `inverse` is the basis transposed and carries no translation, so it takes
+    // a direction as readily as a point.
+    localUp.copy(groundDir).applyMatrix4(inverse);
+    const made: Corner = {
+      x, z,
+      lx: groundLocal.x, ly: groundLocal.y, lz: groundLocal.z,
+      elevation: Math.max(0, elevation),
+      ux: localUp.x, uy: localUp.y, uz: localUp.z,
+      sea: elevation <= 0,
+    };
+    corners.set(key, made);
+    return made;
+  }
+
+  /** That corner, raised to an elevation of its own rather than the ground's. */
+  function pointAt(corner: Corner, elevation: number, into: number[]): number[] {
+    const rise = elevation - corner.elevation;
+    into[0] = corner.lx + corner.ux * rise;
+    into[1] = corner.ly + corner.uy * rise;
+    into[2] = corner.lz + corner.uz * rise;
+    return into;
+  }
+
+  /**
+   * The elevation this cell's terrace is cut to, or null where the town cannot
+   * cut one at all.
+   *
+   * **The quantiser is what makes a hillside town a staircase instead of a
+   * ramp**, and it is taken about the town's *own centre*: a cell is `n` steps
+   * above or below the elevation the anchor stands at, `n` whole. Half the
+   * built world varies by under four units across its whole footprint
+   * (2026-09-07), so half the world comes out at `n = 0` everywhere and is the
+   * single flat plinth it was before terracing existed.
+   *
+   * It quantises the *highest* of the four corners rather than their mean, and
+   * that is what keeps the paving over the ground it was cut into: rounding puts
+   * the terrace within half a step — 2 units — of that corner, and `GROUND_LIFT`
+   * is 3, so the floor clears every corner of its own cell by at least a unit.
+   *
+   * **`MAX_CUT` is the refusal**, and it is the rule the user asked for in the
+   * shape the geometry can honour: not "no town on a slope" but "no cell the
+   * town would have to cut deeper than this", which is the same thing as a cap
+   * on how tall a wall it can show. What it costs is measured in `survey`, town
+   * by town.
+   */
+  function terraceAt(col: number, row: number): number | null {
+    const key = cellKey(col, row);
+    const known = terraces.get(key);
+    if (known !== undefined) return known;
+    const a = cornerAt(col, row);
+    const b = cornerAt(col + 1, row);
+    const c = cornerAt(col + 1, row + 1);
+    const d = cornerAt(col, row + 1);
+    let level: number | null = null;
+    if (!a.sea && !b.sea && !c.sea && !d.sea) {
+      const high = Math.max(a.elevation, b.elevation, c.elevation, d.elevation);
+      const low = Math.min(a.elevation, b.elevation, c.elevation, d.elevation);
+      if (high - low <= MAX_CUT) {
+        level = baseElevation + TERRACE_STEP * Math.round((high - baseElevation) / TERRACE_STEP);
+      }
+    }
+    terraces.set(key, level);
+    return level;
+  }
+
   function frameAt(): void {
     // The frame `placement.ts` builds, for the same reason: +Z along the ground
     // towards the pole, so every settlement on the planet is squared to the same
@@ -1798,20 +1867,6 @@ export function createSettlements(
       });
     }
 
-    /**
-     * And every river that reaches this town, as chords in the same frame.
-     *
-     * The gather is a grid query and not a sweep of the 805 baked lines —
-     * `riverIndexFor` is the wood's and the herd's index, so the
-     * bucketing is paid once for the planet — and the chords are the stored
-     * vertices themselves, which is what `rivers.ts` draws between. A line runs
-     * out of the town at both ends, so the pieces are filtered on their own
-     * midpoints rather than the line being clipped: a chord whose middle is
-     * further out than the gather cannot reach a plot.
-     */
-    if (riverIndex !== null) {
-      riverCorridorsNear(riverIndex, riverLines, up, across, north, RIVER_GATHER, TOWN_BANK, corridors, riverHits);
-    }
   }
 
   // ------------------------------------------------------------------
@@ -1874,24 +1929,15 @@ export function createSettlements(
      */
     paved: number;
     /**
-     * Cells the grow-by-one wanted and the water refused. See `RiverCorridor` in `rivers.ts`.
-     *
-     * The *plots* are already clear of the river — `planFor` refuses them, so
-     * no building comes up on the bank and `built` never holds one — but the
-     * floor is the built cells **grown by one**, and a grow is not a plot: two
-     * houses on opposite banks of a brook would pave the water between them
-     * and the town would read as a culvert. This counts what that costs.
-     */
-    riverCells: number;
-    /**
-     * The paved set itself, which is what a foot has to be able to ask about.
+     * The paved set itself, with the terrace each cell was cut to, which is what
+     * a foot has to be able to ask about.
      *
      * Returned rather than rebuilt: the floor is the built cells grown by one
      * and clipped to a seeded core radius, and a second implementation of that
      * in a point query is a plinth the player stands on where the town has not
      * paved. See `Slot.floor` and `floorLiftAt`.
      */
-    cells: ReadonlySet<number>;
+    terraces: Map<number, number>;
   }
 
   /** One lattice corner: where it is, and whether it is standing in the sea. */
@@ -1903,12 +1949,31 @@ export function createSettlements(
     lx: number;
     ly: number;
     lz: number;
+    /**
+     * The ground's own height above sea level here, and the local direction
+     * "up" at this corner.
+     *
+     * **A terrace is a level surface and a level surface is not a constant
+     * `ly`.** The town's frame is flat and the planet is not, so a cell 150
+     * units out sits 0.7 units lower in the frame than one at the centre at the
+     * same elevation — a third of a step, on a face whose whole job is to be
+     * one plane. Carrying the corner's own up means any height can be asked for
+     * exactly: `pointAt` walks along it from the ground the corner reported.
+     */
+    elevation: number;
+    ux: number;
+    uy: number;
+    uz: number;
     sea: boolean;
   }
 
 
   const groundDir = new THREE.Vector3();
   const groundLocal = new THREE.Vector3();
+  /** The local "up" at a lattice corner; see `Corner.ux`. */
+  const localUp = new THREE.Vector3();
+  /** What `gradeAt` fills for a plot that is bedded rather than stood on a floor. */
+  const plotSlope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
   const faceA = new THREE.Vector3();
   const faceB = new THREE.Vector3();
   const faceNormal = new THREE.Vector3();
@@ -2166,7 +2231,7 @@ export function createSettlements(
     urbanity: number,
     litPlots: readonly LitPlot[],
   ): Ground {
-    const out: Ground = { position: [], normal: [], color: [], glow: [], lamps: [], folk: [], kerbs: [], paved: 0, riverCells: 0, cells: new Set() };
+    const out: Ground = { position: [], normal: [], color: [], glow: [], lamps: [], folk: [], kerbs: [], paved: 0, terraces: new Map() };
     if (built.size === 0) return out;
 
     const style = slot.ground;
@@ -2235,7 +2300,14 @@ export function createSettlements(
      * lost eight of them to the sea. The answer to that is buildings, which is
      * `PLOT_PITCH`, `LOOSEST` and the fill above — not less floor.
      */
-    const core = new Set(built);
+    const levels = new Map<number, number>();
+    for (const key of built) {
+      const level = terraceAt(Math.floor(key / 1024) - 512, (key % 1024) - 512);
+      // A built cell has already been through `terraceAt` in the plot loop —
+      // that is what admitted the building standing on it — so this is a cache
+      // hit and a `null` here would be a building on a cell with no floor.
+      if (level !== null) levels.set(key, level);
+    }
     const claims = new Map<number, number>();
     for (const key of built) {
       const col = Math.floor(key / 1024) - 512;
@@ -2243,7 +2315,7 @@ export function createSettlements(
       for (let dc = -1; dc <= 1; dc++) {
         for (let dr = -1; dr <= 1; dr++) {
           const near = cellKey(col + dc, row + dr);
-          if (core.has(near)) continue;
+          if (levels.has(near)) continue;
           claims.set(near, (claims.get(near) ?? 0) + 1);
         }
       }
@@ -2254,55 +2326,64 @@ export function createSettlements(
       const row = (near % 1024) - 512;
       const distance = Math.hypot(col * pitch, row * pitch);
       if (distance >= coreRadius * rngFrom(slot.seed, 'floor', col, row).range(0.84, 1.16)) continue;
-      // And not over the water. The cell's own half-diagonal is what it claims,
-      // so a cell whose corner reaches the bank is refused rather than paving up
-      // to the edge and hanging over it.
-      if (inRiverCorridor(corridors, col * pitch, row * pitch, pitch * Math.SQRT1_2)) {
-        out.riverCells++;
-        continue;
-      }
-      core.add(near);
+      // **And the grow obeys the terrace rule too.** A cell nothing was built on
+      // is exactly where the ground is allowed to be worst — the plots were
+      // refused there first — so paving it without asking is how a town grows a
+      // shelf out over a hillside.
+      const level = terraceAt(col, row);
+      if (level === null) continue;
+      levels.set(near, level);
     }
-    out.paved = core.size;
-    out.cells = core;
 
-    const corners = new Map<number, Corner>();
-    function cornerAt(i: number, j: number): Corner {
-      const key = cellKey(i, j);
-      const known = corners.get(key);
-      if (known !== undefined) return known;
-      const rng = rngFrom(slot.seed, 'corner', i, j);
-      const x = (i - 0.5) * pitch + rng.jitter() * pitch * CORNER_JITTER;
-      const z = (j - 0.5) * pitch + rng.jitter() * pitch * CORNER_JITTER;
-      directionAt(x, z, groundDir);
-      // One query answers both questions: elevation 0 *is* the sea, because the
-      // coast is a shelf with a cliff and there is no mesh below it.
-      const elevation = world.elevationAt(groundDir);
-      groundLocal
-        .copy(groundDir)
-        .multiplyScalar(PLANET_RADIUS + Math.max(0, elevation))
-        .sub(origin)
-        .applyMatrix4(inverse);
-      const made: Corner = {
-        x, z,
-        lx: groundLocal.x, ly: groundLocal.y, lz: groundLocal.z,
-        sea: elevation <= 0,
-      };
-      corners.set(key, made);
-      return made;
+    /**
+     * And the ground a monument stands on, which is a hole in the town until it
+     * is paved.
+     *
+     * **A landmark inside a town is a keepout, and a keepout used to be a hole
+     * in the floor as well as in the plots.** That was invisible while the floor
+     * was a sheet a unit over the relief; a town is a platform three units up
+     * with a wall round it now, so the hole is a pit with the Brandenburg Gate
+     * at the bottom of it — 28 of the world's landmark cities have their
+     * landmark inside them. `placement.ts` stands the model on `madeHeightAt`,
+     * and this is the other half: the platform runs *under* it, so what the
+     * monument stands on is the town's own square.
+     *
+     * The plots stay out — `planFor` still refuses them — so nothing is built
+     * here and nothing is parked or standing here either (`spotAt` keeps its own
+     * `blocked` test). It is paving and only paving.
+     */
+    for (const keepout of keepouts) {
+      const span = Math.ceil((keepout.radius + pitch) / pitch);
+      const centreCol = Math.round(keepout.x / pitch);
+      const centreRow = Math.round(keepout.z / pitch);
+      for (let col = centreCol - span; col <= centreCol + span; col++) {
+        for (let row = centreRow - span; row <= centreRow + span; row++) {
+          const key = cellKey(col, row);
+          if (levels.has(key)) continue;
+          // The cell's own centre inside the keepout, and the cell inside the
+          // town: a landmark on the edge of a village does not pave a forecourt
+          // out into the fields.
+          if (Math.hypot(col * pitch - keepout.x, row * pitch - keepout.z) > keepout.radius) continue;
+          if (Math.hypot(col * pitch, row * pitch) >= coreRadius) continue;
+          const level = terraceAt(col, row);
+          if (level === null) continue;
+          levels.set(key, level);
+        }
+      }
     }
+    out.paved = levels.size;
+    out.terraces = levels;
 
     /** A corner touches a paved cell, so it is at paving height rather than sunk. */
     const paved = (i: number, j: number): boolean =>
-      core.has(cellKey(i - 1, j - 1)) || core.has(cellKey(i, j - 1)) ||
-      core.has(cellKey(i - 1, j)) || core.has(cellKey(i, j));
+      levels.has(cellKey(i - 1, j - 1)) || levels.has(cellKey(i, j - 1)) ||
+      levels.has(cellKey(i - 1, j)) || levels.has(cellKey(i, j));
 
     const blocked = (x: number, z: number): boolean => {
       for (const keepout of keepouts) {
         if (Math.hypot(x - keepout.x, z - keepout.z) < keepout.radius) return true;
       }
-      // A lamp, a parked car or a person standing in the Danube.
-      return inRiverCorridor(corridors, x, z, 0);
+      return false;
     };
 
     /**
@@ -2315,17 +2396,20 @@ export function createSettlements(
      */
     const spotAt = (x: number, z: number, into: number[], yaw?: number): boolean => {
       if (blocked(x, z)) return false;
+      // **On the terrace, not on the ground.** A lamp, a parked car and a person
+      // stand on the floor the town laid, and the floor is level over its cell —
+      // so what decides their height is which cell they are in, exactly as it
+      // decides a building's. Seating them against the relief instead is what
+      // would put half a crowd knee-deep in its own high street on a hillside.
+      const level = terraceAt(Math.round(x / pitch), Math.round(z / pitch));
+      if (level === null) return false;
       directionAt(x, z, groundDir);
-      const elevation = world.elevationAt(groundDir);
-      // Elevation 0 is the sea. A coastal town loses its seaward kerbs, which
-      // is what a quay looks like from the land side.
-      if (elevation <= 0) return false;
       groundLocal
         .copy(groundDir)
-        .multiplyScalar(PLANET_RADIUS + elevation)
+        .multiplyScalar(PLANET_RADIUS + level + GROUND_LIFT)
         .sub(origin)
         .applyMatrix4(inverse);
-      into.push(groundLocal.x, groundLocal.y + GROUND_LIFT, groundLocal.z);
+      into.push(groundLocal.x, groundLocal.y, groundLocal.z);
       if (yaw !== undefined) into.push(yaw);
       return true;
     };
@@ -2346,16 +2430,26 @@ export function createSettlements(
       return [corner.lx, corner.ly + (paved(i, j) ? -KERB_DROP : -APRON_SINK), corner.lz];
     };
 
-    /** Bilinear point inside a cell, in the frame the four corners define. */
+    /**
+     * Bilinear point inside a cell, from four positions rather than four
+     * corners.
+     *
+     * It used to take the `Corner`s and add the lift itself, which was right
+     * while every cell sat at the ground's own height plus a constant. The four
+     * points handed in now are the cell's *terrace* — the same corners walked up
+     * their own verticals to one level elevation — so the interpolation is
+     * between four points at the same height and the surface it draws is flat by
+     * construction rather than by hoping the ground was.
+     */
     const inside = (
-      a: Corner, b: Corner, c: Corner, d: Corner,
-      u: number, v: number, lift: number,
+      a: number[], b: number[], c: number[], d: number[],
+      u: number, v: number,
       target: number[],
     ): number[] => {
       const w0 = (1 - u) * (1 - v), w1 = u * (1 - v), w2 = u * v, w3 = (1 - u) * v;
-      target[0] = a.lx * w0 + b.lx * w1 + c.lx * w2 + d.lx * w3;
-      target[1] = a.ly * w0 + b.ly * w1 + c.ly * w2 + d.ly * w3 + lift;
-      target[2] = a.lz * w0 + b.lz * w1 + c.lz * w2 + d.lz * w3;
+      target[0] = a[0]! * w0 + b[0]! * w1 + c[0]! * w2 + d[0]! * w3;
+      target[1] = a[1]! * w0 + b[1]! * w1 + c[1]! * w2 + d[1]! * w3;
+      target[2] = a[2]! * w0 + b[2]! * w1 + c[2]! * w2 + d[2]! * w3;
       return target;
     };
 
@@ -2367,7 +2461,7 @@ export function createSettlements(
     // a village. What this aims at is two or three streets across whatever the
     // settlement turns out to be.
     let span = 0;
-    for (const key of core) {
+    for (const key of levels.keys()) {
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       span = Math.max(span, Math.abs(col), Math.abs(row));
@@ -2467,7 +2561,12 @@ export function createSettlements(
     const q2: number[] = [0, 0, 0];
     const q3: number[] = [0, 0, 0];
 
-    for (const key of core) {
+    const ta: number[] = [0, 0, 0];
+    const tb: number[] = [0, 0, 0];
+    const tc: number[] = [0, 0, 0];
+    const td: number[] = [0, 0, 0];
+
+    for (const [key, level] of levels) {
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const a = cornerAt(col, row);
@@ -2478,7 +2577,12 @@ export function createSettlements(
       // ground as much as for the houses: half a paved square cantilevered over
       // a 20-unit cliff is worse than bare rock.
       if (a.sea || b.sea || c.sea || d.sea) continue;
-      if (blocked((a.x + c.x) * 0.5, (a.z + c.z) * 0.5)) continue;
+      // The cell's own terrace, which is the surface everything below draws.
+      const top = level + GROUND_LIFT;
+      pointAt(a, top, ta);
+      pointAt(b, top, tb);
+      pointAt(c, top, tc);
+      pointAt(d, top, td);
       // Half a diagonal plus a jitter: the widest a corner can be from the
       // centre of its own cell, so nothing that could reach this cell is missed.
       // In `lx`/`lz` and not `x`/`z`: the emitters and the faces are both in the
@@ -2508,10 +2612,10 @@ export function createSettlements(
           const v0 = vs[iv]!;
           const v1 = vs[iv + 1]!;
           const roadV = (iv === 0 && onLane(row - 1)) || (iv === vs.length - 2 && onLane(row));
-          inside(a, b, c, d, u0, v0, GROUND_LIFT, q0);
-          inside(a, b, c, d, u1, v0, GROUND_LIFT, q1);
-          inside(a, b, c, d, u1, v1, GROUND_LIFT, q2);
-          inside(a, b, c, d, u0, v1, GROUND_LIFT, q3);
+          inside(ta, tb, tc, td, u0, v0, q0);
+          inside(ta, tb, tc, td, u1, v0, q1);
+          inside(ta, tb, tc, td, u1, v1, q2);
+          inside(ta, tb, tc, td, u0, v1, q3);
           const mx = (q0[0]! + q2[0]!) * 0.5;
           const mz = (q0[2]! + q2[2]!) * 0.5;
           // The square wins over the street that runs into it, which is what a
@@ -2544,22 +2648,36 @@ export function createSettlements(
      * (8.4% of town ground to 2.2%) is exactly the raise that would have left
      * it floating.
      *
-     * It is **one quad per boundary edge**, from the paving down to
-     * `-KERB_DROP`, and the outline is the floor's own ragged cell edge, so the
-     * kerb inherits the shape the growth rule drew and adds no new one. A
-     * median town is nine paved cells and about a dozen boundary edges: **24
-     * triangles**, against the 200 or so the floor itself is. Beijing's 514
-     * plots pay about 180.
+     * It is **one quad per boundary edge**, from the cell's own paving down to
+     * whatever is on the other side of that edge, and the outline is the floor's
+     * own ragged cell edge, so the wall inherits the shape the growth rule drew
+     * and adds no new one. A median town is nine paved cells and about a dozen
+     * boundary edges: **24 triangles**, against the 200 or so the floor itself
+     * is. Beijing's 514 plots pay about 180.
+     *
+     * **There are two kinds of edge now and the difference is the terracing.**
+     * On the outside of the town the face runs down to the *ground under each of
+     * its two corners*, so it is as tall as the cut is deep and it follows the
+     * hill rather than hanging over it — which is the retaining wall in the
+     * picture the user sent. Between two paved cells at different terraces it
+     * runs down to the lower one's paving, which is the riser of the step. The
+     * higher cell always draws it, so it is drawn once.
      *
      * Two details that are not free to get wrong. The face is **vertical by
-     * construction** — the two corners share their `lx`/`lz` and differ only in
+     * construction** — the two ends share their `lx`/`lz` and differ only in
      * height — so `pushFace`'s "normals point up" rule cannot flip it, and the
      * winding is chosen here against the outward direction instead; wind it the
-     * other way and half the kerb is backface-culled and the town has holes in
+     * other way and half the wall is backface-culled and the town has holes in
      * its edge. And a corner over the sea is skipped, exactly as the cells are:
      * a quay does not get a kerb hanging off the cliff.
      */
-    const kerbFace = (a: Corner, b: Corner, outX: number, outZ: number): void => {
+    const faceTop: number[] = [0, 0, 0];
+    const faceFoot: number[] = [0, 0, 0];
+    const otherTop: number[] = [0, 0, 0];
+    const otherFoot: number[] = [0, 0, 0];
+    const kerbFace = (
+      a: Corner, b: Corner, top: number, foot: number | null, outX: number, outZ: number,
+    ): void => {
       if (a.sea || b.sea) return;
       // The normal of `(topA, footA, footB, topB)` is the edge turned a quarter
       // turn about the local up; if it faces into the town, take the edge the
@@ -2568,14 +2686,14 @@ export function createSettlements(
       const second = first === a ? b : a;
       pushQuad(
         out,
-        [first.lx, first.ly + GROUND_LIFT, first.lz],
-        [first.lx, first.ly - KERB_DROP, first.lz],
-        [second.lx, second.ly - KERB_DROP, second.lz],
-        [second.lx, second.ly + GROUND_LIFT, second.lz],
+        pointAt(first, top, faceTop),
+        pointAt(first, foot ?? first.elevation - KERB_DROP, faceFoot),
+        pointAt(second, foot ?? second.elevation - KERB_DROP, otherFoot),
+        pointAt(second, top, otherTop),
         kerbTop, kerbFoot, kerbFoot, kerbTop,
       );
     };
-    for (const key of core) {
+    for (const [key, level] of levels) {
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const a = cornerAt(col, row);
@@ -2583,14 +2701,21 @@ export function createSettlements(
       const c = cornerAt(col + 1, row + 1);
       const d = cornerAt(col, row + 1);
       if (a.sea || b.sea || c.sea || d.sea) continue;
-      if (blocked((a.x + c.x) * 0.5, (a.z + c.z) * 0.5)) continue;
       // The pool the face is lit by is the cell's own, which is where it stands.
       litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
       const centreX = (a.lx + b.lx + c.lx + d.lx) * 0.25;
       const centreZ = (a.lz + b.lz + c.lz + d.lz) * 0.25;
+      const top = level + GROUND_LIFT;
       const edge = (p: Corner, q: Corner, neighbour: number): void => {
-        if (core.has(neighbour)) return;
-        kerbFace(p, q, (p.lx + q.lx) * 0.5 - centreX, (p.lz + q.lz) * 0.5 - centreZ);
+        const beside = levels.get(neighbour);
+        // A cell at the same terrace or higher has no face between it and this
+        // one — and if it is higher it draws the riser itself, from its side.
+        if (beside !== undefined && beside >= level) return;
+        kerbFace(
+          p, q, top,
+          beside === undefined ? null : beside + GROUND_LIFT,
+          (p.lx + q.lx) * 0.5 - centreX, (p.lz + q.lz) * 0.5 - centreZ,
+        );
       };
       edge(a, d, cellKey(col - 1, row));
       edge(b, c, cellKey(col + 1, row));
@@ -2601,13 +2726,13 @@ export function createSettlements(
     // The apron: one course of cells outside the paving, laid from the kerb's
     // foot down into the land, so the sheet dives instead of ending.
     const apron = new Set<number>();
-    for (const key of core) {
+    for (const key of levels.keys()) {
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       for (let dc = -1; dc <= 1; dc++) {
         for (let dr = -1; dr <= 1; dr++) {
           const near = cellKey(col + dc, row + dr);
-          if (!core.has(near)) apron.add(near);
+          if (!levels.has(near)) apron.add(near);
         }
       }
     }
@@ -2698,7 +2823,7 @@ export function createSettlements(
     // same pools or it draws a dark ribbon through them. It is scoped per step
     // inside `buildTracks`, which is where the step's own centre is known.
     trackEmitters = emitters;
-    buildTracks(out, slot, pitch, urbanity);
+    buildTracks(out, slot, pitch, levels);
     trackEmitters = NO_EMITTERS;
     litHere = NO_EMITTERS;
     return out;
@@ -2741,9 +2866,8 @@ export function createSettlements(
    * they overlap the road is laid the higher of the two and simply wins, which
    * is a carriageway crossing a square and is what it should look like.
    */
-  function trackBearings(slot: Slot, urbanity: number, aimed: { real: boolean }): number[] {
+  function trackBearings(slot: Slot): number[] {
     const bearings: number[] = [];
-    aimed.real = false;
     const leaving = slot.roads;
     if (leaving !== undefined && leaving.length > 0) {
       const headings = leaving.map((aim) => Math.atan2(aim.dot(across), aim.dot(north)));
@@ -2761,22 +2885,39 @@ export function createSettlements(
         if (clear) bearings.push(bearing);
         if (bearings.length >= 5) break;
       }
-      aimed.real = bearings.length > 0;
       return bearings;
     }
-    // A place the network could not reach — an island with one town on it, and
-    // there are 221 of them — still has lanes going out of it, because a town
-    // with no way out of it reads as a mistake rather than as an island. They
-    // just do not arrive anywhere, which is true.
-    const rng = rngFrom(slot.seed, 'tracks');
-    const wanted = urbanity > 0.55 ? 3 : 2;
-    while (bearings.length < wanted) bearings.push(rng.unit() * Math.PI * 2);
+    /**
+     * **A place the network could not reach gets no track at all, and that is a
+     * reversal.**
+     *
+     * It used to invent two or three: an island with one town on it — there are
+     * 221 of them — still had lanes going out of it, because a town with no way
+     * out read as a mistake rather than as an island, and they just did not
+     * arrive anywhere, which was true.
+     *
+     * The user looked at exactly that and called it what it is: *a veces hay
+     * carreteras que van a la nada... no tienes que complicarte para que sea una
+     * red de carreteras entre todas las ciudades*, and, in the same message, *si
+     * una ciudad no se puede conectar con ninguna porque está encima de una
+     * montaña no pasa nada, es mejor que poner carreteras super bugeadas.* An
+     * invented bearing is a road to nowhere by construction, and the count of
+     * towns it fires for went up by an order of magnitude the day the dirt lanes
+     * came out of the network — that argument was made when almost every town
+     * had a real road and the fallback was for islands.
+     *
+     * So a town draws the roads it has and nothing else. What is left inside it
+     * is its own streets, which is what a place with no way out actually looks
+     * like from the air.
+     */
     return bearings;
   }
 
-  function buildTracks(out: Ground, slot: Slot, pitch: number, urbanity: number): void {
-    const aimed = { real: false };
-    const bearings = trackBearings(slot, urbanity, aimed);
+  function buildTracks(
+    out: Ground, slot: Slot, pitch: number,
+    levels: ReadonlyMap<number, number>,
+  ): void {
+    const bearings = trackBearings(slot);
 
     const edge = slot.radius * 0.8;
     const reach = edge + TRACK_REACH;
@@ -2805,6 +2946,26 @@ export function createSettlements(
       let previousElevation = Number.NaN;
       let broke = false;
       /**
+       * Where this track walked off the platform, and how high it was standing
+       * when it did.
+       *
+       * **This is the ramp the user asked for**, in the only place that can know
+       * where to put it: *las carreteras irían hasta esta plataforma, ahora
+       * llegan al centro y se solapan con las casas*. The platform is a set of
+       * cells and its edge along one bearing is wherever those cells run out —
+       * not a radius, and not a number `roads.ts` could be told. So the track
+       * walks outward, stays level with the terrace it is crossing while it is
+       * on one, and from the last paved cell it descends to the ribbon's own
+       * height over a run worked out from the drop.
+       *
+       * `-1` means the track has not left the platform yet. A track that starts
+       * outside it — a town whose centre cell was refused — never sets these and
+       * is laid on the ground for its whole length, which is right.
+       */
+      let leftAt = -1;
+      let leftTop = 0;
+      let rampRun = 0;
+      /**
        * A road out of a town does not leave it along a radius.
        *
        * Straight rays from one point are the *shape* of the airport, not just
@@ -2817,16 +2978,18 @@ export function createSettlements(
        * though, and that is the second half of the collision the user
        * reported.** A track aimed off `roads.bin` is drawing the *same road*
        * the ribbon draws — they are collinear at the town and the ribbon takes
-       * over at `radiusFor - TOWN_OVERLAP` — so a hundred-and-sixty-unit track
+       * over at `radiusFor + TOWN_STANDOFF` — so a hundred-and-sixty-unit track
        * out of a city was wandering up to 33 units off the line the ribbon
        * holds, and the two crossed each other in the open. Where the bearing is
        * the network's, the wander is capped at the track's own **half-width**:
        * enough to bend a ray, never enough to leave the carriageway it is
-       * drawing. An invented fan has nothing to stay next to and keeps the
-       * fifth.
+       * drawing. **Every bearing is the network's now** — there is no invented
+       * fan left to keep the uncapped fifth for, see `trackBearings` — so the
+       * cap is unconditional and the fifth survives only as what the shape was
+       * tuned against.
        */
       const wander = rngFrom(slot.seed, 'wander', index);
-      const swing = aimed.real ? Math.min(0.2 * reach, half) : 0.2 * reach;
+      const swing = Math.min(0.2 * reach, half);
       const sway = wander.range(-1, 1) * swing;
       const phase = wander.range(0.6, 1.1);
 
@@ -2849,45 +3012,84 @@ export function createSettlements(
         const taper = 1 - 0.45 * smoothRamp(distance, reach * 0.72, reach);
         const w = half * taper;
         const shoulder = w * 2.1;
+        // The paved cell under this section, if there is one. `Math.round` is
+        // `floorLiftAt`'s own convention for which cell a point is in.
+        const level = levels.get(cellKey(Math.round(x / pitch), Math.round(z / pitch)));
+        if (level !== undefined) {
+          leftAt = distance;
+          leftTop = level + GROUND_LIFT + TRACK_RISE;
+          // Worked out here rather than at the edge, so it is the *last* paved
+          // section's drop that sets the run: at a gradient of 0.3, which is
+          // what `KERB_BLEND` gives a body on foot, and never shorter than a
+          // cell or longer than what is left of the track.
+          rampRun = Math.max(pitch, (leftTop - elevation - RIBBON_LIFT) / 0.3);
+        }
         const drop = 0.15 + TRACK_SHOULDER * smoothRamp(distance, edge * 0.85, edge + pitch * 0.9);
         /**
-         * **The track climbs the kerb, and then it is a road.**
+         * **The track is the platform's own ramp, and then it is a road.**
          *
-         * Three heights and two of them are somebody else's. Inside the floor
-         * it is `GROUND_LIFT + TRACK_RISE`, a carriageway crossing a square, and
-         * it holds that until it is clear of the plinth — the same window the
-         * shoulders use to start digging, which is where the kerb stands. Then
-         * it falls to `RIBBON_LIFT` over about a cell and **stays there**, which
-         * is the change: it used to die to nothing at the reach, so the last
-         * thing a road arrived at was a wedge sinking into a field while the
-         * ribbon still had 1.1 units of lift on it. The ribbon overlaps the last
-         * eight units by construction (`TOWN_OVERLAP`) and covers the end.
+         * Three regimes and two of them belong to somebody else. On the paving
+         * it is level with the terrace it is crossing, at `TRACK_RISE` over it —
+         * a carriageway over a square, and *level*, which is the whole point of
+         * a terrace and the reason this cannot be a lift over the relief any
+         * more. Off the last paved cell it descends from that height to
+         * `RIBBON_LIFT` over the ground, over `rampRun`, which is the wall of
+         * the platform turned into something a lorry could climb. Past that it
+         * holds `RIBBON_LIFT` and **stays there** — it used to die to nothing at
+         * the reach, so the last thing a road arrived at was a wedge sinking
+         * into a field while the ribbon still had its own lift on it.
          *
          * A quarter of a unit under the ribbon rather than level with it: two
          * coplanar surfaces z-fight, and the one that should win is the one the
          * bake tested for water.
          */
-        const kerbAt = edge + pitch * 0.9;
-        const crown =
-          (GROUND_LIFT + TRACK_RISE) +
-          (RIBBON_LIFT - 0.25 - GROUND_LIFT - TRACK_RISE) *
-            smoothRamp(distance, kerbAt, kerbAt + pitch);
+        const onRibbon = elevation + RIBBON_LIFT - 0.25;
+        let crown = onRibbon;
+        if (level !== undefined) {
+          crown = leftTop;
+        } else if (leftAt >= 0) {
+          const t = smoothRamp(distance, leftAt, leftAt + rampRun);
+          crown = leftTop + (onRibbon - leftTop) * t;
+          // Never under the ground it is crossing: a ramp that dives is a
+          // tunnel, and the shoulders below still have to reach the land.
+          if (crown < onRibbon) crown = onRibbon;
+        }
 
-        const place = (offset: number, lift: number, target: number[]): void => {
+        /**
+         * An absolute elevation for the crown and a *relative* one for the
+         * shoulders, and the asymmetry is the point.
+         *
+         * The crown is a made surface: on the platform it is the terrace's own
+         * level and on the ramp it is a line drawn between two heights, and
+         * neither of them follows the ground underneath. The shoulders are the
+         * opposite — their job is to reach the land and be buried by it — so
+         * each one is placed against the ground under itself and only capped by
+         * the crown, which is what keeps a track's edge the line the relief cuts
+         * rather than a rectangle hanging over a slope.
+         */
+        const place = (offset: number, target: number[], top: number | null): void => {
           directionAt(x + sx * offset, z + sz * offset, groundDir);
+          const here = Math.max(0, world.elevationAt(groundDir));
+          // On the paving there is no ground to reach — the terrace is the
+          // ground — so the shoulder is simply the crown's own edge. Off it, the
+          // shoulder takes the crown's *lift* and applies it to the land under
+          // itself, which is what buries it on the low side of a slope.
+          const at = top ?? (level !== undefined
+            ? crown - drop
+            : here + (crown - elevation) - drop);
           groundLocal
             .copy(groundDir)
-            .multiplyScalar(PLANET_RADIUS + Math.max(0, world.elevationAt(groundDir)) + lift)
+            .multiplyScalar(PLANET_RADIUS + at)
             .sub(origin)
             .applyMatrix4(inverse);
           target[0] = groundLocal.x;
           target[1] = groundLocal.y;
           target[2] = groundLocal.z;
         };
-        place(-shoulder, crown - drop, a);
-        place(-w, crown, b);
-        place(w, crown, c);
-        place(shoulder, crown - drop, d);
+        place(-shoulder, a, null);
+        place(-w, b, crown);
+        place(w, c, crown);
+        place(shoulder, d, null);
         return true;
       };
 
@@ -3042,7 +3244,16 @@ export function createSettlements(
       frameAt();
     }
 
-    const plan = planFor(slot.seed, slot.style, slot.radius, slot.place.pop, keepouts, corridors);
+    // The lattice this town is on, before anything asks it a question. The two
+    // caches are per town and the frame they are in is the one `frameAt` has
+    // just built, so they cannot be carried over from the last settlement.
+    cellPitch = pitchFor(slot.style);
+    cellSeed = slot.seed;
+    baseElevation = Math.max(0, world.elevationAt(up));
+    corners.clear();
+    terraces.clear();
+
+    const plan = planFor(slot.seed, slot.style, slot.radius, slot.place.pop, keepouts);
     const placed = plan.placed;
 
     // Two passes. The first works out the ground under every plot and throws
@@ -3113,48 +3324,56 @@ export function createSettlements(
         continue;
       }
 
-      // The relief under the corners, at the shelf the centre reported. The
-      // shelf is per-ring and constant across a settlement; only the relief
-      // varies, and it is 0.4 microseconds against `elevationAt`'s 3.6.
-      const middle = reliefAt(scratch.x, scratch.y, scratch.z);
-      let lowest = middle;
-      let highest = middle;
-      for (let corner = 0; corner < 4; corner++) {
-        const angle = (corner / 4) * Math.PI * 2 + Math.PI / 4;
-        directionAt(
-          entry.plot.x + Math.cos(angle) * footprint,
-          entry.plot.z + Math.sin(angle) * footprint,
-          scratch,
-        );
-        const height = reliefAt(scratch.x, scratch.y, scratch.z);
-        if (height < lowest) lowest = height;
-        if (height > highest) highest = height;
-      }
-      if (highest - lowest > MAX_BURIAL * flat.height * entry.scale) {
+      /**
+       * The cell this plot is in, and the terrace the town would cut there.
+       *
+       * **This replaces the burial test for anything that stands on the floor,
+       * and it is a better question rather than a stricter one.** `MAX_BURIAL`
+       * asked how much of a building the hill behind it would swallow, because a
+       * building used to be bedded straight into the relief — its own doorstep
+       * followed the slope. A building stands on a *level* terrace now, so the
+       * hill cannot swallow it at all; what the hill can do is be too steep to
+       * cut a terrace into, and that is what `terraceAt` answers with `MAX_CUT`.
+       *
+       * The refusal is the one the user asked for — *hay que ver qué hacemos con
+       * las ciudades que están en pendientes porque se solapan con la montaña* —
+       * landed per plot rather than per town, so a hillside town builds the part
+       * of itself that stands and leaves the part that would have been a house
+       * halfway into a mountain.
+       */
+      const level = terraceAt(entry.plot.col, entry.plot.row);
+      if (level === null) {
         buried++;
         continue;
       }
 
-      // Bedded to the lowest corner, so a building on a slope is cut into it
-      // rather than standing on one leg. The burial is `highest - lowest`, which
-      // the test above has just bounded against this variant's own height.
+      // On the terrace if it belongs to the floor, and bedded into the relief if
+      // it does not.
       //
-      // **And a building stands on the floor, not beside it.** Every cell a
-      // building comes up on is paved — `buildGround` starts its floor from
-      // exactly this set — so a house that stayed at `elevationAt` while the
-      // paving rose to `GROUND_LIFT` would be a house with its doorstep buried,
-      // and at 1.5 units that is half a door. The two move together and the
-      // relationship between them is the one it always was. A **tree** does not:
-      // the greenery of a town stands in the green between the cells, and the
-      // few that land on paving are trees in a pavement.
+      // **Two seatings, because a town has two kinds of thing standing in it.**
+      // A house, a block and a civic building are *on the floor* — the floor is
+      // level over their cell and they stand on it, which is what makes a
+      // hillside town read as cut into the hill instead of sliding down it. A
+      // tree in the green between the cells has no floor under it and is bedded
+      // to the lowest of four probes at its own footprint, exactly as it was:
+      // that is `vegetation.ts`'s rule and it is right for something growing out
+      // of the ground rather than built on it.
       const kind = KIND_OF.get(entry.partId);
       const standsOnFloor = kind === 'dwelling' || kind === 'block' || kind === 'civic';
       directionAt(entry.plot.x, entry.plot.z, scratch);
+      let seat = level + GROUND_LIFT;
+      if (!standsOnFloor) {
+        // The lowest of four probes at its own footprint, and `gradeAt` is where
+        // that measurement lives now — one definition, shared with the wood
+        // outside the town, rather than a second copy of the same four probes
+        // here. The shelf is the ring's and is constant across a settlement, so
+        // a drop in the relief is a drop in the elevation.
+        gradeAt(scratch, across, north, Math.max(1.2, footprint), plotSlope);
+        seat = elevation - Math.max(0, reliefAt(scratch.x, scratch.y, scratch.z) - plotSlope.lowest);
+      }
       local
         .copy(scratch)
-        .multiplyScalar(
-          PLANET_RADIUS + elevation - (middle - lowest) + (standsOnFloor ? GROUND_LIFT : 0),
-        )
+        .multiplyScalar(PLANET_RADIUS + seat)
         .sub(origin)
         .applyMatrix4(inverse);
 
@@ -3219,10 +3438,12 @@ export function createSettlements(
      * - **No fit test.** It takes the region's smallest building outright,
      *   because "no plot here is wide enough" is exactly the case this exists
      *   for.
-     * - **No burial test.** `MAX_BURIAL` refuses a house the ground behind it
-     *   would swallow, which is right when there is another plot to try and
-     *   wrong when there is not. A house cut into a mountainside is what a hill
-     *   town looks like; an empty field is not.
+     * - **No terrace test.** `terraceAt` refuses a cell the town would have to
+     *   cut deeper than `MAX_CUT`, which is right when there is another plot to
+     *   try and wrong when there is not. A house cut into a mountainside is
+     *   what a hill town looks like; an empty field is not. It still has to
+     *   stand on *something*, so it takes the terrace the centre cell would
+     *   have had if the cut were allowed.
      *
      * It fires on `built.size === 0` rather than on `standing.length === 0`,
      * so it also catches the ten places in the sample that came out with a
@@ -3243,11 +3464,18 @@ export function createSettlements(
       const rng = rngFrom(slot.seed, 'lone-building');
       const flat = smallest === null ? null : variantOf(smallest, slot.style, rng.int(VARIANTS));
       if (flat !== null) {
+        // **The centre cell is given a terrace whether the cut allows one or
+        // not.** `terraceAt`'s refusal is a preference for a better plot, and by
+        // the time this runs there is no other plot; a building with no floor
+        // under it is exactly the failure this fallback exists to prevent. It
+        // takes the anchor's own elevation, which is the level every other
+        // terrace in the town is quantised about.
+        terraces.set(cellKey(0, 0), baseElevation);
         directionAt(0, 0, scratch);
         local
           .copy(scratch)
           // On the floor, like every other building; see the seating above.
-          .multiplyScalar(PLANET_RADIUS + Math.max(0, world.elevationAt(scratch)) + GROUND_LIFT)
+          .multiplyScalar(PLANET_RADIUS + baseElevation + GROUND_LIFT)
           .sub(origin)
           .applyMatrix4(inverse);
         quaternion.setFromAxisAngle(AXIS_Y, rng.unit() * Math.PI * 2);
@@ -3298,14 +3526,12 @@ export function createSettlements(
       litPlots,
     );
     slot.paved = ground.paved;
-    slot.riverCut = plan.riverCut;
-    slot.riverCells = ground.riverCells;
     // The floor, in the frame it was laid in, so a foot can find it. See
     // `Slot.floor` and `madeHeightAt`.
-    if (ground.cells.size > 0) {
+    if (ground.terraces.size > 0) {
       const pitch = pitchFor(slot.style);
       let span = 0;
-      for (const key of ground.cells) {
+      for (const key of ground.terraces.keys()) {
         const col = Math.floor(key / 1024) - 512;
         const row = (key % 1024) - 512;
         span = Math.max(span, Math.hypot((Math.abs(col) + 0.5) * pitch, (Math.abs(row) + 0.5) * pitch));
@@ -3314,7 +3540,7 @@ export function createSettlements(
         up: up.clone(),
         across: across.clone(),
         north: north.clone(),
-        field: { pitch, cells: ground.cells },
+        field: { pitch, terraces: ground.terraces },
         cosBound: Math.cos((span + KERB_BLEND) / PLANET_RADIUS),
       };
       floors.add(slot);
@@ -3523,8 +3749,6 @@ export function createSettlements(
     slot.triangles = 0;
     slot.parts = 0;
     slot.paved = 0;
-    slot.riverCut = 0;
-    slot.riverCells = 0;
     // The floor goes with the mesh: nothing is standing here, so nothing stands
     // on it. Leaving it would be a plinth a player walks on over open ground.
     slot.floor = null;
@@ -3564,6 +3788,7 @@ export function createSettlements(
   function madeHeightAt(point: THREE.Vector3): number {
     madeDir.copy(point).normalize();
     let best = 0;
+    let elevation: number | null = null;
     // Only what is standing, which the streamer caps at `MAX_RESIDENT`: at
     // most 140 dot products, and it never touches the other 29,405 slots.
     for (const slot of floors) {
@@ -3573,15 +3798,20 @@ export function createSettlements(
       // Everything inside a settlement is within a few hundredths of a radian
       // of its centre, so the tangent components *are* the local coordinates —
       // the same identity `frameAt` leans on for the keepouts.
+      // The ground here, which the lift is measured from. Asked at most once —
+      // `elevationAt` is a point-in-polygon and the answer does not depend on
+      // which town is asking — and lazily, so a point with no town near it pays
+      // nothing at all, which is the common case on a walk.
+      if (elevation === null) elevation = world.elevationAt(madeDir);
       const lift = floorLiftAt(
         floor.field,
         madeDir.dot(floor.across) * PLANET_RADIUS,
         madeDir.dot(floor.north) * PLANET_RADIUS,
+        elevation,
       );
       if (lift > best) best = lift;
     }
-    if (best <= 0) return 0;
-    const elevation = world.elevationAt(madeDir);
+    if (best <= 0 || elevation === null) return 0;
     // A cell whose corners were on land can still cover a scrap of sea, and a
     // quay is where that happens. Standing on the water is the one failure
     // this whole surface exists to avoid, so the sea wins.
@@ -3810,7 +4040,7 @@ export function createSettlements(
       // (part, variant, piece), where a piece is one mesh of the built variant
       // and therefore one colour.
       const instanceBegan = performance.now();
-      const plan = planFor(slot.seed, slot.style, slot.radius, slot.place.pop, [], []).placed;
+      const plan = planFor(slot.seed, slot.style, slot.radius, slot.place.pop, []).placed;
       const buckets = new Map<string, number>();
       let instancedTriangles = 0;
       let instancedBytes = 0;
@@ -3864,8 +4094,6 @@ export function createSettlements(
       let planned = 0;
       let drowned = 0;
       let buried = 0;
-      /** What the water cost, town by town. See `RiverCorridor` in `rivers.ts`. */
-      const riverTowns: { name: string; cut: number; cells: number }[] = [];
       /**
        * And what a foot finds on the floor it just built.
        *
@@ -3878,7 +4106,19 @@ export function createSettlements(
        * of samples across the built core, and for each one the standing surface
        * against the relief and against the paving.
        */
-      const stood = { sampled: 0, onFloor: 0, onKerb: 0, worstBelow: 0, worstAbove: 0 };
+      const stood = { sampled: 0, onFloor: 0, onKerb: 0, overTheEdge: 0, worstBelow: 0, worstAbove: 0 };
+      /**
+       * And what the terracing did, which is the other thing only a standing
+       * town can be asked.
+       *
+       * `MAX_CUT` is a claim about how many towns come out as one building on a
+       * mountainside and how tall a wall the rest of them show; the first half
+       * of that is `builtNothing` and this is the second. `steps` is how many
+       * levels a town was cut into — 1 is the flat plinth the world mostly is —
+       * and `wall` is the tallest face any of them draws, which is what the eye
+       * actually judges.
+       */
+      const cut = { flat: 0, stepped: 0, mostSteps: 0, mostStepsAt: '', wall: 0, wallAt: '' };
       const standDir = new THREE.Vector3();
       const began = performance.now();
       for (let i = 0; i < slots.length; i += step) {
@@ -3898,11 +4138,40 @@ export function createSettlements(
         buried += slot.buried;
         if (slot.parts === 0) empty.push(slot.place.name);
         else if (slot.buildings === 0) noBuilding.push(slot.place.name);
-        if (slot.riverCut > 0 || slot.riverCells > 0) {
-          riverTowns.push({ name: slot.place.name, cut: slot.riverCut, cells: slot.riverCells });
-        }
         const floor = slot.floor;
         if (floor !== null) {
+          // How many levels this town was cut into, and the tallest face any of
+          // them shows. The wall is measured where it is actually drawn — from a
+          // paved cell's own terrace down to the ground under a corner that has
+          // no paved cell beyond it — which is `kerbFace`'s own arithmetic read
+          // back off the field rather than a second guess at it.
+          const steps = new Set(floor.field.terraces.values()).size;
+          if (steps > 1) cut.stepped++;
+          else cut.flat++;
+          if (steps > cut.mostSteps) {
+            cut.mostSteps = steps;
+            cut.mostStepsAt = slot.place.name;
+          }
+          for (const [key, level] of floor.field.terraces) {
+            const col = Math.floor(key / 1024) - 512;
+            const row = (key % 1024) - 512;
+            let exposed = false;
+            for (const [dc, dr] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+              const beside = floor.field.terraces.get(cellKey(col + dc, row + dr));
+              if (beside === undefined || beside < level) exposed = true;
+            }
+            if (!exposed) continue;
+            standDir
+              .copy(floor.up)
+              .addScaledVector(floor.across, (col * floor.field.pitch) / PLANET_RADIUS)
+              .addScaledVector(floor.north, (row * floor.field.pitch) / PLANET_RADIUS)
+              .normalize();
+            const face = level + GROUND_LIFT + KERB_DROP - Math.max(0, world.elevationAt(standDir));
+            if (face > cut.wall) {
+              cut.wall = face;
+              cut.wallAt = slot.place.name;
+            }
+          }
           // A spiral over the built radius rather than a grid: 64 points that
           // land on paving, on a yard, on a kerb and outside the town, which is
           // the whole range the query has to be right about.
@@ -3920,21 +4189,49 @@ export function createSettlements(
             const made = madeHeightAt(standDir);
             const stand = Math.max(relief, made);
             stood.sampled++;
+            /**
+             * **What the foot is compared against is the terrace, not the
+             * relief, and that is the whole of what terracing changed here.**
+             * The floor used to be `GROUND_LIFT` over the ground at the query
+             * point, so the ground was the yardstick; it is `GROUND_LIFT` over
+             * the *cell's* terrace now, and the ground under a cell varies by up
+             * to `MAX_CUT`. Measuring against the relief reported a foot
+             * standing twelve units over its own pavement, which was the
+             * yardstick being wrong rather than the foot.
+             */
+            const cell = floor.field.terraces.get(cellKey(
+              Math.round(standDir.dot(floor.across) * PLANET_RADIUS / floor.field.pitch),
+              Math.round(standDir.dot(floor.north) * PLANET_RADIUS / floor.field.pitch),
+            ));
+            const paving = cell === undefined ? 0 : PLANET_RADIUS + cell + GROUND_LIFT;
             const lift = made > 0 ? made - relief : 0;
-            // Three answers and they have to be counted apart: on the paving,
-            // on the kerb ramp — where being *under* `GROUND_LIFT` is the whole
-            // point of the ramp — and off the town.
-            const onFloor = lift >= GROUND_LIFT - 1e-9;
+            // Three answers and they have to be counted apart: on the paving, on
+            // the kerb ramp — where being *under* the paving is the whole point
+            // of the ramp — and off the town.
+            const onFloor = paving > 0 && Math.abs(stand - paving) < 1e-6;
             if (onFloor) stood.onFloor++;
             else if (lift > 0) stood.onKerb++;
-            // The two ways this can be wrong: standing under the paving, which
-            // is the bug it exists to delete, and standing over it, which would
-            // be a man on stilts.
-            if (onFloor && relief + GROUND_LIFT - stand > stood.worstBelow) {
-              stood.worstBelow = relief + GROUND_LIFT - stand;
+            /**
+             * The two ways this can be wrong, and the one way it can look wrong
+             * and be right.
+             *
+             * **Under the paving** is the bug the whole surface exists to
+             * delete: a body inside its own high street. **Over it** used to be
+             * a man on stilts and is now two different things — a foot on a
+             * *higher* terrace than the cell it is over, which is still the bug,
+             * and a foot on the **hill above the platform**, which is correct.
+             * A town cut into a slope has ground uphill of it that stands over
+             * its own paving; the player walks on that ground and steps down
+             * onto the terrace, and `HEIGHT_SMOOTHING` lands him. So the stilts
+             * test is only asked where the platform is what he is standing on.
+             */
+            if (onFloor && paving - stand > stood.worstBelow) {
+              stood.worstBelow = paving - stand;
             }
-            const above = stand - (relief + GROUND_LIFT);
-            if (above > stood.worstAbove) stood.worstAbove = above;
+            if (paving > 0 && made > relief && stand - paving > stood.worstAbove) {
+              stood.worstAbove = stand - paving;
+            }
+            if (paving > 0 && relief > paving) stood.overTheEdge++;
           }
         }
         if (!wasResident) {
@@ -3969,18 +4266,15 @@ export function createSettlements(
         plannedPlots: planned,
         lostToTheSea: drowned,
         lostToTheSlope: buried,
+        // What the terracing cost and what it shows; see `cut`.
+        townsOnOneLevel: cut.flat,
+        townsTerraced: cut.stepped,
+        mostTerraces: `${cut.mostSteps} at ${cut.mostStepsAt}`,
+        tallestWall: `${cut.wall.toFixed(1)} at ${cut.wallAt}`,
         builtNothing: empty.length,
         builtNoBuilding: noBuilding.length,
         emptyNames: empty.slice(0, 40),
         noBuildingNames: noBuilding.slice(0, 40),
-        // What a river costs a town, and the worst of them.
-        townsOnARiver: riverTowns.length,
-        lostToTheWater: riverTowns.reduce((a, b) => a + b.cut, 0),
-        floorCellsToTheWater: riverTowns.reduce((a, b) => a + b.cells, 0),
-        worstOnARiver: [...riverTowns]
-          .sort((a, b) => b.cut + b.cells - (a.cut + a.cells))
-          .slice(0, 8)
-          .map((entry) => `${entry.name} ${entry.cut}+${entry.cells}`),
         // And where a foot lands on what was built. See `stood`.
         standing: stood,
         surveyMs: Math.round(performance.now() - began),

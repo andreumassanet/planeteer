@@ -43,7 +43,7 @@ import type { Group, Object3D, Monument, MonumentContext } from './contract.ts';
  * Loose scoria stands at 30 to 35 degrees. Worked at the model's own plan — a
  * base half-width of 20.6 running in to a rim of 10.6 — true repose gives a run
  * of 10.0 and a rise of **6.0**: a cone six units tall and forty-one wide, which
- * at contact-sheet size is a smear with a hole in it. The model stands at **48
+ * at monument-sheet size is a smear with a hole in it. The model stands at **48
  * degrees**, a rise of 11.3, which is a **1.9x vertical exaggeration** — the
  * same factor Sigiriya ships at, and for the same reason: the honest proportion
  * is not the remembered picture.

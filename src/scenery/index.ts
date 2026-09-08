@@ -94,7 +94,7 @@ export type { DressStyle, LookOptions } from './dress.ts';
  *    structural) and what is left to the *instance* (position, yaw, a uniform
  *    scale). The line is not stylistic: see `VARIANTS` in the contract for why
  *    per-instance geometry cannot be drawn efficiently at all.
- * 5. Open `/scenery-sheet.html`. Read it at 120 units before you read it at 40:
+ * 5. Open `/sheets/scenery.html`. Read it at 120 units before you read it at 40:
  *    a part that only works close up is a part nobody will ever see working.
  *    Then turn on the cluster and look for the thing you cannot see in one
  *    thumbnail, which is the only failure that matters here — nine of them in a

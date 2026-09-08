@@ -7,7 +7,6 @@
     "monuments": "node scripts/build-monuments.ts",
     "places": "node scripts/build-places.mjs",
     "lakes": "node scripts/build-lakes.mjs",
-    "rivers": "node scripts/build-rivers.mjs",
     "roads": "node scripts/build-roads.ts",
     "check": "node scripts/check-world.ts",
     "people": "node scripts/check-people.ts",

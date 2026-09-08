@@ -90,7 +90,7 @@ export type { RegionId } from './regions.ts';
  * 5. Declare `mounts` if a rider would be visible on it. A car's driver is
  *    behind glass at every distance a car is seen from and does not need one; a
  *    bicycle with nobody on it is a ghost.
- * 6. Open `/traffic-sheet.html`. Read the *street* row before the turntable: a
+ * 6. Open `/sheets/traffic.html`. Read the *street* row before the turntable: a
  *    vehicle alone is a model and a vehicle at a kerb beside a house is the
  *    thing that will actually be shipped.
  */

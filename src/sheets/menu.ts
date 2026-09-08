@@ -1,5 +1,5 @@
 /**
- * The review sheet for `src/menu.ts`, at `/menu-sheet.html`.
+ * The review sheet for `src/menu.ts`, at `/sheets/menu.html`.
  *
  * **It is not the game's load order and it must not become a second copy of
  * one.** `main.ts` owns the sequence — the monuments before the terrain, the
@@ -15,25 +15,26 @@
  * **time to the globe being draggable** against **time to the whole world** —
  * and `atlasMenu.verify()`, which is the handedness check.
  *
- * `pnpm dev` only. It is deliberately not in `vite.config.ts`'s build inputs,
- * for the reason written beside `flags.html` there: an extra entry splits the
- * Three chunk and the world's first load pays for a page nobody opens.
+ * `pnpm dev` only, like every sheet in this directory: none of them is in
+ * `vite.config.ts`'s build inputs, and that file carries the measurement — an
+ * extra entry splits the shared chunk and the world's own first load pays for a
+ * page nobody opens in production.
  */
 
 import * as THREE from 'three';
-import { OutlineEffect } from './outline.ts';
-import { loadLakes, loadWorld } from './geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
-import { loadPlaces, radiusFor } from './places.ts';
-import { loadPlacements } from './placement.ts';
-import { setDetailSites, setFlattenSites } from './terrain.ts';
-import { createSky } from './sun.ts';
-import { createOcean } from './ocean.ts';
-import { createClouds } from './clouds.ts';
-import { setSunDirection } from './lights.ts';
-import { FOG_COLOR } from './theme.ts';
-import { fogFar } from './view.ts';
-import { createMenu, earthBody } from './menu.ts';
+import { OutlineEffect } from '../outline.ts';
+import { loadLakes, loadWorld } from '../geo.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from '../globe.ts';
+import { loadPlaces, radiusFor } from '../places.ts';
+import { loadPlacements } from '../placement.ts';
+import { setDetailSites, setFlattenSites } from '../terrain.ts';
+import { createSky } from '../sun.ts';
+import { createOcean } from '../ocean.ts';
+import { createClouds } from '../clouds.ts';
+import { setSunDirection } from '../lights.ts';
+import { FOG_COLOR } from '../theme.ts';
+import { fogFar } from '../view.ts';
+import { createMenu, earthBody } from '../menu.ts';
 
 /** `main.ts`'s own start, so the sheet's fallback is the world's fallback. */
 const START = { lat: 39.62, lon: 2.99, name: 'Palma' };

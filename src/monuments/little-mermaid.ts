@@ -125,7 +125,7 @@ import type { Monument, Vector3 } from './contract.ts';
  *   next to a 15-unit model would be a fact fighting its own picture. The height
  *   of this monument is not a number anyone means when they talk about it.
  * - **The fluke is the weakest of the four at 260 pixels, and it stays that
- *   way.** Rendered at contact-sheet size it reads as *a fan on the end of the
+ *   way.** Rendered at monument-sheet size it reads as *a fan on the end of the
  *   tail* from the quarter view and as an ambiguous green mass from dead front.
  *   Three things were tried and are worth not repeating: hanging it to the
  *   waterline, where it landed on `slate` stones at nearly its own value and

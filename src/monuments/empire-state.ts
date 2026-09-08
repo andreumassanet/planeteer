@@ -262,7 +262,7 @@ export const empireState: Monument = {
 
     // Four strips a face, so the front reads corner pier / slot / pier / slot /
     // wide centre pier / slot / pier / slot / corner pier. Nine bands on a
-    // 12.3-unit face is about 4 pixels each in a contact-sheet cell, which is
+    // 12.3-unit face is about 4 pixels each in a monument-sheet cell, which is
     // the floor: three strips would be a fence, five would be grey.
     for (const x of mirrored([1.45, 3.95])) {
       acrossFront(SHAFT_BASE, SHAFT_TOP, x, SHAFT_Z, 1.15);

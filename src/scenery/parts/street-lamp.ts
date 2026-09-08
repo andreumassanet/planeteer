@@ -44,7 +44,7 @@ import type { ScenicPart } from '../contract.ts';
  * belongs to a *carriageway* and the region tables place things on *plots* —
  * exactly the distinction `Vehicle.size` had to be invented for over in
  * `src/traffic/`. It is the fourth table that can build a part, after
- * `regions.ts`, `BIOMES[id].plants` and `CROWD_MIX`, and `scenery-sheet.ts`
+ * `regions.ts`, `BIOMES[id].plants` and `CROWD_MIX`, and `sheets/scenery.ts`
  * knows about it so the orphan banner does not call it unbuildable.
  */
 
@@ -53,7 +53,7 @@ import type { ScenicPart } from '../contract.ts';
  *
  * **A range and not a number, because the review sheet caught it as one.** With
  * a fixed height the only thing the seed could change was which of two caps went
- * on top, and `scenery-sheet.ts` measured the result exactly right: *only 2
+ * on top, and `sheets/scenery.ts` measured the result exactly right: *only 2
  * distinct silhouettes across 6 variants — the seed is barely doing anything*.
  * A lamp is three shapes stacked, so the variety has to come from their
  * proportions; there is nothing else to vary. 1.25 to 1.47 storeys is 3.8 to 4.4

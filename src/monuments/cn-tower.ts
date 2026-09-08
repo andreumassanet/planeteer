@@ -108,7 +108,7 @@ import type { Monument } from './contract.ts';
  *    Needle discrimination and it is deliberate; see below.
  * 2. **The upper pod is about 1.2x wider than life** — 15.2 m against something
  *    nearer 13. Built honestly it disappeared. Rendered at 180 pixels, which is
- *    roughly what a contact-sheet thumbnail gives a 120-unit model, a 2.7-unit
+ *    roughly what a monument-sheet thumbnail gives a 120-unit model, a 2.7-unit
  *    drum on a 1.5-unit mast was one grey pixel of swelling, and the tower lost
  *    one of the six things it is made of. Widened, it is 2.14x the shaft it
  *    stands on and it survives. It is still only **half the main pod's width**,

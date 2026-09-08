@@ -8,8 +8,7 @@ import { createPlayer } from './player.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
 import { detailRadiusFor, loadPlaces, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
-import { createRoads, loadRoads, pruneHiddenLeaves } from './roads.ts';
-import { createRivers, loadRivers } from './rivers.ts';
+import { createRoads, loadRoads } from './roads.ts';
 // From the contract rather than from `./monuments/index.ts`, which is the whole
 // registry: see `deferred` in `start()`. `index.ts` re-exports this, and taking
 // it from there would drag all seventy-seven model files into the first load for
@@ -121,24 +120,12 @@ async function start(): Promise<void> {
   // connection that needs it. The road network is baked against `places.bin` and
   // stores its ends as indices into it, so `createRoads` still refuses to start
   // if the two disagree about how many places there are.
-  const [placements, places, baked, lakes, riverData] = await Promise.all([
+  const [placements, places, baked, lakes] = await Promise.all([
     loadPlacements(),
     loadPlaces(PLANET_RADIUS),
     loadRoads(),
     loadLakes(),
-    // The fifth file in the same flight, and nothing about it depends on the
-    // other four either. It *is* a derivative of the outlines and the lakes —
-    // every vertex in it is a coordinate they called land — but that is checked
-    // by a stamp in `pnpm check` rather than by an await; see `dataStamp`.
-    loadRivers(),
   ]);
-  // Only a third of the places are built — see `PROMINENCE_RADIUS` — and a
-  // lane that ends at a village that is not there is a road to nowhere. It is
-  // taken out here, once, before anything reads the network: the settlements
-  // aim their tracks along it, the walkers ride it and the ribbon draws it, and
-  // all three have to agree. `atlas.prominence(r)` does not re-run this; the
-  // knob moves the towns, the trees and the herds, and the roads are a reload.
-  const roadData = { ...baked, roads: pruneHiddenLeaves(baked.roads, places.all) };
   setFlattenSites(placements);
   // And the settlements ask the same terrain for resolution rather than for
   // level ground: a town lays its floor from the exact relief while the land
@@ -201,6 +188,19 @@ async function start(): Promise<void> {
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
   };
+
+  // **`roads.bin` is the network, whole.** It used to arrive as a graph over all
+  // 29,545 places and be cut down here at load — only asphalt, nothing crossing
+  // scree, no dead end at a village `isShown` does not build, one route put back
+  // at each orphaned city — because the bake joined a town to its own unbuilt
+  // suburbs and the connectivity had to be reconstructed out of that. The bake
+  // joins the **built** towns now (see `builtGraph`), so the file holds exactly
+  // what is drawn and there is nothing left to do to it on the way in.
+  //
+  // The one thing that follows: `roads.bin` is a function of `isShown`, so
+  // `atlas.prominence(r)` no longer moves the network at all. It was a reload
+  // before and it is a **re-bake** now; `pnpm check` asserts the file against
+  // the same `builtGraph`, so a knob left turned fails there.
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -332,7 +332,25 @@ async function start(): Promise<void> {
   // `MonumentKit` there, and `deferred` above for why it is not in the first
   // load. This is the first `await` on any of them and by here the land is up.
   const { MONUMENTS, buildMonument } = await deferred.monuments;
-  const monuments = createMonuments(world, placements, { monuments: MONUMENTS, build: buildMonument }, ctx);
+  // **Where a landmark's feet go, which is not always the relief.** 28 of the
+  // world's landmark cities have their landmark standing inside them, and a
+  // town's floor is a plinth `GROUND_LIFT` over the ground — measured at the
+  // Sagrada Familia, the model sat at 16004 with Barcelona's paving at 16007.
+  // So `placement.ts` asks the settlements how high the made ground is, exactly
+  // as `player.ts` does.
+  //
+  // **A thunk and not the method, because the monuments are built first.** The
+  // stages run monuments then settlements, and reordering them to pass the
+  // function directly would move a stage for an argument that is only ever
+  // called at `raise` — long after both exist. The one-line closure is the
+  // cheap half of that trade.
+  const monuments = createMonuments(
+    world,
+    placements,
+    { monuments: MONUMENTS, build: buildMonument },
+    ctx,
+    (point) => settlements.madeHeightAt(point),
+  );
   scene.add(monuments.group);
   if (monuments.broken.length > 0) console.warn('monuments that broke the contract:', monuments.broken);
   console.log(`${monuments.missing.length} placed landmarks have no model yet`);
@@ -347,13 +365,7 @@ async function start(): Promise<void> {
   const settlements = createSettlements(world, places.all, {
     context: ctx,
     monuments: placements,
-    roads: roadData.roads,
-    // And the water. A town had never heard of a river, so the Danube ran under
-    // Vienna's paving and showed as a pond wherever the plots left a gap; the
-    // plots and the floor keep off the bank now. It is the counterpart of
-    // `roadClip` and it is here rather than there because a river cannot stop at
-    // a town — see `RiverCorridor` in `rivers.ts`.
-    rivers: riverData.lines,
+    roads: baked.roads,
   });
   scene.add(settlements.group);
   // Every place on the planet as one buffer of points, lit where the sun is
@@ -368,16 +380,11 @@ async function start(): Promise<void> {
   if (settlements.missing.length > 0) console.warn('region tables name parts that do not exist:', settlements.missing);
 
   await stage('laying the roads');
-  // Nothing is built here either — 12,789 roads at their full detail is more
+  // Nothing is built here either — the whole network at its full detail is more
   // geometry than the land mesh — so this costs one material and a bucket per
   // four degrees of the planet.
-  const roads = createRoads(world, places.all, roadData);
+  const roads = createRoads(world, places.all, baked);
   scene.add(roads.group);
-  // And the water between them. Nothing is built here either: 14,523 stored
-  // river vertices at the near band's own span are more triangles than the
-  // budget holds, so this costs one material and a bucket per four degrees.
-  const rivers = createRivers(world, riverData);
-  scene.add(rivers.group);
 
   await stage('setting it moving');
   // **The last thing built and the last thing updated, because it is the only
@@ -393,10 +400,7 @@ async function start(): Promise<void> {
   const { ANIMALS } = await deferred.fauna;
   const life = createLife(world, places.all, {
     context: ctx,
-    roads: roadData.roads,
-    // A herd stands off a carriageway and now off the water as well: the same
-    // line-not-disc test, sharing `rivers.ts`'s index with the wood.
-    rivers: riverData.lines,
+    roads: baked.roads,
     vehicles: VEHICLES,
     // Handed down rather than imported, the same way the vehicles are: `life.ts`
     // stays Node-safe and adding an animal stays one file and nothing else.
@@ -414,10 +418,7 @@ async function start(): Promise<void> {
     monuments: placements,
     // The pruned network, the same list the streamer draws: a tree in the
     // carriageway was the last of the three keepouts nobody had asked for.
-    roads: roadData.roads,
-    // And the water, which was the one after that: a wood grew across the
-    // Danube because nothing had told it there was a river there.
-    rivers: riverData.lines,
+    roads: baked.roads,
   });
   scene.add(vegetation.group);
   if (vegetation.broken.length > 0) console.warn('scenery parts that broke the contract:', vegetation.broken);
@@ -520,10 +521,6 @@ async function start(): Promise<void> {
     onChoose: (id) => nav.select(id),
     onClear: () => nav.clear(),
     lockTarget: renderer.domElement,
-    // The great rivers, under the pins and the names. The data and not the
-    // mesh: this sheet draws the far side of the planet and the streamer only
-    // holds what the camera is pointed at.
-    rivers,
   });
   document.body.appendChild(map.root);
 
@@ -728,10 +725,6 @@ async function start(): Promise<void> {
     // that — the lift is — but the build budgets are served in order and the
     // town under your feet is worth more than the road on the horizon.
     roads.update(player.position, altitude, rig.camera);
-    // And after the roads, because where the two cross the ribbon laid second
-    // is the one you see and a bridge is a road over a river rather than the
-    // other way round.
-    rivers.update(player.position, altitude, rig.camera);
 
     // After the roads, because a vehicle drives on one and the road under it
     // should have arrived first — and **on the world's clock rather than the
@@ -963,12 +956,8 @@ async function start(): Promise<void> {
       settlements,
       // `atlas.roads.stats` is tiles, roads and triangles resident;
       // `atlas.roads.degrees()` is the graph's shape and `atlas.roads.all` is
-      // every edge as baked.
+      // every edge in `roads.bin`, which is every edge that is drawn.
       roads,
-      // `atlas.rivers.stats` is tiles, lines and triangles resident;
-      // `atlas.rivers.all` is every polyline as baked and `atlas.rivers.rivers`
-      // the names they belong to.
-      rivers,
       // `atlas.life.stats` is what moves: movers by family, the birds drawn,
       // the meshes they cost before the outline doubles them, and the pooled
       // geometry held. `atlas.life.verify()` sweeps the walk cycle and reports
@@ -1029,8 +1018,15 @@ async function start(): Promise<void> {
        * live: the settlements, the vegetation and the herds rescan on their
        * next frame and the chip stops naming what is no longer there. It is
        * not persisted and it is not the detail knob — how far the world is
-       * built is a budget, and which towns exist is not. The road prune ran
-       * at load and stays as it was; see `pruneHiddenLeaves`.
+       * built is a budget, and which towns exist is not.
+       *
+       * **The roads do not follow it at all any more**, and that is a real
+       * limit rather than a lag: `roads.bin` is a graph over the places
+       * `isShown` returns true for at *bake* time, so turning this knob is a
+       * re-bake and not a reload. What is still live is where each ribbon
+       * stops, because `roadClip` asks `isShown` — `roads.ts` drops its
+       * geometry outright when the knob turns, so a ribbon cannot go on
+       * stopping at the edge of a town that is no longer built.
        */
       prominence(radius?: number) {
         if (radius !== undefined) setProminenceRadius(radius);

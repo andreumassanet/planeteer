@@ -1672,6 +1672,107 @@ export function reliefAt(x: number, y: number, z: number): number {
   return relief + (padLevel - relief) * padWeight;
 }
 
+/**
+ * How steep the ground may be under anything this world stands on the land.
+ *
+ * **One definition, because four files ask the same question and a slope that
+ * refuses a tree and admits a carriageway is a road up a cliff.** It began in
+ * `vegetation.ts`, where the user could see it first — a wood on a mountain
+ * face is a set of trunks sunk into the rock — and the same face is what a road
+ * climbs, what a herd stands on and what a town tries to pave. They all read
+ * this now, through `gradeAt`.
+ *
+ * It is the **angle of repose**: the steepest a loose slope holds without
+ * sliding, 30 to 35 degrees for scree, which is the real reason a mountain face
+ * is bare rock rather than soil. Above it nothing grows, nothing grazes and
+ * nothing was ever built without cutting the hill away first.
+ *
+ * What it costs, measured over 20,000 land points with the four probes below
+ * (2026-09-06): the median slope on this planet is **4.7 degrees** and the p90
+ * is 18.5, so it refuses **4.9% of the world's land** — but the Alps read a
+ * median of 18.6 and a p90 of 47.1 and lose 40.5% of a tile, and a Norwegian
+ * fjord loses 34.2%. It is free where the flat world is and it is the whole
+ * point where it is not. On the network it is 9.0% of the lanes and 11.2% of
+ * the roads (2026-09-07, over the shipped `roads.bin`).
+ */
+export const MAX_SLOPE = Math.tan(30 * DEG);
+
+/** What `gradeAt` measured: the tilt, and the two extremes it came from. */
+export interface Slope {
+  /** The gradient's magnitude, rise over run. Compare it against `MAX_SLOPE`. */
+  grade: number;
+  /**
+   * And the two components it is the magnitude of, along the caller's own
+   * tangents, so the same measurement that refuses a site can also *lay*
+   * something on it: `-across, -north` against the up vector is the surface
+   * normal in the frame it was asked in. See `TILT_OF` in `vegetation.ts`.
+   */
+  across: number;
+  north: number;
+  /** The lowest of the four probes: what a thing standing here is bedded to. */
+  lowest: number;
+  /** The highest: what has to be cut away, walled, or climbed over. */
+  highest: number;
+}
+
+/**
+ * The tilt of the relief at a point, over a footprint of its own.
+ *
+ * Four probes at the corners of a square `reach` units across, in the frame the
+ * caller is about to place something in — at 45, 135, 225 and 315 degrees, so
+ * each axis is the difference of two diagonal pairs over the `2*sqrt(2)*reach`
+ * between them. It is the central difference a height field's normal is always
+ * built from, and taking it in the caller's own frame is what lets the answer be
+ * used to *lay* the thing down as well as to refuse it.
+ *
+ * **The reach is the caller's and it matters.** A gradient is a local quantity
+ * and the relief is rough at every scale: a plant asks over its own footprint, a
+ * road over its own width, a town over one cell of its lattice. Asking over a
+ * radius nothing occupies would refuse ground that is perfectly good under the
+ * thing that is actually standing on it.
+ *
+ * `into` is filled and returned rather than allocated, because the vegetation
+ * calls this once per plot and there are 247 plots in a tile.
+ */
+export function gradeAt(
+  up: { x: number; y: number; z: number },
+  across: { x: number; y: number; z: number },
+  north: { x: number; y: number; z: number },
+  reach: number,
+  into: Slope,
+): Slope {
+  // The probes are `reach` units out along the tangents, and a unit vector plus
+  // a tangent times an angle *is* the point at that angle once it is normalised
+  // — the chord error over a footprint is nine orders of magnitude under the
+  // relief's own roughness.
+  const span = reach / unitsPerRadian;
+  let lowest = Infinity;
+  let highest = -Infinity;
+  for (let corner = 0; corner < 4; corner++) {
+    const angle = (corner / 4) * Math.PI * 2 + Math.PI / 4;
+    const dx = Math.cos(angle) * span;
+    const dz = Math.sin(angle) * span;
+    const px = up.x + across.x * dx + north.x * dz;
+    const py = up.y + across.y * dx + north.y * dz;
+    const pz = up.z + across.z * dx + north.z * dz;
+    const length = Math.hypot(px, py, pz) || 1;
+    const height = reliefAt(px / length, py / length, pz / length);
+    probes[corner] = height;
+    if (height < lowest) lowest = height;
+    if (height > highest) highest = height;
+  }
+  const wide = 2 * Math.SQRT2 * reach;
+  into.across = (probes[0]! + probes[3]! - probes[1]! - probes[2]!) / wide;
+  into.north = (probes[0]! + probes[1]! - probes[2]! - probes[3]!) / wide;
+  into.grade = Math.hypot(into.across, into.north);
+  into.lowest = lowest;
+  into.highest = highest;
+  return into;
+}
+
+/** The four corner heights `gradeAt` samples, reused: it is called per plot. */
+const probes = [0, 0, 0, 0];
+
 /** `rawRelief` at a point on the unit sphere, for the probes in `beginQueries`. */
 function rawReliefAt(x: number, y: number, z: number): number {
   return rawRelief(x, y, z, Math.asin(clamp(y, -1, 1)) / DEG, Math.atan2(-z, x) / DEG);

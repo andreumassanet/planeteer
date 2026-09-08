@@ -8,7 +8,7 @@
  *
  * **A lake carries no name and that is a saving, not an omission.** The
  * outlines ship `iso`, `name` and `continent` because the HUD names the country
- * you are standing in and `flags.html` draws 234 flags from them; nothing in
+ * you are standing in and `sheets/flags.html` draws 234 flags from them; nothing in
  * this world can be *in* a lake — `countryAt` returns open water there, exactly
  * as it does at sea — so a name would be 412 strings nobody reads. `pnpm check`
  * names them from coordinates, the way it already names the 25 biome places and

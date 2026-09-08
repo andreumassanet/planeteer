@@ -33,42 +33,34 @@ import {
   radiusFor,
 } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
-import { dataStamp, decodeCountries, decodeLakes, decodePlaces, decodeRivers, decodeRoads, encodeCountries, encodeLakes, encodePlaces, encodeRivers, encodeRoads, inflate } from '../src/pack.ts';
+import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodeLakes, encodePlaces, encodeRoads, inflate } from '../src/pack.ts';
 import {
+  CROWN_FALL,
   MAX_ROAD_LENGTH,
   RIBBON_LIFT,
   ROAD_CLASSES,
-  TOWN_OVERLAP,
+  TOWN_STANDOFF,
   bendFor,
+  builtGraph,
   classOf,
+  crossesScree,
   pairKey,
   placeDirection,
-  proximityGraph,
-  pruneHiddenLeaves,
   roadClip,
   roadPoint,
   roadPole,
   roadSpan,
   createRoads,
 } from '../src/roads.ts';
-import {
-  TOWN_BANK,
-  classForRank,
-  inRiverCorridor,
-  riverCorridorsNear,
-  riverIndexFor,
-  riverPoint,
-  widestRiverClearance,
-} from '../src/rivers.ts';
-import type { RiverCorridor } from '../src/rivers.ts';
 import { biomeAt, biomeSample } from '../src/biome.ts';
 // The floor's own vertical section, from the file that lays it: the check has
 // to measure the mesh against the number `settlements.ts` uses and not against
 // a copy of it. `scenery/ground.ts` is Node-safe; `settlements.ts` is not,
 // because it reaches the kit through an `import.meta.glob` registry.
-import { APRON_SINK, GROUND_LIFT, KERB_BLEND, KERB_DROP, cellKey, floorLiftAt } from '../src/scenery/ground.ts';
+import { APRON_SINK, GROUND_LIFT, KERB_BLEND, KERB_DROP, MAX_CUT, TERRACE_STEP, cellKey, floorLiftAt } from '../src/scenery/ground.ts';
 import { allZoneNames, clockAt, zoneFor } from '../src/timezone.ts';
 import { createBorders } from '../src/borders.ts';
+import { verifyFlagLayer } from '../src/land-flags.ts';
 import { Mesh } from 'three';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1612,6 +1604,11 @@ console.log('\nroads');
      * close to a third place, because a place near the middle of one is inside
      * the circle that would have deleted the edge. That is an argument and this
      * is the measurement of it.
+     *
+     * **Over the network that is drawn and not over the bake**, which it used
+     * to be. A lane laid across somebody's plots was a bug while lanes were
+     * drawn — which, since the bake joins the built towns, is every row in the
+     * file: there is no load-time pass left to run first.
      */
     {
       // A grid of the shown places, so a sample along a road asks about a
@@ -1712,7 +1709,11 @@ console.log('\nroads');
           for (let r = Math.max(0, row - 1); r <= Math.min(ROWS - 1, row + 1); r++) {
             for (let c = col - lonSpan; c <= col + lonSpan; c++) {
               for (const j of grid[r * COLS + (((c % COLS) + COLS) % COLS)]!) {
-                const limit = Math.max(0, radiusFor(settled[j]!.pop) - TOWN_OVERLAP);
+                // `roadClip` itself, and not a copy of its arithmetic: the
+                // ribbon is asserted clear of exactly the disc it was cut
+                // against, so the standoff cannot move in one file and not the
+                // other. The grid only holds shown places, so this is never 0.
+                const limit = roadClip(settled[j]!);
                 if (limit <= 0) continue;
                 shownAt.copy(shownUnit[j]!);
                 const gap = point.angleTo(shownAt) * PLANET_RADIUS;
@@ -1749,183 +1750,89 @@ console.log('\nroads');
           : `${inside} do, worst ${worst.toFixed(1)} units in: ${worstName}`,
       );
       /**
-       * And the residue, bounded rather than described.
+       * And no road runs through a town it does not end at.
        *
-       * The clip is at the ends, and a Gabriel edge cannot pass close to a
-       * third place — except that the *bow* is not what Gabriel tested. Two
-       * roads on the planet swing into a town they do not end at, both of them
-       * into Weifang, which is one of the settlements at the 150-unit size cap:
-       * 14 vertices and 28.3 units of the outermost plots (2026-09-05). The
-       * honest fix is a mid-road cut, which is a list of stretches where there
-       * is one span today; it is not built, and this is what says so if it gets
-       * worse. Bounded at 40 units so a re-bake that moves a bow has room and a
-       * change that puts a ribbon down a high street does not.
-       */
-      check(
-        through <= 20 && throughWorst < 40,
-        'no road swings deep into a town it does not end at',
+       * **This was a bounded residue for three rounds and it is an invariant
+       * now** (2026-09-08): `build-roads.ts` walks each candidate's drawn bow
+       * against every built place that is not one of its own ends, and a pair
+       * with no bend that clears them is not joined. It was 14 vertices and 28
+       * units deep into Weifang when the clip disc was `radiusFor - 8`, 34 and
+       * 40 when it became `radiusFor + 4`, and 75 and **118** the moment the
+       * orphan rescue started emitting roads that were never Gabriel candidates
+       * — Wollongong to Tamworth straight down the middle of Sydney.
+       *
+       * What is left is the 4-unit band between the two rules, and it is
+       * arithmetic rather than slack: the bake refuses a road inside
+       * `radiusFor`, this measures against `roadClip`, which is `radiusFor +
+       * TOWN_STANDOFF`. So a vertex may legitimately sit up to `TOWN_STANDOFF`
+       * inside the disc this tests and no further — **5 vertices, worst 2.4
+       * units**. Bounded there, not at 60: if a bow ever swings a road into a
+       * town again this fails, where before it only failed if the road went
+       * down the high street.
+       */      check(
+        throughWorst <= TOWN_STANDOFF,
+        'no road runs through a town it does not end at',
         `${through} vertices, worst ${throughWorst.toFixed(1)} units: ${[...throughNames].join(', ') || 'none'}`,
       );
     }
 
     /**
-     * The thinning did not strand anybody, re-derived rather than believed.
+     * The shape of the graph, as a line to read and one band.
      *
-     * **`build-roads.ts` drops 13,426 of the 49,179 roads the water test
-     * produced** — a lane that the relative neighbourhood graph does not have,
-     * between two places small enough to earn a lane at both ends — and the one
-     * thing that pass may not do is cut a town off. It has a connectivity guard
-     * and the guard is exact, but "the bake says so" is what this file exists
-     * not to accept: the graph is a pure function of `places.bin`, so the check
-     * can build it again and ask the shipped file to account for every edge it
-     * does not carry.
-     *
-     * Two questions, and they are different:
-     *
-     * - **Every relative-neighbourhood edge is in the file, or it is wet.** RNG
-     *   is what the thinner calls mandatory, so this is that clause stated as an
-     *   assertion. 808 of the 31,509 went to sea, and every one of the rest is
-     *   in the file.
-     * - **Every Gabriel edge the file does not carry either joins two places the
-     *   network already joins, or is wet.** That is the guard: an edge whose
-     *   ends are in one component is redundant and dropping it moved nothing,
-     *   and an edge that is wet was never available. Anything else is a town cut
-     *   off, and it fails here rather than in a screenshot nobody takes of
-     *   Norway.
-     *
-     * **What it does not prove**, said plainly because the number of roads it
-     * covers is not zero: an edge is called wet on the bow `bendFor` gives it,
-     * and the bake also searches outward for a bow that stays dry — 954 roads
-     * are in the file on a bow they were not born with. A dropped road that was
-     * *bowed* round water and *was* a bridge would read as wet here and pass.
-     * Re-deriving the bow search would be a second copy of the thing
-     * `docs/traps.md` says must have exactly one, so it is written down instead.
-     * The class of road it could hide is narrow: a coastal lane that is the only
-     * link to its town is an RNG edge, and the clause above catches those.
+     * **Counted over the built towns and not over `places.bin`**, which is the
+     * only vertex set the network has now: averaging a degree over the 29,545
+     * rows would divide by three times the towns that can carry a road and say
+     * nothing about the map. A mean near two is a chain and near six is a
+     * hairball; the band is unchanged at 2.8 to 4.5 and has never been widened.
+     * The median is the number the user's sentence is about — *no hace falta que
+     * conectes una ciudad con 20* — and it is 4.
      */
-    {
-      const began = Date.now();
-      const shipped = new Set<number>();
-      for (const road of roads) shipped.add(pairKey(settled.length, road.a, road.b));
-
-      // The components of the shipped network, so a missing edge can be asked
-      // whether its ends still reach each other.
-      const parent = new Int32Array(settled.length).map((_, i) => i);
-      const find = (x: number): number => {
-        let root = x;
-        while (parent[root] !== root) root = parent[root]!;
-        while (parent[x] !== root) {
-          const next = parent[x]!;
-          parent[x] = root;
-          x = next;
-        }
-        return root;
-      };
-      for (const road of roads) {
-        const ra = find(road.a);
-        const rb = find(road.b);
-        if (ra !== rb) parent[ra] = rb;
-      }
-
-      const wetOnItsOwnBow = (ea: number, eb: number): boolean => {
-        placeDirection(settled[ea]!, a);
-        placeDirection(settled[eb]!, b);
-        roadPole(a, b, pole);
-        const bend = bendFor(settled[ea]!, settled[eb]!);
-        const steps = Math.max(2, Math.ceil((a.angleTo(b) * PLANET_RADIUS) / 18));
-        for (let step = 1; step < steps; step++) {
-          roadPoint(a, b, bend, step / steps, point, pole);
-          const { lat, lon } = toLatLon(point);
-          if (world.countryAt(lat, lon) === 0) return true;
-        }
-        return false;
-      };
-
-      let rngMissing = 0;
-      let rngMissingDry = 0;
-      const rngNames: string[] = [];
-      for (const edge of proximityGraph(settled, 'rng', MAX_ROAD_LENGTH)) {
-        if (shipped.has(pairKey(settled.length, edge.a, edge.b))) continue;
-        rngMissing++;
-        if (!wetOnItsOwnBow(edge.a, edge.b)) {
-          rngMissingDry++;
-          if (rngNames.length < 5) rngNames.push(`${settled[edge.a]!.name}-${settled[edge.b]!.name}`);
-        }
-      }
-      check(
-        rngMissingDry === 0,
-        'every relative-neighbourhood road is in the file, or it is wet',
-        rngMissingDry === 0
-          ? `${rngMissing.toLocaleString()} missing, all of them wet`
-          : `${rngMissingDry} dry and dropped: ${rngNames.join(', ')}`,
-      );
-
-      let stranding = 0;
-      const strandNames: string[] = [];
-      let dropped = 0;
-      for (const edge of proximityGraph(settled, 'gabriel', MAX_ROAD_LENGTH)) {
-        if (shipped.has(pairKey(settled.length, edge.a, edge.b))) continue;
-        dropped++;
-        if (find(edge.a) === find(edge.b)) continue;
-        if (wetOnItsOwnBow(edge.a, edge.b)) continue;
-        stranding++;
-        if (strandNames.length < 5) strandNames.push(`${settled[edge.a]!.name}-${settled[edge.b]!.name}`);
-      }
-      check(
-        stranding === 0,
-        'no road the bake dropped was holding a town on',
-        stranding === 0
-          ? `${dropped.toLocaleString()} candidates not in the file, none of them load-bearing, ${Date.now() - began} ms`
-          : `${stranding} were: ${strandNames.join(', ')}`,
-      );
-    }
-
-    // The shape of the graph, as a line to read rather than a threshold. A mean
-    // degree near two is a chain and near six is a hairball; Gabriel sits where
-    // a road map sits.
     const degree = new Int32Array(settled.length);
     for (const road of roads) {
       degree[road.a]!++;
       degree[road.b]!++;
     }
-    let sum = 0;
-    let isolated = 0;
-    let peak = 0;
-    for (const d of degree) {
-      sum += d;
-      if (d === 0) isolated++;
-      if (d > peak) peak = d;
-    }
+    const builtDegrees = settled
+      .map((place, i) => (isShown(place) ? degree[i]! : -1))
+      .filter((d) => d >= 0)
+      .sort((x, y) => x - y);
+    const sum = builtDegrees.reduce((total, d) => total + d, 0);
+    const mean = sum / builtDegrees.length;
+    const isolated = builtDegrees.filter((d) => d === 0).length;
+    const peak = builtDegrees[builtDegrees.length - 1]!;
     console.log(
-      `  --   ${baked.graph} graph · mean degree ${(sum / settled.length).toFixed(2)} · max ${peak} · ` +
-        `${isolated} places with no road · ` +
+      `  --   ${baked.graph} graph over ${builtDegrees.length.toLocaleString()} built towns · ` +
+        `mean degree ${mean.toFixed(2)} · median ${builtDegrees[builtDegrees.length >> 1]} · ` +
+        `p90 ${builtDegrees[Math.floor(builtDegrees.length * 0.9)]} · max ${peak} · ` +
+        `${isolated} with no road · ` +
         ROAD_CLASSES.map((c, i) => `${c.name} ${roads.filter((r) => r.cls === i).length}`).join(' · '),
     );
     check(
-      sum / settled.length > 2.8 && sum / settled.length < 4.5,
+      mean > 2.8 && mean < 4.5,
       'the graph is a network rather than a chain or a hairball',
-      `mean degree ${(sum / settled.length).toFixed(2)}`,
+      `mean degree ${mean.toFixed(2)} over the built towns`,
     );
 
     /**
      * No road leaves an island, and that is the water test working rather than
      * failing.
      *
-     * **The shape of this assertion changed with the gazetteer and it is
-     * stronger now.** Under Natural Earth's cartographic file Palma was the
-     * *whole* of Mallorca, so the check that said so was `degree === 0` — which
-     * is a true statement about a one-town island and says nothing at all about
-     * water. GeoNames gives the Balearics twelve towns — nine on Mallorca — so
-     * Palma has roads, and what has to be true is the thing the old check could
-     * only imply: none of those roads reaches the mainland. It is a flood fill
-     * from Palma over the network, asserting that what it reaches is exactly
-     * the archipelago.
+     * **The shape of this assertion has changed twice with the point set.**
+     * Under Natural Earth's cartographic file Palma was the *whole* of
+     * Mallorca, so the check was `degree === 0` — a true statement about a
+     * one-town island that says nothing about water. GeoNames gave the
+     * Balearics twelve towns, nine of them on Mallorca, so Palma had roads and
+     * the check became a flood fill: whatever it reaches must still be in the
+     * archipelago.
      *
-     * Over the network *as baked*, on purpose. Only Palma is built on Mallorca
-     * now — see `PROMINENCE_RADIUS` — and the leaf prune below takes the roads
-     * to hidden dead ends out at load, but the hidden towns stay in the file as
-     * junctions and a road to one of them is still a road on the island. The
-     * water rule is a property of the bake, and this asserts it there.
+     * The network is baked over the **built** towns now, and
+     * `PROMINENCE_RADIUS` leaves Palma as the only one on Mallorca — so the
+     * fill reaches Palma alone and the assertion is back to being about a town
+     * with no road. That is still the water test working and it is still worth
+     * asserting, because the fill is what would catch a road to the mainland
+     * the day the thinning admits a second Balearic town. What stops it passing
+     * on an empty network is the counter-case below, which is the reason that
+     * counter-case exists.
      */
     const indexOf = (name: string): number => settled.findIndex((place) => place.name === name);
     const byPlace: number[][] = settled.map(() => []);
@@ -1963,7 +1870,7 @@ console.log('\nroads');
         ? 'Palma is not in places.bin'
         : escaped !== ''
           ? `the network reaches ${escaped}`
-          : `${reached} places reachable from Palma, all of them islands`,
+          : `${reached} place${reached === 1 ? '' : 's'} reachable from Palma, all of them islands`,
     );
     // And the counter-case, or the check above would pass on a network with no
     // roads in it at all: Iceland has several towns and they are joined.
@@ -1975,74 +1882,202 @@ console.log('\nroads');
     );
 
     /**
-     * The leaf prune, re-derived rather than believed.
+     * Every endpoint is a town you can walk into, and the ground let the road be
+     * built.
      *
-     * `main.ts` drops every road that ends at a hidden place with no other road,
-     * and repeats. The argument that this cannot change which built towns reach
-     * which is one sentence — every road it removes ends at a vertex with
-     * nothing beyond it — and the check does not accept the sentence: it
-     * partitions the built places into components over the baked network and
-     * over the pruned one and asserts the two partitions are the same. Then
-     * that the prune finished its job, which is that no hidden dead end is
-     * left, and that it took under two per cent of the network, because a
-     * prune that took a fifth would mean the rule had changed under it.
+     * **This is the whole of what the load-time passes used to assert, moved to
+     * where the answer is now decided.** `roads.bin` was a Gabriel graph over
+     * all 29,545 places, so two thirds of its endpoints were villages
+     * `PROMINENCE_RADIUS` does not build; the file had to be pruned of dead
+     * ends, chained through hidden junctions, filtered to asphalt and topped up
+     * with a rescue at each orphaned city before a triangle could be laid. The
+     * bake joins the **built** towns now (`builtGraph`), and all of that is
+     * deleted. What is left to check is that the file really has that shape:
+     *
+     * - **Both ends of every road are built.** One `isShown` per row, and it is
+     *   the assertion the whole round turns on: if it holds there are no dead
+     *   ends at unbuilt villages, no junctions standing on nothing and no road
+     *   that ends in a field, by construction rather than by a pass.
+     * - **No road crosses ground steeper than `MAX_SLOPE`** — *si en ningún
+     *   momento se pasa por una montaña.* Re-walked rather than trusted, the
+     *   same way the water test is: the bake tests a path and writes down a
+     *   `bend`, and if the two ever drift, every road in the world would still
+     *   be a road between two real towns and some of them would climb a scree
+     *   face. `crossesScree` is `roads.ts`'s and asks `terrain.ts`'s one
+     *   definition of how steep the ground may be.
+     * - **The bake accounts for every candidate it did not keep.** The graph is
+     *   a pure function of `places.bin`, so the check builds it again and asks
+     *   the file to explain each missing pair — it has to be wet or steep on its
+     *   own seeded bow. The same caveat as ever applies and is written down
+     *   rather than papered over: the bake also *searches* for a bow, so a pair
+     *   dropped after a search this does not repeat reads as refused here and
+     *   passes.
+     * - **And the rows that are not candidates at all are the rescue.** Gabriel
+     *   can leave a town isolated for a reason that has nothing to do with the
+     *   ground, so the bake gives such a place one road to its nearest reachable
+     *   neighbour. Every extra row therefore has to be somebody's only road.
      */
     {
-      const pruned = pruneHiddenLeaves(roads, settled);
-      const removed = roads.length - pruned.length;
-      const built = new Uint8Array(settled.length);
-      for (let i = 0; i < settled.length; i++) built[i] = isShown(settled[i]!) ? 1 : 0;
-      const rootsOver = (edges: readonly typeof roads[number][]): Int32Array => {
-        const parent = new Int32Array(settled.length);
-        for (let i = 0; i < settled.length; i++) parent[i] = i;
-        const find = (x: number): number => {
-          while (parent[x] !== x) {
-            parent[x] = parent[parent[x]!]!;
-            x = parent[x]!;
-          }
-          return x;
-        };
-        for (const road of edges) {
-          const ra = find(road.a);
-          const rb = find(road.b);
-          if (ra !== rb) parent[ra] = rb;
-        }
-        const roots = new Int32Array(settled.length);
-        for (let i = 0; i < settled.length; i++) roots[i] = find(i);
-        return roots;
-      };
-      const before = rootsOver(roads);
-      const after = rootsOver(pruned);
-      // The same partition of the built places: a root before maps to exactly
-      // one root after, and back.
-      const forward = new Map<number, number>();
-      const backward = new Map<number, number>();
-      let split = 0;
-      for (let i = 0; i < settled.length; i++) {
-        if (built[i] === 0) continue;
-        const f = forward.get(before[i]!);
-        if (f === undefined) forward.set(before[i]!, after[i]!);
-        else if (f !== after[i]) split++;
-        const b = backward.get(after[i]!);
-        if (b === undefined) backward.set(after[i]!, before[i]!);
-        else if (b !== before[i]) split++;
+      const began = Date.now();
+      let unbuilt = 0;
+      const unbuiltNames: string[] = [];
+      for (const road of roads) {
+        if (isShown(settled[road.a]!) && isShown(settled[road.b]!)) continue;
+        unbuilt++;
+        if (unbuiltNames.length < 5) unbuiltNames.push(`${settled[road.a]!.name}-${settled[road.b]!.name}`);
       }
-      const degreeAfter = new Int32Array(settled.length);
-      for (const road of pruned) {
-        degreeAfter[road.a]!++;
-        degreeAfter[road.b]!++;
-      }
-      let deadEnds = 0;
-      for (let i = 0; i < settled.length; i++) if (built[i] === 0 && degreeAfter[i] === 1) deadEnds++;
       check(
-        split === 0,
-        'the leaf prune joins the built towns exactly as the baked network does',
-        split === 0 ? `${forward.size} components of built places, before and after` : `${split} built places changed component`,
+        unbuilt === 0,
+        'both ends of every road are a town that is built',
+        unbuilt === 0
+          ? `${roads.length.toLocaleString()} roads over ${settled.filter((p) => isShown(p)).length.toLocaleString()} built places`
+          : `${unbuilt} join something that is not: ${unbuiltNames.join(', ')}`,
       );
+
+      let steep = 0;
+      const steepNames: string[] = [];
+      for (const road of roads) {
+        if (!crossesScree(road, settled)) continue;
+        steep++;
+        if (steepNames.length < 5) steepNames.push(`${settled[road.a]!.name}-${settled[road.b]!.name}`);
+      }
       check(
-        deadEnds === 0 && removed > 0 && removed < roads.length * 0.02,
-        'no road ends at a hidden town, and the prune took under 2% of the network',
-        `${removed} of ${roads.length.toLocaleString()} roads (${((100 * removed) / roads.length).toFixed(2)}%), ${deadEnds} dead ends left`,
+        steep === 0,
+        'and none of them crosses ground steeper than MAX_SLOPE',
+        steep === 0 ? `re-walked in ${Date.now() - began} ms` : `${steep} do: ${steepNames.join(', ')}`,
+      );
+
+      const shipped = new Set<number>();
+      for (const road of roads) shipped.add(pairKey(settled.length, road.a, road.b));
+      const candidates = builtGraph(settled, 'gabriel', MAX_ROAD_LENGTH);
+      const candidateKeys = new Set<number>();
+      for (const edge of candidates) candidateKeys.add(pairKey(settled.length, edge.a, edge.b));
+
+      const bowProbe = { a: 0, b: 0, cls: 0, bend: 0 };
+      const refusedOnItsOwnBow = (ea: number, eb: number): boolean => {
+        placeDirection(settled[ea]!, a);
+        placeDirection(settled[eb]!, b);
+        roadPole(a, b, pole);
+        const bend = bendFor(settled[ea]!, settled[eb]!);
+        const steps = Math.max(2, Math.ceil((a.angleTo(b) * PLANET_RADIUS) / 18));
+        for (let step = 1; step < steps; step++) {
+          roadPoint(a, b, bend, step / steps, point, pole);
+          const { lat, lon } = toLatLon(point);
+          if (world.countryAt(lat, lon) === 0) return true;
+        }
+        bowProbe.a = ea;
+        bowProbe.b = eb;
+        bowProbe.cls = classOf(settled[ea]!.pop, settled[eb]!.pop);
+        bowProbe.bend = bend;
+        return crossesScree(bowProbe, settled);
+      };
+
+      let missing = 0;
+      let unexplained = 0;
+      const unexplainedNames: string[] = [];
+      for (const edge of candidates) {
+        if (shipped.has(pairKey(settled.length, edge.a, edge.b))) continue;
+        missing++;
+        if (refusedOnItsOwnBow(edge.a, edge.b)) continue;
+        unexplained++;
+        if (unexplainedNames.length < 5) unexplainedNames.push(`${settled[edge.a]!.name}-${settled[edge.b]!.name}`);
+      }
+      check(
+        unexplained === 0,
+        'every candidate the bake did not keep was wet or steep',
+        unexplained === 0
+          ? `${missing.toLocaleString()} of ${candidates.length.toLocaleString()} candidates missing, all of them refused`
+          : `${unexplained} were neither: ${unexplainedNames.join(', ')}`,
+      );
+
+      const degree = new Int32Array(settled.length);
+      for (const road of roads) {
+        degree[road.a]!++;
+        degree[road.b]!++;
+      }
+      let extra = 0;
+      let extraWithoutNeed = 0;
+      for (const road of roads) {
+        if (candidateKeys.has(pairKey(settled.length, road.a, road.b))) continue;
+        extra++;
+        if (degree[road.a]! > 1 && degree[road.b]! > 1) extraWithoutNeed++;
+      }
+      check(
+        extraWithoutNeed === 0 && extra < candidates.length * 0.02,
+        'and every road that is not a candidate is somebody’s only road',
+        `${extra} rescues, ${extraWithoutNeed} of them joining two towns that already had one`,
+      );
+
+      let alone = 0;
+      let aloneBig = 0;
+      const aloneNames: string[] = [];
+      for (let i = 0; i < settled.length; i++) {
+        if (!isShown(settled[i]!) || degree[i]! > 0) continue;
+        alone++;
+        if (radiusFor(settled[i]!.pop) < 55) continue;
+        aloneBig++;
+        if (aloneNames.length < 6) aloneNames.push(settled[i]!.name);
+      }
+      /**
+       * And what is left alone, bounded rather than argued away.
+       *
+       * **681 built towns of 9,734 have no road, 7.0%, and they were audited one
+       * at a time** (2026-09-08): 425 have a mountain across every neighbour,
+       * 217 have water across every neighbour, and 39 have no built town within
+       * `MAX_ROAD_LENGTH` at all. None of those is a fault in this file — they
+       * are the water test, the slope rule and the longest road this world will
+       * build, each doing exactly what it says, and the user's own sentence
+       * covers them: *si una ciudad no se puede conectar con ninguna porque
+       * está encima de una montaña no pasa nada.* The Gabriel artefact — a town
+       * isolated by the geometry rather than by the ground — is the 52 the
+       * rescue joins.
+       *
+       * Bounded at 12% so a re-bake has room and a rule that stopped joining
+       * anything does not.
+       */
+      check(
+        alone < settled.filter((p) => isShown(p)).length * 0.12,
+        'the towns left with no road are the ones the ground refuses',
+        `${alone.toLocaleString()} of ${settled.filter((p) => isShown(p)).length.toLocaleString()} built ` +
+          `(${((alone / settled.filter((p) => isShown(p)).length) * 100).toFixed(1)}%), ` +
+          `${aloneBig} of them over a 55-unit radius: ${aloneNames.join(', ')}`,
+      );
+    }
+
+    /**
+     * The town's own track always reaches past where the ribbon stops.
+     *
+     * **This is the invariant `TOWN_STANDOFF` is chosen against, and it is
+     * arithmetic in two files rather than one, so it is asserted rather than
+     * argued.** `settlements.ts` runs its tracks to `slot.radius * 0.8 +
+     * TRACK_REACH` and the ribbon now starts at `radiusFor(pop) +
+     * TOWN_STANDOFF`, so the overlap is `0.8 r + 45 - (r + 4)` = `41 - 0.2 r`.
+     * It is positive for every radius under 205 and the size law is clamped at
+     * 150, which is eleven units of overlap at the largest town on the planet.
+     *
+     * The 45 is `TRACK_REACH` and it is not exported — `settlements.ts` reaches
+     * the kit through an `import.meta.glob` registry and cannot be imported
+     * here at all — so it is written down as a claim about that file. If it
+     * moves, this fails.
+     */
+    {
+      const TRACK_REACH = 45;
+      let worst = Infinity;
+      let worstAt = 0;
+      for (const place of settled) {
+        if (!isShown(place)) continue;
+        const r = radiusFor(place.pop);
+        const overlap = r * 0.8 + TRACK_REACH - roadClip(place);
+        if (overlap < worst) {
+          worst = overlap;
+          worstAt = r;
+        }
+      }
+      check(
+        worst > 0,
+        'the town’s own track always reaches past where the ribbon stops',
+        `worst overlap ${worst.toFixed(1)} units, at radius ${worstAt.toFixed(0)} ` +
+          `(standoff ${TOWN_STANDOFF}, track reach 0.8r + ${TRACK_REACH})`,
       );
     }
   }
@@ -2135,6 +2170,46 @@ console.log('\ntime');
  * Getting that backwards would draw a band along every coastline in the world
  * and none along a single frontier, which is a mistake that looks deliberate.
  */
+/**
+ * The map layer: the colour table, and that the build finishes.
+ *
+ * **The bug this exists for looked exactly like a different bug.** The layer
+ * paints 14.8 MB of vertex colours in slices under the frame budget, and the
+ * first headless look at it showed `buildMs` climbing call after call with
+ * nothing painted — which reads as a generator being recreated instead of
+ * resumed, and is not: `requestAnimationFrame` under a capture runs at about a
+ * third of a hertz, so it was simply never given the fifty calls it needs. No
+ * screenshot tells those two apart. `verifyFlagLayer` does, and it is here
+ * rather than in a browser because it needs no browser: it drives the layer to
+ * completion against the mesh this file already has in hand and holds it to
+ * three things — it finishes, it never loses ground it had made, and it ends
+ * with the table the colour law claims.
+ */
+console.log('\nthe map layer');
+{
+  const flags = verifyFlagLayer(world, land);
+  console.log(
+    `  ${flags.countries} countries, ${flags.painted.toLocaleString()} of ` +
+    `${flags.triangles.toLocaleString()} triangles painted, ${flags.moved} nudged off a ` +
+    `neighbour, ${flags.switched} onto another colour of their own flag`,
+  );
+  check(
+    flags.ready,
+    'the map layer builds inside its budget',
+    `${flags.calls} calls, ${flags.spentMs.toFixed(0)} ms, worst ${flags.worstCallMs.toFixed(1)} ms`,
+  );
+  check(
+    flags.regression === 0,
+    'and every call keeps what the last one did',
+    flags.regression === 0 ? '' : `progress fell by ${flags.regression.toFixed(3)}`,
+  );
+  check(
+    flags.short === 0,
+    'and no two countries that touch share a colour',
+    `${flags.countries} coloured, ${flags.short} frontiers short`,
+  );
+}
+
 console.log('\nfrontiers');
 {
   const built = createBorders(world);
@@ -2164,212 +2239,6 @@ console.log('\nfrontiers');
     if (point.length() < PLANET_RADIUS) above++;
   }
   check(finite && above === 0, 'every frontier vertex is finite and above sea level');
-}
-
-/**
- * The rivers, checked against the coastline they were cut on.
- *
- * `rivers.bin` is not a list of things it owns — every vertex in it is a
- * coordinate the *outlines* and the *lakes* called land, so it is a derivative
- * of two other files and nothing in a row of it could say so. Three things can
- * therefore go wrong and none of them would look like anything: the file could
- * have been baked against a different coastline, in which case rivers run into
- * the sea; a width could have been hand-edited, in which case the Ebro is drawn
- * as the Amazon; and a river could stop a long way inland, in which case the
- * continent drains into nothing.
- *
- * So the stamp is recomputed rather than trusted, every vertex is re-asked, the
- * class column is re-derived from `scalerank`, and six named rivers are
- * measured against the nearest coast the world actually draws.
- */
-console.log('\nrivers');
-{
-  const riversPath = resolve(here, '../public/data/rivers.bin');
-  if (!existsSync(riversPath)) {
-    check(false, 'public/data/rivers.bin exists', 'run `pnpm rivers`');
-  } else {
-    const riverBytes = readFileSync(riversPath);
-    const baked = decodeRivers(await inflate(riverBytes));
-    const vertices = baked.lines.reduce((n, line) => n + line.points.length, 0);
-    console.log(
-      `  ${baked.rivers.length} rivers, ${baked.lines.length} polylines, ` +
-      `${vertices.toLocaleString()} vertices, ${(riverBytes.length / 1024).toFixed(1)} KB gzipped`,
-    );
-
-    // The re-encode, the same three-way test the wire section runs on the other
-    // files: what came out of the file is what this encoder would write today.
-    const repacked = encodeRivers(
-      baked.stamp,
-      baked.rivers.map((river, r) => ({
-        name: river.name,
-        scalerank: river.scalerank,
-        lines: baked.lines
-          .filter((line) => line.river === r)
-          .map((line) => ({ digits: 2, points: line.points, classes: [...line.classes] })),
-      })),
-    );
-    check(
-      Buffer.compare(Buffer.from(repacked), Buffer.from(await inflate(riverBytes))) === 0,
-      'rivers.bin is what this encoder bakes',
-    );
-
-    /**
-     * **The stamp, and it is the only handle this file has on its own
-     * freshness.** `roads.bin` gets one for free because it stores indices into
-     * `places.bin` and a count that cannot match if the places moved; a file
-     * whose rows are bare coordinates has nothing to count. Re-baking
-     * `countries.bin` or `lakes.bin` moves the coast underneath every river
-     * here and changes nothing a reader could notice, so the bake writes down
-     * `dataStamp` of what it read and this recomputes it. It is the *gzipped*
-     * bytes on both sides, which is what each program already has open.
-     */
-    check(
-      baked.stamp === dataStamp(outlines, lakes),
-      'rivers.bin was baked against this countries.bin and lakes.bin',
-      baked.stamp === dataStamp(outlines, lakes) ? '' : 'run `pnpm rivers`',
-    );
-
-    // The class is `classForRank` and nothing else, for the reason a road's is
-    // `classOf` and nothing else: a hand-edited width is a river that draws
-    // itself more important than the source ever said it was.
-    let misclassed = 0;
-    let degenerate = 0;
-    let short = 0;
-    for (const line of baked.lines) {
-      const want = classForRank(baked.rivers[line.river]!.scalerank);
-      if (line.points.length < 2) short++;
-      for (let i = 0; i < line.points.length; i++) {
-        if (line.classes[i] !== want) misclassed++;
-        if (i > 0 && line.points[i]![0] === line.points[i - 1]![0] && line.points[i]![1] === line.points[i - 1]![1]) {
-          degenerate++;
-        }
-      }
-    }
-    check(misclassed === 0, 'every vertex is the width its scalerank earns', `${misclassed} wrong`);
-    check(short === 0 && degenerate === 0, 'no line is a point and no segment is zero length', `${short} short, ${degenerate} repeated`);
-
-    /**
-     * Every vertex is on land and above the water.
-     *
-     * Two questions and not one: `countryAt` is the polygon the bake cut on and
-     * `elevationAt` is the ground the ribbon is laid on, and they are the same
-     * data read two ways — the invariant CLAUDE.md states as *the visible coast
-     * and `countryAt` are the same data*. A vertex that passed the first and
-     * failed the second would be the shore ramp, which is exactly where a river
-     * mouth sits, so the floor is `SHORE_LIP` and not zero.
-     */
-    let wetVertex = 0;
-    let sunk = 0;
-    let lowest = Infinity;
-    const wetNames: string[] = [];
-    const probe = new Vector3();
-    for (const line of baked.lines) {
-      for (const [lon, lat] of line.points) {
-        if (world.countryAt(lat!, lon!) === 0) {
-          wetVertex++;
-          const name = baked.rivers[line.river]!.name || '(unnamed)';
-          if (!wetNames.includes(name) && wetNames.length < 5) wetNames.push(name);
-          continue;
-        }
-        const height = world.elevationAt(probe.copy(at(lat!, lon!)));
-        if (height < lowest) lowest = height;
-        if (height < SHORE_LIP) sunk++;
-      }
-    }
-    check(wetVertex === 0, `all ${vertices.toLocaleString()} river vertices are on land`, wetNames.join(', '));
-    check(
-      sunk === 0,
-      'and every one of them is above sea level',
-      `lowest ${lowest.toFixed(2)} against a lip of ${SHORE_LIP}`,
-    );
-
-    /**
-     * And the big ones reach the sea.
-     *
-     * **This is the assertion the whole cut-at-the-coast design exists for and
-     * it cannot be made from the file alone**: a river that stops two hundred
-     * units inland is a river drawn on a coastline that is not this one, and
-     * every vertex of it would still pass the test above. So the nearest
-     * *coastal* edge of the outlines is found for each named river — coastal
-     * and not any edge, because `coastEdges` is what separates a shore from a
-     * frontier and a river that ends on the Rhine's own bank is not a mouth.
-     *
-     * **The bound is 300 units and the reason it is not tighter is the source
-     * rather than the bake**, which is worth writing down because 300 units is
-     * 120 km and that reads like a loose assertion. Natural Earth ends a great
-     * river where it stops being one river: the feature named `Nile` finishes
-     * at 31.24, 30.12 — the apex of the delta, at Cairo — and the Rosetta and
-     * Damietta branches are separate features under their own names, and the
-     * feature named `Rhine` finishes near Rotterdam where the Waal and the Lek
-     * take over. Measured (2026-09-06): **Nile 263, Rhine 149, Danube 80,
-     * Amazonas 61, Ebro 26, Mississippi 17**. Four of the six are inside 100,
-     * and the two that are not are the two with deltas. What this catches is a
-     * river baked against a *different* coastline, which would leave every one
-     * of them hundreds of units out at once.
-     */
-    {
-      const coast = coastEdges(world);
-      const CELL = 2;
-      const COLS = Math.round(360 / CELL);
-      const ROWS = Math.round(180 / CELL);
-      const grid: number[][][] = Array.from({ length: COLS * ROWS }, () => []);
-      let coastPoints = 0;
-      world.rings.forEach((ring, r) => {
-        const flags = coast[r]!;
-        ring.points.forEach((point, i) => {
-          if (flags[i] !== 1) return;
-          coastPoints++;
-          const row = Math.min(ROWS - 1, Math.max(0, Math.floor((90 - point[1]!) / CELL)));
-          const col = ((Math.floor((point[0]! + 180) / CELL) % COLS) + COLS) % COLS;
-          grid[row * COLS + col]!.push(point);
-        });
-      });
-
-      const shore = new Vector3();
-      const here2 = new Vector3();
-      const toCoast = (lon: number, lat: number): number => {
-        riverPoint(lon, lat, here2);
-        let best = Infinity;
-        // Widening rings of cells, so a river mouth stops at the first cell
-        // that could hold something nearer than what it already has.
-        for (let radius = 1; radius <= 12; radius++) {
-          const row0 = Math.floor((90 - lat) / CELL);
-          const col0 = Math.floor((lon + 180) / CELL);
-          for (let r = row0 - radius; r <= row0 + radius; r++) {
-            if (r < 0 || r >= ROWS) continue;
-            for (let c = col0 - radius; c <= col0 + radius; c++) {
-              if (Math.max(Math.abs(r - row0), Math.abs(c - col0)) !== radius && radius > 1) continue;
-              for (const point of grid[r * COLS + (((c % COLS) + COLS) % COLS)]!) {
-                const d = here2.angleTo(riverPoint(point[0]!, point[1]!, shore)) * PLANET_RADIUS;
-                if (d < best) best = d;
-              }
-            }
-          }
-          // A cell is `CELL` degrees, so a ring of `radius` cells guarantees
-          // everything nearer than `(radius - 1) * CELL` degrees has been seen.
-          if (best < (radius - 1) * CELL * UNITS_PER_DEGREE * Math.max(0.02, Math.cos(lat * DEG))) break;
-        }
-        return best;
-      };
-
-      const mouths: [string, number][] = [];
-      let worst = 0;
-      for (const name of ['Nile', 'Amazonas', 'Danube', 'Mississippi', 'Ebro', 'Rhine']) {
-        let best = Infinity;
-        for (const line of baked.lines) {
-          if (baked.rivers[line.river]!.name !== name) continue;
-          for (const [lon, lat] of line.points) best = Math.min(best, toCoast(lon!, lat!));
-        }
-        mouths.push([name, best]);
-        if (best > worst) worst = best;
-      }
-      check(
-        worst <= 300,
-        `${coastPoints.toLocaleString()} coast points: every named river reaches its mouth`,
-        mouths.map(([name, d]) => `${name} ${Number.isFinite(d) ? d.toFixed(0) : '-'}u`).join(', '),
-      );
-    }
-  }
 }
 
 /**
@@ -2406,9 +2275,25 @@ console.log('\nmade ground');
    * approach, and these are its terms.
    */
   const pitch = 12.65;
-  const cells = new Set<number>();
-  for (let c = -1; c <= 1; c++) for (let r = -1; r <= 1; r++) cells.add(cellKey(c, r));
-  const field = { pitch, cells };
+  /**
+   * A nine-cell town on flat ground, and the same one cut into a hillside.
+   *
+   * The flat one is the case the whole world used to be: every terrace at the
+   * same elevation, so the paving is a plane at `GROUND_LIFT` over it and the
+   * ramp outside is the one this file has always asserted. The stepped one is
+   * three columns of cells a `TERRACE_STEP` apart, which is what a town on a
+   * slope now is, and it is here to hold the *absolute* half of the contract:
+   * on a terrace the answer must not move as the ground under it does.
+   */
+  const flat = { pitch, terraces: new Map<number, number>() };
+  const stepped = { pitch, terraces: new Map<number, number>() };
+  const GROUND = 100;
+  for (let c = -1; c <= 1; c++) {
+    for (let r = -1; r <= 1; r++) {
+      flat.terraces.set(cellKey(c, r), GROUND);
+      stepped.terraces.set(cellKey(c, r), GROUND + c * TERRACE_STEP);
+    }
+  }
   const edge = pitch * 1.5;
 
   let onPaving = 0;
@@ -2419,20 +2304,29 @@ console.log('\nmade ground');
   let previous = GROUND_LIFT;
   let reaches = -1;
   for (let x = 0; x <= edge + KERB_BLEND * 2; x += 0.05) {
-    const lift = floorLiftAt(field, x, 0);
-    if (lift > GROUND_LIFT + 1e-9 || lift < -1e-9) outOfRange++;
+    // The ground the query stands on, which off the paving is the relief and on
+    // it is whatever the hill happens to be doing under a level surface. Walked
+    // deliberately, so that a lift measured against a *moving* ground still adds
+    // back up to one height.
+    const ground = GROUND + Math.sin(x * 0.3) * 0.9;
+    const lift = floorLiftAt(flat, x, 0, ground);
+    if (lift > GROUND_LIFT + 1 + 1e-9 || lift < -1e-9) outOfRange++;
     if (x < edge - 1e-6) {
       onPaving++;
-      if (Math.abs(lift - GROUND_LIFT) > 1e-9) wrongOnPaving++;
+      if (Math.abs(ground + lift - (GROUND + GROUND_LIFT)) > 1e-9) wrongOnPaving++;
     }
-    if (lift > previous + 1e-9) backwards++;
-    steepest = Math.max(steepest, (previous - lift) / 0.05);
-    if (lift <= 0 && reaches < 0) reaches = x - edge;
-    previous = lift;
+    // Off the paving the ramp is measured against a fixed ground, because what
+    // it has to be is monotonic in the *distance* and the wobble above would
+    // read as a rise the ramp did not make.
+    const level = floorLiftAt(flat, x, 0, GROUND);
+    if (level > previous + 1e-9) backwards++;
+    steepest = Math.max(steepest, (previous - level) / 0.05);
+    if (level <= 0 && reaches < 0) reaches = x - edge;
+    previous = level;
   }
   check(
     wrongOnPaving === 0,
-    `the paving is exactly GROUND_LIFT over the relief`,
+    'the paving is level over its own cell, at GROUND_LIFT over the terrace',
     `${onPaving} samples inside the floor, ${wrongOnPaving} wrong, lift ${GROUND_LIFT}`,
   );
   check(
@@ -2451,6 +2345,68 @@ console.log('\nmade ground');
   );
 
   /**
+   * And the stepped town, which is the terracing's own contract.
+   *
+   * Three things, and each of them is a way the old constant-offset floor would
+   * have been wrong: a foot on a terrace stands at that terrace's height and not
+   * at the one next door; the height it stands at does not move with the ground
+   * under it; and the approach from outside climbs to the terrace it is about to
+   * walk onto rather than to the lowest one in sight.
+   */
+  let wrongTerrace = 0;
+  let terraceSamples = 0;
+  for (let c = -1; c <= 1; c++) {
+    for (let step = 0; step < 9; step++) {
+      const x = (c + (step / 8 - 0.5) * 0.9) * pitch;
+      const z = ((step % 3) - 1) * pitch * 0.4;
+      const ground = GROUND + Math.sin(x * 0.7) * 1.4;
+      const want = GROUND + c * TERRACE_STEP + GROUND_LIFT;
+      terraceSamples++;
+      if (Math.abs(ground + floorLiftAt(stepped, x, z, ground) - want) > 1e-9) wrongTerrace++;
+    }
+  }
+  check(
+    wrongTerrace === 0,
+    'and on a stepped town a foot stands on its own terrace, whatever the ground does',
+    `${terraceSamples} samples over ${new Set(stepped.terraces.values()).size} terraces, ${wrongTerrace} wrong`,
+  );
+  /**
+   * And the approach, which is a *kerb* and not a wall.
+   *
+   * **`floorLiftAt` ramps a face of one kerb and refuses a face taller than
+   * one**, and the assertion that used to be here read the old rule: it put a
+   * probe half a blend outside a terrace a whole `TERRACE_STEP` up and expected
+   * the ramp to climb half way to it. That climb is `TERRACE_STEP +
+   * GROUND_LIFT` = 7 units against a kerb of `GROUND_LIFT + KERB_DROP` = 3.8,
+   * so on a terraced town most of the outside edge is a retaining wall of up to
+   * `MAX_CUT + GROUND_LIFT + KERB_DROP` = 15.8, and ramping that over a 9-unit
+   * blend is a body rising fifteen units in nine with nothing under his feet.
+   *
+   * So the rule is asserted rather than the old number, at the same probe and
+   * in both directions: the flat town, whose face is exactly `GROUND_LIFT`,
+   * still climbs half way at half a blend; and the stepped town's uphill face
+   * offers no floor at all, which is what a caller reads as "stand on the
+   * ground and walk round to the low side or up the road's own ramp".
+   */
+  const probe = edge + KERB_BLEND * 0.5;
+  const kerbFace = floorLiftAt(flat, probe, 0, GROUND);
+  const wallFace = floorLiftAt(stepped, probe, 0, GROUND);
+  const climb = TERRACE_STEP + GROUND_LIFT;
+  check(
+    Math.abs(kerbFace - GROUND_LIFT * 0.5) < 1e-9,
+    'and a face of one kerb still climbs half way at half a blend',
+    `${kerbFace.toFixed(2)} of ${GROUND_LIFT.toFixed(1)}, against a kerb of ` +
+      `${(GROUND_LIFT + KERB_DROP).toFixed(1)}`,
+  );
+  check(
+    wallFace === 0 && climb > GROUND_LIFT + KERB_DROP,
+    'and a face taller than one kerb is a wall with no floor to stand on',
+    `${climb.toFixed(1)} units to the nearest terrace against a kerb of ` +
+      `${(GROUND_LIFT + KERB_DROP).toFixed(1)}, lift ${wallFace.toFixed(2)}` +
+      ` (a wall reaches ${(MAX_CUT + GROUND_LIFT + KERB_DROP).toFixed(1)})`,
+  );
+
+  /**
    * The ribbon, against the network that ships.
    *
    * `ribbonHeightAt` is asked about points on the drawn stretch of real roads —
@@ -2463,9 +2419,9 @@ console.log('\nmade ground');
     check(false, 'public/data/roads.bin exists', 'run `pnpm roads`');
   } else {
     const bakedNetwork = decodeRoads(await inflate(readFileSync(roadsPath)));
-    // The pruned list, which is what `main.ts` hands the streamer: a query has
-    // to answer for the network that is actually drawn.
-    const pruned = pruneHiddenLeaves(bakedNetwork.roads, placesRaw);
+    // The file, whole: it is baked over the built towns now, so every row in it
+    // is a row the streamer lays and there is nothing to filter out first.
+    const pruned = bakedNetwork.roads;
 
     const a = new Vector3();
     const b = new Vector3();
@@ -2500,10 +2456,11 @@ console.log('\nmade ground');
      * comes back is that road's own surface and nothing else, so the clip, the
      * shoulder ramp and the edge of the strip can each be asserted exactly.
      *
-     * It costs one `createRoads` per sampled road, which over every 500th of the
-     * pruned network is 86 of them and each is a bucket over one row.
+     * It costs one `createRoads` per sampled road, which over every 100th of the
+     * drawn network is 90 of them and each is a bucket over one row. It was
+     * every 500th of a network four times the size, which is the same sample.
      */
-    for (let i = 0; i < pruned.length; i += 500) {
+    for (let i = 0; i < pruned.length; i += 100) {
       const road = pruned[i]!;
       placeDirection(placesRaw[road.a]!, a);
       placeDirection(placesRaw[road.b]!, b);
@@ -2514,11 +2471,12 @@ console.log('\nmade ground');
       const alone = createRoads(world, placesRaw, { ...bakedNetwork, roads: [road] });
       tested++;
       const half = ROAD_CLASSES[road.cls]!.width * 0.5;
-      // Where the drawn shoulder crosses the ground: the crown holds its lift
-      // out to `half` and the shoulder runs from there to
-      // `RIBBON_LIFT - SHOULDER_DROP` at `half * SHOULDER_SPREAD`, so it is
-      // level with the relief exactly half way between them.
-      const fall = half * (1 + 0.8 * (RIBBON_LIFT / (RIBBON_LIFT + 1.5)));
+      // Where the drawn shoulder crosses the ground. `roads.ts` exports the
+      // ratio — this used to write the arithmetic out longhand, which is two
+      // files answering one question, and it stopped being right the moment
+      // `RIBBON_LIFT` moved: the crossing was half way out at a lift of 1.5 and
+      // is two thirds of the way at 3.0.
+      const fall = half * CROWN_FALL;
 
       for (let k = 1; k < 6; k++) {
         const t = span.t0 + (span.t1 - span.t0) * (k / 6);
@@ -2581,120 +2539,6 @@ console.log('\nmade ground');
       inTownWrong === 0,
       'and nothing inside the town the ribbon was clipped out of',
       `${inTown} probes inside a built radius, ${inTownWrong} standing on a road that is not drawn`,
-    );
-  }
-
-  /**
-   * And the water the town keeps off.
-   *
-   * `planFor` refuses a plot inside a river's corridor and `buildGround` refuses
-   * a floor cell, both through `inRiverCorridor` — but neither of those runs in
-   * Node, so what is checked here is the half that decides whether they can
-   * work: **does a town see every river that reaches it.** The failure this
-   * catches is the gather missing a line, which is the only way the rule breaks
-   * silently — a stale index, a reach that is too short, a re-bake that moved a
-   * river — and it is checked against a scan of all 14,523 vertices rather than
-   * against itself.
-   */
-  const riversPath = resolve(here, '../public/data/rivers.bin');
-  if (existsSync(riversPath)) {
-    const water = decodeRivers(await inflate(readFileSync(riversPath)));
-    const index = riverIndexFor(water.lines);
-    const up = new Vector3();
-    const across = new Vector3();
-    const north = new Vector3();
-    const vertex = new Vector3();
-    const corridors: RiverCorridor[] = [];
-
-    // A corridor wider than the smallest settlement is a village the water
-    // deletes: at 12 units of radius a hamlet with a great river through its
-    // middle has 12 units to give.
-    check(
-      widestRiverClearance() + TOWN_BANK < SMALLEST_SETTLEMENT,
-      'the widest bank still leaves the smallest settlement somewhere to build',
-      `${(widestRiverClearance() + TOWN_BANK).toFixed(1)} against ${SMALLEST_SETTLEMENT}`,
-    );
-
-    const frameAt = (lat: number, lon: number): void => {
-      const rad = lat * DEG;
-      const lonRad = lon * DEG;
-      up.set(Math.cos(rad) * Math.cos(lonRad), Math.sin(rad), -Math.cos(rad) * Math.sin(lonRad));
-      north.set(0, 1, 0).projectOnPlane(up);
-      if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(up);
-      north.normalize();
-      across.crossVectors(up, north).normalize();
-    };
-
-    // Every built town, and how many of them have water inside their plots.
-    let onARiver = 0;
-    let shown = 0;
-    const named: string[] = [];
-    for (const place of placesRaw) {
-      if (!isShown(place)) continue;
-      shown++;
-      const radius = radiusFor(place.pop);
-      frameAt(place.lat, place.lon);
-      riverCorridorsNear(index, water.lines, up, across, north, radius + TOWN_BANK, TOWN_BANK, corridors);
-      let touched = false;
-      for (const river of corridors) {
-        if (inRiverCorridor([river], 0, 0, radius)) { touched = true; break; }
-      }
-      if (touched) {
-        onARiver++;
-        if (named.length < 8) named.push(place.name);
-      }
-    }
-    console.log(
-      `  --   ${onARiver.toLocaleString()} of ${shown.toLocaleString()} built towns have a river inside their plots` +
-      ` · ${named.join(', ')}`,
-    );
-
-    // The gather against a scan of every vertex in the file. 200 towns spread
-    // across the array by a stride, so it is not the first 200 alphabetically.
-    let queries = 0;
-    let missed = 0;
-    const stride = Math.max(1, Math.floor(placesRaw.length / 200));
-    for (let i = 0; i < placesRaw.length; i += stride) {
-      const place = placesRaw[i]!;
-      const reach = radiusFor(place.pop) + TOWN_BANK;
-      frameAt(place.lat, place.lon);
-      riverCorridorsNear(index, water.lines, up, across, north, reach, TOWN_BANK, corridors);
-      queries++;
-      let expected = 0;
-      for (const line of water.lines) {
-        let x0 = 0;
-        let z0 = 0;
-        let wasNear = false;
-        for (let k = 0; k < line.points.length; k++) {
-          const p = line.points[k]!;
-          const cos = Math.cos(p[1]! * DEG);
-          vertex.set(cos * Math.cos(p[0]! * DEG), Math.sin(p[1]! * DEG), -cos * Math.sin(p[0]! * DEG));
-          const x = vertex.dot(across) * PLANET_RADIUS;
-          const z = vertex.dot(north) * PLANET_RADIUS;
-          // **The hemisphere gate, and leaving it out is a bug this check had
-          // for one run.** A tangent projection is not injective over a sphere:
-          // a point near the *antipode* has small `across` and `north`
-          // components too, so the Uruguay came back 156 units from Shanghai.
-          // The index is not fooled — it compares angles — so the scan needs the
-          // same statement, and a whole hemisphere is generous by two orders of
-          // magnitude against a reach of at most `BIGGEST_SETTLEMENT`.
-          const near = vertex.dot(up) > 0;
-          if (k > 0 && near && wasNear) {
-            const mx = (x0 + x) * 0.5;
-            const mz = (z0 + z) * 0.5;
-            if (mx * mx + mz * mz <= reach * reach) expected++;
-          }
-          wasNear = near;
-          x0 = x;
-          z0 = z;
-        }
-      }
-      if (corridors.length !== expected) missed++;
-    }
-    check(
-      missed === 0,
-      'a town gathers every river chord a scan of the whole file finds',
-      `${queries} towns against ${water.lines.length.toLocaleString()} lines, ${missed} short`,
     );
   }
 }

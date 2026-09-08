@@ -98,7 +98,7 @@ import type { Monument } from './contract.ts';
  *   slender than anything else on the sheet including Petronas at 9.8.
  * - Worse, and this is the number that decides the file: a module splays 7
  *   degrees over its 33.6 m, which is **4.2 m per side**. At the height's own
- *   scale that is **0.58 units** — and a contact-sheet cell runs about 2.9
+ *   scale that is **0.58 units** — and a monument-sheet cell runs about 2.9
  *   pixels to the unit (`empire-state.ts` measures it: nine bands on a
  *   12.3-unit face at ~4 px each). **0.58 units is 1.7 pixels of splay, which
  *   is the pen.** The eight modules would come back as a straight-sided shaft

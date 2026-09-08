@@ -101,7 +101,6 @@ import type * as THREE from 'three';
 import { type World, insideRing } from './geo.ts';
 import { createFlagCanvas } from './flags.ts';
 import type { Placement } from './placement.ts';
-import type { River, RiverLine } from './rivers.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import {
   EARTH_KM,
@@ -137,15 +136,6 @@ export interface WorldMapOptions {
   lockTarget?: HTMLElement | null;
   /** `event.code` that opens and closes it. `null` to bind it yourself. */
   key?: string | null;
-  /**
-   * The baked rivers, drawn under everything the sheet writes on top.
-   *
-   * `rivers.all` and the names it indexes into, which is the same pair
-   * `roads.all` gives the console — the *data*, not the mesh, because the mesh
-   * is whatever the camera happened to be pointed at and this sheet draws the
-   * far side of the planet.
-   */
-  rivers?: { all: readonly RiverLine[]; rivers: readonly River[] };
 }
 
 export interface WorldMap {
@@ -212,37 +202,6 @@ const FONT = 'ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui
 
 /** Countries smaller than this across, in pixels, do not get their name written. */
 const MIN_COUNTRY_LABEL = 26;
-/**
- * How many river names the sheet will write, and how long a river's drawn run
- * has to be to earn one, in pixels.
- *
- * Eight, because the point of a name here is that the blue line is *the Nile*
- * and not that every watercourse is captioned — the sheet already carries up to
- * two hundred country names and a landmark for every pin, and a ninth river name
- * is competing with a country for the same square of paper.
- *
- * 18 pixels is measured rather than chosen. The bake cuts a river at every water
- * crossing, so what is drawn is *runs* — and on a 660-pixel disc the longest run
- * of each of the 44 named great rivers goes Amazonas 47, Mississippi 46, Mekong
- * 35, Lena 32, Paraná 31, Congo 30, Mackenzie 23, Nile 22, Yangtze 20, Danube
- * 14. A floor above 20 loses the Yangtze and the Nile, which is the wrong end of
- * the list to be cutting; below about 15 it starts writing eleven-character
- * names on marks a finger's width long.
- */
-const RIVER_LABELS = 8;
-const MIN_RIVER_LABEL = 18;
-/** Where along a run a name is tried, in order: the middle, then out to the ends. */
-const LABEL_ANCHORS = [0.5, 0.32, 0.68, 0.16, 0.84];
-/** The water on the land: `OCEAN_COLOR` toward `skyBlue`, and the same taken dark. */
-const RIVER_LINE = mixHex(OCEAN_COLOR, PALETTE.skyBlue, 0.5);
-const RIVER_INK = mixHex(OCEAN_COLOR, PALETTE.ink, 0.45);
-
-/** Two packed colours, blended. Small enough that a `THREE.Color` is not worth it. */
-function mixHex(a: number, b: number, t: number): number {
-  const mix = (shift: number): number =>
-    Math.round((((a >> shift) & 255) * (1 - t) + ((b >> shift) & 255) * t)) << shift;
-  return mix(16) | mix(8) | mix(0);
-}
 
 const STYLE = `
 .atlas-map {
@@ -369,19 +328,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const cream = css(PALETTE.white);
   const gold = css(PALETTE.gold);
   const violet = css(PALETTE.violet);
-  /**
-   * The water on the land, and the name written on it.
-   *
-   * `OCEAN_COLOR` walked toward `skyBlue` — the same pair `rivers.ts` derives
-   * its two tones from, so the line on the sheet is the colour of the ribbon on
-   * the ground rather than a blue picked for a map. Lighter than the sea, which
-   * is what keeps a river readable *inside* a continent and stops an estuary
-   * reading as a bay. The ink for the name is the same hue taken dark, for
-   * `GROUND_STYLES`' reason: a neutral grey label on green is a shadow.
-   */
-  const river = css(RIVER_LINE);
-  const riverInk = css(RIVER_INK);
-
   const root = document.createElement('div');
   root.className = 'atlas-map';
   const style = document.createElement('style');
@@ -451,92 +397,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const keptY = new Float32Array(pinCount);
   const keptPin = new Int32Array(pinCount);
   const pinIndex = new Map(monuments.map((monument, i) => [monument.id, i]));
-
-  /**
-   * The rivers, as unit vectors, through the same conversion the outlines use.
-   *
-   * **The great class and nothing else, and the arithmetic is why.** This sheet
-   * is the whole planet across one disc: half the circumference maps to the
-   * radius, so at a 660-pixel disc a pixel is about 152 world units and the
-   * width of a river — 4 to 11 units — is two orders of magnitude under it. So
-   * the pen is a chosen stroke and the only question left is *how many marks*,
-   * which is density: 444 rivers in 805 runs is a wash of blue scribble over
-   * every continent, and the 60 at `scalerank` 1 and 2 in their 116 runs — 44 of
-   * them named, 2,842 vertices — are the
-   * Amazon, the Nile, the Congo, the Yangtze, the Mississippi and the Danube —
-   * which is a map. It is `RIVER_CLASSES`' own argument for the trunk roads,
-   * arriving on a sheet where every river is a hairline.
-   *
-   * The class is read off the vertices rather than off `scalerank`, because
-   * `classForRank` is the one definition and the column is what it produced.
-   */
-  interface RiverShape {
-    /** Unit vectors, three floats a vertex. */
-    points: Float32Array;
-    name: string;
-    /** Angular length, for "is this worth a name". */
-    span: number;
-  }
-  const riverShapes: RiverShape[] = [];
-  /** One entry a *name*, biggest first; see the note where it is filled. */
-  const riverLabels: { total: number; best: number; shape: RiverShape }[] = [];
-  {
-    const lines = options.rivers?.all ?? [];
-    const named = options.rivers?.rivers ?? [];
-    const probe = new Float32Array(3);
-    for (const line of lines) {
-      let widest = 0;
-      for (const cls of line.classes) if (cls > widest) widest = cls;
-      if (widest < 2) continue;
-      const points = new Float32Array(line.points.length * 3);
-      let span = 0;
-      let previous: [number, number, number] | null = null;
-      line.points.forEach((p, i) => {
-        toUnit(p[1]!, p[0]!, probe, 0);
-        points[i * 3] = probe[0]!;
-        points[i * 3 + 1] = probe[1]!;
-        points[i * 3 + 2] = probe[2]!;
-        if (previous !== null) {
-          const dot = previous[0] * probe[0]! + previous[1] * probe[1]! + previous[2] * probe[2]!;
-          span += Math.acos(dot > 1 ? 1 : dot < -1 ? -1 : dot);
-        }
-        previous = [probe[0]!, probe[1]!, probe[2]!];
-      });
-      riverShapes.push({ points, name: named[line.river]?.name ?? '', span });
-    }
-
-    /**
-     * And which of them get a name, ranked by how much of the sheet they are.
-     *
-     * **A river is drawn in runs and a name belongs to a river**, which is two
-     * different things and the difference is the whole of this list. The bake
-     * breaks a line wherever it touches water — a lake, a border with the sea —
-     * so the Nile ships as several runs and the *longest single run* of it is 22
-     * pixels on a 660-pixel disc while the Amazon's is 47. Ranking the runs
-     * directly puts the Ucayali on the sheet ahead of the Nile, which is a
-     * correct answer to the wrong question.
-     *
-     * So the rank is the **total** drawn length of everything carrying that
-     * name, which is how much of the paper the river actually occupies, and the
-     * anchor is its **longest run**, which is the one piece with room to write
-     * on. The two are separate on purpose and neither works alone.
-     */
-    const byName = new Map<string, { total: number; best: number; shape: RiverShape }>();
-    for (const shape of riverShapes) {
-      if (shape.name === '') continue;
-      const known = byName.get(shape.name);
-      if (known === undefined) {
-        byName.set(shape.name, { total: shape.span, best: shape.span, shape });
-      } else {
-        known.total += shape.span;
-        if (shape.span > known.best) {
-          known.best = shape.span;
-          known.shape = shape;
-        }
-      }
-    }
-    riverLabels.push(...[...byName.values()].sort((a, b) => b.total - a.total));
-  }
 
   /**
    * Where each country's name goes, biggest first.
@@ -806,8 +666,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       traceRing(baseCtx, shape);
     }
 
-    drawRivers();
-
     // The rings are what say "the radius is a distance" without a sentence
     // saying it. They are evenly spaced because the projection is equidistant —
     // on any other whole-world projection they would not be circles at all.
@@ -859,137 +717,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     baseCtx.lineWidth = RIM_WIDTH;
     baseCtx.strokeStyle = ink;
     baseCtx.stroke();
-  }
-
-  /**
-   * The great rivers, on the base layer under everything the sheet writes.
-   *
-   * A polyline and not a filled ring, so `traceRing`'s antipode repair does not
-   * apply and must not: a country's image *winds round* the disc and has to be
-   * closed against the rim, and a river is a line with two ends — the honest
-   * image of a segment that crosses the antipode is nothing at all, because the
-   * two vertices really are on opposite sides of the paper. So a jump longer
-   * than `JUMP` breaks the stroke and a new one starts, which costs the Ob and
-   * the Yenisei a one-pixel gap when you stand on their antipode and costs
-   * everything else nothing.
-   *
-   * Under the land and over nothing: it is drawn inside the same clip as the
-   * outlines, after the fills, so a river is on its own continent and not over
-   * the sea beside it — and before the range rings, whose dashes have to read
-   * across it.
-   */
-  function drawRivers(): void {
-    if (riverShapes.length === 0) return;
-    baseCtx.save();
-    baseCtx.strokeStyle = river;
-    // Thin: this is a hairline on a sheet whose subject is the countries, and
-    // the whole reason the class filter is `great` is that the mark has to stay
-    // a mark. It rides the disc's own scale so a bigger window does not draw a
-    // thinner planet.
-    baseCtx.lineWidth = Math.max(1, size / 620) * 1.6;
-    baseCtx.lineJoin = 'round';
-    baseCtx.lineCap = 'round';
-    for (const shape of riverShapes) {
-      const p = shape.points;
-      const points = p.length / 3;
-      baseCtx.beginPath();
-      let x = 0;
-      let y = 0;
-      let started = false;
-      let ax = 0;
-      let ay = 1;
-      for (let i = 0; i < points; i++) {
-        const k = i * 3;
-        const px = p[k]!;
-        const py = p[k + 1]!;
-        const pz = p[k + 2]!;
-        const height = px * ux + py * uy + pz * uz;
-        const sx = px * rx + py * ry + pz * rz;
-        const sy = px * fx + py * fy + pz * fz;
-        const flat = Math.sqrt(sx * sx + sy * sy);
-        const radius = Math.acos(height > 1 ? 1 : height < -1 ? -1 : height) * perRadian;
-        if (flat > 1e-9) {
-          ax = sx / flat;
-          ay = sy / flat;
-        }
-        const nextX = centre + ax * radius;
-        const nextY = centre - ay * radius;
-        if (!started) {
-          baseCtx.moveTo(nextX, nextY);
-          started = true;
-        } else {
-          const dx = nextX - x;
-          const dy = nextY - y;
-          if (dx * dx + dy * dy > JUMP * JUMP) baseCtx.moveTo(nextX, nextY);
-          else baseCtx.lineTo(nextX, nextY);
-        }
-        x = nextX;
-        y = nextY;
-      }
-      baseCtx.stroke();
-    }
-    baseCtx.restore();
-  }
-
-  /**
-   * Names for the handful of rivers there is room for.
-   *
-   * On the overlay rather than the base, because it competes for the same
-   * `LabelSpace` the countries and the pins do — and it asks *after* both, so a
-   * country's name and a landmark's win the ground and a river takes what is
-   * left. That is the right order: the sheet is a gazetteer of places and the
-   * rivers are what the places stand on.
-   *
-   * The anchor is the middle vertex of the longest run, which for a river cut at
-   * every lake and every border with the sea is the middle of its longest
-   * unbroken reach — the Amazon above Manaus rather than at the delta.
-   */
-  function drawRiverNames(space: LabelSpace): void {
-    if (riverShapes.length === 0) return;
-    ctx.font = `italic 700 10.5px ${FONT}`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    let written = 0;
-    for (const entry of riverLabels) {
-      if (written >= RIVER_LABELS) break;
-      const shape = entry.shape;
-      // A run too short to carry a word is a name with a scratch under it; the
-      // same test `drawCountries` makes about a country, read for a line.
-      if (entry.best * perRadian < MIN_RIVER_LABEL) continue;
-      const width = ctx.measureText(shape.name).width;
-      const vertices = shape.points.length / 3;
-      // **Five places along the run rather than one, and it is what makes the
-      // list mean anything.** A river asks the `LabelSpace` last, after every
-      // pin and every country, and the middle of the Amazon's longest run is
-      // exactly where `BRAZIL` is already written — so a single anchor threw
-      // away six of the eight names it had chosen. The offsets are the middle
-      // first and then out towards the ends, so a name still sits on the fat
-      // part of the river when there is room for it there.
-      let placed = false;
-      for (const share of LABEL_ANCHORS) {
-        const k = Math.min(vertices - 1, Math.max(0, Math.round(share * (vertices - 1))));
-        const px = shape.points[k * 3]!;
-        const py = shape.points[k * 3 + 1]!;
-        const pz = shape.points[k * 3 + 2]!;
-        const height = px * ux + py * uy + pz * uz;
-        const sx = px * rx + py * ry + pz * rz;
-        const sy = px * fx + py * fy + pz * fz;
-        const flat = Math.sqrt(sx * sx + sy * sy);
-        const radius = Math.acos(height > 1 ? 1 : height < -1 ? -1 : height) * perRadian;
-        const cx = centre + (flat > 1e-9 ? sx / flat : 0) * radius;
-        const cy = centre - (flat > 1e-9 ? sy / flat : 1) * radius;
-        const left = cx - width / 2;
-        const top = cy - 6;
-        if (Math.hypot(left - centre, top - centre) > discRadius - 8) continue;
-        if (Math.hypot(left + width - centre, top + 12 - centre) > discRadius - 8) continue;
-        if (!space.fits(left, top, width, 12)) continue;
-        space.claim(left, top, width, 12);
-        inkedText(ctx, shape.name, left, cy, cream, riverInk, 3);
-        placed = true;
-        break;
-      }
-      if (placed) written++;
-    }
   }
 
   /** The player's own mark, at the centre, turned to the heading. */
@@ -1144,7 +871,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     space.claim(centre - 16, centre - 16, 32, 32);
     drawPins(space);
     drawCountries(space);
-    drawRiverNames(space);
     drawPlayer();
 
     // North, on the rim, because the sheet is north-up and the arrow in the

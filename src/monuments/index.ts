@@ -56,7 +56,7 @@ export type { Group, Mesh, Object3D, Vector3 } from './contract.ts';
  *    it is too flat to read at its tier, squeeze the plan, as Stonehenge does at
  *    2:1. Read the note beside `MAX_ASPECT` in `contract.ts` before deciding,
  *    and put the numbers you chose in your file.
- * 6. Open `/contact-sheet.html`. A green card means it passes *mechanically*,
+ * 6. Open `/sheets/monuments.html`. A green card means it passes *mechanically*,
  *    and that is all it means: `validate` measures a bounding box, so a stick
  *    with a crossbar passes every check there is. The real gate is the
  *    thumbnail. Name the thing from it without reading the caption, and put it

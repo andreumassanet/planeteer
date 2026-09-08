@@ -202,7 +202,7 @@ function alongZ<K extends string>(
  *
  * It is also the launch's own datum — `y = 0` in `buildBoat` is the cockpit
  * sole, so the waterline is at `-BOAT_DECK` and a review sheet has to put its
- * water disc there. That is what the boat cell in `/avatar-sheet.html` does.
+ * water disc there. That is what the boat cell in `/sheets/avatar.html` does.
  */
 export const BOAT_DECK = 2;
 /** Cruise and full ahead. Between a walk and a run, so the coast still reads. */

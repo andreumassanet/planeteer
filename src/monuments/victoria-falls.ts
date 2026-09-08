@@ -39,7 +39,7 @@ import type { Monument } from './contract.ts';
  * **The cutaway, and the arithmetic that forces it.**
  *
  * The contact sheet's quarter camera sits 13.4 degrees above the model (`VIEWS`
- * in `contact-sheet.ts`, framed at `radius * 1.12 / sin(fov/2)`). Put two walls
+ * in `sheets/monuments.ts`, framed at `radius * 1.12 / sin(fov/2)`). Put two walls
  * of equal height 6.8 units apart and look between them from 13.4 degrees: the
  * near rim occludes the far wall down to `6.8 / cos(31.8deg) * tan(13.4deg)`
  * below its own top — **1.9 units of 27**. Not "a bit cramped": the lip, the

@@ -18,15 +18,15 @@ pnpm dev        # http://localhost:5174
 
 | | |
 |---|---|
-| countries, as their real outlines | **234**, 1,556 rings, 97,280 points |
-| the land you walk on | **1.64 M triangles**, built from those outlines in 6 s |
-| towns and cities, with real names | **23,866** |
-| roads joining them | **36,212**, none of which crosses water |
+| countries, as their real outlines | **234**, 1,583 rings, 102,793 points |
+| the land you walk on | **1,644,313 triangles**, built from those outlines in 6.2 s |
+| towns and cities, with real names | **29,545**, of which 9,734 are built |
+| roads joining them | **17,238**, none of which crosses water |
 | lakes cut out of the land | **27**, every one over half a true square degree |
 | landmarks, each a hand-written file | **85** in 59 countries |
-| kit parts — houses, trees, people, vehicles | 22 scenic, 18 vehicles, a crowd |
-| all of that, on the wire | **573 KB**, and 16 ms to decode |
-| the code that has to arrive first | **244 KB** gzipped, 190 of it Three |
+| kit parts — houses, trees, people, vehicles | 22 scenic, 18 vehicles, 6 animals, a crowd |
+| all of that, on the wire | **604 KB**, and 17 ms to decode |
+| the code that has to arrive first | **245.6 KB** gzipped, 182 of it Three |
 
 The sun is where the sun actually is. The chip at the top tells you the town you
 are in and the civil time of the country it is in. Walk into the sea and you are
@@ -35,7 +35,7 @@ fog until the whole globe is in the lens — which is why there is no separate m
 screen, only a chart on `M` for the half of the planet you cannot see from up
 there.
 
-Walk up to a landmark and it introduces itself: which one of the seventy-seven
+Walk up to a landmark and it introduces itself: which one of the eighty-five
 this is, the country, how tall it stands and the year it was finished. Crossing
 a border does the same from the other side of the screen, with the flag and a
 fact about the country. At night the towns light their windows, and go to bed —
@@ -74,30 +74,32 @@ written by different hands look like one place.
 **The data ships as bytes, not as JSON.** The outlines, the towns and the roads
 are integers at the precision the bakes round to — delta-coded along a coastline,
 split into byte planes where they are not ordered, gzipped by the bake rather
-than by the CDN. It took the first load from **1,251 KB to 573**, and because a
+than by the CDN. It took the first load from **1,251 KB to 604**, and because a
 varint is cheaper to walk than a number is to parse, decoding all three is
-**16 ms against 26** for the JSON it replaces. Both halves of the format are one
+**17 ms against 26** for the JSON it replaces. Both halves of the format are one
 file, `src/pack.ts`, and every bake decodes its own output and refuses to write
 if a single coordinate moved.
 
 **And the code in front of it waits for nothing it does not need.** A module in
 the initial graph has to arrive *and be parsed* before `main.ts` runs a line, so
-the browser was fetching seventy-seven landmark models, two whole kits, a crowd
+the browser was fetching eighty-five landmark models, three whole kits, a crowd
 and 234 flags before it asked for the first byte of coastline. None of them is
 touched until the fifth stage of the loading screen, and the four stages in front
 of them are seconds of ocean, land and weather. They are nine `import()`s now,
 fired once the data is in and awaited at the stage that needs them, which lands
-them inside the build: **403 KB gzipped across twelve chunks down to 244 across
-ten**, and on a link capped at 250 KB/s the first frame arrives at **11.4 s
-against 12.1**, and at 100 KB/s **16.5 against 18.0**. Nothing is lazy once you
-are playing — every one is awaited before the world appears, so there is no
-landmark that pops in the first time you fly near it.
+them inside the build: **403 KB gzipped down to 244** when it was measured on
+2026-09-05, and on a link capped at 250 KB/s the first frame arrived at **11.4 s
+against 12.1**, and at 100 KB/s **16.5 against 18.0**. The world has grown since
+and the review sheets have left the build; the same first load is **245.6 KB in
+one chunk** today. Nothing is lazy once you are playing — every one is awaited
+before the world appears, so there is no landmark that pops in the first time you
+fly near it.
 
 **It is checked, not eyeballed.** `pnpm check` builds the whole world headlessly
-and asserts sixty-eight things: that Reykjavík is in Iceland, that the planet is
-right-handed, that the coastal cliffs face the sea, that no road crosses water,
-that every clock reads its real local time, that 25 named places land in the
-biome an atlas says they are in. Every bug worth writing down below was found by
+and asserts a hundred and two things: that Reykjavík is in Iceland, that the
+planet is right-handed, that the coastal cliffs face the sea, that no road
+crosses water, that every clock reads its real local time, that 25 named places
+land in the biome an atlas says they are in. Every bug worth writing down below was found by
 a table, not by a screenshot.
 
 ## Decisions that cost a bug
@@ -152,7 +154,7 @@ cab off the shoulders and every occupant's arms are through the doors, and
 nothing in the model or the validator notices, because the seat is legal and the
 roof clears.
 
-There are **160** of these in `docs/traps.md`, each with the measurement that
+There are **303** of these in `docs/traps.md`, each with the measurement that
 proves it, grouped by the files they govern. It is the most useful file in the
 repo.
 
@@ -162,7 +164,7 @@ repo.
 public domain.** The land mesh *is* those outlines, triangulated and projected.
 
 **Settlements: [GeoNames] `cities5000` and `countryInfo` — © GeoNames, licensed
-under [CC BY 4.0].** 23,866 towns and cities with real names, coordinates and
+under [CC BY 4.0].** 29,545 towns and cities with real names, coordinates and
 populations, thinned so that no two are built on the same ground. Everything
 inhabited stands where GeoNames says people live.
 
@@ -183,30 +185,36 @@ and not a single line of daylight-saving arithmetic.
 ## Working on it
 
 ```sh
-pnpm check      # the whole world, headless — 68 assertions
+pnpm check      # the whole world, headless — 102 assertions
+pnpm scenery    # the kit: budgets, tones, silhouettes, determinism
 pnpm people     # the crowd: silhouettes, dress, determinism
 pnpm traffic    # the vehicles: distinctness, fit, budgets
+pnpm fauna      # the animals: the gait, the floor, where a herd stands
+pnpm life       # the movers: routes, the walk, a day of clock
+pnpm system     # the orbits against the almanac, and the scale
 pnpm typecheck
 pnpm data       # re-bake the outlines      (only when the source changes)
+pnpm lakes      # re-bake the lakes         (always after `pnpm data`)
 pnpm places     # re-bake the settlements
 pnpm roads      # re-join them; always after `pnpm places`
 pnpm monuments  # re-snap the landmarks to the coast
 ```
 
-Review sheets, all served by `pnpm dev`: `/contact-sheet.html` for every
-landmark, `/scenery-sheet.html` for the kit and the crowd, `/traffic-sheet.html`
-for the vehicles, `/avatar-sheet.html` for the player, and `/flags.html` for all
-234 flags. Each one renders its subject at the size it is really seen at,
-because almost every mistake in this project has been a thing that looked fine
-on a turntable.
+Seven review sheets live in `sheets/` and `pnpm dev` serves every one:
+`/sheets/monuments.html` for the landmarks, `/sheets/scenery.html` for the kit and
+the crowd, `/sheets/traffic.html` for the vehicles, `/sheets/fauna.html` for the
+animals, `/sheets/avatar.html` for the player, `/sheets/menu.html` for the front
+door and `/sheets/flags.html` for all 234 flags. Each renders its subject at the
+size it is really seen at, because almost every mistake in this project has been
+a thing that looked fine on a turntable.
 
-Four of the five are in the production build; **`flags.html` is a `pnpm dev`
-page only**, and deliberately. It needs a corner of Three that nothing else in
-the first load touches, so including it splits the renderer's chunk in two and
-costs the *world's* first load 3.9 KB gzipped — paid by the page everyone opens,
-for a page nobody opens online. `vite.config.ts` carries the measurement. If it
-is ever wanted deployed, it should get its own build rather than another entry
-beside the world's.
+**None of them is in the production build**, and that is measured rather than
+assumed. A sheet reaches a different corner of the same code the world uses, so
+listing one makes Rollup split the graph to share it: with the four that used to
+be listed, the *world's* own first load is 249.2 KB gzipped across ten chunks,
+and with the world alone it is 245.6 in one. `vite.config.ts` carries the
+measurement. If a sheet is ever wanted online it should get its own build rather
+than another entry beside the world's.
 
 `window.atlas` is exposed for poking at:
 
@@ -221,7 +229,7 @@ atlas.world.countryAt(35.7, 139.7)
 `CLAUDE.md` is the contract — the invariants, the scale table, and a map of
 where to read before touching something — and it is deliberately short, because
 every agent working on this repo reads it in full. The evidence lives beside it:
-`docs/traps.md` is 160 bugs this project actually shipped, and `docs/built.md`
+`docs/traps.md` is 303 bugs this project actually shipped, and `docs/built.md`
 is what each finished system does and what it cost. All three are kept honest: a
 number in a comment is meant to be true, and several of them are assertions in
 `pnpm check` for exactly that reason.

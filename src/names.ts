@@ -24,12 +24,12 @@ import { PALETTE } from './theme.ts';
  *   because a label point on the far side of the Earth projects into the frame
  *   perfectly happily.
  * - **Ten at most, nearest the middle first.** The centre of the screen is
- *   where the player is looking and where the flag under it is largest.
+ *   where the player is looking and where the country under it is largest.
  * - **Size by the square root of the area**, which is the only honest way to
  *   put Luxembourg and Russia in the same list; the country under the player
  *   gets a fifth again on top, because that is the one the chip is naming.
- * - **They fade with the flag**, on the same number, so `B` and the altitude
- *   drive all three marks together.
+ * - **They fade with the country fill**, on the same number, so `B` and the
+ *   altitude drive all three marks together.
  *
  * The names are the ones the chip uses — `NAME_LONG` from Natural Earth, out of
  * `world.countries` — and the label point is the bake's own, which `map.ts` and
@@ -106,14 +106,20 @@ const MIN_FADE = 0.01;
 const css = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
 
 /**
- * Cream on ink, and the stroke is what makes it work over a flag.
+ * Cream on ink, and the stroke is what makes it work over the map layer.
  *
- * A flag is 234 different backgrounds and no single text colour reads on all of
- * them — cream vanishes on Argentina's white band and ink vanishes on
- * Germany's black one. `paint-order: stroke fill` draws the ink *behind* the
- * glyph rather than over it, which is the same relationship `OutlineEffect`
- * has with the fill it hulls, so the type belongs to the same drawing as the
- * world does.
+ * It used to be written against a drawn flag — 234 different backgrounds, cream
+ * vanishing on Argentina's white band and ink on Germany's black one — and the
+ * layer under it is one flat colour per country now, which softens the problem
+ * without removing it. `country-colors.ts` keeps every fill inside an OKLab
+ * lightness of 0.38 to 0.86 precisely so that nothing on the map is snow or
+ * ink, and measured over the shipped table (2026-09-08) it runs 0.379 to 0.862
+ * with a median of 0.541. Cream still has almost nothing to say against
+ * Belgium's gold at the top of that and ink has almost nothing against a navy
+ * at the bottom, so the stroke stays. `paint-order: stroke fill` draws the ink
+ * *behind* the glyph rather than over it, which is the same relationship
+ * `OutlineEffect` has with the fill it hulls, so the type belongs to the same
+ * drawing as the world does.
  */
 const STYLE = `
 .atlas-names {

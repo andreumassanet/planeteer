@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from './globe.ts';
-import { reliefAt, shoreDistance } from './terrain.ts';
+import { MAX_SLOPE, gradeAt, reliefAt, shoreDistance } from './terrain.ts';
+import type { Slope } from './terrain.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
 import type { BiomeId } from './biome.ts';
 import { createToonRamp } from './theme.ts';
@@ -11,8 +12,6 @@ import { isShown, prominenceVersion, radiusFor } from './places.ts';
 import type { Place } from './places.ts';
 import { placeDirection, roadClearance, roadIndexFor, roadPoint, roadPole } from './roads.ts';
 import type { Road, RoadIndex } from './roads.ts';
-import { inRiverCorridor, riverCorridorsNear, riverIndexFor } from './rivers.ts';
-import type { RiverCorridor, RiverIndex, RiverLine } from './rivers.ts';
 import {
   createViewCone,
   detailArea,
@@ -531,31 +530,11 @@ const MONUMENT_CLEARANCE = 6;
 const SEATING = 0.05;
 
 /**
- * How steep the ground may be under a plant, in degrees.
- *
- * **A plant bedded to its own lowest corner and stood upright is buried on the
- * uphill side, and on a mountain that is most of the wood.** The bedding rule
- * above is right for the country the world is mostly made of and says nothing
- * about the country it is most obviously wrong in: measured over 20,000 land
- * points with the same four probes a plant uses (2026-09-06), the median slope
- * on this planet is **4.7 degrees** and the p90 is 18.5 — but the Alps at
- * 46.5, 8 read a median of 18.6 and a p90 of 47.1, and a Norwegian fjord at
- * 61.2, 6.8 reads 19.9 and 43.5. So the failure the user reported is a tenth of
- * the world's ground and half of the ground worth looking at.
- *
- * Two answers and they are not alternatives. `TILT_OF` lays the plant on the
- * slope, which is what fixes the ordinary hillside; this is the cap past which
- * nothing stands at all, and it is the **angle of repose** — the steepest a
- * loose slope holds without sliding, 30 to 35 degrees for scree — because that
- * is the real reason a mountain face is bare rock. Above it there is no soil to
- * grow in.
- *
- * What it costs, in plots refused: **4.9% of the world's land, 40.5% of the
- * Alps tile and 34.2% of the fjord**, and 0.00% of Kansas, the Amazon and the
- * Sahara, whose steepest ground is 10 degrees. It is free where the flat world
- * is and it is the whole point where it is not.
+ * Where the plant's own slope rule comes from: `terrain.ts`, which owns it for
+ * the whole world. It was written here, because a wood on a mountain face is
+ * where the user saw it first; the road, the herd and the town's own paving ask
+ * the same question now, so the definition moved and this file reads it.
  */
-const MAX_SLOPE = Math.tan(30 * (Math.PI / 180));
 
 /**
  * How far a plant follows the ground it stands on, by kind: 0 stands upright,
@@ -790,17 +769,6 @@ export interface VegetationOptions {
    * whatever happened to be resident would not build the same tile twice.
    */
   roads?: readonly Road[];
-  /**
-   * The baked river lines, so nothing grows in the water.
-   *
-   * The last of the four keepouts, and it arrives by exactly the door the road
-   * did: a wood was standing across the Danube because nothing had told this
-   * file there was a river there. Same shape as the road's — a line and not a
-   * disc — and the same two halves stated by the two files that own them, with
-   * `riverClearance` as half the drawn ribbon and the plant bringing its own
-   * footprint. Independent of `roads`, because a river is not a road.
-   */
-  rivers?: readonly RiverLine[];
 }
 
 export function createVegetation(world: World, options: VegetationOptions = {}): Vegetation {
@@ -1006,8 +974,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   /** The rotation that lays a plant on the hill; see `TILT_OF`. */
   const lean = new THREE.Quaternion();
   const surfaceUp = new THREE.Vector3();
-  const plantProbe = new THREE.Vector3();
-  const corners = [0, 0, 0, 0];
+  /** What `gradeAt` fills, reused: it is asked once per plot. */
+  const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
   const scaleVector = new THREE.Vector3();
   const world4 = new THREE.Matrix4();
   const local4 = new THREE.Matrix4();
@@ -1045,21 +1013,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   const roadPolar = new THREE.Vector3();
   const roadAt = new THREE.Vector3();
 
-  /**
-   * And the water, in the same shape and for the same reason.
-   *
-   * One list rather than folded into `roadKeepouts`, because the two are
-   * gathered from two indexes and counted separately: *how many plants a tile
-   * loses to a river* is the measurement that says whether this rule is doing
-   * anything, and a shared list would bury it in the road's number. There is one
-   * simplification — a river's stored vertices *are* the drawn centreline, so
-   * these are the baked chords rather than a resampling of a curve.
-   */
-  const riverKeepouts: RiverCorridor[] = [];
-  const riverIndex: RiverIndex | null =
-    options.rivers !== undefined && options.rivers.length > 0 ? riverIndexFor(options.rivers) : null;
-  const riverHits: number[] = [];
-
   /** Where a local offset from the tile centre lands on the sphere. */
   function directionAt(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
     return target
@@ -1080,8 +1033,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     builtOver: number;
     /** Plots refused because they stood in a carriageway or on its verge. */
     onRoad: number;
-    /** Plots refused because they stood in a river. */
-    inWater: number;
     /** Plots refused because the ground under them is steeper than `MAX_SLOPE`. */
     onSlope: number;
     fastPath: boolean;
@@ -1097,7 +1048,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       inTheSea: 0,
       builtOver: 0,
       onRoad: 0,
-      inWater: 0,
       onSlope: 0,
       fastPath: false,
     };
@@ -1242,32 +1192,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       }
     }
 
-    /**
-     * And every river that crosses the tile, as the chords the bake stored.
-     *
-     * No `roadPoint` walk and no sampling step: `rivers.ts` lerps between
-     * exactly these vertices, so the polyline in the file *is* the drawn
-     * centreline and testing against it has no second copy of the curve to get
-     * wrong. That is the one thing a river makes easier than a road.
-     */
-    riverKeepouts.length = 0;
-    if (riverIndex !== null) {
-      // The margin is 0: `riverClearance` is half the drawn ribbon and the other
-      // half of the clearance is the plant's own footprint, added per plot
-      // below. Neither file states the other's half.
-      riverCorridorsNear(
-        riverIndex,
-        options.rivers!,
-        tile.direction,
-        across,
-        north,
-        Math.hypot(tile.halfEast, tile.halfNorth) + 40,
-        0,
-        riverKeepouts,
-        riverHits,
-      );
-    }
-
     const pitch = pitchOf(tile.level);
     const levelScale = SCALE_OF[tile.level]!;
 
@@ -1357,7 +1281,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     let inTheSea = 0;
     let builtOver = 0;
     let onRoad = 0;
-    let inWater = 0;
     let onSlope = 0;
     let plots = 0;
     let checked = false;
@@ -1438,14 +1361,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           continue;
         }
 
-        // And the water. Same test, same two halves — half the drawn ribbon
-        // from `riverClearance`, the plant's own footprint from the plant — and
-        // counted apart from the road so the two rules can be told apart.
-        if (inRiverCorridor(riverKeepouts, x, z, spread)) {
-          inWater++;
-          continue;
-        }
-
         directionAt(x, z, plantUp);
         // Its own upright, not the tile's. A level-3 tile is 1,400 units across
         // and its corners are three and a half degrees off its centre's vertical
@@ -1464,29 +1379,12 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         // is buried on the uphill side by the slope times its own width, which
         // is the thing the user could see. The relief is the only term that
         // varies inside a tile — the shelf is the ring's and is constant — so
-        // this is still four `reliefAt` calls and nothing else.
+        // this is still four `reliefAt` calls and nothing else, and they are
+        // `terrain.ts`'s four now rather than a copy of them here.
         const reach = Math.max(1.2, flat.footprint * scale * 0.6);
-        let lowest = relief;
-        for (let corner = 0; corner < 4; corner++) {
-          const angle = (corner / 4) * Math.PI * 2 + Math.PI / 4;
-          plantProbe
-            .copy(plantUp)
-            .addScaledVector(plantAcross, (Math.cos(angle) * reach) / PLANET_RADIUS)
-            .addScaledVector(plantNorth, (Math.sin(angle) * reach) / PLANET_RADIUS)
-            .normalize();
-          const height = reliefAt(plantProbe.x, plantProbe.y, plantProbe.z);
-          corners[corner] = height;
-          if (height < lowest) lowest = height;
-        }
-        // The corners are at 45, 135, 225 and 315 degrees, so each axis is the
-        // difference of two diagonal pairs over the 2*sqrt(2)*reach between
-        // them. It is the same central difference a height field's normal is
-        // always built from, written in the frame the plant is about to be
-        // placed in.
-        const wide = 2 * Math.SQRT2 * reach;
-        const gradAcross = (corners[0]! + corners[3]! - corners[1]! - corners[2]!) / wide;
-        const gradNorth = (corners[0]! + corners[1]! - corners[2]! - corners[3]!) / wide;
-        const grade = Math.hypot(gradAcross, gradNorth);
+        gradeAt(plantUp, plantAcross, plantNorth, reach, slope);
+        const grade = slope.grade;
+        const lowest = Math.min(relief, slope.lowest);
         // Nothing grows on the scree; see `MAX_SLOPE`.
         if (grade > MAX_SLOPE) {
           onSlope++;
@@ -1512,8 +1410,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         if (flat.tilt > 0 && grade > 1e-4) {
           surfaceUp
             .copy(plantUp)
-            .addScaledVector(plantAcross, -gradAcross)
-            .addScaledVector(plantNorth, -gradNorth)
+            .addScaledVector(plantAcross, -slope.across)
+            .addScaledVector(plantNorth, -slope.north)
             .normalize()
             .sub(plantUp)
             .multiplyScalar(flat.tilt)
@@ -1544,7 +1442,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     }
 
     if (placed.length === 0) {
-      return { ...empty, plots, inTheSea, builtOver, onRoad, inWater, onSlope, fastPath: inland };
+      return { ...empty, plots, inTheSea, builtOver, onRoad, onSlope, fastPath: inland };
     }
 
     const position = new Float32Array(vertices * 3);
@@ -1631,7 +1529,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       inTheSea,
       builtOver,
       onRoad,
-      inWater,
       onSlope,
       fastPath: inland,
     };
@@ -1998,7 +1895,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         inTheSea: result.inTheSea,
         builtOver: result.builtOver,
         onRoad: result.onRoad,
-        inWater: result.inWater,
         onSlope: result.onSlope,
         fastPath: result.fastPath,
         kilobytes: Number((result.bytes / 1024).toFixed(1)),

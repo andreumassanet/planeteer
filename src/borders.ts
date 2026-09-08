@@ -40,15 +40,16 @@ import { createToonRamp } from './theme.ts';
  *
  * So what is left is one mark and it is the mark that was asked for: a **7-unit
  * dashed ink line, drawn once per frontier**, and no shading at all. The
- * country-coloured band is gone rather than tuned — the flag overlay in
- * `land-flags.ts` says whose ground it is far better than a tint of the ground
- * could, and two things saying the same thing is how the weaker one survives.
+ * country-coloured band is gone rather than tuned — the map layer in
+ * `land-flags.ts` fills each country with its own colour and says whose ground
+ * it is far better than a tint of the ground could, and two things saying the
+ * same thing is how the weaker one survives.
  *
  * **And it is drawn only from the air, which settled three things that had no
  * answer while it was drawn from everywhere.** A frontier is a fact about
  * people: on the ground it is a dashed line across a field that nothing in the
  * world agrees with, and it was also the one mark here that sank under a hill
- * or a town. It comes up with the flag now, on the same fade, and above 500
+ * or a town. It comes up with the map layer now, on the same fade, and above 500
  * units it can afford what a ground-level mark could not:
  *
  * - **No depth test at all.** From the air the border is the map and nothing
@@ -93,8 +94,10 @@ const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : valu
  *   rhythm, and it is reached at 2,500 units up. Past there the line thins
  *   again — 3.6 px at 6,000, under a pixel from the plane's ceiling — and there
  *   is no width that fixes that, because at that range the whole of Belgium is
- *   80 px: what carries a border from the ceiling is the flag fill either side
- *   of it, which is why the two features arrived together.
+ *   80 px: what carries a border from the ceiling is the country fill either
+ *   side of it, which is why the two features arrived together — and the fill
+ *   is now a flat colour de-conflicted against every neighbour, so the two
+ *   sides of a frontier are guaranteed to differ by more than the light does.
  */
 const WIDTH = 7;
 const WIDTH_MAX = 21;

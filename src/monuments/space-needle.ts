@@ -86,7 +86,7 @@ import type { Monument } from './contract.ts';
  * In life the observation deck is at 520 ft of 605 and the top house roof at
  * about 540: the mast is the last 11% of the building. Built at 11% it would be
  * 7.7 units long and taper from 0.9 to 0.14 — about 26 pixels tall and one wide
- * in a contact-sheet cell, which is a scratch, not a needle, on a monument
+ * in a monument-sheet cell, which is a scratch, not a needle, on a monument
  * called the Space Needle. Stretching it to 17.6% is 12.3 units, and since the
  * total height is fixed by the tier the twelve units have to come out of
  * something: the saucer drops from life's 0.86 to **0.757**. That is not a

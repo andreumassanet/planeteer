@@ -1,5 +1,5 @@
 /**
- * Turns the 23,866 populated places into a road network.
+ * Joins the built towns into a road network.
  *
  * The graph is a pure function of `places.bin` and the outlines, so it is
  * *baked* for the same three reasons `monuments.json` is: it costs a few hundred
@@ -10,20 +10,30 @@
  *   node scripts/build-roads.ts        # write public/data/roads.bin
  *   node scripts/build-roads.ts --dry  # report the graph and write nothing
  *
- * The three decisions it makes, and all three are visible from the air the
- * moment they are wrong:
+ * **It is a graph over the 9,734 places that are *built*, not over the 29,545
+ * rows of the gazetteer, and that is the whole shape of this file** (2026-09-08).
+ * `builtGraph` in `src/roads.ts` carries the argument and the measurements; the
+ * consequence here is that every endpoint is a town you can walk into, so the
+ * network needs no prune for dead ends at unbuilt villages, no chaining through
+ * hidden junctions and no floor putting a road back at an orphaned city. All of
+ * that was machinery for reconstructing city-to-city connections out of a graph
+ * that never held them, and it is deleted. *Solo conexiones entre ciudades.*
  *
- * 1. **Which pairs get a road.** See `GRAPH` below; the alternatives were
- *    measured rather than argued about.
+ * Three decisions, and all three are visible from the air the moment they are
+ * wrong:
+ *
+ * 1. **Which pairs are candidates.** See `GRAPH`; the alternatives were measured
+ *    rather than argued about, and nothing is thinned — Gabriel over the built
+ *    towns is a median degree of 4 at a 260-unit spacing, where Gabriel over the
+ *    gazetteer was 4.14 at 106 and was a lattice.
  * 2. **Whether the road can be built.** A road may cross a border — that is most
- *    of what makes a network read as one — but it may not cross water, and
- *    finding out costs a walk along the road asking `countryAt`. That is the
- *    expensive half of this script and it is what makes Mallorca's towns join
- *    each other and nothing else.
- * 3. **Which of the roads it could build are worth building.** See `thin`
- *    below. Gabriel over a gazetteer is a lattice — every field bounded by
- *    carriageway on three sides — and the pass that answers it drops a third of
- *    the network without moving a single connectivity number.
+ *    of what makes a network read as one — but it may not cross **water** and it
+ *    may not cross **scree**: *solo conexiones entre ciudades, si en ningún
+ *    momento se pasa por una montaña.* Both are a walk along the road, and both
+ *    can be answered by bending it; see `bendThatWorks`.
+ * 3. **What a town does when nothing wants to join it.** See `rescueOrphans`:
+ *    one road to the nearest built town by a dry, gentle path, for a place the
+ *    proximity test left alone but the ground did not refuse.
  */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -33,19 +43,22 @@ import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { decodePlaces, decodeRoads, encodeRoads, inflate } from '../src/pack.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
+import { detailRadiusFor, isShown, radiusFor } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
-import { seedOf } from '../src/scenery/random.ts';
+import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import {
   MAX_ROAD_LENGTH,
+  ROAD_CLASSES,
   bendFor,
+  builtGraph,
   classOf,
+  crossesScree,
   pairKey,
   placeDirection,
-  proximityGraph,
   roadPoint,
   roadPole,
 } from '../src/roads.ts';
-import type { GraphEdge, ProximityGraph } from '../src/roads.ts';
+import type { GraphEdge, ProximityGraph, Road } from '../src/roads.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const countriesPath = resolve(here, '../public/data/countries.bin');
@@ -63,19 +76,29 @@ globalThis.fetch = (async (url: string) => ({
 
 const DEG = Math.PI / 180;
 const dry = process.argv.includes('--dry');
-/**
- * Write the network the water test produced, with `thin` switched off.
- *
- * It is here because the thinning was decided by a *look* and a look needs two
- * files: the same frame with the lattice and without it. Never ship the output
- * — it is 49,179 roads against 35,753 and `pnpm check`'s degree band is the
- * only thing that would notice.
- */
-const unthinned = process.argv.includes('--no-thin');
+/** Report the graph the relative neighbourhood rule would give, and ship nothing. */
+const alternatives = process.argv.includes('--alternatives');
 
 const places: Place[] = decodePlaces(
   await inflate(readFileSync(resolve(here, '../public/data/places.bin'))),
 );
+
+/**
+ * The relief has to be the world's relief before a road can be asked to avoid a
+ * mountain.
+ *
+ * `crossesScree` asks `gradeAt`, `gradeAt` asks `reliefAt`, and `reliefAt` is
+ * flat under a monument's pad and finely sampled under a town — so the sites go
+ * in first, in the order `main.ts` installs them, or the bake would refuse a
+ * road across ground the game has levelled. `loadWorld` runs `prepareTerrain`,
+ * which is what makes the relief answer at all.
+ */
+setFlattenSites(
+  (JSON.parse(readFileSync(resolve(here, '../public/data/monuments.json'), 'utf8')) as {
+    monuments: { id: string; iso: string; lat: number; lon: number }[];
+  }).monuments,
+);
+setDetailSites(places.map((place) => ({ lat: place.lat, lon: place.lon, radius: detailRadiusFor(place.pop) })));
 
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
@@ -116,13 +139,27 @@ const PROBE_STEP = 18;
  *   and it is a subgraph of Gabriel that still contains the minimum spanning
  *   tree, so it is connected wherever Gabriel is.
  *
- * Gabriel is what ships as the *candidate* rule and the relative neighbourhood
- * graph is not thrown away with it: `thin` below uses the subgraph relation, so
- * the edges Gabriel has that RNG does not are exactly the ones it may consider
- * dropping. See `docs/traps.md` for the degree distributions that decided this;
- * the short version is that RNG alone came out at mean degree 2.64 with 38% of
- * places on exactly two roads, which is a network of chains, and Gabriel's 4.25
- * is where the junctions are — and where the lattice is too.
+ * **Gabriel ships, whole, and the thinning pass that used to sit under it is
+ * gone with the point set that needed it.** Over the *gazetteer* Gabriel was a
+ * lattice — mean degree 4.14 at a 106-unit spacing, a quarter of the ground
+ * inside a lane's own reach covered in carriageway — so half of it was dropped
+ * again by a rule built on the RNG subgraph relation. Over the **built towns**
+ * the same rule is a road map: 20,022 candidates, a median degree of 4 and a
+ * spacing of 260 units, which is *no hace falta que conectes una ciudad con 20*
+ * and nothing to thin. Measured on the shipped `places.bin`, both graphs
+ * carried through the water and slope tests (2026-09-08):
+ *
+ * ```
+ *              candidates   roads    wet   steep   towns with none   degree
+ *   gabriel        20,022  17,196  1,236   1,590     733   7.5%   median 4, max 8
+ *   rng            12,595  10,918    731     946     806   8.3%   median 2, max 5
+ * ```
+ *
+ * The relative neighbourhood graph is still built, because `pnpm check` uses the
+ * subgraph relation to ask the file to account for what it does not carry, and
+ * `--alternatives` prints the row above. A median of 2 is a network of chains
+ * and a map with no junctions in it is not a map, which is the same finding this
+ * file has recorded since the 7,320-place version.
  */
 type Graph = ProximityGraph;
 const GRAPH: Graph = 'gabriel';
@@ -154,8 +191,21 @@ function chord(i: number, j: number): number {
 
 type Candidate = GraphEdge;
 
+/**
+ * Every place that is built, which is the only vertex set this file has.
+ *
+ * A degree averaged over the 29,545 rows of `places.bin` would be a statement
+ * about the gazetteer and not about the map: 19,811 of them are not built and
+ * cannot be an endpoint, so they would drag every number here to a third of
+ * itself. Counted over `built`, the shape is the shape you can see.
+ */
+const built: number[] = [];
+for (let i = 0; i < places.length; i++) if (isShown(places[i]!)) built.push(i);
+
 function degreesOf(edges: readonly { a: number; b: number }[]): {
   mean: number;
+  median: number;
+  p90: number;
   max: number;
   isolated: number;
   share: string;
@@ -165,10 +215,11 @@ function degreesOf(edges: readonly { a: number; b: number }[]): {
     count[edge.a]!++;
     count[edge.b]!++;
   }
+  const mine = built.map((i) => count[i]!).sort((x, y) => x - y);
   const histogram = new Int32Array(24);
   let total = 0;
   let max = 0;
-  for (const value of count) {
+  for (const value of mine) {
     total += value;
     if (value > max) max = value;
     histogram[Math.min(23, value)]!++;
@@ -176,11 +227,13 @@ function degreesOf(edges: readonly { a: number; b: number }[]): {
   const share = [...histogram]
     .map((n, degree) => [degree, n] as const)
     .filter(([, n]) => n > 0)
-    .slice(0, 9)
-    .map(([degree, n]) => `${degree}:${((n / places.length) * 100).toFixed(0)}%`)
+    .slice(0, 10)
+    .map(([degree, n]) => `${degree}:${((n / mine.length) * 100).toFixed(0)}%`)
     .join(' ');
   return {
-    mean: Number((total / places.length).toFixed(2)),
+    mean: Number((total / mine.length).toFixed(2)),
+    median: mine[mine.length >> 1]!,
+    p90: mine[Math.floor(mine.length * 0.9)]!,
     max,
     isolated: histogram[0]!,
     share,
@@ -210,7 +263,7 @@ function componentsOf(edges: readonly { a: number; b: number }[]): {
     if (ra !== rb) parent[ra] = rb;
   }
   const sizes = new Map<number, number>();
-  for (let i = 0; i < places.length; i++) {
+  for (const i of built) {
     const root = find(i);
     sizes.set(root, (sizes.get(root) ?? 0) + 1);
   }
@@ -218,24 +271,23 @@ function componentsOf(edges: readonly { a: number; b: number }[]): {
   return { count: sorted.length, largest: sorted[0]!, singles: sorted.filter((n) => n === 1).length };
 }
 
-console.log(`places: ${places.length.toLocaleString()}`);
+console.log(`places: ${places.length.toLocaleString()}, built ${built.length.toLocaleString()}`);
 const began = Date.now();
-// Both graphs are built and both are kept: Gabriel is the candidate set and the
-// relative neighbourhood graph is the subgraph `thin` measures it against, so
-// the second one is no longer only a line in the report.
+// Over the built towns and nothing else; `builtGraph` in `src/roads.ts` carries
+// the argument, and `pnpm check` calls the same function to re-derive this.
+const kinds: Graph[] = alternatives ? ['rng', 'gabriel'] : [GRAPH];
 const graphs = new Map<Graph, Candidate[]>();
-for (const kind of ['rng', 'gabriel'] as Graph[]) {
-  const edges = proximityGraph(places, kind, MAX_LENGTH);
+for (const kind of kinds) {
+  const edges = builtGraph(places, kind, MAX_LENGTH);
   graphs.set(kind, edges);
   const stats = degreesOf(edges);
   console.log(
-    `  ${kind.padEnd(8)} ${edges.length.toLocaleString().padStart(7)} edges  ` +
-      `mean degree ${stats.mean}  max ${stats.max}  isolated ${stats.isolated}  ${stats.share}`,
+    `  ${kind.padEnd(8)} ${edges.length.toLocaleString().padStart(7)} candidates  ` +
+      `mean ${stats.mean}  median ${stats.median}  p90 ${stats.p90}  max ${stats.max}  ` +
+      `isolated ${stats.isolated}`,
   );
 }
 const candidates = graphs.get(GRAPH)!;
-const rngPairs = new Set<number>();
-for (const edge of graphs.get('rng')!) rngPairs.add(pairKey(places.length, edge.a, edge.b));
 console.log(`  graph built in ${Date.now() - began} ms, keeping '${GRAPH}'\n`);
 
 // ---------------------------------------------------------------------------
@@ -272,7 +324,97 @@ function isDry(edge: Candidate, bend: number): boolean {
 }
 
 /**
- * A bow that keeps the road out of the water, or null if there is none.
+ * Whether a bend keeps the road off ground steeper than anything is built on.
+ *
+ * `crossesScree` is `src/roads.ts`'s and it asks `terrain.ts`'s `MAX_SLOPE`
+ * through `gradeAt` — one definition, the same one the wood, the herd and the
+ * town's own cells ask, so a slope that refuses a tree cannot admit a
+ * carriageway. **It moved from a load-time pass into the bake in this round**:
+ * it used to run over the shipped file every time the world started, for 350 ms
+ * of `reliefAt`, and a road that is refused for good is a road that should not
+ * be in the file.
+ *
+ * It wants a `Road` and there is not one yet, so it gets the four fields a
+ * candidate would have: the class matters because `gradeAt` measures over the
+ * road's own half-width and a trunk is twice a lane.
+ */
+const probe: Road = { a: 0, b: 0, cls: 0, bend: 0 };
+let slopeProbes = 0;
+function isGentle(edge: Candidate, bend: number, cls: number): boolean {
+  probe.a = edge.a;
+  probe.b = edge.b;
+  probe.cls = cls;
+  probe.bend = bend;
+  slopeProbes++;
+  return !crossesScree(probe, places);
+}
+
+/**
+ * A grid of the built towns, so a road can be asked what it runs *through*.
+ *
+ * Two degrees is 558 units at the equator and the largest built radius is 150,
+ * so the 3x3 block always covers the reach; the longitude span opens with the
+ * cosine for the same reason `proximityGraph`'s does.
+ */
+const TOWN_CELL = 2;
+const TOWN_COLS = Math.round(360 / TOWN_CELL);
+const TOWN_ROWS = Math.round(180 / TOWN_CELL);
+const townGrid: number[][] = Array.from({ length: TOWN_COLS * TOWN_ROWS }, () => []);
+for (const i of built) {
+  const place = places[i]!;
+  const row = Math.min(TOWN_ROWS - 1, Math.max(0, Math.floor((90 - place.lat) / TOWN_CELL)));
+  const col = ((Math.floor((place.lon + 180) / TOWN_CELL) % TOWN_COLS) + TOWN_COLS) % TOWN_COLS;
+  townGrid[row * TOWN_COLS + col]!.push(i);
+}
+const townAt = new Vector3();
+
+/**
+ * Whether a bend keeps the road out of every town it does not end at.
+ *
+ * **A road down somebody's high street was a residue this project bounded for
+ * three rounds and it is an invariant now** (2026-09-08). `roadClip` stops a
+ * ribbon at the two towns it *ends* at, and the argument for the rest was that
+ * a Gabriel edge cannot pass close to a third place — a place near the middle of
+ * one is inside the circle that would have deleted the edge. That argument has
+ * two holes, and the second one opened this round: Gabriel tests the **chord**
+ * and the ribbon draws the **bow**, and `rescueOrphans` emits roads that were
+ * never Gabriel candidates at all. Wollongong is ringed by mountains, so the
+ * rescue joined it to Tamworth — straight through the middle of Sydney, 118
+ * units inside a town of radius 150.
+ *
+ * So it is tested rather than argued: the drawn curve, at `PROBE_STEP`, against
+ * every *built* place that is not one of its own two ends. A pair with no bend
+ * that clears the towns between them is not joined, which is the right answer —
+ * the road that would exist there runs through the town and joins it instead.
+ */
+function passesTown(edge: Candidate, bend: number): boolean {
+  placeDirection(places[edge.a]!, a);
+  placeDirection(places[edge.b]!, b);
+  roadPole(a, b, pole);
+  const steps = Math.max(2, Math.ceil(edge.length / PROBE_STEP));
+  for (let step = 1; step < steps; step++) {
+    roadPoint(a, b, bend, step / steps, point, pole);
+    const lat = Math.asin(Math.min(1, Math.max(-1, point.y))) / DEG;
+    const lon = Math.atan2(-point.z, point.x) / DEG;
+    const row = Math.min(TOWN_ROWS - 1, Math.max(0, Math.floor((90 - lat) / TOWN_CELL)));
+    const span = Math.ceil(1 / Math.max(0.02, Math.cos(lat * DEG)));
+    const col = Math.floor((lon + 180) / TOWN_CELL);
+    for (let r = Math.max(0, row - 1); r <= Math.min(TOWN_ROWS - 1, row + 1); r++) {
+      for (let c = col - span; c <= col + span; c++) {
+        for (const j of townGrid[r * TOWN_COLS + (((c % TOWN_COLS) + TOWN_COLS) % TOWN_COLS)]!) {
+          if (j === edge.a || j === edge.b) continue;
+          townAt.set(unit[j * 3]!, unit[j * 3 + 1]!, unit[j * 3 + 2]!);
+          if (point.angleTo(townAt) * PLANET_RADIUS < radiusFor(places[j]!.pop)) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * A bow that keeps the road out of the water *and* off the mountain, or null if
+ * there is none.
  *
  * **The first version tested one path and threw the road away if it was wet, and
  * that deleted the coast.** Mumbai, Hong Kong, Singapore, Barcelona, San
@@ -289,17 +431,44 @@ function isDry(edge: Candidate, bend: number): boolean {
  * save itself. The path that is finally drawn is the path that was tested, which
  * is the whole reason the bow lives in the data rather than in the renderer.
  *
- * What it does *not* do is invent a bridge. San Francisco to Oakland is 28 units
- * straight across the bay and no bow gets round it, so the two are not joined
- * and San Francisco reaches the world down the peninsula instead. A road drawn
- * over open water with no deck under it is worse than a road that goes the long
- * way, and the long way is what is actually there.
+ * **The mountain is the same problem and it now gets the same answer**
+ * (2026-09-08). *Solo conexiones entre ciudades, si en ningún momento se pasa
+ * por una montaña* — and a straight line between two towns in a valley crosses
+ * the spur between them exactly the way a straight line between two towns on a
+ * bay crosses the water. A real road goes round the spur. So a candidate is
+ * accepted at the first bend that is **both dry and gentle**, and a pair with no
+ * such bend is simply not joined.
+ *
+ * What that buys, measured on the shipped `places.bin` (2026-09-08): of the
+ * 20,022 candidates, **3,619 are refused on their own seeded bow** — 1,691 wet
+ * and a further 1,928 dry but steep — and the search recovers **793** of them,
+ * 455 round water and **338 round a mountain**. What is left is 1,236 wet and
+ * 1,590 steep, which is a pair with water or a mountain across *every* bend
+ * inside the limit: a road that would have to be a bridge or a tunnel.
+ *
+ * **And the slope refusal is emphatic rather than knife-edge**, which is the
+ * measurement that says the rule is doing what it claims. Over a seventh of the
+ * candidates, the worst grade along a road the slope test refused: **p10 0.64,
+ * median 0.97, p90 1.51, worst 2.74** against a `MAX_SLOPE` of 0.577, and only
+ * 24 of 241 fall within a tenth of the threshold. These are not roads that
+ * happened to graze the limit; they are roads up a mountainside.
+ *
+ * What it does *not* do is invent a bridge or a pass. San Francisco to Oakland
+ * is 28 units straight across the bay and no bow gets round it, so the two are
+ * not joined and San Francisco reaches the world down the peninsula instead; the
+ * same is true of a town on the far side of a ridge. A road drawn over open
+ * water with no deck under it, or up a scree face, is worse than a road that
+ * goes the long way or than no road at all.
  */
 const BEND_STEP = 0.045;
 const BEND_TRIES = 11;
-function bendThatWorks(edge: Candidate): number | null {
+function bendThatWorks(edge: Candidate, cls: number): number | null {
   const natural = bendFor(places[edge.a]!, places[edge.b]!);
-  if (isDry(edge, natural)) return natural;
+  // Cheapest test first: one `countryAt` a probe, then a grid lookup a probe,
+  // then four `reliefAt` a probe.
+  const works = (bend: number): boolean =>
+    isDry(edge, bend) && passesTown(edge, bend) && isGentle(edge, bend, cls);
+  if (works(natural)) return natural;
   // A short road may bow a third of its own length and still look like a road
   // round a headland; a long one may not, so the fraction is also capped in
   // units.
@@ -319,7 +488,7 @@ function bendThatWorks(edge: Candidate): number | null {
     for (const sign of [1, -1]) {
       const bend = sign * k * BEND_STEP;
       if (Math.abs(bend) > limit) continue;
-      if (isDry(edge, bend)) return bend;
+      if (works(bend)) return bend;
     }
   }
   return null;
@@ -333,192 +502,108 @@ interface Row {
 }
 
 const kept: Row[] = [];
-let wet = 0;
-let bowed = 0;
-const wetBegan = Date.now();
+let refusedWet = 0;
+let refusedThrough = 0;
+let refusedSteep = 0;
+let bowedRoundWater = 0;
+let bowedRoundTown = 0;
+let bowedRoundMountain = 0;
+const testBegan = Date.now();
 for (const edge of candidates) {
-  const bend = bendThatWorks(edge);
+  const cls = classOf(places[edge.a]!.pop, places[edge.b]!.pop);
+  const natural = bendFor(places[edge.a]!, places[edge.b]!);
+  // Why the seeded bow failed, before the search runs, so the report can say
+  // what the search rescued from each of the two.
+  const naturallyWet = !isDry(edge, natural);
+  const naturallyThrough = !naturallyWet && !passesTown(edge, natural);
+  const naturallySteep = !naturallyWet && !naturallyThrough && !isGentle(edge, natural, cls);
+  const bend = bendThatWorks(edge, cls);
   if (bend === null) {
-    wet++;
+    // Which of the three it could not get round. A pair that fails more than
+    // one is counted against the test that refused it first, which is the order
+    // the tests run in.
+    if (naturallyWet) refusedWet++;
+    else if (naturallyThrough) refusedThrough++;
+    else refusedSteep++;
     continue;
   }
-  if (bend !== bendFor(places[edge.a]!, places[edge.b]!)) bowed++;
-  kept.push({
-    a: edge.a,
-    b: edge.b,
-    cls: classOf(places[edge.a]!.pop, places[edge.b]!.pop),
-    bend: Number(bend.toFixed(4)),
-  });
+  if (naturallyWet) bowedRoundWater++;
+  if (naturallyThrough) bowedRoundTown++;
+  if (naturallySteep) bowedRoundMountain++;
+  kept.push({ a: edge.a, b: edge.b, cls, bend: Number(bend.toFixed(4)) });
 }
-const wetMs = Date.now() - wetBegan;
+const testMs = Date.now() - testBegan;
 
 // ---------------------------------------------------------------------------
-// The thinning
+// The towns nothing wanted to join
 // ---------------------------------------------------------------------------
 
 /**
- * Which of Gabriel's extra edges are worth having.
+ * One road for a built town the proximity test left alone.
  *
- * **The lattice was written down as a fact about the graph and it is a fact
- * about the graph and the pen together, so this pass is half the answer and it
- * says which half.** Standing in a street in Ulm the ground inside the lane's
- * own reach came out **25.1% carriageway**, against 1 to 2% in a real country —
- * a web of roads across every field, three or four to a field, with the
- * settlements' own paving switched off. Gabriel over a gazetteer is a mean
- * degree of 4.25 at a 106-unit spacing and that is what that looks like.
+ * **A Gabriel graph can leave a town isolated and the ground has nothing to do
+ * with it.** The rule is geometric — an edge survives only if no third place
+ * sits in the circle on it as a diameter — so a town with a larger neighbour
+ * between it and everywhere else has *every* candidate deleted before the water
+ * or the slope ever sees one. That is a fact about the point set and not about
+ * the terrain, and it reads as a city sitting alone in a field with roads
+ * passing it on both sides.
  *
- * The rule has one number in it — `MIN_ROADS`, and it is a two — and every
- * clause is a measurement:
+ * So a place with no road after the two tests gets **one**, to the nearest built
+ * town it can reach by a path that is dry and gentle — the proximity test
+ * ignored, `MAX_ROAD_LENGTH` and both ground tests still binding, at most one
+ * road per orphan and never a second. It is the same shape as the floor of two
+ * this file used to apply to the thinning, and it has one number in it, which is
+ * the one.
  *
- * - **A relative-neighbourhood edge stays.** RNG is a *subgraph* of Gabriel, so
- *   the edges Gabriel has and RNG does not are exactly the candidates — the
- *   diagonals of the triangulation, the third side of every field. Nothing has
- *   to be invented to find them.
- * - **A `road` or a `trunk` stays whatever the graph says.** 36,611 of the
- *   49,179 are lanes and 178 are trunks, so thinning uniformly would spend most
- *   of its cut on the 12,568 lines that carry the map from the air while
- *   leaving three quarters of the lattice on the ground. `classOf` is already
- *   the one measure of how important a road is, and a redundant link between
- *   two market towns is a road that exists; a redundant link between two
- *   hamlets is not.
- * - **A redundant lane goes** — unless it is the second road of a town that had
- *   one. RNG can leave a place joined only to its nearest neighbour however many
- *   neighbours it has, and the rule without this clause took **477 towns from
- *   more than one road to exactly one**: Wolsztyn 7 to 1, Buenaventura 5 to 1. A village on a
- *   through-road has two ends and a village on one road is a dead end, so a
- *   floor of two puts back the *shortest* dropped lane at each — the road a
- *   village would actually have — and it is close to free: **+459 roads, +0.05
- *   points of carriageway share, and the places on a single road go 842 back to
- *   365**, which is exactly what the untinned network had. Only lanes are
- *   restored, so the map from the air still does not move.
- * - **Except when dropping it would split the network**, which is the guard
- *   below and is not decoration: RNG contains the minimum spanning tree of the
- *   *places*, but the water test has already deleted 808 RNG edges that ran
- *   into the sea, so the surviving RNG is not spanning any more. Measured with
- *   the guard switched off: **438 components against 413, largest 14,641
- *   against 14,657, and 280 places with no road at all against 267.** It
- *   rescues **25 lanes of the 13,451** it considers, and with them every
- *   connectivity number in this report is bit-for-bit what the untinned network
- *   had.
- *
- * The guard is exact rather than approximate, and the reason is worth keeping:
- * the kept set only ever *grows*, so an edge that is redundant when it is
- * considered is redundant for ever. That makes the components of the thinned
- * network identical to the components of the network the water test produced —
- * not similar, identical — and `pnpm check` re-derives it rather than trusting
- * it.
- *
- * What it does not fix is written down in `docs/traps.md` with the arithmetic:
- * the floor this lever can reach at Ulm is 13.3% — a spanning forest of lanes,
- * 30% of places on a dead end — and the rest of the 25 is the width of the pen,
- * which belongs to the vehicles.
+ * **What it fixes and what it deliberately does not**, audited over the shipped
+ * `places.bin` (2026-09-08): of the 733 towns Gabriel and the ground left with
+ * nothing, this joins 419 and leaves 314. The ones it leaves are the ones the
+ * user already accepted — *si una ciudad no se puede conectar con ninguna
+ * porque está encima de una montaña no pasa nada* — plus the islands, which
+ * this cannot help and should not: every nearest neighbour is across water, and
+ * a road over open water with no deck under it is the thing the water test
+ * exists to refuse.
  */
-const MIN_ROADS = 2;
-function thin(rows: readonly Row[]): {
-  kept: Row[];
-  rescued: number;
-  floored: number;
-  considered: number;
-} {
-  const parent = new Int32Array(places.length).map((_, i) => i);
-  const find = (x: number): number => {
-    let root = x;
-    while (parent[root] !== root) root = parent[root]!;
-    while (parent[x] !== root) {
-      const next = parent[x]!;
-      parent[x] = root;
-      x = next;
-    }
-    return root;
-  };
-  const union = (x: number, y: number): boolean => {
-    const rx = find(x);
-    const ry = find(y);
-    if (rx === ry) return false;
-    parent[rx] = ry;
-    return true;
-  };
-
-  const out: Row[] = [];
-  const droppable: Row[] = [];
+function rescueOrphans(rows: readonly Row[]): { put: Row[]; joined: number; tried: number } {
+  const degree = new Int32Array(places.length);
   for (const row of rows) {
-    if (row.cls !== 0 || rngPairs.has(pairKey(places.length, row.a, row.b))) {
-      out.push(row);
-      union(row.a, row.b);
-    } else {
-      droppable.push(row);
+    degree[row.a]!++;
+    degree[row.b]!++;
+  }
+  const orphans = built.filter((i) => degree[i] === 0);
+  // Largest first, so a rescue that also joins a smaller town is one the smaller
+  // town does not have to make again — and so the order is a function of the
+  // data rather than of `places.bin`'s own row order.
+  const identity = (i: number): string => `${places[i]!.name}@${places[i]!.lat},${places[i]!.lon}`;
+  orphans.sort((x, y) => places[y]!.pop - places[x]!.pop || (identity(x) < identity(y) ? -1 : 1));
+
+  const put: Row[] = [];
+  let joined = 0;
+  for (const orphan of orphans) {
+    if (degree[orphan]! > 0) continue;
+    // Every built town inside the longest road this world will build, nearest
+    // first: the first one with a bow that clears both tests wins.
+    const near = built
+      .filter((i) => i !== orphan && chord(orphan, i) <= MAX_LENGTH)
+      .sort((x, y) => chord(orphan, x) - chord(orphan, y) || (identity(x) < identity(y) ? -1 : 1));
+    for (const target of near) {
+      const edge: Candidate = { a: Math.min(orphan, target), b: Math.max(orphan, target), length: chord(orphan, target) };
+      const cls = classOf(places[edge.a]!.pop, places[edge.b]!.pop);
+      const bend = bendThatWorks(edge, cls);
+      if (bend === null) continue;
+      put.push({ a: edge.a, b: edge.b, cls, bend: Number(bend.toFixed(4)) });
+      degree[edge.a]!++;
+      degree[edge.b]!++;
+      joined++;
+      break;
     }
   }
-  // The guard walks them in a *seeded* order rather than in index order, for
-  // the reason `bendFor` is seeded from the two names: which roads survive must
-  // not change because a village was inserted at the head of `places.bin`. It
-  // makes no difference to the count — there is no lottery left to run, so the
-  // only thing this order decides is which 25 of 13,451 the guard reaches
-  // first.
-  droppable.sort((x, y) => dropDraw(y) - dropDraw(x));
-  let rescued = 0;
-  const dropped: Row[] = [];
-  for (const row of droppable) {
-    if (union(row.a, row.b)) {
-      out.push(row);
-      rescued++;
-    } else {
-      dropped.push(row);
-    }
-  }
-
-  // The floor: a place that had more than one road keeps at least two. Shortest
-  // first, because that is the road a village would actually have, and the
-  // seeded draw only ever breaks a tie between two roads of the same length.
-  const had = new Int32Array(places.length);
-  for (const row of rows) {
-    had[row.a]!++;
-    had[row.b]!++;
-  }
-  const has = new Int32Array(places.length);
-  for (const row of out) {
-    has[row.a]!++;
-    has[row.b]!++;
-  }
-  dropped.sort(
-    (x, y) =>
-      chord(x.a, x.b) - chord(y.a, y.b) || dropDraw(y) - dropDraw(x),
-  );
-  let floored = 0;
-  for (const row of dropped) {
-    const needsA = has[row.a]! < MIN_ROADS && had[row.a]! >= MIN_ROADS;
-    const needsB = has[row.b]! < MIN_ROADS && had[row.b]! >= MIN_ROADS;
-    if (!needsA && !needsB) continue;
-    out.push(row);
-    has[row.a]!++;
-    has[row.b]!++;
-    floored++;
-  }
-
-  // `pack.ts` delta-codes the `a` column, so the file wants them in order.
-  out.sort((x, y) => x.a - y.a || x.b - y.b);
-  return { kept: out, rescued, floored, considered: droppable.length };
+  return { put, joined, tried: orphans.length };
 }
 
-/** A stable draw per road, from the two identities. Same law as `bendFor`. */
-function dropDraw(row: Row): number {
-  const pa = places[row.a]!;
-  const pb = places[row.b]!;
-  const first = pa.name < pb.name ? pa : pb;
-  const second = pa.name < pb.name ? pb : pa;
-  const seed = seedOf(
-    'road-thin',
-    `${first.name}@${first.lat},${first.lon}`,
-    `${second.name}@${second.lat},${second.lon}`,
-  );
-  return (seed >>> 0) / 4294967296;
-}
-
-const tested = kept;
-const thinned = unthinned
-  ? { kept: tested.slice(), rescued: 0, floored: 0, considered: 0 }
-  : thin(tested);
-const network = thinned.kept;
+const rescue = rescueOrphans(kept);
+const network = [...kept, ...rescue.put].sort((x, y) => x.a - y.a || x.b - y.b);
 
 // ---------------------------------------------------------------------------
 // Report and write
@@ -536,49 +621,55 @@ function measure(rows: readonly Row[]): string {
   }
   return (
     `  ${rows.length.toLocaleString()} roads, ${Math.round(km).toLocaleString()} km · ` +
-    `lane ${byClass[0]!.toLocaleString()} · road ${byClass[1]!.toLocaleString()} · trunk ${byClass[2]!.toLocaleString()}\n` +
-    `  mean degree ${degrees.mean}  max ${degrees.max}  ${degrees.share}\n` +
-    `  ${islands.count.toLocaleString()} components, largest ${islands.largest.toLocaleString()} places, ` +
-    `${degrees.isolated.toLocaleString()} with no road`
+    `${ROAD_CLASSES.map((c, k) => `${c.name} ${byClass[k]!.toLocaleString()}`).join(' · ')}\n` +
+    `  degree: mean ${degrees.mean}  median ${degrees.median}  p90 ${degrees.p90}  max ${degrees.max}  ` +
+    `${degrees.share}\n` +
+    `  ${islands.count.toLocaleString()} components, largest ${islands.largest.toLocaleString()} towns, ` +
+    `${degrees.isolated.toLocaleString()} with no road ` +
+    `(${((degrees.isolated / built.length) * 100).toFixed(1)}%)`
   );
 }
 
-console.log(`water test: ${probes.toLocaleString()} probes in ${wetMs} ms`);
 console.log(
-  `  ${wet.toLocaleString()} of ${candidates.length.toLocaleString()} edges went to sea ` +
-    `(${((wet / candidates.length) * 100).toFixed(1)}%), ${bowed.toLocaleString()} more were bowed round it`,
+  `the ground: ${probes.toLocaleString()} water probes and ${slopeProbes.toLocaleString()} slope walks in ${testMs} ms`,
+);
+console.log(
+  `  of ${candidates.length.toLocaleString()} candidates, ${refusedWet.toLocaleString()} went to sea, ` +
+    `${refusedThrough.toLocaleString()} through a third town and ${refusedSteep.toLocaleString()} over a mountain`,
+);
+console.log(
+  `  the bow saved ${bowedRoundWater.toLocaleString()} round water, ` +
+    `${bowedRoundTown.toLocaleString()} round a town and ${bowedRoundMountain.toLocaleString()} round a mountain`,
 );
 
-console.log('\ntested:');
-console.log(measure(tested));
+console.log('\njoined:');
+console.log(measure(kept));
 
 console.log(
-  `\nthinned: ${thinned.considered.toLocaleString()} redundant lanes considered, ` +
-    `${thinned.rescued} rescued by the connectivity guard, ` +
-    `${thinned.floored} put back by the floor of ${MIN_ROADS}, ` +
-    `${(tested.length - network.length).toLocaleString()} dropped`,
+  `\nrescued: ${rescue.tried.toLocaleString()} built towns had nothing, ` +
+    `${rescue.joined.toLocaleString()} were given one road to their nearest reachable neighbour`,
 );
 console.log(measure(network));
 
-// The three connectivity numbers are the ones that must not move, and this is
-// the bake saying so out loud rather than a comment claiming it. `pnpm check`
-// re-derives the same thing from the shipped file and the outlines.
+// The one thing the rescue may not do is make the map worse, and this is the
+// bake saying so out loud rather than a comment claiming it: it only ever adds
+// an edge between two places that had no other, so nothing can be split and
+// nothing can be stranded that was not.
 {
-  const before = componentsOf(tested);
+  const before = componentsOf(kept);
   const after = componentsOf(network);
-  const strandedBefore = degreesOf(tested).isolated;
+  const strandedBefore = degreesOf(kept).isolated;
   const strandedAfter = degreesOf(network).isolated;
-  const same =
-    before.count === after.count &&
-    before.largest === after.largest &&
-    strandedBefore === strandedAfter;
+  const better =
+    after.count <= before.count &&
+    after.largest >= before.largest &&
+    strandedAfter <= strandedBefore;
   console.log(
-    `  connectivity ${same ? 'unmoved' : 'MOVED'}: ` +
-      `components ${before.count} -> ${after.count}, ` +
+    `  connectivity: components ${before.count} -> ${after.count}, ` +
       `largest ${before.largest.toLocaleString()} -> ${after.largest.toLocaleString()}, ` +
       `no road ${strandedBefore} -> ${strandedAfter}`,
   );
-  if (!same) throw new Error('the thinning changed the shape of the network; see `thin`');
+  if (!better) throw new Error('the rescue took connectivity away; see `rescueOrphans`');
 }
 
 if (dry) {

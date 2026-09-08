@@ -126,7 +126,7 @@ import type { Mesh, Monument, MonumentContext } from './contract.ts';
  *   the curve is for: the waist at the junction and the flare at the foot.
  * - **The sloping leg is 1.37x too fat** — 2.5 units where the photograph gives
  *   0.18 of the tower width, which is 1.83. At 1.83 it is five pixels in a
- *   contact-sheet cell with ink either side. The void still comes out 4.26 wide,
+ *   monument-sheet cell with ink either side. The void still comes out 4.26 wide,
  *   and the void is the read.
  * - **No floor banding.** Fifty-five storeys over 20.4 units is a grey wash. The
  *   only horizontal on each tower is the `slate` band at the junction, which is
@@ -351,7 +351,7 @@ export const marinaBaySands: Monument = {
      *
      * One prism has one taper, so the section shrinks in height as fast as it
      * shrinks in plan, and a bow built that way comes out as a **sharpened
-     * pencil** — the first two attempts both did, and at contact-sheet size a
+     * pencil** — the first two attempts both did, and at monument-sheet size a
      * pencil is what you see. The fix is the one a boatbuilder uses: tilt the
      * axis up by exactly the height the section loses, so the deck line stays
      * level all the way to the stem and the whole taper is spent on the

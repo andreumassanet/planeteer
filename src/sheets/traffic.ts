@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
-import { PALETTE, SKY_TOP } from './theme.ts';
-import { createSceneryContext } from './scenery/contract.ts';
-import { ROAD_CLASSES } from './roads.ts';
+import { PALETTE, SKY_TOP } from '../theme.ts';
+import { createSceneryContext } from '../scenery/contract.ts';
+import { ROAD_CLASSES } from '../roads.ts';
 import {
   AVATAR_HEIGHT,
   KINDS,
@@ -27,8 +27,8 @@ import {
   reviewVehicle,
   seatedDrift,
   variantRng,
-} from './traffic/index.ts';
-import type { RegionId, TrafficContext, TrafficStyle, Vehicle, VehicleReview } from './traffic/index.ts';
+} from '../traffic/index.ts';
+import type { RegionId, TrafficContext, TrafficStyle, Vehicle, VehicleReview } from '../traffic/index.ts';
 
 /**
  * The traffic sheet.
@@ -80,7 +80,7 @@ let crowdBody: Record<string, number> | null = null;
 let sceneryNote = '';
 
 try {
-  const kit = await import('./scenery/index.ts');
+  const kit = await import('../scenery/index.ts');
   const build = kit.buildVariant as (id: string, c: unknown, s: unknown, v: number) => THREE.Group;
   sceneryStyles = kit.REGIONS as unknown as Record<string, unknown>;
   houseOf = (style, variant) => build('gabled-house', sceneryCtx, style, variant);

@@ -34,7 +34,6 @@
 import type { Country } from './geo.ts';
 import type { Place } from './places.ts';
 import type { Road, RoadData } from './roads.ts';
-import type { RiverData, RiverLine } from './rivers.ts';
 
 /** Bumped when the layout changes, so a stale file fails loudly rather than oddly. */
 const VERSION = 1;
@@ -43,7 +42,6 @@ const MAGIC_COUNTRIES = 0x434c5441; // 'ATLC'
 const MAGIC_PLACES = 0x504c5441; // 'ATLP'
 const MAGIC_ROADS = 0x524c5441; // 'ATLR'
 const MAGIC_LAKES = 0x4b4c5441; // 'ATLK'
-const MAGIC_RIVERS = 0x564c5441; // 'ATLV'
 
 // ---------------------------------------------------------------------------
 // Bytes
@@ -220,39 +218,6 @@ function expect(reader: Reader, value: number, what: string): void {
   }
 }
 
-/**
- * A 31-bit fingerprint of the files a bake was derived *from*, so a stale
- * derivative can say so out loud.
- *
- * `roads.bin` gets this for free — it stores indices into `places.bin` and a
- * count that cannot match if the places moved — but a file whose rows are
- * coordinates has no such handle: `rivers.bin` is every river vertex the
- * outlines and the lakes together called *land*, and re-baking either of those
- * moves the coastline underneath it without changing anything a reader could
- * count. So the bake writes down what it read and `pnpm check` recomputes it
- * from the shipped bytes. **The gzipped bytes, deliberately** — that is what a
- * bake opens and what the check opens, so neither has to inflate a file it does
- * not otherwise need, and gzip at a fixed level is a function of the content.
- *
- * FNV-1a, masked to 31 bits because `varint` refuses anything past 2^31. A
- * fingerprint and not a hash: this is guarding against forgetting a step in the
- * re-bake chain, which is what `docs/traps.md` says actually happens.
- */
-export function dataStamp(...parts: readonly Uint8Array[]): number {
-  let hash = 0x811c9dc5;
-  for (const part of parts) {
-    for (let i = 0; i < part.length; i++) {
-      hash ^= part[i]!;
-      hash = Math.imul(hash, 0x01000193);
-    }
-    // A separator, so concatenating two files a different way round cannot
-    // land on the same stamp.
-    hash ^= 0xff;
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0) & 0x7fffffff;
-}
-
 // ---------------------------------------------------------------------------
 // gzip, from the platform
 // ---------------------------------------------------------------------------
@@ -409,8 +374,8 @@ export function decodeCountries(bytes: Uint8Array): Country[] {
  * the wire for a string nothing reads.
  *
  * It is its own file rather than a fourth section of `countries.bin` for two
- * reasons, and only one of them is about bytes. `flags.html` and
- * `scenery-sheet.html` call `loadCountries` for the country list alone and have
+ * reasons, and only one of them is about bytes. `sheets/flags.html` and
+ * `sheets/scenery.html` call `loadCountries` for the country list alone and have
  * no use for 18,000 points of shoreline; and extending the outlines' layout
  * would have to bump `VERSION`, which invalidates `places.bin` and `roads.bin`
  * as well and forces a re-bake of files this change does not touch.
@@ -675,137 +640,4 @@ export function decodeRoads(bytes: Uint8Array): RoadData {
     roads[i] = { a: starts[i]!, b: ends[i]!, cls: classes[i]!, bend: bends[i]! / 10000 };
   }
   return { places, graph, roads };
-}
-
-// ---------------------------------------------------------------------------
-// rivers
-// ---------------------------------------------------------------------------
-
-/**
- * One river's polylines, as `build-rivers.mjs` hands them over.
- *
- * A *river* is a name and a scale rank; a *line* is one unbroken run of it that
- * stayed on land. The two are separate because they do not correspond: the Volga
- * arrives from Natural Earth as two features and comes out as **fifteen runs**
- * once the sea and the lakes have taken their bites, and the name has to
- * survive that without being written down fifteen times.
- */
-export interface PackedRiver {
-  name: string;
-  scalerank: number;
-  lines: { digits: number; points: number[][]; classes: number[] }[];
-}
-
-/**
- * The rivers: a name table, a run of polylines and one byte of width per vertex.
- *
- * It is the outlines' ring section again — delta-coded integers at a precision
- * chosen per line — with three columns wrapped round it, and each of the three
- * is stored rather than derived for a reason the format already has a name for.
- *
- * - **The stamp** is `dataStamp` of `countries.bin` and `lakes.bin`. Every
- *   vertex in this file is a coordinate the *outlines* called land, so the file
- *   is a derivative of those two and nothing in it could otherwise say so.
- * - **`scalerank`** is Natural Earth's own judgement of how important a river
- *   is and it is the only thing in the source that separates the Amazon from a
- *   Bavarian creek. One byte for 444 rivers.
- * - **The width class per *vertex*** is the column that looks like waste and is
- *   not: it is uniform along a line today, because the source's digitisation
- *   order is not consistent — measured, the Amazon runs mouth to source and the
- *   Nile source to mouth — so no ramp along a line could be honest, and a river
- *   that widens toward its mouth is the obvious next thing to want. A byte a
- *   vertex is a run of one symbol per line and gzip takes it to nothing; a
- *   per-*river* class would have to be un-widened again the day that changes.
- */
-export function encodeRivers(stamp: number, rivers: readonly PackedRiver[]): Uint8Array {
-  const out = new Writer();
-  magic(out, MAGIC_RIVERS);
-  out.varint(stamp);
-  out.varint(rivers.length);
-  writeText(out, rivers.map((river) => river.name));
-  const ranks = new Uint8Array(rivers.length);
-  for (let i = 0; i < rivers.length; i++) {
-    if (!Number.isInteger(rivers[i]!.scalerank) || rivers[i]!.scalerank < 0 || rivers[i]!.scalerank > 255) {
-      throw new Error(`scalerank ${rivers[i]!.scalerank} at ${rivers[i]!.name} will not fit a byte`);
-    }
-    ranks[i] = rivers[i]!.scalerank;
-  }
-  out.raw(ranks);
-
-  // The lines, flat and in river order, so the owner column is a run of zeros
-  // and ones exactly as `roads.bin`'s `a` is.
-  const lines: { river: number; digits: number; points: number[][]; classes: number[] }[] = [];
-  rivers.forEach((river, r) => {
-    for (const line of river.lines) lines.push({ river: r, ...line });
-  });
-  out.varint(lines.length);
-  let previous = 0;
-  for (const line of lines) {
-    out.varint(line.river - previous);
-    previous = line.river;
-  }
-  for (const line of lines) {
-    out.u8(line.digits);
-    out.varint(line.points.length);
-    if (line.classes.length !== line.points.length) {
-      throw new Error(`a river line has ${line.points.length} points and ${line.classes.length} widths`);
-    }
-  }
-  for (const line of lines) writeRingPoints(out, line);
-
-  // One plane, because a class is 0..2 and a second byte would be all zeros.
-  let total = 0;
-  for (const line of lines) total += line.classes.length;
-  const classes = new Uint8Array(total);
-  let at = 0;
-  for (const line of lines) {
-    for (const cls of line.classes) {
-      if (!Number.isInteger(cls) || cls < 0 || cls > 255) throw new Error(`width class ${cls} will not fit a byte`);
-      classes[at++] = cls;
-    }
-  }
-  out.raw(classes);
-
-  return out.done();
-}
-
-export function decodeRivers(bytes: Uint8Array): RiverData {
-  const reader = new Reader(bytes);
-  expect(reader, MAGIC_RIVERS, 'rivers.bin');
-  const stamp = reader.varint();
-  const count = reader.varint();
-  const names = readText(reader, count);
-  const ranks = reader.raw(count);
-  const rivers = names.map((name, i) => ({ name, scalerank: ranks[i]! }));
-
-  const lineCount = reader.varint();
-  const owners = new Int32Array(lineCount);
-  let previous = 0;
-  for (let i = 0; i < lineCount; i++) {
-    previous += reader.varint();
-    owners[i] = previous;
-  }
-  const shape: { digits: number; length: number }[] = [];
-  for (let i = 0; i < lineCount; i++) shape.push({ digits: reader.u8(), length: reader.varint() });
-
-  const lines: RiverLine[] = new Array(lineCount);
-  for (let i = 0; i < lineCount; i++) {
-    const { digits, length } = shape[i]!;
-    lines[i] = { river: owners[i]!, points: readRingPoints(reader, digits, length), classes: new Uint8Array(0) };
-  }
-  let total = 0;
-  for (const { length } of shape) total += length;
-  // Exactly one plane must be left, for the reason the prominence field is last
-  // in `places.bin`: a file written by an older encoder runs out of bytes here
-  // rather than reading a coordinate as a width.
-  if (reader.left() !== total) {
-    throw new Error(`rivers.bin carries no width column (${reader.left()} bytes left of ${total}) — re-bake it with \`pnpm rivers\``);
-  }
-  const classes = reader.raw(total);
-  let at = 0;
-  for (const line of lines) {
-    line.classes = classes.slice(at, at + line.points.length);
-    at += line.points.length;
-  }
-  return { stamp, rivers, lines };
 }

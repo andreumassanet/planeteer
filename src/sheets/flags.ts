@@ -5,12 +5,13 @@
  * wrong is obvious next to its neighbours and invisible on its own, which is
  * the same argument the monument contact sheet makes.
  *
- * Not part of the game. `flags.html` is served in dev without any config; it is
- * a review tool, not a page anyone ships.
+ * Not part of the game. `pnpm dev` serves `/sheets/flags.html` without any
+ * config; it is a review tool, not a page anyone ships, and like every sheet in
+ * this directory it is deliberately absent from `vite.config.ts`'s `input`.
  */
-import { loadCountries, type Country } from './geo.ts';
-import { CONTINENT_COLORS, DEFAULT_LAND } from './theme.ts';
-import { createFlagCanvas, drawFlag, hasFlag, isSimplified } from './flags.ts';
+import { loadCountries, type Country } from '../geo.ts';
+import { CONTINENT_COLORS, DEFAULT_LAND } from '../theme.ts';
+import { createFlagCanvas, drawFlag, hasFlag, isSimplified } from '../flags.ts';
 
 const WIDTH = 150;
 const HEIGHT = 100;
