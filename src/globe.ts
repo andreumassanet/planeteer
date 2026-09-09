@@ -775,7 +775,7 @@ const WALL_SHADE = 0.72;
  * The flag overlay, reached through a dynamic `import()` and not a static one.
  *
  * `flags.ts` pulls in the 2,091 lines of `flag-data.ts`, and this file is in
- * the initial graph — so importing it here would put all 234 flags in front of
+ * the initial graph — so importing it here would put all 232 flags in front of
  * `countries.bin`, which is the trap `main.ts` writes down about the twelve
  * preloaded chunks. Deferred, it costs nothing until the key is pressed, and by
  * then the chunk is already in the browser's cache because `hud.ts` and
@@ -1256,7 +1256,7 @@ export function buildLand(world: World): THREE.Mesh {
     const tint = palette[ring.country - 1]!;
 
     // Where this ring's triangles start, so `land-flags.ts` can find them
-    // again. It is two integers a ring — 1,556 pairs against the 1.28 million
+    // again. It is two integers a ring — 2,849 pairs against the 2.15 million
     // a country index per triangle would have cost — and it is possible at all
     // because the buffer is already grouped: a ring's surface, then the wall
     // under its boundary, then the next ring.
@@ -1351,7 +1351,7 @@ export function buildLand(world: World): THREE.Mesh {
   const mesh = new THREE.Mesh(geometry, toonMaterial());
   mesh.name = 'land';
   // Receives the sun's cast shadows and never casts them: a shadow pass over
-  // 1.64 M triangles is a second draw of the whole planet, and what stands on
+  // 2.15 M triangles is a second draw of the whole planet, and what stands on
   // the land is what the map is for. See `sun.ts`.
   mesh.receiveShadow = true;
   // Where every ring's triangles are, and the shade its wall took, which is all

@@ -1,7 +1,7 @@
 /**
  * The flag contact sheet: every country in `countries.bin`, drawn.
  *
- * A grid is the only sane way to review 234 hand-written specs. A flag that is
+ * A grid is the only sane way to review 232 hand-written specs. A flag that is
  * wrong is obvious next to its neighbours and invisible on its own, which is
  * the same argument the monument contact sheet makes.
  *
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     },
   });
 
-  // Reviewing 234 cells means editing a spec and looking again, and a Vite
+  // Reviewing 232 cells means editing a spec and looking again, and a Vite
   // reload otherwise throws you back to Afghanistan every time.
   const at = sessionStorage.getItem('flags-scroll');
   if (at) scrollTo(0, Number(at));

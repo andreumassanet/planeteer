@@ -173,7 +173,7 @@ async function start(): Promise<void> {
     vegetation: import('./vegetation.ts'),
     life: import('./life.ts'),
     traffic: import('./traffic/index.ts'),
-    /** The two maps and the chip, which is also where the 234 flags live. */
+    /** The two maps and the chip, which is also where the 232 flags live. */
     minimap: import('./minimap.ts'),
     /**
      * What the maps share, for the chip's arrow. It is already inside the two

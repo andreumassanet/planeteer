@@ -133,8 +133,8 @@
  *
  * **Coordinates are rounded before they are tested, not after.** See PRECISION.
  *
- * **Places in the sea are snapped to land here, once**, against the 1:50m
- * coastline the world is actually drawn from, so no client repeats the search.
+ * **Places in the sea are snapped to land here, once**, against the actual
+ * coastline the world is drawn from, so no client repeats the search.
  * That is the job `build-monuments.ts` does for landmarks and it uses the same
  * search; the difference is what happens when it comes up empty, at MAX_SNAP_KM.
  *
@@ -185,13 +185,16 @@ const round = (v) => Number(v.toFixed(PRECISION));
 /**
  * How far the snap will look for land before giving up, in kilometres.
  *
- * The snap corrects a coastline drawn at 1:50m against coordinates that are
- * good to a few metres, so almost every move is short: the median is under
- * three kilometres. The tail is where the number matters. Below it a place is
- * still in its own neighbourhood — 100 km is 250 world units, under two median
- * gaps between neighbouring places. Above it the place is not beside a coast
- * that was drawn coarsely, it is on an island that was not drawn at all, and
- * moving it there invents a location rather than correcting one. Those are
+ * The snap corrects a coastline drawn at national-atlas scale against
+ * coordinates that are good to a few metres, so almost every move is short —
+ * median 2.2 km, re-measured against 1:10m (2026-09-09; it was "under three
+ * kilometres" against 1:50m, not a number this run kept). The tail is where
+ * the number matters. Below
+ * it a place is still in its own neighbourhood — 100 km is 250 world units,
+ * under two median gaps between neighbouring places. Above it the place is not
+ * beside a coast that was drawn coarsely, it is on an island that was not
+ * drawn at all, and moving it there invents a location rather than correcting
+ * one. Those are
  * dropped: this planet does not have that island, and saying so is better than
  * putting the town on the wrong one.
  *
@@ -376,10 +379,11 @@ for (const p of candidates) {
    *
    * The two disagree in three shapes and none of them is a coordinate typed a
    * degree off, which is what the same check catches for monuments: a town
-   * within a few kilometres of a border that a 1:50m frontier puts on the wrong
-   * side, a microstate `MIN_RING_AREA` never drew (Monaco, the Vatican,
-   * Gibraltar and Macau are absent from `countries.bin`, so their cities stand
-   * in the neighbour), and a territory whose administration is disputed.
+   * within a few kilometres of a border that even a national-atlas-scale
+   * frontier puts on the wrong side, a microstate `MIN_RING_AREA` never drew
+   * (Monaco, the Vatican, Gibraltar and Macau are absent from `countries.bin`,
+   * so their cities stand in the neighbour), and a territory whose
+   * administration is disputed.
    *
    * A landmark declares its country as a claim; a city just reports the
    * administration it belongs to, and three kilometres of coastline error is not
@@ -647,7 +651,7 @@ console.log('  ' + sample.map((c) => `${c} ${perCountry.get(c) ?? 0}`).join(' ·
 }
 
 if (sea.length) {
-  console.log(`\n${sea.length} in the sea against the 1:50m coastline, snapped to land; furthest:`);
+  console.log(`\n${sea.length} in the sea against the actual coastline, snapped to land; furthest:`);
   for (const s of sea.sort((a, b) => b.km - a.km).slice(0, 8)) {
     console.log(`  ${s.text.padEnd(52)} ${s.km.toFixed(1)} km`);
   }

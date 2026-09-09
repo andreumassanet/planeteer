@@ -2084,7 +2084,7 @@ export const SIMPLIFIED = new Set([
   'AIA', 'BLZ', 'BMU', 'CYM', 'DMA', 'DOM', 'GRD', 'GTM', 'GUM', 'HTI', 'MEX',
   'MSR', 'NIC', 'SLV', 'SXM', 'TCA', 'VGB', 'VIR', 'BOL', 'BRA', 'ECU', 'FLK',
   'PER', 'PRY',
-  'ASM', 'FJI', 'KIR', 'MNP', 'NCL', 'PCN', 'PNG', 'PYF', 'SGS', 'SHN', 'IOT',
+  'ASM', 'FJI', 'KIR', 'MNP', 'NCL', 'PCN', 'PNG', 'PYF', 'SGS', 'SHN', 'IOA',
   'ATF', 'VUT',
   // Found by re-reading the sheet against the rule above, not while drawing.
   'ARG', 'URY', 'PHL', 'ETH', 'LBN', 'CAN', 'ATA', 'HKG', 'MAR', 'BRB', 'NFK',

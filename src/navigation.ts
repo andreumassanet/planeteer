@@ -177,7 +177,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
    * **The country you are standing in comes first, and that is the whole of
    * what this key is for now**: the user asked for *"los monumentos del pais en
    * el que estas"*. It is a sort key rather than a filter, deliberately —
-   * landmarks stand in **59 of 234 countries**, so a filter would make `Tab` do
+   * landmarks stand in **59 of 239 countries**, so a filter would make `Tab` do
    * nothing at all in three quarters of the world, and over water it would do
    * nothing anywhere. Sorting instead means the panel opens on what is around
    * you and keeps going into the neighbours when your own country runs out.

@@ -240,7 +240,7 @@ export function createCountryNames(world: World): CountryNames {
    * wrong cap: from the plane's ceiling more than sixty-four label points are
    * on the near side of the horizon, and the loop stopped before it reached
    * Spain — the country the player was standing in. A slot is six numbers and
-   * there are 234 countries; there is nothing here worth capping.
+   * there are 239 countries; there is nothing here worth capping.
    */
   const blank: Label = { text: '', point: new THREE.Vector3(), size: 0, span: 0, id: -1 };
   const found: Placed[] = [];

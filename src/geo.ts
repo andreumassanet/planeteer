@@ -228,15 +228,20 @@ export async function loadWorld(
   // At 1:110m, Antarctica arrived as a single ring that encircled the pole and
   // never closed, so lon/lat ray casting did not apply and we kept a table of
   // how far north the coast reached at each longitude. That table filled in the
-  // Ross and Weddell seas as land. At 1:50m the ring is closed and reaches
+  // Ross and Weddell seas as land. At 1:10m the ring is closed and reaches
   // lat -90, so plain ray casting is both simpler and more correct: the bays
-  // come out as water. Likewise no ring in the 1:50m data spans more than 180
-  // degrees of longitude — the antimeridian is already cut in the source — so
-  // the longitude-shifting path is gone too. Both were verified against the
-  // baked data, not assumed.
+  // come out as water.
+  //
+  // And there is exactly one step in the whole file that moves more than 180
+  // degrees of longitude: `[180, -90]` to `[-180, -90]`, the seam where that
+  // same Antarctic ring closes along the bottom of the world. It needs no
+  // shifting because it is a real edge of a closed ring rather than a polygon
+  // torn across the antimeridian — the source cuts those already — so the
+  // longitude-shifting path is gone too. Both were verified against the baked
+  // data, not assumed.
 
   // Each cell holds the rings whose bounding box touches it. Without this every
-  // query would walk all 1,556 rings.
+  // query would walk all 2,876 rings.
   const grid: number[][] = Array.from({ length: COLS * ROWS }, () => []);
   bounds.forEach(([minLon, minLat, maxLon, maxLat], i) => {
     const c0 = Math.max(0, Math.floor((minLon! + 180) / CELL));

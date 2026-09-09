@@ -3,14 +3,15 @@
  *
  * Two jobs, and both are the kind of thing that is invisible until it is wrong:
  *
- * 1. **Snapping to land.** A coastline at 1:50m is not the real coastline, so a
- *    landmark on a shore, an island or a bridge lands in the sea: the Statue of
- *    Liberty is on an island Natural Earth does not draw, and the Golden Gate
- *    spans water by definition. Placing them at runtime would mean every client
- *    redoing the same search, so it happens once, here.
+ * 1. **Snapping to land.** A coastline this side of a survey is not the real
+ *    coastline, so a landmark on a shore, an island or a bridge lands in the
+ *    sea: the Statue of Liberty is on an island Natural Earth does not draw at
+ *    any published scale, and the Golden Gate spans water by definition.
+ *    Placing them at runtime would mean every client redoing the same search,
+ *    so it happens once, here.
  * 2. **Checking the country.** Each entry declares the country it should be in.
  *    If the outlines disagree, the coordinate is wrong — that is the only way to
- *    catch a landmark typed a degree off, short of looking at all 65 by hand.
+ *    catch a landmark typed a degree off, short of looking at all 85 by hand.
  *
  *   node scripts/build-monuments.ts
  */
@@ -283,17 +284,21 @@ function separate(): string[] {
  * where it was, because a distortion that does not buy a fix is pure cost. So
  * the ones that move are the ones the coastline had room for all along, and the
  * ones that stay are the landmarks defined by the water they stand in — the
- * Golden Gate spans a strait, Mont-Saint-Michel is a tidal island, and at 1:50m
- * Easter Island is *narrower* than the moai standing on it, so no distance
- * exists that would seat them.
+ * Golden Gate spans a strait, Mont-Saint-Michel is a tidal island, and Easter
+ * Island is *narrower* than the moai standing on it, so no distance exists that
+ * would seat them.
  *
- * The budget is three avatars, and it was picked by sweeping it: 19 monuments
- * overhang at 0, 14 at 12, 13 at 20, 10 at 30, 8 at 55. What the tail buys is
- * not worth what it costs — at 55 the pass moves Mont-Saint-Michel 22 km inland
- * off its own island and Sydney's opera house 30 km off its harbour, dragging
- * the bridge 15 km after it. At 20 nothing moves more than 16 units, and the
- * six that move — the Space Needle, Tokyo Tower, Himeji, the Burj, the Little
- * Mermaid, Moeraki — are landmarks the 1:50m coastline had put in the surf.
+ * The budget is three avatars, and it was picked by sweeping it. Re-swept
+ * 2026-09-09 against the current outlines and landmark list, because the
+ * figures on file matched neither any more — 19 overhang at 0, 14 at 12, 13 at
+ * 20, 10 at 30, 8 at 55, against 29/23/20/16/10 today. What the tail buys is
+ * still not worth what it costs — at 55 the pass moves Mont-Saint-Michel 22 km
+ * inland off its own island, and Sydney's harbour bridge, held clear of the
+ * opera house through every round of separation, ends 55 km from where it
+ * started. At 20 nine monuments move rather than the six on file, up to 8 km:
+ * the Space Needle, Tokyo Tower, Himeji, the Burj, the Little Mermaid and
+ * Moeraki as before, joined by the Guggenheim, the Avenue of the Baobabs and
+ * the CN Tower.
  */
 const SEAT_BUDGET = 20;
 /** Spacing of the probe rings, and how many bearings each one carries. */

@@ -377,32 +377,80 @@ console.log('what one second of the clock moves:');
     }
     return map;
   };
+  /**
+   * **The median of five short steps, and one displacement over a tenth of a
+   * second is what it replaces.** A route is out and back, so at each end the
+   * mover reverses *and crosses to the other side of the carriageway* — see
+   * `chainFrame` — which is a real jump of twice its lateral offset, up to
+   * about ten units on a lane. Divide that by a tenth of a second and it reads
+   * as ninety units a second for a walker whose speed is forty. It is a
+   * sampling artefact of the window, and the window alone decides whether it is
+   * seen:
+   *
+   * ```
+   *   window    foot movers
+   *   0.5 s     5.4 to 40.4    the turn averaged away again
+   *   0.1 s    31.4 to 74.2    one mover happened to turn inside it
+   *   0.02 s   31.4 to 43.3
+   *   0.004 s  31.4 to 43.3    the speed, with nothing else in it
+   * ```
+   *
+   * So this is not a threshold that wants widening. Five steps of 0.02 s and
+   * the median of each mover's five: a mover turns at most once in a tenth of a
+   * second, so at most one of its five samples carries the jump and the median
+   * cannot be it. What the bands then assert is the speed the tables set, which
+   * is what they say.
+   */
+  const SPEED_STEP = 0.02;
+  const SPEED_STEPS = 5;
+  const moved = new Map<string, number[]>();
+  {
+    life.update(viewer, at.altitude, camera, 3_000_000);
+    let previous = snap();
+    const track = new Map<string, number[]>();
+    for (let step = 1; step <= SPEED_STEPS; step++) {
+      life.update(viewer, at.altitude, camera, 3_000_000 + step * SPEED_STEP);
+      const now = snap();
+      for (const [name, was] of previous) {
+        const there = now.get(name);
+        if (there === undefined) continue;
+        const list = track.get(name) ?? [];
+        list.push(was.p.distanceTo(there.p) / SPEED_STEP);
+        track.set(name, list);
+      }
+      previous = now;
+    }
+    for (const [name, list] of track) {
+      if (list.length < SPEED_STEPS) continue;
+      list.sort((x, y) => x - y);
+      const family = name.split(':')[0]!;
+      if (!moved.has(family)) moved.set(family, []);
+      moved.get(family)!.push(list[list.length >> 1]!);
+    }
+  }
+
   // A tenth of a second, not a whole one: a walker at 45 units a second covers
   // two full stride cycles in a second and can land back in the pose he
   // started from, which is an artefact of the sample rate and not a still
-  // walker. The displacements below are scaled back to a second.
-  life.update(viewer, at.altitude, camera, 3_000_000);
+  // walker.
+  life.update(viewer, at.altitude, camera, 3_000_000.2);
   const before = snap();
-  life.update(viewer, at.altitude, camera, 3_000_000.1);
+  life.update(viewer, at.altitude, camera, 3_000_000.3);
   const after = snap();
-  const moved = new Map<string, number[]>();
   let swapped = 0;
   let walkers = 0;
   for (const [name, was] of before) {
     const now = after.get(name);
     if (now === undefined) continue;
-    const family = name.split(':')[0]!;
-    if (!moved.has(family)) moved.set(family, []);
-    moved.get(family)!.push(was.p.distanceTo(now.p) * 10);
-    if (family === 'foot') {
+    if (name.split(':')[0] === 'foot') {
       walkers++;
       if (was.g !== now.g) swapped++;
     }
   }
   // The bands are the speed tables with the short-route cap under them: a chain
   // that cannot reach `MIN_ROUTE` is travelled in `MIN_SECONDS` instead, so the
-  // floor is not the class speed. The ceiling is the class speed plus the bow's
-  // own ripple — see the trap.
+  // floor is not the class speed. The ceiling is the class speed plus what is
+  // left of the bow's ripple, which `arcParameter` took from 15% to 3%.
   const wanted: Record<string, [number, number]> = {
     road: [10, 260], foot: [4, 70], water: [22, 46],
   };

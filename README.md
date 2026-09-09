@@ -18,14 +18,14 @@ pnpm dev        # http://localhost:5174
 
 | | |
 |---|---|
-| countries, as their real outlines | **234**, 1,583 rings, 102,793 points |
-| the land you walk on | **1,644,313 triangles**, built from those outlines in 6.2 s |
-| towns and cities, with real names | **29,545**, of which 9,734 are built |
-| roads joining them | **17,238**, none of which crosses water |
+| countries, as their real outlines | **239**, 2,876 rings, 210,595 points |
+| the land you walk on | **2,153,355 triangles**, built from those outlines in 9.0 s |
+| towns and cities, with real names | **29,604**, of which 9,745 are built |
+| roads joining them | **16,970**, none of which crosses water |
 | lakes cut out of the land | **27**, every one over half a true square degree |
 | landmarks, each a hand-written file | **85** in 59 countries |
 | kit parts — houses, trees, people, vehicles | 22 scenic, 18 vehicles, 6 animals, a crowd |
-| all of that, on the wire | **604 KB**, and 17 ms to decode |
+| all of that, on the wire | **855 KB**, and 20 ms to decode |
 | the code that has to arrive first | **245.6 KB** gzipped, 182 of it Three |
 
 The sun is where the sun actually is. The chip at the top tells you the town you
@@ -83,7 +83,7 @@ if a single coordinate moved.
 **And the code in front of it waits for nothing it does not need.** A module in
 the initial graph has to arrive *and be parsed* before `main.ts` runs a line, so
 the browser was fetching eighty-five landmark models, three whole kits, a crowd
-and 234 flags before it asked for the first byte of coastline. None of them is
+and 232 flags before it asked for the first byte of coastline. None of them is
 touched until the fifth stage of the loading screen, and the four stages in front
 of them are seconds of ocean, land and weather. They are nine `import()`s now,
 fired once the data is in and awaited at the stage that needs them, which lands
@@ -160,11 +160,14 @@ repo.
 
 ## Data and credits
 
-**Country outlines, and the shape of the planet itself: [Natural Earth] 1:50m —
+**Country outlines, and the shape of the planet itself: [Natural Earth] 1:10m —
 public domain.** The land mesh *is* those outlines, triangulated and projected.
+Islands arrive at the dataset's full detail and the continents are simplified
+back to a fifth of a degree, so Mallorca is 153 points and not 33; see
+`scripts/build-countries.mjs` for why the two are not the same decision.
 
 **Settlements: [GeoNames] `cities5000` and `countryInfo` — © GeoNames, licensed
-under [CC BY 4.0].** 29,545 towns and cities with real names, coordinates and
+under [CC BY 4.0].** 29,604 towns and cities with real names, coordinates and
 populations, thinned so that no two are built on the same ground. Everything
 inhabited stands where GeoNames says people live.
 
@@ -172,7 +175,7 @@ GeoNames' licence asks for attribution and this is it, alongside the credit on
 the loading screen. Nothing is modified beyond what `scripts/build-places.mjs`
 documents: rows are dropped, coordinates are rounded to three decimals,
 populations to three significant figures, and places that fall in the sea against
-a 1:50m coastline are moved to the nearest land. Natural Earth asks for nothing
+a 1:10m coastline are moved to the nearest land. Natural Earth asks for nothing
 and gets a credit anyway.
 
 Time zones come from the platform's own `Intl`, so this repo ships zone *names*
@@ -204,7 +207,7 @@ Seven review sheets live in `sheets/` and `pnpm dev` serves every one:
 `/sheets/monuments.html` for the landmarks, `/sheets/scenery.html` for the kit and
 the crowd, `/sheets/traffic.html` for the vehicles, `/sheets/fauna.html` for the
 animals, `/sheets/avatar.html` for the player, `/sheets/menu.html` for the front
-door and `/sheets/flags.html` for all 234 flags. Each renders its subject at the
+door and `/sheets/flags.html` for all 232 flags. Each renders its subject at the
 size it is really seen at, because almost every mistake in this project has been
 a thing that looked fine on a turntable.
 

@@ -1140,6 +1140,45 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * at; and a vehicle turning round at the end of its round is a thing that
    * happens, where a vehicle teleporting a kilometre is not.
    */
+  /**
+   * Distance along a bowed road, as the fraction `roadPoint` wants.
+   *
+   * **The ripple `lengthOf` leaves behind, closed.** The bow is
+   * `bend * span * sin(pi t)`, so walking `t` at a constant rate travels
+   * `sqrt(1 + (bend * pi * cos(pi t))^2)` times the nominal speed — fastest at
+   * the two ends and slowest in the middle. `lengthOf` corrects the *mean* of
+   * that, which is why a bowed road takes the right time end to end; what was
+   * left is the variation *within* one road, and it is what `build-roads.ts`
+   * and CLAUDE.md both write down as known and unfixed. It surfaced as a walker
+   * crossing Palma's coast at 101.5 units a second against a walking speed of
+   * 45, and again as `pnpm life` reporting 74.1 against a ceiling of 70.
+   *
+   * The inverse of the arc length has no closed form — it is elliptic — but its
+   * first-order term does, and one term is enough. Writing `k = bend * pi`, the
+   * speed squared is `1 + k^2 cos^2(pi t)`, which is `A + B cos(2 pi t)` with
+   * `A = 1 + k^2/2` and `B = k^2/2`; expanding `1/sqrt` to first order in `B/A`
+   * and integrating gives the sine below. Measured against the exact integral,
+   * the remaining ripple is:
+   *
+   * ```
+   *   |bend|   before          after
+   *   0.05     0.994..1.006    1.000..1.000
+   *   0.10     0.976..1.023    0.999..1.001
+   *   0.20     0.915..1.081    0.991..1.009
+   *   0.30     0.837..1.150    0.966..1.030   <- the bake's cap
+   *   0.495    0.687..1.270    0.875..1.097
+   * ```
+   *
+   * It is symmetric about the middle — `t(1 - s)` is `1 - t(s)` — so a mover
+   * going the other way needs no second case, and the reversal below still just
+   * flips the fraction.
+   */
+  function arcParameter(bend: number, along: number): number {
+    const half = (bend * Math.PI * bend * Math.PI) / 2;
+    if (half < 1e-6) return along;
+    return along - (half / (4 * Math.PI * (1 + half))) * Math.sin(2 * Math.PI * along);
+  }
+
   function chainFrame(
     chain: Chain, distance: number, lateral: number, out: Frame, ground: boolean, back: boolean,
   ): void {
@@ -1150,7 +1189,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       index++;
     }
     const hop = chain.hops[index]!;
-    const local = Math.max(0, Math.min(1, along / hop.length));
+    const local = arcParameter(roads[hop.road]!.bend, Math.max(0, Math.min(1, along / hop.length)));
     // The position is where along the *road* this is and knows nothing about
     // which way the mover is going; the heading and which side of the road it
     // keeps are the two things that do.

@@ -435,6 +435,42 @@ export function placeDirection(place: Place, target: THREE.Vector3): THREE.Vecto
 export const MAX_ROAD_LENGTH = 1000;
 
 /**
+ * How often the water test asks what is underneath, in world units.
+ *
+ * **Here rather than in the bake because the check re-derives it.** The bake
+ * decides which roads exist by walking them at this stride and asking
+ * `countryAt`; `check-world.ts` walks the shipped ones again and asserts none
+ * of them is wet. Two copies of the number is two answers to "is this road in
+ * the sea", and the copies drifting is the shape of bug this project keeps
+ * writing down.
+ *
+ * It was 18 in the bake, calibrated against the narrowest strait 1:50m drew —
+ * Gibraltar, 14 km, 35 units, two samples deep at 18. 1:10m draws water 1:50m
+ * did not: the Akashi Strait is 4 km, the Wouri and the Hooghly narrower still,
+ * and an 18-unit stride walks over all of them. Re-probing the baked network at
+ * 2 found roads standing in water that the old stride's samples had all
+ * stepped over — a sampling miss and not a modelling one. At 2 the test is
+ * several million probes and well under a minute, and the bake still finishes
+ * quickly.
+ */
+export const WATER_PROBE_STEP = 2;
+
+/**
+ * How many steps that walk takes between two places, from their unit directions.
+ *
+ * **The stride was shared and the walk was not, and that is still two answers to
+ * one question.** A road is only as dry as the points the walk stopped at, so
+ * two grids a step out of phase disagree about any channel narrower than a
+ * step. A bake that counts its steps from the *chord* its proximity graph
+ * already had, against a check that counts from the *arc*, differ by a
+ * fraction of a percent — nothing until `ceil` rounds the two of them apart on
+ * a road that lands right at the boundary, dry to one and wet to the other.
+ */
+export function waterProbeSteps(a: THREE.Vector3, b: THREE.Vector3): number {
+  return Math.max(2, Math.ceil((a.distanceTo(b) * PLANET_RADIUS) / WATER_PROBE_STEP));
+}
+
+/**
  * The two proximity graphs, and the one thing both of them are.
  *
  * - **Gabriel** keeps an edge when no third place lies inside the circle that

@@ -427,7 +427,7 @@ export function thinMarks(
  * Boxes already spoken for by a label, and whether one more fits.
  *
  * The dumbest possible label placer — a linear scan of axis-aligned rectangles —
- * and it is the right one at this volume: 77 landmarks and 234 countries is
+ * and it is the right one at this volume: 77 landmarks and 239 countries is
  * under 350 candidates, each tested against at most a few dozen survivors. The
  * landmark list grows by a curated wave at a time, so this has room.
  * Ordered by importance by the caller, so what gets dropped is the least

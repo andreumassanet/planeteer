@@ -503,9 +503,10 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
  *
  * **Only codes that exist in the current bake are listed.** Monaco, the Vatican,
  * Gibraltar, Macao and the Maldives are all real countries with real ISO codes
- * and none of them is a feature at 1:50m, so an entry for them would be a line
- * that can never fire — and the review sheet's "unknown code" warning would then
- * be permanently red, which is the same as not having it.
+ * and none of them is a feature at any scale this project has read, so an entry
+ * for them would be a line that can never fire — and the review sheet's "unknown
+ * code" warning would then be permanently red, which is the same as not having
+ * it.
  */
 export const ISO_REGIONS: Record<string, RegionId> = {
   // Nordic

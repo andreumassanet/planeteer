@@ -2,7 +2,7 @@
  * Flags, drawn in code.
  *
  * No external assets is a rule of this repo, and flags are the place where that
- * rule bites hardest: the obvious implementation is 234 SVGs. So instead there
+ * rule bites hardest: the obvious implementation is 232 SVGs. So instead there
  * is a small vocabulary — bands, a canton, a cross, a disc, a triangle from the
  * hoist, a crescent, a star — and most of the world's flags are a handful of
  * those stacked in order. `flag-data.ts` holds the specs; this file paints them.

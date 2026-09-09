@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
-import { decodePlaces, decodeRoads, encodeRoads, inflate } from '../src/pack.ts';
+import { decodePlaces, decodeRoads, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { detailRadiusFor, isShown, radiusFor } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
@@ -57,6 +57,7 @@ import {
   placeDirection,
   roadPoint,
   roadPole,
+  waterProbeSteps,
 } from '../src/roads.ts';
 import type { GraphEdge, ProximityGraph, Road } from '../src/roads.ts';
 
@@ -108,16 +109,6 @@ const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
 /** Longest road the network will build. `src/roads.ts` owns it; see there. */
 const MAX_LENGTH = MAX_ROAD_LENGTH;
-
-/**
- * How often the water test asks what is underneath, in world units.
- *
- * The strait it has to be able to see is the narrowest one a road must *not*
- * cross: Gibraltar is 14 km, which is 35 units. Sampling every 18 means two
- * samples land in any channel that wide, and one is enough. It is also the cost
- * of this script — 40 samples on a median road at 2.6 microseconds each.
- */
-const PROBE_STEP = 18;
 
 /**
  * How the candidate pairs are chosen.
@@ -312,7 +303,7 @@ function isDry(edge: Candidate, bend: number): boolean {
   placeDirection(places[edge.a]!, a);
   placeDirection(places[edge.b]!, b);
   roadPole(a, b, pole);
-  const steps = Math.max(2, Math.ceil(edge.length / PROBE_STEP));
+  const steps = waterProbeSteps(a, b);
   probes += steps - 1;
   for (let step = 1; step < steps; step++) {
     roadPoint(a, b, bend, step / steps, point, pole);
@@ -382,16 +373,19 @@ const townAt = new Vector3();
  * rescue joined it to Tamworth — straight through the middle of Sydney, 118
  * units inside a town of radius 150.
  *
- * So it is tested rather than argued: the drawn curve, at `PROBE_STEP`, against
- * every *built* place that is not one of its own two ends. A pair with no bend
- * that clears the towns between them is not joined, which is the right answer —
- * the road that would exist there runs through the town and joins it instead.
+ * So it is tested rather than argued: the drawn curve, at the same stride
+ * `isDry` walks it with (`waterProbeSteps` — this is a curve-sampling rate,
+ * not a water-specific one, and it was one constant shared between this
+ * function and that one before it had a name), against every *built* place
+ * that is not one of its own two ends. A pair with no bend that clears the
+ * towns between them is not joined, which is the right answer — the road that
+ * would exist there runs through the town and joins it instead.
  */
 function passesTown(edge: Candidate, bend: number): boolean {
   placeDirection(places[edge.a]!, a);
   placeDirection(places[edge.b]!, b);
   roadPole(a, b, pole);
-  const steps = Math.max(2, Math.ceil(edge.length / PROBE_STEP));
+  const steps = waterProbeSteps(a, b);
   for (let step = 1; step < steps; step++) {
     roadPoint(a, b, bend, step / steps, point, pole);
     const lat = Math.asin(Math.min(1, Math.max(-1, point.y))) / DEG;
@@ -463,7 +457,8 @@ function passesTown(edge: Candidate, bend: number): boolean {
 const BEND_STEP = 0.045;
 const BEND_TRIES = 11;
 function bendThatWorks(edge: Candidate, cls: number): number | null {
-  const natural = bendFor(places[edge.a]!, places[edge.b]!);
+  // Rounded to what the wire will carry before it is tested; see `packedBend`.
+  const natural = packedBend(bendFor(places[edge.a]!, places[edge.b]!));
   // Cheapest test first: one `countryAt` a probe, then a grid lookup a probe,
   // then four `reliefAt` a probe.
   const works = (bend: number): boolean =>
@@ -473,20 +468,22 @@ function bendThatWorks(edge: Candidate, cls: number): number | null {
   // round a headland; a long one may not, so the fraction is also capped in
   // units.
   //
-  // **The ceiling came down from 0.5 to 0.3 and the reason is a mover, not a
+  // **The ceiling came down from 0.5 to 0.3 and the reason was a mover, not a
   // road.** The bow is applied as `bend * span * sin(pi t)`, so walking `t` at a
   // constant rate runs `sqrt(1 + (bend * pi * cos(pi t))^2)` times the nominal
-  // speed — 1.86 at the ends of a 0.5-bow road against 1.37 at 0.3 — and
-  // `life.ts` corrects only the *mean* of that, which is why CLAUDE.md carries
-  // the ripple as known and unfixed. It surfaced as a walker crossing Palma's
-  // coast at **101.5 units a second against a walking speed of 45**, and the
-  // honest fix is an arc-length reparameterisation of `roadPoint`, which is not
-  // built. This bounds the artefact at its source instead, and what it costs is
-  // measured rather than assumed: see the bake's own report.
+  // speed — 1.86 at the ends of a 0.5-bow road against 1.37 at 0.3. It surfaced
+  // as a walker crossing Palma's coast at **101.5 units a second against a
+  // walking speed of 45**, and at the time the honest fix — an arc-length
+  // reparameterisation of `roadPoint` — was not built, so this bound the
+  // artefact at its source instead, at the cost of 91 roads, 29 components and
+  // 24 towns with no road (measured, not assumed: see the bake's own report).
+  // **`life.ts` now carries `arcParameter`, the reparameterisation**, so the
+  // reason for this ceiling is gone; raising it back toward 0.5 to recover
+  // those roads is a re-bake this port did not also take on, not a rejection.
   const limit = Math.min(0.3, Math.max(0.15, 110 / edge.length));
   for (let k = 1; k <= BEND_TRIES; k++) {
     for (const sign of [1, -1]) {
-      const bend = sign * k * BEND_STEP;
+      const bend = packedBend(sign * k * BEND_STEP);
       if (Math.abs(bend) > limit) continue;
       if (works(bend)) return bend;
     }
@@ -511,7 +508,9 @@ let bowedRoundMountain = 0;
 const testBegan = Date.now();
 for (const edge of candidates) {
   const cls = classOf(places[edge.a]!.pop, places[edge.b]!.pop);
-  const natural = bendFor(places[edge.a]!, places[edge.b]!);
+  // Rounded the same way `bendThatWorks` rounds it, or this diagnostic bucket
+  // and the search it is describing can disagree at the boundary.
+  const natural = packedBend(bendFor(places[edge.a]!, places[edge.b]!));
   // Why the seeded bow failed, before the search runs, so the report can say
   // what the search rescued from each of the two.
   const naturallyWet = !isDry(edge, natural);

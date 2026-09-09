@@ -51,6 +51,7 @@ import {
   roadPole,
   roadSpan,
   createRoads,
+  waterProbeSteps,
 } from '../src/roads.ts';
 import { biomeAt, biomeSample } from '../src/biome.ts';
 // The floor's own vertical section, from the file that lays it: the check has
@@ -167,9 +168,12 @@ console.log('the wire');
     world.countries.map((country) => ({
       ...country,
       rings: country.rings.map((points) => ({
-        digits: points.every((p) => Number(p[0]!.toFixed(2)) === p[0]! && Number(p[1]!.toFixed(2)) === p[1]!)
-          ? 2
-          : 3,
+        // The bake's own ladder: the coarsest precision the ring's numbers
+        // survive, out of the three it is allowed to have chosen.
+        digits:
+          [2, 3, 4].find((d) =>
+            points.every((p) => Number(p[0]!.toFixed(d)) === p[0]! && Number(p[1]!.toFixed(d)) === p[1]!),
+          ) ?? 5,
         points,
       })),
     })),
@@ -194,13 +198,15 @@ console.log('the wire');
   );
 
   // Nothing was quantised away. A value that did not survive the round trip
-  // comes back as 66.51999999999999, so asking it to reproduce its own decimal
-  // string is the whole test and it needs no copy of the original file.
+  // comes back as 66.51999999999999, which reproduces no decimal string at all,
+  // so asking it for one is the whole test and it needs no copy of the original
+  // file. 4 is `PRECISION_FINEST` in the bake — the finest a ring is allowed to
+  // be stored at, so a point that needs a fifth decimal did not come from it.
   let coarse = 0;
   for (const country of world.countries) {
     for (const ring of country.rings) {
       for (const point of ring) {
-        if (Number(point[0]!.toFixed(3)) !== point[0]! || Number(point[1]!.toFixed(3)) !== point[1]!) coarse++;
+        if (Number(point[0]!.toFixed(4)) !== point[0]! || Number(point[1]!.toFixed(4)) !== point[1]!) coarse++;
       }
     }
   }
@@ -288,10 +294,11 @@ const places: [string, number, number, string][] = [
   ['Iceland', 64.90, -18.60, 'Iceland'],
   ['Tokyo', 35.70, 139.70, 'Japan'],
   ['Lesotho', -29.60, 28.20, 'Lesotho'],
-  // At 1:50m the "Western Sahara" feature is only the Free Zone east of the
-  // Moroccan berm; the strip Morocco administers is inside Morocco's own
-  // polygon. Both points below are therefore correct, and the pair is what
-  // proves the smallest-ring rule still resolves the overlap.
+  // Natural Earth's "Western Sahara" feature is only the Free Zone east of
+  // the Moroccan berm, at every scale this project has read; the strip
+  // Morocco administers is inside Morocco's own polygon. Both points below
+  // are therefore correct, and the pair is what proves the smallest-ring rule
+  // still resolves the overlap.
   ['Western Sahara', 23.60, -12.90, 'Western Sahara'],
   ['W. Sahara (MAR)', 24.50, -13.50, 'Morocco'],
   ['South Pole', -89.90, 0.00, 'Antarctica'],
@@ -392,7 +399,27 @@ check(inward === 0, 'no triangle faces inward', inward ? `${inward} of ${triangl
 // was counted as a wall facing the wrong way. Crossing sea level is what a
 // coastal skirt does and what nothing else in this mesh does: the ground never
 // goes below `SHORE_LIP` and the skirt runs from there to `EMBED`.
-const CLIFF_STEP = 8; // ~0.03 deg: wider than the baked outline spacing
+/**
+ * How far off a wall to step before asking which side of the coast you are on.
+ *
+ * **It was 8 and 8 was measuring the probe, not the mesh.** Eight units is
+ * ~0.03 deg, which was wider than 1:50m's outline spacing on purpose; against
+ * 1:10m, where an island carries a point every 0.003 deg, it steps clean over
+ * whatever it was meant to step off, and both ends land on the wrong side of
+ * something. The step is the only thing that moved:
+ *
+ * | step | seaward | inland | ratio |
+ * |------|---------|--------|-------|
+ * | 1    | 360,633 |    149 | 2,420 |
+ * | 2    | 349,249 |    430 |   812 |
+ * | 4    | 320,113 |  2,574 |   124 |
+ * | 8    | 266,624 | 11,105 |    24 |
+ *
+ * Two, because it is where the count of walls this can classify at all has
+ * stopped climbing — 83% of them against 63% at eight — and it still clears the
+ * numerical gap between a wall's centroid and the outline it was built from.
+ */
+const CLIFF_STEP = 2;
 const centroid = new Vector3();
 const probe = new Vector3();
 const cb = new Vector3();
@@ -419,12 +446,12 @@ for (let t = 0; t < triangles; t++) {
   if (wet && dry) seaward++;
   else if (!wet && !dry) inland++;
 }
-// Not all of them, and it cannot be: the probe is 8 units long, so anywhere the
-// land or the channel beside it is thinner than that — the Chilean fjords, the
-// Canadian archipelago, the Amazon delta, the Croatian coast — both steps land
-// on the wrong side of something. That is about 0.3% of the walls, and it is
-// resolution, not winding. A ring wound backwards fails this by three orders of
-// magnitude, not by a fraction of a percent, so the ratio is what is asserted.
+// Not all of them, and it cannot be: anywhere the land or the channel beside it
+// is thinner than the probe — the Chilean fjords, the Canadian archipelago, the
+// Amazon delta, the Croatian coast — both steps land on the wrong side of
+// something. That is about 0.1% of the walls, and it is resolution, not
+// winding. A ring wound backwards fails this by three orders of magnitude, not
+// by a fraction of a percent, so the ratio is what is asserted.
 check(
   seaward > inland * 100,
   'the coastal cliffs face the sea',
@@ -774,11 +801,27 @@ check(
       }
     }
     if (edge === Infinity) continue;
-    // The last land before the water, and 130 units back from it: the widest a
-    // ramp gets, so the second sample is on the shelf whatever this shore did.
+    /**
+     * The last land before the water, and 130 units back from it: the widest a
+     * ramp gets, so the second sample is on the shelf whatever this shore did.
+     *
+     * **And the whole walk has to stay on land.** Testing only the two ends let
+     * through every port on a coast narrower than 130 units: Douala walks
+     * across its peninsula and arrives 40 units from the Wouri on the far side,
+     * still on the ramp *down*; Stockholm walks into the archipelago. New York
+     * was worse — it crossed the harbour, came ashore in New Jersey and passed,
+     * which is the right answer for the wrong reason. Fifteen of the forty
+     * leave the land they started on and none of them can say anything about a
+     * shore; the sixteen that stay ashore all rise.
+     */
     const wet = step(lat, lon, bearing, edge - 10);
     const dry = step(lat, lon, bearing, edge - 130);
-    if (world.countryAt(wet[0], wet[1]) === 0 || world.countryAt(dry[0], dry[1]) === 0) continue;
+    let ashore = true;
+    for (let back = 0; back <= 120 && ashore; back += 10) {
+      const [y, x] = step(lat, lon, bearing, edge - 10 - back);
+      if (world.countryAt(y, x) === 0) ashore = false;
+    }
+    if (!ashore) continue;
     // A pad holds this ground level on purpose; see the note above.
     const held = [wet, dry].some(([y, x]) => {
       const p = at(y, x).normalize();
@@ -1017,11 +1060,13 @@ if (placed.length > 0) {
     stale.length > 0 ? `${stale.slice(0, 4).join('; ')} — run \`pnpm monuments\`` : '',
   );
   // The count is a table, not an assertion. It cannot go to zero — the Golden
-  // Gate spans a strait and at 1:50m Easter Island is narrower than its own moai
-  // — but it is the number that must not quietly grow. The *drop* is an
-  // assertion, because that one can: `SHORE_CEILING` holds every pad that
-  // stands over water down to the lip, and anything above it is a monument
-  // hanging in the air.
+  // Gate spans a strait and Easter Island is narrower than its own moai — but
+  // it is the number that must not quietly grow: it did, 13 to 20, between the
+  // sweep on file in `build-monuments.ts` and its re-sweep dated 2026-09-09,
+  // and neither the coastline nor `SEAT_BUDGET` moved it — see that file. The
+  // *drop* is an assertion, because that one can: `SHORE_CEILING` holds every
+  // pad that stands over water down to the lip, and anything above it is a
+  // monument hanging in the air.
   console.log(
     `  --   ${overhanging.length} of ${monuments.length} stand over water — id, footprint short by, ` +
     `share of it wet, units above the sea:\n       ${overhanging.join(' · ')}`,
@@ -1559,8 +1604,7 @@ console.log('\nroads');
       placeDirection(settled[road.a]!, a);
       placeDirection(settled[road.b]!, b);
       roadPole(a, b, pole);
-      const length = a.angleTo(b) * PLANET_RADIUS;
-      const steps = Math.max(2, Math.ceil(length / 18));
+      const steps = waterProbeSteps(a, b);
       probes += steps - 1;
       for (let step = 1; step < steps; step++) {
         roadPoint(a, b, road.bend, step / steps, point, pole);
@@ -1959,7 +2003,7 @@ console.log('\nroads');
         placeDirection(settled[eb]!, b);
         roadPole(a, b, pole);
         const bend = bendFor(settled[ea]!, settled[eb]!);
-        const steps = Math.max(2, Math.ceil((a.angleTo(b) * PLANET_RADIUS) / 18));
+        const steps = waterProbeSteps(a, b);
         for (let step = 1; step < steps; step++) {
           roadPoint(a, b, bend, step / steps, point, pole);
           const { lat, lon } = toLatLon(point);

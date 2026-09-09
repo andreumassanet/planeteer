@@ -28,7 +28,7 @@
  * own `toFixed` produced and divided back by the same power of ten, and `n/10^d`
  * and `Number(v.toFixed(d))` are both the nearest double to the same decimal, so
  * the round trip is exact rather than close. `pnpm check` asserts it over all
- * 97,280 outline points, 23,867 places and 49,287 roads.
+ * 210,595 outline points, 29,604 places and 16,970 roads.
  */
 
 import type { Country } from './geo.ts';
@@ -42,6 +42,27 @@ const MAGIC_COUNTRIES = 0x434c5441; // 'ATLC'
 const MAGIC_PLACES = 0x504c5441; // 'ATLP'
 const MAGIC_ROADS = 0x524c5441; // 'ATLR'
 const MAGIC_LAKES = 0x4b4c5441; // 'ATLK'
+
+/**
+ * A road's bow is stored as ten-thousandths, and **the bake has to test the
+ * number it is going to store, not the one it computed.**
+ *
+ * `build-roads.ts` walks a candidate road and asks what is underneath, then
+ * writes the bend that came back dry. Between those two the encoder rounds it,
+ * and the road that ships is a fractionally different curve from the road that
+ * was tested. Cornwall to Malone is 98 units along the St. Lawrence: it was
+ * asked at bend 0.00906937 and was dry, shipped at 0.0091, and one of its 48
+ * samples then landed in the river. Three thousandths of a unit sideways, and
+ * the only reason it mattered is that the water test got fine enough to see it.
+ *
+ * So the rounding is exported and the bake applies it before the walk. The path
+ * that is drawn is then the path that was tested, which is what
+ * `build-roads.ts` has always claimed and did not have.
+ */
+const BEND_SCALE = 10000;
+export function packedBend(bend: number): number {
+  return Math.round(bend * BEND_SCALE) / BEND_SCALE;
+}
 
 // ---------------------------------------------------------------------------
 // Bytes
@@ -247,9 +268,10 @@ export async function inflate(data: Uint8Array | ArrayBuffer): Promise<Uint8Arra
  * How many decimals a ring's coordinates carry.
  *
  * `build-countries.mjs` chooses 2 for a ring over a square degree and 3 below
- * it — 1 km along a coastline thousands of km long, 110 m round Ibiza — and the
- * choice cannot be recovered from the numbers, so it is stored. 1,556 bytes,
- * which gzip takes to nothing.
+ * it — 1 km along a coastline thousands of km long, 110 m round Ibiza — and
+ * gives a ring that will not untangle at that precision one more decimal, up to
+ * 4. The choice cannot be recovered from the numbers, so it is stored. A byte a
+ * ring, which gzip takes to nothing.
  */
 export interface PackedRing {
   digits: number;
@@ -265,7 +287,7 @@ export interface PackedCountry extends Omit<Country, 'rings'> {
  *
  * A coastline step is 0.05 to 0.2 degrees, which is one byte at either
  * precision; the jump from the end of one ring to the start of the next is
- * three, and there are 1,556 of those against 97,280 points. Shared by the
+ * three, and there are 2,849 of those against 205,082 points. Shared by the
  * outlines and the lakes, which are the same numbers in the same shape — the
  * two files differ only in what is wrapped around them.
  */
@@ -610,7 +632,7 @@ export function encodeRoads(placeCount: number, graph: string, roads: readonly R
 
   const bends = new Int32Array(n);
   for (let i = 0; i < n; i++) {
-    bends[i] = Math.round(roads[i]!.bend * 10000);
+    bends[i] = Math.round(roads[i]!.bend * BEND_SCALE);
     if (bends[i]! < -32768 || bends[i]! > 32767) throw new Error(`bend ${roads[i]!.bend} will not fit an Int16`);
   }
   writePlanes(out, bends, 2, 32768);
@@ -637,7 +659,7 @@ export function decodeRoads(bytes: Uint8Array): RoadData {
 
   const roads: Road[] = new Array(n);
   for (let i = 0; i < n; i++) {
-    roads[i] = { a: starts[i]!, b: ends[i]!, cls: classes[i]!, bend: bends[i]! / 10000 };
+    roads[i] = { a: starts[i]!, b: ends[i]!, cls: classes[i]!, bend: bends[i]! / BEND_SCALE };
   }
   return { places, graph, roads };
 }

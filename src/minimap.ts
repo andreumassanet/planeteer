@@ -363,33 +363,54 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
    *
    * **One resolution does not work, and the number that says so is the plane.**
    * A set fine enough for the 300-unit framing is essentially the unthinned
-   * source — half a pixel at 300 units is 0.006 degrees and Natural Earth 1:50m
-   * is coarser than that nearly everywhere — and on foot that is free, because
-   * the cap test admits five rings out of 1,556. In the air it is not: at 6,000
-   * units up the framing opens to 41 degrees, the test admits 379 rings, and one
-   * redraw traced **43,392 points for a measured 10 ms**. The whole hemisphere
-   * version this replaced traced 17,847.
+   * source — half a pixel at 300 units is 0.006 degrees and Natural Earth is
+   * coarser than that over most of a continent — and on foot that is free,
+   * because the cap test admits a handful of rings. In the air it is not: at
+   * 6,000 units up the framing opens to 41 degrees, hundreds of rings pass the
+   * test, and one redraw traces tens of thousands of points.
    *
    * Each level is half a pixel at the bottom of the band it serves, and the
-   * bands are the numbers below. Measured 2026-09-05:
+   * bands are the numbers below. Re-measured against 1:10m, with the 1:50m
+   * figures beside them:
    *
    * ```
-   *   band      step      rings   points     MB    build
-   *   300 u    1.08e-4    1,556   96,913   1.16    10 ms
-   *   4000 u   1.44e-3    1,204   58,010   0.70     6 ms
-   *   10000 u  3.59e-3      573   28,300   0.34     4 ms
-   *   20000 u  7.18e-3      336   14,275   0.17     3 ms
+   *   band      step       rings   points      MB     build      was (1:50m)
+   *   300 u    1.06e-4     2,849   195,149    2.23     29 ms     1,556 / 96,916 / 1.11 MB
+   *   4000 u   1.41e-3     1,595    66,493    0.76     13 ms     1,211 / 58,638 / 0.67 MB
+   *   10000 u  3.53e-3       603    28,268    0.32      7 ms       580 / 28,725 / 0.33 MB
+   *   20000 u  7.06e-3       352    13,823    0.16      5 ms       337 / 14,507 / 0.17 MB
    * ```
    *
-   * 2.37 MB and 23 ms once, and what one redraw then traces over seven
-   * standpoints: **810 to 9,590 points on foot** — Palma in its own island at
-   * one end, a country clamped to 4,000 units at the other — against **17,847
-   * from everywhere** for the hemisphere version. It is only in the air that it
-   * matches the old cost rather than beating it: the peaks are at the top of
-   * each band, where the set is four times finer than the pixels need, and the
-   * worst of the sweep is 22,825 (Moscow at 9,900 units). More bands would
-   * flatten that and cost another megabyte each; the frames that pay it are the
-   * ones where you are crossing an ocean.
+   * **3.48 MB and 54 ms, against 2.27 MB and 39 ms — and all of the growth is
+   * in one band.** That is the design working rather than surviving: the three
+   * upper levels are thinned to half a pixel at their own zoom, so a finer
+   * source gives them nothing and costs them nothing, and only the 300-unit
+   * level — which is the unthinned source by definition — doubles when the
+   * source doubles. It is also the level you spend the whole game in on foot,
+   * where the cap test hands the trace a few rings out of the 2,849.
+   *
+   * And what one redraw actually traces on foot, at 300 units, re-measured over
+   * seven standpoints — the cap test's whole job, since the level it is reading
+   * holds 2,849 rings:
+   *
+   * ```
+   *              rings   points        was (1:50m)
+   *   Palma          6      934        5 /    810
+   *   Madrid         4    1,069        2 /    559
+   *   Nairobi        3      653        2 /    543
+   *   Tokyo          3    3,134        2 /    390
+   *   Santiago       2    2,469        2 /  2,092
+   *   Oslo           4    8,484        3 /  6,075
+   *   Reykjavik      3   10,281        2 /  2,403
+   * ```
+   *
+   * Two to six rings out of 2,849, and 653 to 10,281 points — against 17,847
+   * from everywhere for the hemisphere version this replaced, which is what the
+   * bands were built to beat and still do. Where the finer source is paid for
+   * is a fjord or a fissured coast standing in its own ring: Reykjavik went
+   * 2,403 to 10,281 because Iceland is now drawn as Iceland. The peaks are
+   * still at the top of each band, where the set is four times finer than the
+   * pixels need; more bands would flatten that and cost another megabyte each.
    */
   const SHAPE_BANDS = [MIN_VIEW, 4000, 10000, 20000];
   const levels = SHAPE_BANDS.map((bottom) => {
@@ -827,7 +848,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       const shape = level.shapes[s]!;
       // The ring's own bounding cap against the disc's. One dot product and one
       // cosine per ring, and it is what pays for holding the outlines at full
-      // resolution: at 300 units it admits five rings out of 1,556.
+      // resolution: at 300 units it admits two to six rings out of 2,849.
       const span = shape.radius + view;
       if (span < Math.PI && shape.cx * ux + shape.cy * uy + shape.cz * uz < Math.cos(span)) continue;
       const mine = shape.country === country;

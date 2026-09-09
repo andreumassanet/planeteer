@@ -2,7 +2,7 @@
  * Each country's own colour, laid over its own land, at an opacity you can set.
  *
  * **It used to be the flag itself and it is not any more.** `flags.ts` draws all
- * 234 flags from the specs in `flag-data.ts`, and this file rasterised one of
+ * 232 flags from the specs in `flag-data.ts`, and this file rasterised one of
  * those into a scratch canvas per country, read it back, and picked a pixel per
  * land triangle by where that triangle fell in the country's lon/lat box. It
  * worked, and the user's verdict on it was that *you cannot tell the flags
@@ -455,9 +455,12 @@ export function createFlagLayer(world: World, mesh: THREE.Mesh): FlagLayer {
     const wallOf = new Map<number, Uint8Array>();
     for (const span of data?.spans ?? []) {
       const country = span.ring.country;
-      // A lake's rim belongs to nobody, and two of the 234 countries — the
-      // Indian Ocean Territories and the Siachen Glacier — have no flag for a
-      // colour to be read off. Both keep their biome.
+      // A lake's rim belongs to nobody, and nine of the 239 countries — the
+      // Indian Ocean Territories, the Siachen Glacier, and the seven admin-0
+      // features 1:10m added that are not countries (Akrotiri, Dhekelia, the
+      // Cyprus buffer zone, Guantanamo Bay, Baikonur, Bir Tawil and the
+      // Southern Patagonian Ice Field) — have no flag for a colour to be read
+      // off. All nine keep their biome.
       if (span.ring.water || country <= 0) continue;
       let surface = surfaceOf.get(country);
       if (surface === undefined) {

@@ -28,10 +28,20 @@
 /**
  * Country to IANA zone.
  *
- * One entry per country in `countries.json`, keyed on the same `ADM0_A3` the
+ * One entry per country in `countries.bin`, keyed on the same `ADM0_A3` the
  * flags and the outlines use. The countries wide enough to hold several zones
  * are not in here — they are in `zoneFor` below, because a longitude decides
  * them and a table cannot.
+ *
+ * Seven of the entries are not countries and are here because 1:10m draws them
+ * as their own admin-0 features, and a player standing on one still wants a
+ * clock. They take the zone of whoever actually keeps time on the ground: the
+ * two British base areas on Cyprus and the buffer zone between them read
+ * Nicosia, Guantanamo Bay reads Havana, the Baikonur Cosmodrome reads Moscow
+ * under its lease rather than Kazakhstan's own UTC+5, Bir Tawil — claimed by
+ * nobody — takes Khartoum from the side of the 22nd parallel it lies on, and
+ * the Southern Patagonian Ice Field, where Chile and Argentina have never drawn
+ * the line, takes Santiago.
  */
 const ZONES: Record<string, string> = {
   ABW: 'America/Aruba', AFG: 'Asia/Kabul', AGO: 'Africa/Luanda', AIA: 'America/Anguilla',
@@ -42,14 +52,16 @@ const ZONES: Record<string, string> = {
   BFA: 'Africa/Ouagadougou', BGD: 'Asia/Dhaka', BGR: 'Europe/Sofia', BHR: 'Asia/Bahrain',
   BHS: 'America/Nassau', BIH: 'Europe/Sarajevo', BLR: 'Europe/Minsk', BLZ: 'America/Belize',
   BMU: 'Atlantic/Bermuda', BOL: 'America/La_Paz', BRB: 'America/Barbados', BRN: 'Asia/Brunei',
+  BRT: 'Africa/Khartoum',
   BTN: 'Asia/Thimphu', BWA: 'Africa/Gaborone', CAF: 'Africa/Bangui', CHE: 'Europe/Zurich',
-  CHN: 'Asia/Shanghai', CIV: 'Africa/Abidjan', CMR: 'Africa/Douala', COG: 'Africa/Brazzaville',
+  CHN: 'Asia/Shanghai', CIV: 'Africa/Abidjan', CMR: 'Africa/Douala', CNM: 'Asia/Nicosia',
+  COG: 'Africa/Brazzaville',
   COK: 'Pacific/Rarotonga', COL: 'America/Bogota', COM: 'Indian/Comoro', CPV: 'Atlantic/Cape_Verde',
   CRI: 'America/Costa_Rica', CUB: 'America/Havana', CUW: 'America/Curacao', CYM: 'America/Cayman',
   CYN: 'Asia/Nicosia', CYP: 'Asia/Nicosia', CZE: 'Europe/Prague', DEU: 'Europe/Berlin',
   DJI: 'Africa/Djibouti', DMA: 'America/Dominica', DNK: 'Europe/Copenhagen',
   DOM: 'America/Santo_Domingo', DZA: 'Africa/Algiers', EGY: 'Africa/Cairo', ERI: 'Africa/Asmara',
-  ESH: 'Africa/El_Aaiun', EST: 'Europe/Tallinn', ETH: 'Africa/Addis_Ababa', FIN: 'Europe/Helsinki',
+  ESB: 'Asia/Nicosia', ESH: 'Africa/El_Aaiun', EST: 'Europe/Tallinn', ETH: 'Africa/Addis_Ababa', FIN: 'Europe/Helsinki',
   FJI: 'Pacific/Fiji', FLK: 'Atlantic/Stanley', FRO: 'Atlantic/Faroe', FSM: 'Pacific/Chuuk',
   GAB: 'Africa/Libreville', GBR: 'Europe/London', GEO: 'Asia/Tbilisi', GGY: 'Europe/Guernsey',
   GHA: 'Africa/Accra', GIN: 'Africa/Conakry', GMB: 'Africa/Banjul', GNB: 'Africa/Bissau',
@@ -59,7 +71,8 @@ const ZONES: Record<string, string> = {
   HUN: 'Europe/Budapest', IMN: 'Europe/Isle_of_Man', IND: 'Asia/Kolkata', IOA: 'Indian/Christmas',
   IOT: 'Indian/Chagos', IRL: 'Europe/Dublin', IRN: 'Asia/Tehran', IRQ: 'Asia/Baghdad',
   ISL: 'Atlantic/Reykjavik', ISR: 'Asia/Jerusalem', ITA: 'Europe/Rome', JAM: 'America/Jamaica',
-  JEY: 'Europe/Jersey', JOR: 'Asia/Amman', JPN: 'Asia/Tokyo', KAS: 'Asia/Kolkata',
+  JEY: 'Europe/Jersey', JOR: 'Asia/Amman', JPN: 'Asia/Tokyo', KAB: 'Europe/Moscow',
+  KAS: 'Asia/Kolkata',
   KAZ: 'Asia/Almaty', KEN: 'Africa/Nairobi', KGZ: 'Asia/Bishkek', KHM: 'Asia/Phnom_Penh',
   KNA: 'America/St_Kitts', KOR: 'Asia/Seoul', KOS: 'Europe/Belgrade', KWT: 'Asia/Kuwait',
   LAO: 'Asia/Vientiane', LBN: 'Asia/Beirut', LBR: 'Africa/Monrovia', LBY: 'Africa/Tripoli',
@@ -80,16 +93,18 @@ const ZONES: Record<string, string> = {
   SGP: 'Asia/Singapore', SGS: 'Atlantic/South_Georgia', SHN: 'Atlantic/St_Helena',
   SLB: 'Pacific/Guadalcanal', SLE: 'Africa/Freetown', SLV: 'America/El_Salvador',
   SMR: 'Europe/San_Marino', SOL: 'Africa/Mogadishu', SOM: 'Africa/Mogadishu',
-  SPM: 'America/Miquelon', SRB: 'Europe/Belgrade', SSD: 'Africa/Juba', STP: 'Africa/Sao_Tome',
+  SPI: 'America/Santiago', SPM: 'America/Miquelon', SRB: 'Europe/Belgrade', SSD: 'Africa/Juba', STP: 'Africa/Sao_Tome',
   SUR: 'America/Paramaribo', SVK: 'Europe/Bratislava', SVN: 'Europe/Ljubljana',
   SWE: 'Europe/Stockholm', SWZ: 'Africa/Mbabane', SXM: 'America/Lower_Princes',
   SYC: 'Indian/Mahe', SYR: 'Asia/Damascus', TCA: 'America/Grand_Turk', TCD: 'Africa/Ndjamena',
   TGO: 'Africa/Lome', THA: 'Asia/Bangkok', TJK: 'Asia/Dushanbe', TKM: 'Asia/Ashgabat',
   TLS: 'Asia/Dili', TON: 'Pacific/Tongatapu', TTO: 'America/Port_of_Spain', TUN: 'Africa/Tunis',
   TUR: 'Europe/Istanbul', TWN: 'Asia/Taipei', TZA: 'Africa/Dar_es_Salaam', UGA: 'Africa/Kampala',
-  UKR: 'Europe/Kyiv', URY: 'America/Montevideo', UZB: 'Asia/Tashkent', VCT: 'America/St_Vincent',
+  UKR: 'Europe/Kyiv', URY: 'America/Montevideo', USG: 'America/Havana',
+  UZB: 'Asia/Tashkent', VCT: 'America/St_Vincent',
   VEN: 'America/Caracas', VGB: 'America/Tortola', VIR: 'America/St_Thomas', VNM: 'Asia/Ho_Chi_Minh',
-  VUT: 'Pacific/Efate', WLF: 'Pacific/Wallis', WSM: 'Pacific/Apia', YEM: 'Asia/Aden',
+  VUT: 'Pacific/Efate', WLF: 'Pacific/Wallis', WSB: 'Asia/Nicosia', WSM: 'Pacific/Apia',
+  YEM: 'Asia/Aden',
   ZAF: 'Africa/Johannesburg', ZMB: 'Africa/Lusaka', ZWE: 'Africa/Harare',
 };
 
