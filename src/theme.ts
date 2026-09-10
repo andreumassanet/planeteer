@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 
+// Three's toon chunk reads only red. Our ramps carry RGB: keep the cool
+// shadows and warm highlights, with the same single texture lookup everywhere.
+THREE.ShaderChunk.gradientmap_pars_fragment = THREE.ShaderChunk.gradientmap_pars_fragment.replace(
+  'vec3( texture2D( gradientMap, coord ).r )',
+  'texture2D( gradientMap, coord ).rgb',
+);
+
 /**
  * Palette lifted from `static/palette.png` in Bruno Simon's folio-2025: 24
  * colours, one per band of a 128x4 texture. His whole site is painted with
@@ -75,8 +82,8 @@ export const FOG_COLOR = 0xc6b6cf;
  *
  * The land's top is 1.045 and its bottom 0.93: asymmetric on purpose, since a
  * cell can go paler by less than it can go darker before a green reads as
- * bleached. The cel ramp's own faintest step is 16.6% of luminance, so the
- * span here — 11.5% across the whole range — is deliberately under one band:
+ * bleached. The span here — 11.5% across the whole range — stays below the
+ * contrast between neighbouring lighting bands:
  * the mosaic is meant to be a texture on a band, and a tone that stepped the
  * band by itself would read as a second lighting.
  */
@@ -132,7 +139,7 @@ export interface Mood {
    *
    * This is the single number that decides whether a night side exists at all.
    * `MeshToonMaterial` maps every angle onto the ramp, so a surface facing
-   * *away* from a light still receives `rampShadow` of it — at the day value of
+   * *away* from a light still receives `rampShadow` of it — at the old day value of
    * 0.45 the far side of the planet gets 45% of full sunlight and there is no
    * night to fly over, only a dimmer day. Dropping it is what carves the
    * terminator, and it is safe to drop precisely because ambient and hemisphere
@@ -155,9 +162,8 @@ export interface Mood {
 }
 
 /**
- * Day is the look this project already had, to the byte: the same sky, the same
- * fog, the same ambient and hemisphere lights, the same ramp. Nothing about a
- * sunlit afternoon changed when the sun became real — only where it is.
+ * Cool shadow bands against warm sunlight give the facets depth without
+ * another light or a post-processing pass. Ambient fill stays unchanged.
  */
 export const DAY_MOOD: Mood = {
   skyTop: SKY_TOP,
@@ -175,9 +181,9 @@ export const DAY_MOOD: Mood = {
   sunIntensity: 2.6,
   moon: 0x9fb8e8,
   moonIntensity: 0,
-  rampShadow: 0.45,
-  rampShadowTint: [1, 0.98, 0.94],
-  rampLightTint: [1, 0.98, 0.94],
+  rampShadow: 0.38,
+  rampShadowTint: [0.74, 0.84, 1],
+  rampLightTint: [1, 0.97, 0.91],
   rampGamma: 1,
 };
 
@@ -203,7 +209,7 @@ export const TWILIGHT_MOOD: Mood = {
   moon: 0xa8bce8,
   moonIntensity: 0.5,
   rampShadow: 0.17,
-  rampShadowTint: [1, 0.9, 0.88],
+  rampShadowTint: [0.76, 0.80, 1],
   rampLightTint: [1, 0.96, 0.92],
   rampGamma: 1,
 };

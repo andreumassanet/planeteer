@@ -38,6 +38,8 @@ const WHITE = new THREE.Color(0xffffff);
  * nothing.
  */
 export const sunUniform = { value: new THREE.Vector3(0, 1, 0) };
+/** The local sky reflected by nearby water, in linear RGB like the lighting. */
+export const waterSkyUniform = { value: new THREE.Color(DAY_MOOD.skyHorizon) };
 
 /** Where the sun is straight up, and by how much the clock lies about it. */
 export interface Solar {
@@ -314,6 +316,7 @@ const skyVertex = /* glsl */ `
   void main() {
     vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_Position.z = gl_Position.w;
   }
 `;
 
@@ -344,7 +347,7 @@ const skyFragment = /* glsl */ `
   uniform float dip;
   varying vec3 vWorld;
 
-  const vec3 SPACE = vec3(0.016, 0.024, 0.055);
+  const vec3 SPACE = vec3(0.0012, 0.0018, 0.0044);
 
   float hash(vec3 cell) {
     vec3 p = fract(cell * 0.1031 + vec3(0.71, 0.113, 0.419));
@@ -374,6 +377,10 @@ const skyFragment = /* glsl */ `
     float band = 1.0 - smoothstep(0.0, 0.4, abs(h));
     color = mix(color, glowColor, glow * (0.25 + 0.75 * band) * (0.5 * pow(toward, 4.0) + 0.5 * pow(toward, 26.0)));
 
+    // A small solar aureole in the existing sky pass. No bloom target or blur.
+    float aureole = smoothstep(0.985, 1.0, toward);
+    color = mix(color, glowColor, aureole * aureole * (0.16 + 0.22 * glow));
+
     // Everything below the dip is planet, so the sky at altitude starts at the
     // limb. Holding the horizon colour in a band just above it leaves an
     // atmosphere around the globe instead of a hard cut into black.
@@ -401,6 +408,8 @@ const skyFragment = /* glsl */ `
     }
 
     gl_FragColor = vec4(color, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
@@ -500,7 +509,9 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
   });
   skyMaterial.userData.outlineParameters = { visible: false };
   const dome = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS * 6, 32, 16), skyMaterial);
-  dome.renderOrder = -1;
+  // Opaque geometry fills depth first: shade only the sky that remains visible.
+  // The vertex shader pins depth to the far plane, including behind both discs.
+  dome.renderOrder = 1000;
   dome.name = 'sky';
   scene.add(dome);
 
@@ -595,7 +606,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     sun.position.copy(focus).addScaledVector(solarDirection, SHADOW_DISTANCE);
   }
 
-  const mood: Mood = { ...DAY_MOOD, rampShadowTint: [1, 0.98, 0.94], rampLightTint: [1, 0.98, 0.94] };
+  const mood: Mood = { ...DAY_MOOD, rampShadowTint: [...DAY_MOOD.rampShadowTint], rampLightTint: [...DAY_MOOD.rampLightTint] };
   const state: SkyState = {
     time: new Date(),
     elevation: 90,
@@ -680,7 +691,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
      * From orbit the *light* goes to `ORBIT_LOOK` whatever the local hour, and
      * the sky colours do not.
      *
-     * Both halves of that matter. Ambient fill and a 0.45 ramp floor are the
+     * Both halves of that matter. Ambient fill and a raised ramp floor are the
      * air around you, and standing in the Sahara at noon they are correct; seen
      * from the ceiling they light the night hemisphere as flatly as the day one
      * and there is no terminator to look at, which is the whole reason for
@@ -757,6 +768,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     uniforms.top.value.setHex(mood.skyTop);
     uniforms.horizon.value.setHex(mood.skyHorizon);
     uniforms.glowColor.value.setHex(mood.skyGlow);
+    waterSkyUniform.value.copy(uniforms.horizon.value).lerp(uniforms.top.value, 0.35);
     uniforms.sunDir.value.copy(solarDirection);
     uniforms.upDir.value.copy(cameraUp);
     uniforms.glow.value = mood.glow;

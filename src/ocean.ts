@@ -5,6 +5,7 @@ import { biomeAt, biomeSample } from './biome.ts';
 import { MOSAIC_WATER, OCEAN_COLOR, PALETTE, createToonRamp } from './theme.ts';
 import { fbm } from './terrain.ts';
 import { detail } from './view.ts';
+import { waterSkyUniform } from './sun.ts';
 
 /**
  * The sea.
@@ -35,6 +36,47 @@ import { detail } from './view.ts';
  */
 
 const DEG = Math.PI / 180;
+
+const waterTime = { value: 0 };
+
+/** Both water meshes share one surface field, including across the shelf edge.
+ * ponytail: sky colour reflection only; scene reflections need a measured GPU budget.
+ * No displacement: the boat, shore lip and depth buffer keep the same surface.
+ */
+function waterSurface(material: THREE.MeshToonMaterial): void {
+  const compile = material.onBeforeCompile;
+  const key = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    compile.call(material, shader, renderer);
+    shader.uniforms['waterTime'] = waterTime;
+    shader.uniforms['waterSky'] = waterSkyUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWaterPosition;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWaterPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vWaterPosition;
+uniform float waterTime;
+uniform vec3 waterSky;`)
+      .replace('#include <opaque_fragment>', /* glsl */ `
+  // Project to the same radius so overlapping shore ribbons agree.
+  vec3 waterUp = normalize(vWaterPosition);
+  vec3 waterPoint = waterUp * ${PLANET_RADIUS.toFixed(1)};
+  float phase = dot(waterPoint, vec3(0.26, 0.11, 0.19)) - waterTime * 0.85;
+  float crossPhase = dot(waterPoint, vec3(-0.13, 0.21, 0.29)) + waterTime * 0.6;
+  // Fade before the waves become subpixel; the distant atlas keeps its palette.
+  float waterDetail = (1.0 - smoothstep(500.0, 2000.0, length(vViewPosition)))
+    * (1.0 - smoothstep(0.8, 2.5, fwidth(phase) + fwidth(crossPhase)));
+  float wave = sin(phase) + 0.5 * sin(crossPhase);
+  float grazing = 1.0 - clamp(dot(normalize(vViewPosition), mat3(viewMatrix) * waterUp), 0.0, 1.0);
+  float reflection = 0.035 + 0.45 * grazing * grazing * grazing * grazing;
+  outgoingLight *= 1.0 + wave * 0.045 * waterDetail;
+  outgoingLight = mix(outgoingLight, waterSky, waterDetail *
+    (reflection + 0.12 * smoothstep(0.85, 1.4, wave)));
+  #include <opaque_fragment>`);
+  };
+  material.customProgramCacheKey = () => `${key}-water-surface`;
+}
 
 /**
  * Subdivision of the water sphere, and **what sets it changed**.
@@ -653,6 +695,7 @@ function buildWater(world: World): {
 
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
   material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: [0.11, 0.02, 0.01] };
+  waterSurface(material);
   const mesh = new THREE.Mesh(geometry, material);
   // `atlas.scene.getObjectByName('ocean')` is in the debugging notes and is
   // still the sphere: it is what "sea level" means.
@@ -728,6 +771,7 @@ uniform vec3 uFoam;`,
   // Two materials that compile to different programs must not share a cache
   // key, and Three keys on the source plus this.
   material.customProgramCacheKey = () => 'atlas-shallows';
+  waterSurface(material);
   return material;
 }
 
@@ -1401,7 +1445,8 @@ export function createOcean(world: World): Ocean {
 
   const tint = new THREE.Color();
   const update = (camera: THREE.Vector3, lights: readonly OceanLight[]): void => {
-    if (uniforms !== undefined) uniforms.uTime.value = performance.now() / 1000;
+    waterTime.value = performance.now() / 1000;
+    if (uniforms !== undefined) uniforms.uTime.value = waterTime.value;
     // One path, from whichever body is doing the lighting. Two would be two
     // suns: the moon's path is only ever worth drawing when the sun's is not.
     let best: OceanLight | null = null;

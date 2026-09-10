@@ -959,12 +959,16 @@ function mosaic(material: THREE.MeshToonMaterial): void {
   vec3 atlasAbs = abs(vAtlasPos);
   vec2 atlasPlane = (atlasAbs.y >= atlasAbs.x && atlasAbs.y >= atlasAbs.z) ? vAtlasPos.xz
     : (atlasAbs.x >= atlasAbs.z ? vAtlasPos.zy : vAtlasPos.xy);
+  // A cell smaller than a pixel is noise, especially when its normal changes
+  // the cel band. Fade both tone and tilt before that happens, even with B off.
+  float atlasFootprint = max(length(dFdx(atlasPlane)), length(dFdy(atlasPlane)));
+  float atlasQuiet = (1.0 - min(1.0, atlasFlag * ${MOSAIC_YIELD.toFixed(1)}))
+    * (1.0 - smoothstep(${(HEX_CELL * 0.4).toFixed(1)}, ${(HEX_CELL * 1.2).toFixed(1)}, atlasFootprint));
   vec2 atlasCell = atlasHexCell(atlasPlane * ${(1 / HEX_CELL).toFixed(8)});
   vec2 atlasSuper = atlasHexCell(atlasPlane * ${(1 / (HEX_CELL * HEX_SUPER)).toFixed(8)});
   float atlasTone = ${mid.toFixed(5)}
     + (atlasHash(atlasCell) - 0.5) * ${fine.toFixed(5)}
     + (atlasHash(atlasSuper + vec2(0.37, 0.71)) - 0.5) * ${coarse.toFixed(5)};
-  float atlasQuiet = 1.0 - min(1.0, atlasFlag * ${MOSAIC_YIELD.toFixed(1)});
   diffuseColor.rgb *= mix(1.0, atlasTone, atlasMosaic * atlasQuiet);${
     flagged
       ? /* glsl */ `
