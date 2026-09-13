@@ -28,7 +28,7 @@
  * own `toFixed` produced and divided back by the same power of ten, and `n/10^d`
  * and `Number(v.toFixed(d))` are both the nearest double to the same decimal, so
  * the round trip is exact rather than close. `pnpm check` asserts it over all
- * 210,595 outline points, 29,604 places and 16,970 roads.
+ * 188,912 outline points, 29,614 places and 16,960 roads (2026-09-13).
  */
 
 import type { Country } from './geo.ts';
@@ -267,10 +267,10 @@ export async function inflate(data: Uint8Array | ArrayBuffer): Promise<Uint8Arra
 /**
  * How many decimals a ring's coordinates carry.
  *
- * `build-countries.mjs` chooses 2 for a ring over a square degree and 3 below
- * it — 1 km along a coastline thousands of km long, 110 m round Ibiza — and
- * gives a ring that will not untangle at that precision one more decimal, up to
- * 4. The choice cannot be recovered from the numbers, so it is stored. A byte a
+ * `build-countries.mjs` gives every ring 3 — 110 m, a tenth of its
+ * simplification tolerance — and a ring that will not untangle at that
+ * precision one more decimal, up to 4. The lakes still choose 2 or 3 by size.
+ * The choice cannot be recovered from the numbers, so it is stored. A byte a
  * ring, which gzip takes to nothing.
  */
 export interface PackedRing {
@@ -287,7 +287,7 @@ export interface PackedCountry extends Omit<Country, 'rings'> {
  *
  * A coastline step is 0.05 to 0.2 degrees, which is one byte at either
  * precision; the jump from the end of one ring to the start of the next is
- * three, and there are 2,849 of those against 205,082 points. Shared by the
+ * three, and there are 2,849 of those against 183,399 points. Shared by the
  * outlines and the lakes, which are the same numbers in the same shape — the
  * two files differ only in what is wrapped around them.
  */

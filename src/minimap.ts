@@ -370,8 +370,11 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
    * test, and one redraw traces tens of thousands of points.
    *
    * Each level is half a pixel at the bottom of the band it serves, and the
-   * bands are the numbers below. Re-measured against 1:10m, with the 1:50m
-   * figures beside them:
+   * bands are the numbers below. Measured 2026-09-09 against the first 1:10m
+   * file, which kept every point of every island, with the 1:50m figures beside
+   * them. The file that replaced it simplifies every ring alike and holds 11%
+   * fewer points (183,399 against 205,082); these tables were not re-measured
+   * against it:
    *
    * ```
    *   band      step       rings   points      MB     build      was (1:50m)

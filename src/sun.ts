@@ -38,8 +38,6 @@ const WHITE = new THREE.Color(0xffffff);
  * nothing.
  */
 export const sunUniform = { value: new THREE.Vector3(0, 1, 0) };
-/** The local sky reflected by nearby water, in linear RGB like the lighting. */
-export const waterSkyUniform = { value: new THREE.Color(DAY_MOOD.skyHorizon) };
 
 /** Where the sun is straight up, and by how much the clock lies about it. */
 export interface Solar {
@@ -347,7 +345,7 @@ const skyFragment = /* glsl */ `
   uniform float dip;
   varying vec3 vWorld;
 
-  const vec3 SPACE = vec3(0.0012, 0.0018, 0.0044);
+  const vec3 SPACE = vec3(0.016, 0.024, 0.055);
 
   float hash(vec3 cell) {
     vec3 p = fract(cell * 0.1031 + vec3(0.71, 0.113, 0.419));
@@ -407,9 +405,14 @@ const skyFragment = /* glsl */ `
       }
     }
 
+    // Written straight out, with no colour-space conversion, and that is the look
+    // rather than an oversight. The uniforms arrive linear, so what the screen
+    // shows is darker and more saturated than the hex in \`theme.ts\` — and every
+    // sky this project was tuned against was drawn this way. Converting was tried
+    // on 2026-09-10 and reverted on 2026-09-13: the dome went to the palette's
+    // own pale cyan, and the cream clouds and the buildings lost the ground they
+    // were read against.
     gl_FragColor = vec4(color, 1.0);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
   }
 `;
 
@@ -768,7 +771,6 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     uniforms.top.value.setHex(mood.skyTop);
     uniforms.horizon.value.setHex(mood.skyHorizon);
     uniforms.glowColor.value.setHex(mood.skyGlow);
-    waterSkyUniform.value.copy(uniforms.horizon.value).lerp(uniforms.top.value, 0.35);
     uniforms.sunDir.value.copy(solarDirection);
     uniforms.upDir.value.copy(cameraUp);
     uniforms.glow.value = mood.glow;

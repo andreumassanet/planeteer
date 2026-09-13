@@ -1260,7 +1260,7 @@ export function buildLand(world: World): THREE.Mesh {
     const tint = palette[ring.country - 1]!;
 
     // Where this ring's triangles start, so `land-flags.ts` can find them
-    // again. It is two integers a ring — 2,849 pairs against the 2.15 million
+    // again. It is two integers a ring — 2,849 pairs against the 2.18 million
     // a country index per triangle would have cost — and it is possible at all
     // because the buffer is already grouped: a ring's surface, then the wall
     // under its boundary, then the next ring.
@@ -1355,7 +1355,7 @@ export function buildLand(world: World): THREE.Mesh {
   const mesh = new THREE.Mesh(geometry, toonMaterial());
   mesh.name = 'land';
   // Receives the sun's cast shadows and never casts them: a shadow pass over
-  // 2.15 M triangles is a second draw of the whole planet, and what stands on
+  // 2.18 M triangles is a second draw of the whole planet, and what stands on
   // the land is what the map is for. See `sun.ts`.
   mesh.receiveShadow = true;
   // Where every ring's triangles are, and the shade its wall took, which is all

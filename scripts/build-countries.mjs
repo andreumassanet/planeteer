@@ -10,17 +10,16 @@
  * Balearics, no Canaries, and the same for every other archipelago. 50m has the
  * islands but not their shape — Mallorca arrived as 33 points, which is one
  * point every 17 km of a coast you are meant to walk, so the Badia de Palma,
- * the Badia d'Alcudia and Cap de Formentor were all a straight line. 10m gives
- * it 154, one every 3.5 km, and the bays come back.
+ * the Badia d'Alcudia and Cap de Formentor were all a straight line. 10m,
+ * simplified as below, gives it 48 placed where the coast turns, and the bays
+ * come back.
  *
- * **10m is 5.4x the points, and almost none of them are on an island.** The
- * whole dataset over `MIN_RING_AREA` is 528 k points against 50m's 97 k, and
- * shipping that would undo what `src/pack.ts` exists to do. So the resolution
- * is spent where it can be seen: rings under `SMALL_RING_AREA` — every island,
- * Mallorca included — keep every point the dataset has, and the handful of
- * continent-sized rings that hold the other 70% are simplified back to roughly
- * what 50m was giving them. That is `SIMPLIFY_SAG` below, and it is the same
- * "the number that matters is per ring, not per file" idea as the precision.
+ * **10m is 5.4x the points**: the whole dataset over `MIN_RING_AREA` is 528 k
+ * against 50m's 97 k, and shipping that would undo what `src/pack.ts` exists to
+ * do. So every ring is simplified, and **every ring is simplified the same
+ * way** — one tolerance and one precision for the whole planet. `SIMPLIFY_SAG`
+ * says why the first version, which gave the islands every point and the
+ * continents 50m's density, was the wrong trade.
  */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -42,62 +41,73 @@ const OUT = resolve(here, '../public/data/countries.bin');
  */
 const MIN_RING_AREA = 0.003;
 /**
- * Coordinate precision, chosen per ring. 2 decimals is ~1 km, fine for a
- * coastline thousands of km long and far too coarse for a 20 km island, where
- * it would quantise the outline into a blob. Small rings get 3 (~110 m); large
- * ones stay at 2, which is where nearly all the points are.
+ * Coordinate precision: 3 decimals, ~110 m, for every ring.
+ *
+ * It used to be chosen per ring — 2 (~1 km) over a square degree, 3 below — and
+ * that was the same two-tier mistake as the simplification: a 1 km grid is as
+ * coarse as the whole tolerance below, so a continent's coast was rounded by as
+ * much again as it was simplified and an island's was not. One precision, ten
+ * times finer than the tolerance, keeps the rounding out of the shape
+ * everywhere. It costs bytes rather than points: 420 KB gzipped against 412 for
+ * the two-tier file, which had 12% more points (2026-09-13).
  *
  * A ring the repair below cannot untangle at its own precision is given the
- * next decimal place, and `PRECISION_FINEST` is where that stops. Twelve rings
- * out of 2,849 ask for one: eight large ones take 3, and four islands — the
- * Frisian coast, two river mouths in south-east Asia and one Antarctic shelf —
- * take 4, which is 387 points and 11 m. Nothing has ever needed a fifth, and
- * `check-world.ts` asserts the whole file back at this same ceiling, so raising
- * it is a change in two places on purpose.
+ * next decimal place, and `PRECISION_FINEST` is where that stops. At the
+ * shipped tolerance no ring asks (2026-09-13). `check-world.ts` asserts the
+ * whole file back at this same ceiling, so raising it is a change in two places
+ * on purpose.
  */
-const PRECISION_LARGE = 2;
-const PRECISION_SMALL = 3;
+const PRECISION = 3;
 const PRECISION_FINEST = 4;
 /**
- * The line between an island and a continent, in square degrees, and it decides
- * two things at once: rings under it are stored at `PRECISION_SMALL` and are
- * never simplified. Mallorca is 0.387 and stays whole; Spain's mainland is 47
- * and gets thinned. One is a coast you walk in an afternoon, the other is one
- * you fly over.
+ * How far, in degrees, a simplified ring may pull away from the outline the
+ * dataset drew — **the same number for every ring on the planet**.
+ *
+ * **The first version of this gave the islands everything and the continents
+ * 0.02, and the world came out in two styles.** Every ring under a square
+ * degree kept all its points and every ring over it was thinned, so the median
+ * coast segment was 3.9 units on an island and 21.5 on everything else — the
+ * 21.3 that 1:50m had. Mallorca was drawn four times finer than the Spanish
+ * coast facing it and Corsica four times finer than Sardinia 12 km away, and
+ * the line between them was a cliff: 0.99 square degrees got every point and
+ * 1.01 got 1:50m's. Sicily came out *coarser* than 1:50m had drawn it, 89
+ * points to 73.
+ *
+ * One tolerance is one level of detail, and Douglas-Peucker then spends the
+ * points where a coast turns, whichever coast it is. Swept 2026-09-13; the land
+ * mesh measured headless with the game's own detail and flatten sites, and the
+ * median segment in world units, islands / the rest, against a 6.8-unit body:
+ *
+ * | tolerance | points | median segment | land triangles |    MB | build  |
+ * |-----------|--------|----------------|----------------|-------|--------|
+ * | 1:50m     |   97 k | 15.7 / 21.3    | 1.65 M         |  85.0 |  9.9 s |
+ * | two-tier  |  205 k |  3.9 / 21.5    | 2.15 M         | 110.9 | 12.9 s |
+ * | 0.01      |  183 k | 11.5 / 13.6    | 2.18 M         | 112.1 | 12.9 s |
+ * | 0.007     |  227 k |  9.4 / 11.0    | 2.37 M         | 122.1 | 14.4 s |
+ * | 0.005     |  272 k |  7.8 /  9.1    | 2.52 M         | 129.8 | 15.7 s |
+ *
+ * 0.01 is 1.1 km, three units, under half a body, and it costs what the
+ * two-tier file cost. It was looked at rather than assumed: from 450 and from
+ * 200 units up over Mallorca and Formentor it is close to indistinguishable from
+ * keeping every point, and everything bigger than an island gains — Iberia goes
+ * from 437 points to 691, Great Britain from 689 to 1,181. 0.02 cannot be used
+ * uniformly at all: the smallest rings collapse, and a 0.0033-square-degree one
+ * in Tajikistan comes out as two points.
+ *
+ * **The point count is not the measure of loss.** Most of a landlocked
+ * country's outline is a surveyed border drawn as a run of collinear points,
+ * and dropping those moves nothing. Douglas-Peucker bounds the worst deviation
+ * at the tolerance by construction, so the guarantee is the same for a country
+ * nobody checks as for one that got measured — and against that, 1:50m strayed
+ * 0.504 degrees from 1:10m in Norway, 0.313 in Chile and 0.133 in Spain.
+ *
+ * It is a flat distance and not a fraction of the ring, which an earlier
+ * attempt had. A tolerance scaled by `sqrt(area)` is 0.4 deg on Antarctica:
+ * Russia came out at 413 points against 1:50m's 4,573 and the Arctic coast was
+ * a straight line. How finely a coast is drawn is a property of the coast, not
+ * of how much land is behind it.
  */
-const SMALL_RING_AREA = 1;
-/**
- * How far, in degrees, a simplified large ring may pull away from the outline
- * the dataset drew.
- *
- * **The point count is not the measure and using it as one gets this backwards.**
- * Simplifying 10m down puts 106 countries below their 1:50m point count, which
- * reads like a loss and is not one: most of a landlocked country's outline is a
- * surveyed border drawn as a run of collinear points, and dropping those moves
- * nothing. The measure is how far the outline strays from the 1:10m one it came
- * from, and there the two are not close:
- *
- * |            | 1:50m, worst / mean | here, worst / mean |
- * |------------|---------------------|--------------------|
- * | Norway     | 0.504 / 0.058       | 0.024 / 0.006      |
- * | Chile      | 0.313 / 0.040       | 0.025 / 0.006      |
- * | Spain      | 0.133 / 0.018       | 0.024 / 0.006      |
- * | Uzbekistan | 0.065 / 0.012       | 0.024 / 0.006      |
- *
- * Douglas-Peucker bounds the worst case at the tolerance by construction, so
- * that column is 0.02 everywhere and the guarantee is the same for a country
- * nobody checks as for one that got measured.
- *
- * It is a flat distance and not a fraction of the ring, which the first attempt
- * had. A tolerance scaled by `sqrt(area)` is 0.4 deg on Antarctica: Russia came
- * out at 413 points against 1:50m's 4,573 and the Arctic coast was a straight
- * line. How finely a coast is drawn is a property of the coast, not of how much
- * land is behind it.
- *
- * Turn it down and the file grows: 0.02 is 202 k points, 0.01 is 257 k and 0 is
- * 528 k. Islands do not read this number at all.
- */
-const SIMPLIFY_SAG = 0.02;
+const SIMPLIFY_SAG = 0.01;
 
 /** Shoelace. Signed: the sign tells us the winding. */
 function signedArea(ring) {
@@ -270,7 +280,8 @@ function ringAt(outer, kept, digits) {
  * Put back whatever it takes to stop a simplified ring crossing itself.
  *
  * **Douglas-Peucker does not preserve topology and that is not a corner case.**
- * At 0.02 deg it puts crossings into 53 of the 2,849 rings — the Norwegian
+ * At 0.02 deg over the large rings (2026-09-09) it put crossings into 53 of the
+ * 2,849 rings — the Norwegian
  * fjords, the Canadian archipelago, the Alaskan panhandle — every one a place
  * where two parts of the same coast run within a tolerance of each other, so
  * the cut across a peninsula lands on the far shore. A crossed ring is not
@@ -363,17 +374,13 @@ for (const feature of geo.features) {
       continue;
     }
 
-    const island = size < SMALL_RING_AREA;
     work.push({
       feature,
       outer,
       signed,
       size,
-      island,
-      digits: island ? PRECISION_SMALL : PRECISION_LARGE,
-      // An island is never simplified — its shape is what the move to 1:10m was
-      // for — so it starts out keeping everything.
-      kept: island ? outer.map((_, i) => i) : simplify(outer, SIMPLIFY_SAG),
+      digits: PRECISION,
+      kept: simplify(outer, SIMPLIFY_SAG),
       points: null,
     });
   }
@@ -384,19 +391,18 @@ for (const feature of geo.features) {
 const mark = (point) => `${point[0]},${point[1]}`;
 
 /**
- * Which rings are joined to which, and what precision the join has to be at.
+ * Which rings are joined to which, so that a precision raised for one of them
+ * is raised for all of them.
  *
- * **`SMALL_RING_AREA` asks the wrong question of a landlocked microstate.** It
- * is there to stop a 20 km island being quantised into a blob by a 1 km grid,
- * and Andorra, Liechtenstein, San Marino, Monaco and Vatican City are all under
- * it — but every point of theirs is a point of France, Spain, Italy or Austria,
- * rings a hundred times the size that round to 2 decimals. Round the two sides
- * of that border differently and the sliver is back, so a ring cannot choose
- * its own precision: a *landmass* does.
+ * Every ring starts at `PRECISION`, but the repair below can give one another
+ * decimal, and the two sides of a border rounded differently open the same
+ * sliver the kept-point agreement closes — the first version of this had
+ * Andorra at 3 decimals against France at 2. So a ring cannot choose its own
+ * precision: a *landmass* does.
  *
  * Union-find over "these two rings share a source coordinate" gives the
  * landmasses. Eurasia-with-Africa is one of them and holds most of the file;
- * Mallorca is one on its own, which is why it still gets its 3 decimals.
+ * Mallorca is one on its own.
  */
 const parent = work.map((_, i) => i);
 const find = (i) => {
@@ -463,8 +469,8 @@ for (let round = 0; ; round++) {
   // A ring that will not untangle at its landmass's precision takes the whole
   // landmass to the next decimal with it — the alternative is the two sides of
   // a border rounding differently, which is the sliver this all exists to
-  // close. Twelve rings out of 2,849 ask, and none of them is on a landmass
-  // that shares a border with anything.
+  // close. None asks at the shipped tolerance (2026-09-13); the two-tier file
+  // had eight.
   for (const item of work) {
     while (untangle(item.outer, item.kept, item.digits) === null) {
       if (item.digits >= PRECISION_FINEST) {

@@ -162,16 +162,17 @@ console.log('the wire');
 
   // The rings that come back out carry no `digits`, so the re-encode has to
   // recover the bake's own choice — and the way to recover it is the way the
-  // whole precision claim is stated: a 2-decimal ring is one whose every
-  // coordinate is already exact at 2 decimals.
+  // whole precision claim is stated: a 3-decimal ring is one whose every
+  // coordinate is already exact at 3 decimals.
   const repacked = encodeCountries(
     world.countries.map((country) => ({
       ...country,
       rings: country.rings.map((points) => ({
-        // The bake's own ladder: the coarsest precision the ring's numbers
-        // survive, out of the three it is allowed to have chosen.
+        // The bake's own ladder: every ring starts at 3 and the repair can raise
+        // it to 4. Not 2, which the bake no longer chooses: a ring whose points
+        // all happened to end in a zero would read as 2 and re-encode wrong.
         digits:
-          [2, 3, 4].find((d) =>
+          [3, 4].find((d) =>
             points.every((p) => Number(p[0]!.toFixed(d)) === p[0]! && Number(p[1]!.toFixed(d)) === p[1]!),
           ) ?? 5,
         points,

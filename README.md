@@ -162,12 +162,13 @@ repo.
 
 **Country outlines, and the shape of the planet itself: [Natural Earth] 1:10m —
 public domain.** The land mesh *is* those outlines, triangulated and projected.
-Islands arrive at the dataset's full detail and the continents are simplified
-back to a fifth of a degree, so Mallorca is 153 points and not 33; see
-`scripts/build-countries.mjs` for why the two are not the same decision.
+Every coast on the planet is simplified to the same tolerance, a hundredth of
+a degree, so an island and the continent facing it are drawn at the same level
+of detail; see `scripts/build-countries.mjs` for why giving the islands every
+point was tried and undone.
 
 **Settlements: [GeoNames] `cities5000` and `countryInfo` — © GeoNames, licensed
-under [CC BY 4.0].** 29,604 towns and cities with real names, coordinates and
+under [CC BY 4.0].** 29,614 towns and cities with real names, coordinates and
 populations, thinned so that no two are built on the same ground. Everything
 inhabited stands where GeoNames says people live.
 
