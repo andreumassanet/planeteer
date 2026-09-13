@@ -256,22 +256,49 @@ export const SKIN_TONES: readonly number[] = [
  * imports them, and so does anything that wants a walking crowd figure to keep
  * step with the player rather than moonwalk beside him.
  *
+ * **A run is twice a walk, and it was nearly three times.** At avatar scale, 3.78
+ * units to the metre, the walk's 45 is 11.9 m/s and 6.6 body heights a second:
+ * eight times a real stroll and already a platformer's jog, which is the
+ * exaggeration a planet 1:400 on distance asks of anything on foot, and nobody
+ * has objected to it. The run was 130 — 34 m/s, **19 body heights a second**,
+ * where a real sprinter manages about 5.5 — and what the eye reads beside the
+ * walk is the ratio: 2.9 is a sprint car. Real jogging is 2.1 times a walk (3.0
+ * m/s against 1.4), and games that exaggerate both put their run at about twice
+ * their walk. 90 is that: 23.8 m/s, 13 heights a second, a third off the old
+ * number. It moved on the user's word (*corre demasiado rápido*, 2026-09-13).
+ *
  * Tied to the planet's size at the other end: at radius 16000 a full lap is
- * 100,531 units, about 13 minutes at a run.
+ * 100,531 units, about 19 minutes at a run.
  */
 export const WALK_SPEED = 45;
-export const RUN_SPEED = 130;
+export const RUN_SPEED = 90;
 
 /**
  * Distance covered by one full stride cycle, walking and running.
  *
- * The cycle is driven by distance, not by time, so the feet keep pace with the
- * ground at any speed and there is nothing to resynchronise when the speed
- * changes. Longer strides at a run are what keeps the cadence sane: at a fixed
- * stride length, 130 units/s would spin the legs into a blur.
+ * The cycle is driven by distance, not by time, so the cadence keeps pace with
+ * the ground at any speed and there is nothing to resynchronise when the speed
+ * changes. What it does not do is plant a foot: with the hip swinging 0.42 each
+ * way a stance foot sweeps 2.1 units under the body while the body covers 11,
+ * and at a run 3.4 against 18. No stride at these speeds can close that with
+ * this swing, and the rear camera sees the lift and the bob rather than the
+ * slide (see `SWAY`).
  */
 export const WALK_STRIDE = 22;
-const RUN_STRIDE = 52;
+/**
+ * Stride cycles a second at a full run, and the run's stride is derived from
+ * it rather than written down.
+ *
+ * 2.5 is the cadence the run already had, 130 over a 52-unit stride — five
+ * footfalls a second, 1.22 times the walk's 2.05 — so the legs turn over as
+ * they always did and only the ground goes by slower. Keeping the 52 with the
+ * slower run would have dropped the cadence to 1.73, **below the walk's**, and a
+ * body that speeds up when Shift goes down while its legs slow down reads as
+ * bounding on the moon. Derived, so the next change to `RUN_SPEED` cannot do
+ * that either: the stride stays longer than the walk's for any run over 55.
+ */
+const RUN_CADENCE = 2.5;
+const RUN_STRIDE = RUN_SPEED / RUN_CADENCE;
 
 /** Radians the hip swings each way. */
 const WALK_SWING = 0.42;

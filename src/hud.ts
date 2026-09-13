@@ -768,7 +768,7 @@ export function createHud(world: World): Hud {
     // the animation on the one event that is never interesting.
     //
     // Nor does a *town*, and that is a budget rather than a principle: places
-    // sit a median 161 units apart, which at a run is one every 1.2 seconds
+    // sit a median 161 units apart, which at a run is one every 1.8 seconds
     // against a card that holds for 5.5. The chip is the right size of event
     // for a place; the card stays for the border.
     if (!country || id === announced) return;

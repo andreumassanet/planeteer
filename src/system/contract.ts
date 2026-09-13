@@ -138,9 +138,11 @@ export const KM_PER_UNIT = EARTH_RADIUS_KM / PLANET_RADIUS;
  * The avatar is 6.8 units and is a person, on every world, so the scale cannot
  * vary between them — which makes this a division and not a decision. The
  * consequence worth knowing before anyone proposes normalising it: a lap of
- * Mars at a run is `2 pi * 8514 / RUN_SPEED` = **6.9 minutes** against Earth's
- * 12.9, and of Jupiter's 1-bar level **2.4 hours**. Mercury is a five-minute
- * planet. That range is real and it is the point.
+ * Mars at a run is `2 pi * 8514 / RUN_SPEED` = **9.9 minutes** against Earth's
+ * 18.6, and of Jupiter's 1-bar level **3.4 hours**. Mercury is a seven-minute
+ * planet. That range is real and it is the point. (At the run of 90 units a
+ * second; they were 6.9, 12.9, 2.4 and five at the 130 it was until
+ * 2026-09-13, and the ratios between them did not move.)
  *
  * **This is declared and not yet wired.** `PLANET_RADIUS` is a module constant
  * in `globe.ts` that everything derives from, and making it per-body is that

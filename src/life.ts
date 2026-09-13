@@ -227,11 +227,12 @@ const CEILING = { road: 1800, foot: 700, water: 4000, air: 1500, herd: 900 } as 
  * reference it had been sized against was the wrong one.
  *
  * **The old rule was "a car has to visibly overtake a running player (130)",
- * and the player is the thing at the wrong scale.** A run here is 130 units a
- * second on a 6.8-unit body — **19 body-lengths a second, where a real sprinter
- * does about 2.5**. Sizing the traffic against that sizes it against a cartoon,
- * and it did not even hold: `ROAD_SPEED[0]` was 110, so a running player
- * already outran every car on a lane.
+ * and the player is the thing at the wrong scale.** A run here was 130 units a
+ * second on a 6.8-unit body — **19 body-lengths a second, where a real runner
+ * does about 2.5 and a sprinter 5.5**. Sizing the traffic against that sizes it
+ * against a cartoon, and it did not even hold: `ROAD_SPEED[0]` was 110, so a
+ * running player already outran every car on a lane. (The run is 90 since
+ * 2026-09-13, which changes one line below: see the last paragraph.)
  *
  * The reference that does hold is the car against **itself**, and against the
  * length of street you can actually see. A placed vehicle is 10.3 units long:
@@ -245,9 +246,10 @@ const CEILING = { road: 1800, foot: 700, water: 4000, air: 1500, herd: 900 } as 
  * ```
  *
  * A car crossing a village street in two seconds is a chase; in five it is
- * traffic. **What this gives up is that a running player now overtakes
- * everything**, which is the honest consequence of the reversal above rather
- * than an oversight: the player is the exaggeration, not the car.
+ * traffic. **What this gave up is that a running player overtook everything**,
+ * which was the honest consequence of the reversal above rather than an
+ * oversight: the player is the exaggeration, not the car. Since the run came
+ * down to 90 a trunk's 100 passes him again, and a lane and a road still do not.
  */
 const ROAD_SPEED = [55, 78, 100];
 

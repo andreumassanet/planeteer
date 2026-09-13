@@ -17,7 +17,7 @@ import { BIOMES, biomeAt, biomeSample } from './biome.ts';
  * Spain is 70 wide, so you saw a whole country at once. 4000 fixed that but was
  * still too small for its own islands — Mallorca came out 59 units across
  * against a 6.8-unit avatar, a 1.3-second walk. At 16000 it is 235 units, about
- * 35 avatars, and a lap of the planet is 13 minutes at a run.
+ * 35 avatars, and a lap of the planet is 19 minutes at a run.
  *
  * Note what does *not* change with it: the triangle count. The land mesh is
  * built from angles, not distances, so a bigger planet is the same 302,000

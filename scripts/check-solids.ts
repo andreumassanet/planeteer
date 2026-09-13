@@ -16,7 +16,7 @@
  *   node scripts/check-solids.ts
  */
 import * as THREE from 'three';
-import { RUN_SPEED } from '../src/avatar.ts';
+import { RUN_SPEED, WALK_SPEED } from '../src/avatar.ts';
 import { BODY_RADIUS } from '../src/player.ts';
 import {
   MAX_STEPS,
@@ -192,7 +192,8 @@ console.log(`\ntunnelling  (RUN_SPEED ${RUN_SPEED}, dt 0.1, steps of ${STEP_FRAC
         worst = Math.max(worst, body.z);
       }
       cases++;
-      // The witness that the case is a real one: a single step of 13 units.
+      // The witness that the case is a real one: a single step of
+      // `RUN_SPEED * 0.1`, which is 9 units.
       const jumped = start + RUN_SPEED * Math.cos(angle) * 0.1;
       if (jumped > 15 + R) naive++;
     }
@@ -369,7 +370,7 @@ function town(count: number, seedStart: number): Solid[] {
     let heading = random() * Math.PI * 2;
     for (let frame = 0; frame < 300; frame++) {
       if (frame % 40 === 0) heading += (random() - 0.5) * 2;
-      const speed = random() < 0.5 ? RUN_SPEED : 45;
+      const speed = random() < 0.5 ? RUN_SPEED : WALK_SPEED;
       body.vx = Math.cos(heading) * speed;
       body.vz = Math.sin(heading) * speed;
       const dt = frame % 17 === 0 ? 0.1 : 1 / 60;

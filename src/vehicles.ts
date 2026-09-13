@@ -205,7 +205,11 @@ function alongZ<K extends string>(
  * water disc there. That is what the boat cell in `/sheets/avatar.html` does.
  */
 export const BOAT_DECK = 2;
-/** Cruise and full ahead. Between a walk and a run, so the coast still reads. */
+/**
+ * Cruise and full ahead. Set between a walk and the old 130-unit run, so the
+ * coast still reads; the run came down to 90 on 2026-09-13 and the launch did
+ * not, so it now cruises a little faster than a man running along the beach.
+ */
 export const BOAT_SPEED = 115;
 export const BOAT_BOOST = 250;
 /** Rudder, radians per second. A half turn in 2.7 s. */
@@ -525,8 +529,31 @@ export const PLANE_CIRCUIT = 320;
 export const PLANE_CRUISE_LOW = 380;
 export const PLANE_CRUISE_HIGH = 3400;
 export const PLANE_BOOST = 1.6;
-/** A wide arc rather than a turn on the spot: a half turn takes 5.7 s. */
-export const PLANE_TURN = 0.55;
+/**
+ * Rate of turn at full stick once the plane is banked into it, in radians a
+ * second: 57 degrees a second, a 360 in 6.5 s with the roll-in, a half turn in
+ * 3.3.
+ *
+ * **It was 0.55, and the plane was not even getting that.** 31.5 degrees a
+ * second is a 360 in 11.4 s, and the diagonal normalisation meant for walking
+ * took 29% off it whenever `W` was held with `A` — 22 degrees a second, a 360 in
+ * 16 s and a 1,300-unit circle at the circuit, which is `levers` in `player.ts`.
+ * On top of that the chase camera trailed the turn at `RECENTRE_RATE` and took
+ * 0.7 s to show two thirds of it, so the first second of full stick turned the
+ * view **15 degrees, and 10 with the throttle open**. The user's word for it was
+ * *gira súper poco*. At 1.0, rolled in by `PLANE_ROLL_TIME` and followed by
+ * `TURN_TRAIL`, the first second turns the view 33 degrees either way. (All of
+ * these are the update laws stepped at 60 Hz, 2026-09-13, not a browser.)
+ *
+ * **A rate and not a radius, and that is deliberate** — the opposite of what
+ * `camera.ts` holds for the walk, and for the same reason: what the eye reads is
+ * the curve against the view, and here the view grows with the speed. At the
+ * circuit, 420 units a second at 1.0 is a ground track of 413 units radius under
+ * a camera 62 units off the tail; at the ceiling it is 1,390 units (5 degrees of
+ * arc) under a camera that holds the whole globe. Held as a radius it would
+ * either spin at the ceiling or be unable to turn over a town.
+ */
+export const PLANE_TURN = 1.0;
 export const PLANE_ACCELERATION_TIME = 2.6;
 /** And the throttle closes faster than it opens, so a landing is aimable. */
 export const PLANE_LANDING_TIME = 1.2;

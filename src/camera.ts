@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIGURE, RUN_SPEED } from './avatar.ts';
+import { FIGURE } from './avatar.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { BODY_RADIUS } from './player.ts';
 import type { Player } from './player.ts';
@@ -14,8 +14,8 @@ const FOV = 55;
  * How hard the camera chases per second. Higher is tighter and twitchier.
  *
  * An exponential chase trails a target moving at `v` by exactly `v / this`. On
- * foot at a run that is 19 units and it reads as weight, which is why the
- * number is low. At 3,400 units/s it is 490 — enough to drag the camera out of
+ * foot at a run that is 13 units (19 when the run was 130) and it reads as
+ * weight, which is why the number is low. At 3,400 units/s it is 490 — enough to drag the camera out of
  * the sky and back down level with the plane, so the framing would say
  * "overhead, looking at the globe" and the picture would say "level flight".
  * See the lead term in `follow`.
@@ -120,13 +120,35 @@ const FLIGHT_HIGH = { orbit: 340, elevation: 88 * DEG };
 const FRAMING_RATE = 2.2;
 
 /**
- * How fast the view swings back behind a vehicle you are steering.
+ * How fast a look taken from a craft comes back behind its bow.
  *
  * Slow enough that the mouse still wins while it is moving, fast enough that
  * letting go of it puts the bow back in the middle of the frame. On foot there
  * is no such pull: there the camera is where you point it and the body follows.
+ * It is the mouse's alone: following the bow round a turn is `TURN_TRAIL`'s.
  */
 const RECENTRE_RATE = 1.4;
+/**
+ * How far the view trails a craft's own turn, in seconds of that turn: at full
+ * stick the plane's 1.0 rad/s leaves the camera 15 degrees off its tail and the
+ * launch's 1.15 leaves it 17 — stepped at 60 Hz through `createPlayer` and this
+ * rig, headless; a frame over `rate * TURN_TRAIL`, because `aim` reads the bow
+ * `player.update` left on the frame before.
+ *
+ * **It used to be `RECENTRE_RATE`, and that constant was chosen for the
+ * mouse.** One pull did two jobs — bring a look back behind the bow, and follow
+ * the bow round a turn — and an exponential chase trails a steady turn by
+ * `rate / gain`: 22 degrees for the plane of the time and 47 for the launch, and
+ * a step of stick took 0.7 s to reach two thirds of itself on the screen,
+ * because the view was the slowest thing in the loop. So it is two pulls now.
+ * The part of the gap the mouse made is `glance`, and it decays at
+ * `RECENTRE_RATE` exactly as it always did; the part the turn made closes at
+ * this.
+ *
+ * Not zero, because the trail is what shows a turn from astern: without it the
+ * plane sits dead centre, the bank is the only cue, and the world slides past.
+ */
+const TURN_TRAIL = 0.25;
 
 /**
  * The same swing back, on foot, and every gate on it is the answer to a way it
@@ -139,9 +161,9 @@ const RECENTRE_RATE = 1.4;
  *
  * - **Strength is how much you are moving**, times how fast you are actually
  *   going. Standing still it is 0, so the view you set while stopped is yours.
- *   `velocity / RUN_SPEED` is the second half, and what it buys is that the
- *   thing held constant is the **radius** of the curve rather than the rate of
- *   it.
+ *   `velocity / RETURN_RADIUS` is the second half, and what it buys is that
+ *   the thing held constant is the **radius** of the curve rather than the rate
+ *   of it.
  *
  *   **It used to be `max(0, move.y)`, and that clamp was the fix for the wrong
  *   half of the problem.** It stopped `S` being an oscillator — swing the
@@ -154,7 +176,7 @@ const RECENTRE_RATE = 1.4;
  *   nothing left to prevent: it is `min(1, |move|)` now, so `S` swings the
  *   camera round and a pure strafe still does, because `A` with the camera
  *   coming behind you is a person sidestepping and then walking where they are
- *   looking, which is what a person does. A fixed rate is a 329-unit turn at a run and a 114-unit one at a walk,
+ *   looking, which is what a person does. A fixed rate was a 329-unit turn at the 130-unit run of the time and a 114-unit one at a walk,
  *   which is the same law reading as a drift and as a spin depending only on
  *   whether Shift is down. Rate proportional to speed is one radius at both.
  * - **It yields to the mouse, on the axis it acts on.** A yaw delta resets
@@ -171,8 +193,8 @@ const RECENTRE_RATE = 1.4;
  *   140-unit monument and look up it — and nothing about walking makes that
  *   choice stale. Almost every third-person game does the same and this is why.
  *
- * `RETURN_MAX` is chosen by what a **held diagonal** describes, because that is
- * the only case where this does visible work — see the trap in CLAUDE.md.
+ * The radius was chosen by what a **held diagonal** describes, because that was
+ * the only case where this did visible work — see the trap in CLAUDE.md.
  * Measured, holding `W`+`A`: the error settles at 41.4 degrees rather than 45 —
  * the camera never catches a diagonal, because the input is re-derived from the
  * camera every frame — and the camera then turns for ever at 21.9 deg/s at a
@@ -184,19 +206,31 @@ const RECENTRE_RATE = 1.4;
  * and 4.7 by this.
  */
 const RETURN_GAIN = 2.6;
-const RETURN_MAX = 32 * DEG;
+/**
+ * The arc the pull draws, in units: the ceiling on its rate is `velocity /
+ * RETURN_RADIUS`, which is one curve at every speed.
+ *
+ * **It was `RETURN_MAX`, 32 deg/s times `velocity / RUN_SPEED`,** and that is
+ * this same radius — 130 over 32 degrees is 233 — spelled as a rate and a
+ * speed. So it moved whenever the run did: taking the run to 90 (2026-09-13)
+ * would have tightened the curve by a third at every speed, the walk included,
+ * without a line of this file changing. Written as the radius, the run can move
+ * and the camera does not. The 340 above is this law on the diagonal under the
+ * old `max(0, move.y)` gate, which put 0.707 of it in play: 233 / 0.707 = 329.
+ */
+const RETURN_RADIUS = 233;
 /**
  * The ceiling when the error is large, and why there are two of them.
  *
- * `RETURN_MAX` is a **radius**: 32 deg/s times `velocity / RUN_SPEED` holds the
- * camera's arc at 340 units whether you walk or run, which is the curve
+ * `RETURN_RADIUS` is a **radius**: `velocity / RETURN_RADIUS` holds the
+ * camera's arc at 233 units whether you walk or run, which is the curve
  * somebody running makes when they change their mind. That is the right law for
  * a small error, because a small error *is* a curve you are walking.
  *
  * **An about-face is not a curve.** Press `S` and the body has already turned —
  * `TURN_SMOOTHING` is 0.09 s — so what is left is the camera trailing a body
  * that is facing the other way, and pricing that as an arc gives a half-turn a
- * radius of 340 units: measured before this, holding `S` at a walk closed 26.5
+ * radius of 233 units: measured before this, holding `S` at a walk closed 26.5
  * degrees in 2.4 seconds, **11 deg/s, about fourteen seconds and a thousand
  * units of walking to come round.** The user's report of it was exact: *"si
  * camino con la S no veo por donde voy"*.
@@ -299,6 +333,8 @@ export interface CameraOptions {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (rate: number, dt: number) => 1 - Math.exp(-rate * dt);
+/** An angle folded into (-pi, pi], so a gap is always closed the short way round. */
+const wrap = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
 /** Smooth 0..1 ramp between two thresholds. */
 function ramp(value: number, from: number, to: number): number {
   const t = clamp((value - from) / (to - from), 0, 1);
@@ -345,6 +381,13 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
   let steering = false;
   /** True while an about-face is being closed; see the ceiling below. */
   let rushing = false;
+  /**
+   * In a craft, how far the mouse has turned the view off the line the view is
+   * chasing, in radians about `up`; see `TURN_TRAIL`. The rest of the gap to the
+   * bow is the turn's. `riding` is whether it has been handed its share yet.
+   */
+  let glance = 0;
+  let riding = false;
 
   /** True while the rig owns `view`; see the interface. */
   let driving = false;
@@ -626,6 +669,9 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       lastMove.x = input.move.x;
       lastMove.y = input.move.y;
       steering = moving;
+      // Any frame on foot, first person included, ends a ride: the next craft
+      // hands its opening gap to the look again.
+      if (player.vehicle === 'foot') riding = false;
 
       if (player.vehicle !== 'foot') {
         // A vehicle has a bow, and you steer it rather than the camera, so the
@@ -633,7 +679,18 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         // undone by this.
         cross.crossVectors(heading, player.forward);
         const away = Math.atan2(cross.dot(player.up), heading.dot(player.forward));
-        heading.applyAxisAngle(player.up, away * approach(RECENTRE_RATE, dt)).normalize();
+        // Two pulls, not one: see `TURN_TRAIL`. `heading` is the line the view
+        // chases turned by `glance`, so the chase is `away + glance` short of
+        // the bow. On boarding none of the gap was made by a turn, so all of it
+        // is handed to the look and comes back at the rate it always did.
+        if (!riding) {
+          glance = -away;
+          riding = true;
+        } else glance = wrap(glance - input.look.x);
+        const trail = wrap(away + glance);
+        const settled = glance * (1 - approach(RECENTRE_RATE, dt));
+        heading.applyAxisAngle(player.up, trail * approach(1 / TURN_TRAIL, dt) + settled - glance).normalize();
+        glance = settled;
       } else if (!firstPerson) {
         // The same swing, gated four ways, and in first person there is no
         // "behind" to swing to: the heading is the facing. See RETURN_GAIN.
@@ -643,12 +700,12 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
           cross.crossVectors(heading, player.forward);
           const away = Math.atan2(cross.dot(player.up), heading.dot(player.forward));
           // The ceiling opens with the error, and **the speed factor rides the
-          // radius half only**. `velocity / RUN_SPEED` is there to hold the arc
-          // at 340 units whether you walk or run; the rush explicitly abandons
+          // radius half only**. `velocity / RETURN_RADIUS` is there to hold the
+          // arc at 233 units whether you walk or run; the rush explicitly abandons
           // the radius law, so scaling it by speed would put the same argument
           // on both sides of its own exception — and it measures as one, a
           // half-turn at a walk taking 3.5 s instead of 1.2.
-          const radiusRate = RETURN_MAX * Math.min(1, player.velocity / RUN_SPEED);
+          const radiusRate = player.velocity / RETURN_RADIUS;
           // **And the rush latches, because gating it on the error alone leaves
           // a tail longer than the turn.** Ramping the ceiling down as the gap
           // closes means the last 50 degrees are priced as a curve again, and a
@@ -734,6 +791,9 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       heading.copy(player.forward).projectOnPlane(player.up);
       if (heading.lengthSq() < 1e-8) heading.set(0, 0, 1).projectOnPlane(player.up);
       heading.normalize();
+      // The view is dead astern now, so a craft has no look left to return.
+      glance = 0;
+      riding = player.vehicle !== 'foot';
 
       // Only take `view` over if the rig already owns it, or is about to: a
       // teleport must not quietly reset a framing the console set by hand.

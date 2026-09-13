@@ -49,9 +49,10 @@ const TURN_SMOOTHING = 11;
  * Only drops: a rise is followed exactly, on the frame it happens. When the
  * only height change on the planet was the 20-unit step at a coastline, one
  * smoothing constant for both directions was fine. With terrain relief a slope
- * is the normal case, and running up one at 130 units/s asks the ground to rise
- * about 65 a second — which this lags by roughly 7 units, so the avatar walked
- * a mountainside buried to the knees. There is nothing to smooth there anyway:
+ * is the normal case, and running up a 1-in-2 one asks the ground to rise at
+ * half the run — 65 units a second at the 130 it was when this was found, which
+ * this lagged by roughly 7 units, so the avatar walked a mountainside buried to
+ * the knees. At today's 90 it would still be about 5. There is nothing to smooth there anyway:
  * ground that rose under your feet is ground you are already standing on.
  */
 const HEIGHT_SMOOTHING = 8;
@@ -100,7 +101,23 @@ const LEAN_SMOOTHING = 8;
 /** Roll into a turn, per vehicle. A plane banks; a launch only heels. */
 const PLANE_BANK = 0.6;
 const BOAT_HEEL = 0.2;
+/** How fast the launch's heel follows its rudder. */
 const BANK_SMOOTHING = 4;
+/**
+ * How long the plane takes to roll into a bank, and therefore into a turn: the
+ * time constant of the one ease between the stick and the heading, 95% of the
+ * way in 0.6 s.
+ *
+ * **The bank turns the plane.** The turn used to be the key itself —
+ * `-move.x * PLANE_TURN`, full rate on the first frame — with the bank eased
+ * after it out of the turn rate, so the heading snapped and the wings followed a
+ * quarter of a second late, and **the wrong way**: `bank` gave a left turn a
+ * positive roll, which in this basis leans the plane right, outward, a skid. The
+ * walk's lean had the minus sign and the craft's never did. Now the stick rolls
+ * the plane, the turn rate is read off the roll, and the attitude *is* the turn,
+ * the way the nose following `climbRate` is the climb.
+ */
+const PLANE_ROLL_TIME = 0.2;
 /** Steepest the nose is allowed to point while climbing or diving. */
 const MAX_NOSE = 0.5;
 
@@ -187,6 +204,30 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 /** Frame-rate independent version of `x += (target - x) * rate`. */
 const approach = (rate: number, dt: number) => 1 - Math.exp(-rate * dt);
+
+/**
+ * The movement keys as a craft reads them: two levers, not a direction.
+ *
+ * `input.ts` scales a diagonal to unit length, and on foot that is right — `W`
+ * and `A` together are one direction, and a diagonal must not be faster than a
+ * straight line. In a craft they are two separate controls, the stick (`A`/`D`)
+ * and the throttle (`W`/`S`), and the normalisation coupled them: holding `W`
+ * to go faster and `A` to turn gave each 0.707 of itself, so opening the
+ * throttle took 29% off the turn and turning took 29% off the throttle. The
+ * plane's 0.55 was a 0.39 for anyone flying with `W` held.
+ *
+ * This stretches the vector along its own direction until its longer component
+ * is as long as the whole was: a key held alone is untouched, and two held
+ * together come back as exactly 1 each. For anything but keys it is the usual
+ * disc-to-square map.
+ */
+function levers(move: { x: number; y: number }, out: { x: number; y: number }): { x: number; y: number } {
+  const longer = Math.max(Math.abs(move.x), Math.abs(move.y));
+  const stretch = longer > 1e-9 ? Math.hypot(move.x, move.y) / longer : 0;
+  out.x = move.x * stretch;
+  out.y = move.y * stretch;
+  return out;
+}
 
 export interface PlayerOptions {
   /**
@@ -312,8 +353,12 @@ export function createPlayer(
   let targetAltitude = PLANE_CIRCUIT;
   let landing = false;
   let turnRate = 0;
+  /** How far the plane is rolled into a turn, -1 to 1, positive to the left. */
+  let roll = 0;
   let climbRate = 0;
   let swell = 0;
+  /** The movement keys as a craft reads them; see `levers`. */
+  const stick = { x: 0, y: 0 };
 
   const heading = new THREE.Vector3();
   const side = new THREE.Vector3();
@@ -446,6 +491,8 @@ export function createPlayer(
     motion.set(0, 0, 0);
     vertical = 0;
     airborne = true;
+    // Wings level: whatever the last flight ended on is not this one's turn.
+    roll = 0;
   }
 
   function touchDown(ground: number): void {
@@ -614,14 +661,16 @@ export function createPlayer(
   }
 
   function sail(dt: number, input: PlayerInput): void {
-    const turn = -input.move.x * BOAT_TURN * dt;
+    // Rudder and throttle are two levers, not a direction: see `levers`.
+    levers(input.move, stick);
+    const turn = -stick.x * BOAT_TURN * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
 
     const top = input.run ? BOAT_BOOST : BOAT_SPEED;
     // Astern is deliberately weak: it is for getting off a rock, not for
     // sailing backwards across an ocean.
-    const wanted = input.move.y >= 0 ? top * input.move.y : BOAT_SPEED * input.move.y * 0.35;
+    const wanted = stick.y >= 0 ? top * stick.y : BOAT_SPEED * stick.y * 0.35;
     speed += (wanted - speed) * approach(1 / BOAT_ACCELERATION_TIME, dt);
     if (Math.abs(speed) < 0.05) speed = 0;
 
@@ -663,7 +712,14 @@ export function createPlayer(
   }
 
   function fly(dt: number, input: PlayerInput): void {
-    const turn = -input.move.x * PLANE_TURN * dt;
+    // Stick and throttle are two levers, not a direction: see `levers`.
+    levers(input.move, stick);
+    // The stick rolls the plane and the roll turns it: see `PLANE_ROLL_TIME`.
+    // `A` is a negative `x` and a left turn, which about `up` is positive.
+    roll += (-stick.x - roll) * approach(1 / PLANE_ROLL_TIME, dt);
+    // Otherwise the ease leaves the wings a hair off level for ever.
+    if (stick.x === 0 && Math.abs(roll) < 1e-4) roll = 0;
+    const turn = roll * PLANE_TURN * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
 
@@ -673,7 +729,7 @@ export function createPlayer(
     const cruise = mix(PLANE_CRUISE_LOW, PLANE_CRUISE_HIGH, fraction);
     const wanted = landing
       ? PLANE_CRUISE_LOW * 0.55
-      : cruise * (1 + input.move.y * 0.35) * (input.run ? PLANE_BOOST : 1);
+      : cruise * (1 + stick.y * 0.35) * (input.run ? PLANE_BOOST : 1);
     speed += (wanted - speed) * approach(1 / (landing ? PLANE_LANDING_TIME : PLANE_ACCELERATION_TIME), dt);
 
     if (landing) targetAltitude = 0;
@@ -704,7 +760,15 @@ export function createPlayer(
     if (landing && radius <= floor + 0.5) touchDown(ground);
   }
 
-  /** Rolls into a turn, per vehicle. */
+  /**
+   * The launch's heel, eased after its rudder.
+   *
+   * A left turn is a positive `turnRate` and comes out here as a positive roll,
+   * which in `pose`'s basis leans the hull right — *out* of the turn, as a
+   * displacement hull heels. The plane used to come through here too and banked
+   * outward with it, which for a wing is simply wrong; it rolls through `roll`
+   * now, into the turn.
+   */
   function bank(dt: number, limit: number, rate: number): void {
     const wanted = clamp(turnRate / rate, -1, 1) * limit;
     lean += (wanted - lean) * approach(BANK_SMOOTHING, dt);
@@ -734,7 +798,11 @@ export function createPlayer(
     if (vehicle === 'plane') {
       avatar.sit(dt);
       seatOn(PLANE_SEAT);
-      bank(dt, PLANE_BANK, PLANE_TURN);
+      // The bank *is* the turn — `fly` reads the turn off `roll` — so it is
+      // taken as it stands rather than eased a second time, and it goes into
+      // the turn: a left roll is a positive `roll` and, per the basis above, a
+      // negative lean.
+      lean = -roll * PLANE_BANK;
       // Nose follows the actual climb rate, so the attitude is the flight path
       // rather than a decoration: negative pitches it up.
       const nose = -clamp(Math.atan2(climbRate, Math.max(speed_, 1)), -MAX_NOSE, MAX_NOSE);
@@ -852,6 +920,7 @@ export function createPlayer(
       // Tokyo is mid-stride from Paris.
       avatar.reset();
       turnRate = 0;
+      roll = 0;
       climbRate = 0;
       altitude = 0;
       targetAltitude = PLANE_CIRCUIT;
