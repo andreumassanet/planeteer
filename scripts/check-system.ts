@@ -964,6 +964,12 @@ for (const part of decorations) {
   let dip = 0;
   for (const body of bodies) {
     if (part.bodies.length > 0 && !part.bodies.includes(body.id)) continue;
+    // A decoration stands on ground, and a body with no ground model will never
+    // place one: building it there measures seeds nothing will ever draw. The
+    // Sun was the only such body until the giants arrived as rows for the menu
+    // (2026-09-13), and the first of their seeds to be built failed a footprint
+    // on a world with nowhere to put the part.
+    if (body.ground === null) continue;
     for (let variant = 0; variant < DECORATION_VARIANTS; variant++) {
       let group;
       try {

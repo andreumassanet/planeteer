@@ -39,7 +39,9 @@ export const EARTH: Body = {
   tiltDeg: 23.44,
   gravity: 9.807,
   blurb:
-    'The one with the outlines, the 23,867 towns, the roads between them and the weather over them. ' +
+    // No count in this sentence: it printed 23,867 towns long after the bake
+    // stopped building that many, and the menu that shows it counts its own.
+    'The one with the outlines, the towns, the roads between them and the weather over them. ' +
     'Seven tenths water, which no other body here has any of.',
   look: {
     surface: PALETTE.green,
