@@ -85,8 +85,18 @@ async function main(): Promise<void> {
     renderer,
     draw: (target, camera) => outline.render(target, camera),
     fallback: START,
+    time: () => sky.state.time,
+    sunDirection: () => sky.state.sun,
   });
   document.body.appendChild(menu.root);
+  // The menu no longer takes the loading card over; the world's own loading
+  // screen is `main.ts`'s to dismiss, and this sheet's is this sheet's.
+  document.getElementById('loading')?.remove();
+  // As `main.ts`: the orrery draws the Sun, so the sky's own disc goes, and
+  // behind the orrery is the dome's own space colour.
+  const sunDisc = scene.getObjectByName('sun');
+  if (sunDisc !== undefined) sunDisc.visible = false;
+  scene.background = new THREE.Color().setRGB(0.016, 0.024, 0.055, THREE.SRGBColorSpace);
   mark('menu interactive');
 
   const oceanSun = new THREE.Vector3();
@@ -110,9 +120,15 @@ async function main(): Promise<void> {
     sky.update(camera.position.clone().setLength(PLANET_RADIUS), camera.position, altitude);
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     clouds.update(sky.state.time, camera.position, fog);
-    // As `main.ts`: the deck comes off for the town stage, where it stands
-    // between the camera and the country you are picking a town in.
-    clouds.group.visible = menu.stage !== 'site';
+    // As `main.ts`, without its fade: the deck is off at the country and town
+    // stages, where it stands between the camera and the map you are choosing
+    // on, and the dome goes once the camera is outside it.
+    clouds.setVeil(menu.stage === 'region' || menu.stage === 'site' ? 0 : 1);
+    const inside = camera.position.length() < PLANET_RADIUS * 5.5;
+    for (const name of ['sky', 'moon']) {
+      const object = scene.getObjectByName(name);
+      if (object !== undefined) object.visible = inside;
+    }
     // The direction, not the position: the sun sits on the shadow box now.
     oceanSun.copy(sky.state.sun);
     oceanMoon.copy(sky.moon.position).normalize();
@@ -129,7 +145,7 @@ async function main(): Promise<void> {
   Object.assign(globalThis, { sheet: { marks, world, places, menu, sky, scene, renderer, outline } });
 
   const spawn = await menu.choose();
-  clouds.group.visible = true;
+  clouds.setVeil(1);
   menu.dispose();
   const panel = document.getElementById('spawned')!;
   panel.hidden = false;

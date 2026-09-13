@@ -1,35 +1,48 @@
 /**
- * The front door: pick where you wake up, on the planet you are going to walk.
+ * The front door: the solar system, then a planet, then a country, then the
+ * town you wake up in.
  *
- * **It is the real world and not a picture of one.** There is already a globe
- * built from the country outlines, a sun where the sun is, a cloud deck and a
- * sea, and the plane's whole design is that climbing high enough turns the world
- * into the map — from 2.47 radii the globe subtends 47.8 degrees of the 55
- * degree lens, which is the arithmetic the ceiling was chosen by. So this menu
- * builds *nothing*: it makes a camera, puts it where the plane's ceiling puts
- * one, and hands the same `scene` back to the same `outline.render` the game
- * loop uses. What it adds to the world is one geometry — a ribbon along the
- * hovered country's own rings — and one DOM overlay.
+ * **It is the real world and not a picture of one.** The menu draws the
+ * world's own scene with the world's own `outline.render`: the land, the sea,
+ * the weather and the sun at the real hour are already standing when it opens,
+ * and `orrery.ts` lays the other planets out around them. So the first screen
+ * is the whole solar system, the click on Earth is one camera move down onto
+ * the planet you are about to walk, and choosing a town is a dive from wherever
+ * the camera is into that town — one scene, one continuous flight, no cut.
  *
- * The consequence worth stating up front is that **the menu costs nothing to
- * reach that the world was not already spending**. It is interactive the frame
- * after `buildLand` returns, which is four stages before `start()` finishes, and
- * everything after that stage arrives underneath a globe the player is already
- * turning. See `docs/traps.md` for the numbers.
+ * The four stages, and what each owns:
  *
- * Three things it deliberately does not own:
+ * - **system** — the orrery, turned by hand and drifting when left alone; a
+ *   dock of every body along the bottom; the search, which can jump straight
+ *   to a town from here.
+ * - **planet** — one body up close with its card. Only Earth can be entered
+ *   today; the rest say so, from the data (`MenuBody` exists for a body or it
+ *   does not) rather than from a list.
+ * - **region** — the globe, a country ribbon under the pointer, a click to
+ *   choose.
+ * - **site** — the chosen country's towns, as pins on the map and as a list,
+ *   and a card for the one you picked with a button that starts there.
  *
- * - **The screen basis.** `cartography.ts`'s `setFrame` is the one definition of
- *   a *map's* basis and the reason is three shipped mirror bugs. This is not a
- *   map: every point on the screen here is `Vector3.project(camera)` and every
- *   click is `Vector3.unproject(camera)`, so the basis is the camera's own
- *   `matrixWorld` and there is no second copy of it to disagree. `verify()`
- *   asserts it anyway, against a third party — see below.
- * - **The colour of the land.** `groundColorAt` in `globe.ts` is the one colour
- *   law; a highlight that tinted a country would be a second one. The hovered
- *   country gets a ribbon laid *over* its own rings instead, which is geometry
- *   this file owns and the land mesh has never heard of.
- * - **The pointer.** See `choose()`.
+ * **What players got wrong with the last version is written into this one.**
+ * People who tried the menu chose a country, then dragged the globe to look
+ * around — and the towns of the country they had dragged to never appeared,
+ * because the selection was still the first country and the only way out was
+ * an `Esc` nobody knew about. They called it broken, and they were right. So:
+ * *dragging chooses*: whatever country is under the middle of the screen when
+ * you let go is the one whose towns are shown, a reticle says so while you
+ * drag, and clicking any other country goes to it. And the way back is on the
+ * screen — a back button that says where it goes, and a trail of crumbs.
+ *
+ * Three things this file deliberately does not own, as before:
+ *
+ * - **The screen basis.** Every mark is `Vector3.project(camera)` and every
+ *   click `unproject`, so there is no map basis to mirror. `verify()` asks the
+ *   gazetteer, a third party, whether east is to the right — and asks the
+ *   orrery whether its Sun agrees with `sun.ts`'s.
+ * - **The colour of the land.** The chosen country gets a ribbon laid over its
+ *   own rings, geometry this file owns and the land mesh never hears of.
+ * - **The weather.** `main.ts` fades the deck out for the country and town
+ *   stages, reading `stage`; nothing here knows there is a cloud.
  */
 
 import * as THREE from 'three';
@@ -37,25 +50,27 @@ import { type Country, type World, toLatLon } from './geo.ts';
 import { LAND_HEIGHT, PLANET_RADIUS, onSphere } from './globe.ts';
 import { isShown } from './places.ts';
 import type { Place } from './places.ts';
-import { LabelSpace, css, thinMarks } from './cartography.ts';
+import { LabelSpace, thinMarks } from './cartography.ts';
 import { reliefAt } from './terrain.ts';
-import { PALETTE } from './theme.ts';
+import { PALETTE, OCEAN_COLOR } from './theme.ts';
+import { clockAt } from './timezone.ts';
+import { createFlagCanvas } from './flags.ts';
+import { createOrrery } from './orrery.ts';
+import type { OrreryBody } from './orrery.ts';
+import { ELEMENTS, periodOf } from './system/index.ts';
+import { ensureStyle, fold, h, hex, icon, installUi, kbd, people } from './ui.ts';
 
 const DEG = Math.PI / 180;
-const R2D = 180 / Math.PI;
+const R = PLANET_RADIUS;
 
 /* ------------------------------------------------------------------------- *
- * The body: the seam a planet step slots into
+ * The body: the seam a walkable planet slots into
  * ------------------------------------------------------------------------- */
 
 /**
- * One ring of one region, in the format the bake already stores.
- *
- * `points` is `[lon, lat]` pairs, implicitly closed, and `height` is how far the
- * land stands above the body's own sea level — which is `LandRing` in `geo.ts`
- * with the two fields this file reads and nothing else. The ribbon is built from
- * exactly the array the land mesh is triangulated from, so a highlight cannot
- * disagree with the coastline it is drawn on.
+ * One ring of one region, in the format the bake already stores: `[lon, lat]`
+ * pairs, implicitly closed, and how far the land stands above sea level. The
+ * ribbon is built from exactly the array the land mesh is triangulated from.
  */
 export interface MenuRing {
   points: number[][];
@@ -67,7 +82,7 @@ export interface MenuRegion {
   /** The join key. On Earth, `ADM0_A3` — the same key the flags and places use. */
   key: string;
   name: string;
-  /** One line under the name in the hover card. On Earth, the continent. */
+  /** One line under the name. On Earth, the continent. */
   note: string;
   /** The bake's own label point, and the fallback spawn when it has no sites. */
   lat: number;
@@ -82,36 +97,26 @@ export interface MenuSite {
   key: string;
   lat: number;
   lon: number;
-  /**
-   * How much this site outranks its neighbours when the pins are thinned.
-   * On Earth, population.
-   */
+  /** How much this site outranks its neighbours. On Earth, population. */
   weight: number;
   capital?: boolean;
 }
 
 /**
- * A whole world you can spawn on.
+ * A world you can walk on.
  *
- * **This is the seam the solar system slots into and it is deliberately narrow.**
- * Nothing here mentions Earth, `World`, `Place` or `PLANET_RADIUS`; a body is a
- * radius, a centre, a relief field, a point-in-polygon and two lists. `earthBody`
- * below is the whole of the adapter for the planet that exists, and it is
- * eighteen lines — which is the measurement that says the interface is the right
- * width. Add a second entry to `bodies` and a stage appears in front of the
- * country stage; add nothing and it does not.
+ * **Deliberately narrow, and it is the seam a second walkable world slots
+ * into.** Nothing here mentions `World`, `Place` or `PLANET_RADIUS`. The
+ * orrery draws every body in `system/`; the ones that also have a `MenuBody`
+ * — matched on `id` — are the ones the planet stage offers to enter.
  */
 export interface MenuBody {
   id: string;
   name: string;
-  /** One line under the name on the body card. */
   note: string;
   /** Sea-level radius, in world units. */
   radius: number;
-  /**
-   * Where the body's centre sits in world space. Earth is the origin, and a
-   * second planet is not, which is why this is here rather than assumed.
-   */
+  /** Where the body's centre sits in world space. Earth is the origin. */
   centre: THREE.Vector3;
   /** Height of the ground over `radius` at a point on the unit sphere. */
   relief(x: number, y: number, z: number): number;
@@ -131,13 +136,10 @@ export interface MenuSpawn {
 }
 
 /**
- * Earth, as a `MenuBody`.
- *
- * The one adapter that exists today, and the only place in this file that knows
- * what a `World` or a `Place` is. `world.rings` rather than `country.rings`
- * because the rings carry their own shelf height and the lakes carry a flag —
- * a lake is a ring the world reads as water, so it belongs to nobody and gets no
- * highlight.
+ * Earth, as a `MenuBody`: the one adapter that exists, and the only place in
+ * this file that knows what a `World` or a `Place` is. `world.rings` rather
+ * than `country.rings` because the rings carry their shelf height and the lakes
+ * carry a flag — a lake belongs to nobody and gets no ribbon.
  */
 export function earthBody(world: World, places: readonly Place[]): MenuBody {
   const regions: MenuRegion[] = world.countries.map((country: Country) => ({
@@ -180,65 +182,56 @@ export function earthBody(world: World, places: readonly Place[]): MenuBody {
  * ------------------------------------------------------------------------- */
 
 export interface MenuDeps {
-  /**
-   * Every world you can spawn on, in the order they are offered. One body and
-   * the body stage never appears; two and it is the first thing you see.
-   */
+  /** Every world you can walk on. The orrery draws the rest of the system. */
   bodies: readonly MenuBody[];
-  /** The world's own scene. The menu adds one group to it and takes it away. */
+  /** The world's own scene. The menu adds the orrery and a ribbon, and takes them away. */
   scene: THREE.Scene;
-  /**
-   * The world's own renderer. The menu sizes it, because `main.ts` does not
-   * until the frame loop starts and a WebGL canvas defaults to 300x150.
-   */
+  /** The world's own renderer; the menu sizes it, since the loop has not started. */
   renderer: THREE.WebGLRenderer;
-  /**
-   * **`outline.render`, not `renderer.render`.** A frame in this project is two
-   * passes and drawing one of them is drawing half the world.
-   */
+  /** **`outline.render`, not `renderer.render`**: a frame is two passes. */
   draw(scene: THREE.Scene, camera: THREE.Camera): void;
-  /** Where `Play` goes when nothing is remembered. `main.ts`'s `START`. */
+  /** Where `Continue` goes when nothing is remembered. `main.ts`'s `START`. */
   fallback: { lat: number; lon: number; name: string };
+  /** The sky's clock. The planets are laid out for it and the town card reads it. */
+  time(): Date;
+  /** The sun `sun.ts` lights the land by, for `verify()`'s witness. */
+  sunDirection?(): THREE.Vector3;
 }
+
+/** The cream that covers the cut from the menu's camera to the player's. */
+export interface Curtain {
+  /** Fade it away. Call once the world under it has had a few frames to stand. */
+  lift(): void;
+}
+
+export type Stage = 'system' | 'planet' | 'region' | 'site';
 
 export interface Menu {
   /** The overlay. The caller appends it; `dispose` removes it. */
   root: HTMLElement;
-  /**
-   * The menu's own camera. Its own, because `rig.camera` does not exist until
-   * `main.ts` has a player to build the rig around, and a menu that waited for
-   * one would be waiting for the whole world. Exposed so a review sheet can
-   * project a known coordinate and ask what is under that pixel.
-   */
+  /** The menu's own camera — `rig.camera` does not exist until there is a player. */
   camera: THREE.PerspectiveCamera;
-  /**
-   * Which of the three stages is up: the world, the country, or the town.
-   *
-   * Exposed for one reason and it is worth saying which, because a stage is
-   * otherwise this file's private business. **The cloud deck is between the
-   * camera and the country at the town stage.** The menu is the real planet
-   * with the real weather on it and that is most of why it is worth looking at
-   * — but at the town stage it stops being a view and becomes a list you click,
-   * and a cell of stratus over eastern Spain then hides Valencia. So `main.ts`
-   * takes the deck off for that one stage and puts it straight back, which is
-   * one property on a group this file has never heard of and could not own.
-   */
+  /** Which stage is up. `main.ts` fades the cloud deck out for `region` and `site`. */
   readonly stage: Stage;
+  /** Whether the camera is on a programmed flight rather than in a hand's control. */
+  readonly flying: boolean;
   /**
    * The sky, the sea and the weather, which this file does not own. Assign it
-   * once the objects that need updating exist — the menu draws with whatever is
-   * in the scene until then, which on the first frames is a still sun over a
-   * finished globe and is exactly right.
+   * once they exist; the menu draws whatever is in the scene until then.
    */
   beforeRender: ((camera: THREE.PerspectiveCamera) => void) | null;
   /** Resolves with where the player wakes up. Safe to await more than once. */
   choose(): Promise<MenuSpawn>;
-  /** Say the world has finished building, so `Play` can stop apologising. */
+  /** How far the world behind the menu has got, 0 to 1, and what it is doing. */
+  progress(fraction: number, label: string): void;
+  /** The world is built: `Start` can stop waiting. */
   ready(): void;
   /**
-   * The handedness check, and it is a *third party* — see the comment on it.
-   * Left on `globalThis.atlasMenu` while the menu is up.
+   * Dive from wherever the camera is into the chosen town and draw the curtain
+   * over the end of it. Resolves once the screen is covered.
    */
+  depart(): Promise<Curtain>;
+  /** The handedness checks, both of them third parties. On `atlasMenu`. */
   verify(): Record<string, unknown>;
   dispose(): void;
 }
@@ -251,37 +244,16 @@ export interface Menu {
 const FOV = 55;
 
 /**
- * How much of the vertical frame the globe fills at the body stage.
- *
- * Not taste: `CLAUDE.md` records the plane's ceiling as the altitude where the
- * globe subtends 47.8 degrees of a 55 degree lens, which is 0.869 of the frame.
- * The distance falls out of it — `radius / sin(fill * fov / 2)` is 2.47 radii —
- * so the menu's opening shot is the view the whole travel model was built
- * around rather than a number chosen here.
+ * How much of the vertical frame the globe fills at the region stage: the
+ * plane's ceiling, where the globe subtends 47.8 degrees of a 55 degree lens.
+ * The distance falls out of it, 2.47 radii.
  */
 const GLOBE_FILL = 0.87;
 
-/**
- * The same, for a country, and it is looser than the globe's for two reasons
- * that pull the same way: a country is not a disc, so its bounding cap is
- * bigger than the shape inside it; and the thing you are about to pick is a
- * town on its edge as often as one in its middle. Measured over Spain at 0.72
- * the mainland came out 559 px of an 1,884-wide frame with a third of the
- * screen on the Atlantic; 0.8 is the same shot with less sea in it.
- */
+/** The same for a country, looser because a country is not a disc. */
 const REGION_FILL = 0.8;
 
-/**
- * The angular half-width of a region's bounding cap is clamped here.
- *
- * Russia spans 170 degrees of longitude and France owns islands in three
- * oceans. Past about a quarter of the sphere the cap stops describing a shape
- * and starts describing a scatter, and framing the scatter frames the planet.
- * The fix is not this clamp — it is that the framing uses the region's
- * **largest ring** and not all of them, so France is metropolitan France and the
- * United States is the contiguous forty-eight. The clamp is what catches
- * Antarctica, whose largest ring genuinely is a quarter of the world.
- */
+/** A region's bounding cap is clamped here; see `frameRegion`. */
 const MAX_CAP = 42 * DEG;
 
 /** Nobody is picking a city from lower than this, and the fog would eat it. */
@@ -290,9 +262,6 @@ const MIN_ALTITUDE = 420;
 /** Latitude is clamped here so the camera's up vector never degenerates. */
 const MAX_LAT = 88;
 
-/** Seconds for a programmed move: the flight down to a country, and back up. */
-const FLIGHT_S = 1.15;
-
 /** Time constant of the drag's chase. A tenth of a second reads as direct. */
 const DRAG_LAG = 0.1;
 
@@ -300,42 +269,63 @@ const DRAG_LAG = 0.1;
 const RIBBON_INK = 5.4;
 const RIBBON_GOLD = 2.6;
 
-/**
- * The ribbon floats this far over the shelf it is drawn on.
- *
- * It is an overlay and not terrain, so it is lifted deliberately rather than
- * fitted. `elevationAt` is the exact ground and costs a point-in-polygon at 3.6
- * microseconds — 29 ms for a country the size of Russia, which is a visible
- * hitch on a *hover* — so the ribbon rides `ring.height + reliefAt` instead, at
- * 0.4 microseconds, and that misses the shore ramp by up to `LAND_HEIGHT`. Three
- * avatars of float is a sub-pixel offset from orbit and reads as a map overlay
- * close up, where a ribbon that sank into the coast would read as a bug.
- */
+/** The ribbon floats this far over the shelf, so it never sinks into a coast. */
 const RIBBON_LIFT = 12;
 
-/** Pixels between two city pins, and the most that ever stand at once. */
+/** Pixels between two town pins, and the most that ever stand at once. */
 const PIN_SPACING = 56;
 const MAX_PINS = 48;
 
+/**
+ * The system shot: how high above the ecliptic the camera sits, how far round
+ * from Earth, and how far the look target leads the Sun toward the camera.
+ *
+ * The azimuth is the one with a reason. Straight out along the Sun-Earth line
+ * shows Earth's day side and puts it behind the Sun; from beside Earth it is a
+ * crescent. 115 degrees round from Earth, seen from the Sun, shows it gibbous
+ * — mostly lit — and off to one side of the Sun where it cannot be missed.
+ *
+ * The distance is not a constant: see `frameSystem`. The lead is what lifts
+ * the Sun above the middle of the frame, because the near side of a ring
+ * projects far larger than the far side and the dock sits along the bottom.
+ */
+const SYSTEM_ELEVATION = 30 * DEG;
+const SYSTEM_AZIMUTH = 115 * DEG;
+const SYSTEM_LEAD = 0.14;
+
+/**
+ * Where every body has to land for the system shot to count as framed, in
+ * normalised device coordinates: clear of the sides, clear of the brand at
+ * the top, and above the dock, which takes the bottom fifth of the screen.
+ */
+const SYSTEM_SAFE = { x: 0.9, top: 0.78, bottom: -0.56 };
+
+/** How fast the system turns on its own once nobody has touched it for a while. */
+const DRIFT = 0.016;
+const IDLE_BEFORE_DRIFT = 5;
+
+/** A planet up close: this many of its own radii away, a little above its equator. */
+const FOCUS_DISTANCE = 3.3;
+const FOCUS_ELEVATION = 14 * DEG;
+
+/** The dive into the chosen town ends this far up, where the curtain closes. */
+const DEPART_HEIGHT = 1500;
+
+/** How many towns the country list shows before it says how many more there are. */
+const LIST_LENGTH = 80;
+
 /** Where the last spawn is remembered. Versioned so a format change is not a bug. */
 const REMEMBERED = 'atlas.menu.spawn.v1';
-
-const FONT = 'ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif';
 
 /* ------------------------------------------------------------------------- *
  * localStorage, wrapped
  * ------------------------------------------------------------------------- */
 
-/**
- * A private window is a worse session, not a broken one — `placement.ts`'s rule
- * for the visited set, and the same three lines.
- */
 function remember(spawn: MenuSpawn): void {
   try {
     localStorage.setItem(REMEMBERED, JSON.stringify(spawn));
   } catch {
-    /* Safari in a private window throws on every write. Nothing here is worth an
-       error path: the menu simply forgets between sessions. */
+    /* A private window throws on every write; the menu simply forgets. */
   }
 }
 
@@ -364,21 +354,14 @@ function recall(): MenuSpawn | null {
 
 /**
  * A ribbon along every ring of one region, expanded to a **screen-space** width
- * in the vertex shader.
- *
- * The width has to be screen space or the highlight is a hairline from orbit and
- * a motorway from a thousand units up — a factor of thirty between the two ends
- * of one flight. Rebuilding the geometry per frame is not affordable (Russia is
- * about eight thousand segments) and rebuilding it per distance band is a cache
- * keyed on two things, so the offset is an attribute and the width is a uniform:
- * one geometry per region for the session, one number per frame.
+ * in the vertex shader, so it is the same weight from orbit and from a
+ * thousand units up. One geometry per region for the session.
  *
  * **The winding is the trap this world has met four times.** With `along` the
- * segment direction and `up` the outward radius, `across = along x up` is the
- * one order for which `across x along = up`, so the quad faces away from the
- * planet's centre. The other order gives `-up`, which under `FrontSide` renders
- * as a single thin line on the horizon and nothing else. Asserted below rather
- * than argued.
+ * segment and `up` the outward radius, `across = along x up`, and the index
+ * order below is the one for which the quad faces away from the planet. The
+ * other order renders under `FrontSide` as nothing at all; `verify()` measures
+ * the normal off the built buffer rather than arguing it.
  */
 function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
   let segments = 0;
@@ -407,8 +390,7 @@ function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
     const points = ring.points;
     for (let i = 0; i < points.length; i++) {
       const from = points[i]!;
-      // The rings are open — none of them repeats its start — so the closing
-      // segment has to be walked too. `geo.ts` says so and `map.ts` relies on it.
+      // The rings are open, so the closing segment has to be walked too.
       const to = points[(i + 1) % points.length]!;
       seat(from[0]!, from[1]!, ring.height, a);
       seat(to[0]!, to[1]!, ring.height, b);
@@ -417,7 +399,6 @@ function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
       if (span < 1e-6) continue;
       along.divideScalar(span);
       up.copy(a).sub(body.centre).normalize();
-      // `along x up`, and not the other order. See the comment above.
       wide.crossVectors(along, up).normalize();
 
       for (let corner = 0; corner < 4; corner++) {
@@ -433,14 +414,7 @@ function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
         vertex++;
       }
       const base = vertex - 4;
-      // **The order is (0, 2, 1) and (0, 3, 2), and the obvious one is wrong.**
-      // The corners are `(-a, -b, +b, +a)` in `across`, so walking them round
-      // gives `cross(along, across)`, which with `across = along x up` is
-      // **minus up** — the quad faces the centre of the planet, which under
-      // `FrontSide` is the single thin line on the horizon this project has met
-      // three times. `DoubleSide` renders it either way and is exactly why
-      // nothing on the screen could say so; `verify()` measures the normal off
-      // the built buffer instead, and read -1 before this line was reversed.
+      // (0, 2, 1) and (0, 3, 2): the obvious order faces the planet's centre.
       index[element++] = base;
       index[element++] = base + 2;
       index[element++] = base + 1;
@@ -459,27 +433,13 @@ function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
 }
 
 /**
- * The material for one ribbon.
- *
- * `MeshBasicMaterial`, because a highlight that went dark on the night side
- * would be a highlight you could not use at 3 a.m. local. No normal attribute
- * and `outlineParameters.visible = false`, which together mean `OutlineEffect`
- * leaves it out of the ink pass entirely — the only thing "no outline" can mean
- * for a mesh with no hull to invert, and the difference between drawing it once
- * and drawing it twice.
+ * `MeshBasicMaterial`, so the ribbon is usable at 3 a.m. local; no normal and
+ * no ink, so `OutlineEffect` leaves it out of the second pass; `FrontSide`,
+ * which the winding above makes safe and which fails loudly if it ever is not.
  */
 function ribbonMaterial(color: number, order: number): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
     color,
-    // **`FrontSide`, and the winding above is what makes that safe.** The first
-    // build used `DoubleSide` — which renders correctly whichever way the quads
-    // are wound, and is exactly why nothing on the screen could say the winding
-    // was inside out; `verify()` read the normal as **-1** while the ribbon
-    // looked perfect. It also costs double: since r163 the renderer draws a
-    // transparent `DoubleSide` material in two passes, back faces then front,
-    // so Romania's ribbon measured **+4 draw calls and +2,184 triangles for
-    // 1,092 triangles of geometry**. One side is half of that and it fails
-    // loudly — a reversed ribbon simply is not there.
     side: THREE.FrontSide,
     depthWrite: false,
     fog: false,
@@ -502,332 +462,894 @@ function ribbonMaterial(color: number, order: number): THREE.MeshBasicMaterial {
 }
 
 /* ------------------------------------------------------------------------- *
- * The stylesheet, in the card language `index.html` and `map.ts` already speak
+ * Words for numbers
  * ------------------------------------------------------------------------- */
 
-const ink = css(PALETTE.ink);
-const white = css(PALETTE.white);
-const gold = css(PALETTE.gold);
-const crimson = css(PALETTE.crimson);
+/** 3.2M, 410k, 900: a list of towns is not a census. */
+function compact(count: number): string {
+  if (count >= 1e6) return `${(count / 1e6).toFixed(count >= 1e7 ? 0 : 1)}M`;
+  if (count >= 1e3) return `${Math.round(count / 1e3)}k`;
+  return String(Math.round(count));
+}
+
+const ordinal = (n: number): string => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
+
+/** A rotation period as a length of day: hours under two days, days past it. */
+function dayLength(hours: number): string {
+  const abs = Math.abs(hours);
+  let text: string;
+  if (abs < 48) {
+    const whole = Math.floor(abs);
+    text = `${whole} h ${Math.round((abs - whole) * 60)} min`;
+  } else {
+    const days = abs / 24;
+    text = `${days.toFixed(days < 100 ? 1 : 0)} days`;
+  }
+  return hours < 0 ? `${text}, backwards` : text;
+}
+
+const yearLength = (days: number): string =>
+  days < 700 ? `${Math.round(days)} days` : `${(days / 365.25).toFixed(1)} years`;
+
+function kindOf(entry: OrreryBody): string {
+  const body = entry.body;
+  if (body.kind === 'star') return 'Star';
+  if (body.kind === 'rocky') return 'Rocky planet';
+  if (body.kind === 'moon') return 'Moon';
+  // Jupiter and Saturn are hydrogen; Uranus and Neptune are mostly ices. The
+  // radius is the cleanest line through that in the data this file has.
+  return body.radiusKm > 40000 ? 'Gas giant' : 'Ice giant';
+}
+
+/* ------------------------------------------------------------------------- *
+ * The stylesheet
+ * ------------------------------------------------------------------------- */
 
 const STYLE = `
 .atlas-menu {
   position: fixed;
   inset: 0;
   z-index: 9;
-  font-family: ${FONT};
-  color: ${ink};
+  overflow: hidden;
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  overflow: hidden;
 }
 .atlas-menu.dragging { cursor: grabbing; }
-.atlas-menu.gone { display: none; }
-.atlas-menu .card {
+.atlas-menu.flying, .atlas-menu.chosen { cursor: default; }
+.atlas-menu .m-fade {
+  transition: opacity 0.35s ease, transform 0.45s var(--ui-ease), visibility 0.35s;
+}
+.atlas-menu .m-off {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none !important;
+}
+.atlas-menu.departing .m-chrome { opacity: 0 !important; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s; }
+
+/* --- the brand, over the system ------------------------------------------ */
+.m-brand {
   position: absolute;
-  background: ${white};
-  border: 3px solid ${ink};
-  border-radius: 12px;
-  box-shadow: 0 5px 0 ${ink};
-}
-.atlas-menu-head {
-  top: 22px;
-  left: 24px;
-  padding: 11px 18px 12px;
+  top: 36px;
+  left: 42px;
+  max-width: 420px;
   pointer-events: none;
-  max-width: 320px;
 }
-.atlas-menu-title {
-  font-size: 21px;
+.m-brand.m-off { transform: translateX(-24px); }
+.m-wordmark {
+  font-size: 76px;
   font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
+  letter-spacing: -0.04em;
+  line-height: 0.85;
+  color: var(--ui-paper);
+  -webkit-text-stroke: 7px var(--ui-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 7px 0 var(--ui-ink);
 }
-.atlas-menu-sub {
-  margin-top: 2px;
+.m-tagline {
+  margin-top: 16px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: rgba(255, 242, 232, 0.9);
+  text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7);
+}
+.m-now { margin-top: 16px; }
+.m-scale {
+  margin-top: 8px;
   font-size: 12px;
   font-weight: 600;
-  opacity: 0.6;
+  color: rgba(255, 242, 232, 0.55);
 }
-.atlas-menu-foot {
-  bottom: 24px;
+
+/* --- the dock of bodies -------------------------------------------------- */
+.m-dock {
+  position: absolute;
   left: 50%;
+  bottom: 24px;
   transform: translateX(-50%);
-  padding: 9px 12px 9px 18px;
+  display: flex;
+  gap: 10px;
+  max-width: calc(100vw - 48px);
+  overflow-x: auto;
+  padding: 6px 4px 10px;
+  scrollbar-width: none;
+}
+.m-dock.m-off { transform: translate(-50%, 24px); }
+.m-dock-item {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 98px;
+  padding: 13px 6px 10px;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s var(--ui-ease), box-shadow 0.12s ease, background 0.15s ease;
+}
+.m-dock-item:hover, .m-dock-item.hot { transform: translateY(-4px); box-shadow: 0 9px 0 var(--ui-ink); }
+.m-dock-item:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ui-ink); }
+.m-dock-item.walk { background: var(--ui-gold); }
+.m-dock-name { font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em; }
+.m-disc {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid var(--ui-ink);
+  background: radial-gradient(circle at 33% 30%, var(--hi) 0 20%, var(--base) 21% 60%, var(--lo) 61%);
+}
+.m-disc.ringed::after {
+  content: '';
+  position: absolute;
+  left: -13px;
+  right: -13px;
+  top: 12px;
+  height: 11px;
+  border: 3px solid var(--ui-ink);
+  border-radius: 50%;
+  transform: rotate(-16deg);
+}
+
+/* --- labels on the bodies ------------------------------------------------- */
+.m-marks { position: absolute; inset: 0; pointer-events: none; }
+.m-label {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 5px;
+  font: 800 12.5px/1 var(--ui-font);
+  letter-spacing: -0.005em;
+  color: var(--ui-ink);
+  background: var(--ui-paper);
+  border: 2.5px solid var(--ui-ink);
+  border-radius: 999px;
+  box-shadow: 0 3px 0 var(--ui-ink);
+  padding: 5px 10px;
   white-space: nowrap;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.atlas-menu-foot kbd {
-  font: inherit;
-  font-weight: 800;
-  background: rgba(30, 6, 3, 0.1);
-  border-radius: 5px;
-  padding: 2px 6px;
-}
-.atlas-menu-hints { display: flex; gap: 16px; }
-.atlas-menu-hints span.off { opacity: 0.3; }
-.atlas-menu-play {
-  font: inherit;
-  font-weight: 800;
-  font-size: 13px;
-  color: ${ink};
-  background: ${gold};
-  border: 3px solid ${ink};
-  border-radius: 9px;
-  box-shadow: 0 3px 0 ${ink};
-  padding: 6px 14px;
   cursor: pointer;
-  transition: transform 0.08s, box-shadow 0.08s;
+  pointer-events: auto;
+  transition: background 0.12s ease, opacity 0.25s ease;
 }
-.atlas-menu-play:hover { transform: translateY(-1px); box-shadow: 0 4px 0 ${ink}; }
-.atlas-menu-play:active { transform: translateY(3px); box-shadow: 0 0 0 ${ink}; }
-.atlas-menu-play .quiet { font-weight: 600; opacity: 0.6; }
-
-/* The hover card rides the cursor, so it must never be under it. */
-.atlas-menu-tip {
-  display: none;
-  padding: 8px 14px 9px;
-  transform: translate(14px, 14px);
+.m-label svg { width: 12px; height: 12px; }
+.m-label.walk { background: var(--ui-gold); }
+.m-label.hot { background: var(--ui-cream); box-shadow: 0 4px 0 var(--ui-ink); }
+.m-label.walk.hot { background: var(--ui-apricot); }
+.m-marks.quiet .m-label { opacity: 0; pointer-events: none; }
+.m-halo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 3px solid var(--ui-gold);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--ui-ink), inset 0 0 0 3px var(--ui-ink);
   pointer-events: none;
-  max-width: 260px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
-.atlas-menu-tip.on { display: block; }
-.atlas-menu-tip-name {
-  font-size: 14.5px;
-  font-weight: 800;
-  letter-spacing: -0.012em;
-  line-height: 1.15;
+.m-halo.on { opacity: 1; }
+
+/* --- the trail of crumbs and the way back --------------------------------- */
+.m-crumbs {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.atlas-menu-tip-sub {
-  margin-top: 1px;
+.m-crumbs.m-off { transform: translateY(-12px); }
+.m-trail {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  padding: 0 8px;
+}
+.m-trail svg { width: 14px; height: 14px; opacity: 0.35; }
+.m-crumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 800 13.5px/1 var(--ui-font);
+  color: var(--ui-ink);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.m-crumb:hover { background: rgba(30, 6, 3, 0.08); }
+.m-crumb.here { cursor: default; background: none; }
+.m-crumb .ui-flag { border-width: 1.5px; border-radius: 3px; }
+.m-back { position: absolute; left: 24px; bottom: 24px; }
+.m-back.m-off { transform: translateX(-16px); }
+
+/* --- the stage card on the left ------------------------------------------- */
+.m-panel {
+  position: absolute;
+  top: 86px;
+  left: 24px;
+  width: 340px;
+  max-height: calc(100vh - 86px - 96px);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 16px 12px 18px;
+}
+.m-panel.m-off { transform: translateX(-24px); }
+.m-panel h2 { margin-top: 5px; font-size: 27px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.02; }
+.m-panel p { margin-top: 9px; font-size: 13px; font-weight: 600; line-height: 1.42; opacity: 0.66; }
+.m-panel .ui-btn { margin-top: 14px; align-self: flex-start; }
+.m-country { display: flex; align-items: center; gap: 12px; }
+.m-country-sub { margin-top: 3px; font-size: 12.5px; font-weight: 700; opacity: 0.58; }
+.m-list {
+  flex: 1;
+  min-height: 0;
+  margin: 12px -8px 0 -6px;
+  padding: 6px 6px 0;
+  border-top: 2.5px solid var(--ui-rule);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.m-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  font: 700 13.5px/1.1 var(--ui-font);
+  color: var(--ui-ink);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 9px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.m-row:hover, .m-row.hot { background: var(--ui-cream); }
+.m-row.picked { background: var(--ui-gold); }
+.m-row i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--ui-ink);
+  border-radius: 50%;
+  background: var(--ui-paper);
+}
+.m-row.capital i { background: var(--ui-gold); }
+.m-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-row small { margin-left: auto; font-size: 11.5px; font-weight: 700; opacity: 0.5; font-variant-numeric: tabular-nums; }
+.m-more { padding: 8px 8px 10px; font-size: 11.5px; font-weight: 700; opacity: 0.5; }
+
+/* --- top right: continue and search --------------------------------------- */
+.m-top-right {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+.m-continue .quiet { font-weight: 700; opacity: 0.66; }
+.m-search { position: relative; width: 330px; }
+.m-search-box {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 48px;
+  padding: 0 10px 0 13px;
+  cursor: text;
+}
+.m-search-box svg { flex: none; opacity: 0.7; }
+.m-search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: 700 15px var(--ui-font);
+  color: var(--ui-ink);
+}
+.m-search-box input::placeholder { color: rgba(30, 6, 3, 0.45); }
+.m-search-box input::-webkit-search-cancel-button { display: none; }
+.m-search:focus-within .m-search-box { box-shadow: 0 5px 0 var(--ui-ink), 0 0 0 3px var(--ui-gold); }
+.m-results {
+  position: absolute;
+  top: 58px;
+  left: 0;
+  right: 0;
+  padding: 6px;
+  display: none;
+  animation: ui-pop 0.2s var(--ui-ease) both;
+}
+.m-results.on { display: block; }
+.m-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.m-result.on { background: var(--ui-cream); }
+.m-result > div { flex: 1; min-width: 0; }
+.m-result b { display: block; font-size: 14px; font-weight: 800; line-height: 1.15; }
+.m-result small {
+  display: block;
+  margin-top: 2px;
   font-size: 11.5px;
   font-weight: 600;
   opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-result .ui-tag { margin-left: auto; }
+.m-empty { padding: 10px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
+
+/* --- a body up close ------------------------------------------------------ */
+.m-info {
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  width: 384px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  transform: translateY(-46%);
+  padding: 22px 22px 18px;
+}
+.m-info.m-off { transform: translate(28px, -46%); }
+.m-info h2 { margin-top: 4px; font-size: 38px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.m-info p { margin-top: 11px; font-size: 14px; font-weight: 600; line-height: 1.45; opacity: 0.75; }
+.m-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px 16px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 2.5px solid var(--ui-rule);
+}
+.m-fact small { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.48; }
+.m-fact b { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+.m-soon {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  background: var(--ui-cream);
+  border: 2.5px dashed rgba(30, 6, 3, 0.35);
+  border-radius: 12px;
+}
+.m-soon svg { flex: none; margin-top: 1px; }
+.m-soon span { display: block; margin-top: 2px; font-weight: 600; opacity: 0.66; }
+.m-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+/* --- the town you picked -------------------------------------------------- */
+.m-select {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  min-width: 440px;
+  max-width: calc(100vw - 48px);
+  padding: 12px 12px 12px 15px;
+  transform: translateX(-50%);
+}
+.m-select.m-off { transform: translate(-50%, 24px); }
+.m-select-name { font-size: 23px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
+.m-select-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.62; white-space: nowrap; }
+.m-select .ui-btn { margin-left: auto; }
+.m-select-bar {
+  margin-top: 7px;
+  width: 190px;
+  height: 9px;
+  border: 2px solid var(--ui-ink);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--ui-cream);
+}
+.m-select-bar i { display: block; height: 100%; background: var(--ui-gold); transition: width 0.4s ease; }
+
+/* --- the world still building --------------------------------------------- */
+.m-progress {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 14px 10px 12px;
+}
+.m-progress.m-off { transform: translateY(16px); }
+.m-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--ui-cream);
+  border-top-color: var(--ui-ink);
+  border-right-color: var(--ui-gold);
+  border-radius: 50%;
+  animation: ui-spin 0.9s linear infinite;
+}
+.m-progress b { display: block; font-size: 12.5px; font-weight: 800; }
+.m-progress small { display: block; font-size: 11px; font-weight: 600; opacity: 0.6; }
+.m-progress-bar { width: 96px; height: 9px; border: 2px solid var(--ui-ink); border-radius: 999px; overflow: hidden; background: var(--ui-cream); }
+.m-progress-bar i { display: block; height: 100%; width: 0; background: var(--ui-gold); transition: width 0.5s ease; }
+
+/* --- hover card, reticle, pins --------------------------------------------- */
+.m-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 13px 8px 9px;
+  pointer-events: none;
+  max-width: 300px;
+}
+.m-tip.on { display: flex; }
+.m-tip b { display: block; font-size: 14.5px; font-weight: 800; letter-spacing: -0.012em; line-height: 1.15; }
+.m-tip small { display: block; margin-top: 1px; font-size: 11.5px; font-weight: 600; opacity: 0.6; }
+.m-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transform: translate(-50%, -14px);
+  pointer-events: none;
+}
+.m-reticle.on { display: flex; }
+.m-reticle i {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--ui-paper);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--ui-ink), inset 0 0 0 3px var(--ui-ink);
 }
 
-.atlas-menu-pins { position: absolute; inset: 0; pointer-events: none; }
-.atlas-menu-pin {
+.m-pins { position: absolute; inset: 0; pointer-events: none; }
+.m-pin {
   position: absolute;
   left: 0;
   top: 0;
   display: flex;
   align-items: center;
   gap: 7px;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 800;
+  font: 800 12.5px/1 var(--ui-font);
   letter-spacing: -0.01em;
-  color: ${ink};
-  background: ${white};
-  border: 2.5px solid ${ink};
+  color: var(--ui-ink);
+  background: var(--ui-paper);
+  border: 2.5px solid var(--ui-ink);
   border-radius: 9px;
-  box-shadow: 0 3px 0 ${ink};
-  padding: 4px 10px 4px 7px;
+  box-shadow: 0 3px 0 var(--ui-ink);
+  padding: 5px 10px 5px 7px;
   white-space: nowrap;
   cursor: pointer;
   pointer-events: auto;
-  /* Colour and lift only. Transitioning the transform makes every pin lag the
-     globe by 80 ms while you drag it, which reads as the towns sliding about on
-     the ground -- and it is what made a recycled element visibly slide from one
-     city to another before the pool was keyed on the town. */
+  /* Colour and lift only: a transform transition makes every pin lag the
+     globe while you drag it, which reads as the towns sliding on the ground. */
   transition: box-shadow 0.08s, background 0.08s;
 }
-.atlas-menu-pin i {
-  width: 8px;
-  height: 8px;
-  border: 2px solid ${ink};
+.m-pin i {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--ui-ink);
   border-radius: 50%;
-  background: ${white};
+  background: var(--ui-paper);
 }
-.atlas-menu-pin.capital i { background: ${gold}; }
-.atlas-menu-pin:hover { background: ${gold}; box-shadow: 0 4px 0 ${ink}; }
-/* A pin whose name lost the collision is a *dot on a map*, not a card with the
-   writing rubbed off, and the difference is the whole of a bug this shipped:
-   the card chrome stayed, so a town with no room for its name rendered as an
-   empty white pill with a ring in it and read as a label that had failed. It
-   loses the card and keeps the ring, and hovering it gets the name back at
-   once — which is also why the label lives in the same element as the dot. */
-.atlas-menu-pin.away {
-  padding: 4px 7px;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
+.m-pin.capital i { background: var(--ui-gold); }
+.m-pin:hover, .m-pin.hot { background: var(--ui-cream); box-shadow: 0 4px 0 var(--ui-ink); z-index: 1; }
+.m-pin.picked { background: var(--ui-gold); z-index: 2; }
+/* A pin whose name lost the collision is a dot on a map, not a card with the
+   writing rubbed off: it keeps the ring and loses the card, and the border
+   stays as a transparent 2.5px so the dot does not move off its town. */
+.m-pin.away { padding: 5px 7px; background: transparent; border-color: transparent; box-shadow: none; }
+.m-pin.away span { display: none; }
+.m-pin.away:hover, .m-pin.away.hot, .m-pin.away.picked {
+  background: var(--ui-cream);
+  border-color: var(--ui-ink);
+  box-shadow: 0 3px 0 var(--ui-ink);
+  padding: 5px 10px 5px 7px;
+  z-index: 3;
 }
-.atlas-menu-pin.away span { display: none; }
-.atlas-menu-pin.away:hover {
-  background: ${gold};
-  border-color: ${ink};
-  box-shadow: 0 3px 0 ${ink};
-  padding: 4px 10px 4px 7px;
-  z-index: 1;
-}
-.atlas-menu-pin.away:hover span { display: inline; }
+.m-pin.away.picked { background: var(--ui-gold); }
+.m-pin.away:hover span, .m-pin.away.hot span, .m-pin.away.picked span { display: inline; }
 
-.atlas-menu-cards {
-  position: absolute;
-  left: 50%;
-  bottom: 96px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 14px;
-}
-.atlas-menu-body {
-  position: static;
-  font: inherit;
-  color: ${ink};
-  padding: 14px 20px;
-  text-align: left;
-  cursor: pointer;
-  transition: transform 0.08s, box-shadow 0.08s;
-}
-.atlas-menu-body:hover { transform: translateY(-2px); box-shadow: 0 7px 0 ${ink}; }
-.atlas-menu-body b { display: block; font-size: 17px; font-weight: 800; }
-.atlas-menu-body span { font-size: 11.5px; font-weight: 600; opacity: 0.6; }
-
-.atlas-menu-note {
-  bottom: 24px;
-  right: 24px;
-  padding: 7px 14px;
-  font-size: 11.5px;
-  font-weight: 700;
+/* --- the curtain over the cut into the game -------------------------------- */
+.atlas-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
   pointer-events: none;
-  background: ${crimson};
-  color: ${white};
-  border-color: ${ink};
+  background: radial-gradient(circle at 50% 42%, ${hex(PALETTE.white)} 0 35%, ${hex(PALETTE.cream)} 100%);
+  opacity: 0;
+  transition: opacity 0.38s ease;
 }
-.atlas-menu-note[hidden] { display: none; }
+.atlas-curtain.on { opacity: 1; }
+.atlas-curtain.lifting { transition: opacity 0.9s ease; }
+
+@media (max-width: 900px) {
+  .m-panel { width: 290px; }
+  .m-search { width: 260px; }
+  .m-wordmark { font-size: 56px; }
+  .m-info { width: 320px; }
+}
 `;
 
 /* ------------------------------------------------------------------------- *
  * The menu
  * ------------------------------------------------------------------------- */
 
-type Stage = 'body' | 'region' | 'site';
+interface Pose {
+  target: THREE.Vector3;
+  eye: THREE.Vector3;
+  up: THREE.Vector3;
+}
+
+interface Flight {
+  from: Pose;
+  to: Pose;
+  began: number;
+  duration: number;
+  done(): void;
+}
+
+interface Orbit {
+  azimuth: number;
+  elevation: number;
+  distance: number;
+}
+
+const makePose = (): Pose => ({ target: new THREE.Vector3(), eye: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) });
+const copyPose = (from: Pose, to: Pose): Pose => {
+  to.target.copy(from.target);
+  to.eye.copy(from.eye);
+  to.up.copy(from.up);
+  return to;
+};
+const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 export function createMenu(deps: MenuDeps): Menu {
-  const { bodies, scene, renderer, draw, fallback } = deps;
+  const { bodies, scene, renderer, draw, fallback, time } = deps;
   if (bodies.length === 0) throw new Error('createMenu: no bodies to spawn on');
+  installUi();
+  ensureStyle('atlas-menu', STYLE);
 
-  /* --- the DOM ---------------------------------------------------------- */
+  /** The walkable world the globe stages are about. */
+  let body = bodies[0]!;
+  const walkable = new Map(bodies.map((candidate) => [candidate.id, candidate]));
 
-  const root = document.createElement('div');
-  root.className = 'atlas-menu';
-  const style = document.createElement('style');
-  style.textContent = STYLE;
-
-  const head = document.createElement('div');
-  head.className = 'atlas-menu-head card';
-  const title = document.createElement('div');
-  title.className = 'atlas-menu-title';
-  const sub = document.createElement('div');
-  sub.className = 'atlas-menu-sub';
-  head.append(title, sub);
-
-  const tip = document.createElement('div');
-  tip.className = 'atlas-menu-tip card';
-  const tipName = document.createElement('div');
-  tipName.className = 'atlas-menu-tip-name';
-  const tipSub = document.createElement('div');
-  tipSub.className = 'atlas-menu-tip-sub';
-  tip.append(tipName, tipSub);
-
-  const pinLayer = document.createElement('div');
-  pinLayer.className = 'atlas-menu-pins';
-
-  const cards = document.createElement('div');
-  cards.className = 'atlas-menu-cards';
-
-  const foot = document.createElement('div');
-  foot.className = 'atlas-menu-foot card';
-  const hints = document.createElement('div');
-  hints.className = 'atlas-menu-hints';
-  const play = document.createElement('button');
-  play.className = 'atlas-menu-play';
-  foot.append(hints, play);
-
-  const note = document.createElement('div');
-  note.className = 'atlas-menu-note card';
-  note.hidden = true;
-
-  root.append(style, cards, pinLayer, head, tip, foot, note);
-
-  /* --- the camera -------------------------------------------------------- */
+  /* --- the camera and the orrery ------------------------------------------ */
 
   // Its own camera, not `rig.camera`: the rig does not exist until `main.ts`
-  // has a player to build it around, and a menu that had to wait for one would
-  // be waiting for the whole world.
-  const camera = new THREE.PerspectiveCamera(FOV, 1, 5, PLANET_RADIUS * 10);
-
-  let body = bodies[0]!;
-  let stage: Stage = bodies.length > 1 ? 'body' : 'region';
-  let region: MenuRegion | null = null;
-  let regionIndex = 0;
-
-  /** Where the camera is, and where it is going. Degrees and world units. */
-  const view = { lat: 20, lon: 6, dist: body.radius * 2.6 };
-  const want = { lat: 20, lon: 6, dist: 0 };
-  /** A programmed move, or null while the camera is following the drag. */
-  let flight: { from: typeof view; to: typeof view; began: number } | null = null;
+  // has a player to build it around. The far plane is set every frame.
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 5, R * 300);
+  const orrery = createOrrery();
+  scene.add(orrery.group);
 
   const orbitDistance = (radius: number): number => radius / Math.sin(GLOBE_FILL * FOV * DEG * 0.5);
-  want.dist = orbitDistance(body.radius);
-  // The opening shot arrives rather than appearing: a second and a half from
-  // half again as far out, on the same tween the country flight uses. It is a
-  // flight and not the drag's chase because the chase is a tenth of a second —
-  // right for a hand on a mouse and invisible as an arrival.
-  view.dist = want.dist * 1.55;
+  const pixelsPerUnit = (distance: number): number =>
+    renderer.domElement.clientHeight / 2 / (distance * Math.tan(FOV * DEG * 0.5));
 
-  const eye = new THREE.Vector3();
+  /* --- the towns, grouped once ------------------------------------------- */
+
+  const regionIndexOf = new Map<string, number>();
+  body.regions.forEach((region, i) => regionIndexOf.set(region.key, i + 1));
+  const sitesOf = new Map<string, MenuSite[]>();
+  for (const site of body.sites) {
+    let list = sitesOf.get(site.key);
+    if (list === undefined) sitesOf.set(site.key, (list = []));
+    list.push(site);
+  }
+  for (const list of sitesOf.values()) list.sort((a, b) => b.weight - a.weight);
+
+  /* --- the DOM ----------------------------------------------------------- */
+
+  const root = h('div', { class: 'atlas-menu' });
+
+  const halo = h('div', { class: 'm-halo' });
+  const pinLayer = h('div', { class: 'm-pins' });
+  const marks = h('div', { class: 'm-marks' }, halo, pinLayer);
+
+  const brand = h(
+    'div',
+    { class: 'm-brand m-fade m-chrome' },
+    h('div', { class: 'm-wordmark', text: 'atlas' }),
+    h('div', { class: 'm-tagline', text: 'Walk the whole Earth — on foot, by boat and by plane.' }),
+    h('div', { class: 'ui-tag ink m-now' }, icon('sun'), 'Every planet where it is right now'),
+    h('div', { class: 'm-scale', text: 'The directions are real. The sizes and the distances are not to scale.' }),
+  );
+
+  const backButton = h('button', { class: 'ui-btn icon', title: 'Back (Esc)', 'aria-label': 'Back' }, icon('back'));
+  const trail = h('nav', { class: 'm-trail ui-card', 'aria-label': 'Where you are' });
+  const crumbs = h('div', { class: 'm-crumbs m-fade m-chrome' }, backButton, trail);
+
+  const panel = h('div', { class: 'm-panel ui-card m-fade m-chrome' });
+
+  const continueLabel = h('span');
+  const continueButton = h('button', { class: 'ui-btn primary m-continue m-fade' }, icon('play', 16), continueLabel);
+  const searchInput = h('input', {
+    type: 'search',
+    placeholder: 'Search a country or a town',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    'aria-label': 'Search a country or a town',
+  });
+  const results = h('div', { class: 'm-results ui-card', role: 'listbox' });
+  const search = h(
+    'div',
+    { class: 'm-search m-fade' },
+    h('label', { class: 'm-search-box ui-card' }, icon('search', 19), searchInput, kbd('/')),
+    results,
+  );
+  const topRight = h('div', { class: 'm-top-right m-chrome' }, continueButton, search);
+
+  const dock = h('div', { class: 'm-dock m-fade m-chrome' });
+  const info = h('div', { class: 'm-info ui-card m-fade m-chrome' });
+  const backLabel = h('span');
+  const back = h('button', { class: 'ui-btn m-back m-fade m-chrome' }, icon('back', 18), backLabel, kbd('Esc'));
+  const select = h('div', { class: 'm-select ui-card m-fade' });
+
+  const progressLabel = h('b', { text: 'Building the world' });
+  const progressSub = h('small', { text: 'starting up' });
+  const progressFill = h('i');
+  const progressPill = h(
+    'div',
+    { class: 'm-progress ui-card m-fade' },
+    h('span', { class: 'm-spinner' }),
+    h('div', {}, progressLabel, progressSub),
+    h('div', { class: 'm-progress-bar' }, progressFill),
+  );
+
+  const tipFlag = h('span');
+  const tipName = h('b');
+  const tipSub = h('small');
+  const tip = h('div', { class: 'm-tip ui-card' }, tipFlag, h('div', {}, tipName, tipSub));
+
+  const reticleLabel = h('span', { class: 'ui-tag gold' });
+  const reticle = h('div', { class: 'm-reticle' }, h('i'), reticleLabel);
+
+  root.append(marks, reticle, brand, crumbs, panel, dock, info, back, select, topRight, progressPill, tip);
+
+  const flag = (key: string, w: number, height: number): HTMLCanvasElement => {
+    const canvas = createFlagCanvas(key, w, height);
+    canvas.className = 'ui-flag';
+    return canvas;
+  };
+  const regionName = (key: string): string => body.regions[(regionIndexOf.get(key) ?? 0) - 1]?.name ?? key;
+
+  /* --- the state ---------------------------------------------------------- */
+
+  let stage: Stage = 'system';
+  let flight: Flight | null = null;
+  /** The chosen country, at the site stage. */
+  let region: MenuRegion | null = null;
+  let regionIndex = 0;
+  /** The country under the pointer at the region stage. */
+  let hoverIndex = 0;
+  /** The body up close, at the planet stage. */
+  let focusId = '';
+  /** The body under the pointer or the dock item under it. */
+  let hoverBody: string | null = null;
+  let picked: MenuSite | null = null;
+  let chosen: MenuSpawn | null = null;
+  let built = false;
+  let progressFraction = 0;
+  let lastTouched = performance.now();
+  const last = recall();
+
+  const sys: Orbit = { azimuth: 0, elevation: SYSTEM_ELEVATION, distance: orrery.extent * 1.5 };
+  const sysWant: Orbit = { ...sys };
+  const focus: Orbit = { azimuth: 0, elevation: FOCUS_ELEVATION, distance: R };
+  const focusWant: Orbit = { ...focus };
+  /** The globe: where the camera is and where it is going, degrees and units. */
+  const view = { lat: 20, lon: 6, dist: orbitDistance(R) };
+  const want = { ...view };
+
+  const pose = makePose();
   const scratch = new THREE.Vector3();
   const scratchB = new THREE.Vector3();
+  const scratchC = new THREE.Vector3();
 
-  /** Where the camera is, as a point on the unit sphere about the body. */
-  function place(): void {
-    onSphere(view.lon, view.lat, eye).multiplyScalar(view.dist).add(body.centre);
-    camera.position.copy(eye);
-    camera.up.set(0, 1, 0);
-    camera.lookAt(body.centre);
-    camera.updateMatrixWorld();
+  /* --- poses -------------------------------------------------------------- */
+
+  const bodyById = (id: string): OrreryBody =>
+    orrery.bodies.find((entry) => entry.body.id === id) ?? orrery.earth;
+
+  /** A direction from an orbit's centre, in the ecliptic of date. */
+  function orbitDirection(orbit: Orbit, out: THREE.Vector3): THREE.Vector3 {
+    const { x, y, z } = orrery.axes;
+    const c = Math.cos(orbit.elevation);
+    return out
+      .set(0, 0, 0)
+      .addScaledVector(x, c * Math.cos(orbit.azimuth))
+      .addScaledVector(y, c * Math.sin(orbit.azimuth))
+      .addScaledVector(z, Math.sin(orbit.elevation));
+  }
+
+  /** The angle of a vector within the ecliptic plane, from the equinox. */
+  const inPlane = (v: THREE.Vector3): number => Math.atan2(v.dot(orrery.axes.y), v.dot(orrery.axes.x));
+
+  function systemPose(orbit: Orbit, out: Pose): Pose {
+    const toward = orbitDirection(orbit, scratch);
+    // The lead: the in-plane part of the way to the camera, so the target sits
+    // between the Sun and the near side of the system.
+    const lead = scratchC.copy(toward).addScaledVector(orrery.north, -toward.dot(orrery.north));
+    if (lead.lengthSq() > 1e-9) lead.normalize().multiplyScalar(orrery.extent * SYSTEM_LEAD);
+    out.target.copy(orrery.sun.position).add(lead);
+    out.eye.copy(out.target).addScaledVector(toward, orbit.distance);
+    out.up.copy(orrery.north);
+    return out;
   }
 
   /**
-   * Pixels per world unit at a given distance from the camera.
+   * How far back the system shot has to sit for every body to be on it.
    *
-   * The lens the whole project prices things with — `937 * size / distance` at
-   * a 775-pixel frame — written once, from the frame that is actually up.
+   * Searched rather than derived, because the answer depends on where the
+   * planets actually are today: a ring's near side projects several times
+   * larger than its far side under a 55 degree lens, so a fixed multiple of
+   * the system's reach either cut off whichever giant happened to be nearest
+   * the camera — Uranus, the day this was written — or framed so loosely that
+   * Earth was a dozen pixels. This is the nearest distance at which each
+   * body's centre lands inside `SYSTEM_SAFE`. Bisection over a camera the
+   * screen never sees, once, when the shot is set up.
    */
-  function pixelsPerUnit(distance: number): number {
-    return renderer.domElement.clientHeight / 2 / (distance * Math.tan(FOV * DEG * 0.5));
+  function frameSystem(orbit: Orbit): number {
+    const probe: Orbit = { ...orbit };
+    const test = makePose();
+    const lens = new THREE.PerspectiveCamera(FOV, camera.aspect, 1, R * 1000);
+    let near = orrery.extent * 0.5;
+    let far = orrery.extent * 3.5;
+    for (let step = 0; step < 20; step++) {
+      probe.distance = (near + far) / 2;
+      systemPose(probe, test);
+      lens.position.copy(test.eye);
+      lens.up.copy(test.up);
+      lens.lookAt(test.target);
+      lens.updateMatrixWorld();
+      let fits = true;
+      for (const entry of orrery.bodies) {
+        const at = scratchB.copy(entry.position).project(lens);
+        if (at.z > 1 || Math.abs(at.x) > SYSTEM_SAFE.x || at.y > SYSTEM_SAFE.top || at.y < SYSTEM_SAFE.bottom) {
+          fits = false;
+          break;
+        }
+      }
+      if (fits) far = probe.distance;
+      else near = probe.distance;
+    }
+    return far;
   }
 
-  /* --- the ribbon -------------------------------------------------------- */
+  function focusPose(orbit: Orbit, out: Pose): Pose {
+    out.target.copy(bodyById(focusId).position);
+    out.eye.copy(out.target).addScaledVector(orbitDirection(orbit, scratch), orbit.distance);
+    out.up.copy(orrery.north);
+    return out;
+  }
 
-  const group = new THREE.Group();
-  group.name = 'menu-highlight';
-  group.renderOrder = 900;
+  function globePose(lat: number, lon: number, dist: number, out: Pose): Pose {
+    out.target.copy(body.centre);
+    onSphere(lon, lat, out.eye).multiplyScalar(dist).add(body.centre);
+    out.up.set(0, 1, 0);
+    return out;
+  }
+
+  function applyPose(p: Pose): void {
+    camera.position.copy(p.eye);
+    camera.up.copy(p.up);
+    camera.lookAt(p.target);
+    camera.updateMatrixWorld();
+  }
+
+  /** Unit-vector slerp, with the antipodal case turned about any perpendicular. */
+  function slerp(a: THREE.Vector3, b: THREE.Vector3, k: number, out: THREE.Vector3): THREE.Vector3 {
+    const angle = Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
+    if (angle < 1e-4) return out.copy(a).lerp(b, k).normalize();
+    if (angle > Math.PI - 1e-3) {
+      const axis = Math.abs(a.y) < 0.9 ? scratchC.set(0, 1, 0) : scratchC.set(1, 0, 0);
+      axis.cross(a).normalize();
+      return out.copy(a).applyAxisAngle(axis, angle * k);
+    }
+    const s = Math.sin(angle);
+    return out.copy(a).multiplyScalar(Math.sin((1 - k) * angle) / s).addScaledVector(b, Math.sin(k * angle) / s);
+  }
+
+  const fromDir = new THREE.Vector3();
+  const toDir = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+
+  /**
+   * A flight between two poses, and the shape of it is what makes a dive from
+   * the whole system into one town read as one move.
+   *
+   * The distance to the target is interpolated in its **logarithm**, so every
+   * second of the flight covers the same *ratio* of zoom — 50 radii to 5 takes
+   * as long as 5 to half a radius, which is how a zoom looks constant. The look
+   * target runs ahead of the rest on a harder ease, so the thing you are flying
+   * to is in the middle of the frame long before you reach it rather than
+   * sliding in from the edge at the end. The direction is a slerp, the honest
+   * path between two points on a sphere.
+   */
+  function blend(a: Pose, b: Pose, k: number, kt: number, out: Pose): void {
+    out.target.lerpVectors(a.target, b.target, kt);
+    fromDir.subVectors(a.eye, a.target);
+    const la = Math.max(1, fromDir.length());
+    fromDir.divideScalar(la);
+    toDir.subVectors(b.eye, b.target);
+    const lb = Math.max(1, toDir.length());
+    toDir.divideScalar(lb);
+    slerp(fromDir, toDir, k, dir);
+    const length = Math.exp(Math.log(la) + (Math.log(lb) - Math.log(la)) * k);
+    out.eye.copy(out.target).addScaledVector(dir, length);
+    out.up.lerpVectors(a.up, b.up, k).normalize();
+  }
+
+  function flyTo(to: Pose, done: () => void, seconds?: number): void {
+    const from = copyPose(pose, makePose());
+    const zoom = Math.abs(Math.log(to.eye.distanceTo(to.target) / Math.max(1, from.eye.distanceTo(from.target))));
+    const travel = from.target.distanceTo(to.target) / R;
+    const duration = seconds ?? Math.min(3.2, Math.max(1.05, 1 + 0.28 * zoom + 0.012 * travel));
+    flight = { from, to: copyPose(to, makePose()), began: performance.now(), duration: duration * 1000, done };
+    refreshChrome();
+  }
+
+  /* --- the ribbon --------------------------------------------------------- */
+
+  const ribbonGroup = new THREE.Group();
+  ribbonGroup.name = 'menu-highlight';
   const inkRibbon = new THREE.Mesh(new THREE.BufferGeometry(), ribbonMaterial(PALETTE.ink, 0));
   const goldRibbon = new THREE.Mesh(new THREE.BufferGeometry(), ribbonMaterial(PALETTE.gold, 1));
   inkRibbon.renderOrder = 901;
   goldRibbon.renderOrder = 902;
   inkRibbon.frustumCulled = false;
   goldRibbon.frustumCulled = false;
-  group.add(inkRibbon, goldRibbon);
-  group.visible = false;
-  scene.add(group);
+  ribbonGroup.add(inkRibbon, goldRibbon);
+  ribbonGroup.visible = false;
+  scene.add(ribbonGroup);
 
-  /** One geometry per region for the session; a hover is a swap, not a build. */
   const ribbons = new Map<string, THREE.BufferGeometry>();
   let shown: MenuRegion | null = null;
 
   function showRibbon(next: MenuRegion | null): void {
     if (next === shown) return;
     shown = next;
-    group.visible = next !== null;
+    ribbonGroup.visible = next !== null;
     if (next === null) return;
     let geometry = ribbons.get(next.key);
     if (geometry === undefined) {
@@ -839,10 +1361,9 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function ribbonWidth(): void {
-    // The ribbon should be the same weight on the screen at every altitude, so
-    // the width is priced against the distance to the ground under the camera
-    // rather than against the camera's own height above the centre.
-    const scale = 1 / Math.max(1e-6, pixelsPerUnit(Math.max(1, view.dist - body.radius)));
+    // The same weight on the screen at every altitude: priced against the
+    // distance to the ground under the camera.
+    const scale = 1 / Math.max(1e-6, pixelsPerUnit(Math.max(1, camera.position.distanceTo(body.centre) - body.radius)));
     const frame = renderer.domElement.clientHeight / 1080;
     for (const mesh of [inkRibbon, goldRibbon]) {
       const material = mesh.material as THREE.MeshBasicMaterial;
@@ -853,17 +1374,16 @@ export function createMenu(deps: MenuDeps): Menu {
     }
   }
 
-  /* --- picking ----------------------------------------------------------- */
+  /* --- picking ------------------------------------------------------------ */
 
   const ray = new THREE.Ray();
+  const surface = new THREE.Sphere(new THREE.Vector3(), R + LAND_HEIGHT);
 
   /**
-   * Where a screen point lands on the body, or null for a click on the sky.
-   *
-   * One ray-sphere intersection and then one `regionAt`, which on Earth is
-   * `geo.ts`'s exact point-in-polygon over a spatial grid at about two
-   * microseconds. Nothing is rasterised and nothing is approximate: the country
-   * this returns is the country the player's feet will report standing there.
+   * Where a screen point lands on the walkable body, or null for the sky: one
+   * ray-sphere intersection and then `regionAt`, which on Earth is `geo.ts`'s
+   * exact point-in-polygon. The country this returns is the country the
+   * player's feet will report standing there.
    */
   function pointAt(clientX: number, clientY: number): { lat: number; lon: number } | null {
     const box = renderer.domElement.getBoundingClientRect();
@@ -871,28 +1391,136 @@ export function createMenu(deps: MenuDeps): Menu {
     scratch.unproject(camera);
     ray.origin.copy(camera.position);
     ray.direction.copy(scratch).sub(camera.position).normalize();
-    // The surface, not sea level: the land stands `LAND_HEIGHT` proud and the
-    // difference is 0.07% of the radius, which is under a pixel from anywhere.
-    const hit = ray.intersectSphere(
-      new THREE.Sphere(body.centre, body.radius + LAND_HEIGHT),
-      scratchB,
-    );
+    surface.center.copy(body.centre);
+    surface.radius = body.radius + LAND_HEIGHT;
+    const hit = ray.intersectSphere(surface, scratchB);
     if (hit === null) return null;
     return toLatLon(scratchB.clone().sub(body.centre));
   }
 
-  /* --- the cities -------------------------------------------------------- */
+  const regionUnder = (clientX: number, clientY: number): number => {
+    const at = pointAt(clientX, clientY);
+    return at === null ? 0 : body.regionAt(at.lat, at.lon);
+  };
 
-  /**
-   * **A pin belongs to a town, not to a slot, and the slot version was
-   * measured wrong on the screen.** The first build recycled a pool of
-   * elements in whatever order `thinMarks` kept them, so an element carrying
-   * *Lyon* this frame carried *Toulouse* the next — and with a `transform`
-   * transition on the class, the label visibly slid three hundred pixels
-   * across France. Keying the pool on the site's own index fixes it at the
-   * source: an element keeps its town for as long as the town is on the
-   * screen, and the transition has nothing to animate between.
-   */
+  /** Each body's disc on the screen this frame, for the labels and the pointer. */
+  interface Disc {
+    entry: OrreryBody;
+    x: number;
+    y: number;
+    r: number;
+    depth: number;
+    visible: boolean;
+  }
+  const discs: Disc[] = orrery.bodies.map((entry) => ({ entry, x: 0, y: 0, r: 0, depth: 0, visible: false }));
+
+  function projectDiscs(): void {
+    const width = renderer.domElement.clientWidth;
+    const height = renderer.domElement.clientHeight;
+    const tanHalf = Math.tan(FOV * DEG * 0.5);
+    for (const disc of discs) {
+      scratch.copy(disc.entry.position);
+      disc.depth = camera.position.distanceTo(scratch);
+      scratch.project(camera);
+      disc.visible = scratch.z < 1 && scratch.z > -1 && Math.abs(scratch.x) < 1.2 && Math.abs(scratch.y) < 1.2;
+      disc.x = ((scratch.x + 1) / 2) * width;
+      disc.y = ((1 - scratch.y) / 2) * height;
+      disc.r = (disc.entry.radius / Math.max(1, disc.depth) / tanHalf) * (height / 2);
+    }
+  }
+
+  function bodyAt(clientX: number, clientY: number): string | null {
+    let best: Disc | null = null;
+    for (const disc of discs) {
+      if (!disc.visible) continue;
+      const reach = Math.max(disc.r, 12) + 8;
+      if (Math.hypot(clientX - disc.x, clientY - disc.y) > reach) continue;
+      if (best === null || disc.depth < best.depth) best = disc;
+    }
+    return best?.entry.body.id ?? null;
+  }
+
+  /* --- the bodies: labels and dock --------------------------------------- */
+
+  const labels = new Map<string, HTMLButtonElement>();
+  const dockItems = new Map<string, HTMLButtonElement>();
+
+  for (const entry of orrery.bodies) {
+    const id = entry.body.id;
+    const enterable = walkable.has(id);
+    const label = h(
+      'button',
+      { class: enterable ? 'm-label walk' : 'm-label', 'aria-label': entry.body.name },
+      entry.body.name,
+      enterable ? icon('chevron') : null,
+    );
+    label.addEventListener('click', () => chooseBody(id));
+    label.addEventListener('pointerenter', () => (hoverBody = id));
+    label.addEventListener('pointerleave', () => (hoverBody = null));
+    marks.append(label);
+    labels.set(id, label);
+
+    const look = entry.body.look;
+    const disc = h('span', { class: id === 'saturn' ? 'm-disc ringed' : 'm-disc' });
+    if (id === 'earth') {
+      disc.style.background =
+        `radial-gradient(circle at 62% 42%, ${hex(PALETTE.green)} 0 26%, transparent 27%),` +
+        `radial-gradient(circle at 33% 30%, ${hex(PALETTE.skyBlue)} 0 20%, ${hex(OCEAN_COLOR)} 21% 62%, #1d5b7c 63%)`;
+    } else if (entry.body.kind === 'star') {
+      disc.style.setProperty('--hi', hex(PALETTE.cream));
+      disc.style.setProperty('--base', hex(PALETTE.gold));
+      disc.style.setProperty('--lo', hex(PALETTE.orange));
+    } else {
+      disc.style.setProperty('--hi', hex(look.highland));
+      disc.style.setProperty('--base', hex(look.surface));
+      disc.style.setProperty('--lo', hex(look.lowland));
+    }
+    const tag = enterable
+      ? h('span', { class: 'ui-tag ink' }, icon('play'), 'Explore')
+      : h('span', { class: 'ui-tag' }, icon('lock'), 'Soon');
+    const item = h(
+      'button',
+      { class: enterable ? 'm-dock-item ui-card walk' : 'm-dock-item ui-card', title: entry.body.name },
+      disc,
+      h('span', { class: 'm-dock-name', text: entry.body.name.replace(/^The /, '') }),
+      tag,
+    );
+    item.addEventListener('click', () => chooseBody(id));
+    item.addEventListener('pointerenter', () => (hoverBody = id));
+    item.addEventListener('pointerleave', () => (hoverBody = null));
+    dock.append(item);
+    dockItems.set(id, item);
+  }
+
+  function layOutLabels(): void {
+    const quiet = flight !== null || chosen !== null || (stage !== 'system' && stage !== 'planet');
+    marks.classList.toggle('quiet', quiet);
+    let haloOn = false;
+    for (const disc of discs) {
+      const id = disc.entry.body.id;
+      const label = labels.get(id)!;
+      const hot = id === hoverBody;
+      label.classList.toggle('hot', hot);
+      dockItems.get(id)?.classList.toggle('hot', hot);
+      const hideThis = quiet || !disc.visible || (stage === 'planet' && id === focusId);
+      label.style.display = hideThis ? 'none' : '';
+      if (!hideThis) {
+        label.style.transform = `translate(${disc.x.toFixed(1)}px, ${(disc.y + disc.r + 10).toFixed(1)}px) translateX(-50%)`;
+      }
+      if (hot && !quiet && disc.visible && !(stage === 'planet' && id === focusId)) {
+        const size = Math.max(disc.r, 9) + 9;
+        halo.style.width = `${size * 2}px`;
+        halo.style.height = `${size * 2}px`;
+        halo.style.transform = `translate(${(disc.x - size).toFixed(1)}px, ${(disc.y - size).toFixed(1)}px)`;
+        haloOn = true;
+      }
+    }
+    halo.classList.toggle('on', haloOn);
+    orrery.highlight(quiet ? null : hoverBody ?? (stage === 'planet' ? focusId : null));
+  }
+
+  /* --- the towns ---------------------------------------------------------- */
+
   const shownPins = new Map<number, HTMLButtonElement>();
   const freePins: HTMLButtonElement[] = [];
   let sites: MenuSite[] = [];
@@ -903,18 +1531,14 @@ export function createMenu(deps: MenuDeps): Menu {
   let kept = new Int32Array(0);
   let keptX = new Float32Array(0);
   let keptY = new Float32Array(0);
+  /** The town under the pointer in the list, whose pin lights up. */
+  let hotSite: MenuSite | null = null;
 
   function loadSites(next: MenuRegion): void {
-    // Sorted once, here, and not per frame. `cartography.ts`'s `sortByDepth` is
-    // an insertion sort — right for the 77 landmarks a map draws and wrong for
-    // the 1,500 towns a large country has — and the order never changes anyway,
-    // because population does not depend on where the camera is.
-    sites = body.sites.filter((site) => site.key === next.key).sort((a, b) => b.weight - a.weight);
-    // A country with no town in the gazetteer still has to be spawnable. Its own
-    // label point is on land by construction: it is what the bake writes.
-    if (sites.length === 0) {
-      sites = [{ name: next.name, key: next.key, lat: next.lat, lon: next.lon, weight: 0 }];
-    }
+    sites = sitesOf.get(next.key)?.slice() ?? [];
+    // A country with no town in the gazetteer still has to be spawnable; its
+    // own label point is on land by construction.
+    if (sites.length === 0) sites = [{ name: next.name, key: next.key, lat: next.lat, lon: next.lon, weight: 0 }];
     unitOf = sites.map((site) => onSphere(site.lon, site.lat, new THREE.Vector3()));
     projX = new Float32Array(sites.length);
     projY = new Float32Array(sites.length);
@@ -922,11 +1546,9 @@ export function createMenu(deps: MenuDeps): Menu {
     kept = new Int32Array(sites.length);
     keptX = new Float32Array(sites.length);
     keptY = new Float32Array(sites.length);
-
     releasePins();
   }
 
-  /** Hand every standing pin back to the pool. */
   function releasePins(): void {
     for (const element of shownPins.values()) {
       element.style.display = 'none';
@@ -938,33 +1560,25 @@ export function createMenu(deps: MenuDeps): Menu {
   function takePin(): HTMLButtonElement {
     const spare = freePins.pop();
     if (spare !== undefined) return spare;
-    const element = document.createElement('button');
-    element.className = 'atlas-menu-pin';
-    element.append(document.createElement('i'), document.createElement('span'));
+    const element = h('button', { class: 'm-pin' }, h('i'), h('span'));
     pinLayer.append(element);
     return element;
   }
 
   /**
-   * Lay the pins out for this frame.
-   *
-   * **Thinned largest-first, which is the opposite of every other pin in this
-   * project and is the same rule.** `minimap.ts` thins closest-first so that the
-   * survivor of a cluster is the one you would actually walk to; here you are
-   * not walking anywhere yet, so the survivor of a cluster is the one you have
-   * heard of. Same `thinMarks`, different order handed to it.
+   * Lay the pins out for this frame. **A pin belongs to a town, not to a
+   * slot** — the pool is keyed on the town's index, so an element never
+   * carries Lyon one frame and Toulouse the next. Thinned largest-first with
+   * the maps' own `thinMarks`, because before you are anywhere the survivor of
+   * a cluster should be the one you have heard of.
    */
   function layOutPins(): void {
-    if (stage !== 'site' || sites.length === 0) {
+    if (stage !== 'site' || flight !== null || sites.length === 0) {
       releasePins();
       return;
     }
     const box = renderer.domElement.getBoundingClientRect();
-    // A point on the sphere is over the horizon when its own direction and the
-    // camera's agree by more than the ratio of the radius to the distance. It is
-    // the only culling test here: the frustum's own is `project` landing outside
-    // [-1, 1], which is checked below.
-    const cosHorizon = body.radius / view.dist;
+    const cosHorizon = body.radius / camera.position.distanceTo(body.centre);
     const camDir = scratchB.copy(camera.position).sub(body.centre).normalize();
 
     let count = 0;
@@ -979,13 +1593,31 @@ export function createMenu(deps: MenuDeps): Menu {
     }
 
     const n = Math.min(MAX_PINS, thinMarks(order, count, projX, projY, PIN_SPACING, kept, keptX, keptY));
+    // The picked town and the one under the pointer in the list always stand,
+    // whatever the thinning thought of them.
+    const force = [picked, hotSite];
+    let total = n;
+    for (const site of force) {
+      if (site === null) continue;
+      const at = sites.indexOf(site);
+      if (at < 0) continue;
+      let present = false;
+      for (let i = 0; i < total; i++) if (kept[i] === at) present = true;
+      if (present) continue;
+      const unit = unitOf[at]!;
+      if (unit.dot(camDir) <= cosHorizon) continue;
+      scratch.copy(unit).multiplyScalar(body.radius + LAND_HEIGHT).add(body.centre).project(camera);
+      if (Math.abs(scratch.x) > 1.05 || Math.abs(scratch.y) > 1.05) continue;
+      kept[total] = at;
+      keptX[total] = ((scratch.x + 1) / 2) * box.width;
+      keptY[total] = ((1 - scratch.y) / 2) * box.height;
+      total++;
+    }
+
     const space = new LabelSpace();
-    // Whatever is standing and did not survive this frame goes back to the pool
-    // first, so a town that left the screen releases its element to the town
-    // that arrived.
     for (const [at, element] of shownPins) {
       let survives = false;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < total; i++) {
         if (kept[i] === at) {
           survives = true;
           break;
@@ -996,7 +1628,12 @@ export function createMenu(deps: MenuDeps): Menu {
       freePins.push(element);
       shownPins.delete(at);
     }
-    for (let i = 0; i < n; i++) {
+    // The picked and hot towns claim their label space first.
+    const indices = Array.from({ length: total }, (_, i) => i).sort((a, b) => {
+      const rank = (i: number): number => (sites[kept[i]!] === picked ? 0 : sites[kept[i]!] === hotSite ? 1 : 2);
+      return rank(a) - rank(b);
+    });
+    for (const i of indices) {
       const at = kept[i]!;
       const site = sites[at]!;
       let element = shownPins.get(at);
@@ -1004,128 +1641,608 @@ export function createMenu(deps: MenuDeps): Menu {
         element = takePin();
         shownPins.set(at, element);
         element.querySelector('span')!.textContent = site.name;
-        // A pin whose label loses the collision is a bare dot, and a bare dot
-        // with no way to find out what it is would be a worse mark than none.
-        // The browser's own tooltip costs nothing and needs no second card.
         element.title = site.name;
         element.style.display = '';
       }
       const x = keptX[i]!;
       const y = keptY[i]!;
-      // The label is dropped rather than the pin when two names collide, which
-      // is what `LabelSpace` is for and why the dot and the word are one element
-      // with a class on it instead of two.
-      const width = 26 + site.name.length * 7.3;
-      const away = !space.fits(x - 8, y - 12, width, 24);
-      if (!away) space.claim(x - 8, y - 12, width, 24);
-      element.className = `atlas-menu-pin${site.capital === true ? ' capital' : ''}${away ? ' away' : ''}`;
-      element.style.transform = `translate(${(x - 9).toFixed(1)}px, ${(y - 13).toFixed(1)}px)`;
+      const width = 28 + site.name.length * 7.3;
+      const away = !space.fits(x - 8, y - 12, width, 25);
+      if (!away) space.claim(x - 8, y - 12, width, 25);
+      const classes = ['m-pin'];
+      if (site.capital === true) classes.push('capital');
+      if (away) classes.push('away');
+      if (site === picked) classes.push('picked');
+      if (site === hotSite) classes.push('hot');
+      element.className = classes.join(' ');
+      element.style.transform = `translate(${(x - 10).toFixed(1)}px, ${(y - 14).toFixed(1)}px)`;
     }
   }
 
-  /* --- the stages -------------------------------------------------------- */
+  pinLayer.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('button');
+    if (button === null) return;
+    for (const [at, element] of shownPins) {
+      if (element === button) pickTown(sites[at]!);
+    }
+  });
+  pinLayer.addEventListener('dblclick', (event) => {
+    const button = (event.target as HTMLElement).closest('button');
+    if (button === null || picked === null) return;
+    start(picked);
+  });
 
-  let resolveChoice: ((spawn: MenuSpawn) => void) | null = null;
-  let chosen: MenuSpawn | null = null;
+  /* --- the chrome ------------------------------------------------------- */
 
-  const last = recall();
+  const setOff = (element: HTMLElement, off: boolean): void => {
+    element.classList.toggle('m-off', off);
+  };
+
+  function crumb(label: string | Node, action: (() => void) | null, flagKey?: string): HTMLElement {
+    const element = h('button', { class: action === null ? 'm-crumb here' : 'm-crumb' });
+    if (flagKey !== undefined) element.append(flag(flagKey, 22, 15));
+    element.append(label);
+    if (action !== null) element.addEventListener('click', action);
+    else element.setAttribute('aria-current', 'page');
+    return element;
+  }
+
+  function refreshTrail(): void {
+    const parts: HTMLElement[] = [crumb('Solar system', () => backToSystem())];
+    if (stage === 'planet') {
+      parts.push(crumb(bodyById(focusId).body.name, null));
+    } else if (stage === 'region' || stage === 'site') {
+      parts.push(crumb(body.name, stage === 'site' ? () => backToRegions() : null));
+      if (stage === 'site' && region !== null) parts.push(crumb(region.name, null, region.key));
+    }
+    trail.replaceChildren();
+    parts.forEach((part, i) => {
+      if (i > 0) trail.append(icon('chevron'));
+      trail.append(part);
+    });
+    backLabel.textContent = stage === 'site' ? 'Countries' : 'Solar system';
+  }
+
+  function refreshContinue(): void {
+    const target = last ?? { name: fallback.name };
+    continueLabel.replaceChildren(
+      document.createTextNode(last === null ? 'Start in ' : 'Continue in '),
+      h('span', { class: 'quiet', text: target.name }),
+    );
+  }
+  refreshContinue();
 
   function refreshChrome(): void {
-    if (stage === 'body') {
-      title.textContent = 'atlas';
-      sub.textContent = 'choose a world';
-    } else if (stage === 'region') {
-      title.textContent = body.name;
-      sub.textContent = 'drag to turn · click a country';
-    } else {
-      title.textContent = region?.name ?? body.name;
-      sub.textContent = 'click a town to wake up there';
-    }
-    hints.replaceChildren();
-    const hint = (html: string, off = false): void => {
-      const span = document.createElement('span');
-      span.innerHTML = html;
-      if (off) span.className = 'off';
-      hints.append(span);
-    };
-    hint('drag to turn');
-    hint('<kbd>Esc</kbd> back', stage !== 'site');
-    cards.style.display = stage === 'body' ? 'flex' : 'none';
-    pinLayer.style.display = stage === 'site' ? '' : 'none';
+    const flying = flight !== null;
+    const open = chosen === null;
+    const settled = !flying && open;
+    root.classList.toggle('flying', flying);
+    root.classList.toggle('chosen', !open);
+    setOff(brand, !(stage === 'system' && settled));
+    setOff(dock, !(stage === 'system' && settled));
+    setOff(crumbs, !(stage !== 'system' && open));
+    setOff(panel, !((stage === 'region' || stage === 'site') && settled));
+    setOff(info, !(stage === 'planet' && settled));
+    setOff(back, !(stage !== 'system' && open));
+    setOff(search, !(open && stage !== 'planet'));
+    setOff(continueButton, !open);
+    setOff(select, !(open ? stage === 'site' && picked !== null && !flying : true));
+    setOff(progressPill, built || !open);
+    if (flying || !open) closeResults();
+    refreshTrail();
   }
 
-  function chooseRegion(index: number): void {
-    if (index <= 0 || index > body.regions.length) return;
-    regionIndex = index;
-    region = body.regions[index - 1]!;
-    stage = 'site';
-    showRibbon(region);
-    loadSites(region);
-    // Frame the region's **largest ring** and not all of them. France owns
-    // islands in three oceans and the United States owns Alaska; a cap that
-    // covered them would frame the planet. The camera keeps orbiting from here,
-    // so the far pieces are a drag away rather than gone.
+  /* --- the stage cards -------------------------------------------------- */
+
+  function surprise(): void {
+    // Weighted by the square root of the population, so a capital is likelier
+    // than a village and a village is still possible.
+    let total = 0;
+    for (const site of body.sites) total += Math.sqrt(Math.max(1, site.weight));
+    let draw = Math.random() * total;
+    for (const site of body.sites) {
+      draw -= Math.sqrt(Math.max(1, site.weight));
+      if (draw > 0) continue;
+      chooseRegion(regionIndexOf.get(site.key) ?? 0, site);
+      return;
+    }
+  }
+
+  function fillRegionPanel(): void {
+    const surpriseButton = h('button', { class: 'ui-btn' }, icon('dice', 18), 'Surprise me');
+    surpriseButton.addEventListener('click', surprise);
+    panel.replaceChildren(
+      h('div', { class: 'ui-eyebrow', text: `${body.name} · ${body.note}` }),
+      h('h2', { text: 'Where do you want to start?' }),
+      h('p', { text: 'Drag to turn the globe, then click a country. Or type the name of a place in the search.' }),
+      surpriseButton,
+    );
+  }
+
+  const rowOf = new Map<MenuSite, HTMLButtonElement>();
+
+  function fillSitePanel(next: MenuRegion): void {
+    const all = sitesOf.get(next.key) ?? [];
+    const list = h('div', { class: 'm-list', role: 'list' });
+    rowOf.clear();
+    for (const site of all.slice(0, LIST_LENGTH)) {
+      const row = h(
+        'button',
+        { class: site.capital === true ? 'm-row capital' : 'm-row', role: 'listitem' },
+        h('i'),
+        h('span', { text: site.name }),
+        site.weight > 0 ? h('small', { text: compact(site.weight) }) : null,
+      );
+      row.addEventListener('click', () => pickTown(site, true));
+      row.addEventListener('dblclick', () => start(site));
+      row.addEventListener('pointerenter', () => (hotSite = site));
+      row.addEventListener('pointerleave', () => {
+        if (hotSite === site) hotSite = null;
+      });
+      rowOf.set(site, row);
+      list.append(row);
+    }
+    if (all.length > LIST_LENGTH) {
+      list.append(h('div', { class: 'm-more', text: `and ${(all.length - LIST_LENGTH).toLocaleString('en')} smaller towns on the map` }));
+    }
+    const count = all.length;
+    panel.replaceChildren(
+      h(
+        'div',
+        { class: 'm-country' },
+        flag(next.key, 48, 32),
+        h(
+          'div',
+          {},
+          h('h2', { text: next.name }),
+          h('div', { class: 'm-country-sub', text: `${next.note} · ${count === 1 ? 'one town' : `${count.toLocaleString('en')} towns`}` }),
+        ),
+      ),
+      h('p', { text: 'Pick a town on the map or in the list. Drag the globe to browse the next country — its towns come up when you let go.' }),
+      list,
+    );
+  }
+
+  function fillInfo(entry: OrreryBody): void {
+    const b = entry.body;
+    const facts: [string, string][] = [['Radius', `${Math.round(b.radiusKm).toLocaleString('en')} km`]];
+    facts.push([b.kind === 'star' ? 'Turns once in' : 'A day', dayLength(b.rotationHours)]);
+    if (b.orbit !== null) facts.push(['A year', yearLength(periodOf(b.orbit))]);
+    facts.push(['Gravity', `${(b.gravity / 9.807).toFixed(b.gravity > 50 ? 0 : 2)} g`]);
+    facts.push(['Axial tilt', `${b.tiltDeg.toFixed(1)}°`]);
+    if (b.orbit !== null) facts.push(['From the Sun', `${ELEMENTS[b.orbit]!.epoch.a.toFixed(2)} au`]);
+
+    let soon: HTMLElement;
+    if (b.kind === 'star') {
+      soon = h('div', { class: 'm-soon' }, icon('sun', 18), h('div', {}, 'Nothing to land on here.', h('span', { text: 'A surface of plasma at about 5,500 °C. Best admired from a distance.' })));
+    } else if (b.nations.length > 0) {
+      soon = h(
+        'div',
+        { class: 'm-soon' },
+        icon('lock', 18),
+        h(
+          'div',
+          {},
+          'Not open for landing yet.',
+          h('span', {
+            text: `Its ${b.nations.length} regions and ${b.settlements.length} towns are already drawn up; walking here comes in a later version.`,
+          }),
+        ),
+      );
+    } else {
+      soon = h('div', { class: 'm-soon' }, icon('lock', 18), h('div', {}, 'Not open for landing yet.', h('span', { text: 'Nothing has been built on this world so far.' })));
+    }
+
+    const others = orrery.bodies.filter((candidate) => !walkable.has(candidate.body.id));
+    const at = others.indexOf(entry);
+    const next = others[(at + 1) % others.length]!;
+    const nextButton = h('button', { class: 'ui-btn' }, `Next: ${next.body.name.replace(/^The /, '')}`, icon('next', 18));
+    nextButton.addEventListener('click', () => chooseBody(next.body.id));
+    const earthButton = h('button', { class: 'ui-btn primary' }, icon('globe', 18), 'Go to Earth');
+    earthButton.addEventListener('click', () => chooseBody(body.id));
+
+    info.replaceChildren(
+      h('div', { class: 'ui-eyebrow', text: b.kind === 'star' ? 'Star · the centre of it all' : `${kindOf(entry)} · ${ordinal(entry.order)} from the Sun` }),
+      h('h2', { text: b.name }),
+      h('p', { text: b.blurb }),
+      h(
+        'div',
+        { class: 'm-facts' },
+        ...facts.map(([name, value]) => h('div', { class: 'm-fact' }, h('small', { text: name }), h('b', { text: value }))),
+      ),
+      soon,
+      h('div', { class: 'm-actions' }, earthButton, nextButton),
+    );
+  }
+
+  function fillSelect(): void {
+    if (chosen !== null) {
+      const waiting = !built;
+      select.replaceChildren(
+        h(
+          'div',
+          {},
+          h('div', { class: 'ui-eyebrow', text: waiting ? 'Almost there' : 'Here we go' }),
+          h('div', { class: 'm-select-name', text: `Landing in ${chosen.name}` }),
+          waiting
+            ? h('div', { class: 'm-select-bar' }, h('i', { style: `width: ${(progressFraction * 100).toFixed(0)}%` }))
+            : h('div', { class: 'm-select-sub', text: chosen.region || 'Earth' }),
+        ),
+      );
+      return;
+    }
+    if (picked === null) return;
+    const site = picked;
+    const startButton = h('button', { class: 'ui-btn primary big' }, 'Start here', kbd('⏎'));
+    startButton.addEventListener('click', () => start(site));
+    const details = [regionName(site.key)];
+    if (site.weight > 0) details.push(people(site.weight));
+    details.push(`${clockAt(time(), site.key, site.lon, site.lat)} local time`);
+    select.replaceChildren(
+      flag(site.key, 48, 32),
+      h(
+        'div',
+        {},
+        h('div', { class: 'm-select-name' }, site.name, site.capital === true ? ' ' : null, site.capital === true ? h('span', { class: 'ui-tag gold' }, icon('star'), 'Capital') : null),
+        h('div', { class: 'm-select-sub', text: details.join(' · ') }),
+      ),
+      startButton,
+    );
+  }
+
+  /* --- the stages ------------------------------------------------------- */
+
+  function chooseBody(id: string): void {
+    if (flight !== null || chosen !== null) return;
+    touch();
+    const next = walkable.get(id);
+    if (next !== undefined) {
+      enterBody(next);
+      return;
+    }
+    focusId = id;
+    const entry = bodyById(id);
+    // Seen three-quarters lit: round from the Sun's side of it, a little above
+    // its equator. The Sun itself is seen from wherever the camera already is.
+    const toSun = scratchB.subVectors(orrery.sun.position, entry.position);
+    const base = entry.body.kind === 'star' ? inPlane(scratchC.subVectors(pose.eye, entry.position)) : inPlane(toSun) + 0.9;
+    const reach = entry.radius * (entry.body.id === 'saturn' ? 1.9 : 1);
+    focus.azimuth = focusWant.azimuth = base;
+    focus.elevation = focusWant.elevation = FOCUS_ELEVATION;
+    focus.distance = focusWant.distance = reach * FOCUS_DISTANCE;
+    fillInfo(entry);
+    showRibbon(null);
+    const target = focusPose(focus, makePose());
+    stage = 'planet';
+    flyTo(target, () => refreshChrome());
+  }
+
+  /** Down from the system onto a walkable world, to its region stage. */
+  function enterBody(next: MenuBody): void {
+    body = next;
+    // The globe is framed on a blend of where the camera came from and where
+    // the Sun is, so the flight is mostly a zoom and it lands on the day side.
+    const approach = scratch.copy(pose.eye).sub(body.centre).normalize();
+    const sun = scratchB.copy(orrery.sun.position).sub(body.centre).normalize();
+    const blendDir = approach.multiplyScalar(0.4).addScaledVector(sun, 0.6).normalize();
+    const here = toLatLon(blendDir);
+    view.lat = want.lat = Math.max(-35, Math.min(55, here.lat));
+    view.lon = want.lon = here.lon;
+    view.dist = want.dist = orbitDistance(body.radius);
+    fillRegionPanel();
+    stage = 'region';
+    flyTo(globePose(view.lat, view.lon, view.dist, makePose()), () => refreshChrome());
+  }
+
+  /**
+   * Frame a region on its **largest ring**, not all of them: France owns
+   * islands in three oceans, and a cap round all of them frames the planet.
+   * A cap of half-angle `a` seen from `d` along its own axis subtends
+   * `atan(R sin a / (d - R cos a))`; setting that to the fill's share of the
+   * half-lens and solving for `d` is the whole framing.
+   */
+  function frameRegion(next: MenuRegion, site?: MenuSite, near?: THREE.Vector3): { lat: number; lon: number; dist: number } {
     let best: MenuRing | null = null;
-    let bestSpan = -1;
-    for (const ring of region.rings) {
-      if (ring.points.length > bestSpan) {
-        bestSpan = ring.points.length;
-        best = ring;
+    for (const ring of next.rings) if (best === null || ring.points.length > best.points.length) best = ring;
+    let shape = capOf(best?.points ?? [[next.lon, next.lat]], next);
+    // **A point on a far piece of the country frames that piece.** Choosing by
+    // a click or a drag says where you were looking, and landing on French
+    // Guiana or the Canaries and being flown to Paris or Madrid would be a
+    // camera that ignored you. Anywhere on or near the main ring keeps the
+    // main ring's framing, which is the one the search and the list give.
+    if (near !== undefined && near.angleTo(shape.centre) > shape.cap * 1.15) {
+      let score = Infinity;
+      for (const ring of next.rings) {
+        const candidate = capOf(ring.points, next);
+        const s = near.angleTo(candidate.centre) - candidate.cap;
+        if (s < score) {
+          score = s;
+          shape = candidate;
+        }
       }
     }
+    const cap = Math.min(MAX_CAP, Math.max(0.35 * DEG, shape.cap));
+    const target = Math.tan(REGION_FILL * FOV * DEG * 0.5);
+    const dist = Math.max(body.radius + MIN_ALTITUDE, body.radius * Math.cos(cap) + (body.radius * Math.sin(cap)) / target);
+    const here = site !== undefined ? { lat: site.lat, lon: site.lon } : toLatLon(shape.centre);
+    return { lat: Math.max(-MAX_LAT, Math.min(MAX_LAT, here.lat)), lon: here.lon, dist };
+  }
+
+  /** A ring as a cap on the unit sphere: its centre and its half-angle. */
+  function capOf(points: readonly number[][], fallback: MenuRegion): { centre: THREE.Vector3; cap: number } {
     const centre = new THREE.Vector3();
     const point = new THREE.Vector3();
-    const ringPoints = best?.points ?? [[region.lon, region.lat]];
-    for (const p of ringPoints) centre.add(onSphere(p[0]!, p[1]!, point));
-    if (centre.lengthSq() < 1e-9) onSphere(region.lon, region.lat, centre);
+    for (const p of points) centre.add(onSphere(p[0]!, p[1]!, point));
+    if (centre.lengthSq() < 1e-9) onSphere(fallback.lon, fallback.lat, centre);
     centre.normalize();
     let cap = 0;
-    for (const p of ringPoints) {
+    for (const p of points) {
       const dot = onSphere(p[0]!, p[1]!, point).dot(centre);
       cap = Math.max(cap, Math.acos(Math.min(1, Math.max(-1, dot))));
     }
-    cap = Math.min(MAX_CAP, Math.max(0.35 * DEG, cap));
-    // A cap of half-angle `cap` seen from `d` along its own axis subtends
-    // `atan(R sin cap / (d - R cos cap))`. Setting that to the fill's share of
-    // the half-lens and solving for `d` is the whole framing.
-    const target = Math.tan(REGION_FILL * FOV * DEG * 0.5);
-    const distance = body.radius * Math.cos(cap) + (body.radius * Math.sin(cap)) / target;
-    const here = toLatLon(centre);
-    flyTo(here.lat, here.lon, Math.max(body.radius + MIN_ALTITUDE, distance));
-    refreshChrome();
+    return { centre, cap };
+  }
+
+  /** Make a region the chosen one, without moving the camera. */
+  function setRegion(index: number): boolean {
+    if (index <= 0 || index > body.regions.length) return false;
+    regionIndex = index;
+    region = body.regions[index - 1]!;
+    picked = null;
+    hotSite = null;
+    showRibbon(region);
+    loadSites(region);
+    fillSitePanel(region);
+    return true;
+  }
+
+  function chooseRegion(index: number, site?: MenuSite, near?: THREE.Vector3): void {
+    if (chosen !== null) return;
+    touch();
+    if (!setRegion(index)) return;
+    closeResults();
+    const framing = frameRegion(region!, site, near);
+    const target = globePose(framing.lat, framing.lon, framing.dist, makePose());
+    stage = 'site';
+    flyTo(target, () => {
+      view.lat = want.lat = framing.lat;
+      view.lon = want.lon = framing.lon;
+      view.dist = want.dist = framing.dist;
+      if (site !== undefined) pickTown(site);
+      refreshChrome();
+    });
+  }
+
+  /**
+   * Dragging chooses. Whatever country is under the middle of the screen when
+   * the globe stops is the one whose towns are shown — the fix for the menu's
+   * one real complaint, where the towns of the country you had dragged to
+   * never appeared — and the camera then settles on that country's own
+   * framing, the one choosing it any other way gives, so a drag from Spain to
+   * Russia does not leave Russia at Spain's zoom.
+   */
+  function followCentre(): void {
+    const box = renderer.domElement.getBoundingClientRect();
+    const at = pointAt(box.left + box.width / 2, box.top + box.height / 2);
+    if (at === null) return;
+    const index = body.regionAt(at.lat, at.lon);
+    if (index <= 0 || index === regionIndex) return;
+    chooseRegion(index, undefined, onSphere(at.lon, at.lat, new THREE.Vector3()));
   }
 
   function backToRegions(): void {
-    if (stage !== 'site') return;
+    if (flight !== null || chosen !== null) return;
+    touch();
     stage = 'region';
     region = null;
     regionIndex = 0;
+    picked = null;
     releasePins();
     sites = [];
     showRibbon(null);
-    flyTo(view.lat, view.lon, orbitDistance(body.radius));
-    refreshChrome();
+    fillRegionPanel();
+    want.dist = orbitDistance(body.radius);
+    flyTo(globePose(view.lat, view.lon, want.dist, makePose()), () => {
+      view.dist = want.dist;
+      refreshChrome();
+    });
   }
 
-  function flyTo(lat: number, lon: number, dist: number): void {
-    want.lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, lat));
-    want.lon = lon;
-    want.dist = dist;
-    flight = { from: { ...view }, to: { ...want }, began: performance.now() };
+  function backToSystem(): void {
+    if (flight !== null || chosen !== null) return;
+    touch();
+    stage = 'system';
+    region = null;
+    regionIndex = 0;
+    picked = null;
+    releasePins();
+    sites = [];
+    showRibbon(null);
+    tip.classList.remove('on');
+    flyTo(systemPose(sys, makePose()), () => refreshChrome());
+  }
+
+  function goBack(): void {
+    if (stage === 'site') backToRegions();
+    else if (stage === 'region' || stage === 'planet') backToSystem();
+  }
+
+  function pickTown(site: MenuSite, centre = false): void {
+    if (chosen !== null) return;
+    picked = site;
+    for (const [candidate, row] of rowOf) row.classList.toggle('picked', candidate === site);
+    rowOf.get(site)?.scrollIntoView({ block: 'nearest' });
+    fillSelect();
+    if (centre && flight === null) {
+      // The list is off the map, so a town chosen from it is brought to the
+      // middle of the frame rather than left wherever it happens to be.
+      want.lat = site.lat;
+      want.lon = site.lon;
+    }
+    refreshChrome();
   }
 
   function finish(spawn: MenuSpawn): void {
     if (chosen !== null) return;
     chosen = spawn;
     remember(spawn);
+    closeResults();
+    tip.classList.remove('on');
+    fillSelect();
+    refreshChrome();
     resolveChoice?.(spawn);
   }
 
-  function refreshPlay(): void {
-    const target = last ?? { name: fallback.name };
-    play.innerHTML = `Play <span class="quiet">${target.name}</span>`;
+  function start(site: MenuSite): void {
+    finish({ body: body.id, region: regionName(site.key), name: site.name, lat: site.lat, lon: site.lon });
   }
-  refreshPlay();
+
+  function touch(): void {
+    lastTouched = performance.now();
+  }
+
+  backButton.addEventListener('click', goBack);
+  back.addEventListener('click', goBack);
+  continueButton.addEventListener('click', () => {
+    finish(last ?? { body: body.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon });
+  });
+
+  /* --- the search --------------------------------------------------------- */
+
+  interface Entry {
+    kind: 'country' | 'town';
+    name: string;
+    folded: string;
+    words: string[];
+    weight: number;
+    key: string;
+    site: MenuSite | null;
+    sub: string;
+  }
+
+  const entries: Entry[] = [];
+  body.regions.forEach((candidate) => {
+    if (candidate.rings.length === 0) return;
+    const folded = fold(candidate.name);
+    const count = sitesOf.get(candidate.key)?.length ?? 0;
+    entries.push({
+      kind: 'country',
+      name: candidate.name,
+      folded,
+      words: folded.split(/[\s\-']+/),
+      // Countries rank above towns of the same match; the size is a tie-break.
+      weight: 1e12 + count,
+      key: candidate.key,
+      site: null,
+      sub: `${candidate.note} · ${count.toLocaleString('en')} towns`,
+    });
+  });
+  for (const site of body.sites) {
+    const folded = fold(site.name);
+    entries.push({
+      kind: 'town',
+      name: site.name,
+      folded,
+      words: folded.split(/[\s\-']+/),
+      weight: site.weight,
+      key: site.key,
+      site,
+      sub: site.weight > 0 ? `${regionName(site.key)} · ${compact(site.weight)} people` : regionName(site.key),
+    });
+  }
+
+  let found: Entry[] = [];
+  let cursor = 0;
+
+  function closeResults(): void {
+    results.classList.remove('on');
+    found = [];
+  }
+
+  /**
+   * A linear scan of about ten thousand folded names, which is a millisecond
+   * or two a keystroke and needs no index. A name that starts with the query
+   * beats a word inside it, which beats a substring; ties go to the bigger
+   * place, and a country beats any town that matches as well as it does.
+   */
+  function runSearch(): void {
+    const query = fold(searchInput.value.trim());
+    if (query.length === 0) {
+      closeResults();
+      return;
+    }
+    const scored: { entry: Entry; score: number }[] = [];
+    for (const entry of entries) {
+      let score = 0;
+      if (entry.folded.startsWith(query)) score = 3;
+      else if (entry.words.some((word) => word.startsWith(query))) score = 2;
+      else if (query.length > 2 && entry.folded.includes(query)) score = 1;
+      if (score > 0) scored.push({ entry, score });
+    }
+    scored.sort((a, b) => b.score - a.score || b.entry.weight - a.entry.weight);
+    found = scored.slice(0, 7).map((item) => item.entry);
+    cursor = 0;
+    renderResults();
+  }
+
+  function renderResults(): void {
+    results.replaceChildren();
+    if (found.length === 0) {
+      results.append(h('div', { class: 'm-empty', text: 'Nothing by that name that is built — try a bigger town nearby.' }));
+    }
+    found.forEach((entry, i) => {
+      const row = h(
+        'div',
+        { class: i === cursor ? 'm-result on' : 'm-result', role: 'option' },
+        flag(entry.key, 26, 18),
+        h('div', {}, h('b', { text: entry.name }), h('small', { text: entry.sub })),
+        h('span', { class: entry.kind === 'country' ? 'ui-tag ink' : 'ui-tag', text: entry.kind }),
+      );
+      row.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        pickEntry(entry);
+      });
+      row.addEventListener('pointerenter', () => {
+        cursor = i;
+        for (const [j, child] of Array.from(results.children).entries()) child.classList.toggle('on', j === i);
+      });
+      results.append(row);
+    });
+    results.classList.add('on');
+  }
+
+  function pickEntry(entry: Entry): void {
+    searchInput.value = '';
+    searchInput.blur();
+    closeResults();
+    const index = regionIndexOf.get(entry.key) ?? 0;
+    if (entry.site !== null) chooseRegion(index, entry.site);
+    else chooseRegion(index);
+  }
+
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length > 0) runSearch();
+  });
+  searchInput.addEventListener('blur', () => setTimeout(closeResults, 120));
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.code === 'ArrowDown' || event.code === 'ArrowUp') {
+      event.preventDefault();
+      if (found.length === 0) return;
+      cursor = (cursor + (event.code === 'ArrowDown' ? 1 : found.length - 1)) % found.length;
+      renderResults();
+    } else if (event.code === 'Enter') {
+      event.preventDefault();
+      const entry = found[cursor];
+      if (entry !== undefined) pickEntry(entry);
+    } else if (event.code === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      searchInput.value = '';
+      searchInput.blur();
+      closeResults();
+    }
+  });
 
   /* --- input ------------------------------------------------------------- */
 
@@ -1138,20 +2255,22 @@ export function createMenu(deps: MenuDeps): Menu {
   let lastY = 0;
   let pointer = { x: -1, y: -1 };
 
+  const inChrome = (target: EventTarget | null): boolean =>
+    (target as HTMLElement | null)?.closest('button, input, .ui-card, a') != null;
+
   root.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('button') !== null) return;
+    if (event.button !== 0 || chosen !== null) return;
+    if (inChrome(event.target)) return;
+    touch();
     dragging = true;
     dragged = 0;
     lastX = event.clientX;
     lastY = event.clientY;
     root.classList.add('dragging');
-    // A synthetic pointer has no capture to take and throws rather than
-    // declining, which is a broken menu in a test harness for a nicety.
     try {
       root.setPointerCapture(event.pointerId);
     } catch {
-      /* not a real pointer */
+      /* a synthetic pointer has no capture to take */
     }
   }, { signal });
 
@@ -1163,39 +2282,58 @@ export function createMenu(deps: MenuDeps): Menu {
     lastX = event.clientX;
     lastY = event.clientY;
     dragged += Math.abs(dx) + Math.abs(dy);
-    // **The drag is 1:1 with the ground under the middle of the frame.** One
-    // degree of camera rotation moves the sub-point by `radius * pi / 180`
-    // world units, and `pixelsPerUnit` says what that is on this screen at this
-    // altitude, so the same gesture turns the planet by the same distance at
-    // every zoom rather than by the same angle. It is right at the centre and
-    // foreshortened at the limb, which is what a turntable does and what a
-    // trackball would fix by letting the north pole roll off the top.
-    const perDegree = pixelsPerUnit(Math.max(1, view.dist - body.radius)) * body.radius * DEG;
-    // Dragging right moves the ground right, which is east, which means the
-    // camera goes **west**. Dragging down moves the ground down, so the camera
-    // goes north. Both signs are checked by `verify()` against `regionAt`,
-    // which is the only witness that is not built out of this basis.
-    want.lon -= dx / perDegree;
-    want.lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, want.lat + dy / perDegree));
-    flight = null;
+    touch();
+    if (flight !== null) return;
+    if (stage === 'system') {
+      sysWant.azimuth -= dx * 0.0055;
+      sysWant.elevation = Math.max(5 * DEG, Math.min(84 * DEG, sysWant.elevation + dy * 0.0045));
+    } else if (stage === 'planet') {
+      focusWant.azimuth -= dx * 0.0065;
+      focusWant.elevation = Math.max(-70 * DEG, Math.min(70 * DEG, focusWant.elevation + dy * 0.0055));
+    } else {
+      // **1:1 with the ground under the middle of the frame.** Dragging right
+      // moves the ground east, so the camera goes west; dragging down moves it
+      // south, so the camera goes north. `verify()` checks both signs against
+      // `regionAt`, the only witness not built from this basis.
+      const perDegree = pixelsPerUnit(Math.max(1, view.dist - body.radius)) * body.radius * DEG;
+      want.lon -= dx / perDegree;
+      want.lat = Math.max(-MAX_LAT, Math.min(MAX_LAT, want.lat + dy / perDegree));
+    }
   }, { signal });
 
   const endDrag = (event: PointerEvent): void => {
     if (!dragging) return;
     dragging = false;
     root.classList.remove('dragging');
+    reticle.classList.remove('on');
     try {
       if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId);
     } catch {
       /* see `pointerdown` */
     }
-    // A drag that moved is a drag; a drag that did not is a click. Four pixels
-    // is a hand resting on a mouse button, not an attempt to turn the world.
-    if (dragged > 4) return;
-    if (stage !== 'region') return;
+    if (flight !== null || chosen !== null) return;
+    // A drag that moved is a drag; four pixels is a hand resting on a button.
+    if (dragged > 4) {
+      if (stage === 'site') followCentre();
+      return;
+    }
+    if (stage === 'system' || stage === 'planet') {
+      const id = bodyAt(event.clientX, event.clientY);
+      if (id !== null && id !== focusId) chooseBody(id);
+      return;
+    }
     const at = pointAt(event.clientX, event.clientY);
-    if (at === null) return;
-    chooseRegion(body.regionAt(at.lat, at.lon));
+    const index = at === null ? 0 : body.regionAt(at.lat, at.lon);
+    const near = at === null ? undefined : onSphere(at.lon, at.lat, new THREE.Vector3());
+    if (stage === 'region') {
+      chooseRegion(index, undefined, near);
+    } else if (index > 0 && index !== regionIndex) {
+      chooseRegion(index, undefined, near);
+    } else if (index === 0 && picked !== null) {
+      picked = null;
+      for (const row of rowOf.values()) row.classList.remove('picked');
+      refreshChrome();
+    }
   };
   root.addEventListener('pointerup', endDrag, { signal });
   root.addEventListener('pointercancel', endDrag, { signal });
@@ -1203,152 +2341,82 @@ export function createMenu(deps: MenuDeps): Menu {
     pointer = { x: -1, y: -1 };
   }, { signal });
 
-  // The wheel is not the way in — the two stages are — but a globe that ignores
-  // it feels broken, so it nudges the distance inside the band the stage is in.
   root.addEventListener('wheel', (event) => {
+    if (chosen !== null || inChrome(event.target)) return;
     event.preventDefault();
-    const floor = stage === 'site' ? body.radius + MIN_ALTITUDE : orbitDistance(body.radius) * 0.55;
-    const ceiling = orbitDistance(body.radius) * 1.5;
-    want.dist = Math.max(floor, Math.min(ceiling, want.dist * (1 + Math.sign(event.deltaY) * 0.12)));
-    flight = null;
-  }, { signal, passive: false });
-
-  pinLayer.addEventListener('click', (event) => {
-    const button = (event.target as HTMLElement).closest('button');
-    if (button === null) return;
-    if (region === null) return;
-    let site: MenuSite | undefined;
-    for (const [at, element] of shownPins) {
-      if (element === button) site = sites[at];
+    touch();
+    if (flight !== null) return;
+    const step = 1 + Math.sign(event.deltaY) * 0.12;
+    if (stage === 'system') {
+      sysWant.distance = Math.max(orrery.extent * 0.4, Math.min(orrery.extent * 3.5, sysWant.distance * step));
+    } else if (stage === 'planet') {
+      const entry = bodyById(focusId);
+      const reach = entry.radius * (entry.body.id === 'saturn' ? 1.9 : 1);
+      focusWant.distance = Math.max(reach * 1.6, Math.min(reach * 10, focusWant.distance * step));
+    } else {
+      const floor = stage === 'site' ? body.radius + MIN_ALTITUDE : orbitDistance(body.radius) * 0.55;
+      const ceiling = orbitDistance(body.radius) * 1.5;
+      want.dist = Math.max(floor, Math.min(ceiling, want.dist * step));
     }
-    if (site === undefined) return;
-    finish({ body: body.id, region: region.name, name: site.name, lat: site.lat, lon: site.lon });
-  }, { signal });
-
-  play.addEventListener('click', () => {
-    finish(last ?? { body: body.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon });
-  }, { signal });
+  }, { signal, passive: false });
 
   addEventListener('keydown', (event) => {
     if (chosen !== null) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (document.activeElement === searchInput) return;
+    touch();
     if (event.code === 'Escape') {
       event.preventDefault();
-      backToRegions();
-    } else if (event.code === 'Enter' || event.code === 'Space') {
+      goBack();
+    } else if (event.code === 'Enter') {
       event.preventDefault();
-      play.click();
+      if (stage === 'site' && picked !== null) start(picked);
+      else if (stage === 'system') continueButton.click();
+    } else if (event.key === '/') {
+      event.preventDefault();
+      searchInput.focus();
+    } else if (event.key.length === 1 && /\p{L}/u.test(event.key) && stage !== 'planet') {
+      // Typing a name anywhere starts the search: the input takes the key.
+      searchInput.focus();
     }
   }, { signal });
 
   function resize(): void {
-    const width = innerWidth;
-    const height = innerHeight;
-    // `main.ts` does not size the renderer until the frame loop starts, and a
-    // WebGL canvas defaults to 300x150. The menu is on the screen four stages
-    // before that, so it sizes its own presentation.
-    renderer.setSize(width, height);
-    camera.aspect = width / height;
+    // `main.ts` does not size the renderer until its loop starts, and a WebGL
+    // canvas defaults to 300x150; the menu is on the screen long before.
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
   }
   addEventListener('resize', resize, { signal });
   resize();
 
-  /* --- the body stage ---------------------------------------------------- */
+  /* --- the opening shot ------------------------------------------------- */
 
-  function buildBodyCards(): void {
-    cards.replaceChildren();
-    for (const candidate of bodies) {
-      const card = document.createElement('button');
-      card.className = 'card atlas-menu-body';
-      const name = document.createElement('b');
-      name.textContent = candidate.name;
-      const line = document.createElement('span');
-      line.textContent = candidate.note;
-      card.append(name, line);
-      card.addEventListener('click', () => {
-        body = candidate;
-        stage = 'region';
-        showRibbon(null);
-        ribbons.clear();
-        flyTo(view.lat, view.lon, orbitDistance(body.radius));
-        refreshChrome();
-      }, { signal });
-      cards.append(card);
-    }
-  }
-  if (bodies.length > 1) buildBodyCards();
-  refreshChrome();
-  flight = { from: { ...view }, to: { ...want }, began: performance.now() + 250 };
-
-  /* --- the loading card, taken over ------------------------------------- */
-
-  // `index.html`'s loading card is a full-screen cover, so it has to go the
-  // moment the globe is worth looking at — and its stage text is the only
-  // report the build makes, so the menu reads it rather than asking `main.ts`
-  // to publish a second one. A string compare a frame is cheaper than a
-  // `MutationObserver` and has nothing to clean up.
-  const loading = document.getElementById('loading');
-  const loadingStage = document.getElementById('loading-stage');
-  const hidden: HTMLElement[] = [];
-  for (const id of ['loading', 'hud', 'hint']) {
-    const element = document.getElementById(id);
-    if (element !== null && element.style.display !== 'none') {
-      element.style.display = 'none';
-      hidden.push(element);
-    }
-  }
-  void loading;
-  let built = false;
-  let lastStageText = '';
-
-  function refreshNote(): void {
-    if (built) {
-      note.hidden = true;
-      return;
-    }
-    const text = loadingStage?.textContent ?? '';
-    if (text === lastStageText) return;
-    lastStageText = text;
-    note.hidden = false;
-    note.textContent = `building the world · ${text}`;
+  orrery.update(time(), camera, renderer.domElement.clientHeight, 0);
+  {
+    const earthFromSun = scratch.subVectors(orrery.earth.position, orrery.sun.position);
+    sys.azimuth = sysWant.azimuth = inPlane(earthFromSun) + SYSTEM_AZIMUTH;
+    sys.distance = sysWant.distance = frameSystem(sys);
+    // The shot arrives rather than appearing: the first frame is from half as
+    // far out again, on the same flight every other move uses.
+    const opening = systemPose({ ...sys, distance: sys.distance * 1.7, elevation: sys.elevation + 12 * DEG }, makePose());
+    copyPose(opening, pose);
+    applyPose(pose);
+    flyTo(systemPose(sys, makePose()), () => refreshChrome(), 2.4);
   }
 
-  /* --- the loop ---------------------------------------------------------- */
+  /* --- the loop --------------------------------------------------------- */
 
+  let resolveChoice: ((spawn: MenuSpawn) => void) | null = null;
   let running = true;
   let previous = performance.now();
-  const api: Menu = {
-    root,
-    camera,
-    get stage() {
-      return stage;
-    },
-    beforeRender: null,
-    choose() {
-      if (chosen !== null) return Promise.resolve(chosen);
-      return new Promise<MenuSpawn>((resolve) => {
-        resolveChoice = resolve;
-      });
-    },
-    ready() {
-      built = true;
-      refreshNote();
-    },
-    verify,
-    dispose() {
-      running = false;
-      events.abort();
-      scene.remove(group);
-      for (const geometry of ribbons.values()) geometry.dispose();
-      ribbons.clear();
-      inkRibbon.material.dispose();
-      goldRibbon.material.dispose();
-      root.remove();
-      for (const element of hidden) element.style.display = '';
-      delete (globalThis as Record<string, unknown>)['atlasMenu'];
-    },
-  };
+
+  function chase(orbit: Orbit, target: Orbit, k: number): void {
+    orbit.azimuth += (target.azimuth - orbit.azimuth) * k;
+    orbit.elevation += (target.elevation - orbit.elevation) * k;
+    orbit.distance += (target.distance - orbit.distance) * k;
+  }
 
   function frame(now: number): void {
     if (!running) return;
@@ -1356,161 +2424,157 @@ export function createMenu(deps: MenuDeps): Menu {
     const dt = Math.min((now - previous) / 1000, 0.1);
     previous = now;
 
+    orrery.update(time(), camera, renderer.domElement.clientHeight, dt);
+
     if (flight !== null) {
-      // Clamped at both ends: the opening flight is dated a quarter of a second
-      // into the future so the first frame is a held shot rather than a jump.
-      const t = Math.max(0, Math.min(1, (now - flight.began) / 1000 / FLIGHT_S));
+      const t = clamp01((now - flight.began) / flight.duration);
       const k = t * t * (3 - 2 * t);
-      // The direction is slerped and the distance is not: a great circle is the
-      // honest path between two points on a sphere and interpolating latitude
-      // and longitude separately walks a rhumb line, which crosses the Atlantic
-      // sideways on the way from Norway to Chile.
-      const from = onSphere(flight.from.lon, flight.from.lat, scratch);
-      const to = onSphere(flight.to.lon, flight.to.lat, scratchB);
-      const angle = Math.acos(Math.min(1, Math.max(-1, from.dot(to))));
-      if (angle > 1e-4) {
-        const s = Math.sin(angle);
-        scratch.multiplyScalar(Math.sin((1 - k) * angle) / s).addScaledVector(scratchB, Math.sin(k * angle) / s);
-      }
-      const here = toLatLon(scratch);
-      view.lat = here.lat;
-      view.lon = here.lon;
-      view.dist = flight.from.dist + (flight.to.dist - flight.from.dist) * k;
+      const kt = 1 - (1 - k) ** 2.4;
+      blend(flight.from, flight.to, k, kt, pose);
       if (t >= 1) {
-        want.lat = view.lat;
-        want.lon = view.lon;
-        want.dist = view.dist;
+        copyPose(flight.to, pose);
+        const done = flight.done;
         flight = null;
+        done();
+        refreshChrome();
       }
     } else {
-      // An exponential chase, framed as a time constant rather than a per-frame
-      // fraction so it does not change with the frame rate.
-      const chase = 1 - Math.exp(-dt / DRAG_LAG);
-      // Longitude wraps, and a chase that does not know it takes the long way
-      // round the planet exactly once per session, in front of the player.
-      let delta = want.lon - view.lon;
-      while (delta > 180) delta -= 360;
-      while (delta < -180) delta += 360;
-      view.lon += delta * chase;
-      view.lat += (want.lat - view.lat) * chase;
-      view.dist += (want.dist - view.dist) * chase;
+      const k = 1 - Math.exp(-dt / DRAG_LAG);
+      if (stage === 'system') {
+        if (!dragging && (now - lastTouched) / 1000 > IDLE_BEFORE_DRIFT) sysWant.azimuth += DRIFT * dt;
+        chase(sys, sysWant, k);
+        systemPose(sys, pose);
+      } else if (stage === 'planet') {
+        chase(focus, focusWant, k);
+        focusPose(focus, pose);
+      } else {
+        // Longitude wraps, and a chase that does not know it takes the long
+        // way round the planet once per session, in front of the player.
+        let delta = want.lon - view.lon;
+        while (delta > 180) delta -= 360;
+        while (delta < -180) delta += 360;
+        view.lon += delta * k;
+        view.lat += (want.lat - view.lat) * k;
+        view.dist += (want.dist - view.dist) * k;
+        globePose(view.lat, view.lon, view.dist, pose);
+      }
     }
+    applyPose(pose);
 
-    place();
-    ribbonWidth();
-
-    // The near plane rides the distance to the ground, exactly as `main.ts`'s
-    // does: a fixed near of 5 against a far of ten radii is a 32,000:1 depth
-    // range, and from orbit the twenty units between a cliff top and the sea
-    // fall inside one depth step and every coastline starts z-fighting.
-    const near = Math.max(1, (view.dist - body.radius) * 0.2);
-    if (Math.abs(near - camera.near) > near * 0.1) {
+    // The near plane rides the gap to the nearest thing, the far plane reaches
+    // the stars. A near of 5 against a far this deep would put the twenty units
+    // between a cliff top and the sea inside one depth step, which is every
+    // coastline z-fighting — so near is a fifth of the height over the ground,
+    // or a third of the way to the nearest planet if one is closer.
+    let gap = Infinity;
+    for (const entry of orrery.bodies) {
+      if (entry === orrery.earth) continue;
+      const extent = entry.radius * (entry.body.id === 'saturn' ? 2.3 : 1);
+      gap = Math.min(gap, camera.position.distanceTo(entry.position) - extent);
+    }
+    const near = Math.max(1, Math.min((camera.position.distanceTo(body.centre) - body.radius) * 0.2, gap * 0.3));
+    const far = camera.position.distanceTo(orrery.sun.position) + orrery.starShell * 1.05;
+    if (Math.abs(near - camera.near) > near * 0.1 || Math.abs(far - camera.far) > far * 0.05) {
       camera.near = near;
+      camera.far = far;
       camera.updateProjectionMatrix();
     }
+    ribbonWidth();
 
-    if (stage === 'region' && !dragging && pointer.x >= 0) {
-      const at = pointAt(pointer.x, pointer.y);
-      const index = at === null ? 0 : body.regionAt(at.lat, at.lon);
-      if (index !== regionIndex) {
-        regionIndex = index;
-        const next = index > 0 ? body.regions[index - 1]! : null;
-        showRibbon(next);
-        tip.classList.toggle('on', next !== null);
-        if (next !== null) {
+    // What is under the pointer.
+    const free = !dragging && flight === null && chosen === null && pointer.x >= 0;
+    projectDiscs();
+    if ((stage === 'system' || stage === 'planet') && free) {
+      const overDock = document.elementFromPoint(pointer.x, pointer.y)?.closest('.m-dock-item, .m-label') != null;
+      if (!overDock) hoverBody = bodyAt(pointer.x, pointer.y);
+      root.style.cursor = hoverBody !== null ? 'pointer' : '';
+    } else if (stage === 'region' || stage === 'site') {
+      root.style.cursor = '';
+    }
+    if ((stage === 'region' || stage === 'site') && free && !inChrome(document.elementFromPoint(pointer.x, pointer.y))) {
+      const index = regionUnder(pointer.x, pointer.y);
+      const showing = stage === 'region' ? index : index !== regionIndex ? index : 0;
+      if (stage === 'region' && index !== hoverIndex) {
+        hoverIndex = index;
+        showRibbon(index > 0 ? body.regions[index - 1]! : null);
+      }
+      if (showing > 0) {
+        const next = body.regions[showing - 1]!;
+        if (tipName.textContent !== next.name) {
           tipName.textContent = next.name;
-          tipSub.textContent = next.note;
+          tipFlag.replaceChildren(flag(next.key, 30, 20));
+          const count = sitesOf.get(next.key)?.length ?? 0;
+          tipSub.textContent = `${next.note} · ${count.toLocaleString('en')} towns · click to explore`;
         }
+        tip.classList.add('on');
+        tip.style.transform = `translate(${pointer.x + 16}px, ${pointer.y + 16}px)`;
+      } else {
+        tip.classList.remove('on');
       }
-      if (regionIndex > 0) {
-        tip.style.left = `${pointer.x}px`;
-        tip.style.top = `${pointer.y}px`;
-      }
-    } else if (stage !== 'region') {
+    } else {
       tip.classList.remove('on');
+      if (stage === 'region' && hoverIndex !== 0 && flight === null && !dragging) {
+        hoverIndex = 0;
+        showRibbon(null);
+      }
     }
 
+    // While the globe is dragged at the site stage, say which country letting
+    // go will choose.
+    if (dragging && stage === 'site' && dragged > 4) {
+      const box = renderer.domElement.getBoundingClientRect();
+      const index = regionUnder(box.left + box.width / 2, box.top + box.height / 2);
+      if (index > 0 && index !== regionIndex) {
+        const text = `Let go to explore ${body.regions[index - 1]!.name}`;
+        if (reticleLabel.textContent !== text) reticleLabel.textContent = text;
+        reticle.classList.add('on');
+      } else {
+        reticle.classList.remove('on');
+      }
+    }
+
+    layOutLabels();
     layOutPins();
-    refreshNote();
 
     api.beforeRender?.(camera);
     draw(scene, camera);
   }
 
-  /* --- the handedness check --------------------------------------------- */
+  /* --- the handedness checks ------------------------------------------- */
 
   /**
-   * Three mirrors have shipped in this project and two of them were in map
-   * code. Every one was invisible because the thing that was wrong was only
-   * ever compared with itself.
+   * Two third parties, because a mirror is self-consistent and only something
+   * not built from the same basis can see it.
    *
-   * There is no map basis here to be wrong — the projection is
-   * `Vector3.project(camera)` and the picking is `unproject`, so both are the
-   * camera's own `matrixWorld` — which moves the question rather than answering
-   * it. So the witness is `regionAt`, which is `geo.ts`'s point-in-polygon over
-   * the baked outlines and knows nothing about this file: put the camera over a
-   * known place, ray-cast three points across the frame, and ask the **data**
-   * what is under each. If east is to the right, the point a quarter of the way
-   * right of Rome is in Greece or Turkey, and the point a quarter of the way
-   * left is in Spain or France. Mirrored, it is the other way round, and no
-   * amount of agreement between the pins and the ribbon would say so.
+   * **The globe**: standing over Rome, project five real coordinates to the
+   * screen, ray-cast each pixel back, and ask `geo.ts`'s point-in-polygon what
+   * is there. East must be to the right and north up, and the names must come
+   * back — the longitudes are the gazetteer's and the names are the outlines'.
+   *
+   * **The orrery**: the Sun this file's orrery placed, by Kepler and sidereal
+   * time, against the sun `sun.ts` lights the land by, from NOAA's formulas.
    */
   function verify(): Record<string, unknown> {
-    const held = { ...view };
-    const heldFlight = flight;
-    // Rome, because what is east and west of it is unarguable and is in the
-    // gazetteer rather than in this file.
-    view.lat = 41.9;
-    view.lon = 12.5;
-    view.dist = orbitDistance(body.radius);
-    flight = null;
-    place();
+    const held = copyPose(pose, makePose());
+    applyPose(globePose(41.9, 12.5, orbitDistance(body.radius), makePose()));
 
     const box = renderer.domElement.getBoundingClientRect();
     const point = new THREE.Vector3();
-
-    /**
-     * Project a real coordinate to the screen, then ray-cast that screen pixel
-     * straight back and ask the outlines what is under it.
-     *
-     * The round trip is the test. `project` is the camera's matrix and
-     * `unproject` is its inverse, so those two agree by construction — but the
-     * *name* that comes back is `geo.ts`'s point-in-polygon over the baked
-     * rings, which has never heard of this camera, and the ordering of the
-     * screen x's is a statement about east and west that only the gazetteer can
-     * make.
-     */
-    interface Probe {
-      asked: string;
-      x: number;
-      y: number;
-      reads: string;
-    }
-    const probe = (name: string, lat: number, lon: number): Probe => {
+    const probe = (name: string, lat: number, lon: number): { asked: string; x: number; y: number; reads: string } => {
       onSphere(lon, lat, point).multiplyScalar(body.radius + LAND_HEIGHT).add(body.centre).project(camera);
       const x = ((point.x + 1) / 2) * box.width;
       const y = ((1 - point.y) / 2) * box.height;
-      const back = pointAt(box.left + x, box.top + y);
-      const index = back === null ? 0 : body.regionAt(back.lat, back.lon);
-      return {
-        asked: name,
-        x: Math.round(x),
-        y: Math.round(y),
-        reads: index > 0 ? body.regions[index - 1]!.name : 'open water',
-      };
+      const index = regionUnder(box.left + x, box.top + y);
+      return { asked: name, x: Math.round(x), y: Math.round(y), reads: index > 0 ? body.regions[index - 1]!.name : 'open water' };
     };
-
     const west = probe('Madrid', 40.42, -3.7);
     const here = probe('Rome', 41.9, 12.5);
     const east = probe('Athens', 37.98, 23.73);
     const north = probe('Oslo', 59.91, 10.75);
     const south = probe('Tunis', 36.8, 10.18);
 
-    // The ribbon's winding, measured off the built buffer rather than argued —
-    // and it has to be measured *after* the shader's own offset, because the
-    // position attribute holds the two ends of a segment and all four corners
-    // of a quad share them. Without the offset the triangle is degenerate and
-    // its normal is zero, which is a true statement about nothing.
+    // The ribbon's winding, measured off the built buffer after the shader's
+    // own offset, since the four corners of a quad share two positions.
     let outward = Number.NaN;
     const first = body.regions.find((candidate) => candidate.rings.length > 0);
     if (first !== undefined) {
@@ -1521,10 +2585,7 @@ export function createMenu(deps: MenuDeps): Menu {
       const s = geometry.getAttribute('aSide') as THREE.BufferAttribute;
       const idx = geometry.getIndex()!;
       const corner = (at: number): THREE.Vector3 =>
-        new THREE.Vector3().fromBufferAttribute(p, at).addScaledVector(
-          new THREE.Vector3().fromBufferAttribute(a, at),
-          s.getX(at),
-        );
+        new THREE.Vector3().fromBufferAttribute(p, at).addScaledVector(new THREE.Vector3().fromBufferAttribute(a, at), s.getX(at));
       const v0 = corner(idx.getX(0));
       const v1 = corner(idx.getX(1));
       const v2 = corner(idx.getX(2));
@@ -1532,36 +2593,103 @@ export function createMenu(deps: MenuDeps): Menu {
       outward = normal.dot(v0.clone().sub(body.centre).normalize());
     }
 
-    // Screen right against true east, and screen up against true north, both
-    // derived from `onSphere` by hand: d/dlon of (cos f cos l, sin f, -cos f sin l)
-    // and d/dlat of the same.
-    const lon = view.lon * DEG;
-    const lat = view.lat * DEG;
+    const lon = 12.5 * DEG;
+    const lat = 41.9 * DEG;
     const trueEast = new THREE.Vector3(-Math.sin(lon), 0, -Math.cos(lon));
-    const trueNorth = new THREE.Vector3(
-      -Math.sin(lat) * Math.cos(lon),
-      Math.cos(lat),
-      Math.sin(lat) * Math.sin(lon),
-    );
+    const trueNorth = new THREE.Vector3(-Math.sin(lat) * Math.cos(lon), Math.cos(lat), Math.sin(lat) * Math.sin(lon));
     const screenRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const screenUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-    const rightDotEast = screenRight.dot(trueEast);
-    const upDotNorth = screenUp.dot(trueNorth);
 
-    Object.assign(view, held);
-    flight = heldFlight;
-    place();
-
+    applyPose(held);
+    const sun = deps.sunDirection?.();
     return {
-      'screen right . east': Number(rightDotEast.toFixed(4)),
-      'screen up . north': Number(upDotNorth.toFixed(4)),
+      'screen right . east': Number(screenRight.dot(trueEast).toFixed(4)),
+      'screen up . north': Number(screenUp.dot(trueNorth).toFixed(4)),
       'ribbon normal . up': Number(outward.toFixed(4)),
       'east is right': east.x > here.x && here.x > west.x,
       'north is up': north.y < south.y,
       probes: [west, here, east, north, south],
+      orrery: sun === undefined ? 'no sun to compare with' : orrery.verify(sun),
     };
   }
 
+  /* --- the handle ------------------------------------------------------- */
+
+  const api: Menu = {
+    root,
+    camera,
+    get stage() {
+      return stage;
+    },
+    get flying() {
+      return flight !== null;
+    },
+    beforeRender: null,
+    choose() {
+      if (chosen !== null) return Promise.resolve(chosen);
+      return new Promise<MenuSpawn>((resolve) => {
+        resolveChoice = resolve;
+      });
+    },
+    progress(fraction, label) {
+      progressFraction = clamp01(fraction);
+      progressSub.textContent = label;
+      progressFill.style.width = `${(progressFraction * 100).toFixed(0)}%`;
+      if (chosen !== null) fillSelect();
+    },
+    ready() {
+      built = true;
+      progressFraction = 1;
+      if (chosen !== null) fillSelect();
+      refreshChrome();
+    },
+    depart() {
+      const spawn = chosen ?? { body: body.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon };
+      root.classList.add('departing');
+      tip.classList.remove('on');
+      // Down onto the town from a little south of it, so the last frame before
+      // the curtain has a horizon in it rather than a map.
+      const upward = onSphere(spawn.lon, spawn.lat, new THREE.Vector3());
+      const northward = new THREE.Vector3(0, 1, 0).addScaledVector(upward, -upward.y);
+      if (northward.lengthSq() < 1e-6) northward.set(1, 0, 0);
+      northward.normalize();
+      const to = makePose();
+      to.target.copy(upward).multiplyScalar(body.radius).add(body.centre);
+      to.eye.copy(to.target).addScaledVector(upward, DEPART_HEIGHT).addScaledVector(northward, -DEPART_HEIGHT * 0.45);
+      to.up.copy(northward);
+      const curtain = h('div', { class: 'atlas-curtain' });
+      document.body.append(curtain);
+      return new Promise<Curtain>((resolve) => {
+        flyTo(to, () => {});
+        const seconds = flight!.duration / 1000;
+        setTimeout(() => curtain.classList.add('on'), seconds * 1000 * 0.68);
+        setTimeout(() => {
+          resolve({
+            lift() {
+              curtain.classList.add('lifting');
+              curtain.classList.remove('on');
+              setTimeout(() => curtain.remove(), 1000);
+            },
+          });
+        }, seconds * 1000 * 0.68 + 420);
+      });
+    },
+    verify,
+    dispose() {
+      running = false;
+      events.abort();
+      scene.remove(ribbonGroup);
+      for (const geometry of ribbons.values()) geometry.dispose();
+      ribbons.clear();
+      inkRibbon.material.dispose();
+      goldRibbon.material.dispose();
+      orrery.dispose();
+      root.remove();
+      delete (globalThis as Record<string, unknown>)['atlasMenu'];
+    },
+  };
+
+  refreshChrome();
   Object.assign(globalThis, { atlasMenu: api });
   requestAnimationFrame(frame);
   return api;

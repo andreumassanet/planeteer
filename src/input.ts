@@ -28,6 +28,11 @@ export interface InputState {
 
 export interface Input {
   state: InputState;
+  /**
+   * A multiplier on `SENSITIVITY`, 1 being the default. Settable live; the
+   * settings panel owns the slider and `main.ts` owns where it is remembered.
+   */
+  sensitivity: number;
   /** Call once per frame AFTER everything has read `state`; clears look delta and jump edge. */
   endFrame(): void;
   dispose(): void;
@@ -79,6 +84,7 @@ export function createInput(target: HTMLElement): Input {
   };
 
   const held = new Set<string>();
+  let sensitivity = 1;
   const events = new AbortController();
   const { signal } = events;
 
@@ -142,8 +148,8 @@ export function createInput(target: HTMLElement): Input {
   document.addEventListener('mousemove', (event) => {
     if (document.pointerLockElement !== target) return;
     if (Math.abs(event.movementX) > MAX_DELTA || Math.abs(event.movementY) > MAX_DELTA) return;
-    state.look.x += event.movementX * SENSITIVITY;
-    state.look.y += event.movementY * SENSITIVITY;
+    state.look.x += event.movementX * SENSITIVITY * sensitivity;
+    state.look.y += event.movementY * SENSITIVITY * sensitivity;
   }, { signal });
 
   document.addEventListener('pointerlockchange', () => {
@@ -154,6 +160,12 @@ export function createInput(target: HTMLElement): Input {
 
   return {
     state,
+    get sensitivity() {
+      return sensitivity;
+    },
+    set sensitivity(value: number) {
+      sensitivity = Number.isFinite(value) && value > 0 ? value : 1;
+    },
     endFrame() {
       state.look.x = 0;
       state.look.y = 0;

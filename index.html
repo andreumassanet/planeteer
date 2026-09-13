@@ -3,55 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>atlas</title>
+    <title>atlas · walk the whole Earth</title>
     <style>
+      /*
+       * The tokens, restated once for the loading screen: it has to paint before
+       * `src/ui.ts` has been fetched, and `ui.ts` is the one definition of them
+       * everywhere else.
+       */
       :root {
-        --ink: #1e0603;
-        --card: #fff2e8;
+        --ui-ink: #1e0603;
+        --ui-paper: #fff2e8;
+        --ui-cream: #fde6e1;
+        --ui-gold: #e4a90c;
+        --ui-font: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { height: 100%; overflow: hidden; background: #6fc9d8; }
+      html, body { height: 100%; overflow: hidden; background: #04060e; }
       body {
-        font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
-        color: var(--ink);
+        font-family: var(--ui-font);
+        color: var(--ui-ink);
         -webkit-font-smoothing: antialiased;
       }
       canvas { display: block; }
-
-      #hud {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: flex-end;
-        padding: 24px;
-      }
-      .card {
-        background: var(--card);
-        border: 3px solid var(--ink);
-        border-radius: 12px;
-        box-shadow: 0 5px 0 var(--ink);
-        padding: 10px 20px;
-      }
-      #controls {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        row-gap: 6px;
-        gap: 18px;
-        max-width: min(760px, calc(100vw - 48px));
-        font-size: 12.5px;
-        font-weight: 600;
-      }
-      kbd {
-        font: inherit;
-        font-weight: 800;
-        background: rgba(30, 6, 3, 0.1);
-        border-radius: 5px;
-        padding: 2px 6px;
-      }
       #minimap {
         position: fixed;
         top: 24px;
@@ -61,107 +34,268 @@
         pointer-events: none;
       }
 
-      #found {
-        position: fixed;
-        top: 24px;
-        left: 24px;
-        font-size: 15px;
-        font-weight: 800;
-        padding: 8px 14px;
-      }
-      #found .quiet {
-        font-weight: 600;
-        opacity: 0.5;
-        margin-left: 5px;
-      }
-      #toast {
-        position: fixed;
-        left: 50%;
-        bottom: 96px;
-        transform: translateX(-50%);
-        font-size: 17px;
-        font-weight: 800;
-        background: #e4a90c;
-      }
-      #toast[hidden], #found[hidden] { display: none; }
-
-      #hint {
-        position: fixed;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 14px;
-        font-weight: 700;
-        transition: opacity 0.25s;
-      }
-      #hint[hidden] { display: none; }
-
+      /*
+       * The loading screen. **Every animation on it is a transform or an
+       * opacity, and that is the whole design constraint**: building the land
+       * is several seconds of synchronous work on the main thread, and only
+       * the compositor keeps running through it. So the globe turns, the plane
+       * circles and the clouds drift while the page is otherwise frozen, and
+       * the progress bar moves because `main.ts` hands it a target and a
+       * duration and lets a CSS transition run there — see `stage()`.
+       */
       #loading {
         position: fixed;
         inset: 0;
+        z-index: 30;
         display: grid;
         place-items: center;
-        background: #6fc9d8;
+        overflow: hidden;
+        background: linear-gradient(180deg, #04060e 0%, #0d1430 26%, #26336a 52%, #4a5c96 68%, #c98f86 86%, #f8a658 100%);
+        transition: opacity 0.8s ease 0.1s, visibility 0.9s;
+      }
+      #loading.out { opacity: 0; visibility: hidden; }
+      #loading.out .l-center { transform: scale(1.12); opacity: 0; }
+      .l-stars, .l-stars::after {
+        position: absolute;
+        inset: 0 0 35% 0;
+        background-image:
+          radial-gradient(1.6px 1.6px at 12% 18%, #fff2e8 99%, transparent),
+          radial-gradient(1.2px 1.2px at 27% 42%, #fff2e8 99%, transparent),
+          radial-gradient(2px 2px at 41% 11%, #fde6e1 99%, transparent),
+          radial-gradient(1.2px 1.2px at 58% 31%, #fff2e8 99%, transparent),
+          radial-gradient(1.8px 1.8px at 73% 16%, #fff2e8 99%, transparent),
+          radial-gradient(1.2px 1.2px at 86% 38%, #fde6e1 99%, transparent),
+          radial-gradient(1.6px 1.6px at 93% 9%, #fff2e8 99%, transparent),
+          radial-gradient(1.2px 1.2px at 6% 52%, #fff2e8 99%, transparent),
+          radial-gradient(1.4px 1.4px at 66% 55%, #fff2e8 99%, transparent),
+          radial-gradient(1.2px 1.2px at 34% 64%, #fde6e1 99%, transparent);
+        content: '';
+      }
+      .l-stars::after {
+        background-position: 3% 7%;
+        opacity: 0.6;
+        animation: l-twinkle 3.2s ease-in-out infinite alternate;
+      }
+      .l-center {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
         text-align: center;
+        transition: transform 0.9s cubic-bezier(0.2, 0.9, 0.25, 1), opacity 0.6s ease;
       }
-      #loading .card { padding: 18px 32px; }
-      #loading-title {
-        font-size: 26px;
+      .l-world { position: relative; width: 176px; height: 176px; }
+      .l-glow {
+        position: absolute;
+        inset: -70px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(248, 166, 88, 0.36) 0%, rgba(248, 166, 88, 0) 65%);
+      }
+      .l-globe {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        overflow: hidden;
+        background: #2b7fa8;
+        border: 5px solid var(--ui-ink);
+        box-shadow: 0 9px 0 var(--ui-ink);
+        /* Safari clips an animated child of a rounded box only with this. */
+        isolation: isolate;
+      }
+      .l-strip {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 672px;
+        display: flex;
+        will-change: transform;
+      }
+      .l-strip svg { flex: none; width: 336px; height: 100%; }
+      .l-land { animation: l-turn 26s linear infinite; }
+      .l-weather { animation: l-turn 17s linear infinite; opacity: 0.92; }
+      .l-shade {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        /* A cel terminator, not a gradient: a hard-edged inner shadow is the
+           one band of night this style would draw on a planet. */
+        box-shadow: inset -30px -16px 0 rgba(13, 20, 48, 0.42), inset 9px 8px 0 rgba(255, 242, 232, 0.2);
+      }
+      .l-orbit {
+        position: absolute;
+        inset: -42px;
+        border-radius: 50%;
+        border: 2.5px dashed rgba(255, 242, 232, 0.32);
+        animation: l-spin 6.5s linear infinite;
+      }
+      .l-plane {
+        position: absolute;
+        top: -17px;
+        left: 50%;
+        width: 34px;
+        height: 34px;
+        margin-left: -17px;
+      }
+      .l-title {
+        margin-top: 44px;
+        font-size: 84px;
         font-weight: 800;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.045em;
+        line-height: 0.9;
+        color: var(--ui-paper);
+        -webkit-text-stroke: 8px var(--ui-ink);
+        paint-order: stroke fill;
+        text-shadow: 0 8px 0 var(--ui-ink);
       }
-      #loading-stage {
-        font-size: 13px;
-        font-weight: 600;
-        opacity: 0.65;
-        margin-top: 2px;
+      .l-tag {
+        margin-top: 16px;
+        font-size: 16px;
+        font-weight: 700;
+        color: rgba(255, 242, 232, 0.86);
+        text-shadow: 0 2px 0 rgba(4, 6, 14, 0.55);
       }
-      /* GeoNames is CC BY 4.0 and the licence asks for a credit somewhere a
-         player sees it. The loading card is that place; README.md is the other
-         half. Natural Earth is public domain and is named for good manners. */
-      #loading-credit {
-        font-size: 11px;
-        font-weight: 600;
-        opacity: 0.45;
+      .l-progress { margin-top: 34px; width: 320px; }
+      .l-bar {
+        position: relative;
+        height: 22px;
+        overflow: hidden;
+        border: 3px solid var(--ui-ink);
+        border-radius: 999px;
+        background: var(--ui-paper);
+        box-shadow: 0 4px 0 var(--ui-ink);
+      }
+      /* The fill is a full-width bar slid in from the left, so its stripes are
+         never squashed the way a scaled bar's would be. */
+      #loading-fill {
+        position: absolute;
+        inset: 0;
+        background: var(--ui-gold);
+        border-right: 3px solid var(--ui-ink);
+        transform: translateX(-100%);
+        transition: transform 0.6s cubic-bezier(0.25, 0.8, 0.3, 1);
+        overflow: hidden;
+      }
+      #loading-fill i {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -40px;
+        right: 0;
+        background: repeating-linear-gradient(-45deg, rgba(255, 242, 232, 0) 0 9px, rgba(255, 242, 232, 0.34) 9px 18px);
+        animation: l-stripes 0.8s linear infinite;
+      }
+      .l-status {
+        display: flex;
+        justify-content: space-between;
         margin-top: 12px;
-        line-height: 1.5;
+        font-size: 13px;
+        font-weight: 700;
+        color: rgba(255, 242, 232, 0.82);
       }
-      #loading-credit a { color: inherit; }
+      #loading-percent { font-variant-numeric: tabular-nums; color: var(--ui-paper); font-weight: 800; }
+      #loading.failed #loading-stage { color: #ffd2c7; }
+      /* GeoNames is CC BY 4.0 and the licence asks for a credit somewhere a
+         player sees it. This is that place, and the settings panel is the other.
+         Natural Earth is public domain and is named for good manners. */
+      .l-credit {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 22px;
+        font-size: 11.5px;
+        font-weight: 600;
+        text-align: center;
+        color: rgba(30, 6, 3, 0.62);
+      }
+      .l-credit a { color: inherit; }
+      @keyframes l-turn { to { transform: translateX(-336px); } }
+      @keyframes l-spin { to { transform: rotate(360deg); } }
+      @keyframes l-stripes { to { transform: translateX(25.5px); } }
+      @keyframes l-twinkle { from { opacity: 0.15; } to { opacity: 0.75; } }
+      @media (prefers-reduced-motion: reduce) {
+        .l-land, .l-weather, .l-orbit, #loading-fill i, .l-stars::after { animation: none; }
+      }
+      @media (max-width: 520px) {
+        .l-title { font-size: 64px; }
+        .l-progress { width: 260px; }
+      }
     </style>
   </head>
   <body>
-    <div id="hud">
-      <div id="controls" class="card">
-        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
-        <span>mouse look</span>
-        <span><kbd>Shift</kbd> run</span>
-        <span><kbd>Space</kbd> jump · climb</span>
-        <span><kbd>C</kbd> descend</span>
-        <span><kbd>F</kbd> fly · land</span>
-        <span><kbd>E</kbd> go ashore</span>
-        <span><kbd>V</kbd> first person</span>
-        <span><kbd>M</kbd> map</span>
-        <span><kbd>Tab</kbd> destination</span>
-        <span><kbd>B</kbd> flags</span>
-        <span><kbd>[</kbd> <kbd>]</kbd> render detail</span>
-      </div>
-    </div>
     <div id="minimap"></div>
-    <div id="found" class="card" hidden>
-      <span id="found-count">0 / 0</span>
-      <span class="quiet">found</span>
-    </div>
-    <div id="toast" class="card" hidden></div>
-    <div id="hint" class="card">click to look around</div>
-    <div id="loading">
-      <div class="card">
-        <div id="loading-title">atlas</div>
-        <div id="loading-stage">starting up</div>
-        <div id="loading-credit">
-          coastlines from <a href="https://www.naturalearthdata.com/">Natural Earth</a><br />
-          towns from <a href="https://www.geonames.org/">GeoNames</a>,
-          <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>
+    <div id="loading" role="status" aria-live="polite">
+      <div class="l-stars"></div>
+      <div class="l-center">
+        <div class="l-world" aria-hidden="true">
+          <div class="l-glow"></div>
+          <div class="l-orbit">
+            <svg class="l-plane" viewBox="0 0 34 34">
+              <path d="M3.5 18.2 11 17.2 17.4 7.5h3.4l-3.1 9.4 8.4-.5c3.4-.2 3.4 3.1 0 2.9l-8.4-.5 3.1 9.4h-3.4L11 18.8l-7.5-1z" fill="#fff2e8" stroke="#1e0603" stroke-width="2.3" stroke-linejoin="round"/>
+              <path d="M5 15.5 3.3 12h2.4l3 4.6" fill="#ec3f1c" stroke="#1e0603" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="l-globe">
+            <!-- Two copies of one world, slid left by one copy's width and then
+                 round again: a rotating globe for the price of a transform. -->
+            <div class="l-strip l-land">
+              <svg viewBox="0 0 400 200" preserveAspectRatio="none">
+                <g stroke="#1e0603" stroke-width="3.2" stroke-linejoin="round">
+                  <path fill="#a49876" d="M36 44c22-18 70-22 88 0 8 12-6 22-16 32-9 9-15 19-22 30-12-7-19-17-27-27-11-9-28-22-23-35z"/>
+                  <path fill="#fde6e1" d="M136 22c12-8 30-7 30 5-4 10-20 11-29 3z"/>
+                  <path fill="#f8a658" d="M93 110c16-3 30 8 28 25-2 16-13 30-21 45-6-11-10-29-11-44-1-10-4-21 4-26z"/>
+                  <path fill="#91ad78" d="M186 42c14-9 36-8 42 5-3 11-18 15-30 13-9-2-15-9-12-18z"/>
+                  <path fill="#b36d45" d="M190 71c20-7 46-1 50 18 4 16-4 30-12 45-6 13-14 25-20 27-9-12-10-26-16-40-8-15-15-36-2-50z"/>
+                  <path fill="#abae2b" d="M236 30c34-12 96-8 120 8 10 13-6 24-21 32-15 9-36 15-51 11-15-4-27-11-37-19-10-8-20-20-11-32z"/>
+                  <path fill="#abae2b" d="M282 82c11 0 17 10 11 22-5 7-11 1-13-7z"/>
+                  <path fill="#e49a78" d="M318 128c18-7 38-1 40 12-2 13-18 16-32 11-11-4-15-15-8-23z"/>
+                  <path fill="#fde6e1" d="M-6 190c62-9 124-5 206-7 82 2 142-3 210 7v16H-6z"/>
+                </g>
+              </svg>
+              <svg viewBox="0 0 400 200" preserveAspectRatio="none">
+                <g stroke="#1e0603" stroke-width="3.2" stroke-linejoin="round">
+                  <path fill="#a49876" d="M36 44c22-18 70-22 88 0 8 12-6 22-16 32-9 9-15 19-22 30-12-7-19-17-27-27-11-9-28-22-23-35z"/>
+                  <path fill="#fde6e1" d="M136 22c12-8 30-7 30 5-4 10-20 11-29 3z"/>
+                  <path fill="#f8a658" d="M93 110c16-3 30 8 28 25-2 16-13 30-21 45-6-11-10-29-11-44-1-10-4-21 4-26z"/>
+                  <path fill="#91ad78" d="M186 42c14-9 36-8 42 5-3 11-18 15-30 13-9-2-15-9-12-18z"/>
+                  <path fill="#b36d45" d="M190 71c20-7 46-1 50 18 4 16-4 30-12 45-6 13-14 25-20 27-9-12-10-26-16-40-8-15-15-36-2-50z"/>
+                  <path fill="#abae2b" d="M236 30c34-12 96-8 120 8 10 13-6 24-21 32-15 9-36 15-51 11-15-4-27-11-37-19-10-8-20-20-11-32z"/>
+                  <path fill="#abae2b" d="M282 82c11 0 17 10 11 22-5 7-11 1-13-7z"/>
+                  <path fill="#e49a78" d="M318 128c18-7 38-1 40 12-2 13-18 16-32 11-11-4-15-15-8-23z"/>
+                  <path fill="#fde6e1" d="M-6 190c62-9 124-5 206-7 82 2 142-3 210 7v16H-6z"/>
+                </g>
+              </svg>
+            </div>
+            <div class="l-strip l-weather">
+              <svg viewBox="0 0 400 200" preserveAspectRatio="none">
+                <g fill="#fff2e8" stroke="#1e0603" stroke-width="2.6" stroke-linejoin="round">
+                  <path d="M40 70c4-10 18-10 22-2 8-4 16 2 14 9H36c-4-2-2-7 4-7z"/>
+                  <path d="M170 124c5-11 21-11 25-2 9-4 18 2 16 10h-45c-4-3-2-8 4-8z"/>
+                  <path d="M300 58c4-9 16-9 19-2 7-3 14 2 12 8h-35c-3-2-1-6 4-6z"/>
+                </g>
+              </svg>
+              <svg viewBox="0 0 400 200" preserveAspectRatio="none">
+                <g fill="#fff2e8" stroke="#1e0603" stroke-width="2.6" stroke-linejoin="round">
+                  <path d="M40 70c4-10 18-10 22-2 8-4 16 2 14 9H36c-4-2-2-7 4-7z"/>
+                  <path d="M170 124c5-11 21-11 25-2 9-4 18 2 16 10h-45c-4-3-2-8 4-8z"/>
+                  <path d="M300 58c4-9 16-9 19-2 7-3 14 2 12 8h-35c-3-2-1-6 4-6z"/>
+                </g>
+              </svg>
+            </div>
+            <div class="l-shade"></div>
+          </div>
         </div>
+        <h1 class="l-title">atlas</h1>
+        <p class="l-tag">Walk the whole Earth — on foot, by boat and by plane.</p>
+        <div class="l-progress">
+          <div class="l-bar"><div id="loading-fill"><i></i></div></div>
+          <div class="l-status"><span id="loading-stage">starting up</span><span id="loading-percent">0%</span></div>
+        </div>
+      </div>
+      <div class="l-credit">
+        coastlines from <a href="https://www.naturalearthdata.com/">Natural Earth</a> ·
+        towns from <a href="https://www.geonames.org/">GeoNames</a>,
+        <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

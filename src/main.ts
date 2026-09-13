@@ -23,6 +23,7 @@ import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, detail, fogFar, setDetail } from './view.ts';
 import type { FlagLayer } from './land-flags.ts';
+import type { Curtain } from './menu.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -94,8 +95,112 @@ const smoothstep = (edge0: number, edge1: number, x: number): number => {
  * which looks exactly like a hang.
  */
 async function stage(label: string): Promise<void> {
-  document.getElementById('loading-stage')!.textContent = label;
+  const boot = BOOT[label];
+  if (report !== null) report(WORLD[label] ?? 0, label);
+  else if (boot !== undefined) showBoot(label, boot);
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * The loading screen's stages: where each starts on the bar, where it ends,
+ * and **a guess at how long it takes, in milliseconds — which is a guess and
+ * says so.** The bar is handed its next target with that duration as a CSS
+ * transition, and the transition runs on the compositor: `buildLand` is
+ * seconds of synchronous work, and a bar driven from JavaScript would sit
+ * still for all of them. When a stage ends early the next one starts from
+ * wherever the bar had got to; when it runs long, the bar waits at 98% of its
+ * target rather than claiming work that has not been done.
+ */
+const BOOT: Record<string, readonly [number, number, number]> = {
+  'reading the outlines': [0.02, 0.2, 1800],
+  'filling the ocean': [0.2, 0.32, 1500],
+  'raising the land': [0.32, 0.8, 7500],
+  'drawing the frontiers': [0.8, 0.86, 700],
+  'setting the weather': [0.86, 0.95, 900],
+  'opening the sky': [0.95, 1, 400],
+};
+
+/**
+ * And the rest of the build, which happens behind the menu: the share of it
+ * done when each stage *starts*, for the pill in the menu's corner.
+ */
+const WORLD: Record<string, number> = {
+  'raising the monuments': 0.04,
+  'settling the country': 0.22,
+  'laying the roads': 0.45,
+  'setting it moving': 0.58,
+  'planting the country': 0.76,
+  'packing your bag': 0.94,
+};
+
+/** Where the stages report once the loading screen is gone: the menu's pill. */
+let report: ((fraction: number, label: string) => void) | null = null;
+
+function showBoot(label: string, [from, to, ms]: readonly [number, number, number]): void {
+  const text = document.getElementById('loading-stage');
+  const percent = document.getElementById('loading-percent');
+  const fill = document.getElementById('loading-fill');
+  if (text !== null) text.textContent = label;
+  if (percent !== null) percent.textContent = `${Math.round(from * 100)}%`;
+  if (fill !== null) {
+    fill.style.transitionDuration = `${ms}ms`;
+    fill.style.transform = `translateX(${((to * 0.98 - 1) * 100).toFixed(1)}%)`;
+  }
+}
+
+/** Fill the bar, fade the loading screen away, and take it out of the page. */
+function dismissLoading(): void {
+  const loading = document.getElementById('loading');
+  if (loading === null) return;
+  const fill = document.getElementById('loading-fill');
+  const percent = document.getElementById('loading-percent');
+  if (fill !== null) {
+    fill.style.transitionDuration = '250ms';
+    fill.style.transform = 'translateX(0%)';
+  }
+  if (percent !== null) percent.textContent = '100%';
+  setTimeout(() => loading.classList.add('out'), 180);
+  setTimeout(() => loading.remove(), 1300);
+}
+
+/**
+ * How the menu's weather fades, and where the sky dome stops.
+ *
+ * The deck fades out while you choose a country and a town and back in on the
+ * way up, with this time constant in seconds: long enough to go as the flight
+ * down to Earth comes in, rather than switching off in one frame. The dome is a
+ * sphere of six radii and the orrery's camera leaves it; outside, its far half
+ * would draw as a disc round the planet, so it goes a little before.
+ */
+const VEIL_LAG = 0.3;
+const DOME_EXIT = 5.5;
+
+/**
+ * The colour behind the orrery: the sky dome's own `SPACE`, which it writes
+ * without a colour-space conversion, so this is those three numbers as sRGB.
+ * Leaving the dome is then the same pixel on both sides of its edge.
+ */
+const SPACE_BACKGROUND = new THREE.Color().setRGB(0.016, 0.024, 0.055, THREE.SRGBColorSpace);
+
+/** The player's own settings the panel remembers, beside the ones `view.ts` and the map layer keep. */
+const SENSITIVITY_KEY = 'atlas.sensitivity.v1';
+const PERFORMANCE_KEY = 'atlas.performance.v1';
+const HINTS_KEY = 'atlas.hints.v1';
+
+function readSetting(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSetting(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Nowhere to remember it. It still works for this session.
+  }
 }
 
 async function start(): Promise<void> {
@@ -183,6 +288,8 @@ async function start(): Promise<void> {
      */
     cartography: import('./cartography.ts'),
     hud: import('./hud.ts'),
+    /** The gear's panel. It owns no state, so it can arrive with the HUD. */
+    settings: import('./settings.ts'),
     map: import('./map.ts'),
     navigation: import('./navigation.ts'),
     /** The country names over the land, which arrive with the flag under them. */
@@ -231,6 +338,13 @@ async function start(): Promise<void> {
   // clock: where you are standing is what decides whether it is day. It owns
   // the fog's *colour*; the loop below still owns its distances.
   const sky = createSky(scene, fog);
+  // `?at=lat,lon` skips the menu — for `scripts/shot.mjs` and anyone who wants
+  // a link to a place; `?time=ISO` freezes the sun there (`sky.setTime`) and
+  // `?height=N` starts the camera that far up. Debug surface, not a feature.
+  // The time is set here, before the menu, so a shot of the menu is of a
+  // chosen hour and not of whatever hour the machine taking it happens to be.
+  const query = new URLSearchParams(location.search);
+  if (query.get('time')) sky.setTime(query.get('time'));
 
   await stage('filling the ocean');
   // The water sphere, the shallows along every coast in the world, and the
@@ -247,25 +361,7 @@ async function start(): Promise<void> {
   const land = buildLand(world);
   scene.add(land);
 
-  // **The front door, and it goes here rather than anywhere later on purpose:
-  // this is the line that decides time-to-first-interaction.** The menu is the
-  // real planet — the same scene, the same land mesh, the same sea and cloud
-  // deck, the same sun at the real hour, drawn by the same two-pass
-  // `outline.render` — so the moment the land exists there is something to turn
-  // with the mouse, and the four stages below plus nine dynamic imports arrive
-  // underneath a globe the player is already using. Measured at **10 ms after
-  // `buildLand` returns**, median of nine runs.
-  const { createMenu, earthBody } = await deferred.menu;
-  const menu = createMenu({
-    bodies: [earthBody(world, places.all)],
-    scene,
-    renderer,
-    // `outline.render`, not `renderer.render`: a frame here is two passes.
-    draw: (target, camera) => outline.render(target, camera),
-    fallback: { lat: START.lat, lon: START.lon, name: 'Palma' },
-  });
-  document.body.appendChild(menu.root);
-
+  await stage('drawing the frontiers');
   // On the ground rather than in the data: the bake keeps only outer rings, so
   // a frontier has to be found by asking what is on the other side of each edge.
   const borders = createBorders(world);
@@ -289,39 +385,86 @@ async function start(): Promise<void> {
     { direction: oceanMoon, color: sky.moon.color, intensity: 0 },
   ];
 
-  // **The menu's own frame, and it is not optional however it was offered.**
-  // Everything the world draws is calibrated for a camera standing on it: the
-  // fog closes at the *land's* horizon, about 1,400 units at eye height, and
-  // the menu's camera is 2.47 radii out — near 39,000. Wired without this the
-  // globe came back as a flat mauve ball, which is not a bug in the menu, it is
-  // `fog.far` doing exactly what it says at forty times its own range. The
-  // same call gives it the real sun, the surf and the weather, so the front
-  // door is the world at the hour it actually is.
+  // **The front door, and it opens on a finished sky.** The menu is the real
+  // planet — the same scene, the same land, sea and cloud deck, the same sun at
+  // the real hour, drawn by the same two-pass `outline.render` — with the rest
+  // of the solar system laid out around it by `orrery.ts`. It used to open the
+  // moment the land existed, 10 ms after `buildLand`, and the frontiers and the
+  // weather then built underneath it: a frozen frame of a planet with no
+  // clouds, right after the loading screen, and players who looked for the
+  // weather from the menu found none. So it opens after those two stages, which
+  // cost well under a second together and are the loading screen's to cover,
+  // and everything after them — nine imports and every streamer — still
+  // arrives underneath a menu the player is already using.
+  await stage('opening the sky');
+  const { createMenu, earthBody } = await deferred.menu;
+  const menu = createMenu({
+    bodies: [earthBody(world, places.all)],
+    scene,
+    renderer,
+    // `outline.render`, not `renderer.render`: a frame here is two passes.
+    draw: (target, camera) => outline.render(target, camera),
+    fallback: { lat: START.lat, lon: START.lon, name: 'Palma' },
+    time: () => sky.state.time,
+    sunDirection: () => sky.state.sun,
+  });
+  document.body.appendChild(menu.root);
+
+  // The sky's own sun and moon discs hang five radii from the camera, which
+  // from the orrery is five radii in front of it: two small discs floating in
+  // the solar system. The orrery draws the Sun where it actually is, so the
+  // disc goes for the menu and comes back with the game; the moon disc goes
+  // when the camera leaves the dome, which is where it stops meaning anything.
+  const skyDome = scene.getObjectByName('sky');
+  const sunDisc = scene.getObjectByName('sun');
+  const moonDisc = scene.getObjectByName('moon');
+  if (sunDisc !== undefined) sunDisc.visible = false;
+  scene.background = SPACE_BACKGROUND;
+
+  // **The menu's own frame, and it is not optional.** Everything the world
+  // draws is calibrated for a camera standing on it: the fog closes at the
+  // land's horizon, about 1,400 units at eye height, and the menu's camera is
+  // anywhere from a few thousand units to a million. Wired without this the
+  // globe came back as a flat mauve ball — `fog.far` doing exactly what it
+  // says at forty times its own range. The same call gives the menu the real
+  // sun, the surf and the weather.
+  let veil = 1;
+  let veiledAt = performance.now();
   menu.beforeRender = (camera) => {
-    const altitude = Math.max(1, camera.position.length() - PLANET_RADIUS);
+    const distance = camera.position.length();
+    const altitude = Math.max(1, distance - PLANET_RADIUS);
     fog.near = Math.sqrt(2 * PLANET_RADIUS * altitude) * 0.2;
     fog.far = fogFar(altitude, PLANET_RADIUS);
-    // The altitude is the eye height: 1.47 radii, which fades the shadows out.
     sky.update(camera.position.clone().setLength(PLANET_RADIUS), camera.position, altitude);
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     clouds.update(sky.state.time, camera.position, fog);
-    // **The weather comes off for the town stage and for that stage only.** The
-    // deck is real and it is most of why the front door is worth looking at
-    // from 2.47 radii — but the town stage is a list you click on, the camera
-    // is a few thousand units up, and a cell of stratus over eastern Spain
-    // hides Valencia. The pins are DOM and draw over it regardless, so what a
-    // cloud actually costs there is the country under the pin: you cannot see
-    // which coast the dot is on. Put back below, once the menu is gone.
-    clouds.group.visible = menu.stage !== 'site';
+    // **The weather is there from space and gone while you choose.** The
+    // country and town stages are a map you click on, and the deck over it is
+    // in the way: a solid cell of stratus over eastern Spain hid which coast
+    // Valencia was on, and even veiled it was the thing the user asked to have
+    // out of the way. From the system and a planet's card it stays, because
+    // there it is most of what makes Earth look like Earth. It fades rather
+    // than switching, on the clock of the frames the menu draws.
+    const now = performance.now();
+    const step = Math.min(0.1, (now - veiledAt) / 1000);
+    veiledAt = now;
+    const wanted = menu.stage === 'region' || menu.stage === 'site' ? 0 : 1;
+    veil += (wanted - veil) * (1 - Math.exp(-step / VEIL_LAG));
+    if (Math.abs(wanted - veil) < 0.01) veil = wanted;
+    clouds.setVeil(veil);
+    const inside = distance < PLANET_RADIUS * DOME_EXIT;
+    if (skyDome !== undefined) skyDome.visible = inside;
+    if (moonDisc !== undefined) moonDisc.visible = inside;
     // The direction and not the light's position: the sun sits on the shadow
-    // box now, a few thousand units from the player, so normalising its
-    // position would point at Mallorca and not at the sun.
+    // box, a few thousand units from the player.
     oceanSun.copy(sky.state.sun);
     oceanMoon.copy(sky.moon.position).normalize();
     oceanLights[0]!.intensity = sky.sun.intensity;
     oceanLights[1]!.intensity = sky.moon.intensity;
     ocean.update(camera.position, oceanLights);
   };
+  dismissLoading();
+  report = (fraction, label) => menu.progress(fraction, label);
 
   await stage('raising the monuments');
   // One context for the whole world: monuments and settlements share a material
@@ -430,18 +573,22 @@ async function start(): Promise<void> {
   // a click, on `Enter`, or immediately if the player already picked while the
   // land was building.
   menu.ready();
-  // `?at=lat,lon` skips the menu — for `scripts/shot.mjs` and anyone who wants
-  // a link to a place; `?time=ISO` freezes the sun there (`sky.setTime`) and
-  // `?height=N` starts the camera that far up. Debug surface, not a feature.
-  const query = new URLSearchParams(location.search);
+  report = null;
   const at = query.get('at')?.split(',').map(Number);
-  const spawn =
-    at && at.length === 2 && at.every(Number.isFinite)
-      ? { body: 'earth', region: '', name: 'here', lat: at[0]!, lon: at[1]! }
-      : await menu.choose();
-  // Whatever the town stage did to the deck, the world gets it back.
-  clouds.group.visible = true;
-  if (query.get('time')) sky.setTime(query.get('time'));
+  const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite);
+  const spawn = skipMenu
+    ? { body: 'earth', region: '', name: 'here', lat: at[0]!, lon: at[1]! }
+    : await menu.choose();
+  // The dive into the town and the curtain over the end of it. Everything below
+  // — the player, the rig, the HUD — is built behind the curtain, and the loop
+  // lifts it once the town under it has had a moment to stand.
+  let curtain: Curtain | null = skipMenu ? null : await menu.depart();
+  // Whatever the menu did to the sky, the world gets it back.
+  clouds.setVeil(1);
+  if (skyDome !== undefined) skyDome.visible = true;
+  if (sunDisc !== undefined) sunDisc.visible = true;
+  if (moonDisc !== undefined) moonDisc.visible = true;
+  scene.background = null;
   /**
    * The ground people made, which is the surface a foot actually stands on.
    *
@@ -488,20 +635,19 @@ async function start(): Promise<void> {
   });
   document.getElementById('minimap')!.appendChild(minimap.canvas);
 
-  const found = document.getElementById('found')!;
-  const foundCount = document.getElementById('found-count')!;
-  const toast = document.getElementById('toast')!;
-  let toastUntil = 0;
-
-  const showCount = (): void => {
-    foundCount.textContent = `${monuments.visited.size} / ${placements.length}`;
-  };
-  showCount();
-
   const { bearingTo } = await deferred.cartography;
   const { createHud } = await deferred.hud;
-  const hud = createHud(world);
+  // The gear and the map on the HUD's bar, and on its pause card. Both are
+  // closures over things built a few lines further down, which is safe: they
+  // run on a click, long after everything here exists.
+  const hud = createHud(world, {
+    onSettings: () => settings.toggle(),
+    onMap: () => (map.open ? map.hide() : map.show()),
+  });
   document.body.appendChild(hud.root);
+
+  const showCount = (): void => hud.setFound(monuments.visited.size, placements.length);
+  showCount();
 
   // Somewhere to go. It picks and it points; it never flies you — the plane's
   // whole design is that speed rides altitude, so crossing an ocean *is* a climb
@@ -546,11 +692,6 @@ async function start(): Promise<void> {
   // be earlier in the document than the elements that carry it.
   document.body.insertBefore(names.root, document.body.firstChild);
 
-  const hint = document.getElementById('hint')!;
-  document.addEventListener('pointerlockchange', () => {
-    hint.hidden = document.pointerLockElement === renderer.domElement || map.open;
-  });
-
   /**
    * The detail knob on the keyboard, because the console is not where you are
    * when you find out a number is wrong.
@@ -561,13 +702,11 @@ async function start(): Promise<void> {
    * in `input.ts`'s `BINDINGS` — that table is the controls the game teaches on
    * the hint card, and this is a setting.
    */
-  function announce(text: string): void {
-    toast.textContent = text;
-    toast.hidden = false;
-    toastUntil = performance.now() + 1800;
+  function announce(text: string, iconName: 'flag' | 'eye' | 'sparkle' = 'sparkle'): void {
+    hud.toast(text, iconName);
   }
   function showDetail(value: number): void {
-    announce(`render detail ${value.toFixed(2)}x`);
+    announce(`Render distance ${value.toFixed(2)}×`, 'eye');
   }
 
   /**
@@ -597,10 +736,54 @@ async function start(): Promise<void> {
 
   addEventListener('keydown', (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.code === 'KeyB') announce(setOverlay(!overlayOn) ? 'flags on' : 'flags off');
+    if (event.code === 'KeyB') announce(setOverlay(!overlayOn) ? 'Flags and borders on' : 'Flags and borders off', 'flag');
     else if (event.code === 'BracketLeft') showDetail(setDetail(Math.max(DETAIL_MIN, detail() / 1.25)));
     else if (event.code === 'BracketRight') showDetail(setDetail(Math.min(DETAIL_MAX, detail() * 1.25)));
+    else if (event.code === 'KeyH' && !event.repeat) hud.toggleHints();
   });
+
+  /**
+   * The gear. It owns no state: each row is a getter and a setter over a value
+   * that lives where it always did — the detail knob in `view.ts`, the map
+   * layer here, the mouse in `input.ts` — and the keys go on working beside it.
+   */
+  let performanceOn = readSetting(PERFORMANCE_KEY) === '1';
+  hud.setPerformance(performanceOn);
+  hud.setHints(readSetting(HINTS_KEY) !== '0');
+  input.sensitivity = Number(readSetting(SENSITIVITY_KEY) ?? '1') || 1;
+  const { createSettings } = await deferred.settings;
+  const settings = createSettings({
+    detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
+    flags: { get: () => overlayOn, set: setOverlay },
+    sensitivity: {
+      get: () => input.sensitivity,
+      set: (value) => {
+        input.sensitivity = value;
+        writeSetting(SENSITIVITY_KEY, value.toFixed(3));
+        return input.sensitivity;
+      },
+      min: 0.3,
+      max: 3,
+    },
+    performance: {
+      get: () => performanceOn,
+      set: (on) => {
+        performanceOn = on;
+        hud.setPerformance(on);
+        writeSetting(PERFORMANCE_KEY, on ? '1' : '0');
+        return on;
+      },
+    },
+    hints: {
+      get: () => hud.hints,
+      set: (on) => {
+        writeSetting(HINTS_KEY, on ? '1' : '0');
+        return hud.setHints(on);
+      },
+    },
+    lockTarget: renderer.domElement,
+  });
+  document.body.appendChild(settings.root);
 
   /**
    * The flag attribute, which is 11 MB and is therefore not built until the
@@ -789,8 +972,22 @@ async function start(): Promise<void> {
         minimap.invalidate();
       }
     }
-    if (!toast.hidden && now > toastUntil) toast.hidden = true;
-    found.hidden = false;
+    // The HUD's two per-frame questions, both cached on its side: how you are
+    // travelling, which decides the keys it shows, and whether the mouse is
+    // free with nothing else on the screen, which is the pause card.
+    hud.setVehicle(player.vehicle);
+    hud.setPaused(document.pointerLockElement !== renderer.domElement && !map.open && !settings.open);
+    // The curtain from the menu's dive comes up once the town under it has had
+    // its build: when the settlement streamer has nothing pending, or after a
+    // second and a half whatever it says, so a slow machine is never left
+    // looking at cream.
+    if (curtain !== null) {
+      const waited = now - loopStarted;
+      if ((waited > 450 && settlements.stats.pending === 0) || waited > 1500) {
+        curtain.lift();
+        curtain = null;
+      }
+    }
     // Where you are, asked once and handed to both the disc and the chip.
     // Every frame, not throttled: `countryAtPoint` is 2 us and the nearest
     // place is a scan of 9,734 dot products, which is another 7. The disc
@@ -875,6 +1072,7 @@ async function start(): Promise<void> {
       frames = 0;
       accumulated = 0;
       sampledAt = now;
+      if (performanceOn) hud.showPerformance(stats);
     }
 
     // The clock is the world's own, not the machine's: `sky.setTime` and
@@ -906,8 +1104,8 @@ async function start(): Promise<void> {
     );
   }
 
-  document.getElementById('loading')!.remove();
   console.log(`atlas ready in ${Math.round(performance.now() - began)} ms`);
+  const loopStarted = performance.now();
   requestAnimationFrame(frame);
 
   // For poking around from the console: `atlas.goTo(48.86, 2.29)` drops you at
@@ -1054,5 +1252,21 @@ async function start(): Promise<void> {
 }
 
 start().catch((error: unknown) => {
-  document.getElementById('loading')!.textContent = `Error: ${String(error)}`;
+  console.error(error);
+  const loading = document.getElementById('loading');
+  const text = document.getElementById('loading-stage');
+  if (loading !== null && text !== null) {
+    loading.classList.add('failed');
+    text.textContent = `Something went wrong: ${String(error)}`;
+  } else {
+    // Past the loading screen there is nowhere else to say it, so it gets a
+    // card of its own rather than a silent console.
+    const card = document.createElement('div');
+    card.style.cssText =
+      'position:fixed;left:50%;top:24px;transform:translateX(-50%);z-index:40;padding:12px 18px;' +
+      'background:#fff2e8;border:3px solid #1e0603;border-radius:14px;box-shadow:0 5px 0 #1e0603;' +
+      'font:700 14px ui-rounded,system-ui,sans-serif;color:#1e0603';
+    card.textContent = `Something went wrong: ${String(error)}`;
+    document.body.appendChild(card);
+  }
 });
