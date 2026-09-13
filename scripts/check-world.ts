@@ -75,7 +75,18 @@ import {
   waterProbeSteps,
 } from '../src/roads.ts';
 import type { CoursePath, RoadRamp } from '../src/roads.ts';
-import { offsetDirection } from '../src/scenery/grid.ts';
+import {
+  cornerOffset,
+  gateLevel,
+  gatesOf,
+  groundOf,
+  offsetDirection,
+  partnerOf,
+  streetBand,
+  townGrid,
+  townTerraces,
+} from '../src/scenery/grid.ts';
+import type { TownGrid } from '../src/scenery/grid.ts';
 import { biomeAt, biomeSample } from '../src/biome.ts';
 // The floor's own vertical section, from the file that lays it: the check has
 // to measure the mesh against the number `settlements.ts` uses and not against
@@ -2785,6 +2796,116 @@ console.log('\nmade ground');
     `${stepped.stats?.flights} flights of ${stepped.stats?.steps} risers: tallest step on the avenue ` +
       `${street.rise.toFixed(2)} in a climb of ${street.climb.toFixed(1)}, beside it ${yard.rise.toFixed(2)}`,
   );
+
+  /**
+   * And one level a street, which is what the flights are laid on.
+   *
+   * Until 2026-09-13 the two cells either side of a band street each cut their
+   * own terrace, so on a hill a riser ran down the middle of the street and it
+   * climbed by two half-flights in two different places: invisible in a table
+   * of levels, a tangle of stairs on the screen, 11,403 of them. `cellLevel`
+   * cuts the cells that share a street to one level. Held here over a square of
+   * every size the built world has, `townGrid`'s own, on a hill climbing both
+   * ways with a ripple in it — enough to put a riser in most blocks and to
+   * leave no cell refused, so every flight's twin has a cell to stand in:
+   *
+   * - no cell has a band on both of its sides, which is what keeps a street's
+   *   group to the four cells round a crossing;
+   * - the two cells either side of every band are one level;
+   * - every flight on a band has its twin on the other half, at the same line
+   *   and between the same two levels;
+   * - and every gate's cells are cut to the level `gateLevel` gives the road.
+   */
+  {
+    const hillside = (x: number, z: number): number => 100 + 0.34 * x + 0.21 * z + 2.5 * Math.sin(x * 0.11 + z * 0.07);
+    const sizes = new Map<number, TownGrid>();
+    for (let k = 0; k <= 160; k++) {
+      const grid = townGrid(Math.round(10 ** (k / 20)));
+      if (!sizes.has(grid.cells)) sizes.set(grid.cells, grid);
+    }
+    let doubleBanded = 0;
+    let pairs = 0;
+    let split = 0;
+    let levelsSeen = 0;
+    let bandFlights = 0;
+    let orphans = 0;
+    let gateCells = 0;
+    let gateWrong = 0;
+    for (const grid of sizes.values()) {
+      for (let c = 0; c < grid.cells; c++) {
+        if (grid.high[c] === 1 && grid.low[c] === 1) doubleBanded++;
+        if (partnerOf(grid, partnerOf(grid, c)) !== c) doubleBanded++;
+      }
+      const base = hillside(0, 0);
+      const levels = townTerraces(grid, groundOf(grid, hillside, base));
+      const paved = new Map<number, number>();
+      for (const [key, level] of levels) if (level !== null) paved.set(key, level);
+      levelsSeen = Math.max(levelsSeen, new Set(paved.values()).size);
+      for (let c = 0; c + 1 < grid.cells; c++) {
+        if (grid.high[c] !== 1) continue;
+        for (let r = 0; r < grid.cells; r++) {
+          for (const [a, b] of [[cellKey(c, r), cellKey(c + 1, r)], [cellKey(r, c), cellKey(r, c + 1)]] as const) {
+            const la = paved.get(a);
+            const lb = paved.get(b);
+            if (la === undefined || lb === undefined) continue;
+            pairs++;
+            if (la !== lb) split++;
+          }
+        }
+      }
+      const field = buildFloor({
+        grid,
+        band: streetBand(grid, 9.75),
+        terraces: paved,
+        cornerGround: (i, j) => hillside(cornerOffset(grid, i), cornerOffset(grid, j)),
+      });
+      for (const list of field.flights?.values() ?? []) {
+        for (const flight of list) {
+          const col = Math.floor(flight.cell / 1024) - 512;
+          const row = (flight.cell % 1024) - 512;
+          // The street it climbs runs along `axis`, so its band is on the cell's
+          // index on the other axis; an avenue's flight is a whole cell wide.
+          const across = flight.axis === 0 ? row : col;
+          const twin = partnerOf(grid, across);
+          if (twin === across) continue;
+          bandFlights++;
+          const other = flight.axis === 0 ? cellKey(col, twin) : cellKey(twin, row);
+          const matched = (field.flights?.get(other) ?? []).some((f) =>
+            f.axis === flight.axis && Math.abs(f.at - flight.at) < 1e-9 && f.into === flight.into &&
+            f.high === flight.high && f.low === flight.low);
+          if (!matched) orphans++;
+        }
+      }
+      for (const gate of gatesOf(grid)) {
+        const level = gateLevel(grid, gate, hillside, base);
+        if (level === null) continue;
+        for (const [col, row] of gate.cells) {
+          gateCells++;
+          if (levels.get(cellKey(col, row)) !== level) gateWrong++;
+        }
+      }
+    }
+    check(
+      doubleBanded === 0,
+      'no cell of a town has a band street on both of its sides, so a street is shared by at most four cells',
+      `${sizes.size} sizes of square, 1 to ${Math.max(...sizes.keys())} cells a side`,
+    );
+    check(
+      split === 0 && pairs > 0,
+      'and the two cells either side of every band street are cut to one level: no riser runs down a street',
+      `${pairs.toLocaleString()} cell pairs across a band on a hillside, ${split} split, up to ${levelsSeen} levels a town`,
+    );
+    check(
+      orphans === 0 && bandFlights > 0,
+      'and every flight on a band street has its twin on the other half, at the same line',
+      `${bandFlights} half-flights, ${orphans} without a twin`,
+    );
+    check(
+      gateWrong === 0 && gateCells > 0,
+      'and every gate’s cells are cut to the level gateLevel gives the road',
+      `${gateCells} gate cells, ${gateWrong} disagreeing`,
+    );
+  }
 
   /**
    * The ribbon, against the network that ships.

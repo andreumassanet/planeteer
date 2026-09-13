@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
 import { radiusFor } from '../places.ts';
-import { MAX_CUT, TERRACE_STEP } from './ground.ts';
+import { MAX_CUT, TERRACE_STEP, cellKey } from './ground.ts';
 
 /**
  * A town's square: how big it is, the cells it is cut into, where its streets
@@ -59,6 +59,13 @@ export const TOWN_PITCH = 12;
  * (`MAX_CUT`, 12) left 253 built towns with every gate too steep to cut and no
  * road at all (2026-09-13). Twenty is a wall of about 24 units at the one cell a
  * road climbs onto, which is a hill town's gate.
+ *
+ * **That is the cut on the cell's own corners and not the wall it shows.** A
+ * gate's cells take their group's level (`cellLevel`), which is the highest of
+ * the cells sharing their street, so a gate cell stands taller than its own cut
+ * wherever a partner is higher: the tallest wall a gate cell shows is 43.96, at
+ * Sahāranpur, and 1,510 of them show more than 19 (2026-09-13). All but 85 of
+ * those were already there under the gate-by-gate closure the groups replaced.
  */
 export const GATE_CUT = MAX_CUT + 2 * TERRACE_STEP;
 
@@ -203,18 +210,20 @@ export function isAvenue(grid: TownGrid, col: number, row: number): boolean {
 }
 
 /**
- * The level a cell's terrace is cut to, or null where the town cannot cut one.
+ * The level a cell's highest corner quantises to: a whole number of
+ * `TERRACE_STEP`s about the town's own base.
  *
- * Moved here out of `settlements.ts` so that a road can ask it about the cell it
- * arrives on. The rule is unchanged: quantise the *highest* corner to a whole
- * number of `TERRACE_STEP`s about the town's own base, which keeps the paving
- * over every corner of its own cell by at least a unit, and refuse a cell whose
- * corners span more than `MAX_CUT`. `forced` skips the refusal, and it is used
- * for exactly one kind of cell: the one a road comes in on, which has to exist
- * whatever the hill does or the road ends against a wall.
+ * **The quantiser is what makes a hillside town a staircase instead of a
+ * ramp**, and it is taken about the town's *own centre*, so half the built
+ * world — which varies by under four units across its whole footprint
+ * (2026-09-07) — comes out on one level everywhere. It quantises the *highest*
+ * of the four corners rather than their mean, and that is what keeps the paving
+ * over the ground it was cut into: rounding puts the terrace within half a
+ * step, 2 units, of that corner, and `GROUND_LIFT` is 3, so the floor clears
+ * every corner of its own cell by at least a unit. Which cells are refused, and
+ * which are cut to a level higher than their own, is `cellLevel`'s.
  */
-export function terraceLevel(high: number, low: number, base: number, forced = false): number | null {
-  if (!forced && high - low > MAX_CUT) return null;
+export function terraceLevel(high: number, base: number): number {
   return base + TERRACE_STEP * Math.round((high - base) / TERRACE_STEP);
 }
 
@@ -299,25 +308,251 @@ export function gatesOf(grid: TownGrid): Gate[] {
   return gates;
 }
 
-const gateLists = new WeakMap<TownGrid, Gate[]>();
+// ---------------------------------------------------------------------------
+// The terraces: which level each cell of the square is cut to
+// ---------------------------------------------------------------------------
 
 /**
- * The level a gate's cells are cut to, forced — or null if any corner of them
- * is in the sea, which makes the gate unusable.
+ * What a town's cells stand on, as the terrace rule asks it.
+ *
+ * An interface rather than an `elevationAt` because the two callers pay for
+ * the ground differently: `settlements.ts` has every corner of the town it is
+ * raising cached already, and `roads.ts` asks about the one to four cells of a
+ * single gate. Both answer the same three questions about the same points —
+ * `groundOf` is the second of them — and everything below reads only these.
+ */
+export interface TownGround {
+  /** The ground's elevation above sea level at lattice corner `(i, j)`, floored at 0. */
+  corner(i: number, j: number): number;
+  /**
+   * Whether cell `(col, row)` is in the sea: by its centre, not by any one
+   * corner. A square on a coast loses the cells that stand in the water and
+   * keeps the quays, and a coastal hamlet's one cell with a corner in the water
+   * is a quay — refusing it took the road from 531 of them and from Reykjavik.
+   */
+  sea(col: number, row: number): boolean;
+  /** The elevation every terrace is a whole number of steps from: the town centre's, floored at 0. */
+  base: number;
+}
+
+/**
+ * A town's ground out of `elevationAt`, the ground's height above sea level at
+ * an offset in the town's frame (0 or less over water), each corner asked once.
+ */
+export function groundOf(grid: TownGrid, elevationAt: (x: number, z: number) => number, base: number): TownGround {
+  const corners = new Map<number, number>();
+  return {
+    corner(i, j) {
+      const key = cellKey(i, j);
+      let elevation = corners.get(key);
+      if (elevation === undefined) {
+        elevation = Math.max(0, elevationAt(cornerOffset(grid, i), cornerOffset(grid, j)));
+        corners.set(key, elevation);
+      }
+      return elevation;
+    },
+    sea: (col, row) => elevationAt(cellCentre(grid, col), cellCentre(grid, row)) <= 0,
+    base,
+  };
+}
+
+/**
+ * The cell `c` shares a band street with along one axis, or `c` itself.
+ *
+ * A band is paved half by the cell on each side of it (`streetBand`), and no
+ * cell has a band on both of its sides — the blocks are two cells deep — so a
+ * cell has one partner on an axis or none. `pnpm check` asserts it over every
+ * size of square the built world has.
+ */
+export function partnerOf(grid: TownGrid, c: number): number {
+  if (grid.high[c] === 1) return c + 1;
+  if (grid.low[c] === 1) return c - 1;
+  return c;
+}
+
+/**
+ * Every cell that shares a street with `(col, row)`, itself first: one cell,
+ * the two either side of a band, or the four round a crossing of two bands.
+ */
+export function groupOf(grid: TownGrid, col: number, row: number): (readonly [number, number])[] {
+  const c = partnerOf(grid, col);
+  const r = partnerOf(grid, row);
+  const group: (readonly [number, number])[] = [[col, row]];
+  if (c !== col) group.push([c, row]);
+  if (r !== row) group.push([col, r]);
+  if (c !== col && r !== row) group.push([c, r]);
+  return group;
+}
+
+const gateLists = new WeakMap<TownGrid, Gate[]>();
+const gatesByCell = new WeakMap<TownGrid, Map<number, Gate[]>>();
+
+/** Every gate of a square, cached: it is asked per road end. */
+function gatesFor(grid: TownGrid): Gate[] {
+  let all = gateLists.get(grid);
+  if (all === undefined) {
+    all = gatesOf(grid);
+    gateLists.set(grid, all);
+  }
+  return all;
+}
+
+/** The gates each cell of a square opens onto, by `cellKey`. Most cells open onto none. */
+function gatesAt(grid: TownGrid): Map<number, Gate[]> {
+  let byCell = gatesByCell.get(grid);
+  if (byCell === undefined) {
+    byCell = new Map();
+    for (const gate of gatesFor(grid)) {
+      for (const [col, row] of gate.cells) {
+        const key = cellKey(col, row);
+        const list = byCell.get(key) ?? [];
+        list.push(gate);
+        byCell.set(key, list);
+      }
+    }
+    gatesByCell.set(grid, byCell);
+  }
+  return byCell;
+}
+
+/** The highest and lowest of a cell's four corners, or null where the cell is in the sea. */
+function spanOf(ground: TownGround, col: number, row: number): { high: number; low: number } | null {
+  if (ground.sea(col, row)) return null;
+  let high = -Infinity;
+  let low = Infinity;
+  for (const [i, j] of [[col, row], [col + 1, row], [col + 1, row + 1], [col, row + 1]] as const) {
+    const elevation = ground.corner(i, j);
+    high = Math.max(high, elevation);
+    low = Math.min(low, elevation);
+  }
+  return { high, low };
+}
+
+/**
+ * Whether a road can come in by a gate at all: every cell it opens onto is out
+ * of the sea and can be cut, to `GATE_CUT` rather than `MAX_CUT` — see there
+ * for what each limit cost.
+ */
+function usable(ground: TownGround, gate: Gate): boolean {
+  return gate.cells.length > 0 && gate.cells.every(([col, row]) => {
+    const span = spanOf(ground, col, row);
+    return span !== null && span.high - span.low <= GATE_CUT;
+  });
+}
+
+/**
+ * The level a cell's own ground asks for, before its street has had its say:
+ * the quantised highest corner, or null where the cell is in the sea or steeper
+ * than it may be cut. **Every gate's cells are cut whatever `MAX_CUT` would have
+ * said**, to `GATE_CUT`, because a gate refused is a road lost; any other cell
+ * is refused past `MAX_CUT`.
+ */
+function ownLevel(grid: TownGrid, ground: TownGround, col: number, row: number): number | null {
+  const span = spanOf(ground, col, row);
+  if (span === null) return null;
+  const gate = gatesAt(grid).get(cellKey(col, row))?.some((g) => usable(ground, g)) ?? false;
+  if (span.high - span.low > (gate ? GATE_CUT : MAX_CUT)) return null;
+  return terraceLevel(span.high, ground.base);
+}
+
+/**
+ * The level a cell's terrace is cut to, or null where the town does not pave
+ * it. **The one definition**: `settlements.ts` paves by it, `gateLevel` is it
+ * at a gate, and the road climbs to what it says.
+ *
+ * **A street is one level across its width, so the cells that share one share
+ * a level.** A band street is paved half by the cell on each side of it, and
+ * until 2026-09-13 each of the two cut its own terrace off its own corners.
+ * Where the hill put them a step apart, a riser ran down the middle of the
+ * street lengthways, and the street climbed it by two half-flights of steps, each
+ * wherever its own half happened to meet its own riser — which the user found
+ * all over Madrid: *a veces las escaleras suben a diferentes sitios y queda un
+ * lío de escaleras. No debería haber elevaciones enmedio de las aceras, pero
+ * claro, si lo haces en mitad de una parcela también quedará raro porque el
+ * edificio estará flotando.*
+ *
+ * So a riser goes on the one line in a town that is neither a street nor a
+ * plot: **the back of the lot**, where the two cells of a block meet with no
+ * street between them — and a building standing across that line already asks
+ * for one level under it (`planTown`'s `level`). The cells either side of a
+ * band, and the four round a crossing of two bands (`groupOf`), are cut to one
+ * level, which puts every street and the two rows of houses facing it on one
+ * terrace with the retaining walls behind them; a street crosses a riser only at
+ * the back of a block, where the flight spans its whole width. An avenue is a
+ * whole cell of street and a group of its own along its length, so where it
+ * stands on a different level from the houses beside it the riser is at its
+ * kerb, under a house front, and where it meets a band street on another level
+ * the flight spans the band.
+ *
+ * **The group takes the highest of its cells' own levels, never a lower one.**
+ * Each own level keeps its paving over every corner of its own cell (see
+ * `terraceLevel`), and a cell cut below its own level would have the hill
+ * through its pavement; one cut above it only stands taller over the ground on
+ * its low side. That is the whole cost of the rule, and it is fill rather than
+ * a new kind of face. A cell its own ground refuses stays refused, and does not
+ * lower or raise its partners.
+ *
+ * Measured over the 9,749 built towns (2026-09-13): it deletes **11,403
+ * lengthwise risers in 1,259 towns**, and the 13,272 band crossings whose two
+ * halves stepped in different places, which was the tangle of stairs. It
+ * raises 10,253 of 134,353 paved cells — 9,206 by one step, 907 by two, 140
+ * by more — so the tallest wall shown by a cell that is not a gate's goes from
+ * 16.95 (Cúcuta) to 29.96 (Guayaquil, raised four steps), and 509 such cells
+ * show more than 19. Refusing those instead was measured and not taken: it
+ * costs 147 towns cells, and a cell refused is half a street missing.
+ *
+ * **A gate's cells are always one group**: a gate on an avenue opens onto one
+ * cell, and one on a band onto the two cells either side of it, which are
+ * partners. Two gates that share a cell — every gate of a square two cells wide,
+ * or the pair at a corner of a large one — share its group. So the road and the
+ * town ask this one question about the same cells and cannot get two answers,
+ * which is what the old gate-by-gate closure in `gateLevel` was for.
+ */
+export function cellLevel(grid: TownGrid, ground: TownGround, col: number, row: number): number | null {
+  let level = ownLevel(grid, ground, col, row);
+  if (level === null) return null;
+  for (const [c, r] of groupOf(grid, col, row)) {
+    if (c === col && r === row) continue;
+    const other = ownLevel(grid, ground, c, r);
+    if (other !== null && other > level) level = other;
+  }
+  return level;
+}
+
+/**
+ * Every cell of the square and the level it is cut to, null where it is not
+ * paved, by `cellKey`: `cellLevel` for the whole town, each cell's own level
+ * worked out once rather than once per member of each group.
+ */
+export function townTerraces(grid: TownGrid, ground: TownGround): Map<number, number | null> {
+  const own = new Map<number, number | null>();
+  for (let col = 0; col < grid.cells; col++) {
+    for (let row = 0; row < grid.cells; row++) own.set(cellKey(col, row), ownLevel(grid, ground, col, row));
+  }
+  const levels = new Map<number, number | null>();
+  for (let col = 0; col < grid.cells; col++) {
+    for (let row = 0; row < grid.cells; row++) {
+      let level = own.get(cellKey(col, row)) ?? null;
+      if (level !== null) {
+        for (const [c, r] of groupOf(grid, col, row)) {
+          const other = own.get(cellKey(c, r)) ?? null;
+          if (other !== null && other > level) level = other;
+        }
+      }
+      levels.set(cellKey(col, row), level);
+    }
+  }
+  return levels;
+}
+
+/**
+ * The level a gate's cells are cut to — or null where the gate cannot be used:
+ * a cell of it in the sea, or steeper than `GATE_CUT`.
  *
  * `elevationAt(x, z)` is the ground's height above sea level at an offset in
  * the town's frame, 0 or less over water; `base` is the same at the town's
- * centre.
- *
- * **A gate's cells are cut to one level, and so is every usable gate that
- * shares a cell with it.** Two cells either side of a band gate are cut to the
- * higher of their levels, so the road meets one surface and not a riser down
- * its middle — and in a town two cells wide every gate shares a corner cell
- * with the next, so the answer has to be the same whichever gate asks, or the
- * town and the road would each cut the shared cell to a different level. So the
- * level is the highest over the group of usable gates connected through shared
- * cells, which in a small town is the whole of it and in a large one is just
- * the gate's own one or two cells.
+ * centre. It is `cellLevel` at the gate, and all of a gate's cells are one
+ * group, so it does not matter which of them is asked.
  */
 export function gateLevel(
   grid: TownGrid,
@@ -325,51 +560,10 @@ export function gateLevel(
   elevationAt: (x: number, z: number) => number,
   base: number,
 ): number | null {
-  let all = gateLists.get(grid);
-  if (all === undefined) {
-    all = gatesOf(grid);
-    gateLists.set(grid, all);
-  }
-  const levels = new Map<number, number | null>();
-  const cellLevel = (col: number, row: number): number | null => {
-    const key = col * 1024 + row;
-    const known = levels.get(key);
-    if (known !== undefined) return known;
-    let high = -Infinity;
-    let low = Infinity;
-    let level: number | null = null;
-    // Sea by the cell's centre, not by any one corner, which is the rule the
-    // town paves by: a coastal hamlet's one cell with a corner in the water is a
-    // quay, and refusing it took the road from 531 of them and from Reykjavik.
-    const sea = elevationAt(cellCentre(grid, col), cellCentre(grid, row)) <= 0;
-    for (const [i, j] of [[col, row], [col + 1, row], [col + 1, row + 1], [col, row + 1]] as const) {
-      const elevation = Math.max(0, elevationAt(cornerOffset(grid, i), cornerOffset(grid, j)));
-      high = Math.max(high, elevation);
-      low = Math.min(low, elevation);
-    }
-    // The cell's own terrace, refused past `GATE_CUT` rather than `MAX_CUT`:
-    // see there for what each limit cost.
-    if (!sea && high - low <= GATE_CUT) level = terraceLevel(high, low, base, true);
-    levels.set(key, level);
-    return level;
-  };
-  const usable = (g: Gate): boolean => g.cells.every(([col, row]) => cellLevel(col, row) !== null);
-  const shares = (a: Gate, b: Gate): boolean =>
-    a.cells.some(([ca, ra]) => b.cells.some(([cb, rb]) => ca === cb && ra === rb));
-  if (!usable(gate)) return null;
-  let level = -Infinity;
-  const seen = new Set<Gate>([gate]);
-  const queue: Gate[] = [gate];
-  while (queue.length > 0) {
-    const g = queue.pop()!;
-    for (const [col, row] of g.cells) level = Math.max(level, cellLevel(col, row)!);
-    for (const other of all) {
-      if (seen.has(other) || !shares(g, other) || !usable(other)) continue;
-      seen.add(other);
-      queue.push(other);
-    }
-  }
-  return level === -Infinity ? null : level;
+  const ground = groundOf(grid, elevationAt, base);
+  if (!usable(ground, gate)) return null;
+  const [col, row] = gate.cells[0]!;
+  return cellLevel(grid, ground, col, row);
 }
 
 /**

@@ -21,15 +21,16 @@ import type { RegionId } from './regions.ts';
  *
  * The three rules it exists to keep:
  *
- * 1. **The paving sits on the local dirt rather than replacing it.**
- *    `globe.ts`'s `groundColorAt` is the one definition of what colour the land
- *    is at a point, biome and country tint both, and every colour here is
- *    blended against it. A Malian compound is beaten sand and a Norwegian yard
- *    is grey gravel because the ground under them already is.
- * 2. **`hardness` is the whole regional signal and it is one number.** It says
- *    how much of what you stand on was *made*: 0.15 is a swept clearing, 0.9 is
- *    asphalt to the last house. Everything else — the colours, the plaza, how
- *    much of the town is street — follows it or is a small correction to it.
+ * 1. **A town stands on its region's road.** The yards, the streets and the
+ *    slope round the edge are all `road` since 2026-09-13, so a town reads as
+ *    one made base and a carriageway arriving runs on into it. It was the
+ *    local dirt, trodden and pulled towards a paving colour, until the town
+ *    square landed that same day, and a paving colour of its own for the few
+ *    hours after; `buildGround` in `settlements.ts` has the verdict on each.
+ * 2. **`hardness` says how much of what you stand on was *made*** — 0.15 is a
+ *    swept clearing, 0.9 is asphalt to the last house — and since the floor
+ *    stopped being blended out of the dirt, what it still decides is how many
+ *    lamps a town's streets get.
  * 3. **Colours come out of `PALETTE` and nowhere else.** The town mesh is
  *    vertex-coloured, so nothing here goes through `ctx.toon` and nothing
  *    throws on an off-palette value. That makes it the one place in the kit
@@ -38,19 +39,10 @@ import type { RegionId } from './regions.ts';
 export interface GroundStyle {
   /** How much of the ground was made rather than trodden. 0 dust, 1 stone. */
   hardness: number;
-  /**
-   * What the ground between the houses is made of, as far as `hardness` takes
-   * it from the local dirt.
-   *
-   * It is a *target*, not the colour: the yard you see is the biome's own dirt
-   * with the life walked out of it, moved this far towards the region's own
-   * surface. That is why two thirds of this column is `tan` and the world is not
-   * two thirds tan.
-   */
-  paving: number;
 
   /**
-   * The carriageway.
+   * The carriageway, and since 2026-09-13 the whole floor of the region's
+   * towns, which were a `paving` colour of their own until then.
    *
    * **A dark neutral here is invisible and it took a screenshot to see why: in
    * a cel-shaded world a dark grey on a light grey ground is exactly what a
@@ -295,6 +287,13 @@ export const TERRACE_STEP = 4;
  *
  * A cell steeper than this is not paved and nothing is built on it. `survey`
  * counts both the cells and the towns.
+ *
+ * **Since one level a street (2026-09-13) it bounds the cut and not the wall.**
+ * A cell is cut to its street's level (`cellLevel` in `grid.ts`), which is its
+ * own or a higher one where a cell across the street stands higher, so the
+ * face on its low side can be taller than the 15.8 above: 29.96 at the worst
+ * cell that is not a gate's, at Guayaquil, and 509 of them over 19 across the
+ * built world.
  */
 export const MAX_CUT = 12;
 
@@ -380,10 +379,11 @@ const P = PALETTE;
 /**
  * The table.
  *
- * Read it as two columns and one relation. `hardness` says how far the ground
- * gets from the dirt it is made of, and the *relation* is `road` against the
- * yard that `hardness` produces: they have to be far apart in lightness, and
- * the road has to be the one that is not a neutral. The lightness of the
+ * Read `road` against what it has to be told apart from — which, since it
+ * became the whole of a town's floor (2026-09-13), is not a yard any more but
+ * the land round the town and the shade on it: a pale road through green and
+ * dark country, a brown one through pale desert render, and never a neutral a
+ * shade off the ground it runs through (see `road`). The lightness of the
  * palette entries this leans on, for checking a new row:
  *
  * ```
@@ -391,39 +391,36 @@ const P = PALETTE;
  *   clay .49    olive .43  steel .28  bark .27    darkOlive .27
  * ```
  *
- * Every row here clears about 0.25 of lightness between the two, and every road
- * carries a hue: pale roads through green and dark towns, brown lanes through
- * pale desert render. `steel` appears exactly once, in the polar row, where the
- * ground it runs through is nearly white.
+ * `steel` appears exactly once, in the polar row, where the ground it runs
+ * through is nearly white.
  */
 export const GROUND_STYLES: Record<RegionId, GroundStyle> = {
-  // Gravel yards and one pale road through: the ground is mostly still ground.
-  nordic: { hardness: 0.35, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 3, street: 10.5 },
+  // One pale road through, and the town stands on the same stone.
+  nordic: { hardness: 0.35, road: P.bone, plaza: P.cream, lanes: 3, street: 10.5 },
   // Stone setts to the doorstep, and the square is the palest thing in the town.
-  'atlantic-europe': { hardness: 0.6, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
-  'east-europe': { hardness: 0.5, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
+  'atlantic-europe': { hardness: 0.6, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
+  'east-europe': { hardness: 0.5, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
   // Pale stone and dust, and the square is lime-washed like the walls around it.
-  mediterranean: { hardness: 0.6, paving: P.tan, road: P.cream, plaza: P.white, lanes: 2, street: 7.5 },
+  mediterranean: { hardness: 0.6, road: P.cream, plaza: P.white, lanes: 2, street: 7.5 },
   // Beaten earth between the walls: a medina is not paved, it is swept — and its
   // lanes are the narrowest and the closest together in the table, which is the
   // whole of what a medina is from above. They read *dark* because an alley
   // between two-storey walls is in shadow most of the day.
-  maghreb: { hardness: 0.4, paving: P.sand, road: P.brown, plaza: P.cream, lanes: 2, street: 6 },
-  'sub-saharan': { hardness: 0.3, paving: P.clay, road: P.sand, plaza: P.sand, lanes: 3, street: 8.25 },
-  'middle-east': { hardness: 0.45, paving: P.sand, road: P.brown, plaza: P.cream, lanes: 2, street: 6.9 },
-  'south-asia': { hardness: 0.45, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 3, street: 8.25 },
-  'east-asia': { hardness: 0.55, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
+  maghreb: { hardness: 0.4, road: P.brown, plaza: P.cream, lanes: 2, street: 6 },
+  'sub-saharan': { hardness: 0.3, road: P.sand, plaza: P.sand, lanes: 3, street: 8.25 },
+  'middle-east': { hardness: 0.45, road: P.brown, plaza: P.cream, lanes: 2, street: 6.9 },
+  'south-asia': { hardness: 0.45, road: P.bone, plaza: P.cream, lanes: 3, street: 8.25 },
+  'east-asia': { hardness: 0.55, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
   // Wet ground under stilts. What hard standing there is, is a plank and a path.
-  'southeast-asia': { hardness: 0.3, paving: P.brown, road: P.sand, plaza: P.sand, lanes: 3, street: 8.25 },
-  // Lawns with roads between them, which is what a suburb is — so the *yard*
-  // stays close to the grass it was cut out of and the road does all the work.
-  // It is also the widest road on the planet, on the widest pitch in the kit.
-  'north-america': { hardness: 0.45, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 4, street: 15 },
-  'latin-america': { hardness: 0.5, paving: P.tan, road: P.cream, plaza: P.white, lanes: 3, street: 9.75 },
-  oceania: { hardness: 0.45, paving: P.tan, road: P.bone, plaza: P.cream, lanes: 4, street: 14.25 },
+  'southeast-asia': { hardness: 0.3, road: P.sand, plaza: P.sand, lanes: 3, street: 8.25 },
+  // Roads between lots, which is what a suburb is: the widest road on the
+  // planet, on the widest pitch in the kit.
+  'north-america': { hardness: 0.45, road: P.bone, plaza: P.cream, lanes: 4, street: 15 },
+  'latin-america': { hardness: 0.5, road: P.cream, plaza: P.white, lanes: 3, street: 9.75 },
+  oceania: { hardness: 0.45, road: P.bone, plaza: P.cream, lanes: 4, street: 14.25 },
   // Nothing grows, so there is no lawn to lose: the ground is already bare rock,
   // and it is the one place pale enough for a dark road to read as a road.
-  polar: { hardness: 0.45, paving: P.bone, road: P.steel, plaza: P.white, lanes: 4, street: 12 },
+  polar: { hardness: 0.45, road: P.steel, plaza: P.white, lanes: 4, street: 12 },
 };
 
 const DEFAULT_GROUND: GroundStyle = GROUND_STYLES['atlantic-europe'];
@@ -499,26 +496,6 @@ export function dirt(base: THREE.Color, target: THREE.Color): THREE.Color {
     Math.max(0.16, hsl.s * 0.78),
     hsl.l * 0.78,
   );
-}
-
-/**
- * The floor of a settlement: the local dirt, trodden, moved towards the
- * region's paving by how much of it was made.
- *
- * `base` is what `groundColorAt` says the land is at the settlement's centre.
- * Sampled once per town and not once per cell: a settlement is at most 200
- * units across and the biome's own features are degrees wide, so the second
- * call would return the first answer and cost a point-in-polygon to do it.
- */
-const pavingScratch = new THREE.Color();
-
-export function floorColor(
-  base: THREE.Color,
-  style: GroundStyle,
-  target: THREE.Color,
-): THREE.Color {
-  trodden(base, target);
-  return target.lerp(pavingScratch.setHex(style.paving), style.hardness);
 }
 
 /**

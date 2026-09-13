@@ -113,6 +113,14 @@ export const FLIGHT_INSET = 0.5;
  * One flight of steps: where a street crosses a riser between two terraces,
  * standing in the lower cell against the higher one's edge.
  *
+ * **On a band street a flight is always one of a pair.** A band is paved half
+ * by the cell on each side of it, and since 2026-09-13 those two are cut to one
+ * level (`cellLevel` in `grid.ts`), and so are the two they climb to — so each
+ * half gets the same flight and the pair meet at the band's midline as one
+ * stair the width of the street, less `FLIGHT_INSET` at each kerb. Until then
+ * each half climbed its own riser, and the two halves of one street took their
+ * flights in two different places.
+ *
  * All positions are in the town's own plane, the frame `floorLiftAt` is asked
  * in; all heights are elevations above sea level of the *surface* — a
  * terrace's level plus `GROUND_LIFT` — so nothing reading one has to add the

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, groundColorAt, groundRadius } from './globe.ts';
+import { PLANET_RADIUS, groundRadius } from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolByte } from './lights.ts';
 import {
@@ -9,7 +9,6 @@ import {
   cellKey,
   cellTone,
   groundStyleFor,
-  trodden,
 } from './scenery/ground.ts';
 import {
   apronCorner,
@@ -28,15 +27,13 @@ import {
   cellCentre,
   cellIndex,
   cornerOffset,
-  gateLevel,
-  gatesOf,
   isAvenue,
   streetBand,
-  terraceLevel,
   townFrame,
   townGrid,
+  townTerraces,
 } from './scenery/grid.ts';
-import type { TownGrid } from './scenery/grid.ts';
+import type { TownGrid, TownGround } from './scenery/grid.ts';
 import { enclosed, freeSpot, pushOut, solidField, yawed } from './scenery/solids.ts';
 import type { Solid, SolidField } from './scenery/solids.ts';
 import type { MonumentContext } from './monuments/contract.ts';
@@ -1310,10 +1307,6 @@ export function createSettlements(
       .normalize();
   }
 
-  const gateDir = new THREE.Vector3();
-  /** The ground's height at an offset in the town being raised, for `gateLevel`. */
-  const gateElevation = (x: number, z: number): number => world.elevationAt(directionAt(x, z, gateDir));
-
   /**
    * A standing building's wall, for `solids.ts`: its plan box turned by its yaw
    * and scaled, centred where the box's own centre lands, and as tall as the
@@ -1402,50 +1395,35 @@ export function createSettlements(
     return into;
   }
 
-  /**
-   * The elevation this cell's terrace is cut to, or null where the town cannot
-   * cut one at all.
-   *
-   * **The quantiser is what makes a hillside town a staircase instead of a
-   * ramp**, and it is taken about the town's *own centre*: a cell is `n` steps
-   * above or below the elevation the anchor stands at, `n` whole. Half the
-   * built world varies by under four units across its whole footprint
-   * (2026-09-07), so half the world comes out at `n = 0` everywhere and is the
-   * single flat plinth it was before terracing existed.
-   *
-   * It quantises the *highest* of the four corners rather than their mean, and
-   * that is what keeps the paving over the ground it was cut into: rounding puts
-   * the terrace within half a step — 2 units — of that corner, and `GROUND_LIFT`
-   * is 3, so the floor clears every corner of its own cell by at least a unit.
-   *
-   * **`MAX_CUT` is the refusal**, and it is the rule the user asked for in the
-   * shape the geometry can honour: not "no town on a slope" but "no cell the
-   * town would have to cut deeper than this", which is the same thing as a cap
-   * on how tall a wall it can show. What it costs is measured in `survey`, town
-   * by town.
-   */
   const centreDir = new THREE.Vector3();
 
+  /**
+   * The town being raised, as `grid.ts` asks about its ground: the corners
+   * `cornerAt` has cached, the sea by each cell's centre, and the anchor's own
+   * elevation as the base every terrace is quantised about.
+   */
+  const townGround: TownGround = {
+    corner: (i, j) => cornerAt(i, j).elevation,
+    sea: (col, row) =>
+      world.elevationAt(directionAt(cellCentre(townGridNow, col), cellCentre(townGridNow, row), centreDir)) <= 0,
+    get base() {
+      return baseElevation;
+    },
+  };
+
+  /**
+   * The elevation this cell's terrace is cut to, or null where the town does
+   * not pave it.
+   *
+   * **`cellLevel` in `grid.ts` is the rule**, and this only reads what `raise`
+   * worked out with it for the whole square before anything was placed
+   * (`townTerraces`): a cell's level is its street's, which depends on the cell
+   * across the street, so it is a question about the town rather than about the
+   * cell. What the refusals and the fill cost is measured in `survey`, town by
+   * town.
+   */
   function terraceAt(col: number, row: number): number | null {
-    const key = cellKey(col, row);
-    const known = terraces.get(key);
-    if (known !== undefined) return known;
-    const a = cornerAt(col, row);
-    const b = cornerAt(col + 1, row);
-    const c = cornerAt(col + 1, row + 1);
-    const d = cornerAt(col, row + 1);
-    let level: number | null = null;
-    // Sea by the cell's centre, not by any one corner: a square on a coast
-    // loses the cells that stand in the water and keeps the quays, and
-    // `gateLevel` asks the same question so a coastal hamlet has a gate.
-    directionAt(cellCentre(townGridNow, col), cellCentre(townGridNow, row), centreDir);
-    if (world.elevationAt(centreDir) > 0) {
-      const high = Math.max(a.elevation, b.elevation, c.elevation, d.elevation);
-      const low = Math.min(a.elevation, b.elevation, c.elevation, d.elevation);
-      level = terraceLevel(high, low, baseElevation);
-    }
-    terraces.set(key, level);
-    return level;
+    return terraces.get(cellKey(col, row)) ?? null;
   }
 
   function frameAt(): void {
@@ -1587,12 +1565,9 @@ export function createSettlements(
   const faceA = new THREE.Vector3();
   const faceB = new THREE.Vector3();
   const faceNormal = new THREE.Vector3();
-  const baseColor = new THREE.Color();
   const floor = new THREE.Color();
   /** The paving of one cell: the region's floor, times the cell's own tone. */
   const cellFloor = new THREE.Color();
-  /** Where the apron meets the land: the local dirt, a little made. */
-  const verge = new THREE.Color();
   const roadColor = new THREE.Color();
   const plazaColor = new THREE.Color();
   /**
@@ -1937,13 +1912,22 @@ export function createSettlements(
      * cools with elevation. *El color del suelo a veces es verde, otras blanco.*
      * A base is a made thing, and a made thing is the colour it was made of.
      *
-     * The land still meets it, at the foot of the edge slope, which is the one
-     * place whose job is to stop being the town.
+     * **And what it is made of is the region's road** (2026-09-13). For the few
+     * hours between the square and this it was the region's own paving — a
+     * khaki `tan` in most of the table —
+     * with the streets in `GroundStyle.road` and the edge slope running from a
+     * kerb tone out to the local dirt, and the user saw both halves of that at
+     * once: the slope was the wrong colour, and a street band ending at the
+     * town's edge with no road beyond it *parece que está ahí porque sí*. What
+     * they asked for was the whole base in the carriageway's own colour — *no
+     * todas las carreteras son blancas, pues el suelo de las ciudades tiene que
+     * ser del mismo color que las carreteras de ahí* — so a town stands on one
+     * made surface, its foundations, and a road arriving runs on into it rather
+     * than changing material at the kerb. The yards keep `cellTone`'s grain and
+     * the streets and the slope do not, which is all that is left to tell them
+     * apart before a building stands on one.
      */
-    floor.setHex(style.paving);
-    groundColorAt(world, up, baseColor);
-    trodden(baseColor, verge);
-    verge.lerp(floor, 0.3);
+    floor.setHex(style.road);
     kerbTop.copy(floor).lerp(KERB_INK, 0.16);
     kerbFoot.copy(floor).lerp(KERB_INK, 0.42);
     roadColor.setHex(style.road);
@@ -1960,11 +1944,6 @@ export function createSettlements(
     out.terraces = levels;
     out.field = { pitch, shift: grid.shift, terraces: levels };
     if (levels.size === 0) return out;
-
-    /** A corner touches a paved cell, so it is at paving height rather than on a slope's foot. */
-    const paved = (i: number, j: number): boolean =>
-      levels.has(cellKey(i - 1, j - 1)) || levels.has(cellKey(i, j - 1)) ||
-      levels.has(cellKey(i - 1, j)) || levels.has(cellKey(i, j));
 
     const blocked = (x: number, z: number): boolean => {
       for (const keepout of keepouts) {
@@ -2263,9 +2242,10 @@ export function createSettlements(
      * The edge slope: one course of cells round the paving, each two triangles
      * from its owner's paving down to its foot under the ground.
      *
-     * The inner corners wear the kerb's top tone and the outer ones the verge,
-     * so the slope runs from the town's colour into the land's the way the old
-     * apron ran from the kerb's foot; and the diagonal is the one `buildFloor`
+     * All of it is the floor's own colour, the region's road: the slope is the
+     * side of the town's foundations, not a verge, and it goes into the ground
+     * in the material the paving is made of (see the floor's colour above for
+     * why it stopped running out into the local dirt). The diagonal is the one `buildFloor`
      * chose, which is what makes a convex corner a hip and the inside of an L a
      * valley. Where two slope cells beside each other start from different
      * terraces they meet in a wedge — the riser between those terraces carried
@@ -2289,12 +2269,8 @@ export function createSettlements(
       pointAt(b, apronCorner(field, apron, col + 1, row), sb);
       pointAt(c, apronCorner(field, apron, col + 1, row + 1), sc);
       pointAt(d, apronCorner(field, apron, col, row + 1), sd);
-      const ka = paved(col, row) ? kerbTop : verge;
-      const kb = paved(col + 1, row) ? kerbTop : verge;
-      const kc = paved(col + 1, row + 1) ? kerbTop : verge;
-      const kd = paved(col, row + 1) ? kerbTop : verge;
-      if (apron.diagonal === 0) pushQuad(out, sa, sb, sc, sd, ka, kb, kc, kd);
-      else pushQuad(out, sb, sc, sd, sa, kb, kc, kd, ka);
+      if (apron.diagonal === 0) pushQuad(out, sa, sb, sc, sd, floor, floor, floor, floor);
+      else pushQuad(out, sb, sc, sd, sa, floor, floor, floor, floor);
 
       const side = (p: Corner, q: Corner, pi: number, pj: number, qi: number, qj: number, dc: number, dr: number): void => {
         const near = cellKey(col + dc, row + dr);
@@ -2880,14 +2856,11 @@ export function createSettlements(
     baseElevation = Math.max(0, world.elevationAt(up));
     corners.clear();
     terraces.clear();
-    // Every gate's cells are cut to the level the road arriving there climbs to,
-    // whatever `MAX_CUT` would have said. `gateLevel` is the one definition, and
-    // `roads.ts` asks it the same question about the same cells.
-    for (const gate of gatesOf(grid)) {
-      const level = gateLevel(grid, gate, gateElevation, baseElevation);
-      if (level === null) continue;
-      for (const [col, row] of gate.cells) terraces.set(cellKey(col, row), level);
-    }
+    // Every cell's terrace, before anything stands on one: the gates' cells cut
+    // to the level the road arriving there climbs to, and every street one level
+    // across its width. `cellLevel` is the one definition, and `roads.ts` asks
+    // it the same question about the gate cells through `gateLevel`.
+    for (const [key, level] of townTerraces(grid, townGround)) terraces.set(key, level);
 
     const placed = planTown(slot, grid).placed;
 
