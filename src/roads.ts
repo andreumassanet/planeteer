@@ -328,6 +328,7 @@ export function townOffset(
 }
 
 const gateProbe = new THREE.Vector3();
+const gateOffset = { x: 0, z: 0 };
 
 /**
  * The level a town cuts one of its gates to, above sea level, or null where it
@@ -406,7 +407,13 @@ export function assignTownGates(
     placeDirection(other, gateProbe);
     return [gateProbe.dot(town.across), gateProbe.dot(town.north)] as const;
   });
-  return assignGates(town.gates, leaving, (_, index) => open(index));
+  // And where each is going, in world units in the town's frame, which is what
+  // `assignGates` measures a gate's facing against.
+  const toward = others.map((other) => {
+    townOffset(town, placeDirection(other, gateProbe), gateOffset);
+    return [gateOffset.x, gateOffset.z] as const;
+  });
+  return assignGates(town.gates, leaving, toward, (_, index) => open(index));
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +514,24 @@ const courseHere = new THREE.Vector3();
 const HANDLE_CAP = 0.75;
 
 /**
+ * And the longest it may be at all, in world units.
+ *
+ * **A handle that grows with its road carries the road straight out of its
+ * gate for up to three quarters of its length before it turns**, which is
+ * harmless while a gate faces where its road goes and is the whole of the loop
+ * when it does not: a road out of a side or back gate ran hundreds of units the
+ * wrong way first. And two roads out of one gate lay on each other along it —
+ * over the first gated network (2026-09-13), 5,480 pairs of roads sharing a
+ * gate overlapped past their approaches for 170,018 units of ribbon, out to 649
+ * units past the square at Maun. Past about eighty units the length buys no
+ * gentler curve, only a longer run in the wrong direction. Measured against
+ * the shipped pairs on their own gates: at 80, 66 of 17,145 roads failed a
+ * ground test they had passed, nearly all the fold test, and went to the gate
+ * search; at 40, 1,039.
+ */
+const HANDLE_MAX = 80;
+
+/**
  * How far a middle's handle reaches out of its approach, on the unit sphere.
  *
  * **A third of the chord was the textbook handle and it folded two thousand
@@ -526,13 +551,14 @@ const HANDLE_CAP = 0.75;
  * both ends turn the same way. `toward` is the chord out of this end; `out`,
  * the gate's own normal, is a unit tangent. Capped at `HANDLE_CAP` of the
  * chord, because a gate facing away needs a U-turn that no handle makes gentle
- * and a long one only swings the road further out before it comes back.
+ * and a long one only swings the road further out before it comes back — and
+ * at `HANDLE_MAX` in world units, for the same reason on a long road.
  */
 function handleFor(chord: number, out: THREE.Vector3, toward: THREE.Vector3): number {
   const length = toward.length();
   const cos = length > 0 ? Math.min(1, Math.max(-1, out.dot(toward) / length)) : 1;
   const halfCos = (1 + cos) * 0.5;
-  return Math.min(HANDLE_CAP * chord, chord / (3 * Math.max(halfCos, 1e-6)));
+  return Math.min(HANDLE_CAP * chord, HANDLE_MAX / PLANET_RADIUS, chord / (3 * Math.max(halfCos, 1e-6)));
 }
 
 /**

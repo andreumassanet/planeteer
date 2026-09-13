@@ -601,18 +601,47 @@ export function gateGlow(grid: TownGrid, gate: Gate, band: number): { x: number;
 }
 
 /**
+ * How far a gate may face from where its road is going and still be given to
+ * that road for its own, in radians: ninety degrees, seen from the gate itself
+ * to the far town.
+ *
+ * **One road to a gate was a rule with no limit on which way the gate faced,
+ * and it sent a road out of the back of a town whenever the gate it wanted was
+ * taken.** Almost every built town is a square of four gates, one a side, and
+ * a town with two roads leaving the same way gave the second a side gate or the
+ * back one. Over the first gated network (2026-09-13), 1,538 of 34,290 road
+ * ends left by a gate more than ninety degrees off their way, 1,515 of them at
+ * towns of four gates, and for 833 a gate facing the right way was open and
+ * taken; with the curve's handle then carrying the road out of the wrong side
+ * for up to three quarters of its length (`HANDLE_MAX` in `roads.ts`), that
+ * came to 520 roads turning through more than a half circle and 227 running
+ * more than 50 units behind the town they had just left — 194 at Kindu. The
+ * user: *carreteras que dan una vuelta y vuelven a la misma ciudad.*
+ *
+ * So a gate facing further off than this is never handed to a road while a
+ * gate within it is open: the road shares the best-facing gate instead, which
+ * roads already did at a third of all ends and which `layersOf` in `roads.ts`
+ * draws. A road whose every open gate faces away — a town on a coast or a
+ * slope — still gets the best of them.
+ */
+export const GATE_FACING = Math.PI / 2;
+
+/**
  * Which gate each road comes in by.
  *
  * `leaving` is each road's direction out of the town, as `(x, z)` in the
- * town's frame (normalised or not); `usable` says whether a gate can be used
- * at all. The cheapest pairing by angle wins, one road to a gate while there
- * are gates to go round, and a road left over shares the gate nearest its
- * heading rather than having none. Deterministic in the order handed in.
- * Returns an index into `gates` per road, or -1 when nothing is usable.
+ * town's frame (normalised or not), and `toward` is where it is going, as an
+ * offset in the town's frame in world units; `usable` says whether a gate can
+ * be used at all. The cheapest pairing by angle wins among the gates that face
+ * the road's way within `GATE_FACING`, one road to a gate while there are gates
+ * to go round, and a road left over shares the open gate that faces its way
+ * best rather than having none. Deterministic in the order handed in. Returns
+ * an index into `gates` per road, or -1 when nothing is usable.
  */
 export function assignGates(
   gates: readonly Gate[],
   leaving: readonly (readonly [number, number])[],
+  toward: readonly (readonly [number, number])[],
   usable: (gate: Gate, index: number) => boolean,
 ): number[] {
   const open = gates.map((gate, index) => usable(gate, index));
@@ -626,9 +655,22 @@ export function assignGates(
     if (delta > Math.PI) delta = Math.PI * 2 - delta;
     return delta;
   };
+  /**
+   * The turn a road makes out of a gate: the angle between the side's outward
+   * normal and the far town as seen from the gate — `gatesToward`'s measure in
+   * the bake, and not the bearing from the centre, which for a gate near the
+   * corner of a city is off by forty degrees.
+   */
+  const facingOf = (road: number, gate: number): number => {
+    const [x, z] = toward[road]!;
+    const g = gates[gate]!;
+    const dx = x - g.x;
+    const dz = z - g.z;
+    return Math.acos(Math.max(-1, Math.min(1, (dx * g.outX + dz * g.outZ) / (Math.hypot(dx, dz) || 1))));
+  };
   for (let road = 0; road < leaving.length; road++) {
     for (let gate = 0; gate < gates.length; gate++) {
-      if (open[gate]) pairs.push({ road, gate, cost: costOf(road, gate) });
+      if (open[gate] && facingOf(road, gate) <= GATE_FACING) pairs.push({ road, gate, cost: costOf(road, gate) });
     }
   }
   pairs.sort((a, b) => a.cost - b.cost || a.road - b.road || a.gate - b.gate);
@@ -639,16 +681,17 @@ export function assignGates(
     chosen[pair.road] = pair.gate;
     taken.add(pair.gate);
   }
-  // More roads than gates: the rest share the nearest by heading.
+  // The rest — more roads than gates facing their way — share the open gate
+  // that faces their way best.
   for (let road = 0; road < leaving.length; road++) {
     if (chosen[road] !== -1) continue;
     let best = -1;
-    let cost = Infinity;
+    let facing = Infinity;
     for (let gate = 0; gate < gates.length; gate++) {
       if (!open[gate]) continue;
-      const c = costOf(road, gate);
-      if (c < cost) {
-        cost = c;
+      const f = facingOf(road, gate);
+      if (f < facing) {
+        facing = f;
         best = gate;
       }
     }
