@@ -4,18 +4,26 @@ import { PLANET_RADIUS, groundColorAt, groundRadius } from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolByte } from './lights.ts';
 import {
-  APRON_SINK,
   GROUND_LIFT,
-  KERB_BLEND,
   KERB_DROP,
   cellKey,
   cellTone,
-  floorLiftAt,
   groundStyleFor,
   trodden,
 } from './scenery/ground.ts';
+import {
+  apronCorner,
+  buildFloor,
+  flightAt,
+  flightDepth,
+  flightHeight,
+  flightRun,
+  floorLiftAt,
+  floorReach,
+} from './scenery/floor.ts';
 import type { Road } from './roads.ts';
-import type { FloorField, GroundStyle } from './scenery/ground.ts';
+import type { GroundStyle } from './scenery/ground.ts';
+import type { FloorField, Flight } from './scenery/floor.ts';
 import {
   cellCentre,
   cellIndex,
@@ -1050,7 +1058,7 @@ interface Slot {
     across: THREE.Vector3;
     north: THREE.Vector3;
     field: FloorField;
-    /** Angular bound of the paved set plus the kerb blend, for the cheap gate. */
+    /** Angular bound of the paved set plus its one course of edge slope, for the cheap gate. */
     cosBound: number;
     /**
      * The town's walls: one box per standing building, in the same frame as
@@ -1536,6 +1544,12 @@ export function createSettlements(
      * paved. See `Slot.floor` and `floorLiftAt`.
      */
     terraces: Map<number, number>;
+    /**
+     * The whole floor as a foot finds it — the terraces, the edge slope and
+     * the flights — which is what the geometry above was drawn out of. `raise`
+     * hands it to `Slot.floor` as it is. See `buildFloor` in `floor.ts`.
+     */
+    field: FloorField;
   }
 
   /** One lattice corner: where it is, and whether it is standing in the sea. */
@@ -1784,9 +1798,96 @@ export function createSettlements(
   };
 
   /**
+   * One vertical face of the floor, wound to face `(outX, outZ)` in the town's
+   * plane: a riser, a quay, the side of a slope or of a flight, or a step.
+   *
+   * **Not `pushFace`, whose rule is that normals point up** — the right rule
+   * for anything you stand on, and a coin toss for a wall. A face built by
+   * walking two corners along their own local ups is vertical only to the tilt
+   * between those ups, so the sign of its normal's `y` is noise, and `pushFace`
+   * would flip whichever half it liked into the ground where the backface cull
+   * takes it. The kerb got away with it while every face was a whole cell edge;
+   * a riser cut round the top of a flight and the side of a flight are not. So
+   * the winding is chosen against the outward direction, which is known exactly
+   * — it is which side of the cell the face is on — and the normal is the one
+   * that winding gives.
+   */
+  function pushWall(
+    out: Ground,
+    a: number[], b: number[], c: number[], d: number[],
+    ca: THREE.Color, cb: THREE.Color, cc: THREE.Color, cd: THREE.Color,
+    outX: number, outZ: number,
+  ): void {
+    wallFace(out, a, b, c, ca, cb, cc, outX, outZ);
+    wallFace(out, a, c, d, ca, cc, cd, outX, outZ);
+  }
+
+  function wallFace(
+    out: Ground,
+    a: number[], b: number[], c: number[],
+    ka: THREE.Color, kb: THREE.Color, kc: THREE.Color,
+    outX: number, outZ: number,
+  ): void {
+    faceA.set(b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!);
+    faceB.set(c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!);
+    faceNormal.crossVectors(faceA, faceB);
+    const area = faceNormal.length();
+    if (area < 1e-4) return;
+    faceNormal.multiplyScalar(1 / area);
+    // The town's frame is `makeBasis(across, up, north)`, so its x and z are
+    // the plane's own and the outward direction needs no conversion.
+    const flip = faceNormal.x * outX + faceNormal.z * outZ < 0;
+    if (flip) faceNormal.negate();
+    const p = flip ? c : b;
+    const q = flip ? b : c;
+    const kp = flip ? kc : kb;
+    const kq = flip ? kb : kc;
+    out.position.push(a[0]!, a[1]!, a[2]!, p[0]!, p[1]!, p[2]!, q[0]!, q[1]!, q[2]!);
+    for (let v = 0; v < 3; v++) out.normal.push(faceNormal.x, faceNormal.y, faceNormal.z);
+    out.color.push(ka.r, ka.g, ka.b, kp.r, kp.g, kp.b, kq.r, kq.g, kq.b);
+    poolFor(out, a[0]!, a[2]!);
+    poolFor(out, p[0]!, p[2]!);
+    poolFor(out, q[0]!, q[2]!);
+  }
+
+  const pointDir = new THREE.Vector3();
+  const pointLocal = new THREE.Vector3();
+  /**
+   * A point of the town's plane at an elevation of its own, in the town's
+   * frame: what `pointAt` is for a lattice corner, for anywhere along an edge
+   * or across a flight. Along the point's own direction, so it lands where
+   * `floorLiftAt` is asked about the same `(x, z)`.
+   */
+  function pointIn(x: number, z: number, elevation: number, into: number[]): number[] {
+    directionAt(x, z, pointDir);
+    pointLocal
+      .copy(pointDir)
+      .multiplyScalar(PLANET_RADIUS + elevation)
+      .sub(origin)
+      .applyMatrix4(inverse);
+    into[0] = pointLocal.x;
+    into[1] = pointLocal.y;
+    into[2] = pointLocal.z;
+    return into;
+  }
+
+  /** A step's riser: the street's own colour walked towards the ink, as the kerb is the paving's. */
+  const stepFace = new THREE.Color();
+
+  /**
+   * How far from a flight of steps each thing the street holds stands, in
+   * world units: a lamp's post, a person's shoulders (`FIGURE.shoulderHalf`),
+   * and half the longest vehicle a town parks, which is what keeps a bonnet out
+   * of the stairs when the car's own centre is clear of them.
+   */
+  const CLEAR_LAMP = 0.6;
+  const CLEAR_FOLK = 1.3;
+  const CLEAR_CAR = 6.5;
+
+  /**
    * The floor of one settlement: its square.
    *
-   * Three things, and the order is the argument:
+   * Four things, and the order is the argument:
    *
    * 1. **The floor is the square**, every cell of it the terrace allows. It was
    *    the built cells grown by one and clipped to a ragged core, and that was
@@ -1796,10 +1897,18 @@ export function createSettlements(
    *    touching the sea — and nothing else.
    * 2. **A street is a band of the cell, not a ribbon over it.** See the note
    *    above `EDGE_SETBACK`, and `scenery/grid.ts` for where they run.
-   * 3. **The kerb and the apron are what end it.** See `KERB_DROP` and
-   *    `APRON_SINK`. The kerb is a straight line now: the lattice corners are
-   *    no longer jittered, because the square's edge is where a road arrives
-   *    and a ragged one is a road ending against a zigzag.
+   * 3. **The edge slope is what ends it, and a quay's face where the sea
+   *    does.** See `EDGE_RUN` and `edgeSink`: the kerb that stood round the
+   *    square from 2026-09-06 is a slope from the paving down into the ground
+   *    since 2026-09-13, because the user asked for one. The square's edge is
+   *    still a straight line — it is where a road arrives, and a ragged one is
+   *    a road ending against a zigzag — and so are the risers between terraces
+   *    inside it, which are walls.
+   * 4. **And where a street crosses one of those risers, a flight of steps.**
+   *    See `Flight` in `floor.ts`.
+   *
+   * All of it is drawn out of the field `buildFloor` makes, and that field is
+   * what `floorLiftAt` reads, so the surface a foot finds is this one.
    */
   function buildGround(
     slot: Slot,
@@ -1808,7 +1917,11 @@ export function createSettlements(
     urbanity: number,
     litPlots: readonly LitPlot[],
   ): Ground {
-    const out: Ground = { position: [], normal: [], color: [], glow: [], lamps: [], folk: [], kerbs: [], paved: 0, terraces: new Map() };
+    const out: Ground = {
+      position: [], normal: [], color: [], glow: [], lamps: [], folk: [], kerbs: [], paved: 0,
+      terraces: new Map(),
+      field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
+    };
     const style = slot.ground;
     const pitch = grid.pitch;
     const cells = grid.cells;
@@ -1824,8 +1937,8 @@ export function createSettlements(
      * cools with elevation. *El color del suelo a veces es verde, otras blanco.*
      * A base is a made thing, and a made thing is the colour it was made of.
      *
-     * The land still meets it, at the apron's outer edge, which is the one place
-     * whose job is to stop being the town.
+     * The land still meets it, at the foot of the edge slope, which is the one
+     * place whose job is to stop being the town.
      */
     floor.setHex(style.paving);
     groundColorAt(world, up, baseColor);
@@ -1845,9 +1958,10 @@ export function createSettlements(
     }
     out.paved = levels.size;
     out.terraces = levels;
+    out.field = { pitch, shift: grid.shift, terraces: levels };
     if (levels.size === 0) return out;
 
-    /** A corner touches a paved cell, so it is at paving height rather than sunk. */
+    /** A corner touches a paved cell, so it is at paving height rather than on a slope's foot. */
     const paved = (i: number, j: number): boolean =>
       levels.has(cellKey(i - 1, j - 1)) || levels.has(cellKey(i, j - 1)) ||
       levels.has(cellKey(i - 1, j)) || levels.has(cellKey(i, j));
@@ -1860,6 +1974,24 @@ export function createSettlements(
     };
 
     /**
+     * The field: the terraces, the edge slope round them and the flights on
+     * the streets that cross a riser. The slope is not laid on a cell with a
+     * corner in the sea — that edge is a quay — nor on one under a landmark,
+     * exactly as the apron it replaced was not.
+     */
+    const field = buildFloor({
+      grid,
+      band,
+      terraces: levels,
+      cornerGround: (i, j) => {
+        const corner = cornerAt(i, j);
+        return corner.sea ? null : corner.elevation;
+      },
+      open: (col, row) => !blocked(cellCentre(grid, col), cellCentre(grid, row)),
+    });
+    out.field = field;
+
+    /**
      * One point on the paving, at the paving's own lift, or nothing.
      *
      * **On the terrace, not on the ground.** A lamp, a parked car and a person
@@ -1867,11 +1999,17 @@ export function createSettlements(
      * so what decides their height is which cell they are in, exactly as it
      * decides a building's. It costs one `elevationAt` through `directionAt`'s
      * direction, and a median town asks it about fifteen times.
+     *
+     * **And never on a flight of steps**, nor within `clearance` of one: the
+     * stairs are on the street, which is the only ground in a town these stand
+     * on, and a car parked with its bonnet in a staircase is the heap of houses
+     * over again at a smaller scale.
      */
-    const spotAt = (x: number, z: number, into: number[], yaw?: number): boolean => {
+    const spotAt = (x: number, z: number, into: number[], yaw?: number, clearance = 0): boolean => {
       if (blocked(x, z)) return false;
       const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
       if (level === undefined) return false;
+      if (flightAt(field, x, z, clearance) !== null) return false;
       directionAt(x, z, groundDir);
       groundLocal
         .copy(groundDir)
@@ -1881,15 +2019,6 @@ export function createSettlements(
       into.push(groundLocal.x, groundLocal.y, groundLocal.z);
       if (yaw !== undefined) into.push(yaw);
       return true;
-    };
-
-    /**
-     * Corner position with the right height for its class, as a triple. The
-     * apron starts at the kerb's foot and not at the paving; see `APRON_SINK`.
-     */
-    const at = (i: number, j: number): number[] => {
-      const corner = cornerAt(i, j);
-      return [corner.lx, corner.ly + (paved(i, j) ? -KERB_DROP : -APRON_SINK), corner.lz];
     };
 
     /** Bilinear point inside a cell, from four points on its terrace. */
@@ -1944,7 +2073,7 @@ export function createSettlements(
         const oz = kerbOff(j, rng.chance(0.5) ? 1 : -1);
         if (ox === null || oz === null) continue;
         if (!rng.chance(chance)) continue;
-        if (spotAt(cornerOffset(grid, i) + ox, cornerOffset(grid, j) + oz, out.lamps)) lamps++;
+        if (spotAt(cornerOffset(grid, i) + ox, cornerOffset(grid, j) + oz, out.lamps, undefined, CLEAR_LAMP)) lamps++;
       }
     }
 
@@ -2032,35 +2161,72 @@ export function createSettlements(
     }
 
     /**
-     * The kerb: the side of the plinth, around the floor's own outline.
+     * The faces the floor still draws vertical, from the paving's side.
      *
-     * One quad per boundary edge, from the cell's own paving down to whatever is
-     * on the other side of that edge: the ground under each corner on the
-     * outside of the town, which is the retaining wall a hillside town shows,
-     * and the lower terrace's paving between two terraces, which is a riser. The
-     * higher cell draws it, so it is drawn once. The face is vertical by
-     * construction and wound against the outward direction, so neither half of
-     * it is backface-culled; a corner over the sea is skipped, as the cells are.
+     * Three kinds, one quad an edge or a piece of one, and the higher cell
+     * draws each so each is drawn once: a **riser** down to a lower terrace,
+     * cut round the top of any flight that climbs it; a **quay**, down to
+     * `KERB_DROP` under the ground where the slope is not laid because the sea
+     * or a landmark is next door; and, where a paved cell meets a slope that
+     * starts from a lower terrace than its own, the face down to that slope's
+     * top. On a town of one level the last is never drawn, because every slope
+     * starts on the paving it leaves.
      */
-    const faceTop: number[] = [0, 0, 0];
-    const faceFoot: number[] = [0, 0, 0];
-    const otherTop: number[] = [0, 0, 0];
-    const otherFoot: number[] = [0, 0, 0];
-    const kerbFace = (
-      a: Corner, b: Corner, top: number, foot: number | null, outX: number, outZ: number,
+    const wallTop: number[] = [0, 0, 0];
+    const wallFoot: number[] = [0, 0, 0];
+    const wallFoot2: number[] = [0, 0, 0];
+    const wallTop2: number[] = [0, 0, 0];
+    /** A face along a cell edge, from a height of its own at each corner down to one of its own at each. */
+    const wall = (
+      p: Corner, q: Corner, topP: number, topQ: number, footP: number, footQ: number, outX: number, outZ: number,
     ): void => {
-      // A corner in the water is a quay's: its face runs down to `KERB_DROP`
-      // under sea level, because `cornerAt` puts a sea corner on the water.
-      const first = -(b.lz - a.lz) * outX + (b.lx - a.lx) * outZ > 0 ? a : b;
-      const second = first === a ? b : a;
-      pushQuad(
+      if (topP - footP < 1e-6 && topQ - footQ < 1e-6) return;
+      pushWall(
         out,
-        pointAt(first, top, faceTop),
-        pointAt(first, foot ?? first.elevation - KERB_DROP, faceFoot),
-        pointAt(second, foot ?? second.elevation - KERB_DROP, otherFoot),
-        pointAt(second, top, otherTop),
-        kerbTop, kerbFoot, kerbFoot, kerbTop,
+        pointAt(p, topP, wallTop), pointAt(p, footP, wallFoot),
+        pointAt(q, footQ, wallFoot2), pointAt(q, topQ, wallTop2),
+        kerbTop, kerbFoot, kerbFoot, kerbTop, outX, outZ,
       );
+    };
+    /**
+     * A riser from `top` down to `foot` along the edge `p`–`q`, less the stretch
+     * of it each flight standing below it has taken: the flight's own top step
+     * is the riser there, a step tall rather than a terrace.
+     */
+    const riser = (
+      p: Corner, q: Corner, top: number, foot: number, outX: number, outZ: number,
+      below: readonly Flight[] | undefined,
+    ): void => {
+      const axis = outX !== 0 ? 0 : 1;
+      const line = axis === 0 ? p.x : p.z;
+      const gaps: [number, number][] = [];
+      for (const flight of below ?? []) {
+        if (flight.axis === axis && Math.abs(flight.at - line) < 1e-6) gaps.push([flight.from, flight.to]);
+      }
+      if (gaps.length === 0) {
+        wall(p, q, top, top, foot, foot, outX, outZ);
+        return;
+      }
+      gaps.sort((m, n) => m[0] - n[0]);
+      const piece = (s0: number, s1: number): void => {
+        if (s1 - s0 < 1e-6) return;
+        const x0 = axis === 0 ? line : s0;
+        const z0 = axis === 0 ? s0 : line;
+        const x1 = axis === 0 ? line : s1;
+        const z1 = axis === 0 ? s1 : line;
+        pushWall(
+          out,
+          pointIn(x0, z0, top, wallTop), pointIn(x0, z0, foot, wallFoot),
+          pointIn(x1, z1, foot, wallFoot2), pointIn(x1, z1, top, wallTop2),
+          kerbTop, kerbFoot, kerbFoot, kerbTop, outX, outZ,
+        );
+      };
+      let from = axis === 0 ? p.z : p.x;
+      for (const [g0, g1] of gaps) {
+        piece(from, Math.max(from, g0));
+        from = Math.max(from, g1);
+      }
+      piece(from, axis === 0 ? q.z : q.x);
     };
     for (const [key, level] of levels) {
       const col = Math.floor(key / 1024) - 512;
@@ -2070,60 +2236,180 @@ export function createSettlements(
       const c = cornerAt(col + 1, row + 1);
       const d = cornerAt(col, row + 1);
       litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
-      const centreX = (a.lx + b.lx + c.lx + d.lx) * 0.25;
-      const centreZ = (a.lz + b.lz + c.lz + d.lz) * 0.25;
       const top = level + GROUND_LIFT;
-      const edge = (p: Corner, q: Corner, neighbour: number): void => {
-        const beside = levels.get(neighbour);
-        if (beside !== undefined && beside >= level) return;
-        kerbFace(
-          p, q, top,
-          beside === undefined ? null : beside + GROUND_LIFT,
-          (p.lx + q.lx) * 0.5 - centreX, (p.lz + q.lz) * 0.5 - centreZ,
-        );
+      const edge = (p: Corner, q: Corner, dc: number, dr: number): void => {
+        const near = cellKey(col + dc, row + dr);
+        const beside = levels.get(near);
+        if (beside !== undefined) {
+          if (beside < level) riser(p, q, top, beside + GROUND_LIFT, dc, dr, field.flights?.get(near));
+          return;
+        }
+        const apron = field.aprons?.get(near);
+        if (apron !== undefined) {
+          wall(p, q, top, top, apron.top, apron.top, dc, dr);
+          return;
+        }
+        // A quay. A corner in the water is on the water, because `cornerAt`
+        // puts it there, so its face runs down under sea level.
+        wall(p, q, top, top, p.elevation - KERB_DROP, q.elevation - KERB_DROP, dc, dr);
       };
-      edge(a, d, cellKey(col - 1, row));
-      edge(b, c, cellKey(col + 1, row));
-      edge(a, b, cellKey(col, row - 1));
-      edge(d, c, cellKey(col, row + 1));
+      edge(a, d, -1, 0);
+      edge(b, c, 1, 0);
+      edge(a, b, 0, -1);
+      edge(d, c, 0, 1);
     }
 
-    // The apron: one course of cells outside the paving, laid from the kerb's
-    // foot down into the land, so the sheet dives instead of ending.
-    const apron = new Set<number>();
-    for (const key of levels.keys()) {
-      const col = Math.floor(key / 1024) - 512;
-      const row = (key % 1024) - 512;
-      for (let dc = -1; dc <= 1; dc++) {
-        for (let dr = -1; dr <= 1; dr++) {
-          const near = cellKey(col + dc, row + dr);
-          if (!levels.has(near)) apron.add(near);
-        }
-      }
-    }
-    for (const key of apron) {
+    /**
+     * The edge slope: one course of cells round the paving, each two triangles
+     * from its owner's paving down to its foot under the ground.
+     *
+     * The inner corners wear the kerb's top tone and the outer ones the verge,
+     * so the slope runs from the town's colour into the land's the way the old
+     * apron ran from the kerb's foot; and the diagonal is the one `buildFloor`
+     * chose, which is what makes a convex corner a hip and the inside of an L a
+     * valley. Where two slope cells beside each other start from different
+     * terraces they meet in a wedge — the riser between those terraces carried
+     * on out, down the bank, to nothing at the foot — and where one runs up
+     * against a quay or a landmark it gets a side down to the ground. Both are
+     * drawn by the higher side.
+     */
+    const sa: number[] = [0, 0, 0];
+    const sb: number[] = [0, 0, 0];
+    const sc: number[] = [0, 0, 0];
+    const sd: number[] = [0, 0, 0];
+    for (const [key, apron] of field.aprons ?? []) {
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const a = cornerAt(col, row);
       const b = cornerAt(col + 1, row);
       const c = cornerAt(col + 1, row + 1);
       const d = cornerAt(col, row + 1);
-      if (a.sea || b.sea || c.sea || d.sea) continue;
-      if (blocked((a.x + c.x) * 0.5, (a.z + c.z) * 0.5)) continue;
-      const pa = at(col, row);
-      const pb = at(col + 1, row);
-      const pc = at(col + 1, row + 1);
-      const pd = at(col, row + 1);
       litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
-      // Per-vertex colour: the inner corners wear the kerb's foot and the outer
-      // ones the verge, so the ramp continues the face above it into the land.
-      pushQuad(
-        out, pa, pb, pc, pd,
-        paved(col, row) ? kerbFoot : verge,
-        paved(col + 1, row) ? kerbFoot : verge,
-        paved(col + 1, row + 1) ? kerbFoot : verge,
-        paved(col, row + 1) ? kerbFoot : verge,
-      );
+      pointAt(a, apronCorner(field, apron, col, row), sa);
+      pointAt(b, apronCorner(field, apron, col + 1, row), sb);
+      pointAt(c, apronCorner(field, apron, col + 1, row + 1), sc);
+      pointAt(d, apronCorner(field, apron, col, row + 1), sd);
+      const ka = paved(col, row) ? kerbTop : verge;
+      const kb = paved(col + 1, row) ? kerbTop : verge;
+      const kc = paved(col + 1, row + 1) ? kerbTop : verge;
+      const kd = paved(col, row + 1) ? kerbTop : verge;
+      if (apron.diagonal === 0) pushQuad(out, sa, sb, sc, sd, ka, kb, kc, kd);
+      else pushQuad(out, sb, sc, sd, sa, kb, kc, kd, ka);
+
+      const side = (p: Corner, q: Corner, pi: number, pj: number, qi: number, qj: number, dc: number, dr: number): void => {
+        const near = cellKey(col + dc, row + dr);
+        if (levels.has(near)) return;
+        const hp = apronCorner(field, apron, pi, pj);
+        const hq = apronCorner(field, apron, qi, qj);
+        const other = field.aprons?.get(near);
+        if (other !== undefined) {
+          if (other.top >= apron.top) return;
+          wall(p, q, hp, hq, apronCorner(field, other, pi, pj), apronCorner(field, other, qi, qj), dc, dr);
+          return;
+        }
+        wall(p, q, hp, hq, Math.min(hp, p.elevation - KERB_DROP), Math.min(hq, q.elevation - KERB_DROP), dc, dr);
+      };
+      side(a, d, col, row, col, row + 1, -1, 0);
+      side(b, c, col + 1, row, col + 1, row + 1, 1, 0);
+      side(a, b, col, row, col + 1, row, 0, -1);
+      side(d, c, col, row + 1, col + 1, row + 1, 0, 1);
+    }
+
+    /**
+     * The flights: risers facing down the stairs, treads in the street's own
+     * colour, and a side on each hand down to whatever is beside it.
+     *
+     * Every face of it is in a plane nothing else in the town uses — a tread
+     * is a step above the paving it stands on, a riser a tread's depth from the
+     * next, a side half a unit in from a house front — except where a flight's
+     * side is on the line between the two halves of a band street. There the
+     * other half is paving, or a riser, or another flight, and the side is cut
+     * to stand only above it, so the two never overlap in one plane.
+     */
+    const fp0: number[] = [0, 0, 0];
+    const fp1: number[] = [0, 0, 0];
+    const fp2: number[] = [0, 0, 0];
+    const fp3: number[] = [0, 0, 0];
+    for (const list of field.flights?.values() ?? []) {
+      for (const flight of list) {
+        const col = Math.floor(flight.cell / 1024) - 512;
+        const row = (flight.cell % 1024) - 512;
+        const a = cornerAt(col, row);
+        const c = cornerAt(col + 1, row + 1);
+        litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
+        const tint = flight.cell === plazaKey || blocked(cellCentre(grid, col), cellCentre(grid, row))
+          ? plazaColor : roadColor;
+        stepFace.copy(tint).lerp(KERB_INK, 0.3);
+        const run = flightRun(flight);
+        const rise = (flight.high - flight.low) / flight.steps;
+        const downX = flight.axis === 0 ? flight.into : 0;
+        const downZ = flight.axis === 0 ? 0 : flight.into;
+        const at = (s: number, t: number, elevation: number, into: number[]): number[] =>
+          flight.axis === 0
+            ? pointIn(flight.at + flight.into * s, t, elevation, into)
+            : pointIn(t, flight.at + flight.into * s, elevation, into);
+        for (let k = 0; k < flight.steps; k++) {
+          const s = k * flight.tread;
+          const top = flight.high - k * rise;
+          pushWall(
+            out,
+            at(s, flight.from, top, fp0), at(s, flight.from, top - rise, fp1),
+            at(s, flight.to, top - rise, fp2), at(s, flight.to, top, fp3),
+            stepFace, stepFace, stepFace, stepFace, downX, downZ,
+          );
+        }
+        for (let k = 1; k < flight.steps; k++) {
+          const h = flight.high - k * rise;
+          const s0 = (k - 1) * flight.tread;
+          const s1 = k * flight.tread;
+          pushQuad(
+            out,
+            at(s0, flight.from, h, fp0), at(s1, flight.from, h, fp1),
+            at(s1, flight.to, h, fp2), at(s0, flight.to, h, fp3),
+            tint, tint, tint, tint,
+          );
+        }
+        for (const [t, sign] of [[flight.from, -1], [flight.to, 1]] as const) {
+          // Just past the side, and what stands there: this cell's own paving
+          // on the side the flight is inset from, the other half of the
+          // street on the side it is not.
+          const probe = t + sign * 1e-3;
+          const cellBeyond = (s: number): number => flight.axis === 0
+            ? cellKey(cellIndex(grid, flight.at + flight.into * s), cellIndex(grid, probe))
+            : cellKey(cellIndex(grid, probe), cellIndex(grid, flight.at + flight.into * s));
+          const beyond = (s: number): number => {
+            const cell = cellBeyond(s);
+            if (cell === flight.cell || !levels.has(cell)) return flight.low;
+            const x = flight.axis === 0 ? flight.at + flight.into * s : probe;
+            const z = flight.axis === 0 ? probe : flight.at + flight.into * s;
+            return Math.max(flight.low, floorLiftAt(field, x, z, 0));
+          };
+          const marks = [0, run];
+          for (let k = 1; k < flight.steps - 1; k++) marks.push(k * flight.tread);
+          for (const other of field.flights?.get(cellBeyond(run * 0.5)) ?? []) {
+            if (other === flight || other.axis !== flight.axis || Math.abs(other.at - flight.at) > 1e-6) continue;
+            for (let k = 1; k < other.steps; k++) {
+              if (k * other.tread < run) marks.push(k * other.tread);
+            }
+          }
+          marks.sort((m, n) => m - n);
+          for (let m = 0; m + 1 < marks.length; m++) {
+            const s0 = marks[m]!;
+            const s1 = marks[m + 1]!;
+            if (s1 - s0 < 1e-6) continue;
+            const mid = (s0 + s1) * 0.5;
+            const own = flightHeight(flight, mid);
+            const bottom = beyond(mid);
+            if (own - bottom < 1e-6) continue;
+            pushWall(
+              out,
+              at(s0, t, own, fp0), at(s0, t, bottom, fp1), at(s1, t, bottom, fp2), at(s1, t, own, fp3),
+              kerbTop, kerbFoot, kerbFoot, kerbTop,
+              flight.axis === 0 ? 0 : sign, flight.axis === 0 ? sign : 0,
+            );
+          }
+        }
+      }
     }
 
     // --- who is standing in it, and what is parked in it ---
@@ -2158,14 +2444,14 @@ export function createSettlements(
         if (rng.chance(parkChance)) {
           const along = rng.range(0.15, 0.85) * pitch;
           const yaw = alongZ ? (rng.chance(0.5) ? 0 : Math.PI) : (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2);
-          spotAt(alongZ ? line : x0 + along, alongZ ? z0 + along : line, out.kerbs, yaw);
+          spotAt(alongZ ? line : x0 + along, alongZ ? z0 + along : line, out.kerbs, yaw, CLEAR_CAR);
         }
         if (rng.chance(folkChance)) {
           for (let k = 0; k < 2; k++) {
             if (k > 0 && !rng.chance(0.42)) break;
             const along = rng.range(0.1, 0.9) * pitch;
             const off = rng.jitter() * reach * 0.5;
-            spotAt(alongZ ? line + off : x0 + along, alongZ ? z0 + along : line + off, out.folk);
+            spotAt(alongZ ? line + off : x0 + along, alongZ ? z0 + along : line + off, out.folk, undefined, CLEAR_FOLK);
           }
         }
       }
@@ -2861,15 +3147,15 @@ export function createSettlements(
     // The floor, in the frame it was laid in, so a foot can find it. See
     // `Slot.floor` and `madeHeightAt`.
     if (ground.terraces.size > 0) {
-      // The square's half-diagonal: nothing of the floor, and no wall, is
-      // further from the centre than that.
+      // The square's half-diagonal, plus the one course of edge slope round
+      // it: nothing of the floor, and no wall, is further from the centre.
       const span = grid.half * Math.SQRT2;
       slot.floor = {
         up: up.clone(),
         across: across.clone(),
         north: north.clone(),
-        field: { pitch: grid.pitch, shift: grid.shift, terraces: ground.terraces },
-        cosBound: Math.cos((span + KERB_BLEND) / PLANET_RADIUS),
+        field: ground.field,
+        cosBound: Math.cos((span + floorReach(ground.field)) / PLANET_RADIUS),
         solids: solids.length > 0 ? solidField(solids) : null,
       };
       floors.add(slot);
@@ -3505,7 +3791,7 @@ export function createSettlements(
        * of samples across the built core, and for each one the standing surface
        * against the relief and against the paving.
        */
-      const stood = { sampled: 0, onFloor: 0, onKerb: 0, overTheEdge: 0, worstBelow: 0, worstAbove: 0 };
+      const stood = { sampled: 0, onFloor: 0, onFlight: 0, onSlope: 0, overTheEdge: 0, worstBelow: 0, worstAbove: 0 };
       /**
        * And what the terracing did, which is the other thing only a standing
        * town can be asked.
@@ -3518,6 +3804,16 @@ export function createSettlements(
        * actually judges.
        */
       const cut = { flat: 0, stepped: 0, mostSteps: 0, mostStepsAt: '', wall: 0, wallAt: '' };
+      /**
+       * And what ends the floor and what climbs it: paved edges on the town's
+       * outside that end in a slope against those that keep a quay's face,
+       * the flights of steps and their risers, the street crossings of a riser
+       * that got no flight because another already filled the corner, and the
+       * steepest edge slope anywhere — which is where the land outside falls
+       * away furthest and the slope, still one course wide, becomes an
+       * embankment. All of it is `FloorStats`, counted where it was built.
+       */
+      const edges = { slopes: 0, quays: 0, flights: 0, steps: 0, crowded: 0, steepest: 0, steepestAt: '' };
       const standDir = new THREE.Vector3();
       const began = performance.now();
       for (let i = 0; i < slots.length; i += step) {
@@ -3543,11 +3839,8 @@ export function createSettlements(
         else if (slot.buildings === 0) noBuilding.push(slot.place.name);
         const floor = slot.floor;
         if (floor !== null) {
-          // How many levels this town was cut into, and the tallest face any of
-          // them shows. The wall is measured where it is actually drawn — from a
-          // paved cell's own terrace down to the ground under a corner that has
-          // no paved cell beyond it — which is `kerbFace`'s own arithmetic read
-          // back off the field rather than a second guess at it.
+          // How many levels this town was cut into; the tallest face it shows is
+          // below.
           const steps = new Set(floor.field.terraces.values()).size;
           if (steps > 1) cut.stepped++;
           else cut.flat++;
@@ -3555,24 +3848,26 @@ export function createSettlements(
             cut.mostSteps = steps;
             cut.mostStepsAt = slot.place.name;
           }
-          for (const [key, level] of floor.field.terraces) {
-            const col = Math.floor(key / 1024) - 512;
-            const row = (key % 1024) - 512;
-            let exposed = false;
-            for (const [dc, dr] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-              const beside = floor.field.terraces.get(cellKey(col + dc, row + dr));
-              if (beside === undefined || beside < level) exposed = true;
-            }
-            if (!exposed) continue;
-            standDir
-              .copy(floor.up)
-              .addScaledVector(floor.across, ((col - (floor.field.shift ?? 0)) * floor.field.pitch) / PLANET_RADIUS)
-              .addScaledVector(floor.north, ((row - (floor.field.shift ?? 0)) * floor.field.pitch) / PLANET_RADIUS)
-              .normalize();
-            const face = level + GROUND_LIFT + KERB_DROP - Math.max(0, world.elevationAt(standDir));
-            if (face > cut.wall) {
-              cut.wall = face;
+          // The tallest face is `buildFloor`'s own count, taken over every face
+          // the floor still draws vertical — risers, quays, the face from a
+          // terrace down to a slope laid from a lower one, and the wedge where
+          // two slopes from different terraces meet — rather than a second
+          // guess at them from here. The town's outside is a slope since
+          // 2026-09-13, so what this used to measure there is `embankment` now.
+          const built = floor.field.stats;
+          if (built !== undefined) {
+            if (built.wall > cut.wall) {
+              cut.wall = built.wall;
               cut.wallAt = slot.place.name;
+            }
+            edges.slopes += built.slopes;
+            edges.quays += built.quays;
+            edges.flights += built.flights;
+            edges.steps += built.steps;
+            edges.crowded += built.crowded;
+            if (built.embankment > edges.steepest) {
+              edges.steepest = built.embankment;
+              edges.steepestAt = slot.place.name;
             }
           }
           // A spiral over the built radius rather than a grid: 64 points that
@@ -3606,14 +3901,23 @@ export function createSettlements(
               Math.round(standDir.dot(floor.across) * PLANET_RADIUS / floor.field.pitch + (floor.field.shift ?? 0)),
               Math.round(standDir.dot(floor.north) * PLANET_RADIUS / floor.field.pitch + (floor.field.shift ?? 0)),
             ));
-            const paving = cell === undefined ? 0 : PLANET_RADIUS + cell + GROUND_LIFT;
+            // The paving, or the tread of the flight standing on it here: a
+            // foot on a flight is on the floor, a step above or below the
+            // terrace it stands in.
+            const planeX = standDir.dot(floor.across) * PLANET_RADIUS;
+            const planeZ = standDir.dot(floor.north) * PLANET_RADIUS;
+            const flight = cell === undefined ? null : flightAt(floor.field, planeX, planeZ);
+            const paving = cell === undefined ? 0
+              : PLANET_RADIUS + (flight === null ? cell + GROUND_LIFT : flightHeight(flight, flightDepth(flight, planeX, planeZ)));
             const lift = made > 0 ? made - relief : 0;
-            // Three answers and they have to be counted apart: on the paving, on
-            // the kerb ramp — where being *under* the paving is the whole point
-            // of the ramp — and off the town.
+            // Four answers and they have to be counted apart: on the paving, on
+            // a flight, on the edge slope — which is drawn now, so a foot there
+            // is on what it sees and under the paving by exactly the slope — and
+            // off the town.
             const onFloor = paving > 0 && Math.abs(stand - paving) < 1e-6;
-            if (onFloor) stood.onFloor++;
-            else if (lift > 0) stood.onKerb++;
+            if (onFloor && flight !== null) stood.onFlight++;
+            else if (onFloor) stood.onFloor++;
+            else if (lift > 0) stood.onSlope++;
             /**
              * The two ways this can be wrong, and the one way it can look wrong
              * and be right.
@@ -3674,6 +3978,13 @@ export function createSettlements(
         townsTerraced: cut.stepped,
         mostTerraces: `${cut.mostSteps} at ${cut.mostStepsAt}`,
         tallestWall: `${cut.wall.toFixed(1)} at ${cut.wallAt}`,
+        // What ends the floor and what climbs it; see `edges`.
+        edgesSloped: edges.slopes,
+        edgesQuay: edges.quays,
+        flights: edges.flights,
+        flightSteps: edges.steps,
+        flightsCrowdedOut: edges.crowded,
+        steepestEdge: `${edges.steepest.toFixed(2)} at ${edges.steepestAt}`,
         builtNothing: empty.length,
         builtNoBuilding: noBuilding.length,
         emptyNames: empty.slice(0, 40),

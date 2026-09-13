@@ -197,10 +197,23 @@ export interface GroundStyle {
  * of a house: the proportion in the reference picture, read off it rather than
  * guessed.
  *
+ * **And on 2026-09-13 the user reversed the wall, and kept the lift.** The
+ * plinth did its job — a town reads as a made thing from any distance — and
+ * the same user then saw what a straight wall round a square does to the
+ * landscape it stands in: *para que las ciudades no se noten como un cuadrado
+ * aquí que se levanta de repente, ¿debería hacer como en las carreteras que hay
+ * una pendiente pequeña en los bordes? Solo en los bordes exteriores. Aunque
+ * tienes que tener en cuenta que a veces hay elevaciones y puede quedar raro si
+ * no se hace bien.* So the outer edge is a slope now, at the road shoulders'
+ * idea and the old collision ramp's gradient (`EDGE_RUN`), and the 3.0 stays:
+ * the slope is what the side of the plinth became, not a reason for it to be
+ * lower. The risers *between* terraces inside a town are still walls, and a
+ * street that crosses one gets a flight of steps (`floor.ts`).
+ *
  * The two costs it does have are both paid elsewhere and worth naming. A body
- * *outside* the town climbs it in `KERB_BLEND` — three times the rise, so that
- * number moved with this one — and a road arriving has to get up it, which is
- * what the ramp in `buildTracks` is for.
+ * *outside* the town climbs it up the edge slope, which is drawn and which
+ * `floorLiftAt` reads, and a road arriving has to get up it, which is what the
+ * ribbon's own ramp to its gate is for (`crownLift` in `roads.ts`).
  *
  * **A blur was tried and measured and does not work.** If the mesh is
  * `reliefAt` low-passed, then low-passing `reliefAt` the same way should
@@ -233,12 +246,13 @@ export const GROUND_LIFT = 3.0;
  * did before terracing existed — the staircase only appears where the ground
  * actually falls.
  *
- * **4 units**, which is a little over half the avatar and a hair over one step
- * of the plinth's own visible face (`GROUND_LIFT + KERB_DROP` = 3.8), so a
- * riser inside the town reads as the same kind of wall as the one around it.
- * Smaller and a hillside town is a flight of shallow stairs with a wall every
- * cell; larger and the cut at each riser is deeper than the buildings standing
- * on it.
+ * **4 units**, which is a little over half the avatar and a hair over what the
+ * plinth's own face was when it had one (`GROUND_LIFT + KERB_DROP` = 3.8), so a
+ * riser inside the town reads as the same kind of wall the town's edge used to
+ * be. Smaller and a hillside town is a flight of shallow stairs with a wall
+ * every cell; larger and the cut at each riser is deeper than the buildings
+ * standing on it. A street that crosses one gets a flight of steps of
+ * `STEP_RISE` (`floor.ts`), five of them to a `TERRACE_STEP`.
  */
 export const TERRACE_STEP = 4;
 
@@ -252,8 +266,11 @@ export const TERRACE_STEP = 4;
  * while a gradient is not: at the kit's own range of pitches, 12.6 to 20.9, one
  * gradient is two different walls.
  *
- * It caps the visible face at `MAX_CUT + GROUND_LIFT + KERB_DROP`, and **it was
- * chosen against what the rule deletes rather than against what it allows.**
+ * It capped the visible face at `MAX_CUT + GROUND_LIFT + KERB_DROP` while the
+ * town's edge was a wall; since the edge became a slope (2026-09-13) the same
+ * cut is the height of the embankment on the town's low side, or of the riser
+ * where a lower terrace is next door. **It was chosen against what the rule
+ * deletes rather than against what it allows.**
  * Measured over the 9,734 built towns at the European pitch of 12.65, counting
  * the cells inside each town's own radius (2026-09-07):
  *
@@ -282,88 +299,63 @@ export const TERRACE_STEP = 4;
 export const MAX_CUT = 12;
 
 /**
- * How far the apron drops below the ground at its outer edge.
+ * How far a vertical face on the town's outside runs below `elevationAt`, in
+ * world units: the quay, which is the one outer edge that is still a wall.
  *
- * **This is the whole answer to "paving that stops at a hard circle looks like
- * a coin dropped on grass", and it is geometry rather than colour.** The paved
- * cells are ringed by one course of apron cells whose outer corners are laid
- * *below* the terrain, so the sheet dives into the ground; the visible edge of
- * the town is wherever that ramp cuts the land, which is an irregular line the
- * relief draws rather than one this file chose. It also self-corrects the lift
- * above: where the mesh runs high the ramp emerges later and the town is
- * simply a little smaller.
+ * **The town's edge was a plinth from 2026-09-06 to 2026-09-13, a top and a
+ * side**, and this was the side's foot: a vertical band round the whole floor
+ * from the paving down to 0.8 under the ground, and an apron (`APRON_SINK`, 3.2)
+ * carried on from there down into the land. Both went when the user asked for a
+ * slope instead (see `GROUND_LIFT` and `EDGE_RUN`): the edge slope starts on the
+ * paving and dives under the ground by `EDGE_FOOT` on its own, so it has no foot
+ * to hide and no apron behind it.
  *
- * At 3.2 units over a pitch of 13 to 25 the ramp runs at a gradient of 0.13 to
- * 0.25 and the median mesh error of -0.16 puts the crossing about a tenth of
- * the way out, so two to three units of apron show. That is 7 to 11 px at 260
- * units up: a soft edge, not a hard one, and not a moat either.
+ * What is left is the sea. A paved cell whose neighbour stands in the water is
+ * a quay, and a slope down to the water is a beach, which is a different thing:
+ * so it keeps its face, down to this far under the ground at each end of the
+ * edge — under the water, where `cornerAt` puts a sea corner. The same face
+ * closes the side of a slope that runs up against a quay or a landmark and has
+ * nothing beside it.
  *
- * It was 2.2 and the extra unit is bought against the *worst* case rather than
- * the median. Where the mesh runs high — La Paz, +2.55 — a shallow apron pops
- * out in whole cells, and a cell is 13 to 25 units of flat verge-coloured slab
- * sitting on a hillside with a straight edge on it. Sinking it deeper does not
- * change what a working apron looks like, because the part you see is the first
- * couple of units of it either way.
- */
-export const APRON_SINK = 3.2;
-
-/**
- * How far the kerb's foot is set below `elevationAt`, in world units.
- *
- * **The town is a plinth now, and a plinth is a top and a side.** The floor was
- * a sheet with a ramp round it: at `GROUND_LIFT` 0.7 the sheet was thin enough
- * that the ramp was the whole edge, and raising the lift to hide the mesh would
- * have left it floating with light under it. The side face is what makes the
- * lift affordable — a vertical band of `GROUND_LIFT + KERB_DROP` = **1.8 units**
- * around the floor's own outline, a quarter of the 6.8-unit avatar, which is a
- * kerb you step up rather than a terrace you climb.
- *
- * It is `MeshToonMaterial` that makes it read for nothing: the face is at right
- * angles to the paving, so it takes a different band of the four-step ramp with
- * the same sun on it, and the darker tone below only deepens a step the light
- * has already drawn. That is also why it is *not* an `OutlineEffect` line — the
- * pen hulls per mesh and a town is one mesh, so the kerb gets a shading break
- * and the town keeps its single silhouette.
- *
- * 0.8 below the ground rather than 0: the mesh is a linear approximation of the
- * relief and sits under it as often as over it — median `mesh - elevationAt` is
- * **-0.16** — so a kerb that stopped exactly at `elevationAt` would hang in the
- * air over half the towns on the planet. The apron carries on from the kerb's
- * foot to `APRON_SINK` for the rest, which is the case this cannot bound.
+ * 0.8 below the ground rather than 0 because the mesh is a linear
+ * approximation of the relief and sits under it as often as over it — median
+ * `mesh - elevationAt` is **-0.16** — so a face that stopped exactly at
+ * `elevationAt` would hang in the air over half the quays on the planet.
  */
 export const KERB_DROP = 0.8;
 
 /**
- * How wide the band is over which the player climbs the kerb, in world units.
+ * How far out from the kerb line the edge slope meets level ground, in world
+ * units.
  *
- * **The kerb is a vertical face and walking up it is still not a pop.** The
- * floor is a plinth `GROUND_LIFT` over the relief and the player used to walk at
- * the relief, wading through his own high street; he stands on the floor now
- * (`madeHeightAt` in `settlements.ts`), and the height rule in `player.ts`
- * follows a *rise* exactly on the frame it happens — deliberately, because
- * smoothing a rise is what buried the avatar to the knees in every mountainside.
- * So a floor that switched on at a cell boundary would put the whole
- * `GROUND_LIFT` into one frame.
+ * **The town's outside edge is a slope since 2026-09-13, and this is how long
+ * it is.** The user asked for it in so many words — *para que las ciudades no
+ * se noten como un cuadrado aquí que se levanta de repente, ¿debería hacer como
+ * en las carreteras que hay una pendiente pequeña en los bordes? Solo en los
+ * bordes exteriores* — which reverses the plinth wall they asked for on
+ * 2026-09-07 (see `GROUND_LIFT`). The slope is one course of cells laid from
+ * the paving's own top at the kerb line down to `edgeSink` under the ground at
+ * the far side of the course; `edgeSink` in `floor.ts` is solved so that on
+ * level ground it crosses the ground exactly this far out.
  *
- * This is the only place in the world where the standing surface is not the
- * drawn one, and it is written down rather than hidden: the ribbon's own
- * shoulders draw the ramp a road gets (`ribbonHeightAt` reads the geometry), a
- * kerb has none, so the player is given a band of approach to climb it in.
+ * **9 is the number this constant had when it was `KERB_BLEND`, and the
+ * gradient is the reason it did not move.** The old constant was the width of
+ * an *undrawn* ramp: the kerb was a vertical face, and the player was given a
+ * band of approach to climb it in so that the floor did not switch on in one
+ * frame — the one place in the world the standing surface was not the drawn
+ * one. Three times the rise, a gradient of 0.33, 18 degrees: the steepest thing
+ * a body walks up without noticing, which is what the user's *pendiente
+ * pequeña* is too. So the ramp that was collision is geometry now, at the same
+ * gradient, and `floorLiftAt` reads the geometry. At `WALK_SPEED` (45 units/s)
+ * the climb takes 0.2 s.
  *
- * **It is three times the rise**, which is a gradient of 0.33 — 18 degrees, the
- * steepest thing a body in this world walks up without noticing, and the number
- * `pnpm check` asserts the ramp never exceeds. It was 3 units against a 1-unit
- * lift; the lift is 3 now, so this is 9. At `WALK_SPEED` (45 units/s) that is
- * 0.2 s, twelve frames at 60 Hz, against the 0.067 s the old pair gave — the
- * same climb spread over the same gradient, which is the invariant that matters
- * rather than either number.
- *
- * **The wall you can see is not this.** The drawn face is vertical and stays
- * vertical; this is the collision, and it is deliberately wider than the
- * geometry so that a town is never a place you cannot walk into. A stepped town
- * on a hillside would otherwise have terraces reachable only by road.
+ * It is a *run on level ground* and not a promise of a gradient everywhere:
+ * where the land outside falls away the slope still ends one course out, so it
+ * gets steeper — an embankment down to the field rather than a ledge standing
+ * over it — and where the land outside rises above the paving it is a bank
+ * that meets the hill and goes under it. See `buildFloor`.
  */
-export const KERB_BLEND = 9;
+export const EDGE_RUN = 9;
 
 /**
  * Cell and corner keys for a settlement's own lattice.
@@ -379,144 +371,9 @@ export function cellKey(col: number, row: number): number {
 }
 
 /**
- * A town's floor, as the one thing a point query needs to know about it.
- *
- * The paved cells are the set `buildGround` produced — the built cells grown by
- * one and clipped to the core — and the pitch is the lattice they are on. Cell
- * `(col, row)` covers `x` in `[(col - 0.5) * pitch, (col + 0.5) * pitch]`, which
- * is the same convention `cornerAt` uses: corner `(i, j)` sits at
- * `(i - 0.5) * pitch` and is shared by the four cells `(i-1..i, j-1..j)`.
+ * The field a point query reads — `FloorField`, `floorLiftAt` and the builder
+ * both of them share — is in `floor.ts`, which reads the constants above.
  */
-export interface FloorField {
-  pitch: number;
-  /**
-   * How far the lattice is shifted, in cells: cell `c`'s centre is `(c - shift)
-   * * pitch` from the town's centre. A town's square is `cells` wide with its
-   * cells indexed from 0, so this is `(cells - 1) / 2` — see `townGrid` in
-   * `grid.ts`. Absent means 0, which is the convention the lattice had before
-   * the square: cell 0 at the centre.
-   */
-  shift?: number;
-  /**
-   * Every paved cell, and the elevation above sea level its terrace stands at
-   * *before* `GROUND_LIFT` — which is to say the level the town cut into the
-   * hill there, not the surface of the paving.
-   *
-   * A map rather than the old set, and that is the whole of the terracing as
-   * far as a point query is concerned: a flat town has one value in it repeated
-   * and behaves exactly as a single plinth did, and a town on a hillside has a
-   * few, a `TERRACE_STEP` apart. What a foot has to be given is an **absolute**
-   * height and not a lift over the relief, because the point of a terrace is
-   * that the ground under it varies and the floor does not.
-   */
-  terraces: ReadonlyMap<number, number>;
-}
-
-/**
- * How far the floor stands over the ground at a point in the town's own frame,
- * in world units: the cell's own terrace plus `GROUND_LIFT` on the paving, 0 off
- * it, and the kerb ramp between.
- *
- * **The lift is against the ground the caller is standing on, and the floor it
- * is measured to is absolute.** That is the whole difference terracing makes to
- * a point query. The floor used to be a constant offset from the relief, so a
- * lift was a number; it is a set of level surfaces cut into a hill now, so what
- * this answers is *the cell's own elevation, plus the lift, minus yours* — and
- * the caller adding its own ground back gets a height that does not move as it
- * walks across a cell. `elevation` is `world.elevationAt` at the same point.
- *
- * 0 means there is no floor here, which is what a caller reads as "stand on the
- * ground". A floor never legitimately answers 0: a settlement is never on the
- * sea, so its terrace is always above it.
- *
- * The lattice corners are jittered by up to `CORNER_JITTER` of the pitch and
- * this asks the *un*-jittered cell, which is a fifth of a cell of slop at the
- * edge — against a blend that is already an approximation of a vertical face,
- * and the alternative is carrying every corner of every resident town so a foot
- * can be placed a sixth of a metre better.
- *
- * It is here rather than in `settlements.ts` so that the number and the ramp
- * that reads it cannot drift, and so `pnpm check` can hold the rule to its
- * contract without the kit: `settlements.ts` reaches the parts through an
- * `import.meta.glob` registry and does not load in Node.
- */
-export function floorLiftAt(floor: FloorField, x: number, z: number, elevation: number): number {
-  const { pitch, terraces } = floor;
-  const shift = floor.shift ?? 0;
-  const col = Math.round(x / pitch + shift);
-  const row = Math.round(z / pitch + shift);
-  const here = terraces.get(cellKey(col, row));
-  /**
-   * **Inside the town a riser is a step you take, not a ramp you climb**, and
-   * that is a decision rather than an omission.
-   *
-   * The blend below exists because the floor switching on at a cell boundary
-   * would put the whole of `GROUND_LIFT` into one frame, and a rise is followed
-   * exactly on the frame it happens (`HEIGHT_SMOOTHING` smooths drops only, on
-   * purpose). The same argument would give every riser between two terraces its
-   * own ramp — and the ramp would have to be laid over the *lower* terrace's
-   * paving, so a body walking towards a step would float up to a whole
-   * `TERRACE_STEP` above a surface it can see under its own feet, for the last
-   * nine units of every approach, in a town where risers are a cell or two
-   * apart. Outside the town the same trick is invisible: the ground there is
-   * grass and there is no drawn surface to be caught floating over.
-   *
-   * So a terrace is climbed the way every game climbs a low ledge — instantly,
-   * on the frame you cross it — and `TERRACE_STEP` (4) against a 6.8-unit avatar
-   * is a step of about a knee. Off the paving, where the drop can be the whole
-   * of `MAX_CUT`, the rule at the bottom of this function applies instead.
-   */
-  if (here !== undefined) return here + GROUND_LIFT - elevation;
-  // How many cells out a paved one could still be inside the blend, from the
-  // arithmetic rather than a constant so that neither a wider blend nor a
-  // narrower pitch can silently truncate it.
-  const span = Math.ceil(KERB_BLEND / pitch) + 1;
-  let nearest = Infinity;
-  let onto = 0;
-  for (let dc = -span; dc <= span; dc++) {
-    for (let dr = -span; dr <= span; dr++) {
-      if (dc === 0 && dr === 0) continue;
-      const level = terraces.get(cellKey(col + dc, row + dr));
-      if (level === undefined) continue;
-      // Point to the cell's own rectangle, which is what makes the ramp square
-      // to the kerb rather than radial about a cell centre.
-      const dx = Math.max(0, Math.abs(x - (col + dc - shift) * pitch) - pitch * 0.5);
-      const dz = Math.max(0, Math.abs(z - (row + dr - shift) * pitch) - pitch * 0.5);
-      const distance = Math.hypot(dx, dz);
-      // Ties go to the higher terrace, so the approach to a stepped town climbs
-      // to the step it is about to walk onto rather than to the one beside it.
-      if (distance < nearest || (distance === nearest && level > onto)) {
-        nearest = distance;
-        onto = level;
-      }
-    }
-  }
-  if (nearest >= KERB_BLEND) return 0;
-  /**
-   * The ramp climbs to that terrace's own paving — but only where that is a
-   * *kerb*, and on a terraced town most of the outside edge is not.
-   *
-   * **A blend is a fixed run, so a climb it was not sized for is a cliff you
-   * walk up.** At `GROUND_LIFT` over `KERB_BLEND` the gradient is 0.33 and the
-   * step is invisible; a town cut into a hillside shows faces of up to
-   * `MAX_CUT + GROUND_LIFT + KERB_DROP`, and ramping *that* over the same run
-   * would be a body rising fifteen units in nine — walking up a retaining wall
-   * with nothing under his feet. Widening the run instead is worse, not better:
-   * it starts the rise forty units out in an open field, which is the same bug
-   * with more of it.
-   *
-   * So a face taller than one kerb is a **wall**, and the answer is that there
-   * is no floor here: stand on the ground, walk along the bottom of it, and get
-   * in the way the geometry already offers — the low side of the platform, where
-   * the cut is shallow, or the ramp the town's own track draws for the road.
-   * Coming the other way, downhill, needs nothing: the terrace is below the
-   * ground you are on, so you walk over the edge and `HEIGHT_SMOOTHING` lands
-   * you on it.
-   */
-  const climb = onto + GROUND_LIFT - elevation;
-  if (climb <= 0 || climb > GROUND_LIFT + KERB_DROP) return 0;
-  return climb * (1 - nearest / KERB_BLEND);
-}
 
 const P = PALETTE;
 

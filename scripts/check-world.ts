@@ -81,7 +81,8 @@ import { biomeAt, biomeSample } from '../src/biome.ts';
 // to measure the mesh against the number `settlements.ts` uses and not against
 // a copy of it. `scenery/ground.ts` is Node-safe; `settlements.ts` is not,
 // because it reaches the kit through an `import.meta.glob` registry.
-import { APRON_SINK, GROUND_LIFT, KERB_BLEND, KERB_DROP, MAX_CUT, TERRACE_STEP, cellKey, floorLiftAt } from '../src/scenery/ground.ts';
+import { EDGE_RUN, GROUND_LIFT, KERB_DROP, TERRACE_STEP, cellKey } from '../src/scenery/ground.ts';
+import { EDGE_FOOT, STEP_RISE, buildFloor, edgeSink, floorLiftAt } from '../src/scenery/floor.ts';
 import { allZoneNames, clockAt, zoneFor } from '../src/timezone.ts';
 import { createBorders } from '../src/borders.ts';
 import { verifyFlagLayer } from '../src/land-flags.ts';
@@ -603,15 +604,15 @@ check(
     // only ever bounded edge midpoints.
     unit.copy(centre).normalize().multiplyScalar(PLANET_RADIUS);
     const meshHeight = (v.length() + tb.length() + tc.length()) / 3 - PLANET_RADIUS;
-    // **Signed, because the two signs are two different pictures now.** The
-    // mesh standing *over* the paving is the seam — a straight line drawn
-    // across a town — and the lift is what has to clear it. The mesh running
-    // *under* it is the plinth floating, and what covers that is the kerb's own
-    // face plus the apron below it, so it is measured against a different
-    // number and it was invisible in the old absolute value.
+    // **Signed, because the two signs are two different pictures.** The mesh
+    // standing *over* the paving is the seam — a straight line drawn across a
+    // town — and the lift is what has to clear it. The mesh running *under*
+    // the relief is what the edge slope's foot has to reach: the slope dives
+    // `EDGE_FOOT` under `elevationAt` at its shallowest (`edgeSink`), and a
+    // mesh further under than that leaves a lip of slope standing over it.
     const error = meshHeight - world.elevationAt(unit);
     if (error > GROUND_LIFT) over++;
-    if (-error > GROUND_LIFT + KERB_DROP + APRON_SINK) under++;
+    if (-error > EDGE_FOOT) under++;
     if (Math.abs(error) > worstError) {
       worstError = Math.abs(error);
       where = near.place.name;
@@ -623,11 +624,24 @@ check(
     `${over} of ${inTown.toLocaleString()} triangles over the ${GROUND_LIFT} lift ` +
       `(${((over / inTown) * 100).toFixed(2)}%), worst |error| ${worstError.toFixed(2)} at ${where}`,
   );
+  /**
+   * **This was `-error > GROUND_LIFT + KERB_DROP + APRON_SINK`, and it measured
+   * from the wrong surface**: that sum is a depth under the *paving*, and
+   * `error` is the mesh against the *relief*, three units lower, so it counted
+   * meshes ten units under the paving and passed with 0 of 218,595 triangles.
+   * Against the edge slope's own shallowest foot, on the same population
+   * (2026-09-13): 0.89% more than 0.8 under the relief, **0.48% more than
+   * 1.0**, 0.17% more than 1.5, 0.08% more than 2.0. The tolerance is 1%
+   * because the bound is ten times stricter than the one it replaces, and
+   * because this population is every place's disc rather than the course just
+   * outside a built square where the foot actually is — 2.60% there at 1.0, and
+   * a bound on the lip rather than the lip itself (see `EDGE_FOOT`).
+   */
   check(
-    under < inTown * 0.005,
-    'the kerb and the apron reach the ground under a floating floor',
-    `${under} of ${inTown.toLocaleString()} triangles more than ` +
-      `${(GROUND_LIFT + KERB_DROP + APRON_SINK).toFixed(1)} below the paving`,
+    under < inTown * 0.01,
+    'the edge slope’s foot reaches the mesh under a settlement',
+    `${under} of ${inTown.toLocaleString()} triangles more than ${EDGE_FOOT} under the relief ` +
+      `(${((under / inTown) * 100).toFixed(2)}%)`,
   );
 }
 
@@ -2572,114 +2586,164 @@ console.log('\nfrontiers');
  * relief.
  *
  * What can be held to account here and what cannot is worth writing down.
- * `roads.ts` and `scenery/ground.ts` are Node-safe, so the ribbon is checked
- * against the *shipped network* and the kerb ramp against the *shipped rule*.
- * `settlements.ts` is not — it reaches the kit through an `import.meta.glob`
- * registry — so whether a resident town's floor is where the query says it is
- * can only be asked with a town standing, and it is:
+ * `roads.ts` and `scenery/floor.ts` are Node-safe, so the ribbon is checked
+ * against the *shipped network* and the floor against the *shipped builder*,
+ * over a synthetic town. `settlements.ts` is not — it reaches the kit through
+ * an `import.meta.glob` registry — so whether a resident town's floor is where
+ * the query says it is can only be asked with a town standing, and it is:
  * `atlas.settlements.survey()` samples a ring across every town it builds and
  * reports how far a foot lands under the paving and over it.
  */
 console.log('\nmade ground');
 {
   /**
-   * The kerb, which is the one surface in this world that a foot does not stand
-   * on where it is drawn.
+   * The floor, which is drawn where a foot stands on it.
    *
-   * A road draws its own ramp — the shoulder runs from `RIBBON_LIFT` at the
-   * crown down through the relief, so `ribbonHeightAt` reads the geometry and
-   * there is nothing to choose. A kerb is a vertical face by construction and a
-   * rise is followed *exactly* on the frame it happens (`HEIGHT_SMOOTHING`
-   * smooths drops only, deliberately), so switching the floor on at a cell
-   * boundary would put the whole lift into one frame. `KERB_BLEND` is the
-   * approach, and these are its terms.
+   * It was not, until 2026-09-13: the town's edge was a vertical kerb and
+   * `KERB_BLEND` an undrawn ramp a foot climbed it by, and this block asserted
+   * that ramp. The edge is a drawn slope now, and a street that crosses a riser
+   * a drawn flight of steps, both built by `buildFloor` and read back by
+   * `floorLiftAt` out of the one field `buildGround` draws — so what is held
+   * here is the field's contract, over the builder the streamer calls: level
+   * paving; a slope that leaves it without a step and meets level ground
+   * `EDGE_RUN` out at a gradient a body walks up; a convex corner that is a
+   * hip; a quay that is still a wall; and, on a street that would otherwise be
+   * a riser, a flight no step of which is taller than `STEP_RISE`.
    */
   const pitch = 12.65;
+  const GROUND = 100;
+  // A square three cells a side with an avenue down the middle both ways,
+  // which is what `townGrid` cuts one that size into.
+  const lane = (at: number): Uint8Array => {
+    const flags = new Uint8Array(3);
+    if (at >= 0) flags[at] = 1;
+    return flags;
+  };
+  const grid = { pitch, shift: 1, avenue: lane(1), low: lane(-1), high: lane(-1) };
+  const floorOf = (level: (c: number) => number, ground: (i: number, j: number) => number | null) => {
+    const terraces = new Map<number, number>();
+    for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) terraces.set(cellKey(c, r), level(c));
+    return buildFloor({ grid, band: 3.6, terraces, cornerGround: ground });
+  };
   /**
    * A nine-cell town on flat ground, and the same one cut into a hillside.
    *
-   * The flat one is the case the whole world used to be: every terrace at the
-   * same elevation, so the paving is a plane at `GROUND_LIFT` over it and the
-   * ramp outside is the one this file has always asserted. The stepped one is
-   * three columns of cells a `TERRACE_STEP` apart, which is what a town on a
-   * slope now is, and it is here to hold the *absolute* half of the contract:
-   * on a terrace the answer must not move as the ground under it does.
+   * The flat one is the case half the world is: one terrace, so the paving is
+   * a plane at `GROUND_LIFT` over it and the slope round it is the whole edge.
+   * The stepped one is three columns a `TERRACE_STEP` apart on a hill rising
+   * under them, which is what a town on a slope is: it holds the *absolute*
+   * half of the contract — on a terrace the answer must not move as the ground
+   * under it does — and its avenue crosses both risers.
    */
-  const flat = { pitch, terraces: new Map<number, number>() };
-  const stepped = { pitch, terraces: new Map<number, number>() };
-  const GROUND = 100;
-  for (let c = -1; c <= 1; c++) {
-    for (let r = -1; r <= 1; r++) {
-      flat.terraces.set(cellKey(c, r), GROUND);
-      stepped.terraces.set(cellKey(c, r), GROUND + c * TERRACE_STEP);
-    }
-  }
+  const flat = floorOf(() => GROUND, () => GROUND);
+  const hill = (i: number): number => GROUND - 3 + TERRACE_STEP * Math.max(0, Math.min(3, i));
+  const stepped = floorOf((c) => GROUND + c * TERRACE_STEP, (i) => hill(i));
   const edge = pitch * 1.5;
 
   let onPaving = 0;
   let wrongOnPaving = 0;
-  let outOfRange = 0;
-  let backwards = 0;
-  let steepest = 0;
-  let previous = GROUND_LIFT;
-  let reaches = -1;
-  for (let x = 0; x <= edge + KERB_BLEND * 2; x += 0.05) {
-    // The ground the query stands on, which off the paving is the relief and on
-    // it is whatever the hill happens to be doing under a level surface. Walked
-    // deliberately, so that a lift measured against a *moving* ground still adds
-    // back up to one height.
+  for (let x = 0; x < edge - 1e-6; x += 0.05) {
+    // The ground the query stands on, which on the paving is whatever the hill
+    // happens to be doing under a level surface. Walked deliberately, so that a
+    // lift measured against a *moving* ground still adds back up to one height.
     const ground = GROUND + Math.sin(x * 0.3) * 0.9;
-    const lift = floorLiftAt(flat, x, 0, ground);
-    if (lift > GROUND_LIFT + 1 + 1e-9 || lift < -1e-9) outOfRange++;
-    if (x < edge - 1e-6) {
-      onPaving++;
-      if (Math.abs(ground + lift - (GROUND + GROUND_LIFT)) > 1e-9) wrongOnPaving++;
-    }
-    // Off the paving the ramp is measured against a fixed ground, because what
-    // it has to be is monotonic in the *distance* and the wobble above would
-    // read as a rise the ramp did not make.
-    const level = floorLiftAt(flat, x, 0, GROUND);
-    if (level > previous + 1e-9) backwards++;
-    steepest = Math.max(steepest, (previous - level) / 0.05);
-    if (level <= 0 && reaches < 0) reaches = x - edge;
-    previous = level;
+    onPaving++;
+    if (Math.abs(ground + floorLiftAt(flat, x, 0, ground) - (GROUND + GROUND_LIFT)) > 1e-9) wrongOnPaving++;
   }
   check(
     wrongOnPaving === 0,
     'the paving is level over its own cell, at GROUND_LIFT over the terrace',
     `${onPaving} samples inside the floor, ${wrongOnPaving} wrong, lift ${GROUND_LIFT}`,
   );
+
+  /**
+   * The edge slope, walked straight out from the middle of a side over level
+   * ground, to the far side of its one course.
+   *
+   * Measured against a fixed ground, because what it has to be is monotonic in
+   * the distance. It starts on the paving — the first sample past the kerb line
+   * is `GROUND_LIFT` up, which is what makes it a slope and not a step — and
+   * its whole course is one plane, from the paving's top down to `edgeSink`
+   * under the ground, so the gradient where a foot is on it and where it is
+   * buried is the same number: `GROUND_LIFT / EDGE_RUN`, 0.33, 18 degrees.
+   */
+  const sink = edgeSink(pitch);
+  const first = floorLiftAt(flat, edge + 1e-6, 0, GROUND);
+  let previous = GROUND_LIFT;
+  let outOfRange = 0;
+  let backwards = 0;
+  let steepest = 0;
+  let reaches = -1;
+  for (let x = edge; x < edge + pitch - 0.05; x += 0.05) {
+    const lift = floorLiftAt(flat, x, 0, GROUND);
+    if (lift > GROUND_LIFT + 1e-9 || lift < -sink - 1e-9) outOfRange++;
+    if (lift > previous + 1e-9) backwards++;
+    steepest = Math.max(steepest, (previous - lift) / 0.05);
+    if (lift <= 0 && reaches < 0) reaches = x - edge;
+    previous = lift;
+  }
   check(
-    outOfRange === 0 && backwards === 0,
-    'the kerb ramp only ever falls, and never past either end',
-    `${outOfRange} out of [0, ${GROUND_LIFT}], ${backwards} rising`,
+    Math.abs(first - GROUND_LIFT) < 1e-6 && outOfRange === 0 && backwards === 0,
+    'the edge slope leaves the paving without a step and only ever falls',
+    `${first.toFixed(3)} just past the kerb line against ${GROUND_LIFT}, ` +
+      `${outOfRange} out of [-${sink.toFixed(2)}, ${GROUND_LIFT}], ${backwards} rising`,
   );
-  // A ramp is a step if you can walk up it. At `KERB_BLEND` the rise per unit of
-  // ground is the whole lift over the whole blend, which is a gradient rather
-  // than a wall; the world's own relief is steeper than this over a tenth of the
-  // land (see the vegetation slope table).
   check(
-    reaches >= 0 && Math.abs(reaches - KERB_BLEND) < 0.1 && steepest <= GROUND_LIFT / KERB_BLEND + 1e-6,
-    'and it lands on the ground exactly KERB_BLEND out, at a gradient a body can walk',
+    reaches >= 0 && Math.abs(reaches - EDGE_RUN) < 0.1 && steepest <= GROUND_LIFT / EDGE_RUN + 1e-6,
+    'and it meets level ground EDGE_RUN out, at a gradient a body walks up',
     `${reaches.toFixed(2)} units out, steepest ${steepest.toFixed(3)} (${(Math.atan(steepest) / DEG).toFixed(1)} deg)`,
+  );
+  // The corner. Split through the one corner it touches, the cell off a convex
+  // corner is two slopes meeting at a hip, so it meets the ground on the square
+  // `EDGE_RUN` out — not on a circle, and not along a fold across the cell.
+  let hip = -1;
+  for (let d = 0; d <= pitch; d += 0.02) {
+    if (floorLiftAt(flat, edge + d, edge + d, GROUND) <= 0) {
+      hip = d;
+      break;
+    }
+  }
+  check(
+    Math.abs(hip - EDGE_RUN) < 0.05,
+    'and a convex corner is a hip, meeting the ground on the square EDGE_RUN out',
+    `${hip.toFixed(2)} out on each axis along the diagonal`,
+  );
+  // Over a valley the slope still ends one course out and under the ground
+  // there, so it steepens into an embankment down to the field rather than
+  // stand a ledge over it.
+  const inSquare = (i: number, j: number): boolean => i >= 0 && i <= 3 && j >= 0 && j <= 3;
+  const fill = floorOf(() => GROUND, (i, j) => (inSquare(i, j) ? GROUND : GROUND - 15));
+  const footOfFill = floorLiftAt(fill, edge + pitch - 0.01, 0, GROUND - 15);
+  check(
+    Math.abs(floorLiftAt(fill, edge, 0, GROUND) - GROUND_LIFT) < 1e-9 && footOfFill < 0,
+    'and over falling ground it is an embankment that reaches the field, not a ledge',
+    `${footOfFill.toFixed(2)} against the field at its foot, steepest ${fill.stats?.embankment.toFixed(2)}`,
+  );
+  // And a quay: where the sea is next door the edge keeps its face.
+  const quay = floorOf(() => GROUND, (i) => (i > 3 ? null : GROUND));
+  const offQuay = floorLiftAt(quay, edge + 2, 0, GROUND);
+  check(
+    offQuay === 0 && quay.stats?.quays === 3 && quay.stats.slopes === 9,
+    'and where the sea is next door the edge is a quay, with no slope to stand on',
+    `${quay.stats?.quays} quay edges of ${(GROUND_LIFT + KERB_DROP).toFixed(1)}, ` +
+      `${quay.stats?.slopes} sloped, lift past it ${offQuay}`,
   );
 
   /**
    * And the stepped town, which is the terracing's own contract.
    *
-   * Three things, and each of them is a way the old constant-offset floor would
-   * have been wrong: a foot on a terrace stands at that terrace's height and not
-   * at the one next door; the height it stands at does not move with the ground
-   * under it; and the approach from outside climbs to the terrace it is about to
-   * walk onto rather than to the lowest one in sight.
+   * A foot on a terrace stands at that terrace's height and not at the one next
+   * door, and the height it stands at does not move with the ground under it.
+   * Sampled in the rows either side of the avenue, because the avenue itself
+   * climbs by flights and is the next assertion's.
    */
   let wrongTerrace = 0;
   let terraceSamples = 0;
-  for (let c = -1; c <= 1; c++) {
+  for (let c = 0; c < 3; c++) {
     for (let step = 0; step < 9; step++) {
-      const x = (c + (step / 8 - 0.5) * 0.9) * pitch;
-      const z = ((step % 3) - 1) * pitch * 0.4;
-      const ground = GROUND + Math.sin(x * 0.7) * 1.4;
+      const x = (c - 1 + (step / 8 - 0.5) * 0.9) * pitch;
+      const z = (step % 2 === 0 ? 1 : -1) * pitch * (0.8 + 0.1 * (step % 3));
+      const ground = hill(c + 0.5) + Math.sin(x * 0.7) * 1.4;
       const want = GROUND + c * TERRACE_STEP + GROUND_LIFT;
       terraceSamples++;
       if (Math.abs(ground + floorLiftAt(stepped, x, z, ground) - want) > 1e-9) wrongTerrace++;
@@ -2691,39 +2755,35 @@ console.log('\nmade ground');
     `${terraceSamples} samples over ${new Set(stepped.terraces.values()).size} terraces, ${wrongTerrace} wrong`,
   );
   /**
-   * And the approach, which is a *kerb* and not a wall.
+   * And the streets across the risers, which is what the flights are for.
    *
-   * **`floorLiftAt` ramps a face of one kerb and refuses a face taller than
-   * one**, and the assertion that used to be here read the old rule: it put a
-   * probe half a blend outside a terrace a whole `TERRACE_STEP` up and expected
-   * the ramp to climb half way to it. That climb is `TERRACE_STEP +
-   * GROUND_LIFT` = 7 units against a kerb of `GROUND_LIFT + KERB_DROP` = 3.8,
-   * so on a terraced town most of the outside edge is a retaining wall of up to
-   * `MAX_CUT + GROUND_LIFT + KERB_DROP` = 15.8, and ramping that over a 9-unit
-   * blend is a body rising fifteen units in nine with nothing under his feet.
-   *
-   * So the rule is asserted rather than the old number, at the same probe and
-   * in both directions: the flat town, whose face is exactly `GROUND_LIFT`,
-   * still climbs half way at half a blend; and the stepped town's uphill face
-   * offers no floor at all, which is what a caller reads as "stand on the
-   * ground and walk round to the low side or up the road's own ramp".
+   * Walked from one side of the town to the other down the middle of the
+   * avenue, the tallest single rise a foot meets is one step and the whole
+   * climb is still the two terraces; walked through the yards beside it, the
+   * same risers are walls a `TERRACE_STEP` tall, which a foot takes in one
+   * frame as it always did (`HEIGHT_SMOOTHING` in `player.ts`).
    */
-  const probe = edge + KERB_BLEND * 0.5;
-  const kerbFace = floorLiftAt(flat, probe, 0, GROUND);
-  const wallFace = floorLiftAt(stepped, probe, 0, GROUND);
-  const climb = TERRACE_STEP + GROUND_LIFT;
+  const across = (z: number): { rise: number; climb: number } => {
+    let rise = 0;
+    let start = 0;
+    let last = 0;
+    for (let x = -edge + 0.01, k = 0; x <= edge - 0.01; x += 0.02, k++) {
+      const ground = hill(x / pitch + 1.5);
+      const stand = ground + Math.max(0, floorLiftAt(stepped, x, z, ground));
+      if (k === 0) start = stand;
+      else rise = Math.max(rise, stand - last);
+      last = stand;
+    }
+    return { rise, climb: last - start };
+  };
+  const street = across(0);
+  const yard = across(-pitch);
   check(
-    Math.abs(kerbFace - GROUND_LIFT * 0.5) < 1e-9,
-    'and a face of one kerb still climbs half way at half a blend',
-    `${kerbFace.toFixed(2)} of ${GROUND_LIFT.toFixed(1)}, against a kerb of ` +
-      `${(GROUND_LIFT + KERB_DROP).toFixed(1)}`,
-  );
-  check(
-    wallFace === 0 && climb > GROUND_LIFT + KERB_DROP,
-    'and a face taller than one kerb is a wall with no floor to stand on',
-    `${climb.toFixed(1)} units to the nearest terrace against a kerb of ` +
-      `${(GROUND_LIFT + KERB_DROP).toFixed(1)}, lift ${wallFace.toFixed(2)}` +
-      ` (a wall reaches ${(MAX_CUT + GROUND_LIFT + KERB_DROP).toFixed(1)})`,
+    street.rise <= STEP_RISE + 1e-9 && Math.abs(street.climb - 2 * TERRACE_STEP) < 1e-9 &&
+      Math.abs(yard.rise - TERRACE_STEP) < 1e-9,
+    'and a street that crosses a riser climbs it by a flight, no step taller than STEP_RISE',
+    `${stepped.stats?.flights} flights of ${stepped.stats?.steps} risers: tallest step on the avenue ` +
+      `${street.rise.toFixed(2)} in a climb of ${street.climb.toFixed(1)}, beside it ${yard.rise.toFixed(2)}`,
   );
 
   /**

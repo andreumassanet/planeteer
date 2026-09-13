@@ -1947,8 +1947,9 @@ export interface Roads {
  * the lift has been used up, which is `RIBBON_LIFT / SHOULDER_DROP` of the way
  * out — so the surface a foot stands on runs from full lift at 1.0 of the
  * half-width to nothing at 1.533 of it, and the ramp is a fact about the road
- * rather than a courtesy to the player. That is why a kerb needs `KERB_BLEND`
- * and a road does not.
+ * rather than a courtesy to the player. A town's edge is the same kind of fact
+ * since 2026-09-13 — a drawn slope a foot stands on (`buildFloor` in
+ * `scenery/floor.ts`) — and neither needs a ramp that is not drawn.
  *
  * **The ratio is not a half any more and the arithmetic never was one.** At a
  * lift of 1.5 the drop was 3.0 and the crossing landed exactly half way, at
