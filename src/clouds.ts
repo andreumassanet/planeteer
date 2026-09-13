@@ -380,6 +380,21 @@ export interface CloudStats {
   inward: number;
 }
 
+/**
+ * Where the deck sits in the opaque list, and it is a number because something
+ * has to be drawn *before* it.
+ *
+ * The frontiers in `borders.ts` are drawn with no depth test — nothing on the
+ * ground may hide one from the air — so the only thing that decides what covers
+ * them is the order. They take `CLOUD_ORDER - 1` and the deck takes this: the
+ * land and the towns first, then the line over them, then the weather over the
+ * line, depth-tested as it always was. Before this the frontier was drawn last
+ * of all, as a transparent, and the dashes came out painted across the tops of
+ * the clouds. It stays well under the sky dome's 1000, which is drawn last so
+ * that only the sky left over is shaded.
+ */
+export const CLOUD_ORDER = 5;
+
 export interface Clouds {
   group: THREE.Group;
   /**
@@ -387,6 +402,19 @@ export interface Clouds {
    * after `sky.update` has set the fog's colour and `main.ts` its distances.
    */
   update(time: Date, cameraPosition: THREE.Vector3, fog: THREE.Fog): void;
+  /**
+   * How much of the deck you can see: 1 is the world's own solid deck, less is
+   * a veil, and under a hundredth the group is not drawn at all.
+   *
+   * **For the start menu and nothing else**, which fades the deck out while you
+   * choose a country and a town — a map you click on, where a solid cloud over
+   * eastern Spain hid which coast Valencia's pin was on — and back in from
+   * space, where the weather is most of what the planet looks like. It is a
+   * material switch (transparent and one-sided) and so a recompile, once, the
+   * first time it is asked for; the ink follows on its own because the hull
+   * takes the fill's opacity.
+   */
+  setVeil(opacity: number): void;
   stats: CloudStats;
 }
 
@@ -846,6 +874,7 @@ export function createClouds(): Clouds {
     geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `clouds-${chunk}`;
+    mesh.renderOrder = CLOUD_ORDER;
     group.add(mesh);
     bytes += array.byteLength * 2;
   }
@@ -870,6 +899,28 @@ export function createClouds(): Clouds {
   return {
     group,
     stats,
+    setVeil(opacity: number): void {
+      // Not drawn at all rather than drawn at nothing: 226,888 triangles and two
+      // passes of them to paint no pixel.
+      group.visible = opacity > 0.01;
+      const veiled = opacity < 0.999;
+      if (veiled !== material.transparent) {
+        material.transparent = veiled;
+        // One side: a see-through deck drawn double-sided shows its own floor
+        // through its own top, which is a grey smear rather than a veil.
+        //
+        // **And it keeps writing depth, which is the part that looks optional
+        // and is not.** The ink is an inverted hull drawn in a second pass, and
+        // what hides the inside of that hull is the depth the fill wrote in
+        // the first. A veil that wrote none had the whole hull show through
+        // it at the veil's own opacity: every cloud over Spain came out a
+        // sheet of dark red-brown ink with a white rim, which is what the
+        // first screenshot of this showed.
+        material.side = veiled ? THREE.FrontSide : THREE.DoubleSide;
+        material.needsUpdate = true;
+      }
+      material.opacity = veiled ? Math.max(0, opacity) : 1;
+    },
     update(time: Date, cameraPosition: THREE.Vector3, fog: THREE.Fog): void {
       // An absolute angle, not an increment: the deck is then a pure function
       // of the clock, so `atlas.sky.setTime` scrubs the weather with the sun

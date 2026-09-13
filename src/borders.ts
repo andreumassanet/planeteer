@@ -3,6 +3,7 @@ import type { LandRing, World } from './geo.ts';
 import { PLANET_RADIUS, coastEdges, groundRadius, onSphere } from './globe.ts';
 import { LAND_HEIGHT } from './geo.ts';
 import { createToonRamp } from './theme.ts';
+import { CLOUD_ORDER } from './clouds.ts';
 
 /**
  * Where one country ends and the next begins, drawn on the ground as a thick
@@ -398,11 +399,27 @@ export function createBorders(world: World): Borders {
   const material = new THREE.MeshToonMaterial({
     vertexColors: true,
     gradientMap: createToonRamp(4),
-    transparent: true,
+    // **Blended, and filed with the opaque world all the same — and that is the
+    // whole of the fix for a frontier drawn on the clouds.** With no depth test
+    // a mark is seen wherever it is drawn last, and as a transparent material
+    // it was drawn after *everything*, the cloud deck included: from the air
+    // the dashes ran straight across the tops of the clouds, as if inked on
+    // them. Nothing on the *ground* may hide it — that is the point of the
+    // missing depth test — but the weather is not on the ground.
+    //
+    // So it goes in the opaque list at `CLOUD_ORDER - 1`: after the land, the
+    // towns and everything else that stands on the planet, which it paints
+    // over, and **before the deck**, which is depth-tested against the land and
+    // so paints over it wherever a cloud is between the eye and the frontier.
+    // `transparent: false` is what puts it in that list; `CustomBlending` is
+    // what keeps the fade, because `NormalBlending` on an opaque material is
+    // switched off by the renderer and compiled with `OPAQUE`, which throws the
+    // alpha away.
+    transparent: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
     opacity: 0,
-    // Nothing on the ground may hide a frontier from the air — see the header —
-    // and nothing this transparent should be writing depth for what comes after
-    // it either.
     depthTest: false,
     depthWrite: false,
   });
@@ -456,9 +473,10 @@ varying float vAtlasEye;`,
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'borders';
-  // After the land, and after anything else opaque: with no depth test at all,
-  // what is drawn last is what is seen, and the frontier is meant to be seen.
-  mesh.renderOrder = 3;
+  // After the land and everything standing on it, and before the cloud deck:
+  // with no depth test at all, what is drawn later is what is seen, and the
+  // frontier is meant to be seen over the ground and under the weather.
+  mesh.renderOrder = CLOUD_ORDER - 1;
   mesh.visible = false;
 
   const stats = {
