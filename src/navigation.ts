@@ -291,7 +291,8 @@ export function createNavigation(options: NavigationOptions): Navigation {
    * of the planet the marker sits over it. If the planet is in the way, the
    * point projected is the horizon crossing on the great circle towards it —
    * which is where the destination genuinely is, as far as the eye can follow —
-   * and the marker then clamps to the screen edge with its tip pointing on. That
+   * and it is marked there when that is in the frame, clamped to the screen
+   * edge with its tip pointing on when it is not. That
    * is the whole reason to compute a horizon point rather than hide the marker:
    * from the ceiling, "just over that limb" is a real and useful answer.
    */
@@ -311,7 +312,6 @@ export function createNavigation(options: NavigationOptions): Navigation {
     const tz = site[k + 2]!;
     const dot = tx * cx + ty * cy + tz * cz;
 
-    let beyond = false;
     if (dot >= cosHorizon) {
       scratch.copy(marker);
     } else {
@@ -333,7 +333,6 @@ export function createNavigation(options: NavigationOptions): Navigation {
       const c = Math.cos(phi);
       const s = Math.sin(phi);
       scratch.set(cx * c + ax * s, cy * c + ay * s, cz * c + az * s).multiplyScalar(PLANET_RADIUS);
-      beyond = true;
     }
 
     // The rig moves the camera every frame but only the render updates its
@@ -354,11 +353,19 @@ export function createNavigation(options: NavigationOptions): Navigation {
       y = height - y;
     }
 
-    const inside = !beyond && !behind
+    // **On the screen is on the screen, beyond the horizon or not.** The first
+    // version sent everything beyond the horizon to the edge, along the line
+    // from the middle of the screen to the horizon point — and facing the
+    // destination that line is a few pixels long and points wherever the head
+    // last nodded, so the marker sat pinned to the top edge and flipped to the
+    // bottom. The user's words were that it went up, or something weird, when
+    // they looked that way. Now a horizon point in the frame is marked where it
+    // is, which is where the destination lies beyond; the tip points down at
+    // it, as it points down at the ground when the landmark is in sight.
+    const inside = !behind
       && x >= MARKER_MARGIN && x <= width - MARKER_MARGIN
       && y >= MARKER_MARGIN && y <= height - MARKER_MARGIN;
     if (inside) {
-      // The tip points straight down at the ground it marks.
       hud.trackDestination(km, x, y, Math.PI / 2);
       return;
     }
