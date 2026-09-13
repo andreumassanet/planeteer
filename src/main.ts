@@ -453,10 +453,23 @@ async function start(): Promise<void> {
    */
   const madeHeightAt = (point: THREE.Vector3): number =>
     Math.max(settlements.madeHeightAt(point), roads.ribbonHeightAt(point));
-  const player = createPlayer(world, spawn.lat, spawn.lon, { madeHeightAt });
+  /**
+   * And the walls on it. A building is solid to a foot and opaque to the lens,
+   * and both answers belong to the settlements for the reason the floor does:
+   * only a standing town has walls. The player asks `collide` every frame on
+   * foot, moving or not, and `freeSpotNear` whenever that hit something, which
+   * is also what makes the spawn and `atlas.goTo` safe: the town at the far end
+   * of a jump is raised a few frames later, around wherever you landed, and the
+   * first frame it stands puts you on the nearest clear ground outside it.
+   */
+  const player = createPlayer(world, spawn.lat, spawn.lon, {
+    madeHeightAt,
+    collide: (point, radius, push) => settlements.collide(point, radius, push),
+    freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
+  });
   scene.add(player.object);
 
-  const rig = createCameraRig();
+  const rig = createCameraRig({ blocks: (point) => settlements.blocksSight(point) });
   if (Number.isFinite(Number(query.get('height')))) rig.view.height = Number(query.get('height'));
   const input = createInput(renderer.domElement);
   const groundAt = (point: THREE.Vector3): number => groundRadius(world, point);
@@ -986,6 +999,9 @@ async function start(): Promise<void> {
       placements,
       places,
       goTo(lat: number, lon: number) {
+        // Never inside a building: `player.goTo` steps clear of any town already
+        // standing there, and one raised after the jump pushes you out on its
+        // first frame. See the player's options above.
         player.goTo(lat, lon);
         rig.snap(player, groundAt);
         // The chip is debounced against a coastline crossed on foot, and a jump
@@ -1023,10 +1039,11 @@ async function start(): Promise<void> {
        * **The roads do not follow it at all any more**, and that is a real
        * limit rather than a lag: `roads.bin` is a graph over the places
        * `isShown` returns true for at *bake* time, so turning this knob is a
-       * re-bake and not a reload. What is still live is where each ribbon
-       * stops, because `roadClip` asks `isShown` — `roads.ts` drops its
-       * geometry outright when the knob turns, so a ribbon cannot go on
-       * stopping at the edge of a town that is no longer built.
+       * re-bake and not a reload, and so are the gates each road arrives
+       * by. What is still live is the climb into a gate, because `rampOf`
+       * asks `isShown` — `roads.ts` drops its geometry outright when the knob
+       * turns, so a ribbon cannot go on ramping up to the paving of a town
+       * that is no longer built.
        */
       prominence(radius?: number) {
         if (radius !== undefined) setProminenceRadius(radius);

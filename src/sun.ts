@@ -193,7 +193,9 @@ const NORTH = new THREE.Vector3(0, 1, 0);
  * with the player re-rasterises every edge in it each step and every shadow
  * shimmers. The frame is rebuilt here exactly as `Matrix4.lookAt` builds it —
  * right is `up x direction` with `up` the camera's default world Y — so the
- * rounding happens in the basis three will actually render with.
+ * rounding happens in the basis three will actually render with. And the
+ * lattice it rounds to has to hold still itself, which one built on the live
+ * sun does not: see `SHADOW_STEP`.
  *
  * `SHADOW_DEPTH` is derived, not chosen. The land never casts (see `globe.ts`:
  * a shadow pass over it is a second draw of the whole planet), so the map only
@@ -236,6 +238,33 @@ const SHADOW_EYE_FADE: readonly [number, number] = [100, 400];
 const SHADOW_DEPTH = SHADOW_REACH / Math.tan(SHADOW_SUN_FADE[1] * DEG) + SHADOW_RELIEF;
 const SHADOW_DISTANCE = 2 * SHADOW_DEPTH;
 const SHADOW_TEXEL = (2 * SHADOW_REACH) / SHADOW_MAP_SIZE;
+/**
+ * Degrees the sun moves before the shadow light follows it.
+ *
+ * Snapping the box to whole texels keeps the shadows still while the player
+ * walks only if the texel lattice holds still itself, and one built on the
+ * live sun does not. Its axes turn with the sun, 15 degrees an hour, and with
+ * the snap measured from the planet's centre 16,000 units away that turn slid
+ * the lattice across the ground at up to `16,000 * 7.27e-5 * cos(lat)`, 1.16
+ * cos(lat) units a second: four texels. Every redraw — 45 or 180 ms apart, see
+ * `main.ts` — then rasterised each edge at a new sub-texel phase, and the
+ * small shadows on a roof, a chimney's or a parapet's or a ridge cap's,
+ * crawled by a texel at the redraw rate, standing still or not.
+ *
+ * Two things stop it and it takes both. The light's direction is the sun's as
+ * of the last whole step, so between steps the axes do not turn; and the
+ * lattice is pinned to the last focus instead of to the centre (`pin` in
+ * `createSky`), so when a step does turn it, it turns about the player. At
+ * 0.03 degrees a step is 7.2 seconds of sun, and it moves the lattice under a
+ * shadow 60 units away by at most 0.03 units, a tenth of a texel. Measured
+ * headless through three's own `shadow.matrix` at Palma, 2026-09-13, standing
+ * a minute at the 180 ms cadence: a point 40 units off changed sub-texel phase
+ * on all 333 redraws, by up to 0.46 of a texel, and now changes on the 8 that
+ * follow a step, by up to 0.034.
+ */
+const SHADOW_STEP = 0.03;
+/** `SHADOW_STEP` as clock time: the sun's hour angle runs 360 degrees a day. */
+const SHADOW_STEP_MS = (SHADOW_STEP / 360) * 86_400_000;
 /**
  * How dark a cast shadow is, as the fraction of the sun's term it removes.
  *
@@ -458,7 +487,8 @@ export interface Sky {
   update(playerPosition: THREE.Vector3, cameraPosition: THREE.Vector3, eyeHeight: number): void;
   /**
    * Put the sun light where the shadow map wants it: on the player, snapped to
-   * the map's own texels, `SHADOW_DISTANCE` up the current solar direction.
+   * the map's own texels, `SHADOW_DISTANCE` up the solar direction as of the
+   * last `SHADOW_STEP`.
    *
    * **Call it in the frame the shadow map is redrawn, and only then.** The map
    * is drawn from the light's position at that moment and the shading looks the
@@ -592,21 +622,38 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
   const focus = new THREE.Vector3();
   /** Where the player stood at the last `update`; what `placeShadow` centres on. */
   const shadowFocus = new THREE.Vector3();
+  /** The sun as of the last whole `SHADOW_STEP`, which is where the light points. */
+  const lightDirection = new THREE.Vector3(0, 1, 0);
+  let lightStep = Number.NaN;
+  /**
+   * A point of the texel lattice, which the next placement snaps against. It is
+   * the last focus, so moving it there every time moves the lattice not at all
+   * — until the light's direction steps, and then the lattice turns about the
+   * player instead of about the centre of the planet. See `SHADOW_STEP`.
+   */
+  const pin = new THREE.Vector3();
+  let pinned = false;
 
   function placeShadow(): void {
     // The shadow box, on the player and snapped to its own texels — see the
-    // note on `SHADOW_REACH`. The light sits `SHADOW_DISTANCE` up its own
-    // direction from there, which is the same direction it always had.
-    shadowRight.crossVectors(NORTH, solarDirection).normalize();
-    shadowUp.crossVectors(solarDirection, shadowRight);
-    focus.copy(shadowFocus);
+    // notes on `SHADOW_REACH` and `SHADOW_STEP`. The light sits
+    // `SHADOW_DISTANCE` up its own direction from there.
+    shadowRight.crossVectors(NORTH, lightDirection).normalize();
+    shadowUp.crossVectors(lightDirection, shadowRight);
+    if (!pinned) {
+      pin.copy(shadowFocus);
+      pinned = true;
+    }
+    focus.copy(shadowFocus).sub(pin);
     const alongRight = focus.dot(shadowRight);
     const alongUp = focus.dot(shadowUp);
     focus
+      .copy(shadowFocus)
       .addScaledVector(shadowRight, Math.round(alongRight / SHADOW_TEXEL) * SHADOW_TEXEL - alongRight)
       .addScaledVector(shadowUp, Math.round(alongUp / SHADOW_TEXEL) * SHADOW_TEXEL - alongUp);
+    pin.copy(focus);
     sun.target.position.copy(focus);
-    sun.position.copy(focus).addScaledVector(solarDirection, SHADOW_DISTANCE);
+    sun.position.copy(focus).addScaledVector(lightDirection, SHADOW_DISTANCE);
   }
 
   const mood: Mood = { ...DAY_MOOD, rampShadowTint: [...DAY_MOOD.rampShadowTint], rampLightTint: [...DAY_MOOD.rampLightTint] };
@@ -662,6 +709,11 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     state.time = time;
     state.solar = solarPosition(time);
     sunDirection(time, solarDirection);
+    const step = Math.floor(time.getTime() / SHADOW_STEP_MS);
+    if (step !== lightStep) {
+      lightStep = step;
+      sunDirection(new Date(step * SHADOW_STEP_MS), lightDirection);
+    }
 
     // Where you stand is what decides whether it is day. The camera only gets a
     // vote on which way the horizon runs.
@@ -729,7 +781,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     sun.shadow.intensity = SHADOW_INTENSITY * state.shadow;
     // The light is placed by `placeShadow`, in the frame the map is redrawn —
     // see its note. With the shadow off nothing is looked up through the map,
-    // so the light is free to follow the sun every frame.
+    // so the light is free to follow the sun, by its steps, every frame.
     shadowFocus.copy(playerPosition);
     if (state.shadow === 0) placeShadow();
     // The moon lights the hemisphere the sun does not, so the terminator seen

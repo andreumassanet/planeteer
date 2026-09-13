@@ -19,7 +19,9 @@ import { MAX_SLOPE, gradeAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
-import { groundStyleFor, trodden } from './scenery/ground.ts';
+import { GROUND_LIFT, groundStyleFor, trodden } from './scenery/ground.ts';
+import { assignGates, gateLevel, gatesOf, offsetDirection, streetBand, townFrame, townGrid } from './scenery/grid.ts';
+import type { Gate, TownGrid } from './scenery/grid.ts';
 
 /**
  * The road network: which settlements are joined, and what that looks like.
@@ -43,12 +45,27 @@ import { groundStyleFor, trodden } from './scenery/ground.ts';
  *   same terms as the settlements and the vegetation.
  *
  * And two things live in *both*, which is why they are here rather than in the
- * script: `roadPoint` is the shape of a road and `roadSpan` is how much of that
- * shape is drawn. The bake walks the first to decide whether the road goes in
- * the sea and `pnpm check` walks both to assert that no ribbon crosses water or
- * a town; this file walks them to lay the ribbon. A second copy of either is a
- * road that was tested dry and drawn wet, or asserted clear of a town and drawn
- * across its plots.
+ * script: `courseOf` / `coursePoint` is the shape of a road, from one town's
+ * gate to the other's, and `crownLift` is how high it rides along that shape,
+ * climbing to each gate's own paving. The bake walks the first to decide
+ * whether the road goes in the sea, up a mountain or through a town, `pnpm
+ * check` walks both, and this file, `life.ts`, `vegetation.ts` and the herds
+ * walk them to lay the ribbon, drive on it, and keep off it. A second copy of
+ * either is a road that was tested dry and drawn wet, or a carriageway drawn at
+ * one height and driven at another.
+ *
+ * **What replaced `roadClip` and `roadSpan`** (2026-09-13), for anyone reading
+ * an older note: a road used to run from one place's *centre* to the other's
+ * and have its two ends cut off at `radiusFor + TOWN_STANDOFF`, leaving the
+ * last forty units to a narrow track each town drew for itself. The user's
+ * verdict on that join was *un caminito que renderiza muy mal*, and what they
+ * asked for was one line: *que la ciudad esté sobre una base cuadrada y los
+ * caminos se conecten ahí*. So a town is a north-up square now
+ * (`scenery/grid.ts`) with a gate wherever a street meets its edge, and a road
+ * *starts and stops at a gate*: nothing is clipped, because nothing is drawn
+ * inside a square in the first place. The one-definition pair is `courseOf`
+ * (where the ribbon runs) and `rampOf` + `crownLift` (how high), and the
+ * invariants they carry are written beside them.
  */
 
 const DEG = Math.PI / 180;
@@ -73,8 +90,32 @@ export interface Road {
    * it has to be *baked* rather than added at draw time: the bow is what decides
    * whether the road crosses a bay, so the path that was tested for water has to
    * be the path that gets drawn.
+   *
+   * The bow is a `sin^2` bump over the middle of the road and not the old
+   * half-sine, because a half-sine has a slope at its ends and a road has to
+   * leave its gate square to the kerb; see `courseOf`.
    */
   bend: number;
+  /**
+   * Which of town `a`'s gates the road leaves by, and which of `b`'s it comes
+   * in by: indices into `gatesOf(townGrid(pop))` for that town.
+   *
+   * **Baked, for the bow's reason.** A gate is chosen by `assignGates` over the
+   * town's own roads, and then, where the road through that gate would be wet,
+   * steep or through a town, the bake tries the next gate before it gives up —
+   * so which gate a road uses is decided *with* the ground tests, and the gate
+   * the curve was tested through has to be the gate it is drawn through. A
+   * change to `gatesOf` or to `townGrid` is therefore a re-bake, and `pnpm
+   * check` asserts every stored gate still exists and can still be cut.
+   */
+  gateA: number;
+  gateB: number;
+  /**
+   * How far back the road is drawn, in depth layers: 0 in front, and one
+   * behind the deepest road it overlaps that outranks it. See `layersOf`, which
+   * the bake writes and `pnpm check` recomputes from the file.
+   */
+  layer: number;
 }
 
 export interface RoadClass {
@@ -219,33 +260,8 @@ export function classOf(popA: number, popB: number): number {
   return 0;
 }
 
-/**
- * A point along a road, at `t` in [0, 1], as a unit vector.
- *
- * `a` and `b` are unit vectors at the two settlements. The bow is applied along
- * the great circle's own pole, which is the only direction that is
- * perpendicular to the arc everywhere on it — offsetting along a fixed vector
- * would bend the road out of the tangent plane and put its middle underground.
- */
-export function roadPoint(
-  a: THREE.Vector3,
-  b: THREE.Vector3,
-  bend: number,
-  t: number,
-  target: THREE.Vector3,
-  pole: THREE.Vector3,
-): THREE.Vector3 {
-  target.copy(a).lerp(b, t).normalize();
-  if (bend !== 0) {
-    // The arc's own length in radians, so `bend` is a fraction of the road.
-    const span = a.angleTo(b);
-    target.addScaledVector(pole, bend * span * Math.sin(Math.PI * t)).normalize();
-  }
-  return target;
-}
-
 /** The pole of the great circle through `a` and `b`. Degenerate pairs get any axis. */
-export function roadPole(a: THREE.Vector3, b: THREE.Vector3, target: THREE.Vector3): THREE.Vector3 {
+function roadPole(a: THREE.Vector3, b: THREE.Vector3, target: THREE.Vector3): THREE.Vector3 {
   target.crossVectors(a, b);
   if (target.lengthSq() < 1e-12) target.set(0, 1, 0).cross(a);
   if (target.lengthSq() < 1e-12) target.set(1, 0, 0);
@@ -253,146 +269,713 @@ export function roadPole(a: THREE.Vector3, b: THREE.Vector3, target: THREE.Vecto
 }
 
 // ---------------------------------------------------------------------------
-// Where a road stops
+// Where a road arrives: a town's square and its gates
 // ---------------------------------------------------------------------------
 
 /**
- * How far *outside* a built town's edge the ribbon stops, in world units.
+ * One end of a road: the town's frame, its square, and the gates in it.
  *
- * **Everything else in this world yields to something and the road yielded to
- * nothing** — a town gets pushed off a monument, a tree and a herd get pushed
- * off both, and the ribbon was drawn straight across the plots at either end of
- * it. The town already draws its own half of the join: `settlements.ts` paves
- * its streets out of the ground's own cells and aims *tracks* along the real
- * road bearings out to `slot.radius * 0.8 + TRACK_REACH`. So the arrangement
- * reads ribbon -> track -> paving, and only the first of the three ever stopped.
- *
- * **It was eight units *inside* the built radius and it is four units outside
- * it, and what changed is the town.** The overlap was there because a ribbon
- * that stops exactly on the built edge stops in the open, and a squared-off end
- * cap in the open reads as a cut rather than as an arrival — true while the
- * town's edge was a colour change. A town is a terraced platform now
- * (`GROUND_LIFT` 3.0, `TERRACE_STEP` 4 in `scenery/ground.ts`) whose rim is a
- * vertical retaining wall of up to 11.8 units, so a ribbon laid eight units
- * inside that rim is a carriageway drawn through a wall and along the tops of
- * the plots behind it, which is what the user photographed: *las carreteras
- * irían hasta esta plataforma, ahora llegan al centro y se solapa con las
- * casas.*
- *
- * Four units is a little over half an avatar — near enough that the town's own
- * track, which now draws a ramp down off the last paved cell to `RIBBON_LIFT`
- * (see `buildTracks`), still runs past the ribbon's cap and covers the seam.
- * **The track always reaches past it**: it runs to `0.8 r + 45` and the ribbon
- * starts at `r + 4`, so the overlap is `41 - 0.2 r` — eleven units at the
- * 150-unit size cap and forty at the 12-unit floor, positive for every radius
- * under 205. `pnpm check` asserts that over the whole range the size law
- * produces rather than leaving it as arithmetic in a comment.
+ * `scenery/grid.ts` is the one definition of all three, and `settlements.ts`
+ * raises the town from the same calls about the same place — `townFrame` about
+ * the place's own direction, `townGrid` of its population — so the gate a road
+ * arrives at and the paving the town cuts there are one point and not two that
+ * happen to agree. Cached per place, because a town is asked once per road end
+ * and a city stands at the end of eight roads.
  */
-export const TOWN_STANDOFF = 4;
-
-/**
- * How near a place a road may be drawn: nothing at a hidden one, the built
- * radius plus the standoff at a shown one.
- *
- * **Every endpoint in the file is built, so the second branch is a guard and
- * not a case.** `builtGraph` only joins places `isShown` returns true for, so
- * at the shipped `PROMINENCE_RADIUS` this always returns a radius. It stays a
- * function of `isShown` because the knob is live and the network is not: turn
- * `atlas.prominence(r)` up and some endpoints stop being built, and a ribbon
- * that went on stopping at the edge of a town nobody had built would be a gap
- * in the road with nothing to explain it.
- */
-export function roadClip(place: Place): number {
-  return isShown(place) ? radiusFor(place.pop) + TOWN_STANDOFF : 0;
+export interface Town {
+  up: THREE.Vector3;
+  across: THREE.Vector3;
+  north: THREE.Vector3;
+  grid: TownGrid;
+  gates: readonly Gate[];
 }
 
-/** Where a road's ribbon starts and stops, in `t`; see `roadSpan`. */
-export interface RoadSpan {
-  t0: number;
-  t1: number;
-}
+const towns = new WeakMap<Place, Town>();
+const gateLists = new Map<number, Gate[]>();
 
-const clipProbe = new THREE.Vector3();
-
-/**
- * The `t` at which a road leaves a disc of `angle` radians about one of its own
- * ends, or the far end if it never does.
- *
- * Bisection and not arithmetic, because the bow makes the distance from an
- * endpoint a transcendental function of `t` — a road that bends 0.3 of its own
- * length leaves its town on a heading 43 degrees off the chord, and solving
- * `t * span` for the clip would put the cut a quarter of a town too far in on
- * exactly the coastal roads that needed the bow. Fourteen halvings of a whole
- * road is a resolution of 0.06 units on the longest one the network builds,
- * against a standoff of four; the comparison is a dot product rather than an
- * angle because `roadPoint` returns a unit vector and this is the one loop in
- * the build that runs per road rather than per section.
- *
- * **The bracket is the whole road and not its own half, and half of it was the
- * first version's bug.** A clip can only stop short of the middle when the two
- * ends are of a size, and they are not: a village 155 units from a city of
- * radius 140 has a road whose whole middle is inside the city, and the right
- * answer there is a fifteen-unit stub at the village. Bracketing at 0.5 threw
- * the road away instead — **2,279 roads, 5.3% of the network, came out
- * swallowed whole**, and `pnpm check` counting them is what said so.
- *
- * **The far end being outside is no longer free either, and that is what
- * `TOWN_STANDOFF` bought.** The bake thins `places.bin` so that no two *built*
- * discs touch, which is why the old clip at `radiusFor - 8` always left the far
- * end outside; a clip at `radiusFor + 4` reaches four units past that promise at
- * both ends, and over the shipped network 150 pairs of clip discs meet
- * (2026-09-08). 143 come back swallowed whole, which is the right answer: the
- * two are joined by their own paving and a ribbon between them would be a few
- * units of stub. `pnpm check` counts them so a size law that swallowed a
- * thousand would fail rather than quietly delete them.
- */
-function leavesDisc(
-  a: THREE.Vector3,
-  b: THREE.Vector3,
-  bend: number,
-  pole: THREE.Vector3,
-  end: THREE.Vector3,
-  angle: number,
-  atB: boolean,
-): number {
-  const cos = Math.cos(angle);
-  // A road with both of its ends inside one town's disc is a road the thinning
-  // should not have left standing; drop it rather than draw a stub of it.
-  if ((atB ? a : b).dot(end) > cos) return atB ? 0 : 1;
-  let inside = atB ? 1 : 0;
-  let outside = atB ? 0 : 1;
-  for (let i = 0; i < 14; i++) {
-    const middle = (inside + outside) * 0.5;
-    if (roadPoint(a, b, bend, middle, clipProbe, pole).dot(end) > cos) inside = middle;
-    else outside = middle;
+export function townOf(place: Place): Town {
+  const known = towns.get(place);
+  if (known !== undefined) return known;
+  const up = placeDirection(place, new THREE.Vector3());
+  const across = new THREE.Vector3();
+  const north = new THREE.Vector3();
+  townFrame(up, across, north);
+  const grid = townGrid(place.pop);
+  let gates = gateLists.get(place.pop);
+  if (gates === undefined) {
+    gates = gatesOf(grid);
+    gateLists.set(place.pop, gates);
   }
-  return outside;
+  const town: Town = { up, across, north, grid, gates };
+  towns.set(place, town);
+  return town;
 }
 
 /**
- * The stretch of a road that is actually drawn, once both ends have taken their
- * clearance out of it.
- *
- * `clipA` and `clipB` are world units, from `roadClip`; zero leaves that end
- * alone. False means there is nothing left to draw — two towns whose discs meet
- * are joined by their own paving and not by a ribbon.
- *
- * It is here, beside `roadPoint`, for the reason `roadPoint` is here: the ribbon
- * walks it and `pnpm check` walks it, and a second copy of where a road stops is
- * a road that was asserted clear of a town and drawn across it.
+ * Where a unit direction lands in a town's frame: `offsetDirection` run
+ * backwards, exactly, for any point on the town's own hemisphere.
  */
-export function roadSpan(
-  a: THREE.Vector3,
-  b: THREE.Vector3,
-  bend: number,
-  pole: THREE.Vector3,
-  clipA: number,
-  clipB: number,
-  into: RoadSpan,
-): boolean {
-  into.t0 = clipA > 0 ? leavesDisc(a, b, bend, pole, a, clipA / PLANET_RADIUS, false) : 0;
-  into.t1 = clipB > 0 ? leavesDisc(a, b, bend, pole, b, clipB / PLANET_RADIUS, true) : 1;
-  return into.t1 - into.t0 > 1e-4;
+export function townOffset(
+  town: Town,
+  direction: THREE.Vector3,
+  out: { x: number; z: number },
+): { x: number; z: number } {
+  const up = direction.dot(town.up);
+  out.x = (PLANET_RADIUS * direction.dot(town.across)) / up;
+  out.z = (PLANET_RADIUS * direction.dot(town.north)) / up;
+  return out;
+}
+
+const gateProbe = new THREE.Vector3();
+
+/**
+ * The level a town cuts one of its gates to, above sea level, or null where it
+ * cannot cut one.
+ *
+ * `gateLevel`, asked the question `settlements.ts` asks about the same cells:
+ * the ground through `offsetDirection` in the town's own frame, and a base of
+ * the place's own elevation floored at the sea. The paving a road has to climb
+ * to is this plus `GROUND_LIFT`. It is a handful of `elevationAt` calls, so
+ * every caller caches it per road end rather than per frame.
+ */
+export function gateHeight(place: Place, gate: number, world: World): number | null {
+  const town = townOf(place);
+  const which = town.gates[gate];
+  if (which === undefined) return null;
+  const base = Math.max(0, world.elevationAt(town.up));
+  return gateLevel(
+    town.grid,
+    which,
+    (x, z) => world.elevationAt(offsetDirection(town.up, town.across, town.north, x, z, gateProbe)),
+    base,
+  );
+}
+
+/**
+ * Whether a road may come in by a gate at all.
+ *
+ * Two things, both about the gate and neither about the road: the town can cut
+ * its cells (`gateHeight`, which refuses a cell whose centre is in the sea and
+ * a gate cell whose corners span more than `GATE_CUT`), and the straight
+ * approach out of it is dry for
+ * its whole `APPROACH`, walked at the water test's own stride. A gate that fails
+ * either would give every road through it an end against a wall or a first
+ * stretch in the sea, so it is not offered to `assignGates` at all and the road
+ * goes to the next gate round — which is what "prefer the gates whose approach
+ * is dry" means here. The rest of the road is the bake's to test.
+ *
+ * **The slope under the approach was a third test and it was measured out.**
+ * Over the 9,749 built towns (2026-09-13, under the corner-in-the-sea gate rule
+ * the centre rule replaced) `gradeAt` at the approach's middle
+ * shut 903 gates, a median grade of 0.67 against `MAX_SLOPE`'s 0.58, and left
+ * 117 towns with no open gate that the two rules above would have left one: a
+ * town on a hillside with every approach steep. The road's own slope walk
+ * already asks that question of the whole course from its first probe out, so
+ * a steep approach now refuses the roads that would climb it rather than the
+ * gate, and a road that bows off the face still gets in.
+ */
+export function gateOpen(place: Place, gate: number, world: World): boolean {
+  if (gateHeight(place, gate, world) === null) return false;
+  const town = townOf(place);
+  const which = town.gates[gate]!;
+  for (let s = 0; s <= APPROACH + 1e-9; s += WATER_PROBE_STEP) {
+    offsetDirection(town.up, town.across, town.north, which.x + which.outX * s, which.z + which.outZ * s, gateProbe);
+    if (world.countryAtPoint(gateProbe) === 0) return false;
+  }
+  return true;
+}
+
+/**
+ * Which gate each of a town's roads comes in by, before the ground has had its
+ * say: `assignGates` over the bearings to the towns at their far ends, among
+ * the gates `open` admits. Returns an index into the town's gates per road, or
+ * -1 where the town has no open gate at all.
+ *
+ * The bearing is the far town's own direction projected onto the town's frame,
+ * not the road's heading as it leaves: the heading is a function of the gate,
+ * so it cannot be what chooses one.
+ */
+export function assignTownGates(
+  place: Place,
+  others: readonly Place[],
+  open: (gate: number) => boolean,
+): number[] {
+  const town = townOf(place);
+  const leaving = others.map((other) => {
+    placeDirection(other, gateProbe);
+    return [gateProbe.dot(town.across), gateProbe.dot(town.north)] as const;
+  });
+  return assignGates(town.gates, leaving, (_, index) => open(index));
+}
+
+// ---------------------------------------------------------------------------
+// The course a road takes, gate to gate
+// ---------------------------------------------------------------------------
+
+/**
+ * How far a road runs straight out of a gate, square to the kerb, before it
+ * may bend, in world units.
+ *
+ * **The straight run is what makes a road continue a street rather than end
+ * at a wall**: the street inside runs square to the square's edge, so a road
+ * that arrives on a slant meets it at a kink, and a road that turns within its
+ * own width of the kerb swings a corner of its carriageway over the paving. 18
+ * is the trunk's whole drawn half-width (16.2, `roadClearance`) with a little
+ * over, so the widest section on the planet is clear of the kerb before the
+ * road is allowed to turn; it is also exactly one near-band span (`SPANS`), so
+ * the approach is one piece of ribbon from the kerb out, and it is two and a
+ * half avatars — a stretch of road you walk, not a notch in one.
+ *
+ * Two facing gates closer than four of these share what there is: see
+ * `courseOf`.
+ */
+export const APPROACH = 18;
+
+/** Points the middle's own length is estimated from; `coursePath` measures it. */
+const MIDDLE_SAMPLES = 8;
+
+/**
+ * Everything a road's shape is a function of, worked out once per road.
+ *
+ * A road is **gate, straight approach, bowed middle, straight approach, gate**:
+ *
+ * - `gateA` and `gateB` are on the two squares' edges, where a street's centre
+ *   line meets the kerb (`gatesOf`). The ribbon starts and stops exactly there,
+ *   so there is nothing to clip and nothing inside a square to draw.
+ * - `stubA` and `stubB` are `approach` units straight out of each gate along
+ *   the side's outward normal — the final stretch that lines up with the street.
+ * - Between them, a cubic Bezier whose two inner handles run along those same
+ *   normals, a third of the chord out, so the middle leaves one approach and
+ *   joins the other with no kink (it is tangent-continuous at both joins by
+ *   construction, and when the two gates face each other it is a straight line
+ *   at a uniform rate).
+ * - And the bow, `bend` of the middle's own span along the chord's pole, as a
+ *   `sin^2` bump. The old bow was a half-sine, and a half-sine has a slope at
+ *   its ends — a road bowed 0.3 left its town 43 degrees off the chord, which
+ *   was fine from a centre and is not from a gate. `sin^2` is flat at both
+ *   ends, so the bow changes the middle and leaves the arrival square.
+ *
+ * Every piece is evaluated the way the old curve was — on unit vectors and
+ * normalised back onto the sphere — and `t` is shared out so that it runs at
+ * roughly one rate over the whole road: each approach takes `share` of it. It
+ * is not exactly arc length, and nothing that needs distance reads it as if it
+ * were: `coursePath` measures it.
+ */
+export interface RoadCourse {
+  gateA: THREE.Vector3;
+  gateB: THREE.Vector3;
+  stubA: THREE.Vector3;
+  stubB: THREE.Vector3;
+  /** The middle's inner control points, off the sphere. */
+  handleA: THREE.Vector3;
+  handleB: THREE.Vector3;
+  pole: THREE.Vector3;
+  /** The bow's peak, in radians of the sphere. */
+  bow: number;
+  /** The length of each straight approach, in world units. */
+  approach: number;
+  /** The share of `t` each approach takes. */
+  share: number;
+  /** Estimated length, in world units: the two approaches and eight chords of the middle. */
+  length: number;
+}
+
+export function emptyCourse(): RoadCourse {
+  return {
+    gateA: new THREE.Vector3(),
+    gateB: new THREE.Vector3(),
+    stubA: new THREE.Vector3(),
+    stubB: new THREE.Vector3(),
+    handleA: new THREE.Vector3(),
+    handleB: new THREE.Vector3(),
+    pole: new THREE.Vector3(),
+    bow: 0,
+    approach: 0,
+    share: 0,
+    length: 0,
+  };
+}
+
+const courseOutA = new THREE.Vector3();
+const courseOutB = new THREE.Vector3();
+const courseChord = new THREE.Vector3();
+const courseLast = new THREE.Vector3();
+const courseHere = new THREE.Vector3();
+
+/** The longest a middle's handle may be, as a share of its chord; see `handleFor`. */
+const HANDLE_CAP = 0.75;
+
+/**
+ * How far a middle's handle reaches out of its approach, on the unit sphere.
+ *
+ * **A third of the chord was the textbook handle and it folded two thousand
+ * ribbons.** A third is right when the two gates face each other — the middle
+ * is then a straight line at a uniform rate — and a cubic with short handles
+ * does its turning at its two ends, so a road leaving a gate 45 degrees off
+ * its chord turned at a radius of `c / (6 sin 45)` right after the approach:
+ * 19 units on an 80-unit road, and under the drawn half-width of a trunk. Over
+ * the first gated bake, 2,166 of 16,655 courses bent tighter than their own
+ * ribbon was wide, 1,999 of them on the seeded bow — the Bezier's doing, not
+ * the bow's (2026-09-13).
+ *
+ * So each handle is the one a cubic needs to be a circular arc turning `phi`
+ * at that end, `c / (3 cos^2(phi / 2))`: a third when the gate faces the far
+ * one, two thirds when it faces ninety degrees off, and an arc of constant
+ * curvature — the gentlest turn there is between those two headings — when
+ * both ends turn the same way. `toward` is the chord out of this end; `out`,
+ * the gate's own normal, is a unit tangent. Capped at `HANDLE_CAP` of the
+ * chord, because a gate facing away needs a U-turn that no handle makes gentle
+ * and a long one only swings the road further out before it comes back.
+ */
+function handleFor(chord: number, out: THREE.Vector3, toward: THREE.Vector3): number {
+  const length = toward.length();
+  const cos = length > 0 ? Math.min(1, Math.max(-1, out.dot(toward) / length)) : 1;
+  const halfCos = (1 + cos) * 0.5;
+  return Math.min(HANDLE_CAP * chord, chord / (3 * Math.max(halfCos, 1e-6)));
+}
+
+/**
+ * The course of a road, from the two places it joins, the gates it names and
+ * its bow.
+ *
+ * **The approach shortens between two squares that nearly touch**, to a
+ * quarter of the gap between the gates, so the two straight runs never meet
+ * and the middle always has half the gap to turn in. The bake thins places so
+ * that no two built discs touch and the squares are inscribed in them, so
+ * facing squares are always at least `0.29 (ra + rb)` apart — seven units for
+ * two of the smallest towns, which is a short road between two kerbs rather
+ * than none.
+ */
+export function courseOf(road: Road, places: readonly Place[], into: RoadCourse = emptyCourse()): RoadCourse {
+  const townA = townOf(places[road.a]!);
+  const townB = townOf(places[road.b]!);
+  const gateA = townA.gates[road.gateA];
+  const gateB = townB.gates[road.gateB];
+  if (gateA === undefined || gateB === undefined) {
+    throw new Error(
+      `road ${places[road.a]!.name}-${places[road.b]!.name} names gates ${road.gateA}/${road.gateB} ` +
+        `of towns with ${townA.gates.length}/${townB.gates.length}; re-bake roads.bin`,
+    );
+  }
+  offsetDirection(townA.up, townA.across, townA.north, gateA.x, gateA.z, into.gateA);
+  offsetDirection(townB.up, townB.across, townB.north, gateB.x, gateB.z, into.gateB);
+  const approach = Math.min(APPROACH, into.gateA.angleTo(into.gateB) * PLANET_RADIUS * 0.25);
+  offsetDirection(
+    townA.up, townA.across, townA.north,
+    gateA.x + gateA.outX * approach, gateA.z + gateA.outZ * approach,
+    into.stubA,
+  );
+  offsetDirection(
+    townB.up, townB.across, townB.north,
+    gateB.x + gateB.outX * approach, gateB.z + gateB.outZ * approach,
+    into.stubB,
+  );
+  // Outward along the ground at each town: the side's own normal. It is a
+  // tangent at the town's centre and not at the stub, and it does not need to
+  // be — the curve is normalised, so what survives is its projection onto the
+  // stub's own tangent plane, which is the approach's own direction exactly.
+  courseOutA.copy(townA.across).multiplyScalar(gateA.outX).addScaledVector(townA.north, gateA.outZ);
+  courseOutB.copy(townB.across).multiplyScalar(gateB.outX).addScaledVector(townB.north, gateB.outZ);
+  const chord = into.stubA.distanceTo(into.stubB);
+  courseChord.subVectors(into.stubB, into.stubA);
+  into.handleA.copy(into.stubA).addScaledVector(courseOutA, handleFor(chord, courseOutA, courseChord));
+  courseChord.negate();
+  into.handleB.copy(into.stubB).addScaledVector(courseOutB, handleFor(chord, courseOutB, courseChord));
+  roadPole(into.stubA, into.stubB, into.pole);
+  into.bow = road.bend * into.stubA.angleTo(into.stubB);
+  into.approach = approach;
+  let middle = 0;
+  courseLast.copy(into.stubA);
+  for (let k = 1; k <= MIDDLE_SAMPLES; k++) {
+    middlePoint(into, k / MIDDLE_SAMPLES, courseHere);
+    middle += courseHere.distanceTo(courseLast) * PLANET_RADIUS;
+    courseLast.copy(courseHere);
+  }
+  into.length = 2 * approach + middle;
+  into.share = into.length > 0 ? approach / into.length : 0;
+  return into;
+}
+
+/** The bowed middle at `u` in [0, 1], from one stub to the other. */
+function middlePoint(course: RoadCourse, u: number, target: THREE.Vector3): THREE.Vector3 {
+  const v = 1 - u;
+  const b0 = v * v * v;
+  const b1 = 3 * v * v * u;
+  const b2 = 3 * v * u * u;
+  const b3 = u * u * u;
+  const { stubA, handleA, handleB, stubB } = course;
+  target.set(
+    b0 * stubA.x + b1 * handleA.x + b2 * handleB.x + b3 * stubB.x,
+    b0 * stubA.y + b1 * handleA.y + b2 * handleB.y + b3 * stubB.y,
+    b0 * stubA.z + b1 * handleA.z + b2 * handleB.z + b3 * stubB.z,
+  );
+  const s = Math.sin(Math.PI * u);
+  return target.addScaledVector(course.pole, course.bow * s * s).normalize();
+}
+
+/** A point along a road at `t` in [0, 1], as a unit vector. `t = 0` is gate A, exactly. */
+export function coursePoint(course: RoadCourse, t: number, target: THREE.Vector3): THREE.Vector3 {
+  const share = course.share;
+  if (t <= share) return target.copy(course.gateA).lerp(course.stubA, share > 0 ? t / share : 1).normalize();
+  if (t >= 1 - share) return target.copy(course.gateB).lerp(course.stubB, share > 0 ? (1 - t) / share : 1).normalize();
+  return middlePoint(course, (t - share) / (1 - 2 * share), target);
+}
+
+const tangentAt = new THREE.Vector3();
+
+/**
+ * The unit tangent at `t`, pointing the way `t` increases.
+ *
+ * Differentiated rather than differenced, because the one place a difference
+ * would be wrong is the one place it matters: at a gate the tangent has to be
+ * the approach's own direction, so the ribbon's end section lies along the kerb
+ * rather than a hundredth of a radian off it.
+ */
+export function courseTangent(course: RoadCourse, t: number, target: THREE.Vector3): THREE.Vector3 {
+  const share = course.share;
+  coursePoint(course, t, tangentAt);
+  if (t < share) {
+    target.subVectors(course.stubA, course.gateA);
+  } else if (t > 1 - share) {
+    target.subVectors(course.gateB, course.stubB);
+  } else {
+    const u = (t - share) / (1 - 2 * share);
+    const v = 1 - u;
+    const d0 = 3 * v * v;
+    const d1 = 6 * u * v;
+    const d2 = 3 * u * u;
+    const { stubA, handleA, handleB, stubB } = course;
+    target.set(
+      d0 * (handleA.x - stubA.x) + d1 * (handleB.x - handleA.x) + d2 * (stubB.x - handleB.x),
+      d0 * (handleA.y - stubA.y) + d1 * (handleB.y - handleA.y) + d2 * (stubB.y - handleB.y),
+      d0 * (handleA.z - stubA.z) + d1 * (handleB.z - handleA.z) + d2 * (stubB.z - handleB.z),
+    );
+    target.addScaledVector(course.pole, course.bow * Math.PI * Math.sin(2 * Math.PI * u));
+  }
+  // Onto the ground at the point: the curve is normalised, so only the part of
+  // its derivative along the sphere survives.
+  return target.addScaledVector(tangentAt, -target.dot(tangentAt)).normalize();
+}
+
+/**
+ * Longest piece of road treated as a straight chord, and how far that chord is
+ * allowed to cut inside the curve, in world units.
+ *
+ * **These were `ribbonHeightAt`'s and they are everybody's now**, because the
+ * curve they bound is. 48 was `vegetation.ts`'s chord, priced for a wood
+ * against the tightest bow the bake kept; it is the wrong end of the
+ * distribution for a foot — a short road bends hardest, and one chord across a
+ * 60-unit lane at the median bow cut 3.3 units inside it, half a carriageway,
+ * which `pnpm check` caught as a probe standing on a road that was not there.
+ * So the chord is bounded by its own sag: 0.05 units, a hundredth of a lane's
+ * half-width and under the width of the pen that draws the road. The Bezier
+ * middle and the `sin^2` bow have no closed-form curvature worth writing down,
+ * so `coursePath` measures the sag rather than predicting it.
+ */
+const PATH_STEP = 48;
+const PATH_SAG = 0.05;
+/** How many times a chord may halve before its sag is taken as good enough. */
+const PATH_DEPTH = 10;
+
+/**
+ * A road's course as a polyline, with its length measured along it.
+ *
+ * **The one walk everything that needs distance takes.** `t` is only roughly
+ * arc length, so a mover driving at a speed, a foot asking how far it is from
+ * a gate, and a ribbon asking where to put a section every 18 units all read
+ * `s` here, and a wood or a herd keeping off the carriageway walks the same
+ * chords. The approaches are straight and get their two ends; the middle is
+ * cut into chords of at most `PATH_STEP` and each is halved until the curve's
+ * own midpoint is within `PATH_SAG` of the chord's.
+ */
+export interface CoursePath {
+  /** `t` at each vertex, 0 at gate A and 1 at gate B. */
+  t: Float64Array;
+  /** Distance along the path from gate A to each vertex, in world units. */
+  s: Float64Array;
+  /** Each vertex on the unit sphere, as x, y, z. */
+  xyz: Float64Array;
+  count: number;
+  length: number;
+}
+
+const pathA = new THREE.Vector3();
+const pathB = new THREE.Vector3();
+const pathMid = new THREE.Vector3();
+const pathChord = new THREE.Vector3();
+
+export function coursePath(course: RoadCourse): CoursePath {
+  const ts: number[] = [0];
+  const t0 = course.share;
+  const t1 = 1 - course.share;
+  if (t0 > 0) ts.push(t0);
+  const refine = (ta: number, tb: number, depth: number): void => {
+    coursePoint(course, ta, pathA);
+    coursePoint(course, tb, pathB);
+    const tm = (ta + tb) * 0.5;
+    coursePoint(course, tm, pathMid);
+    pathChord.addVectors(pathA, pathB).normalize();
+    if (depth < PATH_DEPTH && pathMid.distanceTo(pathChord) * PLANET_RADIUS > PATH_SAG) {
+      refine(ta, tm, depth + 1);
+      refine(tm, tb, depth + 1);
+    } else {
+      ts.push(tb);
+    }
+  };
+  const middle = Math.max(0, course.length - 2 * course.approach);
+  const pieces = Math.max(2, Math.ceil(middle / PATH_STEP));
+  for (let k = 0; k < pieces; k++) refine(t0 + ((t1 - t0) * k) / pieces, t0 + ((t1 - t0) * (k + 1)) / pieces, 0);
+  if (t1 < 1) ts.push(1);
+  const count = ts.length;
+  const t = Float64Array.from(ts);
+  const s = new Float64Array(count);
+  const xyz = new Float64Array(count * 3);
+  for (let k = 0; k < count; k++) {
+    coursePoint(course, t[k]!, pathA);
+    xyz[k * 3] = pathA.x;
+    xyz[k * 3 + 1] = pathA.y;
+    xyz[k * 3 + 2] = pathA.z;
+    if (k > 0) {
+      const dx = pathA.x - xyz[k * 3 - 3]!;
+      const dy = pathA.y - xyz[k * 3 - 2]!;
+      const dz = pathA.z - xyz[k * 3 - 1]!;
+      s[k] = s[k - 1]! + Math.sqrt(dx * dx + dy * dy + dz * dz) * PLANET_RADIUS;
+    }
+  }
+  return { t, s, xyz, count, length: s[count - 1]! };
+}
+
+/**
+ * The tightest radius a course turns through anywhere, in world units, read
+ * off its path: the turn between each pair of consecutive chords over their
+ * mean length.
+ *
+ * **A ribbon folds over itself where its course turns tighter than the ribbon
+ * is wide** — the inner shoulder's radius is the turn's radius less the drawn
+ * half-width — so the bake refuses a course whose tightest turn is under
+ * `roadClearance` and `pnpm check` asserts none ships. The path's chords are
+ * held to 0.05 units of sag, so a chord is always short against the turn it is
+ * measuring and the estimate is good to a few per cent at any radius a road
+ * could be drawn at.
+ */
+export function tightestTurn(path: CoursePath): number {
+  const xyz = path.xyz;
+  let tightest = Infinity;
+  for (let k = 1; k + 1 < path.count; k++) {
+    const ax = xyz[k * 3]! - xyz[k * 3 - 3]!;
+    const ay = xyz[k * 3 + 1]! - xyz[k * 3 - 2]!;
+    const az = xyz[k * 3 + 2]! - xyz[k * 3 - 1]!;
+    const bx = xyz[k * 3 + 3]! - xyz[k * 3]!;
+    const by = xyz[k * 3 + 4]! - xyz[k * 3 + 1]!;
+    const bz = xyz[k * 3 + 5]! - xyz[k * 3 + 2]!;
+    const la = Math.hypot(ax, ay, az);
+    const lb = Math.hypot(bx, by, bz);
+    if (la < 1e-12 || lb < 1e-12) continue;
+    const turn = Math.acos(Math.min(1, Math.max(-1, (ax * bx + ay * by + az * bz) / (la * lb))));
+    if (turn < 1e-9) continue;
+    const radius = ((la + lb) * 0.5 * PLANET_RADIUS) / turn;
+    if (radius < tightest) tightest = radius;
+  }
+  return tightest;
+}
+
+/** The `t` at a distance `s` along a path from gate A: 0 and 1 at the two gates, exactly. */
+export function parameterAt(path: CoursePath, s: number): number {
+  if (s <= 0) return 0;
+  if (s >= path.length) return 1;
+  let low = 0;
+  let high = path.count - 1;
+  while (high - low > 1) {
+    const middle = (low + high) >> 1;
+    if (path.s[middle]! <= s) low = middle;
+    else high = middle;
+  }
+  const span = path.s[high]! - path.s[low]!;
+  const along = span > 0 ? (s - path.s[low]!) / span : 0;
+  return path.t[low]! + (path.t[high]! - path.t[low]!) * along;
+}
+
+/**
+ * The courses of one network, cached, for the files that walk it every frame.
+ *
+ * A course is seven vectors and a path a few dozen vertices, and the network
+ * is 17,000 roads, so this holds the ones that were asked for recently rather
+ * than all of them: `ribbonHeightAt` asks about the few under the player, the
+ * movers about the few hundred near the viewer, and the wood and the herd about
+ * the ones crossing a tile. Least recently used out. Shared, the way
+ * `roadIndexFor` is, so four callers pay for one cache.
+ */
+export interface RoadGeometry {
+  course(index: number): RoadCourse;
+  path(index: number): CoursePath;
+}
+
+const GEOMETRY_CAP = 4096;
+let sharedGeometry: { roads: readonly Road[]; places: readonly Place[]; geometry: RoadGeometry } | null = null;
+
+export function roadGeometryFor(roads: readonly Road[], places: readonly Place[]): RoadGeometry {
+  if (sharedGeometry !== null && sharedGeometry.roads === roads && sharedGeometry.places === places) {
+    return sharedGeometry.geometry;
+  }
+  const cache = new Map<number, { course: RoadCourse; path: CoursePath | null }>();
+  const entry = (index: number): { course: RoadCourse; path: CoursePath | null } => {
+    const known = cache.get(index);
+    if (known !== undefined) {
+      cache.delete(index);
+      cache.set(index, known);
+      return known;
+    }
+    const made = { course: courseOf(roads[index]!, places), path: null };
+    cache.set(index, made);
+    if (cache.size > GEOMETRY_CAP) cache.delete(cache.keys().next().value!);
+    return made;
+  };
+  const geometry: RoadGeometry = {
+    course: (index) => entry(index).course,
+    path(index) {
+      const found = entry(index);
+      found.path ??= coursePath(found.course);
+      return found.path;
+    },
+  };
+  sharedGeometry = { roads, places, geometry };
+  return geometry;
+}
+
+// ---------------------------------------------------------------------------
+// How high a road rides into a gate
+// ---------------------------------------------------------------------------
+
+/**
+ * The steepest the ribbon's own climb to a gate may be: rise over run, on top
+ * of whatever the relief under it is doing.
+ *
+ * **The crown is the relief plus `RIBBON_LIFT` everywhere but the last run
+ * before a gate, and there it has to meet a level paving at an absolute
+ * height** — `gateLevel + GROUND_LIFT`, which on flat ground is the same
+ * number and on a hillside is up to a few terraces off it. So the offset
+ * between the two decays from its whole value at the kerb to nothing at this
+ * rate: a road meeting a gate four units over its natural crown ramps down to
+ * it over 13 units, and one meeting a gate cut twelve units into a hillside
+ * over 40. 0.3 is the number the town's own ramps already used, 17 degrees,
+ * about the steepest street a car is driven up — and it is *added* to the
+ * relief rather than absolute, because the relief under a road is allowed up
+ * to `MAX_SLOPE` and a ramp that promised an absolute grade would have to
+ * refuse every gate on a hill.
+ */
+export const RAMP_GRADE = 0.3;
+
+/**
+ * How much narrower than a one-cell gate's cell a crown arrives, in world
+ * units: half a unit inside it, so its corners do not stand on the line where a
+ * neighbouring cell's riser can start.
+ */
+const GATE_MARGIN = 0.5;
+
+const continents = new WeakMap<World, Map<string, string>>();
+
+/**
+ * Half the street a gate opens onto, which is what a crown narrows to at its
+ * kerb: a road continues the street it enters, at the street's own width.
+ *
+ * - **A gate on one cell** — the main street of a town an odd number of cells
+ *   wide, which is the whole middle cell, or the one cell of a hamlet — opens
+ *   onto that cell: half a pitch, less `GATE_MARGIN`.
+ * - **A gate on a boundary** opens onto the two street bands either side of
+ *   it, each `streetBand` of the region's own carriageway (`GroundStyle.street`)
+ *   — the band the town paves in the road's colour, flush to the kerb. The
+ *   region is the place's own, found the way `settlements.ts` finds it: the
+ *   continent by the country's code in `world.countries`, then `regionFor`.
+ */
+function streetHalf(place: Place, town: Town, gate: Gate, world: World): number {
+  if (gate.cells.length < 2) return town.grid.pitch * 0.5 - GATE_MARGIN;
+  let continent = continents.get(world);
+  if (continent === undefined) {
+    continent = new Map(world.countries.map((country) => [country.iso, country.continent]));
+    continents.set(world, continent);
+  }
+  const region = regionFor(place.iso, continent.get(place.iso) ?? '', place.lat);
+  return streetBand(town.grid, groundStyleFor(region.id).street);
+}
+
+/**
+ * What a road's two ends ask of its height, worked out once per road.
+ *
+ * `rise` is how far the gate's paving stands over the crown the relief would
+ * give the road at the kerb: `gateLevel + GROUND_LIFT - (ground + RIBBON_LIFT)`,
+ * the ground taken at the gate itself. `level` is how far out the section is
+ * still levelling itself — the approach — and `narrow` is the crown half-width
+ * the gate lets in. An end whose town is not built (the prominence knob, turned
+ * away from the value the network was baked at) asks for nothing: no rise, no
+ * levelling, no narrowing, and the ribbon ends at a gate of a square nobody
+ * raised. `kerb` is the paving's own radius, for `pnpm check`.
+ */
+export interface RoadRamp {
+  riseA: number;
+  riseB: number;
+  levelA: number;
+  levelB: number;
+  narrowA: number;
+  narrowB: number;
+  kerbA: number;
+  kerbB: number;
+}
+
+export function emptyRamp(): RoadRamp {
+  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, narrowA: Infinity, narrowB: Infinity, kerbA: 0, kerbB: 0 };
+}
+
+export function rampOf(
+  road: Road,
+  course: RoadCourse,
+  places: readonly Place[],
+  world: World,
+  into: RoadRamp = emptyRamp(),
+): RoadRamp {
+  for (const end of [0, 1] as const) {
+    const place = places[end === 0 ? road.a : road.b]!;
+    const gate = end === 0 ? road.gateA : road.gateB;
+    const level = isShown(place) ? gateHeight(place, gate, world) : null;
+    let rise = 0;
+    let run = 0;
+    let narrow = Infinity;
+    let kerb = 0;
+    if (level !== null) {
+      const town = townOf(place);
+      kerb = PLANET_RADIUS + level + GROUND_LIFT;
+      rise = level + GROUND_LIFT - (world.elevationAt(end === 0 ? course.gateA : course.gateB) + RIBBON_LIFT);
+      run = course.approach;
+      narrow = streetHalf(place, town, town.gates[gate]!, world);
+    }
+    if (end === 0) {
+      into.riseA = rise;
+      into.levelA = run;
+      into.narrowA = narrow;
+      into.kerbA = kerb;
+    } else {
+      into.riseB = rise;
+      into.levelB = run;
+      into.narrowB = narrow;
+      into.kerbB = kerb;
+    }
+  }
+  return into;
+}
+
+/** How far a ramp of `rise` reaches out from its kerb, in world units. */
+export function rampReach(rise: number): number {
+  return Math.abs(rise) / RAMP_GRADE;
+}
+
+/** What is left of a kerb's rise `s` units out from it. */
+function riseLeft(rise: number, s: number): number {
+  const left = Math.abs(rise) - RAMP_GRADE * s;
+  return left > 0 ? Math.sign(rise) * left : 0;
+}
+
+/** How much of the relief's cross-slope is still being levelled out `s` units from a kerb. */
+function levelling(level: number, s: number): number {
+  return level > 0 && s < level ? 1 - s / level : 0;
 }
 
 /**
@@ -465,9 +1048,14 @@ export const WATER_PROBE_STEP = 2;
  * already had, against a check that counts from the *arc*, differ by a
  * fraction of a percent — nothing until `ceil` rounds the two of them apart on
  * a road that lands right at the boundary, dry to one and wet to the other.
+ *
+ * **It counts from the course now**, gate to gate, and both programs get the
+ * course's length from `courseOf`, so it is still one count. A walk is `steps +
+ * 1` probes from gate A to gate B inclusive: the ends are on a kerb rather than
+ * in the middle of a town, so neither of them is known to be dry.
  */
-export function waterProbeSteps(a: THREE.Vector3, b: THREE.Vector3): number {
-  return Math.max(2, Math.ceil((a.distanceTo(b) * PLANET_RADIUS) / WATER_PROBE_STEP));
+export function waterProbeSteps(course: RoadCourse): number {
+  return Math.max(2, Math.ceil(course.length / WATER_PROBE_STEP));
 }
 
 /**
@@ -500,7 +1088,7 @@ export interface GraphEdge {
  * Builds one of the two graphs over a list of places.
  *
  * **It lives here rather than in `scripts/build-roads.ts` for the reason
- * `roadPoint` does.** Two programs need the same answer: the bake, which
+ * `courseOf` does.** Two programs need the same answer: the bake, which
  * chooses the edges, and `pnpm check`, which has to be able to say *this
  * network is as connected as the one the bake tested* without trusting the
  * bake to tell it. A second copy of a graph rule is two graphs that agree
@@ -697,13 +1285,10 @@ export async function loadRoads(url = '/data/roads.bin'): Promise<RoadData> {
 const SLOPE_STEP = 18;
 
 const slopeAt = new THREE.Vector3();
-const slopeTail = new THREE.Vector3();
 const slopeAhead = new THREE.Vector3();
 const slopeSide = new THREE.Vector3();
 const slopeNorth = new THREE.Vector3();
-const slopePole = new THREE.Vector3();
-const slopeA = new THREE.Vector3();
-const slopeB = new THREE.Vector3();
+const slopeCourse = emptyCourse();
 const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
 
 /**
@@ -733,35 +1318,256 @@ const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
  * p10 0.64, median 0.97, p90 1.51 against a `MAX_SLOPE` of 0.577, and only 24 of
  * 241 sampled fall within a tenth of the threshold.
  *
- * The **interior** and not the whole curve, the same walk the water test makes:
- * the two ends are towns, and a town cuts its own terraces into the hill
- * (`TERRACE_STEP`, `MAX_CUT`) so the ground it stands on is not the ground the
- * ribbon has to lie on. It is `SLOPE_STEP` apart and four `reliefAt` calls a
- * probe. `pnpm check` re-walks all 17,238 shipped roads with it in **984 ms**
+ * The **interior** and not the whole curve: the two ends are gates on a kerb,
+ * and the ground under a gate is the town's own cut rather than the ground the
+ * ribbon lies on — `gateOpen` asks the approach out of each gate separately. It
+ * is `SLOPE_STEP` apart along the course and four `reliefAt` calls a probe. `pnpm check` re-walks all 17,238 shipped roads with it in **984 ms**
  * (2026-09-08) rather than trusting the bake, for the reason the water test is
  * re-walked: the bake tests a path and writes down a `bend`, and if the two ever
  * drift every road in the world would still be a road between two real towns and
  * some of them would climb a scree face.
  */
 export function crossesScree(road: Road, places: readonly Place[]): boolean {
-  placeDirection(places[road.a]!, slopeA);
-  placeDirection(places[road.b]!, slopeB);
-  roadPole(slopeA, slopeB, slopePole);
-  const length = slopeA.angleTo(slopeB) * PLANET_RADIUS;
-  const steps = Math.max(2, Math.ceil(length / SLOPE_STEP));
+  return screeAt(road, places) >= 0;
+}
+
+/**
+ * Where `crossesScree` first finds a road too steep, as the course's `t`, or
+ * -1 if it never does. The same walk; the bake reads where, because a mountain
+ * beside a gate is one another gate can go round and a mountain in the middle
+ * of the road is not.
+ */
+export function screeAt(road: Road, places: readonly Place[]): number {
+  const course = courseOf(road, places, slopeCourse);
+  const steps = Math.max(2, Math.ceil(course.length / SLOPE_STEP));
   const reach = roadClearance(road.cls);
   for (let step = 1; step < steps; step++) {
     const t = step / steps;
-    roadPoint(slopeA, slopeB, road.bend, t, slopeAt, slopePole);
-    roadPoint(slopeA, slopeB, road.bend, Math.min(1, t + 0.004), slopeTail, slopePole);
+    coursePoint(course, t, slopeAt);
     // The road's own frame, so `gradeAt`'s four probes straddle the carriageway
     // rather than an arbitrary square: across it, and along it.
-    slopeAhead.subVectors(slopeTail, slopeAt).normalize();
+    courseTangent(course, t, slopeAhead);
     slopeSide.crossVectors(slopeAt, slopeAhead).normalize();
     slopeNorth.crossVectors(slopeSide, slopeAt).normalize();
-    if (gradeAt(slopeAt, slopeSide, slopeNorth, reach, slope).grade > MAX_SLOPE) return true;
+    if (gradeAt(slopeAt, slopeSide, slopeNorth, reach, slope).grade > MAX_SLOPE) return t;
   }
+  return -1;
+}
+
+/**
+ * The gates a set of pairs would use before any of them has been tested:
+ * `assignTownGates` at every town, over every pair that ends there, among the
+ * gates `gateOpen` admits. Two entries per pair, `a`'s gate then `b`'s, and -1
+ * where a town has no open gate at all.
+ *
+ * **Here and not in the bake because two programs start from it.** The bake
+ * gives each candidate these gates first and only tries others when the ground
+ * near a gate refuses it, and then assigns the kept network again with the
+ * same function so that gates a refused candidate had taken go back round;
+ * `pnpm check` explains every candidate the file does not carry against this
+ * assignment. Deterministic in the order the pairs are handed in, which both
+ * callers take from `builtGraph` and from the sorted file.
+ */
+export function candidateGates(
+  places: readonly Place[],
+  pairs: readonly { a: number; b: number }[],
+  world: World,
+): Int16Array {
+  const chosen = new Int16Array(pairs.length * 2).fill(-1);
+  const byTown = new Map<number, number[]>();
+  pairs.forEach((pair, i) => {
+    for (const [town, end] of [[pair.a, i * 2], [pair.b, i * 2 + 1]] as const) {
+      const list = byTown.get(town);
+      if (list === undefined) byTown.set(town, [end]);
+      else list.push(end);
+    }
+  });
+  for (const [town, ends] of byTown) {
+    const place = places[town]!;
+    const open = townOf(place).gates.map((_, gate) => gateOpen(place, gate, world));
+    const others = ends.map((end) => {
+      const pair = pairs[end >> 1]!;
+      return places[end % 2 === 0 ? pair.b : pair.a]!;
+    });
+    const gates = assignTownGates(place, others, (gate) => open[gate]!);
+    ends.forEach((end, k) => {
+      chosen[end] = gates[k]!;
+    });
+  }
+  return chosen;
+}
+
+// ---------------------------------------------------------------------------
+// Which road is drawn in front
+// ---------------------------------------------------------------------------
+
+/**
+ * How far one depth layer pushes a ribbon back, in clip-space depth.
+ *
+ * **Two ribbons that overlap are two surfaces at one height, and heights
+ * cannot separate them.** Two roads into one gate run on the same approach for
+ * its first eighteen units; two out of adjacent gates of a one-cell hamlet
+ * overlap at its corner, eight units from either kerb; and both ends of both
+ * have to meet the same paving at `gateLevel + GROUND_LIFT`. Lowering one of
+ * them would put a step at its kerb, and leaving them coplanar z-fights, which
+ * is the defect the roofs had. So the choice of which one shows is made in the
+ * depth buffer instead: every road carries a `layer`, and the shader moves each
+ * layer this far back after projection — `polygonOffset` in units, per vertex,
+ * so one mesh a tile still carries every layer.
+ *
+ * 1e-6 is about eight quanta of a 24-bit depth buffer (one is 2 / 2^24 of clip
+ * depth, 1.2e-7), and a constant in clip space is a constant number of quanta
+ * at any distance, which is the point: it resolves two coplanar ribbons and
+ * loses to anything genuinely in front of them by more than that. Nothing about
+ * the ground a foot or a wheel stands on changes — `ribbonHeightAt` reads the
+ * one height law and the two surfaces are at the same height anyway.
+ */
+export const LAYER_DEPTH = 1e-6;
+
+/**
+ * Whether road `q` is drawn in front of road `r` where the two overlap: the
+ * higher class, and between two of a class the lower index — which is to say
+ * the bake's own order, so the answer is the file's and not the frame's.
+ */
+export function outranks(roads: readonly Road[], q: number, r: number): boolean {
+  const a = roads[q]!.cls;
+  const b = roads[r]!.cls;
+  return a > b || (a === b && q < r);
+}
+
+/** The nearest two segments come, on the unit sphere: Ericson's closest points between segments. */
+function segmentGap(
+  p1x: number, p1y: number, p1z: number, q1x: number, q1y: number, q1z: number,
+  p2x: number, p2y: number, p2z: number, q2x: number, q2y: number, q2z: number,
+): number {
+  const d1x = q1x - p1x;
+  const d1y = q1y - p1y;
+  const d1z = q1z - p1z;
+  const d2x = q2x - p2x;
+  const d2y = q2y - p2y;
+  const d2z = q2z - p2z;
+  const rx = p1x - p2x;
+  const ry = p1y - p2y;
+  const rz = p1z - p2z;
+  const a = d1x * d1x + d1y * d1y + d1z * d1z;
+  const e = d2x * d2x + d2y * d2y + d2z * d2z;
+  const f = d2x * rx + d2y * ry + d2z * rz;
+  const clamp = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+  let s = 0;
+  let t = 0;
+  if (a <= 1e-24 && e <= 1e-24) {
+    s = 0;
+    t = 0;
+  } else if (a <= 1e-24) {
+    t = clamp(f / e);
+  } else {
+    const c = d1x * rx + d1y * ry + d1z * rz;
+    if (e <= 1e-24) {
+      s = clamp(-c / a);
+    } else {
+      const b = d1x * d2x + d1y * d2y + d1z * d2z;
+      const denom = a * e - b * b;
+      s = denom > 1e-30 ? clamp((b * f - c * e) / denom) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) {
+        t = 0;
+        s = clamp(-c / a);
+      } else if (t > 1) {
+        t = 1;
+        s = clamp((b - c) / a);
+      }
+    }
+  }
+  return Math.hypot(rx + d1x * s - d2x * t, ry + d1y * s - d2y * t, rz + d1z * s - d2z * t);
+}
+
+/**
+ * How near chord `k` of one path comes to any chord of another, in world
+ * units, or `limit` if it comes no nearer than that. Pairs of chords whose
+ * midpoints are further apart than their half-lengths and the best so far are
+ * skipped, which is almost all of them.
+ */
+export function chordGap(from: CoursePath, k: number, to: CoursePath, limit = Infinity): number {
+  const f = from.xyz;
+  const g = to.xyz;
+  const px = f[k * 3 - 3]!;
+  const py = f[k * 3 - 2]!;
+  const pz = f[k * 3 - 1]!;
+  const qx = f[k * 3]!;
+  const qy = f[k * 3 + 1]!;
+  const qz = f[k * 3 + 2]!;
+  const mx = (px + qx) * 0.5;
+  const my = (py + qy) * 0.5;
+  const mz = (pz + qz) * 0.5;
+  const half = Math.hypot(qx - px, qy - py, qz - pz) * 0.5;
+  let best = limit / PLANET_RADIUS;
+  for (let j = 1; j < to.count; j++) {
+    const ux = g[j * 3 - 3]!;
+    const uy = g[j * 3 - 2]!;
+    const uz = g[j * 3 - 1]!;
+    const vx = g[j * 3]!;
+    const vy = g[j * 3 + 1]!;
+    const vz = g[j * 3 + 2]!;
+    const reach = half + Math.hypot(vx - ux, vy - uy, vz - uz) * 0.5;
+    if (Math.hypot(mx - (ux + vx) * 0.5, my - (uy + vy) * 0.5, mz - (uz + vz) * 0.5) - reach >= best) continue;
+    const gap = segmentGap(px, py, pz, qx, qy, qz, ux, uy, uz, vx, vy, vz);
+    if (gap < best) best = gap;
+  }
+  return best * PLANET_RADIUS;
+}
+
+/** Whether any part of one path comes within `reach` world units of any part of another. */
+export function pathsOverlap(a: CoursePath, b: CoursePath, reach: number): boolean {
+  for (let k = 1; k < a.count; k++) if (chordGap(a, k, b, reach) < reach) return true;
   return false;
+}
+
+/**
+ * Every road's depth layer: 0 for a road no higher-ranking road overlaps, and
+ * one behind the deepest of those that do.
+ *
+ * **Overlap is the two drawn strips, shoulders and all**, `roadClearance` of
+ * each and the paths' own sag either side: a shoulder is mostly buried, but two
+ * shoulders on the same approach are parallel planes and that is where two
+ * roads into one gate would fight first. Ranked by `outranks` and walked in that
+ * order, so every road a road could have to sit behind has its layer already —
+ * the layers are the longest chain of overlaps above each road, and two roads
+ * that overlap are never on one layer.
+ *
+ * **Baked, and asserted.** It is a pure function of the network, but it is a
+ * few seconds of chord pairs over seventeen thousand roads, which is a bake and
+ * not a loading screen; `build-roads.ts` writes it and `pnpm check` recomputes it
+ * from the file, the way the gates and the bow are written and re-walked.
+ */
+export function layersOf(roads: readonly Road[], places: readonly Place[]): Uint8Array {
+  const layers = new Uint8Array(roads.length);
+  const course = emptyCourse();
+  const paths: CoursePath[] = [];
+  const middles: THREE.Vector3[] = [];
+  roads.forEach((road) => {
+    courseOf(road, places, course);
+    paths.push(coursePath(course));
+    middles.push(coursePoint(course, 0.5, new THREE.Vector3()));
+  });
+  const index = createRoadIndex(roads, places);
+  const order = roads.map((_, i) => i).sort((x, y) => roads[y]!.cls - roads[x]!.cls || x - y);
+  const done = new Uint8Array(roads.length);
+  const hits: number[] = [];
+  const widest = roadClearance(ROAD_CLASSES.length - 1);
+  const slack = 2 * PATH_SAG + 0.1;
+  for (const r of order) {
+    const path = paths[r]!;
+    const clear = roadClearance(roads[r]!.cls);
+    let layer = 0;
+    for (const q of index.near(middles[r]!, path.length * 0.5 + clear + widest + slack, hits)) {
+      // Only a road already walked outranks this one.
+      if (done[q] === 0 || layers[q]! + 1 <= layer) continue;
+      if (pathsOverlap(path, paths[q]!, clear + roadClearance(roads[q]!.cls) + slack)) layer = layers[q]! + 1;
+    }
+    layers[r] = Math.min(255, layer);
+    done[r] = 1;
+  }
+  return layers;
 }
 
 // ---------------------------------------------------------------------------
@@ -771,13 +1577,11 @@ export function crossesScree(road: Road, places: readonly Place[]): boolean {
 /**
  * How far the ribbon is laid above `elevationAt`, in world units.
  *
- * **Exported, because a town's own tracks have to arrive at this height.**
- * `settlements.ts` draws the last 45 units of every road as a track on its own
- * paving and the two overlap by `41 - 0.2 r` units (see `TOWN_STANDOFF`); a
- * track that gave up its lift where the ribbon still had its own left a step
- * across the join. The two halves are still separate surfaces in separate
- * frames — see `buildTracks` — but they now agree about how high a carriageway
- * rides.
+ * **Exported, because the traffic's wheels ride at it** (`life.ts`, through
+ * `surfaceLift`) and `pnpm check` measures the crown against it. It used to be
+ * exported for the towns' own tracks as well, which drew the last forty units
+ * of every road on the town's paving; they are gone (2026-09-13), and a road
+ * climbs to its gate's paving by itself — see `crownLift`.
  *
  * The same fight `settlements.ts` documents, and it is worth saying why roads
  * cannot use the fix that settlements got. `setDetailSites` tightens the mesh's
@@ -812,16 +1616,15 @@ export function crossesScree(road: Road, places: readonly Place[]): boolean {
  * number is free to be what the road wants rather than what the wading would
  * bear. And what the road wants is **exactly `GROUND_LIFT`**, which is also 3.0:
  * on flat ground a town's paving and a road's crown are then the same height
- * over the same relief, so the ramp `buildTracks` draws off the last paved cell
- * has nothing to climb down and a road entering a town needs no step at all.
+ * over the same relief, so `rampOf`'s rise is zero and a road meets its gate
+ * with no ramp at all.
  * The residue goes from **8.45% of the land to 3.31%** — the knee of the
  * distribution, past which only the coastal shelf is left.
  *
  * `SHOULDER_DROP` is written as `RIBBON_LIFT + 1.5` rather than as a number, so
  * the shoulders bury themselves exactly as far as they always did and this move
- * cannot quietly un-bury them; `life.ts` and `settlements.ts` read this constant
- * rather than restating it, so the wheels and the town's own track came up with
- * the tarmac.
+ * cannot quietly un-bury them; `life.ts` reads this constant rather than
+ * restating it, so the wheels came up with the tarmac.
  *
  * **The sag along the road is a different question and it is measured and
  * small**: `pnpm check` walks the drawn ribbon at the near band's own span and
@@ -957,12 +1760,12 @@ export interface RoadIndex {
  * own tiles are, and a query walks the block of cells a road of the longest
  * possible reach could have arrived from.
  *
- * The bound per road is the angle from its middle to the furthest of five
- * points along its own curve, which is its endpoints — a bow is a bulge with
- * its apex at the middle, so the ends are always the extreme. `MAX_ROAD_LENGTH`
- * is 1,000 units and the widest bow the bake will keep is 0.3, so the widest
- * bound on the planet is about 580 units and the search is two cells either
- * way for a level-0 vegetation tile.
+ * The bound per road is the angle from its middle to the furthest of nine
+ * points along its course, plus a sixteenth of its length for whatever the
+ * curve does between two of them. It used to be the two endpoints alone — a
+ * bow is a bulge with its apex at the middle, so the ends were the extreme —
+ * and a course through a gate that faces away from the far town swings out
+ * past its own end, so they are not any more.
  */
 /**
  * The one index over the shipped network, built once and shared.
@@ -994,26 +1797,20 @@ export function createRoadIndex(roads: readonly Road[], places: readonly Place[]
   /** Angle from the middle to the far end, in radians. */
   const half = new Float64Array(roads.length);
   const grid: number[][] = Array.from({ length: COLS * ROWS }, () => []);
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const pole = new THREE.Vector3();
+  const course = emptyCourse();
   const mid = new THREE.Vector3();
   const at = new THREE.Vector3();
   let widest = 0;
 
   roads.forEach((road, i) => {
-    placeDirection(places[road.a]!, a);
-    placeDirection(places[road.b]!, b);
-    roadPole(a, b, pole);
-    roadPoint(a, b, road.bend, 0.5, mid, pole);
+    courseOf(road, places, course);
+    coursePoint(course, 0.5, mid);
     middle[i * 3] = mid.x;
     middle[i * 3 + 1] = mid.y;
     middle[i * 3 + 2] = mid.z;
     let reach = 0;
-    for (let k = 0; k <= 4; k++) {
-      roadPoint(a, b, road.bend, k / 4, at, pole);
-      reach = Math.max(reach, mid.angleTo(at));
-    }
+    for (let k = 0; k <= 8; k++) reach = Math.max(reach, mid.angleTo(coursePoint(course, k / 8, at)));
+    reach += course.length / 16 / PLANET_RADIUS;
     half[i] = reach;
     if (reach > widest) widest = reach;
     const lat = Math.asin(Math.min(1, Math.max(-1, mid.y))) / DEG;
@@ -1083,9 +1880,10 @@ const RESCAN_TURN = 8 * DEG;
  * Roads inside this of the camera are built whatever it is pointed at.
  *
  * A mouse flick is 180 degrees in a tenth of a second and no frustum margin
- * covers it. The number is the reach of a settlement's own tracks plus the
- * longest span a near tile uses, so spinning on the spot cannot delete the road
- * you are standing on.
+ * covers it, so spinning on the spot cannot delete the road you are standing
+ * on. The number was derived as the reach of a settlement's own tracks plus the
+ * longest span a near tile uses; the tracks are gone (2026-09-13) and it has
+ * not been re-derived since.
  */
 const KEEP_ALL_WITHIN = 620;
 /** Fixed, not scaled: see the same constant in `settlements.ts` for why. */
@@ -1165,6 +1963,167 @@ export interface Roads {
  */
 export const CROWN_FALL = 1 + (SHOULDER_SPREAD - 1) * (RIBBON_LIFT / SHOULDER_DROP);
 
+/**
+ * How far the crown stands over the relief at one point of a road, `sA` and
+ * `sB` units along it from its two gates.
+ *
+ * **The one definition of a road's height**, and every surface that has to
+ * agree about it asks here: the ribbon's own sections (`ribbonSection`), the
+ * foot (`ribbonHeightAt`), the traffic's wheels and the walkers on the verge
+ * (`life.ts`), and `pnpm check`. `ground` is the relief under the point and
+ * `centre` the relief under the centre line at the same distance along; only
+ * their difference is read, so they may be radii or elevations alike.
+ *
+ * Three terms:
+ *
+ * - `RIBBON_LIFT`, which is the whole of it away from the gates.
+ * - Each gate's `rise` (`rampOf`), decaying at `RAMP_GRADE` from its whole
+ *   value at the kerb to nothing, so the centre line arrives at exactly
+ *   `gateLevel + GROUND_LIFT`.
+ * - And the cross-slope, levelled out over the approach: at the kerb it is
+ *   taken off in full — `ground - centre` subtracted — because the paving the
+ *   crown meets is level, and a crown that followed the hill across its own
+ *   width would stand over the kerb at one corner and under it at the other.
+ *   By the end of the approach the section follows the hill again.
+ *
+ * So at a kerb every point of the crown is at the paving's own height, and a
+ * body walking in off the road steps onto the surface it left.
+ */
+export function crownLift(ramp: RoadRamp, sA: number, sB: number, ground: number, centre: number): number {
+  const lift = RIBBON_LIFT + riseLeft(ramp.riseA, sA) + riseLeft(ramp.riseB, sB);
+  return lift - (levelling(ramp.levelA, sA) + levelling(ramp.levelB, sB)) * (ground - centre);
+}
+
+/** Whether `crownLift` reads `centre` here at all: only over an approach into a built town. */
+export function needsCentre(ramp: RoadRamp, sA: number, sB: number): boolean {
+  return levelling(ramp.levelA, sA) + levelling(ramp.levelB, sB) > 0;
+}
+
+/**
+ * The crown's half-width at a point: the class's own `half`, narrowed over
+ * each approach to the street its gate opens onto (`streetHalf`), from nothing
+ * at the end of the approach to all of it at the kerb. A road narrower than its
+ * street keeps its own width.
+ */
+export function ribbonHalf(ramp: RoadRamp, half: number, sA: number, sB: number): number {
+  const a = ramp.narrowA < half ? half - (half - ramp.narrowA) * levelling(ramp.levelA, sA) : half;
+  const b = ramp.narrowB < half ? half - (half - ramp.narrowB) * levelling(ramp.levelB, sB) : half;
+  return Math.min(a, b);
+}
+
+/**
+ * The surface a foot or a wheel stands on, `lateral` units off the centre line,
+ * as a lift over `ground`: zero or less means off the road.
+ *
+ * The drawn section read back — see `ribbonSection` — so there is nothing to
+ * tune: the crown at `crownLift` out to `ribbonHalf`, then the shoulder's
+ * straight line down to `RIBBON_LIFT - SHOULDER_DROP` at `SHOULDER_SPREAD`
+ * times the half-width. Where the crown has its ordinary lift that line crosses
+ * the ground at `CROWN_FALL` of the half-width, as it always did; where a ramp
+ * has lifted it onto an embankment it crosses further out, which is the
+ * embankment's own side.
+ */
+export function surfaceLift(
+  ramp: RoadRamp,
+  half: number,
+  sA: number,
+  sB: number,
+  lateral: number,
+  ground: number,
+  centre: number,
+): number {
+  const crown = ribbonHalf(ramp, half, sA, sB);
+  const edge = crownLift(ramp, sA, sB, ground, centre);
+  const away = Math.abs(lateral);
+  if (away <= crown) return edge;
+  const shoulder = crown * SHOULDER_SPREAD;
+  const foot = RIBBON_LIFT - SHOULDER_DROP;
+  if (away >= shoulder) return foot;
+  return edge + ((away - crown) / (shoulder - crown)) * (foot - edge);
+}
+
+/**
+ * Where a ribbon's cross-sections stand, as distances from gate A, for pieces
+ * of at most `span`.
+ *
+ * Every break in the height law is a station, so what is drawn is the law and
+ * not a chord across one of its corners: both kerbs, both ends of the approach
+ * (where the levelling and the narrowing stop), and where each ramp runs out.
+ * Between those the pieces are equal. The first and the last are exactly 0 and
+ * `length`, which `parameterAt` turns into exactly the two gates.
+ */
+export function ribbonStations(
+  length: number,
+  approach: number,
+  ramp: RoadRamp,
+  span: number,
+  out: number[],
+): number[] {
+  const marks = [0, length, approach, length - approach, rampReach(ramp.riseA), length - rampReach(ramp.riseB)]
+    .filter((s) => s >= 0 && s <= length)
+    .sort((x, y) => x - y);
+  out.length = 0;
+  let last = 0;
+  for (const mark of marks) {
+    if (out.length > 0 && mark - last < 1e-6) continue;
+    if (out.length > 0) {
+      const pieces = Math.max(1, Math.ceil((mark - last) / span));
+      for (let k = 1; k < pieces; k++) out.push(last + ((mark - last) * k) / pieces);
+    }
+    out.push(mark);
+    last = mark;
+  }
+  out[out.length - 1] = length;
+  return out;
+}
+
+const sectionAt = new THREE.Vector3();
+const sectionAhead = new THREE.Vector3();
+const sectionSide = new THREE.Vector3();
+
+/**
+ * One cross-section of a road's ribbon, `s` units along it from gate A, as four
+ * points from the left shoulder to the right: shoulder, crown edge, crown edge,
+ * shoulder.
+ *
+ * The direction across is taken from the course's own tangent at that point
+ * rather than from the pieces either side of it, so the two pieces meeting at a
+ * section agree about where its corners are and the ribbon has no seam down
+ * it — and at a gate that tangent is the approach's own direction, so the end
+ * section lies along the kerb line and the ribbon neither overlaps the square
+ * nor stops short of it. The height is asked at each point rather than shared
+ * across the section, so a road on a cross-slope follows the hill instead of
+ * standing proud of it on the downhill side: four `elevationAt` calls a
+ * section, five on an approach, and it is the whole cost of building a road.
+ * `half` is the class's half-width with the band's taper already applied.
+ */
+export function ribbonSection(
+  world: World,
+  course: RoadCourse,
+  path: CoursePath,
+  ramp: RoadRamp,
+  half: number,
+  s: number,
+  into: readonly THREE.Vector3[],
+): void {
+  const t = parameterAt(path, s);
+  coursePoint(course, t, sectionAt);
+  courseTangent(course, t, sectionAhead);
+  sectionSide.crossVectors(sectionAt, sectionAhead).normalize();
+  const sB = path.length - s;
+  const crown = ribbonHalf(ramp, half, s, sB);
+  const shoulder = crown * SHOULDER_SPREAD;
+  const centre = needsCentre(ramp, s, sB) ? world.elevationAt(sectionAt) : 0;
+  for (let k = 0; k < 4; k++) {
+    const offset = k === 0 ? -shoulder : k === 1 ? -crown : k === 2 ? crown : shoulder;
+    const target = into[k]!;
+    target.copy(sectionAt).addScaledVector(sectionSide, offset / PLANET_RADIUS).normalize();
+    const ground = world.elevationAt(target);
+    const lift = k === 0 || k === 3 ? RIBBON_LIFT - SHOULDER_DROP : crownLift(ramp, s, sB, ground, centre);
+    target.multiplyScalar(PLANET_RADIUS + ground + lift);
+  }
+}
+
 interface Tile {
   /** Indices into `roads`. */
   members: number[];
@@ -1218,37 +2177,103 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   // ribbon whose edges are meant to dissolve into the verge is the one thing
   // that would make it read as a strip of tape laid over the world.
   material.userData.outlineParameters = { visible: false };
+  // Each road's depth layer, pushed back after projection: see `LAYER_DEPTH`.
+  // `OutlineEffect` builds its own program and ignores this, and that is fine
+  // here and nowhere else — a road has no ink hull for it to build.
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float roadLayer;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>\n\tgl_Position.z += roadLayer * ${LAYER_DEPTH.toExponential(3)} * gl_Position.w;`,
+      );
+  };
+  material.customProgramCacheKey = () => 'roads:layers';
 
-  // Unit vector per place, once. The streamer never converts a coordinate again.
-  const direction = new Float64Array(places.length * 3);
   const scratch = new THREE.Vector3();
-  places.forEach((place, i) => {
-    placeDirection(place, scratch);
-    direction[i * 3] = scratch.x;
-    direction[i * 3 + 1] = scratch.y;
-    direction[i * 3 + 2] = scratch.z;
-  });
-
   const roads = data.roads;
+  /** Every road's course and path, cached and shared with the wood, the herd and the traffic. */
+  const geometry = roadGeometryFor(roads, places);
+
+  /**
+   * Per road, once: its middle, how far its course reaches from it, its length,
+   * and the three points it is priced at.
+   *
+   * **Worked out from the course and not from the two places**, because the
+   * road no longer runs between the two places: it runs between two gates, and a
+   * gate that faces away from the far town swings the road out past its own
+   * end. So the middle is the course's `t = 0.5`, the reach is the widest of
+   * nine points along it from there plus a sixteenth of its length for what
+   * the curve does between two of them, and the three price points are the two
+   * gates and the middle. The course is a scratch here — building the network's
+   * seventeen thousand of them takes a few tens of milliseconds and keeping them
+   * would be several megabytes of vectors nothing reads again.
+   */
+  const middles = new Float64Array(roads.length * 3);
+  const lengths = new Float64Array(roads.length);
+  const reachOf = new Float64Array(roads.length);
+  /**
+   * The three points a road is priced at, on the sea-level sphere.
+   *
+   * **Three and not one, because a road is up to a thousand units long and its
+   * middle is not what you are looking at.** They are a pure function of the
+   * network, so they are worked out once here: 72 bytes a road against a
+   * course per road per rescan. Sampled at sea level rather than on the relief
+   * because the tallest ground on the planet is 620 units against the shortest
+   * reach this is compared to, which is a couple of percent of a decision that
+   * is already a step function.
+   */
+  const samples = new Float64Array(roads.length * 9);
+  {
+    const course = emptyCourse();
+    const mid = new THREE.Vector3();
+    const at = new THREE.Vector3();
+    roads.forEach((road, i) => {
+      courseOf(road, places, course);
+      coursePoint(course, 0.5, mid);
+      middles[i * 3] = mid.x;
+      middles[i * 3 + 1] = mid.y;
+      middles[i * 3 + 2] = mid.z;
+      lengths[i] = course.length;
+      let reach = 0;
+      for (let k = 0; k <= 8; k++) reach = Math.max(reach, mid.angleTo(coursePoint(course, k / 8, at)));
+      reachOf[i] = reach + course.length / 16 / PLANET_RADIUS;
+      for (const [k, v] of [course.gateA, course.gateB, mid].entries()) {
+        samples[i * 9 + k * 3] = v.x * PLANET_RADIUS;
+        samples[i * 9 + k * 3 + 1] = v.y * PLANET_RADIUS;
+        samples[i * 9 + k * 3 + 2] = v.z * PLANET_RADIUS;
+      }
+    });
+  }
+  const readMiddle = (index: number, target: THREE.Vector3): THREE.Vector3 =>
+    target.set(middles[index * 3]!, middles[index * 3 + 1]!, middles[index * 3 + 2]!);
+
+  /**
+   * Each road's `RoadRamp`, cached: two `gateLevel`s and two `elevationAt`s a
+   * road, which is nothing once and a lot per frame. Bounded, and emptied when
+   * the prominence knob turns, because a ramp only climbs into a town that is
+   * built and `isShown` is live.
+   */
+  const ramps = new Map<number, RoadRamp>();
+  const rampFor = (index: number): RoadRamp => {
+    let found = ramps.get(index);
+    if (found === undefined) {
+      found = rampOf(roads[index]!, geometry.course(index), places, world);
+      if (ramps.size >= GEOMETRY_CAP) ramps.clear();
+      ramps.set(index, found);
+    }
+    return found;
+  };
 
   // ------------------------------------------------------------------
   // Tiles
   // ------------------------------------------------------------------
 
   const tiles = new Map<number, Tile>();
-  const endA = new THREE.Vector3();
-  const endB = new THREE.Vector3();
-  const pole = new THREE.Vector3();
   const point = new THREE.Vector3();
 
-  const readEnd = (index: number, target: THREE.Vector3): THREE.Vector3 =>
-    target.set(direction[index * 3]!, direction[index * 3 + 1]!, direction[index * 3 + 2]!);
-
-  roads.forEach((road, i) => {
-    readEnd(road.a, endA);
-    readEnd(road.b, endB);
-    roadPole(endA, endB, pole);
-    roadPoint(endA, endB, road.bend, 0.5, point, pole);
+  roads.forEach((_, i) => {
+    readMiddle(i, point);
     const lat = Math.asin(Math.min(1, Math.max(-1, point.y))) / DEG;
     const lon = Math.atan2(-point.z, point.x) / DEG;
     const row = Math.min(TILE_ROWS - 1, Math.max(0, Math.floor((90 - lat) / TILE)));
@@ -1277,17 +2302,13 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const list = [...tiles.values()];
   for (const tile of list) {
     tile.centre.normalize();
-    // The bound has to cover the road *ends*, not the middles the tile was
-    // bucketed on: a road is up to a thousand units long and both of its ends
-    // can sit outside the tile it belongs to. A frustum test against a sphere
-    // that only covers the middles culls a road whose visible half is on screen.
+    // The bound has to cover the whole of every course, not the middles the
+    // tile was bucketed on: a road is up to a thousand units long and both of
+    // its ends can sit outside the tile it belongs to. A frustum test against a
+    // sphere that only covers the middles culls a road whose visible half is on
+    // screen.
     let reach = 0;
-    for (const i of tile.members) {
-      const road = roads[i]!;
-      readEnd(road.a, endA);
-      readEnd(road.b, endB);
-      reach = Math.max(reach, tile.centre.angleTo(endA), tile.centre.angleTo(endB));
-    }
+    for (const i of tile.members) reach = Math.max(reach, tile.centre.angleTo(readMiddle(i, point)) + reachOf[i]!);
     tile.bound = reach * PLANET_RADIUS + 60;
     tile.anchor.copy(tile.centre).multiplyScalar(groundRadius(world, scratch.copy(tile.centre).multiplyScalar(PLANET_RADIUS)));
   }
@@ -1295,32 +2316,6 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   // ------------------------------------------------------------------
   // Which routes are worth drawing
   // ------------------------------------------------------------------
-
-  /**
-   * The three points a road is priced at, on the sea-level sphere.
-   *
-   * **Three and not one, because a road is up to a thousand units long and its
-   * middle is not what you are looking at.** They used to be worked out inside
-   * the per-road test — a `roadPole` and a `roadPoint` every time a tile was
-   * rebuilt or estimated — and they are a pure function of the network, so they
-   * are worked out once here instead: 24 bytes a road against two normalises and
-   * a cross product per road per rescan. Sampled at sea level rather than on the
-   * relief because the tallest ground on the planet is 620 units against the
-   * shortest reach this is compared to, which is a couple of percent of a
-   * decision that is already a step function.
-   */
-  const samples = new Float64Array(roads.length * 9);
-  roads.forEach((road, i) => {
-    readEnd(road.a, endA);
-    readEnd(road.b, endB);
-    roadPole(endA, endB, pole);
-    roadPoint(endA, endB, road.bend, 0.5, point, pole);
-    for (const [k, v] of [endA, endB, point].entries()) {
-      samples[i * 9 + k * 3] = v.x * PLANET_RADIUS;
-      samples[i * 9 + k * 3 + 1] = v.y * PLANET_RADIUS;
-      samples[i * 9 + k * 3 + 2] = v.z * PLANET_RADIUS;
-    }
-  });
 
   /** Set by `scan`: whether each road is close enough to be worth drawing. */
   const roadDrawn = new Uint8Array(roads.length);
@@ -1351,11 +2346,6 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     return found;
   };
 
-  const surface = new THREE.Vector3();
-  const ahead = new THREE.Vector3();
-  const side = new THREE.Vector3();
-  /** The stretch of the road left after both towns have taken their clearance. */
-  const stretch: RoadSpan = { t0: 0, t1: 1 };
   /**
    * Where the eye was at the last scan.
    *
@@ -1374,26 +2364,6 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const verge = new THREE.Color();
   const ground = new THREE.Color();
   const ink = new THREE.Color(0x2a1410);
-
-  /**
-   * Puts a cross-section point on the ground.
-   *
-   * The height is asked for at the point itself rather than shared across the
-   * section, so a road on a cross-slope follows the hill instead of standing
-   * proud of it on the downhill side. It is four `elevationAt` calls a section
-   * and it is the whole cost of building a road.
-   */
-  const place = (
-    centre: THREE.Vector3,
-    across: THREE.Vector3,
-    offset: number,
-    lift: number,
-    target: THREE.Vector3,
-  ): THREE.Vector3 => {
-    target.copy(centre).addScaledVector(across, offset / PLANET_RADIUS).normalize();
-    const radius = groundRadius(world, scratch.copy(target).multiplyScalar(PLANET_RADIUS));
-    return target.multiplyScalar(radius + lift);
-  };
 
   /**
    * Which roads are worth drawing from where the eye is now.
@@ -1437,11 +2407,15 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const span = SPANS[band]!.span;
     const positions: number[] = [];
     const colors: number[] = [];
+    /** Each vertex's road's depth layer; see `LAYER_DEPTH`. */
+    const layers: number[] = [];
+    let layer = 0;
     let drawn = 0;
 
     const push = (p: THREE.Vector3, c: THREE.Color): void => {
       positions.push(p.x, p.y, p.z);
       colors.push(c.r, c.g, c.b);
+      layers.push(layer);
     };
     const quad = (
       p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3,
@@ -1456,9 +2430,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     // the ground exactly once however many pieces share it.
     const near = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     const far = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-    const head = new THREE.Vector3();
-    const tail = new THREE.Vector3();
-    const at = new THREE.Vector3();
+    const stations: number[] = [];
 
     for (const index of tile.members) {
       const road = roads[index]!;
@@ -1472,20 +2444,14 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       // see `priceRoads` — and `tile.sign` is what rebuilds a tile when the
       // drawn set moves.
       if (roadDrawn[index] === 0) continue;
-      readEnd(road.a, endA);
-      readEnd(road.b, endB);
-      roadPole(endA, endB, pole);
-      // Where the ribbon stops: a town's plots are not carriageway, and the
-      // town's own track is what covers the last few units. See `roadSpan`.
-      if (!roadSpan(endA, endB, road.bend, pole, roadClip(places[road.a]!), roadClip(places[road.b]!), stretch)) {
-        continue;
-      }
       drawn++;
-      const length = endA.angleTo(endB) * PLANET_RADIUS;
-      const drawnLength = length * (stretch.t1 - stretch.t0);
-      const steps = Math.max(2, Math.ceil(drawnLength / span));
+      layer = road.layer;
+      // Gate to gate, on the course the bake tested: nothing is clipped,
+      // because nothing of a road is inside a square to begin with.
+      const course = geometry.course(index);
+      const path = geometry.path(index);
+      const ramp = rampFor(index);
       const half = style.width * 0.5 * (BAND_WIDTH[band] ?? 1);
-      const shoulder = half * SHOULDER_SPREAD;
 
       /**
        * The surface, sampled once per road at its middle.
@@ -1507,7 +2473,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
        * crosses, because a carriageway is a thing people built and `regions.ts`
        * is where the kit keeps who built it.
        */
-      roadPoint(endA, endB, road.bend, 0.5, point, pole);
+      readMiddle(index, point);
       groundColorAt(world, scratch.copy(point).multiplyScalar(PLANET_RADIUS), ground);
       crown.setHex(groundStyleFor(regionOf(road.a).id).road);
       if (road.cls === 2) crown.lerp(ink, 0.12);
@@ -1539,62 +2505,43 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
        */
       kerb.copy(crown).lerp(ink, 0.26);
 
-      /**
-       * One cross-section, into four points.
-       *
-       * The direction across the road is taken from the *road* at that point —
-       * the arc's own tangent crossed with up — rather than from the piece
-       * either side of it, so the two pieces meeting at a section agree about
-       * where its corners are and the ribbon has no seam down the middle of it.
-       */
-      const section = (t: number, into: THREE.Vector3[]): void => {
-        roadPoint(endA, endB, road.bend, Math.max(0, t - 0.004), head, pole);
-        roadPoint(endA, endB, road.bend, Math.min(1, t + 0.004), tail, pole);
-        roadPoint(endA, endB, road.bend, t, at, pole);
-        surface.copy(at);
-        ahead.subVectors(tail, head).normalize();
-        side.crossVectors(surface, ahead).normalize();
-        place(at, side, -shoulder, RIBBON_LIFT - SHOULDER_DROP, into[0]!);
-        place(at, side, -half, RIBBON_LIFT, into[1]!);
-        place(at, side, half, RIBBON_LIFT, into[2]!);
-        place(at, side, shoulder, RIBBON_LIFT - SHOULDER_DROP, into[3]!);
-      };
-
-      // The walk runs over the clipped stretch rather than over the whole road,
-      // so a section is still `span` units long and the two ends land exactly
-      // on the clip rather than on the nearest multiple of it.
-      const t0 = stretch.t0;
-      const step0 = (stretch.t1 - stretch.t0) / steps;
-      section(t0, near);
-      for (let step = 0; step < steps; step++) {
-        section(t0 + (step + 1) * step0, far);
+      // The stations are measured along the path, so a section is still at
+      // most `span` units long, both ends land exactly on the two kerbs, and
+      // every break in the height law — the end of an approach, the end of a
+      // ramp — is a section rather than a chord across it. See
+      // `ribbonStations` and `ribbonSection`, which `pnpm check` walks too.
+      ribbonStations(path.length, course.approach, ramp, span, stations);
+      ribbonSection(world, course, path, ramp, half, stations[0]!, near);
+      for (let k = 1; k < stations.length; k++) {
+        ribbonSection(world, course, path, ramp, half, stations[k]!, far);
         quad(near[0]!, far[0]!, far[1]!, near[1]!, verge, kerb);
         quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
         quad(near[2]!, far[2]!, far[3]!, near[3]!, kerb, verge);
-        for (let k = 0; k < 4; k++) near[k]!.copy(far[k]!);
+        for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
       }
     }
 
-    // A tile every one of whose roads was clipped away by its two towns is
-    // *built* — it is built as nothing. Leaving `band` at -1 would put it back
+    // A tile none of whose roads made it into the mesh is *built* — it is
+    // built as nothing. Leaving `band` at -1 would put it back
     // in the queue on every scan for as long as the viewer stood still.
     tile.band = band;
     tile.sign = sign;
     if (positions.length === 0) return;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.computeVertexNormals();
-    geometry.computeBoundingSphere();
+    const buffer = new THREE.BufferGeometry();
+    buffer.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    buffer.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    buffer.setAttribute('roadLayer', new THREE.Float32BufferAttribute(layers, 1));
+    buffer.computeVertexNormals();
+    buffer.computeBoundingSphere();
 
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(buffer, material);
     mesh.name = `roads:${tile.members.length}`;
     // A mark on the ground takes the ground's shadows; it casts none.
     mesh.receiveShadow = true;
     group.add(mesh);
     tile.mesh = mesh;
     tile.triangles = positions.length / 9;
-    tile.bytes = positions.length * 4 * 2;
+    tile.bytes = (positions.length * 2 + layers.length) * 4;
     tile.drawn = drawn;
   }
 
@@ -1636,12 +2583,13 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   /** Turning the knob forces a rescan; nothing else can see that it moved. */
   let scannedDetail = -1;
   /**
-   * And so does the prominence knob: `roadClip` asks `isShown`, so
-   * `atlas.prominence(0)` changes where every ribbon stops. The *network* does
-   * not follow it at all — `roads.bin` is a graph over the places that were
-   * built when it was baked, so the knob is a re-bake and not a reload — but
-   * the clip is live, and a stale one would leave a ribbon stopping at the edge
-   * of a town that is no longer built.
+   * And so does the prominence knob: `rampOf` asks `isShown`, so
+   * `atlas.prominence(0)` changes which gates a ribbon climbs to. The
+   * *network* does not follow it at all — `roads.bin` is a graph over the
+   * places that were built when it was baked, and its gates are baked with it,
+   * so the knob is a re-bake and not a reload — but the climb is live, and a
+   * stale one would leave a ribbon ramping up to the paving of a town that is
+   * no longer built.
    */
   let scannedProminence = -1;
   const cone = createViewCone(keepAllWithin);
@@ -1724,23 +2672,19 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   /**
    * Roughly what a tile costs before it is built. Six triangles a span.
    *
-   * The clip comes off the length rather than being solved for: `roadSpan` is
-   * fourteen halvings a road and this runs over every member of every candidate
-   * tile on every rescan, where `raise` runs over one tile that is being built.
-   * Subtracting the two clearances is the same number to within the bow.
+   * The course's own estimated length, worked out at load: a path is a few
+   * dozen `coursePoint`s a road and this runs over every member of every
+   * candidate tile on every rescan, where `raise` runs over one tile that is
+   * being built. The stations `raise` adds at the approaches and the ramps are
+   * a few sections a road on top of this, which is inside what an estimate is
+   * for.
    */
   function estimate(tile: Tile, band: number): number {
     const span = SPANS[band]!.span;
     let total = 0;
     for (const index of tile.members) {
-      const road = roads[index]!;
       if (roadDrawn[index] === 0) continue;
-      readEnd(road.a, endA);
-      readEnd(road.b, endB);
-      const length = endA.angleTo(endB) * PLANET_RADIUS
-        - roadClip(places[road.a]!) - roadClip(places[road.b]!);
-      if (length <= 0) continue;
-      total += Math.max(2, Math.ceil(length / span)) * 6;
+      total += Math.max(2, Math.ceil(lengths[index]! / span)) * 6;
     }
     return total;
   }
@@ -1756,143 +2700,113 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    * **The player used to walk at `elevationAt` and the ribbon is 3.0 above it,
    * so he waded through every road in the world to the thigh.** This is the half
    * of the answer that belongs to `roads.ts`: the ribbon's own surface at a
-   * point, on the terms the ribbon is actually laid — the same `roadPoint`
-   * curve, the same `roadSpan` clip, the same `RIBBON_LIFT`, and the same
-   * cross-section, so a foot cannot stand on a road that is not there and a road
-   * cannot be drawn where a foot does not find it.
+   * point, on the terms the ribbon is actually laid — the same course, the same
+   * path, the same `crownLift` and the same cross-section — so a foot cannot
+   * stand on a road that is not there and a road cannot be drawn where a foot
+   * does not find it.
    *
    * Four things about it are deliberate:
    *
-   * - **The clip is applied.** A road stops at `radiusFor + TOWN_STANDOFF` at a
-   *   *shown* town and the town's own track and plinth take over from there, so
-   *   inside that disc this answers nothing and `madeHeightAt` answers instead.
-   * - **The band taper is not.** `BAND_WIDTH` narrows the drawn strip at
-   *   distance, which is a level of detail; the ground under your feet is
+   * - **It stops at the kerb.** The course starts and ends on a gate, and the
+   *   test below is the ribbon's flat end cap, which lies along the kerb line:
+   *   a point inside the square is past the cap and gets nothing here, so
+   *   `madeHeightAt` answers there instead, at the same height — the crown
+   *   meets the gate's paving at exactly `gateLevel + GROUND_LIFT`.
+   * - **The band taper is not applied.** `BAND_WIDTH` narrows the drawn strip
+   *   at distance, which is a level of detail; the ground under your feet is
    *   always band 0 and a surface that changed width with the camera's altitude
-   *   would be a road you fall off by climbing.
+   *   would be a road you fall off by climbing. The narrowing into a gate *is*
+   *   applied, because that is the road's shape and not its level of detail.
    * - **The route's reach is not either**, for the same reason: whether a road
    *   is worth *drawing* from here has nothing to do with whether it is there.
-   * - **The ramp is the geometry.** Full lift out to `half`, then down to the
-   *   relief by `CROWN_FALL * half`, which is where the drawn shoulder crosses
-   *   the ground. There is no smoothing constant in it.
+   * - **The ramp is the geometry.** `surfaceLift` is the drawn section read
+   *   back: the crown out to its half-width, then the shoulder's line down to
+   *   where it crosses the ground. There is no smoothing constant in it.
    *
    * The cost is one grid query — `roadIndexFor`'s, shared with the wood and the
-   * herd, so the 13 ms of bucketing is paid once for the planet — and a
-   * point-to-chord walk over the handful of roads it returns. Called once a
-   * frame from `player.ts`.
+   * herd, so the 13 ms of bucketing is paid once for the planet — a
+   * point-to-chord walk over the cached paths of the handful of roads it
+   * returns, and one more `elevationAt` when the point is on an approach.
+   * Called once a frame from `player.ts`.
    */
   const heightIndex = { index: null as RoadIndex | null };
   const heightHits: number[] = [];
   const heightDir = new THREE.Vector3();
-  const heightA = new THREE.Vector3();
-  const heightB = new THREE.Vector3();
-  const heightPole = new THREE.Vector3();
   const heightHere = new THREE.Vector3();
   const heightLast = new THREE.Vector3();
   const heightLeg = new THREE.Vector3();
   const heightFoot = new THREE.Vector3();
   const heightProbe = new THREE.Vector3();
-  const heightSpan: RoadSpan = { t0: 0, t1: 1 };
+  const heightNearest = new THREE.Vector3();
   /**
-   * Longest piece of road treated as a straight chord, and how far that chord is
-   * allowed to cut inside the bow.
-   *
-   * **48 units is `vegetation.ts`'s number and it is right for a wood and wrong
-   * for a foot, and the arithmetic that says so is the one written beside it
-   * there.** That note prices the *tightest bow the bake keeps* — 0.3 over a
-   * thousand units, radius of curvature 338, a 48-unit chord sagging 0.85 — and
-   * concludes it is a fifth of a lane's half-width, which is fine when the test
-   * adds a whole plant's footprint on top. It is the wrong end of the
-   * distribution for a surface a body stands on: the bow is
-   * `bend * span * sin(pi t)`, so `|y''|` is `bend * pi^2 / span` and a **short**
-   * road bends hardest. A 60-unit lane at the network's median bend of 0.045
-   * has a radius of curvature of 135 units, and one chord across the whole of it
-   * cuts **3.3 units** inside — which is half a carriageway, and `pnpm check`
-   * caught it as a probe standing on a road half a unit outside the strip and as
-   * a ribbon found inside a town it had been clipped out of.
-   *
-   * So the chord is bounded by its own sag instead: `c^2 * bend * pi^2 / (8 *
-   * span) <= HEIGHT_SAG`. At the median bend that is five pieces of a 60-unit
-   * lane; at the hardest bow the bake keeps it is 87 pieces of a thousand-unit
-   * road, which is a few hundred point-to-chord tests in a query that runs once
-   * a frame.
-   *
-   * 0.05 units is a hundredth of a lane's half-width and a hundred and thirtieth
-   * of the avatar's own width — under the width of the pen that draws the road.
+   * The widest the surface can be from a centre line: a trunk's whole drawn
+   * half-width, shoulder and all. `CROWN_FALL` was enough while the crown
+   * always had its ordinary lift; a ramp onto an embankment carries the
+   * surface out along the shoulder further than that.
    */
-  const HEIGHT_STEP = 48;
-  const HEIGHT_SAG = 0.05;
-  const WIDEST_HALF = Math.max(...ROAD_CLASSES.map((style) => style.width)) * 0.5 * CROWN_FALL;
+  const WIDEST_HALF = Math.max(...ROAD_CLASSES.map((style) => style.width)) * 0.5 * SHOULDER_SPREAD;
 
   function ribbonHeightAt(point: THREE.Vector3): number {
     if (roads.length === 0 || places.length === 0) return 0;
     heightIndex.index ??= roadIndexFor(roads, places);
     heightDir.copy(point).normalize();
+    heightProbe.copy(heightDir).multiplyScalar(PLANET_RADIUS);
     let best = 0;
+    let ground = NaN;
     for (const hit of heightIndex.index.near(heightDir, WIDEST_HALF, heightHits)) {
       const road = roads[hit]!;
       const style = ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!;
-      const half = style.width * 0.5;
-      const fall = half * CROWN_FALL;
-      readEnd(road.a, heightA);
-      readEnd(road.b, heightB);
-      roadPole(heightA, heightB, heightPole);
-      if (!roadSpan(heightA, heightB, road.bend, heightPole, roadClip(places[road.a]!), roadClip(places[road.b]!), heightSpan)) {
-        continue;
-      }
-      const span = heightA.angleTo(heightB) * PLANET_RADIUS;
-      const bow = Math.abs(road.bend);
-      // The bow's own curvature, not a fixed step: see `HEIGHT_SAG`.
-      const chord = bow > 1e-4
-        ? Math.min(HEIGHT_STEP, Math.sqrt((8 * HEIGHT_SAG * span) / (bow * Math.PI * Math.PI)))
-        : HEIGHT_STEP;
-      const steps = Math.max(2, Math.ceil((span * (heightSpan.t1 - heightSpan.t0)) / chord));
+      const path = geometry.path(hit);
       let nearest = Infinity;
+      let along = 0;
       /**
        * Whether the point is past one of the ribbon's two ends.
        *
        * **A drawn ribbon has a flat cap and a distance to a polyline has a round
-       * one**, and the difference is `fall` units of ground: without this a foot
-       * would be lifted in a disc beyond where the carriageway stops, which at a
-       * shown town is exactly the ground `roadClip` took the ribbon off so that
-       * the town's own plinth could have it. The test is the unclamped
-       * projection onto the first and last chord — before 0 on the first or past
-       * 1 on the last means the point is beyond the cap, whatever its distance
-       * from the line.
+       * one**, and the difference is the shoulder's width of ground: without
+       * this a foot would be lifted in a half-disc beyond where the carriageway
+       * stops, which at a gate is the town's own paving. The test is the
+       * unclamped projection onto the first and last chord — before 0 on the
+       * first or past 1 on the last means the point is beyond the cap, whatever
+       * its distance from the line — and the first and last chords are the two
+       * straight approaches, so the cap is the kerb line exactly.
        */
       let pastCap = false;
-      for (let step = 0; step <= steps; step++) {
-        const t = heightSpan.t0 + (heightSpan.t1 - heightSpan.t0) * (step / steps);
-        roadPoint(heightA, heightB, road.bend, t, heightHere, heightPole);
-        heightHere.multiplyScalar(PLANET_RADIUS);
-        if (step > 0) {
+      const last = path.count - 1;
+      for (let k = 0; k <= last; k++) {
+        heightHere.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).multiplyScalar(PLANET_RADIUS);
+        if (k > 0) {
           heightLeg.subVectors(heightHere, heightLast);
           const lengthSq = heightLeg.lengthSq();
           let raw = 0;
-          if (lengthSq > 1e-9) {
-            raw = heightFoot.copy(heightDir).multiplyScalar(PLANET_RADIUS).sub(heightLast).dot(heightLeg) / lengthSq;
-          }
-          if ((step === 1 && raw < 0) || (step === steps && raw > 1)) pastCap = true;
-          const along = raw < 0 ? 0 : raw > 1 ? 1 : raw;
-          heightFoot.copy(heightLast).addScaledVector(heightLeg, along);
+          if (lengthSq > 1e-9) raw = heightFoot.copy(heightProbe).sub(heightLast).dot(heightLeg) / lengthSq;
+          const clamped = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+          heightFoot.copy(heightLast).addScaledVector(heightLeg, clamped);
           // The chord is a straight line through the sphere and the query point
           // is on its surface, so the distance is measured across the ground:
           // both are projected back out before they are subtracted.
           heightFoot.normalize().multiplyScalar(PLANET_RADIUS);
-          const away = heightFoot.distanceTo(heightProbe.copy(heightDir).multiplyScalar(PLANET_RADIUS));
-          if (away < nearest) nearest = away;
+          const away = heightFoot.distanceTo(heightProbe);
+          if (away < nearest) {
+            nearest = away;
+            along = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * clamped;
+            heightNearest.copy(heightFoot);
+            pastCap = (k === 1 && raw < 0) || (k === last && raw > 1);
+          }
         }
         heightLast.copy(heightHere);
       }
-      if (pastCap || nearest >= fall) continue;
-      const lift = nearest <= half ? RIBBON_LIFT : RIBBON_LIFT * (1 - (nearest - half) / (fall - half));
+      if (pastCap || nearest >= style.width * 0.5 * SHOULDER_SPREAD) continue;
+      const ramp = rampFor(hit);
+      if (Number.isNaN(ground)) ground = world.elevationAt(heightDir);
+      const centre = needsCentre(ramp, along, path.length - along) ? world.elevationAt(heightNearest) : ground;
+      const lift = surfaceLift(ramp, style.width * 0.5, along, path.length - along, nearest, ground, centre);
       if (lift > best) best = lift;
     }
     if (best <= 0) return 0;
-    const ground = groundRadius(world, point);
     // A road is baked dry, so this cannot fire — and if a re-bake ever puts one
     // in the water, standing on it is not the way to find out.
-    return ground <= PLANET_RADIUS ? 0 : ground + best;
+    return ground <= 0 ? 0 : PLANET_RADIUS + ground + best;
   }
 
   return {
@@ -1931,6 +2845,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       // knob drops the geometry outright rather than trusting the rebuild key.
       if (scannedProminence !== prominenceVersion()) {
         for (const tile of list) drop(tile);
+        ramps.clear();
         scannedProminence = prominenceVersion();
         scannedAt.set(Infinity, Infinity, Infinity);
       }

@@ -33,26 +33,49 @@ import {
   radiusFor,
 } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
-import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodeLakes, encodePlaces, encodeRoads, inflate } from '../src/pack.ts';
+import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodeLakes, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import {
   CROWN_FALL,
   MAX_ROAD_LENGTH,
+  RAMP_GRADE,
   RIBBON_LIFT,
   ROAD_CLASSES,
-  TOWN_STANDOFF,
+  WATER_PROBE_STEP,
   bendFor,
   builtGraph,
+  candidateGates,
+  chordGap,
   classOf,
-  crossesScree,
-  pairKey,
-  placeDirection,
-  roadClip,
-  roadPoint,
-  roadPole,
-  roadSpan,
+  courseOf,
+  coursePath,
+  coursePoint,
+  courseTangent,
   createRoads,
+  crossesScree,
+  crownLift,
+  emptyCourse,
+  emptyRamp,
+  gateOpen,
+  layersOf,
+  outranks,
+  pairKey,
+  parameterAt,
+  pathsOverlap,
+  placeDirection,
+  rampOf,
+  rampReach,
+  ribbonHalf,
+  ribbonSection,
+  ribbonStations,
+  roadClearance,
+  roadIndexFor,
+  tightestTurn,
+  townOf,
+  townOffset,
   waterProbeSteps,
 } from '../src/roads.ts';
+import type { CoursePath, RoadRamp } from '../src/roads.ts';
+import { offsetDirection } from '../src/scenery/grid.ts';
 import { biomeAt, biomeSample } from '../src/biome.ts';
 // The floor's own vertical section, from the file that lays it: the check has
 // to measure the mesh against the number `settlements.ts` uses and not against
@@ -1570,7 +1593,13 @@ console.log('\nroads');
         !Number.isInteger(road.a) || !Number.isInteger(road.b) ||
         road.a < 0 || road.b < 0 || road.a >= settled.length || road.b >= settled.length ||
         road.a === road.b || !(road.cls >= 0 && road.cls < ROAD_CLASSES.length) ||
-        !Number.isFinite(road.bend) || Math.abs(road.bend) > 0.6
+        !Number.isFinite(road.bend) || Math.abs(road.bend) > 0.6 ||
+        // A gate index names one of that town's gates, or `courseOf` refuses
+        // it: a change to `gatesOf` or to the size law is a re-bake.
+        !Number.isInteger(road.gateA) || !Number.isInteger(road.gateB) ||
+        road.gateA < 0 || road.gateB < 0 ||
+        road.gateA >= townOf(settled[road.a]!).gates.length || road.gateB >= townOf(settled[road.b]!).gates.length ||
+        !Number.isInteger(road.layer) || road.layer < 0
       ) malformed++;
     }
     check(malformed === 0, `all ${roads.length.toLocaleString()} roads are well formed`, `${malformed} bad rows`);
@@ -1593,22 +1622,18 @@ console.log('\nroads');
     }
     check(misclassed === 0, 'every road is the class its two ends earn', `${misclassed} wrong`);
 
-    const a = new Vector3();
-    const b = new Vector3();
-    const pole = new Vector3();
     const point = new Vector3();
+    const walk = emptyCourse();
     let wet = 0;
     let probes = 0;
     const wetNames: string[] = [];
     const began = Date.now();
     for (const road of roads) {
-      placeDirection(settled[road.a]!, a);
-      placeDirection(settled[road.b]!, b);
-      roadPole(a, b, pole);
-      const steps = waterProbeSteps(a, b);
-      probes += steps - 1;
-      for (let step = 1; step < steps; step++) {
-        roadPoint(a, b, road.bend, step / steps, point, pole);
+      const course = courseOf(road, settled, walk);
+      const steps = waterProbeSteps(course);
+      probes += steps + 1;
+      for (let step = 0; step <= steps; step++) {
+        coursePoint(course, step / steps, point);
         const { lat, lon } = toLatLon(point);
         if (world.countryAt(lat, lon) === 0) {
           wet++;
@@ -1621,42 +1646,127 @@ console.log('\nroads');
       wet === 0,
       `no road crosses water`,
       wet === 0
-        ? `${probes.toLocaleString()} probes in ${Date.now() - began} ms`
+        ? `${probes.toLocaleString()} probes along the courses, gate to gate, in ${Date.now() - began} ms`
         : `${wet} do: ${wetNames.join(', ')}`,
     );
 
     /**
-     * And no road crosses a town.
+     * Every road starts and stops on a gate its two towns can use.
      *
-     * **This is the assertion `roadClip` exists for and it has to walk the
-     * ribbon rather than trust the clip**, for the reason the water test walks
-     * the bow: `roadSpan` returns a `t` and `raise` turns that into sections,
-     * and a rounding or an off-by-one between the two is a ribbon laid over
-     * somebody's plots that nothing in the file would notice. So this rebuilds
-     * the ribbon's own centre line — the same `steps` at the same near-band
-     * span — and measures every vertex of it against every *shown* place
-     * standing nearby.
+     * **This is the contract the square was built for** — *que la ciudad esté
+     * sobre una base cuadrada y los caminos se conecten ahí* — and it is three
+     * things per road end, each a way the join has gone wrong before:
      *
-     * The centre line and not the shoulders, because at the clip the road runs
-     * radially out of the town: the section is square to it, so its corners sit
-     * at `hypot(clip, shoulder)` and can only be further out than the point
-     * this measures. A hidden place is not tested at all — nothing is built
-     * there, the ribbon is meant to run through it, and that is the whole of
-     * `roadClip`.
-     *
-     * It catches a third town as well as the two ends, which is the case the
-     * clip does not handle and does not have to: a Gabriel edge cannot pass
-     * close to a third place, because a place near the middle of one is inside
-     * the circle that would have deleted the edge. That is an argument and this
-     * is the measurement of it.
-     *
-     * **Over the network that is drawn and not over the bake**, which it used
-     * to be. A lane laid across somebody's plots was a bug while lanes were
-     * drawn — which, since the bake joins the built towns, is every row in the
-     * file: there is no load-time pass left to run first.
+     * - **The gate can be used.** `gateOpen`: `gateLevel` cuts it (no corner in
+     *   the sea, no cell steeper than `MAX_CUT`), and its approach is dry. A
+     *   road through a gate the town cannot cut ends against a wall;
+     *   `settlements.ts` paves exactly the gates `gateLevel` admits.
+     * - **The ribbon's end is on the kerb.** The course's first point, read back
+     *   into the town's frame, is the gate's own offset and lies on the square's
+     *   edge — not four units short of it, which is what the old clip did, and
+     *   not a unit inside.
+     * - **It leaves square.** The course's tangent at the gate is the side's
+     *   outward normal, so the end section lies along the kerb and the road
+     *   continues the street rather than meeting it on a slant.
      */
     {
-      // A grid of the shown places, so a sample along a road asks about a
+      const course = emptyCourse();
+      const tangent = new Vector3();
+      const out = new Vector3();
+      const kerbLine = new Vector3();
+      const offset = { x: 0, z: 0 };
+      let shut = 0;
+      let offGate = 0;
+      let worstGate = 0;
+      let slanted = 0;
+      let worstSlant = 0;
+      const shutNames: string[] = [];
+      const gateUse = new Map<string, number>();
+      for (const road of roads) {
+        courseOf(road, settled, course);
+        for (const end of [0, 1] as const) {
+          const index = end === 0 ? road.a : road.b;
+          const gateIndex = end === 0 ? road.gateA : road.gateB;
+          const place = settled[index]!;
+          const town = townOf(place);
+          const gate = town.gates[gateIndex]!;
+          gateUse.set(`${index}:${gateIndex}`, (gateUse.get(`${index}:${gateIndex}`) ?? 0) + 1);
+          if (!gateOpen(place, gateIndex, world)) {
+            shut++;
+            if (shutNames.length < 5) shutNames.push(`${place.name} gate ${gateIndex}`);
+          }
+          const at = end === 0 ? course.gateA : course.gateB;
+          townOffset(town, at, offset);
+          const along = gate.outX !== 0 ? offset.x * gate.outX : offset.z * gate.outZ;
+          const miss = Math.max(Math.hypot(offset.x - gate.x, offset.z - gate.z), Math.abs(along - town.grid.half));
+          if (miss > 1e-6) offGate++;
+          worstGate = Math.max(worstGate, miss);
+          // Square to the kerb *line*, measured on the ground at the gate: the
+          // kerb's own direction there, from two points a unit either side of
+          // the gate along the side, and the course's tangent pointing out of
+          // the town. The town's `out` vector is a tangent at its centre and
+          // tilts by `half / R` by the time it reaches a kerb, so it is not the
+          // thing to measure against.
+          courseTangent(course, end === 0 ? 0 : 1, tangent);
+          if (end === 1) tangent.negate();
+          offsetDirection(town.up, town.across, town.north, gate.x - gate.outZ, gate.z + gate.outX, out);
+          offsetDirection(town.up, town.across, town.north, gate.x + gate.outZ, gate.z - gate.outX, kerbLine);
+          out.sub(kerbLine).normalize();
+          const slant = Math.asin(Math.min(1, Math.abs(tangent.dot(out)))) / DEG;
+          offsetDirection(town.up, town.across, town.north, gate.x + gate.outX, gate.z + gate.outZ, kerbLine);
+          if (slant > 0.01 || tangent.dot(kerbLine.sub(at)) <= 0) slanted++;
+          worstSlant = Math.max(worstSlant, slant);
+        }
+      }
+      let shared = 0;
+      for (const count of gateUse.values()) if (count > 1) shared += count;
+      check(
+        shut === 0,
+        'every road end is on a gate its town can cut, with a dry approach',
+        shut === 0
+          ? `${(roads.length * 2).toLocaleString()} road ends on ${gateUse.size.toLocaleString()} gates, ` +
+            `${shared.toLocaleString()} of the ends on a gate another road also uses`
+          : `${shut} are not: ${shutNames.join(', ')}`,
+      );
+      check(
+        offGate === 0 && slanted === 0,
+        'and the ribbon starts on the kerb line, square to it',
+        `worst ${worstGate.toExponential(1)} units off the gate, worst ${worstSlant.toFixed(4)} deg off square`,
+      );
+    }
+
+    /**
+     * And the ribbon as it is drawn: out of the squares, off the other towns,
+     * over the ground, and up to each gate's own paving at no more than
+     * `RAMP_GRADE`.
+     *
+     * **This walks the drawn ribbon rather than trusting the course**, for the
+     * reason the water test walks the bow: `ribbonStations` and `ribbonSection`
+     * are what `raise` lays, and a rounding between the course and the sections
+     * is a ribbon over somebody's plots that nothing else would notice. So
+     * every section of every road is rebuilt at the near band's own span — all
+     * four points — and asked four things:
+     *
+     * - **No vertex inside its own two squares**, beyond a thousandth of a unit:
+     *   the end section lies *on* the kerb, so the tolerance is what separates
+     *   "on" from "in".
+     * - **No centre-line vertex inside a third built town's disc** by more than
+     *   `WATER_PROBE_STEP`: the bake refuses a course that enters one at that
+     *   stride, so a vertex between two of its probes can be inside by at most
+     *   the probe's own spacing and no further.
+     * - **The end section is at the gate's paving**, `gateLevel + GROUND_LIFT`,
+     *   at all four of its points on the crown and within a thousandth of it —
+     *   the no-step join.
+     * - **The two ramps fit in the road**, so neither kerb's height is disturbed
+     *   by the other end's climb. How fast the crown climbs is asserted where it
+     *   can be measured cleanly — under a foot, on the path, in *made ground* —
+     *   and not section to section here: a section-to-section slope divides the
+     *   relief's own roughness across the crown by a run that is a hundredth of
+     *   a unit wherever a ramp's end falls beside an approach's, and the first
+     *   version of this assertion read 0.80 off exactly that.
+     */
+    {
+      // A grid of the built places, so a section along a road asks about a
       // neighbourhood instead of about the world. Two degrees is 558 units at
       // the equator and the largest town is 150, so the 3x3 block always covers
       // the reach; the longitude span opens with the cosine for the same reason
@@ -1678,101 +1788,300 @@ console.log('\nroads');
         grid[row * COLS + col]!.push(i);
       }
 
-      const stretch = { t0: 0, t1: 1 };
+      const course = emptyCourse();
+      const ramp = emptyRamp();
+      const stations: number[] = [];
+      const near = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+      const far = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+      const unitAt = new Vector3();
+      const offset = { x: 0, z: 0 };
+      let vertices = 0;
       let inside = 0;
-      let worst = 0;
-      let worstName = '';
-      /** The residue: a bowed road swinging through a town it does not end at. */
+      let worstInside = 0;
+      let worstInsideName = '';
       let through = 0;
       let throughWorst = 0;
       const throughNames = new Set<string>();
-      let clipped = 0;
-      let swallowed = 0;
-      let removed = 0;
-      let vertices = 0;
+      let kerbs = 0;
+      let kerbWrong = 0;
+      let kerbWorst = 0;
+      let overlapping = 0;
+      let ramped = 0;
+      let longestRamp = 0;
+      let folded = 0;
+      let tightestRatio = Infinity;
+      const foldedNames: string[] = [];
       let sagRoads = 0;
       let sagSections = 0;
       let sagOver = 0;
       let sagWorst = 0;
-      const sagPoint = new Vector3();
-      const sagMid = new Vector3();
-      const sagLast = new Vector3();
       const roadsBegan = Date.now();
       for (const road of roads) {
-        placeDirection(settled[road.a]!, a);
-        placeDirection(settled[road.b]!, b);
-        roadPole(a, b, pole);
-        const clipA = roadClip(settled[road.a]!);
-        const clipB = roadClip(settled[road.b]!);
-        const length = a.angleTo(b) * PLANET_RADIUS;
-        if (clipA > 0 || clipB > 0) clipped++;
-        if (!roadSpan(a, b, road.bend, pole, clipA, clipB, stretch)) {
-          swallowed++;
-          removed += length;
-          continue;
+        courseOf(road, settled, course);
+        const path = coursePath(course);
+        rampOf(road, course, settled, world, ramp);
+        const half = ROAD_CLASSES[road.cls]!.width * 0.5;
+        const turn = tightestTurn(path) / roadClearance(road.cls);
+        if (turn < 1) {
+          folded++;
+          if (foldedNames.length < 4) foldedNames.push(`${settled[road.a]!.name}-${settled[road.b]!.name}`);
         }
-        const drawn = length * (stretch.t1 - stretch.t0);
-        removed += length - drawn;
-        const steps = Math.max(2, Math.ceil(drawn / 18));
-        /**
-         * **And how much of the ribbon the ground comes up through.**
-         *
-         * A section takes its height at its two ends and draws a straight line
-         * between them; the relief does not. `SPANS` chose 18 units against an
-         * arithmetic estimate — the finest octave is about nine units over a
-         * 133-unit wavelength, so a 38-unit chord dips 0.9 and an 18-unit one
-         * 0.23 — and this is that estimate measured on the network as drawn,
-         * which is the same shape of check the settlement's own floor gets.
-         * Every third road, because it is an `elevationAt` per section on top of
-         * the walk above and the answer does not move.
-         */
+        tightestRatio = Math.min(tightestRatio, turn);
+        if (rampReach(ramp.riseA) + rampReach(ramp.riseB) > path.length) overlapping++;
+        if (Math.abs(ramp.riseA) > 1e-9 || Math.abs(ramp.riseB) > 1e-9) ramped++;
+        longestRamp = Math.max(longestRamp, rampReach(ramp.riseA), rampReach(ramp.riseB));
+        const towns = [townOf(settled[road.a]!), townOf(settled[road.b]!)];
+        ribbonStations(path.length, course.approach, ramp, 18, stations);
+        // Every third road, the sag: a section takes its height at its two ends
+        // and draws a straight line between them, and the relief does not.
+        // `SPANS` chose 18 units against an arithmetic estimate, and this is
+        // the estimate measured on the network as drawn.
         const measureSag = sagRoads % 3 === 0;
         sagRoads++;
-        let lastGround = 0;
-        let lastPointSet = false;
-        for (let step = 0; step <= steps; step++) {
-          roadPoint(a, b, road.bend, stretch.t0 + ((stretch.t1 - stretch.t0) * step) / steps, point, pole);
-          vertices++;
-          if (measureSag) {
-            const ground = world.elevationAt(sagPoint.copy(point).multiplyScalar(PLANET_RADIUS));
-            if (lastPointSet) {
-              sagMid.addVectors(sagLast, point).normalize().multiplyScalar(PLANET_RADIUS);
-              const middle = world.elevationAt(sagMid);
-              const sag = middle - ((ground + lastGround) * 0.5 + RIBBON_LIFT);
+        for (let k = 0; k < stations.length; k++) {
+          const s = stations[k]!;
+          ribbonSection(world, course, path, ramp, half, s, far);
+          vertices += 4;
+          for (const vertex of far) {
+            unitAt.copy(vertex).normalize();
+            for (const town of towns) {
+              townOffset(town, unitAt, offset);
+              const depth = Math.min(town.grid.half - Math.abs(offset.x), town.grid.half - Math.abs(offset.z));
+              if (depth > 1e-3) {
+                inside++;
+                if (depth > worstInside) {
+                  worstInside = depth;
+                  worstInsideName = `${settled[road.a]!.name}-${settled[road.b]!.name}`;
+                }
+              }
+            }
+          }
+          // The kerbs: both crown points of the end section at the paving.
+          if (k === 0 || k === stations.length - 1) {
+            const kerb = k === 0 ? ramp.kerbA : ramp.kerbB;
+            for (const vertex of [far[1]!, far[2]!]) {
+              kerbs++;
+              const error = Math.abs(vertex.length() - kerb);
+              if (error > 1e-3) kerbWrong++;
+              kerbWorst = Math.max(kerbWorst, error);
+            }
+          }
+          if (k > 0) {
+            if (measureSag) {
+              const middle = world.elevationAt(unitAt.addVectors(near[1]!, far[2]!).normalize());
+              const chordMiddle = (near[1]!.length() + near[2]!.length() + far[1]!.length() + far[2]!.length()) / 4;
+              const sag = PLANET_RADIUS + middle - chordMiddle;
               sagSections++;
               if (sag > 0) sagOver++;
               if (sag > sagWorst) sagWorst = sag;
             }
-            sagLast.copy(point);
-            lastGround = ground;
-            lastPointSet = true;
           }
-          const { lat, lon } = toLatLon(point);
+          // And a third town: the centre line against every built disc nearby.
+          unitAt.addVectors(far[1]!, far[2]!).normalize();
+          const { lat, lon } = toLatLon(unitAt);
           const row = Math.min(ROWS - 1, Math.max(0, Math.floor((90 - lat) / CELL)));
           const lonSpan = Math.ceil(1 / Math.max(0.02, Math.cos(lat * DEG)));
           const col = Math.floor((lon + 180) / CELL);
           for (let r = Math.max(0, row - 1); r <= Math.min(ROWS - 1, row + 1); r++) {
             for (let c = col - lonSpan; c <= col + lonSpan; c++) {
               for (const j of grid[r * COLS + (((c % COLS) + COLS) % COLS)]!) {
-                // `roadClip` itself, and not a copy of its arithmetic: the
-                // ribbon is asserted clear of exactly the disc it was cut
-                // against, so the standoff cannot move in one file and not the
-                // other. The grid only holds shown places, so this is never 0.
-                const limit = roadClip(settled[j]!);
-                if (limit <= 0) continue;
+                if (j === road.a || j === road.b) continue;
+                const limit = radiusFor(settled[j]!.pop);
                 shownAt.copy(shownUnit[j]!);
-                const gap = point.angleTo(shownAt) * PLANET_RADIUS;
+                const gap = unitAt.angleTo(shownAt) * PLANET_RADIUS;
                 if (gap >= limit) continue;
-                if (j === road.a || j === road.b) {
-                  inside++;
-                  if (limit - gap > worst) {
-                    worst = limit - gap;
-                    worstName = `${settled[road.a]!.name}-${settled[road.b]!.name} at ${settled[j]!.name}`;
+                through++;
+                throughWorst = Math.max(throughWorst, limit - gap);
+                throughNames.add(`${settled[road.a]!.name}-${settled[road.b]!.name} through ${settled[j]!.name}`);
+              }
+            }
+          }
+          for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
+        }
+      }
+      check(
+        inside === 0,
+        'no ribbon vertex stands inside either of its own towns’ squares',
+        inside === 0
+          ? `${vertices.toLocaleString()} section vertices on ${roads.length.toLocaleString()} roads ` +
+            `in ${Date.now() - roadsBegan} ms`
+          : `${inside} do, worst ${worstInside.toFixed(3)} units in: ${worstInsideName}`,
+      );
+      check(
+        folded === 0,
+        'no course turns tighter than its own ribbon is wide',
+        folded === 0
+          ? `the tightest turn on the network is ${tightestRatio.toFixed(2)} of the drawn half-width it has to carry`
+          : `${folded} do, and fold their inner shoulder: ${foldedNames.join(', ')}`,
+      );
+      check(
+        throughWorst <= WATER_PROBE_STEP,
+        'no road runs through a town it does not end at',
+        `${through} centre-line vertices inside a third town's disc, worst ${throughWorst.toFixed(2)} units ` +
+          `against the bake's stride of ${WATER_PROBE_STEP}` +
+          (throughNames.size > 0 ? `: ${[...throughNames].slice(0, 4).join(', ')}` : ''),
+      );
+      check(
+        kerbWrong === 0,
+        'the ribbon’s end section is at its gate’s paving, gateLevel + GROUND_LIFT',
+        `${kerbs.toLocaleString()} crown corners at a kerb, worst ${kerbWorst.toExponential(1)} units off`,
+      );
+      check(
+        overlapping === 0,
+        'and its two ramps, one into each gate, never meet',
+        `${ramped.toLocaleString()} roads ramp to a gate at RAMP_GRADE, the longest ramp ${longestRamp.toFixed(1)} units, ` +
+          `${overlapping} with ramps that meet (the climb itself is asserted under a foot, in made ground)`,
+      );
+      check(
+        sagOver < sagSections * 0.02,
+        'the ground stays under the ribbon between its section ends',
+        `${sagOver} of ${sagSections.toLocaleString()} sections cut through ` +
+          `(${((sagOver / Math.max(1, sagSections)) * 100).toFixed(2)}%), worst ${sagWorst.toFixed(2)} units`,
+      );
+      console.log(`  --   ${shownCount.toLocaleString()} built places tested against the centre lines`);
+    }
+
+    /**
+     * And no two roads draw one surface on one depth layer.
+     *
+     * Two ribbons that overlap are two surfaces at one height — two roads into
+     * one gate share its approach, two out of adjacent gates of a hamlet overlap
+     * at its corner — and coplanar triangles z-fight, which is the defect the
+     * roofs had. Heights cannot separate them, because both ends of both have to
+     * meet one paving at one kerb, so every road carries a depth layer
+     * (`layersOf`, baked) and the shader pushes each layer back `LAYER_DEPTH`.
+     *
+     * Asserted twice. The file's layers are `layersOf` of the file. And,
+     * independently of the overlap test that assigned them, every place where
+     * two roads' *crowns* cover the same ground within 0.05 units of height of
+     * each other — sampled every unit along the one, across its crown, against
+     * the other's own crown and its own height law — is on two different layers
+     * with the higher-ranking road in front. A coplanar pair on one layer is a
+     * flicker; a pair with the lower road in front is the wrong road showing.
+     */
+    {
+      const began = Date.now();
+      const expected = layersOf(roads, settled);
+      let misLayered = 0;
+      let deepest = 0;
+      let layered = 0;
+      roads.forEach((road, i) => {
+        if (road.layer !== expected[i]) misLayered++;
+        if (road.layer > deepest) deepest = road.layer;
+        if (road.layer > 0) layered++;
+      });
+      check(
+        misLayered === 0,
+        'every road’s depth layer is layersOf the network',
+        `${misLayered} differ; ${layered.toLocaleString()} roads drawn behind a road they overlap, ` +
+          `the deepest on layer ${deepest}`,
+      );
+
+      const scratchCourse = emptyCourse();
+      const paths = new Map<number, CoursePath>();
+      const pathOf = (i: number): CoursePath => {
+        let found = paths.get(i);
+        if (found === undefined) {
+          found = coursePath(courseOf(roads[i]!, settled, scratchCourse));
+          paths.set(i, found);
+        }
+        return found;
+      };
+      const rampCache = new Map<number, RoadRamp>();
+      const rampFor = (i: number): RoadRamp => {
+        let found = rampCache.get(i);
+        if (found === undefined) {
+          found = rampOf(roads[i]!, courseOf(roads[i]!, settled, scratchCourse), settled, world);
+          rampCache.set(i, found);
+        }
+        return found;
+      };
+      const index = roadIndexFor(roads, settled);
+      const hits: number[] = [];
+      const middle = new Vector3();
+      const chordA = new Vector3();
+      const chordB = new Vector3();
+      const across = new Vector3();
+      const sample = new Vector3();
+      const probe = new Vector3();
+      const legStart = new Vector3();
+      const leg = new Vector3();
+      const foot = new Vector3();
+      const nearest = { distance: 0, s: 0, pastCap: false, foot: new Vector3() };
+      /** Where a path is nearest a direction: how far off, how far along, and whether past a cap. */
+      const nearestOn = (path: CoursePath, direction: Vector3): typeof nearest => {
+        nearest.distance = Infinity;
+        for (let k = 1; k < path.count; k++) {
+          legStart.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!);
+          leg.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).sub(legStart);
+          const lengthSq = leg.lengthSq();
+          const raw = lengthSq > 0 ? foot.copy(direction).sub(legStart).dot(leg) / lengthSq : 0;
+          const along = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+          foot.copy(legStart).addScaledVector(leg, along).normalize();
+          const distance = foot.distanceTo(direction) * PLANET_RADIUS;
+          if (distance < nearest.distance) {
+            nearest.distance = distance;
+            nearest.s = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * along;
+            nearest.pastCap = (k === 1 && raw < 0) || (k === path.count - 1 && raw > 1);
+            nearest.foot.copy(foot);
+          }
+        }
+        return nearest;
+      };
+      const widest = roadClearance(ROAD_CLASSES.length - 1);
+      let pairs = 0;
+      let samples = 0;
+      let coplanar = 0;
+      let sameLayer = 0;
+      let wrongOrder = 0;
+      const sameNames: string[] = [];
+      for (let r = 0; r < roads.length; r++) {
+        const pathR = pathOf(r);
+        const halfR = ROAD_CLASSES[roads[r]!.cls]!.width * 0.5;
+        coursePoint(courseOf(roads[r]!, settled, scratchCourse), 0.5, middle);
+        for (const q of index.near(middle, pathR.length * 0.5 + roadClearance(roads[r]!.cls) + widest, hits)) {
+          if (q <= r) continue;
+          const pathQ = pathOf(q);
+          const halfQ = ROAD_CLASSES[roads[q]!.cls]!.width * 0.5;
+          const reach = halfR + halfQ + 1;
+          if (!pathsOverlap(pathR, pathQ, reach)) continue;
+          pairs++;
+          const rampR = rampFor(r);
+          const rampQ = rampFor(q);
+          const lowerIsR = outranks(roads, q, r);
+          for (let k = 1; k < pathR.count; k++) {
+            if (chordGap(pathR, k, pathQ, reach) >= reach) continue;
+            chordA.set(pathR.xyz[k * 3 - 3]!, pathR.xyz[k * 3 - 2]!, pathR.xyz[k * 3 - 1]!);
+            chordB.set(pathR.xyz[k * 3]!, pathR.xyz[k * 3 + 1]!, pathR.xyz[k * 3 + 2]!);
+            across.subVectors(chordB, chordA);
+            across.crossVectors(chordA, across).normalize();
+            const length = pathR.s[k]! - pathR.s[k - 1]!;
+            const steps = Math.max(1, Math.ceil(length));
+            for (let j = 0; j <= steps; j++) {
+              const sR = pathR.s[k - 1]! + (length * j) / steps;
+              sample.copy(chordA).lerp(chordB, j / steps).normalize();
+              const crownR = ribbonHalf(rampR, halfR, sR, pathR.length - sR);
+              for (const share of [-0.9, 0, 0.9]) {
+                probe.copy(sample).addScaledVector(across, (share * crownR) / PLANET_RADIUS).normalize();
+                const onQ = nearestOn(pathQ, probe);
+                if (onQ.pastCap) continue;
+                if (onQ.distance > ribbonHalf(rampQ, halfQ, onQ.s, pathQ.length - onQ.s)) continue;
+                samples++;
+                const ground = world.elevationAt(probe);
+                const liftR = crownLift(rampR, sR, pathR.length - sR, ground, world.elevationAt(sample));
+                const liftQ = crownLift(rampQ, onQ.s, pathQ.length - onQ.s, ground, world.elevationAt(onQ.foot));
+                if (Math.abs(liftR - liftQ) >= 0.05) continue;
+                coplanar++;
+                const layerR = roads[r]!.layer;
+                const layerQ = roads[q]!.layer;
+                if (layerR === layerQ) {
+                  sameLayer++;
+                  if (sameNames.length < 4) {
+                    sameNames.push(`${settled[roads[r]!.a]!.name}-${settled[roads[r]!.b]!.name} / ` +
+                      `${settled[roads[q]!.a]!.name}-${settled[roads[q]!.b]!.name}`);
                   }
-                } else {
-                  through++;
-                  throughWorst = Math.max(throughWorst, limit - gap);
-                  throughNames.add(`${settled[road.a]!.name}-${settled[road.b]!.name} through ${settled[j]!.name}`);
+                } else if (lowerIsR ? layerR < layerQ : layerQ < layerR) {
+                  wrongOrder++;
                 }
               }
             }
@@ -1780,44 +2089,12 @@ console.log('\nroads');
         }
       }
       check(
-        sagOver < sagSections * 0.02,
-        'the ground stays under the ribbon between its section ends',
-        `${sagOver} of ${sagSections.toLocaleString()} sections cut through ` +
-          `(${((sagOver / sagSections) * 100).toFixed(2)}%), worst ${sagWorst.toFixed(2)} units`,
-      );
-      check(
-        inside === 0,
-        'no ribbon vertex stands inside a town the road ends at',
-        inside === 0
-          ? `${vertices.toLocaleString()} vertices against ${shownCount.toLocaleString()} shown places ` +
-            `in ${Date.now() - roadsBegan} ms; ${clipped.toLocaleString()} roads clipped, ` +
-            `${swallowed.toLocaleString()} swallowed whole, ${Math.round(removed).toLocaleString()} units of ribbon removed`
-          : `${inside} do, worst ${worst.toFixed(1)} units in: ${worstName}`,
-      );
-      /**
-       * And no road runs through a town it does not end at.
-       *
-       * **This was a bounded residue for three rounds and it is an invariant
-       * now** (2026-09-08): `build-roads.ts` walks each candidate's drawn bow
-       * against every built place that is not one of its own ends, and a pair
-       * with no bend that clears them is not joined. It was 14 vertices and 28
-       * units deep into Weifang when the clip disc was `radiusFor - 8`, 34 and
-       * 40 when it became `radiusFor + 4`, and 75 and **118** the moment the
-       * orphan rescue started emitting roads that were never Gabriel candidates
-       * — Wollongong to Tamworth straight down the middle of Sydney.
-       *
-       * What is left is the 4-unit band between the two rules, and it is
-       * arithmetic rather than slack: the bake refuses a road inside
-       * `radiusFor`, this measures against `roadClip`, which is `radiusFor +
-       * TOWN_STANDOFF`. So a vertex may legitimately sit up to `TOWN_STANDOFF`
-       * inside the disc this tests and no further — **5 vertices, worst 2.4
-       * units**. Bounded there, not at 60: if a bow ever swings a road into a
-       * town again this fails, where before it only failed if the road went
-       * down the high street.
-       */      check(
-        throughWorst <= TOWN_STANDOFF,
-        'no road runs through a town it does not end at',
-        `${through} vertices, worst ${throughWorst.toFixed(1)} units: ${[...throughNames].join(', ') || 'none'}`,
+        sameLayer === 0 && wrongOrder === 0,
+        'no two roads draw one surface on one depth layer',
+        `${coplanar.toLocaleString()} coplanar crown samples of ${samples.toLocaleString()} where two crowns ` +
+          `cover one spot, on ${pairs.toLocaleString()} pairs of roads; ${sameLayer} on one layer, ` +
+          `${wrongOrder} with the lower road in front, in ${Date.now() - began} ms` +
+          (sameNames.length > 0 ? `: ${sameNames.join('; ')}` : ''),
       );
     }
 
@@ -1919,10 +2196,10 @@ console.log('\nroads');
     );
     // And the counter-case, or the check above would pass on a network with no
     // roads in it at all: Iceland has several towns and they are joined.
-    const reykjavik = indexOf('Reykjav\u00edk');
+    const reykjavik = indexOf('Reykjavík');
     check(
       reykjavik >= 0 && degree[reykjavik]! > 0,
-      'Iceland\u2019s towns are joined to each other',
+      'Iceland’s towns are joined to each other',
       reykjavik < 0 ? 'Reykjavik is not in places.bin' : `degree ${degree[reykjavik]}`,
     );
 
@@ -1945,18 +2222,20 @@ console.log('\nroads');
      *   that ends in a field, by construction rather than by a pass.
      * - **No road crosses ground steeper than `MAX_SLOPE`** — *si en ningún
      *   momento se pasa por una montaña.* Re-walked rather than trusted, the
-     *   same way the water test is: the bake tests a path and writes down a
-     *   `bend`, and if the two ever drift, every road in the world would still
-     *   be a road between two real towns and some of them would climb a scree
-     *   face. `crossesScree` is `roads.ts`'s and asks `terrain.ts`'s one
-     *   definition of how steep the ground may be.
+     *   same way the water test is: the bake tests a course and writes down a
+     *   `bend` and two gates, and if the two ever drift, every road in the world
+     *   would still be a road between two real towns and some of them would
+     *   climb a scree face. `crossesScree` is `roads.ts`'s and asks
+     *   `terrain.ts`'s one definition of how steep the ground may be.
      * - **The bake accounts for every candidate it did not keep.** The graph is
-     *   a pure function of `places.bin`, so the check builds it again and asks
-     *   the file to explain each missing pair — it has to be wet or steep on its
-     *   own seeded bow. The same caveat as ever applies and is written down
-     *   rather than papered over: the bake also *searches* for a bow, so a pair
-     *   dropped after a search this does not repeat reads as refused here and
-     *   passes.
+     *   a pure function of `places.bin`, so the check builds it again, gives
+     *   each candidate the gates `candidateGates` gives it, and asks the file to
+     *   explain each missing pair on its own seeded bow through those gates: a
+     *   town with no open gate, gates too far apart in height to climb to, or a
+     *   course that is wet, back through its own square, through a third town or
+     *   steep. The same caveat as ever applies and is written down rather than
+     *   papered over: the bake also *searches* bows and gates, so a pair dropped
+     *   after a search this does not repeat reads as refused here and passes.
      * - **And the rows that are not candidates at all are the rescue.** Gabriel
      *   can leave a town isolated for a reason that has nothing to do with the
      *   ground, so the bake gives such a place one road to its nearest reachable
@@ -1997,42 +2276,74 @@ console.log('\nroads');
       const candidates = builtGraph(settled, 'gabriel', MAX_ROAD_LENGTH);
       const candidateKeys = new Set<number>();
       for (const edge of candidates) candidateKeys.add(pairKey(settled.length, edge.a, edge.b));
+      const given = candidateGates(settled, candidates, world);
 
-      const bowProbe = { a: 0, b: 0, cls: 0, bend: 0 };
-      const refusedOnItsOwnBow = (ea: number, eb: number): boolean => {
-        placeDirection(settled[ea]!, a);
-        placeDirection(settled[eb]!, b);
-        roadPole(a, b, pole);
-        const bend = bendFor(settled[ea]!, settled[eb]!);
-        const steps = waterProbeSteps(a, b);
-        for (let step = 1; step < steps; step++) {
-          roadPoint(a, b, bend, step / steps, point, pole);
-          const { lat, lon } = toLatLon(point);
+      const course = emptyCourse();
+      const ramp = emptyRamp();
+      const offset = { x: 0, z: 0 };
+      const at = new Vector3();
+      const townAt = new Vector3();
+      const bowProbe = { a: 0, b: 0, cls: 0, bend: 0, gateA: 0, gateB: 0, layer: 0 };
+      /** The bake's refusals, re-asked on the candidate's own gates and seeded bow. */
+      const refusedOnItsOwn = (edge: { a: number; b: number }, gateA: number, gateB: number): boolean => {
+        if (gateA < 0 || gateB < 0) return true;
+        bowProbe.a = edge.a;
+        bowProbe.b = edge.b;
+        bowProbe.cls = classOf(settled[edge.a]!.pop, settled[edge.b]!.pop);
+        bowProbe.bend = packedBend(bendFor(settled[edge.a]!, settled[edge.b]!));
+        bowProbe.gateA = gateA;
+        bowProbe.gateB = gateB;
+        courseOf(bowProbe, settled, course);
+        rampOf(bowProbe, course, settled, world, ramp);
+        if (rampReach(ramp.riseA) + rampReach(ramp.riseB) > course.length) return true;
+        if (tightestTurn(coursePath(course)) < roadClearance(bowProbe.cls)) return true;
+        const towns = [townOf(settled[edge.a]!), townOf(settled[edge.b]!)];
+        const margin = Math.min(roadClearance(bowProbe.cls), course.approach);
+        const steps = waterProbeSteps(course);
+        for (let step = 0; step <= steps; step++) {
+          const t = step / steps;
+          coursePoint(course, t, at);
+          const { lat, lon } = toLatLon(at);
           if (world.countryAt(lat, lon) === 0) return true;
+          if (t > course.share && t < 1 - course.share) {
+            for (const town of towns) {
+              townOffset(town, at, offset);
+              const reach = town.grid.half + margin;
+              if (Math.abs(offset.x) < reach && Math.abs(offset.z) < reach) return true;
+            }
+          }
+          // A third town, by the same disc the bake refuses: every built place
+          // within a thousand units is few enough to ask directly here.
         }
-        bowProbe.a = ea;
-        bowProbe.b = eb;
-        bowProbe.cls = classOf(settled[ea]!.pop, settled[eb]!.pop);
-        bowProbe.bend = bend;
+        for (const [j, place] of settled.entries()) {
+          if (j === edge.a || j === edge.b || !isShown(place)) continue;
+          placeDirection(place, townAt);
+          if (townAt.dot(course.gateA) < 0.998) continue;
+          const limit = radiusFor(place.pop);
+          for (let step = 0; step <= steps; step++) {
+            coursePoint(course, step / steps, at);
+            if (at.angleTo(townAt) * PLANET_RADIUS < limit) return true;
+          }
+        }
         return crossesScree(bowProbe, settled);
       };
 
       let missing = 0;
       let unexplained = 0;
       const unexplainedNames: string[] = [];
-      for (const edge of candidates) {
-        if (shipped.has(pairKey(settled.length, edge.a, edge.b))) continue;
+      candidates.forEach((edge, i) => {
+        if (shipped.has(pairKey(settled.length, edge.a, edge.b))) return;
         missing++;
-        if (refusedOnItsOwnBow(edge.a, edge.b)) continue;
+        if (refusedOnItsOwn(edge, given[i * 2]!, given[i * 2 + 1]!)) return;
         unexplained++;
         if (unexplainedNames.length < 5) unexplainedNames.push(`${settled[edge.a]!.name}-${settled[edge.b]!.name}`);
-      }
+      });
       check(
         unexplained === 0,
-        'every candidate the bake did not keep was wet or steep',
+        'every candidate the bake did not keep was refused on its own gates and bow',
         unexplained === 0
           ? `${missing.toLocaleString()} of ${candidates.length.toLocaleString()} candidates missing, all of them refused`
-          : `${unexplained} were neither: ${unexplainedNames.join(', ')}`,
+          : `${unexplained} were not: ${unexplainedNames.join(', ')}`,
       );
 
       const degree = new Int32Array(settled.length);
@@ -2066,16 +2377,17 @@ console.log('\nroads');
       /**
        * And what is left alone, bounded rather than argued away.
        *
-       * **681 built towns of 9,734 have no road, 7.0%, and they were audited one
-       * at a time** (2026-09-08): 425 have a mountain across every neighbour,
-       * 217 have water across every neighbour, and 39 have no built town within
-       * `MAX_ROAD_LENGTH` at all. None of those is a fault in this file — they
-       * are the water test, the slope rule and the longest road this world will
-       * build, each doing exactly what it says, and the user's own sentence
-       * covers them: *si una ciudad no se puede conectar con ninguna porque
-       * está encima de una montaña no pasa nada.* The Gabriel artefact — a town
-       * isolated by the geometry rather than by the ground — is the 52 the
-       * rescue joins.
+       * **681 built towns of 9,734 had no road, 7.0%, when they were audited
+       * one at a time** (2026-09-08, before roads ran gate to gate): 425 had a
+       * mountain across every neighbour, 217 had water across every neighbour,
+       * and 39 had no built town within `MAX_ROAD_LENGTH` at all. None of those
+       * is a fault in this file — they are the water test, the slope rule and
+       * the longest road this world will build, each doing exactly what it
+       * says, and the user's own sentence covers them: *si una ciudad no se
+       * puede conectar con ninguna porque está encima de una montaña no pasa
+       * nada.* The gates add a fourth reason, which is the same one seen from
+       * the town: a town every one of whose gates is in the sea or on ground too
+       * steep to cut has nowhere for a road to come in.
        *
        * Bounded at 12% so a re-bake has room and a rule that stopped joining
        * anything does not.
@@ -2086,43 +2398,6 @@ console.log('\nroads');
         `${alone.toLocaleString()} of ${settled.filter((p) => isShown(p)).length.toLocaleString()} built ` +
           `(${((alone / settled.filter((p) => isShown(p)).length) * 100).toFixed(1)}%), ` +
           `${aloneBig} of them over a 55-unit radius: ${aloneNames.join(', ')}`,
-      );
-    }
-
-    /**
-     * The town's own track always reaches past where the ribbon stops.
-     *
-     * **This is the invariant `TOWN_STANDOFF` is chosen against, and it is
-     * arithmetic in two files rather than one, so it is asserted rather than
-     * argued.** `settlements.ts` runs its tracks to `slot.radius * 0.8 +
-     * TRACK_REACH` and the ribbon now starts at `radiusFor(pop) +
-     * TOWN_STANDOFF`, so the overlap is `0.8 r + 45 - (r + 4)` = `41 - 0.2 r`.
-     * It is positive for every radius under 205 and the size law is clamped at
-     * 150, which is eleven units of overlap at the largest town on the planet.
-     *
-     * The 45 is `TRACK_REACH` and it is not exported — `settlements.ts` reaches
-     * the kit through an `import.meta.glob` registry and cannot be imported
-     * here at all — so it is written down as a claim about that file. If it
-     * moves, this fails.
-     */
-    {
-      const TRACK_REACH = 45;
-      let worst = Infinity;
-      let worstAt = 0;
-      for (const place of settled) {
-        if (!isShown(place)) continue;
-        const r = radiusFor(place.pop);
-        const overlap = r * 0.8 + TRACK_REACH - roadClip(place);
-        if (overlap < worst) {
-          worst = overlap;
-          worstAt = r;
-        }
-      }
-      check(
-        worst > 0,
-        'the town’s own track always reaches past where the ribbon stops',
-        `worst overlap ${worst.toFixed(1)} units, at radius ${worstAt.toFixed(0)} ` +
-          `(standoff ${TOWN_STANDOFF}, track reach 0.8r + ${TRACK_REACH})`,
       );
     }
   }
@@ -2454,10 +2729,11 @@ console.log('\nmade ground');
   /**
    * The ribbon, against the network that ships.
    *
-   * `ribbonHeightAt` is asked about points on the drawn stretch of real roads —
-   * the same `roadPoint` curve the bake tested for water and the streamer lays
-   * the ribbon along, and the same `roadSpan` clip — so a road that was asserted
-   * clear of a town cannot be a road a foot stands on inside one.
+   * `ribbonHeightAt` is asked about points on real roads — the same course the
+   * bake tested for water and the streamer lays the ribbon along, the same path
+   * and the same `crownLift` — so a road that was asserted clear of a town
+   * cannot be a road a foot stands on inside one, and a kerb asserted at its
+   * gate's paving cannot be a step for the foot that crosses it.
    */
   const roadsPath = resolve(here, '../public/data/roads.bin');
   if (!existsSync(roadsPath)) {
@@ -2468,15 +2744,44 @@ console.log('\nmade ground');
     // is a row the streamer lays and there is nothing to filter out first.
     const pruned = bakedNetwork.roads;
 
-    const a = new Vector3();
-    const b = new Vector3();
-    const pole = new Vector3();
     const at = new Vector3();
-    const ahead = new Vector3();
     const tail = new Vector3();
     const side = new Vector3();
     const off = new Vector3();
-    const span = { t0: 0, t1: 1 };
+    const course = emptyCourse();
+    const ramp = emptyRamp();
+    const chordA = new Vector3();
+    const chordB = new Vector3();
+    const foot = new Vector3();
+    /** A point `s` along a path, on its own chord: exactly where `ribbonHeightAt` measures from. */
+    const pathPointAt = (path: CoursePath, s: number, out: Vector3): Vector3 => {
+      let k = 1;
+      while (k < path.count - 1 && path.s[k]! < s) k++;
+      const span = path.s[k]! - path.s[k - 1]!;
+      const along = span > 0 ? Math.min(1, Math.max(0, (s - path.s[k - 1]!) / span)) : 0;
+      chordA.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!);
+      chordB.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!);
+      return out.copy(chordA).lerp(chordB, along).normalize();
+    };
+    /**
+     * How far a direction stands from a path, across the ground. A probe put a
+     * given distance off one section of a course that bends back near itself
+     * can be nearer another stretch of the same road, and that stretch's
+     * surface is not this section's shoulder.
+     */
+    const pathDistance = (path: CoursePath, direction: Vector3): number => {
+      let nearest = Infinity;
+      for (let k = 1; k < path.count; k++) {
+        chordA.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!);
+        chordB.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).sub(chordA);
+        const lengthSq = chordB.lengthSq();
+        const along = lengthSq > 0 ? Math.min(1, Math.max(0, foot.copy(direction).sub(chordA).dot(chordB) / lengthSq)) : 0;
+        foot.copy(chordA).addScaledVector(chordB, along).normalize();
+        nearest = Math.min(nearest, foot.distanceTo(direction) * PLANET_RADIUS);
+      }
+      return nearest;
+    };
+    let elsewhere = 0;
 
     let crownSamples = 0;
     let crownWrong = 0;
@@ -2487,6 +2792,11 @@ console.log('\nmade ground');
     let offWrong = 0;
     let inTown = 0;
     let inTownWrong = 0;
+    let kerbSamples = 0;
+    let kerbWrong = 0;
+    let kerbWorst = 0;
+    let gradeSamples = 0;
+    let gradeWorst = 0;
     let tested = 0;
 
     /**
@@ -2495,85 +2805,135 @@ console.log('\nmade ground');
      * `ribbonHeightAt` answers for the network, and a junction has two
      * carriageways in it — so a probe stepped off one road lands on another and
      * every "there is nothing here" assertion below would be measuring the road
-     * map instead of the query. Worse, a road *through* a town along the same
-     * bearing as the one being tested hides inside the clip and cannot be told
-     * apart at all. A streamer over a single road has no such neighbour: what
-     * comes back is that road's own surface and nothing else, so the clip, the
-     * shoulder ramp and the edge of the strip can each be asserted exactly.
+     * map instead of the query. Worse, two roads through one gate share their
+     * approach, and a probe inside the square beside that gate would be answered
+     * by whichever of them it was not about. A streamer over a single road has no
+     * such neighbour: what comes back is that road's own surface and nothing
+     * else, so the crown, the shoulder, the kerb and the climb can each be
+     * asserted exactly.
      *
      * It costs one `createRoads` per sampled road, which over every 100th of the
-     * drawn network is 90 of them and each is a bucket over one row. It was
-     * every 500th of a network four times the size, which is the same sample.
+     * network is under two hundred of them and each is a bucket over one row.
      */
     for (let i = 0; i < pruned.length; i += 100) {
       const road = pruned[i]!;
-      placeDirection(placesRaw[road.a]!, a);
-      placeDirection(placesRaw[road.b]!, b);
-      roadPole(a, b, pole);
-      const clipA = roadClip(placesRaw[road.a]!);
-      const clipB = roadClip(placesRaw[road.b]!);
-      if (!roadSpan(a, b, road.bend, pole, clipA, clipB, span)) continue;
+      courseOf(road, placesRaw, course);
+      const path = coursePath(course);
+      rampOf(road, course, placesRaw, world, ramp);
       const alone = createRoads(world, placesRaw, { ...bakedNetwork, roads: [road] });
       tested++;
       const half = ROAD_CLASSES[road.cls]!.width * 0.5;
-      // Where the drawn shoulder crosses the ground. `roads.ts` exports the
-      // ratio — this used to write the arithmetic out longhand, which is two
-      // files answering one question, and it stopped being right the moment
-      // `RIBBON_LIFT` moved: the crossing was half way out at a lift of 1.5 and
-      // is two thirds of the way at 3.0.
+      // Where the drawn shoulder crosses the ground, wherever the crown has its
+      // ordinary lift. `roads.ts` exports the ratio — this used to write the
+      // arithmetic out longhand, which is two files answering one question.
       const fall = half * CROWN_FALL;
 
-      for (let k = 1; k < 6; k++) {
-        const t = span.t0 + (span.t1 - span.t0) * (k / 6);
-        roadPoint(a, b, road.bend, t, at, pole);
-        // The crown: the relief plus the lift, exactly.
-        const ground = groundRadius(world, at);
-        crownSamples++;
-        const error = Math.abs(alone.ribbonHeightAt(at) - (ground + RIBBON_LIFT));
-        if (error > 1e-6) crownWrong++;
-        if (error > worstCrown) worstCrown = error;
+      // The middle, clear of both approaches and both ramps: the crown at
+      // exactly `RIBBON_LIFT` over the relief, a shoulder that only falls, and
+      // nothing past the drawn strip.
+      const from = Math.max(course.approach, rampReach(ramp.riseA));
+      const to = path.length - Math.max(course.approach, rampReach(ramp.riseB));
+      if (to > from) {
+        for (let k = 1; k < 6; k++) {
+          const t = parameterAt(path, from + ((to - from) * k) / 6);
+          coursePoint(course, t, at);
+          const ground = groundRadius(world, at);
+          crownSamples++;
+          const error = Math.abs(alone.ribbonHeightAt(at) - (ground + RIBBON_LIFT));
+          if (error > 1e-6) crownWrong++;
+          if (error > worstCrown) worstCrown = error;
 
-        roadPoint(a, b, road.bend, Math.min(1, t + 0.004), tail, pole);
-        ahead.subVectors(tail, at).normalize();
-        side.crossVectors(at, ahead).normalize();
-        // Across the section: full lift on the crown, falling to nothing where
-        // the drawn shoulder crosses the ground, never rising on the way.
-        let last = Infinity;
-        for (let step = 0; step <= 10; step++) {
-          off.copy(at).addScaledVector(side, (fall * step) / 10 / PLANET_RADIUS).normalize();
-          const lift = alone.ribbonHeightAt(off);
-          const value = lift === 0 ? 0 : lift - groundRadius(world, off);
-          rampSamples++;
-          if (value > last + 1e-6) rampRising++;
-          last = value;
-        }
-        // And nothing at all past the drawn strip, on either side.
-        for (const sign of [1, -1]) {
-          off.copy(at).addScaledVector(side, (sign * (fall + 0.5)) / PLANET_RADIUS).normalize();
-          offStrip++;
-          if (alone.ribbonHeightAt(off) !== 0) offWrong++;
+          courseTangent(course, t, tail);
+          side.crossVectors(at, tail).normalize();
+          let last = Infinity;
+          for (let step = 0; step <= 10; step++) {
+            const away = (fall * step) / 10;
+            off.copy(at).addScaledVector(side, away / PLANET_RADIUS).normalize();
+            if (pathDistance(path, off) < away - 0.1) {
+              elsewhere++;
+              continue;
+            }
+            const lift = alone.ribbonHeightAt(off);
+            const value = lift === 0 ? 0 : lift - groundRadius(world, off);
+            rampSamples++;
+            if (value > last + 1e-6) rampRising++;
+            last = value;
+          }
+          for (const sign of [1, -1]) {
+            off.copy(at).addScaledVector(side, (sign * (fall + 0.5)) / PLANET_RADIUS).normalize();
+            if (pathDistance(path, off) < fall + 0.4) {
+              elsewhere++;
+              continue;
+            }
+            offStrip++;
+            if (alone.ribbonHeightAt(off) !== 0) offWrong++;
+          }
         }
       }
 
-      // And inside the disc the ribbon was clipped out of, where the town's own
-      // plinth takes over: `roadClip` is where the carriageway stops and the
-      // query has to stop with it.
-      if (clipA > 0) {
-        const length = a.angleTo(b) * PLANET_RADIUS;
-        roadPoint(a, b, road.bend, Math.min(0.4, (clipA * 0.4) / Math.max(1, length)), at, pole);
+      // The two kerbs, which is where the join the user photographed was.
+      for (const end of [0, 1] as const) {
+        const kerb = end === 0 ? ramp.kerbA : ramp.kerbB;
+        const town = townOf(placesRaw[end === 0 ? road.a : road.b]!);
+        const gate = town.gates[end === 0 ? road.gateA : road.gateB]!;
+        // Half a unit inside the kerb on the street's own line is the town's
+        // paving, and `madeHeightAt` answers there: the road answers nothing.
+        offsetDirection(town.up, town.across, town.north, gate.x - gate.outX * 0.5, gate.z - gate.outZ * 0.5, off);
         inTown++;
-        if (alone.ribbonHeightAt(at) !== 0) inTownWrong++;
+        if (alone.ribbonHeightAt(off) !== 0) inTownWrong++;
+        // A hundredth of a unit outside it, across the crown, the road stands
+        // at the paving's own height: no step, no gap.
+        const edge = end === 0 ? 0.01 : path.length - 0.01;
+        const t0 = parameterAt(path, edge);
+        coursePoint(course, t0, at);
+        courseTangent(course, t0, tail);
+        side.crossVectors(at, tail).normalize();
+        const crown = ribbonHalf(ramp, half, edge, path.length - edge);
+        for (let step = -2; step <= 2; step++) {
+          off.copy(at).addScaledVector(side, (crown * 0.45 * step) / PLANET_RADIUS).normalize();
+          kerbSamples++;
+          const error = Math.abs(alone.ribbonHeightAt(off) - kerb);
+          if (error > 0.02) kerbWrong++;
+          if (error > kerbWorst) kerbWorst = error;
+        }
+        // And the climb, along the centre line from the kerb to past where its
+        // ramp and its approach both end, every half a unit: how fast the lift
+        // over the relief changes, which is the ramp and nothing else.
+        const reach = Math.min(
+          path.length * 0.5,
+          Math.max(rampReach(end === 0 ? ramp.riseA : ramp.riseB), course.approach) + 2,
+        );
+        let previous = NaN;
+        for (let s = 0.25; s <= reach; s += 0.5) {
+          // On the path's own chord rather than the curve, so the query's foot
+          // is the probe itself: the curve is up to `PATH_SAG` off the chord,
+          // and over an approach that is enough cross-slope to read as a
+          // hundredth of grade that the ramp does not have.
+          pathPointAt(path, end === 0 ? s : path.length - s, at);
+          const height = alone.ribbonHeightAt(at);
+          if (height === 0) {
+            previous = NaN;
+            continue;
+          }
+          const lift = height - groundRadius(world, at);
+          if (!Number.isNaN(previous)) {
+            gradeSamples++;
+            gradeWorst = Math.max(gradeWorst, Math.abs(lift - previous) / 0.5);
+          }
+          previous = lift;
+        }
       }
     }
     check(
       crownWrong === 0,
-      'the ribbon is exactly RIBBON_LIFT over the relief on its crown',
+      'the ribbon is exactly RIBBON_LIFT over the relief on its crown, between the ramps',
       `${crownSamples} samples on ${tested} roads, worst ${worstCrown.toExponential(1)}`,
     );
     check(
       rampRising === 0,
       'and the shoulder only ever falls, from the crown to the ground',
-      `${rampSamples} samples across the section, ${rampRising} rising`,
+      `${rampSamples} samples across the section, ${rampRising} rising; ` +
+        `${elsewhere} probes left out for standing nearer another stretch of the same road`,
     );
     check(
       offWrong === 0,
@@ -2582,8 +2942,18 @@ console.log('\nmade ground');
     );
     check(
       inTownWrong === 0,
-      'and nothing inside the town the ribbon was clipped out of',
-      `${inTown} probes inside a built radius, ${inTownWrong} standing on a road that is not drawn`,
+      'and nothing half a unit inside a gate, where the town’s own paving is',
+      `${inTown} probes inside a square, ${inTownWrong} standing on a road that is not drawn there`,
+    );
+    check(
+      kerbWrong === 0,
+      'ribbonHeightAt meets the gate’s paving at the kerb line: gateLevel + GROUND_LIFT',
+      `${kerbSamples} probes across the crown a hundredth of a unit out, worst ${kerbWorst.toFixed(4)} units off`,
+    );
+    check(
+      gradeWorst <= RAMP_GRADE + 1e-3,
+      'and a foot climbs from the road to the gate at no more than RAMP_GRADE over the relief',
+      `${gradeSamples} half-unit steps along ${tested * 2} approaches, steepest ${gradeWorst.toFixed(3)} against ${RAMP_GRADE}`,
     );
   }
 }

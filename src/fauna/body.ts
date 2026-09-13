@@ -105,7 +105,7 @@ export function legsOf(shape: Shape, gait: GaitName): Leg[] {
  * thing that keeps a walker's feet from skating: a mover's phase is
  * `speed * clock / stride`, so a stride that disagrees with the geometry is a
  * moonwalk in exact proportion to how far off it is. `roads.ts` and the bake
- * share `roadPoint` for the same reason.
+ * share `courseOf` for the same reason.
  */
 export function strideOf(shape: Shape, gait: GaitName): number {
   const leg = legsOf(shape, gait)[1]!; // a fore leg; both pairs travel the same

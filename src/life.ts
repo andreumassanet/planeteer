@@ -4,8 +4,23 @@ import { PLANET_RADIUS } from './globe.ts';
 import { MAX_SLOPE, flattenWeightAt, gradeAt, reliefAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
-import { RIBBON_LIFT, ROAD_CLASSES, placeDirection, roadClearance, roadIndexFor, roadPoint, roadPole } from './roads.ts';
-import type { Road } from './roads.ts';
+import {
+  ROAD_CLASSES,
+  courseOf,
+  coursePoint,
+  courseTangent,
+  emptyCourse,
+  needsCentre,
+  parameterAt,
+  placeDirection,
+  rampOf,
+  roadClearance,
+  roadGeometryFor,
+  roadIndexFor,
+  surfaceLift,
+  townOf,
+} from './roads.ts';
+import type { CoursePath, Road, RoadCourse, RoadRamp } from './roads.ts';
 import { isShown, prominenceVersion, radiusFor } from './places.ts';
 import type { Place } from './places.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
@@ -368,17 +383,6 @@ const MAX_BIRDS = 64;
  */
 const WALK_PHASES = 10;
 const WALK_BODIES = 6;
-
-/**
- * Where the road ribbon's surface is, so wheels sit on it rather than in it.
- *
- * **Imported and not restated**, which it was: a second copy of a number whose
- * whole job is to make two files agree is the failure CLAUDE.md opens with, and
- * it only ever survived because the two happened to be typed the same. The
- * ribbon's lift moved to clear the land mesh (see `RIBBON_LIFT`) and the traffic
- * came up with it for nothing.
- */
-const ROAD_LIFT = RIBBON_LIFT;
 
 /**
  * How far under the true sphere a craft floats.
@@ -915,30 +919,32 @@ function moverMaterial(): THREE.MeshToonMaterial {
 }
 
 /**
- * A point on a road, at `t` in [0, 1], offset `lateral` from its centreline.
+ * A point on a road, `s` units along it from its first gate, offset `lateral`
+ * from its centre line.
  *
  * Exported and free-standing so that `scripts/check-life.ts` can assert on the
  * curve a vehicle actually drives rather than on a second copy of it — which is
- * the same reason `roadPoint` itself lives in `roads.ts` and is shared with the
- * bake. The **bow has to come from `roadPoint`**: the ribbon under the wheels
- * was drawn from it, and a car on its own arc would drive beside its road.
+ * the same reason `courseOf` itself lives in `roads.ts` and is shared with the
+ * bake. The **position has to come from the course**: the ribbon under the
+ * wheels was drawn from it, and a car on its own arc would drive beside its
+ * road, or into the kerb beside its gate.
  *
- * The tangent is a second `roadPoint` a short step along, which is exact against
- * whatever the bow is doing rather than an approximation of the chord — and the
- * step goes **backwards at the far end**, because a forward step clamped at
- * `t = 1` gives the same point twice, a zero tangent, and a mover placed on the
- * centreline with no offset at all. That is worth a line: it fails only at one
- * value of `t`, so it is one vehicle in a thousand frames sitting in the middle
- * of the road, which is not a thing anybody would find by looking.
+ * `s` is distance and not the course's `t`, read through the road's own
+ * `coursePath`, so a mover at a constant speed covers ground at a constant
+ * speed. That closed what `arcParameter` used to half-close: the old half-sine
+ * bow ran `sqrt(1 + (bend * pi * cos(pi t))^2)` times too fast at a road's ends,
+ * a first-order correction took the worst of it to 3% at the bake's cap, and a
+ * measured length has no ripple left to correct. The tangent is
+ * `courseTangent`, differentiated rather than differenced, so there is no step
+ * to clamp at a road's far end and no zero tangent to put a car on the centre
+ * line there.
  */
 export function roadFrameOf(
-  a: THREE.Vector3, b: THREE.Vector3, bend: number, t: number, lateral: number, out: Frame,
+  course: RoadCourse, path: CoursePath, s: number, lateral: number, out: Frame,
 ): Frame {
-  roadPole(a, b, framePole);
-  roadPoint(a, b, bend, t, frameHere, framePole);
-  const step = t > 0.998 ? -0.002 : 0.002;
-  roadPoint(a, b, bend, t + step, frameAhead, framePole);
-  out.forward.copy(frameAhead).sub(frameHere).multiplyScalar(step > 0 ? 1 : -1).normalize();
+  const t = parameterAt(path, s);
+  coursePoint(course, t, frameHere);
+  courseTangent(course, t, out.forward);
   // Sideways is `up x forward`: the same hand every basis in this project is
   // built with. `makeBasis(east, up, north)` is the reflection — see CLAUDE.md.
   frameSide.crossVectors(frameHere, out.forward).normalize();
@@ -949,9 +955,7 @@ export function roadFrameOf(
   return out;
 }
 
-const framePole = new THREE.Vector3();
 const frameHere = new THREE.Vector3();
-const frameAhead = new THREE.Vector3();
 const frameSide = new THREE.Vector3();
 
 export function createLife(world: World, places: readonly Place[], options: LifeOptions = {}): Life {
@@ -1018,16 +1022,38 @@ export function createLife(world: World, places: readonly Place[], options: Life
    */
   const roadMid = new Float64Array(roads.length * 3);
   const roadSpan = new Float64Array(roads.length);
-  roads.forEach((road, i) => {
-    readPlace(road.a, endA);
-    readPlace(road.b, endB);
-    roadPole(endA, endB, pole);
-    roadPoint(endA, endB, road.bend, 0.5, here, pole);
-    roadMid[i * 3] = here.x;
-    roadMid[i * 3 + 1] = here.y;
-    roadMid[i * 3 + 2] = here.z;
-    roadSpan[i] = endA.angleTo(endB) * 0.5 * PLANET_RADIUS;
-  });
+  {
+    // The course's middle and half its estimated length: a road runs gate to
+    // gate now, and its middle is where its course is at `t = 0.5`.
+    const course = emptyCourse();
+    roads.forEach((road, i) => {
+      courseOf(road, places, course);
+      coursePoint(course, 0.5, here);
+      roadMid[i * 3] = here.x;
+      roadMid[i * 3 + 1] = here.y;
+      roadMid[i * 3 + 2] = here.z;
+      roadSpan[i] = course.length * 0.5;
+    });
+  }
+
+  /** Every road's course and path, cached; the same cache the ribbon and the wood read. */
+  const geometry = roadGeometryFor(roads, places);
+  /**
+   * And its ramp, for the wheels: two `gateLevel`s a road, asked once and kept
+   * until the prominence knob turns, because a ramp only climbs into a town
+   * that is built.
+   */
+  const ramps = new Map<number, RoadRamp>();
+  const rampFor = (index: number): RoadRamp => {
+    let found = ramps.get(index);
+    if (found === undefined) {
+      found = rampOf(roads[index]!, geometry.course(index), places, world);
+      if (ramps.size > 4096) ramps.clear();
+      ramps.set(index, found);
+    }
+    return found;
+  };
+  const onCentre = new THREE.Vector3();
 
   /**
    * Which roads meet at each place, as a compressed index.
@@ -1052,22 +1078,32 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
 
   /**
-   * One leg of a route: a road, which way along it, and how long that is.
+   * One leg of a route: a road, which way along it, how long that is, and how
+   * far across the town at its far end the next leg begins.
    *
-   * The length carries the **bow's** contribution, which is not decoration: the
-   * bow is applied along the great circle's pole as `bend * span * sin(pi t)`,
-   * so its own derivative adds to the speed, and a road bowed hard is travelled
-   * fast. To first order the mean factor is `1 + (bend * pi)^2 / 4`. Over the
-   * network the median `|bend|` is 0.026 and 98.8% are under 0.05, where the
-   * correction is under a tenth of a percent; the tail is the roads the bake
-   * bowed to get round a bay, where `|bend|` reaches 0.495 and the factor is
-   * 1.61. See the trap: what is left after this is the *ripple* along one road
-   * rather than the average, and it is written down rather than fixed.
+   * The length is the road's own `coursePath`, gate to gate — measured, where
+   * it used to be the chord with a first-order correction for the old
+   * half-sine bow, `1 + (bend * pi)^2 / 4`, which took the mean right and left
+   * a ripple along the road.
+   *
+   * **The transit is the town.** A road stops at a gate now, and the route's
+   * next road leaves the same town by another one, so between the two the
+   * mover crosses the square along its streets — axis-aligned, so the gates'
+   * offsets apart in x plus in z. It is not *driven*: this file cannot see a
+   * town's terraces (`settlements.ts` is not importable in Node, and a town on
+   * a hill is a staircase of level cells), and a car driven across at its gate's
+   * level would sink into one terrace and float over the next. The old route did
+   * exactly that, from centre to centre at the ribbon's lift over the relief,
+   * straight through every platform on the way. So a mover is hidden for as
+   * long as the crossing takes and comes out of the next gate, which from the
+   * road is what a car turning into the streets looks like. Two roads through
+   * one gate have no transit at all.
    */
   interface Hop {
     road: number;
     forward: boolean;
     length: number;
+    transit: number;
   }
   interface Chain {
     hops: Hop[];
@@ -1075,9 +1111,14 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
 
   const chains = new Map<string, Chain>();
-  const lengthOf = (i: number): number => {
-    const bow = roads[i]!.bend * Math.PI;
-    return Math.max(1, roadSpan[i]! * 2 * (1 + (bow * bow) / 4));
+  const lengthOf = (i: number): number => Math.max(1, geometry.path(i).length);
+  /** The gate a road uses at one of its two towns. */
+  const gateAt = (road: Road, town: number): number => (town === road.a ? road.gateA : road.gateB);
+  /** How far across a town from one of its gates to another, along its streets. */
+  const transitOf = (town: number, from: number, to: number): number => {
+    if (from === to) return 0;
+    const gates = townOf(places[town]!).gates;
+    return Math.abs(gates[from]!.x - gates[to]!.x) + Math.abs(gates[from]!.z - gates[to]!.z);
   };
 
   function chainFor(first: number, key: string): Chain {
@@ -1086,7 +1127,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // A route that never revisits a road immediately: without it a dead end
     // turns into a mover shuttling over one road, which is the failure this
     // whole arrangement exists to delete.
-    const hops: Hop[] = [{ road: first, forward: true, length: lengthOf(first) }];
+    const hops: Hop[] = [{ road: first, forward: true, length: lengthOf(first), transit: 0 }];
     let total = hops[0]!.length;
     let at = roads[first]!.b;
     let previous = first;
@@ -1107,7 +1148,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
       if (next < 0) break;
       const road = roads[next]!;
       const forward = road.a === at;
-      hops.push({ road: next, forward, length: lengthOf(next) });
+      const arrived = hops.at(-1)!;
+      arrived.transit = transitOf(at, gateAt(roads[previous]!, at), gateAt(road, at));
+      total += arrived.transit;
+      hops.push({ road: next, forward, length: lengthOf(next), transit: 0 });
       total += hops.at(-1)!.length;
       at = forward ? road.b : road.a;
       previous = next;
@@ -1141,61 +1185,37 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * happens, where a vehicle teleporting a kilometre is not.
    */
   /**
-   * Distance along a bowed road, as the fraction `roadPoint` wants.
+   * Where a chain puts a mover `distance` units along it: on one of its roads,
+   * `s` units from that road's first gate, or in a town between two of them.
    *
-   * **The ripple `lengthOf` leaves behind, closed.** The bow is
-   * `bend * span * sin(pi t)`, so walking `t` at a constant rate travels
-   * `sqrt(1 + (bend * pi * cos(pi t))^2)` times the nominal speed — fastest at
-   * the two ends and slowest in the middle. `lengthOf` corrects the *mean* of
-   * that, which is why a bowed road takes the right time end to end; what was
-   * left is the variation *within* one road, and it is what `build-roads.ts`
-   * and CLAUDE.md both write down as known and unfixed. It surfaced as a walker
-   * crossing Palma's coast at 101.5 units a second against a walking speed of
-   * 45, and again as `pnpm life` reporting 74.1 against a ceiling of 70.
-   *
-   * The inverse of the arc length has no closed form — it is elliptic — but its
-   * first-order term does, and one term is enough. Writing `k = bend * pi`, the
-   * speed squared is `1 + k^2 cos^2(pi t)`, which is `A + B cos(2 pi t)` with
-   * `A = 1 + k^2/2` and `B = k^2/2`; expanding `1/sqrt` to first order in `B/A`
-   * and integrating gives the sine below. Measured against the exact integral,
-   * the remaining ripple is:
-   *
-   * ```
-   *   |bend|   before          after
-   *   0.05     0.994..1.006    1.000..1.000
-   *   0.10     0.976..1.023    0.999..1.001
-   *   0.20     0.915..1.081    0.991..1.009
-   *   0.30     0.837..1.150    0.966..1.030   <- the bake's cap
-   *   0.495    0.687..1.270    0.875..1.097
-   * ```
-   *
-   * It is symmetric about the middle — `t(1 - s)` is `1 - t(s)` — so a mover
-   * going the other way needs no second case, and the reversal below still just
-   * flips the fraction.
+   * In a town the mover is parked at the gate it went in by and not live — see
+   * `Hop.transit` — so it is hidden and its heading is still the road's.
    */
-  function arcParameter(bend: number, along: number): number {
-    const half = (bend * Math.PI * bend * Math.PI) / 2;
-    if (half < 1e-6) return along;
-    return along - (half / (4 * Math.PI * (1 + half))) * Math.sin(2 * Math.PI * along);
-  }
-
   function chainFrame(
     chain: Chain, distance: number, lateral: number, out: Frame, ground: boolean, back: boolean,
   ): void {
     let along = distance;
     let index = 0;
+    let crossing = false;
     while (index < chain.hops.length - 1 && along >= chain.hops[index]!.length) {
-      along -= chain.hops[index]!.length;
+      const passed = chain.hops[index]!;
+      if (along - passed.length < passed.transit) {
+        along = passed.length;
+        crossing = true;
+        break;
+      }
+      along -= passed.length + passed.transit;
       index++;
     }
     const hop = chain.hops[index]!;
-    const local = arcParameter(roads[hop.road]!.bend, Math.max(0, Math.min(1, along / hop.length)));
+    const local = Math.max(0, Math.min(hop.length, along));
     // The position is where along the *road* this is and knows nothing about
     // which way the mover is going; the heading and which side of the road it
     // keeps are the two things that do.
     const sign = (hop.forward ? 1 : -1) * (back ? -1 : 1);
-    roadFrame(hop.road, hop.forward ? local : 1 - local, lateral * sign, out, ground);
+    roadFrame(hop.road, hop.forward ? local : hop.length - local, lateral * sign, out, ground);
     if (sign < 0) out.forward.negate();
+    if (crossing) out.live = false;
   }
 
   /** The out-and-back parameter: 0 at the start, `total` at the far end, back again. */
@@ -1695,19 +1715,36 @@ export function createLife(world: World, places: readonly Place[], options: Life
   // Routes
   // ------------------------------------------------------------------
 
-  function roadFrame(index: number, t: number, lateral: number, out: Frame, ground: boolean): void {
-    const road = roads[index]!;
-    readPlace(road.a, endA);
-    readPlace(road.b, endB);
-    roadFrameOf(endA, endB, road.bend, t, lateral, out);
+  /**
+   * A mover on a road, `s` units along it from its first gate.
+   *
+   * **The height is the ribbon's own surface, asked of `surfaceLift`** — the
+   * crown under a car, the shoulder under a walker on the verge — and not a
+   * lift restated here. It was `elevationAt + RIBBON_LIFT` everywhere, which was
+   * right on the crown between the towns and wrong at both ends of every road:
+   * the ribbon climbs to its gate's paving now, and a car at the old lift would
+   * drive into the embankment under a gate cut high on a hill and float over one
+   * cut low. A walker on the verge stood a full lift over the shoulder for the
+   * same reason; the surface puts him on it, and on the ground past it.
+   */
+  function roadFrame(index: number, s: number, lateral: number, out: Frame, ground: boolean): void {
+    const course = geometry.course(index);
+    const path = geometry.path(index);
+    roadFrameOf(course, path, s, lateral, out);
     if (!ground) {
       out.height = PLANET_RADIUS + 20;
       out.live = true;
       return;
     }
     const elevation = world.elevationAt(out.dir);
+    const ramp = rampFor(index);
+    const sB = path.length - s;
+    const centre = needsCentre(ramp, s, sB)
+      ? world.elevationAt(coursePoint(course, parameterAt(path, s), onCentre))
+      : elevation;
+    const half = (ROAD_CLASSES[roads[index]!.cls] ?? ROAD_CLASSES[0]!).width * 0.5;
     out.live = elevation > 0;
-    out.height = PLANET_RADIUS + elevation + ROAD_LIFT;
+    out.height = PLANET_RADIUS + elevation + Math.max(0, surfaceLift(ramp, half, s, sB, lateral, elevation, centre));
   }
 
   /**
@@ -1899,8 +1936,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * **A road is a line and a monument is a pad, and neither is the disc the town
    * gate above tests.** The road half is `vegetation.ts`'s test with a herd in
    * place of a plant: the index is `roads.ts`'s, shared with the wood so the 28
-   * ms of bucketing is paid once, the curve is `roadPoint`'s so a cow stands off
-   * the ribbon that is actually drawn rather than off a chord, and the clearance
+   * ms of bucketing is paid once, the chords are the course's own `coursePath`
+   * so a cow stands off the ribbon that is actually drawn — gate to gate —
+   * rather than off a line between two town centres, and the clearance
    * is the two halves neither file states for the other — `roadClearance` is
    * half the drawn strip and `spread` is how wide this herd stands.
    *
@@ -1910,17 +1948,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * is already exported for `globe.ts`. Anything over zero is inside the flat
    * the landmark stands on.
    */
-  const madeA = new THREE.Vector3();
-  const madeB = new THREE.Vector3();
-  const madePole = new THREE.Vector3();
   const madeHere = new THREE.Vector3();
   const madeLast = new THREE.Vector3();
   const madeLeg = new THREE.Vector3();
   const madeFoot = new THREE.Vector3();
   const madeToward = new THREE.Vector3();
   const roadHits: number[] = [];
-  /** Longest piece of road treated as a straight chord; `vegetation.ts`'s own. */
-  const ROAD_STEP = 48;
   const roadIndex =
     roads.length > 0 && places.length > 0 ? roadIndexFor(roads, places) : null;
 
@@ -1932,14 +1965,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     for (const hit of roadIndex.near(centre, widest, roadHits)) {
       const road = roads[hit]!;
       const clear = spread + roadClearance(road.cls);
-      readPlace(road.a, madeA);
-      readPlace(road.b, madeB);
-      roadPole(madeA, madeB, madePole);
-      const length = madeA.angleTo(madeB) * PLANET_RADIUS;
-      const steps = Math.max(1, Math.ceil(length / ROAD_STEP));
-      for (let step = 0; step <= steps; step++) {
-        roadPoint(madeA, madeB, road.bend, step / steps, madeHere, madePole);
-        madeHere.multiplyScalar(PLANET_RADIUS);
+      const path = geometry.path(hit);
+      for (let step = 0; step < path.count; step++) {
+        madeHere
+          .set(path.xyz[step * 3]!, path.xyz[step * 3 + 1]!, path.xyz[step * 3 + 2]!)
+          .multiplyScalar(PLANET_RADIUS);
         if (step > 0) {
           // Point to segment, in world space rather than in a tangent frame:
           // one herd against a few dozen chords is not the thousands of plants
@@ -2655,6 +2685,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       // The herds were admitted against the towns as they were.
       scannedProminence = prominenceVersion();
       shownCache.clear();
+      ramps.clear();
       scannedVersion = -1;
     }
     if (

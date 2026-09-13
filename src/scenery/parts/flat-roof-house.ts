@@ -88,7 +88,13 @@ export const flatRoofHouse: ScenicPart = {
 
     const lowerHeight = lower * STOREY + COURSE;
     group.add(box(width + PROUD * 2, COURSE, depth + PROUD * 2, course));
-    const shell = box(width, lowerHeight - COURSE, depth, wall);
+    // The shell rises `PROUD` past the band, into the parapet, which hides the
+    // difference. Stopped at `lowerHeight`, its roof and the band's closed top
+    // were one plane in two colours, and a merged town is one mesh with one
+    // depth test: the whole lower roof z-fought between the wall and the eave
+    // tone as the camera moved. Measured 2026-09-13, 27.6 u² of it on every
+    // one of the 84 builds.
+    const shell = box(width, lowerHeight - COURSE + PROUD, depth, wall);
     shell.position.y = COURSE;
     group.add(shell);
     const band = box(width + PROUD * 2, SHADE, depth + PROUD * 2, shade);
@@ -126,8 +132,11 @@ export const flatRoofHouse: ScenicPart = {
     // reading as a crate left on the roof.
     const stairX = offsetX + topWidth * 0.22 * rng.sign();
     const stairZ = offsetZ - topDepth * 0.2;
-    const stair = box(1.9, stairHeight, 1.7, upperWall);
-    stair.position.set(stairX, top, stairZ);
+    // Sunk `PROUD` into the roof under it: on the narrowest upper blocks it
+    // hangs through the crown, and standing on the roof its underside out
+    // there was the crown's underside too.
+    const stair = box(1.9, stairHeight + PROUD, 1.7, upperWall);
+    stair.position.set(stairX, top - PROUD, stairZ);
     group.add(stair);
     const stairCap = box(2.14, 0.22, 1.94, coping);
     stairCap.position.set(stairX, top + stairHeight, stairZ);
@@ -137,11 +146,16 @@ export const flatRoofHouse: ScenicPart = {
     const front = depth / 2;
     const doorWidth = 1.4;
     const doorX = rng.jitter() * width * 0.18;
-    const leaf = panes(1, doorWidth, 2.5, 0, woodwork, PROUD * 2);
-    leaf.position.set(doorX, COURSE, front + PROUD);
+    // The door overlaps the ground-floor pair on nearly every variant, so it
+    // stands in front of it: the pair's frames are `PROUD * 2` deep and their
+    // glass a `PROUD` past that, so the leaf is a `PROUD` past the glass and
+    // the lintel a `PROUD` past the leaf. A step shallower each, the leaf lay
+    // in the frames' plane and the lintel in the glass's, and both z-fought.
+    const leaf = panes(1, doorWidth, 2.5, 0, woodwork, PROUD * 4);
+    leaf.position.set(doorX, COURSE, front + PROUD * 2);
     group.add(leaf);
-    const lintel = panes(1, doorWidth + 0.6, 0.28, 0, coping, PROUD * 3);
-    lintel.position.set(doorX, COURSE + 2.5, front + PROUD * 1.5);
+    const lintel = panes(1, doorWidth + 0.6, 0.28, 0, coping, PROUD * 5);
+    lintel.position.set(doorX, COURSE + 2.5, front + PROUD * 2.5);
     group.add(lintel);
     const step = box(doorWidth + 0.8, COURSE, 0.5, course);
     step.position.set(doorX, 0, front + 0.25);

@@ -89,7 +89,9 @@ export const terraceBlock: ScenicPart = {
     group.add(ground);
 
     const upper = (storeys - 1) * STOREY;
-    const shell = box(width, upper, depth, wall);
+    // `PROUD` short of the eave band, which caps the wall: level with it, the
+    // two tops were one plane in two colours under the roof or the cornice.
+    const shell = box(width, upper - PROUD, depth, wall);
     shell.position.y = PLINTH + STOREY;
     group.add(shell);
 

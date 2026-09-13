@@ -78,7 +78,9 @@ export const steepleChurch: ScenicPart = {
     plinth.position.z = naveZ;
     group.add(plinth);
 
-    const nave = box(naveWidth, naveHeight, naveDepth, stone);
+    // `PROUD` short of the eave band, which caps the wall: level with it, the
+    // two tops were one plane in two colours under the roof.
+    const nave = box(naveWidth, naveHeight - PROUD, naveDepth, stone);
     nave.position.set(0, 0.5, naveZ);
     group.add(nave);
 
@@ -91,12 +93,23 @@ export const steepleChurch: ScenicPart = {
     group.add(naveBand);
 
     const naveRise = STOREY * 0.9;
-    const naveRoof = roof(naveDepth + 0.8, naveWidth + 0.8, naveRise, naveDepth + 0.8, tile);
+    // The roof runs 0.4 past the nave at the back, and at the front it stops
+    // `PROUD` inside the face of the tower it butts into. Run 0.4 past at both
+    // ends, its front gable fell anywhere from 0.05 in front of that face to
+    // 0.12 behind it, and on towers near four units wide within a hair of it,
+    // where the two z-fought from across a valley: 3.1 u² a build in the
+    // pairs under 0.02 apart (2026-09-13).
+    const roofBack = naveZ - naveDepth / 2 - 0.4;
+    const roofFront = Math.min(naveZ + naveDepth / 2 + 0.4, towerWidth / 2 - PROUD);
+    const roofLength = roofFront - roofBack;
+    const roofZ = (roofFront + roofBack) / 2;
+    const naveRoof = roof(roofLength, naveWidth + 0.8, naveRise, roofLength, tile);
     naveRoof.rotation.y = Math.PI / 2;
-    naveRoof.position.set(0, 0.5 + naveHeight, naveZ);
+    naveRoof.position.set(0, 0.5 + naveHeight, roofZ);
     group.add(naveRoof);
-    const ridgeCap = box(0.44, 0.3, naveDepth + 0.8, ridgeTile);
-    ridgeCap.position.set(0, 0.5 + naveHeight + naveRise - 0.1, naveZ);
+    // `PROUD` inside each gable: flush, its ends lay in the gables' planes.
+    const ridgeCap = box(0.44, 0.3, roofLength - PROUD * 2, ridgeTile);
+    ridgeCap.position.set(0, 0.5 + naveHeight + naveRise - 0.1, roofZ);
     group.add(ridgeCap);
 
     // --- the tower ---
@@ -182,12 +195,16 @@ export const steepleChurch: ScenicPart = {
     } else {
       const porchWidth = naveWidth * 0.5;
       const side = rng.sign();
-      const porch = box(porchWidth, naveHeight * 0.62, 2.2, stone);
+      // `PROUD` under the string course, whose height it used to share: the
+      // porch roof reaches back into the nave, and its underside and the
+      // string's were one plane where it crossed the string's ledge.
+      const porchHeight = naveHeight * 0.62 - PROUD;
+      const porch = box(porchWidth, porchHeight, 2.2, stone);
       porch.position.set((side * (naveWidth + porchWidth)) / 2, 0.5, naveZ + naveDepth * 0.24);
       group.add(porch);
       const porchRoof = roof(2.8, porchWidth + 0.6, 1.1, 2.8, tile);
       porchRoof.rotation.y = Math.PI / 2;
-      porchRoof.position.set(porch.position.x, 0.5 + naveHeight * 0.62, porch.position.z);
+      porchRoof.position.set(porch.position.x, 0.5 + porchHeight, porch.position.z);
       group.add(porchRoof);
     }
 

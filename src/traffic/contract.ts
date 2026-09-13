@@ -162,7 +162,7 @@ export const PLACED_SECTION = 2;
  * **The section is a relation to a person and the length is not.** Doubling a
  * city bus takes it to 29.5 units against a **median settlement radius of 32**
  * — one bus is the town — and past about twenty units a road vehicle also stops
- * fitting the curvature of the road it is on, because `roadPoint` bends and a
+ * fitting the curvature of the road it is on, because `courseOf` bends and a
  * rigid body does not. So the length is capped and the section is not, which
  * crops the longest vehicles rather than shrinking them: exactly what every
  * monument in this project does to a city.

@@ -390,6 +390,14 @@ export function cellKey(col: number, row: number): number {
 export interface FloorField {
   pitch: number;
   /**
+   * How far the lattice is shifted, in cells: cell `c`'s centre is `(c - shift)
+   * * pitch` from the town's centre. A town's square is `cells` wide with its
+   * cells indexed from 0, so this is `(cells - 1) / 2` — see `townGrid` in
+   * `grid.ts`. Absent means 0, which is the convention the lattice had before
+   * the square: cell 0 at the centre.
+   */
+  shift?: number;
+  /**
    * Every paved cell, and the elevation above sea level its terrace stands at
    * *before* `GROUND_LIFT` — which is to say the level the town cut into the
    * hill there, not the surface of the paving.
@@ -434,8 +442,9 @@ export interface FloorField {
  */
 export function floorLiftAt(floor: FloorField, x: number, z: number, elevation: number): number {
   const { pitch, terraces } = floor;
-  const col = Math.round(x / pitch);
-  const row = Math.round(z / pitch);
+  const shift = floor.shift ?? 0;
+  const col = Math.round(x / pitch + shift);
+  const row = Math.round(z / pitch + shift);
   const here = terraces.get(cellKey(col, row));
   /**
    * **Inside the town a riser is a step you take, not a ramp you climb**, and
@@ -471,8 +480,8 @@ export function floorLiftAt(floor: FloorField, x: number, z: number, elevation: 
       if (level === undefined) continue;
       // Point to the cell's own rectangle, which is what makes the ramp square
       // to the kerb rather than radial about a cell centre.
-      const dx = Math.max(0, Math.abs(x - (col + dc) * pitch) - pitch * 0.5);
-      const dz = Math.max(0, Math.abs(z - (row + dr) * pitch) - pitch * 0.5);
+      const dx = Math.max(0, Math.abs(x - (col + dc - shift) * pitch) - pitch * 0.5);
+      const dz = Math.max(0, Math.abs(z - (row + dr - shift) * pitch) - pitch * 0.5);
       const distance = Math.hypot(dx, dz);
       // Ties go to the higher terrace, so the approach to a stepped town climbs
       // to the step it is about to walk onto rather than to the one beside it.

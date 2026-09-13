@@ -77,7 +77,9 @@ export const machiya: ScenicPart = {
     const body = Math.max(STOREY * (storeys === 1 ? 1.25 : 1.72), FLOOR - BASE - rise);
 
     group.add(box(width + 0.3, BASE, depth + 0.3, course));
-    const shell = box(width, body, depth, plaster);
+    // `PROUD` short of the eave band, which caps the wall: level with it, the
+    // two tops were one plane in two colours under the roof.
+    const shell = box(width, body - PROUD, depth, plaster);
     shell.position.y = BASE;
     group.add(shell);
 
@@ -124,7 +126,9 @@ export const machiya: ScenicPart = {
     group.add(recess);
     const bars = 7;
     const bar = panes(bars, 0.11, latticeHeight, (latticeWidth - bars * 0.11) / (bars - 1), frame);
-    bar.position.set(0, BASE + 0.35, depth / 2 + PROUD * 2.6);
+    // A `PROUD` past the door's jambs, which the end of the lattice crosses: at
+    // `PROUD * 2.6` the bars stood 0.008 in front of them.
+    bar.position.set(0, BASE + 0.35, depth / 2 + PROUD * 3.5);
     group.add(bar);
     const head = panes(1, latticeWidth + 0.3, 0.22, 0, post, PROUD * 2);
     head.position.set(0, BASE + 0.35 + latticeHeight, depth / 2 + PROUD);
@@ -132,8 +136,11 @@ export const machiya: ScenicPart = {
 
     // The entrance, off to one side of the lattice as a machiya's is.
     const doorX = (width * 0.5 - 0.7) * rng.sign();
+    // A `PROUD` deeper than the recess, whose end it overlaps on every width
+    // this part draws: level with it, two glasses lit to different strengths
+    // shared a plane where they crossed, 0.8 u² a build (2026-09-13).
     const doorway = lit(panes(1, 1.1, 2.2, 0, ctx.glass, PROUD), 0.6);
-    doorway.position.set(doorX, BASE, depth / 2 + PROUD);
+    doorway.position.set(doorX, BASE, depth / 2);
     group.add(doorway);
     const jamb = panes(2, 0.16, 2.3, 1.1, post, PROUD * 2);
     jamb.position.set(doorX, BASE, depth / 2 + PROUD * 1.5);

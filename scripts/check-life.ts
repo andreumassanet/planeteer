@@ -22,7 +22,7 @@ import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import { detailRadiusFor, indexPlaces, radiusFor } from '../src/places.ts';
-import { ROAD_CLASSES, placeDirection, roadPoint, roadPole } from '../src/roads.ts';
+import { ROAD_CLASSES, courseOf, coursePath, coursePoint, emptyCourse, parameterAt } from '../src/roads.ts';
 import type { Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { createLife, emptyFrame, mergeGroup, poseAt, rigOf, roadFrameOf } from '../src/life.ts';
@@ -273,11 +273,9 @@ console.log('');
 
 console.log('the routes:');
 
-const endA = new Vector3();
-const endB = new Vector3();
-const pole = new Vector3();
 const onCurve = new Vector3();
 const probe = emptyFrame();
+const probeCourse = emptyCourse();
 
 /**
  * How far a lateral offset actually lands from the road's own centreline.
@@ -292,18 +290,17 @@ let worstWet = 0;
 let sampled = 0;
 for (let i = 0; i < roads.length; i += 137) {
   const road = roads[i]!;
-  placeDirection(places[road.a]!, endA);
-  placeDirection(places[road.b]!, endB);
-  roadPole(endA, endB, pole);
+  const course = courseOf(road, places, probeCourse);
+  const path = coursePath(course);
   const width = ROAD_CLASSES[road.cls]!.width;
   const lateral = width * 0.26;
   for (let s = 0; s <= 10; s++) {
-    const t = s / 10;
-    roadPoint(endA, endB, road.bend, t, onCurve, pole);
+    const along = (path.length * s) / 10;
+    coursePoint(course, parameterAt(path, along), onCurve);
     // The real function, not a copy of it: `roadFrameOf` is what a vehicle
     // drives on, and a check written against a second copy of the curve would
     // agree with itself the way every mirrored basis in this project has.
-    roadFrameOf(endA, endB, road.bend, t, lateral, probe);
+    roadFrameOf(course, path, along, lateral, probe);
     const measured = probe.dir.angleTo(onCurve) * PLANET_RADIUS;
     worstLateral = Math.max(worstLateral, Math.abs(measured - lateral));
     if (world.elevationAt(probe.dir) <= 0) worstWet++;
@@ -329,16 +326,15 @@ let worstStep = 0;
 let steps = 0;
 for (let i = 0; i < roads.length; i += 613) {
   const road = roads[i]!;
-  placeDirection(places[road.a]!, endA);
-  placeDirection(places[road.b]!, endB);
-  roadPole(endA, endB, pole);
-  const length = endA.angleTo(endB) * PLANET_RADIUS;
+  const course = courseOf(road, places, probeCourse);
+  const path = coursePath(course);
+  const length = path.length;
   if (length < 40) continue;
-  // 45 units a second at 60 fps is 0.75 units a frame.
-  const dt = 0.75 / length;
+  // 45 units a second at 60 fps is 0.75 units a frame, measured along the path
+  // a mover actually reads.
   let previous: number | null = null;
-  for (let t = 0; t <= 1; t += dt) {
-    roadPoint(endA, endB, road.bend, t, onCurve, pole);
+  for (let along = 0; along <= length; along += 0.75) {
+    coursePoint(course, parameterAt(path, along), onCurve);
     const elevation = world.elevationAt(onCurve);
     if (elevation <= 0) { previous = null; continue; }
     if (previous !== null) {
@@ -449,8 +445,11 @@ console.log('what one second of the clock moves:');
   }
   // The bands are the speed tables with the short-route cap under them: a chain
   // that cannot reach `MIN_ROUTE` is travelled in `MIN_SECONDS` instead, so the
-  // floor is not the class speed. The ceiling is the class speed plus what is
-  // left of the bow's ripple, which `arcParameter` took from 15% to 3%.
+  // floor is not the class speed. The ceiling is the class speed with room to
+  // spare: a mover reads a measured `coursePath` now, so there is no bow ripple
+  // left in it (`arcParameter` had taken it from 15% to 3%), and a crossing of a
+  // town between two gates is hidden for exactly the time its streets take, so
+  // the jump from one gate to the next is never faster than the walk.
   const wanted: Record<string, [number, number]> = {
     road: [10, 260], foot: [4, 70], water: [22, 46],
   };

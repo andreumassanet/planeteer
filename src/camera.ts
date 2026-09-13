@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FIGURE, RUN_SPEED } from './avatar.ts';
 import { PLANET_RADIUS } from './globe.ts';
+import { BODY_RADIUS } from './player.ts';
 import type { Player } from './player.ts';
 import type { InputState } from './input.ts';
 import { PLANE_CEILING } from './vehicles.ts';
@@ -63,6 +64,40 @@ const CLEARANCE = NEAR * 1.6;
 const MIN_DISTANCE = NEAR * 2;
 /** Samples along the player-to-camera segment when testing for ground. */
 const COLLISION_STEPS = 6;
+/**
+ * And for walls, on the same samples. A sample inside a building stops the lens
+ * as the ground does, on foot only — the boat has no town to be in and the
+ * plane is framed from above every roof — and three halvings then find the wall
+ * to a forty-eighth of the segment, 0.7 units at the walking framing. A clear
+ * view costs six calls a test and a stop at most nine.
+ */
+const WALL_REFINE = 3;
+/**
+ * How far short of the wall it met the lens stops: half a unit, the nearest
+ * near plane `main.ts` ever sets, so the wall stays out of the lens's own slab
+ * when the view runs along it rather than across it.
+ */
+const WALL_MARGIN = 0.5;
+/**
+ * The nearest a wall may bring the lens, and it is not `MIN_DISTANCE`.
+ *
+ * The ground never gets between the pivot and a lens ten units out; a wall
+ * does, every time you walk along one with the camera across it, and flooring
+ * that pull-in at ten would put the lens inside the building — where every
+ * face is seen from behind and the ink hull is all that is drawn, a screen of
+ * black. The body is kept `BODY_RADIUS` clear of every footprint, so a segment
+ * leaving the pivot above it cannot meet a wall nearer than that, and a lens
+ * that near is still on this side of it.
+ */
+const WALL_FLOOR = BODY_RADIUS;
+/**
+ * Nearer the shoulders than this the body is hidden, as it is in first person.
+ * Half the figure's height: at that range the head alone is about half the
+ * frame's height, and seeing past a man is better than seeing the inside of his
+ * hat. Only a wall brings the lens in this far; the ground stops at
+ * `MIN_DISTANCE`.
+ */
+const BODY_NEAR = FIGURE.height * 0.5;
 
 /** Framing on foot: what `view` is, and what it returns to after a landing. */
 const WALK_FRAMING = { distance: 30, height: 15 };
@@ -249,6 +284,18 @@ export interface CameraRig {
   resize(width: number, height: number): void;
 }
 
+export interface CameraOptions {
+  /**
+   * Whether a point is inside something built — a building's walls and under
+   * its roof — which the lens must not be behind.
+   *
+   * A callback for the reason the player's `collide` is one: the walls belong
+   * to `settlements.ts`, which knows what is standing. Omit it and only the
+   * ground stops the camera, as it always did.
+   */
+  blocks?: (point: THREE.Vector3) => boolean;
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (rate: number, dt: number) => 1 - Math.exp(-rate * dt);
@@ -258,8 +305,9 @@ function ramp(value: number, from: number, to: number): number {
   return t * t * (3 - 2 * t);
 }
 
-export function createCameraRig(): CameraRig {
+export function createCameraRig(options: CameraOptions = {}): CameraRig {
   const camera = new THREE.PerspectiveCamera(FOV, 1, NEAR, FAR);
+  const { blocks } = options;
   const view = { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height };
 
   /**
@@ -395,7 +443,7 @@ export function createCameraRig(): CameraRig {
    * about to be raised off anyway. In the other order, looking up on flat
    * ground dragged the camera into the back of the avatar's head.
    */
-  function unclip(point: THREE.Vector3, groundRadiusAt: (p: THREE.Vector3) => number): number {
+  function unclip(point: THREE.Vector3, groundRadiusAt: (p: THREE.Vector3) => number, walls: boolean): number {
     let lift = 0;
     const floor = groundRadiusAt(point) + CLEARANCE;
     if (point.length() < floor) {
@@ -405,25 +453,50 @@ export function createCameraRig(): CameraRig {
 
     offset.copy(point).sub(pivot);
     const distance = offset.length();
-    if (distance > MIN_DISTANCE) {
-      offset.divideScalar(distance);
-      let allowed = distance;
-      for (let i = 1; i <= COLLISION_STEPS; i++) {
-        const t = i / COLLISION_STEPS;
-        sample.copy(pivot).addScaledVector(offset, t * distance);
-        // The margin grows from nothing at the pivot to the full lens
-        // clearance at the far end. Demanding clearance the whole way asks the
-        // ground to stay 8 units from the player's own shoulders, which it
-        // never is: every low camera then read as blocked and got yanked into
-        // the avatar's back.
-        if (sample.length() < groundRadiusAt(sample) + CLEARANCE * t) {
-          allowed = ((i - 1) / COLLISION_STEPS) * distance;
-          break;
-        }
+    // The ground only ever pulls the lens in to `MIN_DISTANCE`, so a lens
+    // already nearer than that has nothing to fear from it. From a wall it has.
+    const ground = distance > MIN_DISTANCE;
+    const wall = walls && distance > WALL_FLOOR ? blocks : undefined;
+    if (!ground && wall === undefined) return lift;
+    offset.divideScalar(distance);
+    let allowed = distance;
+    let least = MIN_DISTANCE;
+    for (let i = 1; i <= COLLISION_STEPS; i++) {
+      const t = i / COLLISION_STEPS;
+      sample.copy(pivot).addScaledVector(offset, t * distance);
+      // The margin grows from nothing at the pivot to the full lens
+      // clearance at the far end. Demanding clearance the whole way asks the
+      // ground to stay 8 units from the player's own shoulders, which it
+      // never is: every low camera then read as blocked and got yanked into
+      // the avatar's back.
+      if (ground && sample.length() < groundRadiusAt(sample) + CLEARANCE * t) {
+        allowed = ((i - 1) / COLLISION_STEPS) * distance;
+        break;
       }
-      point.copy(pivot).addScaledVector(offset, Math.max(MIN_DISTANCE, allowed));
+      if (wall !== undefined && wall(sample)) {
+        allowed = wallAt(((i - 1) / COLLISION_STEPS) * distance, t * distance, wall) - WALL_MARGIN;
+        least = WALL_FLOOR;
+        break;
+      }
     }
+    if (allowed < distance) point.copy(pivot).addScaledVector(offset, Math.max(least, allowed));
     return lift;
+  }
+
+  /**
+   * Where the segment along `offset` goes into a building, between a distance
+   * that was clear and one that was not: the clear side, after `WALL_REFINE`
+   * halvings. The pivot itself is always clear — the body keeps it out of every
+   * footprint — so the first sample's clear side is 0.
+   */
+  function wallAt(clear: number, blocked: number, wall: (point: THREE.Vector3) => boolean): number {
+    for (let k = 0; k < WALL_REFINE; k++) {
+      const middle = (clear + blocked) / 2;
+      sample.copy(pivot).addScaledVector(offset, middle);
+      if (wall(sample)) blocked = middle;
+      else clear = middle;
+    }
+    return clear;
   }
 
   /**
@@ -630,21 +703,24 @@ export function createCameraRig(): CameraRig {
       const trail = chase > 1e-6 ? (1 - chase) / chase : 0;
 
       align(player);
-      showBody(player, !inTheHead(player));
       if (inTheHead(player)) {
+        showBody(player, false);
         eye(player);
         return;
       }
       place(player);
       desired.addScaledVector(travel, lead * trail);
+      const walls = player.vehicle === 'foot';
       // The ground is answered where the camera wants to be, not where it has
       // got to so far. Measured after the interpolation, the lift is only the
       // sliver the lerp gave back each frame, and the aim barely moves.
-      const lift = unclip(desired, groundRadiusAt);
+      const lift = unclip(desired, groundRadiusAt, walls);
       camera.position.lerp(desired, chase);
       // Again on the smoothed position, because the lerp cuts corners: it
-      // crosses the ground the target was already clear of.
-      unclip(camera.position, groundRadiusAt);
+      // crosses the ground the target was already clear of — and a lens
+      // swinging back out after a wall passes through the building it left.
+      unclip(camera.position, groundRadiusAt, walls);
+      showBody(player, camera.position.distanceTo(pivot) > BODY_NEAR);
       aimAt(player, lift);
     },
     snap(player, groundRadiusAt) {
@@ -668,15 +744,16 @@ export function createCameraRig(): CameraRig {
         driving = player.vehicle !== 'foot';
       }
 
-      showBody(player, !inTheHead(player));
       if (inTheHead(player)) {
+        showBody(player, false);
         eye(player);
         return;
       }
 
       place(player);
-      const lift = unclip(desired, groundRadiusAt);
+      const lift = unclip(desired, groundRadiusAt, player.vehicle === 'foot');
       camera.position.copy(desired);
+      showBody(player, camera.position.distanceTo(pivot) > BODY_NEAR);
       aimAt(player, lift);
     },
     resize(width, height) {

@@ -78,7 +78,9 @@ export const stiltHouse: ScenicPart = {
     const lowerBoard = box(width, sole, depth, board);
     lowerBoard.position.y = clear + 0.42;
     group.add(lowerBoard);
-    const shell = box(width - PROUD * 2, body - sole, depth - PROUD * 2, wall);
+    // `PROUD` short of the eave band, which caps the wall: level with it, the
+    // two tops were one plane in two colours under the roof.
+    const shell = box(width - PROUD * 2, body - sole - PROUD, depth - PROUD * 2, wall);
     shell.position.y = clear + 0.42 + sole;
     group.add(shell);
     const eaveBand = box(width + PROUD, 0.3, depth + PROUD, shade);
@@ -91,7 +93,9 @@ export const stiltHouse: ScenicPart = {
     cap.rotation.y = Math.PI / 2;
     cap.position.y = clear + 0.42 + body;
     group.add(cap);
-    const ridgeCap = box(0.46, 0.32, ridge, ridgeTile);
+    // `PROUD` inside each gable of a gabled roof: flush, its ends lay in the
+    // gables' planes and fought them.
+    const ridgeCap = box(0.46, 0.32, Math.min(ridge, depth + 1.6 - PROUD * 2), ridgeTile);
     ridgeCap.position.y = clear + 0.42 + body + roofHeight - 0.11;
     group.add(ridgeCap);
 

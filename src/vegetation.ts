@@ -10,7 +10,7 @@ import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
 import { isShown, prominenceVersion, radiusFor } from './places.ts';
 import type { Place } from './places.ts';
-import { placeDirection, roadClearance, roadIndexFor, roadPoint, roadPole } from './roads.ts';
+import { roadClearance, roadGeometryFor, roadIndexFor } from './roads.ts';
 import type { Road, RoadIndex } from './roads.ts';
 import {
   createViewCone,
@@ -833,15 +833,16 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   // ------------------------------------------------------------------
 
   /**
-   * Longest piece of road treated as a straight segment, in world units.
+   * How much further than a road's own chord a piece of it may reach into the
+   * tile, in world units: the longest chord `coursePath` cuts.
    *
-   * The chord problem again, and the bound is the tightest curve the bake will
-   * keep: a bow of 0.3 on a 1,000-unit road is a half-sine of amplitude 300
-   * over a half-wavelength of 1,000, whose radius of curvature at the apex is
-   * 338 units, so a 48-unit chord sags `s^2 / 8r` = 0.85 units off it. That is
-   * a fifth of a lane's own half-width and well inside the plant footprint the
-   * test adds on top. It is coarse enough that the longest road in the world is
-   * 21 segments.
+   * The chords themselves are the course's own path — see `coursePath` in
+   * `roads.ts` — and not a walk of this file's: a road runs gate to gate on a
+   * Bezier with a `sin^2` bow now, which has no curvature worth predicting, so
+   * the path measures its own sag and holds it under 0.05 units. It used to be
+   * 48-unit steps priced against the old half-sine's tightest bow, 0.85 units
+   * of sag, which was a fifth of a lane and fine for a wood; the path is tighter
+   * than that everywhere and no longer this file's to choose.
    */
   const ROAD_STEP = 48;
 
@@ -849,6 +850,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     options.roads !== undefined && options.places !== undefined && options.roads.length > 0
       ? roadIndexFor(options.roads, options.places)
       : null;
+  const roadGeometry =
+    roadIndex !== null ? roadGeometryFor(options.roads!, options.places!) : null;
   const roadHits: number[] = [];
 
   // ------------------------------------------------------------------
@@ -1008,10 +1011,6 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     clearance: number;
   }
   const roadKeepouts: RoadKeepout[] = [];
-  const roadEndA = new THREE.Vector3();
-  const roadEndB = new THREE.Vector3();
-  const roadPolar = new THREE.Vector3();
-  const roadAt = new THREE.Vector3();
 
   /** Where a local offset from the tile centre lands on the sphere. */
   function directionAt(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
@@ -1150,34 +1149,32 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
      * And every road that crosses the tile, sampled into local segments.
      *
      * The gather is a grid query and not a sweep of the network — see
-     * `createRoadIndex` — and the sampling walks `roadPoint`, which is the one
-     * definition of where a road goes: the bake tested that curve for water and
-     * `roads.ts` lays the ribbon along it, so a wood that stood off a second
-     * copy of it would stand off the wrong line on exactly the coastal roads
-     * that needed a bow.
+     * `createRoadIndex` — and the chords are the road's own `coursePath`, which
+     * walks `courseOf`, the one definition of where a road goes: the bake
+     * tested that curve for water and `roads.ts` lays the ribbon along it, so a
+     * wood that stood off a second copy of it would stand off the wrong line on
+     * exactly the coastal roads that needed a bow, and on every road's last
+     * stretch into its gate.
      */
     roadKeepouts.length = 0;
-    if (roadIndex !== null) {
+    if (roadIndex !== null && roadGeometry !== null) {
       const reach = Math.hypot(tile.halfEast, tile.halfNorth);
       const margin = reach + 40;
       roadIndex.near(tile.direction, margin, roadHits);
       const all = options.roads!;
-      const rows = options.places!;
       const limit = (margin + ROAD_STEP) * (margin + ROAD_STEP);
       for (const hit of roadHits) {
         const road = all[hit]!;
-        placeDirection(rows[road.a]!, roadEndA);
-        placeDirection(rows[road.b]!, roadEndB);
-        roadPole(roadEndA, roadEndB, roadPolar);
-        const length = roadEndA.angleTo(roadEndB) * PLANET_RADIUS;
-        const steps = Math.max(1, Math.ceil(length / ROAD_STEP));
+        const path = roadGeometry.path(hit);
         const clearance = roadClearance(road.cls);
         let x0 = 0;
         let z0 = 0;
-        for (let step = 0; step <= steps; step++) {
-          roadPoint(roadEndA, roadEndB, road.bend, step / steps, roadAt, roadPolar);
-          const x = roadAt.dot(across) * PLANET_RADIUS;
-          const z = roadAt.dot(north) * PLANET_RADIUS;
+        for (let step = 0; step < path.count; step++) {
+          const px = path.xyz[step * 3]!;
+          const py = path.xyz[step * 3 + 1]!;
+          const pz = path.xyz[step * 3 + 2]!;
+          const x = (px * across.x + py * across.y + pz * across.z) * PLANET_RADIUS;
+          const z = (px * north.x + py * north.y + pz * north.z) * PLANET_RADIUS;
           if (step > 0) {
             // Only the pieces that could reach into the tile. A road is up to a
             // thousand units long and a level-0 tile is 174 across, so most of

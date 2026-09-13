@@ -109,12 +109,17 @@ export const towerBlock: ScenicPart = {
     group.add(stack);
 
     // --- the lobby: a glazed front under a canopy ---
+    // It runs across the foot of the core, which stands `PROUD * 2` off the
+    // wall, so the glass is a `PROUD` in front of the core and the jambs a
+    // `PROUD` in front of the glass. At `PROUD * 2` both lay on the core's own
+    // face and the lit entrance z-fought it wherever they crossed: 4.3 u² a
+    // build, on every build (2026-09-13).
     const front = depth / 2;
-    const jambs = panes(5, width * 0.035, podiumHeight * 0.6, width * 0.145, accent, PROUD * 2);
-    jambs.position.set(0, 0.4 + podiumHeight * 0.14, front + PROUD);
+    const jambs = panes(5, width * 0.035, podiumHeight * 0.6, width * 0.145, accent, PROUD * 4);
+    jambs.position.set(0, 0.4 + podiumHeight * 0.14, front + PROUD * 2);
     group.add(jambs);
     const entrance = lit(panes(4, width * 0.15, podiumHeight * 0.55, width * 0.03, ctx.glass), 0.9);
-    entrance.position.set(0, 0.4 + podiumHeight * 0.16, front + PROUD * 2);
+    entrance.position.set(0, 0.4 + podiumHeight * 0.16, front + PROUD * 3);
     group.add(entrance);
     const canopy = box(width * 0.66, 0.24, 1.5, accent);
     canopy.position.set(0, 0.4 + podiumHeight * 0.78, front + 0.75);
@@ -156,7 +161,9 @@ export const towerBlock: ScenicPart = {
       reveal: 0,
     });
     flank.rotation.y = (away * Math.PI) / 2;
-    flank.position.set((away * width) / 2 + away * PROUD, 0.4 + podiumHeight + upper * 0.5, 0);
+    // Two `PROUD`s off the wall: the floor lines stand one off it, and on an
+    // even floor count one of them runs through this pair.
+    flank.position.set((away * width) / 2 + away * PROUD * 2, 0.4 + podiumHeight + upper * 0.5, 0);
     group.add(flank);
 
     // --- balconies: three plates on one side, one mesh ---
@@ -175,8 +182,17 @@ export const towerBlock: ScenicPart = {
     parapet.position.y = 0.4 + body;
     group.add(parapet);
 
-    const head = box(width * rng.range(0.3, 0.45), 1.7, depth * rng.range(0.3, 0.45), plant);
-    head.position.set(coreX, 0.4 + body, depth * rng.jitter() * 0.22);
+    // Sunk `PROUD` into the roof. The head reaches past the facade on most
+    // variants, and standing on the roof its underside out there was the
+    // parapet's underside too, in another colour.
+    //
+    // And its outer flank is held a `PROUD` off the parapet's: where the two
+    // came within 0.02 of flush (4 builds in 84) they fought from any distance.
+    let headWidth = width * rng.range(0.3, 0.45);
+    const flush = Math.abs(coreX) + headWidth / 2 - (width / 2 + 0.25);
+    if (Math.abs(flush) < PROUD) headWidth += 2 * ((flush < 0 ? -PROUD : PROUD) - flush);
+    const head = box(headWidth, 1.7 + PROUD, depth * rng.range(0.3, 0.45), plant);
+    head.position.set(coreX, 0.4 + body - PROUD, depth * rng.jitter() * 0.22);
     group.add(head);
     const headCap = box(width * 0.5, 0.22, depth * 0.5, tone(plant, TONES.cap));
     headCap.position.set(coreX, 0.4 + body + 1.7, head.position.z);

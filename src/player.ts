@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import type { Avatar } from './avatar.ts';
-import { AVATAR_HEIGHT, RUN_SPEED, WALK_SPEED, buildAvatar } from './avatar.ts';
+import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar } from './avatar.ts';
 import type { World } from './geo.ts';
 import { LAND_HEIGHT, PLANET_RADIUS, groundRadius } from './globe.ts';
+import { slide } from './scenery/solids.ts';
+import type { Body, Walls } from './scenery/solids.ts';
 import {
   ALTITUDE_RATE,
   AVATAR_HIP,
@@ -75,6 +77,20 @@ const JUMP_SPEED = (2 * JUMP_HEIGHT) / JUMP_RISE;
  * wall.
  */
 const STEP_DOWN = LAND_HEIGHT * 0.5;
+
+/**
+ * The body against a wall: a circle this wide, centred under the player.
+ *
+ * A circle because a body turns on the spot, and a shape that turned with it
+ * would catch on the wall it was turning away from. This wide because a circle
+ * has to hold the widest thing the figure has, and that is the shoulder mass —
+ * `FIGURE.shoulderHalf`, 1.30, deliberately wider than the chest. The hanging
+ * arms reach a little further, to 1.52 (`shoulderX` 1.24 plus the upper arm's
+ * 0.28), and are left out on purpose: an elbow brushing a wall should not stop
+ * a walk, and those 0.22 units a side would take 0.44 off every gap between two
+ * houses. `camera.ts` reads it too, for how near a wall can bring the lens.
+ */
+export const BODY_RADIUS = FIGURE.shoulderHalf;
 
 /** Radians of roll at a hard turn, and how much lateral acceleration earns it. */
 const MAX_LEAN = 0.3;
@@ -193,6 +209,33 @@ export interface PlayerOptions {
    * headless caller get.
    */
   madeHeightAt?: (point: THREE.Vector3) => number;
+  /**
+   * Pushes a body of `radius` out of every building it overlaps at `point`:
+   * the world-space displacement, tangent to the ground, into `push`, and
+   * whether anything was hit. Only the point's direction is meaningful.
+   *
+   * **This is what makes a town something you walk round.** It answers for one
+   * position and `slide` in `scenery/solids.ts` does the rest — the sub-steps,
+   * and taking the into-wall part out of the motion — so `push` has to be the
+   * *whole* clearing displacement and not a unit normal: its direction is the
+   * wall's normal, and the slide is read off it. It is asked whether the player
+   * is moving or not, and in the air too: the jump clears a small house and a
+   * wall is a wall at any height. The boat and the plane never ask. Omit it and
+   * nothing is solid, which is what a headless caller gets.
+   */
+  collide?: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean;
+  /**
+   * The nearest point to `point` where a body of `radius` stands clear of every
+   * building, into `out`; false when `point` already is. Only the direction of
+   * either point is read.
+   *
+   * The pushes settle a body that walked into a wall. They cannot settle one
+   * that was *put* inside a building — a teleport, a landing, a town raised
+   * round somebody standing still — because from inside a terrace there is no
+   * one wall to push off. So a frame that hit anything ends by asking this, and
+   * `goTo` asks it on arrival.
+   */
+  freeSpotNear?: (point: THREE.Vector3, radius: number, out: THREE.Vector3) => boolean;
 }
 
 export function createPlayer(
@@ -282,6 +325,42 @@ export function createPlayer(
   const probe = new THREE.Vector3();
   const bow = new THREE.Vector3();
   const basis = new THREE.Matrix4();
+  /** What one frame on foot moves the body, as a tangent vector. */
+  const moved = new THREE.Vector3();
+
+  /**
+   * The walls, laid flat. `slide` works in a plane and the planet is not one, so
+   * each frame puts a tangent plane at the player — `flatX` along the facing,
+   * `flatZ` beside it — and this translates between the two. A frame covers 13
+   * units at most and over 13 units the plane misses the sphere by 0.005, so the
+   * pushes are the settlements' own, only re-expressed.
+   */
+  const origin = new THREE.Vector3();
+  const flatX = new THREE.Vector3();
+  const flatZ = new THREE.Vector3();
+  const query = new THREE.Vector3();
+  const pushed = new THREE.Vector3();
+  const spot = new THREE.Vector3();
+  const body: Body = { x: 0, z: 0, vx: 0, vz: 0 };
+  function onSphere(x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(origin).addScaledVector(flatX, x).addScaledVector(flatZ, z).setLength(origin.length());
+  }
+  const { collide, freeSpotNear } = options;
+  const walls: Walls | null = collide === undefined ? null : {
+    collide(x, z, radius, push) {
+      const hit = collide(onSphere(x, z, query), radius, pushed);
+      push.x = pushed.dot(flatX);
+      push.z = pushed.dot(flatZ);
+      return hit;
+    },
+    freeSpot: freeSpotNear === undefined ? undefined : (x, z, radius, out) => {
+      if (!freeSpotNear(onSphere(x, z, query), radius, spot)) return false;
+      spot.setLength(origin.length()).sub(origin);
+      out.x = spot.dot(flatX);
+      out.z = spot.dot(flatZ);
+      return true;
+    },
+  };
 
   const controls: Player['controls'] = { lift: 0, command: null };
 
@@ -423,6 +502,25 @@ export function createPlayer(
     return false;
   }
 
+  /**
+   * The frame's move through whatever is standing: `moved` becomes the
+   * displacement and `motion` what the walls left of it. True if a wall was
+   * touched.
+   */
+  function throughWalls(dt: number, walls: Walls): boolean {
+    origin.copy(position);
+    flatX.copy(forward);
+    flatZ.crossVectors(up, flatX).normalize();
+    body.x = 0;
+    body.z = 0;
+    body.vx = motion.dot(flatX);
+    body.vz = motion.dot(flatZ);
+    const outcome = slide(body, dt, BODY_RADIUS, walls);
+    moved.copy(flatX).multiplyScalar(body.x).addScaledVector(flatZ, body.z);
+    motion.copy(flatX).multiplyScalar(body.vx).addScaledVector(flatZ, body.vz);
+    return outcome !== 'clear';
+  }
+
   function walk(dt: number, input: PlayerInput): void {
     // Movement is relative to the camera, which is the whole difference
     // between this and tank controls: the stick points at the world, not at
@@ -453,22 +551,33 @@ export function createPlayer(
       airborne = true;
     }
 
-    if (velocity > 1e-4) {
-      direction.copy(motion).divideScalar(velocity);
-      const arc = (velocity * dt) / position.length();
-      axis.crossVectors(up, direction).normalize();
+    // What the frame actually moves: the motion, or in a town what the walls
+    // leave of it. `velocity` is read again afterwards, so a man pressed flat
+    // against a wall reports standing still and his walk cycle stops with him.
+    moved.copy(motion).multiplyScalar(dt);
+    let walled = false;
+    if (walls !== null) {
+      walled = throughWalls(dt, walls);
+      velocity = motion.length();
+    }
+    const distance = moved.length();
+    if (distance > 1e-9) {
+      const arc = distance / position.length();
+      axis.crossVectors(up, moved).normalize();
       position.applyAxisAngle(axis, arc);
       motion.applyAxisAngle(axis, arc);
       forward.applyAxisAngle(axis, arc).normalize();
-      direction.applyAxisAngle(axis, arc).normalize();
       up.copy(position).normalize();
     }
+    if (velocity > 1e-4) direction.copy(motion).divideScalar(velocity);
 
     // The body turns towards where it is going rather than being turned by
-    // the keys, so a change of direction is a curve and not a snap.
+    // the keys, so a change of direction is a curve and not a snap. Against a
+    // wall there is no going, and it turns to face where the stick is pushing.
     let turn = 0;
-    if (velocity > 1e-3 && amount > 1e-4) {
-      turn = angleAbout(forward, direction, up) * approach(TURN_SMOOTHING, dt);
+    const facing = velocity > 1e-3 ? direction : walled ? wish : null;
+    if (facing !== null && amount > 1e-4) {
+      turn = angleAbout(forward, facing, up) * approach(TURN_SMOOTHING, dt);
       forward.applyAxisAngle(up, turn).normalize();
     }
     const leanTarget = dt > 0
@@ -711,6 +820,13 @@ export function createPlayer(
       const theta = lon * DEG;
       position.set(Math.sin(phi) * Math.cos(theta), Math.cos(phi), -Math.sin(phi) * Math.sin(theta));
       up.copy(position).normalize();
+      // Never arrive inside a building. The town at the far end is usually not
+      // standing yet, and the first frame it is pushes you out of it — see
+      // `freeSpotNear` — but a jump into one that is costs only this call.
+      if (freeSpotNear !== undefined && freeSpotNear(query.copy(up).multiplyScalar(PLANET_RADIUS), BODY_RADIUS, spot)) {
+        position.copy(spot).normalize();
+        up.copy(position);
+      }
 
       // Height comes from the ground under the new position, now. Reading it
       // from the old one is how teleporting from land to open ocean used to

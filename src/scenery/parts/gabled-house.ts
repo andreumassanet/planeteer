@@ -133,11 +133,15 @@ export const gabledHouse: ScenicPart = {
     // cheapest storey line there is: one box and no extra colour.
     const lightTop = storeys > 1 && rng.chance(0.4);
     const lower = lightTop ? body - STOREY : body;
-    const shell = box(width, lower, depth, wall);
+    // Whichever storey is the top one stops `PROUD` short of the eave band, and
+    // the band caps the wall. Level with it, the two tops were one plane in two
+    // colours: the roof hides that plane here, and the same plane with no roof
+    // over it is what z-fought across the whole of `flat-roof-house`'s roof.
+    const shell = box(width, lightTop ? lower : lower - PROUD, depth, wall);
     shell.position.y = COURSE;
     group.add(shell);
     if (lightTop) {
-      const attic = box(width + PROUD, STOREY, depth + PROUD, surround);
+      const attic = box(width + PROUD, STOREY - PROUD, depth + PROUD, surround);
       attic.position.y = COURSE + lower;
       group.add(attic);
     }
@@ -154,8 +158,10 @@ export const gabledHouse: ScenicPart = {
     cap.add(roof(eaved, span + EAVES * 2, roofHeight, ridge, tile));
     // The ridge cap: a darker tile laid along the top. It is a real detail and
     // it is also one more ink line on the edge that names the shape. Held
-    // inside the roof it caps, so it cannot be what pushes the footprint out.
-    const ridgeCap = box(Math.min(ridge + 0.3, eaved), 0.3, 0.42, ridgeTile);
+    // inside the roof it caps, so it cannot be what pushes the footprint out —
+    // and `PROUD` inside each gable, because flush with them its ends lay in
+    // the gables' own planes and fought them.
+    const ridgeCap = box(Math.min(ridge + 0.3, eaved - PROUD * 2), 0.3, 0.42, ridgeTile);
     ridgeCap.position.y = roofHeight - 0.1;
     cap.add(ridgeCap);
     if (rng.chance(0.72)) {
@@ -177,8 +183,10 @@ export const gabledHouse: ScenicPart = {
     const leaf = panes(1, doorWidth, 2.45, 0, woodwork, PROUD * 2);
     leaf.position.set(doorX, COURSE, front + PROUD);
     group.add(leaf);
-    const lintel = panes(1, doorWidth + 0.55, 0.26, 0, surround, PROUD * 3);
-    lintel.position.set(doorX, COURSE + 2.45, front + PROUD * 1.5);
+    // Two `PROUD`s past the leaf rather than one: on the narrowest houses its
+    // end crosses the glass of the ground-floor pair, which is at `PROUD * 3`.
+    const lintel = panes(1, doorWidth + 0.55, 0.26, 0, surround, PROUD * 4);
+    lintel.position.set(doorX, COURSE + 2.45, front + PROUD * 2);
     group.add(lintel);
     const step = box(doorWidth + 0.75, COURSE, 0.55, course);
     step.position.set(doorX, 0, front + 0.27);

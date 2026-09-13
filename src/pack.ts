@@ -40,7 +40,16 @@ const VERSION = 1;
 
 const MAGIC_COUNTRIES = 0x434c5441; // 'ATLC'
 const MAGIC_PLACES = 0x504c5441; // 'ATLP'
-const MAGIC_ROADS = 0x524c5441; // 'ATLR'
+/**
+ * 'ATLG', and it was 'ATLR' until the roads grew two gate columns and a depth
+ * layer (2026-09-13).
+ * A new magic rather than a new `VERSION`, because `VERSION` is shared by every
+ * file here and bumping it would invalidate `places.bin` and `countries.bin` for
+ * a change neither of them made — the same argument `encodeLakes` makes. A
+ * stale `roads.bin` then fails on its first four bytes with "re-bake it" rather
+ * than being read a column short.
+ */
+const MAGIC_ROADS = 0x474c5441; // 'ATLG'
 const MAGIC_LAKES = 0x4b4c5441; // 'ATLK'
 
 /**
@@ -637,6 +646,31 @@ export function encodeRoads(placeCount: number, graph: string, roads: readonly R
   }
   writePlanes(out, bends, 2, 32768);
 
+  // Which gate of each town the road comes in by: an index into
+  // `gatesOf(townGrid(pop))`, so a byte — the widest town on the planet has
+  // 36 gates. Stored for the bow's reason: the bake chooses it *with* the water
+  // and slope tests, so the gate the curve was tested through is the gate it
+  // is drawn through. See `Road.gateA` in `src/roads.ts`.
+  for (const column of ['gateA', 'gateB'] as const) {
+    const gates = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const gate = roads[i]![column];
+      if (!Number.isInteger(gate) || gate < 0 || gate > 255) throw new Error(`${column} ${gate} will not fit a byte`);
+      gates[i] = gate;
+    }
+    out.raw(gates);
+  }
+
+  // The depth layer each road is drawn on, 0 in front: a byte, and almost all
+  // of them 0. See `layersOf`.
+  const layers = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const layer = roads[i]!.layer;
+    if (!Number.isInteger(layer) || layer < 0 || layer > 255) throw new Error(`layer ${layer} will not fit a byte`);
+    layers[i] = layer;
+  }
+  out.raw(layers);
+
   return out.done();
 }
 
@@ -656,10 +690,21 @@ export function decodeRoads(bytes: Uint8Array): RoadData {
   const ends = readPlanes(reader, n, 2);
   const classes = reader.raw(n);
   const bends = readPlanes(reader, n, 2, 32768);
+  const gatesA = reader.raw(n);
+  const gatesB = reader.raw(n);
+  const layers = reader.raw(n);
 
   const roads: Road[] = new Array(n);
   for (let i = 0; i < n; i++) {
-    roads[i] = { a: starts[i]!, b: ends[i]!, cls: classes[i]!, bend: bends[i]! / BEND_SCALE };
+    roads[i] = {
+      a: starts[i]!,
+      b: ends[i]!,
+      cls: classes[i]!,
+      bend: bends[i]! / BEND_SCALE,
+      gateA: gatesA[i]!,
+      gateB: gatesB[i]!,
+      layer: layers[i]!,
+    };
   }
   return { places, graph, roads };
 }

@@ -62,7 +62,11 @@ export const minaretMosque: ScenicPart = {
     const hallHeight = STOREY * rng.range(1.5, 2);
 
     group.add(box(hallWidth + 0.6, 0.45, hallDepth + 0.6, course));
-    const hall = box(hallWidth, hallHeight, hallDepth, wall);
+    // `PROUD` taller than the band it wears, for the flat-roof house's reason:
+    // level with it, the band's closed top and the hall's roof were one plane in
+    // two colours and the roof z-fought, 26.6 u² a build (2026-09-13). The
+    // extra stands inside the crown's ring, where nothing can see it.
+    const hall = box(hallWidth, hallHeight + PROUD, hallDepth, wall);
     hall.position.y = 0.45;
     group.add(hall);
     const band = box(hallWidth + PROUD * 2, 0.32, hallDepth + PROUD * 2, shade);
@@ -76,11 +80,17 @@ export const minaretMosque: ScenicPart = {
     // --- the dome, on a drum with a collar so it does not grow out of the roof ---
     const domeRadius = hallWidth * rng.range(0.26, 0.33);
     const drumZ = -hallDepth * 0.1;
-    const drum = column(domeRadius * 1.06, 1.5, wall, 12);
-    drum.position.set(0, 0.45 + hallHeight, drumZ);
+    // Sunk `PROUD` into the roof: on a hall wide for its depth it reaches
+    // through the crown at the back, and its underside out there was the
+    // crown's too.
+    const drum = column(domeRadius * 1.06, 1.5 + PROUD, wall, 12);
+    drum.position.set(0, 0.45 + hallHeight - PROUD, drumZ);
     group.add(drum);
     const ring = taper(domeRadius * 1.2, domeRadius * 1.1, 0.4, collar, 12);
-    ring.position.set(0, 0.45 + hallHeight + 1.5 - 0.4, drumZ);
+    // `PROUD` over the drum's top, so the dome grows out of the collar. Level
+    // with it, the drum's top and the collar's were one plane in two colours
+    // round the dome's foot.
+    ring.position.set(0, 0.45 + hallHeight + 1.5 - 0.4 + PROUD, drumZ);
     group.add(ring);
 
     const cap = dome(domeRadius, domeRadius * rng.range(1.05, 1.35), domeColor, 12, 3);
@@ -104,7 +114,9 @@ export const minaretMosque: ScenicPart = {
     group.add(base);
 
     const sides = rng.chance(0.5) ? 4 : 8;
-    const lower = column(shaftWidth / 2, balconyY - 1.65, shade, sides);
+    // Stops `PROUD` into the corbel, whose top would otherwise share its plane
+    // round the foot of the upper shaft.
+    const lower = column(shaftWidth / 2, balconyY - 1.65 - PROUD, shade, sides);
     lower.position.set(at, 1.65, az);
     group.add(lower);
     const upper = column(shaftWidth * 0.45, 1.65 + shaftHeight - balconyY, wall, sides);
