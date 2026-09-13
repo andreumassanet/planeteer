@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, groundRadius } from './globe.ts';
 import { createToonRamp } from './theme.ts';
-import { bedtimeByte, bedtimeNever, lightWindows, poolByte } from './lights.ts';
+import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import {
   GROUND_LIFT,
   KERB_DROP,
@@ -27,6 +27,8 @@ import {
   cellCentre,
   cellIndex,
   cornerOffset,
+  gateGlow,
+  gatesOf,
   isAvenue,
   streetBand,
   townFrame,
@@ -1083,10 +1085,11 @@ export interface SettlementOptions {
   /** Monuments, so nothing is built inside one. */
   monuments?: readonly Placement[];
   /**
-   * Accepted and no longer read. A town used to draw the last stretch of every
-   * road itself and aimed it with this; `roads.ts` lays the ribbon to the
-   * square's gates now (`scenery/grid.ts`), so nothing here needs to know
-   * where the roads go.
+   * The network, for one thing only: which gates of each town a road comes in
+   * by, because each of them carries a light (`gateGlow` in `scenery/grid.ts`)
+   * that the floor and the road's ribbon share. A town used to draw the last
+   * stretch of every road itself and aimed it with this; `roads.ts` lays the
+   * ribbon to the square's gates now, and the town draws nothing of it.
    */
   roads?: readonly Road[];
 }
@@ -1098,6 +1101,18 @@ export function createSettlements(
 ): Settlements {
   const group = new THREE.Group();
   group.name = 'settlements';
+
+  /** The gates each town's roads come in by, as indices into `gatesOf` for its square. */
+  const roadGates = new Map<Place, number[]>();
+  for (const road of options.roads ?? []) {
+    for (const [end, gate] of [[road.a, road.gateA], [road.b, road.gateB]] as const) {
+      const place = places[end];
+      if (place === undefined) continue;
+      const list = roadGates.get(place) ?? [];
+      if (!list.includes(gate)) list.push(gate);
+      roadGates.set(place, list);
+    }
+  }
 
   const ctx: SceneryContext = createSceneryContext(options.context);
   const material = townMaterial();
@@ -1702,13 +1717,7 @@ export function createSettlements(
     let best = 0;
     let bed = 0;
     for (const emitter of litHere) {
-      const distance = Math.hypot(x - emitter.x, z - emitter.z);
-      if (distance >= emitter.reach) continue;
-      const span = emitter.reach - emitter.inner;
-      const value = poolByte(
-        emitter.strength,
-        span <= 0 ? 1 : 1 - Math.max(0, distance - emitter.inner) / span,
-      );
+      const value = poolAt(emitter.strength, Math.hypot(x - emitter.x, z - emitter.z), emitter.inner, emitter.reach);
       if (value > best) {
         best = value;
         bed = emitter.bed;
@@ -2058,6 +2067,22 @@ export function createSettlements(
 
     /** Everything in this town that lights the ground, in one list. */
     const emitters: Emitter[] = [];
+    // The light at every gate a road comes in by, and first, so that where it
+    // ties with another light at the peak its hour is the one kept: it burns
+    // till dawn, and so does the ribbon it shares the kerb with. It is placed
+    // at the paving's own height, where `roads.ts` places it (`kerbA`), because
+    // a point's offset in this frame moves with its radius.
+    const gates = gatesOf(grid);
+    const gateAt: number[] = [0, 0, 0];
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gates[index];
+      const cell = gate?.cells[0];
+      const level = cell === undefined ? undefined : levels.get(cellKey(cell[0], cell[1]));
+      if (gate === undefined || level === undefined) continue;
+      const glow = gateGlow(grid, gate, band);
+      pointIn(glow.x, glow.z, level + GROUND_LIFT, gateAt);
+      emitters.push({ x: gateAt[0]!, z: gateAt[2]!, inner: glow.inner, reach: glow.reach, strength: 1, bed: 255 });
+    }
     for (let i = 0; i + 2 < out.lamps.length; i += 3) {
       emitters.push({
         x: out.lamps[i]!,

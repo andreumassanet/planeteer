@@ -75,8 +75,10 @@ import {
   waterProbeSteps,
 } from '../src/roads.ts';
 import type { CoursePath, RoadRamp } from '../src/roads.ts';
+import { poolAt, poolByte } from '../src/lights.ts';
 import {
   cornerOffset,
+  gateGlow,
   gateLevel,
   gatesOf,
   groundOf,
@@ -2904,6 +2906,40 @@ console.log('\nmade ground');
       gateWrong === 0 && gateCells > 0,
       'and every gate’s cells are cut to the level gateLevel gives the road',
       `${gateCells} gate cells, ${gateWrong} disagreeing`,
+    );
+
+    /**
+     * And the light at a gate, which the floor and the road share at night.
+     *
+     * The floor takes the brightest light over each vertex and the ribbon only
+     * its gates' (`gateGlow`), so the kerb shows no step only if the gate's
+     * light is at the peak across the whole mouth of the street — the most any
+     * light gives, which nothing else on the floor can exceed — and gone by
+     * `reach`. Held over every gate of every size of square, at the widest band
+     * the kit gives a street.
+     */
+    const peak = poolByte(1, 1);
+    let mouths = 0;
+    let points = 0;
+    let dim = 0;
+    let lingering = 0;
+    for (const grid of sizes.values()) {
+      const band = streetBand(grid, 15);
+      for (const gate of gatesOf(grid)) {
+        mouths++;
+        const glow = gateGlow(grid, gate, band);
+        const half = gate.cells.length < 2 ? grid.pitch * 0.5 : band;
+        for (let k = -8; k <= 8; k++) {
+          points++;
+          if (poolAt(1, Math.abs(k / 8) * half, glow.inner, glow.reach) !== peak) dim++;
+        }
+        if (poolAt(1, glow.reach, glow.inner, glow.reach) !== 0) lingering++;
+      }
+    }
+    check(
+      peak > 0 && dim === 0 && lingering === 0,
+      'and the light at every gate is at the peak across the whole mouth of its street, and gone at its reach',
+      `${points} points across ${mouths} mouths at ${peak} of 255, the most any light gives`,
     );
   }
 

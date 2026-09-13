@@ -567,6 +567,40 @@ export function gateLevel(
 }
 
 /**
+ * How far past the mouth of a gate its light runs, in world units: out along
+ * the road, and in along the street.
+ *
+ * Longer than a street lamp's pool (`LAMP_POOL`, 14, in `settlements.ts`)
+ * because it is the only light a road has, and what it is for is to carry the
+ * town's floor out onto the carriageway and let it go, rather than to light a
+ * spot: 24 units is a little over two carriageway widths, the length of a
+ * town's approach, over which the square falloff takes the road from the
+ * floor's brightest to dark.
+ */
+export const GATE_GLOW_RUN = 24;
+
+/**
+ * The light at a gate a road comes in by: its centre in the town's frame, the
+ * radius it is at full out to, and where it ends. Strength 1, and it burns till
+ * dawn like a street lamp.
+ *
+ * **Full across the whole mouth of the street**, `inner` being the street's
+ * half-width — half the cell on an avenue, the band on a boundary — and a unit
+ * over it. That is what makes the kerb invisible at night. The town's floor
+ * takes the brightest light over each vertex and the road's ribbon takes only
+ * this one, and a pool's peak is the most any light can be: so where the two
+ * meet, both are at the peak, and nothing else on the floor can outshine it
+ * there. `poolAt` in `lights.ts` is the law both apply.
+ *
+ * `band` is `streetBand` for the town's region; an avenue's gate does not read
+ * it.
+ */
+export function gateGlow(grid: TownGrid, gate: Gate, band: number): { x: number; z: number; inner: number; reach: number } {
+  const inner = (gate.cells.length < 2 ? grid.pitch * 0.5 : band) + 1;
+  return { x: gate.x, z: gate.z, inner, reach: inner + GATE_GLOW_RUN };
+}
+
+/**
  * Which gate each road comes in by.
  *
  * `leaving` is each road's direction out of the town, as `(x, z)` in the

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
 import { createToonRamp } from './theme.ts';
+import { lightWindows, poolAt } from './lights.ts';
 import { isShown, prominenceVersion, radiusFor } from './places.ts';
 import type { Place } from './places.ts';
 import { decodeRoads, inflate } from './pack.ts';
@@ -20,7 +21,7 @@ import type { Slope } from './terrain.ts';
 import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
 import { GROUND_LIFT, groundStyleFor, trodden } from './scenery/ground.ts';
-import { assignGates, gateLevel, gatesOf, offsetDirection, streetBand, townFrame, townGrid } from './scenery/grid.ts';
+import { assignGates, gateGlow, gateLevel, gatesOf, offsetDirection, streetBand, townFrame, townGrid } from './scenery/grid.ts';
 import type { Gate, TownGrid } from './scenery/grid.ts';
 
 /**
@@ -2181,7 +2182,15 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   // Each road's depth layer, pushed back after projection: see `LAYER_DEPTH`.
   // `OutlineEffect` builds its own program and ignores this, and that is fine
   // here and nowhere else — a road has no ink hull for it to build.
-  material.onBeforeCompile = (shader) => {
+  //
+  // And the town's light, the way a town's floor carries it: two bytes a vertex
+  // (`atlasLit`), lit after dark by the gate the road comes in by. Chained after
+  // `lightWindows`' own hook rather than replacing it; both only append to the
+  // chunks they match, so the order does not matter.
+  lightWindows(material);
+  const lit = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    lit(shader, renderer);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float roadLayer;')
       .replace(
@@ -2189,7 +2198,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         `#include <project_vertex>\n\tgl_Position.z += roadLayer * ${LAYER_DEPTH.toExponential(3)} * gl_Position.w;`,
       );
   };
-  material.customProgramCacheKey = () => 'roads:layers';
+  material.customProgramCacheKey = () => 'roads:layers:lit';
 
   const scratch = new THREE.Vector3();
   const roads = data.roads;
@@ -2264,6 +2273,62 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       ramps.set(index, found);
     }
     return found;
+  };
+
+  /**
+   * The lights at a road's two gates (`gateGlow`), cached per road: each as the
+   * point it hangs at — the gate on the paving, at `kerbA` or `kerbB`, where the
+   * town puts it — and the town's frame its distances are measured in, which
+   * is the frame the town's floor measures its own pools in.
+   */
+  interface GateLight {
+    at: THREE.Vector3;
+    across: THREE.Vector3;
+    north: THREE.Vector3;
+    inner: number;
+    reach: number;
+  }
+  const NO_LIGHTS: readonly GateLight[] = [];
+  const gateLights = new Map<number, readonly GateLight[]>();
+  const gateLightsFor = (index: number): readonly GateLight[] => {
+    let found = gateLights.get(index);
+    if (found === undefined) {
+      const road = roads[index]!;
+      const ramp = rampFor(index);
+      const list: GateLight[] = [];
+      for (const [end, which, kerb] of [[road.a, road.gateA, ramp.kerbA], [road.b, road.gateB, ramp.kerbB]] as const) {
+        // A kerb of 0 is a gate the town could not cut, which has no paving to
+        // light and no floor to match.
+        if (kerb === 0) continue;
+        const place = places[end]!;
+        const town = townOf(place);
+        const gate = town.gates[which];
+        if (gate === undefined) continue;
+        const glow = gateGlow(town.grid, gate, streetHalf(place, town, gate, world));
+        const at = offsetDirection(town.up, town.across, town.north, glow.x, glow.z, new THREE.Vector3())
+          .multiplyScalar(kerb);
+        list.push({ at, across: town.across, north: town.north, inner: glow.inner, reach: glow.reach });
+      }
+      found = list.length > 0 ? list : NO_LIGHTS;
+      if (gateLights.size >= GEOMETRY_CAP) gateLights.clear();
+      gateLights.set(index, found);
+    }
+    return found;
+  };
+  const glowOffset = new THREE.Vector3();
+  /**
+   * The light on the ribbon at a point, as the byte a town's floor would carry
+   * there: the brighter of the road's two gate lights, by `poolAt`, over the
+   * distance across the ground in that town's frame.
+   */
+  const ribbonGlow = (lights: readonly GateLight[], point: THREE.Vector3): number => {
+    let best = 0;
+    for (const light of lights) {
+      glowOffset.subVectors(point, light.at);
+      const distance = Math.hypot(glowOffset.dot(light.across), glowOffset.dot(light.north));
+      best = Math.max(best, poolAt(1, distance, light.inner, light.reach));
+    }
+    return best;
   };
 
   // ------------------------------------------------------------------
@@ -2410,13 +2475,18 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const colors: number[] = [];
     /** Each vertex's road's depth layer; see `LAYER_DEPTH`. */
     const layers: number[] = [];
+    /** Each vertex's light and its hour, the two bytes a town's floor carries; see `ribbonGlow`. */
+    const glow: number[] = [];
     let layer = 0;
+    let lights: readonly GateLight[] = NO_LIGHTS;
     let drawn = 0;
 
     const push = (p: THREE.Vector3, c: THREE.Color): void => {
       positions.push(p.x, p.y, p.z);
       colors.push(c.r, c.g, c.b);
       layers.push(layer);
+      // 255 is the hour that never comes: a gate's light burns till dawn.
+      glow.push(ribbonGlow(lights, p), 255);
     };
     const quad = (
       p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3,
@@ -2452,6 +2522,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       const course = geometry.course(index);
       const path = geometry.path(index);
       const ramp = rampFor(index);
+      lights = gateLightsFor(index);
       const half = style.width * 0.5 * (BAND_WIDTH[band] ?? 1);
 
       /**
@@ -2532,6 +2603,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     buffer.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     buffer.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     buffer.setAttribute('roadLayer', new THREE.Float32BufferAttribute(layers, 1));
+    // Normalised, so the shader reads 0..1 out of each byte, as it does a town's.
+    buffer.setAttribute('atlasLit', new THREE.BufferAttribute(new Uint8Array(glow), 2, true));
     buffer.computeVertexNormals();
     buffer.computeBoundingSphere();
 
@@ -2542,7 +2615,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     group.add(mesh);
     tile.mesh = mesh;
     tile.triangles = positions.length / 9;
-    tile.bytes = (positions.length * 2 + layers.length) * 4;
+    tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length;
     tile.drawn = drawn;
   }
 

@@ -315,6 +315,26 @@ export function poolByte(strength: number, falloff: number): number {
   return Math.round(Math.max(0, Math.min(1, strength)) * value * value * POOL_PEAK * 255);
 }
 
+/**
+ * An emitter's pool at a point `distance` from it, as the byte `atlasLit.x`
+ * carries: full out to `inner`, falling by `poolByte`'s square to nothing at
+ * `reach`.
+ *
+ * **One law for every surface a pool lands on.** A town's floor asks it about
+ * each lamp, lit building and gate light round every vertex, and a road's
+ * ribbon asks it about the light at the gate it comes in by (`gateGlow` in
+ * `scenery/grid.ts`), so the two meet at the kerb on the same value. Until
+ * 2026-09-13 only the floor carried light: a road entering a lit town at night
+ * met a floor glowing amber at the kerb and stayed dark itself, and once the
+ * floor was the road's own colour the line between them was the whole
+ * difference — *la luz debería afectar a todo, porque si no se nota un corte.*
+ */
+export function poolAt(strength: number, distance: number, inner: number, reach: number): number {
+  if (distance >= reach) return 0;
+  const span = reach - inner;
+  return poolByte(strength, span <= 0 ? 1 : 1 - Math.max(0, distance - inner) / span);
+}
+
 // ---------------------------------------------------------------------------
 // Lit windows: emission inside a merged, vertex-coloured town
 // ---------------------------------------------------------------------------
