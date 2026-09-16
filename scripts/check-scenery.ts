@@ -58,6 +58,10 @@ import {
 import type { Measurements, ScenicPart } from '../src/scenery/contract.ts';
 import { REGIONS, REGION_IDS, NATIVE_TO } from '../src/scenery/regions.ts';
 import { BIOMES } from '../src/biome.ts';
+import { registerModelsFromDisk } from './kit-node.ts';
+
+// The flora and the vehicles are baked CC0 models (scripts/build-kit.ts): register them as main.ts does.
+await registerModelsFromDisk();
 
 const PARTS = resolve(import.meta.dirname, '../src/scenery/parts');
 

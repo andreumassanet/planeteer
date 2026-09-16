@@ -407,7 +407,8 @@ const MAX_TILES = 80;
  * it was 108 before the knob made that worth doing) the field measured 225 MB on
  * foot at detail 6, against the land mesh's 138 — and the frame was 1.8 ms, so
  * nothing about the render was going to stop it. `MAX_MEGABYTES` is what stops
- * it: 2.6 M triangles is about 140 MB, roughly the land, and because the build
+ * it: 2.6 M triangles was about 140 MB, roughly the land (about 164 MB at the 63
+ * bytes a triangle the ink's normal made it on 2026-09-17), and because the build
  * queue is nearest-first what the cap drops is the furthest ring.
  *
  * That makes the top of the knob honest rather than a cliff: past about detail
@@ -586,6 +587,8 @@ interface FlatVariant {
   position: Float32Array;
   normal: Float32Array;
   color: Float32Array;
+  /** The ink's normals: a painted part's welded `outlineNormal`, a code part's own normal. */
+  outline: Float32Array;
   triangles: number;
   height: number;
   footprint: number;
@@ -614,6 +617,7 @@ function flatten(group: THREE.Group): Omit<FlatVariant, 'height' | 'footprint' |
     position: new Float32Array(vertices * 3),
     normal: new Float32Array(vertices * 3),
     color: new Float32Array(vertices * 3),
+    outline: new Float32Array(vertices * 3),
     triangles: vertices / 3,
   };
 
@@ -629,6 +633,9 @@ function flatten(group: THREE.Group): Omit<FlatVariant, 'height' | 'footprint' |
     normalMatrix.getNormalMatrix(piece.matrix);
     const hex = piece.material.userData.atlasToon as number | undefined;
     tint.set(hex ?? 0xffffff);
+    // A painted part (`SceneryContext.painted`) carries its colours on the vertices.
+    const paint = piece.material.userData.atlasPainted === true ? piece.geometry.getAttribute('color') : undefined;
+    const outline = piece.geometry.getAttribute('outlineNormal') ?? normal;
     for (let i = 0; i < count; i++) {
       const v = index ? index.getX(i) : i;
       point.fromBufferAttribute(position, v).applyMatrix4(piece.matrix);
@@ -639,9 +646,19 @@ function flatten(group: THREE.Group): Omit<FlatVariant, 'height' | 'footprint' |
       out.normal[cursor] = point.x;
       out.normal[cursor + 1] = point.y;
       out.normal[cursor + 2] = point.z;
-      out.color[cursor] = tint.r;
-      out.color[cursor + 1] = tint.g;
-      out.color[cursor + 2] = tint.b;
+      point.fromBufferAttribute(outline, v).applyMatrix3(normalMatrix).normalize();
+      out.outline[cursor] = point.x;
+      out.outline[cursor + 1] = point.y;
+      out.outline[cursor + 2] = point.z;
+      if (paint !== undefined) {
+        out.color[cursor] = paint.getX(v);
+        out.color[cursor + 1] = paint.getY(v);
+        out.color[cursor + 2] = paint.getZ(v);
+      } else {
+        out.color[cursor] = tint.r;
+        out.color[cursor + 1] = tint.g;
+        out.color[cursor + 2] = tint.b;
+      }
       cursor += 3;
     }
   }
@@ -710,7 +727,8 @@ export interface Vegetation {
  */
 function foliageMaterial(): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
-  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01] };
+  // Every tile carries `outlineNormal` (see `FlatVariant.outline`).
+  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal: true };
   return material;
 }
 
@@ -1456,10 +1474,14 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
      * A normal is a unit vector and a cel colour is one of two dozen palette
      * entries, so eight bits each is not an approximation anyone can see: the
      * worst normal error is a quarter of a degree, against a `gradientMap` with
-     * four bands in it. 108 bytes a triangle becomes 54.
+     * four bands in it. 108 bytes a triangle becomes 54 — and 63 since the
+     * painted parts brought the ink's own normal, three more bytes a vertex
+     * (2026-09-17).
      */
     const normal = new Int8Array(vertices * 3);
     const color = new Uint8Array(vertices * 3);
+    // And the ink's normal, the same byte a component: see `FlatVariant.outline`.
+    const outline = new Int8Array(vertices * 3);
     let cursor = 0;
     for (const item of placed) {
       const e = item.matrix.elements;
@@ -1486,6 +1508,12 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         normal[cursor] = Math.round((e[0]! * nx + e[4]! * ny + e[8]! * nz) * inverseScale * 127);
         normal[cursor + 1] = Math.round((e[1]! * nx + e[5]! * ny + e[9]! * nz) * inverseScale * 127);
         normal[cursor + 2] = Math.round((e[2]! * nx + e[6]! * ny + e[10]! * nz) * inverseScale * 127);
+        const ox = source.outline[i]!;
+        const oy = source.outline[i + 1]!;
+        const oz = source.outline[i + 2]!;
+        outline[cursor] = Math.round((e[0]! * ox + e[4]! * oy + e[8]! * oz) * inverseScale * 127);
+        outline[cursor + 1] = Math.round((e[1]! * ox + e[5]! * oy + e[9]! * oz) * inverseScale * 127);
+        outline[cursor + 2] = Math.round((e[2]! * ox + e[6]! * oy + e[10]! * oz) * inverseScale * 127);
         cursor += 3;
       }
       for (let i = 0; i < count; i++) {
@@ -1497,6 +1525,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3, true));
     geometry.setAttribute('color', new THREE.BufferAttribute(color, 3, true));
+    geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(outline, 3, true));
     geometry.computeBoundingSphere();
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -1521,7 +1550,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       triangles: vertices / 3,
       plants: placed.length,
       // 12 bytes of position, 3 of normal and 3 of colour per vertex.
-      bytes: vertices * 18,
+      // 12 of position, 3 of normal, 3 of colour, 3 of the ink's normal.
+      bytes: vertices * 21,
       plots,
       inTheSea,
       builtOver,

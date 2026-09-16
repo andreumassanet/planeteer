@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
 import { PAINTED_MARK, createContext, measure, paletteName } from '../monuments/contract.ts';
-import { paintModel } from '../models.ts';
+import { onPalette, paintModel, toned } from '../models.ts';
 import type { Model, Paint } from '../models.ts';
 import type { Measurements, MonumentContext } from '../monuments/contract.ts';
 import { rngFrom } from './random.ts';
@@ -244,8 +244,11 @@ export interface KindSpec {
 }
 
 export const KINDS: Record<PartKind, KindSpec> = {
-  scatter: { height: 6, minHeight: 0.5, footprint: 3.5, triangles: 90, meshes: 8, colors: 3 },
-  tree: { height: 26, minHeight: 4, footprint: 8, triangles: 150, meshes: 14, colors: 3 },
+  // Kenney's Nature Kit since 2026-09-17: the heaviest tree it draws here is the
+  // default pine at 230 triangles and the heaviest scatter the detailed bush at
+  // 104 (`pnpm kit`), against the 150 and 90 the code-built plants were held to.
+  scatter: { height: 6, minHeight: 0.5, footprint: 3.5, triangles: 110, meshes: 8, colors: 3 },
+  tree: { height: 26, minHeight: 4, footprint: 8, triangles: 240, meshes: 14, colors: 3 },
   // The three building kinds are a fifth over what they were (220/380/520 and
   // 26/34/44) since the glazing became frames and panes: a frame plate is ten
   // triangles and a two-pane window fourteen, where the band each replaced was
@@ -431,6 +434,15 @@ export interface SceneryContext extends MonumentContext {
   painted(model: Model, paint?: Paint): THREE.Mesh;
 
   /**
+   * A baked model (`registerSceneryModels`) as a part: painted, turned by `yaw`,
+   * narrowed across by `squash`, and scaled uniformly to the tightest of
+   * `height`, `width`, `length` and `radius` — the last being the part's
+   * footprint, which the model's own bounding circle may not pass — standing on
+   * y = 0, or `sink` under it, centred on its own vertical axis.
+   */
+  fitted(id: string, fit: ModelFit, paint?: Paint): THREE.Group;
+
+  /**
    * The colour of glass: `slate` toned down by `GLASS_TONE`, the same on every
    * part in every region. Wrap the mesh in `lit` so it glows after dark; use
    * `style.glass` only for a hole.
@@ -598,6 +610,125 @@ export interface SceneryContext extends MonumentContext {
  * across monuments and scenery both. Left to itself it makes its own, which
  * costs one 4x1 texture and one shader program per shared colour.
  */
+export interface ModelFit {
+  height?: number;
+  width?: number;
+  length?: number;
+  /** The most the model's bounding circle may reach from its axis. */
+  radius?: number;
+  /** How far below y = 0 the model's base goes: a hull's draft. */
+  sink?: number;
+  /** Turned about Y after fitting, which the bounding circle does not notice. */
+  yaw?: number;
+  /** Across (X and Z) as a share of up: 0.7 is a cypress drawn from a round tree. */
+  squash?: number;
+  /**
+   * Tones up the model's height on the slots `slots` names: `bottom` at the
+   * lowest of their vertices, `top` at the highest. What a code-built crown did
+   * with three lobes in three tones, done to one flat-coloured canopy for the
+   * price of the colour bytes it already has.
+   */
+  shade?: { slots: RegExp; bottom: number; top: number };
+}
+
+// ---------------------------------------------------------------------------
+// The baked models
+// ---------------------------------------------------------------------------
+
+const SCENERY_MODELS = new Map<string, Model>();
+
+/**
+ * Hands the kit baked models: the flora and the vehicles (`scripts/build-kit.ts`).
+ * `main.ts` calls it with what `src/kit.ts` loaded before anything builds a
+ * part; the headless checks call it with the same files read off disk.
+ */
+export function registerSceneryModels(models: Iterable<Model>): void {
+  for (const model of models) SCENERY_MODELS.set(model.name, model);
+}
+
+export function sceneryModel(id: string): Model {
+  const model = SCENERY_MODELS.get(id);
+  if (model === undefined) {
+    throw new Error(
+      SCENERY_MODELS.size === 0
+        ? `model '${id}': the kit has not been registered (registerSceneryModels)`
+        : `model '${id}' is not in the registered kit`,
+    );
+  }
+  return model;
+}
+
+const radii = new WeakMap<Model, number>();
+/** How far a model reaches from its own vertical axis through the box's centre. */
+function radiusOf(model: Model): number {
+  let radius = radii.get(model);
+  if (radius !== undefined) return radius;
+  const position = model.geometry.getAttribute('position');
+  const cx = (model.box.min.x + model.box.max.x) / 2;
+  const cz = (model.box.min.z + model.box.max.z) / 2;
+  radius = 0;
+  for (let i = 0; i < position.count; i++) radius = Math.max(radius, Math.hypot(position.getX(i) - cx, position.getZ(i) - cz));
+  radii.set(model, radius);
+  return radius;
+}
+
+/**
+ * Paint by role: each `[pattern, colour]` names the slots that play one part —
+ * leaves, bark, stone — and every slot of a role takes the role's colour, toned
+ * by how light that slot was against the role's mean. A slot no role names goes
+ * to its nearest palette colour.
+ */
+export function rolePaint(model: Pick<Model, 'slot' | 'slots' | 'defaults'>, roles: readonly (readonly [RegExp, number])[]): Paint {
+  const shares = new Array<number>(model.slots.length).fill(0);
+  for (const s of model.slot) shares[s]!++;
+  const lightness = model.defaults.map((color) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    color.clone().convertLinearToSRGB().getHSL(hsl);
+    return hsl.l;
+  });
+  const roleOf = model.slots.map((slot) => roles.findIndex(([pattern]) => pattern.test(slot)));
+  const means = roles.map((_, r) => {
+    let sum = 0;
+    let weight = 0;
+    roleOf.forEach((role, i) => {
+      if (role !== r) return;
+      sum += lightness[i]! * shares[i]!;
+      weight += shares[i]!;
+    });
+    return weight > 0 ? sum / weight : 0.5;
+  });
+  return (slot, original) => {
+    const i = model.slots.indexOf(slot);
+    const role = roleOf[i] ?? -1;
+    if (role < 0) return onPalette(original);
+    const mean = means[role]!;
+    return toned(roles[role]![1], THREE.MathUtils.clamp(mean > 0 ? lightness[i]! / mean : 1, 0.7, 1.3));
+  };
+}
+
+/** See `ModelFit.shade`. Tones in sRGB, the way `tone` does. */
+function shadeUp(model: Model, geometry: THREE.BufferGeometry, shade: NonNullable<ModelFit['shade']>): void {
+  const wanted = model.slots.map((slot) => shade.slots.test(slot));
+  const position = geometry.getAttribute('position');
+  let low = Infinity;
+  let high = -Infinity;
+  for (let v = 0; v < model.slot.length; v++) {
+    if (!wanted[model.slot[v]!]) continue;
+    low = Math.min(low, position.getY(v));
+    high = Math.max(high, position.getY(v));
+  }
+  if (!(high > low)) return;
+  const color = geometry.getAttribute('color') as THREE.BufferAttribute;
+  const c = new THREE.Color();
+  for (let v = 0; v < model.slot.length; v++) {
+    if (!wanted[model.slot[v]!]) continue;
+    const t = (position.getY(v) - low) / (high - low);
+    c.fromBufferAttribute(color, v);
+    c.copy(toned(c, shade.bottom + (shade.top - shade.bottom) * t));
+    color.setXYZ(v, c.r, c.g, c.b);
+  }
+}
+
 export function createSceneryContext(base: MonumentContext = createContext()): SceneryContext {
   /**
    * The one vertex-coloured material every painted part in this context shares.
@@ -758,9 +889,39 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
     return { frame: plate, glass: pane };
   }
 
+  function fitted(id: string, fit: ModelFit, paint?: Paint): THREE.Group {
+    const model = sceneryModel(id);
+    const size = model.box.getSize(new THREE.Vector3());
+    const squash = fit.squash ?? 1;
+    const k = Math.min(
+      fit.height !== undefined ? fit.height / size.y : Infinity,
+      fit.width !== undefined ? fit.width / (size.x * squash) : Infinity,
+      fit.length !== undefined ? fit.length / (size.z * squash) : Infinity,
+      fit.radius !== undefined ? fit.radius / (radiusOf(model) * squash) : Infinity,
+    );
+    if (!Number.isFinite(k)) throw new Error(`model '${id}': a fit needs a height, a width, a length or a radius`);
+    const mesh = painted(model, paint);
+    if (fit.shade !== undefined) shadeUp(model, mesh.geometry, fit.shade);
+    // Centred on its axis before anything turns it, so a yaw spins it in place.
+    mesh.position.set(-(model.box.min.x + model.box.max.x) / 2, -model.box.min.y, -(model.box.min.z + model.box.max.z) / 2);
+    mesh.castShadow = true;
+    const turned = new THREE.Group();
+    turned.rotation.y = fit.yaw ?? 0;
+    turned.add(mesh);
+    // Scale in a parent of the turn, so the squash stays across whatever the yaw.
+    const sized = new THREE.Group();
+    sized.scale.set(k * squash, k, k * squash);
+    sized.position.y = -(fit.sink ?? 0);
+    sized.add(turned);
+    const group = new THREE.Group();
+    group.add(sized);
+    return group;
+  }
+
   return {
     ...base,
     painted,
+    fitted,
     glass,
 
     panes,

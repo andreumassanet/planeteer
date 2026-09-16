@@ -30,10 +30,10 @@ import { setDetail } from '../src/view.ts';
 import { PLACED_LENGTH_CAP, PLACED_SECTION, placedScale, placedSize } from '../src/traffic/contract.ts';
 import { FIGURE } from '../src/avatar.ts';
 import type { Vehicle } from '../src/traffic/contract.ts';
-import { registerVehiclesFromDisk } from './kit-node.ts';
+import { registerModelsFromDisk } from './kit-node.ts';
 
 // The vehicles are baked CC0 models now (scripts/build-kit.ts): register them as main.ts does.
-await registerVehiclesFromDisk();
+await registerModelsFromDisk();
 
 const here = dirname(fileURLToPath(import.meta.url));
 

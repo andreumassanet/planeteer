@@ -475,45 +475,48 @@ export function toned(color: THREE.Color | number, factor: number): THREE.Color 
   return new THREE.Color().setRGB(channel(srgb.r), channel(srgb.g), channel(srgb.b), THREE.SRGBColorSpace);
 }
 
-/** Perceptual-ish distance: sRGB channels weighted the way the eye weighs them. */
-function distance(a: THREE.Color, b: THREE.Color): number {
-  const ar = a.clone().convertLinearToSRGB();
-  const br = b.clone().convertLinearToSRGB();
-  const r = (ar.r + br.r) / 2;
-  const dr = ar.r - br.r;
-  const dg = ar.g - br.g;
-  const db = ar.b - br.b;
-  return Math.sqrt((2 + r) * dr * dr + 4 * dg * dg + (3 - r) * db * db);
+/** CIELAB of a linear colour, for distances that follow the eye. */
+function labOf(color: THREE.Color): [number, number, number] {
+  // Linear sRGB -> XYZ (D65) -> Lab.
+  const x = (0.4124 * color.r + 0.3576 * color.g + 0.1805 * color.b) / 0.95047;
+  const y = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+  const z = (0.0193 * color.r + 0.1192 * color.g + 0.9505 * color.b) / 1.08883;
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
 }
+
+const PALETTE_LAB = PALETTE_LIST.map(labOf);
 
 /**
  * The palette colour nearest `color`, toned to keep its lightness. A pack's
  * baked shading — Kenney's atlas is a gradient per swatch — survives as a tone
  * of one palette entry, clamped to the tone range the kit allows.
+ *
+ * **Nearest in CIELAB, with lightness weighed at a third**, because the tone
+ * gives the lightness back afterwards and what has to match is the hue. The
+ * first version compared hue and lightness in linear RGB, where a mid green's
+ * lightness is under a fifth, and every leaf of Quaternius's trees came out the
+ * colour of the ink.
  */
 export function onPalette(color: THREE.Color, exclude: readonly number[] = []): THREE.Color {
-  let best = PALETTE_LIST[0]!;
+  const [l, a, b] = labOf(color);
+  let best = 0;
   let bestDistance = Infinity;
-  const hsl = { h: 0, s: 0, l: 0 };
-  color.getHSL(hsl);
-  for (const candidate of PALETTE_LIST) {
-    if (exclude.includes(candidate.getHex())) continue;
-    // Compare hue and saturation at the candidate's own lightness, so a dark
-    // blue finds blue rather than ink.
-    const probe = candidate.clone();
-    const own = { h: 0, s: 0, l: 0 };
-    probe.getHSL(own);
-    const shifted = new THREE.Color().setHSL(hsl.h, hsl.s, own.l);
-    const d = distance(shifted, candidate) + Math.abs(hsl.l - own.l) * 0.6;
+  PALETTE_LIST.forEach((candidate, i) => {
+    if (exclude.includes(candidate.getHex())) return;
+    const [cl, ca, cb] = PALETTE_LAB[i]!;
+    const chroma = Math.hypot(a, b);
+    // A near-grey keeps to the greys: its hue is noise, and its lightness is all it has.
+    const lightWeight = chroma < 8 ? 1 : 0.35;
+    const d = Math.hypot((l - cl) * lightWeight, a - ca, b - cb);
     if (d < bestDistance) {
       bestDistance = d;
-      best = candidate;
+      best = i;
     }
-  }
-  const baseHsl = { h: 0, s: 0, l: 0 };
-  best.getHSL(baseHsl);
-  const factor = THREE.MathUtils.clamp(baseHsl.l > 0.02 ? hsl.l / baseHsl.l : 1, 0.6, 1.4);
-  return toned(best, factor);
+  });
+  const base = PALETTE_LIST[best]!;
+  const factor = THREE.MathUtils.clamp(PALETTE_LAB[best]![0] > 2 ? (l + 16) / (PALETTE_LAB[best]![0] + 16) : 1, 0.6, 1.4);
+  return toned(base, factor);
 }
 
 /** How many vertices each slot covers. */

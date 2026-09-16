@@ -8,8 +8,8 @@ import type { Model, Rig, RigSource } from './models.ts';
  * The kit's CC0 models at runtime: what `scripts/build-kit.ts` wrote, read back.
  *
  * Two shapes of file. `models/traffic/kit.bin` is every vehicle in one GLB, one
- * node a model, loaded whole because the traffic of a region is most of the
- * kit and the file is under half a megabyte gzipped. `models/fauna/<id>.bin`
+ * node a model, and `models/nature/kit.bin` every plant and rock; each is loaded
+ * whole, because a region's traffic is most of the kit and the flora is 69 KB. `models/fauna/<id>.bin`
  * is one animal a file with its skeleton and clips, loaded the first time a
  * herd of it is near, because a region grazes two or three of the nine.
  *
@@ -33,8 +33,8 @@ export async function parseKit(bytes: ArrayBuffer | Uint8Array): Promise<{ scene
   return gltf;
 }
 
-/** Every vehicle model in a traffic kit file, by the ids the bake gave them. */
-export async function vehicleModelsFrom(bytes: ArrayBuffer | Uint8Array): Promise<Model[]> {
+/** Every model in a static kit file (vehicles, flora), by the ids the bake gave them. */
+export async function modelsFrom(bytes: ArrayBuffer | Uint8Array): Promise<Model[]> {
   const { scene } = await parseKit(bytes);
   const models: Model[] = [];
   scene.updateMatrixWorld(true);
@@ -46,10 +46,12 @@ export async function vehicleModelsFrom(bytes: ArrayBuffer | Uint8Array): Promis
   return models;
 }
 
-export async function loadVehicleModels(url = `${BASE}traffic/kit.bin`): Promise<Model[]> {
+/** A static kit file under `models/`: `traffic/kit.bin`, `nature/kit.bin`. */
+export async function loadModels(file: string): Promise<Model[]> {
+  const url = `${BASE}${file}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`kit: ${url} answered ${response.status}`);
-  return vehicleModelsFrom(await response.arrayBuffer());
+  return modelsFrom(await response.arrayBuffer());
 }
 
 /** An animal's rig from its file's bytes. */

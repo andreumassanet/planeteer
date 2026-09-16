@@ -1,5 +1,5 @@
 /**
- * The kit: CC0 vehicles and animals -> public/models/{traffic,fauna}/*.bin
+ * The kit: CC0 vehicles, plants and animals -> public/models/{traffic,nature,fauna}/*.bin
  *
  *   node scripts/build-kit.ts          # write every file
  *   node scripts/build-kit.ts --dry    # report and write nothing
@@ -8,7 +8,8 @@
  * this writes beside the files, which names each one):
  *
  * - Kenney, "Car Kit" and "Watercraft Kit" (https://kenney.nl/assets), GLB,
- *   coloured through one small palette texture a kit.
+ *   coloured through one small palette texture a kit; "Nature Kit", GLB in
+ *   flat material colours.
  * - Quaternius, "Ultimate Animated Animals" (glTF), "Farm Animal Pack" (FBX),
  *   "Public Transport" (FBX/OBJ) (https://quaternius.com), flat colour a
  *   material.
@@ -242,7 +243,20 @@ function loadObj(file: string): Loaded {
   } catch {
     // An OBJ without its MTL comes out white; the report will say so.
   }
-  return { scene: loader.parse(readFileSync(file, 'utf8')), animations: [] };
+  const scene = loader.parse(readFileSync(file, 'utf8'));
+  // Blender writes an MTL's `Kd` in linear light and `MTLLoader` reads it as
+  // sRGB, so every Quaternius OBJ came out a stop and a half too dark.
+  const seen = new Set<THREE.Material>();
+  scene.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (seen.has(material)) continue;
+      seen.add(material);
+      (material as THREE.MeshPhongMaterial).color?.convertLinearToSRGB();
+    }
+  });
+  return { scene, animations: [] };
 }
 
 function loadFbx(file: string): Loaded {
@@ -308,6 +322,23 @@ const TRAFFIC: StaticEntry[] = [
   { id: 'boat-sail-b', source: `${KENNEY_BOATS}boat-sail-b.glb` },
   { id: 'boat-fishing-small', source: `${KENNEY_BOATS}boat-fishing-small.glb` },
   { id: 'boat-tug-a', source: `${KENNEY_BOATS}boat-tug-a.glb` },
+];
+
+const KENNEY_NATURE = 'kenney/nature-kit/Models/GLTF format/';
+
+/**
+ * The flora (Kenney's Nature Kit, CC0): every tree, bush, cactus, rock and tuft
+ * the vegetation field and a town's yards stand, a few models a part. Flat
+ * material colours, 16 to 230 triangles — the one nature pack whose weight fits
+ * a field of thousands of plants; Quaternius's Ultimate Nature is 900 to 2,900
+ * a tree (see *The kit* in `docs/built.md`).
+ */
+const NATURE: StaticEntry[] = [
+  ...['tree_oak', 'tree_default', 'tree_fat', 'tree_tall', 'tree_simple'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+  ...['tree_pineTallA', 'tree_pineTallB', 'tree_pineRoundC', 'tree_pineDefaultA', 'tree_pineSmallA'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+  ...['tree_palmTall', 'tree_palm', 'tree_palmBend', 'tree_plateau', 'tree_cone'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+  ...['cactus_tall', 'cactus_short', 'plant_bushLarge', 'plant_bush', 'plant_bushDetailed'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+  ...['stone_largeA', 'stone_largeB', 'stone_largeC', 'stone_largeD', 'grass_leafs', 'plant_flatTall', 'plant_flatShort', 'flower_redA', 'flower_yellowA'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
 ];
 
 interface RigEntry {
@@ -417,10 +448,10 @@ const material = new THREE.MeshStandardMaterial({ name: 'kit' });
 const report: string[] = [];
 const kb = (bytes: number) => `${(bytes / 1024).toFixed(0)} KB`;
 
-async function bakeTraffic(): Promise<number> {
+async function bakeStatic(entries: StaticEntry[], file: string): Promise<number> {
   const scene = new THREE.Scene();
   let triangles = 0;
-  for (const entry of TRAFFIC) {
+  for (const entry of entries) {
     const loaded = await load(entry.source);
     const wheels = entry.wheels ? rebuildWheels(loaded.scene, entry.wheels) : 0;
     const holder = new THREE.Group();
@@ -443,10 +474,10 @@ async function bakeTraffic(): Promise<number> {
   }
   const glb = await exportGlb(scene);
   const packed = gzipSync(glb, { level: 9 });
-  report.push(`traffic.bin  ${TRAFFIC.length} models  ${triangles} tris  ${kb(glb.length)} glb  ${kb(packed.length)} gzipped`);
+  report.push(`${file}  ${entries.length} models  ${triangles} tris  ${kb(glb.length)} glb  ${kb(packed.length)} gzipped`);
   if (!DRY) {
-    mkdirSync(join(OUT, 'traffic'), { recursive: true });
-    writeFileSync(join(OUT, 'traffic', 'kit.bin'), packed);
+    mkdirSync(join(OUT, dirname(file)), { recursive: true });
+    writeFileSync(join(OUT, file), packed);
   }
   return packed.length;
 }
@@ -587,16 +618,16 @@ const LICENSE = `Vehicles and animals in this directory, rebuilt by scripts/buil
 Geometry, colours and animation clips are unchanged except where the script
 says: wheels rebuilt, materials merged into colour slots, normals creased.
 
-Kenney (https://kenney.nl) — Car Kit, Watercraft Kit. License: CC0 1.0 Universal.
+Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit. License: CC0 1.0 Universal.
 Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
 Public Transport. License: CC0 1.0 Universal.
 `;
 
-const trafficBytes = await bakeTraffic();
+const trafficBytes = await bakeStatic(TRAFFIC, 'traffic/kit.bin');
+const natureBytes = await bakeStatic(NATURE, 'nature/kit.bin');
 const faunaBytes = await bakeFauna();
 console.log(report.join('\n'));
-console.log(`total ${kb(trafficBytes + faunaBytes)} gzipped`);
+console.log(`total ${kb(trafficBytes + natureBytes + faunaBytes)} gzipped`);
 if (!DRY) {
-  writeFileSync(join(OUT, 'traffic', 'LICENSE.txt'), LICENSE);
-  writeFileSync(join(OUT, 'fauna', 'LICENSE.txt'), LICENSE);
+  for (const directory of ['traffic', 'nature', 'fauna']) writeFileSync(join(OUT, directory, 'LICENSE.txt'), LICENSE);
 }

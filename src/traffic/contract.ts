@@ -5,6 +5,7 @@ import type { Measurements } from '../monuments/contract.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
 import { bodyPaint } from '../models.ts';
+import { sceneryModel } from '../scenery/contract.ts';
 import type { Model, Paint } from '../models.ts';
 import type { Rng, Weighted } from '../scenery/random.ts';
 
@@ -635,28 +636,8 @@ export interface VehicleFit {
 // The baked models
 // ---------------------------------------------------------------------------
 
-const VEHICLE_MODELS = new Map<string, Model>();
-
-/**
- * Hands the kit its baked models. `main.ts` calls it with what `src/kit.ts`
- * loaded before the settlements and the traffic are made; the headless checks
- * call it with the same file read off disk.
- */
-export function registerVehicleModels(models: Iterable<Model>): void {
-  for (const model of models) VEHICLE_MODELS.set(model.name, model);
-}
-
-export function vehicleModel(id: string): Model {
-  const model = VEHICLE_MODELS.get(id);
-  if (model === undefined) {
-    throw new Error(
-      VEHICLE_MODELS.size === 0
-        ? `vehicle model '${id}': the traffic kit has not been registered (registerVehicleModels)`
-        : `vehicle model '${id}' is not in the traffic kit`,
-    );
-  }
-  return model;
-}
+// The registry is the scenery kit's (`registerSceneryModels`): a vehicle and a
+// tree come out of the same bake and the same file reader.
 
 /** Whether a slot is glass: by name, or a pale sky-blue swatch in a palette atlas. */
 export function isGlass(slot: string, color: THREE.Color): boolean {
@@ -789,28 +770,11 @@ export function createTrafficContext(base: SceneryContext = createSceneryContext
     },
 
     vehiclePaint(id, body, bodySlots) {
-      return bodyPaint(vehicleModel(id), body, isGlass, bodySlots);
+      return bodyPaint(sceneryModel(id), body, isGlass, bodySlots);
     },
 
     vehicle(id, fit, paint) {
-      const model = vehicleModel(id);
-      const size = model.box.getSize(new THREE.Vector3());
-      const k = Math.min(
-        fit.width !== undefined ? fit.width / size.x : Infinity,
-        fit.length !== undefined ? fit.length / size.z : Infinity,
-      );
-      if (!Number.isFinite(k)) throw new Error(`vehicle model '${id}': a fit needs a width or a length`);
-      const mesh = base.painted(model, paint);
-      mesh.scale.setScalar(k);
-      mesh.position.set(
-        -((model.box.min.x + model.box.max.x) / 2) * k,
-        -model.box.min.y * k - (fit.sink ?? 0),
-        -((model.box.min.z + model.box.max.z) / 2) * k,
-      );
-      mesh.castShadow = true;
-      const group = new THREE.Group();
-      group.add(mesh);
-      return group;
+      return base.fitted(id, fit, paint);
     },
   };
 }

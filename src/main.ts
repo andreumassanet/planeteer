@@ -281,6 +281,8 @@ async function start(): Promise<void> {
     /** The people: the cast dressed by region, standing in towns and walking verges. */
     folk: import('./folk.ts'),
     traffic: import('./traffic/index.ts'),
+    /** The scenery contract, for the kit's model registry; it rides with the settlements. */
+    scenery: import('./scenery/contract.ts'),
     /**
      * The baked CC0 models (`scripts/build-kit.ts`). The vehicles' file is
      * fetched here, beside the code that draws them, and registered before
@@ -304,9 +306,11 @@ async function start(): Promise<void> {
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
   };
-  // Started now, so the half megabyte of vehicles downloads while the ocean
-  // and the land are built rather than after them.
-  const vehicleKit = deferred.kit.then(({ loadVehicleModels }) => loadVehicleModels());
+  // Started now, so the vehicles and the flora download while the ocean and
+  // the land are built rather than after them.
+  const vehicleKit = deferred.kit.then(async ({ loadModels }) =>
+    (await Promise.all([loadModels('traffic/kit.bin'), loadModels('nature/kit.bin')])).flat(),
+  );
 
   // **`roads.bin` is the network, whole.** It used to arrive as a graph over all
   // 29,545 places and be cut down here at load — only asphalt, nothing crossing
@@ -524,18 +528,18 @@ async function start(): Promise<void> {
   // its roads actually take, which is the difference between a lane going
   // somewhere and a lane pointing at somewhere.
   const { createSettlements } = await deferred.settlements;
-  // A vehicle built before its model has arrived would be cached as refused,
-  // so the kit is registered before anything can ask for one.
+  // A part built before its model has arrived would be cached as refused, so
+  // the kit — vehicles and flora — is registered before anything can ask.
   // A kit that fails to arrive leaves the towns without parked cars and the
   // roads without traffic, and the world otherwise whole.
-  const [{ registerVehicleModels }, vehicleModels] = await Promise.all([
-    deferred.traffic,
+  const [{ registerSceneryModels }, vehicleModels] = await Promise.all([
+    deferred.scenery,
     vehicleKit.catch((error: unknown) => {
-      console.warn('the vehicle kit did not load', error);
+      console.warn('the model kit did not load', error);
       return [];
     }),
   ]);
-  registerVehicleModels(vehicleModels);
+  registerSceneryModels(vehicleModels);
   const settlements = createSettlements(world, places.all, {
     context: ctx,
     monuments: placements,

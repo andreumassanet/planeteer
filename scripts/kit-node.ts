@@ -17,15 +17,18 @@ g.ProgressEvent ??= class extends Event {
 };
 g.self ??= globalThis;
 
-const { vehicleModelsFrom, rigFrom } = await import('../src/kit.ts');
-const { registerVehicleModels } = await import('../src/traffic/contract.ts');
+const { modelsFrom, rigFrom } = await import('../src/kit.ts');
+const { registerSceneryModels } = await import('../src/scenery/contract.ts');
 
 const MODELS = resolve(import.meta.dirname, '../public/models');
 
-/** Registers every baked vehicle with the traffic kit, as `main.ts` does. */
-export async function registerVehiclesFromDisk(): Promise<number> {
-  const models = await vehicleModelsFrom(readFileSync(resolve(MODELS, 'traffic/kit.bin')));
-  registerVehicleModels(models);
+/** Registers every baked vehicle, plant and rock with the kits, as `main.ts` does. */
+export async function registerModelsFromDisk(): Promise<number> {
+  const models = [
+    ...(await modelsFrom(readFileSync(resolve(MODELS, 'traffic/kit.bin')))),
+    ...(await modelsFrom(readFileSync(resolve(MODELS, 'nature/kit.bin')))),
+  ];
+  registerSceneryModels(models);
   return models.length;
 }
 
