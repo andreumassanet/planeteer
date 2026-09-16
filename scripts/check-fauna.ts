@@ -53,7 +53,7 @@ import { rigFromDisk } from './kit-node.ts';
 // The herds are drawn from baked CC0 rigs (scripts/build-kit.ts), read off disk
 // the way the world fetches them. Every rig an animal names is loaded up front,
 // so no herd in these checks waits on one.
-const RIG_IDS = ['cow', 'bull', 'horse', 'donkey', 'sheep', 'alpaca', 'stag'];
+const RIG_IDS = ['cow', 'bull', 'horse', 'donkey', 'sheep', 'alpaca', 'stag', 'camel'];
 const RIGS = new Map(await Promise.all(RIG_IDS.map(async (id) => [id, await rigFromDisk(id, new MeshBasicMaterial())] as const)));
 const rigs = { get: (id: string) => RIGS.get(id) ?? null };
 

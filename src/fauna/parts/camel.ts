@@ -87,6 +87,12 @@ export const camel: Animal = {
   size: [12.15, 2.82, 10.79],
   gait: 'pace',
   note: 'Desert and dry steppe of the Old World. The only pacer in the kit.',
+  // No CC0 camel exists in the style; this is Quaternius's horse (Ultimate
+  // Animated Animals, CC0) with a hump grown on its back at bake time
+  // (`scripts/build-kit.ts`). The mane goes the colour of the hide.
+  rigs: [
+    { id: 'camel', weight: 1, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'under', Hair: 'coat', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
+  ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>
     buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group,

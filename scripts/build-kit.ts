@@ -315,6 +315,12 @@ interface RigEntry {
   source: string;
   /** The clips the world plays; the rest of the pack's are fights and deaths. */
   clips: RegExp;
+  /**
+   * A hump grown on `bone`, as shares of the animal's own length and width, in
+   * the material `slot`. There is no CC0 camel in this style, so the camel is a
+   * pack animal with one: see `addHump`.
+   */
+  hump?: { bone: string; slot: string; length: number; height: number; width: number };
 }
 
 const FAUNA: RigEntry[] = [
@@ -325,6 +331,11 @@ const FAUNA: RigEntry[] = [
   { id: 'alpaca', source: `${UAA}Alpaca.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'stag', source: `${UAA}Stag.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'deer', source: `${UAA}Deer.gltf`, clips: /^(Eating|Idle|Walk)$/ },
+  // No CC0 camel exists in the style (see ../.cache/assets/INVENTORY.md), so
+  // the camel is Quaternius's horse with a hump grown on its middle back. The
+  // alpaca was tried as the base too and read as a llama with a lump; the
+  // horse's long legs are most of what a camel's silhouette is.
+  { id: 'camel', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk)$/, hump: { bone: 'Torso2', slot: 'Main', length: 0.38, height: 0.13, width: 0.72 } },
   { id: 'sheep', source: `${FARM}Sheep.fbx`, clips: /Idle$/ },
   { id: 'pig', source: `${FARM}Pig.fbx`, clips: /Idle$/ },
 ];
@@ -440,6 +451,45 @@ async function bakeTraffic(): Promise<number> {
   return packed.length;
 }
 
+/**
+ * Grows a hump on a rig's back: a low-poly ellipsoid hung off `bone`, sitting on
+ * the top of the body where that bone runs, in the colour slot of the hide.
+ * `rigFrom` then weights it wholly to the bone, the way it keeps a stag's
+ * antlers, so the hump rides the spine through every clip.
+ */
+function addHump(scene: THREE.Group, hump: NonNullable<RigEntry['hump']>): void {
+  scene.updateMatrixWorld(true);
+  let body: THREE.SkinnedMesh | null = null;
+  let bone: THREE.Bone | null = null;
+  scene.traverse((object) => {
+    if ((object as THREE.SkinnedMesh).isSkinnedMesh && body === null) body = object as THREE.SkinnedMesh;
+    if ((object as THREE.Bone).isBone && object.name === hump.bone) bone = object as THREE.Bone;
+  });
+  if (body === null || bone === null) throw new Error(`hump: no body or no bone ${hump.bone}`);
+  const skinned = body as THREE.SkinnedMesh;
+  const spine = bone as THREE.Bone;
+  const box = new THREE.Box3().setFromObject(scene, true);
+  const size = box.getSize(new THREE.Vector3());
+  const at = spine.getWorldPosition(new THREE.Vector3());
+  // The top of the back over the bone: the highest skinned vertex near it.
+  let top = -Infinity;
+  const vertex = new THREE.Vector3();
+  const reach = size.z * 0.12;
+  for (let i = 0; i < skinned.geometry.getAttribute('position').count; i++) {
+    skinned.getVertexPosition(i, vertex).applyMatrix4(skinned.matrixWorld);
+    if (Math.abs(vertex.z - at.z) < reach && Math.abs(vertex.x - at.x) < size.x * 0.25) top = Math.max(top, vertex.y);
+  }
+  const material = (Array.isArray(skinned.material) ? skinned.material : [skinned.material]).find((m) => m.name === hump.slot);
+  const geometry = new THREE.SphereGeometry(1, 9, 6);
+  const mesh = new THREE.Mesh(geometry, material ?? new THREE.MeshStandardMaterial({ name: hump.slot }));
+  mesh.scale.set((size.x * hump.width) / 2, size.z * hump.height, (size.z * hump.length) / 2);
+  // Sunk most of the way into the back, so it grows out of the hide rather than sitting on it.
+  mesh.position.set(at.x, top + mesh.scale.y * 0.2, at.z);
+  scene.add(mesh);
+  mesh.updateMatrixWorld(true);
+  spine.attach(mesh);
+}
+
 async function bakeFauna(): Promise<number> {
   let total = 0;
   for (const entry of FAUNA) {
@@ -452,6 +502,11 @@ async function bakeFauna(): Promise<number> {
       // A key equal to its neighbours says nothing; most of a grazing clip's
       // bones do not move at all.
       clip.optimize();
+    }
+    if (entry.hump !== undefined) {
+      // The hump is its own mesh, and a sibling mesh of the pack's material shares
+      // the slot only if it is the same material object; the name is enough.
+      addHump(loaded.scene, entry.hump);
     }
     const rig: Rig = rigFrom(loaded.scene, clips, entry.id, material);
     const geometry = indexed({ ...rig, geometry: rig.body.geometry } as unknown as Model);
