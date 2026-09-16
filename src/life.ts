@@ -552,9 +552,11 @@ export function poseAt(rig: Rig, phase: number, lean: number): number {
   }
   rig.root.position.y = 0;
   rig.root.rotation.x = lean;
-  poseBounds.setFromObject(rig.root);
+  // `precise`: a person is lathes and ellipsoids now, and the loose box of a
+  // rotated ellipsoid reaches well below its surface, which floats the body.
+  poseBounds.setFromObject(rig.root, true);
   rig.root.position.y = -poseBounds.min.y;
-  poseBounds.setFromObject(rig.root);
+  poseBounds.setFromObject(rig.root, true);
   return poseBounds.min.y;
 }
 

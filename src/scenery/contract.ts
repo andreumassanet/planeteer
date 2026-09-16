@@ -254,13 +254,21 @@ export const KINDS: Record<PartKind, KindSpec> = {
   dwelling: { height: 16, minHeight: 5, footprint: 9, triangles: 264, meshes: 30, colors: 5 },
   block: { height: 34, minHeight: 13, footprint: 14, triangles: 456, meshes: 40, colors: 5 },
   civic: { height: 38, minHeight: 11, footprint: 16, triangles: 624, meshes: 52, colors: 6 },
-  // Six colours because that is exactly what the hero avatar uses — skin, hair,
-  // top, bottom, boots, and the one bright thing — and a crowd may not be
-  // richer than the player. The height range spans a small child under a hat
-  // (3.2) to the tallest adult in a conical one (8.4); the triangle cap is the
-  // measured worst case across every combination the wardrobe can draw, plus a
-  // margin of one mesh.
-  person: { height: 8.4, minHeight: 3.2, footprint: 3.2, triangles: 420, meshes: 24, colors: 6 },
+  // A person is built of soft shapes since 2026-09-15 (`src/soft.ts`), and
+  // the three caps moved with it. **Triangles**: measured by `pnpm people` over
+  // 840 builds, median 700 and worst 1,024 — a smooth head and its hair are
+  // about 130 of that, and the rest is what a lathe costs over a prism; the cap
+  // is the worst plus a tenth. What it spends is bounded by the rank rather
+  // than by the part: only the nearest `PEOPLED_RANK` towns carry a crowd
+  // (`settlements.ts`). **Meshes**: worst 29, capped at 32. **Colours: seven**,
+  // the hero's own count — skin, hair, top, bottom, trim, the one bright thing,
+  // and the ink of the eyes — so the rule that a crowd may not be richer than
+  // the player still holds. The colour cap is a draw-call cap for a part merged
+  // by material, and a person never is: `settlements.ts` and `life.ts` both
+  // merge one by vertex colour, so the seventh colour is two eyes and not a draw
+  // call. The height range spans a small child under a hat (3.2) to the tallest
+  // adult in a conical one (8.4).
+  person: { height: 8.4, minHeight: 3.2, footprint: 3.2, triangles: 1130, meshes: 32, colors: 7 },
 };
 
 /**

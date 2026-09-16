@@ -1,4 +1,6 @@
 import { FIGURE } from '../avatar.ts';
+import { createSoftKit } from '../soft.ts';
+import type { Ring, SoftKit } from '../soft.ts';
 import type { Group, Mesh, SceneryContext } from './contract.ts';
 import type { Rng } from './random.ts';
 import { rngFrom } from './random.ts';
@@ -144,9 +146,10 @@ export const BODY: Figure = Object.freeze({
   shinR: FIGURE.shinRadius,
   upperArmR: FIGURE.upperArmRadius,
   forearmR: FIGURE.forearmRadius,
-  // The boot is still a literal here, because `FIGURE` does not carry one and
-  // `buildAvatar` builds a two-mass boot — a sole and a lower toe — where the
-  // crowd builds one. If the hero's foot changes shape, this is the line.
+  // The shoe is still a literal here, because `FIGURE` does not carry one and
+  // `buildAvatar` builds a trainer of two masses — a pale sole and an upper —
+  // where the crowd builds one pressed flat underneath. These are the old boot's
+  // numbers and the crowd's shoe is sized off them.
   bootWidth: 0.58,
   bootDepth: 0.96,
 });
@@ -729,6 +732,25 @@ function scaleFigure(base: Figure, height: number, girth: number): Scaled {
 }
 
 /**
+ * Radial detail for a crowd figure, against the hero's 1.6: a lathe written
+ * with ten sides comes out with six. See `soft.ts` for why a person is built of
+ * smooth shapes at all, and for why six smooth sides read rounder than twelve
+ * flat ones.
+ */
+const CROWD_DETAIL = 0.6;
+
+/** One soft kit per context, so a crowd shares the context's material cache. */
+const softKits = new WeakMap<SceneryContext, SoftKit>();
+function softOf(ctx: SceneryContext): SoftKit {
+  let kit = softKits.get(ctx);
+  if (kit === undefined) {
+    kit = createSoftKit(ctx.toon, CROWD_DETAIL);
+    softKits.set(ctx, kit);
+  }
+  return kit;
+}
+
+/**
  * One person, from a `Look` and nothing else.
  *
  * The returned `Group` obeys the scenery contract for every pose but one:
@@ -740,19 +762,29 @@ function scaleFigure(base: Figure, height: number, girth: number): Scaled {
  * 1.66 below it. That is intended, and it is why the part files never ask for
  * `sit`.
  *
- * Every limb is a **four-sided taper, wider at the joint than at the far end**,
- * which is the hero's own construction at the crowd's price: 16 triangles a
- * section against a box's 12, for the one thing that stops an arm reading as a
- * dowel. Five sides, which is what the hero uses, would be 20.
+ * Every piece is a **soft shape** from `soft.ts` — lathes and ellipsoids with
+ * smooth normals, the hero's own construction at a crowd's resolution. Until
+ * 2026-09-15 a person here was four-sided tapers and boxes, which is a toy
+ * soldier: the user's verdict on the whole cast was that it looked worse than
+ * Roblox, and at the distance a crowd is seen the prisms were the reason.
+ *
+ * **The joints are exactly where they were, and `life.ts` depends on it.** The
+ * root holds two hips and a trunk, the trunk holds two shoulders and a head,
+ * and each hip and shoulder holds exactly one `Group`, its second joint —
+ * `rigOf` finds the walker's skeleton by that shape and throws if it changes.
+ * Every load, strap and hat is a `Mesh`, never a group, for the same reason.
  */
 export function buildPerson(ctx: SceneryContext, look: Look): Group {
-  const { THREE, box, taper } = ctx;
+  const { THREE } = ctx;
+  const { lathe, ellipsoid } = softOf(ctx);
   const group = new THREE.Group();
   const root = new THREE.Group();
   group.add(root);
 
   const base = look.age === 'child' ? CHILD_BODY : BODY;
   const f = scaleFigure(base, look.height, look.girth);
+  /** Absolute sizes that do not follow a proportion — a rim, a strap — follow the height. */
+  const k = f.height / BODY.height;
 
   const pose = POSES[look.pose];
   // The sway is what stops two people in the same pose being the same person.
@@ -828,7 +860,7 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
 
   // --- legs ------------------------------------------------------------------
   // Built even under a robe, minus the thighs and shins: a hem with nothing
-  // under it reads as a bell, and two boots under it read as a person.
+  // under it reads as a bell, and two shoes under it read as a person.
   for (let i = 0; i < 2; i++) {
     const side = i === 0 ? 1 : -1;
     const hipPivot = new THREE.Group();
@@ -838,9 +870,17 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
     root.add(hipPivot);
 
     if (!hidesLegs) {
-      const thigh = taper(f.thighR[0], f.thighR[1], f.thigh, legColor, 4);
-      thigh.position.y = -f.thigh;
-      hipPivot.add(thigh);
+      hipPivot.add(
+        lathe(
+          [
+            [f.thighR[0], -f.thigh - 0.06 * k],
+            [f.thighR[1], 0],
+            [0, f.thighR[1] * 0.8],
+          ],
+          legColor,
+          { sides: 8 },
+        ),
+      );
     }
 
     const kneePivot = new THREE.Group();
@@ -849,14 +889,32 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
     hipPivot.add(kneePivot);
 
     if (!hidesLegs) {
-      const shin = taper(f.shinR[0], f.shinR[1], f.shin, legColor, 4);
-      shin.position.y = -f.shin;
-      kneePivot.add(shin);
+      kneePivot.add(
+        lathe(
+          [
+            [f.shinR[0], -f.shin],
+            [f.shinR[1], 0.04 * k],
+            [0, f.shinR[1] * 0.7],
+          ],
+          legColor,
+          { sides: 8 },
+        ),
+      );
     }
 
-    const boot = box(f.bootWidth, f.ankle, f.bootDepth, look.trim);
-    boot.position.set(0, -f.shin - f.ankle, f.bootDepth * 0.16);
-    kneePivot.add(boot);
+    // A shoe: an ellipsoid with its underside pressed flat, which is a sole
+    // without a second mesh. Its top runs up inside the shin, so a bent ankle
+    // never opens a gap.
+    const sole = -f.ankle * 0.62;
+    const shoe = ellipsoid(f.bootWidth * 0.5, f.ankle * 0.95, f.bootDepth * 0.56, look.trim, {
+      sides: 7,
+      rings: 4,
+      warp: (v) => {
+        if (v.y < sole) v.y = sole;
+      },
+    });
+    shoe.position.set(0, -f.shin - f.ankle - sole, f.bootDepth * 0.16);
+    kneePivot.add(shoe);
   }
 
   // --- the trunk -------------------------------------------------------------
@@ -870,34 +928,36 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
 
   for (const piece of buildGarment(ctx, look, f, y)) upper.add(piece);
 
-  // The shoulder mass: a slab 2.6 wide against a 2.0 chest, and the 0.30 of
-  // ledge either side is both the anatomy and the ink line that separates the
-  // arm from the body. Christ the Redeemer's file found it first.
-  const shoulderHeight = (f.shoulder - f.chest) * 1.3;
-  const shoulders = box(f.shoulderHalf * 2, shoulderHeight, f.depth * 1.9, look.top);
-  shoulders.position.y = y(f.shoulder) - shoulderHeight;
-  upper.add(shoulders);
+  // The shoulders: two round masses standing out past the chest, which is both
+  // the anatomy and the ink line that separates the arm from the body. Christ
+  // the Redeemer's file found the ledge first; the hero rounds it the same way.
+  const capHeight = (f.shoulder - f.chest) * 0.95;
+  for (const side of [1, -1]) {
+    const cap = ellipsoid(f.shoulderHalf * 0.31, capHeight, f.depth * 0.6, look.top, { sides: 8, rings: 3 });
+    cap.position.set(side * f.shoulderHalf * 0.74, y(f.shoulder) - capHeight, 0);
+    upper.add(cap);
+  }
 
-  // Neck: buried in the shoulder mass at one end and the head at the other, so
-  // it is never seen as a cylinder and always seen as an absence of daylight.
-  const neckGap = f.chin - f.shoulder;
-  const neck = box(f.headHalf * 0.52, neckGap * 3.2, f.headHalf * 0.5, look.skin);
-  neck.position.y = y(f.shoulder) - neckGap * 1.1;
-  upper.add(neck);
+  // Neck: buried in the collar at one end and the head at the other, so it is
+  // never seen as a cylinder and always seen as an absence of daylight.
+  upper.add(
+    lathe(
+      [
+        [f.headHalf * 0.36, y(f.shoulder) - 0.12 * k],
+        [f.headHalf * 0.33, y(f.chin)],
+        [f.headHalf * 0.4, y(f.chin) + 0.3 * k],
+      ],
+      look.skin,
+      { sides: 8 },
+    ),
+  );
 
   const headPivot = new THREE.Group();
   headPivot.position.y = y(f.chin);
   headPivot.rotation.y = pose.turn + s * 0.22;
   upper.add(headPivot);
 
-  // The skull narrows at the chin and widens at the cranium, which is the one
-  // shape cue that survives past a head being six pixels tall.
-  const skullHeight = f.head * 0.78;
-  const skull = taper(f.headHalf * 0.8, f.headHalf * 0.99, skullHeight, look.skin, 6);
-  skull.scale.z = f.headDepth;
-  headPivot.add(skull);
-
-  buildHead(ctx, look, f, skullHeight, headPivot);
+  buildHead(ctx, look, f, headPivot);
 
   // --- arms ------------------------------------------------------------------
   for (let i = 0; i < 2; i++) {
@@ -908,27 +968,41 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
     shoulderPivot.rotation.z = side * (arms ? arms[i]!.splay : pose.shoulderZ[i]!);
     upper.add(shoulderPivot);
 
-    const arm = taper(f.upperArmR[0], f.upperArmR[1], f.upperArm, armTop, 4);
-    arm.position.y = -f.upperArm;
-    shoulderPivot.add(arm);
+    shoulderPivot.add(
+      lathe(
+        [
+          [f.upperArmR[0], -f.upperArm - 0.04 * k],
+          [f.upperArmR[1], 0],
+          [0, f.upperArmR[1] * 0.85],
+        ],
+        armTop,
+        { sides: 8 },
+      ),
+    );
 
     const elbowPivot = new THREE.Group();
     elbowPivot.position.y = -f.upperArm;
     elbowPivot.rotation.x = arms ? arms[i]!.joint : elbow[i]!;
     shoulderPivot.add(elbowPivot);
 
-    const fore = taper(f.forearmR[0], f.forearmR[1], f.forearm, armLow, 4);
-    fore.position.y = -f.forearm;
-    elbowPivot.add(fore);
+    elbowPivot.add(
+      lathe(
+        [
+          [f.forearmR[0], -f.forearm],
+          [f.forearmR[1], 0.03 * k],
+          [0, f.forearmR[1] * 0.75],
+        ],
+        armLow,
+        { sides: 8 },
+      ),
+    );
 
-    // A hand only exists when a sleeve would otherwise end in cloth. A bare or
-    // short-sleeved arm is already skin at the wrist, and a hand mesh on it is
-    // 12 triangles that draw one more ink line and say nothing.
-    if (look.sleeves === 'long') {
-      const fist = box(f.hand * 1.03, f.hand, f.hand * 0.85, look.skin);
-      fist.position.y = -f.forearm - f.hand;
-      elbowPivot.add(fist);
-    }
+    // A mitten, thin across the palm and broad front to back, on every arm now
+    // and not only on long sleeves: a smooth hand is one small round mass where
+    // a box hand was one more hard corner.
+    const hand = ellipsoid(f.hand * 0.34, f.hand * 0.62, f.hand * 0.48, look.skin, { sides: 7, rings: 3 });
+    hand.position.set(0, -f.forearm - f.hand * 0.42, 0.02 * k);
+    elbowPivot.add(hand);
   }
 
   buildCarried(ctx, look, f, { upper, crownY: y(f.chin) + f.head });
@@ -942,7 +1016,10 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
   if (seated) {
     root.position.y = -f.hip;
   } else {
-    const bounds = new THREE.Box3().setFromObject(root);
+    // `precise`, because the loose box is the geometry's own box carried
+    // through the pose, and a rotated ellipsoid's box has corners far outside
+    // it: the loose drop left 143 of 560 bodies standing 0.1 in the air.
+    const bounds = new THREE.Box3().setFromObject(root, true);
     root.position.y = -bounds.min.y;
   }
   return group;
@@ -954,17 +1031,20 @@ export function buildPerson(ctx: SceneryContext, look: Look): Group {
  * Returned as a list rather than added directly, so the caller keeps one place
  * where things enter the trunk. Everything is in `upper` coordinates — `y`
  * converts from heights above the sole.
+ *
+ * Each garment is one or two **lathes of the whole trunk**, so a hem is a place
+ * where the profile flares rather than a second box laid over the first: the
+ * silhouette of a coat, a robe and a dress is the profile, and the ink runs
+ * round the flare because it is the edge of the shape.
  */
-function buildGarment(
-  ctx: SceneryContext,
-  look: Look,
-  f: Scaled,
-  y: (world: number) => number,
-): Mesh[] {
-  const { box, taper } = ctx;
+function buildGarment(ctx: SceneryContext, look: Look, f: Scaled, y: (world: number) => number): Mesh[] {
+  const { lathe, rounded } = softOf(ctx);
+  const k = f.height / BODY.height;
   const pieces: Mesh[] = [];
   const chestTop = f.chest + (f.shoulder - f.chest) * 0.45;
-  const depthOf = (half: number): number => (f.depth * 1.02) / half;
+  /** The trunk's front-to-back scale: a body is a slab, not a totem pole. */
+  const depth = f.depth / f.chestHalf;
+  const seat = f.waist - f.hip;
 
   /**
    * Where a hem is allowed to reach, and it is **not the same seated**.
@@ -979,35 +1059,67 @@ function buildGarment(
   const floor = SEATED_POSES.has(look.pose) ? f.hip - f.thigh * 0.45 : -Infinity;
   const hem = (world: number): number => Math.max(world, floor);
 
-  /** The trunk from the waist to the top of the chest. Everyone has one. */
-  const chest = (color: number): Mesh => {
-    const mesh = taper(f.waistHalf, f.chestHalf, chestTop - f.waist, color, 6);
-    mesh.position.y = y(f.waist);
-    mesh.scale.z = depthOf(f.chestHalf);
-    return mesh;
-  };
+  /** From the waist to the neck: the part of every upper garment that is the same. */
+  const chestRings = (scale = 1): Ring[] => [
+    [f.waistHalf * scale, y(f.waist)],
+    [f.chestHalf * scale, y(f.chest)],
+    [f.chestHalf * 0.95 * scale, y(chestTop)],
+    [f.shoulderHalf * 0.6, y(f.shoulder) - 0.02 * k],
+    [f.headHalf * 0.46, y(f.shoulder) + 0.1 * k],
+  ];
 
-  /** Hips and seat, from the hip line to the waist. */
-  const pelvis = (color: number): Mesh => {
-    const mesh = box(f.hipHalf * 2, f.waist - f.hip, f.depth * 1.94, color);
-    mesh.position.y = 0;
-    return mesh;
-  };
+  /**
+   * Hips and seat, in the trousers, from the crotch to under the waist. Kept
+   * inside every garment that covers it by about 0.07 at every height, because
+   * two surfaces of different colour that close are a z-fight in a merged
+   * buffer — the hero's seat came through his jacket hem as a grey shard.
+   */
+  const pelvis = (): Mesh =>
+    lathe(
+      [
+        [f.hipHalf * 0.6, -seat * 0.6],
+        [f.hipHalf * 0.9, -seat * 0.2],
+        [f.hipHalf * 0.86, seat * 0.3],
+        [f.hipHalf * 0.66, seat * 0.62],
+        [f.hipHalf * 0.4, seat * 0.72],
+      ],
+      look.bottom,
+      { depth },
+    );
+
+  /** A shirt worn out, its hem just over the hip line. */
+  const shirt = (color: number): Mesh =>
+    lathe(
+      [
+        [f.hipHalf * 0.9, y(f.hip) - 0.02 * k],
+        [f.hipHalf * 0.98, y(f.hip) + 0.08 * k],
+        ...chestRings(),
+      ],
+      color,
+      { depth, sides: 12 },
+    );
 
   switch (look.garment) {
     case 'shirt':
-      pieces.push(pelvis(look.bottom), chest(look.top));
+      pieces.push(pelvis(), shirt(look.top));
       break;
 
-    // A shirt that reaches mid-thigh. One mesh instead of two and a visibly
-    // longer body: the cheapest garment in the file and the commonest one on
-    // the planet.
+    // A shirt that reaches mid-thigh. One mesh and a visibly longer body: the
+    // cheapest garment in the file and the commonest one on the planet.
     case 'tunic': {
       const foot = hem(f.hip - f.thigh * 0.45);
-      const mesh = taper(f.hipHalf * 1.12, f.chestHalf, chestTop - foot, look.top, 6);
-      mesh.position.y = y(foot);
-      mesh.scale.z = depthOf(f.chestHalf);
-      pieces.push(mesh);
+      pieces.push(
+        lathe(
+          [
+            [f.hipHalf * 1.08, y(foot)],
+            [f.hipHalf * 1.12, y(foot) + 0.12 * k],
+            [f.hipHalf * 1.02, y(f.hip)],
+            ...chestRings(),
+          ],
+          look.top,
+          { depth, sides: 12 },
+        ),
+      );
       break;
     }
 
@@ -1016,120 +1128,247 @@ function buildGarment(
     // lower half is a triangle rather than two vertical strokes.
     case 'robe': {
       const foot = hem(f.ankle * 0.7);
-      const mesh = taper(f.hipHalf * 1.6, f.chestHalf, chestTop - foot, look.top, 6);
-      mesh.position.y = y(foot);
-      mesh.scale.z = depthOf(f.chestHalf) * 1.04;
-      pieces.push(mesh);
+      pieces.push(
+        lathe(
+          [
+            [f.hipHalf * 1.5, y(foot)],
+            [f.hipHalf * 1.56, y(foot) + 0.14 * k],
+            [f.hipHalf * 1.2, y(Math.max(foot + 0.3 * k, f.hip - f.thigh * 0.4))],
+            [f.hipHalf * 1.02, y(f.hip)],
+            ...chestRings(1.02),
+          ],
+          look.top,
+          { depth: depth * 1.04, sides: 12 },
+        ),
+      );
       break;
     }
 
     case 'dress': {
       const foot = hem(f.hip - f.thigh * 0.92);
-      const skirt = taper(f.hipHalf * 1.52, f.waistHalf * 1.04, f.waist - foot, look.top, 6);
-      skirt.position.y = y(foot);
-      skirt.scale.z = depthOf(f.hipHalf * 1.34);
-      pieces.push(skirt, chest(look.top));
+      pieces.push(
+        lathe(
+          [
+            [f.hipHalf * 1.46, y(foot)],
+            [f.hipHalf * 1.5, y(foot) + 0.12 * k],
+            [f.hipHalf * 1.14, y(Math.max(foot + 0.3 * k, f.hip - f.thigh * 0.3))],
+            [f.waistHalf * 1.04, y(f.waist) - 0.1 * k],
+            ...chestRings(),
+          ],
+          look.top,
+          { depth, sides: 12 },
+        ),
+      );
       break;
     }
 
-    // A coat is a chest plus a skirt below the hip, and the skirt is *wider*
-    // than the hips it hangs off — that overhang is the whole read, the same
-    // ledge the round hut's thatch gets.
+    // A coat is a trunk whose hem stands out past the hips it hangs off — that
+    // overhang is the whole read, the same ledge the round hut's thatch gets.
     case 'coat': {
       const foot = hem(f.hip - f.thigh * 0.62);
-      const skirt = taper(f.hipHalf * 1.22, f.chestHalf * 1.12, f.waist - foot, look.top, 6);
-      skirt.position.y = y(foot);
-      skirt.scale.z = depthOf(f.hipHalf * 1.18);
-      pieces.push(pelvis(look.bottom), skirt, chest(look.top));
+      pieces.push(
+        pelvis(),
+        lathe(
+          [
+            [f.hipHalf * 1.16, y(foot)],
+            [f.hipHalf * 1.22, y(foot) + 0.12 * k],
+            [f.hipHalf * 1.08, y(f.hip)],
+            ...chestRings(1.06),
+          ],
+          look.top,
+          { depth, sides: 12 },
+        ),
+      );
       break;
     }
 
-    // Working clothes: a plain body and one bright slab across the front of it.
-    // The slab stands 0.09 proud so it gets its own ink line — flush with the
-    // chest it would be a colour change with no drawing on it, which is the
-    // trap Niagara's curtain wrote down.
+    // Working clothes: a plain shirt and a wrap of bright cloth round the hips
+    // over it, which reads as an apron from every side — a flat slab on the
+    // front only read from the front, and floated off a waist that curves.
     case 'apron': {
-      pieces.push(pelvis(look.bottom), chest(look.top));
-      const height = f.waist - f.hip + (chestTop - f.waist) * 0.7;
-      const front = box(f.chestHalf * 1.5, height, 0.16, look.accent);
-      front.position.set(0, 0, f.depth * 1.02 + 0.09);
-      pieces.push(front);
+      const foot = hem(f.hip - f.thigh * 0.55);
+      pieces.push(
+        pelvis(),
+        shirt(look.top),
+        lathe(
+          [
+            [f.hipHalf * 1.1, y(foot)],
+            [f.hipHalf * 1.06, y(f.hip)],
+            [f.waistHalf * 1.07, y(f.waist)],
+            [f.waistHalf * 1.02, y(f.waist) + 0.08 * k],
+          ],
+          look.accent,
+          { depth, sides: 12 },
+        ),
+      );
       break;
     }
 
-    // A flat sheet over the shoulders, wider than they are. It reads from
-    // directly above, which nothing else in the set does.
+    // A sheet over the shoulders, wider than they are. It reads from directly
+    // above, which nothing else in the set does.
     case 'poncho': {
-      pieces.push(pelvis(look.bottom), chest(look.top));
       const drop = (chestTop - f.waist) * 0.85;
-      const cape = taper(f.shoulderHalf * 1.26, f.shoulderHalf * 1.04, drop, look.accent, 6);
-      cape.position.y = y(f.chest) - drop;
-      cape.scale.z = 0.8;
-      pieces.push(cape);
+      pieces.push(
+        pelvis(),
+        shirt(look.top),
+        lathe(
+          [
+            [f.shoulderHalf * 1.3, y(f.chest) - drop],
+            [f.shoulderHalf * 1.24, y(f.chest) - drop * 0.6],
+            [f.shoulderHalf * 1.02, y(f.shoulder)],
+            [f.headHalf * 0.55, y(f.shoulder) + 0.14 * k],
+          ],
+          look.accent,
+          { depth: 0.8, sides: 12 },
+        ),
+      );
       break;
+    }
+  }
+
+  // A carried pack wants its straps, and they are the garment's to draw.
+  if (look.carry === 'pack') {
+    for (const side of [1, -1]) {
+      const strap = rounded(0.22 * k, (f.shoulder - f.waist) * 0.9, 0.1 * k, 0.04 * k, look.trim, 2);
+      strap.position.set(side * f.chestHalf * 0.46, y(f.waist) + 0.02 * k, f.depth * 1.0);
+      strap.rotation.x = -0.1;
+      pieces.push(strap);
     }
   }
   return pieces;
 }
 
 /**
- * Hair, beard and hat, all on the head pivot so they turn with it.
+ * The head: skull, eyes, hair, beard and hat, all on the head pivot so they
+ * turn with it.
  *
- * **The crown is the hair.** The top fifth of the skull is a separate mesh
- * whatever happens, so a haircut is a colour and a size on a mesh that already
- * exists rather than a mesh added to one: bald costs the same as cropped, and an
- * afro — which is the one style that changes the head's own outline rather than
- * what hangs off it — costs the same as both.
+ * The skull is the hero's egg at a crowd's resolution, and the hair is his
+ * technique too: a mass set back and up from the skull so the face comes out
+ * through it in front, and whatever the style adds hanging off that mass. A
+ * haircut is therefore a shape and not a lid, and a hat that covers the hair
+ * *replaces* the mass rather than sitting a hair's breadth outside it — two
+ * nearly coplanar surfaces lose the depth test and draw no ink at all, which is
+ * Niagara's blank curtain on a 1.4-unit head.
  */
-function buildHead(
-  ctx: SceneryContext,
-  look: Look,
-  f: Scaled,
-  skullHeight: number,
-  head: Group,
-): void {
-  const { box, taper, column, dome } = ctx;
+function buildHead(ctx: SceneryContext, look: Look, f: Scaled, head: Group): void {
+  const { lathe, ellipsoid } = softOf(ctx);
+  const w = f.headHalf;
+  const h = f.head;
   const covered = COVERS_HAIR.has(look.headwear);
-  const half = f.headHalf;
-  const bald = look.hair === 'bald' && !covered;
-  const crownColor = bald ? look.skin : covered ? look.accent : look.hairColor;
 
-  const afro = look.hair === 'afro' && !covered;
-  const crownWidth = afro ? half * 1.44 : half * (covered ? 1.09 : 1.01);
-  const crownTop = afro ? half * 1.08 : half * (covered ? 0.56 : 0.46);
-  const crownHeight = (f.head - skullHeight) * (afro ? 1.6 : 1);
-  const crown = taper(crownWidth, crownTop, crownHeight, crownColor, 6);
-  crown.position.y = skullHeight - (afro ? crownHeight * 0.3 : 0);
-  crown.scale.z = afro ? 1 : f.headDepth;
-  head.add(crown);
+  /** The skull, as fractions of the head's half-width and height. */
+  const SKULL: readonly Ring[] = [
+    [0, -0.01],
+    [0.62, 0.08],
+    [0.96, 0.32],
+    [0.94, 0.62],
+    [0.58, 0.85],
+    [0, 0.9],
+  ].map(([r, at]) => [r! * w, at! * h] as const);
+  const skullAt = (at: number): number => {
+    for (let i = 0; i + 1 < SKULL.length; i++) {
+      const [r0, y0] = SKULL[i]!;
+      const [r1, y1] = SKULL[i + 1]!;
+      if (at >= y0 && at <= y1) return r0 + ((r1 - r0) * (at - y0)) / (y1 - y0);
+    }
+    return 0;
+  };
+  const faceZ = (x: number, at: number): number =>
+    Math.sqrt(Math.max(0, skullAt(at) ** 2 - x * x)) * f.headDepth;
 
-  if (!covered) {
+  head.add(
+    lathe(SKULL, look.skin, {
+      sides: 14,
+      depth: f.headDepth,
+      warp: (v) => {
+        if (v.y < 0.3 * h && v.z > 0) v.z += (0.3 * h - v.y) * 0.12;
+      },
+    }),
+  );
+
+  // Two dark ovals, sunk half into the face. They are the whole of the face at
+  // this size and the one thing that makes a head a person rather than a ball.
+  for (const side of [1, -1]) {
+    const eye = ellipsoid(w * 0.11, w * 0.17, w * 0.07, ctx.palette.ink, { sides: 6, rings: 3 });
+    eye.position.set(side * w * 0.37, h * 0.42, faceZ(w * 0.37, h * 0.42) - w * 0.02);
+    head.add(eye);
+  }
+
+  // --- hair ------------------------------------------------------------------
+  const color = look.hairColor;
+  const fringe = () => {
+    const bang = ellipsoid(w * 0.78, h * 0.12, w * 0.3, color, { sides: 10, rings: 4 });
+    bang.position.set(0, h * 0.72, faceZ(0, h * 0.72) - w * 0.16);
+    bang.rotation.set(-0.3, 0, 0.14);
+    head.add(bang);
+  };
+  const mass = (rx: number, ry: number, rz: number, at: number, back: number) => {
+    const piece = ellipsoid(w * rx, h * ry, w * rz, color, { sides: 14, rings: 5 });
+    piece.position.set(0, h * at, -w * back);
+    head.add(piece);
+  };
+
+  if (!covered && look.hair !== 'bald') {
     switch (look.hair) {
-      // Hair that hangs behind the head. One box, and it only ever shows in the
-      // silhouette from the side — which is half the people you pass.
+      case 'afro':
+        // The one style that changes the head's own outline rather than what
+        // hangs off it: set well back, so the face still comes out in front.
+        mass(1.42, 0.52, 1.36, 0.62, 0.42);
+        break;
       case 'bob':
+        // Down to the jaw at the sides and back, framing the face.
+        mass(1.2, 0.56, 1.22, 0.46, 0.28);
+        fringe();
+        break;
+      default:
+        mass(1.12, 0.41, 1.18, 0.59, 0.24);
+        if (look.hair !== 'topknot') fringe();
+        break;
+    }
+
+    switch (look.hair) {
+      // Hair that falls down the back, past the collar, behind the trunk.
       case 'long': {
-        const drop = look.hair === 'long' ? f.head * 1.15 : f.head * 0.66;
-        const fall = box(half * 1.8, drop, half * 0.9, look.hairColor);
-        fall.position.set(0, skullHeight - drop + f.head * 0.06, -half * 0.62);
+        const fall = lathe(
+          [
+            [0, -h * 0.85],
+            [w * 0.62, -h * 0.72],
+            [w * 0.95, -h * 0.2],
+            [w * 0.9, h * 0.25],
+            [0, h * 0.45],
+          ],
+          color,
+          { depth: 0.45, sides: 10 },
+        );
+        fall.position.set(0, h * 0.4, -Math.max(w * 1.08, f.depth * 1.12));
         head.add(fall);
         break;
       }
       case 'bun': {
-        const knot = taper(half * 0.46, half * 0.36, half * 0.66, look.hairColor, 6);
-        knot.position.set(0, skullHeight - half * 0.22, -half * 0.88);
+        const knot = ellipsoid(w * 0.4, w * 0.38, w * 0.38, color, { sides: 10, rings: 5 });
+        knot.position.set(0, h * 0.8, -w * 1.2);
         head.add(knot);
         break;
       }
       case 'topknot': {
-        const knot = column(half * 0.28, half * 0.7, look.hairColor, 4);
-        knot.position.y = skullHeight + crownHeight * 0.55;
+        const knot = ellipsoid(w * 0.3, w * 0.38, w * 0.3, color, { sides: 10, rings: 5 });
+        knot.position.set(0, h * 1.02, -w * 0.12);
         head.add(knot);
         break;
       }
       case 'braid': {
-        const braid = box(half * 0.44, f.head * 1.3, half * 0.44, look.hairColor);
-        braid.position.set(0, skullHeight - f.head * 1.3 + f.head * 0.1, -half * 0.92);
+        const braid = lathe(
+          [
+            [0, -h * 0.95],
+            [w * 0.2, -h * 0.8],
+            [w * 0.22, -h * 0.1],
+            [w * 0.28, h * 0.2],
+            [0, h * 0.32],
+          ],
+          color,
+          { sides: 8 },
+        );
+        braid.position.set(0, h * 0.34, -Math.max(w * 1.12, f.depth * 1.18));
         head.add(braid);
         break;
       }
@@ -1139,69 +1378,143 @@ function buildHead(
   }
 
   if (look.beard) {
-    const beard = box(half * 1.16, f.head * 0.42, half * 0.78, look.hairColor);
-    beard.position.set(0, f.head * 0.03, half * 0.42);
+    const beard = ellipsoid(w * 0.8, h * 0.2, w * 0.55, color, { sides: 10, rings: 5 });
+    beard.position.set(0, h * 0.13, w * 0.46);
     head.add(beard);
   }
 
-  const top = f.head;
+  // --- hats ------------------------------------------------------------------
+  const accent = look.accent;
   switch (look.headwear) {
-    // These five *are* the crown, above, in the accent colour, because a
-    // separate shell over the hair would be two coplanar surfaces and no ink
-    // between them. Two of them add a second piece, and both of those pieces
-    // are the thing that tells the hat apart from a haircut at 120 units: a
-    // scarf falls past the jaw, a hood stands out behind the skull.
     case 'none':
+      break;
+    // These five take the hair's place, so each is built to cover the skull
+    // from the brow up and the face comes out through it in front.
     case 'beanie':
+      head.add(
+        lathe(
+          [
+            [w * 1.08, h * 0.52],
+            [w * 1.12, h * 0.64],
+            [w * 0.98, h * 0.86],
+            [w * 0.55, h * 1.0],
+            [0, h * 1.04],
+          ],
+          accent,
+          { depth: f.headDepth * 1.02, sides: 12 },
+        ),
+      );
+      break;
+    case 'helmet':
+      head.add(
+        lathe(
+          [
+            [w * 1.18, h * 0.54],
+            [w * 1.2, h * 0.64],
+            [w * 1.06, h * 0.84],
+            [w * 0.62, h * 1.02],
+            [0, h * 1.06],
+          ],
+          accent,
+          { depth: f.headDepth, sides: 12 },
+        ),
+      );
+      break;
     case 'turban':
+      head.add(
+        lathe(
+          [
+            [w * 1.02, h * 0.55],
+            [w * 1.2, h * 0.68],
+            [w * 1.18, h * 0.9],
+            [w * 0.82, h * 1.08],
+            [0, h * 1.13],
+          ],
+          accent,
+          { depth: f.headDepth, sides: 12 },
+        ),
+      );
       break;
-    case 'scarf': {
-      const shawl = taper(half * 1.5, half * 1.12, f.head * 0.72, look.accent, 6);
-      shawl.position.y = -f.head * 0.02;
-      head.add(shawl);
-      break;
-    }
+    // A cowl round the whole head, open only at the face, standing out behind
+    // the skull: the thing that tells a hood apart from a haircut at 120 units.
     case 'hood': {
-      const cowl = taper(half * 1.36, half * 1.12, f.head * 0.5, look.accent, 6);
-      cowl.position.y = f.head * 0.18;
-      cowl.scale.z = 1.14;
+      const cowl = ellipsoid(w * 1.32, h * 0.6, w * 1.42, accent, { sides: 14, rings: 6 });
+      cowl.position.set(0, h * 0.5, -w * 0.52);
       head.add(cowl);
       break;
     }
-    case 'helmet': {
-      const shell = dome(half * 1.16, f.head * 0.46, look.accent, 6, 1);
-      shell.position.y = top * 0.66;
-      head.add(shell);
+    // Over the head and falling past the jaw onto the shoulders.
+    case 'scarf': {
+      const cover = ellipsoid(w * 1.18, h * 0.54, w * 1.26, accent, { sides: 14, rings: 6 });
+      cover.position.set(0, h * 0.52, -w * 0.32);
+      head.add(cover);
+      const shawl = lathe(
+        [
+          [w * 1.52, -h * 0.32],
+          [w * 1.4, -h * 0.2],
+          [w * 0.94, h * 0.12],
+          [0, h * 0.3],
+        ],
+        accent,
+        { depth: 0.9, sides: 12 },
+      );
+      shawl.position.z = -w * 0.14;
+      head.add(shawl);
       break;
     }
-    // Sits on the hair, so it has to clear it: 0.08 of air, four pixels at the
-    // distance you would ever notice and nothing at all past that.
+    // These three sit on the hair, so they clear the mass: its top is the head's
+    // own height and its widest is 1.12 of the half-width.
     case 'cap': {
-      const shell = taper(half * 1.06, half * 0.68, half * 0.52, look.trim, 6);
-      shell.position.y = top * 0.9;
-      head.add(shell);
-      const peak = box(half * 1.34, 0.09, half * 1.0, look.trim);
-      peak.position.set(0, top * 0.94, half * 1.05);
+      head.add(
+        lathe(
+          [
+            [w * 1.16, h * 0.7],
+            [w * 1.1, h * 0.86],
+            [w * 0.72, h * 1.03],
+            [0, h * 1.08],
+          ],
+          look.trim,
+          { depth: f.headDepth, sides: 12 },
+        ),
+      );
+      const peak = ellipsoid(w * 0.74, h * 0.035, w * 0.55, look.trim, { sides: 10, rings: 3 });
+      peak.position.set(0, h * 0.72, w * 1.02);
       head.add(peak);
       break;
     }
     case 'brim': {
-      const shell = taper(half * 1.02, half * 0.8, half * 0.76, look.accent, 6);
-      shell.position.y = top * 0.88;
-      head.add(shell);
-      const brim = column(half * 1.8, 0.1, look.accent, 6);
-      brim.position.y = top * 0.86;
+      head.add(
+        lathe(
+          [
+            [w * 1.04, h * 0.8],
+            [w * 0.98, h * 1.06],
+            [0, h * 1.12],
+          ],
+          accent,
+          { sides: 12 },
+        ),
+      );
+      const brim = ellipsoid(w * 1.8, h * 0.035, w * 1.8, accent, { sides: 14, rings: 3 });
+      brim.position.y = h * 0.8;
       head.add(brim);
       break;
     }
     // One mesh, and the widest silhouette in the kit for the money: a cone
     // wider than the shoulders, a shape nothing else here makes.
-    case 'conical': {
-      const cone = taper(half * 2.05, 0.05, half * 1.2, look.accent, 6);
-      cone.position.y = top * 0.84;
-      head.add(cone);
+    case 'conical':
+      head.add(
+        lathe(
+          [
+            [w * 2.02, h * 0.82],
+            [w * 1.62, h * 0.9],
+            [w * 0.12, h * 1.36],
+            [0, h * 1.38],
+          ],
+          accent,
+          { sides: 12 },
+        ),
+      );
       break;
-    }
   }
 }
 
@@ -1222,7 +1535,8 @@ function buildHead(
  * does not have, and it would buy nothing past 20 units.
  */
 function buildCarried(ctx: SceneryContext, look: Look, f: Scaled, bones: Bones): void {
-  const { box, taper } = ctx;
+  const { lathe, ellipsoid, rounded } = softOf(ctx);
+  const k = f.height / BODY.height;
   const half = f.headHalf;
   const waistY = f.waist - f.hip;
 
@@ -1233,21 +1547,36 @@ function buildCarried(ctx: SceneryContext, look: Look, f: Scaled, bones: Bones):
     // reason: the camera lives behind a walking person and a pack as wide as
     // the back hides the arms that do the walking.
     case 'pack': {
-      const bag = box(f.chestHalf * 1.3, f.chestHalf * 1.5, f.depth * 0.95, look.accent);
+      const bag = rounded(f.chestHalf * 1.3, f.chestHalf * 1.5, f.depth * 0.95, 0.2 * k, look.accent);
       bag.position.set(0, waistY + f.chestHalf * 0.12, -f.depth * 1.5);
       bones.upper.add(bag);
       break;
     }
+    // At the hip on a strap that crosses the chest: the strap is what makes it a
+    // bag somebody is wearing rather than a box stuck to their side.
     case 'satchel': {
-      const bag = box(f.chestHalf * 0.95, f.chestHalf * 0.85, f.depth * 0.62, look.accent);
+      const bag = rounded(f.chestHalf * 0.95, f.chestHalf * 0.85, f.depth * 0.62, 0.12 * k, look.accent);
       bag.position.set(f.hipHalf * 1.02, waistY * 0.2, f.depth * 0.4);
       bones.upper.add(bag);
+      const V = (x: number, yy: number, z: number) => new ctx.THREE.Vector3(x, yy, z);
+      const { band } = softOf(ctx);
+      const shoulder = V(-f.chestHalf * 0.5, f.shoulder - f.hip + 0.04 * k, 0);
+      const across = V(f.chestHalf * 0.1, f.chest - f.hip - 0.2 * k, f.depth * 1.08);
+      const down = V(f.hipHalf * 1.0, waistY * 0.2 + f.chestHalf * 0.8, f.depth * 0.62);
+      bones.upper.add(band(shoulder, across, 0.14 * k, 0.07 * k, look.trim), band(across, down, 0.14 * k, 0.07 * k, look.trim));
       break;
     }
     // Held in front at waist height, which is where the `carry` pose puts both
     // forearms.
     case 'basket': {
-      const pot = taper(f.hipHalf * 0.76, f.hipHalf * 0.92, f.hipHalf * 1.05, look.accent, 6);
+      const pot = lathe(
+        [
+          [f.hipHalf * 0.6, 0],
+          [f.hipHalf * 0.86, f.hipHalf * 0.6],
+          [f.hipHalf * 0.94, f.hipHalf * 1.05],
+        ],
+        look.accent,
+      );
       pot.position.set(0, waistY * 0.55, f.depth * 1.6);
       bones.upper.add(pot);
       break;
@@ -1255,8 +1584,15 @@ function buildCarried(ctx: SceneryContext, look: Look, f: Scaled, bones: Bones):
     // On the head, which needs the arms up to steady it — paired with `lift`
     // and with nothing else.
     case 'headload': {
-      const load = taper(half * 1.0, half * 0.9, half * 1.05, look.accent, 6);
-      load.position.y = bones.crownY + 0.04;
+      const load = lathe(
+        [
+          [half * 0.78, 0],
+          [half * 1.04, half * 0.5],
+          [half * 1.0, half * 1.05],
+        ],
+        look.accent,
+      );
+      load.position.y = bones.crownY + 0.04 * k;
       bones.upper.add(load);
       break;
     }
@@ -1272,13 +1608,30 @@ function buildCarried(ctx: SceneryContext, look: Look, f: Scaled, bones: Bones):
       // over 400 seated bodies before the guard, the lowest point of a seated
       // person came out at -3.15 against a sole at -1.66 — a staff in the air.
       const drop = SEATED_POSES.has(look.pose) ? f.shin + f.ankle : f.hip;
-      const pole = box(0.2, drop + f.chestHalf * 2.6, 0.2, look.trim);
+      const pole = lathe(
+        [
+          [0.1, 0],
+          [0.1, drop + f.chestHalf * 2.6 - 0.12],
+          [0.14, drop + f.chestHalf * 2.6],
+        ],
+        look.trim,
+        { sides: 6 },
+      );
       pole.position.set(f.hipHalf * 1.5, -drop + 0.02, f.depth * 0.5);
       bones.upper.add(pole);
       break;
     }
     case 'jug': {
-      const jug = taper(half * 0.58, half * 0.7, half * 1.2, look.accent, 6);
+      const jug = lathe(
+        [
+          [half * 0.42, 0],
+          [half * 0.72, half * 0.5],
+          [half * 0.6, half * 0.98],
+          [half * 0.3, half * 1.16],
+          [half * 0.36, half * 1.3],
+        ],
+        look.accent,
+      );
       jug.position.set(f.shoulderHalf * 0.92, waistY + half * 0.8, 0);
       bones.upper.add(jug);
       break;
@@ -1289,10 +1642,18 @@ function buildCarried(ctx: SceneryContext, look: Look, f: Scaled, bones: Bones):
     // the case that walks out of the declared footprint.
     case 'parasol': {
       const lift = bones.crownY + f.head * 0.28;
-      const shaft = box(0.2, lift, 0.2, look.trim);
+      const shaft = lathe([[0.09, 0], [0.09, lift + f.height * 0.05]], look.trim, { sides: 6 });
       shaft.position.set(f.hipHalf * 0.8, waistY * 0.1, f.depth * 0.35);
       bones.upper.add(shaft);
-      const canopy = taper(f.height * 0.125, 0.06, f.height * 0.06, look.accent, 6);
+      const canopy = lathe(
+        [
+          [f.height * 0.125, 0],
+          [f.height * 0.11, f.height * 0.025],
+          [0, f.height * 0.06],
+        ],
+        look.accent,
+        { sides: 14 },
+      );
       canopy.position.set(f.hipHalf * 0.8, lift, f.depth * 0.35);
       bones.upper.add(canopy);
       break;
@@ -1303,9 +1664,8 @@ function buildCarried(ctx: SceneryContext, look: Look, f: Scaled, bones: Bones):
     // another 0.4 units further out. A round bundle at the obvious offset
     // measured 2.92 against a declared 2.4.
     case 'bundle': {
-      const load = taper(f.chestHalf, f.chestHalf * 0.88, f.chestHalf * 1.3, look.accent, 6);
-      load.scale.z = 0.5;
-      load.position.set(0, waistY + f.chestHalf * 0.3, -f.depth * 1.35);
+      const load = ellipsoid(f.chestHalf * 0.98, f.chestHalf * 0.72, f.chestHalf * 0.5, look.accent, { rings: 6 });
+      load.position.set(0, waistY + f.chestHalf * 0.95, -f.depth * 1.35);
       bones.upper.add(load);
       break;
     }
@@ -1372,10 +1732,10 @@ export function crowd(
  * `VARIANTS = 6` because a variant is a geometry and six geometries is what an
  * `InstancedMesh` strategy can afford. Settlements do not instance — they merge,
  * measured at one draw call against 218 — so a variant costs *build time* and
- * nothing else, and the constraint moved. Twenty-four bodies at about 290
- * triangles is 7,000 triangles and a few milliseconds, once per region for the
- * life of the session, against a settlement streamer that already spends 3.5 ms
- * a frame. Six is a crowd where you can name the repeats; unlimited is a build
+ * nothing else, and the constraint moved. Twenty-four bodies at about 700
+ * triangles is 17,000 triangles and about 11 ms (`pnpm people`, 2026-09-15, on
+ * the soft bodies), once per region for the life of the session, against a
+ * settlement streamer that already spends 3.5 ms a frame. Six is a crowd where you can name the repeats; unlimited is a build
  * cost per town rather than per region.
  *
  * A caller who wants a *specific* person — a shopkeeper at a door, a driver in a

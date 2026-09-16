@@ -304,7 +304,7 @@ const seated = buildPerson(ctx, {
   sway: 0,
   pose: 'sit' as Pose,
 });
-const seatBox = new Box3().setFromObject(seated);
+const seatBox = new Box3().setFromObject(seated, true);
 console.log(`  sole  y = ${seatBox.min.y.toFixed(2)}   crown y = ${seatBox.max.y.toFixed(2)}`);
 console.log(`  front z = ${seatBox.max.z.toFixed(2)}   back  z = ${seatBox.min.z.toFixed(2)}`);
 console.log(`  width   = ${(seatBox.max.x - seatBox.min.x).toFixed(2)} over everything, ${(BODY.shoulderHalf * 2).toFixed(2)} at the shoulders alone`);
@@ -319,7 +319,7 @@ for (const loaded of [false, true]) {
   for (let i = 0; i < 400; i++) {
     const drawn = lookFor(rngFrom('seat', i), DRESS_IDS[i % DRESS_IDS.length]!);
     const look = { ...drawn, pose: 'sit' as Pose, carry: loaded ? drawn.carry : ('none' as const) };
-    const b = new Box3().setFromObject(buildPerson(ctx, look));
+    const b = new Box3().setFromObject(buildPerson(ctx, look), true);
     wide = Math.max(wide, b.max.x - b.min.x);
     high = Math.max(high, b.max.y);
     deep = Math.max(deep, b.max.z);
