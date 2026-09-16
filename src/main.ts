@@ -5,6 +5,7 @@ import { landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand, groundRadius } f
 import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
+import { prepareAvatar } from './avatar.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
 import { detailRadiusFor, loadPlaces, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
@@ -277,6 +278,8 @@ async function start(): Promise<void> {
     settlements: import('./settlements.ts'),
     vegetation: import('./vegetation.ts'),
     life: import('./life.ts'),
+    /** The people: the cast dressed by region, standing in towns and walking verges. */
+    folk: import('./folk.ts'),
     traffic: import('./traffic/index.ts'),
     /** The two maps and the chip, which is also where the 232 flags live. */
     minimap: import('./minimap.ts'),
@@ -345,6 +348,13 @@ async function start(): Promise<void> {
   // chosen hour and not of whatever hour the machine taking it happens to be.
   const query = new URLSearchParams(location.search);
   if (query.get('time')) sky.setTime(query.get('time'));
+
+  // The hero's body is an authored character in `public/models/cast/`, fetched
+  // alongside the world rather than after it; `buildAvatar` needs it by the
+  // time the player is made.
+  const avatarReady = prepareAvatar();
+  let townsfolkClock = 0;
+  let townsfolkFrame = 0;
 
   await stage('filling the ocean');
   // The water sphere, the shallows along every coast in the world, and the
@@ -538,6 +548,13 @@ async function start(): Promise<void> {
   // mesh a person and is therefore capped and near. The vehicle registry is
   // handed in rather than imported, so `scripts/check-life.ts` can run the whole
   // of this file in Node.
+  // The people are authored characters (`cast.ts`), dressed by `folk.ts`: the
+  // townsfolk stand on the spots each town publishes and the walkers are handed
+  // to `life.ts`, which draws a verge walker from the cast when it has one.
+  const { createFolk, createTownsfolk } = await deferred.folk;
+  const folk = createFolk(ctx);
+  const townsfolk = createTownsfolk(folk, settlements);
+  scene.add(townsfolk.group);
   const { createLife } = await deferred.life;
   const { VEHICLES } = await deferred.traffic;
   const { ANIMALS } = await deferred.fauna;
@@ -545,6 +562,7 @@ async function start(): Promise<void> {
     context: ctx,
     roads: baked.roads,
     vehicles: VEHICLES,
+    folk,
     // Handed down rather than imported, the same way the vehicles are: `life.ts`
     // stays Node-safe and adding an animal stays one file and nothing else.
     animals: ANIMALS,
@@ -609,6 +627,7 @@ async function start(): Promise<void> {
    * of a jump is raised a few frames later, around wherever you landed, and the
    * first frame it stands puts you on the nearest clear ground outside it.
    */
+  await avatarReady;
   const player = createPlayer(world, spawn.lat, spawn.lon, {
     madeHeightAt,
     collide: (point, radius, push) => settlements.collide(point, radius, push),
@@ -928,6 +947,10 @@ async function start(): Promise<void> {
     // `atlas.sky.setRate(600)` runs the traffic with the sun and `setTime`
     // scrubs it. Seconds, because that is what a speed is in.
     life.update(player.position, altitude, rig.camera, sky.state.time.getTime() / 1000);
+    // The people standing in the towns: their own clock rather than the sky's,
+    // because breathing does not speed up when `setRate` runs the sun at 600x.
+    townsfolkClock += dt;
+    townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame);
 
     // The weather turns with the same clock the sun does, so scrubbing the time
     // scrubs the sky: `atlas.sky.setRate(600)` runs a front past you in seconds.

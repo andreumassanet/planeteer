@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar } from '../avatar.ts';
+import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar, prepareAvatar } from '../avatar.ts';
 import type { Avatar } from '../avatar.ts';
 import { measure } from '../monuments/contract.ts';
 import { OutlineEffect } from '../outline.ts';
@@ -36,8 +36,8 @@ interface CellSpec {
 
 const CELLS: CellSpec[] = [
   { label: 'idle · astern', note: 'where the camera lives', azimuth: 0, speed: 0 },
-  { label: 'idle · three-quarter', note: 'the pack, the strap, the brim', azimuth: 40, speed: 0 },
-  { label: 'idle · front', note: 'jaw, eyes, rolled sleeves', azimuth: 180, speed: 0 },
+  { label: 'idle · three-quarter', note: 'the pack, the straps, the nape', azimuth: 40, speed: 0 },
+  { label: 'idle · front', note: 'fringe, eyes, ribbed cuffs', azimuth: 180, speed: 0 },
   { label: 'walk · astern', note: 'bob, sway, the sole lifting', azimuth: 0, speed: WALK_SPEED },
   { label: 'walk · three-quarter', note: '', azimuth: 40, speed: WALK_SPEED },
   { label: 'walk · side', note: 'the knee is what lifts the foot', azimuth: 90, speed: WALK_SPEED },
@@ -135,6 +135,7 @@ function buildCell(spec: CellSpec): Cell {
   return { spec, scene, camera, avatar, craft, propeller, frame: box, swell: 0 };
 }
 
+await prepareAvatar();
 const cells = CELLS.map(buildCell);
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,13 @@ const turnInput = document.getElementById('turn') as HTMLInputElement;
 /** The game's own third-person framing, from `camera.ts`. */
 const WALK_FRAMING = { distance: 30, height: 15 };
 const PIVOT_HEIGHT = 5;
+/**
+ * How near "close up" goes. `?close=0.2` pulls it in further, for looking at a
+ * face; the game never frames the body that tight, so it is a query and not a
+ * checkbox.
+ */
+const CLOSE = Number(new URLSearchParams(location.search).get('close') ?? 0.45);
+if (new URLSearchParams(location.search).has('close')) closeInput.checked = true;
 
 let spin = 0;
 let last = performance.now();
@@ -195,8 +203,9 @@ function render(now: number): void {
       }
     }
 
-    const distance = WALK_FRAMING.distance * (closeInput.checked ? 0.45 : 1);
-    const height = WALK_FRAMING.height * (closeInput.checked ? 0.45 : 1);
+    const near = closeInput.checked ? CLOSE : 1;
+    const distance = WALK_FRAMING.distance * near;
+    const height = WALK_FRAMING.height * near;
     const elevation = cell.spec.elevation !== undefined
       ? cell.spec.elevation * DEG
       : Math.atan2(height, distance);

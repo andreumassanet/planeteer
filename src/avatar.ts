@@ -1,67 +1,39 @@
 import * as THREE from 'three';
+import { castMaterial, loadCast } from './cast.ts';
+import type { Cast } from './cast.ts';
 import { createContext } from './monuments/contract.ts';
+import { createSoftKit } from './soft.ts';
 
 /**
- * The player's body: the model, the skeleton and every pose it takes.
+ * The player's body: the character, the clips it plays and every pose it takes.
  *
- * ## Why this is its own file, and why it is built like a monument
+ * ## What it is, and the three bodies it replaced
  *
- * This is the one object a player looks at for the whole session, and until now
- * it was ten smooth capsules buried in the middle of `player.ts`. Two things
- * were wrong with that and neither was a matter of taste.
+ * This is the one object a player looks at for the whole session. It was ten
+ * smooth capsules, then thirty-five faceted prisms, then soft lathes — each built
+ * in code, each a rigid piece per joint, and each rejected on sight: the last
+ * verdict (2026-09-16) was that it looked like Roblox and that standing still it
+ * was a statue. Both halves of that were structural. A body that is a rigid
+ * piece per bone *is* a Roblox body however the pieces are shaped, and a pose
+ * computed from sines has no weight in it.
  *
- * **It was the only smooth-shaded object in the world.** The land mesh is
- * non-indexed on purpose so every face gets its own normal; `createContext`
- * does the same for every monument and every scenic part, and the whole style
- * rests on a directional sun stepping across a four-band `gradientMap`. A
- * `CapsuleGeometry` has smooth normals, so the ramp sweeps continuously round
- * it and the cel bands turn into a gradient — the exact thing `theme.ts` is
- * arranged to prevent. The avatar was the one object in the scene rendering in
- * a different style from everything it stood next to.
+ * So the hero is now an authored character on an authored rig: Quaternius's
+ * CC0 casual man in a hoodie (`src/cast.ts`, `scripts/build-cast.mjs`), one
+ * continuous skinned mesh that bends at every joint, painted in the hero's own
+ * colours — the crimson that no one else in the world wears, and the gold pack,
+ * which is the one piece still built here, from `soft.ts`. What moves it is the
+ * pack's own clips: a relaxed idle that breathes and shifts, a walk and a run,
+ * blended by speed and kept in step with the ground.
  *
- * **And it was not cheap.** Measured: **2,376 triangles in 10 meshes** — a
- * `CapsuleGeometry(0.42, l, 4, 12)` is 216 triangles and a
- * `SphereGeometry(1.05, 20, 14)` is 520 — which is 91% of a whole
- * `building`-tier monument's budget, spent on subdivision the ramp cannot use.
- * This rebuild is **632 triangles**: under the `monument` tier's 900, four times
- * the model, 73% fewer triangles.
+ * ## What stays from the old body, and why
  *
- * So it is built through `createContext()` from `src/monuments/contract.ts`,
- * exactly as the Colosseum is. Same `box`/`column`/`taper`, same non-indexed
- * flat facets, same 24 colours, same four-band ramp, same 0.005 pen. There is
- * no avatar material, no avatar ramp and no avatar outline width to keep in
- * step with anything.
- *
- * **It is built as 35 pieces and drawn as 13**, and both numbers matter. 35 is
- * how many masses a body wants — a jaw under a cranium, a toe under a boot, a
- * flap over a pack — and each of them earns an ink line. 13 is how many *joints*
- * there are, and everything hanging off a joint is rigid, so `mergeBones`
- * collapses each one into a single vertex-coloured buffer with the skeleton left
- * exactly as it was. Measured in Paris with `atlas.player.object.visible` off and
- * on, twenty `outline.render` calls each with `gl.finish()`, both passes
- * counted: **+70 draw calls before, +26 after, and +1,264 drawn triangles
- * either way**. `OutlineEffect` draws every mesh twice, which is why a mesh
- * saved is two calls saved.
- *
- * ## Proportions are a shared decision
- *
- * `src/scenery/people.ts` and `src/camera.ts` both read `FIGURE` below, and the
- * crowd is built from it at avatar scale
- * and not at `SCENERY_SCALE`, because a person is not a building. A crowd a
- * head shorter than the player reads as children. So every number that says how
- * tall a person is or where their shoulders are lives here, once, with the
- * reasoning attached — including `WALK_SPEED` and `WALK_STRIDE`, because how
- * fast a body of this size walks and how far it gets per stride is a fact about
- * the body and not about the controller.
- *
- * ## What the model is for
- *
- * The third-person camera sits 30 units back and 15 up — 26 degrees above the
- * ground, **directly behind**. At a 900 px viewport that makes the avatar about
- * 175 px tall and puts `LEGIBLE_AT` (the scenery kit's four-pixel floor) at
- * 0.14 units, so a 0.15-unit feature reads and a 0.05-unit one is ink. Every
- * size in this file was chosen against that number, and the camera's *position*
- * decides more than its distance does: see `SWAY`.
+ * `FIGURE` is still the record the rest of the world is sized against — the
+ * plane's seat, the launch's bench, the camera's eye, the crowd — and it is
+ * **unchanged**, because those files were built around it. The seated pose puts
+ * this character's own hips exactly where `FIGURE.hipY` says a hip is, so
+ * `PLANE_SEAT` still seats him. The gait's speeds, strides and `swingLift` stay
+ * too: they are facts about how fast a body of this size moves, and `life.ts`
+ * and the fauna kit still read them.
  */
 
 // ---------------------------------------------------------------------------
@@ -72,7 +44,8 @@ import { createContext } from './monuments/contract.ts';
  * Crown of the head, and the constant everything human-scale in the world is
  * measured against — `LAND_HEIGHT` is three of these, `JUMP_HEIGHT` is capped
  * against it, the scenery kit restates it, and `SCENERY_SCALE` was derived from
- * it. Unchanged by the rebuild, deliberately: moving it moves the planet.
+ * it. Unchanged by every rebuild, deliberately: moving it moves the planet. It is
+ * the top of the hair's mass; the tuft on the crown stands 0.08 over it.
  */
 export const AVATAR_HEIGHT = 6.8;
 
@@ -163,14 +136,15 @@ export const FIGURE = {
   hand: 0.33,
 
   /**
-   * Section radii, tip first then root, the way `taper` takes them.
+   * Limb section radii, tip first then root: the crowd's arms and legs.
    *
-   * Published rather than left as literals inside `buildAvatar` because they
-   * were the last thing about this body that only existed in one place as a
-   * number in an expression, and `src/scenery/people.ts` was holding its own
-   * copy of all four. That is the drift this file exists to prevent: every
-   * other proportion is imported from here, so a limb that got thicker in the
-   * hero and not in the crowd would be the one difference nobody could name.
+   * They were the hero's too until 2026-09-15, and they moved here from
+   * literals so the crowd could not hold its own copy. The hero's arms and legs
+   * are now *cloth* — a loose sleeve and a loose trouser leg cut in
+   * `buildAvatar` — so they are wider than these by a garment's worth and do
+   * not read them. What the two still share, and what a crowd built to other
+   * numbers would get visibly wrong, is the skeleton: every height above, the
+   * hip and shoulder offsets and every segment length.
    */
   thighRadius: [0.34, 0.42],
   shinRadius: [0.25, 0.33],
@@ -178,71 +152,6 @@ export const FIGURE = {
   forearmRadius: [0.19, 0.24],
 } as const;
 
-/**
- * The colours a person is drawn from, all out of `PALETTE` and all warm enough
- * to survive being turned away from the sun — the contract's first question
- * about any colour, and it matters more here than on a building because a body
- * is convex and half of it is always in shade.
- *
- * `crimson` is the player's alone. A world where the crowd can wear it is a
- * world where you lose yourself in it.
- */
-export interface AvatarLook {
-  skin: number;
-  /** Jacket and sleeves. */
-  jacket: number;
-  trousers: number;
-  /** Boots, hat, hair, straps: everything that would be leather. */
-  leather: number;
-  /**
-   * The rucksack. It is the largest single area the camera ever sees, so it is
-   * the figure's second colour and not a neutral: the first version was
-   * `darkOlive` and the whole back of the avatar — hat, hair, pack, straps —
-   * came out as one dark mass with two red slivers where the arms were.
-   */
-  pack: number;
-}
-
-/**
- * One context for the body, built at import. `createContext` registers its ramp
- * with `theme.ts` so the moods can repaint it, so it must be made once and not
- * once per avatar.
- */
-const ctx = createContext();
-const palette = ctx.palette;
-
-export const AVATAR_LOOK: AvatarLook = {
-  skin: palette.blush,
-  jacket: palette.crimson,
-  trousers: palette.slate,
-  leather: palette.bark,
-  pack: palette.gold,
-};
-
-/**
- * Jackets a crowd may wear. Every one of these reads against grass, sand, snow
- * and open water, which is the only test that matters for something the size of
- * a person seen across a valley — and none of them is `crimson`.
- */
-export const CLOTH_COLORS: readonly number[] = [
-  palette.skyBlue,
-  palette.olive,
-  palette.clay,
-  palette.cream,
-  palette.gold,
-  palette.salmon,
-  palette.violet,
-  palette.tan,
-  palette.steel,
-];
-
-/** Skin, dark to light. Four, because the head is 44 px and a fifth would not read. */
-export const SKIN_TONES: readonly number[] = [
-  palette.bark,
-  palette.brown,
-  palette.tan,
-  palette.blush,
-];
 
 // ---------------------------------------------------------------------------
 // Gait
@@ -300,39 +209,6 @@ export const WALK_STRIDE = 22;
 const RUN_CADENCE = 2.5;
 const RUN_STRIDE = RUN_SPEED / RUN_CADENCE;
 
-/** Radians the hip swings each way. */
-const WALK_SWING = 0.42;
-const RUN_SWING = 0.72;
-
-/**
- * Radians the knee folds, and the joint that stopped the avatar moonwalking.
- *
- * **With straight legs the feet never leave the ground — provably, not
- * approximately.** Swing a straight leg by `t` and its foot rises by
- * `(hipY - ankleY)(1 - cos t)`; the hips drop by exactly that much so the
- * *stance* foot stays down; and the two cancel, so the swinging foot is at zero
- * for every `t`. Both feet slide along the floor for the whole cycle. That is
- * what the old rig did, and no amount of swing amplitude could have fixed it.
- *
- * **A knee only lifts a foot while the thigh is behind vertical, and getting
- * that wrong is worse than having no knee at all.** The vertical reach of a leg
- * is `thigh cos(h) + shin cos(h + k)`, so it is *longest* when `h + k = 0` — a
- * bent knee under a thigh that has already swung forward pushes the foot
- * **down**. The first driver here was `max(0, -cos(phase))`, which peaks at
- * mid-swing and is still half folded a quarter of a cycle later with the thigh
- * 0.51 forward: measured over a full cycle, the lowest point of the rig was
- * **0.31 units under the floor**, and it was the swinging foot, not the planted
- * one. The two zeros of the dip are `k = 0` and `k = -2h`, and every value
- * between them digs, so there is no smooth driver that crosses that gap.
- *
- * `SWING_LIFT` below is the shape that cannot: it is non-zero only while the
- * thigh is behind, where more fold is always more clearance. The foot kicks up
- * off the toe, reaches its peak in early swing, and travels forward close to
- * the ground — which is what a walk actually looks like, and is why people trip
- * on kerbs.
- */
-const WALK_KNEE = 0.42;
-const RUN_KNEE = 0.85;
 
 /**
  * The knee's driver: `2 sin(p)+ * -cos(p)+`, which is zero everywhere except
@@ -352,901 +228,283 @@ const RUN_KNEE = 0.85;
 export const swingLift = (phase: number): number =>
   2 * Math.max(0, Math.sin(phase)) * Math.max(0, -Math.cos(phase));
 
-/** Radians the shoulder swings, against the hip of the same side. */
-const ARM_SWING = 0.85;
-/**
- * Radians the elbow folds. A walk carries the arms nearly straight and a run
- * carries them bent, and that is the most recognisable single difference
- * between the two from any angle.
- */
-const WALK_ELBOW = 0.22;
-const RUN_ELBOW = 1.1;
+
+// ---------------------------------------------------------------------------
+// The character
+// ---------------------------------------------------------------------------
+
+const ctx = createContext();
+const palette = ctx.palette;
+/** The pack on his back is the one part still built here. */
+const soft = createSoftKit(ctx.toon, 1.6);
+
+const HERO_OUTFIT = 'man-hoodie' as const;
 
 /**
- * The ankle keeps the boot **flat in the world**, and that is not a stylistic
- * choice about how a foot should look. It is the second thing that stops the
- * foot digging.
- *
- * A rigid boot bolted to the shin swings about the hip, and the sole is not a
- * point: its front corner is 0.64 units ahead of the ankle. Rotate the leg back
- * by `t` and, with the hips dropped by exactly the amount that keeps a *point*
- * foot on the floor, that corner lands at `-0.64 sin t` — **0.42 units under
- * the ground at a run**, twelve pixels at the camera's own distance, every
- * stride, with the heel sticking up in the air behind it. Measured over a full
- * cycle before the fix, the lowest point of the whole rig was -0.44 walking and
- * -0.53 running.
- *
- * Cancelling the leg's total rotation at the ankle fixes it outright, and it
- * moves the bob with it: with the foot flat, what pivots about the hip is the
- * 2.6 units from hip to *ankle* and not the 3.0 from hip to sole, so the drop
- * that keeps the sole on the floor is `(hipY - ankleY)(1 - cos t)`. The two
- * belong together — change one and the feet leave the ground.
- *
- * What is left is free, because it happens in the air: a little toe-up while
- * the knee is folded, which is a heel leading the step.
+ * The hero's colours, by the pack's material names. Crimson is his and nobody
+ * else's; the shoes come out of the hoodie's own material (see `@feet` in
+ * `cast.ts`) and go dark, because red trainers under a red hoodie is one shape.
  */
-const ANKLE_LIFT = 0.3;
+const HERO_PAINT: Readonly<Record<string, number>> = {
+  Purple: palette.crimson,
+  'Purple@feet': palette.bark,
+  LightBlue: palette.slate,
+  'LightBlue@feet': palette.bark,
+  White: palette.white,
+  'White@feet': palette.white,
+  Skin: palette.blush,
+  'Skin@feet': palette.blush,
+  Hair: palette.bark,
+  Eyebrows: palette.bark,
+  Eye: palette.ink,
+};
+
+let heroCast: Cast | null = null;
 
 /**
- * Lateral shift of the whole body toward the leg it is standing on, and the one
- * addition made for where the camera actually is rather than for what a walk
- * cycle looks like on a turntable.
- *
- * **The camera lives directly behind the avatar, and from directly behind the
- * fore-aft limb swing is the motion you can see least.** A hand travelling 1.4
- * units fore and aft projects to 0.63 units of screen movement from 26 degrees
- * up, and the legs are worse because they are further from the eye line. What
- * carries a walk from back there is the vertical bob, the sole of the lifting
- * foot, the shoulders counter-twisting under the pack — and the weight shifting
- * side to side, which is pure lateral motion and therefore the only part of the
- * cycle the rear camera sees at full size.
- *
- * Less of it at a run because a run is more vertical and less lateral than a
- * walk, which is also true of the real thing.
+ * Loads the hero's outfit and the clips. `buildAvatar` is synchronous and
+ * throws without this, which is deliberate: a player built before its body has
+ * arrived would be an invisible player, and that is a worse failure than a
+ * stack trace.
  */
-const WALK_SWAY = 0.13;
-const RUN_SWAY = 0.07;
+export async function prepareAvatar(): Promise<void> {
+  if (heroCast !== null) return;
+  const source = ctx.toon(palette.ink);
+  const ink = source.userData.outlineParameters as { thickness: number; color: [number, number, number] };
+  heroCast = await loadCast(castMaterial(source.gradientMap!, ink), [HERO_OUTFIT]);
+}
 
 /**
- * The bob is not a decorative sine, and its exaggeration is gone.
- *
- * A leg swung by `t` about the hip lifts the ankle by `(hipY - ankleY)(1 - cos
- * t)`, so the hips must drop by exactly that for the flat sole to reach the
- * floor — see `ANKLE_LIFT` for why it is the ankle's height and not the sole's.
- * The old rig multiplied its version by 1.6 "the way a drawing would" and the
- * arithmetic says what it bought: the stance foot ends up at
- * `hipY (1 - cos t)(1 - k)`, which at `k = 1.6` and a run's 0.72 of swing is
- * **0.33 units under the floor**, buried, every stride.
- *
- * There is nothing left to pay for. The honest drop is 0.65 units at a run
- * against the old rig's 0.87: the longer leg bought back three quarters of the
- * amplitude the exaggeration was faking, and the feet stay on the ground.
+ * How far into its run cycle the held jump pose is, as a share of the clip.
+ * A quarter in, one knee is up and the other leg reaching back, which is a leap
+ * rather than a stride.
  */
-const bobFor = (swing: number): number =>
-  -(FIGURE.hipY - FIGURE.ankleY) * (1 - Math.cos(swing));
+const AIR_PHASE = 0.3;
 
-/** How much of the run's forward pitch the head undoes. A walk reads as walking only when the eyes stay on the horizon. */
-const HEAD_STEADY = 0.7;
-
-/** Rest pose: the arms hang open, because negative space is what makes an arm an arm. */
-const ARM_SPLAY = 0.22;
-const ARM_REST_ELBOW = 0.12;
-
-/** Breathing, for a body that is standing still. Amplitude in units, rate in radians a second. */
-const BREATH = 0.035;
-const BREATH_RATE = 1.6;
+/** How quickly the clip weights follow the speed, per second. */
+const BLEND_RATE = 10;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (rate: number, dt: number) => 1 - Math.exp(-rate * dt);
 
-const TAU = Math.PI * 2;
-
-// ---------------------------------------------------------------------------
-// The helm
-// ---------------------------------------------------------------------------
-
-/**
- * Where the hands go at the wheel, in the **launch's own frame**: cockpit sole
- * at `y = 0`, helm amidships, facing `+Z`. The avatar's group sits on that datum
- * (`player.ts` gives the boat no seat offset), so this is the boat's number and
- * the only one in this file that is.
- *
- * **It is a restatement and that is the honest cost of the split.** The plane
- * publishes `PLANE_SEAT` and `player.ts` hands it over, so no pose knows a
- * fuselage dimension; the launch publishes no equivalent for its wheel, so the
- * grip is derived here from what `vehicles.ts`'s own comment states — hub at
- * (0, 3.72, 1.15), `ringWall(0.42, 0.62, 0.14)`, and an axis raked with the
- * column. Move the wheel without moving these four numbers and the hands stay
- * where the wheel was: nothing throws, nothing checks, and from the one camera
- * that matters the helmsman's own back hides the gap.
- */
-const HELM = {
-  hub: [0, 3.72, 1.15] as const,
-  /** Mid-rim: the wheel is an annulus from 0.42 to 0.62 and a hand wraps the middle of it. */
-  radius: 0.52,
-  /** The wheel's axis is the column's, which is `rim.rotation.x` in `vehicles.ts`. */
-  rake: -1.14,
-  /**
-   * How far along that axis the palm sits. The rim is 0.14 thick and `ringWall`
-   * lathes it from the hub *outward* along the axis, so 0.07 is its mid-plane
-   * and the extra 0.10 puts the hand on the helmsman's side of it rather than
-   * inside the ink.
-   */
-  palm: 0.07 + 0.1,
-} as const;
-
-/**
- * The two grip points, in the launch's frame. Positive x is the figure's left —
- * see `player.ts`: the basis is right-handed with the avatar facing `+Z`.
- *
- * Measured off this: each grip is **1.35 from its own shoulder joint against an
- * arm of 2.32 to the palm — 58% of full reach**, which is the same fact
- * `vehicles.ts` states as 60% and measured to the rim rather than to the hand.
- */
-const HELM_GRIP: readonly THREE.Vector3[] = [1, -1].map((side) => {
-  const axis = new THREE.Vector3(0, Math.cos(HELM.rake), Math.sin(HELM.rake));
-  return new THREE.Vector3(side * HELM.radius, 0, 0)
-    .addScaledVector(axis, HELM.palm)
-    .add(new THREE.Vector3(...HELM.hub));
-});
-
-/**
- * Shoulder to elbow, and elbow to the centre of the hand — which is the point
- * that has to land on the rim, and is not the wrist. `box` stands on `y = 0`, so
- * the hand mesh spans `-(forearm + hand)` to `-forearm` and its middle is half a
- * hand below the wrist.
- */
-const UPPER = FIGURE.upperArm;
-const LOWER = FIGURE.forearm + FIGURE.hand / 2;
-
-/**
- * Where the elbow wants to be, as a direction: outboard and down.
- *
- * **This is the whole reason the arms are not solved the way the crowd's are.**
- * `people.ts`'s `solveLimb` takes a splay about Z and a swing about X, which is
- * two degrees of freedom at the shoulder — and two is exactly enough to hit a
- * point and no more, so the elbow lands wherever the arithmetic puts it. Solved
- * that way against this wheel it puts it at **x = 0.63 against a chest half-width
- * of 1.00: inside the torso**, which is the trap `ARM_SPLAY` exists to answer,
- * arriving through a joint solver instead of through a rest pose. A hand on a
- * wheel is 0.72 inboard of its own shoulder, so an arm reaching for it *wants*
- * to fold inward, and the only thing that stops the elbow following it in is
- * spending the third degree of freedom on where the elbow goes.
- *
- * So the shoulder is given a full basis and the elbow is **placed** on the circle
- * of positions that satisfy both bone lengths, at the point furthest along this
- * direction. 0.75 outboard against 1 down is 37 degrees of abduction and puts
- * the elbow at x = 1.53, which is clear of the shoulder itself. Straight out
- * (down = 0) reaches 1.68 and reads as a chicken wing; straight down puts it
- * back inside the jacket.
- */
-const ELBOW_OUT = 0.75;
-
-/**
- * Aims one arm at a point, and places the elbow rather than deriving it.
- *
- * `target` is in the shoulder's **parent** frame — the chest — because that is
- * the frame the shoulder's own position is written in and the frame the chest's
- * counter-roll against the swell has already been applied to. So the hands stay
- * on the wheel while the body works underneath them, which is the difference
- * between a man holding a wheel and a man posed beside one.
- *
- * The elbow's bend axis is its local X, so the arm's whole bend plane is fixed
- * by the shoulder's rotation: the basis below is built to put `-Y` down the
- * upper arm and `Z` where the fold needs it, and it is a **proper** rotation by
- * construction — `col1 = col2 x col3` of two orthonormal columns — because
- * `setFromRotationMatrix` silently discards a reflection and returns something
- * that is not even normalised. See the trap; it cost a round of accusing
- * `outline.ts` of a bug it did not have.
- */
-const solveArm = (() => {
-  const reach = new THREE.Vector3();
-  const line = new THREE.Vector3();
-  const centre = new THREE.Vector3();
-  const out = new THREE.Vector3();
-  const elbow = new THREE.Vector3();
-  const bone = new THREE.Vector3();
-  const forearm = new THREE.Vector3();
-  const roll = new THREE.Vector3();
-  const up = new THREE.Vector3();
-  const across = new THREE.Vector3();
-  const basis = new THREE.Matrix4();
-
-  return function solveArm(arm: Arm, target: THREE.Vector3, side: number): void {
-    reach.copy(target).sub(arm.shoulder.position);
-    // A target outside the arm, or inside its own fold, is reached *towards*
-    // rather than snapped to: a straight arm pointing the right way is the least
-    // wrong answer, and it is what a helm this body has outgrown should look
-    // like rather than a limb turned inside out.
-    const span = clamp(reach.length(), Math.abs(UPPER - LOWER) + 1e-3, UPPER + LOWER - 1e-3);
-    if (span < 1e-4) return;
-    reach.setLength(span);
-    line.copy(reach).divideScalar(span);
-
-    // The elbow lies on a circle — the two spheres about the shoulder and the
-    // target intersect in one — and the circle is where the third degree of
-    // freedom lives.
-    const along = (span * span + UPPER * UPPER - LOWER * LOWER) / (2 * span);
-    centre.copy(arm.shoulder.position).addScaledVector(line, along);
-    const radius = Math.sqrt(Math.max(0, UPPER * UPPER - along * along));
-
-    // Furthest out and down, projected onto the circle's own plane.
-    out.set(side * ELBOW_OUT, -1, 0);
-    out.addScaledVector(line, -out.dot(line));
-    if (out.lengthSq() < 1e-6) out.set(side, 0, 0).addScaledVector(line, -line.x * side);
-    elbow.copy(centre).addScaledVector(out.normalize(), radius);
-
-    bone.copy(elbow).sub(arm.shoulder.position).normalize();
-    forearm.copy(arm.shoulder.position).add(reach).sub(elbow).normalize();
-    const fold = Math.acos(clamp(bone.dot(forearm), -1, 1));
-    const sine = Math.sin(fold);
-    // `elbow.rotation.x = -fold` takes the forearm from `-Y` to
-    // `cos(fold) * bone + sin(fold) * roll`, so that is the Z the basis needs.
-    // Straight, there is no bend plane and any perpendicular will do.
-    if (sine > 1e-4) roll.copy(forearm).addScaledVector(bone, -Math.cos(fold)).divideScalar(sine);
-    else roll.set(0, 0, 1).addScaledVector(bone, -bone.z).normalize();
-
-    // The limb hangs down `-Y`, so the basis's Y column is the *negative* of the
-    // upper arm, and X is what is left. Taking X as the cross of the other two
-    // is what makes the determinant +1 rather than hoping it is.
-    up.copy(bone).multiplyScalar(-1);
-    across.crossVectors(up, roll);
-    basis.makeBasis(across, up, roll);
-    arm.shoulder.quaternion.setFromRotationMatrix(basis);
-    arm.elbow.rotation.set(-fold, 0, 0);
-  };
-})();
-
-// ---------------------------------------------------------------------------
-// The merge
-// ---------------------------------------------------------------------------
-
-/**
- * One material for every body in the world, and the ramp and the pen are the
- * contract's own rather than restated.
- *
- * `ctx.toon` is still the only thing that makes a material here; this one is
- * built *from* one — same `gradientMap`, same `outlineParameters` object — so
- * there is no avatar ramp and no avatar pen to keep in step with anything, which
- * was the whole reason this file went through `createContext` in the first
- * place. What it adds is `vertexColors`, because a merged bone carries five
- * colours in one buffer.
- */
-const bodyMaterial = (() => {
-  const source = ctx.toon(palette.ink);
-  const material = new THREE.MeshToonMaterial({
-    vertexColors: true,
-    gradientMap: source.gradientMap,
-  });
-  material.userData.outlineParameters = source.userData.outlineParameters;
-  return material;
-})();
-
-/** Marks a pivot the merge must not reach through. */
-const BONE = 'atlasBone';
-
-interface Piece {
-  mesh: THREE.Mesh;
-  /** Where it sits relative to the bone that carries it, static scales and all. */
-  matrix: THREE.Matrix4;
-}
-
-function piecesOf(node: THREE.Object3D, into: THREE.Matrix4, out: Piece[]): void {
-  for (const child of node.children) {
-    // Another bone's, and it has to keep its own pivot to be rotated by.
-    if (child.userData[BONE] === true) continue;
-    child.updateMatrix();
-    const matrix = new THREE.Matrix4().multiplyMatrices(into, child.matrix);
-    if ((child as THREE.Mesh).isMesh === true) out.push({ mesh: child as THREE.Mesh, matrix });
-    piecesOf(child, matrix, out);
-  }
-}
-
-/**
- * Collapses each bone's own meshes into one vertex-coloured buffer, and leaves
- * the skeleton exactly as it was.
- *
- * **The merge is per bone and not global, because a merged mesh cannot move** —
- * that is `settlements.ts`'s finding and `life.ts` is built on it. Every part of
- * this body is rigid *on* a joint, though, and there are only thirteen joints,
- * so the whole figure collapses to one buffer per joint with the hierarchy that
- * poses it untouched: **35 meshes to 13, and 70 draw calls to 26**, because
- * `OutlineEffect` draws every mesh twice. The triangles do not move — 632 either
- * way — and neither does the ink: a hull is expanded per *vertex* along its own
- * normal and depth-tested, so which buffer a triangle sits in is not a fact the
- * outline can see. The jacket's three courses still get their two seams.
- *
- * What it costs is that `measure` can no longer name the colours a body is drawn
- * from, because they are on the vertices now and not on a material.
- *
- * Static groups inside a bone — the torso's `bodyDepth` squash, the skull's
- * `headDepth` stretch, the foot's seven degrees of toe-out — are baked into the
- * vertices with the inverse transpose on the normals, and every one of those
- * scales is positive, which is not a thing to assume: a **negative determinant
- * flips the winding**, and a merged triangle wound backwards turns the
- * `BackSide` hull front-facing and renders the body as a solid ink blob. It is
- * the reflected-instance trap and it does not need an `InstancedMesh` to bite.
- */
-function mergeBones(bones: readonly THREE.Object3D[]): void {
-  for (const bone of bones) bone.userData[BONE] = true;
-  const identity = new THREE.Matrix4();
-  const tint = new THREE.Color();
-  const point = new THREE.Vector3();
-  const normalMatrix = new THREE.Matrix3();
-
-  for (const bone of bones) {
-    const pieces: Piece[] = [];
-    piecesOf(bone, identity, pieces);
-    if (pieces.length === 0) continue;
-
-    let vertices = 0;
-    for (const piece of pieces) {
-      const geometry = piece.mesh.geometry;
-      vertices += geometry.index ? geometry.index.count : geometry.getAttribute('position').count;
-    }
-
-    const position = new Float32Array(vertices * 3);
-    const normal = new Float32Array(vertices * 3);
-    const color = new Float32Array(vertices * 3);
-    let cursor = 0;
-
-    for (const piece of pieces) {
-      if (piece.matrix.determinant() <= 0) {
-        throw new Error('avatar: a body part is placed by a reflection, which would render as ink');
-      }
-      const geometry = piece.mesh.geometry;
-      const from = geometry.getAttribute('position');
-      const facing = geometry.getAttribute('normal');
-      const index = geometry.index;
-      const count = index ? index.count : from.count;
-      normalMatrix.getNormalMatrix(piece.matrix);
-      const material = Array.isArray(piece.mesh.material) ? piece.mesh.material[0]! : piece.mesh.material;
-      const hex = material.userData.atlasToon as number | undefined;
-      if (hex === undefined) {
-        throw new Error('avatar: a material escaped ctx.toon and cannot say what colour it is');
-      }
-      tint.set(hex);
-      for (let i = 0; i < count; i++) {
-        const v = index ? index.getX(i) : i;
-        point.fromBufferAttribute(from, v).applyMatrix4(piece.matrix);
-        position[cursor] = point.x;
-        position[cursor + 1] = point.y;
-        position[cursor + 2] = point.z;
-        point.fromBufferAttribute(facing, v).applyMatrix3(normalMatrix).normalize();
-        normal[cursor] = point.x;
-        normal[cursor + 1] = point.y;
-        normal[cursor + 2] = point.z;
-        color[cursor] = tint.r;
-        color[cursor + 1] = tint.g;
-        color[cursor + 2] = tint.b;
-        cursor += 3;
-      }
-    }
-
-    for (const piece of pieces) {
-      piece.mesh.removeFromParent();
-      piece.mesh.geometry.dispose();
-    }
-    // Whatever static groups the pieces hung from are empty now.
-    for (const child of [...bone.children]) {
-      if (child.userData[BONE] !== true) child.removeFromParent();
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
-    const merged = new THREE.Mesh(geometry, bodyMaterial);
-    // The body casts its own shadow and stands in everything else's.
-    merged.castShadow = true;
-    merged.receiveShadow = true;
-    bone.add(merged);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// The rig
-// ---------------------------------------------------------------------------
-
-/** One leg: three pivots, each the top of what hangs off it. */
-interface Leg {
-  hip: THREE.Group;
-  knee: THREE.Group;
-  ankle: THREE.Group;
-}
-
-/** One arm: two pivots. The hand is rigid on the forearm. */
-interface Arm {
-  shoulder: THREE.Group;
-  elbow: THREE.Group;
-}
-
 export interface Avatar {
-  /** Origin between the feet, facing +Z. Owns its own bob and sway. */
+  /** Origin between the feet, facing +Z. */
   group: THREE.Group;
   /** Walking, running, standing and airborne. Everything on foot. */
   stride(dt: number, speed: number, airborne: boolean): void;
-  /** At the launch's helm, hands on the wheel. `heel` is the craft's roll. */
+  /** At the launch's helm. `heel` is the craft's roll. */
   steer(dt: number, heel: number): void;
-  /** Seated at the controls, head and shoulders out in the open cockpit. */
+  /** Seated at the controls of the floatplane, hips at `FIGURE.hipY`. */
   sit(dt: number): void;
   /** Back to a clean standing pose with the cycle at zero. For `goTo`. */
   reset(): void;
 }
 
-/** Builds the body and returns the rig that poses it. */
-export function buildAvatar(look: AvatarLook = AVATAR_LOOK): Avatar {
-  const { box, taper, strut } = ctx;
-  const { skin, jacket, trousers, leather, pack } = look;
-  const F = FIGURE;
+/** Builds the body and returns the rig that poses it. Needs `prepareAvatar` first. */
+export function buildAvatar(): Avatar {
+  if (heroCast === null) throw new Error('avatar: call prepareAvatar() before buildAvatar()');
+  const person = heroCast.make(HERO_OUTFIT, (name) => HERO_PAINT[name] ?? null, AVATAR_HEIGHT);
 
   const group = new THREE.Group();
-
-  // -------------------------------------------------------------------------
-  // Legs
-  //
-  // Every pivot is the *top* of what hangs from it, so a rotation is a joint
-  // and never a limb swinging about its own middle. `taper` stands on +Y, so a
-  // hanging segment is placed at `y = -length` and written thin-end-first —
-  // which is also why no limb here needs a rotation baked into it, and so the
-  // `T * R * S` trap has nothing to catch.
-  // -------------------------------------------------------------------------
-  const legs: Leg[] = [1, -1].map((side) => {
-    const hip = new THREE.Group();
-    hip.position.set(side * F.hipX, F.hipY, 0);
-    group.add(hip);
-
-    const thigh = taper(F.thighRadius[0], F.thighRadius[1], F.thigh, trousers, 5);
-    thigh.position.y = -F.thigh;
-    hip.add(thigh);
-
-    const knee = new THREE.Group();
-    knee.position.y = -F.thigh;
-    hip.add(knee);
-
-    const shin = taper(F.shinRadius[0], F.shinRadius[1], F.shin, trousers, 5);
-    shin.position.y = -F.shin;
-    knee.add(shin);
-
-    const ankle = new THREE.Group();
-    ankle.position.y = -F.shin;
-    knee.add(ankle);
-
-    // A five-sided cuff over the top of the boot. The trouser is 0.25 across
-    // here and the boot is 0.58, so without it the leg steps straight from a
-    // pencil to a brick.
-    const cuff = taper(0.32, 0.27, 0.3, leather, 5);
-    ankle.add(cuff);
-
-    // The foot toes out seven degrees, which is what a stance looks like and
-    // what a pair of parallel bricks does not. On its own group so the ankle
-    // pivot stays a pure fore-aft joint for the walk to drive.
-    const foot = new THREE.Group();
-    foot.rotation.y = side * 0.07;
-    ankle.add(foot);
-
-    const boot = box(0.58, F.ankleY, 0.96, leather);
-    boot.position.set(0, -F.ankleY, 0.16);
-    foot.add(boot);
-
-    // The toe is a second, lower, narrower mass rather than a longer boot.
-    // Coplanar faces get no ink between them, so a one-box shoe is one flat
-    // shape; stepping the toe down and forward buys an ink line across it for
-    // twelve triangles.
-    const toe = box(0.5, 0.24, 0.26, leather);
-    toe.position.set(0, -F.ankleY, 0.58);
-    foot.add(toe);
-
-    return { hip, knee, ankle };
-  });
-
-  // The pelvis belongs to the legs, not to the chest: it must not twist when
-  // the shoulders counter-rotate, or the hips wag.
-  const pelvis = taper(F.hipHalf, 0.9, 0.6, trousers, 6);
-  pelvis.position.y = 2.95;
-  pelvis.scale.z = 0.8;
-  group.add(pelvis);
-
-  // -------------------------------------------------------------------------
-  // Torso
-  // -------------------------------------------------------------------------
-  const chest = new THREE.Group();
-  chest.position.y = F.hipY;
-  group.add(chest);
-
-  /** Chest-local height for a world height. */
-  const at = (y: number) => y - F.hipY;
-
-  // Three courses, so two ink lines run across the jacket. Few joints read as
-  // natural and many read as manufactured — a garment is manufactured, and the
-  // seams are what say cloth rather than skin. The hem flares back out past the
-  // waist, which is the whole difference between a jacket and a tube.
+  group.name = 'avatar';
+  /** Carries the seated offset, so `group` stays where `player.ts` puts it. */
   const body = new THREE.Group();
-  body.scale.z = F.bodyDepth;
-  chest.add(body);
+  group.add(body);
+  body.add(person.root);
 
-  // The hem is 1.00 against a 0.82 waist so it stands clear of the trousers
-  // under it — 0.07 of overhang and a different depth, which is what buys the
-  // ink line. Coplanar, there would be none.
-  const seams = [3.35, F.waistY, F.chestY, F.shoulderY];
-  const widths = [1.0, F.waistHalf, F.chestHalf, 0.96];
-  for (let i = 0; i + 1 < seams.length; i++) {
-    const course = taper(widths[i]!, widths[i + 1]!, seams[i + 1]! - seams[i]!, jacket, 6);
-    course.position.y = at(seams[i]!);
-    body.add(course);
-  }
+  const bone = (name: string): THREE.Bone => {
+    const found = person.bones.get(name) ?? person.bones.get(name.replace('.', ''));
+    if (found === undefined) throw new Error(`avatar: the rig has no ${name}`);
+    return found;
+  };
+  const hips = bone('Hips');
+  const chest = bone('Chest');
+  const legs = (['L', 'R'] as const).map((side) => ({
+    upper: bone(`UpperLeg.${side}`),
+    lower: bone(`LowerLeg.${side}`),
+    foot: bone(`Foot.${side}`),
+    /** The ankle, in the lower leg's own frame, measured in the bind pose. */
+    ankle: new THREE.Vector3(),
+  }));
 
-  // The rucksack's hip belt, standing proud of the hem. It is the reason the
-  // pack is on his back rather than floating behind it, and it costs one mesh.
-  const belt = taper(1.06, 1.06, 0.2, leather, 6);
-  belt.position.y = at(3.4);
-  belt.scale.z = 0.78;
-  chest.add(belt);
-
-  // Outside `body`, so the front-to-back squash does not pull it flat. Wider
-  // than the chest by 0.30 a side: this mass is the difference between an arm
-  // and a stick pushed into a torso.
-  const shoulders = taper(F.shoulderHalf, 1.14, 0.52, jacket, 6);
-  shoulders.position.y = at(4.26);
-  shoulders.scale.z = 0.62;
-  chest.add(shoulders);
-
-  // A dark collar across the top of the shoulders, standing proud in depth so
-  // the ink finds it. The pack is narrower than the shoulders, so this band
-  // still shows on both sides of it from the camera's own position.
-  const collar = taper(1.12, 0.98, 0.22, leather, 6);
-  collar.position.y = at(4.6);
-  collar.scale.z = 0.66;
-  chest.add(collar);
-
-  const neck = taper(0.32, 0.29, F.chinY - 4.72, skin, 6);
-  neck.position.y = at(4.72);
-  chest.add(neck);
-
-  // -------------------------------------------------------------------------
-  // Arms
-  //
-  // Sleeve to the elbow and bare from there: three colours down the arm, which
-  // is what stops it reading as one tube, and it is a rolled sleeve rather than
-  // a decision about anatomy.
-  // -------------------------------------------------------------------------
-  const arms: Arm[] = [1, -1].map((side) => {
-    const shoulder = new THREE.Group();
-    shoulder.position.set(side * F.shoulderX, at(F.shoulderJointY), 0);
-    chest.add(shoulder);
-
-    const upper = taper(F.upperArmRadius[0], F.upperArmRadius[1], F.upperArm, jacket, 5);
-    upper.position.y = -F.upperArm;
-    shoulder.add(upper);
-
-    const elbow = new THREE.Group();
-    elbow.position.y = -F.upperArm;
-    shoulder.add(elbow);
-
-    const lower = taper(F.forearmRadius[0], F.forearmRadius[1], F.forearm, skin, 5);
-    lower.position.y = -F.forearm;
-    elbow.add(lower);
-
-    const hand = box(0.34, F.hand, 0.28, skin);
-    hand.position.set(0, -F.forearm - F.hand, 0.02);
-    elbow.add(hand);
-
-    return { shoulder, elbow };
-  });
-
-  // -------------------------------------------------------------------------
-  // Head
-  //
-  // Two masses, not one. A single prism is a drum; a jaw narrowing to the chin
-  // under a cranium puts an ink line across the cheek, and that line is most of
-  // what makes it a face at 44 px.
-  // -------------------------------------------------------------------------
-  const head = new THREE.Group();
-  head.position.y = at(F.chinY);
-  chest.add(head);
-
-  const skull = new THREE.Group();
-  skull.scale.z = F.headDepth;
-  head.add(skull);
-
-  const jaw = taper(0.56, F.headHalf, 0.52, skin, 6);
-  skull.add(jaw);
-
-  // Stopped 0.08 under the crown, because at exactly `HEAD` the cranium's top
-  // face and the cap's were the same size at the same height and the scalp came
-  // through the hat. The model's crown is the cap.
-  const cranium = taper(F.headHalf, 0.58, HEAD - 0.6, skin, 6);
-  cranium.position.y = 0.52;
-  skull.add(cranium);
-
-  // The hat lives **inside** `skull`, so it inherits the same `headDepth`
-  // stretch the skull has. Outside it, the two are scaled differently in z and
-  // the skull's corners come through the crown: the first render had pale
-  // wedges of scalp standing proud of the hat front and back, which is the
-  // clearest possible demonstration that a cover has to be built in the frame
-  // of the thing it covers. Six sides on both, aligned, so the cap's apothem is
-  // over the cranium's at every bearing and not only at the flats.
-  //
-  // **And it has no brim, which is the second thing the first render settled.**
-  // A brim at 0.96 against a 0.68 head is 1.4 times the width of the skull, and
-  // from 26 degrees up it is a flat disc seen nearly edge-on: the head came out
-  // as a dark lampshade 2.3 units across against 2.6 of shoulder, and the
-  // figure read as a bobblehead. A peak costs the *front* view a direction cue
-  // and costs the rear silhouette nothing at all, which is the right way round
-  // for a camera that lives behind.
-  const cap = taper(0.74, 0.58, HEAD - 0.98, leather, 6);
-  cap.position.y = 0.98;
-  skull.add(cap);
-
-  const peak = box(0.72, 0.13, 0.36, leather);
-  peak.position.set(0, 0.98, 0.6);
-  skull.add(peak);
-
-  // Hair around the back of the skull rather than a lid on top of it, and run
-  // up under the cap so it cannot grow through it. The Little Mermaid's file
-  // records both failures this avoids: a slab across the crown reads as a
-  // helmet, and hair the same colour as the head is an outline.
-  // It runs from just above the chin to under the cap: at 0.42 it left 0.80
-  // units of bare nape between the collar and the hat, and from directly
-  // astern — the one view that is always there — that pale band read as the
-  // head not being attached to the body.
-  const hair = box(1.34, 0.86, 0.4, leather);
-  hair.position.set(0, 0.18, -0.76);
-  head.add(hair);
-
-  // Eyes, standing 0.07 proud of the face. Flush they would be coplanar with
-  // it and get no ink at all, which is Niagara's finding and it applies to a
-  // 0.15-unit box exactly as it did to a waterfall. High on the head — 46% of
-  // it, where a real eye line sits — because at 0.62 they were level with the
-  // jaw seam and the two together read as a moustache.
-  for (const side of [1, -1]) {
-    const eye = box(0.15, 0.17, 0.1, palette.ink);
-    eye.position.set(side * 0.24, 0.78, 0.72);
-    head.add(eye);
+  // Everything measured below is measured in the bind pose.
+  person.mesh.skeleton.pose();
+  group.updateMatrixWorld(true);
+  for (const leg of legs) {
+    leg.ankle.copy(leg.lower.worldToLocal(leg.foot.getWorldPosition(new THREE.Vector3())));
   }
 
   // -------------------------------------------------------------------------
   // The pack
   //
-  // The camera is behind this avatar for the whole session, so the back of the
-  // figure is the primary read and it gets the most parts. Narrower than the
-  // shoulders on purpose — a pack as wide as the shoulders hides the arms that
-  // do the walking — and it stops 0.05 below the chin so it does not merge with
-  // the head from directly astern.
+  // Built in the group's frame at the bind pose and then handed to the chest
+  // bone with `attach`, which keeps where it is and takes the bone's motion from
+  // then on: it breathes, twists and bobs with the torso it is strapped to.
   // -------------------------------------------------------------------------
-  const sack = box(1.24, 1.0, 0.52, pack);
-  sack.position.set(0, at(3.42), -1.0);
-  chest.add(sack);
+  const chestAt = group.worldToLocal(chest.getWorldPosition(new THREE.Vector3()));
+  const pack = new THREE.Group();
+  {
+    const { rounded, band } = soft;
+    const back = chestAt.z - 0.5;
+    const sack = rounded(1.2, 1.3, 0.62, 0.22, palette.gold);
+    sack.position.set(0, chestAt.y - 1.35, back - 0.26);
+    const flap = rounded(1.28, 0.5, 0.7, 0.2, ctx.tone(palette.gold, 0.8));
+    flap.position.set(0, chestAt.y - 0.5, back - 0.28);
+    const patch = rounded(0.38, 0.26, 0.06, 0.03, palette.white, 2);
+    patch.position.set(0, chestAt.y - 0.4, back - 0.64);
+    const pocket = rounded(0.82, 0.46, 0.2, 0.1, ctx.tone(palette.gold, 0.88));
+    pocket.position.set(0, chestAt.y - 1.2, back - 0.62);
+    pack.add(sack, flap, patch, pocket);
+    for (const side of [1, -1]) {
+      const top = new THREE.Vector3(side * 0.42, chestAt.y + 0.34, chestAt.z - 0.05);
+      const rear = new THREE.Vector3(side * 0.4, chestAt.y - 0.3, back - 0.05);
+      const front = new THREE.Vector3(side * 0.44, chestAt.y - 0.9, chestAt.z + 0.5);
+      pack.add(band(rear, top, 0.22, 0.09, palette.bark), band(top, front, 0.22, 0.09, palette.bark));
+    }
+    pack.traverse((object) => {
+      if ((object as THREE.Mesh).isMesh) (object as THREE.Mesh).castShadow = true;
+    });
+  }
+  group.add(pack);
+  group.updateMatrixWorld(true);
+  chest.attach(pack);
 
-  // A flap over the top two fifths of it. Without one the pack is a single
-  // bright brick and reads as a box he is carrying rather than a bag he is
-  // wearing; the straps cannot do that job, because a strap runs down the
-  // *front* of a pack and is invisible from the one angle the camera has.
-  const flap = box(1.3, 0.36, 0.58, leather);
-  flap.position.set(0, at(4.42), -1.02);
-  chest.add(flap);
+  // -------------------------------------------------------------------------
+  // The clips
+  // -------------------------------------------------------------------------
+  const clip = (name: 'Idle_Neutral' | 'Walk' | 'Run') => {
+    const found = person.actions.get(name);
+    if (found === undefined) throw new Error(`avatar: no ${name} clip`);
+    return found;
+  };
+  const idle = clip('Idle_Neutral');
+  const walk = clip('Walk');
+  const run = clip('Run');
+  // The airborne pose is the run held still, on an action of its own so it can
+  // be mixed in while the run itself keeps its phase.
+  const air = person.mixer.clipAction(run.getClip().clone());
+  for (const action of [idle, walk, run, air]) {
+    action.play();
+    action.setEffectiveWeight(0);
+  }
+  // Walk, run and air are driven by distance and by hand, never by the clock.
+  walk.timeScale = 0;
+  run.timeScale = 0;
+  air.timeScale = 0;
+  air.time = AIR_PHASE * air.getClip().duration;
 
-  // Straps over the shoulders. Each is buried inside the shoulder mass in the
-  // middle and shows at both ends, which is what a strap looks like.
-  for (const side of [1, -1]) {
-    chest.add(
-      strut(
-        new THREE.Vector3(side * 0.48, at(4.6), -0.78),
-        new THREE.Vector3(side * 0.46, at(3.72), 0.6),
-        0.2,
-        leather,
-      ),
-    );
+  const weights = { idle: 1, walk: 0, run: 0, air: 0 };
+  /** Stride cycles completed, 0..1. */
+  let phase = 0;
+
+  function apply(dt: number): void {
+    idle.setEffectiveWeight(weights.idle);
+    walk.setEffectiveWeight(weights.walk);
+    run.setEffectiveWeight(weights.run);
+    air.setEffectiveWeight(weights.air);
+    walk.time = phase * walk.getClip().duration;
+    run.time = phase * run.getClip().duration;
+    person.mixer.update(dt);
   }
 
-  // -------------------------------------------------------------------------
-  // The merge
-  //
-  // Thirteen bones, and the list is the skeleton: the pelvis on the root, one
-  // per hip, knee and ankle, the chest, the head, and one per shoulder and
-  // elbow. Everything hanging off each of them is rigid, so each becomes one
-  // buffer. See `mergeBones`.
-  // -------------------------------------------------------------------------
-  mergeBones([
-    group,
-    ...legs.flatMap((leg) => [leg.hip, leg.knee, leg.ankle]),
-    chest,
-    head,
-    ...arms.flatMap((arm) => [arm.shoulder, arm.elbow]),
-  ]);
-
-  // -------------------------------------------------------------------------
-  // Posing
-  // -------------------------------------------------------------------------
-
-  const [armLeft, armRight] = arms as [Arm, Arm];
-
-  /** Phase of the walk cycle, advanced by distance covered and never by time. */
-  let phase = 0;
-  /** How airborne he is, smoothed, so take-off and landing are not a snap. */
-  let airPose = 0;
-  /** Wall clock, for the things that are not driven by distance: breath, swell. */
-  let clock = 0;
+  function blendTo(dt: number, target: typeof weights): void {
+    const k = approach(BLEND_RATE, dt);
+    weights.idle += (target.idle - weights.idle) * k;
+    weights.walk += (target.walk - weights.walk) * k;
+    weights.run += (target.run - weights.run) * k;
+    weights.air += (target.air - weights.air) * k;
+  }
 
   function stride(dt: number, speed: number, airborne: boolean): void {
-    clock += dt;
+    body.position.set(0, 0, 0);
+    body.rotation.set(0, 0, 0);
     const running = clamp((speed - WALK_SPEED) / (RUN_SPEED - WALK_SPEED), 0, 1);
-    const stride_ = mix(WALK_STRIDE, RUN_STRIDE, running);
-    // The phase is integrated rather than derived from a distance counter, so
-    // changing stride length mid-step does not jump.
-    phase = (phase + (speed * dt * TAU) / stride_) % TAU;
-
-    airPose += ((airborne ? 1 : 0) - airPose) * approach(9, dt);
-
-    // Below a walk the legs barely move, so easing to a stop settles into the
-    // idle pose instead of freezing mid-stride.
-    const intensity = clamp(speed / WALK_SPEED, 0, 1);
-    const swing = Math.sin(phase) * mix(WALK_SWING, RUN_SWING, running) * intensity;
-    const fold = mix(WALK_KNEE, RUN_KNEE, running) * intensity;
-    const ground = 1 - airPose;
-
-    // Positive rotation about local X swings a limb backwards.
-    const hips = [swing, -swing];
-    // Non-zero only while this leg is swinging *and* its thigh is still behind
-    // vertical, which is the one window where folding the knee raises the foot.
-    const lifts = [swingLift(phase), swingLift(phase + Math.PI)];
-
-    // Airborne: one leg tucked, one reaching, arms up. It is a leap rather than
-    // a star jump, so the two legs do different things.
-    const air: [number, number, number][] = [
-      [-0.28, 1.15, 0.2],
-      [-0.62, 0.22, -0.12],
-    ];
-    legs.forEach((leg, i) => {
-      const [airHip, airKnee, airAnkle] = air[i]!;
-      const hip = hips[i]!;
-      const knee = lifts[i]! * fold;
-      // `.set` and not `.x`: the boat's braced stance splays the hips about Z,
-      // and stepping ashore has to put that back or you walk bow-legged.
-      leg.hip.rotation.set(mix(hip, airHip, airPose), 0, 0);
-      leg.knee.rotation.x = mix(knee, airKnee, airPose);
-      // Cancel the leg's total rotation so the boot stays flat on the world,
-      // then add the toe-up that rides with the fold. See ANKLE_LIFT: between
-      // them these two lines are what keep the feet out of the ground.
-      leg.ankle.rotation.x = mix(-(hip + knee) - ANKLE_LIFT * lifts[i]! * intensity, airAnkle, airPose);
+    // Half a walk is already walking: below that the legs would shuffle.
+    const moving = clamp(speed / (WALK_SPEED * 0.5), 0, 1);
+    const length = mix(WALK_STRIDE, RUN_STRIDE, running);
+    phase = (phase + (speed * dt) / length) % 1;
+    const up = airborne ? 1 : 0;
+    blendTo(dt, {
+      idle: (1 - moving) * (1 - up),
+      walk: moving * (1 - running) * (1 - up),
+      run: moving * running * (1 - up),
+      air: up,
     });
-
-    const elbow = mix(WALK_ELBOW, RUN_ELBOW, running) * intensity + ARM_REST_ELBOW;
-    armLeft.shoulder.rotation.set(mix(-swing * ARM_SWING, -1.05, airPose), 0, ARM_SPLAY + airPose * 0.3);
-    armRight.shoulder.rotation.set(mix(swing * ARM_SWING, -1.05, airPose), 0, -ARM_SPLAY - airPose * 0.3);
-    // More fold on the forward swing than on the back, which is what an arm does.
-    armLeft.elbow.rotation.x = -mix(elbow * (1 - swing * 0.5), 0.62, airPose);
-    armRight.elbow.rotation.x = -mix(elbow * (1 + swing * 0.5), 0.62, airPose);
-
-    // The shoulders counter-twist against the arms and the run leans forward;
-    // the head undoes both.
-    const twist = -swing * mix(0.12, 0.2, running);
-    const pitch = mix(0.05, 0.28, running) * intensity;
-    // Roll toward the swing side, so the head stays over the stance foot.
-    const roll_ = -Math.cos(phase) * 0.05 * intensity;
-    chest.rotation.set(mix(pitch, -0.16, airPose), twist, roll_ * ground);
-    chest.position.y = F.hipY + (1 - intensity) * Math.sin(clock * BREATH_RATE) * BREATH * ground;
-    head.rotation.set(-chest.rotation.x * HEAD_STEADY, -twist * 0.5, -roll_ * 0.5);
-
-    // The bob, and the lateral shift: see `bobFor` and `SWAY`.
-    const sway = Math.cos(phase) * mix(WALK_SWAY, RUN_SWAY, running) * intensity;
-    group.position.set(sway * ground, bobFor(swing) * ground, 0);
+    apply(dt);
   }
 
-  /** Scratch for the helm solve: the grip, walked back into the chest's frame. */
-  const grip = new THREE.Vector3();
-  const unchest = new THREE.Quaternion();
+  const direction = new THREE.Vector3();
+  const along = new THREE.Vector3();
+  const from = new THREE.Vector3();
+  const to = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  const own = new THREE.Quaternion();
+  const parent = new THREE.Quaternion();
 
-  /**
-   * At the helm of the launch: hands on the wheel, standing on a deck that is
-   * moving under him.
-   *
-   * **It used to be a braced stance with both palms on a ledge, and that was a
-   * measurement rather than a preference.** The launch's console topped out at
-   * 1.30 units — knee height on a 6.8-unit body against a knee at 1.66 — so the
-   * wheel could not be reached without kneeling on it, and this pose's own
-   * comment said so. `vehicles.ts` then rebuilt the boat around the pilot: the
-   * console is two boxes because this pose has two heights in it, the after
-   * ledge tops out where the braced hands already were, and the wheel sits on a
-   * binnacle at 60% of an arm's reach. The geometry answered; this is the pose
-   * that was owed back.
-   *
-   * The legs did not change and should not. Feet planted wide, hips splayed,
-   * knees soft — a man at a wheel is still balancing, and the counter-roll is
-   * still what says the sea is moving even when the boat is stopped. What the
-   * wheel adds is that the counter-roll now has something to work *against*:
-   * the hands are solved in the chest's own frame every frame, so the body
-   * rolls and the grip does not.
-   */
-  function steer(dt: number, heel: number): void {
-    clock += dt;
-    airPose = 0;
-    phase = 0;
-
-    const sway = Math.sin(clock * 0.9);
-    for (const [i, leg] of legs.entries()) {
-      // Feet planted wide: the hips splay outward, which is what bracing is.
-      leg.hip.rotation.set(0.1, 0, (i === 0 ? 1 : -1) * 0.1);
-      leg.knee.rotation.x = 0.22;
-      // Flat on the deck, the same rule the walk obeys.
-      leg.ankle.rotation.x = -0.32;
-    }
-    // Counter-roll: the deck rolls by `heel`, the legs go with it, the chest
-    // gives about two thirds of it back.
-    chest.rotation.set(0.08, sway * 0.05, -heel * 0.65);
-    chest.position.y = F.hipY + Math.sin(clock * BREATH_RATE) * BREATH;
-    head.rotation.set(-0.06, sway * 0.12, heel * 0.35);
-    // The soft knees already shorten him by 0.08; this puts the soles back on
-    // the deck rather than a hand's breadth over it. It is also what makes the
-    // group's frame the *boat's* frame, which is what the grips are written in.
-    group.position.set(0, -0.08, 0);
-
-    // The arms last, because the solve reads the chest the two lines above have
-    // just placed. Boat -> group -> chest, and then `solveArm` works in the
-    // shoulder's parent frame, which is where its own position is written.
-    unchest.copy(chest.quaternion).invert();
-    for (const [i, arm] of arms.entries()) {
-      grip.copy(HELM_GRIP[i]!).sub(group.position).sub(chest.position).applyQuaternion(unchest);
-      solveArm(arm, grip, i === 0 ? 1 : -1);
-    }
+  /** Swings `bone` so the point `tip` (world) moves to lie along `dir` (group frame). */
+  function aim(target: THREE.Bone, tip: THREE.Vector3, dir: THREE.Vector3): void {
+    target.getWorldPosition(from);
+    along.copy(tip).sub(from).normalize();
+    direction.copy(dir).transformDirection(group.matrixWorld);
+    turn.setFromUnitVectors(along, direction);
+    target.getWorldQuaternion(own);
+    target.parent!.getWorldQuaternion(parent);
+    target.quaternion.copy(parent.invert().multiply(turn.multiply(own)));
+    target.updateMatrixWorld(true);
   }
 
+  const THIGH = new THREE.Vector3(0, -0.12, 1).normalize();
+  const SHIN = new THREE.Vector3(0, -1, 0.08).normalize();
+  const hipAt = new THREE.Vector3();
+
   /**
-   * Seated at the controls of the floatplane.
-   *
-   * **The hip is the origin of a seated figure and this pose leaves it there.**
-   * That is the convention the crowd and the vehicle kits already share — origin
-   * at the seat surface, hip at zero, +Z the way the person faces — and it is
-   * what lets `player.ts`'s `seatOn` place him from the plane's own
-   * `PLANE_SEAT` without either file knowing the other's dimensions.
-   *
-   * It used to drop the whole body 0.9 and shift it 0.6 back, and the comment
-   * explaining why described a fuselage that no longer exists: a 4.4-unit
-   * capsule against a 6.8-unit body, with no offset that seated him properly.
-   * The plane was rebuilt around the pilot instead of the other way round —
-   * cockpit floor at the datum, seat at 1.90, a 4.30 cabin against the crowd's
-   * measured 4.27 envelope — so the cheat has nothing left to hide and the
-   * numbers had become two magic constants whose only job was to be cancelled
-   * by `seatOn` on the next line of a different file.
-   *
-   * The knees are what turn it from a standing man with his legs pointing
-   * forward into somebody sitting down — the old rig had no knee and could not
-   * say it.
+   * Seated: the idle clip for everything above the waist, and the legs folded
+   * by hand, because the pack has no sitting clip. The rig's feet are IK
+   * controls hanging off its root rather than children of the shins, so a
+   * folded leg has to carry its foot to the new ankle itself or the shoe stays
+   * standing on the floor.
    */
   function sit(dt: number): void {
-    clock += dt;
-    airPose = 0;
-    phase = 0;
-
+    body.rotation.set(0, 0, 0);
+    blendTo(dt * 4, { idle: 1, walk: 0, run: 0, air: 0 });
+    apply(dt);
+    group.updateMatrixWorld(true);
     for (const leg of legs) {
-      leg.hip.rotation.set(-1.45, 0, 0);
-      leg.knee.rotation.x = 1.35;
-      leg.ankle.rotation.x = 0.15;
+      aim(leg.upper, leg.lower.getWorldPosition(to), THIGH);
+      aim(leg.lower, leg.lower.localToWorld(to.copy(leg.ankle)), SHIN);
+      leg.lower.localToWorld(to.copy(leg.ankle));
+      leg.foot.position.copy(leg.foot.parent!.worldToLocal(to));
+      leg.foot.updateMatrixWorld(true);
     }
-    for (const [i, arm] of arms.entries()) {
-      const side = i === 0 ? 1 : -1;
-      // Forward and down onto the yoke, whose crossbar `vehicles.ts` puts where
-      // these hands land rather than the other way round.
-      arm.shoulder.rotation.set(-1.0, 0, side * 0.06);
-      arm.elbow.rotation.x = -0.45;
-    }
-    chest.rotation.set(0.1, 0, 0);
-    chest.position.y = F.hipY;
-    head.rotation.set(-0.07, 0, 0);
-    // No offset: the seat is the vehicle's to place, and it places it on the
-    // hip. See the note above for the two numbers that used to be here.
-    group.position.set(0, 0, 0);
+    // Put this character's own hips where `FIGURE` says a seated hip is.
+    hipAt.copy(group.worldToLocal(hips.getWorldPosition(to)));
+    body.position.x -= hipAt.x;
+    body.position.y += FIGURE.hipY - hipAt.y;
+    body.position.z -= hipAt.z;
+  }
+
+  /**
+   * At the helm: standing in the relaxed idle, giving back two thirds of the
+   * deck's roll so the sea reads as moving under him.
+   */
+  function steer(dt: number, heel: number): void {
+    body.position.set(0, 0, 0);
+    blendTo(dt, { idle: 1, walk: 0, run: 0, air: 0 });
+    apply(dt);
+    body.rotation.set(0, 0, -heel * 0.65);
   }
 
   function reset(): void {
     phase = 0;
-    airPose = 0;
-    clock = 0;
+    weights.idle = 1;
+    weights.walk = 0;
+    weights.run = 0;
+    weights.air = 0;
+    person.mixer.setTime(0);
     stride(0, 0, false);
   }
 
   reset();
-  group.name = 'avatar';
   return { group, stride, steer, sit, reset };
 }

@@ -4,7 +4,7 @@ export default defineConfig({
   server: { port: 5174, open: false },
   build: {
     rollupOptions: {
-      // **The world is the only entry, and the seven review sheets in `sheets/`
+      // **The world is the only entry, and the review sheets in `sheets/`
       // are deliberately not here.** They are development tools — the monuments
       // on a grid, the kit's 1,848 variants, a street of vehicles, the body from
       // twelve angles — and `pnpm dev` serves every one of them with no config
@@ -28,7 +28,7 @@ export default defineConfig({
     // There is no `manualChunks` here and that is a decision. Rollup already
     // splits on the graph `main.ts` gives it — see `deferred` in `src/main.ts`,
     // which is what actually moved 155 KB gzipped out of the first load — and a
-    // hand-written grouping would have to agree with the seven review sheets as
+    // hand-written grouping would have to agree with the review sheets as
     // well, each of which reaches a different part of the same kits. The
     // deferred set is fifteen small chunks; measured at 250 KB/s they are all
     // requested in one go and the extra round trips cost about 46 ms of a

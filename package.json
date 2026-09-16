@@ -10,6 +10,7 @@
     "roads": "node scripts/build-roads.ts",
     "check": "node scripts/check-world.ts",
     "people": "node scripts/check-people.ts",
+    "cast": "node scripts/build-cast.mjs",
     "life": "node scripts/check-life.ts",
     "fauna": "node scripts/check-fauna.ts",
     "system": "node scripts/check-system.ts",

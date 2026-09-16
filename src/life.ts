@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { Person } from './cast.ts';
+import type { Folk } from './folk.ts';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { MAX_SLOPE, flattenWeightAt, gradeAt, reliefAt } from './terrain.ts';
@@ -767,6 +769,8 @@ interface Mover {
   distance: number;
   /** How many animals are in this one mesh. Herds only. */
   heads?: number;
+  /** A walker drawn from the cast, when there is one: its own skinned body. */
+  person?: { holder: THREE.Group; person: Person } | null;
 }
 
 interface Flock {
@@ -907,6 +911,13 @@ export interface LifeOptions {
    * and importing it would put this file out of reach of the headless checks.
    */
   animals?: readonly Animal[];
+  /**
+   * The cast, for the people walking the verges (`folk.ts`). Handed in for the
+   * reason the vehicles are: it loads glTF, which the headless checks cannot.
+   * Without it a walker is the code-built crowd body baked at `WALK_PHASES`,
+   * which is what `pnpm life` still sweeps.
+   */
+  folk?: Folk;
 }
 
 /**
@@ -970,6 +981,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const traffic: TrafficContext = createTrafficContext(ctx);
   const material = moverMaterial();
   const roads = options.roads ?? [];
+  const folk = options.folk;
   const registry = new Map<string, Vehicle>((options.vehicles ?? []).map((entry) => [entry.id, entry]));
   const fauna: FaunaContext = createFaunaContext(ctx);
   const bestiary = new Map<string, Animal>((options.animals ?? []).map((entry) => [entry.id, entry]));
@@ -2528,6 +2540,13 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
     for (const [key, mover] of movers) {
       if (keep.has(key)) continue;
+      if (mover.person) {
+        mover.person.person.mixer.stopAllAction();
+        group.remove(mover.person.holder);
+        mover.person.person.mesh.geometry.dispose();
+        mover.person.person.mesh.skeleton.dispose();
+        mover.person = null;
+      }
       if (mover.mesh !== null) {
         group.remove(mover.mesh);
         mover.mesh = null;
@@ -2677,6 +2696,42 @@ export function createLife(world: World, places: readonly Place[], options: Life
   // The frame
   // ------------------------------------------------------------------
 
+  /**
+   * A walker from the cast: its own skinned body, placed on its route and held
+   * at the phase of the walk its distance says, so its feet keep time with the
+   * verge instead of with the frame rate. The pool key is `w|<region>|<body>`,
+   * and the region is all a dressing needs.
+   */
+  function drawWalker(mover: Mover, clock: number): void {
+    const visible = frame.live && cone.keeps(mover.at, 20);
+    if (!visible) {
+      if (mover.person) mover.person.holder.visible = false;
+      return;
+    }
+    if (!mover.person) {
+      const person = folk!.dress(mover.key, mover.pool.split('|')[1] ?? 'atlantic-europe');
+      if (person === null) return;
+      const holder = new THREE.Group();
+      holder.name = `foot:${mover.key}`;
+      holder.add(person.root);
+      group.add(holder);
+      person.actions.get('Walk')!.play();
+      mover.person = { holder, person };
+    }
+    const { holder, person } = mover.person;
+    holder.visible = true;
+    forward.copy(frame.forward).projectOnPlane(frame.dir).normalize();
+    right.crossVectors(frame.dir, forward).normalize();
+    basis.makeBasis(right, frame.dir, forward);
+    holder.position.copy(mover.at);
+    holder.quaternion.setFromRotationMatrix(basis);
+    const walk = person.actions.get('Walk')!;
+    walk.time = walkPhase(mover, clock) * walk.getClip().duration;
+    person.mixer.update(0);
+    stats.foot++;
+    stats.meshes++;
+  }
+
   /** How far through its own stride a walker is, from the clock alone. */
   const walkPhase = (mover: Mover, clock: number): number => wrap((mover.speed * clock) / WALK_STRIDE);
 
@@ -2719,6 +2774,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     for (const mover of movers.values()) {
       mover.route(clock, frame, true);
       mover.at.copy(frame.dir).multiplyScalar(frame.height);
+
+      if (mover.family === 'foot' && folk !== undefined) {
+        drawWalker(mover, clock);
+        continue;
+      }
 
       const key = mover.family === 'foot'
         ? `${mover.pool}|${Math.min(WALK_PHASES - 1, Math.floor(walkPhase(mover, clock) * WALK_PHASES))}`

@@ -1,0 +1,4 @@
+Characters and animations by Quaternius (https://quaternius.com), from the
+Ultimate Modular Men Pack and Ultimate Modular Women Pack.
+License: CC0 1.0 Universal (public domain dedication).
+Rebuilt as .glb by scripts/build-cast.mjs; geometry and clips unchanged.

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { FolkAnchor } from './folk.ts';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, groundRadius } from './globe.ts';
 import { createToonRamp } from './theme.ts';
@@ -44,7 +45,6 @@ import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor } from './pla
 import { biomeAt, biomeSample } from './biome.ts';
 import { VEHICLES, createTrafficContext, placedScale, placedSize, trafficFor, variantRng as vehicleRng } from './traffic/index.ts';
 import type { TrafficContext, TrafficStyle, Vehicle } from './traffic/index.ts';
-import { buildPerson, lookFor } from './scenery/index.ts';
 import type { Place } from './places.ts';
 import {
   createViewCone,
@@ -419,12 +419,15 @@ const LAMP_PART = 'street-lamp';
  * How many of the nearest settlements are inhabited, and how far one has to
  * fall before it is emptied again.
  *
- * **A person is 296 triangles, which is more than a `gabled-house`, and that is
- * the right way round** — a person is the object you stand next to. It is the
- * wrong way round for a town at the pixel floor: eight figures inside a
- * 32-unit blob eight pixels across are 2,368 triangles saying nothing. Against a
- * median town of about 1,900 triangles they would roughly double the settlement
- * budget for geometry that is only worth anything inside about a thousand units.
+ * **A person is about 700 triangles, which is more than a `gabled-house`, and
+ * that is the right way round** — a person is the object you stand next to. (It
+ * was 296 until the crowd was rebuilt of soft shapes on 2026-09-15; the median
+ * is `pnpm people`'s.) It is the wrong way round for a town at the pixel floor:
+ * eight figures inside a 32-unit blob eight pixels across are 5,600 triangles
+ * saying nothing. Against a median town of about 1,900 triangles they would
+ * nearly quadruple the settlement budget for geometry that is only worth
+ * anything inside about a thousand units — which is why the rank below mattered
+ * before the rebuild and matters twice as much after it.
  *
  * So the crowd is not a level of detail on the *part*, it is a rank: the scan
  * already sorts by distance, and the nearest twelve get people while everything
@@ -451,29 +454,6 @@ const UNPEOPLE_RANK = 20;
 const TOWN_PEOPLE = (urbanity: number): number => Math.round(3 + urbanity * 11);
 const TOWN_PARKED = (urbanity: number, density: number): number =>
   Math.round((0.6 + urbanity * 3.4) * Math.min(1.8, density * 2.6));
-
-/**
- * How many crowd bodies a region-and-climate holds.
- *
- * `PEOPLE_VARIANTS` is 24 and that is right for a review sheet showing forty at
- * once; a town shows at most fourteen and there are twelve of them standing at
- * a time, so twelve bodies is a crowd nobody can find the repeat in. Each is
- * about 0.22 ms to build and 32 KB to hold, once per region per climate band
- * for the session.
- */
-const CROWD_BODIES = 12;
-
-/**
- * The climate bands a wardrobe is cached against.
- *
- * `lookFor` takes `biome.ts`'s own `warmth` and multiplies the region's clothing
- * weights by it — a coat in Patagonia and a bare arm in the Atacama out of one
- * Chilean row. Caching a body against a region alone would dress the whole of
- * Chile for the middle of it; caching against the exact warmth would never hit.
- * Three bands is the compromise and the boundaries are `DressStyle.warmth`'s own
- * range rather than a new idea.
- */
-const WARMTH_BANDS = 3;
 
 /**
  * How many of the lattice corners on a street get a lamp.
@@ -898,6 +878,11 @@ export interface Settlements {
    * on the screen, which is worth four times the range for the same budget.
    */
   update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera): void;
+  /**
+   * The people of every standing town inside `radius` of `viewer`, in world
+   * space, for `folk.ts` to stand skinned characters on. Appends to `out`.
+   */
+  folkNear(viewer: THREE.Vector3, radius: number, out: FolkAnchor[]): void;
   /** The nearest settlement to a point, built or not. For the HUD and for debugging. */
   nearest(point: THREE.Vector3): { place: Place; distance: number } | null;
   /**
@@ -1077,6 +1062,12 @@ interface Slot {
    * rank now says. See `PEOPLED_RANK`.
    */
   peopled: boolean;
+  /**
+   * Where this town's people stand, in its own frame, while it is standing.
+   * Nobody is drawn here: `folk.ts` dresses the nearest of them as skinned
+   * characters, because a person merged into the town's buffer cannot move.
+   */
+  folk: { key: string; local: THREE.Vector3; yaw: number; region: string; warmth: number }[];
 }
 
 export interface SettlementOptions {
@@ -1157,6 +1148,7 @@ export function createSettlements(
       floor: null,
       failed: false,
       peopled: false,
+      folk: [],
     };
   });
 
@@ -1217,39 +1209,6 @@ export function createSettlements(
     const flat = flatten(built, key, entry.kind !== 'scatter');
     const value: FlatVariant = { ...flat, group: built, height: measure(built).height };
     variants.set(key, value);
-    return value;
-  }
-
-  /**
-   * A crowd body, merged, cached per region and climate band.
-   *
-   * `personPool` in `people.ts` is the same idea and is not used, for one
-   * reason: it hands back `Group`s and a town needs flat arrays in its own
-   * buffer. What is reused is everything that decides *who* the person is —
-   * `lookFor` draws the body from one fork of the seed and the wardrobe from
-   * another, so the same twelve people are dressed differently in every region
-   * and are the same twelve people.
-   *
-   * Poses come from `lookFor`'s own idle table, which is 6 walk, 5 stand, 3
-   * talk, 2 stride and 2 rest. **A walking pose on a body that does not move is
-   * right and not a compromise**: `people.ts` measured that its `walk` and
-   * `stride` poses are in double support with both feet down, precisely so a
-   * frozen frame does not read as floating. What moves is in `src/life.ts`.
-   */
-  const crowd = new Map<string, FlatVariant | null>();
-  function crowdVariant(regionId: string, band: number, index: number): FlatVariant | null {
-    const key = `person:${regionId}:${band}:${index}`;
-    const cached = crowd.get(key);
-    if (cached !== undefined) return cached;
-    let value: FlatVariant | null = null;
-    try {
-      const look = lookFor(rngFrom(key), regionId, { warmth: (band + 0.5) / WARMTH_BANDS });
-      const built = buildPerson(ctx, look);
-      value = { ...flatten(built, key, false), group: built, height: look.height };
-    } catch (error) {
-      broken.push(`${key}: ${String(error)}`);
-    }
-    crowd.set(key, value);
     return value;
   }
 
@@ -3190,13 +3149,13 @@ export function createSettlements(
      * `src/life.ts` is capped at ninety across the entire world. It is the same
      * trade twice: still and many, or moving and few.
      */
+    slot.folk = [];
     if (slot.peopled) {
       const urbanity = urbanityOf(slot.place.pop);
       const warmth = biomeAt(
         up.x, up.y, up.z, slot.place.lat, slot.place.lon,
         Math.max(0, world.elevationAt(up)), biomeSample(),
       ).warmth;
-      const band = Math.max(0, Math.min(WARMTH_BANDS - 1, Math.floor(warmth * WARMTH_BANDS)));
       const regionId = slot.style.id;
 
       const wantFolk = TOWN_PEOPLE(urbanity);
@@ -3208,14 +3167,15 @@ export function createSettlements(
       let placedFolk = 0;
       for (let i = 0; i < spots && placedFolk < wantFolk; i += stride) {
         const rng = rngFrom(slot.seed, 'person', i);
-        const flat = crowdVariant(regionId, band, rng.int(CROWD_BODIES));
-        if (flat === null) break;
-        local.set(ground.folk[i * 3]!, ground.folk[i * 3 + 1]!, ground.folk[i * 3 + 2]!);
-        quaternion.setFromAxisAngle(AXIS_Y, rng.range(0, Math.PI * 2));
-        scaleVector.setScalar(1);
-        transform.compose(local, quaternion, scaleVector);
-        standing.push({ flat, matrix: transform.clone(), glow: 0 });
-        vertices += flat.position.length / 3;
+        // Published, not merged: a person is a skinned character now and
+        // `folk.ts` stands them here while the player is near. See `folkNear`.
+        slot.folk.push({
+          key: `${slot.seed}|${i}`,
+          local: new THREE.Vector3(ground.folk[i * 3]!, ground.folk[i * 3 + 1]!, ground.folk[i * 3 + 2]!),
+          yaw: rng.range(0, Math.PI * 2),
+          region: regionId,
+          warmth,
+        });
         placedFolk++;
       }
 
@@ -3352,6 +3312,7 @@ export function createSettlements(
   }
 
   function drop(slot: Slot): void {
+    slot.folk = [];
     if (slot.mesh === null) return;
     group.remove(slot.mesh);
     // The geometry is this settlement's and nothing else holds it. The material
@@ -3608,12 +3569,31 @@ export function createSettlements(
     return Math.round(cells * (0.72 * 150 + 14));
   }
 
+  const folkDirection = new THREE.Vector3();
+  const folkYaw = new THREE.Quaternion();
   return {
     group,
     stats,
     anchors,
     missing,
     broken,
+
+    folkNear(viewer, radius, out) {
+      const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
+      const direction = folkDirection.copy(viewer).normalize();
+      for (const slot of slots) {
+        if (slot.mesh === null || slot.folk.length === 0) continue;
+        if (slot.direction.dot(direction) < cosReach) continue;
+        const mesh = slot.mesh;
+        for (const person of slot.folk) {
+          const position = person.local.clone().applyQuaternion(mesh.quaternion).add(mesh.position);
+          const distance = position.distanceTo(viewer);
+          if (distance > radius) continue;
+          const quaternion = mesh.quaternion.clone().multiply(folkYaw.setFromAxisAngle(AXIS_Y, person.yaw));
+          out.push({ key: person.key, region: person.region, warmth: person.warmth, position, quaternion, distance });
+        }
+      }
+    },
 
     update(viewer, altitude, camera) {
       const range = rangeFor(altitude);
