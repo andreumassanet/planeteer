@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { createContext, measure, paletteName } from '../monuments/contract.ts';
+import { PALETTE } from '../theme.ts';
+import { PAINTED_MARK, createContext, measure, paletteName } from '../monuments/contract.ts';
+import { paintModel } from '../models.ts';
+import type { Model, Paint } from '../models.ts';
 import type { Measurements, MonumentContext } from '../monuments/contract.ts';
 import { rngFrom } from './random.ts';
 import type { Rng, Weighted } from './random.ts';
@@ -414,6 +417,20 @@ export interface WindowRow {
  */
 export interface SceneryContext extends MonumentContext {
   /**
+   * A pack model (`src/models.ts`) as a mesh of this world: its own geometry,
+   * shared, with a colour attribute written by `paint`, drawn with the one
+   * vertex-coloured toon material and inked along its welded `outlineNormal`.
+   *
+   * **The way a CC0 asset enters a kit**, and the one exception to `toon`
+   * being the only way to make a material: the material is still this
+   * context's, on this context's ramp, and every colour `paint` returns should
+   * come off the palette (`onPalette` and `bodyPaint` in `models.ts` do that).
+   * The flatteners in `settlements.ts`, `vegetation.ts` and `life.ts` read the
+   * vertex colours and the outline normals rather than the material's stamp.
+   */
+  painted(model: Model, paint?: Paint): THREE.Mesh;
+
+  /**
    * The colour of glass: `slate` toned down by `GLASS_TONE`, the same on every
    * part in every region. Wrap the mesh in `lit` so it glows after dark; use
    * `style.glass` only for a hole.
@@ -583,6 +600,26 @@ export interface SceneryContext extends MonumentContext {
  */
 export function createSceneryContext(base: MonumentContext = createContext()): SceneryContext {
   /**
+   * The one vertex-coloured material every painted part in this context shares.
+   * Here and not on the monument context because a painted part is a kit's
+   * business and the monument context is in the world's first load, which the
+   * model code (`src/models.ts`) has no reason to be.
+   */
+  let paintedMaterial: THREE.MeshToonMaterial | null = null;
+  function painted(model: Model, paint?: Paint): THREE.Mesh {
+    if (paintedMaterial === null) {
+      const source = base.toon(PALETTE.ink);
+      paintedMaterial = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: source.gradientMap });
+      paintedMaterial.userData.outlineParameters = { ...source.userData.outlineParameters, outlineNormal: true };
+      paintedMaterial.userData.atlasToon = PALETTE.white;
+      paintedMaterial.userData[PAINTED_MARK] = true;
+    }
+    const mesh = new THREE.Mesh(paintModel(model, paint), paintedMaterial);
+    mesh.name = model.name;
+    return mesh;
+  }
+
+  /**
    * Same treatment every monument geometry gets, and for the same reason: one
    * normal per face, so each facet takes its own cel band instead of a smooth
    * sweep the four-step ramp cannot follow.
@@ -723,6 +760,7 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
 
   return {
     ...base,
+    painted,
     glass,
 
     panes,
