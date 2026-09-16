@@ -47,6 +47,15 @@ import { BY_BIOME, FAUNA_STYLES, MISSING_REGIONS, RANGE, nativeHere } from '../s
 import type { RegionId } from '../src/fauna/regions.ts';
 import { AVATAR_HEIGHT } from '../src/scenery/contract.ts';
 import { SCENERY_SCALE } from '../src/traffic/contract.ts';
+import { MeshBasicMaterial } from 'three';
+import { rigFromDisk } from './kit-node.ts';
+
+// The herds are drawn from baked CC0 rigs (scripts/build-kit.ts), read off disk
+// the way the world fetches them. Every rig an animal names is loaded up front,
+// so no herd in these checks waits on one.
+const RIG_IDS = ['cow', 'bull', 'horse', 'donkey', 'sheep', 'alpaca', 'stag'];
+const RIGS = new Map(await Promise.all(RIG_IDS.map(async (id) => [id, await rigFromDisk(id, new MeshBasicMaterial())] as const)));
+const rigs = { get: (id: string) => RIGS.get(id) ?? null };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PARTS = resolve(here, '../src/fauna/parts');
@@ -538,7 +547,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   setDetailSites(raw.map((p) => ({ lat: p.lat, lon: p.lon, radius: radiusFor(p.pop) })));
   const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
-  const life = createLife(world, raw, { animals: ANIMALS });
+  const life = createLife(world, raw, { animals: ANIMALS, rigs });
   const DEGR = Math.PI / 180;
   const at = (lat: number, lon: number, up: number): THREE.Vector3 =>
     new THREE.Vector3(
@@ -620,7 +629,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   // served out of `BUILD_BUDGET_MS`, so if the two ever diverged badly the herd
   // would be the one that looked broken.
   {
-    const cold = createLife(world, raw, { animals: ANIMALS });
+    const cold = createLife(world, raw, { animals: ANIMALS, rigs });
     const spot = at(-1.29, 36.82, 8);
     let firstBird = 0;
     let firstHerd = 0;
@@ -660,7 +669,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
 
   const gateAt = (lat: number, lon: number): { reached: number; kept: number } => {
     const spot = at(lat, lon, 8);
-    const fresh = createLife(world, raw, { animals: ANIMALS });
+    const fresh = createLife(world, raw, { animals: ANIMALS, rigs });
     for (let frame = 0; frame < 40; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
     return { reached: fresh.herds.clearOfTown, kept: fresh.herds.clearOfSlope };
   };
@@ -705,7 +714,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
 
   const seatsAt = (lat: number, lon: number): { herds: number; worst: number; tilted: number } => {
     const spot = at(lat, lon, 8);
-    const fresh = createLife(world, raw, { animals: ANIMALS });
+    const fresh = createLife(world, raw, { animals: ANIMALS, rigs });
     for (let frame = 0; frame < 60; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
     let herdCount = 0;
     let worst = 0;
@@ -748,7 +757,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
 
   const hashHerds = (lat: number, lon: number): string => {
     const spot = at(lat, lon, 8);
-    const fresh = createLife(world, raw, { animals: ANIMALS });
+    const fresh = createLife(world, raw, { animals: ANIMALS, rigs });
     for (let frame = 0; frame < 60; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
     const rows: string[] = [];
     for (const child of fresh.group.children) {

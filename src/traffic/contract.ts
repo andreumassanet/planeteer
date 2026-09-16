@@ -4,6 +4,8 @@ import { measure } from '../monuments/contract.ts';
 import type { Measurements } from '../monuments/contract.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
+import { bodyPaint } from '../models.ts';
+import type { Model, Paint } from '../models.ts';
 import type { Rng, Weighted } from '../scenery/random.ts';
 
 /**
@@ -395,7 +397,16 @@ export interface KindSpec {
   width: number;
   /** Tallest. */
   height: number;
-  /** Triangle cap per variant. A crowd person is ~170; that is the yardstick. */
+  /**
+   * Triangle cap per variant.
+   *
+   * **Five to eight times what it was, since the vehicles became baked CC0
+   * models** (2026-09-17). The code-built kit spent 104 to 300 a vehicle; a
+   * Kenney car is about 1,150 with its wheels rebuilt at bake time (they were
+   * 1,328 of its 2,000) and Quaternius's bus 1,526. What bounds the total is
+   * not the part but the count: `ROAD_MOVERS` puts four on the road at the
+   * shipped detail, and only the nearest twelve towns park any.
+   */
   triangles: number;
   /** Mesh cap. Mostly a cap on build time; `colors` is the real one. */
   meshes: number;
@@ -422,11 +433,16 @@ export interface KindSpec {
 }
 
 export const KINDS: Record<VehicleKind, KindSpec> = {
-  cycle: { medium: 'road', length: 3.4, minLength: 1.6, width: 1.4, height: 2.4, triangles: 190, meshes: 20, colors: 4, draft: 0 },
-  car: { medium: 'road', length: 6.6, minLength: 4.2, width: 2.7, height: 2.8, triangles: 220, meshes: 22, colors: 4, draft: 0 },
-  utility: { medium: 'road', length: 8.0, minLength: 2.6, width: 2.9, height: 3.9, triangles: 260, meshes: 26, colors: 5, draft: 0 },
-  heavy: { medium: 'road', length: 16.0, minLength: 8.0, width: 3.4, height: 4.6, triangles: 330, meshes: 28, colors: 5, draft: 0 },
-  craft: { medium: 'water', length: 11.0, minLength: 2.6, width: 3.6, height: 8.0, triangles: 200, meshes: 24, colors: 5, draft: 1.2 },
+  // The caps are the worst baked model of each kind plus a margin, measured by
+  // `pnpm traffic` on 2026-09-17: cycle 1,308 (the bicycle), car 1,294 (the
+  // SUV), utility 1,634 (the minibus), heavy 1,526 (the bus), craft 386 (the
+  // sailing dinghy). `heavy.minLength` came down from 8 to 7.5 for the bus,
+  // which the pack draws as a toy 0.43 as wide as it is long.
+  cycle: { medium: 'road', length: 3.4, minLength: 1.6, width: 1.4, height: 2.4, triangles: 1400, meshes: 20, colors: 4, draft: 0 },
+  car: { medium: 'road', length: 6.6, minLength: 4.2, width: 2.7, height: 2.8, triangles: 1400, meshes: 22, colors: 4, draft: 0 },
+  utility: { medium: 'road', length: 8.0, minLength: 2.6, width: 2.9, height: 3.9, triangles: 1800, meshes: 26, colors: 5, draft: 0 },
+  heavy: { medium: 'road', length: 16.0, minLength: 7.5, width: 3.4, height: 4.6, triangles: 1700, meshes: 28, colors: 5, draft: 0 },
+  craft: { medium: 'water', length: 11.0, minLength: 2.6, width: 3.6, height: 8.0, triangles: 500, meshes: 24, colors: 5, draft: 1.2 },
   air: { medium: 'air', length: 22.0, minLength: 6.0, width: 22.0, height: 28.0, triangles: 340, meshes: 24, colors: 6, draft: 0 },
 };
 
@@ -579,6 +595,75 @@ export interface TrafficContext extends SceneryContext {
    * whole way round for no extra mesh at all.
    */
   solid(spec: SolidSpec): THREE.Mesh;
+
+  /**
+   * A baked CC0 vehicle (`scripts/build-kit.ts`), in this kit's frame: facing
+   * +Z, centred in X and Z, standing on y = 0 — or `sink` under it, for a hull
+   * whose waterline is y = 0 — and scaled uniformly so that it is `width`
+   * across, or `length` long, whichever is tighter.
+   *
+   * **By width first, and that is the whole scale decision for the assets.**
+   * The packs draw vehicles as toys: a Kenney sedan is 0.59 as wide as it is
+   * long against a real one's 0.38. Sized to its length it would be seven
+   * placed units wide and no longer share a lane; sized to its width it fits
+   * every lane rule `ROAD_CLASSES` was built on and comes out shorter, which is
+   * what a toy car is. The declared `size` of a part follows from the model.
+   *
+   * Throws if the models have not been registered, which is deliberate: a
+   * vehicle built before its kit arrived would be cached as refused.
+   */
+  vehicle(id: string, fit: VehicleFit, paint?: Paint): THREE.Group;
+
+  /**
+   * The paint for one variant of a baked vehicle: `body` on its bodywork, glass
+   * at `slate` toned by `GLASS_TONE`, and every other surface — tyres, lamps,
+   * bumpers, a Kenney atlas's gradients — on its nearest palette colour. The
+   * bodywork is the largest saturated colour family, or `bodySlots` by name for
+   * a pack drawn in greys.
+   */
+  vehiclePaint(id: string, body: number, bodySlots?: RegExp): Paint;
+}
+
+export interface VehicleFit {
+  width?: number;
+  length?: number;
+  /** How far below y = 0 the model's own base goes: a hull's draft. */
+  sink?: number;
+}
+
+// ---------------------------------------------------------------------------
+// The baked models
+// ---------------------------------------------------------------------------
+
+const VEHICLE_MODELS = new Map<string, Model>();
+
+/**
+ * Hands the kit its baked models. `main.ts` calls it with what `src/kit.ts`
+ * loaded before the settlements and the traffic are made; the headless checks
+ * call it with the same file read off disk.
+ */
+export function registerVehicleModels(models: Iterable<Model>): void {
+  for (const model of models) VEHICLE_MODELS.set(model.name, model);
+}
+
+export function vehicleModel(id: string): Model {
+  const model = VEHICLE_MODELS.get(id);
+  if (model === undefined) {
+    throw new Error(
+      VEHICLE_MODELS.size === 0
+        ? `vehicle model '${id}': the traffic kit has not been registered (registerVehicleModels)`
+        : `vehicle model '${id}' is not in the traffic kit`,
+    );
+  }
+  return model;
+}
+
+/** Whether a slot is glass: by name, or a pale sky-blue swatch in a palette atlas. */
+export function isGlass(slot: string, color: THREE.Color): boolean {
+  if (/window|glass|windshield/i.test(slot)) return true;
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.clone().convertLinearToSRGB().getHSL(hsl);
+  return hsl.h > 0.52 && hsl.h < 0.64 && hsl.l > 0.72 && hsl.s > 0.4;
 }
 
 export interface SolidSpec {
@@ -701,6 +786,31 @@ export function createTrafficContext(base: SceneryContext = createSceneryContext
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(kept, 3));
       return meshOf(geometry, color);
+    },
+
+    vehiclePaint(id, body, bodySlots) {
+      return bodyPaint(vehicleModel(id), body, isGlass, bodySlots);
+    },
+
+    vehicle(id, fit, paint) {
+      const model = vehicleModel(id);
+      const size = model.box.getSize(new THREE.Vector3());
+      const k = Math.min(
+        fit.width !== undefined ? fit.width / size.x : Infinity,
+        fit.length !== undefined ? fit.length / size.z : Infinity,
+      );
+      if (!Number.isFinite(k)) throw new Error(`vehicle model '${id}': a fit needs a width or a length`);
+      const mesh = base.painted(model, paint);
+      mesh.scale.setScalar(k);
+      mesh.position.set(
+        -((model.box.min.x + model.box.max.x) / 2) * k,
+        -model.box.min.y * k - (fit.sink ?? 0),
+        -((model.box.min.z + model.box.max.z) / 2) * k,
+      );
+      mesh.castShadow = true;
+      const group = new THREE.Group();
+      group.add(mesh);
+      return group;
     },
   };
 }

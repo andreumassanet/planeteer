@@ -82,6 +82,12 @@ export const horse: Animal = {
   size: [12.64, 2.55, 8.06],
   gait: 'walk',
   note: 'Steppe and grassland everywhere. The crest and the tail are what read.',
+  // Quaternius's horse, and its donkey one in five (Ultimate Animated Animals,
+  // CC0). The mane is the shape's point colour, which is what makes a bay a bay.
+  rigs: [
+    { id: 'horse', weight: 4, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'light', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
+    { id: 'donkey', weight: 1, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_Dark: P.ink, Eye_White: P.white } },
+  ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>
     buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group,

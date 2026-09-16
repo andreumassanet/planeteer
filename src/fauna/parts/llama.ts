@@ -81,6 +81,11 @@ export const llama: Animal = {
   size: [7.09, 2.24, 6.55],
   gait: 'walk',
   note: 'The high Andes: rock and steppe, in latin-america and nowhere else.',
+  // Quaternius's alpaca (Ultimate Animated Animals, CC0), which is the llama's
+  // smaller cousin and the only camelid in the pack.
+  rigs: [
+    { id: 'alpaca', weight: 1, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hooves: 'point', Muzzle: 'face', Eyes_Black: P.ink, Eyes_White: P.white } },
+  ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>
     buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group,

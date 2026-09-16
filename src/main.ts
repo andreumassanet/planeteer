@@ -281,6 +281,12 @@ async function start(): Promise<void> {
     /** The people: the cast dressed by region, standing in towns and walking verges. */
     folk: import('./folk.ts'),
     traffic: import('./traffic/index.ts'),
+    /**
+     * The baked CC0 models (`scripts/build-kit.ts`). The vehicles' file is
+     * fetched here, beside the code that draws them, and registered before
+     * the first town parks a car; the animals' files arrive a herd at a time.
+     */
+    kit: import('./kit.ts'),
     /** The two maps and the chip, which is also where the 232 flags live. */
     minimap: import('./minimap.ts'),
     /**
@@ -298,6 +304,9 @@ async function start(): Promise<void> {
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
   };
+  // Started now, so the half megabyte of vehicles downloads while the ocean
+  // and the land are built rather than after them.
+  const vehicleKit = deferred.kit.then(({ loadVehicleModels }) => loadVehicleModels());
 
   // **`roads.bin` is the network, whole.** It used to arrive as a graph over all
   // 29,545 places and be cut down here at load — only asphalt, nothing crossing
@@ -515,6 +524,18 @@ async function start(): Promise<void> {
   // its roads actually take, which is the difference between a lane going
   // somewhere and a lane pointing at somewhere.
   const { createSettlements } = await deferred.settlements;
+  // A vehicle built before its model has arrived would be cached as refused,
+  // so the kit is registered before anything can ask for one.
+  // A kit that fails to arrive leaves the towns without parked cars and the
+  // roads without traffic, and the world otherwise whole.
+  const [{ registerVehicleModels }, vehicleModels] = await Promise.all([
+    deferred.traffic,
+    vehicleKit.catch((error: unknown) => {
+      console.warn('the vehicle kit did not load', error);
+      return [];
+    }),
+  ]);
+  registerVehicleModels(vehicleModels);
   const settlements = createSettlements(world, places.all, {
     context: ctx,
     monuments: placements,
@@ -558,6 +579,9 @@ async function start(): Promise<void> {
   const { createLife } = await deferred.life;
   const { VEHICLES } = await deferred.traffic;
   const { ANIMALS } = await deferred.fauna;
+  const { createRigLibrary } = await deferred.kit;
+  const { modelMaterial } = await import('./models.ts');
+  const inkSource = ctx.toon(ctx.palette.ink);
   const life = createLife(world, places.all, {
     context: ctx,
     roads: baked.roads,
@@ -566,6 +590,10 @@ async function start(): Promise<void> {
     // Handed down rather than imported, the same way the vehicles are: `life.ts`
     // stays Node-safe and adding an animal stays one file and nothing else.
     animals: ANIMALS,
+    // The animals' baked rigs, a species at a time as herds of it come near.
+    rigs: createRigLibrary(
+      modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
+    ),
   });
   scene.add(life.group);
 

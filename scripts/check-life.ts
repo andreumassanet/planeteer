@@ -27,8 +27,13 @@ import type { Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { createLife, emptyFrame, mergeGroup, poseAt, rigOf, roadFrameOf } from '../src/life.ts';
 import { setDetail } from '../src/view.ts';
-import { PLACED_LENGTH_CAP, PLACED_SECTION, placedSize } from '../src/traffic/contract.ts';
+import { PLACED_LENGTH_CAP, PLACED_SECTION, placedScale, placedSize } from '../src/traffic/contract.ts';
+import { FIGURE } from '../src/avatar.ts';
 import type { Vehicle } from '../src/traffic/contract.ts';
+import { registerVehiclesFromDisk } from './kit-node.ts';
+
+// The vehicles are baked CC0 models now (scripts/build-kit.ts): register them as main.ts does.
+await registerVehiclesFromDisk();
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -121,11 +126,14 @@ check(
   byLength.every((entry) => placedSize(entry)[0] <= PLACED_LENGTH_CAP + 1e-6),
   'no placed vehicle is longer than the cap',
 );
-// A car roof at the avatar's chest is the whole reason the section doubled.
+// A car roof between the avatar's hip and chin is the whole reason the section
+// doubled. It was 4.26, just under the chest, while the cars were built here;
+// the baked Kenney hatchback is fitted to the lane's width and is 3.80
+// (2026-09-17), a hand's width under the chest (4.44) and well over the hip (3.0).
 const hatchback = vehicles.find((entry) => entry.id === 'hatchback');
 check(
-  hatchback !== undefined && Math.abs(placedSize(hatchback)[2] - 4.26) < 0.02,
-  'a placed hatchback is 4.26 tall, which is the avatar\'s chest (4.44)',
+  hatchback !== undefined && placedSize(hatchback)[2] > FIGURE.hipY && placedSize(hatchback)[2] < FIGURE.chinY,
+  'a placed hatchback\'s roof is between the avatar\'s hip and chin',
   hatchback ? placedSize(hatchback).map((n) => n.toFixed(2)).join(' x ') : '',
 );
 // And the roads were widened to take it: two of them give way on a lane and
@@ -590,11 +598,17 @@ if (bus !== undefined) {
   const ctx = createTrafficContext();
   const built = bus.build(ctx, rngFrom(bus.id, 'check', 0), (await import('../src/traffic/regions.ts')).TRAFFIC_STYLES['atlantic-europe']!);
   const plain = mergeGroup(built);
-  built.scale.set(PLACED_SECTION, PLACED_SECTION, PLACED_LENGTH_CAP / bus.size[0]);
+  // Not the placed scale: since the bus is a baked model short enough that the
+  // length cap does not bind (2026-09-17), its placed scale is uniform, and a
+  // uniform scale cannot test the normal matrix. The ratio is the one the code
+  // bus used to be cropped by.
+  built.scale.set(PLACED_SECTION, PLACED_SECTION, PLACED_SECTION * 0.675);
+  const skewed = mergeGroup(built);
+  built.scale.set(...placedScale(bus));
   const scaled = mergeGroup(built);
   let worstNormal = 0;
-  for (let i = 0; i < scaled.normal.length; i += 3) {
-    const length = Math.hypot(scaled.normal[i]!, scaled.normal[i + 1]!, scaled.normal[i + 2]!);
+  for (let i = 0; i < skewed.normal.length; i += 3) {
+    const length = Math.hypot(skewed.normal[i]!, skewed.normal[i + 1]!, skewed.normal[i + 2]!);
     worstNormal = Math.max(worstNormal, Math.abs(length - 1));
   }
   check(worstNormal < 1e-5, 'every normal of a non-uniformly scaled merge is still unit', `worst ${worstNormal.toExponential(1)}`);

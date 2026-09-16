@@ -39,6 +39,10 @@ import {
 import type { Vehicle } from '../src/traffic/contract.ts';
 import { TRAFFIC_STYLES } from '../src/traffic/regions.ts';
 import { ROAD_CLASSES } from '../src/roads.ts';
+import { registerVehiclesFromDisk } from './kit-node.ts';
+
+// The vehicles are baked CC0 models now (scripts/build-kit.ts): register them as main.ts does.
+await registerVehiclesFromDisk();
 
 const PARTS = resolve(import.meta.dirname, '../src/traffic/parts');
 

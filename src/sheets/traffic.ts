@@ -29,6 +29,11 @@ import {
   variantRng,
 } from '../traffic/index.ts';
 import type { RegionId, TrafficContext, TrafficStyle, Vehicle, VehicleReview } from '../traffic/index.ts';
+import { loadVehicleModels } from '../kit.ts';
+import { registerVehicleModels as registerKit } from '../traffic/contract.ts';
+
+// The vehicles are baked CC0 models (`scripts/build-kit.ts`); nothing builds before they arrive.
+registerKit(await loadVehicleModels());
 
 /**
  * The traffic sheet.

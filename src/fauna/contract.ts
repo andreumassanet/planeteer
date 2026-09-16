@@ -25,6 +25,8 @@ import {
 } from '../scenery/contract.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
+import { onPalette, toned } from '../models.ts';
+import type { Paint } from '../models.ts';
 import type { Rng, Weighted } from '../scenery/random.ts';
 import { swingLift } from '../avatar.ts';
 
@@ -536,6 +538,44 @@ export interface Animal {
   shape(rng: Rng, style: FaunaStyle): AnimalShape;
   /** Builds one variant standing, facing +Z, on y = 0, centred in x and z. */
   build(ctx: FaunaContext, rng: Rng, style: FaunaStyle): THREE.Group;
+  /**
+   * The baked CC0 rigs this animal is drawn with in the world (see
+   * `scripts/build-kit.ts`), by weight, each with the role every colour slot of
+   * the pack plays in this animal's coat. `shape` still draws the variant — its
+   * coat, belly, points and face come out of the same `rng` — and a rig is
+   * fitted to `size[0]` along its length.
+   *
+   * Absent means the code-built body; the camel is the one left, because no
+   * CC0 camel exists in the style.
+   */
+  rigs?: readonly RigChoice[];
+}
+
+/**
+ * Which part of an animal's coat one of a rig's colour slots is: the shape's
+ * own four colours, a darker or lighter tone of the coat, or a palette colour
+ * outright (a cow's horns, an eye).
+ */
+export type CoatRole = 'coat' | 'under' | 'point' | 'face' | 'dark' | 'light' | number;
+
+export interface RigChoice {
+  /** A rig id in `public/models/fauna/`. */
+  id: string;
+  weight: number;
+  /** Slot name -> role. A slot not named keeps its nearest palette colour. */
+  slots: Readonly<Record<string, CoatRole>>;
+}
+
+/** The paint for one variant of a rigged animal, from the colours its `shape` drew. */
+export function rigPaint(shape: AnimalShape, choice: RigChoice): Paint {
+  return (slot, original) => {
+    const role = choice.slots[slot];
+    if (role === undefined) return onPalette(original);
+    if (typeof role === 'number') return role;
+    if (role === 'dark') return toned(shape.coat, 0.78);
+    if (role === 'light') return toned(shape.coat, 1.18);
+    return shape[role];
+  };
 }
 
 

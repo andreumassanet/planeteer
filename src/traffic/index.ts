@@ -45,6 +45,9 @@ export {
   fitsOn,
   rngFrom,
   seedOf,
+  registerVehicleModels,
+  vehicleModel,
+  isGlass,
 } from './contract.ts';
 export type {
   Extent,
@@ -58,6 +61,7 @@ export type {
   TrafficStyle,
   Variety,
   Vehicle,
+  VehicleFit,
   VehicleKind,
   CrowdBody,
 } from './contract.ts';

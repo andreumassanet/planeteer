@@ -96,6 +96,13 @@ export const cattle: Animal = {
   size: [11.97, 3.36, 6.36],
   gait: 'walk',
   note: 'The world\'s baseline grazer: nine biomes, every region, a seeded zebu hump.',
+  // Quaternius's cow, and its bull as the darker one in five (Ultimate Animated
+  // Animals, CC0). The muzzle takes the belly's colour, which is the blush a
+  // cow's nose is.
+  rigs: [
+    { id: 'cow', weight: 4, slots: { Main: 'coat', Main_Light: 'under', Muzzle: 'under', Hooves: 'point', Horns: P.bone, Eye_Black: P.ink, Eye_White: P.white } },
+    { id: 'bull', weight: 1, slots: { Main: 'coat', Main_Light: 'under', Muzzle: 'point', Hooves: 'point', Horns: P.bone, Eye_Black: P.ink, Eye_White: P.white } },
+  ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>
     buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group,

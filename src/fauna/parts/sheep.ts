@@ -85,6 +85,8 @@ export const sheep: Animal = {
   size: [6.44, 2.43, 3.84],
   gait: 'walk',
   note: 'Everywhere there is grass. The pale lozenge with a dark head.',
+  // Quaternius's sheep (Farm Animal Pack, CC0): a fleece and a dark face.
+  rigs: [{ id: 'sheep', weight: 1, slots: { White: 'coat', Black: 'face' } }],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>
     buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group,

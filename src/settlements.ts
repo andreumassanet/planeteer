@@ -569,6 +569,12 @@ interface FlatVariant {
   normal: Float32Array;
   color: Float32Array;
   /**
+   * The ink's normals: a painted part's welded `outlineNormal`, the fill's own
+   * normal for a part built in code. The town buffer carries them as three
+   * signed bytes a vertex, which is all a hull offset needs.
+   */
+  outline: Float32Array;
+  /**
    * Two bytes a vertex: how lit it is after dark, and the hour it goes out.
    *
    * One interleaved attribute rather than two, so the pair costs one attribute
@@ -694,6 +700,7 @@ function flatten(
     position: new Float32Array(vertices * 3),
     normal: new Float32Array(vertices * 3),
     color: new Float32Array(vertices * 3),
+    outline: new Float32Array(vertices * 3),
     glow: new Uint8Array(vertices * 2),
     emits: false,
     litBed: 0,
@@ -720,6 +727,9 @@ function flatten(
     // is. White rather than a throw: one part drawn wrong is better than a
     // continent with no towns on it.
     tint.set(hex ?? 0xffffff);
+    // A painted part (`ctx.painted`) carries its colours on the vertices.
+    const paint = piece.material.userData.atlasPainted === true ? geometry.getAttribute('color') : undefined;
+    const outline = geometry.getAttribute('outlineNormal') ?? normal;
     let glow = 0;
     let bed = 0;
     if (piece.lit > 0) {
@@ -756,9 +766,19 @@ function flatten(
       out.normal[cursor] = point.x;
       out.normal[cursor + 1] = point.y;
       out.normal[cursor + 2] = point.z;
-      out.color[cursor] = tint.r;
-      out.color[cursor + 1] = tint.g;
-      out.color[cursor + 2] = tint.b;
+      point.fromBufferAttribute(outline, v).applyMatrix3(normalMatrix).normalize();
+      out.outline[cursor] = point.x;
+      out.outline[cursor + 1] = point.y;
+      out.outline[cursor + 2] = point.z;
+      if (paint !== undefined) {
+        out.color[cursor] = paint.getX(v);
+        out.color[cursor + 1] = paint.getY(v);
+        out.color[cursor + 2] = paint.getZ(v);
+      } else {
+        out.color[cursor] = tint.r;
+        out.color[cursor + 1] = tint.g;
+        out.color[cursor + 2] = tint.b;
+      }
       out.glow[vertex * 2] = glow;
       out.glow[vertex * 2 + 1] = bed;
       cursor += 3;
@@ -989,7 +1009,8 @@ export interface Settlements {
  */
 function townMaterial(): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
-  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01] };
+  // Every town buffer carries `outlineNormal` (see `FlatVariant.outline`).
+  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal: true };
   lightWindows(material);
   return material;
 }
@@ -3215,6 +3236,9 @@ export function createSettlements(
     const position = new Float32Array(total * 3);
     const normal = new Float32Array(total * 3);
     const color = new Float32Array(total * 3);
+    // Signed bytes, normalised: a direction to push the ink hull along needs no
+    // more, and three bytes a vertex is the whole cost of inking painted parts.
+    const outline = new Int8Array(total * 3);
     // Two bytes a vertex against the thirty-six the other three carry — 5.6% of
     // the buffer for every window in the town, its brightness and its bedtime,
     // **and now for every pool of light on its floor as well.** The ground's
@@ -3248,6 +3272,12 @@ export function createSettlements(
         normal[cursor] = (e[0]! * nx + e[4]! * ny + e[8]! * nz) * inverseScale;
         normal[cursor + 1] = (e[1]! * nx + e[5]! * ny + e[9]! * nz) * inverseScale;
         normal[cursor + 2] = (e[2]! * nx + e[6]! * ny + e[10]! * nz) * inverseScale;
+        const ox = source.outline[i]!;
+        const oy = source.outline[i + 1]!;
+        const oz = source.outline[i + 2]!;
+        outline[cursor] = Math.round((e[0]! * ox + e[4]! * oy + e[8]! * oz) * inverseScale * 127);
+        outline[cursor + 1] = Math.round((e[1]! * ox + e[5]! * oy + e[9]! * oz) * inverseScale * 127);
+        outline[cursor + 2] = Math.round((e[2]! * ox + e[6]! * oy + e[10]! * oz) * inverseScale * 127);
         cursor += 3;
       }
       color.set(source.color, cursor - count);
@@ -3268,6 +3298,7 @@ export function createSettlements(
     position.set(ground.position, cursor);
     normal.set(ground.normal, cursor);
     color.set(ground.color, cursor);
+    for (let i = 0; i < ground.normal.length; i++) outline[cursor + i] = Math.round(ground.normal[i]! * 127);
     // `vertex` is the standing count by now, and the ground is the tail of the
     // buffer, so the pools land on exactly the vertices `buildGround` wrote
     // them for. This is the whole draw-call cost of the feature: none.
@@ -3277,6 +3308,7 @@ export function createSettlements(
     geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(outline, 3, true));
     // `normalized`, so the shader reads 0..1 out of each byte. The attribute name
     // is the one `lightWindows` declares; a geometry without it would read a
     // disabled attribute's default of zero and simply never glow.
@@ -3306,9 +3338,10 @@ export function createSettlements(
     slot.mesh = mesh;
     slot.triangles = total / 3;
     slot.parts = standing.length;
-    // Three float triples and the two light bytes, which is what makes the whole
-    // feature affordable: 38 bytes a vertex where it was 36.
-    slot.bytes = total * (3 * 4 * 3 + 2);
+    // Three float triples, the two light bytes and the three bytes of the ink's
+    // normal: 41 bytes a vertex. It was 36 before the lights and 38 before the
+    // painted parts (2026-09-16).
+    slot.bytes = total * (3 * 4 * 3 + 2 + 3);
   }
 
   function drop(slot: Slot): void {

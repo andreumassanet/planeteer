@@ -54,7 +54,10 @@ import {
 import type { TrafficContext, TrafficStyle, Vehicle } from './traffic/contract.ts';
 import { trafficFor } from './traffic/regions.ts';
 import { KINDS as FAUNA_KINDS, VARIANTS as FAUNA_VARIANTS, createFaunaContext } from './fauna/contract.ts';
-import type { Animal, FaunaContext } from './fauna/contract.ts';
+import { rigPaint } from './fauna/contract.ts';
+import type { Animal, AnimalShape, FaunaContext, RigChoice } from './fauna/contract.ts';
+import { makeRigged, paintColors, posedGeometry } from './models.ts';
+import type { Model, Rig as ModelRig, RigSource, Rigged } from './models.ts';
 import { buildAnimal } from './fauna/body.ts';
 import type { Pose as AnimalPose } from './fauna/body.ts';
 import { BY_BIOME, FAUNA_STYLES, nativeHere } from './fauna/regions.ts';
@@ -206,6 +209,16 @@ const BIRD_REACH = 620;
  * admits a whole town at.
  */
 const HERD_REACH = 950;
+
+/**
+ * How near a herd has to be to stand up as animated rigs, and how many animals
+ * may be animated at once. A skinned animal is a draw call and a skinning pass
+ * of its own (two draws with the ink), so this is the townsfolk's trade again
+ * (`TOWNSFOLK_RADIUS` and `TOWNSFOLK_CAP` in `folk.ts`): near and few move,
+ * everything else is a still frame of the same clip in the merged herd.
+ */
+const HERD_ANIMATED_REACH = 180;
+const HERD_ANIMATED_CAP = 36;
 
 /**
  * How high the viewer can be before a family stops being worth anything.
@@ -570,6 +583,12 @@ export interface Merged {
   position: Float32Array;
   normal: Float32Array;
   color: Float32Array;
+  /**
+   * The ink's normals: a painted mesh's welded `outlineNormal`, and the fill's
+   * own normal for anything built in code, so every mover carries the one
+   * attribute its material's hull reads (see `outlineNormal` in `outline.ts`).
+   */
+  outline: Float32Array;
   triangles: number;
 }
 
@@ -594,7 +613,7 @@ const mergeNormal = new THREE.Matrix3();
  */
 export function mergeGroup(group: THREE.Object3D): Merged {
   group.updateMatrixWorld(true);
-  const pieces: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4; hex: number }[] = [];
+  const pieces: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4; hex: number; painted: boolean }[] = [];
   let vertices = 0;
   group.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -607,6 +626,7 @@ export function mergeGroup(group: THREE.Object3D): Merged {
       geometry: mesh.geometry,
       matrix: mesh.matrixWorld,
       hex: (material.userData.atlasToon as number | undefined) ?? 0xffffff,
+      painted: material.userData.atlasPainted === true && mesh.geometry.getAttribute('color') !== undefined,
     });
   });
 
@@ -614,6 +634,7 @@ export function mergeGroup(group: THREE.Object3D): Merged {
     position: new Float32Array(vertices * 3),
     normal: new Float32Array(vertices * 3),
     color: new Float32Array(vertices * 3),
+    outline: new Float32Array(vertices * 3),
     triangles: vertices / 3,
   };
 
@@ -621,6 +642,8 @@ export function mergeGroup(group: THREE.Object3D): Merged {
   for (const piece of pieces) {
     const position = piece.geometry.getAttribute('position');
     const normal = piece.geometry.getAttribute('normal');
+    const outline = piece.geometry.getAttribute('outlineNormal') ?? normal;
+    const paint = piece.painted ? piece.geometry.getAttribute('color') : null;
     const index = piece.geometry.index;
     const count = index ? index.count : position.count;
     mergeNormal.getNormalMatrix(piece.matrix);
@@ -635,9 +658,19 @@ export function mergeGroup(group: THREE.Object3D): Merged {
       out.normal[cursor] = mergePoint.x;
       out.normal[cursor + 1] = mergePoint.y;
       out.normal[cursor + 2] = mergePoint.z;
-      out.color[cursor] = mergeColor.r;
-      out.color[cursor + 1] = mergeColor.g;
-      out.color[cursor + 2] = mergeColor.b;
+      mergePoint.fromBufferAttribute(outline, v).applyMatrix3(mergeNormal).normalize();
+      out.outline[cursor] = mergePoint.x;
+      out.outline[cursor + 1] = mergePoint.y;
+      out.outline[cursor + 2] = mergePoint.z;
+      if (paint !== null) {
+        out.color[cursor] = paint.getX(v);
+        out.color[cursor + 1] = paint.getY(v);
+        out.color[cursor + 2] = paint.getZ(v);
+      } else {
+        out.color[cursor] = mergeColor.r;
+        out.color[cursor + 1] = mergeColor.g;
+        out.color[cursor + 2] = mergeColor.b;
+      }
       cursor += 3;
     }
   }
@@ -771,6 +804,8 @@ interface Mover {
   heads?: number;
   /** A walker drawn from the cast, when there is one: its own skinned body. */
   person?: { holder: THREE.Group; person: Person } | null;
+  /** A herd near enough to be its animals rather than its merged buffer. */
+  animated?: { holder: THREE.Group; heads: { rigged: Rigged; rig: string }[] } | null;
 }
 
 interface Flock {
@@ -790,6 +825,8 @@ export interface LifeStats {
   herd: number;
   /** Animals in them, which is not: a herd is one mesh however many head it has. */
   animals: number;
+  /** Of those, how many are standing up as animated rigs near the player. */
+  animated: number;
   birds: number;
   /** Draw calls this file adds, before `OutlineEffect` doubles them. */
   meshes: number;
@@ -918,6 +955,13 @@ export interface LifeOptions {
    * which is what `pnpm life` still sweeps.
    */
   folk?: Folk;
+  /**
+   * Where the animals' baked rigs come from (`src/kit.ts` in the world, the
+   * files on disk in `pnpm fauna`). A herd whose rig has not arrived waits for
+   * it rather than being refused. Without one, every animal is the code-built
+   * quadruped of `fauna/body.ts`.
+   */
+  rigs?: RigSource;
 }
 
 /**
@@ -927,9 +971,16 @@ export interface LifeOptions {
  * same cel bands as the house it is passing and follows the sun into
  * `NIGHT_MOOD` with it.
  */
-function moverMaterial(): THREE.MeshToonMaterial {
+/** Marks a mesh whose colours are its vertices', for `mergeGroup`; never drawn. */
+const PAINTED_MERGE = new THREE.MeshBasicMaterial();
+PAINTED_MERGE.userData.atlasPainted = true;
+
+function moverMaterial(outlineNormal = true): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
-  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01] };
+  // The hull rides each mover's own `outlineNormal` (see `Merged.outline`). The
+  // birds opt out: their buffer is rewritten every frame and a second normal
+  // would be a second array through JavaScript for twenty triangles a bird.
+  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal };
   return material;
 }
 
@@ -993,7 +1044,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
   };
 
   const stats: LifeStats = {
-    road: 0, water: 0, foot: 0, herd: 0, animals: 0, birds: 0,
+    road: 0, water: 0, foot: 0, herd: 0, animals: 0, animated: 0, birds: 0,
     meshes: 0, triangles: 0, pooled: 0, megabytes: 0, lastBuildMs: 0, lastScanMs: 0, reach: 0,
   };
 
@@ -1286,6 +1337,20 @@ export function createLife(world: World, places: readonly Place[], options: Life
      * request or it reports cattle that are not on the screen.
      */
     heads?: number;
+    /**
+     * Where each animal of a herd stands and what it is, in the herd's frame,
+     * so the herd can be stood up again as animated rigs when the player comes
+     * near (`animateHerd`). Herds drawn from rigs only.
+     */
+    animals?: HerdHead[];
+  }
+
+  interface HerdHead {
+    species: string;
+    region: string;
+    variant: number;
+    pose: AnimalPose['kind'];
+    matrix: THREE.Matrix4;
   }
 
   const pool = new Map<string, Pooled>();
@@ -1366,6 +1431,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     geometry.setAttribute('position', new THREE.BufferAttribute(merged.position, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(merged.normal, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(merged.color, 3));
+    geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(merged.outline, 3));
     geometry.computeBoundingSphere();
     return geometry;
   };
@@ -1501,19 +1567,60 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const bodyCache = new Map<string, Merged>();
   const BODY_CACHE_CAP = 120;
 
-  function animalBuffer(species: string, region: string, variant: number, pose: AnimalPose): Merged | null {
+  function animalBuffer(species: string, region: string, variant: number, pose: AnimalPose): Merged | null | 'pending' {
     const key = `${species}|${region}|${variant}|${pose.kind}`;
     let found = bodyCache.get(key);
     if (found !== undefined) return found;
     const entry = bestiary.get(species);
     const style = FAUNA_STYLES[region as RegionId];
     if (entry === undefined || style === undefined) return null;
-    const built = buildAnimal(fauna, entry.shape(rngFrom(entry.id, style.id, variant), style), pose);
-    found = mergeGroup(built.group);
-    dispose(built.group);
+    const shape = entry.shape(rngFrom(entry.id, style.id, variant), style);
+    if (entry.rigs !== undefined && entry.rigs.length > 0 && options.rigs !== undefined) {
+      const choice = rngFrom(entry.id, style.id, variant, 'rig').weighted(entry.rigs.map((rig) => ({ item: rig, weight: rig.weight })));
+      const rig = options.rigs.get(choice.id);
+      if (rig === null) return 'pending';
+      found = mergeGroup(rigAnimal(entry, shape, choice, rig, pose, rngFrom(key, 'frame').unit()));
+    } else {
+      const built = buildAnimal(fauna, shape, pose);
+      found = mergeGroup(built.group);
+      dispose(built.group);
+    }
     if (bodyCache.size >= BODY_CACHE_CAP) bodyCache.clear();
     bodyCache.set(key, found);
     return found;
+  }
+
+  /**
+   * One head of a herd from its baked rig: a frame of the pack's `Eating` for a
+   * grazer and of its `Idle` for one standing or alert, skinned into a still
+   * geometry (`posedGeometry`), painted with the coat `shape` drew and fitted
+   * to the animal's declared length, feet on y = 0, facing +Z.
+   */
+  function rigAnimal(entry: Animal, shape: AnimalShape, choice: RigChoice, rig: ModelRig, pose: AnimalPose, phase: number): THREE.Group {
+    const clip = clipFor(rig, pose.kind);
+    const duration = rig.clips.find((entry) => entry.name === clip)?.duration ?? 0;
+    const geometry = posedGeometry(rig, clip, pose.kind === 'alert' ? 0 : phase * duration);
+    geometry.setAttribute('color', new THREE.BufferAttribute(paintColors(rig as unknown as Model, rigPaint(shape, choice)), 3));
+    const size = rig.box.getSize(herdScratch);
+    const k = entry.size[0] / size.z;
+    const mesh = new THREE.Mesh(geometry, PAINTED_MERGE);
+    mesh.scale.setScalar(k);
+    mesh.position.set(-((rig.box.min.x + rig.box.max.x) / 2) * k, -rig.box.min.y * k, -((rig.box.min.z + rig.box.max.z) / 2) * k);
+    const group = new THREE.Group();
+    group.add(mesh);
+    return group;
+  }
+  const herdScratch = new THREE.Vector3();
+
+  /**
+   * The clip a pose is a frame of: `Eating` for a grazer where the rig has one,
+   * `Idle` otherwise. Never no clip: the Farm Animal Pack's FBX rigs rest with
+   * their armature turned a quarter over, and it is the clip that stands them
+   * up — a sheep held in its bind pose stands on its tail.
+   */
+  function clipFor(rig: ModelRig, pose: AnimalPose['kind']): string {
+    if (pose === 'graze' && rig.clips.some((clip) => clip.name === 'Eating')) return 'Eating';
+    return rig.clips.some((clip) => clip.name === 'Idle') ? 'Idle' : (rig.clips[0]?.name ?? 'Idle');
   }
 
   const herdMatrix = new THREE.Matrix4();
@@ -1611,9 +1718,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * refusal of the whole site, which is the right answer and is why it is not
    * guarded against.
    */
-  function buildHerd(key: string, site: HerdSite): Pooled | null {
+  function buildHerd(key: string, site: HerdSite): Pooled | null | 'pending' {
     const rng = rngFrom(key, 'herd');
     const members: { merged: Merged; matrix: THREE.Matrix4 }[] = [];
+    const heads: HerdHead[] = [];
     const shape = bestiary.get(site.species);
     if (shape === undefined) return null;
     // The animal's own stance: `gradeAt` puts its four probes at `reach` on the
@@ -1624,8 +1732,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
     let vertices = 0;
     for (let i = 0; i < site.heads; i++) {
       const each = rngFrom(key, 'head', i);
-      const merged = animalBuffer(site.species, site.region, each.int(FAUNA_VARIANTS), { kind: each.weighted(HERD_POSES) } as AnimalPose);
-      if (merged === null) return null;
+      const variant = each.int(FAUNA_VARIANTS);
+      const poseKind = each.weighted(HERD_POSES);
+      const merged = animalBuffer(site.species, site.region, variant, { kind: poseKind } as AnimalPose);
+      if (merged === null || merged === 'pending') return merged;
       // Scattered on the herd's own tangent plane. A ring rather than a disc
       // would be a corral; a grid would be a car park.
       const angle = each.unit() * TAU;
@@ -1659,6 +1769,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       herdPoint.set(Math.cos(angle) * radius, seat, Math.sin(angle) * radius);
       const matrix = new THREE.Matrix4().compose(herdPoint, herdQuat, herdScale);
       members.push({ merged, matrix });
+      heads.push({ species: site.species, region: site.region, variant, pose: poseKind, matrix });
       vertices += merged.position.length / 3;
     }
     if (members.length === 0) return null;
@@ -1666,6 +1777,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const position = new Float32Array(vertices * 3);
     const normal = new Float32Array(vertices * 3);
     const color = new Float32Array(vertices * 3);
+    const outline = new Float32Array(vertices * 3);
     let cursor = 0;
     for (const member of members) {
       herdNormal.getNormalMatrix(member.matrix);
@@ -1679,6 +1791,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
         normal[cursor] = herdPoint.x;
         normal[cursor + 1] = herdPoint.y;
         normal[cursor + 2] = herdPoint.z;
+        herdPoint.set(source.outline[i]!, source.outline[i + 1]!, source.outline[i + 2]!).applyMatrix3(herdNormal).normalize();
+        outline[cursor] = herdPoint.x;
+        outline[cursor + 1] = herdPoint.y;
+        outline[cursor + 2] = herdPoint.z;
         color[cursor] = source.color[i]!;
         color[cursor + 1] = source.color[i + 1]!;
         color[cursor + 2] = source.color[i + 2]!;
@@ -1686,8 +1802,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
       }
     }
     void rng;
-    const geometry = geometryOf({ position, normal, color, triangles: vertices / 3 });
-    return { geometry, triangles: vertices / 3, bytes: position.byteLength * 3, heads: members.length };
+    const geometry = geometryOf({ position, normal, color, outline, triangles: vertices / 3 });
+    const rigged = shape.rigs !== undefined && shape.rigs.length > 0 && options.rigs !== undefined;
+    return { geometry, triangles: vertices / 3, bytes: position.byteLength * 4, heads: members.length, animals: rigged ? heads : undefined };
   }
 
   /** Builds whatever the last frame asked for, under a millisecond budget. */
@@ -1718,8 +1835,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
         const site = herdSites.get(key);
         if (site !== undefined) {
           const built = buildHerd(key, site);
+          // A rig still on its way is asked for again by the next scan.
           if (built === null) refused.add(key);
-          else pool.set(key, built);
+          else if (built !== 'pending') pool.set(key, built);
         }
       }
       if (performance.now() - started > budget) break;
@@ -2540,6 +2658,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
     for (const [key, mover] of movers) {
       if (keep.has(key)) continue;
+      if (mover.animated) releaseHerd(mover);
       if (mover.person) {
         mover.person.person.mixer.stopAllAction();
         group.remove(mover.person.holder);
@@ -2607,7 +2726,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
   flockGeometry.setAttribute('normal', new THREE.BufferAttribute(flockNormal, 3));
   flockGeometry.setAttribute('color', new THREE.BufferAttribute(flockColor, 3));
   flockGeometry.setDrawRange(0, 0);
-  const flockMesh = new THREE.Mesh(flockGeometry, material);
+  const flockMesh = new THREE.Mesh(flockGeometry, moverMaterial(false));
   flockMesh.name = 'birds';
   // Its members are spread over hundreds of units and every vertex moves every
   // frame, so a bounding sphere computed once would be wrong immediately.
@@ -2732,6 +2851,99 @@ export function createLife(world: World, places: readonly Place[], options: Life
     stats.meshes++;
   }
 
+  /**
+   * Rigs a herd stands up from when it is animated, kept by rig id and handed
+   * out again repainted. Never disposed: a rigged body's geometry shares its
+   * rig's positions, normals and weights, and disposing any geometry frees the
+   * GPU buffers of every attribute on it, shared ones included.
+   */
+  const spareRigs = new Map<string, Rigged[]>();
+  let animatedHeads = 0;
+  let lastUpdate = 0;
+  const fitScratch = new THREE.Vector3();
+
+  /**
+   * Stands a herd up as its animals, each a skinned copy of its rig playing the
+   * clip its merged frame was taken from — `Eating` for a grazer, `Idle` for the
+   * rest — from that same instant, so the swap from the merged buffer is not a
+   * jump. False if the cap or a rig not yet arrived says wait.
+   */
+  function animateHerd(mover: Mover, pooled: Pooled, mesh: THREE.Mesh, dt: number): boolean {
+    const rigs = options.rigs;
+    if (rigs === undefined || pooled.animals === undefined) return false;
+    if (!mover.animated) {
+      if (animatedHeads + pooled.animals.length > HERD_ANIMATED_CAP) return false;
+      const holder = new THREE.Group();
+      holder.name = `herd-animated:${mover.key}`;
+      const heads: { rigged: Rigged; rig: string }[] = [];
+      for (const head of pooled.animals) {
+        const entry = bestiary.get(head.species);
+        const style = FAUNA_STYLES[head.region as RegionId];
+        if (entry?.rigs === undefined || style === undefined) continue;
+        const shape = entry.shape(rngFrom(entry.id, style.id, head.variant), style);
+        const choice = rngFrom(entry.id, style.id, head.variant, 'rig').weighted(entry.rigs.map((rig) => ({ item: rig, weight: rig.weight })));
+        const rig = rigs.get(choice.id);
+        if (rig === null) continue;
+        const paint = rigPaint(shape, choice);
+        const spare = spareRigs.get(choice.id)?.pop();
+        let rigged: Rigged;
+        if (spare !== undefined) {
+          rigged = spare;
+          const colors = rigged.body.geometry.getAttribute('color') as THREE.BufferAttribute;
+          (colors.array as Float32Array).set(paintColors(rig as unknown as Model, paint));
+          colors.needsUpdate = true;
+        } else {
+          rigged = makeRigged(rig, paint);
+        }
+        const size = rig.box.getSize(fitScratch);
+        const k = entry.size[0] / size.z;
+        rigged.root.position.set(-(rig.box.min.x + rig.box.max.x) / 2, -rig.box.min.y, -(rig.box.min.z + rig.box.max.z) / 2);
+        const fit = new THREE.Group();
+        fit.scale.setScalar(k);
+        fit.add(rigged.root);
+        const place = new THREE.Group();
+        place.matrixAutoUpdate = true;
+        head.matrix.decompose(place.position, place.quaternion, place.scale);
+        place.add(fit);
+        holder.add(place);
+        const clipName = clipFor(rig, head.pose);
+        const action = rigged.actions.get(clipName);
+        if (action !== undefined) {
+          action.reset().play();
+          const bodyKey = `${head.species}|${head.region}|${head.variant}|${head.pose}`;
+          action.time = head.pose === 'alert' ? 0 : rngFrom(bodyKey, 'frame').unit() * action.getClip().duration;
+          action.timeScale = 0.85 + rngFrom(mover.key, 'rate', heads.length).unit() * 0.3;
+        }
+        heads.push({ rigged, rig: choice.id });
+      }
+      if (heads.length === 0) return false;
+      group.add(holder);
+      mover.animated = { holder, heads };
+      animatedHeads += heads.length;
+    }
+    const { holder, heads } = mover.animated;
+    holder.visible = true;
+    holder.position.copy(mesh.position);
+    holder.quaternion.copy(mesh.quaternion);
+    for (const head of heads) head.rigged.mixer.update(dt);
+    return true;
+  }
+
+  function releaseHerd(mover: Mover): void {
+    const animated = mover.animated;
+    if (!animated) return;
+    for (const head of animated.heads) {
+      head.rigged.mixer.stopAllAction();
+      head.rigged.root.removeFromParent();
+      const spares = spareRigs.get(head.rig) ?? [];
+      spares.push(head.rigged);
+      spareRigs.set(head.rig, spares);
+    }
+    group.remove(animated.holder);
+    animatedHeads -= animated.heads.length;
+    mover.animated = null;
+  }
+
   /** How far through its own stride a walker is, from the clock alone. */
   const walkPhase = (mover: Mover, clock: number): number => wrap((mover.speed * clock) / WALK_STRIDE);
 
@@ -2768,6 +2980,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     stats.foot = 0;
     stats.herd = 0;
     stats.animals = 0;
+    stats.animated = 0;
+    // The animated animals keep the machine's time, not the sky's: a cow does
+    // not chew faster when `setRate` runs the sun at 600x.
+    const realDt = lastUpdate === 0 ? 0 : Math.min(0.1, (now - lastUpdate) / 1000);
+    lastUpdate = now;
     stats.meshes = 0;
     stats.triangles = 0;
 
@@ -2788,10 +3005,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
       if (pooled === undefined) {
         if (!refused.has(mover.pool)) wanted.add(mover.pool);
         if (mover.mesh !== null) mover.mesh.visible = false;
+        if (mover.animated) releaseHerd(mover);
         continue;
       }
       if (!frame.live || !cone.keeps(mover.at, 20)) {
         if (mover.mesh !== null) mover.mesh.visible = false;
+        if (mover.animated) mover.animated.holder.visible = false;
         continue;
       }
 
@@ -2819,6 +3038,16 @@ export function createLife(world: World, places: readonly Place[], options: Life
       mesh.quaternion.setFromRotationMatrix(basis);
       if (frame.roll !== 0) mesh.rotateZ(frame.roll);
 
+      if (mover.family === 'herd' && pooled.animals !== undefined) {
+        const near = mover.at.distanceTo(viewer) < HERD_ANIMATED_REACH;
+        if (near && animateHerd(mover, pooled, mesh, realDt)) {
+          mesh.visible = false;
+          stats.animated += mover.animated!.heads.length;
+        } else if (mover.animated) {
+          releaseHerd(mover);
+        }
+      }
+
       stats[mover.family]++;
       // What was *built*, not what was asked for: `buildHerd` drops an animal
       // whose own patch is scree, and a count taken from the request would
@@ -2829,6 +3058,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
 
     stats.birds = drawBirds(clock);
+    stats.meshes += stats.animated;
     if (stats.birds > 0) {
       stats.meshes++;
       stats.triangles += (stats.birds * birdVertices) / 3;

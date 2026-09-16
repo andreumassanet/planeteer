@@ -86,6 +86,12 @@ export const reindeer: Animal = {
   size: [9.10, 2.23, 6.42],
   gait: 'walk',
   note: 'Tundra and boreal forest, circumpolar. The antlers are the model.',
+  // Quaternius's stag (Ultimate Animated Animals, CC0), antlers and all. Its
+  // slots are unnamed in the pack: the main hide, the pale belly, the dark
+  // hooves, the antlers and the eyes, read off their colours.
+  rigs: [
+    { id: 'stag', weight: 1, slots: { Material: 'coat', 'Material.003': 'under', 'Material.001': 'dark', 'Material.010': 'point', 'Material.011': P.ink } },
+  ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>
     buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group,
