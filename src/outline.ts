@@ -53,7 +53,14 @@ import * as THREE from 'three';
  * anything that writes `transformed` in a vertex shader owes the pen the same
  * function, and the deck is merely the first thing in this world to do it.
  *
- * What was left behind, because nothing here uses it: skinning, morph targets,
+ * **Skinning came back on 2026-09-16**, when the people became skinned meshes:
+ * the four chunks every skinned material includes, in `MeshToonMaterial`'s own
+ * order. All four are `#ifdef USE_SKINNING`, which three defines for any
+ * material drawn on a `SkinnedMesh`, so every other hull compiles to the same
+ * program it did. The inset below is still exact, because skinning is affine:
+ * `transformed` and `objectNormal` have both been through the same bones.
+ *
+ * What was left behind, because nothing here uses it: morph targets,
  * displacement maps, clipping planes, the keep-alive cache and its 60-frame
  * eviction (a `WeakMap` does that job for free), the per-object
  * `onBeforeRender` swap — redundant once there is exactly one outline material
@@ -65,12 +72,25 @@ import * as THREE from 'three';
 const vertexShader = /* glsl */ `
 #include <common>
 #include <fog_pars_vertex>
+#include <skinning_pars_vertex>
 
 uniform float outlineThickness;
 
+#ifdef OUTLINE_NORMAL
+  attribute vec3 outlineNormal;
+#endif
+
 void main() {
   #include <beginnormal_vertex>
+  #ifdef OUTLINE_NORMAL
+    // The hull's own normals: welded smooth where the fill's are creased, so
+    // the line is one closed skin rather than a slab per facet.
+    objectNormal = outlineNormal;
+  #endif
+  #include <skinbase_vertex>
+  #include <skinnormal_vertex>
   #include <begin_vertex>
+  #include <skinning_vertex>
   #include <project_vertex>
 
   // The same vertex pulled *in* along its normal, taken through the identical
@@ -186,6 +206,14 @@ export interface OutlineParameters {
   alpha?: number;
   /** `false` suppresses the outline entirely — how the sky dome opts out. */
   visible?: boolean;
+  /**
+   * Push the hull out along a geometry's `outlineNormal` attribute instead of
+   * its `normal`. For shading that keeps hard creases — a low-poly character —
+   * where the creased normals would split the hull at every crease. **Read
+   * once**, like `transform`; every geometry drawn with the material must carry
+   * the attribute.
+   */
+  outlineNormal?: boolean;
   /**
    * See `OutlineTransform`. **Read once**, when this material's hull is first
    * built, because it is compiled into the program — the same rule `fog` and
@@ -409,9 +437,8 @@ export class OutlineEffect {
   private outlineFor(source: THREE.Material): THREE.ShaderMaterial {
     let outline = this.outlines.get(source);
     if (outline === undefined) {
-      outline = this.createMaterial(
-        (source.userData.outlineParameters as OutlineParameters | undefined)?.transform,
-      );
+      const parameters = source.userData.outlineParameters as OutlineParameters | undefined;
+      outline = this.createMaterial(parameters?.transform, parameters?.outlineNormal === true);
       // Copied once, not per frame: these three are baked into the compiled
       // program, so changing one later needs a `needsUpdate` anyway. `fog` is
       // declared on the concrete materials rather than on the base class, hence
@@ -433,8 +460,9 @@ export class OutlineEffect {
     return outline;
   }
 
-  private createMaterial(transform?: OutlineTransform): THREE.ShaderMaterial {
+  private createMaterial(transform?: OutlineTransform, outlineNormal = false): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
+      defines: outlineNormal ? { OUTLINE_NORMAL: '' } : {},
       uniforms: {
         ...THREE.UniformsUtils.clone(THREE.UniformsLib['fog']),
         // Not cloned, unlike the fog: sharing the object is the whole mechanism.
