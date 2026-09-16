@@ -39,7 +39,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { modelFrom, rigFrom, slotTable } from '../src/models.ts';
+import { coarsened, modelFrom, posedGeometry, rigFrom, slotTable } from '../src/models.ts';
 import type { Model, Rig } from '../src/models.ts';
 
 // Node has no DOM: the loaders and the exporter want these three and nothing else.
@@ -490,6 +490,54 @@ function addHump(scene: THREE.Group, hump: NonNullable<RigEntry['hump']>): void 
   spine.attach(mesh);
 }
 
+/**
+ * The far herd's animals: fixed frames of the clips a herd holds still in,
+ * skinned at bake time and clustered to about `FAR_TRIANGLES` (`coarsened` in
+ * `src/models.ts`). A merged herd is drawn from these and a near one plays the
+ * clip from the same instant, so the swap between them is a change of detail
+ * and not of pose.
+ *
+ * **Why they exist**: merging the full rigs took a Finnmark herd scene from
+ * 18,432 triangles to 182,336 and Ulm at detail 3 from 56,928 to 291,550
+ * (`pnpm fauna`, 2026-09-17). A grazing animal at the far reach of a herd is a
+ * dozen pixels long.
+ */
+const FAR_TRIANGLES = 600;
+const FAR_FRAMES: readonly { clip: string; at: number }[] = [
+  { clip: 'Eating', at: 0.2 },
+  { clip: 'Eating', at: 0.6 },
+  { clip: 'Idle', at: 0.4 },
+];
+
+function farFrames(rig: Rig): THREE.Mesh[] {
+  // Posing moves the bones; the file has to keep the rest the pack exported.
+  const rest = rig.body.skeleton.bones.map((bone) => [bone.position.clone(), bone.quaternion.clone(), bone.scale.clone()] as const);
+  const meshes: THREE.Mesh[] = [];
+  const seen = new Set<string>();
+  for (const frame of FAR_FRAMES) {
+    const clip = rig.clips.find((entry) => entry.name === frame.clip) ?? rig.clips.find((entry) => entry.name === 'Idle');
+    if (clip === undefined) continue;
+    const signature = `${clip.name}|${frame.at}`;
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    const time = frame.at * clip.duration;
+    const far = coarsened(posedGeometry(rig, clip.name, time), rig.slot, FAR_TRIANGLES);
+    const model = { name: '', geometry: far.geometry, slot: far.slot, slots: rig.slots, defaults: rig.defaults } as unknown as Model;
+    const geometry = indexed(model);
+    geometry.userData.slots = slotTable(rig);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `far|${clip.name}|${time.toFixed(3)}`;
+    mesh.userData.slots = slotTable(rig);
+    meshes.push(mesh);
+  }
+  rig.body.skeleton.bones.forEach((bone, i) => {
+    bone.position.copy(rest[i]![0]);
+    bone.quaternion.copy(rest[i]![1]);
+    bone.scale.copy(rest[i]![2]);
+  });
+  return meshes;
+}
+
 async function bakeFauna(): Promise<number> {
   let total = 0;
   for (const entry of FAUNA) {
@@ -509,20 +557,23 @@ async function bakeFauna(): Promise<number> {
       addHump(loaded.scene, entry.hump);
     }
     const rig: Rig = rigFrom(loaded.scene, clips, entry.id, material);
+    const far = farFrames(rig);
     const geometry = indexed({ ...rig, geometry: rig.body.geometry } as unknown as Model);
     geometry.userData.slots = slotTable(rig);
     rig.body.geometry = geometry;
     rig.body.userData.slots = slotTable(rig);
     rig.body.material = material;
     rig.scene.name = entry.id;
+    for (const mesh of far) rig.scene.add(mesh);
     const glb = await exportGlb(rig.scene, clips);
+    for (const mesh of far) rig.scene.remove(mesh);
     const packed = gzipSync(glb, { level: 9 });
     total += packed.length;
     const size = rig.box.getSize(new THREE.Vector3());
     report.push(
       `  ${entry.id.padEnd(8)} ${String(rig.triangles).padStart(5)} tris  ${String(geometry.getAttribute('position').count).padStart(5)} verts  ` +
         `${rig.body.skeleton.bones.length} bones  ${clips.map((c) => c.name).join(',')}  ` +
-        `${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}  ${kb(glb.length)} glb  ${kb(packed.length)} gzipped`,
+        `${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}  far ${far.map((m) => (m.geometry.index!.count / 3)).join('/')} tris  ${kb(glb.length)} glb  ${kb(packed.length)} gzipped`,
     );
     if (!DRY) {
       mkdirSync(join(OUT, 'fauna'), { recursive: true });

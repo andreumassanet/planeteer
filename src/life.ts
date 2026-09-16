@@ -56,7 +56,7 @@ import { trafficFor } from './traffic/regions.ts';
 import { KINDS as FAUNA_KINDS, VARIANTS as FAUNA_VARIANTS, createFaunaContext } from './fauna/contract.ts';
 import { rigPaint } from './fauna/contract.ts';
 import type { Animal, AnimalShape, FaunaContext, RigChoice } from './fauna/contract.ts';
-import { makeRigged, paintColors, posedGeometry } from './models.ts';
+import { makeRigged, paintColors, paintModel, posedGeometry } from './models.ts';
 import type { Model, Rig as ModelRig, RigSource, Rigged } from './models.ts';
 import { buildAnimal } from './fauna/body.ts';
 import type { Pose as AnimalPose } from './fauna/body.ts';
@@ -1611,7 +1611,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       const choice = rngFrom(entry.id, style.id, variant, 'rig').weighted(entry.rigs.map((rig) => ({ item: rig, weight: rig.weight })));
       const rig = options.rigs.get(choice.id);
       if (rig === null) return 'pending';
-      found = mergeGroup(rigAnimal(entry, shape, choice, rig, pose, rngFrom(key, 'frame').unit()));
+      found = mergeGroup(rigAnimal(entry, shape, choice, rig, farFrameOf(rig, pose.kind, key)));
     } else {
       const built = buildAnimal(fauna, shape, pose);
       found = mergeGroup(built.group);
@@ -1623,16 +1623,22 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
 
   /**
-   * One head of a herd from its baked rig: a frame of the pack's `Eating` for a
-   * grazer and of its `Idle` for one standing or alert, skinned into a still
-   * geometry (`posedGeometry`), painted with the coat `shape` drew and fitted
-   * to the animal's declared length, feet on y = 0, facing +Z.
+   * One head of a merged herd from its baked rig: one of the rig's far frames
+   * (`Rig.far` — a still of the pack's `Eating` for a grazer, of its `Idle` for
+   * one standing or alert, coarsened at bake time), painted with the coat
+   * `shape` drew and fitted to the animal's declared length, feet on y = 0,
+   * facing +Z. A rig baked without far frames is skinned here at full detail.
    */
-  function rigAnimal(entry: Animal, shape: AnimalShape, choice: RigChoice, rig: ModelRig, pose: AnimalPose, phase: number): THREE.Group {
-    const clip = clipFor(rig, pose.kind);
-    const duration = rig.clips.find((entry) => entry.name === clip)?.duration ?? 0;
-    const geometry = posedGeometry(rig, clip, pose.kind === 'alert' ? 0 : phase * duration);
-    geometry.setAttribute('color', new THREE.BufferAttribute(paintColors(rig as unknown as Model, rigPaint(shape, choice)), 3));
+  function rigAnimal(entry: Animal, shape: AnimalShape, choice: RigChoice, rig: ModelRig, frame: number): THREE.Group {
+    const still = rig.far[frame];
+    const paint = rigPaint(shape, choice);
+    let geometry: THREE.BufferGeometry;
+    if (still !== undefined) {
+      geometry = paintModel(still.model, paint);
+    } else {
+      geometry = posedGeometry(rig, clipFor(rig, 'stand'), 0);
+      geometry.setAttribute('color', new THREE.BufferAttribute(paintColors(rig as unknown as Model, paint), 3));
+    }
     const size = rig.box.getSize(herdScratch);
     const k = entry.size[0] / size.z;
     const mesh = new THREE.Mesh(geometry, PAINTED_MERGE);
@@ -1641,6 +1647,17 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const group = new THREE.Group();
     group.add(mesh);
     return group;
+  }
+
+  /**
+   * Which far frame a head is held in: one of its clip's, chosen by the head's
+   * own seed, so the merged herd and the animated one agree on it.
+   */
+  function farFrameOf(rig: ModelRig, pose: AnimalPose['kind'], key: string): number {
+    const clip = clipFor(rig, pose);
+    const frames = rig.far.map((frame, index) => ({ frame, index })).filter((entry) => entry.frame.clip === clip);
+    if (frames.length === 0) return -1;
+    return frames[Math.floor(rngFrom(key, 'frame').unit() * frames.length)]!.index;
   }
   const herdScratch = new THREE.Vector3();
 
@@ -2941,8 +2958,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
         const action = rigged.actions.get(clipName);
         if (action !== undefined) {
           action.reset().play();
-          const bodyKey = `${head.species}|${head.region}|${head.variant}|${head.pose}`;
-          action.time = head.pose === 'alert' ? 0 : rngFrom(bodyKey, 'frame').unit() * action.getClip().duration;
+          // From the instant the merged herd held it in, so the swap is not a jump.
+          const still = rig.far[farFrameOf(rig, head.pose, `${head.species}|${head.region}|${head.variant}|${head.pose}`)];
+          action.time = still?.time ?? 0;
           action.timeScale = 0.85 + rngFrom(mover.key, 'rate', heads.length).unit() * 0.3;
         }
         heads.push({ rigged, rig: choice.id });

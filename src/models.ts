@@ -287,6 +287,12 @@ export interface Rig {
   box: THREE.Box3;
   triangles: number;
   clips: readonly THREE.AnimationClip[];
+  /**
+   * Still frames of the rig, coarsened, for a merged herd far off: which clip,
+   * how many seconds in, and the model. Written by the bake (`farFrames` in
+   * `scripts/build-kit.ts`); empty on a rig that was not baked.
+   */
+  far: readonly { clip: string; time: number; model: Model }[];
 }
 
 export interface Rigged {
@@ -420,7 +426,7 @@ export function rigFrom(root: THREE.Group, clips: readonly THREE.AnimationClip[]
   body.castShadow = true;
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root, true);
-  return { name, scene: root, body, slot, slots, defaults, box, triangles: slot.length / 3, clips };
+  return { name, scene: root, body, slot, slots, defaults, box, triangles: slot.length / 3, clips, far: [] };
 }
 
 /** A painted, independently animated copy of a rig. */
@@ -626,8 +632,17 @@ export function modelFromBaked(mesh: THREE.Mesh, name = mesh.name): Model {
 /** A rig from a baked scene: its one skinned body, its skeleton, its clips. */
 export function rigFromBaked(root: THREE.Group, clips: readonly THREE.AnimationClip[], name: string, material: THREE.Material): Rig {
   let body: THREE.SkinnedMesh | null = null;
+  const farMeshes: THREE.Mesh[] = [];
   root.traverse((object) => {
     if ((object as THREE.SkinnedMesh).isSkinnedMesh) body = object as THREE.SkinnedMesh;
+    else if ((object as THREE.Mesh).isMesh && object.name.startsWith('far|')) farMeshes.push(object as THREE.Mesh);
+  });
+  // Out of the scene before anything clones it: a far frame is a still model,
+  // not a part of the body.
+  const far = farMeshes.map((mesh) => {
+    mesh.removeFromParent();
+    const [, clip, time] = mesh.name.split('|');
+    return { clip: clip!, time: Number(time), model: modelFromBaked(mesh, mesh.name) };
   });
   if (body === null) throw new Error(`models: ${name} has no skinned body`);
   const mesh = body as THREE.SkinnedMesh;
@@ -639,7 +654,7 @@ export function rigFromBaked(root: THREE.Group, clips: readonly THREE.AnimationC
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root, true);
   const count = mesh.geometry.index ? mesh.geometry.index.count : slot.length;
-  return { name, scene: root, body: mesh, slot, slots, defaults, box, triangles: count / 3, clips };
+  return { name, scene: root, body: mesh, slot, slots, defaults, box, triangles: count / 3, clips, far };
 }
 
 // ---------------------------------------------------------------------------
@@ -726,4 +741,79 @@ export function bakeSkin(body: THREE.SkinnedMesh, frame: THREE.Object3D): THREE.
 /** Where a rig's library is asked for rigs: `null` while one is still arriving. */
 export interface RigSource {
   get(id: string): Rig | null;
+}
+
+// ---------------------------------------------------------------------------
+// A coarser copy: the far one
+// ---------------------------------------------------------------------------
+
+/**
+ * `geometry` with its vertices clustered onto a grid fine enough to leave about
+ * `triangles` triangles: every vertex moves to the mean of its cell, triangles
+ * whose corners share a cell vanish, and each surviving triangle keeps the
+ * colour slot it had.
+ *
+ * **Why clustering and not three's `SimplifyModifier`**: measured on the
+ * baked cow (2026-09-17) the modifier returned position counts not divisible
+ * by three, and removing a fifth of the vertices took 2,450 triangles to 394.
+ * Clustering is linear, cannot tear a triangle list, and a far animal needs a
+ * silhouette rather than its eyelids. Normals are recomputed creased and the
+ * ink's normals welded, as a bake does.
+ */
+export function coarsened(
+  geometry: THREE.BufferGeometry,
+  slot: Uint8Array,
+  triangles: number,
+): { geometry: THREE.BufferGeometry; slot: Uint8Array } {
+  const position = geometry.getAttribute('position');
+  const index = geometry.index;
+  const corners = index ? index.count : position.count;
+  const cornerAt = (i: number) => (index ? index.getX(i) : i);
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox!.getSize(new THREE.Vector3());
+  const span = Math.max(size.x, size.y, size.z);
+  let best: { positions: number[]; slots: number[] } | null = null;
+  // The cell is searched rather than derived: how many triangles survive a grid
+  // depends on the shape. Coarser each step until the count is under the target.
+  for (let cells = 64; cells >= 6; cells = Math.floor(cells * 0.85)) {
+    const cell = span / cells;
+    const keyOf = (i: number) =>
+      `${Math.round(position.getX(i) / cell)},${Math.round(position.getY(i) / cell)},${Math.round(position.getZ(i) / cell)}`;
+    const sums = new Map<string, [number, number, number, number]>();
+    for (let i = 0; i < position.count; i++) {
+      const key = keyOf(i);
+      const sum = sums.get(key);
+      if (sum === undefined) sums.set(key, [position.getX(i), position.getY(i), position.getZ(i), 1]);
+      else {
+        sum[0] += position.getX(i);
+        sum[1] += position.getY(i);
+        sum[2] += position.getZ(i);
+        sum[3]++;
+      }
+    }
+    const seen = new Set<string>();
+    const positions: number[] = [];
+    const slots: number[] = [];
+    for (let t = 0; t + 2 < corners; t += 3) {
+      const keys = [keyOf(cornerAt(t)), keyOf(cornerAt(t + 1)), keyOf(cornerAt(t + 2))];
+      if (keys[0] === keys[1] || keys[1] === keys[2] || keys[0] === keys[2]) continue;
+      const signature = `${keys[0]}|${keys[1]}|${keys[2]}`;
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      for (const key of keys) {
+        const sum = sums.get(key)!;
+        positions.push(sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3]);
+      }
+      const s = slot[cornerAt(t)]!;
+      slots.push(s, s, s);
+    }
+    best = { positions, slots };
+    if (positions.length / 9 <= triangles) break;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(best!.positions, 3));
+  out.computeVertexNormals();
+  const creased = toCreasedNormals(out, CREASE);
+  creased.setAttribute('outlineNormal', weldedNormals(creased));
+  return { geometry: creased, slot: Uint8Array.from(best!.slots) };
 }
