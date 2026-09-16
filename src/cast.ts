@@ -85,6 +85,8 @@ export interface Person {
   actions: ReadonlyMap<ClipName, THREE.AnimationAction>;
   /** Materials this person's colours came from, in slot order. */
   slots: readonly string[];
+  /** Which outfit this is, so a released person goes back to the right pool. */
+  outfit: OutfitId;
 }
 
 interface Template {
@@ -114,6 +116,14 @@ export interface Cast {
   /** Which materials an outfit has, how much each covers and how high. */
   slotsOf(outfit: OutfitId): readonly SlotStat[];
   make(outfit: OutfitId, paint: Paint, height: number): Person;
+  /**
+   * Hands a person back for `make` to dress again, repainted. **Never dispose a
+   * person's geometry**: its positions, normals and weights are the outfit's,
+   * and disposing a geometry frees the GPU buffers of every attribute on it,
+   * shared ones included — the next person in that outfit re-uploaded them, and
+   * every body still standing kept drawing a buffer that had been deleted.
+   */
+  release(person: Person): void;
 }
 
 /** One material for the whole cast, built by the caller so it shares the world's ramp. */
@@ -279,13 +289,46 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
   outfits.forEach((id, i) => templates.set(id, prepare(files[i]!, material)));
 
   const colour = new THREE.Color();
+  const spare = new Map<OutfitId, Person[]>();
+  const paintInto = (template: Template, paint: Paint, colors: Float32Array): void => {
+    const bySlot = template.slots.map((name, s) => {
+      const chosen = paint(name, template.defaults[s]!);
+      if (chosen === null) return template.defaults[s]!.clone();
+      return chosen instanceof THREE.Color ? chosen.clone() : new THREE.Color(chosen);
+    });
+    for (let v = 0; v < template.slot.length; v++) {
+      colour.copy(bySlot[template.slot[v]!]!);
+      colors[v * 3] = colour.r;
+      colors[v * 3 + 1] = colour.g;
+      colors[v * 3 + 2] = colour.b;
+    }
+  };
   return {
     outfits,
     clips,
     slotsOf: (outfit) => templates.get(outfit)!.stats,
+    release(person) {
+      person.mixer.stopAllAction();
+      // A person let go mid-gesture keeps the weights it was blending with.
+      for (const action of person.actions.values()) action.setEffectiveWeight(1).timeScale = 1;
+      person.root.removeFromParent();
+      person.root.position.set(0, 0, 0);
+      person.root.quaternion.identity();
+      const pool = spare.get(person.outfit) ?? [];
+      pool.push(person);
+      spare.set(person.outfit, pool);
+    },
     make(outfit, paint, height) {
       const template = templates.get(outfit);
       if (template === undefined) throw new Error(`cast: ${outfit} was not loaded`);
+      const reused = spare.get(outfit)?.pop();
+      if (reused !== undefined) {
+        const attribute = reused.mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+        paintInto(template, paint, attribute.array as Float32Array);
+        attribute.needsUpdate = true;
+        reused.root.scale.setScalar(height / template.height);
+        return reused;
+      }
       const scene = cloneRig(template.scene) as THREE.Group;
       let mesh: THREE.SkinnedMesh | null = null;
       scene.traverse((object) => {
@@ -301,17 +344,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
         geometry.setAttribute(name, shared.getAttribute(name));
       }
       const colors = new Float32Array(template.slot.length * 3);
-      const bySlot = template.slots.map((name, s) => {
-        const chosen = paint(name, template.defaults[s]!);
-        if (chosen === null) return template.defaults[s]!.clone();
-        return chosen instanceof THREE.Color ? chosen.clone() : new THREE.Color(chosen);
-      });
-      for (let v = 0; v < template.slot.length; v++) {
-        colour.copy(bySlot[template.slot[v]!]!);
-        colors[v * 3] = colour.r;
-        colors[v * 3 + 1] = colour.g;
-        colors[v * 3 + 2] = colour.b;
-      }
+      paintInto(template, paint, colors);
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       body.geometry = geometry;
       // Culled by a fixed sphere round the body in its own frame, generous
@@ -331,7 +364,100 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       const mixer = new THREE.AnimationMixer(scene);
       const actions = new Map<ClipName, THREE.AnimationAction>();
       for (const [name, clip] of clips) actions.set(name, mixer.clipAction(clip));
-      return { root, mesh: body, bones, mixer, actions, slots: template.slots };
+      return { root, mesh: body, bones, mixer, actions, slots: template.slots, outfit };
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Poses written by hand: seated
+// ---------------------------------------------------------------------------
+
+/** A person's limbs, as a hand-written pose needs them. */
+export interface Limbs {
+  hips: THREE.Bone;
+  legs: { upper: THREE.Bone; lower: THREE.Bone; foot: THREE.Bone; ankle: THREE.Vector3 }[];
+  arms: { upper: THREE.Bone; lower: THREE.Bone; wrist: THREE.Bone }[];
+}
+
+/**
+ * Finds the bones a seated pose moves and measures each ankle in its shin's own
+ * frame, in the bind pose. Three drops the dot from a glTF bone's name, so both
+ * spellings are tried.
+ */
+export function limbsOf(person: Person): Limbs {
+  const bone = (name: string): THREE.Bone => {
+    const found = person.bones.get(name) ?? person.bones.get(name.replace('.', ''));
+    if (found === undefined) throw new Error(`cast: the rig has no ${name}`);
+    return found;
+  };
+  person.mesh.skeleton.pose();
+  person.root.updateMatrixWorld(true);
+  const legs = (['L', 'R'] as const).map((side) => {
+    const upper = bone(`UpperLeg.${side}`);
+    const lower = bone(`LowerLeg.${side}`);
+    const foot = bone(`Foot.${side}`);
+    const ankle = lower.worldToLocal(foot.getWorldPosition(new THREE.Vector3()));
+    return { upper, lower, foot, ankle };
+  });
+  const arms = (['L', 'R'] as const).map((side) => ({
+    upper: bone(`UpperArm.${side}`),
+    lower: bone(`LowerArm.${side}`),
+    wrist: bone(`Wrist.${side}`),
+  }));
+  return { hips: bone('Hips'), legs, arms };
+}
+
+const aimFrom = new THREE.Vector3();
+const aimAlong = new THREE.Vector3();
+const aimTo = new THREE.Vector3();
+const aimTurn = new THREE.Quaternion();
+const aimOwn = new THREE.Quaternion();
+const aimParent = new THREE.Quaternion();
+
+/** Swings `bone` so that the world point `tip` comes to lie along `direction`, given in `frame`. */
+export function aimBone(bone: THREE.Bone, tip: THREE.Vector3, direction: THREE.Vector3, frame: THREE.Object3D): void {
+  bone.getWorldPosition(aimFrom);
+  aimAlong.copy(tip).sub(aimFrom).normalize();
+  aimTo.copy(direction).transformDirection(frame.matrixWorld);
+  aimTurn.setFromUnitVectors(aimAlong, aimTo);
+  bone.getWorldQuaternion(aimOwn);
+  bone.parent!.getWorldQuaternion(aimParent);
+  bone.quaternion.copy(aimParent.invert().multiply(aimTurn.multiply(aimOwn)));
+  bone.updateMatrixWorld(true);
+}
+
+const foldTip = new THREE.Vector3();
+
+/**
+ * Folds both legs: thighs along `thigh`, shins along `shin`, both in `frame`.
+ * **The rig's feet are IK controls hanging off its root**, not children of the
+ * shins, so each foot bone is carried to its folded ankle or the shoe stays
+ * standing on the floor.
+ */
+export function foldLegs(limbs: Limbs, frame: THREE.Object3D, thigh: THREE.Vector3, shin: THREE.Vector3): void {
+  frame.updateMatrixWorld(true);
+  for (const leg of limbs.legs) {
+    aimBone(leg.upper, leg.lower.getWorldPosition(foldTip), thigh, frame);
+    aimBone(leg.lower, leg.lower.localToWorld(foldTip.copy(leg.ankle)), shin, frame);
+    leg.lower.localToWorld(foldTip.copy(leg.ankle));
+    leg.foot.position.copy(leg.foot.parent!.worldToLocal(foldTip));
+    leg.foot.updateMatrixWorld(true);
+  }
+}
+
+/** Points both arms at `grip`, a point in `frame`: the upper arm and the forearm along the same line. */
+export function reachArms(limbs: Limbs, frame: THREE.Object3D, grip: THREE.Vector3): void {
+  frame.updateMatrixWorld(true);
+  const target = frame.localToWorld(grip.clone());
+  for (const [index, arm] of limbs.arms.entries()) {
+    // Each hand a shoulder's width out from the middle of the grip.
+    const shoulder = arm.upper.getWorldPosition(new THREE.Vector3());
+    const middle = limbs.arms.map((a) => a.upper.getWorldPosition(new THREE.Vector3())).reduce((a, b) => a.add(b)).multiplyScalar(0.5);
+    const hand = target.clone().add(shoulder.clone().sub(middle).multiplyScalar(0.8));
+    const direction = frame.worldToLocal(hand.clone()).sub(frame.worldToLocal(shoulder.clone())).normalize();
+    aimBone(arm.upper, arm.lower.getWorldPosition(new THREE.Vector3()), direction, frame);
+    aimBone(arm.lower, arm.wrist.getWorldPosition(new THREE.Vector3()), direction, frame);
+    void index;
+  }
 }

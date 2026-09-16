@@ -43,7 +43,7 @@ import { regionFor } from './scenery/regions.ts';
 import { POSES, buildPerson } from './scenery/people.ts';
 import type { Look } from './scenery/people.ts';
 import { lookFor } from './scenery/dress.ts';
-import { WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
+import { SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
 import {
   RIDER_HEIGHT,
   VARIANTS,
@@ -51,7 +51,7 @@ import {
   placedScale,
   variantRng,
 } from './traffic/contract.ts';
-import type { TrafficContext, TrafficStyle, Vehicle } from './traffic/contract.ts';
+import type { Mount, TrafficContext, TrafficStyle, Vehicle } from './traffic/contract.ts';
 import { trafficFor } from './traffic/regions.ts';
 import { KINDS as FAUNA_KINDS, VARIANTS as FAUNA_VARIANTS, createFaunaContext } from './fauna/contract.ts';
 import { rigPaint } from './fauna/contract.ts';
@@ -218,6 +218,15 @@ const HERD_REACH = 950;
  * everything else is a still frame of the same clip in the merged herd.
  */
 const HERD_ANIMATED_REACH = 180;
+
+/**
+ * How a cast rider's legs fold, in the rider's own frame: a bench's thigh level
+ * and forward, a saddle's dropped towards the pedals, and a shin that hangs.
+ * The first two are `avatar.ts`'s seat, the one the plane uses.
+ */
+const RIDER_THIGH_SIT = SEAT_THIGH;
+const RIDER_THIGH_ASTRIDE = new THREE.Vector3(0, -0.8, 1).normalize();
+const RIDER_SHIN = SEAT_SHIN;
 const HERD_ANIMATED_CAP = 36;
 
 /**
@@ -1459,23 +1468,18 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * worth naming because the traffic contract calls it the whole cost of its own
    * decision: a cyclist used to be a third the size of the person he rode past.
    */
-  function buildVehicle(key: string, id: string, style: TrafficStyle, region: string, variant: number): Pooled | null {
+  function buildVehicle(key: string, id: string, style: TrafficStyle, region: string, variant: number): Pooled | null | 'pending' {
     const entry = registry.get(id);
     if (entry === undefined) return null;
+    // A rider is a cast character when there is a cast, and the cast arrives
+    // after the traffic can: a ridden vehicle waits for it rather than being
+    // pooled with the code-built body for the rest of the session.
+    if (entry.mounts.length > 0 && folk !== undefined && !folk.ready) return 'pending';
     const built = entry.build(traffic, variantRng(entry, style, variant), style);
 
-    // Riders. `Mount.footrest` and `Mount.grip` solve the four joints by IK
-    // inside `buildPerson`, so a rider fits a saddle by construction and nothing
-    // in this file poses one.
     for (const mount of entry.mounts) {
-      const rng = rngFrom(key, 'rider', mount.x, mount.z);
-      const look: Look = {
-        ...lookFor(rng, region, { pose: mount.pose }),
-        height: RIDER_HEIGHT,
-        footrest: mount.footrest,
-        grip: mount.grip,
-      };
-      const rider = buildPerson(ctx, look);
+      const rider = folk !== undefined ? castRider(key, region, mount) : codeRider(key, region, mount);
+      if (rider === null) continue;
       rider.position.set(mount.x, mount.y, mount.z);
       rider.rotation.y = mount.yaw;
       built.add(rider);
@@ -1486,7 +1490,35 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const merged = mergeGroup(built);
     const geometry = geometryOf(merged);
     dispose(built);
-    return { geometry, triangles: merged.triangles, bytes: merged.position.byteLength * 3 };
+    return { geometry, triangles: merged.triangles, bytes: merged.position.byteLength * 4 };
+  }
+
+  /**
+   * A rider from the cast, held seated (`Folk.seated`): hips on the mount, thighs
+   * forward, shins down, hands on the grip. `astride` is a bicycle's or a
+   * scooter's, with the thigh dropped towards the pedals; `sit` is a bench's.
+   */
+  function castRider(key: string, region: string, mount: Mount): THREE.Object3D | null {
+    const astride = mount.pose === 'astride';
+    return folk!.seated(`${key}|rider|${mount.x}|${mount.z}`, region, RIDER_HEIGHT, {
+      thigh: astride ? RIDER_THIGH_ASTRIDE : RIDER_THIGH_SIT,
+      shin: RIDER_SHIN,
+      grip: mount.grip === undefined ? undefined : new THREE.Vector3(mount.grip[0] - mount.x, mount.grip[1] - mount.y, mount.grip[2] - mount.z),
+    });
+  }
+
+  /** The code-built rider, for `pnpm life`, which has no cast. */
+  function codeRider(key: string, region: string, mount: Mount): THREE.Object3D {
+    // `Mount.footrest` and `Mount.grip` solve the four joints by IK inside
+    // `buildPerson`, so a rider fits a saddle by construction.
+    const rng = rngFrom(key, 'rider', mount.x, mount.z);
+    const look: Look = {
+      ...lookFor(rng, region, { pose: mount.pose }),
+      height: RIDER_HEIGHT,
+      footrest: mount.footrest,
+      grip: mount.grip,
+    };
+    return buildPerson(ctx, look);
   }
 
   /**
@@ -1822,7 +1854,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
         const style = trafficCache.get(parts[2]!);
         const built = style === undefined ? null : buildVehicle(key, parts[1]!, style, parts[2]!, Number(parts[3]));
         if (built === null) refused.add(key);
-        else pool.set(key, built);
+        else if (built !== 'pending') pool.set(key, built);
       } else if (parts[0] === 'w') {
         const built = buildWalker(key, parts[1]!, Number(parts[2]));
         if (built === null) refused.add(key);
@@ -2660,10 +2692,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
       if (keep.has(key)) continue;
       if (mover.animated) releaseHerd(mover);
       if (mover.person) {
-        mover.person.person.mixer.stopAllAction();
         group.remove(mover.person.holder);
-        mover.person.person.mesh.geometry.dispose();
-        mover.person.person.mesh.skeleton.dispose();
+        // Back to the cast's pool, not disposed: see `Cast.release`.
+        folk?.release(mover.person.person);
         mover.person = null;
       }
       if (mover.mesh !== null) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { castMaterial, loadCast } from './cast.ts';
+import { castMaterial, foldLegs, limbsOf, loadCast } from './cast.ts';
 import type { Cast } from './cast.ts';
 import { createContext } from './monuments/contract.ts';
 import { createSoftKit } from './soft.ts';
@@ -281,6 +281,14 @@ export async function prepareAvatar(): Promise<void> {
  */
 const AIR_PHASE = 0.3;
 
+/**
+ * How a seated body's legs fold, in its own frame: the thigh level and forward,
+ * the shin hanging. The plane's seat (`sit`) and every cast rider on a bench
+ * (`life.ts`) fold to these, so there is one seated pose in the world.
+ */
+export const SEAT_THIGH = new THREE.Vector3(0, -0.12, 1).normalize();
+export const SEAT_SHIN = new THREE.Vector3(0, -1, 0.08).normalize();
+
 /** How quickly the clip weights follow the speed, per second. */
 const BLEND_RATE = 10;
 
@@ -318,22 +326,11 @@ export function buildAvatar(): Avatar {
     if (found === undefined) throw new Error(`avatar: the rig has no ${name}`);
     return found;
   };
-  const hips = bone('Hips');
   const chest = bone('Chest');
-  const legs = (['L', 'R'] as const).map((side) => ({
-    upper: bone(`UpperLeg.${side}`),
-    lower: bone(`LowerLeg.${side}`),
-    foot: bone(`Foot.${side}`),
-    /** The ankle, in the lower leg's own frame, measured in the bind pose. */
-    ankle: new THREE.Vector3(),
-  }));
-
-  // Everything measured below is measured in the bind pose.
-  person.mesh.skeleton.pose();
+  // Measured in the bind pose, which `limbsOf` puts the skeleton in.
+  const limbs = limbsOf(person);
+  const hips = limbs.hips;
   group.updateMatrixWorld(true);
-  for (const leg of legs) {
-    leg.ankle.copy(leg.lower.worldToLocal(leg.foot.getWorldPosition(new THREE.Vector3())));
-  }
 
   // -------------------------------------------------------------------------
   // The pack
@@ -434,49 +431,19 @@ export function buildAvatar(): Avatar {
     apply(dt);
   }
 
-  const direction = new THREE.Vector3();
-  const along = new THREE.Vector3();
-  const from = new THREE.Vector3();
-  const to = new THREE.Vector3();
-  const turn = new THREE.Quaternion();
-  const own = new THREE.Quaternion();
-  const parent = new THREE.Quaternion();
-
-  /** Swings `bone` so the point `tip` (world) moves to lie along `dir` (group frame). */
-  function aim(target: THREE.Bone, tip: THREE.Vector3, dir: THREE.Vector3): void {
-    target.getWorldPosition(from);
-    along.copy(tip).sub(from).normalize();
-    direction.copy(dir).transformDirection(group.matrixWorld);
-    turn.setFromUnitVectors(along, direction);
-    target.getWorldQuaternion(own);
-    target.parent!.getWorldQuaternion(parent);
-    target.quaternion.copy(parent.invert().multiply(turn.multiply(own)));
-    target.updateMatrixWorld(true);
-  }
-
-  const THIGH = new THREE.Vector3(0, -0.12, 1).normalize();
-  const SHIN = new THREE.Vector3(0, -1, 0.08).normalize();
   const hipAt = new THREE.Vector3();
+  const to = new THREE.Vector3();
 
   /**
    * Seated: the idle clip for everything above the waist, and the legs folded
-   * by hand, because the pack has no sitting clip. The rig's feet are IK
-   * controls hanging off its root rather than children of the shins, so a
-   * folded leg has to carry its foot to the new ankle itself or the shoe stays
-   * standing on the floor.
+   * by hand (`foldLegs` in `cast.ts`, which carries each foot, an IK control
+   * under the root, to its folded ankle), because the pack has no sitting clip.
    */
   function sit(dt: number): void {
     body.rotation.set(0, 0, 0);
     blendTo(dt * 4, { idle: 1, walk: 0, run: 0, air: 0 });
     apply(dt);
-    group.updateMatrixWorld(true);
-    for (const leg of legs) {
-      aim(leg.upper, leg.lower.getWorldPosition(to), THIGH);
-      aim(leg.lower, leg.lower.localToWorld(to.copy(leg.ankle)), SHIN);
-      leg.lower.localToWorld(to.copy(leg.ankle));
-      leg.foot.position.copy(leg.foot.parent!.worldToLocal(to));
-      leg.foot.updateMatrixWorld(true);
-    }
+    foldLegs(limbs, group, SEAT_THIGH, SEAT_SHIN);
     // Put this character's own hips where `FIGURE` says a seated hip is.
     hipAt.copy(group.worldToLocal(hips.getWorldPosition(to)));
     body.position.x -= hipAt.x;

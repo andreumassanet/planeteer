@@ -671,6 +671,19 @@ export function posedGeometry(rig: Rig, clip: string | null, time: number): THRE
     mixer.clipAction(found).play();
     mixer.setTime(time % found.duration);
   }
+  const geometry = bakeSkin(body, scene);
+  mixer.stopAllAction();
+  mixer.uncacheRoot(scene);
+  return geometry;
+}
+
+/**
+ * A skinned mesh as it stands right now, skinned on the CPU into a plain
+ * geometry in `frame`'s space: `position`, `normal`, `outlineNormal`, and its
+ * `color` when it has one, sharing its index.
+ */
+export function bakeSkin(body: THREE.SkinnedMesh, frame: THREE.Object3D): THREE.BufferGeometry {
+  const scene = frame;
   scene.updateMatrixWorld(true);
   body.skeleton.update();
   const source = body.geometry;
@@ -700,12 +713,12 @@ export function posedGeometry(rig: Rig, clip: string | null, time: number): THRE
     poseVector.fromBufferAttribute(normal, v).applyMatrix3(poseNormal).normalize().toArray(outNormal, v * 3);
     poseVector.fromBufferAttribute(outline, v).applyMatrix3(poseNormal).normalize().toArray(outOutline, v * 3);
   }
-  mixer.stopAllAction();
-  mixer.uncacheRoot(scene);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(outPosition, 3));
   geometry.setAttribute('normal', new THREE.BufferAttribute(outNormal, 3));
   geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(outOutline, 3));
+  const color = source.getAttribute('color');
+  if (color !== undefined) geometry.setAttribute('color', new THREE.BufferAttribute((color.array as Float32Array).slice(), 3));
   geometry.setIndex(source.index);
   return geometry;
 }

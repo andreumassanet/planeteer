@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from './avatar.ts';
-import { OUTFITS, castMaterial, loadCast } from './cast.ts';
+import { OUTFITS, castMaterial, foldLegs, limbsOf, loadCast, reachArms } from './cast.ts';
+import { bakeSkin } from './models.ts';
 import type { Cast, ClipName, OutfitId, Paint, Person, SlotStat } from './cast.ts';
 import { tone } from './monuments/contract.ts';
 import type { MonumentContext } from './monuments/contract.ts';
@@ -57,8 +58,30 @@ export interface Folk {
   /** False until the cast has loaded; nobody is dressed before that. */
   readonly ready: boolean;
   /** A person of `region`, the same person for the same `key` every time. */
-  dress(key: string, region: string, warmth?: number): Person | null;
+  dress(key: string, region: string, warmth?: number, height?: number): Person | null;
+  /** Gives a person back to be dressed again; see `Cast.release`. */
+  release(person: Person): void;
+  /**
+   * A person of `region` held seated, as a still mesh `height` tall: hips at
+   * the origin, facing +Z, thighs along `thigh` and shins along `shin`, hands
+   * at `grip` when there is one (a point, hips at the origin). Painted, inked
+   * along its own `outlineNormal`, and ready to merge into a vehicle — a rider
+   * rides still, so a rider is one frame of a cast character baked into the
+   * vehicle's buffer. `null` until the cast has loaded.
+   */
+  seated(key: string, region: string, height: number, pose: SeatPose): THREE.Mesh | null;
 }
+
+export interface SeatPose {
+  thigh: THREE.Vector3;
+  shin: THREE.Vector3;
+  grip?: THREE.Vector3;
+}
+
+/** Marks a mesh whose colours are its vertices' for the flatteners; it is never drawn. */
+const PAINTED_MERGE = new THREE.MeshBasicMaterial();
+PAINTED_MERGE.userData.atlasPainted = true;
+PAINTED_MERGE.userData.atlasToon = PALETTE.white;
 
 /** Everything but the young: the cast has no children, and a scaled adult is not one. */
 const ADULT_HEIGHT: readonly [number, number] = [AVATAR_HEIGHT * 0.9, AVATAR_HEIGHT * 1.08];
@@ -94,7 +117,35 @@ export function createFolk(ctx: MonumentContext): Folk {
     get ready() {
       return cast !== null;
     },
-    dress(key, region, warmth) {
+    release(person) {
+      cast?.release(person);
+    },
+    seated(key, region, height, pose) {
+      const person = this.dress(key, region, undefined, height);
+      if (person === null) return null;
+      const frame = new THREE.Group();
+      frame.add(person.root);
+      const limbs = limbsOf(person);
+      const idle = person.actions.get('Idle_Neutral')!;
+      idle.play();
+      person.mixer.setTime(0.5);
+      foldLegs(limbs, frame, pose.thigh, pose.shin);
+      if (pose.grip !== undefined) {
+        frame.updateMatrixWorld(true);
+        const hip = frame.worldToLocal(limbs.hips.getWorldPosition(new THREE.Vector3()));
+        reachArms(limbs, frame, pose.grip.clone().add(hip));
+      }
+      frame.updateMatrixWorld(true);
+      const hip = frame.worldToLocal(limbs.hips.getWorldPosition(new THREE.Vector3()));
+      person.root.position.sub(hip);
+      const geometry = bakeSkin(person.mesh, frame);
+      frame.remove(person.root);
+      this.release(person);
+      const mesh = new THREE.Mesh(geometry, PAINTED_MERGE);
+      mesh.name = `rider:${key}`;
+      return mesh;
+    },
+    dress(key, region, warmth, tall) {
       if (cast === null) return null;
       const look = lookFor(rngFrom(key, 'folk'), region, warmth === undefined ? {} : { warmth });
       const pick = rngFrom(key, 'outfit');
@@ -119,7 +170,7 @@ export function createFolk(ctx: MonumentContext): Folk {
         ADULT_HEIGHT[0],
         ADULT_HEIGHT[1],
       );
-      return cast.make(outfit, paint, height);
+      return cast.make(outfit, paint, tall ?? height);
     },
   };
 }
@@ -182,12 +233,9 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
   const hash = (key: string, salt: string) => rngFrom(key, salt).unit();
 
   function release(entry: Standing): void {
-    entry.person.mixer.stopAllAction();
     group.remove(entry.holder);
-    // The geometry's positions and weights are the outfit template's and shared;
-    // only the colours are this person's own.
-    entry.person.mesh.geometry.dispose();
-    entry.person.mesh.skeleton.dispose();
+    // Back to the cast's pool, not disposed: see `Cast.release`.
+    folk.release(entry.person);
     standing.delete(entry.anchor.key);
   }
 
