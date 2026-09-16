@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { PALETTE, createToonRamp } from '../theme.ts';
+import { paintModel } from '../models.ts';
+import type { Model, Paint } from '../models.ts';
 
 /**
  * The monument contract.
@@ -259,6 +261,20 @@ export interface MonumentContext {
    */
   tone(color: number, factor: number): number;
 
+  /**
+   * A pack model (`src/models.ts`) as a mesh of this world: its own geometry,
+   * shared, with a colour attribute written by `paint`, drawn with the one
+   * vertex-coloured toon material and inked along its welded `outlineNormal`.
+   *
+   * **The way a CC0 asset enters a kit**, and the one exception to `toon`
+   * being the only way to make a material: the material is still this
+   * context's, on this context's ramp, and every colour `paint` returns should
+   * come off the palette (`onPalette` and `bodyPaint` in `models.ts` do that).
+   * The flatteners in `settlements.ts`, `vegetation.ts` and `life.ts` read the
+   * vertex colours and the outline normals rather than the material's stamp.
+   */
+  painted(model: Model, paint?: Paint): THREE.Mesh;
+
   /** Rectangular block, centred in x and z, standing on y = 0. */
   box(width: number, height: number, depth: number, color: number): THREE.Mesh;
 
@@ -313,6 +329,13 @@ const OUTLINE_COLOR: [number, number, number] = [0.11, 0.02, 0.01];
 
 /** Stamped into `userData` by `toon`, and the thing `validate` looks for. */
 const TOON_MARK = 'atlasToon';
+/**
+ * Stamped by `painted` beside the toon mark: this material's colour is the
+ * geometry's `color` attribute, and the toon mark it also carries (white) is
+ * only there so every check that asks "did this come from the context?" says
+ * yes.
+ */
+export const PAINTED_MARK = 'atlasPainted';
 
 const PALETTE_COLORS = new Set<number>(Object.values(PALETTE));
 const PALETTE_NAMES = new Map<number, string>(
@@ -397,6 +420,19 @@ export function createContext(): MonumentContext {
    * It also leaves every monument's geometry in one uniform shape, so merging
    * them by material later is a single call.
    */
+  let paintedMaterial: THREE.MeshToonMaterial | null = null;
+  function painted(model: Model, paint?: Paint): THREE.Mesh {
+    if (paintedMaterial === null) {
+      paintedMaterial = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: ramp });
+      paintedMaterial.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: OUTLINE_COLOR, outlineNormal: true };
+      paintedMaterial.userData[TOON_MARK] = PALETTE.white;
+      paintedMaterial.userData[PAINTED_MARK] = true;
+    }
+    const mesh = new THREE.Mesh(paintModel(model, paint), paintedMaterial);
+    mesh.name = model.name;
+    return mesh;
+  }
+
   const meshOf = (geometry: THREE.BufferGeometry, color: number): THREE.Mesh => {
     const faceted = geometry.toNonIndexed();
     geometry.dispose();
@@ -432,6 +468,7 @@ export function createContext(): MonumentContext {
     palette: PALETTE,
     toon,
     tone,
+    painted,
     box,
     column: (radius, height, color, sides = 8) => prism(radius, radius, height, color, sides),
     taper: (bottom, top, height, color, sides = 4) => prism(bottom, top, height, color, sides),
@@ -565,6 +602,9 @@ export function measure(group: THREE.Group): Measurements {
     meshes++;
 
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      // A painted mesh's colours are vertex bytes, which cost no material and no
+      // draw call wherever it is merged; they are not what the colour cap counts.
+      if (material.userData[PAINTED_MARK] === true) continue;
       const stamped = material.userData[TOON_MARK] as number | undefined;
       // Tones fold onto their base: three greens of one green is one colour.
       const color = stamped === undefined ? undefined : baseOf(stamped);

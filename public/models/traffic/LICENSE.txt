@@ -1,0 +1,7 @@
+Vehicles and animals in this directory, rebuilt by scripts/build-kit.ts.
+Geometry, colours and animation clips are unchanged except where the script
+says: wheels rebuilt, materials merged into colour slots, normals creased.
+
+Kenney (https://kenney.nl) — Car Kit, Watercraft Kit. License: CC0 1.0 Universal.
+Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
+Public Transport. License: CC0 1.0 Universal.
