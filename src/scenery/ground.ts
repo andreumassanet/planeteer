@@ -56,6 +56,24 @@ export interface GroundStyle {
    * the ground it runs through.
    */
   road: number;
+  /**
+   * The pavement: a strip `SIDEWALK` wide along each side of a town's street,
+   * and the stone its retaining walls and steps are built of (2026-09-17).
+   */
+  walk: number;
+  /**
+   * What a yard is, the ground of a cell no street crosses: `land`, the ground
+   * the town stands in (a lawn in a green country, snow on a glacier); `earth`,
+   * that ground trodden (`trodden`); or `paved`, the pavement's own stone. The
+   * embankment round the town is the land's in every case.
+   */
+  yard: 'land' | 'earth' | 'paved';
+  /**
+   * Whether the carriageways carry a painted centre line: a dashed white line
+   * down every street at least `MARKED_STREET` wide, and down the ribbon between
+   * towns (`roads.ts`). An unpaved region's roads are not marked.
+   */
+  marked: boolean;
   /** The one piece of ground that is definitely made: in front of the civic building. */
   plaza: number;
   /**
@@ -357,6 +375,46 @@ export const KERB_DROP = 0.8;
 export const EDGE_RUN = 9;
 
 /**
+ * How wide a town's pavement is along each side of a street, in world units, at
+ * most: a narrow street keeps 0.7 of its half for the carriageway, so a
+ * Mediterranean lane's 3.75 is 1.1 of pavement and 2.6 of road.
+ *
+ * **The town's floor is a street plan since 2026-09-17**, on the user's word
+ * about the base everything stood on — *ahora está cutrísimo lo de la
+ * plataforma y carreteras* — and the CC0 road packs they pointed at, Kenney's
+ * City Kit (Roads) and Quaternius's Modular Streets. Those are tiles, and a
+ * town here is not a tile grid it can be laid from: its streets are bands of
+ * cells a terrace cuts and a flight climbs, and its roads are curves. So what
+ * the packs lend is their section, drawn into the floor the town already
+ * lays: an asphalt carriageway with a dashed centre line, a pale pavement
+ * either side, and the yard behind it (`GroundStyle.yard`). The surface a foot
+ * stands on is unchanged — the pavement is flush, a colour and not a kerb —
+ * so `floor.ts` and everything that reads it are untouched.
+ *
+ * 2.2 is a third of the avatar: one person, and a lamp standing in it.
+ */
+export const SIDEWALK = 2.2;
+
+/** Half the width of a painted line, in world units: 0.6 across, about 2 pixels at 60 units. */
+export const LINE_HALF = 0.3;
+
+/**
+ * The period of a town street's dashed line: a dash this long, then a gap this
+ * long. Taken from the town's own plane coordinates, so a street's dashes run
+ * on across the cells it crosses.
+ */
+export const DASH = 4;
+
+/** How wide a street must be before it is marked: two placed cars, 4.44 each. */
+export const MARKED_STREET = 9;
+
+/** How deep a zebra crossing is, in from the mouth of a town's middle crossing, in world units. */
+export const ZEBRA = 3;
+
+/** How wide one stripe of a zebra is, and one gap, in world units. */
+export const ZEBRA_STRIPE = 0.9;
+
+/**
  * Cell and corner keys for a settlement's own lattice.
  *
  * One definition, in the file that owns the floor's vertical section, because
@@ -395,32 +453,31 @@ const P = PALETTE;
  * through is nearly white.
  */
 export const GROUND_STYLES: Record<RegionId, GroundStyle> = {
-  // One pale road through, and the town stands on the same stone.
-  nordic: { hardness: 0.35, road: P.bone, plaza: P.cream, lanes: 3, street: 10.5 },
-  // Stone setts to the doorstep, and the square is the palest thing in the town.
-  'atlantic-europe': { hardness: 0.6, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
-  'east-europe': { hardness: 0.5, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
-  // Pale stone and dust, and the square is lime-washed like the walls around it.
-  mediterranean: { hardness: 0.6, road: P.cream, plaza: P.white, lanes: 2, street: 7.5 },
+  // Asphalt and a pale pavement, and the houses stand in their own gardens.
+  nordic: { hardness: 0.35, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 10.5 },
+  'atlantic-europe': { hardness: 0.6, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
+  'east-europe': { hardness: 0.5, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
+  // Pale stone to the doorstep, and the square is lime-washed like the walls around it.
+  mediterranean: { hardness: 0.6, road: P.slate, walk: P.cream, yard: 'paved', marked: true, plaza: P.white, lanes: 2, street: 7.5 },
   // Beaten earth between the walls: a medina is not paved, it is swept — and its
   // lanes are the narrowest and the closest together in the table, which is the
   // whole of what a medina is from above. They read *dark* because an alley
   // between two-storey walls is in shadow most of the day.
-  maghreb: { hardness: 0.4, road: P.brown, plaza: P.cream, lanes: 2, street: 6 },
-  'sub-saharan': { hardness: 0.3, road: P.sand, plaza: P.sand, lanes: 3, street: 8.25 },
-  'middle-east': { hardness: 0.45, road: P.brown, plaza: P.cream, lanes: 2, street: 6.9 },
-  'south-asia': { hardness: 0.45, road: P.bone, plaza: P.cream, lanes: 3, street: 8.25 },
-  'east-asia': { hardness: 0.55, road: P.bone, plaza: P.cream, lanes: 3, street: 9.75 },
+  maghreb: { hardness: 0.4, road: P.brown, walk: P.sand, yard: 'earth', marked: false, plaza: P.cream, lanes: 2, street: 6 },
+  'sub-saharan': { hardness: 0.3, road: P.brown, walk: P.sand, yard: 'earth', marked: false, plaza: P.sand, lanes: 3, street: 8.25 },
+  'middle-east': { hardness: 0.45, road: P.brown, walk: P.sand, yard: 'paved', marked: false, plaza: P.cream, lanes: 2, street: 6.9 },
+  'south-asia': { hardness: 0.45, road: P.slate, walk: P.bone, yard: 'earth', marked: true, plaza: P.cream, lanes: 3, street: 8.25 },
+  'east-asia': { hardness: 0.55, road: P.slate, walk: P.bone, yard: 'paved', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
   // Wet ground under stilts. What hard standing there is, is a plank and a path.
-  'southeast-asia': { hardness: 0.3, road: P.sand, plaza: P.sand, lanes: 3, street: 8.25 },
+  'southeast-asia': { hardness: 0.3, road: P.brown, walk: P.sand, yard: 'land', marked: false, plaza: P.sand, lanes: 3, street: 8.25 },
   // Roads between lots, which is what a suburb is: the widest road on the
-  // planet, on the widest pitch in the kit.
-  'north-america': { hardness: 0.45, road: P.bone, plaza: P.cream, lanes: 4, street: 15 },
-  'latin-america': { hardness: 0.5, road: P.cream, plaza: P.white, lanes: 3, street: 9.75 },
-  oceania: { hardness: 0.45, road: P.bone, plaza: P.cream, lanes: 4, street: 14.25 },
+  // planet, on the widest pitch in the kit, and a lawn in front of every house.
+  'north-america': { hardness: 0.45, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 4, street: 15 },
+  'latin-america': { hardness: 0.5, road: P.slate, walk: P.cream, yard: 'paved', marked: true, plaza: P.white, lanes: 3, street: 9.75 },
+  oceania: { hardness: 0.45, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 4, street: 14.25 },
   // Nothing grows, so there is no lawn to lose: the ground is already bare rock,
   // and it is the one place pale enough for a dark road to read as a road.
-  polar: { hardness: 0.45, road: P.steel, plaza: P.white, lanes: 4, street: 12 },
+  polar: { hardness: 0.45, road: P.steel, walk: P.bone, yard: 'land', marked: false, plaza: P.white, lanes: 4, street: 12 },
 };
 
 const DEFAULT_GROUND: GroundStyle = GROUND_STYLES['atlantic-europe'];

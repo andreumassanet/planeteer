@@ -1,5 +1,7 @@
-import { STOREY } from '../contract.ts';
+import { STOREY, rolePaint, sceneryModel } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
+import type { Paint } from '../../models.ts';
+import { PALETTE } from '../../theme.ts';
 
 /**
  * Street lamp.
@@ -63,15 +65,38 @@ import type { ScenicPart } from '../contract.ts';
 const LOW = STOREY * 1.25;
 const HIGH = STOREY * 1.47;
 
+/**
+ * **A town built from the City Kits gets the kit's own lamps** (2026-09-17):
+ * Kenney's curved and square standards from City Kit (Roads), 92 and 60
+ * triangles, their columns in the region's trim and their bulbs lit. A
+ * region with no `assets` keeps the lantern below, which suits a medina and a
+ * stilt village better than a highway light. The arm reaches `ARM` from the
+ * column over the street — `settlements.ts` turns each lamp to face its street
+ * (`Ground.lampYaws`) — so the footprint is the arm's and not the column's.
+ * Quaternius's Victorian standards were the prettier and are 1,028 and 2,486
+ * triangles, a town's thirty lamps as heavy as its buildings.
+ */
+const KIT_LAMPS = ['lamp-curved', 'lamp-square'];
+const ARM = 1.9;
+
 export const streetLamp: ScenicPart = {
   id: 'street-lamp',
   name: 'Street lamp',
   kind: 'scatter',
-  footprint: 0.9,
-  note: 'A column and a lantern. The only part built for the dark, and placed on the street, not on a plot.',
+  footprint: ARM,
+  note: 'A column and a lantern, or a City Kit standard in a kit-built region. Built for the dark, and placed on the street, not on a plot.',
 
   build(ctx, rng, style) {
     const { THREE, box, lit, taper } = ctx;
+    if (style.assets !== undefined) {
+      const id = rng.pick(KIT_LAMPS);
+      const post = rng.pick(style.trim);
+      const model = sceneryModel(id);
+      const column = rolePaint(model, [[/./, post]]);
+      const bulb = (slot: string) => slot.endsWith('#ffffff');
+      const paint: Paint = (slot, original) => (bulb(slot) ? PALETTE.white : column(slot, original));
+      return ctx.fitted(id, { height: rng.range(LOW, HIGH), radius: ARM - 0.02, windows: bulb }, paint);
+    }
     const group = new THREE.Group();
 
     // Out of `trim` and not `stone`: a lamp column is a made, painted thing

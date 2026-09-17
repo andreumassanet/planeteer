@@ -7,9 +7,10 @@
  * Sources, all CC0 1.0, downloaded to ../.cache/assets/ (see the LICENSE.txt
  * this writes beside the files, which names each one):
  *
- * - Kenney, "Car Kit", "Watercraft Kit", "City Kit (Suburban)" and "City Kit
- *   (Commercial)" (https://kenney.nl/assets), GLB, coloured through one small
- *   palette texture a kit; "Nature Kit", GLB in flat material colours.
+ * - Kenney, "Car Kit", "Watercraft Kit", "City Kit (Suburban)", "City Kit
+ *   (Commercial)" and "City Kit (Roads)" (https://kenney.nl/assets), GLB,
+ *   coloured through one small palette texture a kit; "Nature Kit", GLB in flat
+ *   material colours.
  * - Quaternius, "Ultimate Animated Animals" (glTF), "Farm Animal Pack" (FBX),
  *   "Public Transport" (FBX/OBJ) (https://quaternius.com), flat colour a
  *   material.
@@ -350,6 +351,7 @@ const NATURE: StaticEntry[] = [
 
 const KENNEY_SUBURBAN = 'kenney/city-kit-suburban/Models/GLB format/';
 const KENNEY_COMMERCIAL = 'kenney/city-kit-commercial/Models/GLB format/';
+const KENNEY_ROADS = 'kenney/city-kit-roads/Models/GLB format/';
 /** Both City Kits' `colormap.png`: 16 swatches by 4, each 32 by 128 pixels. */
 const CITY_GRID: [number, number] = [16, 4];
 
@@ -363,6 +365,10 @@ const BUILDINGS: StaticEntry[] = [
   ...['a', 'c', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 'u'].map((t) => ({ id: `suburban-${t}`, source: `${KENNEY_SUBURBAN}building-type-${t}.glb`, grid: CITY_GRID })),
   ...['a', 'b', 'c', 'd', 'e', 'f', 'h'].map((t) => ({ id: `commercial-${t}`, source: `${KENNEY_COMMERCIAL}building-${t}.glb`, grid: CITY_GRID })),
   ...['a', 'b', 'c', 'd', 'e'].map((t) => ({ id: `skyscraper-${t}`, source: `${KENNEY_COMMERCIAL}building-skyscraper-${t}.glb`, grid: CITY_GRID })),
+  // Street furniture, from Kenney's City Kit (Roads).
+  { id: 'lamp-curved', source: `${KENNEY_ROADS}light-curved.glb` },
+  { id: 'lamp-square', source: `${KENNEY_ROADS}light-square.glb` },
+  { id: 'traffic-light', source: `${KENNEY_ROADS}traffic-light.glb` },
   // CreativeTrio's wooden church (Poly Pizza, CC0) was the steeple church's
   // candidate and is left out: its colours are a JPEG palette embedded in the
   // GLB, and the bake reads PNG only.
@@ -652,7 +658,7 @@ Geometry, colours and animation clips are unchanged except where the script
 says: wheels rebuilt, materials merged into colour slots, normals creased.
 
 Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit, City Kit (Suburban),
-City Kit (Commercial). License: CC0 1.0 Universal.
+City Kit (Commercial), City Kit (Roads). License: CC0 1.0 Universal.
 Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
 Public Transport. License: CC0 1.0 Universal.
 `;

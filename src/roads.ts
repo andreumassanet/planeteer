@@ -20,7 +20,8 @@ import { MAX_SLOPE, gradeAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
-import { GROUND_LIFT, groundStyleFor, trodden } from './scenery/ground.ts';
+import { GROUND_LIFT, LINE_HALF, groundStyleFor, trodden } from './scenery/ground.ts';
+import { PALETTE } from './theme.ts';
 import { assignGates, gateGlow, gateLevel, gatesOf, offsetDirection, streetBand, townFrame, townGrid } from './scenery/grid.ts';
 import type { Gate, TownGrid } from './scenery/grid.ts';
 
@@ -1667,6 +1668,17 @@ export function layersOf(roads: readonly Road[], places: readonly Place[]): Uint
 export const RIBBON_LIFT = 3.0;
 
 /**
+ * Where the centre line's dash lies along a piece of ribbon, as shares of it:
+ * one dash a piece, over its far third or so, which at the near band's
+ * 18-unit span is a dash of 6.3 and a gap of 11.7 (2026-09-17). Past the
+ * diagonal of the crown quad at a half, so the dash lies in one triangle.
+ * A piece shorter than `DASH_PIECE` — the stubs at a ramp's end — gets none.
+ */
+const DASH_FROM = 0.6;
+const DASH_TO = 0.95;
+const DASH_PIECE = 6;
+
+/**
  * Longest piece of road drawn as one quad, by how far away it is.
  *
  * The chord problem, priced by distance rather than fixed. A segment takes its
@@ -2456,6 +2468,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const verge = new THREE.Color();
   const ground = new THREE.Color();
   const ink = new THREE.Color(0x2a1410);
+  const line = new THREE.Color(PALETTE.white);
 
   /**
    * Which roads are worth drawing from where the eye is now.
@@ -2522,6 +2535,33 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       push(p0, c0); push(p2, c1); push(p3, c1);
     };
 
+    /**
+     * The centre line's dash on one piece of a marked road: a strip
+     * `LINE_HALF` either side of the middle over `DASH_ON` of the piece's far
+     * end, in the plane of the crown triangle it lies on and half a depth layer
+     * in front of it (`LAYER_DEPTH`), so it costs two triangles and no split of
+     * the crown. The crown quad is drawn as `(n1, f1, f2)` and `(n1, f2, n2)`,
+     * and the strip keeps to the first: across it runs from 0.5 - w to 0.5 + w
+     * of the crown and along it from `DASH_FROM` to `DASH_TO`, and every point
+     * with a share across under its share along is in that triangle, where the
+     * surface is `n1 + along (f1 - n1) + across (f2 - f1)`.
+     */
+    const dashCorners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const dash = (n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, length: number, half: number): void => {
+      if (length < DASH_PIECE) return;
+      const w = Math.min(0.1, LINE_HALF / (2 * half));
+      const at = (along: number, across: number, into: THREE.Vector3) =>
+        into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across);
+      const p0 = at(DASH_FROM, 0.5 - w, dashCorners[0]!);
+      const p1 = at(DASH_TO, 0.5 - w, dashCorners[1]!);
+      const p2 = at(DASH_TO, 0.5 + w, dashCorners[2]!);
+      const p3 = at(DASH_FROM, 0.5 + w, dashCorners[3]!);
+      const held = layer;
+      layer -= 0.5;
+      quad(p0, p1, p2, p3, line, line);
+      layer = held;
+    };
+
     // One cross-section is four points; the piece between two of them is three
     // quads. `near` is rolled into `far` each step, so every point is placed on
     // the ground exactly once however many pieces share it.
@@ -2573,7 +2613,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
        */
       readMiddle(index, point);
       groundColorAt(world, scratch.copy(point).multiplyScalar(PLANET_RADIUS), ground);
-      crown.setHex(groundStyleFor(regionOf(road.a).id).road);
+      const surface = groundStyleFor(regionOf(road.a).id);
+      crown.setHex(surface.road);
+      const marked = surface.marked && band === 0;
       if (road.cls === 2) crown.lerp(ink, 0.12);
       trodden(ground, verge);
       /**
@@ -2615,6 +2657,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         quad(near[0]!, far[0]!, far[1]!, near[1]!, verge, kerb);
         quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
         quad(near[2]!, far[2]!, far[3]!, near[3]!, kerb, verge);
+        if (marked) dash(near[1]!, far[1]!, far[2]!, stations[k]! - stations[k - 1]!, half);
         for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
       }
     }

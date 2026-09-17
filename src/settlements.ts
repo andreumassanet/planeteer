@@ -1,15 +1,22 @@
 import * as THREE from 'three';
 import type { FolkAnchor } from './folk.ts';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, groundRadius } from './globe.ts';
-import { createToonRamp } from './theme.ts';
+import { PLANET_RADIUS, groundColorAt, groundRadius } from './globe.ts';
+import { PALETTE, createToonRamp } from './theme.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import {
+  DASH,
   GROUND_LIFT,
   KERB_DROP,
+  LINE_HALF,
+  MARKED_STREET,
+  SIDEWALK,
+  ZEBRA,
+  ZEBRA_STRIPE,
   cellKey,
   cellTone,
   groundStyleFor,
+  trodden,
 } from './scenery/ground.ts';
 import {
   apronCorner,
@@ -1333,6 +1340,25 @@ export function createSettlements(
    * and scaled, centred where the box's own centre lands, and as tall as the
    * variant from the terrace it stands on.
    */
+  /** Adds the cells whose centres a solid's footprint covers, and the one it stands in. */
+  function pavedUnder(solid: Solid, grid: TownGrid, into: Set<number>): void {
+    const reach = Math.hypot(solid.hx, solid.hz);
+    const c0 = cellIndex(grid, solid.x - reach);
+    const c1 = cellIndex(grid, solid.x + reach);
+    const r0 = cellIndex(grid, solid.z - reach);
+    const r1 = cellIndex(grid, solid.z + reach);
+    into.add(cellKey(cellIndex(grid, solid.x), cellIndex(grid, solid.z)));
+    for (let col = c0; col <= c1; col++) {
+      for (let row = r0; row <= r1; row++) {
+        const dx = cellCentre(grid, col) - solid.x;
+        const dz = cellCentre(grid, row) - solid.z;
+        const a = dx * solid.cos + dz * solid.sin;
+        const b = -dx * solid.sin + dz * solid.cos;
+        if (Math.abs(a) <= solid.hx && Math.abs(b) <= solid.hz) into.add(cellKey(col, row));
+      }
+    }
+  }
+
   function solidOf(flat: FlatVariant, x: number, z: number, yaw: number, scale: number, level: number): Solid {
     const box = flat.box;
     const cx = (box.minX + box.maxX) * 0.5 * scale;
@@ -1511,6 +1537,11 @@ export function createSettlements(
      */
     lamps: number[];
     /**
+     * Each lamp's yaw, one a lamp: its arm (a kit standard's reaches over
+     * local -z) turned to the street it stands at.
+     */
+    lampYaws: number[];
+    /**
      * Where a person stands, as triples, and where a vehicle is parked, as
      * quadruples with a yaw on the end.
      *
@@ -1590,6 +1621,10 @@ export function createSettlements(
   /** The paving of one cell: the region's floor, times the cell's own tone. */
   const cellFloor = new THREE.Color();
   const roadColor = new THREE.Color();
+  const walkColor = new THREE.Color();
+  const lineColor = new THREE.Color();
+  const landColor = new THREE.Color();
+  const yardColor = new THREE.Color();
   const plazaColor = new THREE.Color();
   /**
    * The plinth's side, top and bottom.
@@ -1906,9 +1941,10 @@ export function createSettlements(
     band: number,
     urbanity: number,
     litPlots: readonly LitPlot[],
+    pavedCells: ReadonlySet<number>,
   ): Ground {
     const out: Ground = {
-      position: [], normal: [], color: [], glow: [], lamps: [], folk: [], kerbs: [], paved: 0,
+      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], folk: [], kerbs: [], paved: 0,
       terraces: new Map(),
       field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
     };
@@ -1942,11 +1978,25 @@ export function createSettlements(
      * the streets and the slope do not, which is all that is left to tell them
      * apart before a building stands on one.
      */
-    floor.setHex(style.road);
-    kerbTop.copy(floor).lerp(KERB_INK, 0.16);
-    kerbFoot.copy(floor).lerp(KERB_INK, 0.42);
     roadColor.setHex(style.road);
+    walkColor.setHex(style.walk);
+    lineColor.setHex(PALETTE.white);
     plazaColor.setHex(style.plaza);
+    // The land the town stands in, read once at its middle: a yard of lawn is
+    // that ground, an earth yard is it trodden, a paved one is the pavement.
+    directionAt(0, 0, groundDir);
+    groundColorAt(world, groundDir.multiplyScalar(PLANET_RADIUS), landColor);
+    if (style.yard === 'paved') yardColor.copy(walkColor);
+    else if (style.yard === 'earth') trodden(landColor, yardColor);
+    else yardColor.copy(landColor);
+    // The embankment round the town is the land's, and the retaining walls
+    // are the pavement's stone.
+    floor.copy(landColor);
+    kerbTop.copy(walkColor).lerp(KERB_INK, 0.16);
+    kerbFoot.copy(walkColor).lerp(KERB_INK, 0.42);
+    const marked = style.marked;
+    /** A street's pavement, for a street `half` wide either side of its line: never more than 0.3 of it. */
+    const walkOf = (half: number): number => Math.min(SIDEWALK, half * 0.3);
 
     const levels = new Map<number, number>();
     for (let col = 0; col < cells; col++) {
@@ -2028,8 +2078,6 @@ export function createSettlements(
       return target;
     };
 
-    // The band as a share of the cell, which is the unit a cell is cut in.
-    const width = band / pitch;
 
     /**
      * The square, which is the crossing of the two main streets when the town
@@ -2054,7 +2102,7 @@ export function createSettlements(
     /** Where the street along a lattice line sits, as an offset from that line to its kerb, or null. */
     const kerbOff = (line: number, sign: number): number | null => {
       if (line <= 0 || line >= cells) return null;
-      if (grid.high[line - 1] === 1) return sign * band;
+      if (grid.high[line - 1] === 1) return sign * (band - Math.min(SIDEWALK, band * 0.3) * 0.5);
       if (grid.avenue[line - 1] === 1) return 0.8;
       if (grid.avenue[line] === 1) return -0.8;
       return null;
@@ -2067,7 +2115,12 @@ export function createSettlements(
         const oz = kerbOff(j, rng.chance(0.5) ? 1 : -1);
         if (ox === null || oz === null) continue;
         if (!rng.chance(chance)) continue;
-        if (spotAt(cornerOffset(grid, i) + ox, cornerOffset(grid, j) + oz, out.lamps, undefined, CLEAR_LAMP)) lamps++;
+        if (spotAt(cornerOffset(grid, i) + ox, cornerOffset(grid, j) + oz, out.lamps, undefined, CLEAR_LAMP)) {
+          lamps++;
+          // The arm over the street along x, towards its line: local -z to
+          // world (-sign ox, 0).
+          out.lampYaws.push(Math.atan2(Math.sign(ox), 0));
+        }
       }
     }
 
@@ -2135,36 +2188,119 @@ export function createSettlements(
       pointAt(d, top, td);
       litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
 
-      // The paving takes the land's own mosaic, one tone a cell drawn from the
+      // The yard takes the land's own mosaic, one tone a cell drawn from the
       // same range the land's shader uses, so the one made surface in the view
       // is not the one with no grain. `cellTone`'s note has the rest.
-      cellFloor.copy(floor).multiplyScalar(cellTone(slot.seed, col, row));
-      const plaza = key === plazaKey || blocked(cellCentre(grid, col), cellCentre(grid, row));
-      const avenue = isAvenue(grid, col, row);
+      cellFloor.copy(pavedCells.has(key) ? walkColor : yardColor).multiplyScalar(cellTone(slot.seed, col, row));
+      const plaza = blocked(cellCentre(grid, col), cellCentre(grid, row));
+      /**
+       * The middle of a town with a middle cell, where its two avenues cross:
+       * a crossing, unmarked, with a zebra across each of its four mouths
+       * (`ZEBRA`). It was a pale square of `plaza` until the streets had a
+       * section, and a square of stone in the middle of two carriageways
+       * reads as a hole in them.
+       */
+      const crossing = !plaza && key === plazaKey;
+      const x0 = cellCentre(grid, col) - pitch * 0.5;
+      const z0 = cellCentre(grid, row) - pitch * 0.5;
 
-      const cuts = (low: boolean, high: boolean): number[] => {
-        const list = [0];
-        if (low) list.push(width);
-        if (high) list.push(1 - width);
-        list.push(1);
+      /**
+       * A street through this cell along one axis, as the cell cuts it: where
+       * its centre line is (as a share of the cell across the street), how far
+       * its kerbs stand from that line, and the cuts it asks for.
+       */
+      const streetsOn = (index: number): { centre: number; half: number }[] => {
+        const list: { centre: number; half: number }[] = [];
+        if (grid.avenue[index] === 1) list.push({ centre: 0.5, half: pitch * 0.5 });
+        else {
+          if (grid.low[index] === 1) list.push({ centre: 0, half: band });
+          if (grid.high[index] === 1) list.push({ centre: 1, half: band });
+        }
         return list;
       };
-      const us = cuts(grid.low[col] === 1, grid.high[col] === 1);
-      const vs = cuts(grid.low[row] === 1, grid.high[row] === 1);
+      // A street "on u" runs along z: its lateral axis is u.
+      const alongZ = plaza || crossing ? [] : streetsOn(col);
+      const alongX = plaza || crossing ? [] : streetsOn(row);
+      const cutsFor = (streets: { centre: number; half: number }[], lengthwise: boolean, origin: number): number[] => {
+        const list = new Set<number>([0, 1]);
+        for (const street of streets) {
+          const sign = street.centre === 0 ? 1 : street.centre === 1 ? -1 : 0;
+          const edges = sign === 0 ? [-1, 1] : [sign];
+          for (const e of edges) {
+            list.add(street.centre + (e * street.half) / pitch);
+            list.add(street.centre + (e * (street.half - walkOf(street.half))) / pitch);
+            if (marked && street.half * 2 >= MARKED_STREET) list.add(street.centre + (e * LINE_HALF) / pitch);
+          }
+        }
+        // Along a marked street the dashes cut its length.
+        if (lengthwise && marked) {
+          for (let k = Math.ceil(origin / DASH); k * DASH < origin + pitch; k++) list.add((k * DASH - origin) / pitch);
+        }
+        if (crossing) {
+          // The zebras: their depth in from each mouth, and their stripes across it.
+          const walk = walkOf(pitch * 0.5) / pitch;
+          list.add(walk).add(1 - walk).add(ZEBRA / pitch).add(1 - ZEBRA / pitch);
+          for (let t = walk + ZEBRA_STRIPE / pitch; t < 1 - walk - 1e-6; t += ZEBRA_STRIPE / pitch) list.add(t);
+        }
+        return [...list].filter((t) => t >= 0 && t <= 1).sort((m, n) => m - n);
+      };
+      const dashedZ = alongZ.some((street) => street.half * 2 >= MARKED_STREET);
+      const dashedX = alongX.some((street) => street.half * 2 >= MARKED_STREET);
+      const us = cutsFor(alongZ, dashedX, x0);
+      const vs = cutsFor(alongX, dashedZ, z0);
+
+      /** Where a point of the cell falls across the streets on one axis: 'yard', 'walk', 'road' or 'line'. */
+      const across = (streets: { centre: number; half: number }[], t: number): 'yard' | 'walk' | 'road' | 'line' => {
+        let best: 'yard' | 'walk' | 'road' | 'line' = 'yard';
+        for (const street of streets) {
+          const lateral = Math.abs(t - street.centre) * pitch;
+          if (lateral > street.half) continue;
+          const role = lateral > street.half - walkOf(street.half) ? 'walk' : marked && street.half * 2 >= MARKED_STREET && lateral < LINE_HALF ? 'line' : 'road';
+          if (best === 'yard' || role === 'road' || role === 'line') best = role;
+        }
+        return best;
+      };
+      const dashOn = (coordinate: number): boolean => Math.floor(coordinate / DASH + 1e-6) % 2 === 0;
 
       for (let iu = 0; iu < us.length - 1; iu++) {
         const u0 = us[iu]!;
         const u1 = us[iu + 1]!;
-        const roadU = (iu === 0 && grid.low[col] === 1) || (iu === us.length - 2 && grid.high[col] === 1);
+        const uc = (u0 + u1) * 0.5;
+        const roleU = across(alongZ, uc);
         for (let iv = 0; iv < vs.length - 1; iv++) {
           const v0 = vs[iv]!;
           const v1 = vs[iv + 1]!;
-          const roadV = (iv === 0 && grid.low[row] === 1) || (iv === vs.length - 2 && grid.high[row] === 1);
+          const vc = (v0 + v1) * 0.5;
+          const roleV = across(alongX, vc);
           inside(ta, tb, tc, td, u0, v0, q0);
           inside(ta, tb, tc, td, u1, v0, q1);
           inside(ta, tb, tc, td, u1, v1, q2);
           inside(ta, tb, tc, td, u0, v1, q3);
-          const tint = plaza ? plazaColor : avenue || roadU || roadV ? roadColor : cellFloor;
+          let tint: THREE.Color;
+          if (plaza) tint = plazaColor;
+          else if (crossing) {
+            const walk = walkOf(pitch * 0.5) / pitch;
+            const edgeU = uc < walk || uc > 1 - walk;
+            const edgeV = vc < walk || vc > 1 - walk;
+            const mouthU = uc < ZEBRA / pitch || uc > 1 - ZEBRA / pitch;
+            const mouthV = vc < ZEBRA / pitch || vc > 1 - ZEBRA / pitch;
+            const stripe = (t: number) => Math.floor((t - walk) / (ZEBRA_STRIPE / pitch)) % 2 === 0;
+            if (edgeU && edgeV) tint = walkColor;
+            else if (mouthV && !mouthU && !edgeU) tint = stripe(uc) ? lineColor : roadColor;
+            else if (mouthU && !mouthV && !edgeV) tint = stripe(vc) ? lineColor : roadColor;
+            else tint = roadColor;
+          }
+          else if (roleU === 'yard' && roleV === 'yard') tint = cellFloor;
+          else if (roleU === 'yard' || roleV === 'yard') {
+            // One street here: its own section, and its line dashed along it.
+            const role = roleU === 'yard' ? roleV : roleU;
+            const along = roleU === 'yard' ? x0 + uc * pitch : z0 + vc * pitch;
+            tint = role === 'walk' ? walkColor : role === 'line' && dashOn(along) ? lineColor : roadColor;
+          } else {
+            // Where two streets cross the pavement turns the corner and the
+            // carriageway is unmarked.
+            tint = roleU === 'walk' && roleV === 'walk' ? walkColor : roadColor;
+          }
           pushQuad(out, q0, q1, q2, q3, tint, tint, tint, tint);
         }
       }
@@ -2344,8 +2480,8 @@ export function createSettlements(
         const a = cornerAt(col, row);
         const c = cornerAt(col + 1, row + 1);
         litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
-        const tint = flight.cell === plazaKey || blocked(cellCentre(grid, col), cellCentre(grid, row))
-          ? plazaColor : roadColor;
+        // Steps are stone, the pavement's, whatever street they carry.
+        const tint = blocked(cellCentre(grid, col), cellCentre(grid, row)) ? plazaColor : walkColor;
         stepFace.copy(tint).lerp(KERB_INK, 0.3);
         const run = flightRun(flight);
         const rise = (flight.high - flight.low) / flight.steps;
@@ -2971,6 +3107,8 @@ export function createSettlements(
      * stands on puts a forecourt in the sea.
      */
     const built = new Set<number>();
+    /** The cells a block or a civic building covers, whose yard is paving whatever the region's yards are. */
+    const pavedCells = new Set<number>();
     /**
      * The buildings whose windows came out lit, so the floor can carry what
      * falls out of them. Collected here for the same reason `built` is: the
@@ -3066,7 +3204,10 @@ export function createSettlements(
       // same predicate that put this one on the floor above.
       if (standsOnFloor) {
         built.add(cellKey(entry.plot.col, entry.plot.row));
-        solids.push(solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level));
+        const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level);
+        solids.push(solid);
+        // A block and a civic building stand on paving, a house in its yard.
+        if (kind !== 'dwelling') pavedUnder(solid, grid, pavedCells);
       }
     }
 
@@ -3176,7 +3317,7 @@ export function createSettlements(
     // mesh and one draw call, and a paving sheet drawn separately would have
     // doubled that for every settlement resident. It also gets the town's own
     // frustum culling and its own bounding sphere for free.
-    const ground = buildGround(slot, grid, streetBand(grid, slot.ground.street), urbanityOf(slot.place.pop), litPlots);
+    const ground = buildGround(slot, grid, streetBand(grid, slot.ground.street), urbanityOf(slot.place.pop), litPlots, pavedCells);
     slot.paved = ground.paved;
     // The floor, in the frame it was laid in, so a foot can find it. See
     // `Slot.floor` and `madeHeightAt`.
@@ -3204,7 +3345,7 @@ export function createSettlements(
       const flat = variantOf(LAMP_PART, slot.style, rng.int(VARIANTS));
       if (flat === null) break;
       lampAt.set(ground.lamps[i]!, ground.lamps[i + 1]!, ground.lamps[i + 2]!);
-      quaternion.setFromAxisAngle(AXIS_Y, rng.range(0, Math.PI * 2));
+      quaternion.setFromAxisAngle(AXIS_Y, ground.lampYaws[i / 3] ?? 0);
       scaleVector.setScalar(rng.range(0.94, 1.06));
       transform.compose(lampAt, quaternion, scaleVector);
       standing.push({
