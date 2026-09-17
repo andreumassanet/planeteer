@@ -55,7 +55,7 @@ export const OUTFITS = [
 ] as const;
 export type OutfitId = (typeof OUTFITS)[number];
 
-export const CLIPS = ['Idle', 'Idle_Neutral', 'Walk', 'Run', 'Wave', 'Interact', 'Roll'] as const;
+export const CLIPS = ['Idle', 'Idle_Neutral', 'Walk', 'Run', 'Wave', 'Interact', 'Roll', 'Jump_Start', 'Jump', 'Jump_Land'] as const;
 export type ClipName = (typeof CLIPS)[number];
 
 /** Where the baked files live, relative to the site root. */
@@ -297,9 +297,10 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
     const raw = await inflate(await response.arrayBuffer());
     return loader.parseAsync(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer, '');
   };
-  const [clipFile, ...files] = await Promise.all([load('clips'), ...outfits.map((id) => load(id))]);
+  // `jump` is the library's clips retargeted onto this rig (`retarget-clips.ts`).
+  const [clipFile, jumpFile, ...files] = await Promise.all([load('clips'), load('jump'), ...outfits.map((id) => load(id))]);
   const clips = new Map<ClipName, THREE.AnimationClip>();
-  for (const clip of clipFile!.animations) {
+  for (const clip of [...clipFile!.animations, ...jumpFile!.animations]) {
     if ((CLIPS as readonly string[]).includes(clip.name)) clips.set(clip.name as ClipName, clip);
   }
   const templates = new Map<OutfitId, Template>();

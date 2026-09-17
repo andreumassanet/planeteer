@@ -275,9 +275,9 @@ export async function prepareAvatar(): Promise<void> {
 }
 
 /**
- * How far into its run cycle the held jump pose is, as a share of the clip.
- * A quarter in, one knee is up and the other leg reaching back, which is a leap
- * rather than a stride.
+ * How far into its run cycle the held jump pose is, as a share of the clip, if
+ * the cast came without its retarget: a quarter in, one knee is up and the
+ * other leg reaching back, which is a leap rather than a stride.
  */
 const AIR_PHASE = 0.3;
 
@@ -378,18 +378,23 @@ export function buildAvatar(): Avatar {
   const idle = clip('Idle_Neutral');
   const walk = clip('Walk');
   const run = clip('Run');
-  // The airborne pose is the run held still, on an action of its own so it can
-  // be mixed in while the run itself keeps its phase.
-  const air = person.mixer.clipAction(run.getClip().clone());
+  // Airborne is the Universal Animation Library's jump loop, retargeted onto the
+  // cast (`scripts/retarget-clips.ts`), played on the clock. Without it the
+  // pose is the run held still, on an action of its own so it can be mixed in
+  // while the run itself keeps its phase.
+  const jump = person.actions.get('Jump');
+  const air = jump ?? person.mixer.clipAction(run.getClip().clone());
   for (const action of [idle, walk, run, air]) {
     action.play();
     action.setEffectiveWeight(0);
   }
-  // Walk, run and air are driven by distance and by hand, never by the clock.
+  // Walk and run are driven by distance and by hand, never by the clock.
   walk.timeScale = 0;
   run.timeScale = 0;
-  air.timeScale = 0;
-  air.time = AIR_PHASE * air.getClip().duration;
+  if (jump === undefined) {
+    air.timeScale = 0;
+    air.time = AIR_PHASE * air.getClip().duration;
+  }
 
   const weights = { idle: 1, walk: 0, run: 0, air: 0 };
   /** Stride cycles completed, 0..1. */
@@ -422,6 +427,8 @@ export function buildAvatar(): Avatar {
     const length = mix(WALK_STRIDE, RUN_STRIDE, running);
     phase = (phase + (speed * dt) / length) % 1;
     const up = airborne ? 1 : 0;
+    // A jump starts its loop from the take-off, not wherever the clock left it.
+    if (airborne && weights.air < 0.02 && air.timeScale !== 0) air.time = 0;
     blendTo(dt, {
       idle: (1 - moving) * (1 - up),
       walk: moving * (1 - running) * (1 - up),

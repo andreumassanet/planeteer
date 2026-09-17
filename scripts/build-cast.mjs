@@ -177,11 +177,24 @@ for (const [id, file] of Object.entries(OUTFITS)) {
   total += bytes;
   console.log(`clips.bin          ${CLIPS.length} clips  ${(bytes / 1024).toFixed(0).padStart(5)} KB`);
 }
+{
+  // The clips the pack does not have, from the Universal Animation Library.
+  const { retargetClips, RETARGETED } = await import('./retarget-clips.ts');
+  const glb = await retargetClips(join(SOURCE, CLIP_SOURCE));
+  const packed = gzipSync(glb, { level: 9 });
+  writeFileSync(join(OUT, 'jump.bin'), packed);
+  total += packed.length;
+  console.log(`jump.bin           ${RETARGETED.length} clips  ${(packed.length / 1024).toFixed(0).padStart(5)} KB`);
+}
 writeFileSync(
   join(OUT, 'LICENSE.txt'),
   'Characters and animations by Quaternius (https://quaternius.com), from the\n' +
     'Ultimate Modular Men Pack and Ultimate Modular Women Pack.\n' +
     'License: CC0 1.0 Universal (public domain dedication).\n' +
-    'Rebuilt as gzipped GLB (.bin) by scripts/build-cast.mjs; geometry and clips unchanged.\n',
+    'Rebuilt as gzipped GLB (.bin) by scripts/build-cast.mjs; geometry and clips unchanged.\n' +
+    '\n' +
+    'jump.bin: animations by Quaternius from the Universal Animation Library,\n' +
+    'retargeted onto the characters above by scripts/retarget-clips.ts.\n' +
+    'License: CC0 1.0 Universal (public domain dedication).\n',
 );
 console.log(`total ${(total / 1024).toFixed(0)} KB gzipped`);
