@@ -612,6 +612,9 @@ async function start(): Promise<void> {
     // The pruned network, the same list the streamer draws: a tree in the
     // carriageway was the last of the three keepouts nobody had asked for.
     roads: baked.roads,
+    // The drawn land and the towns' lawns, which the grass under your feet stands on.
+    land,
+    lawns: settlements,
   });
   scene.add(vegetation.group);
   if (vegetation.broken.length > 0) console.warn('scenery parts that broke the contract:', vegetation.broken);

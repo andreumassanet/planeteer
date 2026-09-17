@@ -682,6 +682,20 @@ for (const biome of Object.values(BIOMES)) {
     if (!known.has(plant)) fail(`biome '${biome.id}' names '${plant}' and no such part exists`);
   }
 }
+// The sward is not a part and no table names it, so its models are checked
+// against the kit by name: a clump the bake dropped would throw on the first
+// tile a player walked into, in a browser, where no check runs.
+{
+  const { SWARD_MODELS } = await import('../src/sward-kit.ts');
+  const { sceneryModel } = await import('../src/scenery/contract.ts');
+  for (const id of SWARD_MODELS) {
+    try {
+      sceneryModel(id);
+    } catch {
+      fail(`the sward draws '${id}' and the baked kit has no such model`);
+    }
+  }
+}
 for (const plant of Object.keys(NATIVE_TO)) {
   if (!known.has(plant)) fail(`NATIVE_TO names '${plant}' and no such part exists`);
 }

@@ -77,6 +77,13 @@ export interface Biome {
    */
   cover: number;
   /**
+   * How thick the grass under your feet is, 0 to 1: the share of the sward's
+   * sites that grow a clump (`vegetation.ts`). A second number and not `cover`,
+   * because they are two questions — the taiga is 0.72 of trees on a thin floor
+   * of moss, and a grassland is 0.22 of trees in grass to the knee.
+   */
+  sward: number;
+  /**
    * The scenic parts that belong here, most likely first. Ids from
    * `src/scenery/parts/`; an id that does not exist is skipped, so this table
    * may name a plant before anyone has built it.
@@ -105,16 +112,16 @@ export interface Biome {
  * adopted to solve.
  */
 export const BIOMES: Record<BiomeId, Biome> = {
-  ice: { id: 'ice', color: PALETTE.white, cover: 0, plants: [] },
-  tundra: { id: 'tundra', color: PALETTE.bone, cover: 0.12, plants: ['shrub', 'boulder', 'grass-tuft'] },
-  boreal: { id: 'boreal', color: PALETTE.darkOlive, cover: 0.72, plants: ['conifer-tree', 'shrub', 'broadleaf-tree', 'boulder'] },
-  temperate: { id: 'temperate', color: PALETTE.green, cover: 0.5, plants: ['broadleaf-tree', 'conifer-tree', 'shrub', 'grass-tuft'] },
-  grassland: { id: 'grassland', color: PALETTE.olive, cover: 0.22, plants: ['grass-tuft', 'shrub', 'broadleaf-tree'] },
-  steppe: { id: 'steppe', color: PALETTE.tan, cover: 0.14, plants: ['grass-tuft', 'shrub', 'boulder'] },
-  savanna: { id: 'savanna', color: PALETTE.gold, cover: 0.2, plants: ['acacia-tree', 'grass-tuft', 'shrub', 'broadleaf-tree'] },
-  desert: { id: 'desert', color: PALETTE.sand, cover: 0.03, plants: ['boulder', 'palm-tree', 'cactus'] },
-  tropical: { id: 'tropical', color: PALETTE.green, cover: 0.9, plants: ['palm-tree', 'broadleaf-tree', 'shrub'] },
-  rock: { id: 'rock', color: PALETTE.slate, cover: 0.05, plants: ['boulder', 'conifer-tree'] },
+  ice: { id: 'ice', color: PALETTE.white, cover: 0, sward: 0, plants: [] },
+  tundra: { id: 'tundra', color: PALETTE.bone, cover: 0.12, sward: 0.35, plants: ['shrub', 'boulder', 'grass-tuft'] },
+  boreal: { id: 'boreal', color: PALETTE.darkOlive, cover: 0.72, sward: 0.5, plants: ['conifer-tree', 'shrub', 'broadleaf-tree', 'boulder'] },
+  temperate: { id: 'temperate', color: PALETTE.green, cover: 0.5, sward: 1, plants: ['broadleaf-tree', 'conifer-tree', 'shrub', 'grass-tuft'] },
+  grassland: { id: 'grassland', color: PALETTE.olive, cover: 0.22, sward: 1, plants: ['grass-tuft', 'shrub', 'broadleaf-tree'] },
+  steppe: { id: 'steppe', color: PALETTE.tan, cover: 0.14, sward: 0.55, plants: ['grass-tuft', 'shrub', 'boulder'] },
+  savanna: { id: 'savanna', color: PALETTE.gold, cover: 0.2, sward: 0.7, plants: ['acacia-tree', 'grass-tuft', 'shrub', 'broadleaf-tree'] },
+  desert: { id: 'desert', color: PALETTE.sand, cover: 0.03, sward: 0, plants: ['boulder', 'palm-tree', 'cactus'] },
+  tropical: { id: 'tropical', color: PALETTE.green, cover: 0.9, sward: 0.6, plants: ['palm-tree', 'broadleaf-tree', 'shrub'] },
+  rock: { id: 'rock', color: PALETTE.slate, cover: 0.05, sward: 0.12, plants: ['boulder', 'conifer-tree'] },
 };
 
 export const BIOME_IDS = Object.keys(BIOMES) as BiomeId[];

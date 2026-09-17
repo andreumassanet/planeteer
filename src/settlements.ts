@@ -37,6 +37,7 @@ import {
   cornerOffset,
   gateGlow,
   gatesOf,
+  inGrid,
   isAvenue,
   streetBand,
   townFrame,
@@ -44,7 +45,7 @@ import {
   townTerraces,
 } from './scenery/grid.ts';
 import type { TownGrid, TownGround } from './scenery/grid.ts';
-import { enclosed, freeSpot, pushOut, solidField, yawed } from './scenery/solids.ts';
+import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scenery/solids.ts';
 import type { Solid, SolidField } from './scenery/solids.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
@@ -976,6 +977,21 @@ export interface Settlements {
    */
   madeHeightAt(point: THREE.Vector3): number;
   /**
+   * Where the sward in `vegetation.ts` may stand at `direction` (a unit
+   * vector), given the drawn land's radius there: a standing town's lawn, the
+   * land wherever no standing floor covers it, or null. A radius from the
+   * planet's centre.
+   */
+  swardAt(direction: THREE.Vector3, landRadius: number, margin: number): number | null;
+  /**
+   * The floors raised or dropped since `since` (a version this returned
+   * before), each as a town's up and the reach of its floor, written into
+   * `into` as `[x, y, z, reach]` quadruples; returns the version now. A reader
+   * that has fallen more than the ring behind gets `-1` in `into[0]`, and
+   * should treat everything as changed.
+   */
+  floorChanges(since: number, into: number[]): number;
+  /**
    * Pushes a body of `radius` out of every building it overlaps at `point`.
    *
    * Writes into `push` the world-space displacement, along the ground, that
@@ -1124,6 +1140,11 @@ interface Slot {
      * nothing. See `collide`.
      */
     solids: SolidField | null;
+    /** The square and its street band, for `swardAt`. */
+    grid: TownGrid;
+    band: number;
+    /** `Ground.lawn`, kept with the floor it was cut from. */
+    lawn: Uint8Array | null;
   } | null;
   failed: boolean;
   /**
@@ -1580,6 +1601,13 @@ export function createSettlements(
     folk: number[];
     kerbs: number[];
     /**
+     * Which cells are lawn, one byte a cell by `col * cells + row`: a yard of the
+     * land's own ground (`GroundStyle.yard` is `land`) that is not paved, not the
+     * square and not under a landmark. Null in a region whose yards are earth or
+     * stone. What grows on it is `vegetation.ts`'s sward; see `swardAt`.
+     */
+    lawn: Uint8Array | null;
+    /**
      * How many cells came out as floor.
      *
      * Reported because **paved cells are the density claim and triangles are
@@ -1969,7 +1997,7 @@ export function createSettlements(
     pavedCells: ReadonlySet<number>,
   ): Ground {
     const out: Ground = {
-      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], folk: [], kerbs: [], paved: 0,
+      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], folk: [], kerbs: [], paved: 0, lawn: null,
       terraces: new Map(),
       field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
     };
@@ -2111,6 +2139,18 @@ export function createSettlements(
      * enough to be a road.
      */
     const plazaKey = cells % 2 === 1 && cells >= 3 ? cellKey(grid.shift, grid.shift) : -1;
+
+    if (style.yard === 'land') {
+      out.lawn = new Uint8Array(cells * cells);
+      for (let col = 0; col < cells; col++) {
+        for (let row = 0; row < cells; row++) {
+          const key = cellKey(col, row);
+          if (!levels.has(key) || pavedCells.has(key) || key === plazaKey) continue;
+          if (blocked(cellCentre(grid, col), cellCentre(grid, row))) continue;
+          out.lawn[col * cells + row] = 1;
+        }
+      }
+    }
 
     // --- the lamps ---
     //
@@ -3360,7 +3400,8 @@ export function createSettlements(
     // mesh and one draw call, and a paving sheet drawn separately would have
     // doubled that for every settlement resident. It also gets the town's own
     // frustum culling and its own bounding sphere for free.
-    const ground = buildGround(slot, grid, streetBand(grid, slot.ground.street), urbanityOf(slot.place.pop), litPlots, pavedCells);
+    const band = streetBand(grid, slot.ground.street);
+    const ground = buildGround(slot, grid, band, urbanityOf(slot.place.pop), litPlots, pavedCells);
     slot.paved = ground.paved;
     // The floor, in the frame it was laid in, so a foot can find it. See
     // `Slot.floor` and `madeHeightAt`.
@@ -3375,8 +3416,12 @@ export function createSettlements(
         field: ground.field,
         cosBound: Math.cos((span + floorReach(ground.field)) / PLANET_RADIUS),
         solids: solids.length > 0 ? solidField(solids) : null,
+        grid,
+        band,
+        lawn: ground.lawn,
       };
       floors.add(slot);
+      noteFloor(slot);
     }
     // The lamps go in with the houses rather than with the floor: a lamp is a
     // part with a lit head on it, so it wants the variant cache, the flattened
@@ -3610,6 +3655,7 @@ export function createSettlements(
     slot.paved = 0;
     // The floor goes with the mesh: nothing is standing here, so nothing stands
     // on it. Leaving it would be a plinth a player walks on over open ground.
+    if (slot.floor !== null) noteFloor(slot);
     slot.floor = null;
     floors.delete(slot);
     slot.bytes = 0;
@@ -3676,6 +3722,77 @@ export function createSettlements(
     // this whole surface exists to avoid, so the sea wins.
     if (elevation <= 0) return 0;
     return PLANET_RADIUS + elevation + best;
+  }
+
+  /**
+   * Every floor raised or dropped, as the town's up and how far its floor
+   * reaches, for `floorChanges`: the sward re-sows what it grew round a town
+   * whose lawns have just arrived or gone. A ring, because nothing reads further
+   * back than the frame before.
+   */
+  const FLOOR_CHANGES = 256;
+  const changedUp = new Float64Array(FLOOR_CHANGES * 3);
+  const changedReach = new Float64Array(FLOOR_CHANGES);
+  let floorVersion = 0;
+  function noteFloor(slot: Slot): void {
+    const floor = slot.floor;
+    if (floor === null) return;
+    const at = floorVersion % FLOOR_CHANGES;
+    changedUp[at * 3] = floor.up.x;
+    changedUp[at * 3 + 1] = floor.up.y;
+    changedUp[at * 3 + 2] = floor.up.z;
+    changedReach[at] = Math.acos(Math.min(1, floor.cosBound)) * PLANET_RADIUS;
+    floorVersion++;
+  }
+
+  const swardDir = new THREE.Vector3();
+  /**
+   * Where the grass may stand at `direction` (a unit vector), given the radius
+   * of the drawn land there: as a radius from the planet's centre, or null.
+   *
+   * A standing town answers for its own ground. A lawn — a yard `Ground.lawn`
+   * marks, clear of the streets through its cell and of every wall by `margin`
+   * — gives the terrace's own top; the rest of its paving gives nothing,
+   * unless the drawn land stands over it and hides it; its edge slope, which
+   * is painted the land's colour, gives whichever of the slope and the land is
+   * on top. Ground no standing floor covers is the land's, and that includes a
+   * town that is shown but not standing yet: `floorChanges` is how the sward
+   * learns it has arrived.
+   */
+  function swardAt(direction: THREE.Vector3, landRadius: number, margin: number): number | null {
+    swardDir.copy(direction);
+    for (const slot of floors) {
+      const floor = slot.floor;
+      if (floor === null) continue;
+      if (swardDir.dot(floor.up) < floor.cosBound) continue;
+      const { grid, band, field } = floor;
+      const x = swardDir.dot(floor.across) * PLANET_RADIUS;
+      const z = swardDir.dot(floor.north) * PLANET_RADIUS;
+      const col = cellIndex(grid, x);
+      const row = cellIndex(grid, z);
+      const key = cellKey(col, row);
+      const level = field.terraces.get(key);
+      if (level === undefined) {
+        if (field.aprons?.has(key) !== true) continue;
+        // The edge slope is the land's ground laid over the land: whichever of
+        // the two is on top.
+        return Math.max(landRadius, PLANET_RADIUS + floorLiftAt(field, x, z, 0));
+      }
+      // A terrace the drawn land stands over is hidden under it, and what shows is the land.
+      if (PLANET_RADIUS + level + GROUND_LIFT < landRadius - margin) return landRadius;
+      if (floor.lawn === null || !inGrid(grid, col, row) || floor.lawn[col * grid.cells + row] !== 1) return null;
+      const u = x - (cellCentre(grid, col) - grid.pitch * 0.5);
+      const v = z - (cellCentre(grid, row) - grid.pitch * 0.5);
+      // The streets through the cell, as `buildGround` cuts them.
+      const street = (index: number, t: number): boolean =>
+        grid.avenue[index] === 1 ||
+        (grid.low[index] === 1 && t < band + margin) ||
+        (grid.high[index] === 1 && t > grid.pitch - band - margin);
+      if (street(col, u) || street(row, v)) return null;
+      if (floor.solids !== null && solidAt(floor.solids, x, z, margin) !== null) return null;
+      return PLANET_RADIUS + level + GROUND_LIFT;
+    }
+    return landRadius;
   }
 
   const wallDir = new THREE.Vector3();
@@ -3945,6 +4062,19 @@ export function createSettlements(
     },
 
     madeHeightAt,
+    swardAt,
+    floorChanges(since, into) {
+      into.length = 0;
+      if (floorVersion - since > FLOOR_CHANGES) {
+        into.push(-1);
+        return floorVersion;
+      }
+      for (let version = since; version < floorVersion; version++) {
+        const at = version % FLOOR_CHANGES;
+        into.push(changedUp[at * 3]!, changedUp[at * 3 + 1]!, changedUp[at * 3 + 2]!, changedReach[at]!);
+      }
+      return floorVersion;
+    },
 
     collide,
     blocksSight,

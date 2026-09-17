@@ -509,6 +509,7 @@ const TRAFFIC: StaticEntry[] = [
 ];
 
 const KENNEY_NATURE = 'kenney/nature-kit/Models/GLTF format/';
+const KAYKIT_FOREST = 'kaykit/forest-nature-pack/KayKit_Forest_Nature_Pack_1.0_FREE/Assets/gltf/';
 
 /**
  * The flora (Kenney's Nature Kit, CC0): every tree, bush, cactus, rock and tuft
@@ -523,6 +524,11 @@ const NATURE: StaticEntry[] = [
   ...['tree_palmTall', 'tree_palm', 'tree_palmBend', 'tree_plateau', 'tree_cone'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
   ...['cactus_tall', 'cactus_short', 'plant_bushLarge', 'plant_bush', 'plant_bushDetailed'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
   ...['stone_largeA', 'stone_largeB', 'stone_largeC', 'stone_largeD', 'grass_leafs', 'plant_flatTall', 'plant_flatShort', 'flower_redA', 'flower_yellowA'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+  ...['flower_purpleA', 'flower_redC', 'flower_yellowC'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+  // The sward (`vegetation.ts`): KayKit's single-sided grass clumps, 14 to 168
+  // triangles, two heights in three sizes each. Single-sided, because the sward
+  // draws both faces and gives every blade the ground's normal.
+  ...['1_A', '1_B', '1_C', '2_A', '2_B', '2_C'].map((name) => ({ id: `grass-${name.replace('_', '-').toLowerCase()}`, source: `${KAYKIT_FOREST}Grass_${name}_Singlesided_Color1.gltf` })),
 ];
 
 const KENNEY_SUBURBAN = 'kenney/city-kit-suburban/Models/GLB format/';
@@ -837,6 +843,9 @@ Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit, City Kit (Su
 City Kit (Commercial), City Kit (Roads). License: CC0 1.0 Universal.
 Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
 Public Transport. License: CC0 1.0 Universal.
+Kay Lousberg (https://www.kaylousberg.com) — KayKit Forest Nature Pack 1.0.
+License: CC0 1.0 Universal.
+CreativeTrio — Church (https://poly.pizza/m/GHzPfvoyzX). License: CC0 1.0 Universal.
 `;
 
 const trafficBytes = await bakeStatic(TRAFFIC, 'traffic/kit.bin');

@@ -1,17 +1,23 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from './globe.ts';
+import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
+import { createLandProbe } from './land-probe.ts';
+import { SWARD_FLOWERS, SWARD_FLOWER_HEIGHT, SWARD_FLOWER_SHARE, SWARD_GRASS } from './sward-kit.ts';
 import { MAX_SLOPE, gradeAt, reliefAt, shoreDistance } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
 import type { BiomeId } from './biome.ts';
-import { createToonRamp } from './theme.ts';
+import { PALETTE, createToonRamp } from './theme.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
 import { isShown, prominenceVersion, radiusFor } from './places.ts';
+import { townGrid } from './scenery/grid.ts';
+import { EDGE_RUN } from './scenery/ground.ts';
+import { sceneryModel } from './scenery/contract.ts';
 import type { Place } from './places.ts';
 import { roadClearance, roadGeometryFor, roadIndexFor } from './roads.ts';
 import type { Road, RoadIndex } from './roads.ts';
+import type { Settlements } from './settlements.ts';
 import {
   createViewCone,
   detailArea,
@@ -20,6 +26,8 @@ import {
   detailPixels,
   detailReach,
   detailVersion,
+  detail,
+  DETAIL_DEFAULT,
   fogFar,
   horizonAt,
   slantRange,
@@ -666,6 +674,221 @@ function flatten(group: THREE.Group): Omit<FlatVariant, 'height' | 'footprint' |
 }
 
 // ---------------------------------------------------------------------------
+// The sward
+// ---------------------------------------------------------------------------
+
+/**
+ * The grass under your feet, which the plots above cannot be.
+ *
+ * A plot is a plant a few hundred square units, which is a wood and not a
+ * lawn: the land between the trees was one flat colour from the boots to the
+ * fog, and on 2026-09-17 the user said so (*noto el suelo muy plano, como que
+ * falta cesped*). Grass is a field in the sense this file's header means, and
+ * the header's arithmetic applies with more force — a clump every two units to
+ * the fog is tens of millions of triangles — so the sward thins with distance,
+ * and thins in a way that cannot be seen doing it.
+ *
+ * **Every site has a rank.** The sites are one lattice over the whole planet,
+ * `SWARD_PITCH` apart in latitude and longitude on the quadtree's own cells, and
+ * a site's rank is how many times both its indices halve: a quarter of the
+ * sites are rank 1 or more, a sixteenth rank 2. A sward tile `k` levels above
+ * `SWARD_TILE` holds exactly the sites of rank `k` and up, at exactly the
+ * places the finer tiles under it hold them, each drawn from its own seed. And
+ * the vertex stage does the rest by distance alone (`SWARD_BANDS`): past each
+ * band a rank shrinks into the ground while the ranks above it grow by
+ * `SWARD_GROWTH`, so by the time a tile is swapped for its parent every clump
+ * the parent lacks is already gone and every one it has is already its size.
+ * The swap is invisible because nothing on the screen changes at it. Past the
+ * last band the ground carries its own patches (`atlasPatches` in `globe.ts`).
+ *
+ * What makes it grass and not green stubble is three things it takes from the
+ * ground rather than having of its own. **Its colour is the ground's**
+ * (`groundColorAt`, on a lattice of its own a level coarser), darkened at the
+ * root and lit at the tip, and the fragment stage gives it the same hex tone
+ * and the same patch as the land it grows in. **Its normal is the ground's** —
+ * the face of the drawn land under the clump, for every vertex — so a blade
+ * steps through the cel ramp exactly as the field does and the clump is a
+ * texture on it rather than a scatter of little lit and unlit fans. And **it
+ * stands on the drawn land**, through `LandProbe`, because the relief is not
+ * what is drawn to within a clump's own height. It has no ink: a pen round
+ * every blade is a field of black hair.
+ *
+ * **It is the one thing on the land that `MAX_SLOPE` does not refuse**
+ * (2026-09-17, on the user's word: *igual si podemos dejar que suba en las
+ * pendientes*). A slope rule is about what stands — a trunk, a hoof, a wheel,
+ * a wall — and a sward stands on nothing; it is the colour of the hill with a
+ * grain to it, and a hill drawn green and bare above thirty degrees read as a
+ * hill with a bald flank. It stops only where the probe does, at a face too
+ * near vertical to have a top.
+ */
+const SWARD_LEVEL = -3;
+/**
+ * The finest tile a sward is built in, a level above the lattice's own: a tile
+ * holds two levels' worth of sites a side and costs four times the build, and
+ * a quarter of the meshes. Measured at Madison on foot (2026-09-17), tiles at
+ * the lattice's own level put 211 sward meshes in the world and 69 extra draw
+ * calls in the frame; the build a tile is still under the vegetation's own
+ * allowance.
+ */
+const SWARD_TILE = SWARD_LEVEL + 1;
+/** Ranks: tiles run from `SWARD_TILE` to `SWARD_TILE + SWARD_RANKS - 1`. */
+const SWARD_RANKS = 4;
+/** Units between the finest sites, before the biome's `sward` refuses some. */
+const SWARD_PITCH = 2.5;
+/** How far a site strays from its lattice point, as a share of `SWARD_PITCH`. */
+const SWARD_JITTER = 0.45;
+/**
+ * Where each rank goes, in units from the camera at the default detail: every
+ * site stands inside the first band, and rank `r` shrinks away between band `r`
+ * and band `r + 1` while every rank above it grows by `SWARD_GROWTH` over the
+ * same stretch. So the last rank is gone at the last band.
+ */
+const SWARD_BANDS = [40, 80, 160, 290, 480] as const;
+/** How much bigger a surviving clump is a band further out: coverage falls by less than the count. */
+const SWARD_GROWTH = 1.35;
+/**
+ * How far the detail knob moves the bands: as the square root and to a cap,
+ * because the sward is an area and the land probe's reach is not unbounded.
+ */
+const swardReach = (): number => Math.min(1.6, Math.sqrt(detail() / DETAIL_DEFAULT));
+/** The distance at which a rank is going, for the tiles: the vertex stage's `swardLod`, restated. */
+function swardLod(distance: number, reach: number): number {
+  const d = distance / reach;
+  let lod = 0;
+  for (let band = 0; band + 1 < SWARD_BANDS.length; band++) {
+    lod += Math.min(1, Math.max(0, (d - SWARD_BANDS[band]!) / (SWARD_BANDS[band + 1]! - SWARD_BANDS[band]!)));
+  }
+  return lod;
+}
+/** The camera moves this far before the tiles are asked again. */
+const SWARD_RESCAN = 6;
+const SWARD_BUILD_MS = 1.5;
+/** A cap on what stands, at the default detail; see `detailArea`. */
+const SWARD_TRIANGLES = 450_000;
+/** How far into the ground a clump's root goes, for a face the probe met at a corner. */
+const SWARD_BURY = 0.15;
+/** How far a lawn in a town keeps off its streets and its walls. */
+const LAWN_MARGIN = 0.6;
+/** The petals, on the palette. */
+const PETALS: readonly [RegExp, number][] = [
+  [/red/i, PALETTE.red],
+  [/yellow/i, PALETTE.gold],
+  [/purple/i, PALETTE.violet],
+  [/white/i, PALETTE.white],
+];
+/** The ground's colour times these at the root and at the tip. */
+const SWARD_ROOT = 0.76;
+const SWARD_TIP = 1.5;
+/** And how far the tip is pushed off grey, so a lit blade is a greener one and not a paler one. */
+const SWARD_TIP_SATURATION = 1.35;
+
+/** Trailing zero bits, capped: how many times an index halves. */
+function halvings(index: number, cap: number): number {
+  let count = 0;
+  while (count < cap && index % 2 === 0) {
+    index /= 2;
+    count++;
+  }
+  return count;
+}
+
+/**
+ * The sward's one material: vertex colours, both faces, no ink, and a vertex
+ * stage that grows or shrinks each clump about its root by its rank and the
+ * camera's distance (`SWARD_BANDS`). The root and the rank ride one attribute.
+ *
+ * Both faces with the ground's normal on both: Three turns a back face's
+ * normal round, and a blade seen from behind would step to the shadow band.
+ */
+function swardMaterial(): THREE.MeshToonMaterial {
+  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4), side: THREE.DoubleSide });
+  material.userData.outlineParameters = { visible: false };
+  const uniforms = { swardReach: { value: swardReach() } };
+  material.userData.uniforms = uniforms;
+  const lod = SWARD_BANDS.slice(0, -1)
+    .map((near, band) => `clamp((d - ${near.toFixed(1)}) / ${(SWARD_BANDS[band + 1]! - near).toFixed(1)}, 0.0, 1.0)`)
+    .join(' + ');
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms['swardReach'] = uniforms.swardReach;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>\nattribute vec4 root;\nuniform float swardReach;\nvarying vec3 vSwardRoot;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        /* glsl */ `#include <begin_vertex>
+  {
+    vSwardRoot = (modelMatrix * vec4(root.xyz, 1.0)).xyz;
+    float d = distance(vSwardRoot, cameraPosition) / swardReach;
+    float lod = ${lod};
+    float size = pow(${SWARD_GROWTH.toFixed(3)}, min(lod, root.w + 1.0)) * (1.0 - smoothstep(root.w, root.w + 1.0, lod));
+    transformed = root.xyz + (transformed - root.xyz) * size;
+  }`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vSwardRoot;\n${GROUND_MARKS_GLSL}`)
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `#include <color_fragment>
+  vec2 swardCell;
+  diffuseColor.rgb *= atlasCellTone(atlasPlaneOf(vSwardRoot), swardCell);
+  diffuseColor.rgb = atlasPatches(diffuseColor.rgb, vSwardRoot);`,
+      )
+      .replace(
+        '#include <normal_fragment_begin>',
+        /* glsl */ `#include <normal_fragment_begin>
+  normal = atlasLeanOf(normalize(vNormal), swardCell, 1.0);
+  nonPerturbedNormal = normal;`,
+      );
+  };
+  material.customProgramCacheKey = () => 'atlas-sward';
+  return material;
+}
+
+/** One clump, stood on y = 0 and one unit tall, with what colours each vertex. */
+interface SwardClump {
+  position: Float32Array;
+  /** 0 at the root, 1 at the tip. */
+  rise: Float32Array;
+  /** Per vertex, a petal's linear colour, or -1 in `r` for the ground's. */
+  paint: Float32Array;
+  triangles: number;
+}
+
+function swardClump(id: string): SwardClump {
+  const model = sceneryModel(id);
+  const source = model.geometry.getAttribute('position');
+  // Baked models are indexed; the sward writes every corner of every triangle.
+  const index = model.geometry.index;
+  const count = index !== null ? index.count : source.count;
+  const low = model.box.min.y;
+  const height = model.box.max.y - low || 1;
+  const position = new Float32Array(count * 3);
+  const rise = new Float32Array(count);
+  const paint = new Float32Array(count * 3);
+  const colour = new THREE.Color();
+  for (let v = 0; v < count; v++) {
+    const corner = index !== null ? index.getX(v) : v;
+    const y = (source.getY(corner) - low) / height;
+    position[v * 3] = source.getX(corner) / height;
+    position[v * 3 + 1] = y;
+    position[v * 3 + 2] = source.getZ(corner) / height;
+    rise[v] = y;
+    const slot = model.slots[model.slot[corner]!] ?? '';
+    const petal = PETALS.find(([pattern]) => pattern.test(slot));
+    if (petal === undefined) paint[v * 3] = -1;
+    else {
+      colour.set(petal[1]);
+      paint[v * 3] = colour.r;
+      paint[v * 3 + 1] = colour.g;
+      paint[v * 3 + 2] = colour.b;
+    }
+  }
+  return { position, rise, paint, triangles: count / 3 };
+}
+
+// ---------------------------------------------------------------------------
 // The module
 // ---------------------------------------------------------------------------
 
@@ -692,6 +915,19 @@ export interface VegetationStats {
   reach: number;
   /** Resident tiles by level, finest first. */
   byLevel: number[];
+  /** The grass under your feet; see `SWARD_LEVEL`. */
+  sward: {
+    tiles: number; clumps: number; triangles: number; megabytes: number; pending: number; barren: number; lastBuildMs: number; ready: boolean;
+    /** Standing tiles by rank, finest first, and how far the knob has moved the bands. */
+    byRank: number[];
+    reach: number;
+    /** The slowest single tile since the world loaded. */
+    slowestTileMs: number;
+    medianTileMs: number;
+    p90TileMs: number;
+    /** Sites refused since the world loaded, by what refused them. */
+    refused: { thin: number; shore: number; unprobed: number; built: number; road: number };
+  };
 }
 
 export interface Vegetation {
@@ -711,6 +947,15 @@ export interface Vegetation {
   update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera): void;
   /** Builds the tile under a point twice and reports whether the two agree. */
   verify(lat: number, lon: number, level?: number): unknown;
+  /**
+   * The sward's one promise, checked: sows the tile a rank above the finest
+   * over a point and its four children, and reports whether every clump the
+   * parent holds stands exactly where one of the children's does. In a
+   * browser, near the player, where the land probe answers.
+   */
+  verifySward(lat: number, lon: number): unknown;
+  /** Sows the finest sward tile over a point and reports what grew and what refused the rest. */
+  sampleSward(lat: number, lon: number): unknown;
   /** What one tile costs and what is standing on it, for the console. */
   sample(lat: number, lon: number, level?: number): unknown;
 }
@@ -787,6 +1032,10 @@ export interface VegetationOptions {
    * whatever happened to be resident would not build the same tile twice.
    */
   roads?: readonly Road[];
+  /** The land mesh (`buildLand`), which the sward stands on. Without it there is no sward. */
+  land?: THREE.Mesh;
+  /** The towns' lawns, which the sward grows on too. */
+  lawns?: Pick<Settlements, 'swardAt' | 'floorChanges'>;
 }
 
 export function createVegetation(world: World, options: VegetationOptions = {}): Vegetation {
@@ -817,6 +1066,13 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    */
   const builtUnit = new Float64Array(((options.places?.length ?? 0) + (options.monuments?.length ?? 0)) * 3);
   const builtRadius = new Float64Array(builtUnit.length / 3);
+  /**
+   * Half the side of a town's square, or 0 for a monument's disc. The trees keep
+   * off a town's whole disc; the sward grows up to its square, less the edge
+   * slope, because the bare corners of a disc round a square are exactly where
+   * a foot arriving at a town is looking.
+   */
+  const builtHalf = new Float64Array(builtRadius.length);
   /** How many of those arrays are in use: only the *shown* places keep the trees out. */
   let builtCount = 0;
   /**
@@ -826,7 +1082,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    */
   const rebuildKeepouts = (): void => {
     let i = 0;
-    const add = (lat: number, lon: number, radius: number): void => {
+    const add = (lat: number, lon: number, radius: number, half = 0): void => {
       const cos = Math.cos(lat * DEG);
       builtUnit[i * 3] = cos * Math.cos(lon * DEG);
       builtUnit[i * 3 + 1] = Math.sin(lat * DEG);
@@ -834,10 +1090,11 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       // mirrored-planet trap in CLAUDE.md.
       builtUnit[i * 3 + 2] = -cos * Math.sin(lon * DEG);
       builtRadius[i] = radius;
+      builtHalf[i] = half;
       i++;
     };
     for (const place of options.places ?? []) {
-      if (isShown(place)) add(place.lat, place.lon, radiusFor(place.pop));
+      if (isShown(place)) add(place.lat, place.lon, radiusFor(place.pop), townGrid(place.pop).half);
     }
     for (const site of options.monuments ?? []) {
       add(site.lat, site.lon, (site.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE);
@@ -1008,6 +1265,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     x: number;
     z: number;
     radius: number;
+    /** Which entry of `builtUnit` this is, for the sward's town squares. */
+    index: number;
   }
   const keepouts: Keepout[] = [];
 
@@ -1055,6 +1314,110 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     fastPath: boolean;
   }
 
+  /**
+   * The tile's own tangent frame: `up`, `north` and `across`, the basis, the
+   * origin on the ground and the matrices in and out of it. False, and
+   * reported, if the basis reflects.
+   */
+  function frameTile(tile: Tile): boolean {
+    up.copy(tile.direction);
+    // The frame `placement.ts` and `settlements.ts` both build: +Z along the
+    // ground towards the pole. X cross Y is Z, so X is Y cross Z — written this
+    // way round because `makeBasis(east, up, north)` is the reflection that
+    // fills a mesh with ink, and it is the one mistake here that an ordinary
+    // `Mesh` cannot show you. See the reflected-basis trap in CLAUDE.md.
+    north.set(0, 1, 0).projectOnPlane(up);
+    if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(up);
+    north.normalize();
+    across.crossVectors(up, north).normalize();
+    tileBasis.makeBasis(across, up, north);
+    if (tileBasis.determinant() <= 0) {
+      broken.push(`${tile.key}: tile basis has determinant ${tileBasis.determinant()}`);
+      return false;
+    }
+    origin.copy(up).multiplyScalar(groundRadius(world, up));
+    tileMatrix.compose(origin, quaternion.setFromRotationMatrix(tileBasis), ONE);
+    tileInverse.copy(tileMatrix).invert();
+    return true;
+  }
+
+  /**
+   * Everything built that could reach into the tile, into `keepouts` and
+   * `roadKeepouts`, in the frame `frameTile` has just set.
+   */
+  function gatherKeepouts(tile: Tile): void {
+    // Everything built, in the tile's own tangent frame. The components of a
+    // direction along the frame *are* the local coordinates at these angles.
+    keepouts.length = 0;
+    {
+      const reach = Math.hypot(tile.halfEast, tile.halfNorth);
+      const cos = Math.cos((reach + 120) / PLANET_RADIUS);
+      const { x, y, z } = tile.direction;
+      for (let i = 0; i < builtCount; i++) {
+        const dot = x * builtUnit[i * 3]! + y * builtUnit[i * 3 + 1]! + z * builtUnit[i * 3 + 2]!;
+        if (dot < cos) continue;
+        keepouts.push({
+          x:
+            (builtUnit[i * 3]! * across.x +
+              builtUnit[i * 3 + 1]! * across.y +
+              builtUnit[i * 3 + 2]! * across.z) *
+            PLANET_RADIUS,
+          z:
+            (builtUnit[i * 3]! * north.x +
+              builtUnit[i * 3 + 1]! * north.y +
+              builtUnit[i * 3 + 2]! * north.z) *
+            PLANET_RADIUS,
+          radius: builtRadius[i]!,
+          index: i,
+        });
+      }
+    }
+
+    /**
+     * And every road that crosses the tile, sampled into local segments.
+     *
+     * The gather is a grid query and not a sweep of the network — see
+     * `createRoadIndex` — and the chords are the road's own `coursePath`, which
+     * walks `courseOf`, the one definition of where a road goes: the bake
+     * tested that curve for water and `roads.ts` lays the ribbon along it, so a
+     * wood that stood off a second copy of it would stand off the wrong line on
+     * exactly the coastal roads that needed a bow, and on every road's last
+     * stretch into its gate.
+     */
+    roadKeepouts.length = 0;
+    if (roadIndex !== null && roadGeometry !== null) {
+      const reach = Math.hypot(tile.halfEast, tile.halfNorth);
+      const margin = reach + 40;
+      roadIndex.near(tile.direction, margin, roadHits);
+      const all = options.roads!;
+      const limit = (margin + ROAD_STEP) * (margin + ROAD_STEP);
+      for (const hit of roadHits) {
+        const road = all[hit]!;
+        const path = roadGeometry.path(hit);
+        const clearance = roadClearance(road.cls);
+        let x0 = 0;
+        let z0 = 0;
+        for (let step = 0; step < path.count; step++) {
+          const px = path.xyz[step * 3]!;
+          const py = path.xyz[step * 3 + 1]!;
+          const pz = path.xyz[step * 3 + 2]!;
+          const x = (px * across.x + py * across.y + pz * across.z) * PLANET_RADIUS;
+          const z = (px * north.x + py * north.y + pz * north.z) * PLANET_RADIUS;
+          if (step > 0) {
+            // Only the pieces that could reach into the tile. A road is up to a
+            // thousand units long and a level-0 tile is 174 across, so most of
+            // what the grid returns is the far end of something passing by.
+            const mx = (x0 + x) * 0.5;
+            const mz = (z0 + z) * 0.5;
+            if (mx * mx + mz * mz <= limit) roadKeepouts.push({ x0, z0, x1: x, z1: z, clearance });
+          }
+          x0 = x;
+          z0 = z;
+        }
+      }
+    }
+  }
+
   function raise(tile: Tile): Built {
     const empty: Built = {
       mesh: null,
@@ -1069,24 +1432,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       fastPath: false,
     };
 
-    up.copy(tile.direction);
-    // The frame `placement.ts` and `settlements.ts` both build: +Z along the
-    // ground towards the pole. X cross Y is Z, so X is Y cross Z — written this
-    // way round because `makeBasis(east, up, north)` is the reflection that
-    // fills a mesh with ink, and it is the one mistake here that an ordinary
-    // `Mesh` cannot show you. See the reflected-basis trap in CLAUDE.md.
-    north.set(0, 1, 0).projectOnPlane(up);
-    if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(up);
-    north.normalize();
-    across.crossVectors(up, north).normalize();
-    tileBasis.makeBasis(across, up, north);
-    if (tileBasis.determinant() <= 0) {
-      broken.push(`${tile.key}: tile basis has determinant ${tileBasis.determinant()}`);
-      return empty;
-    }
-    origin.copy(up).multiplyScalar(groundRadius(world, up));
-    tileMatrix.compose(origin, quaternion.setFromRotationMatrix(tileBasis), ONE);
-    tileInverse.copy(tileMatrix).invert();
+    if (!frameTile(tile)) return empty;
 
     // The style is regional and the flora is not: `regionFor` decides what the
     // leaves are made of and `biomeAt` decides what is standing there. A tile
@@ -1137,75 +1483,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     const inland =
       centreElevation > 0 && shoreDistance(tile.lat, tile.lon) > radiusDeg + 0.5;
 
-    // Everything built, in the tile's own tangent frame. The components of a
-    // direction along the frame *are* the local coordinates at these angles.
-    keepouts.length = 0;
-    {
-      const reach = Math.hypot(tile.halfEast, tile.halfNorth);
-      const cos = Math.cos((reach + 120) / PLANET_RADIUS);
-      const { x, y, z } = tile.direction;
-      for (let i = 0; i < builtCount; i++) {
-        const dot = x * builtUnit[i * 3]! + y * builtUnit[i * 3 + 1]! + z * builtUnit[i * 3 + 2]!;
-        if (dot < cos) continue;
-        keepouts.push({
-          x:
-            (builtUnit[i * 3]! * across.x +
-              builtUnit[i * 3 + 1]! * across.y +
-              builtUnit[i * 3 + 2]! * across.z) *
-            PLANET_RADIUS,
-          z:
-            (builtUnit[i * 3]! * north.x +
-              builtUnit[i * 3 + 1]! * north.y +
-              builtUnit[i * 3 + 2]! * north.z) *
-            PLANET_RADIUS,
-          radius: builtRadius[i]!,
-        });
-      }
-    }
-
-    /**
-     * And every road that crosses the tile, sampled into local segments.
-     *
-     * The gather is a grid query and not a sweep of the network — see
-     * `createRoadIndex` — and the chords are the road's own `coursePath`, which
-     * walks `courseOf`, the one definition of where a road goes: the bake
-     * tested that curve for water and `roads.ts` lays the ribbon along it, so a
-     * wood that stood off a second copy of it would stand off the wrong line on
-     * exactly the coastal roads that needed a bow, and on every road's last
-     * stretch into its gate.
-     */
-    roadKeepouts.length = 0;
-    if (roadIndex !== null && roadGeometry !== null) {
-      const reach = Math.hypot(tile.halfEast, tile.halfNorth);
-      const margin = reach + 40;
-      roadIndex.near(tile.direction, margin, roadHits);
-      const all = options.roads!;
-      const limit = (margin + ROAD_STEP) * (margin + ROAD_STEP);
-      for (const hit of roadHits) {
-        const road = all[hit]!;
-        const path = roadGeometry.path(hit);
-        const clearance = roadClearance(road.cls);
-        let x0 = 0;
-        let z0 = 0;
-        for (let step = 0; step < path.count; step++) {
-          const px = path.xyz[step * 3]!;
-          const py = path.xyz[step * 3 + 1]!;
-          const pz = path.xyz[step * 3 + 2]!;
-          const x = (px * across.x + py * across.y + pz * across.z) * PLANET_RADIUS;
-          const z = (px * north.x + py * north.y + pz * north.z) * PLANET_RADIUS;
-          if (step > 0) {
-            // Only the pieces that could reach into the tile. A road is up to a
-            // thousand units long and a level-0 tile is 174 across, so most of
-            // what the grid returns is the far end of something passing by.
-            const mx = (x0 + x) * 0.5;
-            const mz = (z0 + z) * 0.5;
-            if (mx * mx + mz * mz <= limit) roadKeepouts.push({ x0, z0, x1: x, z1: z, clearance });
-          }
-          x0 = x;
-          z0 = z;
-        }
-      }
-    }
+    gatherKeepouts(tile);
 
     const pitch = pitchOf(tile.level);
     const levelScale = SCALE_OF[tile.level]!;
@@ -1693,6 +1971,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     range: 0,
     reach: 0,
     byLevel: new Array(LEVELS).fill(0),
+    sward: { tiles: 0, clumps: 0, triangles: 0, megabytes: 0, pending: 0, barren: 0, lastBuildMs: 0, ready: false, slowestTileMs: 0, medianTileMs: 0, p90TileMs: 0, byRank: [], reach: 1, refused: { thin: 0, shore: 0, unprobed: 0, built: 0, road: 0 } },
   };
 
   let queue: Tile[] = [];
@@ -1804,6 +2083,545 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     return Math.round(cells * 0.5 * 100);
   }
 
+  // ------------------------------------------------------------------
+  // The sward
+  // ------------------------------------------------------------------
+
+  // Here rather than in `main.ts`, so the index is in this deferred chunk and not the first load.
+  const land = options.land === undefined ? undefined : createLandProbe(options.land);
+  const lawns = options.lawns;
+  const swardGroup = new THREE.Group();
+  swardGroup.name = 'sward';
+  group.add(swardGroup);
+  const swardPaint = swardMaterial();
+  const swardUniforms = swardPaint.userData.uniforms as { swardReach: { value: number } };
+  const clumps = new Map<string, SwardClump>();
+  const clumpOf = (id: string): SwardClump => {
+    let clump = clumps.get(id);
+    if (clump === undefined) {
+      clump = swardClump(id);
+      clumps.set(id, clump);
+    }
+    return clump;
+  };
+  const grassWeights: Weighted<number>[] = SWARD_GRASS.map((entry, item) => ({ item, weight: entry.weight }));
+
+  interface SwardTile {
+    mesh: THREE.Mesh;
+    triangles: number;
+    clumps: number;
+    bytes: number;
+    direction: THREE.Vector3;
+    /** The tile's half-diagonal, for finding it again from a town that changed. */
+    radius: number;
+    /** Whether a town's square reaches into it, whose lawns may come and go. */
+    touchesTown: boolean;
+  }
+  const swardStanding = new Map<string, SwardTile>();
+  const swardBarren = new Set<string>();
+  let swardQueue: Tile[] = [];
+  const swardTimes: number[] = [];
+  const swardScannedAt = new THREE.Vector3(Infinity, Infinity, Infinity);
+  let swardProminence = prominenceVersion();
+  let swardDetail = -1;
+  let floorsSeen = 0;
+  const floorChanges: number[] = [];
+
+  // ------------------------------------------------------------------
+  // What the ground is, on a lattice of its own
+  // ------------------------------------------------------------------
+
+  /**
+   * The ground's colour and the biome's `sward`, sampled at the corners of the
+   * level above the finest sward tile and laid between them. **On a lattice of
+   * its own, and not at a tile's corners**, because a site has to come out the
+   * same in every tile that holds it: interpolated over a coarse tile's corners
+   * a site would thin or recolour at the swap, which is the one moment the
+   * ranks exist to hide. Cached by corner, because every tile round a point
+   * asks the same four.
+   */
+  const GROUND_LEVEL = SWARD_LEVEL + 1;
+  interface GroundSample {
+    density: number;
+    r: number;
+    g: number;
+    b: number;
+  }
+  const groundSamples = new Map<string, GroundSample>();
+  const sampleColour = new THREE.Color();
+  const sampleDirection = new THREE.Vector3();
+  function groundSample(a: number, b: number, root: number): GroundSample {
+    const cells = cellsOf(root, GROUND_LEVEL);
+    const column = ((b % cells) + cells) % cells;
+    const key = `${a}|${column}|${root}`;
+    const known = groundSamples.get(key);
+    if (known !== undefined) return known;
+    const lat = -90 + a * stepOf(GROUND_LEVEL);
+    const lon = -180 + column * (360 / cells);
+    const cos = Math.cos(lat * DEG);
+    sampleDirection.set(cos * Math.cos(lon * DEG), Math.sin(lat * DEG), -cos * Math.sin(lon * DEG));
+    const { x, y, z } = sampleDirection;
+    biomeAt(x, y, z, lat, lon, reliefAt(x, y, z), sample);
+    groundColorAt(world, sampleDirection, sampleColour);
+    const made = { density: BIOMES[sample.id].sward, r: sampleColour.r, g: sampleColour.g, b: sampleColour.b };
+    if (groundSamples.size > 40_000) groundSamples.clear();
+    groundSamples.set(key, made);
+    return made;
+  }
+  const groundHere: GroundSample = { density: 0, r: 0, g: 0, b: 0 };
+  function groundAt(lat: number, lon: number): GroundSample {
+    const step = stepOf(GROUND_LEVEL);
+    const rowAt = (lat + 90) / step;
+    const a = Math.floor(rowAt);
+    const root = rootOf(a, GROUND_LEVEL);
+    const cells = cellsOf(root, GROUND_LEVEL);
+    const columnAt = (lon + 180) / (360 / cells);
+    const b = Math.floor(columnAt);
+    const u = columnAt - b;
+    const v = rowAt - a;
+    const s00 = groundSample(a, b, root);
+    const s10 = groundSample(a, b + 1, root);
+    const s01 = groundSample(a + 1, b, root);
+    const s11 = groundSample(a + 1, b + 1, root);
+    for (const channel of ['density', 'r', 'g', 'b'] as const) {
+      groundHere[channel] = (s00[channel] * (1 - u) + s10[channel] * u) * (1 - v) + (s01[channel] * (1 - u) + s11[channel] * u) * v;
+    }
+    return groundHere;
+  }
+
+  // ------------------------------------------------------------------
+  // Sowing one tile
+  // ------------------------------------------------------------------
+
+  const faceUp = new THREE.Vector3();
+  const siteDirection = new THREE.Vector3();
+  const clumpNorth = new THREE.Vector3();
+  const clumpAcross = new THREE.Vector3();
+  const clumpBasis = new THREE.Matrix4();
+  const clumpLocal = new THREE.Matrix4();
+  const tint = new THREE.Color();
+  const inverseRotation = new THREE.Matrix3();
+  interface Square {
+    ux: number; uy: number; uz: number;
+    ax: number; ay: number; az: number;
+    nx: number; ny: number; nz: number;
+    /** Half the square, and half the square with its edge slope, as angles. */
+    inner: number;
+    outer: number;
+  }
+  const squares: Square[] = [];
+
+  interface Sown {
+    clump: SwardClump;
+    matrix: number[];
+    nx: number;
+    ny: number;
+    nz: number;
+    r: number;
+    g: number;
+    b: number;
+    rank: number;
+  }
+
+  /** Builds one sward tile, or `null` when nothing grows on it. */
+  function sow(tile: Tile): SwardTile | null {
+    if (land === undefined || !frameTile(tile)) return null;
+    inverseRotation.setFromMatrix4(tileInverse);
+    const refused = stats.sward.refused;
+
+    // The tile's share of the planet's lattice: the same rows and columns at
+    // every level, `stride` finest sites apart. See `SWARD_LEVEL`.
+    const rank = tile.level - SWARD_TILE;
+    const stride = 2 ** rank;
+    const per = 2 ** (SWARD_TILE - SWARD_LEVEL);
+    const root = rootOf(tile.row, tile.level);
+    const rows = per * Math.max(1, Math.round((stepOf(SWARD_LEVEL) * UNITS_PER_DEGREE) / SWARD_PITCH));
+    const bandLat = -90 + (root + 0.5) * ROOT_STEP;
+    const columns = per * Math.max(
+      1,
+      Math.round(((360 / cellsOf(root, SWARD_LEVEL)) * Math.cos(bandLat * DEG) * UNITS_PER_DEGREE) / SWARD_PITCH),
+    );
+    const step = stepOf(tile.level);
+    const lonStep = 360 / cellsOf(root, tile.level);
+    const south = -90 + tile.row * step;
+    const west = -180 + tile.column * lonStep;
+
+    gatherKeepouts(tile);
+    // A town's square in its own frame: the axes once a tile, not once a clump.
+    squares.length = 0;
+    for (const keepout of keepouts) {
+      const half = builtHalf[keepout.index]!;
+      if (half <= 0) continue;
+      const i = keepout.index * 3;
+      scratch.set(builtUnit[i]!, builtUnit[i + 1]!, builtUnit[i + 2]!);
+      clumpNorth.set(0, 1, 0).projectOnPlane(scratch).normalize();
+      clumpAcross.crossVectors(scratch, clumpNorth).normalize();
+      squares.push({
+        ux: scratch.x, uy: scratch.y, uz: scratch.z,
+        ax: clumpAcross.x, ay: clumpAcross.y, az: clumpAcross.z,
+        nx: clumpNorth.x, ny: clumpNorth.y, nz: clumpNorth.z,
+        inner: half / PLANET_RADIUS,
+        outer: (half + EDGE_RUN + 1) / PLANET_RADIUS,
+      });
+    }
+
+    const sown: Sown[] = [];
+    let vertices = 0;
+
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < columns; i++) {
+        const J = (tile.row * rows + j) * stride;
+        const I = (tile.column * columns + i) * stride;
+        const siteRank = Math.min(halvings(J, SWARD_RANKS - 1), halvings(I, SWARD_RANKS - 1));
+        // Every draw in a fixed order, before anything can refuse the site.
+        const rng = rngFrom('sward', J, I);
+        const strayNorth = rng.jitter() * SWARD_PITCH * SWARD_JITTER;
+        const strayEast = rng.jitter() * SWARD_PITCH * SWARD_JITTER;
+        const flower = rng.chance(SWARD_FLOWER_SHARE);
+        const pick = rng.weighted(grassWeights);
+        const petal = rng.int(SWARD_FLOWERS.length);
+        const size = rng.unit();
+        const yaw = rng.unit() * Math.PI * 2;
+        const shade = rng.range(0.9, 1.1);
+        const thinning = rng.unit();
+
+        const baseLat = south + (j * step) / rows;
+        const lat = baseLat + strayNorth / UNITS_PER_DEGREE;
+        const lon = west + (i * lonStep) / columns + strayEast / (UNITS_PER_DEGREE * Math.cos(baseLat * DEG));
+        const ground = groundAt(lat, lon);
+        if (thinning >= ground.density) {
+          refused.thin++;
+          continue;
+        }
+        const cos = Math.cos(lat * DEG);
+        const direction = siteDirection.set(cos * Math.cos(lon * DEG), Math.sin(lat * DEG), -cos * Math.sin(lon * DEG));
+        // The shore ramp is the one place the relief is under the shelf, and it
+        // is sand.
+        if (reliefAt(direction.x, direction.y, direction.z) < 0) {
+          refused.shore++;
+          continue;
+        }
+
+        // What is built keeps it out: a monument, a carriageway.
+        const x = direction.dot(across) * PLANET_RADIUS;
+        const z = direction.dot(north) * PLANET_RADIUS;
+        let blocked = false;
+        for (const keepout of keepouts) {
+          if (builtHalf[keepout.index]! > 0) continue;
+          const dx = x - keepout.x;
+          const dz = z - keepout.z;
+          if (dx * dx + dz * dz < keepout.radius * keepout.radius) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) {
+          refused.built++;
+          continue;
+        }
+        for (const road of roadKeepouts) {
+          const dx = road.x1 - road.x0;
+          const dz = road.z1 - road.z0;
+          const lengthSq = dx * dx + dz * dz;
+          let t = 0;
+          if (lengthSq > 1e-6) {
+            t = ((x - road.x0) * dx + (z - road.z0) * dz) / lengthSq;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+          }
+          const ox = road.x0 + t * dx - x;
+          const oz = road.z0 + t * dz - z;
+          const clear = road.clearance + 0.8;
+          if (ox * ox + oz * oz < clear * clear) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) {
+          refused.road++;
+          continue;
+        }
+        let radius = land.radiusAt(direction, faceUp);
+        if (radius === null) {
+          refused.unprobed++;
+          continue;
+        }
+        // And a town answers for its own square and the slope round it: its
+        // lawns, and the land wherever no floor of it stands.
+        for (const square of squares) {
+          const offAcross = Math.abs(direction.x * square.ax + direction.y * square.ay + direction.z * square.az);
+          const offNorth = Math.abs(direction.x * square.nx + direction.y * square.ny + direction.z * square.nz);
+          if (offAcross >= square.outer || offNorth >= square.outer) continue;
+          const ground = radius;
+          radius = lawns === undefined ? null : lawns.swardAt(direction, ground, LAWN_MARGIN);
+          if (radius !== null && radius !== ground) faceUp.set(square.ux, square.uy, square.uz);
+          break;
+        }
+        if (radius === null) {
+          refused.built++;
+          continue;
+        }
+
+        const grass = SWARD_GRASS[pick]!;
+        const bloom = flower && ground.density >= 0.6;
+        const clump = bloom ? clumpOf(SWARD_FLOWERS[petal]!) : clumpOf(siteRank >= 1 ? grass.far : grass.id);
+        const [short, tall] = bloom ? SWARD_FLOWER_HEIGHT : grass.height;
+        const height = short + (tall - short) * size;
+
+        // Stood on the face, turned about it.
+        clumpNorth.set(0, 1, 0).projectOnPlane(faceUp);
+        if (clumpNorth.lengthSq() < 1e-8) clumpNorth.set(1, 0, 0).projectOnPlane(faceUp);
+        clumpNorth.normalize();
+        clumpAcross.crossVectors(faceUp, clumpNorth).normalize();
+        clumpBasis.makeBasis(clumpAcross, faceUp, clumpNorth);
+        quaternion.setFromRotationMatrix(clumpBasis);
+        quaternion.multiply(spin.setFromAxisAngle(AXIS_Y, yaw));
+        scaleVector.setScalar(height);
+        world4.compose(scratch.copy(direction).multiplyScalar(radius - SWARD_BURY), quaternion, scaleVector);
+        clumpLocal.multiplyMatrices(tileInverse, world4);
+        faceUp.applyMatrix3(inverseRotation).normalize();
+        sown.push({
+          clump,
+          matrix: clumpLocal.elements.slice(),
+          nx: faceUp.x,
+          ny: faceUp.y,
+          nz: faceUp.z,
+          r: ground.r * shade,
+          g: ground.g * shade,
+          b: ground.b * shade,
+          rank: siteRank,
+        });
+        vertices += clump.triangles * 3;
+      }
+    }
+    if (sown.length === 0) return null;
+
+    const position = new Float32Array(vertices * 3);
+    const normal = new Int8Array(vertices * 3);
+    const color = new Uint8Array(vertices * 3);
+    const rootAttribute = new Float32Array(vertices * 4);
+    let cursor = 0;
+    for (const item of sown) {
+      const e = item.matrix;
+      const source = item.clump;
+      const nx = Math.round(item.nx * 127);
+      const ny = Math.round(item.ny * 127);
+      const nz = Math.round(item.nz * 127);
+      for (let v = 0; v < source.rise.length; v++) {
+        const x = source.position[v * 3]!;
+        const y = source.position[v * 3 + 1]!;
+        const z = source.position[v * 3 + 2]!;
+        const o = cursor * 3;
+        position[o] = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
+        position[o + 1] = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
+        position[o + 2] = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
+        rootAttribute[cursor * 4] = e[12]!;
+        rootAttribute[cursor * 4 + 1] = e[13]!;
+        rootAttribute[cursor * 4 + 2] = e[14]!;
+        rootAttribute[cursor * 4 + 3] = item.rank;
+        normal[o] = nx;
+        normal[o + 1] = ny;
+        normal[o + 2] = nz;
+        if (source.paint[v * 3]! < 0) {
+          const rise = source.rise[v]!;
+          tint.setRGB(item.r, item.g, item.b).multiplyScalar(SWARD_ROOT + (SWARD_TIP - SWARD_ROOT) * rise);
+          const grey = (tint.r + tint.g + tint.b) / 3;
+          const saturation = 1 + (SWARD_TIP_SATURATION - 1) * rise;
+          tint.setRGB(grey + (tint.r - grey) * saturation, grey + (tint.g - grey) * saturation, grey + (tint.b - grey) * saturation);
+        } else tint.setRGB(source.paint[v * 3]!, source.paint[v * 3 + 1]!, source.paint[v * 3 + 2]!);
+        color[o] = Math.round(Math.min(1, Math.max(0, tint.r)) * 255);
+        color[o + 1] = Math.round(Math.min(1, Math.max(0, tint.g)) * 255);
+        color[o + 2] = Math.round(Math.min(1, Math.max(0, tint.b)) * 255);
+        cursor++;
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3, true));
+    geometry.setAttribute('color', new THREE.BufferAttribute(color, 3, true));
+    geometry.setAttribute('root', new THREE.BufferAttribute(rootAttribute, 4));
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, swardPaint);
+    mesh.name = `sward:${tile.key}`;
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    mesh.position.copy(origin);
+    mesh.quaternion.setFromRotationMatrix(tileBasis);
+    return {
+      mesh,
+      triangles: vertices / 3,
+      clumps: sown.length,
+      // 12 of position, 3 of normal, 3 of colour, 16 of root and rank.
+      bytes: vertices * 34,
+      direction: tile.direction.clone(),
+      radius: Math.hypot(tile.halfEast, tile.halfNorth),
+      touchesTown: squares.length > 0,
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Which tiles: finer towards the camera
+  // ------------------------------------------------------------------
+
+  function dropSward(key: string): void {
+    const entry = swardStanding.get(key);
+    if (entry === undefined) return;
+    swardGroup.remove(entry.mesh);
+    entry.mesh.geometry.dispose();
+    swardStanding.delete(key);
+  }
+
+  const eyeDirection = new THREE.Vector3();
+
+  /**
+   * The tiles the sward wants, from the coarsest level down: a tile splits
+   * while the nearest of it is close enough that a rank it lacks is still
+   * standing there. The distance is the camera's, along the ground and up to
+   * it, which is what the vertex stage measures.
+   */
+  function swardTiles(eye: THREE.Vector3, height: number, reach: number): Tile[] {
+    const out: Tile[] = [];
+    eyeDirection.copy(eye).normalize();
+    const eyeRadius = eye.length();
+    const far = SWARD_BANDS[SWARD_BANDS.length - 1]! * reach;
+    if (height >= far) return out;
+    const top = SWARD_TILE + SWARD_RANKS - 1;
+    const descend = (tile: Tile): void => {
+      const along = tile.direction.distanceTo(eyeDirection) * eyeRadius;
+      const nearest = Math.max(0, along - Math.hypot(tile.halfEast, tile.halfNorth));
+      const slant = Math.hypot(nearest, height);
+      if (slant >= far) return;
+      const k = tile.level - SWARD_TILE;
+      if (k > 0 && swardLod(slant, reach) < k) {
+        for (let dr = 0; dr < 2; dr++) {
+          for (let dc = 0; dc < 2; dc++) descend(tileAt(tile.level - 1, tile.row * 2 + dr, tile.column * 2 + dc, eye));
+        }
+        return;
+      }
+      tile.distance = along;
+      out.push(tile);
+    };
+    const step = stepOf(top);
+    const lat = Math.asin(Math.max(-1, Math.min(1, eyeDirection.y))) / DEG;
+    const lon = Math.atan2(-eyeDirection.z, eyeDirection.x) / DEG;
+    const span = (far + spanOf(top)) / UNITS_PER_DEGREE;
+    const first = Math.max(0, Math.floor((lat - span + 90) / step));
+    const last = Math.min(rowsOf(top) - 1, Math.floor((lat + span + 90) / step));
+    for (let row = first; row <= last; row++) {
+      const rowLat = -90 + (row + 0.5) * step;
+      const lonStep = 360 / cellsOf(rootOf(row, top), top);
+      const spread = Math.min(180, span / Math.max(Math.cos(rowLat * DEG), 1e-3));
+      const from = Math.floor((lon - spread + 180) / lonStep);
+      const to = Math.floor((lon + spread + 180) / lonStep);
+      for (let column = from; column <= to; column++) descend(tileAt(top, row, column, eye));
+    }
+    return out;
+  }
+
+  function updateSward(viewer: THREE.Vector3, camera: THREE.Camera | undefined): void {
+    const swardStats = stats.sward;
+    if (land === undefined || camera === undefined) return;
+    const reach = swardReach();
+    swardUniforms.swardReach.value = reach;
+    let rescan = false;
+    if (swardProminence !== prominenceVersion()) {
+      swardProminence = prominenceVersion();
+      for (const key of [...swardStanding.keys()]) dropSward(key);
+      swardBarren.clear();
+      rescan = true;
+    }
+    if (swardDetail !== detailVersion()) {
+      swardDetail = detailVersion();
+      rescan = true;
+    }
+    // A town whose floor arrived or went: its lawns did too, so every tile its
+    // square reaches is sown again.
+    if (lawns !== undefined) {
+      const version = lawns.floorChanges(floorsSeen, floorChanges);
+      if (version !== floorsSeen) {
+        floorsSeen = version;
+        rescan = true;
+        for (const [key, entry] of [...swardStanding]) {
+          if (!entry.touchesTown) continue;
+          let touched = floorChanges[0] === -1;
+          for (let c = 0; !touched && c + 3 < floorChanges.length; c += 4) {
+            const dot = entry.direction.x * floorChanges[c]! + entry.direction.y * floorChanges[c + 1]! + entry.direction.z * floorChanges[c + 2]!;
+            touched = dot > Math.cos((entry.radius + floorChanges[c + 3]!) / PLANET_RADIUS);
+          }
+          if (touched) dropSward(key);
+        }
+      }
+    }
+
+    const eye = camera.getWorldPosition(scratch).clone();
+    const ready = land.prepare(viewer);
+    swardStats.ready = ready;
+
+    if (rescan || eye.distanceToSquared(swardScannedAt) > SWARD_RESCAN * SWARD_RESCAN) {
+      swardScannedAt.copy(eye);
+      // Over the ground under the camera, not over the sea: a valley in the
+      // Alps is six hundred units above it.
+      eyeDirection.copy(eye).normalize();
+      const height = Math.max(0, eye.length() - groundRadius(world, eyeDirection));
+      const wanted = swardTiles(eye, height, reach);
+      const keep = new Set(wanted.map((tile) => tile.key));
+      for (const key of [...swardStanding.keys()]) if (!keep.has(key)) dropSward(key);
+      swardQueue = wanted
+        .filter((tile) => !swardStanding.has(tile.key) && !swardBarren.has(tile.key))
+        .sort((a, b) => a.distance - b.distance);
+    }
+
+    let triangles = 0;
+    for (const entry of swardStanding.values()) triangles += entry.triangles;
+    if (ready && swardQueue.length > 0) {
+      const began = performance.now();
+      const allowance = detailBuild(SWARD_BUILD_MS);
+      const cap = SWARD_TRIANGLES * reach * reach;
+      let built = 0;
+      while (swardQueue.length > 0 && triangles < cap && (built === 0 || performance.now() - began < allowance)) {
+        const tile = swardQueue.shift()!;
+        if (swardStanding.has(tile.key)) continue;
+        const sowing = performance.now();
+        const result = sow(tile);
+        const took = performance.now() - sowing;
+        swardTimes.push(took);
+        if (swardTimes.length > 200) swardTimes.shift();
+        const sorted = [...swardTimes].sort((a, b) => a - b);
+        swardStats.slowestTileMs = Math.max(swardStats.slowestTileMs, Number(took.toFixed(2)));
+        swardStats.medianTileMs = Number(sorted[Math.floor(sorted.length / 2)]!.toFixed(2));
+        swardStats.p90TileMs = Number(sorted[Math.floor(sorted.length * 0.9)]!.toFixed(2));
+        built++;
+        if (result === null) {
+          // A tile a town reaches into is empty only until its lawns arrive.
+          if (squares.length === 0) swardBarren.add(tile.key);
+          continue;
+        }
+        swardGroup.add(result.mesh);
+        swardStanding.set(tile.key, result);
+        triangles += result.triangles;
+      }
+      swardStats.lastBuildMs = Number((performance.now() - began).toFixed(2));
+    }
+
+    let clumpCount = 0;
+    let bytes = 0;
+    const byRank = new Array<number>(SWARD_RANKS).fill(0);
+    for (const entry of swardStanding.values()) {
+      clumpCount += entry.clumps;
+      bytes += entry.bytes;
+      const level = Number(entry.mesh.name.split(':')[1]!.split('/')[0]);
+      byRank[level - SWARD_TILE]!++;
+    }
+    swardStats.tiles = swardStanding.size;
+    swardStats.byRank = byRank;
+    swardStats.clumps = clumpCount;
+    swardStats.triangles = triangles;
+    swardStats.megabytes = Number((bytes / 1048576).toFixed(1));
+    swardStats.pending = swardQueue.length;
+    swardStats.barren = swardBarren.size;
+    swardStats.reach = Number(reach.toFixed(2));
+  }
+
   return {
     group,
     stats,
@@ -1811,6 +2629,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     broken,
 
     update(viewer, altitude, camera) {
+      // Nearest first: the grass under your feet before the wood on the hill.
+      updateSward(viewer, camera);
       const range = rangeFor(altitude);
       stats.range = Math.round(range);
       stats.reach = Math.round(reachFor(altitude));
@@ -1937,6 +2757,72 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
      * and a single `Math.random()` anywhere in the chain would give a different
      * wood on every load — and the failure is invisible unless something looks.
      */
+    sampleSward(lat, lon) {
+      const level = SWARD_TILE;
+      const step = stepOf(level);
+      const row = Math.min(rowsOf(level) - 1, Math.max(0, Math.floor((lat + 90) / step)));
+      const cells = cellsOf(rootOf(row, level), level);
+      const column = Math.floor((((lon + 180) % 360) / 360) * cells);
+      const tile = tileAt(level, row, column, new THREE.Vector3());
+      const before = { ...stats.sward.refused };
+      const began = performance.now();
+      const result = sow(tile);
+      const ms = performance.now() - began;
+      const after = stats.sward.refused;
+      result?.mesh.geometry.dispose();
+      const direction = new THREE.Vector3(
+        Math.cos(lat * DEG) * Math.cos(lon * DEG), Math.sin(lat * DEG), -Math.cos(lat * DEG) * Math.sin(lon * DEG),
+      );
+      biomeAt(direction.x, direction.y, direction.z, lat, lon, reliefAt(direction.x, direction.y, direction.z), sample);
+      return {
+        tile: tile.key,
+        biome: sample.id,
+        density: groundAt(lat, lon).density,
+        clumps: result?.clumps ?? 0,
+        triangles: result?.triangles ?? 0,
+        squares: squares.length,
+        refused: Object.fromEntries(Object.entries(after).map(([key, value]) => [key, value - before[key as keyof typeof before]])),
+        buildMs: Number(ms.toFixed(2)),
+      };
+    },
+
+    verifySward(lat, lon) {
+      const level = SWARD_TILE + 1;
+      const step = stepOf(level);
+      const row = Math.min(rowsOf(level) - 1, Math.max(0, Math.floor((lat + 90) / step)));
+      const cells = cellsOf(rootOf(row, level), level);
+      const column = Math.floor((((lon + 180) % 360) / 360) * cells);
+      const roots = (tile: Tile, rank: number): number[][] => {
+        const result = sow(tile);
+        if (result === null) return [];
+        result.mesh.updateMatrixWorld(true);
+        const attribute = result.mesh.geometry.getAttribute('root');
+        const found = new Map<string, number[]>();
+        const point = new THREE.Vector3();
+        for (let v = 0; v < attribute.count; v++) {
+          if (attribute.getW(v) < rank) continue;
+          point.set(attribute.getX(v), attribute.getY(v), attribute.getZ(v)).applyMatrix4(result.mesh.matrixWorld);
+          found.set(`${point.x.toFixed(2)},${point.y.toFixed(2)},${point.z.toFixed(2)}`, point.toArray());
+        }
+        result.mesh.geometry.dispose();
+        return [...found.values()];
+      };
+      const parent = roots(tileAt(level, row, column, new THREE.Vector3()), 1);
+      const children: number[][] = [];
+      for (let dr = 0; dr < 2; dr++) {
+        for (let dc = 0; dc < 2; dc++) children.push(...roots(tileAt(level - 1, row * 2 + dr, column * 2 + dc, new THREE.Vector3()), 1));
+      }
+      let worst = 0;
+      let unmatched = 0;
+      for (const a of parent) {
+        let best = Infinity;
+        for (const b of children) best = Math.min(best, Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!));
+        if (best > 0.05) unmatched++;
+        worst = Math.max(worst, best);
+      }
+      return { tile: `${level}/${row}/${column}`, parent: parent.length, children: children.length, unmatched, worstGap: Number(worst.toFixed(4)) };
+    },
+
     verify(lat, lon, level = 0) {
       const step = stepOf(level);
       const row = Math.min(rowsOf(level) - 1, Math.max(0, Math.floor((lat + 90) / step)));

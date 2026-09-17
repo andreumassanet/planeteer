@@ -846,16 +846,37 @@ const MOSAIC_TILT = 6;
 const MOSAIC_FINE_SHARE = 2 / 3;
 
 /**
- * The functions the land's fragment stage gets. Dave Hoskins' hash without a
- * sine, because the input is a cell id in the hundreds and `fract(sin(x) *
- * 43758.5)` at that magnitude is whatever the vendor's `sin` does past 2 pi.
- * The hex tiling is the Voronoi of two rectangular lattices, one on
- * half-integers and one on integers, so the id it returns is unique per cell.
+ * The patches: ground a shade lusher or a shade drier than its biome, in blots
+ * a few hundred units across.
+ *
+ * The hex cells are a grain and nothing bigger than a grain: at 12 units they
+ * are under the eye's notice past a stone's throw, and a plain seen from the
+ * road was one colour to the horizon, which is what the user saw as flat
+ * (2026-09-17, *noto el suelo muy plano*). A blot is value noise in world
+ * space — three dimensions, so it has no plane to hand over and no seam — at
+ * two scales, `PATCH_BROAD` for the field and `PATCH_FINE` for the edge of it.
+ * It moves the light by `PATCH_LIGHT` either way everywhere, and the hue only
+ * where the ground is green: a lush blot is deeper and bluer, a dry one warmer
+ * and yellower, and snow and sand take the light and nothing else.
+ *
+ * **One function for the land and the sward** (`vegetation.ts`), so a blade of
+ * grass is the blot it grows in.
  */
-const MOSAIC_GLSL = /* glsl */ `
-varying vec3 vAtlasPos;
-uniform float atlasMosaic;
-uniform float atlasFlag;
+const PATCH_BROAD = 260;
+const PATCH_FINE = 75;
+const PATCH_LIGHT = 0.22;
+
+const [MOSAIC_LOW, MOSAIC_HIGH] = MOSAIC_LAND;
+
+/**
+ * The ground's own marks, as functions both fragment stages call: the hex cell
+ * and its tone, and the patches. Dave Hoskins' hash without a sine, because the
+ * input is a cell id in the hundreds and `fract(sin(x) * 43758.5)` at that
+ * magnitude is whatever the vendor's `sin` does past 2 pi. The hex tiling is
+ * the Voronoi of two rectangular lattices, one on half-integers and one on
+ * integers, so the id it returns is unique per cell.
+ */
+export const GROUND_MARKS_GLSL = /* glsl */ `
 float atlasHash(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
   q += dot(q, q.yzx + 33.33);
@@ -871,7 +892,60 @@ vec2 atlasHexCell(vec2 p) {
   vec4 c = floor(vec4(p, p - vec2(0.5, 1.0)) / s.xyxy) + 0.5;
   vec4 h = vec4(p - c.xy * s, p - (c.zw + 0.5) * s);
   return dot(h.xy, h.xy) < dot(h.zw, h.zw) ? c.xy : c.zw + 0.5;
+}
+// The plane the cells are tiled in: the dominant axis of the position.
+vec2 atlasPlaneOf(vec3 pos) {
+  vec3 a = abs(pos);
+  return (a.y >= a.x && a.y >= a.z) ? pos.xz : (a.x >= a.z ? pos.zy : pos.xy);
+}
+float atlasCellTone(vec2 plane, out vec2 cell) {
+  cell = atlasHexCell(plane * ${(1 / HEX_CELL).toFixed(8)});
+  vec2 group = atlasHexCell(plane * ${(1 / (HEX_CELL * HEX_SUPER)).toFixed(8)});
+  return ${((MOSAIC_LOW + MOSAIC_HIGH) / 2).toFixed(5)}
+    + (atlasHash(cell) - 0.5) * ${((MOSAIC_HIGH - MOSAIC_LOW) * MOSAIC_FINE_SHARE).toFixed(5)}
+    + (atlasHash(group + vec2(0.37, 0.71)) - 0.5) * ${((MOSAIC_HIGH - MOSAIC_LOW) * (1 - MOSAIC_FINE_SHARE)).toFixed(5)};
+}
+// The cell's lean, on a view-space normal; see \`MOSAIC_TILT\`.
+vec3 atlasLeanOf(vec3 normal, vec2 cell, float amount) {
+  // A direction of the cell's own, world space into view space by the view
+  // matrix alone — the camera carries no scale — then flattened onto the
+  // face, so the lean is at most MOSAIC_TILT whatever the hash returned.
+  vec3 lean = mat3(viewMatrix) * normalize(atlasHash3(cell) * 2.0 - 1.0);
+  lean -= normal * dot(lean, normal);
+  return normalize(normal + lean * (${Math.tan((MOSAIC_TILT * Math.PI) / 180).toFixed(5)} * amount));
+}
+float atlasHash13(vec3 p) {
+  p = fract(p * 0.1031);
+  p += dot(p, p.zyx + 31.32);
+  return fract((p.x + p.y) * p.z);
+}
+float atlasNoise(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(atlasHash13(i), atlasHash13(i + vec3(1, 0, 0)), f.x),
+        mix(atlasHash13(i + vec3(0, 1, 0)), atlasHash13(i + vec3(1, 1, 0)), f.x), f.y),
+    mix(mix(atlasHash13(i + vec3(0, 0, 1)), atlasHash13(i + vec3(1, 0, 1)), f.x),
+        mix(atlasHash13(i + vec3(0, 1, 1)), atlasHash13(i + vec3(1, 1, 1)), f.x), f.y),
+    f.z);
+}
+vec3 atlasPatches(vec3 colour, vec3 pos) {
+  float blot = atlasNoise(pos * ${(1 / PATCH_BROAD).toFixed(8)}) * 0.65
+    + atlasNoise(pos * ${(1 / PATCH_FINE).toFixed(8)} + 17.0) * 0.35;
+  // A sum of smoothed lattice values huddles round a half; spread it back out.
+  blot = clamp((blot - 0.5) * 2.4 + 0.5, 0.0, 1.0);
+  float green = clamp((colour.g - max(colour.r, colour.b)) / max(colour.g, 1e-3) * 4.0, 0.0, 1.0);
+  vec3 tinted = colour * (1.0 + (blot - 0.5) * ${(PATCH_LIGHT * 2).toFixed(3)});
+  tinted = mix(tinted, tinted * vec3(0.8, 0.95, 0.78), smoothstep(0.5, 0.1, blot) * green);
+  return mix(tinted, tinted * vec3(1.18, 1.08, 0.72), smoothstep(0.5, 0.9, blot) * green);
 }`;
+
+const MOSAIC_GLSL = /* glsl */ `
+varying vec3 vAtlasPos;
+uniform float atlasMosaic;
+uniform float atlasFlag;
+${GROUND_MARKS_GLSL}`;
 
 /**
  * How fast the mosaic gets out of the flag's way.
@@ -923,11 +997,6 @@ const MOSAIC_YIELD = 2;
 function mosaic(material: THREE.MeshToonMaterial): void {
   const uniforms = { atlasMosaic: { value: 1 }, atlasFlag: { value: 0 } };
   material.userData.uniforms = uniforms;
-  const [low, high] = MOSAIC_LAND;
-  const mid = (low + high) / 2;
-  const fine = (high - low) * MOSAIC_FINE_SHARE;
-  const coarse = (high - low) * (1 - MOSAIC_FINE_SHARE);
-  const lean = Math.tan(MOSAIC_TILT * DEG);
   /** Flipped once, by `land-flags.ts`, when the attribute is on the geometry. */
   let flagged = false;
   material.onBeforeCompile = (shader) => {
@@ -956,19 +1025,18 @@ function mosaic(material: THREE.MeshToonMaterial): void {
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
-  vec3 atlasAbs = abs(vAtlasPos);
-  vec2 atlasPlane = (atlasAbs.y >= atlasAbs.x && atlasAbs.y >= atlasAbs.z) ? vAtlasPos.xz
-    : (atlasAbs.x >= atlasAbs.z ? vAtlasPos.zy : vAtlasPos.xy);
+  vec2 atlasPlane = atlasPlaneOf(vAtlasPos);
   // A cell smaller than a pixel is noise, especially when its normal changes
   // the cel band. Fade both tone and tilt before that happens, even with B off.
   float atlasFootprint = max(length(dFdx(atlasPlane)), length(dFdy(atlasPlane)));
-  float atlasQuiet = (1.0 - min(1.0, atlasFlag * ${MOSAIC_YIELD.toFixed(1)}))
+  float atlasYield = 1.0 - min(1.0, atlasFlag * ${MOSAIC_YIELD.toFixed(1)});
+  float atlasQuiet = atlasYield
     * (1.0 - smoothstep(${(HEX_CELL * 0.4).toFixed(1)}, ${(HEX_CELL * 1.2).toFixed(1)}, atlasFootprint));
-  vec2 atlasCell = atlasHexCell(atlasPlane * ${(1 / HEX_CELL).toFixed(8)});
-  vec2 atlasSuper = atlasHexCell(atlasPlane * ${(1 / (HEX_CELL * HEX_SUPER)).toFixed(8)});
-  float atlasTone = ${mid.toFixed(5)}
-    + (atlasHash(atlasCell) - 0.5) * ${fine.toFixed(5)}
-    + (atlasHash(atlasSuper + vec2(0.37, 0.71)) - 0.5) * ${coarse.toFixed(5)};
+  vec2 atlasCell;
+  float atlasTone = atlasCellTone(atlasPlane, atlasCell);
+  // The patches go the same way when a pixel covers a good share of the finer blot.
+  diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, vAtlasPos),
+    atlasMosaic * atlasYield * (1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasFootprint)));
   diffuseColor.rgb *= mix(1.0, atlasTone, atlasMosaic * atlasQuiet);${
     flagged
       ? /* glsl */ `
@@ -990,12 +1058,7 @@ function mosaic(material: THREE.MeshToonMaterial): void {
     // Squared, so the relief holds until the flag is well over half way in.
     vec3 atlasSphere = normalize(mat3(viewMatrix) * normalize(vAtlasPos));
     normal = normalize(mix(normal, atlasSphere, atlasFlag * atlasFlag));
-    // A direction of the cell's own, world space into view space by the view
-    // matrix alone — the camera carries no scale — then flattened onto the
-    // face, so the lean is at most MOSAIC_TILT whatever the hash returned.
-    vec3 atlasLean = mat3(viewMatrix) * normalize(atlasHash3(atlasCell) * 2.0 - 1.0);
-    atlasLean -= normal * dot(atlasLean, normal);
-    normal = normalize(normal + atlasLean * (${lean.toFixed(5)} * atlasMosaic * atlasQuiet));
+    normal = atlasLeanOf(normal, atlasCell, atlasMosaic * atlasQuiet);
   }`,
       );
   };
