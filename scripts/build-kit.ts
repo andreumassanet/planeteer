@@ -1,5 +1,5 @@
 /**
- * The kit: CC0 vehicles, plants and animals -> public/models/{traffic,nature,fauna}/*.bin
+ * The kit: CC0 vehicles, plants, buildings and animals -> public/models/{traffic,nature,buildings,fauna}/*.bin
  *
  *   node scripts/build-kit.ts          # write every file
  *   node scripts/build-kit.ts --dry    # report and write nothing
@@ -7,9 +7,9 @@
  * Sources, all CC0 1.0, downloaded to ../.cache/assets/ (see the LICENSE.txt
  * this writes beside the files, which names each one):
  *
- * - Kenney, "Car Kit" and "Watercraft Kit" (https://kenney.nl/assets), GLB,
- *   coloured through one small palette texture a kit; "Nature Kit", GLB in
- *   flat material colours.
+ * - Kenney, "Car Kit", "Watercraft Kit", "City Kit (Suburban)" and "City Kit
+ *   (Commercial)" (https://kenney.nl/assets), GLB, coloured through one small
+ *   palette texture a kit; "Nature Kit", GLB in flat material colours.
  * - Quaternius, "Ultimate Animated Animals" (glTF), "Farm Animal Pack" (FBX),
  *   "Public Transport" (FBX/OBJ) (https://quaternius.com), flat colour a
  *   material.
@@ -297,6 +297,13 @@ interface StaticEntry {
   yaw?: number;
   /** Mesh names that are wheels, to be rebuilt as a tyre and a hub. */
   wheels?: RegExp;
+  /**
+   * The atlas's swatch grid, columns by rows, when its swatches are gradients.
+   * Kenney's City Kits shade half their swatches top to bottom, and a wall's big
+   * triangles span one: read at each centroid, one wall comes out in a patchwork
+   * of tones. Snapped to the swatch's middle, a swatch is one colour.
+   */
+  grid?: [number, number];
 }
 
 const TRAFFIC: StaticEntry[] = [
@@ -339,6 +346,26 @@ const NATURE: StaticEntry[] = [
   ...['tree_palmTall', 'tree_palm', 'tree_palmBend', 'tree_plateau', 'tree_cone'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
   ...['cactus_tall', 'cactus_short', 'plant_bushLarge', 'plant_bush', 'plant_bushDetailed'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
   ...['stone_largeA', 'stone_largeB', 'stone_largeC', 'stone_largeD', 'grass_leafs', 'plant_flatTall', 'plant_flatShort', 'flower_redA', 'flower_yellowA'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),
+];
+
+const KENNEY_SUBURBAN = 'kenney/city-kit-suburban/Models/GLB format/';
+const KENNEY_COMMERCIAL = 'kenney/city-kit-commercial/Models/GLB format/';
+/** Both City Kits' `colormap.png`: 16 swatches by 4, each 32 by 128 pixels. */
+const CITY_GRID: [number, number] = [16, 4];
+
+/**
+ * The buildings of a near town in the regions that have them in the style:
+ * Kenney's City Kits (CC0) — suburban houses, commercial blocks, towers. The
+ * heaviest Kenney models are left out: every house kept is under 1,650
+ * triangles and every block under 1,900.
+ */
+const BUILDINGS: StaticEntry[] = [
+  ...['a', 'c', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 'u'].map((t) => ({ id: `suburban-${t}`, source: `${KENNEY_SUBURBAN}building-type-${t}.glb`, grid: CITY_GRID })),
+  ...['a', 'b', 'c', 'd', 'e', 'f', 'h'].map((t) => ({ id: `commercial-${t}`, source: `${KENNEY_COMMERCIAL}building-${t}.glb`, grid: CITY_GRID })),
+  ...['a', 'b', 'c', 'd', 'e'].map((t) => ({ id: `skyscraper-${t}`, source: `${KENNEY_COMMERCIAL}building-skyscraper-${t}.glb`, grid: CITY_GRID })),
+  // CreativeTrio's wooden church (Poly Pizza, CC0) was the steeple church's
+  // candidate and is left out: its colours are a JPEG palette embedded in the
+  // GLB, and the bake reads PNG only.
 ];
 
 interface RigEntry {
@@ -457,7 +484,13 @@ async function bakeStatic(entries: StaticEntry[], file: string): Promise<number>
     const holder = new THREE.Group();
     holder.rotation.y = entry.yaw ?? 0;
     holder.add(loaded.scene);
-    const model = modelFrom(holder, entry.id, { swatch: pngSwatch });
+    const grid = entry.grid;
+    const swatch =
+      grid === undefined
+        ? pngSwatch
+        : (texture: THREE.Texture, u: number, v: number, into: THREE.Color) =>
+            pngSwatch(texture, (Math.floor((u - Math.floor(u)) * grid[0]) + 0.5) / grid[0], (Math.floor((v - Math.floor(v)) * grid[1]) + 0.5) / grid[1], into);
+    const model = modelFrom(holder, entry.id, { swatch });
     const geometry = indexed(model);
     geometry.userData.slots = slotTable(model);
     const mesh = new THREE.Mesh(geometry, material);
@@ -614,20 +647,22 @@ async function bakeFauna(): Promise<number> {
   return total;
 }
 
-const LICENSE = `Vehicles and animals in this directory, rebuilt by scripts/build-kit.ts.
+const LICENSE = `The models in this directory, rebuilt by scripts/build-kit.ts.
 Geometry, colours and animation clips are unchanged except where the script
 says: wheels rebuilt, materials merged into colour slots, normals creased.
 
-Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit. License: CC0 1.0 Universal.
+Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit, City Kit (Suburban),
+City Kit (Commercial). License: CC0 1.0 Universal.
 Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
 Public Transport. License: CC0 1.0 Universal.
 `;
 
 const trafficBytes = await bakeStatic(TRAFFIC, 'traffic/kit.bin');
 const natureBytes = await bakeStatic(NATURE, 'nature/kit.bin');
+const buildingBytes = await bakeStatic(BUILDINGS, 'buildings/kit.bin');
 const faunaBytes = await bakeFauna();
 console.log(report.join('\n'));
-console.log(`total ${kb(trafficBytes + natureBytes + faunaBytes)} gzipped`);
+console.log(`total ${kb(trafficBytes + natureBytes + buildingBytes + faunaBytes)} gzipped`);
 if (!DRY) {
-  for (const directory of ['traffic', 'nature', 'fauna']) writeFileSync(join(OUT, directory, 'LICENSE.txt'), LICENSE);
+  for (const directory of ['traffic', 'nature', 'buildings', 'fauna']) writeFileSync(join(OUT, directory, 'LICENSE.txt'), LICENSE);
 }

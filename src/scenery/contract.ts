@@ -373,6 +373,16 @@ export interface RegionStyle {
   spacing: number;
   /** Share of the plots outside the built core that get a tree. 0 is tundra. */
   greenery: number;
+
+  /**
+   * Which of `buildings` and `civic` a **near** town draws from the CC0 kit
+   * instead: code part id -> asset part id (2026-09-17). Near is the rank that
+   * peoples a town (`PEOPLED_RANK` in `settlements.ts`), so a town is built of
+   * baked models while it is one of the nearest and of the cheap code-built
+   * parts beyond, which is the level of detail. A region with no entry is built
+   * in code at every distance: no CC0 pack in the style has its buildings.
+   */
+  assets?: Readonly<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -629,6 +639,18 @@ export interface ModelFit {
    * price of the colour bytes it already has.
    */
   shade?: { slots: RegExp; bottom: number; top: number };
+  /**
+   * Marks the slots `windows` names as glass that lights after dark: the mesh
+   * carries `atlasLit` like a code-built pane, and a per-vertex `atlasWindow`
+   * byte says which of its vertices are the glass, because a painted building is
+   * one mesh and its walls must not glow with it (`flatten` in `settlements.ts`).
+   *
+   * The byte is the window's number, 1 to 255 — each connected patch of glass
+   * is one — so `flatten` draws each window's light on its own, the way a
+   * code-built house lights each pane. With one number for the whole mesh a
+   * house was all dark or all lit, and 28% of them were dark.
+   */
+  windows?: (slot: string, color: THREE.Color) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +678,61 @@ export function sceneryModel(id: string): Model {
     );
   }
   return model;
+}
+
+const windowMasks = new WeakMap<Model, Uint8Array | null>();
+/**
+ * Which window each vertex of a model is glass of, 1 to 255, or 0: its glass
+ * triangles joined where they share a corner, by position. Cached per model,
+ * because every variant of every building asks the same question of it.
+ */
+function windowsOf(model: Model, isWindow: NonNullable<ModelFit['windows']>): Uint8Array | null {
+  const cached = windowMasks.get(model);
+  if (cached !== undefined) return cached;
+  const glass = model.slots.map((slot, i) => isWindow(slot, model.defaults[i]!));
+  const position = model.geometry.getAttribute('position');
+  const index = model.geometry.index;
+  const corners = index ? index.count : position.count;
+  const vertexAt = (i: number) => (index ? index.getX(i) : i);
+  const parent = new Int32Array(position.count).map((_, i) => i);
+  const find = (x: number): number => {
+    while (parent[x] !== x) x = parent[x] = parent[parent[x]!]!;
+    return x;
+  };
+  const byPoint = new Map<string, number>();
+  const keyOf = (v: number) => `${Math.round(position.getX(v) * 1e4)},${Math.round(position.getY(v) * 1e4)},${Math.round(position.getZ(v) * 1e4)}`;
+  let any = false;
+  for (let t = 0; t + 2 < corners; t += 3) {
+    const a = vertexAt(t);
+    if (!glass[model.slot[a]!]) continue;
+    any = true;
+    for (let k = 0; k < 3; k++) {
+      const v = vertexAt(t + k);
+      parent[find(v)] = find(a);
+      const key = keyOf(v);
+      const same = byPoint.get(key);
+      if (same === undefined) byPoint.set(key, v);
+      else parent[find(same)] = find(v);
+    }
+  }
+  if (!any) {
+    windowMasks.set(model, null);
+    return null;
+  }
+  const mask = new Uint8Array(position.count);
+  const numbers = new Map<number, number>();
+  for (let v = 0; v < position.count; v++) {
+    if (!glass[model.slot[v]!]) continue;
+    const root = find(v);
+    let number = numbers.get(root);
+    if (number === undefined) {
+      number = (numbers.size % 255) + 1;
+      numbers.set(root, number);
+    }
+    mask[v] = number;
+  }
+  windowMasks.set(model, mask);
+  return mask;
 }
 
 const radii = new WeakMap<Model, number>();
@@ -727,6 +804,85 @@ function shadeUp(model: Model, geometry: THREE.BufferGeometry, shade: NonNullabl
     c.copy(toned(c, shade.bottom + (shade.top - shade.bottom) * t));
     color.setXYZ(v, c.r, c.g, c.b);
   }
+}
+
+/**
+ * A building's paint: the region's `walls`, `roofs` and `trim`, found on a pack
+ * model by what its slots *are* rather than by what they are called, because an
+ * atlas-coloured pack names nothing — Kenney's City Kits are a hundred swatches
+ * of one `colormap`.
+ *
+ * - **Glass** is `isGlass` and goes to `slate` at `GLASS_TONE`.
+ * - **Roof** is a slot whose faces point up on average (the mean normal's
+ *   height over 0.45) and stand in the upper half of the model.
+ * - **Walls** are the largest remaining colour family by vertex count — every
+ *   swatch within a small hue and saturation of the largest slot — toned by
+ *   their own lightness against the family's mean.
+ * - **Trim** is every remaining slot darker than the walls; anything else keeps
+ *   its nearest palette colour.
+ */
+export function buildingPaint(
+  model: Model,
+  colors: { walls: number; roofs: number; trim: number },
+  isGlass: (slot: string, color: THREE.Color) => boolean,
+): Paint {
+  const count = model.slots.length;
+  const shares = new Array<number>(count).fill(0);
+  const up = new Array<number>(count).fill(0);
+  const height = new Array<number>(count).fill(0);
+  const normal = model.geometry.getAttribute('normal');
+  const position = model.geometry.getAttribute('position');
+  const low = model.box.min.y;
+  const span = Math.max(1e-6, model.box.max.y - low);
+  for (let v = 0; v < model.slot.length; v++) {
+    const s = model.slot[v]!;
+    shares[s]!++;
+    up[s]! += normal.getY(v);
+    height[s]! += (position.getY(v) - low) / span;
+  }
+  const hsl = model.defaults.map((color) => {
+    const out = { h: 0, s: 0, l: 0 };
+    color.clone().convertLinearToSRGB().getHSL(out);
+    return out;
+  });
+  const role = new Array<'glass' | 'roof' | 'wall' | 'trim' | 'other'>(count).fill('other');
+  for (let i = 0; i < count; i++) {
+    if (shares[i] === 0) continue;
+    if (isGlass(model.slots[i]!, model.defaults[i]!)) role[i] = 'glass';
+    else if (up[i]! / shares[i]! > 0.45 && height[i]! / shares[i]! > 0.5) role[i] = 'roof';
+  }
+  let lead = -1;
+  for (let i = 0; i < count; i++) if (role[i] === 'other' && (lead < 0 || shares[i]! > shares[lead]!)) lead = i;
+  const near = (i: number, j: number) => {
+    const dh = Math.min(Math.abs(hsl[i]!.h - hsl[j]!.h), 1 - Math.abs(hsl[i]!.h - hsl[j]!.h));
+    return (dh < 0.06 || (hsl[i]!.s < 0.15 && hsl[j]!.s < 0.15)) && Math.abs(hsl[i]!.s - hsl[j]!.s) < 0.25;
+  };
+  if (lead >= 0) {
+    for (let i = 0; i < count; i++) if (role[i] === 'other' && near(i, lead) && hsl[i]!.l > hsl[lead]!.l - 0.2) role[i] = 'wall';
+    for (let i = 0; i < count; i++) if (role[i] === 'other' && hsl[i]!.l < hsl[lead]!.l) role[i] = 'trim';
+  }
+  const meanOf = (which: string) => {
+    let sum = 0;
+    let weight = 0;
+    for (let i = 0; i < count; i++) {
+      if (role[i] !== which) continue;
+      sum += hsl[i]!.l * shares[i]!;
+      weight += shares[i]!;
+    }
+    return weight > 0 ? sum / weight : 0.5;
+  };
+  const means = { roof: meanOf('roof'), wall: meanOf('wall'), trim: meanOf('trim') };
+  const glass = toned(PALETTE.slate, GLASS_TONE);
+  return (slot, original) => {
+    const i = model.slots.indexOf(slot);
+    const which = role[i];
+    const ratio = (mean: number) => THREE.MathUtils.clamp(mean > 0 ? hsl[i]!.l / mean : 1, 0.75, 1.25);
+    if (which === 'glass') return glass;
+    if (which === 'roof') return toned(colors.roofs, ratio(means.roof));
+    if (which === 'wall') return toned(colors.walls, ratio(means.wall));
+    if (which === 'trim') return toned(colors.trim, ratio(means.trim));
+    return onPalette(original);
+  };
 }
 
 export function createSceneryContext(base: MonumentContext = createContext()): SceneryContext {
@@ -902,6 +1058,13 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
     if (!Number.isFinite(k)) throw new Error(`model '${id}': a fit needs a height, a width, a length or a radius`);
     const mesh = painted(model, paint);
     if (fit.shade !== undefined) shadeUp(model, mesh.geometry, fit.shade);
+    if (fit.windows !== undefined) {
+      const mask = windowsOf(model, fit.windows);
+      if (mask !== null) {
+        mesh.geometry.setAttribute('atlasWindow', new THREE.BufferAttribute(mask, 1));
+        mesh.userData.atlasLit = 1;
+      }
+    }
     // Centred on its axis before anything turns it, so a yaw spins it in place.
     mesh.position.set(-(model.box.min.x + model.box.max.x) / 2, -model.box.min.y, -(model.box.min.z + model.box.max.z) / 2);
     mesh.castShadow = true;
@@ -1091,6 +1254,12 @@ export interface ScenicPart {
   /** One line on the sheet: what this is and what it is for. */
   note?: string;
   /**
+   * A triangle cap of the part's own, over its kind's. **A baked model's**: a
+   * Kenney house is a thousand triangles where a code-built one is two hundred,
+   * and the kind's cap is kept tight for the parts built in code.
+   */
+  triangles?: number;
+  /**
    * Builds **one variant**.
    *
    * Deterministic in `rng` and `style` and nothing else — no `Math.random()`, no
@@ -1180,8 +1349,9 @@ export function validatePart(part: ScenicPart, group: THREE.Group): string[] {
   if (height < kind.minHeight) {
     problems.push(`is only ${round(height)} tall — under the '${part.kind}' floor of ${kind.minHeight}`);
   }
-  if (triangles > kind.triangles) {
-    problems.push(`${triangles} triangles, over the '${part.kind}' budget of ${kind.triangles}`);
+  const budget = part.triangles ?? kind.triangles;
+  if (triangles > budget) {
+    problems.push(`${triangles} triangles, over the '${part.id}' budget of ${budget}`);
   }
   if (meshes > kind.meshes) {
     problems.push(`${meshes} meshes, over the '${part.kind}' budget of ${kind.meshes}`);

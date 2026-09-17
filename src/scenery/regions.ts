@@ -81,6 +81,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.5,
     greenery: 0.75,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block' },
   },
 
   'atlantic-europe': {
@@ -113,6 +114,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.15,
     greenery: 0.6,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper' },
   },
 
   'east-europe': {
@@ -145,6 +147,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.35,
     greenery: 0.6,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper' },
   },
 
   mediterranean: {
@@ -178,6 +181,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.1,
     greenery: 0.4,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block' },
   },
 
   maghreb: {
@@ -400,6 +404,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.6,
     greenery: 0.65,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper' },
   },
 
   'latin-america': {
@@ -432,6 +437,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.15,
     greenery: 0.45,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block' },
   },
 
   oceania: {
@@ -464,6 +470,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.7,
     greenery: 0.5,
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper' },
   },
 
   polar: {

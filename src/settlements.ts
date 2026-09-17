@@ -439,6 +439,14 @@ const PEOPLED_RANK = 12;
 const UNPEOPLE_RANK = 20;
 
 /**
+ * How urban a town must be (`urbanityOf`) before its region's towers are towers:
+ * 0.5 is a place of 200,000. Below it `TOWER_PART` is built as `TOWERLESS_PART`.
+ */
+const TOWER_URBANITY = 0.5;
+const TOWER_PART = 'skyscraper';
+const TOWERLESS_PART = 'city-block';
+
+/**
  * People in a town, and vehicles at its kerbs.
  *
  * Both ride `urbanityOf`, which is already the one number that says how urban a
@@ -730,14 +738,16 @@ function flatten(
     // A painted part (`ctx.painted`) carries its colours on the vertices.
     const paint = piece.material.userData.atlasPainted === true ? geometry.getAttribute('color') : undefined;
     const outline = geometry.getAttribute('outlineNormal') ?? normal;
-    let glow = 0;
-    let bed = 0;
-    if (piece.lit > 0) {
+    // A painted building is one mesh: only the vertices its mask names are
+    // glass, and the mask numbers its windows (`ModelFit.windows`).
+    const windows = geometry.getAttribute('atlasWindow');
+    /** One window's light and its hour, drawn once. */
+    const roll = (): [number, number] => {
       // Keyed on the window's ordinal within the variant rather than on the
       // mesh's index in the traversal, so adding a chimney to a part does not
       // relight every one of its windows.
       const rng = rngFrom(key, 'window', window++);
-      glow = !lottery
+      const glow = !lottery
         ? Math.round(piece.lit * 255)
         : rng.chance(WINDOW_DARK)
           ? 0
@@ -747,7 +757,7 @@ function flatten(
       // `lottery` already draws, and drawn from a forked seed so that changing
       // one does not move the other.
       const draw = rng.unit();
-      bed = bedtimeByte(draw, !lottery || bedtimeNever(draw));
+      const bed = bedtimeByte(draw, !lottery || bedtimeNever(draw));
       if (glow > 0) {
         out.emits = true;
         if (glow > brightest) {
@@ -755,7 +765,12 @@ function flatten(
           out.litBed = bed;
         }
       }
-    }
+      return [glow, bed];
+    };
+    let glow = 0;
+    let bed = 0;
+    if (piece.lit > 0 && windows === undefined) [glow, bed] = roll();
+    const panes = new Map<number, [number, number]>();
     for (let i = 0; i < count; i++) {
       const v = index ? index.getX(i) : i;
       point.fromBufferAttribute(position, v).applyMatrix4(piece.matrix);
@@ -779,8 +794,19 @@ function flatten(
         out.color[cursor + 1] = tint.g;
         out.color[cursor + 2] = tint.b;
       }
-      out.glow[vertex * 2] = glow;
-      out.glow[vertex * 2 + 1] = bed;
+      if (windows === undefined) {
+        out.glow[vertex * 2] = glow;
+        out.glow[vertex * 2 + 1] = bed;
+      } else {
+        const pane = windows.getX(v);
+        let light: [number, number] = [0, 0];
+        if (pane > 0 && piece.lit > 0) {
+          light = panes.get(pane) ?? roll();
+          panes.set(pane, light);
+        }
+        out.glow[vertex * 2] = light[0];
+        out.glow[vertex * 2 + 1] = light[1];
+      }
       cursor += 3;
       vertex++;
     }
@@ -2576,8 +2602,38 @@ export function createSettlements(
    * - **A landmark's cells get nothing**: the town wraps round the monument,
    *   paved under it, and does not build into it.
    */
-  function planTown(slot: Slot, grid: TownGrid): { placed: Placed[] } {
+  /**
+   * The region as a town at this rank builds it: a near town of a region with
+   * `assets` swaps the code parts it names for the baked ones, and every other
+   * town is built as the table says. The swap is on the mixes, so everything
+   * downstream — the fitting, the walls, the lights — reads the part it got.
+   *
+   * **A tower is a city's.** A glass tower beside a church in a town of 68,000
+   * read as a mistake (Kempten, 2026-09-17), so below `TOWER_URBANITY` the
+   * part a region names for its towers is the commercial block instead.
+   */
+  const detailedStyles = new Map<string, RegionStyle>();
+  function styleFor(slot: Slot): RegionStyle {
     const style = slot.style;
+    if (!slot.peopled || style.assets === undefined) return style;
+    const towers = urbanityOf(slot.place.pop) >= TOWER_URBANITY;
+    const key = `${style.id}:${towers}`;
+    let found = detailedStyles.get(key);
+    if (found === undefined) {
+      const assets = style.assets;
+      const swapped = (item: string) => {
+        const to = assets[item] ?? item;
+        return !towers && to === TOWER_PART ? TOWERLESS_PART : to;
+      };
+      const swap = (mix: readonly Weighted<string>[]) => mix.map((entry) => ({ item: swapped(entry.item), weight: entry.weight }));
+      found = { ...style, buildings: swap(style.buildings), civic: swap(style.civic) };
+      detailedStyles.set(key, found);
+    }
+    return found;
+  }
+
+  function planTown(slot: Slot, grid: TownGrid): { placed: Placed[] } {
+    const style = styleFor(slot);
     const urbanity = urbanityOf(slot.place.pop);
     const band = streetBand(grid, slot.ground.street);
     const cells = grid.cells;
@@ -3056,7 +3112,7 @@ export function createSettlements(
     if (built.size === 0 && centreClear) {
       // The region's smallest house, which is the one building that cannot
       // fail to fit: this is the case where everything else already did.
-      const mix = slot.style.buildings;
+      const mix = styleFor(slot).buildings;
       const lone = cellIndex(grid, 0);
       const loneAt = cellCentre(grid, lone);
       let smallest: string | null = null;

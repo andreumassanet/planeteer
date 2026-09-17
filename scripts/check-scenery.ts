@@ -119,6 +119,15 @@ function drawnColors(group: GroupLike): Set<number> {
   const seen = new Set<number>();
   group.traverse(((object: MeshLike) => {
     if (!object.isMesh) return;
+    // A painted part (a baked model) draws its tones as vertex colours, so they
+    // are read off the colour attribute rather than off the material's stamp.
+    const painted = object.material?.userData.atlasPainted === true ? object.geometry?.getAttribute('color') : undefined;
+    if (painted) {
+      for (let i = 0; i < painted.count; i++) {
+        seen.add((Math.round(painted.getX(i) * 255) << 16) | (Math.round(painted.getY(i) * 255) << 8) | Math.round(painted.getZ(i) * 255));
+      }
+      return;
+    }
     const stamp = object.material?.userData.atlasToon;
     if (typeof stamp === 'number') seen.add(stamp);
   }) as never);
@@ -655,6 +664,15 @@ for (const style of styles) {
     for (const entry of entries) {
       if (!named.has(entry.item)) named.set(entry.item, `${style.id}.${list}`);
       if (!known.has(entry.item)) fail(`region '${style.id}' names '${entry.item}' in ${list} and no such part exists`);
+    }
+  }
+  // A near town's baked buildings are named by the region's `assets`, swapping
+  // a part the same region's mixes name.
+  for (const [code, asset] of Object.entries(style.assets ?? {})) {
+    if (!named.has(asset)) named.set(asset, `${style.id}.assets`);
+    if (!known.has(asset)) fail(`region '${style.id}' swaps '${code}' for '${asset}' and no such part exists`);
+    if (![...style.buildings, ...style.civic].some((entry) => entry.item === code)) {
+      fail(`region '${style.id}' swaps '${code}', which its buildings and civic never draw`);
     }
   }
 }

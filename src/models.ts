@@ -519,6 +519,14 @@ export function onPalette(color: THREE.Color, exclude: readonly number[] = []): 
   return toned(base, factor);
 }
 
+/** Whether a slot is glass: by name, or a pale sky-blue swatch in a palette atlas. */
+export function isGlass(slot: string, color: THREE.Color): boolean {
+  if (/window|glass|windshield/i.test(slot)) return true;
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.clone().convertLinearToSRGB().getHSL(hsl);
+  return hsl.h > 0.52 && hsl.h < 0.64 && hsl.l > 0.72 && hsl.s > 0.4;
+}
+
 /** How many vertices each slot covers. */
 export function slotShares(model: Pick<Model, 'slot' | 'slots'>): number[] {
   const shares = new Array<number>(model.slots.length).fill(0);

@@ -306,10 +306,10 @@ async function start(): Promise<void> {
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
   };
-  // Started now, so the vehicles and the flora download while the ocean and
-  // the land are built rather than after them.
+  // Started now, so the vehicles, the flora and the buildings download while
+  // the ocean and the land are built rather than after them.
   const vehicleKit = deferred.kit.then(async ({ loadModels }) =>
-    (await Promise.all([loadModels('traffic/kit.bin'), loadModels('nature/kit.bin')])).flat(),
+    (await Promise.all([loadModels('traffic/kit.bin'), loadModels('nature/kit.bin'), loadModels('buildings/kit.bin')])).flat(),
   );
 
   // **`roads.bin` is the network, whole.** It used to arrive as a graph over all

@@ -4,7 +4,7 @@ import { measure } from '../monuments/contract.ts';
 import type { Measurements } from '../monuments/contract.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
-import { bodyPaint } from '../models.ts';
+import { bodyPaint, isGlass } from '../models.ts';
 import { sceneryModel } from '../scenery/contract.ts';
 import type { Model, Paint } from '../models.ts';
 import type { Rng, Weighted } from '../scenery/random.ts';
@@ -639,13 +639,7 @@ export interface VehicleFit {
 // The registry is the scenery kit's (`registerSceneryModels`): a vehicle and a
 // tree come out of the same bake and the same file reader.
 
-/** Whether a slot is glass: by name, or a pale sky-blue swatch in a palette atlas. */
-export function isGlass(slot: string, color: THREE.Color): boolean {
-  if (/window|glass|windshield/i.test(slot)) return true;
-  const hsl = { h: 0, s: 0, l: 0 };
-  color.clone().convertLinearToSRGB().getHSL(hsl);
-  return hsl.h > 0.52 && hsl.h < 0.64 && hsl.l > 0.72 && hsl.s > 0.4;
-}
+export { isGlass } from '../models.ts';
 
 export interface SolidSpec {
   color: number;

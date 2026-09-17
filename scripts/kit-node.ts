@@ -27,6 +27,7 @@ export async function registerModelsFromDisk(): Promise<number> {
   const models = [
     ...(await modelsFrom(readFileSync(resolve(MODELS, 'traffic/kit.bin')))),
     ...(await modelsFrom(readFileSync(resolve(MODELS, 'nature/kit.bin')))),
+    ...(await modelsFrom(readFileSync(resolve(MODELS, 'buildings/kit.bin')))),
   ];
   registerSceneryModels(models);
   return models.length;
