@@ -68,9 +68,9 @@ const HIGH = STOREY * 1.47;
 /**
  * **A town built from the City Kits gets the kit's own lamps** (2026-09-17):
  * Kenney's curved and square standards from City Kit (Roads), 92 and 60
- * triangles, their columns in the region's trim and their bulbs lit. A
- * region with no `assets` keeps the lantern below, which suits a medina and a
- * stilt village better than a highway light. The arm reaches `ARM` from the
+ * triangles, their columns in the region's trim and their bulbs lit, where
+ * the kit builds a region's houses or towers. Elsewhere the lantern below
+ * stays, which suits a medina and a stilt village better than a highway light. The arm reaches `ARM` from the
  * column over the street — `settlements.ts` turns each lamp to face its street
  * (`Ground.lampYaws`) — so the footprint is the arm's and not the column's.
  * Quaternius's Victorian standards were the prettier and are 1,028 and 2,486
@@ -88,7 +88,9 @@ export const streetLamp: ScenicPart = {
 
   build(ctx, rng, style) {
     const { THREE, box, lit, taper } = ctx;
-    if (style.assets !== undefined) {
+    // A standard where the kit builds houses or towers: a region that only
+    // swaps its terraces keeps its lantern, which suits its old streets.
+    if (style.assets?.['gabled-house'] !== undefined || style.assets?.['tower-block'] !== undefined) {
       const id = rng.pick(KIT_LAMPS);
       const post = rng.pick(style.trim);
       const model = sceneryModel(id);
