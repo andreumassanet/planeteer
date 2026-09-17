@@ -81,7 +81,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.5,
     greenery: 0.75,
-    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block' },
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'steeple-church': 'clapboard-church' },
   },
 
   'atlantic-europe': {
@@ -409,7 +409,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.6,
     greenery: 0.65,
-    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper' },
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper', 'steeple-church': 'clapboard-church' },
   },
 
   'latin-america': {
@@ -475,7 +475,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.7,
     greenery: 0.5,
-    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper' },
+    assets: { 'gabled-house': 'suburban-house', 'terrace-block': 'city-block', 'tower-block': 'skyscraper', 'steeple-church': 'clapboard-church' },
   },
 
   polar: {
@@ -504,7 +504,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
     ],
     spacing: 1.9,
     greenery: 0.06,
-    assets: { 'gabled-house': 'suburban-house' },
+    assets: { 'gabled-house': 'suburban-house', 'steeple-church': 'clapboard-church' },
   },
 };
 

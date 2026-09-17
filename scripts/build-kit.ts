@@ -84,8 +84,7 @@ interface Pixels {
   rgba: Uint8Array;
 }
 
-function decodePng(file: string): Pixels {
-  const bytes = readFileSync(file);
+function decodePng(file: string, bytes: Buffer = readFileSync(file)): Pixels {
   let offset = 8;
   let width = 0;
   let height = 0;
@@ -175,6 +174,175 @@ const arrayBuffer = (file: string): ArrayBuffer => {
 };
 
 /**
+ * A baseline JPEG, **to the average colour of each 8-by-8 block**: the DC
+ * coefficients and nothing else, the AC ones decoded only to be skipped.
+ *
+ * Enough for a palette atlas, which is flat swatches much larger than a block,
+ * and it is what CreativeTrio's church ships its colours in — the one
+ * candidate the bake had turned away (2026-09-17) because it read PNG only.
+ * Every pixel of a block takes the block's colour; chroma is read at its own
+ * sampling. No progressive JPEG, no arithmetic coding.
+ */
+function decodeJpeg(label: string, bytes: Uint8Array): Pixels {
+  const quant: number[] = [];
+  const tables = new Map<number, Map<number, number>>();
+  let width = 0;
+  let height = 0;
+  let restart = 0;
+  let components: { id: number; h: number; v: number; tq: number; td: number; ta: number; dc: Float32Array; columns: number }[] = [];
+  let offset = 2;
+  let scan = -1;
+  while (offset < bytes.length && scan < 0) {
+    if (bytes[offset] !== 0xff) throw new Error(`${label}: JPEG marker expected at ${offset}`);
+    const marker = bytes[offset + 1]!;
+    offset += 2;
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
+    const segment = bytes.subarray(offset + 2, offset + length);
+    if (marker === 0xdb) {
+      for (let i = 0; i < segment.length; ) {
+        const wide = segment[i]! >> 4;
+        quant[segment[i]! & 15] = wide ? (segment[i + 1]! << 8) | segment[i + 2]! : segment[i + 1]!;
+        i += 1 + 64 * (wide ? 2 : 1);
+      }
+    } else if (marker === 0xc4) {
+      for (let i = 0; i < segment.length; ) {
+        const key = segment[i]!;
+        const counts = segment.subarray(i + 1, i + 17);
+        const codes = new Map<number, number>();
+        let code = 0;
+        let at = i + 17;
+        for (let length = 1; length <= 16; length++) {
+          for (let k = 0; k < counts[length - 1]!; k++) codes.set((length << 16) | code++, segment[at++]!);
+          code <<= 1;
+        }
+        tables.set(key, codes);
+        i = at;
+      }
+    } else if (marker === 0xc0 || marker === 0xc1) {
+      height = (segment[1]! << 8) | segment[2]!;
+      width = (segment[3]! << 8) | segment[4]!;
+      components = Array.from({ length: segment[5]! }, (_, k) => ({
+        id: segment[6 + k * 3]!,
+        h: segment[7 + k * 3]! >> 4,
+        v: segment[7 + k * 3]! & 15,
+        tq: segment[8 + k * 3]!,
+        td: 0,
+        ta: 0,
+        dc: new Float32Array(0),
+        columns: 0,
+      }));
+    } else if (marker === 0xc2 || marker === 0xc3 || marker >= 0xc5 && marker <= 0xcf && marker !== 0xc8 && marker !== 0xcc) {
+      throw new Error(`${label}: only baseline JPEG (marker ${marker.toString(16)})`);
+    } else if (marker === 0xdd) {
+      restart = (segment[0]! << 8) | segment[1]!;
+    } else if (marker === 0xda) {
+      for (let k = 0; k < segment[0]!; k++) {
+        const component = components.find((entry) => entry.id === segment[1 + k * 2])!;
+        component.td = segment[2 + k * 2]! >> 4;
+        component.ta = segment[2 + k * 2]! & 15;
+      }
+      scan = offset + length;
+    }
+    offset += length;
+  }
+  const hMax = Math.max(...components.map((c) => c.h));
+  const vMax = Math.max(...components.map((c) => c.v));
+  const mcuColumns = Math.ceil(width / (8 * hMax));
+  const mcuRows = Math.ceil(height / (8 * vMax));
+  for (const c of components) {
+    c.columns = mcuColumns * c.h;
+    c.dc = new Float32Array(c.columns * mcuRows * c.v);
+  }
+
+  let at = scan;
+  let buffer = 0;
+  let bits = 0;
+  const bit = (): number => {
+    if (bits === 0) {
+      let byte = bytes[at++] ?? 0;
+      if (byte === 0xff) {
+        const next = bytes[at] ?? 0;
+        if (next === 0) at++;
+        else byte = 0;
+      }
+      buffer = byte;
+      bits = 8;
+    }
+    bits--;
+    return (buffer >> bits) & 1;
+  };
+  const receive = (count: number): number => {
+    let value = 0;
+    for (let k = 0; k < count; k++) value = (value << 1) | bit();
+    return value;
+  };
+  const extend = (value: number, count: number): number => (count === 0 ? 0 : value < 1 << (count - 1) ? value - (1 << count) + 1 : value);
+  const decode = (codes: Map<number, number>): number => {
+    let code = 0;
+    for (let length = 1; length <= 16; length++) {
+      code = (code << 1) | bit();
+      const symbol = codes.get((length << 16) | code);
+      if (symbol !== undefined) return symbol;
+    }
+    throw new Error(`${label}: bad Huffman code at ${at}`);
+  };
+
+  const predictors = components.map(() => 0);
+  for (let mcu = 0; mcu < mcuColumns * mcuRows; mcu++) {
+    if (restart > 0 && mcu > 0 && mcu % restart === 0) {
+      bits = 0;
+      while (at < bytes.length && !(bytes[at] === 0xff && bytes[at + 1]! >= 0xd0 && bytes[at + 1]! <= 0xd7)) at++;
+      at += 2;
+      predictors.fill(0);
+    }
+    const mx = mcu % mcuColumns;
+    const my = Math.floor(mcu / mcuColumns);
+    components.forEach((c, index) => {
+      for (let v = 0; v < c.v; v++) {
+        for (let h = 0; h < c.h; h++) {
+          const size = decode(tables.get(c.td)!);
+          predictors[index]! += extend(receive(size), size);
+          c.dc[(my * c.v + v) * c.columns + mx * c.h + h] = (predictors[index]! * quant[c.tq]!) / 8 + 128;
+          for (let k = 1; k < 64; ) {
+            const rs = decode(tables.get(0x10 | c.ta)!);
+            const run = rs >> 4;
+            const magnitude = rs & 15;
+            if (magnitude === 0) {
+              if (run !== 15) break;
+              k += 16;
+              continue;
+            }
+            k += run;
+            receive(magnitude);
+            k++;
+          }
+        }
+      }
+    });
+  }
+
+  const rgba = new Uint8Array(width * height * 4);
+  const sample = (c: (typeof components)[number], x: number, y: number) =>
+    c.dc[Math.floor((y * c.v) / vMax / 8) * c.columns + Math.floor((x * c.h) / hMax / 8)]!;
+  const clamp = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const Y = sample(components[0]!, x, y);
+      const i = (y * width + x) * 4;
+      if (components.length === 1) {
+        rgba.set([clamp(Y), clamp(Y), clamp(Y), 255], i);
+        continue;
+      }
+      const cb = sample(components[1]!, x, y) - 128;
+      const cr = sample(components[2]!, x, y) - 128;
+      rgba.set([clamp(Y + 1.402 * cr), clamp(Y - 0.344136 * cb - 0.714136 * cr), clamp(Y + 1.772 * cb), 255], i);
+    }
+  }
+  return { width, height, rgba };
+}
+
+/**
  * glTF and GLB. Images are taken out of the JSON before the loader sees it,
  * because it would decode them through the DOM; a PNG a material referenced is
  * decoded here instead and hung on a stand-in texture for `pngSwatch`.
@@ -191,11 +359,19 @@ async function loadGltf(file: string): Promise<Loaded> {
   } else {
     json = JSON.parse(bytes.toString('utf8'));
   }
-  const images = (json.images ?? []) as { uri?: string }[];
+  const images = (json.images ?? []) as { uri?: string; bufferView?: number; mimeType?: string }[];
   const textures = (json.textures ?? []) as { source?: number }[];
+  const views = (json.bufferViews ?? []) as { byteOffset?: number; byteLength: number }[];
   const pixelsByTexture = textures.map((texture) => {
-    const uri = images[texture.source ?? -1]?.uri;
-    return uri && !uri.startsWith('data:') ? decodePng(join(dirname(file), decodeURIComponent(uri))) : null;
+    const image = images[texture.source ?? -1];
+    if (image?.uri !== undefined && !image.uri.startsWith('data:')) return decodePng(join(dirname(file), decodeURIComponent(image.uri)));
+    // An image in the GLB's own binary chunk: CreativeTrio's are JPEG.
+    if (image?.bufferView !== undefined && bin !== null) {
+      const view = views[image.bufferView]!;
+      const data = bin.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength);
+      return image.mimeType === 'image/jpeg' ? decodeJpeg(file, data) : decodePng(file, data);
+    }
+    return null;
   });
   const mapOf = new Map<number, number>();
   for (const [index, material] of ((json.materials ?? []) as { pbrMetallicRoughness?: { baseColorTexture?: { index: number } } }[]).entries()) {
@@ -369,9 +545,9 @@ const BUILDINGS: StaticEntry[] = [
   { id: 'lamp-curved', source: `${KENNEY_ROADS}light-curved.glb` },
   { id: 'lamp-square', source: `${KENNEY_ROADS}light-square.glb` },
   { id: 'traffic-light', source: `${KENNEY_ROADS}traffic-light.glb` },
-  // CreativeTrio's wooden church (Poly Pizza, CC0) was the steeple church's
-  // candidate and is left out: its colours are a JPEG palette embedded in the
-  // GLB, and the bake reads PNG only.
+  // CreativeTrio's clapboard church (Poly Pizza, CC0, https://poly.pizza/m/GHzPfvoyzX),
+  // coloured through a JPEG palette in the GLB (`decodeJpeg`).
+  { id: 'church-clapboard', source: 'polypizza/church-creativetrio/church-creativetrio.glb' },
 ];
 
 interface RigEntry {

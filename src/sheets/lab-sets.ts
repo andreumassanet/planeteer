@@ -620,6 +620,8 @@ export const SETS: Record<string, LabSet> = {
         ['city-block', 'atlantic-europe'],
         ['city-block', 'latin-america'],
         ['skyscraper', 'north-america'],
+        ['clapboard-church', 'north-america'],
+        ['clapboard-church', 'nordic'],
       ];
       for (const [id, region] of rows) {
         for (let variant = 0; variant < 4; variant++) {
