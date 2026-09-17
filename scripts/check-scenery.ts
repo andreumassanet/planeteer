@@ -687,10 +687,11 @@ for (const plant of Object.keys(NATIVE_TO)) {
 }
 /**
  * Parts placed by code rather than by a table. The crowd places people, and
- * `settlements.ts` stands `street-lamp` along its own streets (`LAMP_PART`);
- * neither is named by a region or a biome and neither is an orphan.
+ * `settlements.ts` stands `street-lamp` along its own streets (`LAMP_PART`)
+ * and `traffic-light` at a city's middle crossing (`SIGNAL_PART`); none is
+ * named by a region or a biome and none is an orphan.
  */
-const PLACED_BY_CODE = new Set(['street-lamp']);
+const PLACED_BY_CODE = new Set(['street-lamp', 'traffic-light']);
 for (const part of everything) {
   if (part.kind === 'person' || PLACED_BY_CODE.has(part.id)) continue;
   if (!named.has(part.id)) fail(`nothing will ever build '${part.id}' — no region and no biome names it`);

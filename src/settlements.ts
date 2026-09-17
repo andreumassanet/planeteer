@@ -417,6 +417,8 @@ const WIDEST_FOOTPRINT = 55;
  * region tables never could.
  */
 const LAMP_PART = 'street-lamp';
+/** The traffic light a kit-built city stands at its middle crossing. */
+const SIGNAL_PART = 'traffic-light';
 
 // ---------------------------------------------------------------------------
 // The people standing in it, and the vehicles parked in it
@@ -1559,6 +1561,12 @@ export function createSettlements(
      */
     lampYaws: number[];
     /**
+     * The traffic lights of a city's middle crossing (`SIGNAL_PART`), as
+     * quadruples: a position in the settlement's frame and the yaw that turns
+     * the light's face to the traffic it serves.
+     */
+    signals: number[];
+    /**
      * Where a person stands, as triples, and where a vehicle is parked, as
      * quadruples with a yaw on the end.
      *
@@ -1961,7 +1969,7 @@ export function createSettlements(
     pavedCells: ReadonlySet<number>,
   ): Ground {
     const out: Ground = {
-      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], folk: [], kerbs: [], paved: 0,
+      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], folk: [], kerbs: [], paved: 0,
       terraces: new Map(),
       field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
     };
@@ -2138,6 +2146,24 @@ export function createSettlements(
           // world (-sign ox, 0).
           out.lampYaws.push(Math.atan2(Math.sign(ox), 0));
         }
+      }
+    }
+
+    // --- the traffic lights ---
+    //
+    // A city built from the City Kits stands one on each pavement corner of
+    // its middle crossing, in a pinwheel: the light on the (+x, +z) corner
+    // faces +z, the traffic coming in by that mouth, and each corner round the
+    // crossing turns a quarter.
+    if (plazaKey >= 0 && slot.style.assets !== undefined && urbanity >= TOWER_URBANITY) {
+      const middle = cellCentre(grid, grid.shift);
+      const inset = pitch * 0.5 - Math.min(SIDEWALK, pitch * 0.15) * 0.5;
+      const corners: [number, number, number, number][] = [
+        [1, 1, 0, 1], [-1, 1, -1, 0], [-1, -1, 0, -1], [1, -1, 1, 0],
+      ];
+      for (const [sx, sz, fx, fz] of corners) {
+        // The model's lamps face its -x: yaw so that -x lands on (fx, fz).
+        spotAt(middle + sx * inset, middle + sz * inset, out.signals, Math.atan2(fz, -fx), CLEAR_LAMP);
       }
     }
 
@@ -3372,6 +3398,18 @@ export function createSettlements(
         // whole reason the part exists is what it does after sunset.
         glow: rng.range(0.82, 1),
       });
+      vertices += flat.position.length / 3;
+    }
+
+    for (let i = 0; i + 3 < ground.signals.length; i += 4) {
+      const rng = rngFrom(slot.seed, 'signal', i);
+      const flat = variantOf(SIGNAL_PART, slot.style, rng.int(VARIANTS));
+      if (flat === null) break;
+      lampAt.set(ground.signals[i]!, ground.signals[i + 1]!, ground.signals[i + 2]!);
+      quaternion.setFromAxisAngle(AXIS_Y, ground.signals[i + 3]!);
+      scaleVector.setScalar(1);
+      transform.compose(lampAt, quaternion, scaleVector);
+      standing.push({ flat, matrix: transform.clone(), glow: 1 });
       vertices += flat.position.length / 3;
     }
 

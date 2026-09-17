@@ -850,7 +850,7 @@ const peopleParts = new Set(PEOPLE_PART_IDS);
  * as a set of one rather than as a special case, because the next thing placed
  * off a street (a bench, a hydrant, a parked car) joins it here.
  */
-const streetFurniture = new Set(['street-lamp']);
+const streetFurniture = new Set(['street-lamp', 'traffic-light']);
 
 /**
  * A part nothing will ever build, and there are **two** tables that can build
