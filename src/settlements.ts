@@ -446,6 +446,23 @@ const PEOPLED_RANK = 12;
 const UNPEOPLE_RANK = 20;
 
 /**
+ * How many triangles the near towns may cost over what the same towns would
+ * cost far, before the excess is charged to the triangle budget, in total.
+ *
+ * **A near town is the kit's buildings and a crowd, and the budget was sized
+ * for the far ones.** Once the City Kits built the nearest twelve (2026-09-17)
+ * a near town cost three times a far one — 7,409 triangles against 2,343 at
+ * the mean, 13,742 at the p90 — and charged to the one budget it was the far
+ * field that paid: at the same standpoints Madison stood 20 towns where it had
+ * stood 49, Tarragona 21 of 49, Kempten and Ulm 16 of 24. The difference is
+ * charged here instead, up to a quarter of a million triangles, which is twelve
+ * near towns at about the p90 and more than the whole budget at default detail,
+ * so a metropolis standing near still spends into the far field and a village
+ * does not.
+ */
+const NEAR_ALLOWANCE = 240_000;
+
+/**
  * How urban a town must be (`urbanityOf`) before its region's towers are towers:
  * 0.5 is a place of 200,000. Below it `TOWER_PART` is built as `TOWERLESS_PART`.
  */
@@ -3761,13 +3778,21 @@ export function createSettlements(
 
     wanted = [];
     let triangles = 0;
+    let nearExtra = 0;
     for (const candidate of candidates) {
       if (wanted.length >= residentCap) break;
       const slot = slots[candidate.index]!;
       // A settlement already standing knows what it costs; one that is not is
       // estimated from its plots, so the budget cannot be blown by the first
       // metropolis to arrive.
-      const cost = slot.triangles > 0 ? slot.triangles : estimateTriangles(slot);
+      let cost = slot.triangles > 0 ? slot.triangles : estimateTriangles(slot);
+      // What a near town costs over a far one comes out of `NEAR_ALLOWANCE`
+      // first; see there.
+      if (slot.peopled && slot.triangles > 0) {
+        const extra = Math.max(0, Math.min(cost - estimateTriangles(slot), NEAR_ALLOWANCE - nearExtra));
+        nearExtra += extra;
+        cost -= extra;
+      }
       if (triangles + cost > budget && wanted.length > 0) continue;
       triangles += cost;
       wanted.push(candidate.index);
