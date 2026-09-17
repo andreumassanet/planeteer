@@ -33,6 +33,6 @@ export const trafficLight: ScenicPart = {
     const model = sceneryModel('traffic-light');
     const post = rolePaint(model, [[/./, rng.pick(style.trim)]]);
     const paint: Paint = (slot, original) => (isLamp(slot) ? null : post(slot, original));
-    return ctx.fitted('traffic-light', { height: rng.range(5.2, 5.8), radius: 1.18, windows: isLamp }, paint);
+    return ctx.fitted('traffic-light', { height: rng.range(4, 5.95), radius: 1.18, windows: isLamp }, paint);
   },
 };

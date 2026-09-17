@@ -8,7 +8,9 @@ import { isGlass } from '../../models.ts';
  * `terrace-block`; see `RegionStyle.assets`.
  */
 
-const MODELS = Array.from('abcdefh', (t) => `commercial-${t}`);
+// Not `c` and `e`: low and wide, they cannot be squashed into a cell's plan at
+// a block's height without falling under the kind's floor of 13.
+const MODELS = Array.from('abdfh', (t) => `commercial-${t}`);
 const FOOTPRINT = 8.4;
 
 export const cityBlock: ScenicPart = {
