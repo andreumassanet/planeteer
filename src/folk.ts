@@ -83,8 +83,19 @@ const PAINTED_MERGE = new THREE.MeshBasicMaterial();
 PAINTED_MERGE.userData.atlasPainted = true;
 PAINTED_MERGE.userData.atlasToon = PALETTE.white;
 
-/** Everything but the young: the cast has no children, and a scaled adult is not one. */
+/** How tall an adult of the cast is drawn, either side of the hero. */
 const ADULT_HEIGHT: readonly [number, number] = [AVATAR_HEIGHT * 0.9, AVATAR_HEIGHT * 1.08];
+
+/**
+ * How tall a child is, and how many of the people dressed are children.
+ *
+ * The cast has no children and an adult drawn smaller is not one, so a child
+ * is an adult outfit at 0.62 of the hero's height with a head `YOUNG_HEAD`
+ * times its own: about five and a half heads. Never a rider: a person held
+ * seated is asked for at an adult's height.
+ */
+const YOUNG_HEIGHT = AVATAR_HEIGHT * 0.62;
+const YOUNG_SHARE = 0.14;
 
 export function createFolk(ctx: MonumentContext): Folk {
   let cast: Cast | null = null;
@@ -147,7 +158,11 @@ export function createFolk(ctx: MonumentContext): Folk {
     },
     dress(key, region, warmth, tall) {
       if (cast === null) return null;
-      const look = lookFor(rngFrom(key, 'folk'), region, warmth === undefined ? {} : { warmth });
+      const young = tall === undefined && rngFrom(key, 'age').chance(YOUNG_SHARE);
+      const look = lookFor(rngFrom(key, 'folk'), region, {
+        ...(warmth === undefined ? {} : { warmth }),
+        ...(young ? { age: 'child' as const } : {}),
+      });
       const pick = rngFrom(key, 'outfit');
       const outfit = OUTFITS[pick.int(OUTFITS.length)]!;
       const { top, bottom } = rolesOf(outfit, cast.slotsOf(outfit));
@@ -159,18 +174,16 @@ export function createFolk(ctx: MonumentContext): Folk {
       const paint: Paint = (name) => {
         if (name.endsWith('@feet')) return look.trim;
         if (name.startsWith('Skin')) return skin;
+        // A child has no beard to paint, and the outfit may: it goes skin.
+        if (young && /^(Moustache|Beard)/.test(name)) return skin;
         if (/^(Hair|Eyebrows|Moustache)/.test(name)) return look.hairColor;
         if (name === 'Eye') return ctx.palette.ink;
         if (name === top) return top_;
         if (name === bottom) return bottom_;
         return null;
       };
-      const height = THREE.MathUtils.clamp(
-        look.age === 'child' ? AVATAR_HEIGHT : look.height,
-        ADULT_HEIGHT[0],
-        ADULT_HEIGHT[1],
-      );
-      return cast.make(outfit, paint, tall ?? height);
+      const height = young ? YOUNG_HEIGHT : THREE.MathUtils.clamp(look.height, ADULT_HEIGHT[0], ADULT_HEIGHT[1]);
+      return cast.make(outfit, paint, tall ?? height, young);
     },
   };
 }

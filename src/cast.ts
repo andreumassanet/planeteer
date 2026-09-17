@@ -116,7 +116,7 @@ export interface Cast {
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
   /** Which materials an outfit has, how much each covers and how high. */
   slotsOf(outfit: OutfitId): readonly SlotStat[];
-  make(outfit: OutfitId, paint: Paint, height: number): Person;
+  make(outfit: OutfitId, paint: Paint, height: number, young?: boolean): Person;
   /**
    * Hands a person back for `make` to dress again, repainted. **Never dispose a
    * person's geometry**: its positions, normals and weights are the outfit's,
@@ -126,6 +126,18 @@ export interface Cast {
    */
   release(person: Person): void;
 }
+
+/**
+ * How much bigger a child's head is than the outfit's own, drawn on the `Head`
+ * bone (no clip in the pack scales a bone, so the mixer leaves it be).
+ *
+ * **The pack has no children, and an adult scaled down is not one** — that
+ * is proportion, not size: an adult is about seven heads tall and a child of
+ * six about five and a half. At `YOUNG_HEIGHT` (0.62 of an adult) a head 1.3
+ * times the outfit's is 5.4 heads, which is the child's, on the same body the
+ * pack drew (2026-09-17).
+ */
+export const YOUNG_HEAD = 1.3;
 
 /** One material for the whole cast, built by the caller so it shares the world's ramp. */
 export function castMaterial(gradientMap: THREE.Texture, ink: { thickness: number; color: [number, number, number] }): THREE.MeshToonMaterial {
@@ -323,7 +335,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       pool.push(person);
       spare.set(person.outfit, pool);
     },
-    make(outfit, paint, height) {
+    make(outfit, paint, height, young = false) {
       const template = templates.get(outfit);
       if (template === undefined) throw new Error(`cast: ${outfit} was not loaded`);
       const reused = spare.get(outfit)?.pop();
@@ -332,6 +344,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
         paintInto(template, paint, attribute.array as Float32Array);
         attribute.needsUpdate = true;
         reused.root.scale.setScalar(height / template.height);
+        reused.bones.get('Head')?.scale.setScalar(young ? YOUNG_HEAD : 1);
         return reused;
       }
       const scene = cloneRig(template.scene) as THREE.Group;
@@ -366,6 +379,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       scene.traverse((object) => {
         if ((object as THREE.Bone).isBone) bones.set(object.name, object as THREE.Bone);
       });
+      bones.get('Head')?.scale.setScalar(young ? YOUNG_HEAD : 1);
       const mixer = new THREE.AnimationMixer(scene);
       const actions = new Map<ClipName, THREE.AnimationAction>();
       for (const [name, clip] of clips) actions.set(name, mixer.clipAction(clip));
