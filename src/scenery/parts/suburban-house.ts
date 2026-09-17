@@ -11,7 +11,7 @@ import { isGlass } from '../../models.ts';
  */
 
 const MODELS = Array.from('acfghijklmnopqrsu', (t) => `suburban-${t}`);
-const FOOTPRINT = 9;
+const FOOTPRINT = 7.4;
 
 export const suburbanHouse: ScenicPart = {
   id: 'suburban-house',
@@ -28,6 +28,6 @@ export const suburbanHouse: ScenicPart = {
       { walls: rng.pick(style.walls), roofs: rng.pick(style.roofs), trim: rng.pick(style.trim) },
       isGlass,
     );
-    return ctx.fitted(id, { height: rng.range(8, 12), radius: FOOTPRINT - 0.02, windows: isGlass }, paint);
+    return ctx.fitted(id, { height: rng.range(8, 12), radius: FOOTPRINT - 0.02, width: 9, length: 9, narrow: true, windows: isGlass }, paint);
   },
 };

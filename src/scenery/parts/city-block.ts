@@ -9,7 +9,7 @@ import { isGlass } from '../../models.ts';
  */
 
 const MODELS = Array.from('abcdefh', (t) => `commercial-${t}`);
-const FOOTPRINT = 14;
+const FOOTPRINT = 8.4;
 
 export const cityBlock: ScenicPart = {
   id: 'city-block',
@@ -26,6 +26,6 @@ export const cityBlock: ScenicPart = {
       { walls: rng.pick(style.walls), roofs: rng.pick(style.roofs), trim: rng.pick(style.trim) },
       isGlass,
     );
-    return ctx.fitted(id, { height: rng.range(14, 24), radius: FOOTPRINT - 0.02, windows: isGlass }, paint);
+    return ctx.fitted(id, { height: rng.range(14, 24), radius: FOOTPRINT - 0.02, width: 11, length: 9.5, narrow: true, windows: isGlass }, paint);
   },
 };

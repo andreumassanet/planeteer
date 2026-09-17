@@ -633,6 +633,20 @@ export interface ModelFit {
   /** Across (X and Z) as a share of up: 0.7 is a cypress drawn from a round tree. */
   squash?: number;
   /**
+   * With a `height`: keep the height and squash the plan into the `radius`,
+   * `width` and `length` given, down to `NARROWEST`, rather than shrink the
+   * whole model to them.
+   *
+   * **A building's footprint is what the town's cells have room for, and a
+   * Kenney house is wider than a code-built one.** Fitted to its radius alone a
+   * suburban house at the gabled house's footprint came out 5.9 units tall
+   * against a 6.8-unit person; fitted to a radius of 9 it kept its height and
+   * no longer fitted the cells a gabled house had stood in, and a town lost a
+   * building in each (Kempten, 2026-09-17). A corner cell of the median pitch
+   * leaves a house 8.4 by 8.4, and `FIT_SCALE` lets it shrink a tenth.
+   */
+  narrow?: boolean;
+  /**
    * Tones up the model's height on the slots `slots` names: `bottom` at the
    * lowest of their vertices, `top` at the highest. What a code-built crown did
    * with three lobes in three tones, done to one flat-coloured canopy for the
@@ -734,6 +748,9 @@ function windowsOf(model: Model, isWindow: NonNullable<ModelFit['windows']>): Ui
   windowMasks.set(model, mask);
   return mask;
 }
+
+/** The narrowest `ModelFit.narrow` draws a model, as a share of its own plan. */
+const NARROWEST = 0.6;
 
 const radii = new WeakMap<Model, number>();
 /** How far a model reaches from its own vertical axis through the box's centre. */
@@ -1048,7 +1065,17 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
   function fitted(id: string, fit: ModelFit, paint?: Paint): THREE.Group {
     const model = sceneryModel(id);
     const size = model.box.getSize(new THREE.Vector3());
-    const squash = fit.squash ?? 1;
+    let squash = fit.squash ?? 1;
+    if (fit.narrow === true && fit.height !== undefined) {
+      // The height is the model's and the plan gives way to the footprint.
+      const tall = fit.height / size.y;
+      const room = Math.min(
+        fit.radius !== undefined ? fit.radius / (radiusOf(model) * tall) : Infinity,
+        fit.width !== undefined ? fit.width / (size.x * tall) : Infinity,
+        fit.length !== undefined ? fit.length / (size.z * tall) : Infinity,
+      );
+      squash = Math.min(squash, Math.max(NARROWEST, room));
+    }
     const k = Math.min(
       fit.height !== undefined ? fit.height / size.y : Infinity,
       fit.width !== undefined ? fit.width / (size.x * squash) : Infinity,

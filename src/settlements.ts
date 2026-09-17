@@ -988,7 +988,7 @@ export interface Settlements {
    * Every town it builds is dropped again unless it was already standing, so it
    * costs a few seconds and leaves the world as it found it.
    */
-  survey(step?: number): unknown;
+  survey(step?: number, near?: boolean): unknown;
 }
 
 /**
@@ -3977,7 +3977,7 @@ export function createSettlements(
       };
     },
 
-    survey(step = 29) {
+    survey(step = 29, near = false) {
       const parts: number[] = [];
       const buildings: number[] = [];
       const paved: number[] = [];
@@ -4032,8 +4032,12 @@ export function createSettlements(
         if (!isShown(slot.place)) continue;
         const wasResident = slot.mesh !== null;
         const wasFailed = slot.failed;
+        const wasPeopled = slot.peopled;
         if (!wasResident) {
           slot.failed = false;
+          // `near` raises each town as one of the nearest, with the kit's
+          // buildings where its region has them (`RegionStyle.assets`).
+          if (near) slot.peopled = true;
           raise(slot);
         }
         parts.push(slot.parts);
@@ -4152,6 +4156,7 @@ export function createSettlements(
         if (!wasResident) {
           drop(slot);
           slot.failed = wasFailed;
+          slot.peopled = wasPeopled;
         }
       }
       const at = (list: number[], q: number): number => {
