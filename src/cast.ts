@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone as cloneRig } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { inflate } from './pack.ts';
 
 /**
  * The cast: the people of this world, as authored skinned characters.
@@ -277,10 +278,14 @@ function prepare(gltf: { scene: THREE.Group }, material: THREE.Material): Templa
  */
 export async function loadCast(material: THREE.Material, outfits: readonly OutfitId[] = OUTFITS): Promise<Cast> {
   const loader = new GLTFLoader();
-  const [clipFile, ...files] = await Promise.all([
-    loader.loadAsync(`${BASE}clips.glb`),
-    ...outfits.map((id) => loader.loadAsync(`${BASE}${id}.glb`)),
-  ]);
+  // Gzipped GLB, like the data: see `scripts/build-cast.mjs`.
+  const load = async (file: string) => {
+    const response = await fetch(`${BASE}${file}.bin`);
+    if (!response.ok) throw new Error(`cast: ${file} answered ${response.status}`);
+    const raw = await inflate(await response.arrayBuffer());
+    return loader.parseAsync(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer, '');
+  };
+  const [clipFile, ...files] = await Promise.all([load('clips'), ...outfits.map((id) => load(id))]);
   const clips = new Map<ClipName, THREE.AnimationClip>();
   for (const clip of clipFile!.animations) {
     if ((CLIPS as readonly string[]).includes(clip.name)) clips.set(clip.name as ClipName, clip);

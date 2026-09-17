@@ -1,4 +1,4 @@
-// The cast: CC0 characters -> public/models/cast/*.glb
+// The cast: CC0 characters -> public/models/cast/*.bin (gzipped GLB)
 //
 // Source: Quaternius, "Ultimate Modular Men Pack" and "Ultimate Modular Women
 // Pack" (CC0 1.0, https://quaternius.com/packs/ultimatemodularcharacters.html
@@ -9,9 +9,12 @@
 //
 // What this does, and why it is a bake rather than a copy:
 // - The packs ship .gltf with the buffer as base64, which is a third larger than
-//   binary. This writes .glb.
+//   binary. This writes GLB, gzipped into .bin the way public/data/*.bin is:
+//   no CDN compresses a binary it does not know, and the fifteen outfits and
+//   their clips were 9.9 MB as .glb and are 2.3 MB this way (2026-09-17).
+//   `src/cast.ts` inflates them.
 // - Every outfit carries the same 24 clips. They are written once, into
-//   clips.glb, keeping only the ones the world plays, and stripped from the
+//   clips.bin, keeping only the ones the world plays, and stripped from the
 //   outfits — which is most of each file.
 // - Unused accessors and buffer views are dropped, so what is stripped is gone
 //   from the bytes and not only from the JSON.
@@ -19,6 +22,7 @@
 // usage: node scripts/build-cast.mjs
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 const SOURCE = new URL('../../.cache/assets/quaternius/modular/', import.meta.url).pathname;
 const OUT = new URL('../public/models/cast/', import.meta.url).pathname;
@@ -129,7 +133,7 @@ function writeGlb(path, { json, bin }) {
   header.writeUInt32LE(12 + 8 + jsonChunk.length + 8 + bin.length, 8);
   const jh = Buffer.alloc(8); jh.writeUInt32LE(jsonChunk.length, 0); jh.writeUInt32LE(0x4e4f534a, 4);
   const bh = Buffer.alloc(8); bh.writeUInt32LE(bin.length, 0); bh.writeUInt32LE(0x004e4942, 4);
-  const out = Buffer.concat([header, jh, jsonChunk, bh, bin]);
+  const out = gzipSync(Buffer.concat([header, jh, jsonChunk, bh, bin]), { level: 9 });
   writeFileSync(path, out);
   return out.length;
 }
@@ -154,7 +158,7 @@ for (const [id, file] of Object.entries(OUTFITS)) {
   }
   // No textures anywhere in the packs, so texture coordinates are dead weight.
   for (const mesh of gltf.json.meshes) for (const p of mesh.primitives) delete p.attributes.TEXCOORD_0;
-  const bytes = writeGlb(join(OUT, `${id}.glb`), compact(gltf));
+  const bytes = writeGlb(join(OUT, `${id}.bin`), compact(gltf));
   const tris = gltf.json.meshes.reduce((s, m) => s + m.primitives.reduce((t, p) => t + gltf.json.accessors[p.indices].count / 3, 0), 0);
   total += bytes;
   console.log(`${id.padEnd(18)} ${String(tris).padStart(6)} tris  ${(bytes / 1024).toFixed(0).padStart(5)} KB`);
@@ -169,15 +173,15 @@ for (const [id, file] of Object.entries(OUTFITS)) {
   gltf.json.materials = [];
   gltf.json.skins = [];
   for (const node of gltf.json.nodes) { delete node.mesh; delete node.skin; }
-  const bytes = writeGlb(join(OUT, 'clips.glb'), compact(gltf));
+  const bytes = writeGlb(join(OUT, 'clips.bin'), compact(gltf));
   total += bytes;
-  console.log(`clips.glb          ${CLIPS.length} clips  ${(bytes / 1024).toFixed(0).padStart(5)} KB`);
+  console.log(`clips.bin          ${CLIPS.length} clips  ${(bytes / 1024).toFixed(0).padStart(5)} KB`);
 }
 writeFileSync(
   join(OUT, 'LICENSE.txt'),
   'Characters and animations by Quaternius (https://quaternius.com), from the\n' +
     'Ultimate Modular Men Pack and Ultimate Modular Women Pack.\n' +
     'License: CC0 1.0 Universal (public domain dedication).\n' +
-    'Rebuilt as .glb by scripts/build-cast.mjs; geometry and clips unchanged.\n',
+    'Rebuilt as gzipped GLB (.bin) by scripts/build-cast.mjs; geometry and clips unchanged.\n',
 );
-console.log(`total ${(total / 1024).toFixed(0)} KB`);
+console.log(`total ${(total / 1024).toFixed(0)} KB gzipped`);
