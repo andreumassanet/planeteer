@@ -3,6 +3,7 @@ import type { LandRing, World } from './geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, onSphere } from './globe.ts';
 import { LAND_HEIGHT } from './geo.ts';
 import { PALETTE } from './theme.ts';
+import { FONT, hex } from './ui.ts';
 
 /**
  * The country's name, in big letters, over the country.
@@ -103,8 +104,6 @@ const MIN_COUNTRY_PIXELS = 45;
 /** Below this nothing is drawn and the loop returns after one compare. */
 const MIN_FADE = 0.01;
 
-const css = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
-
 /**
  * Cream on ink, and the stroke is what makes it work over the map layer.
  *
@@ -136,7 +135,7 @@ const STYLE = `
      element first. What it still wins against is the canvas, which is not
      positioned at all. */
   z-index: 0;
-  font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-family: ${FONT};
 }
 .atlas-name {
   position: absolute;
@@ -145,8 +144,8 @@ const STYLE = `
   white-space: nowrap;
   font-weight: 800;
   letter-spacing: 0.055em;
-  color: ${css(PALETTE.cream)};
-  -webkit-text-stroke: 3px ${css(PALETTE.ink)};
+  color: ${hex(PALETTE.cream)};
+  -webkit-text-stroke: 3px ${hex(PALETTE.ink)};
   paint-order: stroke fill;
   text-shadow: 0 2px 6px rgba(30, 6, 3, 0.35);
   will-change: transform, opacity;
@@ -250,6 +249,23 @@ export function createCountryNames(world: World): CountryNames {
   const order: Placed[] = [];
   const kept: Placed[] = [];
 
+  /**
+   * The viewport, read on a resize rather than every frame.
+   *
+   * The layer is `position: fixed; inset: 0`, so its box *is* the viewport, and
+   * asking the element for it — `clientWidth` — was a forced layout on every
+   * frame the names were up, because the HUD has written its chip and clock
+   * text a few lines earlier and the browser has to settle that before it can
+   * answer. `innerWidth` is the same number and the resize event says when it
+   * changes.
+   */
+  let width = innerWidth;
+  let height = innerHeight;
+  addEventListener('resize', () => {
+    width = innerWidth;
+    height = innerHeight;
+  });
+
   /** How many of the pool are visible, so a frame only touches what changed. */
   let shown = 0;
   const hideFrom = (from: number): void => {
@@ -268,8 +284,6 @@ export function createCountryNames(world: World): CountryNames {
         return;
       }
 
-      const width = root.clientWidth;
-      const height = root.clientHeight;
       const halfW = width / 2;
       const halfH = height / 2;
       camera.getWorldPosition(eye);

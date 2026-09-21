@@ -57,8 +57,9 @@ import { clockAt } from './timezone.ts';
 import { createFlagCanvas } from './flags.ts';
 import { createOrrery } from './orrery.ts';
 import type { OrreryBody } from './orrery.ts';
-import { ELEMENTS, periodOf } from './system/index.ts';
-import { ensureStyle, fold, h, hex, icon, installUi, kbd, people } from './ui.ts';
+import { AU_KM, heliocentric, periodOf } from './system/index.ts';
+import type { Body } from './system/index.ts';
+import { ensureStyle, fold, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 
 const DEG = Math.PI / 180;
 const R = PLANET_RADIUS;
@@ -124,6 +125,13 @@ export interface MenuBody {
   /** 1-based index into `regions`; 0 for open water or nothing at all. */
   regionAt(lat: number, lon: number): number;
   sites: readonly MenuSite[];
+  /**
+   * Other names the search should find a site by, as written, to an index into
+   * `sites`. The hook for the famous places a bake folded into a neighbour —
+   * searching for one finds the town that stands for it rather than nothing.
+   * Optional, and on Earth empty until there is a list to fill it with.
+   */
+  aliases?: ReadonlyMap<string, number>;
 }
 
 /** Where the player wakes up. */
@@ -140,8 +148,14 @@ export interface MenuSpawn {
  * this file that knows what a `World` or a `Place` is. `world.rings` rather
  * than `country.rings` because the rings carry their shelf height and the lakes
  * carry a flag — a lake belongs to nobody and gets no ribbon.
+ *
+ * `aliases` maps a name as written to an index into `places` — the gazetteer's
+ * own numbering, which is what a list of aliases would be written against —
+ * and it is translated here to the body's own site numbering. An alias whose
+ * place is not built is dropped: it has to name the town that stands, not the
+ * one the bake folded into it.
  */
-export function earthBody(world: World, places: readonly Place[]): MenuBody {
+export function earthBody(world: World, places: readonly Place[], aliases?: ReadonlyMap<string, number>): MenuBody {
   const regions: MenuRegion[] = world.countries.map((country: Country) => ({
     key: country.iso,
     name: country.name,
@@ -156,7 +170,18 @@ export function earthBody(world: World, places: readonly Place[]): MenuBody {
   }
   // Only the towns that are built: a pin on a hidden place would wake you in
   // an empty field with a chip that says "near" somewhere else. See `isShown`.
-  const built = places.filter(isShown);
+  const built: Place[] = [];
+  const siteOf = new Map<number, number>();
+  places.forEach((place, i) => {
+    if (!isShown(place)) return;
+    siteOf.set(i, built.length);
+    built.push(place);
+  });
+  const known = new Map<string, number>();
+  for (const [alias, placeIndex] of aliases ?? []) {
+    const site = siteOf.get(placeIndex);
+    if (site !== undefined) known.set(alias, site);
+  }
   return {
     id: 'earth',
     name: 'Earth',
@@ -174,6 +199,7 @@ export function earthBody(world: World, places: readonly Place[]): MenuBody {
       weight: place.pop,
       capital: place.capital,
     })),
+    aliases: known,
   };
 }
 
@@ -196,6 +222,12 @@ export interface MenuDeps {
   time(): Date;
   /** The sun `sun.ts` lights the land by, for `verify()`'s witness. */
   sunDirection?(): THREE.Vector3;
+  /**
+   * The pixel ratio the renderer should run at, asked on every resize. Leave it
+   * out and the menu uses `main.ts`'s own cap, the screen's ratio up to 2; pass
+   * it where the player has chosen a resolution, so the menu keeps to it.
+   */
+  pixelRatio?(): number;
 }
 
 /** The cream that covers the cut from the menu's camera to the player's. */
@@ -265,6 +297,21 @@ const MAX_LAT = 88;
 /** Time constant of the drag's chase. A tenth of a second reads as direct. */
 const DRAG_LAG = 0.1;
 
+/**
+ * How far one wheel event zooms: by `exp(pixels * WHEEL_ZOOM)`.
+ *
+ * **In proportion to the delta, not a fixed step an event.** A mouse sends one
+ * large event a notch and a trackpad sends dozens of small ones a flick, so the
+ * old 12% an event — read off the delta's sign alone — zoomed a trackpad about
+ * ten times on one flick. Priced so a notch that reports 100 pixels, Chrome's
+ * on Windows, is still the 12% it was.
+ */
+const WHEEL_ZOOM = Math.log(1.12) / 100;
+/** A `deltaMode` of lines, in pixels: the usual reading of one. Pages are a screen. */
+const WHEEL_LINE = 40;
+/** And no single event may move more than this, whatever the device claims. */
+const WHEEL_MAX = 400;
+
 /** Ink and gold, in pixels of a 1080-tall frame. The gold rides inside the ink. */
 const RIBBON_INK = 5.4;
 const RIBBON_GOLD = 2.6;
@@ -317,31 +364,97 @@ const LIST_LENGTH = 80;
 /** Where the last spawn is remembered. Versioned so a format change is not a bug. */
 const REMEMBERED = 'atlas.menu.spawn.v1';
 
+/**
+ * Where the running world remembers where you actually *were*, and it is not
+ * this file's key: the game writes `{ lat, lon, name, iso, savedAt }` every few
+ * seconds while you play and once more as the page goes. The menu only reads
+ * it, and trusts none of it — see `recallPlace`.
+ */
+const LAST_PLACE = 'atlas.lastPlace.v1';
+
+/** Longer than this and a remembered name is not a place name. */
+const MAX_NAME = 60;
+
 /* ------------------------------------------------------------------------- *
  * localStorage, wrapped
  * ------------------------------------------------------------------------- */
 
+/** A remembered start, and when it was remembered: the newer memory wins. */
+interface Remembered {
+  spawn: MenuSpawn;
+  /** `Date.now()` when written; 0 for a record from before there was one. */
+  savedAt: number;
+}
+
+/** Where the last place was, as the game wrote it, checked field by field. */
+interface LastPlace {
+  lat: number;
+  lon: number;
+  /** The place name the game gave it, or empty. */
+  name: string;
+  /** The country's `ADM0_A3`, or empty. */
+  iso: string;
+  savedAt: number;
+}
+
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const shortText = (value: unknown): string => (typeof value === 'string' ? value.trim().slice(0, MAX_NAME) : '');
+/** To (-180, 180], so a longitude written by anyone lands on this planet's range. */
+const wrapLon = (lon: number): number => lon - 360 * Math.ceil((lon - 180) / 360);
+
 function remember(spawn: MenuSpawn): void {
   try {
-    localStorage.setItem(REMEMBERED, JSON.stringify(spawn));
+    localStorage.setItem(REMEMBERED, JSON.stringify({ ...spawn, savedAt: Date.now() }));
   } catch {
     /* A private window throws on every write; the menu simply forgets. */
   }
 }
 
-function recall(): MenuSpawn | null {
+function recall(): Remembered | null {
   try {
     const raw = localStorage.getItem(REMEMBERED);
     if (raw === null) return null;
-    const value = JSON.parse(raw) as Partial<MenuSpawn>;
-    if (typeof value.lat !== 'number' || typeof value.lon !== 'number') return null;
-    if (!Number.isFinite(value.lat) || !Number.isFinite(value.lon)) return null;
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== 'object' || value === null) return null;
+    const record = value as Record<string, unknown>;
+    if (!finite(record['lat']) || !finite(record['lon']) || Math.abs(record['lat']) > 90) return null;
     return {
-      body: String(value.body ?? 'earth'),
-      region: String(value.region ?? ''),
-      name: String(value.name ?? 'somewhere'),
-      lat: value.lat,
-      lon: value.lon,
+      spawn: {
+        body: shortText(record['body']) || 'earth',
+        region: shortText(record['region']),
+        name: shortText(record['name']) || 'somewhere',
+        lat: record['lat'],
+        lon: wrapLon(record['lon']),
+      },
+      savedAt: finite(record['savedAt']) ? record['savedAt'] : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The game's own record of where you were, or null.
+ *
+ * Every field is checked rather than cast, because the key is written by
+ * another file on another release and read by this one on this release — a
+ * record from a version that wrote something else, or from a hand in the
+ * console, must come back as "nothing remembered", never as a spawn at `NaN`.
+ */
+function recallPlace(): LastPlace | null {
+  try {
+    const raw = localStorage.getItem(LAST_PLACE);
+    if (raw === null) return null;
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== 'object' || value === null) return null;
+    const record = value as Record<string, unknown>;
+    if (!finite(record['lat']) || !finite(record['lon']) || Math.abs(record['lat']) > 90) return null;
+    return {
+      lat: record['lat'],
+      lon: wrapLon(record['lon']),
+      name: shortText(record['name']),
+      iso: shortText(record['iso']),
+      savedAt: finite(record['savedAt']) ? record['savedAt'] : 0,
     };
   } catch {
     return null;
@@ -491,6 +604,81 @@ function dayLength(hours: number): string {
 const yearLength = (days: number): string =>
   days < 700 ? `${Math.round(days)} days` : `${(days / 365.25).toFixed(1)} years`;
 
+/* ------------------------------------------------------------------------- *
+ * Where the others are from here, today
+ * ------------------------------------------------------------------------- */
+
+/** The speed of light in km/s, exact by the metre's own definition. */
+const LIGHT_KM_S = 299792.458;
+
+/**
+ * Closer to the Sun than this in our sky, in degrees, and a planet is lost in
+ * its glare. A round number rather than a measurement: Mercury is hard to find
+ * well outside it, and nothing is found inside it.
+ */
+const GLARE = 12;
+
+/** Further than this from the Sun, in degrees, and it rises as the Sun sets. */
+const OPPOSED = 165;
+
+/** A body as seen from Earth at one instant. */
+interface Sighting {
+  /** Real kilometres from Earth. */
+  km: number;
+  /** Degrees between it and the Sun in our sky; 0 for the Sun itself. */
+  elongation: number;
+  /** East of the Sun, which is the evening sky: it sets after the Sun does. */
+  east: boolean;
+}
+
+/**
+ * Where a body is from Earth right now, from `system/orbits.ts`'s heliocentric
+ * positions — the same Standish elements the orrery's rings are laid out by,
+ * differenced in au, so this is a real distance on the real date and not the
+ * diagram's. It stays in Standish's own ecliptic frame and never becomes a
+ * world vector, so none of this world's handedness is involved: that frame is
+ * right-handed with the ecliptic pole at +z, longitude grows anticlockwise
+ * seen from it, and a body anticlockwise of the Sun is east of it.
+ */
+function sighting(body: Body, date: Date): Sighting {
+  const earth = heliocentric('earth', date);
+  if (body.orbit === null) return { km: earth.r * AU_KM, elongation: 0, east: false };
+  const there = heliocentric(body.orbit, date);
+  const gx = there.x - earth.x;
+  const gy = there.y - earth.y;
+  const gz = there.z - earth.z;
+  const range = Math.hypot(gx, gy, gz);
+  if (range < 1e-9) return { km: 0, elongation: 0, east: false };
+  // Earth to the Sun is Earth's own position turned round.
+  const cos = -(gx * earth.x + gy * earth.y + gz * earth.z) / (range * earth.r);
+  return {
+    km: range * AU_KM,
+    elongation: Math.acos(Math.max(-1, Math.min(1, cos))) / DEG,
+    east: -earth.x * gy + earth.y * gx > 0,
+  };
+}
+
+/** 41.2 million km, 225 million km, 4.35 billion km. */
+function distanceText(value: number): string {
+  if (value >= 1e9) return `${(value / 1e9).toFixed(2)} billion km`;
+  return `${(value / 1e6).toFixed(value >= 1e8 ? 0 : 1)} million km`;
+}
+
+/** How long its light takes to get here: 8.3 min, 12 min, 4.1 h. */
+function lightText(value: number, unit: 'min' | 'light-min' = 'min'): string {
+  const minutes = value / LIGHT_KM_S / 60;
+  const hours = unit === 'min' ? 'h' : 'light-h';
+  if (minutes < 60) return `${minutes.toFixed(minutes < 10 ? 1 : 0)} ${unit}`;
+  return `${(minutes / 60).toFixed(1)} ${hours}`;
+}
+
+/** Where to look tonight, without naming a constellation. */
+function skyText(seen: Sighting): string {
+  if (seen.elongation < GLARE) return 'Too close to the Sun to see right now';
+  if (seen.elongation > OPPOSED) return 'Opposite the Sun: up all night';
+  return `In the ${seen.east ? 'evening' : 'morning'} sky, ${Math.round(seen.elongation)}° from the Sun`;
+}
+
 function kindOf(entry: OrreryBody): string {
   const body = entry.body;
   if (body.kind === 'star') return 'Star';
@@ -517,6 +705,7 @@ const STYLE = `
   user-select: none;
   -webkit-user-select: none;
 }
+.atlas-menu:focus { outline: none; }
 .atlas-menu.dragging { cursor: grabbing; }
 .atlas-menu.flying, .atlas-menu.chosen { cursor: default; }
 .atlas-menu .m-fade {
@@ -574,7 +763,9 @@ const STYLE = `
   gap: 10px;
   max-width: calc(100vw - 48px);
   overflow-x: auto;
-  padding: 6px 4px 10px;
+  /* Room for the lift on hover and for the focus ring, which the scroller
+     would otherwise clip on the first and last item. */
+  padding: 8px 8px 12px;
   scrollbar-width: none;
 }
 .m-dock.m-off { transform: translate(-50%, 24px); }
@@ -593,8 +784,18 @@ const STYLE = `
 }
 .m-dock-item:hover, .m-dock-item.hot { transform: translateY(-4px); box-shadow: 0 9px 0 var(--ui-ink); }
 .m-dock-item:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ui-ink); }
+.m-dock-item:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
 .m-dock-item.walk { background: var(--ui-gold); }
 .m-dock-name { font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em; }
+/* The same height as the tag Earth carries, so the row reads as one row. */
+.m-dock-sub {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  opacity: 0.58;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .m-disc {
   position: relative;
   width: 40px;
@@ -687,6 +888,7 @@ const STYLE = `
 }
 .m-crumb:hover { background: rgba(30, 6, 3, 0.08); }
 .m-crumb.here { cursor: default; background: none; }
+.m-crumb:focus-visible { outline: var(--ui-ring); outline-offset: 1px; }
 .m-crumb .ui-flag { border-width: 1.5px; border-radius: 3px; }
 .m-back { position: absolute; left: 24px; bottom: 24px; }
 .m-back.m-off { transform: translateX(-16px); }
@@ -733,6 +935,9 @@ const STYLE = `
 }
 .m-row:hover, .m-row.hot { background: var(--ui-cream); }
 .m-row.picked { background: var(--ui-gold); }
+/* Inside the ring rather than outside it: the list scrolls, and a ring drawn
+   past a row's edge is clipped by it. */
+.m-row:focus-visible { outline: var(--ui-ring); outline-offset: -3px; }
 .m-row i {
   flex: none;
   width: 9px;
@@ -778,7 +983,7 @@ const STYLE = `
 }
 .m-search-box input::placeholder { color: rgba(30, 6, 3, 0.45); }
 .m-search-box input::-webkit-search-cancel-button { display: none; }
-.m-search:focus-within .m-search-box { box-shadow: 0 5px 0 var(--ui-ink), 0 0 0 3px var(--ui-gold); }
+.m-search:focus-within .m-search-box { outline: var(--ui-ring); outline-offset: 3px; }
 .m-results {
   position: absolute;
   top: 58px;
@@ -818,14 +1023,14 @@ const STYLE = `
   position: absolute;
   right: 32px;
   top: 50%;
-  width: 384px;
+  width: 356px;
   max-height: calc(100vh - 200px);
   overflow-y: auto;
   transform: translateY(-46%);
   padding: 22px 22px 18px;
 }
 .m-info.m-off { transform: translate(28px, -46%); }
-.m-info h2 { margin-top: 4px; font-size: 38px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.m-info h2 { margin-top: 4px; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
 .m-info p { margin-top: 11px; font-size: 14px; font-weight: 600; line-height: 1.45; opacity: 0.75; }
 .m-facts {
   display: grid;
@@ -837,21 +1042,17 @@ const STYLE = `
 }
 .m-fact small { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.48; }
 .m-fact b { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
-.m-soon {
+.m-lines { display: grid; gap: 7px; margin-top: 14px; }
+.m-line {
   display: flex;
-  gap: 11px;
   align-items: flex-start;
-  margin-top: 16px;
-  padding: 11px 13px;
+  gap: 8px;
   font-size: 12.5px;
   font-weight: 700;
-  line-height: 1.4;
-  background: var(--ui-cream);
-  border: 2.5px dashed rgba(30, 6, 3, 0.35);
-  border-radius: 12px;
+  line-height: 1.35;
 }
-.m-soon svg { flex: none; margin-top: 1px; }
-.m-soon span { display: block; margin-top: 2px; font-weight: 600; opacity: 0.66; }
+.m-line svg { width: 15px; height: 15px; flex: none; margin-top: 1px; opacity: 0.55; }
+.m-line.quiet { font-weight: 600; opacity: 0.66; }
 .m-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 
 /* --- the town you picked -------------------------------------------------- */
@@ -975,6 +1176,7 @@ const STYLE = `
 .m-pin.capital i { background: var(--ui-gold); }
 .m-pin:hover, .m-pin.hot { background: var(--ui-cream); box-shadow: 0 4px 0 var(--ui-ink); z-index: 1; }
 .m-pin.picked { background: var(--ui-gold); z-index: 2; }
+.m-pin:focus-visible { outline: var(--ui-ring); outline-offset: 3px; z-index: 4; }
 /* A pin whose name lost the collision is a dot on a map, not a card with the
    writing rubbed off: it keeps the ring and loses the card, and the border
    stays as a transparent 2.5px so the dot does not move off its town. */
@@ -1008,6 +1210,29 @@ const STYLE = `
   .m-search { width: 260px; }
   .m-wordmark { font-size: 56px; }
   .m-info { width: 320px; }
+}
+
+/* --- the cut that stands in for a flight --------------------------------- */
+/* With less motion asked for, a flight is a cut, and this is what the cut is
+   made under: space, lifted off the new shot in a quarter of a second. */
+.m-dip {
+  position: absolute;
+  inset: 0;
+  background: var(--ui-space);
+  opacity: 0;
+  pointer-events: none;
+}
+.m-dip.on { opacity: 1; }
+.m-dip.lift { transition: opacity 0.28s ease; }
+
+/* The cards fade and do not slide; the pop of the results is a fade too. */
+@media (prefers-reduced-motion: reduce) {
+  .atlas-menu .m-fade { transition: opacity 0.2s ease, visibility 0.2s; }
+  .m-brand.m-off, .m-crumbs.m-off, .m-back.m-off, .m-panel.m-off, .m-progress.m-off { transform: none; }
+  .m-dock.m-off, .m-select.m-off { transform: translateX(-50%); }
+  .m-info.m-off { transform: translateY(-46%); }
+  .m-dock-item, .m-dock-item:hover, .m-dock-item.hot, .m-dock-item:active { transition: none; transform: none; }
+  .m-results { animation-name: ui-fade; }
 }
 `;
 
@@ -1043,6 +1268,9 @@ const copyPose = (from: Pose, to: Pose): Pose => {
   return to;
 };
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+/** Either Enter: the keypad's has its own `code`. */
+const isEnter = (event: KeyboardEvent): boolean => event.code === 'Enter' || event.code === 'NumpadEnter';
 
 export function createMenu(deps: MenuDeps): Menu {
   const { bodies, scene, renderer, draw, fallback, time } = deps;
@@ -1080,11 +1308,39 @@ export function createMenu(deps: MenuDeps): Menu {
 
   /* --- the DOM ----------------------------------------------------------- */
 
-  const root = h('div', { class: 'atlas-menu' });
+  // Focusable by script only: when a control the keyboard was on goes away
+  // with its stage, the focus comes back here rather than to nowhere, so `Tab`
+  // carries on from the menu and the shortcuts below still hear their keys.
+  const root = h('div', { class: 'atlas-menu', tabindex: -1 });
 
   const halo = h('div', { class: 'm-halo' });
   const pinLayer = h('div', { class: 'm-pins' });
   const marks = h('div', { class: 'm-marks' }, halo, pinLayer);
+  const dipLayer = h('div', { class: 'm-dip' });
+
+  /**
+   * Whether the player has asked the system for less motion. Read live, so
+   * turning it on with the menu open takes effect on the next move.
+   *
+   * **What it changes is the flights.** System to planet to country to town is
+   * a camera that zooms a hundredfold and swings round a globe, which is the
+   * motion that setting exists to stop; with it on, every flight is a cut under
+   * a quick fade from space (`dip`), the dive into the town is the curtain
+   * closing where the camera already is, the system stops drifting on its own,
+   * and a town chosen from the list is centred at once rather than panned to.
+   * Dragging the globe is untouched: the hand is doing that.
+   */
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+
+  /** Cover the next frame in space and lift it: a flight's cut, made gently. */
+  function dip(): void {
+    dipLayer.classList.remove('lift');
+    dipLayer.classList.add('on');
+    // The opaque frame has to be committed before the fade starts from it.
+    void dipLayer.offsetWidth;
+    dipLayer.classList.add('lift');
+    dipLayer.classList.remove('on');
+  }
 
   const brand = h(
     'div',
@@ -1144,7 +1400,7 @@ export function createMenu(deps: MenuDeps): Menu {
   const reticleLabel = h('span', { class: 'ui-tag gold' });
   const reticle = h('div', { class: 'm-reticle' }, h('i'), reticleLabel);
 
-  root.append(marks, reticle, brand, crumbs, panel, dock, info, back, select, topRight, progressPill, tip);
+  root.append(marks, dipLayer, reticle, brand, crumbs, panel, dock, info, back, select, topRight, progressPill, tip);
 
   const flag = (key: string, w: number, height: number): HTMLCanvasElement => {
     const canvas = createFlagCanvas(key, w, height);
@@ -1171,7 +1427,30 @@ export function createMenu(deps: MenuDeps): Menu {
   let built = false;
   let progressFraction = 0;
   let lastTouched = performance.now();
-  const last = recall();
+
+  /**
+   * Where Continue goes: the newer of the two memories.
+   *
+   * The game's record of where you were beats the town the menu last started
+   * you in — you walked, sailed or flew somewhere from there, and Continue
+   * means *there* — unless the menu's is the newer, which is a town picked and
+   * never played. Whichever it is, it becomes a spawn like any other: a
+   * latitude and a longitude `main.ts` stands the player on, which puts them in
+   * the boat if it is sea.
+   */
+  const last = ((): MenuSpawn | null => {
+    const started = recall();
+    const place = recallPlace();
+    if (place === null || (started !== null && started.savedAt > place.savedAt)) return started?.spawn ?? null;
+    const index = regionIndexOf.get(place.iso) ?? body.regionAt(place.lat, place.lon);
+    return {
+      body: body.id,
+      region: body.regions[index - 1]?.name ?? '',
+      name: place.name,
+      lat: place.lat,
+      lon: place.lon,
+    };
+  })();
 
   const sys: Orbit = { azimuth: 0, elevation: SYSTEM_ELEVATION, distance: orrery.extent * 1.5 };
   const sysWant: Orbit = { ...sys };
@@ -1324,7 +1603,12 @@ export function createMenu(deps: MenuDeps): Menu {
     const from = copyPose(pose, makePose());
     const zoom = Math.abs(Math.log(to.eye.distanceTo(to.target) / Math.max(1, from.eye.distanceTo(from.target))));
     const travel = from.target.distanceTo(to.target) / R;
-    const duration = seconds ?? Math.min(3.2, Math.max(1.05, 1 + 0.28 * zoom + 0.012 * travel));
+    let duration = seconds ?? Math.min(3.2, Math.max(1.05, 1 + 0.28 * zoom + 0.012 * travel));
+    if (calm.matches) {
+      // A flight of no length lands on the next frame, under the dip.
+      duration = 0;
+      dip();
+    }
     flight = { from, to: copyPose(to, makePose()), began: performance.now(), duration: duration * 1000, done };
     refreshChrome();
   }
@@ -1448,9 +1732,11 @@ export function createMenu(deps: MenuDeps): Menu {
   for (const entry of orrery.bodies) {
     const id = entry.body.id;
     const enterable = walkable.has(id);
+    // Out of the tab order: every label has a dock item that does the same
+    // thing, and nine stops on the canvas before the dock is nine too many.
     const label = h(
       'button',
-      { class: enterable ? 'm-label walk' : 'm-label', 'aria-label': entry.body.name },
+      { class: enterable ? 'm-label walk' : 'm-label', 'aria-label': entry.body.name, tabindex: -1 },
       entry.body.name,
       enterable ? icon('chevron') : null,
     );
@@ -1475,12 +1761,23 @@ export function createMenu(deps: MenuDeps): Menu {
       disc.style.setProperty('--base', hex(look.surface));
       disc.style.setProperty('--lo', hex(look.lowland));
     }
-    const tag = enterable
-      ? h('span', { class: 'ui-tag ink' }, icon('play'), 'Explore')
-      : h('span', { class: 'ui-tag' }, icon('lock'), 'Soon');
+    // Earth is the one you can walk, and says so; every other body says how
+    // far away it is today, as the light's own travel time, and nothing about
+    // what it is not yet. Eight "soon" badges read as a project that was not
+    // finished; a real distance reads as a solar system.
+    let tag: HTMLElement;
+    let title: string;
+    if (enterable) {
+      tag = h('span', { class: 'ui-tag ink' }, icon('play'), 'Explore');
+      title = `${entry.body.name}: explore it`;
+    } else {
+      const seen = sighting(entry.body, time());
+      tag = h('span', { class: 'm-dock-sub', text: lightText(seen.km, 'light-min') });
+      title = `${entry.body.name}: ${distanceText(seen.km)} from Earth right now`;
+    }
     const item = h(
       'button',
-      { class: enterable ? 'm-dock-item ui-card walk' : 'm-dock-item ui-card', title: entry.body.name },
+      { class: enterable ? 'm-dock-item ui-card walk' : 'm-dock-item ui-card', title },
       disc,
       h('span', { class: 'm-dock-name', text: entry.body.name.replace(/^The /, '') }),
       tag,
@@ -1488,6 +1785,12 @@ export function createMenu(deps: MenuDeps): Menu {
     item.addEventListener('click', () => chooseBody(id));
     item.addEventListener('pointerenter', () => (hoverBody = id));
     item.addEventListener('pointerleave', () => (hoverBody = null));
+    // The keyboard lights the planet as the pointer does: the halo is how you
+    // know which of nine discs the button in the dock is about.
+    item.addEventListener('focus', () => (hoverBody = id));
+    item.addEventListener('blur', () => {
+      if (hoverBody === id) hoverBody = null;
+    });
     dock.append(item);
     dockItems.set(id, item);
   }
@@ -1671,11 +1974,23 @@ export function createMenu(deps: MenuDeps): Menu {
     if (button === null || picked === null) return;
     start(picked);
   });
+  // Enter on a pin is its click — it picks that town — and Enter on the pin
+  // already picked starts there, which is the double-click's job for a mouse.
+  pinLayer.addEventListener('keydown', (event) => {
+    if (!isEnter(event) || picked === null) return;
+    const button = (event.target as HTMLElement).closest('button');
+    if (button === null || button !== shownPins.get(sites.indexOf(picked))) return;
+    event.preventDefault();
+    start(picked);
+  });
 
   /* --- the chrome ------------------------------------------------------- */
 
   const setOff = (element: HTMLElement, off: boolean): void => {
     element.classList.toggle('m-off', off);
+    // A control that goes away takes the keyboard with it; a hidden button
+    // left holding the focus would still answer Enter, invisibly.
+    if (off && element.contains(document.activeElement)) root.focus({ preventScroll: true });
   };
 
   function crumb(label: string | Node, action: (() => void) | null, flagKey?: string): HTMLElement {
@@ -1704,11 +2019,14 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function refreshContinue(): void {
-    const target = last ?? { name: fallback.name };
-    continueLabel.replaceChildren(
-      document.createTextNode(last === null ? 'Start in ' : 'Continue in '),
-      h('span', { class: 'quiet', text: target.name }),
-    );
+    if (last === null) {
+      continueLabel.replaceChildren('Start in ', h('span', { class: 'quiet', text: fallback.name }));
+    } else if (last.name === '') {
+      // Out at sea, most likely: somewhere with no town to name.
+      continueLabel.replaceChildren('Continue where you left off');
+    } else {
+      continueLabel.replaceChildren('Continue in ', h('span', { class: 'quiet', text: last.name }));
+    }
   }
   refreshContinue();
 
@@ -1775,6 +2093,13 @@ export function createMenu(deps: MenuDeps): Menu {
       );
       row.addEventListener('click', () => pickTown(site, true));
       row.addEventListener('dblclick', () => start(site));
+      // Enter picks a row by being its click; on the row already picked it
+      // starts there, as a double-click does.
+      row.addEventListener('keydown', (event) => {
+        if (!isEnter(event) || picked !== site) return;
+        event.preventDefault();
+        start(site);
+      });
       row.addEventListener('pointerenter', () => (hotSite = site));
       row.addEventListener('pointerleave', () => {
         if (hotSite === site) hotSite = null;
@@ -1805,32 +2130,31 @@ export function createMenu(deps: MenuDeps): Menu {
 
   function fillInfo(entry: OrreryBody): void {
     const b = entry.body;
-    const facts: [string, string][] = [['Radius', `${Math.round(b.radiusKm).toLocaleString('en')} km`]];
-    facts.push([b.kind === 'star' ? 'Turns once in' : 'A day', dayLength(b.rotationHours)]);
+    // Computed for the sky's own clock, the one the orrery is laid out for, so
+    // the card and the diagram behind it describe the same instant.
+    const seen = sighting(b, time());
+    const facts: [string, string][] = [
+      ['From Earth now', distanceText(seen.km)],
+      ['Its light takes', lightText(seen.km)],
+      [b.kind === 'star' ? 'Turns once in' : 'A day', dayLength(b.rotationHours)],
+    ];
     if (b.orbit !== null) facts.push(['A year', yearLength(periodOf(b.orbit))]);
+    facts.push(['Radius', km(b.radiusKm)]);
     facts.push(['Gravity', `${(b.gravity / 9.807).toFixed(b.gravity > 50 ? 0 : 2)} g`]);
-    facts.push(['Axial tilt', `${b.tiltDeg.toFixed(1)}°`]);
-    if (b.orbit !== null) facts.push(['From the Sun', `${ELEMENTS[b.orbit]!.epoch.a.toFixed(2)} au`]);
+    if (b.orbit === null) facts.push(['Axial tilt', `${b.tiltDeg.toFixed(1)}°`]);
 
-    let soon: HTMLElement;
-    if (b.kind === 'star') {
-      soon = h('div', { class: 'm-soon' }, icon('sun', 18), h('div', {}, 'Nothing to land on here.', h('span', { text: 'A surface of plasma at about 5,500 °C. Best admired from a distance.' })));
-    } else if (b.nations.length > 0) {
-      soon = h(
-        'div',
-        { class: 'm-soon' },
-        icon('lock', 18),
-        h(
-          'div',
-          {},
-          'Not open for landing yet.',
-          h('span', {
-            text: `Its ${b.nations.length} regions and ${b.settlements.length} towns are already drawn up; walking here comes in a later version.`,
-          }),
-        ),
-      );
-    } else {
-      soon = h('div', { class: 'm-soon' }, icon('lock', 18), h('div', {}, 'Not open for landing yet.', h('span', { text: 'Nothing has been built on this world so far.' })));
+    // One line about where to look, and one honest line about walking — no
+    // badge, no dashed box. The Sun gets neither: it is the star, and nobody
+    // expected to land on it.
+    const lines: HTMLElement[] = [];
+    if (b.kind !== 'star') {
+      lines.push(h('div', { class: 'm-line' }, icon('eye'), skyText(seen)));
+      if (!walkable.has(b.id)) {
+        const drawn = b.nations.length > 0
+          ? ` Its ${b.nations.length} regions and ${b.settlements.length} towns are drawn up.`
+          : '';
+        lines.push(h('div', { class: 'm-line quiet' }, icon('lock'), `Not walkable yet.${drawn}`));
+      }
     }
 
     const others = orrery.bodies.filter((candidate) => !walkable.has(candidate.body.id));
@@ -1850,7 +2174,7 @@ export function createMenu(deps: MenuDeps): Menu {
         { class: 'm-facts' },
         ...facts.map(([name, value]) => h('div', { class: 'm-fact' }, h('small', { text: name }), h('b', { text: value }))),
       ),
-      soon,
+      ...(lines.length > 0 ? [h('div', { class: 'm-lines' }, ...lines)] : []),
       h('div', { class: 'm-actions' }, earthButton, nextButton),
     );
   }
@@ -1863,7 +2187,7 @@ export function createMenu(deps: MenuDeps): Menu {
           'div',
           {},
           h('div', { class: 'ui-eyebrow', text: waiting ? 'Almost there' : 'Here we go' }),
-          h('div', { class: 'm-select-name', text: `Landing in ${chosen.name}` }),
+          h('div', { class: 'm-select-name', text: chosen.name === '' ? 'Back where you left off' : `Landing in ${chosen.name}` }),
           waiting
             ? h('div', { class: 'm-select-bar' }, h('i', { style: `width: ${(progressFraction * 100).toFixed(0)}%` }))
             : h('div', { class: 'm-select-sub', text: chosen.region || 'Earth' }),
@@ -1901,6 +2225,7 @@ export function createMenu(deps: MenuDeps): Menu {
       return;
     }
     focusId = id;
+    orrery.focus(id);
     const entry = bodyById(id);
     // Seen three-quarters lit: round from the Sun's side of it, a little above
     // its equator. The Sun itself is seen from wherever the camera already is.
@@ -1920,6 +2245,7 @@ export function createMenu(deps: MenuDeps): Menu {
   /** Down from the system onto a walkable world, to its region stage. */
   function enterBody(next: MenuBody): void {
     body = next;
+    orrery.focus(null);
     // The globe is framed on a blend of where the camera came from and where
     // the Sun is, so the flight is mostly a zoom and it lands on the day side.
     const approach = scratch.copy(pose.eye).sub(body.centre).normalize();
@@ -2059,6 +2385,7 @@ export function createMenu(deps: MenuDeps): Menu {
     sites = [];
     showRibbon(null);
     tip.classList.remove('on');
+    orrery.focus(null);
     flyTo(systemPose(sys, makePose()), () => refreshChrome());
   }
 
@@ -2075,9 +2402,14 @@ export function createMenu(deps: MenuDeps): Menu {
     fillSelect();
     if (centre && flight === null) {
       // The list is off the map, so a town chosen from it is brought to the
-      // middle of the frame rather than left wherever it happens to be.
+      // middle of the frame rather than left wherever it happens to be — at
+      // once, with less motion asked for, rather than panned to.
       want.lat = site.lat;
       want.lon = site.lon;
+      if (calm.matches) {
+        view.lat = want.lat;
+        view.lon = want.lon;
+      }
     }
     refreshChrome();
   }
@@ -2111,7 +2443,9 @@ export function createMenu(deps: MenuDeps): Menu {
 
   interface Entry {
     kind: 'country' | 'town';
+    /** What the row shows: for an alias, the town it finds. */
     name: string;
+    /** What the query is matched against: for an alias, the alias. */
     folded: string;
     words: string[];
     weight: number;
@@ -2148,6 +2482,25 @@ export function createMenu(deps: MenuDeps): Menu {
       key: site.key,
       site,
       sub: site.weight > 0 ? `${regionName(site.key)} · ${compact(site.weight)} people` : regionName(site.key),
+    });
+  }
+  // The other names a town answers to. The row is the town that stands, and
+  // says which name found it, so typing a famous city the bake folded into a
+  // neighbour is an answer and not "nothing by that name".
+  for (const [alias, index] of body.aliases ?? []) {
+    const site = body.sites[index];
+    if (site === undefined) continue;
+    const folded = fold(alias);
+    if (folded === fold(site.name)) continue;
+    entries.push({
+      kind: 'town',
+      name: site.name,
+      folded,
+      words: folded.split(/[\s\-']+/),
+      weight: site.weight,
+      key: site.key,
+      site,
+      sub: `for ${alias} · ${regionName(site.key)}`,
     });
   }
 
@@ -2231,7 +2584,7 @@ export function createMenu(deps: MenuDeps): Menu {
       if (found.length === 0) return;
       cursor = (cursor + (event.code === 'ArrowDown' ? 1 : found.length - 1)) % found.length;
       renderResults();
-    } else if (event.code === 'Enter') {
+    } else if (isEnter(event)) {
       event.preventDefault();
       const entry = found[cursor];
       if (entry !== undefined) pickEntry(entry);
@@ -2245,6 +2598,23 @@ export function createMenu(deps: MenuDeps): Menu {
   });
 
   /* --- input ------------------------------------------------------------- */
+
+  /**
+   * Whether the keyboard is on nothing in particular: the page, the canvas or
+   * this overlay itself, rather than a control.
+   *
+   * **Enter belongs to whatever has the focus.** Every dock item, crumb, row and
+   * pin is a button, and a button activates on Enter by itself; the shortcut
+   * used to take Enter from all of them and start the game — `Tab` to Mars in
+   * the dock and Enter landed you in Palma, and Enter on a row started the town
+   * already picked rather than that row. So the page's own shortcuts speak only
+   * when no control is listening.
+   */
+  const focusIsFree = (): boolean => {
+    const active = document.activeElement;
+    return active === null || active === document.body || active === document.documentElement
+      || active === root || active === renderer.domElement;
+  };
 
   const events = new AbortController();
   const { signal } = events;
@@ -2346,7 +2716,9 @@ export function createMenu(deps: MenuDeps): Menu {
     event.preventDefault();
     touch();
     if (flight !== null) return;
-    const step = 1 + Math.sign(event.deltaY) * 0.12;
+    const unit = event.deltaMode === 1 ? WHEEL_LINE : event.deltaMode === 2 ? innerHeight : 1;
+    const pixels = Math.max(-WHEEL_MAX, Math.min(WHEEL_MAX, event.deltaY * unit));
+    const step = Math.exp(pixels * WHEEL_ZOOM);
     if (stage === 'system') {
       sysWant.distance = Math.max(orrery.extent * 0.4, Math.min(orrery.extent * 3.5, sysWant.distance * step));
     } else if (stage === 'planet') {
@@ -2368,7 +2740,8 @@ export function createMenu(deps: MenuDeps): Menu {
     if (event.code === 'Escape') {
       event.preventDefault();
       goBack();
-    } else if (event.code === 'Enter') {
+    } else if (isEnter(event)) {
+      if (!focusIsFree()) return;
       event.preventDefault();
       if (stage === 'site' && picked !== null) start(picked);
       else if (stage === 'system') continueButton.click();
@@ -2383,13 +2756,32 @@ export function createMenu(deps: MenuDeps): Menu {
 
   function resize(): void {
     // `main.ts` does not size the renderer until its loop starts, and a WebGL
-    // canvas defaults to 300x150; the menu is on the screen long before.
+    // canvas defaults to 300x150; the menu is on the screen long before. The
+    // ratio is set again on every resize rather than once: the browser's zoom
+    // and a move to a screen of another density both change it, and a canvas
+    // left at the old one is blurred or pays for pixels nobody sees.
+    renderer.setPixelRatio(deps.pixelRatio?.() ?? Math.min(devicePixelRatio, 2));
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
   }
   addEventListener('resize', resize, { signal });
   resize();
+
+  // A window dragged to a screen of another density does not always resize,
+  // and the media query for the ratio it is at is what fires then. It is asked
+  // again for the new ratio every time it does.
+  let density: MediaQueryList | null = null;
+  const watchDensity = (): void => {
+    density?.removeEventListener('change', onDensity);
+    density = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+    density.addEventListener('change', onDensity, { signal });
+  };
+  function onDensity(): void {
+    resize();
+    watchDensity();
+  }
+  watchDensity();
 
   /* --- the opening shot ------------------------------------------------- */
 
@@ -2427,7 +2819,7 @@ export function createMenu(deps: MenuDeps): Menu {
     orrery.update(time(), camera, renderer.domElement.clientHeight, dt);
 
     if (flight !== null) {
-      const t = clamp01((now - flight.began) / flight.duration);
+      const t = flight.duration <= 0 ? 1 : clamp01((now - flight.began) / flight.duration);
       const k = t * t * (3 - 2 * t);
       const kt = 1 - (1 - k) ** 2.4;
       blend(flight.from, flight.to, k, kt, pose);
@@ -2441,7 +2833,7 @@ export function createMenu(deps: MenuDeps): Menu {
     } else {
       const k = 1 - Math.exp(-dt / DRAG_LAG);
       if (stage === 'system') {
-        if (!dragging && (now - lastTouched) / 1000 > IDLE_BEFORE_DRIFT) sysWant.azimuth += DRIFT * dt;
+        if (!dragging && !calm.matches && (now - lastTouched) / 1000 > IDLE_BEFORE_DRIFT) sysWant.azimuth += DRIFT * dt;
         chase(sys, sysWant, k);
         systemPose(sys, pose);
       } else if (stage === 'planet') {
@@ -2486,7 +2878,11 @@ export function createMenu(deps: MenuDeps): Menu {
     projectDiscs();
     if ((stage === 'system' || stage === 'planet') && free) {
       const overDock = document.elementFromPoint(pointer.x, pointer.y)?.closest('.m-dock-item, .m-label') != null;
-      if (!overDock) hoverBody = bodyAt(pointer.x, pointer.y);
+      // A dock item the keyboard is on keeps its planet lit, wherever the
+      // resting mouse happens to be.
+      const active = document.activeElement;
+      const keyed = active !== null && dock.contains(active) && active.matches(':focus-visible');
+      if (!overDock && !keyed) hoverBody = bodyAt(pointer.x, pointer.y);
       root.style.cursor = hoverBody !== null ? 'pointer' : '';
     } else if (stage === 'region' || stage === 'site') {
       root.style.cursor = '';
@@ -2660,9 +3056,17 @@ export function createMenu(deps: MenuDeps): Menu {
       const curtain = h('div', { class: 'atlas-curtain' });
       document.body.append(curtain);
       return new Promise<Curtain>((resolve) => {
-        flyTo(to, () => {});
-        const seconds = flight!.duration / 1000;
-        setTimeout(() => curtain.classList.add('on'), seconds * 1000 * 0.68);
+        // With less motion asked for there is no dive at all: the curtain
+        // closes over wherever the camera already is.
+        let seconds = 0;
+        if (calm.matches) {
+          void curtain.offsetWidth;
+          curtain.classList.add('on');
+        } else {
+          flyTo(to, () => {});
+          seconds = flight!.duration / 1000;
+          setTimeout(() => curtain.classList.add('on'), seconds * 1000 * 0.68);
+        }
         setTimeout(() => {
           resolve({
             lift() {

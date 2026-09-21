@@ -40,6 +40,18 @@
  * `GroundModel` where they have one (so Mars shows Syrtis Major where Syrtis
  * Major is) and from latitude bands where they do not. They are drawn by the
  * same `outline.render` as everything else, so they carry the same pen.
+ *
+ * # Down at Earth, the rest steps back
+ *
+ * The rings were already going as the globe filled the frame; the bodies on
+ * them were not, and from the country stage Saturn and its rings stood behind
+ * the menu's own card. So everything but Earth fades out on the same
+ * approach — the Sun and its glow too, since the land has the world's own sun
+ * by then — except the body the camera has been sent to (`focus`), which a
+ * planet near Earth on the day it is chosen must not lose. The fade is a real
+ * fade and not a shrink: the fill turns transparent and keeps writing depth,
+ * which is what hides the inside of its ink hull (see *The ink* in
+ * `CLAUDE.md`), and the hull takes the fill's opacity on its own.
  */
 
 import * as THREE from 'three';
@@ -88,6 +100,14 @@ const RINGS_A: readonly [number, number] = [2.03, 2.3];
  */
 const STAR_SHELL = 220;
 const STAR_COUNT = 1400;
+
+/**
+ * The approach to Earth over which the rest of the system fades, as distances
+ * from Earth's centre in Earth radii: all there beyond the second, all gone
+ * inside the first. The rings have always gone over exactly this span, and the
+ * bodies on them go with them; the country stage frames the globe from 2.47.
+ */
+const NEAR_EARTH: readonly [number, number] = [5, 10];
 
 /**
  * Faces of a planet: `IcosahedronGeometry` detail, 20 * (d + 1)^2 = 5,780.
@@ -293,7 +313,7 @@ function planetRamp(): THREE.DataTexture {
  */
 function planetMaterial(sun: { value: THREE.Vector3 }, ramp: THREE.DataTexture): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uSun: sun, uRamp: { value: ramp } },
+    uniforms: { uSun: sun, uRamp: { value: ramp }, uOpacity: { value: 1 } },
     vertexColors: true,
     vertexShader: /* glsl */ `
       varying vec3 vColor;
@@ -309,13 +329,14 @@ function planetMaterial(sun: { value: THREE.Vector3 }, ramp: THREE.DataTexture):
     fragmentShader: /* glsl */ `
       uniform vec3 uSun;
       uniform sampler2D uRamp;
+      uniform float uOpacity;
       varying vec3 vColor;
       varying vec3 vNormal;
       varying vec3 vWorld;
       void main() {
         float lit = dot(normalize(vNormal), normalize(uSun - vWorld)) * 0.5 + 0.5;
         vec3 band = texture2D(uRamp, vec2(lit, 0.5)).rgb;
-        gl_FragColor = vec4(vColor * band, 1.0);
+        gl_FragColor = vec4(vColor * band, uOpacity);
         #include <colorspace_fragment>
       }`,
   });
@@ -333,7 +354,7 @@ function sunMaterial(): THREE.ShaderMaterial {
   const gold = new THREE.Color(PALETTE.gold);
   const orange = new THREE.Color(PALETTE.orange);
   return new THREE.ShaderMaterial({
-    uniforms: { uCore: { value: cream }, uBody: { value: gold }, uLimb: { value: orange } },
+    uniforms: { uCore: { value: cream }, uBody: { value: gold }, uLimb: { value: orange }, uOpacity: { value: 1 } },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
       varying vec3 vWorld;
@@ -347,18 +368,34 @@ function sunMaterial(): THREE.ShaderMaterial {
       uniform vec3 uCore;
       uniform vec3 uBody;
       uniform vec3 uLimb;
+      uniform float uOpacity;
       varying vec3 vNormal;
       varying vec3 vWorld;
       void main() {
         float facing = dot(normalize(vNormal), normalize(cameraPosition - vWorld));
         vec3 c = facing > 0.72 ? uCore : facing > 0.36 ? uBody : uLimb;
-        gl_FragColor = vec4(c, 1.0);
+        gl_FragColor = vec4(c, uOpacity);
         #include <colorspace_fragment>
       }`,
   });
 }
 
-/** A soft round glow for the Sun, drawn on a canvas because there are no files. */
+/**
+ * One of this file's own shader materials at an opacity.
+ *
+ * Transparent only while it is below one, so a body at full strength stays in
+ * the opaque list it was always drawn in. `opacity` is set beside the uniform
+ * because the ink reads it: `outline.ts` gives the hull the fill's opacity and
+ * turns it transparent with it. Depth is still written, which is what keeps the
+ * hull's inside hidden behind a fill you can half see through.
+ */
+function fade(material: THREE.ShaderMaterial, opacity: number): void {
+  (material.uniforms['uOpacity'] as THREE.IUniform<number>).value = opacity;
+  material.opacity = opacity;
+  material.transparent = opacity < 1;
+}
+
+/** A soft round glow for the Sun, drawn on a canvas rather than shipped as an image. */
 function glowTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -509,6 +546,11 @@ export interface Orrery {
   /** Gold on one ring, or none. */
   highlight(id: string | null): void;
   /**
+   * The body the camera has been sent to, which never fades as the camera
+   * nears Earth; `null` when it is Earth or nothing. See the header.
+   */
+  focus(id: string | null): void;
+  /**
    * The handedness witness: the angle between the Sun this file placed and the
    * sun `sun.ts` lights the world by. See the header.
    */
@@ -530,8 +572,7 @@ export function createOrrery(): Orrery {
 
   const sunUniform = { value: new THREE.Vector3() };
   const ramp = planetRamp();
-  const material = planetMaterial(sunUniform, ramp);
-  const disposables: { dispose(): void }[] = [ramp, material];
+  const disposables: { dispose(): void }[] = [ramp];
 
   /* --- the Sun ---------------------------------------------------------- */
 
@@ -567,6 +608,11 @@ export function createOrrery(): Orrery {
     local: THREE.Vector3;
     pivot: THREE.Object3D | null;
     mesh: THREE.Mesh | null;
+    /**
+     * Its own material, so it can fade on its own: the same shader for every
+     * planet, so still one program. `null` for Earth, which has no mesh here.
+     */
+    material: THREE.ShaderMaterial | null;
     spin: number;
     ring: THREE.Mesh;
     ringMaterial: THREE.ShaderMaterial & { uniforms: RingUniforms };
@@ -581,7 +627,10 @@ export function createOrrery(): Orrery {
 
     let pivot: THREE.Object3D | null = null;
     let mesh: THREE.Mesh | null = null;
+    let material: THREE.ShaderMaterial | null = null;
     if (body.id !== 'earth') {
+      material = planetMaterial(sunUniform, ramp);
+      disposables.push(material);
       const geometry = new THREE.IcosahedronGeometry(radius, PLANET_DETAIL);
       paint(body, geometry);
       // Non-indexed, so this is one normal per face: facets for the ramp to
@@ -635,7 +684,7 @@ export function createOrrery(): Orrery {
     const hours = Math.abs(body.rotationHours) || 24;
     const spin = Math.sign(body.rotationHours || 1) * ((Math.PI * 2) / 20) * Math.min(2.5, Math.max(0.25, (24 / hours) ** 0.35));
 
-    built.push({ entry, local: new THREE.Vector3(), pivot, mesh, spin, ring, ringMaterial: ringMat });
+    built.push({ entry, local: new THREE.Vector3(), pivot, mesh, material, spin, ring, ringMaterial: ringMat });
   });
 
   const earthBuilt = built.find((b) => b.entry.body.id === 'earth');
@@ -696,6 +745,7 @@ export function createOrrery(): Orrery {
   const sunWorld = new THREE.Vector3();
   const basis = new THREE.Matrix4();
   let highlighted: string | null = null;
+  let focused: string | null = null;
   const gold = new THREE.Color(PALETTE.gold);
   const cream = new THREE.Color(PALETTE.cream);
 
@@ -755,19 +805,31 @@ export function createOrrery(): Orrery {
       // and three when it is the one being pointed at.
       const perRange = (2 * Math.tan((camera.fov * DEG) / 2)) / Math.max(1, screenHeight);
       // Near Earth the rings are in the way — Earth's own passes through the
-      // middle of the planet — so they go as the globe fills the frame.
-      const nearEarth = THREE.MathUtils.smoothstep(camera.position.length(), 5 * R, 10 * R);
+      // middle of the planet — so they go as the globe fills the frame, and
+      // every body but the one the camera was sent to goes with them.
+      const nearEarth = THREE.MathUtils.smoothstep(camera.position.length(), NEAR_EARTH[0] * R, NEAR_EARTH[1] * R);
       for (const b of built) {
         const hot = b.entry.body.id === highlighted;
         b.ringMaterial.uniforms.uWidth.value = perRange * (hot ? 1.6 : 1);
         b.ringMaterial.uniforms.uColor.value.copy(hot ? gold : cream);
         b.ringMaterial.uniforms.uAlpha.value = (hot ? 0.95 : 0.26) * nearEarth;
         b.ring.visible = nearEarth > 0.01;
+        if (b.material === null || b.pivot === null) continue;
+        const opacity = b.entry.body.id === focused ? 1 : nearEarth;
+        fade(b.material, opacity);
+        b.pivot.visible = opacity > 0.01;
       }
+      const sunOpacity = star.id === focused ? 1 : nearEarth;
+      fade(sunMat, sunOpacity);
+      glowMaterial.opacity = sunOpacity;
+      sunMesh.visible = glow.visible = sunOpacity > 0.01;
       starScale.value = Math.min(2, globalThis.devicePixelRatio || 1);
     },
     highlight(id) {
       highlighted = id;
+    },
+    focus(id) {
+      focused = id;
     },
     verify(sunDirection) {
       const placed = sunWorld.clone().normalize();

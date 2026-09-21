@@ -14,7 +14,7 @@
  *   and sees a cap of `acos(1/2.45)` — 66 degrees, about a third of the surface.
  *   This is a projection of all of it, near side and far side together.
  * - **The visited set.** Monuments stop building at about 12,000 units and there
- *   are no pins in the world, so from the air the sixty-five landmarks are
+ *   are no pins in the world, so from the air the eighty-five landmarks are
  *   invisible whether you have found them or not. Here they are cream, gold and
  *   violet at a size you can read.
  * - **A destination you can point at.** Pointer lock holds the cursor, which is
@@ -54,7 +54,7 @@
  *
  * **Two other projections were measured against it rather than argued about.**
  * Counting how many landmarks survive the pin thinning at a 660-pixel disc,
- * from six standpoints. Taken when there were 65 of them; there are 77 now and
+ * from six standpoints. Taken when there were 65 of them; there are 85 now and
  * the ratios are what the argument rests on, not the counts:
  *
  * ```
@@ -102,6 +102,7 @@ import { type World, insideRing } from './geo.ts';
 import { createFlagCanvas } from './flags.ts';
 import type { Placement } from './placement.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
+import { FONT, ensureStyle, h, hex, installUi, kbd, km } from './ui.ts';
 import {
   EARTH_KM,
   LabelSpace,
@@ -110,7 +111,6 @@ import {
   TAU,
   buildShapes,
   createFrame,
-  css,
   inkedText,
   setFrame,
   sortByDepth,
@@ -136,6 +136,13 @@ export interface WorldMapOptions {
   lockTarget?: HTMLElement | null;
   /** `event.code` that opens and closes it. `null` to bind it yourself. */
   key?: string | null;
+  /**
+   * Asked before the key opens the map, and a `true` leaves it shut: another
+   * overlay is up and the map would open *under* it — the settings card, which
+   * sits above this one. Closing is never blocked, and neither is `show()`,
+   * which is what the console and the HUD's own button call.
+   */
+  blocked?: () => boolean;
 }
 
 export interface WorldMap {
@@ -197,12 +204,31 @@ const PIN_SPACING = 15;
 const PICK_RANGE = 20;
 /** Rings, in real kilometres. The rim is the antipode at 20,015. */
 const RANGE_RINGS = [5000, 10000, 15000];
-
-const FONT = 'ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif';
+/**
+ * Where a ring's label may sit, as screen angles clockwise from east, in the
+ * order they are tried.
+ *
+ * Down and to the right first — the one diagonal with neither the compass mark
+ * at the top nor the head card in it — then fanning out a twelfth of a turn at a
+ * time either way. The labels used to be painted into the land at that first
+ * angle whatever was there, and on a sheet whose pins are drawn over the land
+ * that put *5,000 km* under Kilimanjaro's pin and *15,000 km* under the Moeraki
+ * Boulders. Now each one takes the first angle the label space has room at, like
+ * every other word on the sheet, and is dropped only if the whole ring is full.
+ */
+const RING_LABEL_ANGLES = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7, 8, -8, 9, -9, 10, -10, 11, -11]
+  .map((step) => Math.PI / 4 + (step * Math.PI) / 12);
 
 /** Countries smaller than this across, in pixels, do not get their name written. */
 const MIN_COUNTRY_LABEL = 26;
 
+/**
+ * What is the map's own. The cards, the key caps and the flag's frame are
+ * `ui.ts`'s — `.ui-card`, `.ui-kbd`, `.ui-flag` — so the sheet behind `M` is
+ * drawn with the same rim, radius and drop as the HUD it opens over; it had
+ * its own 12-pixel card and a flat, rimless key cap until the two were put
+ * side by side.
+ */
 const STYLE = `
 .atlas-map {
   position: fixed;
@@ -216,18 +242,14 @@ const STYLE = `
   background: rgba(30, 6, 3, 0.68);
   backdrop-filter: blur(3px);
   transition: opacity 0.18s ease, visibility 0.18s;
-  font-family: ${FONT};
-  color: ${css(PALETTE.ink)};
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
   cursor: default;
 }
 .atlas-map.on { opacity: 1; visibility: visible; pointer-events: auto; }
 .atlas-map canvas { display: block; }
-.atlas-map .card {
+.atlas-map .ui-card {
   position: absolute;
-  background: ${css(PALETTE.white)};
-  border: 3px solid ${css(PALETTE.ink)};
-  border-radius: 12px;
-  box-shadow: 0 5px 0 ${css(PALETTE.ink)};
   pointer-events: none;
 }
 .atlas-map-head {
@@ -250,7 +272,7 @@ const STYLE = `
 .atlas-map-legend {
   margin-top: 9px;
   padding-top: 8px;
-  border-top: 2px solid rgba(30, 6, 3, 0.14);
+  border-top: 2px solid var(--ui-rule);
   display: grid;
   gap: 4px;
   font-size: 11.5px;
@@ -261,27 +283,33 @@ const STYLE = `
   width: 8px;
   height: 8px;
   margin-right: 7px;
-  border: 1.5px solid ${css(PALETTE.ink)};
+  border: 1.5px solid var(--ui-ink);
   border-radius: 50%;
   vertical-align: middle;
+}
+.atlas-map-note {
+  max-width: 190px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 2px solid var(--ui-rule);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  opacity: 0.72;
 }
 .atlas-map-foot {
   bottom: 22px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 9px 18px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
   white-space: nowrap;
   font-size: 12.5px;
   font-weight: 600;
 }
-.atlas-map-foot kbd {
-  font: inherit;
-  font-weight: 800;
-  background: rgba(30, 6, 3, 0.1);
-  border-radius: 5px;
-  padding: 2px 6px;
-}
-.atlas-map-foot span + span { margin-left: 16px; }
+.atlas-map-foot span { display: inline-flex; align-items: center; gap: 6px; }
 /* The tooltip's origin is the pin's own tip, so it rises out of the mark it
    describes rather than floating near it. */
 .atlas-map-tip {
@@ -293,10 +321,6 @@ const STYLE = `
   max-width: 280px;
 }
 .atlas-map-tip.on { display: flex; }
-.atlas-map-tip canvas {
-  border: 2px solid ${css(PALETTE.ink)};
-  border-radius: 4px;
-}
 .atlas-map-tip-name {
   font-size: 14.5px;
   font-weight: 800;
@@ -316,24 +340,22 @@ const STYLE = `
 .atlas-map-tip-sub b { font-weight: 800; opacity: 0.85; }
 `;
 
-const kmText = (value: number): string => `${Math.round(value).toLocaleString('en')} km`;
-
 export function createWorldMap(world: World, options: WorldMapOptions): WorldMap {
   const { monuments, isVisited, target, onChoose, onClear } = options;
   const key = options.key === undefined ? 'KeyM' : options.key;
   const lockTarget = options.lockTarget ?? null;
 
-  const ink = css(PALETTE.ink);
-  const ocean = css(OCEAN_COLOR);
-  const cream = css(PALETTE.white);
-  const gold = css(PALETTE.gold);
-  const violet = css(PALETTE.violet);
-  const root = document.createElement('div');
-  root.className = 'atlas-map';
-  const style = document.createElement('style');
-  style.textContent = STYLE;
+  installUi();
+  ensureStyle('atlas-map', STYLE);
 
-  const canvas = document.createElement('canvas');
+  const ink = hex(PALETTE.ink);
+  const ocean = hex(OCEAN_COLOR);
+  const cream = hex(PALETTE.white);
+  const gold = hex(PALETTE.gold);
+  const violet = hex(PALETTE.violet);
+  const root = h('div', { class: 'atlas-map' });
+
+  const canvas = h('canvas');
   const ctx = canvas.getContext('2d')!;
   // The land is redrawn only when the centre moves; the pins and the names are
   // redrawn whenever the cursor does. Keeping them in two buffers is what makes
@@ -341,44 +363,48 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const base = document.createElement('canvas');
   const baseCtx = base.getContext('2d')!;
 
-  const head = document.createElement('div');
-  head.className = 'atlas-map-head card';
-  const title = document.createElement('div');
-  title.className = 'atlas-map-title';
-  title.textContent = 'The world';
-  const count = document.createElement('div');
-  count.className = 'atlas-map-count';
-  const legend = document.createElement('div');
-  legend.className = 'atlas-map-legend';
-  legend.innerHTML = [
-    ['', 'not found'],
-    [gold, 'found'],
-    [violet, 'destination'],
-  ]
-    .map(([colour, label]) =>
-      `<div><i style="background:${colour === '' ? cream : colour}"></i>${label}</div>`)
-    .join('');
-  head.append(title, count, legend);
+  const count = h('div', { class: 'atlas-map-count' });
+  const legend = h(
+    'div',
+    { class: 'atlas-map-legend' },
+    ...([
+      [cream, 'not found'],
+      [gold, 'found'],
+      [violet, 'destination'],
+    ] as const).map(([colour, label]) => h('div', {}, h('i', { style: `background: ${colour}` }), label)),
+  );
+  const head = h(
+    'div',
+    { class: 'atlas-map-head ui-card' },
+    h('div', { class: 'atlas-map-title', text: 'The world' }),
+    count,
+    legend,
+    // The words that make an unfamiliar projection readable, and the only
+    // place the sheet explains itself. Without them the outer ring of empty
+    // ocean — which from Europe is most of the Pacific — reads as wasted paper
+    // rather than as the far side of the world. They were painted along the
+    // bottom of the disc, where the rim clipped both ends and the footer card
+    // covered the middle; on the card they are whole at every size.
+    h('div', {
+      class: 'atlas-map-note',
+      text: `Rings every ${km(RANGE_RINGS[0]!)}; the rim is your antipode, ${km(Math.PI * EARTH_KM)} away.`,
+    }),
+  );
 
-  const foot = document.createElement('div');
-  foot.className = 'atlas-map-foot card';
-  foot.innerHTML =
-    '<span><kbd>M</kbd> close</span>'
-    + '<span>click a landmark to set your destination</span>'
-    + '<span><kbd>Tab</kbd> cycle</span>';
+  const foot = h(
+    'div',
+    { class: 'atlas-map-foot ui-card' },
+    h('span', {}, kbd('M'), 'close'),
+    h('span', { text: 'click a landmark to set your destination' }),
+    h('span', {}, kbd('Tab'), 'cycle'),
+  );
 
-  const tip = document.createElement('div');
-  tip.className = 'atlas-map-tip card';
-  const tipFlag = document.createElement('span');
-  const tipText = document.createElement('div');
-  const tipName = document.createElement('div');
-  tipName.className = 'atlas-map-tip-name';
-  const tipSub = document.createElement('div');
-  tipSub.className = 'atlas-map-tip-sub';
-  tipText.append(tipName, tipSub);
-  tip.append(tipFlag, tipText);
+  const tipFlag = h('span');
+  const tipName = h('div', { class: 'atlas-map-tip-name' });
+  const tipSub = h('div', { class: 'atlas-map-tip-sub' });
+  const tip = h('div', { class: 'atlas-map-tip ui-card' }, tipFlag, h('div', {}, tipName, tipSub));
 
-  root.append(style, canvas, head, foot, tip);
+  root.append(canvas, head, foot, tip);
 
   const countryName = new Map(world.countries.map((country) => [country.iso, country.name]));
 
@@ -463,6 +489,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   let cursorY = -1;
   /** How many pins survived the last thinning, and where they landed. */
   let kept = 0;
+  /** The destination's pin this draw, or -1. */
+  let chosenPin = -1;
 
   /**
    * Builds the outlines at whatever resolution the disc is.
@@ -669,47 +697,19 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // The rings are what say "the radius is a distance" without a sentence
     // saying it. They are evenly spaced because the projection is equidistant —
     // on any other whole-world projection they would not be circles at all.
+    // Their labels are not here: they are words, and words go through the
+    // label space with the pins and the names — see `drawRingLabels`.
     baseCtx.setLineDash([5, 6]);
     baseCtx.lineWidth = 1.25;
     baseCtx.strokeStyle = 'rgba(30, 6, 3, 0.3)';
-    baseCtx.font = `700 10.5px ${FONT}`;
-    baseCtx.textAlign = 'center';
-    baseCtx.textBaseline = 'middle';
-    for (const km of RANGE_RINGS) {
-      const radius = (km / EARTH_KM) * perRadian;
+    for (const distance of RANGE_RINGS) {
+      const radius = ringRadius(distance);
       if (radius > discRadius - 6) continue;
       baseCtx.beginPath();
       baseCtx.arc(centre, centre, radius, 0, TAU);
       baseCtx.stroke();
-      // Down and to the right of the middle, which is the one diagonal with
-      // neither the compass mark at the top nor the head card in it.
-      const at = Math.PI * 0.75;
-      inkedText(
-        baseCtx,
-        kmText(km),
-        centre - Math.cos(at) * radius,
-        centre + Math.sin(at) * radius,
-        cream,
-        'rgba(30, 6, 3, 0.55)',
-        3.5,
-      );
     }
     baseCtx.setLineDash([]);
-
-    // Six words that make an unfamiliar projection readable, and the only place
-    // the sheet explains itself. Without it the outer ring of empty ocean —
-    // which from Europe is most of the Pacific — reads as wasted paper rather
-    // than as the far side of the world.
-    baseCtx.font = `700 11px ${FONT}`;
-    inkedText(
-      baseCtx,
-      `the rim is your antipode · ${kmText(Math.PI * EARTH_KM)}`,
-      centre,
-      centre + discRadius - 15,
-      cream,
-      'rgba(30, 6, 3, 0.55)',
-      3.5,
-    );
     baseCtx.restore();
 
     baseCtx.beginPath();
@@ -765,20 +765,29 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     }
   }
 
+  /** How far out a ring of `distance` real kilometres is drawn, in pixels. */
+  const ringRadius = (distance: number): number => (distance / EARTH_KM) * perRadian;
+
   /**
-   * Projects the landmarks, thins them, and writes the names that fit.
+   * Projects the landmarks, thins them, and claims the room their pins stand in.
    *
    * Nothing is culled: on this projection every pin on the planet is on the
    * sheet. Order is nearest-first, so the names that get dropped in a crowd are
    * the far ones — and the chosen destination is seeded ahead of the thinning,
    * exactly as on the minimap.
+   *
+   * Every pin's own box is claimed *before* any word is placed, and getting
+   * that order wrong is visible rather than theoretical: the pins are painted
+   * last so they sit on top of the haloes, so a name allowed to start under a
+   * neighbour's pin is a name with a hole bitten out of it. The first version
+   * claimed them afterwards and the Eiffel Tower rendered as "ffel Tower".
    */
-  function drawPins(space: LabelSpace): void {
+  function placePins(space: LabelSpace): void {
     kept = 0;
     if (pinCount === 0) return;
 
     const chosen = target();
-    const chosenPin = chosen === null ? -1 : pinIndex.get(chosen) ?? -1;
+    chosenPin = chosen === null ? -1 : pinIndex.get(chosen) ?? -1;
 
     for (let i = 0; i < pinCount; i++) {
       const k = i * 3;
@@ -800,18 +809,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       pinOrder, pinCount, pinScreenX, pinScreenY, PIN_SPACING, keptPin, keptX, keptY, chosenPin,
     );
 
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    ctx.font = `800 12.5px ${FONT}`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-
-    // Every pin's own box is claimed *before* any name is placed, and getting
-    // that order wrong is visible rather than theoretical: the pins are painted
-    // last so they sit on top of the haloes, so a name allowed to start under a
-    // neighbour's pin is a name with a hole bitten out of it. The first version
-    // claimed them afterwards and the Eiffel Tower rendered as "ffel Tower".
     for (let n = 0; n < kept; n++) {
       space.claim(
         keptX[n]! - PIN_HEAD - 2,
@@ -820,8 +817,45 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         PIN_RISE + PIN_HEAD + 4,
       );
     }
+  }
 
-    // Names next, nearest first, so a crowd drops the far ones.
+  /**
+   * One label per range ring, at the first angle round it that has room.
+   *
+   * Placed after the pins have claimed their boxes and before any name has, so
+   * a ring's distance is never under a pin and never loses to a landmark three
+   * continents away — there are three of them, and they are what makes the
+   * sheet a chart. Ink on the paper halo, the landmarks' own pen, rather than
+   * the faded ink they had when they were painted into the land.
+   */
+  function drawRingLabels(space: LabelSpace): void {
+    ctx.font = `800 10.5px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const height = 13;
+    for (const distance of RANGE_RINGS) {
+      const radius = ringRadius(distance);
+      if (radius > discRadius - 6) continue;
+      const text = km(distance);
+      const width = ctx.measureText(text).width;
+      for (const angle of RING_LABEL_ANGLES) {
+        const x = centre + Math.cos(angle) * radius;
+        const y = centre + Math.sin(angle) * radius;
+        const left = x - width / 2;
+        const top = y - height / 2;
+        if (!space.fits(left, top, width, height)) continue;
+        space.claim(left, top, width, height);
+        inkedText(ctx, text, left, y, cream, ink, 3.5);
+        break;
+      }
+    }
+  }
+
+  /** The landmarks' names, nearest first, so a crowd drops the far ones. */
+  function drawPinNames(space: LabelSpace): void {
+    ctx.font = `800 12.5px ${FONT}`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
     for (let n = 0; n < kept; n++) {
       const i = keptPin[n]!;
       const x = keptX[n]!;
@@ -839,13 +873,39 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       space.claim(left, top, width, 14);
       inkedText(ctx, name, left, y - PIN_RISE, cream, ink, 3.5);
     }
+  }
 
+  /** The pins themselves, last, so nothing is drawn over one. */
+  function paintPins(): void {
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
     // Backwards, so the nearest is painted last and nothing lands on top of it.
     for (let n = kept - 1; n >= 0; n--) {
       const i = keptPin[n]!;
       const scale = i === hover ? 1.35 : i === chosenPin ? 1.25 : 1;
       const fill = i === chosenPin ? violet : isVisited(monuments[i]!.id) ? gold : cream;
       tracePin(ctx, keptX[n]!, keptY[n]!, PIN_RISE, PIN_HEAD, fill, scale);
+    }
+  }
+
+  /**
+   * Where the head card and the footer card cover the disc, in the canvas's own
+   * pixels, so nothing is written underneath them.
+   *
+   * Measured when the sheet opens and when the window changes, never per draw:
+   * a card moves only then, and a bounding box asked for in the draw would be a
+   * layout every redraw.
+   */
+  const covered: { x: number; y: number; width: number; height: number }[] = [];
+  function measureCards(): void {
+    covered.length = 0;
+    const box = canvas.getBoundingClientRect();
+    for (const card of [head, foot]) {
+      const rect = card.getBoundingClientRect();
+      // The drop under a card is ink too, and a halo against it reads as a
+      // word touching the card.
+      covered.push({ x: rect.left - box.left - 4, y: rect.top - box.top - 4, width: rect.width + 8, height: rect.height + 12 });
     }
   }
 
@@ -867,10 +927,17 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
     const space = new LabelSpace();
-    // The centre is the player's own mark, and a name under it is unreadable.
+    // The centre is the player's own mark, and a name under it is unreadable;
+    // the compass mark on the rim is drawn last, so it is claimed first; and
+    // the cards are over the canvas, so what they cover is not paper.
     space.claim(centre - 16, centre - 16, 32, 32);
-    drawPins(space);
+    space.claim(centre - 9, 0, 18, RIM_WIDTH + 18);
+    for (const card of covered) space.claim(card.x, card.y, card.width, card.height);
+    placePins(space);
+    drawRingLabels(space);
+    drawPinNames(space);
     drawCountries(space);
+    paintPins();
     drawPlayer();
 
     // North, on the rim, because the sheet is north-up and the arrow in the
@@ -890,13 +957,17 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const monument = monuments[hover]!;
     const k = hover * 3;
     const dot = pinPoint[k]! * ux + pinPoint[k + 1]! * uy + pinPoint[k + 2]! * uz;
-    const km = Math.acos(dot > 1 ? 1 : dot < -1 ? -1 : dot) * EARTH_KM;
+    const distance = Math.acos(dot > 1 ? 1 : dot < -1 ? -1 : dot) * EARTH_KM;
     const found = isVisited(monument.id);
     tipName.textContent = monument.name;
-    tipSub.innerHTML =
-      `${countryName.get(monument.iso) ?? monument.iso} · <b>${kmText(km)}</b>`
-      + (found ? ' · found' : '');
-    tipFlag.replaceChildren(createFlagCanvas(monument.iso, 34, 23));
+    tipSub.replaceChildren(
+      `${countryName.get(monument.iso) ?? monument.iso} · `,
+      h('b', { text: km(distance) }),
+      found ? ' · found' : '',
+    );
+    const flag = createFlagCanvas(monument.iso, 34, 23);
+    flag.className = 'ui-flag';
+    tipFlag.replaceChildren(flag);
     // The canvas is centred in the overlay, so the pin's page position is its
     // disc position plus the disc's own offset.
     const box = canvas.getBoundingClientRect();
@@ -988,6 +1059,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     lastUy = 0;
     lastUz = 0;
     root.classList.add('on');
+    measureCards();
   }
 
   function hide(): void {
@@ -1014,7 +1086,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         event.preventDefault();
         if (!event.repeat) {
           if (showing) hide();
-          else show();
+          else if (options.blocked?.() !== true) show();
         }
         return;
       }
@@ -1027,6 +1099,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   addEventListener('resize', () => {
     if (showing) {
       resize();
+      measureCards();
       renderTip();
     } else {
       // Only the size is remembered; the outlines are rebuilt on the next open,

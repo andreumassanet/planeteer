@@ -5,9 +5,11 @@
  * `menu.ts` each carried their own copy of the cream card with the 3 px ink
  * rim and the hard 5 px drop, and their own `kbd`. They agreed because they
  * were copied on the same afternoon, which is not the same thing as agreeing.
- * This file is the one definition of the pieces the start menu, the HUD and
- * the settings panel are built from: the tokens, the card, the button, the key
- * cap, the switch, the slider, the segmented control and the icons.
+ * This file is the one definition of the pieces the start menu, the HUD, the
+ * settings panel and the world map are built from: the tokens, the card, the
+ * button, the key cap, the switch, the slider, the segmented control, the
+ * focus ring and the icons — and of the two one-liners every canvas and
+ * stylesheet here needs, `hex` and `FONT`.
  *
  * The look is the world's own. The world is inked — `OutlineEffect` draws a
  * black line round every mesh and the fills are flat cel bands — so the UI is
@@ -15,9 +17,13 @@
  * with no blur, which is what a sticker on a comic panel has and what a
  * soft-shadowed glass card would never have.
  *
- * **The icons are code, not files**, because the project has no external
- * assets: each is a few SVG strokes on a 24-unit grid, drawn in the ink's own
- * weight so an icon on a button reads as the same pen as the button's rim.
+ * **The icons are code, not files.** The world does ship external assets now —
+ * the people, the vehicles, the animals, the plants and many of the near
+ * towns' buildings are CC0 models from Kenney, Quaternius, KayKit and others,
+ * baked into `public/models/` with their licences beside them — but an icon is
+ * not worth a request: each is a few SVG strokes on a 24-unit grid, drawn in
+ * the ink's own weight so an icon on a button reads as the same pen as the
+ * button's rim, and stroked in `currentColor` so it takes its button's colour.
  * The two that are geometry rather than strokes — the gear and the star — are
  * generated rather than typed, so their teeth and points are exact.
  *
@@ -29,7 +35,10 @@ import { PALETTE } from './theme.ts';
 
 export const FONT = 'ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif';
 
-/** A palette entry as CSS. `cartography.ts` has the same one-liner for canvas. */
+/**
+ * A palette entry as CSS, for a stylesheet or a canvas. The one copy: the maps,
+ * the names and the menu all import it.
+ */
 export const hex = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
 
 /**
@@ -65,6 +74,11 @@ const STYLE = `
   --ui-drop: 0 5px 0 var(--ui-ink);
   --ui-spring: cubic-bezier(0.2, 1.35, 0.4, 1);
   --ui-ease: cubic-bezier(0.2, 0.9, 0.25, 1);
+  /* Where the keyboard is. Violet, which no card or button is painted in, so
+     the ring reads as the keyboard and never as a state. The pieces below and
+     the menu's own controls draw it; anything focusable an overlay adds should
+     draw this one rather than a ring of its own. */
+  --ui-ring: 3px solid var(--ui-violet);
 }
 
 .ui-card {
@@ -100,7 +114,7 @@ const STYLE = `
 }
 .ui-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--ui-ink); }
 .ui-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--ui-ink); }
-.ui-btn:focus-visible { outline: 3px solid var(--ui-violet); outline-offset: 3px; }
+.ui-btn:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
 .ui-btn.primary { background: var(--ui-gold); }
 .ui-btn.quiet { background: var(--ui-cream); }
 .ui-btn.big { font-size: 17px; padding: 13px 22px; border-radius: 13px; }
@@ -189,7 +203,7 @@ const STYLE = `
 }
 .ui-switch[aria-checked='true'] { background: var(--ui-gold); }
 .ui-switch[aria-checked='true']::after { transform: translateX(22px); background: var(--ui-paper); box-shadow: 0 0 0 2px var(--ui-ink); }
-.ui-switch:focus-visible { outline: 3px solid var(--ui-violet); outline-offset: 3px; }
+.ui-switch:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
 
 /* The slider paints its own fill: --fill is set by whoever owns the value. */
 .ui-range {
@@ -220,7 +234,7 @@ const STYLE = `
   border: 3px solid var(--ui-ink);
   box-shadow: 0 3px 0 var(--ui-ink);
 }
-.ui-range:focus-visible { outline: 3px solid var(--ui-violet); outline-offset: 4px; }
+.ui-range:focus-visible { outline: var(--ui-ring); outline-offset: 4px; }
 
 .ui-seg {
   display: inline-flex;
@@ -243,6 +257,7 @@ const STYLE = `
 }
 .ui-seg button:hover { background: rgba(30, 6, 3, 0.08); }
 .ui-seg button[aria-pressed='true'] { background: var(--ui-ink); color: var(--ui-paper); }
+.ui-seg button:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
 
 @keyframes ui-pop {
   from { opacity: 0; transform: translateY(10px) scale(0.96); }
@@ -417,6 +432,9 @@ export function icon(name: IconName, size = 20): SVGSVGElement {
 /* ------------------------------------------------------------------------- *
  * Numbers people read
  * ------------------------------------------------------------------------- */
+
+/** A distance on the real Earth, to the kilometre: *5,000 km*, *20,015 km*. */
+export const km = (value: number): string => `${Math.round(value).toLocaleString('en')} km`;
 
 /** 409,661 and 3.2 million, never 3,190,000: a menu is not a census. */
 export function people(count: number): string {

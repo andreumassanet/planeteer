@@ -21,6 +21,7 @@
  */
 import type { World } from './geo.ts';
 import { CONTINENT_COLORS, DEFAULT_LAND } from './theme.ts';
+import { hex } from './ui.ts';
 
 export const D2R = Math.PI / 180;
 export const R2D = 180 / Math.PI;
@@ -29,8 +30,6 @@ const HALF_PI = Math.PI / 2;
 
 /** Mean Earth radius. The outlines are real, so a real distance is meaningful. */
 export const EARTH_KM = 6371;
-
-export const css = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
 
 /**
  * lat/lon in degrees to a unit vector, in the one convention this project has.
@@ -221,7 +220,7 @@ export function buildShapes(world: World, minStep: number, minRadius: number): S
   const step2 = minStep * minStep;
 
   world.countries.forEach((country, index) => {
-    const fill = css(CONTINENT_COLORS[country.continent] ?? DEFAULT_LAND);
+    const fill = hex(CONTINENT_COLORS[country.continent] ?? DEFAULT_LAND);
 
     for (const ring of country.rings) {
       const xyz: number[] = [];
@@ -427,7 +426,7 @@ export function thinMarks(
  * Boxes already spoken for by a label, and whether one more fits.
  *
  * The dumbest possible label placer — a linear scan of axis-aligned rectangles —
- * and it is the right one at this volume: 77 landmarks and 239 countries is
+ * and it is the right one at this volume: 85 landmarks and 239 countries is
  * under 350 candidates, each tested against at most a few dozen survivors. The
  * landmark list grows by a curated wave at a time, so this has room.
  * Ordered by importance by the caller, so what gets dropped is the least

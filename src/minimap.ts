@@ -58,6 +58,7 @@ import {
 } from './places.ts';
 import type { Nearby, Place } from './places.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
+import { FONT, hex } from './ui.ts';
 import {
   EARTH_KM,
   LabelSpace,
@@ -65,7 +66,6 @@ import {
   TAU,
   buildShapes,
   createFrame,
-  css,
   inkedText,
   setFrame,
   sortByDepth,
@@ -80,25 +80,6 @@ export interface MinimapMonument {
   name: string;
   lat: number;
   lon: number;
-}
-
-/** The landmark the bearing mark points at. Everything else about it is HUD work. */
-export interface NearestMonument {
-  id: string;
-  name: string;
-  /** Great-circle distance across the surface, in world units. */
-  distance: number;
-  /** The same distance in real Earth kilometres: the outlines are real. */
-  km: number;
-  /**
-   * Clockwise from where you are facing, in radians, in (-PI, PI]. Zero is dead
-   * ahead, positive is to your right — so it reads directly as "turn this far".
-   *
-   * Still measured from the *heading* even though the disc is now drawn
-   * north-up: this is the answer to "which way do I walk", and that question
-   * does not know which way the paper is pinned.
-   */
-  bearing: number;
 }
 
 /**
@@ -152,15 +133,10 @@ export interface Minimap {
   /** Call every frame; the implementation decides how often it actually redraws. */
   update(position: THREE.Vector3, forward: THREE.Vector3, here?: MinimapHere): void;
   /**
-   * The closest monument to where you are standing, or null if there are none.
-   * Current on every frame, not just on the frames that redraw.
-   */
-  nearest(): NearestMonument | null;
-  /**
    * The landmark you have chosen to head for, or `null` for none.
    *
-   * Kept apart from `nearest` on purpose: they answer different questions, and
-   * the map should not point two ways at once. While a target is set it takes
+   * Kept apart from the nearest landmark on purpose: they answer different
+   * questions, and the map should not point two ways at once. While a target is set it takes
    * the rim mark over, gets its own colour, and is exempt from the pin thinning
    * — the one pin that must never be swallowed by a cluster is the one you asked
    * for. Unknown ids clear the target rather than throwing: the caller's list
@@ -301,8 +277,6 @@ const SKY_LIMIT = (85 * Math.PI) / 180;
 /** Time constant of the zoom when the framing changes. Crossing a border is not a cut. */
 const ZOOM_TIME = 0.4;
 
-const FONT = 'ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif';
-
 /** Mixes towards the paper, which is how an atlas says "not this country". */
 function fade(color: number, amount: number): string {
   const mix = (shift: number): number => {
@@ -342,14 +316,14 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const centre = size / 2;
   // The rim stroke straddles the disc edge, so half of it has to fit inside.
   const discRadius = centre - RIM_WIDTH / 2;
-  const ink = css(PALETTE.ink);
-  const ocean = css(OCEAN_COLOR);
-  const cream = css(PALETTE.white);
-  const gold = css(PALETTE.gold);
-  const crimson = css(PALETTE.crimson);
+  const ink = hex(PALETTE.ink);
+  const ocean = hex(OCEAN_COLOR);
+  const cream = hex(PALETTE.white);
+  const gold = hex(PALETTE.gold);
+  const crimson = hex(PALETTE.crimson);
   // Violet is the only palette colour that collides with nothing already on the
   // disc — not the ocean, not any continent fill, not cream, gold or crimson.
-  const violet = css(PALETTE.violet);
+  const violet = hex(PALETTE.violet);
   const faintInk = 'rgba(30, 6, 3, 0.42)';
   const borderWidth = Math.max(1, size / 200);
   const uiScale = size / DEFAULT_SIZE;
@@ -549,7 +523,6 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   let previousAt = 0;
   let baseStale = true;
   let overlayStale = true;
-  let framed = false;
 
   /** Where you are, as the caller last said. */
   let country = 0;
@@ -744,7 +717,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
    * The disc is north-up now, so this is where the landmark is on the paper
    * rather than how far you have to turn — the two agreed while the map was
    * heading-up and this is the one place that had to be told they no longer do.
-   * `nearest()` still reports the turn, because that is a fact about walking.
+   * The turn itself is `cartography.ts`'s `bearingTo`, which the chip reads.
    */
   function traceBearing(angle: number, reach: number, width: number, fill: string): void {
     const dx = Math.sin(angle);
@@ -1099,7 +1072,6 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       rx = frame.rx;
       ry = frame.ry;
       rz = frame.rz;
-      framed = true;
 
       // The zoom is eased geometrically rather than linearly, because a zoom is
       // a ratio: 300 to 4,000 and 4,000 to 300 then take the same time and read
@@ -1117,8 +1089,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
         forward.x * fx + forward.y * fy + forward.z * fz,
       );
 
-      // Every frame, throttle or no throttle: `nearest` is read by the bearing
-      // mark and by `navigation.ts`, and it is 85 dot products.
+      // Every frame, throttle or no throttle: the nearest landmark is the
+      // bearing mark's and the crimson pin's, and finding it is 85 dot products.
       let best = -1;
       let bestDot = -2;
       for (let i = 0; i < pinCount; i++) {
@@ -1177,22 +1149,6 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       samples[sampleAt] = performance.now() - began;
       sampleAt = (sampleAt + 1) % samples.length;
       if (sampleCount < samples.length) sampleCount++;
-    },
-    nearest() {
-      if (!framed || nearestPin < 0) return null;
-      const monument = monuments[nearestPin]!;
-      // Clockwise from where you are *facing*, not from where the paper is
-      // pinned: the disc is north-up and this answer is not about the disc.
-      let bearing = nearestScreen - heading;
-      if (bearing > Math.PI) bearing -= TAU;
-      else if (bearing <= -Math.PI) bearing += TAU;
-      return {
-        id: monument.id,
-        name: monument.name,
-        distance: nearestAngle * PLANET_RADIUS,
-        km: nearestAngle * EARTH_KM,
-        bearing,
-      };
     },
     setTarget(id) {
       const next = id === null ? -1 : pinIndex.get(id) ?? -1;
