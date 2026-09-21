@@ -553,10 +553,10 @@ const GROUND_EXPECTED: Record<string, [string, number, number, string][]> = {
     ['hot pole, lon 0', 0, 0, 'slag'],
     ['hot pole, lon 180', 0, 180, 'slag'],
     ['warm pole, lon 90', 0, 90, 'regolith'],
-    ['Caloris Planitia', 30.5, -170.2, 'ash'],
-    ['Caloris Montes', 30.5, -155, 'scarp'],
+    ['Caloris Planitia', 30.5, 170.2, 'ash'],
+    ['Caloris Montes', 30.5, 155, 'scarp'],
     ['Rembrandt', -32.9, 87.9, 'ash'],
-    ['Beagle Rupes', -2.1, -101.2, 'scarp'],
+    ['Beagle Rupes', -2.1, 101.2, 'scarp'],
   ],
   venus: [
     // Maxwell is the highest ground on the planet and the metal frost is on it;

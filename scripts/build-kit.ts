@@ -576,14 +576,15 @@ const FAUNA: RigEntry[] = [
   { id: 'donkey', source: `${UAA}Donkey.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'alpaca', source: `${UAA}Alpaca.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'stag', source: `${UAA}Stag.gltf`, clips: /^(Eating|Idle|Walk)$/ },
-  { id: 'deer', source: `${UAA}Deer.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   // No CC0 camel exists in the style (see ../.cache/assets/INVENTORY.md), so
   // the camel is Quaternius's horse with a hump grown on its middle back. The
   // alpaca was tried as the base too and read as a llama with a lump; the
   // horse's long legs are most of what a camel's silhouette is.
   { id: 'camel', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk)$/, hump: { bone: 'Torso2', slot: 'Main', length: 0.38, height: 0.13, width: 0.72 } },
   { id: 'sheep', source: `${FARM}Sheep.fbx`, clips: /Idle$/ },
-  { id: 'pig', source: `${FARM}Pig.fbx`, clips: /Idle$/ },
+  // The deer and the pig were baked here too, 335 KB and 90 KB that no species
+  // read: the reindeer is the stag's rig and the pig has no region to stand
+  // in. Nothing is baked that nothing loads; the lab shows both from the pack.
 ];
 
 // ---------------------------------------------------------------------------

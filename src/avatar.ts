@@ -3,6 +3,7 @@ import { castMaterial, foldLegs, limbsOf, loadCast } from './cast.ts';
 import type { Cast } from './cast.ts';
 import { createContext } from './monuments/contract.ts';
 import { createSoftKit } from './soft.ts';
+import { AVATAR_HEIGHT } from './stature.ts';
 
 /**
  * The player's body: the character, the clips it plays and every pose it takes.
@@ -42,12 +43,10 @@ import { createSoftKit } from './soft.ts';
 
 /**
  * Crown of the head, and the constant everything human-scale in the world is
- * measured against — `LAND_HEIGHT` is three of these, `JUMP_HEIGHT` is capped
- * against it, the scenery kit restates it, and `SCENERY_SCALE` was derived from
- * it. Unchanged by every rebuild, deliberately: moving it moves the planet. It is
- * the top of the hair's mass; the tuft on the crown stands 0.08 over it.
+ * measured against. It lives in `stature.ts` so that the scenery kit reads the
+ * same number rather than a copy of it; see there.
  */
-export const AVATAR_HEIGHT = 6.8;
+export { AVATAR_HEIGHT };
 
 /**
  * **Four heads.** The head is a quarter of the figure and everything else is

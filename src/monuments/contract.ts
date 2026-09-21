@@ -86,6 +86,14 @@ export const TIERS: Record<MonumentTier, TierSpec> = {
 };
 
 /**
+ * The widest footprint any tier allows, in world units: what a site that
+ * declares none is given. `build-monuments.ts` reserves it for a landmark with
+ * no model yet, `terrain.ts` caps a pad with it and `pnpm check` reads it for
+ * a monument that declares nothing. It was a literal 55 in all four.
+ */
+export const MAX_FOOTPRINT = Math.max(...Object.values(TIERS).map((tier) => tier.footprint));
+
+/**
  * How much of its tier a model has to fill. Something 4 units tall filed as a
  * `landmark` is a mistake, not a style. Width counts too, so a wide flat thing
  * (a stone circle, a wall) passes on its diameter.

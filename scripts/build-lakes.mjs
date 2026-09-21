@@ -131,6 +131,17 @@ function trueArea(ring) {
 
 const geo = JSON.parse(readFileSync(SOURCE, 'utf8'));
 const rings = [];
+/**
+ * **The source carries Lake Volta twice**, as two features with the same
+ * outline and different `scalerank`s, and a lake baked twice is not the same
+ * lake: `globe.ts` cut it out of Ghana as two coincident holes, and
+ * `ShapeUtils.triangulateShape` handed back 1,048 faces covering 25.2 square
+ * degrees of a ring whose true fill is 671 faces and 18.9 — land folded over
+ * the water, 76 triangles of it standing in the lake. So a ring that rounds to
+ * one already kept is dropped here, where there is one copy to compare against.
+ */
+const seen = new Set();
+let duplicates = 0;
 let dropped = 0;
 let islandsDropped = 0;
 let points = 0;
@@ -174,9 +185,17 @@ for (const feature of geo.features) {
     const digits = Math.abs(signed) < SMALL_RING_AREA ? PRECISION_SMALL : PRECISION_LARGE;
     const round = (v) => Number(v.toFixed(digits));
 
+    const rounded = open.map(([lon, lat]) => [round(lon), round(lat)]);
+    const key = JSON.stringify(rounded);
+    if (seen.has(key)) {
+      duplicates++;
+      continue;
+    }
+    seen.add(key);
+
     points += open.length;
     classes[feature.properties.featurecla] = (classes[feature.properties.featurecla] ?? 0) + 1;
-    rings.push({ digits, points: open.map(([lon, lat]) => [round(lon), round(lat)]) });
+    rings.push({ digits, points: rounded });
   }
 }
 
@@ -201,7 +220,8 @@ writeFileSync(OUT, packed);
 const kb = (packed.length / 1024).toFixed(1);
 console.log(
   `${rings.length} lakes, ${points} points ` +
-  `(${dropped} rings dropped under ${MIN_RING_AREA} true sq deg, ${islandsDropped} islands in lakes dropped) ` +
+  `(${dropped} rings dropped under ${MIN_RING_AREA} true sq deg, ${duplicates} duplicates, ` +
+  `${islandsDropped} islands in lakes dropped) ` +
   `-> ${kb} KB gzipped`,
 );
 console.log(`  ${Object.entries(classes).map(([k, v]) => `${k} ${v}`).join(', ')}`);

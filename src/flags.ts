@@ -316,7 +316,8 @@ function paint(p: Painter, l: Layer): void {
  * `pnpm check` asserts that uniqueness, so a flag can be looked up by code with
  * no disambiguation layer in between. The non-ISO codes it produces are still
  * codes worth keying on: `CYN` Northern Cyprus, `SOL` Somaliland, `IOA` the
- * Indian Ocean Territories, `KAS` the Siachen Glacier.
+ * Indian Ocean Territories, `KAS` the Siachen Glacier. The last of those flies
+ * nobody's flag and draws the plate on purpose; see `NO_FLAG`.
  */
 
 /** Resolves aliases: territories that officially fly another country's flag. */

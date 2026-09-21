@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three';
-import { decodeCountries, decodeLakes, inflate } from './pack.ts';
+import { DATA_URL, decodeCountries, decodeLakes, inflate } from './pack.ts';
 import { prepareTerrain, reliefAt } from './terrain.ts';
 
 export interface Country {
@@ -157,7 +157,7 @@ export function insideRing(points: number[][], x: number, y: number): boolean {
  * against it — and a second `fetch` of a format that is no longer self-
  * describing is a second place to get it wrong.
  */
-export async function loadCountries(url = '/data/countries.bin'): Promise<Country[]> {
+export async function loadCountries(url = `${DATA_URL}countries.bin`): Promise<Country[]> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);
   return decodeCountries(await inflate(await response.arrayBuffer()));
@@ -174,7 +174,7 @@ export async function loadCountries(url = '/data/countries.bin'): Promise<Countr
  * parameter required rather than optional is what stops a caller quietly
  * getting a planet with no lakes on it.
  */
-export async function loadLakes(url = '/data/lakes.bin'): Promise<number[][][]> {
+export async function loadLakes(url = `${DATA_URL}lakes.bin`): Promise<number[][][]> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);
   return decodeLakes(await inflate(await response.arrayBuffer()));
@@ -193,7 +193,7 @@ export async function loadLakes(url = '/data/lakes.bin'): Promise<number[][][]> 
 export async function loadWorld(
   unitsPerDegree: number,
   lakes: readonly number[][][],
-  url = '/data/countries.bin',
+  url = `${DATA_URL}countries.bin`,
 ): Promise<World> {
   const countries = await loadCountries(url);
 
@@ -264,6 +264,43 @@ export async function loadWorld(
   for (const cell of grid) cell.sort((a, b) => rings[a]!.area - rings[b]!.area);
 
   /**
+   * **Smallest wins between two land rings, and not between land and a lake.**
+   * The rule compares areas, and an area says nothing about which of a lake and
+   * a country is drawn on top: Burundi's ring is 2.20 square degrees and Lake
+   * Tanganyika 2.67, and Natural Earth draws Burundi's border *across the
+   * water*, so smallest-wins handed Burundi 63 of 1,066 points sampled inside
+   * the lake. `globe.ts` cuts that same stretch out of Burundi as a bay, so the
+   * player walked on air over drawn water, got no boat, and a road's water test
+   * passed where there was none.
+   *
+   * What the mesh does is the definition, so this asks the mesh's question:
+   * `subtractLake` leaves a ring whole — `'clear'` — exactly when **no point of
+   * the lake lies inside it**, and cuts the lake out of it otherwise. So a land
+   * ring that a lake's own outline reaches into has lost that water to the
+   * lake, and one it does not reach into is an island in it (Likoma and
+   * Chizumulu, Malawi's inside Mozambique's half of Lake Malawi) and still
+   * wins. Only a lake *larger* than the ring can need saying: a smaller one is
+   * walked first and already wins. Worked out once per pair at load — a few
+   * dozen pairs on the whole planet — rather than per query.
+   */
+  const bitten: number[][] = rings.map(() => []);
+  rings.forEach((lake, w) => {
+    if (!lake.water) return;
+    const [lakeMinLon, lakeMinLat, lakeMaxLon, lakeMaxLat] = bounds[w]! as [number, number, number, number];
+    rings.forEach((ring, i) => {
+      if (ring.water || ring.area >= lake.area) return;
+      const [minLon, minLat, maxLon, maxLat] = bounds[i]! as [number, number, number, number];
+      if (minLon > lakeMaxLon || maxLon < lakeMinLon || minLat > lakeMaxLat || maxLat < lakeMinLat) return;
+      const reaches = lake.points.some(([lon, lat]) => {
+        const y = Math.min(89.999, Math.max(-89.999, lat!));
+        return lon! >= minLon && lon! <= maxLon && y >= minLat && y <= maxLat &&
+          insideRing(ring.points, lon!, y);
+      });
+      if (reaches) bitten[i]!.push(w);
+    });
+  });
+
+  /**
    * The smallest ring containing a point, or null.
    *
    * Smallest wins because rings overlap for two reasons and both need it.
@@ -271,7 +308,8 @@ export async function loadWorld(
    * made an entire country unreachable. And the bake keeps only outer rings, so
    * every enclave country (Lesotho inside South Africa) sits under its
    * neighbour's polygon. Picking the smallest match resolves both without
-   * reinstating holes.
+   * reinstating holes — except against a lake that reaches into the ring, which
+   * wins over it whatever the areas say; see `bitten`.
    */
   const resolve = (lat: number, lon: number): LandRing | null => {
     // Exactly +/-90 is degenerate for ray casting: the polar edge of the
@@ -283,7 +321,14 @@ export async function loadWorld(
     for (const i of grid[row * COLS + col]!) {
       const [minLon, minLat, maxLon, maxLat] = bounds[i]! as [number, number, number, number];
       if (lon < minLon || lon > maxLon || y < minLat || y > maxLat) continue;
-      if (insideRing(rings[i]!.points, lon, y)) return rings[i]!;
+      if (!insideRing(rings[i]!.points, lon, y)) continue;
+      // A lake this ring lost water to, and the point is in the water it lost.
+      for (const w of bitten[i]!) {
+        const [wMinLon, wMinLat, wMaxLon, wMaxLat] = bounds[w]! as [number, number, number, number];
+        if (lon < wMinLon || lon > wMaxLon || y < wMinLat || y > wMaxLat) continue;
+        if (insideRing(rings[w]!.points, lon, y)) return rings[w]!;
+      }
+      return rings[i]!;
     }
     return null;
   };

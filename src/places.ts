@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { decodePlaces, inflate } from './pack.ts';
+import { DATA_URL, decodePlaces, inflate } from './pack.ts';
 
 /**
  * The 29,545 populated places, and the one question worth asking of them:
@@ -40,6 +40,13 @@ export interface Place {
    * `prominenceField` below, and `isShown` is the only thing that reads it.
    */
   prominence: number;
+  /**
+   * GeoNames' own IANA time zone for the row — `America/Edmonton` for Calgary,
+   * `Europe/Moscow` for Kazan — which is what the chip's clock reads wherever
+   * the nearest built town stands in the country you are standing in; see
+   * `clockAt` in `timezone.ts`.
+   */
+  zone: string;
 }
 
 export interface Nearby {
@@ -511,7 +518,7 @@ export function prominenceField(
 
 export async function loadPlaces(
   radius: number,
-  url = '/data/places.bin',
+  url = `${DATA_URL}places.bin`,
 ): Promise<Places> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);

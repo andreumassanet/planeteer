@@ -122,8 +122,9 @@
  * fortieth of a house. The figures are census counts of a dozen different
  * vintages and estimates besides; the fourth digit was never real.
  *
- * **Five fields survive** — `name`, `lat`, `lon`, `pop`, `iso`, plus `capital`
- * on the national capitals. What was dropped and why is at `parse()` below.
+ * **Six fields survive** — `name`, `lat`, `lon`, `pop`, `iso` and `zone`, plus
+ * `capital` on the national capitals. What was dropped and why is at `parse()`
+ * below.
  * **And one is computed**: `prominence`, the distance to the nearest place at
  * twice the rank, which is what decides whether a place is *built* — the
  * footprint thinning above says no two towns overlap and nothing about whether
@@ -305,12 +306,18 @@ function snapToLand(lat, lon, wantIso) {
  *   catches them and the code has to. Everything else stays, including `PPLA`
  *   through `PPLA5` — the admin seats are most of the file's small towns and
  *   separate almost nothing.
+ * - `timezone` survives, and it used to be dropped on purpose: `src/timezone.ts`
+ *   answered the clock from the country and a meridian, with no per-place
+ *   payload. The meridians were wrong wherever a zone boundary is a province
+ *   line rather than a longitude — Calgary read Vancouver's time, Kazan and
+ *   Nizhny Novgorod read an hour ahead of Moscow, Chukotka read Kaliningrad's,
+ *   Indianapolis read Chicago's, Pohnpei read Chuuk's — and GeoNames already
+ *   names the zone of every row. So the chip reads the nearest town's zone and
+ *   the meridians are the fallback. It ships as a byte a row into its
+ *   country's list of zones; see `encodePlaces`.
  * - `geonameid`, `alternatenames` (the bulk of the file: 200 translations a
- *   row), `cc2`, the four `admin` codes, `elevation`, `dem`, `timezone` and the
- *   modification date are all dropped. `timezone` is the near miss and it is
- *   deliberate — `src/timezone.ts` answers that from the country and a meridian,
- *   with no data file and no per-place payload, and a second answer is the kind
- *   of duplication this project spends its comments avoiding.
+ *   row), `cc2`, the four `admin` codes, `elevation`, `dem` and the
+ *   modification date are all dropped.
  */
 /**
  * Three significant figures; see the population note in the header.
@@ -341,6 +348,7 @@ function parse(line) {
     lon: round(Number(f[5])),
     pop,
     capital: f[7] === 'PPLC',
+    zone: f[17],
   };
 }
 
@@ -349,7 +357,9 @@ const candidates = [];
 for (const line of lines) {
   if (!line) continue;
   const row = parse(line);
-  if (row !== null) candidates.push(row);
+  if (row === null) continue;
+  if (!row.zone) throw new Error(`${row.name} has no time zone in the source`);
+  candidates.push(row);
 }
 
 const onLand = [];
@@ -411,6 +421,7 @@ for (const p of candidates) {
     lon: p.lon,
     pop: p.pop,
     capital: p.capital,
+    zone: p.zone,
     movedKm,
   });
 }
@@ -560,6 +571,7 @@ const shipped = places.map((p, i) => ({
   // Before the optional keys, because the decoder builds its rows in this
   // order and the round-trip below compares them as JSON.
   prominence: prominence[i],
+  zone: p.zone,
   ...(p.capital ? { capital: true } : {}),
   ...(p.movedKm > 0 ? { snappedKm: Number(p.movedKm.toFixed(1)) } : {}),
 }));

@@ -48,11 +48,22 @@ const GROUND = makeGround({
     // the solar system, and the antipode of it is the "weird terrain" the shock
     // waves broke when they met on the far side. Both are real and both are
     // here, because a basin with nothing opposite it is half the story.
-    { name: 'Caloris Planitia', lat: 30.5, lon: -170.2, height: -MAX_RELIEF * 0.4, extent: 14, shape: 0.9 },
-    { name: 'Chaotic Terrain', lat: -30.5, lon: 9.8, height: MAX_RELIEF * 0.22, extent: 12, shape: 0.8 },
+    //
+    // **Longitudes are east-positive, as on every body in `src/system/`**,
+    // and Mercury's are the ones a source is most likely to hand over the other
+    // way: Mariner 10's maps counted west, so Caloris is "189.8 W" there, which
+    // is 170.2 E. It was written -170.2, which mirrored the basin, its antipode,
+    // its mountains and Beagle Rupes across the prime meridian while Rembrandt,
+    // taken from MESSENGER's east-positive table, stayed where it is.
+    { name: 'Caloris Planitia', lat: 30.5, lon: 170.2, height: -MAX_RELIEF * 0.4, extent: 14, shape: 0.9 },
+    { name: 'Chaotic Terrain', lat: -30.5, lon: -9.8, height: MAX_RELIEF * 0.22, extent: 12, shape: 0.8 },
     { name: 'Rembrandt', lat: -32.9, lon: 87.9, height: -MAX_RELIEF * 0.3, extent: 8, shape: 0.9 },
-    { name: 'Beagle Rupes', lat: -2.1, lon: -101.2, height: MAX_RELIEF * 0.34, extent: 7, shape: 1.4 },
-    { name: 'Caloris Montes', lat: 30.5, lon: -155, height: MAX_RELIEF * 0.3, extent: 5, shape: 1.2 },
+    // 0.4 and not the 0.34 it was on the mirrored side, where the noise under
+    // it happened to add sixty units: at its real longitude the scarp came out
+    // 508 against the 515 `classify` calls high ground, and `pnpm system`
+    // holds it to being a scarp.
+    { name: 'Beagle Rupes', lat: -2.1, lon: 101.2, height: MAX_RELIEF * 0.4, extent: 7, shape: 1.4 },
+    { name: 'Caloris Montes', lat: 30.5, lon: 155, height: MAX_RELIEF * 0.3, extent: 5, shape: 1.2 },
   ],
   roughness: MAX_RELIEF * 0.26,
   swell: MAX_RELIEF * 0.1,
@@ -89,25 +100,25 @@ const GROUND = makeGround({
 });
 
 const NATIONS: readonly Nation[] = [
-  { id: 'caloris', name: 'Caloris', lat: 30.5, lon: -170.2, radius: 26, color: PALETTE.bark,
+  { id: 'caloris', name: 'Caloris', lat: 30.5, lon: 170.2, radius: 26, color: PALETTE.bark,
     note: 'A basin 1,550 km across, filled with smooth lava and ringed by mountains the impact threw up.' },
-  { id: 'chaos', name: 'The Chaotic Terrain', lat: -30.5, lon: 9.8, radius: 22, color: PALETTE.slate,
+  { id: 'chaos', name: 'The Chaotic Terrain', lat: -30.5, lon: -9.8, radius: 22, color: PALETTE.slate,
     note: 'Directly opposite Caloris. The shock went round the planet both ways and met here.' },
   { id: 'borealis', name: 'Borealis', lat: 82, lon: 0, radius: 18, color: PALETTE.white,
     note: 'Crater floors the sun has never reached, holding water ice on the hottest surface in the system.' },
   { id: 'austral-shade', name: 'Austral Shade', lat: -82, lon: 0, radius: 18, color: PALETTE.white,
     note: 'The southern half of the same accident of obliquity: a tilt of two hundredths of a degree.' },
-  { id: 'rupes', name: 'The Rupes', lat: -5, lon: -95, radius: 34, color: PALETTE.brown,
+  { id: 'rupes', name: 'The Rupes', lat: -5, lon: 95, radius: 34, color: PALETTE.brown,
     note: 'Cliffs a kilometre high running for six hundred, where the whole planet shrank as its core froze.' },
 ];
 
 const SETTLEMENTS: readonly Settlement[] = [
-  { id: 'caloris-floor', name: 'Caloris Floor', lat: 30.5, lon: -170.2, population: 88000, nation: 'caloris' },
-  { id: 'pantheon', name: 'Pantheon', lat: 22.0, lon: -163.0, population: 34000, nation: 'caloris' },
-  { id: 'antipode', name: 'Antipode', lat: -30.5, lon: 9.8, population: 21000, nation: 'chaos' },
+  { id: 'caloris-floor', name: 'Caloris Floor', lat: 30.5, lon: 170.2, population: 88000, nation: 'caloris' },
+  { id: 'pantheon', name: 'Pantheon', lat: 22.0, lon: 163.0, population: 34000, nation: 'caloris' },
+  { id: 'antipode', name: 'Antipode', lat: -30.5, lon: -9.8, population: 21000, nation: 'chaos' },
   { id: 'coldtrap', name: 'Coldtrap', lat: 84.0, lon: 30.0, population: 15000, nation: 'borealis' },
   { id: 'southwatch', name: 'Southwatch', lat: -84.0, lon: -40.0, population: 7000, nation: 'austral-shade' },
-  { id: 'beagle', name: 'Beagle', lat: -2.1, lon: -101.2, population: 46000, nation: 'rupes' },
+  { id: 'beagle', name: 'Beagle', lat: -2.1, lon: 101.2, population: 46000, nation: 'rupes' },
 ];
 
 /**

@@ -62,7 +62,7 @@ const ZONES: Record<string, string> = {
   DJI: 'Africa/Djibouti', DMA: 'America/Dominica', DNK: 'Europe/Copenhagen',
   DOM: 'America/Santo_Domingo', DZA: 'Africa/Algiers', EGY: 'Africa/Cairo', ERI: 'Africa/Asmara',
   ESB: 'Asia/Nicosia', ESH: 'Africa/El_Aaiun', EST: 'Europe/Tallinn', ETH: 'Africa/Addis_Ababa', FIN: 'Europe/Helsinki',
-  FJI: 'Pacific/Fiji', FLK: 'Atlantic/Stanley', FRO: 'Atlantic/Faroe', FSM: 'Pacific/Chuuk',
+  FJI: 'Pacific/Fiji', FLK: 'Atlantic/Stanley', FRO: 'Atlantic/Faroe',
   GAB: 'Africa/Libreville', GBR: 'Europe/London', GEO: 'Asia/Tbilisi', GGY: 'Europe/Guernsey',
   GHA: 'Africa/Accra', GIN: 'Africa/Conakry', GMB: 'Africa/Banjul', GNB: 'Africa/Bissau',
   GNQ: 'Africa/Malabo', GRC: 'Europe/Athens', GRD: 'America/Grenada', GRL: 'America/Nuuk',
@@ -109,21 +109,33 @@ const ZONES: Record<string, string> = {
 };
 
 /**
- * The zone under a point.
+ * The zone under a point, from the country and the meridians alone.
  *
- * The wide countries are decided here rather than in the table because a
- * longitude decides them, and the meridians below are the real boundaries
- * rounded to something a coastline-accurate globe can honour — this world has
- * no state lines on it, so Indiana and Arizona are going to be an hour out and
- * that is the deal. The ones that matter — a continent's worth of Russia, the
- * four American bands, Australia's three — are right.
+ * **This is the fallback, not the clock.** The chip reads the zone GeoNames
+ * gives the nearest built town whenever that town stands in the country you are
+ * standing in — see `clockAt` — because a zone boundary is a province line and
+ * a longitude cannot follow one: this table put Calgary on Vancouver's time,
+ * Kazan an hour ahead of Moscow and Indianapolis on Chicago's. What is left for
+ * it is ground whose nearest town is across a border, and there the meridians
+ * below are the real boundaries rounded to something a coastline-accurate globe
+ * can honour. The places the old bands were worst — the antimeridian ends of
+ * Russia and the United States, Indiana and Kentucky, Arizona, Alberta, the
+ * Volga, Yakutia, Mato Grosso, Kasaï and north-west Mexico — are corrected to
+ * the nearest box that holds them, and `pnpm check` reads both paths.
  */
 export function zoneFor(iso: string, lon: number, lat: number): string | null {
   switch (iso) {
     case 'USA':
+      // West of the antimeridian is the far Aleutians, not New York.
+      if (lat > 50 && (lon > 0 || lon < -169.5)) return 'America/Adak';
       if (lon >= -85) return 'America/New_York';
+      // Indiana and eastern Kentucky keep Eastern time west of -85.
+      if (lat > 37.9 && lat < 41.8 && lon >= -87.1) return 'America/New_York';
       if (lon >= -100) return 'America/Chicago';
+      if (lat > 31.3 && lat < 37 && lon < -109.05 && lon >= -114.8) return 'America/Phoenix';
       if (lon >= -114) return 'America/Denver';
+      // Southern Idaho is Mountain as far west as the Snake.
+      if (lat > 42 && lat < 45.5 && lon >= -117) return 'America/Boise';
       if (lon >= -128) return 'America/Los_Angeles';
       return lat > 50 ? 'America/Anchorage' : 'Pacific/Honolulu';
     case 'CAN':
@@ -131,23 +143,29 @@ export function zoneFor(iso: string, lon: number, lat: number): string | null {
       if (lon >= -68) return 'America/Halifax';
       if (lon >= -90) return 'America/Toronto';
       if (lon >= -102) return 'America/Winnipeg';
-      if (lon >= -114) return 'America/Edmonton';
+      if (lon >= -118.5) return 'America/Edmonton';
       return 'America/Vancouver';
     case 'RUS':
+      // Chukotka east of the antimeridian, which the first band used to read
+      // as Kaliningrad: ten hours out.
+      if (lon < 0) return 'Asia/Anadyr';
       if (lon < 22) return 'Europe/Kaliningrad';
-      if (lon < 40) return 'Europe/Moscow';
-      if (lon < 52.5) return 'Europe/Samara';
+      if (lon < 50) return 'Europe/Moscow';
+      if (lon < 54.5) return 'Europe/Samara';
       if (lon < 67.5) return 'Asia/Yekaterinburg';
       if (lon < 82.5) return 'Asia/Omsk';
       if (lon < 97.5) return 'Asia/Krasnoyarsk';
       if (lon < 112.5) return 'Asia/Irkutsk';
-      if (lon < 127.5) return 'Asia/Yakutsk';
-      if (lon < 142.5) return 'Asia/Vladivostok';
+      // Yakutsk and the Amur keep UTC+9; the coast from Vladivostok up to
+      // Khabarovsk keeps +10.
+      if (lon < 130) return 'Asia/Yakutsk';
+      if (lon < 142.5) return lat > 57 ? 'Asia/Yakutsk' : 'Asia/Vladivostok';
       if (lon < 157.5) return 'Asia/Magadan';
       return 'Asia/Kamchatka';
     case 'BRA':
-      if (lon >= -58) return 'America/Sao_Paulo';
-      if (lon >= -68) return 'America/Manaus';
+      // Mato Grosso and Mato Grosso do Sul keep Amazon time east of -58.
+      if (lon >= -58 && !(lon < -52 && lat < -7.3 && lat > -24.1)) return 'America/Sao_Paulo';
+      if (lon >= -67) return 'America/Manaus';
       return 'America/Rio_Branco';
     case 'AUS':
       if (lon >= 141) return lat > -29 ? 'Australia/Brisbane' : 'Australia/Sydney';
@@ -159,9 +177,11 @@ export function zoneFor(iso: string, lon: number, lat: number): string | null {
       return 'Asia/Jayapura';
     case 'MEX':
       if (lon >= -89 && lat < 22) return 'America/Cancun';
-      if (lon >= -102) return 'America/Mexico_City';
-      if (lon >= -110) return 'America/Mazatlan';
-      return 'America/Tijuana';
+      if (lon < -112.8 && lat > 28) return 'America/Tijuana';
+      if (lat > 26.3 && lon < -108.6) return 'America/Hermosillo';
+      // Baja California Sur, Sinaloa and Nayarit.
+      if ((lon < -105.5 && lat < 26) || (lon < -104.3 && lat < 22.8)) return 'America/Mazatlan';
+      return lat > 26 && lon < -103.3 ? 'America/Chihuahua' : 'America/Mexico_City';
     case 'CHL':
       return lon < -100 ? 'Pacific/Easter' : 'America/Santiago';
     case 'ECU':
@@ -173,7 +193,11 @@ export function zoneFor(iso: string, lon: number, lat: number): string | null {
     case 'FRA':
       return lon < -40 ? 'America/Cayenne' : 'Europe/Paris';
     case 'COD':
-      return lon < 25 ? 'Africa/Kinshasa' : 'Africa/Lubumbashi';
+      // West Africa Time is the old Kinshasa, Bandundu and Équateur provinces;
+      // the Kasaïs south of them are Central Africa Time, like Lubumbashi.
+      return lon < 20.5 || (lat > -2 && lon < 24.5) ? 'Africa/Kinshasa' : 'Africa/Lubumbashi';
+    case 'FSM':
+      return lon < 155 ? 'Pacific/Chuuk' : 'Pacific/Pohnpei';
     case 'KIR':
       return lon < 0 ? 'Pacific/Kiritimati' : 'Pacific/Tarawa';
     case 'PNG':
@@ -186,6 +210,12 @@ export function zoneFor(iso: string, lon: number, lat: number): string | null {
 /** Every zone name in the table, so `pnpm check` can resolve each one. */
 export function allZoneNames(): string[] {
   return [...new Set(Object.values(ZONES))];
+}
+
+/** Where the nearest built town is and which zone it keeps; a `Place` fits. */
+export interface NearestZone {
+  iso: string;
+  zone: string;
 }
 
 const pad = (n: number): string => (n < 10 ? `0${n}` : `${n}`);
@@ -206,9 +236,7 @@ function solarClock(now: Date, lon: number): string {
  */
 const formatters = new Map<string, Intl.DateTimeFormat | null>();
 
-export function clockAt(now: Date, iso: string, lon: number, lat: number): string {
-  const zone = zoneFor(iso, lon, lat);
-  if (zone === null) return solarClock(now, lon);
+function formatterFor(zone: string): Intl.DateTimeFormat | null {
   let formatter = formatters.get(zone);
   if (formatter === undefined) {
     try {
@@ -219,11 +247,37 @@ export function clockAt(now: Date, iso: string, lon: number, lat: number): strin
         hour12: false,
       });
     } catch {
-      // A platform with no time zone data at all, which is a worse clock and
-      // not a broken one. Same shape as the `localStorage` guards.
+      // A platform with no time zone data at all, or one older than the name
+      // — `Europe/Kyiv` and `America/Ciudad_Juarez` are 2022 — which is a
+      // worse clock and not a broken one. Same shape as the `localStorage`
+      // guards.
       formatter = null;
     }
     formatters.set(zone, formatter);
   }
+  return formatter;
+}
+
+/**
+ * The time where you stand.
+ *
+ * `nearest` is the nearest built town, and **its own zone is the answer when it
+ * stands in the country you are standing in**: GeoNames names the zone of every
+ * row, and a town is on the right side of every province line by construction.
+ * Across a border the town's zone says nothing about this side of it, so the
+ * country and the meridians decide (`zoneFor`), and at sea — no country — the
+ * sun does.
+ */
+export function clockAt(
+  now: Date,
+  iso: string,
+  lon: number,
+  lat: number,
+  nearest?: NearestZone | null,
+): string {
+  const local = nearest && iso !== '' && nearest.iso === iso ? formatterFor(nearest.zone) : null;
+  if (local !== null) return local.format(now);
+  const zone = zoneFor(iso, lon, lat);
+  const formatter = zone === null ? null : formatterFor(zone);
   return formatter === null ? solarClock(now, lon) : formatter.format(now);
 }

@@ -1712,9 +1712,10 @@ async function start(): Promise<void> {
 
     // The clock is the world's own, not the machine's: `sky.setTime` and
     // `setRate` move it, so watching a dawn at ten minutes a second moves the
-    // chip too. Over water there is no country and `clockAt` falls back to
-    // local mean solar time from the longitude, which is the honest answer at
-    // sea and is never absent.
+    // chip too. The zone is the nearest town's when it stands in this country;
+    // over water there is no country and `clockAt` falls back to local mean
+    // solar time from the longitude, which is the honest answer at sea and is
+    // never absent.
     const here = toLatLon(player.position);
     hud.update(
       standingIn,
@@ -1724,6 +1725,7 @@ async function start(): Promise<void> {
         standingIn > 0 ? world.countries[standingIn - 1]!.iso : '',
         here.lon,
         here.lat,
+        nearbyPlace.place,
       ),
       dt,
       // Which way the town lies, clockwise from where you are facing.

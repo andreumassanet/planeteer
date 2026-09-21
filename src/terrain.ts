@@ -1,4 +1,5 @@
 import type { LandRing } from './geo.ts';
+import { MAX_FOOTPRINT } from './monuments/contract.ts';
 
 /**
  * The shape of the land, as one pure function of a point on the unit sphere.
@@ -989,17 +990,12 @@ function shoreFall(
   return 1 - distance / width;
 }
 
-/**
- * Widest footprint the monument contract allows, in world units.
- *
- * `contract.ts` caps `building` and `landmark` at 55, and that is what a site
- * gets when it does not declare its own. The number is copied rather than
- * imported on purpose: this file is the bottom of the stack — `geo.ts` and
- * `globe.ts` both sit on it — and the monument contract is the top of it, so
- * importing it back would invert the whole dependency and drag Vite's
- * `import.meta.glob` into Node with it.
- */
-const MAX_FOOTPRINT = 55;
+// `MAX_FOOTPRINT`, the widest footprint the monument contract allows, is what
+// a site gets when it does not declare its own. It is imported from
+// `monuments/contract.ts`, whose tiers define it: that file imports nothing
+// but Three and the palette, so reading it from the bottom of the stack costs
+// no cycle, and it is the registry (`monuments/index.ts`), not the contract,
+// that carries Vite's `import.meta.glob`. It used to be a copied 55 here.
 
 /**
  * Level ground kept outside the model's own edge, in world units.

@@ -1993,7 +1993,9 @@ const OCEANIA: Record<string, FlagSpec> = {
     }),
   ],
 
-  // The open-ocean features.
+  // The open-ocean features. `IOT` is the British Indian Ocean Territory,
+  // which the outlines do not draw — every Chagos ring is under the bake's
+  // floor — and is kept for the day they do, like `SXM`.
   ATF: [
     fill('#003da5'),
     draw((p) => {
@@ -2057,7 +2059,33 @@ export const FLAG_ALIAS: Record<string, string> = {
   SPM: 'FRA', // Saint Pierre and Miquelon: likewise.
   WLF: 'FRA', // Wallis and Futuna: likewise.
   HMD: 'AUS', // Heard and McDonald: an external territory of Australia.
+  // Christmas Island and the Cocos, which Natural Earth draws as one feature,
+  // the Indian Ocean Territories. Two external territories of Australia; the
+  // islands' own flags are unofficial. Not the British Indian Ocean Territory,
+  // which is `IOT` below and is too small for the outlines to draw.
+  IOA: 'AUS',
+  WSB: 'GBR', // Akrotiri: a Sovereign Base Area, which flies the Union flag.
+  ESB: 'GBR', // Dhekelia: likewise.
+  USG: 'USA', // Guantanamo Bay: a US naval base on land leased from Cuba.
+  KAB: 'KAZ', // Baikonur: Kazakh ground under a Russian lease.
 };
+
+/**
+ * Admin-0 features that are nobody's to fly a flag over, drawn as the plate on
+ * purpose. 1:10m draws them as their own polygons, so the chip names them and
+ * has to show something: an alias would be a claim this project is in no
+ * position to make, and a spec would be a flag that does not exist.
+ *
+ * - `CNM`, the UN buffer zone across Cyprus: patrolled by the UN, and neither
+ *   side's.
+ * - `BRT`, Bir Tawil: the one piece of land on Earth claimed by nobody.
+ * - `KAS`, the Siachen Glacier: held by India, claimed by Pakistan.
+ * - `SPI`, the Southern Patagonian Ice Field: the stretch of the Andes where
+ *   Chile and Argentina have never agreed a line.
+ *
+ * `pnpm check` asserts every country has a spec, an alias or a place here.
+ */
+export const NO_FLAG = new Set(['CNM', 'BRT', 'KAS', 'SPI']);
 
 /**
  * Flags whose emblem is a mark rather than the real thing. The field and the
@@ -2084,7 +2112,7 @@ export const SIMPLIFIED = new Set([
   'AIA', 'BLZ', 'BMU', 'CYM', 'DMA', 'DOM', 'GRD', 'GTM', 'GUM', 'HTI', 'MEX',
   'MSR', 'NIC', 'SLV', 'SXM', 'TCA', 'VGB', 'VIR', 'BOL', 'BRA', 'ECU', 'FLK',
   'PER', 'PRY',
-  'ASM', 'FJI', 'KIR', 'MNP', 'NCL', 'PCN', 'PNG', 'PYF', 'SGS', 'SHN', 'IOA',
+  'ASM', 'FJI', 'KIR', 'MNP', 'NCL', 'PCN', 'PNG', 'PYF', 'SGS', 'SHN', 'IOT',
   'ATF', 'VUT',
   // Found by re-reading the sheet against the rule above, not while drawing.
   'ARG', 'URY', 'PHL', 'ETH', 'LBN', 'CAN', 'ATA', 'HKG', 'MAR', 'BRB', 'NFK',

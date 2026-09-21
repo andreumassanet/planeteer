@@ -5,6 +5,7 @@ import { onPalette, paintModel, toned } from '../models.ts';
 import type { Model, Paint } from '../models.ts';
 import type { Measurements, MonumentContext } from '../monuments/contract.ts';
 import { rngFrom } from './random.ts';
+import { AVATAR_HEIGHT } from '../stature.ts';
 import type { Rng, Weighted } from './random.ts';
 
 /**
@@ -40,10 +41,12 @@ import type { Rng, Weighted } from './random.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * Mirrors `player.ts`. Restated rather than imported: that module owns a
- * controller, not a constant, and the contact sheet already restates it too.
+ * The hero's height, which sizes every person, rider, vehicle and animal the
+ * kit builds. Imported from `stature.ts`, the one place it is written, and
+ * re-exported here because the traffic and fauna contracts read it from this
+ * file.
  */
-export const AVATAR_HEIGHT = 6.8;
+export { AVATAR_HEIGHT };
 
 /**
  * How much a real metre is worth inside a settlement, in world units.

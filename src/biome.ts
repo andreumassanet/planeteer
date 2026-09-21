@@ -267,12 +267,15 @@ export function biomeAt(
 }
 
 /**
- * Known misses, checked against 25 named places by `pnpm check`.
+ * Known misses, against 25 named places in `pnpm check`.
  *
- * Twenty-one land where they should. The four that do not are all the same
- * kind of failure — **a zonal model has no mountains and no continents, only
- * latitudes and a distance to the sea** — and each would need a term this file
- * has deliberately not got:
+ * Twenty-one land where they should and are asserted. The four that do not are
+ * printed there as known misses, with the ground they really are — they used to
+ * be asserted as the wrong answer, which is a check that fails on the fix.
+ * They, and one more the named places do not sample, are the same kind of
+ * failure — **a zonal model has no mountains and no continents, only latitudes
+ * and a distance to the sea** — and each would need a term this file has
+ * deliberately not got:
  *
  * - **The Atacama** comes out steppe rather than desert. It is dry because the
  *   Andes wring the air out before it arrives, and a rain shadow needs to know
@@ -282,12 +285,18 @@ export function biomeAt(
  *   dead under the subtropical high.
  * - **The Serengeti** comes out tropical. East Africa is dry at the equator
  *   where the model says it must be wet.
- * - **The east coasts of the subtropics** — Florida, the south-east of China,
- *   south-east Brazil — come out savanna where they are wet forest. Trade winds
- *   make the east of a continent wetter than the west at the same latitude, and
- *   "which side of a landmass" is not something a latitude knows.
+ * - **The Kazakh steppe** comes out temperate. The drying of a continent's
+ *   interior is scaled by how warm it is — which is what keeps the taiga a
+ *   forest — and at 48 degrees the steppe reads as cold enough to keep its
+ *   water, when what dries it is being the middle of the largest landmass
+ *   there is.
+ * - **The east coasts of the subtropics**, which no named place samples —
+ *   Florida, the south-east of China, south-east Brazil — come out savanna
+ *   where they are wet forest. Trade winds make the east of a
+ *   continent wetter than the west at the same latitude, and "which side of a
+ *   landmass" is not something a latitude knows.
  *
- * All four are visible from orbit and none of them is visible standing on the
+ * All five are visible from orbit and none of them is visible standing on the
  * ground, which is the trade this file is making. Add a term only with the
  * measurement that shows it pays.
  */

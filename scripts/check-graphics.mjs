@@ -1,5 +1,8 @@
-// Real WebGL regression check. Start `npm run dev`, then run:
-// node scripts/check-graphics.mjs [http://localhost:5174]
+// Real WebGL regression check, against a `vite preview` of a build rather than
+// the dev server — the dev server's eager `import.meta.glob` loads abort in
+// headless Chrome (see *Validation* in docs/graphics.md):
+//   pnpm build && pnpm preview        # serves http://localhost:4173
+//   node scripts/check-graphics.mjs http://localhost:4173
 // Uses shot.mjs's Chrome driver; no extra project dependency.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -67,7 +70,7 @@ async function check() {
   }
 }
 
-const url = new URL(process.argv[2] ?? 'http://localhost:5174');
+const url = new URL(process.argv[2] ?? 'http://localhost:4173');
 url.search = '?at=39.5696,2.6502&time=2026-09-10T10:00:00Z';
 const result = spawnSync(process.execPath, [
   fileURLToPath(new URL('./shot.mjs', import.meta.url)), '--url', url.href,

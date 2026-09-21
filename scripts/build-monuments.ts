@@ -22,6 +22,7 @@ import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { reliefAt } from '../src/terrain.ts';
+import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const countriesPath = resolve(here, '../public/data/countries.bin');
@@ -107,7 +108,6 @@ function snapToLand(lat: number, lon: number, wantIso: string): { lat: number; l
  * allows — Big Ben declares 10 and stood in the middle of 150 units of level
  * ground.
  */
-const MAX_FOOTPRINT = 55;
 const footprints = new Map<string, number>();
 for (const file of readdirSync(resolve(here, '../src/monuments'))) {
   if (!file.endsWith('.ts') || file === 'contract.ts' || file === 'index.ts') continue;
@@ -138,6 +138,13 @@ interface Placed {
 
 const placed: Placed[] = [];
 const notes: string[] = [];
+/**
+ * What makes the bake refuse to write. A landmark with no land within three
+ * degrees used to be dropped with a note and the file written without it, and
+ * one that snapped into the wrong country was written with a `!` beside it:
+ * both reached `monuments.json`, and only `pnpm check` said so afterwards.
+ */
+const refused: string[] = [];
 
 for (const m of source.monuments) {
   const hit = world.countryAt(m.lat, m.lon);
@@ -148,7 +155,7 @@ for (const m of source.monuments) {
   if (isoOf(hit) !== m.iso) {
     const snapped = snapToLand(m.lat, m.lon, m.iso);
     if (!snapped) {
-      notes.push(`${m.id}: NO LAND within 3 degrees — dropped`);
+      refused.push(`${m.id}: no land within 3 degrees`);
       continue;
     }
     lat = snapped.lat;
@@ -157,9 +164,8 @@ for (const m of source.monuments) {
     const landed = world.countryAt(lat, lon);
     const how = hit === 0 ? 'was in the sea' : `was in ${nameOf(hit)}`;
     const ok = isoOf(landed) === m.iso;
-    notes.push(
-      `${ok ? ' ' : '!'} ${m.id.padEnd(24)} ${how.padEnd(22)} -> ${nameOf(landed).padEnd(26)} ${movedKm.toFixed(1)} km`,
-    );
+    if (!ok) refused.push(`${m.id}: the nearest land is ${nameOf(landed)}, not ${m.iso}`);
+    notes.push(`${m.id.padEnd(24)} ${how.padEnd(22)} -> ${nameOf(landed).padEnd(26)} ${movedKm.toFixed(1)} km`);
   }
 
   placed.push({
@@ -214,7 +220,7 @@ const toVector = (lat: number, lon: number): number[] => [
 const RADIUS = PLANET_RADIUS;
 
 function separate(): string[] {
-  const moved: string[] = [];
+  const moved = new Set<string>();
   for (let pass = 0; pass < 24; pass++) {
     let worst = 0;
     for (let i = 0; i < placed.length; i++) {
@@ -252,14 +258,17 @@ function separate(): string[] {
             clearance(point.lat, point.lon, foot).radius >= foot &&
             clearance(lat, lon, foot).radius < foot
           ) continue;
-          point.lat = Number(lat.toFixed(4));
-          point.lon = Number(lon.toFixed(4));
+          const rounded = [Number(lat.toFixed(4)), Number(lon.toFixed(4))] as const;
+          if (rounded[0] === point.lat && rounded[1] === point.lon) continue;
+          point.lat = rounded[0];
+          point.lon = rounded[1];
+          moved.add(point.id);
         }
       }
     }
     if (worst < 0.5) break;
   }
-  return moved;
+  return [...moved];
 }
 
 /**
@@ -394,12 +403,17 @@ const before = placed.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon }));
 // Seating and separating pull against each other — a monument nudged inland can
 // walk into its neighbour, and a monument pushed off its neighbour can walk back
 // to the coast — so they take turns until neither has anything left to say.
+//
+// **Until neither, not until the seat pass is idle.** The loop used to stop the
+// first round seating moved nothing, which is also a round in which separation
+// may just have pushed a monument back onto its coast — and `separate` said
+// nothing either way, because the list it returned was never filled.
 const seatedBy = new Map<string, number>();
 for (let round = 0; round < 4; round++) {
   const moved = seatAll();
-  separate();
-  if (moved.length === 0) break;
+  const pushed = separate();
   for (const m of moved) seatedBy.set(m.id, (seatedBy.get(m.id) ?? 0) + m.km);
+  if (moved.length === 0 && pushed.length === 0) break;
 }
 const seated = [...seatedBy].map(([id, km]) => ({ id, km }));
 const spread = placed
@@ -413,11 +427,14 @@ for (const point of placed) {
   point.clearance = clearance(point.lat, point.lon, footprintOf(point.id)).radius;
 }
 
+if (refused.length > 0) {
+  throw new Error(`monuments.json not written:\n  ${refused.join('\n  ')}`);
+}
 writeFileSync(resolve(here, '../public/data/monuments.json'), JSON.stringify({ monuments: placed }, null, 1));
 
 console.log(`${placed.length} of ${source.monuments.length} monuments placed\n`);
 if (notes.length) {
-  console.log('snapped to land (a leading ! means it did not land in the declared country):');
+  console.log('snapped to land, each into the country it declares:');
   for (const n of notes) console.log('  ' + n);
 }
 const far = placed.filter((p) => (p.snappedKm ?? 0) > 60);

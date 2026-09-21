@@ -14,8 +14,9 @@ import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Color, Vector3 } from 'three';
-import { loadWorld, toLatLon } from '../src/geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, LAND_HEIGHT, buildLand, coastEdges, groundColorAt, groundRadius } from '../src/globe.ts';
+import { insideRing, loadWorld, toLatLon } from '../src/geo.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, LAND_HEIGHT, buildLand, coastEdges, groundColorAt, groundRadius, onSphere } from '../src/globe.ts';
+import { bearingTo, toUnit } from '../src/cartography.ts';
 import { createOcean, oceanLimits } from '../src/ocean.ts';
 import { OCEAN_COLOR } from '../src/theme.ts';
 import { MAX_RELIEF, SHORE_LIP, flattenWeightAt, reliefAt, setDetailSites, setFlattenSites } from '../src/terrain.ts';
@@ -99,6 +100,8 @@ import { EDGE_FOOT, STEP_RISE, buildFloor, edgeSink, floorLiftAt } from '../src/
 import { allZoneNames, clockAt, zoneFor } from '../src/timezone.ts';
 import { createBorders } from '../src/borders.ts';
 import { verifyFlagLayer } from '../src/land-flags.ts';
+import { FLAGS, FLAG_ALIAS, NO_FLAG } from '../src/flag-data.ts';
+import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
 import { Mesh } from 'three';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -134,10 +137,14 @@ const check = (ok: boolean, label: string, detail = ''): void => {
 const monumentsPath = resolve(here, '../public/data/monuments.json');
 const placed: {
   id: string;
+  name?: string;
   iso: string;
   lat: number;
   lon: number;
   footprint?: number;
+  height?: number;
+  year?: number;
+  snappedKm?: number;
   clearance?: number;
 }[] = existsSync(monumentsPath)
   ? (JSON.parse(readFileSync(monumentsPath, 'utf8')) as { monuments: typeof placed }).monuments
@@ -306,18 +313,53 @@ console.log('the wire');
  * self-consistent, so every lookup still agrees and nothing on the ground can
  * tell; it only shows from the air, which is why it survived to 65 monuments.
  *
- * Fifteen places in this repo convert between lat/lon and xyz and none of them
- * share a helper, so this asserts the property rather than the formula: build a
- * local frame the way the world does and check that east crosses north into up.
+ * **This used to prove nothing.** It built east, north and up from `at()`
+ * above — this file's own formula — so no line of `src/` was involved and it
+ * would have passed on a mirrored planet: a false witness, exactly what the
+ * trap forbids. It asks `src/` now, three ways, and holds each answer against
+ * something that was not built from the same basis:
+ *
+ * - **The basis.** East, north and up from `globe.ts`'s `onSphere`, which the
+ *   land mesh is built with, and from `cartography.ts`'s `toUnit`, which the
+ *   maps and the chip's arrow use: east crosses north into up, and both agree
+ *   with `at()`, written here from the textbook.
+ * - **The way back.** `geo.ts`'s `toLatLon` returns the coordinate `at()` was
+ *   given, and `countryAtPoint` finds Lisbon in Portugal — mirrored, Lisbon's
+ *   longitude lands in the sea south of Sardinia.
+ * - **A fact about the Earth.** Standing in Madrid facing north, `bearingTo`
+ *   puts Barcelona on the right and Lisbon on the left. That is the answer the
+ *   minimap's wedge and the chip's arrow draw, and a mirror swaps it.
  */
-const eastAt = (lat: number, lon: number) => at(lat, lon + 0.01).sub(at(lat, lon)).normalize();
-const northAt = (lat: number, lon: number) => at(lat + 0.01, lon).sub(at(lat, lon)).normalize();
-let wrongHanded = 0;
-for (const [lat, lon] of [[0, 0], [40, -3], [-33, 151], [60, 120], [-20, -60]] as [number, number][]) {
-  const up = at(lat, lon).normalize();
-  if (eastAt(lat, lon).cross(northAt(lat, lon)).dot(up) < 0.99) wrongHanded++;
+{
+  const onSrc = (lat: number, lon: number): Vector3 => onSphere(lon, lat, new Vector3());
+  const unit = new Float32Array(3);
+  const wrong: string[] = [];
+  for (const [lat, lon] of [[0, 0], [40, -3], [-33, 151], [60, 120], [-20, -60], [71, -156]] as [number, number][]) {
+    const up = onSrc(lat, lon);
+    const east = onSrc(lat, lon + 0.01).sub(up).normalize();
+    const north = onSrc(lat + 0.01, lon).sub(up).normalize();
+    if (east.cross(north).dot(up) < 0.99) wrong.push(`onSphere is left-handed at ${lat},${lon}`);
+    const textbook = at(lat, lon).divideScalar(PLANET_RADIUS);
+    if (up.distanceTo(textbook) > 1e-9) wrong.push(`onSphere disagrees with the textbook at ${lat},${lon}`);
+    toUnit(lat, lon, unit);
+    if (Math.hypot(unit[0]! - textbook.x, unit[1]! - textbook.y, unit[2]! - textbook.z) > 1e-6) {
+      wrong.push(`toUnit disagrees with the textbook at ${lat},${lon}`);
+    }
+    const back = toLatLon(at(lat, lon));
+    if (Math.abs(back.lat - lat) > 1e-9 || Math.abs(back.lon - lon) > 1e-9) {
+      wrong.push(`toLatLon reads ${lat},${lon} back as ${back.lat.toFixed(2)},${back.lon.toFixed(2)}`);
+    }
+  }
+  const madrid = at(40.42, -3.7);
+  const north = at(40.52, -3.7).sub(madrid);
+  const barcelona = bearingTo(madrid, north, 41.39, 2.17);
+  const lisbon = bearingTo(madrid, north, 38.72, -9.14);
+  if (!(barcelona !== null && barcelona > 0)) wrong.push('Barcelona is not to the right of Madrid facing north');
+  if (!(lisbon !== null && lisbon < 0)) wrong.push('Lisbon is not to the left of Madrid facing north');
+  const lisbonIn = world.countryAtPoint(at(38.72, -9.14));
+  if (lisbonIn === 0 || world.countries[lisbonIn - 1]!.name !== 'Portugal') wrong.push('Lisbon is not in Portugal');
+  check(wrong.length === 0, 'the planet is right-handed, like the Earth', wrong.slice(0, 4).join('; '));
 }
-check(wrongHanded === 0, 'the planet is right-handed, like the Earth');
 
 console.log('places');
 const places: [string, number, number, string][] = [
@@ -361,6 +403,99 @@ for (const country of world.countries) {
   else isoSeen.set(country.iso, country.name);
 }
 check(collisions.length === 0, 'country codes are unique', collisions.join('; '));
+
+// Every country the chip can name draws its flag, flies another's, or is on
+// the list of ground nobody flies one over. Nine admin-0 features arrived with
+// 1:10m and drew the fallback plate for no reason but that nobody had said
+// which of the three they were.
+{
+  const flagless = world.countries.filter((country) => {
+    const flown = FLAG_ALIAS[country.iso] ?? country.iso;
+    return !(flown in FLAGS) && !NO_FLAG.has(country.iso);
+  });
+  const both = [...NO_FLAG].filter((iso) => iso in FLAGS || iso in FLAG_ALIAS);
+  const dangling = Object.entries(FLAG_ALIAS).filter(([, to]) => !(to in FLAGS)).map(([from]) => from);
+  check(
+    flagless.length === 0 && both.length === 0 && dangling.length === 0,
+    'every country has a flag, an alias or a reason not to',
+    [
+      ...flagless.map((country) => `${country.iso} ${country.name}`),
+      ...both.map((iso) => `${iso} is on NO_FLAG and has a flag`),
+      ...dangling.map((iso) => `${iso} aliases a flag with no spec`),
+    ].slice(0, 6).join(', '),
+  );
+}
+
+/**
+ * A lake is water to `countryAt` everywhere the mesh draws it as water.
+ *
+ * `globe.ts` cuts every lake out of every land ring its outline reaches into,
+ * so the only land a lake may hold is an island: a ring lying wholly inside it,
+ * which the mesh leaves whole. This samples each lake on a grid and asks
+ * `countryAt` at every point, and the island test here is its own — every
+ * vertex of the land ring inside the lake — rather than `geo.ts`'s rule read
+ * back. Before the rule, 63 of 1,066 points inside Tanganyika answered
+ * Burundi, whose ring is smaller than the lake and whose border is drawn across
+ * the water; smallest-ring-wins had nothing to say about which of the two was
+ * drawn.
+ *
+ * And a lake is baked once. Natural Earth carries Lake Volta twice, and the
+ * second copy was a second hole cut in Ghana on top of the first, which folds
+ * the ear clipper's output back over the water.
+ */
+{
+  const lakeRingsIn = world.rings.filter((ring) => ring.water);
+  const boxOf = (points: number[][]): [number, number, number, number] => {
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+    for (const [lon, lat] of points) {
+      minLon = Math.min(minLon, lon!); maxLon = Math.max(maxLon, lon!);
+      minLat = Math.min(minLat, lat!); maxLat = Math.max(maxLat, lat!);
+    }
+    return [minLon, minLat, maxLon, maxLat];
+  };
+  const shapes = new Set(lakeRingsIn.map((ring) => JSON.stringify(ring.points)));
+  check(
+    shapes.size === lakeRingsIn.length,
+    'every lake is baked once',
+    `${lakeRingsIn.length} rings, ${shapes.size} distinct`,
+  );
+
+  const STEP = 0.05;
+  let sampled = 0;
+  let onIslands = 0;
+  const dry: string[] = [];
+  for (const lake of lakeRingsIn) {
+    const [minLon, minLat, maxLon, maxLat] = boxOf(lake.points);
+    const islands = world.rings.filter((ring) => {
+      if (ring.water) return false;
+      const [a, b, c, d] = boxOf(ring.points);
+      if (a < minLon || c > maxLon || b < minLat || d > maxLat) return false;
+      return ring.points.every(([lon, lat]) => insideRing(lake.points, lon!, lat!));
+    });
+    let wrong = 0;
+    let where = '';
+    for (let lat = minLat + STEP / 2; lat < maxLat; lat += STEP) {
+      for (let lon = minLon + STEP / 2; lon < maxLon; lon += STEP) {
+        if (!insideRing(lake.points, lon, lat)) continue;
+        sampled++;
+        if (world.countryAt(lat, lon) === 0) continue;
+        if (islands.some((ring) => insideRing(ring.points, lon, lat))) {
+          onIslands++;
+          continue;
+        }
+        wrong++;
+        if (where === '') where = `${lat.toFixed(2)},${lon.toFixed(2)} ${world.countries[world.countryAt(lat, lon) - 1]!.name}`;
+      }
+    }
+    if (wrong > 0) dry.push(`${wrong} at ${where}`);
+  }
+  check(
+    dry.length === 0,
+    'every lake is water to countryAt, except on its islands',
+    `${sampled.toLocaleString()} points in ${lakeRingsIn.length} lakes, ${onIslands} on islands` +
+      (dry.length > 0 ? ` — ${dry.join('; ')}` : ''),
+  );
+}
 
 console.log('\nmesh');
 const buildStart = Date.now();
@@ -489,12 +624,86 @@ for (let t = 0; t < triangles; t++) {
 // Amazon delta, the Croatian coast — both steps land on the wrong side of
 // something. That is about 0.1% of the walls, and it is resolution, not
 // winding. A ring wound backwards fails this by three orders of magnitude, not
-// by a fraction of a percent, so the ratio is what is asserted.
+// by a fraction of a percent, so the ratio is what is asserted — and it is
+// asserted near where it stands rather than a hundred times under it, which let
+// it fall by an order of magnitude without a word: 1,293 to one on 2026-09-21
+// (281,867 seaward, 218 inland), held at a thousand.
 check(
-  seaward > inland * 100,
+  seaward > inland * 1000,
   'the coastal cliffs face the sea',
   `${seaward.toLocaleString()} seaward, ${inland.toLocaleString()} inland, of ${walls.toLocaleString()} walls`,
 );
+
+/**
+ * What the mesh draws over a lake, counted rather than trusted.
+ *
+ * `globe.ts` cuts a lake three ways — a hole, a splice, and for a border drawn
+ * along a shore rather than across it, dropping the faces that came out on the
+ * water — and its comments say this file counts what the last one leaves. It
+ * counts all three: every land top whose centre `countryAt` calls lake water,
+ * and how far inside the lake's outline the deepest one stands.
+ *
+ * **It is not zero and the residue is known** (2026-09-21, after Lake Volta's
+ * second copy came out of the bake and took 76 of these with it): 1,778
+ * triangles, most of them in Superior, and the deepest 116 units in from its
+ * southern shore. `refine` splits an edge at the *great-circle* midpoint, while the ear
+ * clipper, the outlines and `countryAt` all work in straight lon/lat lines; a
+ * long interior edge running east-west along a lake bows poleward by about
+ * `L^2/8 * sin(lat)cos(lat)` — 147 units for 22 degrees at 47N — and carries
+ * the land with it over the water. Fixing it is `refine`'s to do, so this is a
+ * ceiling at today's measurement: it cannot grow without failing here.
+ */
+{
+  const lakesAt = world.rings.filter((ring) => ring.water).map((ring) => {
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+    for (const [lon, lat] of ring.points) {
+      minLon = Math.min(minLon, lon!); maxLon = Math.max(maxLon, lon!);
+      minLat = Math.min(minLat, lat!); maxLat = Math.max(maxLat, lat!);
+    }
+    return { points: ring.points, box: [minLon, minLat, maxLon, maxLat] as const };
+  });
+  const shoreDistance = (points: number[][], lon: number, lat: number): number => {
+    let best = Infinity;
+    const k = Math.cos(lat * DEG);
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const ax = points[j]![0]! * k, ay = points[j]![1]!;
+      const dx = points[i]![0]! * k - ax, dy = points[i]![1]! - ay;
+      const length = dx * dx + dy * dy;
+      const t = length > 0 ? Math.max(0, Math.min(1, ((lon * k - ax) * dx + (lat - ay) * dy) / length)) : 0;
+      best = Math.min(best, Math.hypot(ax + t * dx - lon * k, ay + t * dy - lat));
+    }
+    return best * UNITS_PER_DEGREE;
+  };
+  let overWater = 0;
+  let deepest = 0;
+  let deepestAt = '';
+  for (let t = 0; t < triangles; t++) {
+    v.fromBufferAttribute(position, t * 3);
+    cb.fromBufferAttribute(position, t * 3 + 1);
+    cc.fromBufferAttribute(position, t * 3 + 2);
+    // Tops: a wall or a shore skirt reaches down to the water on purpose.
+    if (Math.min(v.length(), cb.length(), cc.length()) < PLANET_RADIUS + 1) continue;
+    const { lat, lon } = toLatLon(centroid.copy(v).add(cb).add(cc));
+    for (const lake of lakesAt) {
+      const [minLon, minLat, maxLon, maxLat] = lake.box;
+      if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) continue;
+      if (!insideRing(lake.points, lon, lat) || world.countryAt(lat, lon) !== 0) continue;
+      overWater++;
+      const depth = shoreDistance(lake.points, lon, lat);
+      if (depth > deepest) {
+        deepest = depth;
+        deepestAt = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+      }
+    }
+  }
+  const cut = land.userData['lakes'] as { holes: number; splices: number; unpaired: number; droppedFaces: number };
+  check(
+    overWater <= 1800 && deepest <= 120,
+    'land drawn over a lake stays within what was measured (known: refine bows long edges)',
+    `${overWater.toLocaleString()} land tops over lake water, deepest ${deepest.toFixed(1)} units in at ${deepestAt}; ` +
+      `${cut.holes} holes, ${cut.splices} splices, ${cut.unpaired} unpaired dropping ${cut.droppedFaces} faces`,
+  );
+}
 
 /**
  * `groundColorAt` and the mesh have to be the same law.
@@ -553,8 +762,11 @@ check(
     if (off > 0.15) apart++;
     if (off > worst) worst = off;
   }
+  // 0.40% on 2026-09-21 (153 of 38,707), so the bound is half a percent: the
+  // systematic failure above is thirty times over it either way, and a drift
+  // of the residue should say so before it doubles.
   check(
-    apart < compared * 0.01,
+    apart < compared * 0.005,
     'groundColorAt agrees with the colour the mesh painted',
     `${apart} of ${compared.toLocaleString()} apart, worst ${worst.toFixed(3)}`,
   );
@@ -631,8 +843,10 @@ check(
       where = near.place.name;
     }
   }
+  // 0.02% on 2026-09-21 (36 of 218,673), against the 1.9% the table above
+  // was written at; bounded at 0.04% so a regression to that shows.
   check(
-    over < inTown * 0.02,
+    over < inTown * 0.0004,
     'the mesh under a settlement meets the paving on it',
     `${over} of ${inTown.toLocaleString()} triangles over the ${GROUND_LIFT} lift ` +
       `(${((over / inTown) * 100).toFixed(2)}%), worst |error| ${worstError.toFixed(2)} at ${where}`,
@@ -650,8 +864,9 @@ check(
    * outside a built square where the foot actually is — 2.60% there at 1.0, and
    * a bound on the lip rather than the lip itself (see `EDGE_FOOT`).
    */
+  // 0.48% again on 2026-09-21 (1,050 of 218,673): bounded at 0.6%.
   check(
-    under < inTown * 0.01,
+    under < inTown * 0.006,
     'the edge slope’s foot reaches the mesh under a settlement',
     `${under} of ${inTown.toLocaleString()} triangles more than ${EDGE_FOOT} under the relief ` +
       `(${((under / inTown) * 100).toFixed(2)}%)`,
@@ -931,6 +1146,56 @@ if (placed.length > 0) {
   );
 
   /**
+   * `monuments.json` is `monuments.source.json` after the bake, and nothing
+   * said so.
+   *
+   * The source is the authority and the placed file is what the world reads,
+   * so an edit to the source that was never re-baked — a height corrected, a
+   * name respelled, a landmark added — shipped the old one silently. The two
+   * must list the same landmarks in the same order with the same name, country,
+   * height and year, and each placed coordinate must be explained by the bake:
+   * no further from the source than its recorded snap plus the most the
+   * separation can ask of it — its own footprint and the widest a neighbour
+   * may declare, the bake's 12-unit clearance between them, and its 20-unit
+   * seat budget (`CLEARANCE` and `SEAT_BUDGET` in `build-monuments.ts`).
+   * Measured 2026-09-21: the furthest unsnapped move is the Colosseum's,
+   * 41.2 km, off St Peter's.
+   */
+  {
+    const sourceList = (JSON.parse(readFileSync(resolve(here, 'monuments.source.json'), 'utf8')) as {
+      monuments: { id: string; name: string; iso: string; lat: number; lon: number; height?: number; year?: number }[];
+    }).monuments;
+    const stale: string[] = [];
+    if (sourceList.length !== monuments.length) stale.push(`${sourceList.length} in the source, ${monuments.length} placed`);
+    const KM_PER_UNIT = 6371 / PLANET_RADIUS;
+    let furthest = 0;
+    let furthestId = '';
+    sourceList.forEach((want, i) => {
+      const got = monuments[i];
+      if (got === undefined || got.id !== want.id) {
+        stale.push(`row ${i} is ${got?.id ?? 'missing'}, the source says ${want.id}`);
+        return;
+      }
+      for (const key of ['name', 'iso', 'height', 'year'] as const) {
+        if (got[key] !== want[key]) stale.push(`${want.id} ${key} ${String(got[key])} vs ${String(want[key])}`);
+      }
+      const km = (at(want.lat, want.lon).angleTo(at(got.lat, got.lon)) * PLANET_RADIUS) * KM_PER_UNIT;
+      const spread = km - (got.snappedKm ?? 0);
+      const reach = ((got.footprint ?? MAX_FOOTPRINT) + MAX_FOOTPRINT + 12 + 20) * KM_PER_UNIT;
+      if (spread > reach) stale.push(`${want.id} is ${km.toFixed(1)} km from its source, ${(got.snappedKm ?? 0).toFixed(1)} of it snapped`);
+      if (spread > furthest) {
+        furthest = spread;
+        furthestId = want.id;
+      }
+    });
+    check(
+      stale.length === 0,
+      'monuments.json is the source, baked',
+      stale.length > 0 ? stale.slice(0, 5).join('; ') : `furthest moved past its snap: ${furthestId}, ${furthest.toFixed(1)} km`,
+    );
+  }
+
+  /**
    * Nothing may stand inside anything else.
    *
    * `build-monuments.ts` spreads overlapping pairs apart using the footprints
@@ -953,7 +1218,7 @@ if (placed.length > 0) {
       const a = monuments[i]!;
       const b = monuments[j]!;
       const gap = at(a.lat, a.lon).angleTo(at(b.lat, b.lon)) * PLANET_RADIUS;
-      const need = (declared.get(a.id) ?? 55) + (declared.get(b.id) ?? 55);
+      const need = (declared.get(a.id) ?? MAX_FOOTPRINT) + (declared.get(b.id) ?? MAX_FOOTPRINT);
       if (gap < need) overlaps.push(`${a.id}/${b.id} ${gap.toFixed(0)} < ${need.toFixed(0)}`);
     }
   }
@@ -972,8 +1237,8 @@ if (placed.length > 0) {
    */
   const wrongFootprint: string[] = [];
   for (const m of monuments) {
-    const want = declared.get(m.id) ?? 55;
-    if (Math.abs((m.footprint ?? 55) - want) > 1e-6) {
+    const want = declared.get(m.id) ?? MAX_FOOTPRINT;
+    if (Math.abs((m.footprint ?? MAX_FOOTPRINT) - want) > 1e-6) {
       wrongFootprint.push(`${m.id} ${m.footprint ?? 'absent'} vs ${want}`);
     }
   }
@@ -1023,7 +1288,7 @@ if (placed.length > 0) {
   let worstTilt = 0;
   let tiltedAt = '';
   for (const m of monuments) {
-    const footprint = m.footprint ?? 55;
+    const footprint = m.footprint ?? MAX_FOOTPRINT;
     const level = world.elevationAt(at(m.lat, m.lon));
     const shelf = shelfAt(m.lat, m.lon);
     for (const radius of [footprint * 0.5, footprint]) {
@@ -1095,7 +1360,7 @@ if (placed.length > 0) {
   const overhanging: string[] = [];
   let worstDrop = 0;
   for (const m of monuments) {
-    const footprint = m.footprint ?? 55;
+    const footprint = m.footprint ?? MAX_FOOTPRINT;
     const got = clearanceAt(m.lat, m.lon, footprint);
     if (Math.abs(got - (m.clearance ?? -1)) > 1e-6) {
       stale.push(`${m.id} ${got} vs ${m.clearance ?? 'absent'}`);
@@ -1152,6 +1417,11 @@ if (existsSync(monumentDir)) {
     monuments: { id: string; iso: string; lat: number; lon: number }[];
   };
   const byId = new Map(source.monuments.map((m) => [m.id, m]));
+  const sourceHeight = new Map(
+    (JSON.parse(readFileSync(resolve(here, 'monuments.source.json'), 'utf8')) as {
+      monuments: { id: string; height?: number }[];
+    }).monuments.map((m) => [m.id, m.height]),
+  );
   const field = (text: string, name: string): string | null =>
     text.match(new RegExp(`\\b${name}\\s*:\\s*(-?[\\d.]+|'[^']*')`))?.[1] ?? null;
 
@@ -1184,11 +1454,25 @@ if (existsSync(monumentDir)) {
     if (Math.abs(Number(lat) - placement.lat) > 1e-6) drifted.push(`${id} lat ${lat} vs ${placement.lat}`);
     if (Math.abs(Number(lon) - placement.lon) > 1e-6) drifted.push(`${id} lon ${lon} vs ${placement.lon}`);
     if (iso !== placement.iso) drifted.push(`${id} iso ${iso} vs ${placement.iso}`);
+    // The model's `realHeight` and the source's `height` are the same metres
+    // written twice — the card reads the second — so they have to agree.
+    const realHeight = field(text, 'realHeight');
+    const height = sourceHeight.get(id);
+    if ((realHeight === null ? undefined : Number(realHeight)) !== height) {
+      drifted.push(`${id} realHeight ${realHeight ?? 'none'} vs height ${height ?? 'none'}`);
+    }
   }
 
-  check(drifted.length === 0, `${compared} model files match the placement data`, drifted.join('; '));
+  // **A scan that compared nothing proves nothing**, and it used to pass: a
+  // change to how the model files are written would have made every one of
+  // them `could not scan`, and the check above would have reported zero drift
+  // over zero files. So every model file must be read, and there must be one.
+  check(
+    drifted.length === 0 && compared > 0 && unchecked.length === 0,
+    `${compared} model files match the placement data`,
+    [...drifted, ...(unchecked.length > 0 ? [`could not scan: ${unchecked.join(', ')}`] : [])].join('; '),
+  );
   check(orphans.length === 0, 'every model has a placement', orphans.join('; '));
-  if (unchecked.length > 0) console.log(`  --   could not scan: ${unchecked.join(', ')}`);
 }
 
 /**
@@ -1547,12 +1831,8 @@ console.log('\nbiomes');
     ['Japan', 35.7, 139.7, 'temperate'],
     ['Mallorca', 39.6, 3.0, 'temperate'],
     ['Iowa', 42.0, -94.0, 'grassland'],
-    ['Kazakhstan', 48.0, 68.0, 'temperate'],
     ['Sahel', 14.0, 5.0, 'savanna'],
     ['Himalaya', 28.0, 86.9, 'ice'],
-    ['Empty Quarter', 20.0, 50.0, 'savanna'],
-    ['Atacama', -23.5, -69.0, 'steppe'],
-    ['Serengeti', -2.5, 34.8, 'tropical'],
   ];
   let wrong = 0;
   const examples: string[] = [];
@@ -1564,6 +1844,28 @@ console.log('\nbiomes');
     }
   }
   check(wrong === 0, `all ${cases.length} named places land in their biome`, examples.join(', '));
+
+  /**
+   * **The known misses, which this list used to assert as right.** Four of the
+   * named places were pinned to what the model says rather than to what the
+   * ground is — the Empty Quarter as savanna, the Atacama as steppe, the
+   * Serengeti as tropical forest, the Kazakh steppe as temperate — so the check
+   * passed by agreeing with the error, and fixing one would have failed it.
+   * `biome.ts` writes down why each is missed; here they are what the ground
+   * really is, printed rather than failed, and a line says so when one comes
+   * right.
+   */
+  const misses: [string, number, number, string][] = [
+    ['Empty Quarter', 20.0, 50.0, 'desert'],
+    ['Atacama', -23.5, -69.0, 'desert'],
+    ['Serengeti', -2.5, 34.8, 'savanna'],
+    ['Kazakhstan', 48.0, 68.0, 'steppe'],
+  ];
+  const known = misses.map(([name, lat, lon, real]) => {
+    const got = biomeOf(lat, lon);
+    return got === real ? `${name} is ${real} now — move it up` : `${name} ${got}, is ${real}`;
+  });
+  console.log(`  --   known misses (biome.ts): ${known.join(' · ')}`);
 
   // A spread, not a boolean: a model that classifies the whole planet as one
   // thing passes every point test above if that thing happens to be temperate.
@@ -1959,8 +2261,9 @@ console.log('\nroads');
         `${ramped.toLocaleString()} roads ramp to a gate at RAMP_GRADE, the longest ramp ${longestRamp.toFixed(1)} units, ` +
           `${overlapping} with ramps that meet (the climb itself is asserted under a foot, in made ground)`,
       );
+      // 0.007% on 2026-09-21 (6 of 87,934 sections), bounded at 0.02%.
       check(
-        sagOver < sagSections * 0.02,
+        sagOver < sagSections * 0.0002,
         'the ground stays under the ribbon between its section ends',
         `${sagOver} of ${sagSections.toLocaleString()} sections cut through ` +
           `(${((sagOver / Math.max(1, sagSections)) * 100).toFixed(2)}%), worst ${sagWorst.toFixed(2)} units`,
@@ -2385,8 +2688,10 @@ console.log('\nroads');
         extra++;
         if (degree[road.a]! > 1 && degree[road.b]! > 1) extraWithoutNeed++;
       }
+      // 32 rescues of 20,040 candidates on 2026-09-21, 0.16%: bounded at a
+      // quarter of a percent rather than two.
       check(
-        extraWithoutNeed === 0 && extra < candidates.length * 0.02,
+        extraWithoutNeed === 0 && extra < candidates.length * 0.0025,
         'and every road that is not a candidate is somebody’s only road',
         `${extra} rescues, ${extraWithoutNeed} of them joining two towns that already had one`,
       );
@@ -2416,11 +2721,12 @@ console.log('\nroads');
        * the town: a town every one of whose gates is in the sea or on ground too
        * steep to cut has nowhere for a road to come in.
        *
-       * Bounded at 12% so a re-bake has room and a rule that stopped joining
-       * anything does not.
+       * Bounded at 8% so a re-bake has room and a rule that stopped joining
+       * anything does not: 748 of 9,749, 7.7%, on 2026-09-21. It was 12%,
+       * which let half again as many towns lose their roads unremarked.
        */
       check(
-        alone < settled.filter((p) => isShown(p)).length * 0.12,
+        alone < settled.filter((p) => isShown(p)).length * 0.08,
         'the towns left with no road are the ones the ground refuses',
         `${alone.toLocaleString()} of ${settled.filter((p) => isShown(p)).length.toLocaleString()} built ` +
           `(${((alone / settled.filter((p) => isShown(p)).length) * 100).toFixed(1)}%), ` +
@@ -2489,23 +2795,108 @@ console.log('\ntime');
     ['Tokyo', 'JPN', 35.7, 139.7, 'Asia/Tokyo'],
     ['Santiago', 'CHL', -33.4, -70.7, 'America/Santiago'],
   ];
-  const now = new Date();
-  let disagree = 0;
-  const examples: string[] = [];
-  for (const [name, iso, lat, lon, want] of cities) {
-    const real = new Intl.DateTimeFormat('en-GB', {
-      timeZone: want,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(now);
-    const ours = clockAt(now, iso, lon, lat);
-    if (ours !== real) {
-      disagree++;
-      if (examples.length < 5) examples.push(`${name} ${ours} not ${real}`);
+  /**
+   * **Read at three instants, not one.** A zone can agree with the wrong one for
+   * half the year — Phoenix is Los Angeles all summer and Denver all winter —
+   * so a single `now` passes a wrong answer whenever the calendar is kind to
+   * it. Mid-January, mid-July and today catch every pair that differs in
+   * either season.
+   */
+  const year = new Date().getUTCFullYear();
+  const instants = [new Date(Date.UTC(year, 0, 15, 12)), new Date(Date.UTC(year, 6, 15, 12)), new Date()];
+  const real = (zone: string, when: Date): string =>
+    new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false }).format(when);
+  const readAll = (
+    list: readonly [string, string, number, number, string][],
+    ours: (iso: string, lat: number, lon: number, when: Date) => string,
+  ): string[] => {
+    const wrong: string[] = [];
+    for (const [name, iso, lat, lon, want] of list) {
+      const when = instants.find((instant) => ours(iso, lat, lon, instant) !== real(want, instant));
+      if (when !== undefined) wrong.push(`${name} ${ours(iso, lat, lon, when)} not ${real(want, when)}`);
     }
+    return wrong;
+  };
+  const tableWrong = readAll(cities, (iso, lat, lon, when) => clockAt(when, iso, lon, lat));
+  check(
+    tableWrong.length === 0,
+    `all ${cities.length} cities read their real local time from the meridians`,
+    tableWrong.slice(0, 5).join(', '),
+  );
+
+  /**
+   * **The chip reads the nearest built town's zone**, and these are the places
+   * the meridians alone got wrong — each one a zone boundary that is a province
+   * line rather than a longitude. It is asked the way `main.ts` asks it: the
+   * country `countryAt` reports, and the town `nearest` returns.
+   */
+  const townIndex = indexPlaces(placesRaw, PLANET_RADIUS);
+  const boundaries: [string, string, number, number, string][] = [
+    ['Calgary', 'CAN', 51.05, -114.07, 'America/Edmonton'],
+    ['Kazan', 'RUS', 55.79, 49.12, 'Europe/Moscow'],
+    ['Nizhny Novgorod', 'RUS', 56.33, 44.0, 'Europe/Moscow'],
+    ['Volgograd', 'RUS', 48.71, 44.51, 'Europe/Moscow'],
+    ['Arkhangelsk', 'RUS', 64.54, 40.54, 'Europe/Moscow'],
+    ['Izhevsk', 'RUS', 56.85, 53.2, 'Europe/Samara'],
+    ['Yakutsk', 'RUS', 62.03, 129.73, 'Asia/Yakutsk'],
+    ['Blagoveshchensk', 'RUS', 50.27, 127.53, 'Asia/Yakutsk'],
+    ['Anadyr', 'RUS', 64.748, 177.477, 'Asia/Anadyr'],
+    ['Bilibino', 'RUS', 68.055, 166.437, 'Asia/Anadyr'],
+    ['Indianapolis', 'USA', 39.77, -86.16, 'America/Indiana/Indianapolis'],
+    ['Louisville', 'USA', 38.25, -85.76, 'America/Kentucky/Louisville'],
+    ['Boise', 'USA', 43.61, -116.2, 'America/Boise'],
+    ['Phoenix', 'USA', 33.45, -112.07, 'America/Phoenix'],
+    ['Palikir', 'FSM', 6.92, 158.16, 'Pacific/Pohnpei'],
+    ['Kananga', 'COD', -5.9, 22.42, 'Africa/Lubumbashi'],
+    ['Mbuji-Mayi', 'COD', -6.13, 23.6, 'Africa/Lubumbashi'],
+    ['Cuiabá', 'BRA', -15.6, -56.1, 'America/Cuiaba'],
+    ['Campo Grande', 'BRA', -20.44, -54.65, 'America/Campo_Grande'],
+    ['Hermosillo', 'MEX', 29.07, -110.96, 'America/Hermosillo'],
+    ['La Paz', 'MEX', 24.14, -110.31, 'America/Mazatlan'],
+    ['Chihuahua', 'MEX', 28.63, -106.09, 'America/Chihuahua'],
+  ];
+  const nearestWrong: string[] = [];
+  for (const [name, iso, lat, lon] of boundaries) {
+    const id = world.countryAt(lat, lon);
+    const ground = id > 0 ? world.countries[id - 1]!.iso : '';
+    if (ground !== iso) nearestWrong.push(`${name} stands in ${ground || 'the sea'}, not ${iso}`);
   }
-  check(disagree === 0, `all ${cities.length} cities read their real local time`, examples.join(', '));
+  nearestWrong.push(...readAll(boundaries, (iso, lat, lon, when) =>
+    clockAt(when, iso, lon, lat, townIndex.nearest(at(lat, lon)).place)));
+  check(
+    nearestWrong.length === 0,
+    `all ${boundaries.length} cities on a zone boundary read their nearest town's time`,
+    nearestWrong.slice(0, 5).join(', '),
+  );
+  // And the meridians are the fallback across a border, so they are held to
+  // the same cities and to the two ends of the antimeridian: Chukotka east of
+  // it read Kaliningrad's time, and the far Aleutians west of it New York's.
+  const fallbackWrong = readAll(
+    [...boundaries, ['Chukotka', 'RUS', 66.0, -172.0, 'Asia/Anadyr'], ['Attu', 'USA', 52.9, 173.2, 'America/Adak']],
+    (iso, lat, lon, when) => clockAt(when, iso, lon, lat),
+  );
+  check(
+    fallbackWrong.length === 0,
+    `and the meridians alone read all ${boundaries.length + 2} of them`,
+    fallbackWrong.slice(0, 5).join(', '),
+  );
+
+  // Every zone the bake shipped has to be one the platform knows, or the chip
+  // falls through to the meridians without anybody noticing.
+  const shippedZones = [...new Set(placesRaw.map((place) => place.zone))];
+  const unknown = shippedZones.filter((zone) => {
+    try {
+      new Intl.DateTimeFormat('en-GB', { timeZone: zone });
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  check(
+    unknown.length === 0 && placesRaw.every((place) => place.zone !== ''),
+    `all ${shippedZones.length} zones the places carry resolve`,
+    unknown.slice(0, 5).join(', '),
+  );
 }
 
 /**

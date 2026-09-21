@@ -19,6 +19,18 @@ import { child } from '../src/scenery/parts/child.ts';
 const ctx = createSceneryContext();
 const SAMPLES = Number(process.argv[2] ?? 150);
 
+/**
+ * What fails the run. It printed its findings and exited 0 whatever they were,
+ * so `pnpm people` could not fail: a contract violation or a rebuild that
+ * disagreed with itself was a line in the scroll and nothing else. The other
+ * checks count and exit non-zero, and so does this one now.
+ */
+let failures = 0;
+const fail = (what: string): void => {
+  failures++;
+  console.log(`  FAIL ${what}`);
+};
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -81,7 +93,7 @@ for (const part of [villager, child]) {
   console.log(`  radius     ${stat(rows.map((r) => r.radius))}   declared ${part.footprint}`);
   console.log(`  base       ${stat(rows.map((r) => r.base))}   must be |base| <= 0.06`);
   if (problems.size === 0) console.log('  no contract violations');
-  else for (const [key, count] of problems) console.log(`  ${count} x ${key}`);
+  else for (const [key, count] of problems) fail(`${count} x ${key}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -271,9 +283,11 @@ for (let i = 0; i < 600; i++) {
   if (bodies.size === 1) identical++;
 }
 console.log(`${identical} of ${total} seeds produce the identical person in all ${DRESS_IDS.length} regions`);
+if (identical !== total) fail(`${total - identical} seeds change who they are with the region`);
 const first = toneCounts.get(DRESS_IDS[0]!)!;
 const sameHistogram = DRESS_IDS.every((id) => toneCounts.get(id)!.every((n, k) => n === first[k]));
 console.log(`skin-tone histogram identical in every region: ${sameHistogram}  (${first.join(', ')})`);
+if (!sameHistogram) fail('the skin-tone histogram depends on the region');
 
 // And that the clothes did move.
 let clothesMoved = 0;
@@ -286,6 +300,7 @@ for (let i = 0; i < 200; i++) {
   if (worn.size > 1) clothesMoved++;
 }
 console.log(`${clothesMoved} of 200 seeds are dressed differently somewhere on the planet`);
+if (clothesMoved === 0) fail('nobody is dressed by where they live');
 
 // ---------------------------------------------------------------------------
 // The seated pose, which is the vehicle contract
@@ -346,6 +361,7 @@ for (let i = 0; i < 300; i++) {
   }
 }
 console.log(`${mismatches} of 300 rebuilds disagreed with themselves`);
+if (mismatches > 0) fail(`${mismatches} rebuilds are not deterministic`);
 
 // ---------------------------------------------------------------------------
 // Build cost
@@ -362,3 +378,6 @@ console.log(
 );
 
 console.log(`\nposes: ${Object.keys(POSES).length}   adult 4 heads, child ${(CHILD_BODY.height / CHILD_BODY.head).toFixed(2)} heads`);
+
+console.log(failures === 0 ? '\nOK\n' : `\n${failures} failures\n`);
+process.exit(failures === 0 ? 0 : 1);

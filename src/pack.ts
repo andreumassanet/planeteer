@@ -35,11 +35,25 @@ import type { Country } from './geo.ts';
 import type { Place } from './places.ts';
 import type { Road, RoadData } from './roads.ts';
 
+/**
+ * Where the baked files are served from, for every loader that fetches one.
+ * `BASE_URL` rather than a bare `/data/`, as `kit.ts` and `cast.ts` already do,
+ * so a build served under a sub-path still finds its files; and optional,
+ * because Node has no `import.meta.env` and the bakes and checks call the same
+ * loaders with `fetch` stubbed.
+ */
+export const DATA_URL = `${import.meta.env?.BASE_URL ?? '/'}data/`;
+
 /** Bumped when the layout changes, so a stale file fails loudly rather than oddly. */
 const VERSION = 1;
 
 const MAGIC_COUNTRIES = 0x434c5441; // 'ATLC'
-const MAGIC_PLACES = 0x504c5441; // 'ATLP'
+/**
+ * 'ATLZ', and it was 'ATLP' until the places grew a time zone column
+ * (2026-09-21). A new magic for the reason `MAGIC_ROADS` gives: a stale
+ * `places.bin` fails on its first four bytes with "re-bake it".
+ */
+const MAGIC_PLACES = 0x5a4c5441; // 'ATLZ'
 /**
  * 'ATLG', and it was 'ATLR' until the roads grew two gate columns and a depth
  * layer (2026-09-13).
@@ -132,19 +146,34 @@ class Writer {
   }
 }
 
+/**
+ * **Reading past the end throws.** A `Uint8Array` answers `undefined` past its
+ * length, which `& 0x7f` turns into 0 and a varint then ends on, so a truncated
+ * file used to decode into rows of zeros — Null Island, population nothing —
+ * rather than fail. Every decoder also ends on `finish`, which is the other
+ * half: a file with bytes left over is a layout this reader does not know.
+ */
 class Reader {
   private at = 0;
   private readonly data: Uint8Array;
+  private readonly what: string;
 
-  constructor(data: Uint8Array) {
+  constructor(data: Uint8Array, what: string) {
     this.data = data;
+    this.what = what;
+  }
+
+  private short(): never {
+    throw new Error(`${this.what} ends early, at byte ${this.data.length} — re-bake it`);
   }
 
   u8(): number {
+    if (this.at >= this.data.length) this.short();
     return this.data[this.at++]!;
   }
 
   raw(length: number): Uint8Array {
+    if (this.at + length > this.data.length) this.short();
     const slice = this.data.subarray(this.at, this.at + length);
     this.at += length;
     return slice;
@@ -154,10 +183,11 @@ class Reader {
     let result = 0;
     let shift = 0;
     for (;;) {
-      const byte = this.data[this.at++]!;
+      const byte = this.u8();
       result += (byte & 0x7f) * 2 ** shift;
       if ((byte & 0x80) === 0) return result;
       shift += 7;
+      if (shift > 35) throw new Error(`${this.what}: a varint runs past 32 bits at byte ${this.at}`);
     }
   }
 
@@ -169,6 +199,13 @@ class Reader {
   /** Bytes not yet read, so a reader can tell a short file from a stale one. */
   left(): number {
     return this.data.length - this.at;
+  }
+
+  /** The whole file was read, and nothing after it is a layout this reader skipped. */
+  finish(): void {
+    if (this.left() !== 0) {
+      throw new Error(`${this.what} has ${this.left()} bytes this reader does not know — re-bake it`);
+    }
   }
 }
 
@@ -220,6 +257,24 @@ function writeText(out: Writer, parts: readonly string[]): void {
   for (const part of parts) {
     if (part.includes('\n')) throw new Error(`a newline in "${part}" would split the blob`);
   }
+  writeBlob(out, parts);
+}
+
+/**
+ * The outlines' `iso`, `name` and `continent` go in as one string joined by
+ * tabs, so a tab inside any of them would shift the fields of that country by
+ * one — and it would decode without complaint.
+ */
+function writeFields(out: Writer, rows: readonly (readonly string[])[]): void {
+  for (const row of rows) {
+    for (const field of row) {
+      if (field.includes('\t')) throw new Error(`a tab in "${field}" would split its row`);
+    }
+  }
+  writeText(out, rows.map((row) => row.join('\t')));
+}
+
+function writeBlob(out: Writer, parts: readonly string[]): void {
   const blob = utf8.encode(parts.join('\n'));
   out.varint(blob.length);
   out.raw(blob);
@@ -335,7 +390,7 @@ export function encodeCountries(countries: readonly PackedCountry[]): Uint8Array
   // One text blob for the three strings a country carries. `iso` is three ASCII
   // characters and `continent` is one of seven, so the tabs cost less than a
   // second table would.
-  writeText(out, countries.map((c) => `${c.iso}\t${c.name}\t${c.continent}`));
+  writeFields(out, countries.map((c) => [c.iso, c.name, c.continent]));
 
   // Centroids, at the two decimals the bake rounds them to.
   for (const country of countries) {
@@ -359,7 +414,7 @@ export function encodeCountries(countries: readonly PackedCountry[]): Uint8Array
 }
 
 export function decodeCountries(bytes: Uint8Array): Country[] {
-  const reader = new Reader(bytes);
+  const reader = new Reader(bytes, 'countries.bin');
   expect(reader, MAGIC_COUNTRIES, 'countries.bin');
   const count = reader.varint();
   const text = readText(reader, count);
@@ -387,6 +442,7 @@ export function decodeCountries(bytes: Uint8Array): Country[] {
     for (const { digits, length } of shape[i]!) rings.push(readRingPoints(reader, digits, length));
     countries[i]!.rings = rings;
   }
+  reader.finish();
   return countries;
 }
 
@@ -424,12 +480,14 @@ export function encodeLakes(rings: readonly PackedRing[]): Uint8Array {
 }
 
 export function decodeLakes(bytes: Uint8Array): number[][][] {
-  const reader = new Reader(bytes);
+  const reader = new Reader(bytes, 'lakes.bin');
   expect(reader, MAGIC_LAKES, 'lakes.bin');
   const count = reader.varint();
   const shape: { digits: number; length: number }[] = [];
   for (let i = 0; i < count; i++) shape.push({ digits: reader.u8(), length: reader.varint() });
-  return shape.map(({ digits, length }) => readRingPoints(reader, digits, length));
+  const rings = shape.map(({ digits, length }) => readRingPoints(reader, digits, length));
+  reader.finish();
+  return rings;
 }
 
 // ---------------------------------------------------------------------------
@@ -534,11 +592,35 @@ export function encodePlaces(places: readonly Place[]): Uint8Array {
   }
   writePlanes(out, prominence, 2);
 
+  // The time zone, GeoNames' own IANA name for the row, as **an index into its
+  // country's list of zones** rather than into one table of all of them. There
+  // are 371 names in the source and a byte holds 256, but no country's rows
+  // carry more than a few dozen, and most carry one: each list is ordered by
+  // how many rows use it, so the column is almost all zeros and gzip takes it to
+  // next to nothing. The lists are written in the country table's order, each
+  // as a count, and their names as one blob after them.
+  const zoneLists: string[][] = table.map(() => []);
+  const zoneCounts = table.map(() => new Map<string, number>());
+  for (const place of places) {
+    if (place.zone === '' || place.zone.includes('\n')) throw new Error(`${place.name} has no usable zone`);
+    const counts = zoneCounts[index.get(place.iso)!]!;
+    counts.set(place.zone, (counts.get(place.zone) ?? 0) + 1);
+  }
+  zoneCounts.forEach((counts, k) => {
+    zoneLists[k] = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([zone]) => zone);
+    if (zoneLists[k]!.length > 256) throw new Error(`${table[k]} has ${zoneLists[k]!.length} zones, more than a byte`);
+    out.varint(zoneLists[k]!.length);
+  });
+  writeText(out, zoneLists.flat());
+  const zones = new Uint8Array(n);
+  for (let i = 0; i < n; i++) zones[i] = zoneLists[index.get(places[i]!.iso)!]!.indexOf(places[i]!.zone);
+  out.raw(zones);
+
   return out.done();
 }
 
 export function decodePlaces(bytes: Uint8Array): Place[] {
-  const reader = new Reader(bytes);
+  const reader = new Reader(bytes, 'places.bin');
   expect(reader, MAGIC_PLACES, 'places.bin');
   const n = reader.varint();
   const names = readText(reader, n);
@@ -563,6 +645,7 @@ export function decodePlaces(bytes: Uint8Array): Place[] {
       lon: lon[i]! / 1000,
       pop,
       prominence: 0,
+      zone: '',
     };
   }
 
@@ -579,14 +662,26 @@ export function decodePlaces(bytes: Uint8Array): Place[] {
   }
   for (const i of snapped) places[i]!.snappedKm = reader.varint() / 10;
 
-  // Exactly two planes must be left. Fewer is a file baked before the field
-  // existed; more is a layout this reader does not know. Both are re-bakes.
-  if (reader.left() !== 2 * n) {
-    throw new Error(`places.bin carries no prominence field (${reader.left()} bytes left) — re-bake it with \`pnpm places\``);
-  }
   const prominence = readPlanes(reader, n, 2);
   for (let i = 0; i < n; i++) places[i]!.prominence = prominence[i]!;
 
+  const lengths: number[] = [];
+  for (let k = 0; k < isoCount; k++) lengths.push(reader.varint());
+  const zoneNames = readText(reader, lengths.reduce((sum, length) => sum + length, 0));
+  const zoneLists: string[][] = [];
+  let next = 0;
+  for (const length of lengths) {
+    zoneLists.push(zoneNames.slice(next, next + length));
+    next += length;
+  }
+  const zones = reader.raw(n);
+  for (let i = 0; i < n; i++) {
+    const zone = zoneLists[codes[i]!]![zones[i]!];
+    if (zone === undefined) throw new Error(`places.bin: row ${i} points past its country's zones`);
+    places[i]!.zone = zone;
+  }
+
+  reader.finish();
   return places;
 }
 
@@ -675,7 +770,7 @@ export function encodeRoads(placeCount: number, graph: string, roads: readonly R
 }
 
 export function decodeRoads(bytes: Uint8Array): RoadData {
-  const reader = new Reader(bytes);
+  const reader = new Reader(bytes, 'roads.bin');
   expect(reader, MAGIC_ROADS, 'roads.bin');
   const places = reader.varint();
   const graph = readText(reader, 1)[0]!;
@@ -706,5 +801,6 @@ export function decodeRoads(bytes: Uint8Array): RoadData {
       layer: layers[i]!,
     };
   }
+  reader.finish();
   return { places, graph, roads };
 }
