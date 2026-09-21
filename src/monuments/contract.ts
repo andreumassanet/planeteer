@@ -312,6 +312,21 @@ export interface MonumentContext {
    * Return `null` to leave a gap, which is how a ruin gets its broken side.
    */
   around(count: number, make: (index: number, angle: number) => THREE.Object3D | null): THREE.Group;
+
+  /**
+   * Every piece of a finished draft, drawn as one mesh per colour.
+   *
+   * The helpers above build non-indexed, faceted geometry precisely so that
+   * pieces of one material can be concatenated (see `meshOf`); this does it,
+   * baking each piece's transform into its vertices and recomputing the flat
+   * normals. What is drawn is identical — `OutlineEffect` pushes each face out
+   * along its own normal whether the faces share a mesh or not — so a model
+   * that needs more pieces than its tier's mesh cap allows can build them all
+   * and hand back this: the cap counts meshes, and triangles are then the only
+   * limit left. A reflected transform would turn a piece inside out silently
+   * once it is baked, so it throws instead. Consumes the draft's geometry.
+   */
+  merge(draft: THREE.Object3D): THREE.Group;
 }
 
 /**
@@ -488,6 +503,33 @@ export function createContext(): MonumentContext {
         pivot.rotation.y = angle;
         pivot.add(child);
         group.add(pivot);
+      }
+      return group;
+    },
+
+    merge(draft) {
+      draft.updateMatrixWorld(true);
+      const bins = new Map<THREE.Material | THREE.Material[], number[]>();
+      const vertex = new THREE.Vector3();
+      draft.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        if (mesh.matrixWorld.determinant() <= 0) throw new Error(`merge: '${mesh.name || 'a piece'}' is reflected`);
+        const position = mesh.geometry.getAttribute('position');
+        let bin = bins.get(mesh.material);
+        if (bin === undefined) bins.set(mesh.material, (bin = []));
+        for (let i = 0; i < position.count; i++) {
+          vertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+          bin.push(vertex.x, vertex.y, vertex.z);
+        }
+        mesh.geometry.dispose();
+      });
+      const group = new THREE.Group();
+      for (const [material, positions] of bins) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.computeVertexNormals();
+        group.add(new THREE.Mesh(geometry, material));
       }
       return group;
     },

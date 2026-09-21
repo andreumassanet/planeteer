@@ -47,7 +47,7 @@ import type { Group, Mesh, Monument } from './contract.ts';
  * becoming a different animal, so it would pass `FILL` only on its width, by a
  * hair. `building`'s 40 is a cap this fills two thirds of, which is what a tier
  * fitting properly looks like. It also keeps the Sphinx from out-massing the
- * Pyramids, which stand 400 m away and are 38 units tall in their own file.
+ * Pyramids, which stand 400 m away and are 33.6 units tall in their own file.
  *
  * **Aspect: the vertical is exaggerated 1.4x.** The Sphinx is 73 m long and
  * 20 m tall, so 3.65:1 — inside `MAX_ASPECT` on paper, and a dash on the
