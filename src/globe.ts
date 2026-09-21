@@ -1505,6 +1505,29 @@ export function coastEdges(world: World): Uint8Array[] {
   const outward = new THREE.Vector3();
   const probe = new THREE.Vector3();
 
+  // The lakes and their boxes, for `inLake`: 26 rings, so a box test first is
+  // all the index this needs.
+  const lakes = (world.rings as LandRing[])
+    .filter((ring) => ring.water)
+    .map((ring) => {
+      let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+      for (const [lon, lat] of ring.points) {
+        minLon = Math.min(minLon, lon!); maxLon = Math.max(maxLon, lon!);
+        minLat = Math.min(minLat, lat!); maxLat = Math.max(maxLat, lat!);
+      }
+      return { points: ring.points, minLon, minLat, maxLon, maxLat };
+    });
+  /** Whether the midpoint of this edge, in the plane the outlines are drawn in, is lake water. */
+  const inLake = (p: number[], q: number[]): boolean => {
+    const lon = (p[0]! + q[0]!) * 0.5;
+    const lat = (p[1]! + q[1]!) * 0.5;
+    for (const lake of lakes) {
+      if (lon < lake.minLon || lon > lake.maxLon || lat < lake.minLat || lat > lake.maxLat) continue;
+      if (insideRing(lake.points, lon, lat)) return true;
+    }
+    return false;
+  };
+
   const flags = (world.rings as LandRing[]).map((ring) => {
     const points = ring.points;
     const seaward = new Uint8Array(points.length);
@@ -1519,7 +1542,18 @@ export function coastEdges(world: World): Uint8Array[] {
       probe.copy(mid).addScaledVector(outward, COAST_PROBE / PLANET_RADIUS).normalize();
       const lat = Math.asin(Math.max(-1, Math.min(1, probe.y))) / DEG;
       const lon = Math.atan2(-probe.z, probe.x) / DEG;
-      if (world.countryAt(lat, lon) === 0) seaward[i] = 1;
+      if (world.countryAt(lat, lon) !== 0) continue;
+      // **An edge lying in a lake is not a coast, it is a frontier under the
+      // water.** A country's outline runs along its border through the middle
+      // of every lake it shares — Superior, Huron, Erie, Ontario, Victoria,
+      // Tanganyika — and stepping off that edge finds water, so the surf and
+      // the shallows were drawn down the middle of the Great Lakes as a strip
+      // of sand along the US–Canada line (seen from the air on 2026-09-21).
+      // Tested on the edge's own midpoint against the 26 lake rings rather than
+      // by a second probe inward, which would also have unmade the coast of
+      // every island and spit thinner than the probe.
+      if (!ring.water && inLake(points[i]!, points[j]!)) continue;
+      seaward[i] = 1;
     }
     return seaward;
   });
