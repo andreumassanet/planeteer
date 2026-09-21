@@ -682,15 +682,15 @@ check(
  * counts all three: every land top whose centre `countryAt` calls lake water,
  * and how far inside the lake's outline the deepest one stands.
  *
- * **It is not zero and the residue is known** (2026-09-21, after Lake Volta's
- * second copy came out of the bake and took 76 of these with it): 1,778
- * triangles, most of them in Superior, and the deepest 116 units in from its
- * southern shore. `refine` splits an edge at the *great-circle* midpoint, while the ear
- * clipper, the outlines and `countryAt` all work in straight lon/lat lines; a
- * long interior edge running east-west along a lake bows poleward by about
- * `L^2/8 * sin(lat)cos(lat)` — 147 units for 22 degrees at 47N — and carries
- * the land with it over the water. Fixing it is `refine`'s to do, so this is a
- * ceiling at today's measurement: it cannot grow without failing here.
+ * **It is not zero and the residue is known.** On 2026-09-21 it was 1,778
+ * triangles, the deepest 116 units into Lake Superior, because `refine` split
+ * an edge at the *great-circle* midpoint while the ear clipper, the outlines and
+ * `countryAt` all work in straight lon/lat lines: a long east-west edge bowed
+ * poleward by about `L^2/8 * sin(lat)cos(lat)` and carried the land out over
+ * the water. `refine` takes the lon/lat midpoint now, and what is left the same
+ * day is 331 land tops, the deepest 24.2 units in — the width of a shore ramp,
+ * not a peninsula. This is a ceiling just above that: it cannot grow without
+ * failing here.
  */
 {
   const lakesAt = world.rings.filter((ring) => ring.water).map((ring) => {
@@ -737,8 +737,8 @@ check(
   }
   const cut = land.userData['lakes'] as { holes: number; splices: number; unpaired: number; droppedFaces: number };
   check(
-    overWater <= 1800 && deepest <= 120,
-    'land drawn over a lake stays within what was measured (known: refine bows long edges)',
+    overWater <= 400 && deepest <= 30,
+    'land drawn over a lake stays within what was measured',
     `${overWater.toLocaleString()} land tops over lake water, deepest ${deepest.toFixed(1)} units in at ${deepestAt}; ` +
       `${cut.holes} holes, ${cut.splices} splices, ${cut.unpaired} unpaired dropping ${cut.droppedFaces} faces`,
   );

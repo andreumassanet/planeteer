@@ -465,7 +465,7 @@ const EDGE_KEY = 8388608;
  * `relief` grows alongside `vertices`: a midpoint's height is worked out to
  * decide the split and then kept, so no point of this mesh is evaluated twice.
  */
-function refine(vertices: THREE.Vector3[], relief: number[], faces: number[][]): number[][] {
+function refine(vertices: THREE.Vector3[], lonLat: number[], relief: number[], faces: number[][]): number[][] {
   const midpoint = new THREE.Vector3();
 
   // Kept for the whole refinement rather than per pass, and this is what makes
@@ -495,7 +495,19 @@ function refine(vertices: THREE.Vector3[], relief: number[], faces: number[][]):
     }
     // The midpoint is needed before either verdict now, because both the floor
     // and the budget are graded by the pad under it. One lookup answers both.
-    midpoint.copy(a).add(b).normalize();
+    //
+    // **Halfway in longitude and latitude, not along the great circle**, because
+    // that is the plane the ear clipper cut the outline in and the one
+    // `countryAt` tests against: an edge is a straight line in lon/lat, and the
+    // great-circle midpoint of a long one bows poleward off it by about
+    // L^2/8 * sin(lat) * cos(lat) — 147 units for a 22-degree edge at 47N. Split
+    // that way, the refinement carried land out over the water it was cut
+    // around: 1,778 land triangles stood over lake water on 2026-09-21, the
+    // deepest 116 units into Lake Superior. Both triangles on an edge still ask
+    // the same cached question, so the mesh stays watertight either way.
+    const lonMid = (lonLat[lo * 2]! + lonLat[hi * 2]!) * 0.5;
+    const latMid = (lonLat[lo * 2 + 1]! + lonLat[hi * 2 + 1]!) * 0.5;
+    onSphere(lonMid, latMid, midpoint);
     // A monument's pad and a settlement's paving want the same thing from the
     // mesh — the relief resolved finely enough that a flat surface laid on it
     // meets it — so they share one budget and the stronger claim wins.
@@ -514,6 +526,7 @@ function refine(vertices: THREE.Vector3[], relief: number[], faces: number[][]):
     }
     const m = vertices.length;
     vertices.push(midpoint.clone());
+    lonLat.push(lonMid, latMid);
     relief.push(height);
     edges.set(key, m);
     return m;
@@ -1292,13 +1305,17 @@ export function buildLand(world: World): THREE.Mesh {
     // The vertex list earcut indexed: the contour, then each hole in turn.
     const all = holeOutlines.length === 0 ? outline : outline.concat(...holeOutlines);
     const unit = all.map(([lon, lat]) => onSphere(lon!, lat!, new THREE.Vector3()));
+    // The same points in the plane they were triangulated in, which is where
+    // the refinement takes its midpoints: see `refine`.
+    const lonLat = all.flatMap(([lon, lat]) => [lon!, lat!]);
     const relief = unit.map((p) => reliefAt(p.x, p.y, p.z));
-    let triangles = refine(unit, relief, faces);
+    let triangles = refine(unit, lonLat, relief, faces);
 
     // The fallback for a lake this ring could not splice: drop the faces that
     // came out on the water. It leaves a shore ragged at the refinement's own
-    // edge length rather than at the outline's, and it is six pairs on the whole
-    // planet — `pnpm check` counts what it leaves behind rather than trusting it.
+    // edge length rather than at the outline's, and it is two lake-and-ring
+    // pairs on the whole planet (566 faces dropped, 2026-09-21) — `pnpm check`
+    // counts what it leaves behind rather than trusting it.
     if (drops.length > 0) {
       const before = triangles.length;
       triangles = triangles.filter(([a, b, c]) => {
