@@ -1679,6 +1679,22 @@ const DASH_TO = 0.95;
 const DASH_PIECE = 6;
 
 /**
+ * How far the dash stands off the crown it is painted on: the paint's own
+ * thickness, and what keeps it in front.
+ *
+ * It was half a depth layer in front (`LAYER_DEPTH`), and on the screen it
+ * flickered (2026-09-21, *las líneas de enmedio hacen como flickering*): half a
+ * layer is 5e-7 of clip depth, which with the near plane at five units is
+ * 0.00005 of a unit at thirty and 0.0005 at a hundred, and the ribbon's
+ * corners were written at the planet's radius, where a float steps by 0.001 to
+ * 0.002. The dash and the crown each came off their plane by more than the
+ * offset between them. A lift is a distance and holds at every range; 0.04 is
+ * twenty times that rounding and still under anything a foot or a wheel can find —
+ * `ribbonHeightAt` is the crown's and nothing stands on the paint.
+ */
+const DASH_LIFT = 0.04;
+
+/**
  * Longest piece of road drawn as one quad, by how far away it is.
  *
  * The chord problem, priced by distance rather than fixed. A segment takes its
@@ -2510,6 +2526,14 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
 
   function raise(tile: Tile, band: number, sign: number): void {
     const span = SPANS[band]!.span;
+    /**
+     * The tile's corners, relative to the first of them, and the mesh placed
+     * there: at the planet's radius a float steps by 0.001 to 0.002 of a unit,
+     * which is more than a depth layer is anywhere past the player's feet, and
+     * two surfaces a layer apart then fight. Across a tile the step is about a
+     * ten-thousandth.
+     */
+    let origin: THREE.Vector3 | null = null;
     const positions: number[] = [];
     const colors: number[] = [];
     /** Each vertex's road's depth layer; see `LAYER_DEPTH`. */
@@ -2521,7 +2545,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     let drawn = 0;
 
     const push = (p: THREE.Vector3, c: THREE.Color): void => {
-      positions.push(p.x, p.y, p.z);
+      origin ??= p.clone();
+      positions.push(p.x - origin.x, p.y - origin.y, p.z - origin.z);
       colors.push(c.r, c.g, c.b);
       layers.push(layer);
       // 255 is the hour that never comes: a gate's light burns till dawn.
@@ -2538,28 +2563,30 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     /**
      * The centre line's dash on one piece of a marked road: a strip
      * `LINE_HALF` either side of the middle over `DASH_ON` of the piece's far
-     * end, in the plane of the crown triangle it lies on and half a depth layer
-     * in front of it (`LAYER_DEPTH`), so it costs two triangles and no split of
-     * the crown. The crown quad is drawn as `(n1, f1, f2)` and `(n1, f2, n2)`,
+     * end, in the plane of the crown triangle it lies on and `DASH_LIFT` off
+     * it, so it costs two triangles and no split of the crown. The crown quad is drawn as `(n1, f1, f2)` and `(n1, f2, n2)`,
      * and the strip keeps to the first: across it runs from 0.5 - w to 0.5 + w
      * of the crown and along it from `DASH_FROM` to `DASH_TO`, and every point
      * with a share across under its share along is in that triangle, where the
      * surface is `n1 + along (f1 - n1) + across (f2 - f1)`.
      */
     const dashCorners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const dashUp = new THREE.Vector3();
+    const dashEdge = new THREE.Vector3();
     const dash = (n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, length: number, half: number): void => {
       if (length < DASH_PIECE) return;
       const w = Math.min(0.1, LINE_HALF / (2 * half));
+      // The crown triangle's own up, turned away from the planet's centre.
+      dashUp.subVectors(f1, n1).cross(dashEdge.subVectors(f2, n1)).normalize();
+      if (dashUp.dot(n1) < 0) dashUp.negate();
       const at = (along: number, across: number, into: THREE.Vector3) =>
-        into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across);
+        into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across)
+          .addScaledVector(dashUp, DASH_LIFT);
       const p0 = at(DASH_FROM, 0.5 - w, dashCorners[0]!);
       const p1 = at(DASH_TO, 0.5 - w, dashCorners[1]!);
       const p2 = at(DASH_TO, 0.5 + w, dashCorners[2]!);
       const p3 = at(DASH_FROM, 0.5 + w, dashCorners[3]!);
-      const held = layer;
-      layer -= 0.5;
       quad(p0, p1, p2, p3, line, line);
-      layer = held;
     };
 
     // One cross-section is four points; the piece between two of them is three
@@ -2679,6 +2706,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
 
     const mesh = new THREE.Mesh(buffer, material);
     mesh.name = `roads:${tile.members.length}`;
+    mesh.position.copy(origin!);
     // A mark on the ground takes the ground's shadows; it casts none.
     mesh.receiveShadow = true;
     group.add(mesh);
