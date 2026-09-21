@@ -294,7 +294,9 @@ export function horizonAt(altitude: number, planetRadius: number): number {
  * costs a quarter of a millisecond is a window that can be left open. **It is
  * not a judgement about the right default** — the measured headroom is sixteen
  * times what these budgets admit, and the range above is meant to be spent.
- * `atlas.detail(3)` is the world this was tuned for.
+ * `atlas.detail(3)` is the world this was tuned for. **Since 2026-09-21 it is
+ * only where a machine starts**: the automatic knob (`sampleFrame`) moves it
+ * from there by what the frames say, and remembers where it got to.
  */
 const DETAIL_KEY = 'atlas.detail.v2';
 export const DETAIL_MIN = 0.25;
@@ -348,8 +350,18 @@ let version = 0;
 export const detail = (): number => current;
 export const detailVersion = (): number => version;
 
+/**
+ * The knob, turned by hand: the keys, the slider, `atlas.detail(n)`. It turns
+ * the automatic knob off, because the player has taken it; see `sampleFrame`.
+ */
 export function setDetail(value: number): number {
+  if (autoOn) setAutoDetail(false);
+  return applyDetail(value);
+}
+
+function applyDetail(value: number): number {
   const next = clampDetail(value);
+  autoDetailState.detail = next;
   if (next === current) return current;
   current = next;
   version++;
@@ -359,6 +371,186 @@ export function setDetail(value: number): number {
     // Not being able to remember is a worse session, not a broken one.
   }
   return current;
+}
+
+// ---------------------------------------------------------------------------
+// The knob, turned by the frame rate
+// ---------------------------------------------------------------------------
+
+/**
+ * **The default was never a judgement about the right detail, and this is what
+ * replaces it with one.** `DETAIL_DEFAULT` is 0.5 because seven agents shared
+ * one machine while it was set; on the machine the world is actually played
+ * on, the frame itself says how much it can afford. So, while `auto` is on,
+ * every frame hands in two numbers — the interval since the last one and the
+ * milliseconds `main.ts` spent inside it — and every `AUTO_WINDOW_MS` the
+ * knob moves one `AUTO_STEP` if the window says so:
+ *
+ * - **Down** when frames are being dropped: the median interval over a
+ *   quarter longer than the display's own period, or the 95th percentile over
+ *   1.6 of it. The period is the fastest tenth of the intervals at the best
+ *   the session has seen, which on a vsynced display is the refresh, whatever
+ *   it is.
+ * - **Up** when nothing is dropped and the work is under half the period at
+ *   the 95th percentile — the CPU has the room, and the GPU is not the thing
+ *   holding the interval up. On a vsynced display the interval alone can never
+ *   show headroom, which is why the work is measured at all.
+ *
+ * Two windows in a row have to agree before it moves, a step is followed by
+ * `AUTO_SETTLE_MS` of not listening (the rescan and the builds a step causes
+ * are not what the step should be judged on), and after a step down it will
+ * not step back up to the detail it left for `AUTO_COOLDOWN_MS`: a machine
+ * that could not hold a detail should not be dragged back to it the moment
+ * the lower one has given it room, which is an oscillation. It never
+ * leaves `[AUTO_MIN, AUTO_MAX]`, and the first `AUTO_WARMUP_MS` after arrival
+ * are the cold fill, which says nothing about the machine.
+ *
+ * A manual `setDetail` — the keys, the slider — turns it off: the player has
+ * taken the knob. `setAutoDetail(true)` gives it back. Both are remembered.
+ */
+const AUTO_KEY = 'atlas.detail.auto';
+const AUTO_MIN = DETAIL_MIN;
+/** Not `DETAIL_MAX`: the range above this is there to be chosen by hand. */
+const AUTO_MAX = 2;
+const AUTO_STEP = 1.25;
+const AUTO_WINDOW_MS = 2500;
+const AUTO_SETTLE_MS = 2000;
+const AUTO_COOLDOWN_MS = 120_000;
+const AUTO_WARMUP_MS = 4000;
+/** An interval longer than this is a hidden tab or a stall, and is not a frame. */
+const AUTO_IGNORE_MS = 250;
+
+export interface AutoDetailState {
+  on: boolean;
+  detail: number;
+  /** The last window's median and 95th-percentile interval, the display period, and the 95th of the work. */
+  p50: number;
+  p95: number;
+  period: number;
+  work95: number;
+  /** What the last window voted; two in a row move the knob. */
+  vote: 'up' | 'down' | 'hold';
+  /** The last step taken, and when (a `performance.now()`). */
+  lastStep: 'up' | 'down' | 'none';
+  lastStepAt: number;
+  bounds: [number, number];
+}
+
+let autoOn = (() => {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== '0';
+  } catch {
+    return true;
+  }
+})();
+
+export const autoDetailState: AutoDetailState = {
+  on: autoOn,
+  detail: current,
+  p50: 0,
+  p95: 0,
+  period: 0,
+  work95: 0,
+  vote: 'hold',
+  lastStep: 'none',
+  lastStepAt: -Infinity,
+  bounds: [AUTO_MIN, AUTO_MAX],
+};
+
+export const autoDetail = (): boolean => autoOn;
+
+export function setAutoDetail(on: boolean): boolean {
+  autoOn = on;
+  autoDetailState.on = on;
+  intervals.length = 0;
+  works.length = 0;
+  previousVote = 'hold';
+  try {
+    localStorage.setItem(AUTO_KEY, on ? '1' : '0');
+  } catch {
+    // Not being able to remember is a worse session, not a broken one.
+  }
+  return on;
+}
+
+const intervals: number[] = [];
+const works: number[] = [];
+let firstSample = -1;
+let windowBegan = -1;
+let deafUntil = -Infinity;
+let previousVote: AutoDetailState['vote'] = 'hold';
+/** The display's frame period as learned so far, in milliseconds; 0 until a window has been read. */
+let displayPeriod = 0;
+/** The detail the last step down was taken from, and until when it is not tried again. */
+let failedAt = Infinity;
+let failedUntil = -Infinity;
+
+const quantile = (sorted: readonly number[], q: number): number =>
+  sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
+const ascending = (a: number, b: number): number => a - b;
+
+/**
+ * One frame: the milliseconds since the last one began, and the milliseconds
+ * spent inside it. `main.ts` calls it once a frame from arrival on.
+ */
+export function sampleFrame(intervalMs: number, workMs: number): void {
+  const now = performance.now();
+  if (firstSample < 0) firstSample = now;
+  if (!autoOn || now - firstSample < AUTO_WARMUP_MS || now < deafUntil) {
+    windowBegan = now;
+    intervals.length = 0;
+    works.length = 0;
+    return;
+  }
+  if (intervalMs > 0 && intervalMs < AUTO_IGNORE_MS) {
+    intervals.push(intervalMs);
+    works.push(workMs);
+  }
+  if (now - windowBegan < AUTO_WINDOW_MS || intervals.length < 30) return;
+  intervals.sort(ascending);
+  works.sort(ascending);
+  // The display's period is the fastest the frames have gone, not the fastest
+  // this window went: a machine at 30 frames a second on a 60 Hz display has
+  // every interval at 33 ms, and a period read off that window alone would
+  // call it smooth. It relaxes upward slowly, for a window dragged to a
+  // slower screen.
+  const fastest = quantile(intervals, 0.1);
+  displayPeriod = displayPeriod === 0 ? fastest : Math.min(fastest, displayPeriod + (fastest - displayPeriod) * 0.05);
+  const period = Math.max(4, displayPeriod);
+  const p50 = quantile(intervals, 0.5);
+  const p95 = quantile(intervals, 0.95);
+  const work95 = quantile(works, 0.95);
+  autoDetailState.period = Number(period.toFixed(2));
+  autoDetailState.p50 = Number(p50.toFixed(2));
+  autoDetailState.p95 = Number(p95.toFixed(2));
+  autoDetailState.work95 = Number(work95.toFixed(2));
+  intervals.length = 0;
+  works.length = 0;
+  windowBegan = now;
+
+  let vote: AutoDetailState['vote'] = 'hold';
+  if (p50 > period * 1.25 || p95 > period * 1.6) vote = 'down';
+  else if (p95 < period * 1.2 && work95 < period * 0.5) vote = 'up';
+  autoDetailState.vote = vote;
+  const agreed = vote !== 'hold' && vote === previousVote;
+  previousVote = vote;
+  if (!agreed) return;
+  const next = vote === 'down'
+    ? Math.max(AUTO_MIN, current / AUTO_STEP)
+    : Math.min(AUTO_MAX, current * AUTO_STEP);
+  // Not back up to a detail that has just failed, for a while.
+  if (vote === 'up' && now < failedUntil && next >= failedAt - 1e-6) return;
+  if (Math.abs(next - current) < 1e-6) return;
+  if (vote === 'down') {
+    failedAt = current;
+    failedUntil = now + AUTO_COOLDOWN_MS;
+  }
+  applyDetail(next);
+  autoDetailState.detail = current;
+  autoDetailState.lastStep = vote === 'down' ? 'down' : 'up';
+  autoDetailState.lastStepAt = now;
+  previousVote = 'hold';
+  deafUntil = now + AUTO_SETTLE_MS;
 }
 
 /** A reach, a budget, a cap, a pixel floor and a build allowance, each scaled its own way. */
@@ -397,6 +589,65 @@ export const detailCount = (count: number): number => Math.round(count * current
  * is a thing that gets better on its own while a hitch is a thing you feel.
  */
 export const detailBuild = (ms: number): number => ms * Math.min(1.4, current ** 0.25);
+
+// ---------------------------------------------------------------------------
+// The frame's building, shared
+// ---------------------------------------------------------------------------
+
+/**
+ * Milliseconds of a frame every streamer together may spend, from the moment
+ * `main.ts` calls `beginFrameBuild` — building, scanning and whatever else
+ * runs between the streamers — and it does **not** move with the knob.
+ *
+ * **Each streamer used to take its own slice and check it before starting a
+ * build**: 3.5 for the settlements, 3 for the roads, 2.5 for the vegetation,
+ * 1.5 for the sward and 2 for the movers, 10.5 ms together at detail 0.5 (the
+ * slices scale by `detailBuild`), and each could overshoot by a whole build on
+ * top of it. Five independent overshoots in one frame is the hitch. The
+ * slices stay, as each streamer's cap on itself; this is the frame's cap on
+ * all of them, so after one streamer's long build the rest wait a frame.
+ */
+const FRAME_BUILD_MS = 8;
+/**
+ * How much of it work the player is not standing in may use, so that near
+ * work served later in the frame always has the rest. The order is the order
+ * `main.ts` updates in: the town under your feet, the road under them, the
+ * near wood, the sward, what moves — and far work of any of them only out of
+ * this.
+ */
+const FAR_BUILD_MS = 4;
+/**
+ * What counts as near, in world units from the viewer to the nearest of the
+ * thing: the ground you stand in and the next step of it. Wider than every
+ * streamer's own `KEEP_ALL_WITHIN`, which is the disc a mouse flick reveals.
+ */
+export const NEAR_BUILD = 600;
+
+/** When the frame's building began; negative while nobody has begun one. */
+let frameBegan = -1;
+
+/**
+ * Once a frame, before the first streamer. Without it — a headless check, a
+ * review sheet — there is no frame allowance and each streamer is held by
+ * its own slice alone, which is what they did before this existed.
+ */
+export function beginFrameBuild(): void {
+  frameBegan = performance.now();
+}
+
+/** Whether the frame has room left for one more build, near or far. */
+export function frameOpen(near: boolean): boolean {
+  if (frameBegan < 0) return true;
+  return performance.now() - frameBegan < (near ? FRAME_BUILD_MS : FAR_BUILD_MS);
+}
+
+/**
+ * Whether a streamer may start one more build: inside its own slice (`share`
+ * milliseconds since it began, at `began`) and inside the frame's.
+ */
+export function mayBuild(began: number, share: number, near: boolean): boolean {
+  return performance.now() - began < share && frameOpen(near);
+}
 
 /**
  * How far the haze should let you see, given how far the streamers now build.

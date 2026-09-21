@@ -63,6 +63,11 @@ export interface TimeOfDay {
 export interface SettingsOptions {
   /** How far the world is built: `view.ts`'s knob, 0.25 to 6. */
   detail: Knob;
+  /**
+   * Whether the knob turns itself by the frame rate (`view.ts`'s automatic
+   * detail). Moving the slider by hand turns it off, as the keys do.
+   */
+  autoDetail?: Toggle;
   /** The map layer: country colours, frontiers and names from the air. */
   flags: Toggle;
   /** Radians of look per pixel of mouse, as a multiple of the default. */
@@ -317,8 +322,18 @@ export function createSettings(options: SettingsOptions): Settings {
 
   /* --- the sections ----------------------------------------------------- */
 
+  const autoDetail = options.autoDetail === undefined ? null : makeSwitch(options.autoDetail, 'Automatic render distance');
   const detail = makeSlider(
-    options.detail,
+    {
+      ...options.detail,
+      // A hand on the slider is a choice, and `setDetail` turns the automatic
+      // knob off for it; the switch beside it has to say so at once.
+      set: (value) => {
+        const set = options.detail.set(value);
+        autoDetail?.refresh();
+        return set;
+      },
+    },
     (v) => [detailWord(v), `${v.toFixed(2)}×`],
     ['Near · fast', 'Far · heavy'],
   );
@@ -409,6 +424,13 @@ export function createSettings(options: SettingsOptions): Settings {
         h('div', { class: 'atlas-settings-side' }, detail.value, detailKeys),
         detail.slider,
       ),
+      autoDetail === null
+        ? null
+        : row(
+            'Automatic distance',
+            'Turns the render distance up while frames are to spare and down when they are dropped. Moving the slider takes over.',
+            autoDetail.element,
+          ),
       row(
         'Resolution',
         "How sharp the world is drawn. Auto is the screen's own sharpness up to twice the pixels, Balanced stops at one and a half, and Fast draws one pixel a point, the lightest of all.",
@@ -496,6 +518,7 @@ export function createSettings(options: SettingsOptions): Settings {
 
   function refresh(): void {
     detail.refresh();
+    autoDetail?.refresh();
     sensitivity.refresh();
     performance.refresh();
     flags.refresh();

@@ -427,6 +427,43 @@ export function trafficFor(iso: string, continent: string, lat: number): Traffic
   return TRAFFIC_STYLES[region.id as RegionId] ?? TRAFFIC_STYLES[DEFAULT_REGION];
 }
 
+/**
+ * The countries that drive on the left, by the `iso` the country bake writes
+ * (`ISO_A3`, or Natural Earth's `ADM0_A3` where there is none).
+ *
+ * **A country and not a region**, which is why it is a set here and not a
+ * field on `TrafficStyle`: the side of the road is a law, and the regions cut
+ * across it — southern Africa keeps left and the rest of `sub-saharan` keeps
+ * right, Suriname and Guyana keep left beside Brazil. Everything absent keeps
+ * right, which is two thirds of the world's countries and most of its roads.
+ *
+ * Checked against the list of left- and right-hand traffic jurisdictions,
+ * 2026-09-21. Kept even where the bake draws nothing, so the list reads as
+ * the law and not as an inventory: Macao and the Maldives are too small for
+ * the outlines today.
+ */
+export const LEFT_HAND_TRAFFIC: ReadonlySet<string> = new Set([
+  // Europe: Britain and Ireland, the Crown dependencies, the two sovereign
+  // base areas, Cyprus north and south, Malta.
+  'GBR', 'IRL', 'IMN', 'JEY', 'GGY', 'WSB', 'ESB', 'CYP', 'CYN', 'MLT',
+  // Asia. Myanmar changed to the right in 1970 and is not here.
+  'JPN', 'IND', 'PAK', 'BGD', 'LKA', 'NPL', 'BTN', 'MDV', 'THA', 'MYS', 'SGP', 'IDN', 'BRN', 'TLS', 'HKG', 'MAC',
+  // Africa: the south and the east. Rwanda, Burundi, Somalia and Somaliland keep right.
+  'ZAF', 'LSO', 'SWZ', 'BWA', 'NAM', 'ZWE', 'ZMB', 'MWI', 'MOZ', 'TZA', 'KEN', 'UGA', 'MUS', 'SYC', 'SHN',
+  // The Americas: the Caribbean's British and US islands, Guyana, Suriname, the Falklands.
+  'AIA', 'ATG', 'BHS', 'BRB', 'BMU', 'CYM', 'DMA', 'GRD', 'JAM', 'MSR', 'KNA', 'LCA', 'VCT', 'TTO', 'TCA', 'VGB', 'VIR',
+  'GUY', 'SUR', 'FLK',
+  // Oceania. Samoa changed to the left in 2009; Vanuatu, New Caledonia and
+  // the US and French islands keep right.
+  'AUS', 'NZL', 'PNG', 'FJI', 'SLB', 'TON', 'WSM', 'KIR', 'TUV', 'NRU', 'NIU', 'COK', 'NFK', 'PCN',
+  'IOA', 'CSI', 'ATC', 'HMD',
+  // The British and Australian territories in the southern oceans.
+  'IOT', 'SGS',
+]);
+
+/** Whether traffic keeps to the left in the country with this `iso`. */
+export const keepsLeft = (iso: string): boolean => LEFT_HAND_TRAFFIC.has(iso);
+
 /** The scenery style beside it, for the review sheet: a car parked at a house. */
 export function sceneryFor(id: RegionId) {
   return REGIONS[id];

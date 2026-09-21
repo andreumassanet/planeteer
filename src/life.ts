@@ -3,6 +3,9 @@ import type { Person } from './cast.ts';
 import type { Folk } from './folk.ts';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS } from './globe.ts';
+import { mergeMeshes } from './merge.ts';
+import { proxyOf } from './warm.ts';
+import type { Merged } from './merge.ts';
 import { MAX_SLOPE, flattenWeightAt, gradeAt, reliefAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
@@ -29,6 +32,8 @@ import { BIOMES, biomeAt, biomeSample } from './biome.ts';
 import {
   createViewCone,
   detailBuild,
+  frameOpen,
+  mayBuild,
   detailCount,
   detailReach,
   detailVersion,
@@ -52,7 +57,7 @@ import {
   variantRng,
 } from './traffic/contract.ts';
 import type { Mount, TrafficContext, TrafficStyle, Vehicle } from './traffic/contract.ts';
-import { trafficFor } from './traffic/regions.ts';
+import { keepsLeft, trafficFor } from './traffic/regions.ts';
 import { KINDS as FAUNA_KINDS, VARIANTS as FAUNA_VARIANTS, createFaunaContext } from './fauna/contract.ts';
 import { rigPaint } from './fauna/contract.ts';
 import type { Animal, AnimalShape, FaunaContext, RigChoice } from './fauna/contract.ts';
@@ -446,6 +451,14 @@ const RESCAN_TURN = 8 * DEG;
 const RESCAN_MS = 700;
 /** Milliseconds of pool building allowed in one frame. */
 const BUILD_BUDGET_MS = 2;
+/**
+ * Walkers dressed and herds stood up as their animals in one frame. Each is
+ * a skinned clone — a person one, a herd one a head — and they had no cap at
+ * all: every walker that came into view was dressed in the frame it did.
+ * `folk.ts` caps the townsfolk at three for the same reason.
+ */
+const DRESS_PER_FRAME = 3;
+const HERDS_PER_FRAME = 1;
 /** Movers inside this of the camera are admitted whatever it is pointed at. */
 const KEEP_ALL_WITHIN = 340;
 
@@ -588,103 +601,15 @@ export function poseAt(rig: Rig, phase: number, lean: number): number {
 // Merging
 // ---------------------------------------------------------------------------
 
-export interface Merged {
-  position: Float32Array;
-  normal: Float32Array;
-  color: Float32Array;
-  /**
-   * The ink's normals: a painted mesh's welded `outlineNormal`, and the fill's
-   * own normal for anything built in code, so every mover carries the one
-   * attribute its material's hull reads (see `outlineNormal` in `outline.ts`).
-   */
-  outline: Float32Array;
-  triangles: number;
-}
-
-const mergeColor = new THREE.Color();
-const mergePoint = new THREE.Vector3();
-const mergeNormal = new THREE.Matrix3();
+export type { Merged } from './merge.ts';
 
 /**
- * A built group reduced to three flat arrays, in the group's own space.
- *
- * The same step `settlements.ts` uses to make a town one mesh, written here
- * rather than shared, and the reason is not laziness: that one takes a cache key
- * and stamps lit windows into the colours as it goes, and it is typed for
- * `THREE.Group`. This one has to take a group **with a scale on it** — the
- * vehicles' `placedScale` is baked into the vertices rather than applied at draw
- * time — and it has to be importable in Node, which `settlements.ts` is not.
- *
- * The normal matrix is the inverse transpose and not the rotation, which is the
- * one line that differs and the one that matters: a bus is scaled 2 x 2 x 1.35,
- * and a normal rotated without the correction points off the surface by up to 8
- * degrees, which `OutlineEffect` then builds its hull along.
+ * A built group reduced to flat arrays in the group's own space, its root's
+ * transform included: the vehicles' `placedScale` is baked into the vertices
+ * rather than applied at draw time. The one merge in the project (`merge.ts`),
+ * under the name `scripts/check-life.ts` has always asserted on.
  */
-export function mergeGroup(group: THREE.Object3D): Merged {
-  group.updateMatrixWorld(true);
-  const pieces: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4; hex: number; painted: boolean }[] = [];
-  let vertices = 0;
-  group.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (mesh.isMesh !== true) return;
-    const position = mesh.geometry.getAttribute('position');
-    if (position === undefined) return;
-    vertices += mesh.geometry.index ? mesh.geometry.index.count : position.count;
-    const material = Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material;
-    pieces.push({
-      geometry: mesh.geometry,
-      matrix: mesh.matrixWorld,
-      hex: (material.userData.atlasToon as number | undefined) ?? 0xffffff,
-      painted: material.userData.atlasPainted === true && mesh.geometry.getAttribute('color') !== undefined,
-    });
-  });
-
-  const out: Merged = {
-    position: new Float32Array(vertices * 3),
-    normal: new Float32Array(vertices * 3),
-    color: new Float32Array(vertices * 3),
-    outline: new Float32Array(vertices * 3),
-    triangles: vertices / 3,
-  };
-
-  let cursor = 0;
-  for (const piece of pieces) {
-    const position = piece.geometry.getAttribute('position');
-    const normal = piece.geometry.getAttribute('normal');
-    const outline = piece.geometry.getAttribute('outlineNormal') ?? normal;
-    const paint = piece.painted ? piece.geometry.getAttribute('color') : null;
-    const index = piece.geometry.index;
-    const count = index ? index.count : position.count;
-    mergeNormal.getNormalMatrix(piece.matrix);
-    mergeColor.set(piece.hex);
-    for (let i = 0; i < count; i++) {
-      const v = index ? index.getX(i) : i;
-      mergePoint.fromBufferAttribute(position, v).applyMatrix4(piece.matrix);
-      out.position[cursor] = mergePoint.x;
-      out.position[cursor + 1] = mergePoint.y;
-      out.position[cursor + 2] = mergePoint.z;
-      mergePoint.fromBufferAttribute(normal, v).applyMatrix3(mergeNormal).normalize();
-      out.normal[cursor] = mergePoint.x;
-      out.normal[cursor + 1] = mergePoint.y;
-      out.normal[cursor + 2] = mergePoint.z;
-      mergePoint.fromBufferAttribute(outline, v).applyMatrix3(mergeNormal).normalize();
-      out.outline[cursor] = mergePoint.x;
-      out.outline[cursor + 1] = mergePoint.y;
-      out.outline[cursor + 2] = mergePoint.z;
-      if (paint !== null) {
-        out.color[cursor] = paint.getX(v);
-        out.color[cursor + 1] = paint.getY(v);
-        out.color[cursor + 2] = paint.getZ(v);
-      } else {
-        out.color[cursor] = mergeColor.r;
-        out.color[cursor + 1] = mergeColor.g;
-        out.color[cursor + 2] = mergeColor.b;
-      }
-      cursor += 3;
-    }
-  }
-  return out;
-}
+export const mergeGroup = mergeMeshes;
 
 // ---------------------------------------------------------------------------
 // The bird
@@ -848,6 +773,14 @@ export interface LifeStats {
   lastScanMs: number;
   /** Ground reach of the road family, which is the widest that matters on foot. */
   reach: number;
+  /**
+   * How far from the viewer the nearest thing that moves and casts a shadow was
+   * drawn this frame — a vehicle, a craft, a walker, an animated herd — or
+   * Infinity. `main.ts` redraws the shadow map every frame while this is inside
+   * the shadow box (`SHADOW_COVER` in `sun.ts`); a still merged herd does not
+   * count, because nothing in it moves.
+   */
+  nearestMoving: number;
 }
 
 /**
@@ -938,6 +871,8 @@ export interface Life {
    * in a still frame, and it is one number.
    */
   verify(): { bodies: number; phases: number; worstDip: number };
+  /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
+  proxies(): THREE.Object3D[];
 }
 
 export interface LifeOptions {
@@ -1055,6 +990,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const stats: LifeStats = {
     road: 0, water: 0, foot: 0, herd: 0, animals: 0, animated: 0, birds: 0,
     meshes: 0, triangles: 0, pooled: 0, megabytes: 0, lastBuildMs: 0, lastScanMs: 0, reach: 0,
+    nearestMoving: Infinity,
   };
 
   // ------------------------------------------------------------------
@@ -1111,6 +1047,31 @@ export function createLife(world: World, places: readonly Place[], options: Life
       roadSpan[i] = course.length * 0.5;
     });
   }
+
+  /**
+   * Which side of each road its traffic keeps, as the sign of a lateral
+   * offset: `roadFrameOf` steps along `up x forward`, which is the mover's
+   * **left** (screen right is `forward x up`; see CLAUDE.md), so +1 keeps left
+   * and -1 keeps right. Every car on the planet kept left until 2026-09-21.
+   *
+   * Decided by the country of the road's first town, `road.a` — the town whose
+   * region already chose the vehicles on it (`trafficAt(road.a)`), so a road's
+   * mix and its side of the road come from one place and cannot disagree. A
+   * midpoint would be a point-in-polygon a road and can land in the sea or in a
+   * third country's sliver; a town is always in its own country. The cost is a
+   * road across a frontier between the two laws, which is driven on its first
+   * town's side for one road's length — where the real ones switch at a
+   * crossover on the bridge.
+   */
+  const keepSide = new Int8Array(roads.length);
+  const sideOf = (index: number): number => {
+    let side = keepSide[index]!;
+    if (side === 0) {
+      side = keepsLeft(places[roads[index]!.a]!.iso ?? '') ? 1 : -1;
+      keepSide[index] = side;
+    }
+    return side;
+  };
 
   /** Every road's course and path, cached; the same cache the ribbon and the wood read. */
   const geometry = roadGeometryFor(roads, places);
@@ -1287,9 +1248,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const local = Math.max(0, Math.min(hop.length, along));
     // The position is where along the *road* this is and knows nothing about
     // which way the mover is going; the heading and which side of the road it
-    // keeps are the two things that do.
+    // keeps are the two things that do — and the side is the country's law,
+    // road by road, so a route that crosses a frontier changes side with it.
     const sign = (hop.forward ? 1 : -1) * (back ? -1 : 1);
-    roadFrame(hop.road, hop.forward ? local : hop.length - local, lateral * sign, out, ground);
+    roadFrame(hop.road, hop.forward ? local : hop.length - local, lateral * sign * sideOf(hop.road), out, ground);
     if (sign < 0) out.forward.negate();
     if (crossing) out.live = false;
   }
@@ -1768,7 +1730,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * guarded against.
    */
   function buildHerd(key: string, site: HerdSite): Pooled | null | 'pending' {
-    const rng = rngFrom(key, 'herd');
     const members: { merged: Merged; matrix: THREE.Matrix4 }[] = [];
     const heads: HerdHead[] = [];
     const shape = bestiary.get(site.species);
@@ -1850,7 +1811,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
         cursor += 3;
       }
     }
-    void rng;
     const geometry = geometryOf({ position, normal, color, outline, triangles: vertices / 3 });
     const rigged = shape.rigs !== undefined && shape.rigs.length > 0 && options.rigs !== undefined;
     return { geometry, triangles: vertices / 3, bytes: position.byteLength * 4, heads: members.length, animals: rigged ? heads : undefined };
@@ -1864,7 +1824,14 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
     const started = performance.now();
     const budget = detailBuild(BUILD_BUDGET_MS);
-    for (const key of [...wanted]) {
+    // The set itself and not a copy: this runs every frame something is
+    // waiting, and a set may drop the entry it is visiting. Nothing below adds
+    // to it — only `update` does.
+    for (const key of wanted) {
+      // Checked before a build rather than after one, inside this file's slice
+      // and the frame's (`mayBuild` in `view.ts`): what moves is served after
+      // every streamer, out of what they left.
+      if (!mayBuild(started, budget, true)) break;
       wanted.delete(key);
       const parts = key.split('|');
       if (parts[0] === 'v') {
@@ -1889,7 +1856,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
           else if (built !== 'pending') pool.set(key, built);
         }
       }
-      if (performance.now() - started > budget) break;
     }
     stats.lastBuildMs = performance.now() - started;
   }
@@ -2308,7 +2274,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
             const chain = chainFor(i, key);
             const phase = rng.unit();
             const speed = Math.min(WALK_SPEED * rng.spread(0.85, 0.18), chain.total / MIN_SECONDS);
-            // On the verge, outside the carriageway.
+            // On the verge, outside the carriageway, and on the side the
+            // traffic keeps: `chainFrame` applies the country's side to both.
             const lateral = width * 0.5 + rng.range(1.4, 3.2);
             consider({
               family: 'foot',
@@ -2876,6 +2843,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
       return;
     }
     if (!mover.person) {
+      // A dressing is a whole skinned clone. A few a frame, and only while the
+      // frame has room: a verge that comes into view with nine walkers on it
+      // dresses them over three frames, each hidden until it is.
+      if (dressedThisFrame >= DRESS_PER_FRAME || !frameOpen(true)) return;
+      dressedThisFrame++;
       const person = folk!.dress(mover.key, mover.pool.split('|')[1] ?? 'atlantic-europe');
       if (person === null) return;
       const holder = new THREE.Group();
@@ -2895,6 +2867,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const walk = person.actions.get('Walk')!;
     walk.time = walkPhase(mover, clock) * walk.getClip().duration;
     person.mixer.update(0);
+    stats.nearestMoving = Math.min(stats.nearestMoving, mover.at.distanceTo(lastViewer));
     stats.foot++;
     stats.meshes++;
   }
@@ -2921,6 +2894,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     if (rigs === undefined || pooled.animals === undefined) return false;
     if (!mover.animated) {
       if (animatedHeads + pooled.animals.length > HERD_ANIMATED_CAP) return false;
+      // One herd stood up a frame, and only while the frame has room: each
+      // animal is a skinned copy of its rig. Until then the merged herd stands
+      // in for it, which is what it is at any distance past this.
+      if (herdsStoodThisFrame >= HERDS_PER_FRAME || !frameOpen(true)) return false;
+      herdsStoodThisFrame++;
       const holder = new THREE.Group();
       holder.name = `herd-animated:${mover.key}`;
       const heads: { rigged: Rigged; rig: string }[] = [];
@@ -2996,8 +2974,17 @@ export function createLife(world: World, places: readonly Place[], options: Life
   /** How far through its own stride a walker is, from the clock alone. */
   const walkPhase = (mover: Mover, clock: number): number => wrap((mover.speed * clock) / WALK_STRIDE);
 
+  /** The viewer of the frame being drawn, for `drawWalker`'s share of `nearestMoving`. */
+  const lastViewer = new THREE.Vector3();
+  /** Skinned clones made this frame; see `DRESS_PER_FRAME` and `HERDS_PER_FRAME`. */
+  let dressedThisFrame = 0;
+  let herdsStoodThisFrame = 0;
+
   function update(viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number): void {
     herds.frame++;
+    lastViewer.copy(viewer);
+    dressedThisFrame = 0;
+    herdsStoodThisFrame = 0;
     clockNow = clock;
     cone.aim(camera);
     const now = performance.now();
@@ -3036,6 +3023,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     lastUpdate = now;
     stats.meshes = 0;
     stats.triangles = 0;
+    stats.nearestMoving = Infinity;
 
     for (const mover of movers.values()) {
       mover.route(clock, frame, true);
@@ -3087,14 +3075,18 @@ export function createLife(world: World, places: readonly Place[], options: Life
       mesh.quaternion.setFromRotationMatrix(basis);
       if (frame.roll !== 0) mesh.rotateZ(frame.roll);
 
+      const away = mover.at.distanceTo(viewer);
       if (mover.family === 'herd' && pooled.animals !== undefined) {
-        const near = mover.at.distanceTo(viewer) < HERD_ANIMATED_REACH;
+        const near = away < HERD_ANIMATED_REACH;
         if (near && animateHerd(mover, pooled, mesh, realDt)) {
           mesh.visible = false;
           stats.animated += mover.animated!.heads.length;
+          stats.nearestMoving = Math.min(stats.nearestMoving, away);
         } else if (mover.animated) {
           releaseHerd(mover);
         }
+      } else if (mover.family !== 'herd') {
+        stats.nearestMoving = Math.min(stats.nearestMoving, away);
       }
 
       stats[mover.family]++;
@@ -3140,5 +3132,13 @@ export function createLife(world: World, places: readonly Place[], options: Life
     return { bodies, phases, worstDip: worst };
   }
 
-  return { group, stats, herds, update, verify };
+  return {
+    group,
+    stats,
+    herds,
+    update,
+    verify,
+    // The movers, and the birds, whose material has no ink normals.
+    proxies: () => [proxyOf(material), proxyOf(flockMesh.material as THREE.Material)],
+  };
 }

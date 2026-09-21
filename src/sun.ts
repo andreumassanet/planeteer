@@ -78,7 +78,11 @@ const ORBIT_COLORS = ['ambient', 'hemisphereSky', 'hemisphereGround', 'sun', 'mo
  * also the only reason a sundial and a clock disagree, which is exactly the
  * fact this whole file exists to model.
  */
-export function solarPosition(date: Date): Solar {
+export function solarPosition(
+  date: Date,
+  // Written in place when given: `createSky` asks every frame.
+  out: Solar = { declination: 0, subsolarLon: 0, equationOfTime: 0 },
+): Solar {
   const julian = date.getTime() / 86400000 + 2440587.5;
   const t = (julian - 2451545) / 36525;
 
@@ -121,8 +125,22 @@ export function solarPosition(date: Date): Solar {
   const minutes = ((julian + 0.5) % 1) * 1440;
   const subsolarLon = ((((720 - minutes - equationOfTime) / 4 + 180) % 360) + 360) % 360 - 180;
 
-  return { declination, subsolarLon, equationOfTime };
+  out.declination = declination;
+  out.subsolarLon = subsolarLon;
+  out.equationOfTime = equationOfTime;
+  return out;
 }
+
+/** The surface normal at a subsolar point already found; see `sunDirection`. */
+function directionOf(solar: Solar, target: THREE.Vector3): THREE.Vector3 {
+  const cos = Math.cos(solar.declination * DEG);
+  return target.set(
+    cos * Math.cos(solar.subsolarLon * DEG),
+    Math.sin(solar.declination * DEG),
+    -cos * Math.sin(solar.subsolarLon * DEG),
+  );
+}
+const solarScratch: Solar = { declination: 0, subsolarLon: 0, equationOfTime: 0 };
 
 /**
  * The sun's direction: the surface normal at the subsolar point.
@@ -132,13 +150,7 @@ export function solarPosition(date: Date): Solar {
  * thing that looks fine in a screenshot.
  */
 export function sunDirection(date: Date, target: THREE.Vector3): THREE.Vector3 {
-  const { declination, subsolarLon } = solarPosition(date);
-  const cos = Math.cos(declination * DEG);
-  return target.set(
-    cos * Math.cos(subsolarLon * DEG),
-    Math.sin(declination * DEG),
-    -cos * Math.sin(subsolarLon * DEG),
-  );
+  return directionOf(solarPosition(date, solarScratch), target);
 }
 
 /** Degrees of the sun above the horizon for someone standing at `up`. */
@@ -238,6 +250,13 @@ const SHADOW_EYE_FADE: readonly [number, number] = [100, 400];
 const SHADOW_DEPTH = SHADOW_REACH / Math.tan(SHADOW_SUN_FADE[1] * DEG) + SHADOW_RELIEF;
 const SHADOW_DISTANCE = 2 * SHADOW_DEPTH;
 const SHADOW_TEXEL = (2 * SHADOW_REACH) / SHADOW_MAP_SIZE;
+/**
+ * How far from the player a caster can stand and still be in the box: its
+ * corner, plus a bus's length for what stands astride the edge. `main.ts`
+ * redraws the map every frame while something that moves is inside this, and
+ * on the slow cadence otherwise — a car 600 units off is not in the map at all.
+ */
+export const SHADOW_COVER = SHADOW_REACH * Math.SQRT2 + 20;
 /**
  * Degrees the sun moves before the shadow light follows it.
  *
@@ -625,6 +644,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
   /** The sun as of the last whole `SHADOW_STEP`, which is where the light points. */
   const lightDirection = new THREE.Vector3(0, 1, 0);
   let lightStep = Number.NaN;
+  const stepTime = new Date(0);
   /**
    * A point of the texel lattice, which the next placement snaps against. It is
    * the last focus, so moving it there every time moves the lattice not at all
@@ -705,14 +725,17 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
   }
 
   function update(playerPosition: THREE.Vector3, cameraPosition: THREE.Vector3, eyeHeight: number): void {
-    const time = new Date(anchor + (Date.now() - anchorReal) * rate);
-    state.time = time;
-    state.solar = solarPosition(time);
-    sunDirection(time, solarDirection);
+    // One `Date` and one solar record, written in place: this runs every frame
+    // and the position is asked once, not once for the record and again for
+    // the direction. Nothing holds either past the frame.
+    const time = state.time;
+    time.setTime(anchor + (Date.now() - anchorReal) * rate);
+    directionOf(solarPosition(time, state.solar), solarDirection);
     const step = Math.floor(time.getTime() / SHADOW_STEP_MS);
     if (step !== lightStep) {
       lightStep = step;
-      sunDirection(new Date(step * SHADOW_STEP_MS), lightDirection);
+      stepTime.setTime(step * SHADOW_STEP_MS);
+      sunDirection(stepTime, lightDirection);
     }
 
     // Where you stand is what decides whether it is day. The camera only gets a

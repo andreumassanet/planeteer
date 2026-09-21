@@ -2,8 +2,12 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, groundRadius } from './globe.ts';
 import { createContext } from './monuments/contract.ts';
+import { DATA_URL } from './pack.ts';
+import { mergeMeshes } from './merge.ts';
+import { proxyOf } from './warm.ts';
+import { createFader, fadeTwin } from './fade.ts';
 import type { MonumentContext } from './monuments/contract.ts';
-import { createViewCone, detailPixels, detailReach, fogFar, horizonAt, slantRange } from './view.ts';
+import { NEAR_BUILD, createViewCone, detailPixels, detailReach, fogFar, frameOpen, horizonAt, slantRange } from './view.ts';
 
 /**
  * Where a monument stands, as baked by `scripts/build-monuments.ts`.
@@ -48,7 +52,9 @@ export interface Placement {
   snappedKm?: number;
 }
 
-export async function loadPlacements(url = '/data/monuments.json'): Promise<Placement[]> {
+// Under the deploy's base, as `kit.ts` and `cast.ts` fetch theirs, so a build
+// served from a sub-path finds its data. Node has no `import.meta.env`.
+export async function loadPlacements(url = `${DATA_URL}monuments.json`): Promise<Placement[]> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);
   return ((await response.json()) as { monuments: Placement[] }).monuments;
@@ -120,6 +126,14 @@ const keepAllWithin = (): number => KEEP_ALL_WITHIN;
  */
 const VISIT_RANGE = 140;
 
+/**
+ * Monuments raised in one frame. A landmark is the largest single build in the
+ * world, and a climb or a jump brings several into range at once: they arrive
+ * one a frame, in the list's order, and only while the frame has room for
+ * them (`frameOpen` in `view.ts`).
+ */
+const RAISES_PER_FRAME = 1;
+
 const STORAGE_KEY = 'atlas.visited';
 
 /**
@@ -161,8 +175,6 @@ export interface Monuments {
    * what this did before `view.ts` and what a headless caller needs.
    */
   update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera): void;
-  /** The nearest built monument to a point, for the HUD. */
-  nearest(point: THREE.Vector3): { placement: Placement; distance: number } | null;
   /** Ids the player has stood in, across sessions. */
   visited: ReadonlySet<string>;
   /** True while this id has been found. Shape the minimap asks for. */
@@ -172,6 +184,8 @@ export interface Monuments {
    * first time this call, so the caller can make an event of it.
    */
   recordVisits(point: THREE.Vector3): Placement[];
+  /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
+  proxies(): THREE.Object3D[];
 }
 
 /**
@@ -214,6 +228,18 @@ export function createMonuments(
    * monument is streamed and may not have been standing when the planet loaded.
    */
   madeHeightAt?: (point: THREE.Vector3) => number,
+  /**
+   * `settlements.ts`'s `floorChanges`, for the half of that sentence `raise`
+   * cannot see: **the town can arrive after the monument does.** The monument's
+   * reach is wider than the town's at every detail, so walking towards Beijing
+   * raised the Forbidden City on the relief first and the paving came up round
+   * it a few hundred units later, `GROUND_LIFT` over its feet — a landmark
+   * sunk into its own square until something dropped and raised it again. So
+   * every floor that is raised or dropped re-seats the standing monuments it
+   * reaches, which is a handful of dot products on the frame a town arrives
+   * and nothing on any other.
+   */
+  floorChanges?: (since: number, into: number[]) => number,
 ): Monuments {
   const group = new THREE.Group();
   group.name = 'monuments';
@@ -227,7 +253,8 @@ export function createMonuments(
     /** Unit vector at its position, so the distance test costs no trigonometry. */
     direction: THREE.Vector3;
     anchor: THREE.Vector3;
-    object: THREE.Group | null;
+    /** The monument, merged into one mesh, while it stands. */
+    object: THREE.Mesh | null;
     failed: boolean;
   }
 
@@ -278,18 +305,128 @@ export function createMonuments(
   const facing = new THREE.Vector3();
   const basis = new THREE.Matrix4();
 
-  function raise(slot: Slot): void {
-    if (slot.object !== null || slot.failed) return;
+  /**
+   * On the town's floor where there is one, and on the ground where there is
+   * not; see `madeHeightAt` in the arguments. `slot.anchor` is the ground point
+   * and the floor is a radius, so the lift is the difference of the two along
+   * the same direction. Asked at `raise` and again whenever a floor near it
+   * changes (`floorChanges`), never per frame.
+   */
+  function seat(slot: Slot, model: THREE.Object3D): void {
+    model.position.copy(slot.anchor);
+    const made = madeHeightAt?.(slot.direction) ?? 0;
+    if (made > slot.anchor.length()) model.position.copy(slot.direction).multiplyScalar(made);
+  }
+
+  /** What `floorChanges` last answered, and where it writes. */
+  let floorsSeen = 0;
+  const changed: number[] = [];
+
+  /**
+   * Re-seats every standing monument a changed floor reaches. A reader that
+   * fell behind the ring (`-1`) re-seats them all, which is what "everything
+   * changed" costs: one `madeHeightAt` per standing landmark.
+   */
+  function reseat(): void {
+    if (floorChanges === undefined) return;
+    const version = floorChanges(floorsSeen, changed);
+    if (version === floorsSeen) return;
+    floorsSeen = version;
+    const all = changed[0] === -1;
+    for (const slot of slots) {
+      if (slot.object === null) continue;
+      let touched = all;
+      for (let c = 0; !touched && c + 3 < changed.length; c += 4) {
+        const dot = slot.direction.x * changed[c]! + slot.direction.y * changed[c + 1]! + slot.direction.z * changed[c + 2]!;
+        touched = dot >= Math.cos(changed[c + 3]! / PLANET_RADIUS);
+      }
+      if (touched) seat(slot, slot.object);
+    }
+  }
+
+  /**
+   * **A monument is one mesh in the world, and it was a median of 89.** The
+   * contract builds it of `ctx` helpers, a mesh each — 29 to 124 over the 85
+   * models, counted headless on 2026-09-21 — and each was a draw call, twice
+   * with the ink and again in the shadow pass, so a dozen landmarks standing
+   * from the air were thousands of draws. Every material in one came from
+   * `ctx.toon` (`validate` refuses anything else), so its colour is a stamp on
+   * the material and the whole model merges the way a town does
+   * (`merge.ts`): one buffer, one material, one draw. None of the 85 has a
+   * mirrored piece, which the merge would rewind if one did.
+   *
+   * The merged geometry is kept per monument, because the model is
+   * deterministic by contract and building it is the expensive half of a
+   * raise — 2.3 ms at the median and 13 at the worst in the same count: a
+   * landmark dropped and raised again, on a turn of the camera or a climb,
+   * costs a buffer upload and nothing else. `drop` frees the GPU's copy and
+   * keeps the arrays; the oldest of those not standing go past `KEEP_BUILT`.
+   */
+  const built = new Map<string, THREE.BufferGeometry>();
+  const KEEP_BUILT = 24;
+  /** Landmarks arriving and leaving by dissolving; see `fade.ts`. */
+  const fader = createFader();
+  // One material for every monument, drawn on the context's own ramp so a
+  // landmark steps through the same four bands it always did.
+  const inked = ctx.toon(ctx.palette.ink);
+  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: inked.gradientMap });
+  material.userData.outlineParameters = {
+    ...(inked.userData.outlineParameters as object),
+    // Every merged buffer carries the ink's normals, as every town does.
+    outlineNormal: true,
+  };
+
+  function geometryOf(slot: Slot): THREE.BufferGeometry | null {
+    const id = slot.placement.id;
+    const known = built.get(id);
+    if (known !== undefined) {
+      // Most recently used last, which is the order `KEEP_BUILT` evicts in.
+      built.delete(id);
+      built.set(id, known);
+      return known;
+    }
     let model: THREE.Group;
     try {
-      model = kit.build(slot.placement.id, ctx);
+      model = kit.build(id, ctx);
     } catch (error) {
       // A monument that breaks the contract is a bug in one file, not a reason
       // for the planet to be missing. Record it and carry on.
       slot.failed = true;
-      broken.push(`${slot.placement.id}: ${String(error)}`);
-      return;
+      broken.push(`${id}: ${String(error)}`);
+      return null;
     }
+    const merged = mergeMeshes(model);
+    // The vertices are copied out; the helpers' geometries are this build's.
+    // Materials are the shared cache's and must not be touched.
+    model.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh) mesh.geometry.dispose();
+    });
+    const outline = new Int8Array(merged.outline.length);
+    for (let i = 0; i < outline.length; i++) outline[i] = Math.round(merged.outline[i]! * 127);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(merged.position, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(merged.normal, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(merged.color, 3));
+    geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(outline, 3, true));
+    geometry.computeBoundingSphere();
+    built.set(id, geometry);
+    if (built.size > KEEP_BUILT) {
+      for (const [key, cached] of built) {
+        if (built.size <= KEEP_BUILT) break;
+        if (slots.some((other) => other.object?.geometry === cached)) continue;
+        built.delete(key);
+      }
+    }
+    return geometry;
+  }
+
+  function raise(slot: Slot): void {
+    if (slot.object !== null || slot.failed) return;
+    const geometry = geometryOf(slot);
+    if (geometry === null) return;
+    const model = new THREE.Mesh(geometry, material);
+    model.name = `monument:${slot.placement.id}`;
 
     // The contract says the group faces +Z with its base at y = 0, so placing it
     // is one basis: up is the surface normal, and +Z points at the north pole
@@ -300,37 +437,35 @@ export function createMonuments(
     facing.normalize();
     right.crossVectors(slot.direction, facing).normalize();
     basis.makeBasis(right, slot.direction, facing);
+    // `right = up x facing`, so the basis is proper by construction; asserted
+    // anyway, because a reflection here is a landmark drawn as a blob of ink
+    // and `setFromRotationMatrix` would hide it by silently discarding it.
+    if (basis.determinant() <= 0) {
+      slot.failed = true;
+      broken.push(`${slot.placement.id}: placement basis has determinant ${basis.determinant()}`);
+      return;
+    }
 
-    // On the town's floor where there is one, and on the ground where there is
-    // not; see `madeHeightAt` in the arguments. `slot.anchor` is the ground
-    // point and the floor is a radius, so the lift is the difference of the two
-    // along the same direction.
-    model.position.copy(slot.anchor);
-    const made = madeHeightAt?.(slot.direction) ?? 0;
-    if (made > slot.anchor.length()) model.position.copy(slot.direction).multiplyScalar(made);
+    seat(slot, model);
     model.quaternion.setFromRotationMatrix(basis);
-    // Every mesh in it casts and receives; three reads the flags per mesh, not
-    // per group.
-    model.traverse((object) => {
-      if ((object as THREE.Mesh).isMesh) {
-        object.castShadow = true;
-        object.receiveShadow = true;
-      }
-    });
+    model.castShadow = true;
+    model.receiveShadow = true;
     group.add(model);
+    fader.in(model);
     slot.object = model;
   }
 
   function drop(slot: Slot): void {
-    if (slot.object === null) return;
-    group.remove(slot.object);
-    slot.object.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      // Geometry is this build's; materials come from the shared context and
-      // are reused by every monument, so disposing them would blank the rest.
-      if (mesh.isMesh) mesh.geometry.dispose();
-    });
+    const model = slot.object;
+    if (model === null) return;
     slot.object = null;
+    // Dissolved away (`fade.ts`). The GPU's copy goes after; the arrays stay in
+    // `built` for the next raise — and a raise during the fade shares them, so
+    // the copy stays too.
+    fader.out(model, () => {
+      group.remove(model);
+      if (slot.object?.geometry !== model.geometry) model.geometry.dispose();
+    });
   }
 
   return {
@@ -338,12 +473,17 @@ export function createMonuments(
     missing,
     broken,
     update(viewer, altitude, camera) {
+      fader.update();
+      // First, so a monument raised below stands on whatever the floors are
+      // now, and one already standing follows a floor that moved this frame.
+      reseat();
       const range = rangeFor(altitude);
       // Hysteresis: without it a monument at exactly the edge rebuilds every
       // frame, which is the one thing streaming must never do.
       const keep = range * 1.25;
       const pixelFloor = detailPixels(MIN_APPARENT_PIXELS);
       cone.aim(camera);
+      let raised = 0;
       for (const slot of slots) {
         const distance = slot.anchor.distanceTo(viewer);
         const footprint = slot.placement.footprint ?? WIDEST_FOOTPRINT;
@@ -355,12 +495,17 @@ export function createMonuments(
         // sphere at the footprint alone would cull the Eiffel Tower by its own
         // spire at the top of the frame.
         const bound = footprint + 150;
-        if (distance < range && legible && cone.admits(slot.anchor, bound)) raise(slot);
-        else if (distance > keep || !legible || !cone.keeps(slot.anchor, bound)) drop(slot);
+        if (distance < range && legible && cone.admits(slot.anchor, bound)) {
+          if (slot.object === null && !slot.failed && raised < RAISES_PER_FRAME && frameOpen(distance - footprint < NEAR_BUILD)) {
+            raise(slot);
+            raised++;
+          }
+        } else if (distance > keep || !legible || !cone.keeps(slot.anchor, bound)) drop(slot);
       }
     },
     visited,
     isVisited: (id) => visited.has(id),
+    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
     recordVisits(point) {
       const found: Placement[] = [];
       for (const slot of slots) {
@@ -371,14 +516,6 @@ export function createMonuments(
       }
       if (found.length > 0) remember();
       return found;
-    },
-    nearest(point) {
-      let best: { placement: Placement; distance: number } | null = null;
-      for (const slot of slots) {
-        const distance = slot.anchor.distanceTo(point);
-        if (best === null || distance < best.distance) best = { placement: slot.placement, distance };
-      }
-      return best;
     },
   };
 }

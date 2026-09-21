@@ -8,6 +8,7 @@ import type { MonumentContext } from './monuments/contract.ts';
 import { PALETTE } from './theme.ts';
 import { lookFor } from './scenery/dress.ts';
 import { rngFrom } from './scenery/random.ts';
+import { frameOpen } from './view.ts';
 
 /**
  * The people of the world, dressed and set moving: the cast (`cast.ts`) worn
@@ -233,7 +234,13 @@ interface Standing {
 export interface Townsfolk {
   group: THREE.Group;
   update(viewer: THREE.Vector3, dt: number, clock: number, frame: number): void;
-  readonly stats: { standing: number; animated: number };
+  /**
+   * `nearestMoving` is how far from the viewer the nearest person in the
+   * middle of a gesture stands, or Infinity: `main.ts` redraws the shadow map
+   * every frame while it is inside the box. An idle stance is not counted —
+   * breathing moves a shadow by less than one of the map's 0.29-unit texels.
+   */
+  readonly stats: { standing: number; animated: number; nearestMoving: number };
 }
 
 export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
@@ -241,7 +248,9 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
   group.name = 'townsfolk';
   const standing = new Map<string, Standing>();
   const anchors: FolkAnchor[] = [];
-  const stats = { standing: 0, animated: 0 };
+  const keep = new Set<string>();
+  const byDistance = (a: FolkAnchor, b: FolkAnchor): number => a.distance - b.distance;
+  const stats = { standing: 0, animated: 0, nearestMoving: Infinity };
 
   const hash = (key: string, salt: string) => rngFrom(key, salt).unit();
 
@@ -312,19 +321,26 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     stats,
     update(viewer, dt, clock, frame) {
       if (!folk.ready) return;
+      // Every frame on foot, so nothing here allocates: the anchors are the
+      // settlements' own objects, the list and the set are reused, and a map
+      // may drop the entry it is visiting.
       anchors.length = 0;
       source.folkNear(viewer, TOWNSFOLK_RADIUS, anchors);
-      anchors.sort((a, b) => a.distance - b.distance);
-      const wanted = anchors.slice(0, TOWNSFOLK_CAP);
-      const keep = new Set(wanted.map((anchor) => anchor.key));
-      for (const entry of [...standing.values()]) if (!keep.has(entry.anchor.key)) release(entry);
+      anchors.sort(byDistance);
+      if (anchors.length > TOWNSFOLK_CAP) anchors.length = TOWNSFOLK_CAP;
+      const wanted = anchors;
+      keep.clear();
+      for (const anchor of wanted) keep.add(anchor.key);
+      for (const [key, entry] of standing) if (!keep.has(key)) release(entry);
 
       let dressed = 0;
       stats.animated = 0;
+      stats.nearestMoving = Infinity;
       for (const anchor of wanted) {
         let entry = standing.get(anchor.key);
         if (entry === undefined) {
-          if (dressed >= DRESS_PER_FRAME) continue;
+          // A few a frame, and only while the frame has room (`view.ts`).
+          if (dressed >= DRESS_PER_FRAME || !frameOpen(true)) continue;
           const made = dress(anchor, clock);
           if (made === null) continue;
           entry = made;
@@ -343,6 +359,7 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
           entry.owed = 0;
           stats.animated++;
         }
+        if (entry.gesture !== null) stats.nearestMoving = Math.min(stats.nearestMoving, anchor.distance);
       }
       stats.standing = standing.size;
     },

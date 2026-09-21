@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
 import { createLandProbe } from './land-probe.ts';
+import { mergeMeshes } from './merge.ts';
+import { proxyOf } from './warm.ts';
+import { createFader, fadeTwin } from './fade.ts';
 import { SWARD_FLOWERS, SWARD_FLOWER_HEIGHT, SWARD_FLOWER_SHARE, SWARD_GRASS } from './sward-kit.ts';
 import { MAX_SLOPE, gradeAt, reliefAt, shoreDistance } from './terrain.ts';
 import type { Slope } from './terrain.ts';
@@ -22,6 +25,9 @@ import {
   createViewCone,
   detailArea,
   detailBuild,
+  frameOpen,
+  mayBuild,
+  NEAR_BUILD,
   detailCount,
   detailPixels,
   detailReach,
@@ -398,10 +404,10 @@ function legibleFloor(level: number): number {
  * The ceiling on resident vegetation.
  *
  * `OutlineEffect` draws the scene twice, so 300,000 is 600,000 triangles a frame
- * on top of the land mesh's 1.5 M and the settlements' 640,000. The tile cap is
- * the draw-call half of the same budget: a tile is one merged mesh, frustum
- * culled on its own bounding sphere, so 84 resident tiles cost well under 84
- * draws at ground level.
+ * on top of the land mesh's 2.18 M (drawn twice as well) and the settlements'
+ * 760,000. The tile cap is the draw-call half of the same budget: a tile is one
+ * merged mesh, frustum culled on its own bounding sphere, so `MAX_TILES`
+ * resident tiles cost well under that many draws at ground level.
  */
 const TRIANGLE_BUDGET = 300_000;
 const MAX_TILES = 80;
@@ -581,15 +587,9 @@ const TILT_OF: Record<ScenicPart['kind'], number> = {
 // ---------------------------------------------------------------------------
 
 /**
- * One built variant, reduced to the arrays a tile is assembled from.
- *
- * This is `settlements.ts`'s `FlatVariant` and `flatten`, copied rather than
- * shared, and the duplication is deliberate for one round only: that file is
- * owned elsewhere while this one is being written, and a shared module would
- * have had to be carved out of it. **If both are still here next time either is
- * touched, lift them into one place** — they are the same forty lines and the
- * same argument (colour off the material and onto the vertices is what makes a
- * merge possible at all).
+ * One built variant, reduced to the arrays a tile is assembled from by
+ * `mergeMeshes` (`merge.ts`), which is the one merge in this project: colour
+ * off the material and onto the vertices is what makes a tile one draw call.
  */
 interface FlatVariant {
   position: Float32Array;
@@ -602,75 +602,6 @@ interface FlatVariant {
   footprint: number;
   /** How far this one follows the slope it stands on; see `TILT_OF`. */
   tilt: number;
-}
-
-function flatten(group: THREE.Group): Omit<FlatVariant, 'height' | 'footprint' | 'tilt'> {
-  group.updateMatrixWorld(true);
-  const pieces: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4; material: THREE.Material }[] = [];
-  let vertices = 0;
-  group.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (mesh.isMesh !== true) return;
-    const position = mesh.geometry.getAttribute('position');
-    if (position === undefined) return;
-    vertices += mesh.geometry.index ? mesh.geometry.index.count : position.count;
-    pieces.push({
-      geometry: mesh.geometry,
-      matrix: mesh.matrixWorld.clone(),
-      material: Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material,
-    });
-  });
-
-  const out = {
-    position: new Float32Array(vertices * 3),
-    normal: new Float32Array(vertices * 3),
-    color: new Float32Array(vertices * 3),
-    outline: new Float32Array(vertices * 3),
-    triangles: vertices / 3,
-  };
-
-  const tint = new THREE.Color();
-  const point = new THREE.Vector3();
-  const normalMatrix = new THREE.Matrix3();
-  let cursor = 0;
-  for (const piece of pieces) {
-    const position = piece.geometry.getAttribute('position');
-    const normal = piece.geometry.getAttribute('normal');
-    const index = piece.geometry.index;
-    const count = index ? index.count : position.count;
-    normalMatrix.getNormalMatrix(piece.matrix);
-    const hex = piece.material.userData.atlasToon as number | undefined;
-    tint.set(hex ?? 0xffffff);
-    // A painted part (`SceneryContext.painted`) carries its colours on the vertices.
-    const paint = piece.material.userData.atlasPainted === true ? piece.geometry.getAttribute('color') : undefined;
-    const outline = piece.geometry.getAttribute('outlineNormal') ?? normal;
-    for (let i = 0; i < count; i++) {
-      const v = index ? index.getX(i) : i;
-      point.fromBufferAttribute(position, v).applyMatrix4(piece.matrix);
-      out.position[cursor] = point.x;
-      out.position[cursor + 1] = point.y;
-      out.position[cursor + 2] = point.z;
-      point.fromBufferAttribute(normal, v).applyMatrix3(normalMatrix).normalize();
-      out.normal[cursor] = point.x;
-      out.normal[cursor + 1] = point.y;
-      out.normal[cursor + 2] = point.z;
-      point.fromBufferAttribute(outline, v).applyMatrix3(normalMatrix).normalize();
-      out.outline[cursor] = point.x;
-      out.outline[cursor + 1] = point.y;
-      out.outline[cursor + 2] = point.z;
-      if (paint !== undefined) {
-        out.color[cursor] = paint.getX(v);
-        out.color[cursor + 1] = paint.getY(v);
-        out.color[cursor + 2] = paint.getZ(v);
-      } else {
-        out.color[cursor] = tint.r;
-        out.color[cursor + 1] = tint.g;
-        out.color[cursor + 2] = tint.b;
-      }
-      cursor += 3;
-    }
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -897,6 +828,12 @@ export interface VegetationStats {
   tiles: number;
   /** Wanted, and waiting for a frame with room to build them. */
   pending: number;
+  /**
+   * Of those, the ones within `NEAR_BUILD` of the viewer, plus every sward tile
+   * waiting: the ground you are standing on. `main.ts` holds the arrival
+   * curtain until it is zero.
+   */
+  nearPending: number;
   /** Plants standing. */
   plants: number;
   /** Triangles of resident geometry. `OutlineEffect` draws them twice. */
@@ -915,9 +852,18 @@ export interface VegetationStats {
   reach: number;
   /** Resident tiles by level, finest first. */
   byLevel: number[];
+  /**
+   * Tiles no longer wanted and still drawn, because what replaces them has not
+   * all arrived; and tiles built and not yet drawn, because what they replace
+   * is still standing. See `settle`. Both should be zero a moment after you
+   * stop.
+   */
+  retiring: number;
+  staged: number;
   /** The grass under your feet; see `SWARD_LEVEL`. */
   sward: {
     tiles: number; clumps: number; triangles: number; megabytes: number; pending: number; barren: number; lastBuildMs: number; ready: boolean;
+    retiring: number; staged: number;
     /** Standing tiles by rank, finest first, and how far the knob has moved the bands. */
     byRank: number[];
     reach: number;
@@ -933,6 +879,8 @@ export interface VegetationStats {
 export interface Vegetation {
   group: THREE.Group;
   stats: VegetationStats;
+  /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
+  proxies(): THREE.Object3D[];
   /** Parts a biome table names that the registry has no file for. */
   missing: string[];
   /** Anything that refused to build, with the contract's complaint. */
@@ -1007,12 +955,34 @@ interface Tile {
   distance: number;
 }
 
-interface Standing {
+interface Standing extends Cell {
   mesh: THREE.Mesh;
   triangles: number;
   plants: number;
   bytes: number;
+  /** In the group and drawn. False while it waits for what it replaces; see `settle`. */
+  shown: boolean;
+}
+
+/** Where a tile sits in the quadtree, which is all `overlaps` needs. */
+interface Cell {
   level: number;
+  row: number;
+  column: number;
+}
+
+/**
+ * Whether two tiles of the quadtree cover any of the same ground: one is the
+ * other or an ancestor of it. A tile's parent is `(level + 1, row >> 1,
+ * column >> 1)` — `tileAt` splits a tile into rows `2r, 2r + 1` and columns
+ * `2c, 2c + 1`, and a root band's column count doubles a level down, so the
+ * wrap at the antimeridian halves with it.
+ */
+function overlaps(a: Cell, b: Cell): boolean {
+  const low = a.level <= b.level ? a : b;
+  const high = low === a ? b : a;
+  const shift = high.level - low.level;
+  return low.row >> shift === high.row && low.column >> shift === high.column;
 }
 
 export interface VegetationOptions {
@@ -1158,7 +1128,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     }
     const measured = measure(built);
     const value: FlatVariant = {
-      ...flatten(built),
+      ...mergeMeshes(built),
       height: measured.height,
       footprint: entry.footprint,
       tilt: TILT_OF[entry.kind],
@@ -1818,8 +1788,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     // for the two reasons `settlements.ts` gives: the bounding sphere is the
     // tile's own, so frustum culling works per tile rather than per planet, and
     // the vertex coordinates stay under a thousand units instead of sixteen
-    // thousand, where a float has a hundredth of a unit of precision rather than
-    // a whole one.
+    // thousand: a float steps by 2^-14, six hundred-thousandths of a unit,
+    // rather than the 2^-10 — a thousandth — it steps by at the planet's radius.
     mesh.position.copy(origin);
     mesh.quaternion.setFromRotationMatrix(tileBasis);
 
@@ -1827,8 +1797,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       mesh,
       triangles: vertices / 3,
       plants: placed.length,
-      // 12 bytes of position, 3 of normal and 3 of colour per vertex.
-      // 12 of position, 3 of normal, 3 of colour, 3 of the ink's normal.
+      // 12 bytes of position, 3 of normal, 3 of colour, 3 of the ink's normal.
       bytes: vertices * 21,
       plots,
       inTheSea,
@@ -1954,14 +1923,19 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    *
    * Remembered because the answer cannot change and re-deriving it *is* the
    * build — a level-0 tile of open sea is 200 point-in-polygon queries, and the
-   * Atlantic is a lot of level-0 tiles. It is a `Set` of keys and grows with how
-   * much of the planet has been looked at, which is bounded by the session.
+   * Atlantic is a lot of level-0 tiles. It is a `Set` of keys and grew with how
+   * much of the planet had been looked at, which a flight round it makes large;
+   * so it is emptied wholesale past `BARREN_CAP`, as `life.ts` empties its
+   * caches: what it holds is a pure function of the key, and losing it costs a
+   * build, not a wrong answer. The sward's is emptied the same way.
    */
   const barren = new Set<string>();
+  const BARREN_CAP = 20_000;
 
   const stats: VegetationStats = {
     tiles: 0,
     pending: 0,
+    nearPending: 0,
     plants: 0,
     triangles: 0,
     megabytes: 0,
@@ -1971,7 +1945,9 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     range: 0,
     reach: 0,
     byLevel: new Array(LEVELS).fill(0),
-    sward: { tiles: 0, clumps: 0, triangles: 0, megabytes: 0, pending: 0, barren: 0, lastBuildMs: 0, ready: false, slowestTileMs: 0, medianTileMs: 0, p90TileMs: 0, byRank: [], reach: 1, refused: { thin: 0, shore: 0, unprobed: 0, built: 0, road: 0 } },
+    retiring: 0,
+    staged: 0,
+    sward: { tiles: 0, clumps: 0, triangles: 0, megabytes: 0, pending: 0, barren: 0, lastBuildMs: 0, ready: false, retiring: 0, staged: 0, slowestTileMs: 0, medianTileMs: 0, p90TileMs: 0, byRank: [], reach: 1, refused: { thin: 0, shore: 0, unprobed: 0, built: 0, road: 0 } },
   };
 
   let queue: Tile[] = [];
@@ -2012,16 +1988,93 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   function drop(key: string): void {
     const entry = standing.get(key);
     if (entry === undefined) return;
-    group.remove(entry.mesh);
-    // The geometry is this tile's and nothing else holds it. The material is one
-    // object shared by every tile on the planet.
-    entry.mesh.geometry.dispose();
+    release(entry);
     residentTriangles -= entry.triangles;
     residentByLevel[entry.level]! -= entry.triangles;
     standing.delete(key);
   }
 
+  function release(entry: Standing): void {
+    // The geometry is this tile's and nothing else holds it. The material is one
+    // object shared by every tile on the planet.
+    const mesh = entry.mesh;
+    if (!entry.shown) {
+      mesh.geometry.dispose();
+      return;
+    }
+    // Dissolved away (`fade.ts`); a swap's replacement dissolves in on the
+    // complementary pixels in the same frames.
+    fader.out(mesh, () => {
+      group.remove(mesh);
+      mesh.geometry.dispose();
+    });
+  }
+
+  /**
+   * **A level-of-detail swap happens in one frame or it is a hole.** The scan
+   * used to dispose every tile it no longer wanted and queue the ones that
+   * replace it, at `BUILD_BUDGET_MS` a frame: a parent splitting into four
+   * children left bare ground for as many frames as the four took, and a
+   * child skipped for its level's share left its square empty (its parent was
+   * already gone) until the next scan.
+   *
+   * So a tile the scan no longer wants **retires** instead: it stays drawn
+   * until every wanted tile that covers any of its ground (`overlaps`) is
+   * standing or known barren, and a tile built while a retiring one still
+   * covers its ground is **staged** — built, counted, not drawn — until then.
+   * When the last one arrives, the old go and the new appear in the same
+   * frame. A tile leaving the range altogether has nothing to wait for and
+   * goes at once, as before. `wantedTiles` is the last scan's list.
+   */
+  const retiring = new Map<string, Standing>();
+  let wantedTiles: Tile[] = [];
+  /** Tiles arriving and leaving by dissolving; see `fade.ts`. The sward has its own ranks. */
+  const fader = createFader();
+
+  function retire(key: string): void {
+    const entry = standing.get(key);
+    if (entry === undefined) return;
+    standing.delete(key);
+    residentTriangles -= entry.triangles;
+    residentByLevel[entry.level]! -= entry.triangles;
+    // One never drawn has nothing on the screen to hold.
+    if (entry.shown) retiring.set(key, entry);
+    else release(entry);
+  }
+
+  function settle(): void {
+    if (retiring.size > 0) {
+      for (const [key, old] of retiring) {
+        let covered = true;
+        for (const tile of wantedTiles) {
+          if (!overlaps(old, tile)) continue;
+          if (standing.has(tile.key) || barren.has(tile.key)) continue;
+          covered = false;
+          break;
+        }
+        if (!covered) continue;
+        release(old);
+        retiring.delete(key);
+      }
+    }
+    for (const entry of standing.values()) {
+      if (entry.shown) continue;
+      let held = false;
+      for (const old of retiring.values()) {
+        if (overlaps(old, entry)) {
+          held = true;
+          break;
+        }
+      }
+      if (held) continue;
+      group.add(entry.mesh);
+      fader.in(entry.mesh);
+      entry.shown = true;
+    }
+  }
+
   function scan(viewer: THREE.Vector3, range: number): void {
+    if (barren.size > BARREN_CAP) barren.clear();
     const found = enumerate(viewer, range * 1.15).filter((tile) => {
       if (barren.has(tile.key)) return false;
       // A tile already standing is judged by the wide cone the descent used; one
@@ -2055,8 +2108,18 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
 
     const keep = new Set(wanted.map((tile) => tile.key));
     for (const key of [...standing.keys()]) {
-      if (!keep.has(key)) drop(key);
+      if (!keep.has(key)) retire(key);
     }
+    // A retiring tile wanted again is simply standing again.
+    for (const tile of wanted) {
+      const back = retiring.get(tile.key);
+      if (back === undefined) continue;
+      retiring.delete(tile.key);
+      standing.set(tile.key, back);
+      residentTriangles += back.triangles;
+      residentByLevel[back.level] = residentByLevel[back.level]! + back.triangles;
+    }
+    wantedTiles = wanted;
     queue = wanted.filter((tile) => !standing.has(tile.key));
   }
 
@@ -2116,9 +2179,35 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     radius: number;
     /** Whether a town's square reaches into it, whose lawns may come and go. */
     touchesTown: boolean;
+    /** Its quadtree level, which `SWARD_TILE` below is its rank; and where it is on it. */
+    level: number;
+    row: number;
+    column: number;
+    /** In `swardGroup` and drawn. See `settleSward`. */
+    shown: boolean;
+    /** Retired because a floor under it changed: sown again, never taken back. */
+    stale: boolean;
   }
   const swardStanding = new Map<string, SwardTile>();
   const swardBarren = new Set<string>();
+  /**
+   * Tiles sown empty because a town reaches into them and its lawns have not
+   * arrived: not barren, which is for good, but not worth sowing again on
+   * every six units of camera movement either. Forgotten when a floor changes.
+   */
+  const swardHollow = new Set<string>();
+  /**
+   * The sward's half of `settle`, and the one the rank design depends on:
+   * **the swap is invisible only if it is a swap.** A parent holds exactly the
+   * clumps of its children that are still standing at its distance, so trading
+   * one for the other in one frame changes nothing on the screen; dropping one
+   * and sowing the other at `SWARD_BUILD_MS` a frame was a bare patch for as
+   * many frames as the sowing took. So a tile the scan no longer wants, or one
+   * a changed floor has made stale, stays drawn until what covers its ground
+   * has been sown, and a new tile waits undrawn for the old to go.
+   */
+  const swardRetiring = new Map<string, SwardTile>();
+  let swardWanted: Tile[] = [];
   let swardQueue: Tile[] = [];
   const swardTimes: number[] = [];
   const swardScannedAt = new THREE.Vector3(Infinity, Infinity, Infinity);
@@ -2456,6 +2545,11 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       direction: tile.direction.clone(),
       radius: Math.hypot(tile.halfEast, tile.halfNorth),
       touchesTown: squares.length > 0,
+      level: tile.level,
+      row: tile.row,
+      column: tile.column,
+      shown: false,
+      stale: false,
     };
   }
 
@@ -2466,12 +2560,71 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   function dropSward(key: string): void {
     const entry = swardStanding.get(key);
     if (entry === undefined) return;
-    swardGroup.remove(entry.mesh);
-    entry.mesh.geometry.dispose();
+    releaseSward(entry);
     swardStanding.delete(key);
   }
 
+  function releaseSward(entry: SwardTile): void {
+    if (entry.shown) swardGroup.remove(entry.mesh);
+    entry.mesh.geometry.dispose();
+  }
+
+  /** Out of the standing set, and drawn until `settleSward` lets it go. */
+  function retireSward(key: string, stale: boolean): void {
+    const entry = swardStanding.get(key);
+    if (entry === undefined) return;
+    swardStanding.delete(key);
+    if (!entry.shown) {
+      releaseSward(entry);
+      return;
+    }
+    entry.stale = stale;
+    // A tile already retiring under the same key is the older of the two.
+    const older = swardRetiring.get(key);
+    if (older !== undefined) releaseSward(older);
+    swardRetiring.set(key, entry);
+  }
+
+  function settleSward(): void {
+    for (const [key, old] of swardRetiring) {
+      let covered = true;
+      for (const tile of swardWanted) {
+        if (!overlaps(old, tile)) continue;
+        if (swardStanding.has(tile.key) || swardBarren.has(tile.key) || swardHollow.has(tile.key)) continue;
+        covered = false;
+        break;
+      }
+      if (!covered) continue;
+      releaseSward(old);
+      swardRetiring.delete(key);
+    }
+    for (const entry of swardStanding.values()) {
+      if (entry.shown) continue;
+      let held = false;
+      for (const old of swardRetiring.values()) {
+        if (overlaps(old, entry)) {
+          held = true;
+          break;
+        }
+      }
+      if (held) continue;
+      swardGroup.add(entry.mesh);
+      entry.shown = true;
+    }
+  }
+
   const eyeDirection = new THREE.Vector3();
+  /** Where the camera is, a frame at a time; `updateSward` reads it into this. */
+  const swardEye = new THREE.Vector3();
+  /** The camera's height over the ground at the last sward scan. */
+  let swardHeight = Infinity;
+  /**
+   * How far above the sward's last band the land index is still gathered, in
+   * units. A gather is eight frames (`SLICE` faces of the land's 2.18 M a
+   * frame), so this only has to outlast the descent of eight frames, and a
+   * margin of the probe's own `MOVE` does.
+   */
+  const SWARD_PREPARE_MARGIN = 400;
 
   /**
    * The tiles the sward wants, from the coarsest level down: a tile splits
@@ -2527,7 +2680,10 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     if (swardProminence !== prominenceVersion()) {
       swardProminence = prominenceVersion();
       for (const key of [...swardStanding.keys()]) dropSward(key);
+      for (const old of swardRetiring.values()) releaseSward(old);
+      swardRetiring.clear();
       swardBarren.clear();
+      swardHollow.clear();
       rescan = true;
     }
     if (swardDetail !== detailVersion()) {
@@ -2541,6 +2697,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       if (version !== floorsSeen) {
         floorsSeen = version;
         rescan = true;
+        swardHollow.clear();
         for (const [key, entry] of [...swardStanding]) {
           if (!entry.touchesTown) continue;
           let touched = floorChanges[0] === -1;
@@ -2548,14 +2705,13 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
             const dot = entry.direction.x * floorChanges[c]! + entry.direction.y * floorChanges[c + 1]! + entry.direction.z * floorChanges[c + 2]!;
             touched = dot > Math.cos((entry.radius + floorChanges[c + 3]!) / PLANET_RADIUS);
           }
-          if (touched) dropSward(key);
+          // Sown again, and drawn as it was until the new one stands.
+          if (touched) retireSward(key, true);
         }
       }
     }
 
-    const eye = camera.getWorldPosition(scratch).clone();
-    const ready = land.prepare(viewer);
-    swardStats.ready = ready;
+    const eye = camera.getWorldPosition(swardEye);
 
     if (rescan || eye.distanceToSquared(swardScannedAt) > SWARD_RESCAN * SWARD_RESCAN) {
       swardScannedAt.copy(eye);
@@ -2563,13 +2719,34 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       // Alps is six hundred units above it.
       eyeDirection.copy(eye).normalize();
       const height = Math.max(0, eye.length() - groundRadius(world, eyeDirection));
+      swardHeight = height;
+      if (swardBarren.size > BARREN_CAP) swardBarren.clear();
+      if (swardHollow.size > BARREN_CAP) swardHollow.clear();
       const wanted = swardTiles(eye, height, reach);
       const keep = new Set(wanted.map((tile) => tile.key));
-      for (const key of [...swardStanding.keys()]) if (!keep.has(key)) dropSward(key);
+      for (const key of [...swardStanding.keys()]) if (!keep.has(key)) retireSward(key, false);
+      // A tile retired by the scan and wanted again is simply standing again;
+      // one retired by its floor is not, because what it grew on has changed.
+      for (const tile of wanted) {
+        const back = swardRetiring.get(tile.key);
+        if (back === undefined || back.stale) continue;
+        swardRetiring.delete(tile.key);
+        swardStanding.set(tile.key, back);
+      }
+      swardWanted = wanted;
       swardQueue = wanted
-        .filter((tile) => !swardStanding.has(tile.key) && !swardBarren.has(tile.key))
+        .filter((tile) => !swardStanding.has(tile.key) && !swardBarren.has(tile.key) && !swardHollow.has(tile.key))
         .sort((a, b) => a.distance - b.distance);
     }
+
+    // **The land index only while the sward can be drawn.** Gathering it is a
+    // pass over all 2.18 M faces of the land, a slice a frame, and it starts
+    // again every 400 units the player moves — so in the plane, where no sward
+    // stands above the last band, it never stopped. It starts again a margin
+    // above that band, so a descent finds it ready.
+    const far = SWARD_BANDS[SWARD_BANDS.length - 1]! * reach;
+    const ready = swardHeight < far + SWARD_PREPARE_MARGIN && land.prepare(viewer);
+    swardStats.ready = ready;
 
     let triangles = 0;
     for (const entry of swardStanding.values()) triangles += entry.triangles;
@@ -2578,7 +2755,9 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       const allowance = detailBuild(SWARD_BUILD_MS);
       const cap = SWARD_TRIANGLES * reach * reach;
       let built = 0;
-      while (swardQueue.length > 0 && triangles < cap && (built === 0 || performance.now() - began < allowance)) {
+      // One a frame whatever the slice says, so the sward always moves — but
+      // only while the frame has room; see `mayBuild` in `view.ts`.
+      while (swardQueue.length > 0 && triangles < cap && (built === 0 ? frameOpen(true) : mayBuild(began, allowance, true))) {
         const tile = swardQueue.shift()!;
         if (swardStanding.has(tile.key)) continue;
         const sowing = performance.now();
@@ -2594,26 +2773,32 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         if (result === null) {
           // A tile a town reaches into is empty only until its lawns arrive.
           if (squares.length === 0) swardBarren.add(tile.key);
+          else swardHollow.add(tile.key);
           continue;
         }
-        swardGroup.add(result.mesh);
+        // Into the group by `settleSward`, once nothing retiring covers it.
         swardStanding.set(tile.key, result);
         triangles += result.triangles;
       }
       swardStats.lastBuildMs = Number((performance.now() - began).toFixed(2));
     }
+    settleSward();
 
     let clumpCount = 0;
     let bytes = 0;
-    const byRank = new Array<number>(SWARD_RANKS).fill(0);
+    // The stats' own array, refilled: this runs every frame.
+    const byRank = swardStats.byRank;
+    byRank.length = SWARD_RANKS;
+    byRank.fill(0);
     for (const entry of swardStanding.values()) {
       clumpCount += entry.clumps;
       bytes += entry.bytes;
-      const level = Number(entry.mesh.name.split(':')[1]!.split('/')[0]);
-      byRank[level - SWARD_TILE]!++;
+      byRank[entry.level - SWARD_TILE]!++;
     }
     swardStats.tiles = swardStanding.size;
-    swardStats.byRank = byRank;
+    swardStats.retiring = swardRetiring.size;
+    swardStats.staged = 0;
+    for (const entry of swardStanding.values()) if (!entry.shown) swardStats.staged++;
     swardStats.clumps = clumpCount;
     swardStats.triangles = triangles;
     swardStats.megabytes = Number((bytes / 1048576).toFixed(1));
@@ -2622,15 +2807,63 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     swardStats.reach = Number(reach.toFixed(2));
   }
 
+  /**
+   * Builds from the head of the queue while the frame allows: the near tiles
+   * only, or everything left. The queue is nearest first, so the near pass
+   * stops at the first far tile. Returns how many it built.
+   */
+  function buildTiles(began: number, nearOnly: boolean): number {
+    const budget = triangleBudget();
+    const allowance = detailBuild(BUILD_BUDGET_MS);
+    let built = 0;
+    while (queue.length > 0) {
+      const tile = queue[0]!;
+      const near = tile.distance - Math.hypot(tile.halfEast, tile.halfNorth) < NEAR_BUILD;
+      if (nearOnly && !near) break;
+      if (!mayBuild(began, allowance, near)) break;
+      queue.shift();
+      if (standing.has(tile.key)) continue;
+      // This level has had its share. The tile is dropped rather than
+      // deferred: the queue is nearest first, so what is waiting behind it
+      // is the coarser ring that the share exists to protect.
+      if (residentByLevel[tile.level]! >= budget * SHARE_OF[tile.level]!) continue;
+      const result = raise(tile);
+      built++;
+      if (result.mesh === null) {
+        barren.add(tile.key);
+        continue;
+      }
+      // Into the group by `settle` once nothing retiring covers it.
+      standing.set(tile.key, {
+        mesh: result.mesh,
+        triangles: result.triangles,
+        plants: result.plants,
+        bytes: result.bytes,
+        level: tile.level,
+        row: tile.row,
+        column: tile.column,
+        shown: false,
+      });
+      residentTriangles += result.triangles;
+      residentByLevel[tile.level] = residentByLevel[tile.level]! + result.triangles;
+      // The real cap. See `residentTriangles`.
+      if (residentTriangles >= budget) {
+        queue.length = 0;
+        break;
+      }
+    }
+    return built;
+  }
+
   return {
     group,
     stats,
     missing,
     broken,
+    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material)), proxyOf(swardPaint)],
 
     update(viewer, altitude, camera) {
-      // Nearest first: the grass under your feet before the wood on the hill.
-      updateSward(viewer, camera);
+      fader.update();
       const range = rangeFor(altitude);
       stats.range = Math.round(range);
       stats.reach = Math.round(reachFor(altitude));
@@ -2638,6 +2871,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       if (scannedProminence !== prominenceVersion()) {
         scannedProminence = prominenceVersion();
         for (const key of [...standing.keys()]) drop(key);
+        for (const old of retiring.values()) release(old);
+        retiring.clear();
         barren.clear();
         rebuildKeepouts();
         scannedDetail = -1;
@@ -2659,50 +2894,30 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         scan(scannedAt, range);
       }
 
-      if (queue.length > 0) {
-        const began = performance.now();
-        const budget = triangleBudget();
-        const allowance = detailBuild(BUILD_BUDGET_MS);
-        let built = 0;
-        while (queue.length > 0 && performance.now() - began < allowance) {
-          const tile = queue.shift()!;
-          if (standing.has(tile.key)) continue;
-          // This level has had its share. The tile is dropped rather than
-          // deferred: the queue is nearest first, so what is waiting behind it
-          // is the coarser ring that the share exists to protect.
-          if (residentByLevel[tile.level]! >= budget * SHARE_OF[tile.level]!) continue;
-          const result = raise(tile);
-          built++;
-          if (result.mesh === null) {
-            barren.add(tile.key);
-            continue;
-          }
-          group.add(result.mesh);
-          standing.set(tile.key, {
-            mesh: result.mesh,
-            triangles: result.triangles,
-            plants: result.plants,
-            bytes: result.bytes,
-            level: tile.level,
-          });
-          residentTriangles += result.triangles;
-          residentByLevel[tile.level] = residentByLevel[tile.level]! + result.triangles;
-          // The real cap. See `residentTriangles`.
-          if (residentTriangles >= budget) {
-            queue.length = 0;
-            break;
-          }
-        }
-        if (built > 0) {
-          stats.lastBuildMs = Number((performance.now() - began).toFixed(2));
-          stats.built += built;
-        }
+      // Nearest first, in the frame's order (`mayBuild` in `view.ts`): the
+      // wood you are standing in, then the grass under your feet, then the
+      // wood on the hill out of what the frame has left for far work.
+      const began = performance.now();
+      let built = 0;
+      built += buildTiles(began, true);
+      const sowing = performance.now();
+      updateSward(viewer, camera);
+      // The sward has its own slice; the wood's is what the wood spent.
+      const sown = performance.now() - sowing;
+      built += buildTiles(began + sown, false);
+      if (built > 0) {
+        stats.lastBuildMs = Number((performance.now() - began - sown).toFixed(2));
+        stats.built += built;
       }
+      settle();
 
       let triangles = 0;
       let plants = 0;
+
       let bytes = 0;
-      const byLevel = new Array(LEVELS).fill(0);
+      // The stats' own array, refilled: this runs every frame.
+      const byLevel = stats.byLevel;
+      byLevel.fill(0);
       for (const entry of standing.values()) {
         triangles += entry.triangles;
         plants += entry.plants;
@@ -2713,12 +2928,16 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       for (let level = 0; level < LEVELS; level++) residentByLevel[level] = 0;
       for (const entry of standing.values()) residentByLevel[entry.level] = residentByLevel[entry.level]! + entry.triangles;
       stats.tiles = standing.size;
+      stats.retiring = retiring.size;
+      stats.staged = 0;
+      for (const entry of standing.values()) if (!entry.shown) stats.staged++;
       stats.pending = queue.length;
+      stats.nearPending = stats.sward.pending;
+      for (const tile of queue) if (tile.distance - Math.hypot(tile.halfEast, tile.halfNorth) < NEAR_BUILD) stats.nearPending++;
       stats.triangles = triangles;
       stats.plants = plants;
       stats.megabytes = Number((bytes / 1048576).toFixed(1));
       stats.barren = barren.size;
-      stats.byLevel = byLevel;
     },
 
     sample(lat, lon, level = 0) {

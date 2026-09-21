@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dissolveGLSL } from './fade.ts';
 
 /**
  * The ink: the scene drawn a second time with the back faces of every mesh
@@ -167,7 +168,15 @@ const fragmentShader = /* glsl */ `
 uniform vec3 outlineColor;
 uniform float outlineAlpha;
 
+#ifdef OUTLINE_DISSOLVE
+  uniform float atlasFade;
+#endif
+
 void main() {
+  #ifdef OUTLINE_DISSOLVE
+    // The same screen door as the fill it belongs to; see fade.ts.
+    ${dissolveGLSL('atlasFade')}
+  #endif
   gl_FragColor = vec4( outlineColor, outlineAlpha );
 
   #include <tonemapping_fragment>
@@ -220,6 +229,12 @@ export interface OutlineParameters {
    * `toneMapped` already follow. Its uniforms are live; the GLSL is not.
    */
   transform?: OutlineTransform;
+  /**
+   * The fade of a dissolving fill (`fade.ts`), held by reference like a
+   * transform's uniforms: the hull discards the pixels the fill does, or its
+   * back faces show through the holes as black speckle. Read once.
+   */
+  dissolve?: THREE.IUniform<number>;
 }
 
 export interface OutlineOptions {
@@ -236,6 +251,21 @@ interface OutlineUniforms {
 
 /** How many instance matrices one mesh is sampled at. See `checkInstanceBasis`. */
 const BASIS_SAMPLES = 64;
+
+/**
+ * Pixels of projected radius under which a mesh gets no hull, and the factor
+ * it has to grow past that before it gets one back. 0 turns it off.
+ *
+ * **A pen line round something a few pixels across is not a line, it is the
+ * thing's whole area in ink** — the screen-space pen this file draws is a
+ * constant width, so below a few pixels the hull covers the fill and a
+ * distant wood tile or house reads as a dark speck. It is also a second draw
+ * call for every such mesh. So a mesh whose bounding sphere projects under
+ * this radius is left out of the ink pass, and it has to reach a third more
+ * again before it is put back, so one sitting on the line does not flicker.
+ */
+const THIN_INK_PIXELS = 4;
+const THIN_INK_HYSTERESIS = 1.3;
 
 /**
  * Determinant of the basis in a 4x4 at `offset`, column-major as three stores
@@ -265,6 +295,15 @@ export class OutlineEffect {
   /** Instance matrices already judged, by the attribute version they were judged at. */
   private readonly basisVersion = new WeakMap<THREE.InstancedMesh, number>();
   private readonly basisWarned = new WeakSet<THREE.InstancedMesh>();
+  /** Meshes left out of the ink pass for being too small; see `THIN_INK_PIXELS`. */
+  private readonly thin = new WeakSet<THREE.Object3D>();
+  /** The camera of the pass in progress, and pixels per unit of radius at unit distance; 0 skips the test. */
+  private readonly eye = new THREE.Vector3();
+  private focal = 0;
+  private readonly size = new THREE.Vector2();
+  private readonly centre = new THREE.Vector3();
+  /** Meshes hulls were skipped for in the last pass. */
+  thinSkipped = 0;
 
   constructor(renderer: THREE.WebGLRenderer, options: OutlineOptions = {}) {
     this.renderer = renderer;
@@ -296,16 +335,62 @@ export class OutlineEffect {
     scene.matrixWorldAutoUpdate = false;
     scene.background = null;
 
-    scene.traverse(this.swapIn);
-    renderer.render(scene, camera);
-    scene.traverse(this.swapOut);
-    for (const object of this.hidden) object.visible = true;
-    this.hidden.length = 0;
+    // The pixel test's camera, for `THIN_INK_PIXELS`: CSS pixels, because the
+    // pen is a width on the page and not a count of samples.
+    const perspective = camera as THREE.PerspectiveCamera;
+    if (THIN_INK_PIXELS > 0 && perspective.isPerspectiveCamera === true) {
+      renderer.getSize(this.size);
+      this.focal = this.size.y / (2 * Math.tan(THREE.MathUtils.degToRad(perspective.fov) / 2));
+      this.eye.setFromMatrixPosition(perspective.matrixWorld);
+    } else this.focal = 0;
+    this.thinSkipped = 0;
 
-    renderer.autoClear = autoClear;
-    renderer.shadowMap.enabled = shadows;
-    scene.matrixWorldAutoUpdate = autoUpdate;
-    scene.background = background;
+    // In a `finally`, because a throw anywhere in the pass — a shader that will
+    // not link, a geometry disposed under a mesh — would otherwise leave every
+    // mesh in the scene wearing its hull and the scene's matrices frozen: a
+    // world permanently in ink, for one object's error. `swapOut` restores
+    // whatever `swapIn` reached and leaves the rest alone.
+    try {
+      scene.traverse(this.swapIn);
+      renderer.render(scene, camera);
+    } finally {
+      scene.traverse(this.swapOut);
+      for (const object of this.hidden) object.visible = true;
+      this.hidden.length = 0;
+
+      renderer.autoClear = autoClear;
+      renderer.shadowMap.enabled = shadows;
+      scene.matrixWorldAutoUpdate = autoUpdate;
+      scene.background = background;
+    }
+  }
+
+  /**
+   * Compiles the hull of everything under `objects` against `targetScene`'s
+   * lights and fog, without drawing it — `warm.ts`'s half of the warm-up that
+   * three cannot do on its own, because the hulls are materials this effect
+   * makes and three has never been shown them.
+   *
+   * The swap is undone before this returns; the promise only waits for the
+   * programs, which outlive it. The shadow map is off for the compile exactly
+   * as it is for the ink pass, because whether it is on is part of a program's
+   * key and a hull compiled with it on is a program the pass never uses.
+   */
+  compileAsync(objects: THREE.Object3D, camera: THREE.Camera, targetScene: THREE.Scene): Promise<unknown> {
+    const renderer = this.renderer;
+    const shadows = renderer.shadowMap.enabled;
+    renderer.shadowMap.enabled = false;
+    // Every hull, whatever size it is: nothing here is on the screen.
+    this.focal = 0;
+    try {
+      objects.traverse(this.swapIn);
+      return renderer.compileAsync(objects, camera, targetScene);
+    } finally {
+      objects.traverse(this.swapOut);
+      for (const object of this.hidden) object.visible = true;
+      this.hidden.length = 0;
+      renderer.shadowMap.enabled = shadows;
+    }
   }
 
   /**
@@ -342,6 +427,12 @@ export class OutlineEffect {
     }
     const instanced = object as THREE.InstancedMesh;
     if (instanced.isInstancedMesh === true) this.checkInstanceBasis(instanced);
+    if (this.focal > 0 && object.visible && this.isThin(mesh)) {
+      object.visible = false;
+      this.hidden.push(object);
+      this.thinSkipped++;
+      return;
+    }
     mesh.material = Array.isArray(mesh.material)
       ? mesh.material.map((material) => this.outlineFor(material))
       : this.outlineFor(mesh.material);
@@ -415,6 +506,29 @@ export class OutlineEffect {
     );
   }
 
+  /**
+   * Whether a mesh projects under `THIN_INK_PIXELS` of radius, with the
+   * hysteresis. A mesh with no bounding sphere yet — a skinned body that never
+   * culls, anything three has not had to cull — is never thin: the test is a
+   * saving, and a missing line is the worse mistake.
+   */
+  private isThin(mesh: THREE.Mesh): boolean {
+    const instanced = mesh as THREE.InstancedMesh;
+    const sphere = instanced.isInstancedMesh === true ? instanced.boundingSphere : mesh.geometry.boundingSphere;
+    if (sphere === null) return false;
+    const centre = this.centre.copy(sphere.center).applyMatrix4(mesh.matrixWorld);
+    const radius = sphere.radius * mesh.matrixWorld.getMaxScaleOnAxis();
+    const distance = Math.max(1e-3, centre.distanceTo(this.eye) - radius);
+    const pixels = (radius * this.focal) / distance;
+    const was = this.thin.has(mesh);
+    const thin = pixels < THIN_INK_PIXELS * (was ? THIN_INK_HYSTERESIS : 1);
+    if (thin !== was) {
+      if (thin) this.thin.add(mesh);
+      else this.thin.delete(mesh);
+    }
+    return thin;
+  }
+
   /** True if this object carries a material that declares `visible: false` ink. */
   private optsOut(object: THREE.Object3D): boolean {
     const material = (object as { material?: THREE.Material | THREE.Material[] }).material;
@@ -438,7 +552,7 @@ export class OutlineEffect {
     let outline = this.outlines.get(source);
     if (outline === undefined) {
       const parameters = source.userData.outlineParameters as OutlineParameters | undefined;
-      outline = this.createMaterial(parameters?.transform, parameters?.outlineNormal === true);
+      outline = this.createMaterial(parameters?.transform, parameters?.outlineNormal === true, parameters?.dissolve);
       // Copied once, not per frame: these three are baked into the compiled
       // program, so changing one later needs a `needsUpdate` anyway. `fog` is
       // declared on the concrete materials rather than on the base class, hence
@@ -460,13 +574,21 @@ export class OutlineEffect {
     return outline;
   }
 
-  private createMaterial(transform?: OutlineTransform, outlineNormal = false): THREE.ShaderMaterial {
+  private createMaterial(
+    transform?: OutlineTransform,
+    outlineNormal = false,
+    dissolve?: THREE.IUniform<number>,
+  ): THREE.ShaderMaterial {
+    const defines: Record<string, string> = {};
+    if (outlineNormal) defines['OUTLINE_NORMAL'] = '';
+    if (dissolve !== undefined) defines['OUTLINE_DISSOLVE'] = '';
     return new THREE.ShaderMaterial({
-      defines: outlineNormal ? { OUTLINE_NORMAL: '' } : {},
+      defines,
       uniforms: {
         ...THREE.UniformsUtils.clone(THREE.UniformsLib['fog']),
         // Not cloned, unlike the fog: sharing the object is the whole mechanism.
         ...(transform?.uniforms ?? {}),
+        ...(dissolve !== undefined ? { atlasFade: dissolve } : {}),
         outlineThickness: { value: this.thickness },
         outlineColor: { value: this.color.clone() },
         outlineAlpha: { value: this.alpha },

@@ -23,13 +23,13 @@ import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
 import type { Surface } from './audio.ts';
 import { BOAT_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
-import { createSky } from './sun.ts';
+import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
 import { createOcean } from './ocean.ts';
 import { createCityLights, lightBrightness, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
-import { DETAIL_MAX, DETAIL_MIN, detail, fogFar, setDetail } from './view.ts';
+import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail } from './view.ts';
 import type { FlagLayer } from './land-flags.ts';
 import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
@@ -46,12 +46,13 @@ import type { IconName } from './ui.ts';
 const START = { lat: 39.62, lon: 2.99 };
 
 /**
- * How often the shadow map is redrawn, in milliseconds: while something in the
- * box is moving, and while nothing is. The reference this look is chasing uses
- * exactly these two and they were kept rather than tuned — see the loop.
+ * How often the shadow map is redrawn while nothing in the box is moving, in
+ * milliseconds. While something is, it is every frame — see the loop.
  */
-const SHADOW_MOVING_MS = 45;
 const SHADOW_STILL_MS = 180;
+
+/** How much of the ground's own height the haze and the streamers count; see the loop. */
+const HAZE_ELEVATION = 0.25;
 
 /**
  * Where the map layer fades in, in units above the ground under the player.
@@ -761,6 +762,9 @@ async function start(): Promise<void> {
     { monuments: MONUMENTS, build: buildMonument },
     ctx,
     (point) => settlements.madeHeightAt(point),
+    // And when a floor arrives or goes, so a landmark raised before its town
+    // is lifted onto the paving when the paving comes.
+    (since, into) => settlements.floorChanges(since, into),
   );
   scene.add(monuments.group);
   if (monuments.broken.length > 0) console.warn('monuments that broke the contract:', monuments.broken);
@@ -866,6 +870,22 @@ async function start(): Promise<void> {
   // land was building.
   menu.ready();
   report = null;
+  // Every program the streamers will draw with, compiled while the player
+  // chooses, so the first town, landmark or animal is not also a shader link.
+  // The skinned twin is the rigs' own material, and a plain `ctx.toon` colour
+  // stands for the craft; see `warm.ts`.
+  void import('./warm.ts')
+    .then(({ proxyOf, warmShaders }) =>
+      warmShaders(
+        renderer,
+        outline,
+        scene,
+        [settlements, monuments, roads, vegetation, life, { proxies: () => [proxyOf(inkSource)] }],
+        modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
+      ),
+    )
+    .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
+    .catch((error: unknown) => console.warn('the shader warm-up failed:', error));
   const at = query.get('at')?.split(',').map(Number);
   const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite);
   const spawn = skipMenu
@@ -1190,6 +1210,10 @@ async function start(): Promise<void> {
   const { createSettings } = await deferred.settings;
   const settings = createSettings({
     detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
+    autoDetail: {
+      get: autoDetail,
+      set: (on) => setAutoDetail(on),
+    },
     flags: { get: () => overlayOn, set: setOverlay },
     sensitivity: {
       get: () => input.sensitivity,
@@ -1369,6 +1393,28 @@ async function start(): Promise<void> {
   /** The welcome card waits for the first arrival: the curtain up, or the first frame of a link. */
   let welcomePending = readSetting(WELCOME_KEY) !== '1' && navigator.webdriver !== true;
 
+  /**
+   * One subsystem's update, kept from taking the frame down with it.
+   *
+   * `requestAnimationFrame(frame)` is the first line of the loop, so a throw
+   * never stopped the loop — it stopped everything after the throw, the draw
+   * included, every frame: one bad town or tile and the picture froze with
+   * sixty errors a second and nothing on the screen to say why. So each of
+   * the world's own updates runs here. The first failure is logged with its
+   * error; after that it is counted on `atlas.failures`, and the rest of the
+   * world — the player, the camera, the draw — carries on around it.
+   */
+  const failures = new Map<string, number>();
+  function guard(name: string, run: () => void): void {
+    try {
+      run();
+    } catch (error) {
+      const count = failures.get(name) ?? 0;
+      if (count === 0) console.error(`atlas: ${name} failed, and the rest of the world carries on`, error);
+      failures.set(name, count + 1);
+    }
+  }
+
   // The ear's slow answers, refreshed twice a second in the loop.
   let soundClock = 0;
   const soundPoint = new THREE.Vector3();
@@ -1391,7 +1437,8 @@ async function start(): Promise<void> {
     // `requestAnimationFrame` hands over can be earlier than the
     // `performance.now()` taken just before it was asked for, and a negative
     // `dt` runs every chase in this loop backwards for a frame.
-    const dt = Math.max(0, Math.min((now - previous) / 1000, 0.1));
+    const interval = Math.max(0, now - previous);
+    const dt = Math.min(interval / 1000, 0.1);
     if (now > previous) {
       intervals[intervalAt] = now - previous;
       intervalAt = (intervalAt + 1) % FRAME_WINDOW;
@@ -1429,7 +1476,7 @@ async function start(): Promise<void> {
     // standing on the night one. One direction, published here, resolved per
     // vertex in the shaders. See `src/lights.ts`.
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
-    cityLights.update(renderer);
+    guard('city lights', () => cityLights.update(renderer));
 
     // The ear, after the sky: it wants the hour, the height over the ground and
     // what the foot is on. The slow questions — the biome, the coast, whether
@@ -1448,7 +1495,7 @@ async function start(): Promise<void> {
     }
     soundWild += (soundWildTarget - soundWild) * Math.min(1, dt * 0.8);
     const speedNow = player.velocity;
-    audio.update(dt, {
+    guard('audio', () => audio.update(dt, {
       mode: player.vehicle,
       speed: speedNow,
       throttle:
@@ -1462,7 +1509,7 @@ async function start(): Promise<void> {
       daylight: sky.state.daylight,
       wild: soundWild,
       cold: soundCold,
-    });
+    }));
     if (map.open !== mapWasOpen) {
       mapWasOpen = map.open;
       audio.cue(map.open ? 'ui-open' : 'ui-close');
@@ -1478,7 +1525,18 @@ async function start(): Promise<void> {
     // the user can see changes, which is exactly the complaint that produced the
     // knob. `detailFog` opens it as the square root rather than linearly — see
     // `view.ts` for why that is a judgement about the look and not arithmetic.
-    const altitude = Math.max(1, rig.camera.position.length() - PLANET_RADIUS);
+    //
+    // **Measured from the ground under the player, with a quarter of that
+    // ground's own height added back**, not from the sea. From a camera 15
+    // units over a 300-unit plateau the sea-level height opened the haze
+    // sqrt(315 / 15), 4.6 times, wider than on the shore below it, and every
+    // limit tuned for the shore's haze bound before the haze did: a town at
+    // its pixel floor left in clear air. The quarter keeps a summit's view
+    // wider than a valley's, as a height should, without the plateau's whole
+    // elevation. Every streamer takes this number, so reach and haze stay one
+    // question.
+    const elevation = Math.max(0, ground - PLANET_RADIUS);
+    const altitude = Math.max(1, eyeOverGround + HAZE_ELEVATION * elevation);
     const horizon = Math.sqrt(2 * PLANET_RADIUS * altitude);
     fog.near = horizon * 0.2;
     // `fogFar` rather than the expression it used to be, because the streamers
@@ -1506,37 +1564,42 @@ async function start(): Promise<void> {
     // in the air, for the ground directly underneath — measured over Finland at
     // 3,000 units up, 0 of 48 resident settlements were inside the frame.
     //
-    // Before the render, not after: a monument that comes into range this frame
-    // should be drawn this frame, not next.
-    monuments.update(player.position, altitude, rig.camera);
-    // After the monuments, and for the same reason: what comes into range this
-    // frame should be drawn this frame. It spends a few milliseconds at most —
-    // see `BUILD_BUDGET_MS` — and then does nothing until you move again.
-    settlements.update(player.position, altitude, rig.camera);
-    // Last of the three streamers, and the one that gives ground back first when
-    // a frame is short: a town that has not arrived is a hole in the world, and
-    // a tile of grass that has not arrived is grass that arrives next frame.
-    vegetation.update(player.position, altitude, rig.camera);
+    // One allowance of building for the whole frame, served in the order the
+    // streamers update: near work out of all of it, far work out of its share
+    // (`beginFrameBuild` in `view.ts`).
+    beginFrameBuild();
+    // Before the render, not after: what comes into range this frame should be
+    // drawn this frame, not next. It spends a few milliseconds at most — see
+    // `BUILD_BUDGET_MS` — and then does nothing until you move again.
+    guard('settlements', () => settlements.update(player.position, altitude, rig.camera));
+    // After the settlements, because a landmark stands on its town's floor
+    // where it has one: a floor raised this frame re-seats it this frame.
+    guard('monuments', () => monuments.update(player.position, altitude, rig.camera));
     // After the settlements, because a road is laid over a town's paving where
     // the two meet and the later of two coplanar surfaces is not what decides
-    // that — the lift is — but the build budgets are served in order and the
-    // town under your feet is worth more than the road on the horizon.
-    roads.update(player.position, altitude, rig.camera);
+    // that — the lift is — but the build budget is served in order and the
+    // town under your feet is worth more than the road under them, which is
+    // worth more than the wood beside it.
+    guard('roads', () => roads.update(player.position, altitude, rig.camera));
+    // Last of the streamers, and the one that gives ground back first when a
+    // frame is short: a town that has not arrived is a hole in the world, and
+    // a tile of grass that has not arrived is grass that arrives next frame.
+    guard('vegetation', () => vegetation.update(player.position, altitude, rig.camera));
 
     // After the roads, because a vehicle drives on one and the road under it
     // should have arrived first — and **on the world's clock rather than the
     // machine's**: every mover is a pure function of `sky.state.time`, so
     // `atlas.sky.setRate(600)` runs the traffic with the sun and `setTime`
     // scrubs it. Seconds, because that is what a speed is in.
-    life.update(player.position, altitude, rig.camera, sky.state.time.getTime() / 1000);
+    guard('life', () => life.update(player.position, altitude, rig.camera, sky.state.time.getTime() / 1000));
     // The people standing in the towns: their own clock rather than the sky's,
     // because breathing does not speed up when `setRate` runs the sun at 600x.
     townsfolkClock += dt;
-    townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame);
+    guard('townsfolk', () => townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame));
 
     // The weather turns with the same clock the sun does, so scrubbing the time
     // scrubs the sky: `atlas.sky.setRate(600)` runs a front past you in seconds.
-    clouds.update(sky.state.time, rig.camera.position, fog);
+    guard('clouds', () => clouds.update(sky.state.time, rig.camera.position, fog));
 
     // The surf's clock and the glitter's geometry. Both bodies are offered and
     // the sea takes whichever is doing the lighting, so the path on the water is
@@ -1548,7 +1611,7 @@ async function start(): Promise<void> {
     oceanLights[0]!.intensity = sky.sun.intensity;
     oceanLights[1]!.color = sky.moon.color;
     oceanLights[1]!.intensity = sky.moon.intensity;
-    ocean.update(rig.camera.position, oceanLights);
+    guard('ocean', () => ocean.update(rig.camera.position, oceanLights));
 
     // Arriving is only an arrival on foot. `recordVisits` is cheap — a distance
     // test per monument — and it only ever fires once per landmark.
@@ -1586,13 +1649,15 @@ async function start(): Promise<void> {
     // free with nothing else on the screen, which is the pause card.
     hud.setVehicle(player.vehicle, player.landing, rig.firstPerson);
     hud.setPaused(!input.looking && !map.open && !settings.open, input.dragging);
-    // The curtain from the menu's dive comes up once the town under it has had
-    // its build: when the settlement streamer has nothing pending, or after a
-    // second and a half whatever it says, so a slow machine is never left
-    // looking at cream.
+    // The curtain from the menu's dive comes up once the ground under it has
+    // had its build — the towns, the roads, and the wood and grass near you
+    // with nothing pending — or after a second and a half whatever they say,
+    // so a slow machine is never left looking at cream.
     if (curtain !== null) {
       const waited = now - loopStarted;
-      if ((waited > 450 && settlements.stats.pending === 0) || waited > 1500) {
+      const settled =
+        settlements.stats.pending === 0 && roads.stats.pending === 0 && vegetation.stats.nearPending === 0;
+      if ((waited > 450 && settled) || waited > 1500) {
         curtain.lift();
         curtain = null;
       }
@@ -1612,13 +1677,15 @@ async function start(): Promise<void> {
     // as an arrival — lives in the HUD.
     const standingIn = world.countryAtPoint(player.position);
     const nearbyPlace = places.nearest(player.position);
-    minimap.update(player.position, player.forward, {
-      country: standingIn,
-      place: nearbyPlace,
-    });
-    nav.update(dt, player, rig.camera);
+    guard('minimap', () =>
+      minimap.update(player.position, player.forward, {
+        country: standingIn,
+        place: nearbyPlace,
+      }),
+    );
+    guard('navigation', () => nav.update(dt, player, rig.camera));
     // Costs one branch while it is closed, which is nearly always.
-    map.update(player.position, player.forward);
+    guard('map', () => map.update(player.position, player.forward));
 
     // The map layer, all three marks on one number. Nothing here touches a
     // buffer once the flag attribute is built: it is a uniform, an opacity, a
@@ -1644,28 +1711,34 @@ async function start(): Promise<void> {
     // at the range the ground under the player is at; `renderer.setPixelRatio`
     // is deliberately not in it, because what is being held constant is how
     // wide the line looks and not how many samples it gets.
-    borders.update(
-      overlayFade,
-      (2 * Math.tan(rig.camera.fov * 0.5 * DEG) * eyeOverGround) / innerHeight,
+    guard('borders', () =>
+      borders.update(overlayFade, (2 * Math.tan(rig.camera.fov * 0.5 * DEG) * eyeOverGround) / innerHeight),
     );
-    names.update(overlayFade, rig.camera, standingIn);
+    guard('names', () => names.update(overlayFade, rig.camera, standingIn));
 
-    // The shadow map is redrawn on a cadence and not per frame: 45 ms while
-    // anything the box holds is moving (the player, who is also the box), 180
-    // while you stand — the reference's own numbers, at which a moving shadow
-    // is 22 Hz and a standing one is a slow crawl of the sun nobody sees. And
-    // **at once when a streamer has changed what stands in the world**, which
-    // is one integer compare per group: a town that arrives this frame would
-    // otherwise stand shadowless for up to 180 ms. A swap that keeps the count
-    // waits for the cadence. Skipped entirely while the fades have the shadow
-    // at zero — at night, and from the air — since the map is then drawn into
-    // and mixed away in the same frame.
+    // The shadow map is redrawn every frame while anything the box holds is
+    // moving — the player, who is also the box, a vehicle, a walker, an
+    // animated herd, a townsman mid-gesture — and every 180 ms while nothing
+    // is, which is a slow crawl of the sun nobody sees. It was 45 ms while the
+    // player moved and 180 otherwise, the reference's numbers: at a run (90
+    // units a second) the hero's shadow fell four units behind his feet before
+    // it snapped back, and a car passing a player who stood still jumped at
+    // 5.5 Hz. And **at once when a streamer has changed what stands in the
+    // world**, which is one integer compare per group: a town that arrives this
+    // frame would otherwise stand shadowless for up to 180 ms. A swap that
+    // keeps the count waits for the cadence. Skipped entirely while the fades
+    // have the shadow at zero — at night, and from the air — since the map is
+    // then drawn into and mixed away in the same frame.
     const standing =
       monuments.group.children.length +
       settlements.group.children.length +
       vegetation.group.children.length +
       life.group.children.length;
-    const cadence = player.velocity > 0 ? SHADOW_MOVING_MS : SHADOW_STILL_MS;
+    const moving =
+      player.velocity > 0 ||
+      life.stats.nearestMoving < SHADOW_COVER ||
+      townsfolk.stats.nearestMoving < SHADOW_COVER;
+    const cadence = moving ? 0 : SHADOW_STILL_MS;
     if (sky.state.shadow > 0 && (now - shadowDrawnAt >= cadence || standing !== shadowStanding)) {
       // The light moves only here, in the frame the map is drawn from it — see
       // `Sky.placeShadow`: moved between two redraws it takes every shadow off
@@ -1688,6 +1761,9 @@ async function start(): Promise<void> {
     }
     updateSum += drawStart - frameStart;
     drawSum += drawEnd - drawStart;
+    // The automatic detail knob: the interval and the work of this frame
+    // (`sampleFrame` in `view.ts`). Not before the curtain is up.
+    if (curtain === null) sampleFrame(interval, drawEnd - frameStart);
 
     frames++;
     if (now - sampledAt > 500) {
@@ -1814,6 +1890,8 @@ async function start(): Promise<void> {
       // the worst distance a foot ends up below the floor, which is the check
       // that pays for the one line copied out of `avatar.ts`.
       life,
+      // Which subsystems have thrown inside the loop, and how many times: see `guard`.
+      failures,
       // `atlas.audio.stats`: whether the context is unlocked and running, how
       // many recordings arrived, and how many voices are sounding.
       audio,
@@ -1865,6 +1943,16 @@ async function start(): Promise<void> {
       detail(value?: number) {
         if (value !== undefined) showDetail(setDetail(value));
         return detail();
+      },
+      /**
+       * The automatic detail knob (`sampleFrame` in `view.ts`): `atlas.autoDetail()`
+       * reads its state — the last window's frame intervals, the display period,
+       * the work, its vote and its last step — and `atlas.autoDetail(false)` turns
+       * it off, `true` back on. A manual `atlas.detail(n)` or `[`/`]` turns it off.
+       */
+      autoDetail(on?: boolean) {
+        if (on !== undefined) setAutoDetail(on);
+        return { ...autoDetailState, on: autoDetail() };
       },
       /**
        * How near a much bigger town has to be before this one is not built,

@@ -25,6 +25,7 @@
     "people": "node scripts/check-people.ts",
     "cast": "node scripts/build-cast.mjs",
     "kit": "node scripts/build-kit.ts",
+    "audio": "node scripts/build-audio.mjs",
     "life": "node scripts/check-life.ts",
     "fauna": "node scripts/check-fauna.ts",
     "system": "node scripts/check-system.ts",

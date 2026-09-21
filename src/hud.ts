@@ -1094,6 +1094,10 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
 
   /** Writes the chip from whatever has settled: on a change, never per frame. */
   function renderChip(): void {
+    // Nothing until the ground has said what it is. The place settles in 0.8 s
+    // and the country in 1.0, so on arrival the town came first and, with no
+    // country yet, read as the sea: *Off Bourges* over Bourges' own square.
+    if (settled < 0) return;
     const country = settled > 0 ? world.countries[settled - 1]! : null;
     const mode = placeSettled.slice(-1);
     if (country !== null) chipMode = mode === '!' ? 'in' : mode === '~' ? 'near' : null;
@@ -1101,7 +1105,9 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     // unless a town's quay is in sight: *Off Palma* from the bay. "Water" and
     // not "sea", because a lake is country 0 as well and Baikal is not a sea.
     // (It said "Open ocean", which was wrong on every lake.)
-    else chipMode = settledPlace !== null && settledPlace.km <= OFFSHORE_KM && vehicle !== 'plane' ? 'off' : null;
+    // And only a place that was settled *at sea* (`@`): walking ashore, the
+    // town can settle a moment before the country does.
+    else chipMode = mode === '@' && settledPlace !== null && settledPlace.km <= OFFSHORE_KM && vehicle !== 'plane' ? 'off' : null;
     const place = chipMode === null ? null : settledPlace;
     chipName.textContent =
       place === null

@@ -470,7 +470,7 @@ export function foldLegs(limbs: Limbs, frame: THREE.Object3D, thigh: THREE.Vecto
 export function reachArms(limbs: Limbs, frame: THREE.Object3D, grip: THREE.Vector3): void {
   frame.updateMatrixWorld(true);
   const target = frame.localToWorld(grip.clone());
-  for (const [index, arm] of limbs.arms.entries()) {
+  for (const arm of limbs.arms) {
     // Each hand a shoulder's width out from the middle of the grip.
     const shoulder = arm.upper.getWorldPosition(new THREE.Vector3());
     const middle = limbs.arms.map((a) => a.upper.getWorldPosition(new THREE.Vector3())).reduce((a, b) => a.add(b)).multiplyScalar(0.5);
@@ -478,6 +478,5 @@ export function reachArms(limbs: Limbs, frame: THREE.Object3D, grip: THREE.Vecto
     const direction = frame.worldToLocal(hand.clone()).sub(frame.worldToLocal(shoulder.clone())).normalize();
     aimBone(arm.upper, arm.lower.getWorldPosition(new THREE.Vector3()), direction, frame);
     aimBone(arm.lower, arm.wrist.getWorldPosition(new THREE.Vector3()), direction, frame);
-    void index;
   }
 }

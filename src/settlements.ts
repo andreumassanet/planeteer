@@ -4,6 +4,10 @@ import type { World } from './geo.ts';
 import { PLANET_RADIUS, groundColorAt, groundRadius } from './globe.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
+import { mergeMeshes, sourceVertex } from './merge.ts';
+import { proxyOf } from './warm.ts';
+import { createFader, fadeTwin } from './fade.ts';
+import type { MergePiece } from './merge.ts';
 import {
   DASH,
   GROUND_LIFT,
@@ -58,6 +62,8 @@ import {
   createViewCone,
   detailArea,
   detailBuild,
+  mayBuild,
+  NEAR_BUILD,
   detailCount,
   detailPixels,
   detailReach,
@@ -208,9 +214,11 @@ const PIXELS_PER_RADIAN = 937;
 /**
  * The ceiling on resident geometry, in triangles.
  *
- * `OutlineEffect` draws the scene twice, so this is 640,000 triangles a frame on
- * top of the land mesh's 1.5 M. Chosen against that: it is a 42% increase in the
- * scene's cost for the thing the whole planet was built to hold.
+ * `OutlineEffect` draws the scene twice, so this is 760,000 triangles a frame on
+ * top of the land mesh's 2.18 M, which is drawn twice too: about a sixth more
+ * than the land alone for the thing the whole planet was built to hold (the
+ * land's count is `CLAUDE.md`'s, 2026-09-13). It was set when this was 640,000
+ * and the land 1.5 M, and has moved since with the towns and the land both.
  *
  * It binds where the count cap does not. The densest 1,500-unit neighbourhood on
  * Earth is Ulm's, with 192 places in it; at the median ten plots a place that is
@@ -441,9 +449,10 @@ const SIGNAL_PART = 'traffic-light';
  *
  * So the crowd is not a level of detail on the *part*, it is a rank: the scan
  * already sorts by distance, and the nearest twelve get people while everything
- * behind them does not. Crossing the line drops the town and rebuilds it, which
- * is why there are two numbers and not one — at a single threshold a town
- * hovering on it rebuilds every scan.
+ * behind them does not. Crossing the line builds the town again (`rebuild`,
+ * the old one standing until the new one does), which is why there are two
+ * numbers and not one — at a single threshold a town hovering on it rebuilds
+ * every scan.
  */
 const PEOPLED_RANK = 12;
 const UNPEOPLE_RANK = 20;
@@ -639,10 +648,13 @@ interface FlatVariant {
    * inside a neighbour.
    */
   box: { minX: number; maxX: number; minZ: number; maxZ: number };
-  /** Kept unmerged so `compare()` can build the instanced version of the same town. */
-  group: THREE.Group;
-  /** One entry per source mesh: what an `InstancedMesh` of this variant would need. */
-  pieces: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4; material: THREE.Material }[];
+  /**
+   * Vertices of each source mesh, which is all `compare()` needs to price the
+   * instanced version of the same town. It used to keep the built group and
+   * every piece's geometry for that alone — the whole kit, unmerged, held for
+   * the session for one debug call.
+   */
+  pieceVertices: number[];
 }
 
 /**
@@ -708,66 +720,30 @@ function flatten(
   group: THREE.Group,
   key: string | number = 'variant',
   lottery = true,
-): Omit<FlatVariant, 'group' | 'pieces' | 'height'> & {
-  pieces: FlatVariant['pieces'];
-} {
-  group.updateMatrixWorld(true);
-  const pieces: (FlatVariant['pieces'][number] & { lit: number })[] = [];
-  let vertices = 0;
-  group.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (mesh.isMesh !== true) return;
-    const geometry = mesh.geometry;
-    const position = geometry.getAttribute('position');
-    if (position === undefined) return;
-    vertices += geometry.index ? geometry.index.count : position.count;
-    pieces.push({
-      geometry,
-      matrix: mesh.matrixWorld.clone(),
-      material: Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material,
-      // `ctx.lit` marks the mesh and not the material, so one glass colour can
-      // be a window on one part and a doorway on the next.
-      lit: typeof mesh.userData.atlasLit === 'number' ? (mesh.userData.atlasLit as number) : 0,
-    });
-  });
-
+): Omit<FlatVariant, 'height'> {
+  // The positions, normals, colours and the ink's normals are the one merge
+  // (`merge.ts`); what is this file's is the windows, walked a second time
+  // over the same pieces in the same order.
+  const merged: MergePiece[] = [];
+  const arrays = mergeMeshes(group, merged);
+  const vertices = arrays.triangles * 3;
   const out = {
-    position: new Float32Array(vertices * 3),
-    normal: new Float32Array(vertices * 3),
-    color: new Float32Array(vertices * 3),
-    outline: new Float32Array(vertices * 3),
+    ...arrays,
     glow: new Uint8Array(vertices * 2),
     emits: false,
     litBed: 0,
-    triangles: vertices / 3,
-    pieces: pieces as FlatVariant['pieces'],
+    pieceVertices: merged.map((piece) => piece.count),
   };
   let brightest = 0;
 
-  const tint = new THREE.Color();
-  const point = new THREE.Vector3();
-  const normalMatrix = new THREE.Matrix3();
-  let cursor = 0;
-  let vertex = 0;
   let window = 0;
-  for (const piece of pieces) {
-    const geometry = piece.geometry;
-    const position = geometry.getAttribute('position');
-    const normal = geometry.getAttribute('normal');
-    const index = geometry.index;
-    const count = index ? index.count : position.count;
-    normalMatrix.getNormalMatrix(piece.matrix);
-    const hex = piece.material.userData.atlasToon as number | undefined;
-    // A material that never went through `ctx.toon` cannot say what colour it
-    // is. White rather than a throw: one part drawn wrong is better than a
-    // continent with no towns on it.
-    tint.set(hex ?? 0xffffff);
-    // A painted part (`ctx.painted`) carries its colours on the vertices.
-    const paint = piece.material.userData.atlasPainted === true ? geometry.getAttribute('color') : undefined;
-    const outline = geometry.getAttribute('outlineNormal') ?? normal;
+  for (const piece of merged) {
+    // `ctx.lit` marks the mesh and not the material, so one glass colour can
+    // be a window on one part and a doorway on the next.
+    const lit = typeof piece.mesh.userData.atlasLit === 'number' ? (piece.mesh.userData.atlasLit as number) : 0;
     // A painted building is one mesh: only the vertices its mask names are
     // glass, and the mask numbers its windows (`ModelFit.windows`).
-    const windows = geometry.getAttribute('atlasWindow');
+    const windows = piece.geometry.getAttribute('atlasWindow');
     /** One window's light and its hour, drawn once. */
     const roll = (): [number, number] => {
       // Keyed on the window's ordinal within the variant rather than on the
@@ -775,10 +751,10 @@ function flatten(
       // relight every one of its windows.
       const rng = rngFrom(key, 'window', window++);
       const glow = !lottery
-        ? Math.round(piece.lit * 255)
+        ? Math.round(lit * 255)
         : rng.chance(WINDOW_DARK)
           ? 0
-          : Math.round(rng.range(WINDOW_LOW, WINDOW_HIGH) * piece.lit * 255);
+          : Math.round(rng.range(WINDOW_LOW, WINDOW_HIGH) * lit * 255);
       // A lamp is the council's and burns till dawn; a window is a household's
       // and goes out when whoever is behind it goes to bed. Same distinction
       // `lottery` already draws, and drawn from a forked seed so that changing
@@ -796,46 +772,23 @@ function flatten(
     };
     let glow = 0;
     let bed = 0;
-    if (piece.lit > 0 && windows === undefined) [glow, bed] = roll();
+    if (lit > 0 && windows === undefined) [glow, bed] = roll();
     const panes = new Map<number, [number, number]>();
-    for (let i = 0; i < count; i++) {
-      const v = index ? index.getX(i) : i;
-      point.fromBufferAttribute(position, v).applyMatrix4(piece.matrix);
-      out.position[cursor] = point.x;
-      out.position[cursor + 1] = point.y;
-      out.position[cursor + 2] = point.z;
-      point.fromBufferAttribute(normal, v).applyMatrix3(normalMatrix).normalize();
-      out.normal[cursor] = point.x;
-      out.normal[cursor + 1] = point.y;
-      out.normal[cursor + 2] = point.z;
-      point.fromBufferAttribute(outline, v).applyMatrix3(normalMatrix).normalize();
-      out.outline[cursor] = point.x;
-      out.outline[cursor + 1] = point.y;
-      out.outline[cursor + 2] = point.z;
-      if (paint !== undefined) {
-        out.color[cursor] = paint.getX(v);
-        out.color[cursor + 1] = paint.getY(v);
-        out.color[cursor + 2] = paint.getZ(v);
-      } else {
-        out.color[cursor] = tint.r;
-        out.color[cursor + 1] = tint.g;
-        out.color[cursor + 2] = tint.b;
-      }
+    for (let i = 0; i < piece.count; i++) {
+      const vertex = piece.first + i;
       if (windows === undefined) {
         out.glow[vertex * 2] = glow;
         out.glow[vertex * 2 + 1] = bed;
       } else {
-        const pane = windows.getX(v);
+        const pane = windows.getX(sourceVertex(piece, i));
         let light: [number, number] = [0, 0];
-        if (pane > 0 && piece.lit > 0) {
+        if (pane > 0 && lit > 0) {
           light = panes.get(pane) ?? roll();
           panes.set(pane, light);
         }
         out.glow[vertex * 2] = light[0];
         out.glow[vertex * 2 + 1] = light[1];
       }
-      cursor += 3;
-      vertex++;
     }
   }
   let minX = Infinity;
@@ -956,8 +909,6 @@ export interface Settlements {
    * space, for `folk.ts` to stand skinned characters on. Appends to `out`.
    */
   folkNear(viewer: THREE.Vector3, radius: number, out: FolkAnchor[]): void;
-  /** The nearest settlement to a point, built or not. For the HUD and for debugging. */
-  nearest(point: THREE.Vector3): { place: Place; distance: number } | null;
   /**
    * How high the made ground stands here, as a radius from the planet's centre,
    * or 0 if this point is not on a town's floor.
@@ -1024,6 +975,8 @@ export interface Settlements {
    * costs a few seconds and leaves the world as it found it.
    */
   survey(step?: number, near?: boolean): unknown;
+  /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
+  proxies(): THREE.Object3D[];
 }
 
 /**
@@ -1044,18 +997,23 @@ export interface Settlements {
  * Instancing wins on memory by two to four times, because a merged town stores
  * every vertex of every house and an instanced one stores a matrix. It loses on
  * the number that matters by two hundred times, and the memory it saves is not
- * scarce: 48 resident settlements peak at 12.5 MB against the land mesh's 83.
+ * scarce: when the streamer kept 48 towns they peaked at 12.5 MB against the
+ * land mesh's 83.
  *
  * The count is not an artefact of instancing per town, either. Instances could
  * be pooled across every resident settlement of one region — but the pool is
  * still a mesh per (part, variant, colour) and a region uses about 220 of them,
  * so the floor is ~220 draw calls whether one town is standing or forty. Merged
- * costs one *per town*, and the streamer never keeps more than 48. The crossover
- * is around two hundred settlements, which the triangle budget forbids.
+ * costs one *per town*. That was a margin of four when the streamer kept 48;
+ * it keeps `MAX_RESIDENT` now, 140 at detail 1 and 727 at 6, so the crossover
+ * of about two hundred resident is inside the knob's range above about detail
+ * 1.35 — and what still decides it for merging is the next paragraph: what is
+ * resident is not what is drawn.
  *
  * Two things fall out of merging that instancing would not have given:
  * frustum culling is per town, because each mesh has its own bounding sphere
- * (48 resident settlements cost 12 draw calls at ground level, not 96); and
+ * (measured with 48 resident, they cost 12 draw calls at ground level, not
+ * 96); and
  * `src/outline.ts`'s instancing fix — which this file was expected to need —
  * turns out not to be on the path at all. The reflected-basis trap still is:
  * a negative determinant flips the winding of merged triangles exactly as it
@@ -1157,11 +1115,24 @@ interface Slot {
    */
   peopled: boolean;
   /**
-   * Where this town's people stand, in its own frame, while it is standing.
+   * What the standing mesh was built with, which `peopled` may have left
+   * behind; and whether that difference is worth a rebuild (`stale`). A stale
+   * town stays drawn until its replacement is built, and the two trade places
+   * in one frame — see `rebuild`.
+   */
+  builtPeopled: boolean;
+  stale: boolean;
+  /**
+   * Where this town's people stand, in world space, while it is standing.
    * Nobody is drawn here: `folk.ts` dresses the nearest of them as skinned
    * characters, because a person merged into the town's buffer cannot move.
+   *
+   * Resolved into the world once, at `raise`, and handed out as the same
+   * objects every frame by `folkNear`, which only writes their `distance`: it
+   * used to clone a position and a quaternion a person a frame for every town
+   * within reach, and walk all 29,545 slots to find them.
    */
-  folk: { key: string; local: THREE.Vector3; yaw: number; region: string; warmth: number }[];
+  folk: FolkAnchor[];
 }
 
 export interface SettlementOptions {
@@ -1242,6 +1213,8 @@ export function createSettlements(
       floor: null,
       failed: false,
       peopled: false,
+      builtPeopled: false,
+      stale: false,
       folk: [],
     };
   });
@@ -1301,7 +1274,7 @@ export function createSettlements(
     }
     // A lamp is not a household: see `flatten`.
     const flat = flatten(built, key, entry.kind !== 'scatter');
-    const value: FlatVariant = { ...flat, group: built, height: measure(built).height };
+    const value: FlatVariant = { ...flat, height: measure(built).height };
     variants.set(key, value);
     return value;
   }
@@ -1337,7 +1310,7 @@ export function createSettlements(
         const built = entry.build(traffic, vehicleRng(entry, style, index), style);
         const scale = placedScale(entry);
         built.scale.set(scale[0], scale[1], scale[2]);
-        value = { ...flatten(built, key, false), group: built, height: placedSize(entry)[2] };
+        value = { ...flatten(built, key, false), height: placedSize(entry)[2] };
       } catch (error) {
         broken.push(`${key}: ${String(error)}`);
       }
@@ -1375,11 +1348,6 @@ export function createSettlements(
       .normalize();
   }
 
-  /**
-   * A standing building's wall, for `solids.ts`: its plan box turned by its yaw
-   * and scaled, centred where the box's own centre lands, and as tall as the
-   * variant from the terrace it stands on.
-   */
   /** Adds the cells whose centres a solid's footprint covers, and the one it stands in. */
   function pavedUnder(solid: Solid, grid: TownGrid, into: Set<number>): void {
     const reach = Math.hypot(solid.hx, solid.hz);
@@ -1399,6 +1367,11 @@ export function createSettlements(
     }
   }
 
+  /**
+   * A standing building's wall, for `solids.ts`: its plan box turned by its yaw
+   * and scaled, centred where the box's own centre lands, and as tall as the
+   * variant from the terrace it stands on.
+   */
   function solidOf(flat: FlatVariant, x: number, z: number, yaw: number, scale: number, level: number): Solid {
     const box = flat.box;
     const cx = (box.minX + box.maxX) * 0.5 * scale;
@@ -1415,10 +1388,9 @@ export function createSettlements(
     );
   }
 
-  /** Rebuilds the tangent frame, the ground origin and the keepouts about `up`. */
   /**
-   * The lattice of the town being built: its pitch, its seed, and the elevation
-   * every terrace is quantised about.
+   * The lattice of the town being built: its square (which `cornerAt` reads),
+   * its seed, and the elevation every terrace is quantised about.
    *
    * **Hoisted out of `buildGround`, and that is the terracing in one sentence.**
    * The floor used to be decided after the buildings were placed, because a
@@ -1427,7 +1399,6 @@ export function createSettlements(
    * surfaces this cell is cut to — and a house has to stand on the same one its
    * cell will be paved at, so the choice has to exist before either.
    */
-  /** The square of the town being raised. `cornerAt` reads it. */
   let townGridNow: TownGrid = townGrid(0);
   let cellSeed = '';
   let baseElevation = 0;
@@ -1513,6 +1484,7 @@ export function createSettlements(
     return terraces.get(cellKey(col, row)) ?? null;
   }
 
+  /** Rebuilds the tangent frame, the ground origin and the keepouts about `up`. */
   function frameAt(): void {
     // The frame `placement.ts` builds, for the same reason: +Z along the ground
     // towards the pole, so every settlement on the planet is squared to the same
@@ -3107,6 +3079,8 @@ export function createSettlements(
 
   function raise(slot: Slot): void {
     if (slot.mesh !== null || slot.failed) return;
+    slot.builtPeopled = slot.peopled;
+    slot.stale = false;
 
     up.copy(slot.direction);
     frameAt();
@@ -3487,12 +3461,14 @@ export function createSettlements(
         const rng = rngFrom(slot.seed, 'person', i);
         // Published, not merged: a person is a skinned character now and
         // `folk.ts` stands them here while the player is near. See `folkNear`.
+        // In the town's frame here; into the world's once the mesh is placed.
         slot.folk.push({
           key: `${slot.seed}|${i}`,
-          local: new THREE.Vector3(ground.folk[i * 3]!, ground.folk[i * 3 + 1]!, ground.folk[i * 3 + 2]!),
-          yaw: rng.range(0, Math.PI * 2),
+          position: new THREE.Vector3(ground.folk[i * 3]!, ground.folk[i * 3 + 1]!, ground.folk[i * 3 + 2]!),
+          quaternion: new THREE.Quaternion().setFromAxisAngle(AXIS_Y, rng.range(0, Math.PI * 2)),
           region: regionId,
           warmth,
+          distance: 0,
         });
         placedFolk++;
       }
@@ -3626,11 +3602,20 @@ export function createSettlements(
     // this one transform. Two things fall out of it and both matter: the
     // bounding sphere is the town's own, so frustum culling works per town
     // instead of per planet, and the vertex coordinates stay under a hundred
-    // units instead of sixteen thousand, where a float has 0.001 of precision
-    // rather than 1.
+    // units instead of sixteen thousand: a float steps by 2^-17, under a
+    // hundred-thousandth of a unit, rather than the 2^-10 — a thousandth — it
+    // steps by at the planet's radius.
     mesh.position.copy(origin);
     mesh.quaternion.setFromRotationMatrix(basis);
     group.add(mesh);
+    fader.in(mesh);
+    // The people into the world's frame, once: the town does not move while
+    // it stands, so `folkNear` never has to.
+    for (const person of slot.folk) {
+      person.position.applyQuaternion(mesh.quaternion).add(mesh.position);
+      person.quaternion.premultiply(mesh.quaternion);
+    }
+    if (slot.folk.length > 0) inhabited.add(slot);
 
     slot.mesh = mesh;
     slot.triangles = total / 3;
@@ -3641,14 +3626,33 @@ export function createSettlements(
     slot.bytes = total * (3 * 4 * 3 + 2 + 3);
   }
 
-  function drop(slot: Slot): void {
-    slot.folk = [];
-    if (slot.mesh === null) return;
-    group.remove(slot.mesh);
+  /**
+   * Out of the world: dissolved away (`fade.ts`), or at once when `instant` —
+   * which is what `survey` and `compare` want, since they raise towns nobody
+   * should see arrive.
+   */
+  function retireMesh(mesh: THREE.Mesh, instant: boolean): void {
     // The geometry is this settlement's and nothing else holds it. The material
     // is one object shared by every town on the planet — disposing it would
     // blank all of them.
-    slot.mesh.geometry.dispose();
+    const gone = (): void => {
+      group.remove(mesh);
+      mesh.geometry.dispose();
+    };
+    if (instant) {
+      fader.cancel(mesh);
+      gone();
+    } else fader.out(mesh, gone);
+  }
+
+  function drop(slot: Slot, instant = false): void {
+    // After the early return, not before it: `scan` calls this on every slot
+    // it does not want, and a fresh array each was 29,545 of them a scan.
+    if (slot.mesh === null) return;
+    slot.stale = false;
+    slot.folk = [];
+    inhabited.delete(slot);
+    retireMesh(slot.mesh, instant);
     slot.mesh = null;
     slot.triangles = 0;
     slot.parts = 0;
@@ -3659,6 +3663,58 @@ export function createSettlements(
     slot.floor = null;
     floors.delete(slot);
     slot.bytes = 0;
+  }
+
+  /**
+   * Builds a standing town again, and trades the old mesh for the new one in
+   * the same frame.
+   *
+   * **Crossing `PEOPLED_RANK` used to drop the town and queue it**, so every
+   * building changed at once — the City Kits for the code parts, or back — and
+   * when the queue was busy the square stood empty for as many frames as it
+   * waited. The floor, the walls and the people are the new town's the moment
+   * it is raised; only the old mesh is kept, and only until then.
+   */
+  function rebuild(slot: Slot): void {
+    const old = slot.mesh;
+    if (old === null) {
+      raise(slot);
+      return;
+    }
+    // What the old town published goes now, and the new one publishes its
+    // own; `noteFloor` first, because it reads the floor it is noting.
+    if (slot.floor !== null) noteFloor(slot);
+    slot.floor = null;
+    floors.delete(slot);
+    inhabited.delete(slot);
+    slot.folk = [];
+    slot.mesh = null;
+    raise(slot);
+    // Out as the new one comes in, on complementary pixels: a cross-dissolve.
+    retireMesh(old, false);
+    if (slot.mesh === null) {
+      // It would not build again: nothing stands here now, as after `drop`.
+      slot.triangles = 0;
+      slot.parts = 0;
+      slot.paved = 0;
+      slot.bytes = 0;
+      slot.stale = false;
+    }
+  }
+
+  /**
+   * Whether a town whose rank has moved has to be built again to show it.
+   *
+   * Where the region has kit assets the buildings themselves differ, so it
+   * does. Where it has none, the only thing a near town has in its buffer that
+   * a far one lacks is the cars parked at its kerbs: a far town built near
+   * keeps them and simply stops publishing its people (`folkNear`), and a near
+   * town built near is already right. Only a town that was built far and is
+   * near now has anything to gain.
+   */
+  function needsRebuild(slot: Slot): boolean {
+    if (slot.mesh === null || slot.builtPeopled === slot.peopled) return false;
+    return slot.style.assets !== undefined || slot.peopled;
   }
 
   // ------------------------------------------------------------------
@@ -3689,6 +3745,10 @@ export function createSettlements(
    * not there.
    */
   const floors = new Set<Slot>();
+  /** Every standing town with people in it, for `folkNear`; kept the same way. */
+  const inhabited = new Set<Slot>();
+  /** Towns arriving and leaving by dissolving; see `fade.ts`. */
+  const fader = createFader();
 
   function madeHeightAt(point: THREE.Vector3): number {
     madeDir.copy(point).normalize();
@@ -3925,9 +3985,10 @@ export function createSettlements(
       const want = slot.peopled ? rank < UNPEOPLE_RANK : rank < PEOPLED_RANK;
       if (want !== slot.peopled) {
         slot.peopled = want;
-        // The crowd is baked into the merged buffer, so the only way to change
-        // it is to build the town again.
-        if (slot.mesh !== null) drop(slot);
+        // The parked cars and the kit's buildings are baked into the merged
+        // buffer, so the only way to change them is to build the town again —
+        // queued, and drawn as it was until the new one stands. See `rebuild`.
+        slot.stale = needsRebuild(slot);
       }
     }
 
@@ -3957,7 +4018,7 @@ export function createSettlements(
     for (let i = 0; i < slots.length; i++) {
       if (!set.has(i)) drop(slots[i]!);
     }
-    queue = wanted.filter((index) => slots[index]!.mesh === null);
+    queue = wanted.filter((index) => slots[index]!.mesh === null || slots[index]!.stale);
   }
 
   /**
@@ -3980,7 +4041,6 @@ export function createSettlements(
   }
 
   const folkDirection = new THREE.Vector3();
-  const folkYaw = new THREE.Quaternion();
   return {
     group,
     stats,
@@ -3991,21 +4051,24 @@ export function createSettlements(
     folkNear(viewer, radius, out) {
       const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
       const direction = folkDirection.copy(viewer).normalize();
-      for (const slot of slots) {
-        if (slot.mesh === null || slot.folk.length === 0) continue;
+      // Only what is standing and has people, which is a handful: this runs
+      // every frame on foot, and the other 29,500 slots have nobody in them.
+      for (const slot of inhabited) {
+        // A town built near and far again keeps its buffer — see
+        // `needsRebuild` — and stops publishing its people.
+        if (!slot.peopled) continue;
         if (slot.direction.dot(direction) < cosReach) continue;
-        const mesh = slot.mesh;
         for (const person of slot.folk) {
-          const position = person.local.clone().applyQuaternion(mesh.quaternion).add(mesh.position);
-          const distance = position.distanceTo(viewer);
+          const distance = person.position.distanceTo(viewer);
           if (distance > radius) continue;
-          const quaternion = mesh.quaternion.clone().multiply(folkYaw.setFromAxisAngle(AXIS_Y, person.yaw));
-          out.push({ key: person.key, region: person.region, warmth: person.warmth, position, quaternion, distance });
+          person.distance = distance;
+          out.push(person);
         }
       }
     },
 
     update(viewer, altitude, camera) {
+      fader.update();
       const range = rangeFor(altitude);
       stats.range = Math.round(range);
       stats.reach = Math.round(reachFor(altitude));
@@ -4029,11 +4092,16 @@ export function createSettlements(
         const began = performance.now();
         const allowance = detailBuild(BUILD_BUDGET_MS);
         let built = 0;
-        while (queue.length > 0 && performance.now() - began < allowance) {
-          const index = queue.shift()!;
-          const slot = slots[index]!;
-          if (slot.mesh !== null) continue;
-          raise(slot);
+        while (queue.length > 0) {
+          const slot = slots[queue[0]!]!;
+          // Near first, and out of the whole frame; far only out of its share
+          // of it (`view.ts`). The queue is nearest first, so the first far
+          // town that does not fit is the last thing this frame would build.
+          const near = slot.anchor.distanceTo(viewer) - slot.radius < NEAR_BUILD;
+          if (!mayBuild(began, allowance, near)) break;
+          queue.shift();
+          if (slot.mesh !== null && !slot.stale) continue;
+          rebuild(slot);
           built++;
         }
         if (built > 0) {
@@ -4063,6 +4131,7 @@ export function createSettlements(
 
     madeHeightAt,
     swardAt,
+    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
     floorChanges(since, into) {
       into.length = 0;
       if (floorVersion - since > FLOOR_CHANGES) {
@@ -4080,16 +4149,6 @@ export function createSettlements(
     blocksSight,
     freeSpotNear,
 
-    nearest(point) {
-      let best: { place: Place; distance: number } | null = null;
-      for (const slot of slots) {
-        if (!isShown(slot.place)) continue;
-        const distance = slot.anchor.distanceTo(point);
-        if (best === null || distance < best.distance) best = { place: slot.place, distance };
-      }
-      return best;
-    },
-
     /**
      * Merged against instanced, on a real settlement, in one call.
      *
@@ -4103,7 +4162,7 @@ export function createSettlements(
       if (slot === undefined) return { error: `no place called ${name}` };
 
       const wasResident = slot.mesh !== null;
-      drop(slot);
+      drop(slot, true);
       // A settlement that built nothing is marked failed so the streamer stops
       // asking; a measurement has to be able to ask again.
       slot.failed = false;
@@ -4134,13 +4193,10 @@ export function createSettlements(
       for (const entry of plan) {
         const flat = variantOf(entry.partId, slot.style, entry.variant);
         if (flat === null) continue;
-        for (let piece = 0; piece < flat.pieces.length; piece++) {
+        for (let piece = 0; piece < flat.pieceVertices.length; piece++) {
           const key = `${entry.partId}:${entry.variant}:${piece}`;
           buckets.set(key, (buckets.get(key) ?? 0) + 1);
-          const geometry = flat.pieces[piece]!.geometry;
-          const count = geometry.index
-            ? geometry.index.count
-            : geometry.getAttribute('position').count;
+          const count = flat.pieceVertices[piece]!;
           instancedTriangles += count / 3;
           // One matrix per instance, and the geometry once per bucket.
           instancedBytes += 16 * 4;
@@ -4152,7 +4208,7 @@ export function createSettlements(
       }
       const instanceMs = performance.now() - instanceBegan;
 
-      if (!wasResident) drop(slot);
+      if (!wasResident) drop(slot, true);
 
       return {
         place: `${slot.place.name} (${slot.place.iso}), pop ${slot.place.pop.toLocaleString('en')}`,
@@ -4347,7 +4403,7 @@ export function createSettlements(
           }
         }
         if (!wasResident) {
-          drop(slot);
+          drop(slot, true);
           slot.failed = wasFailed;
           slot.peopled = wasPeopled;
         }

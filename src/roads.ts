@@ -3,13 +3,17 @@ import type { World } from './geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { lightWindows, poolAt } from './lights.ts';
+import { proxyOf } from './warm.ts';
+import { FADES, dissolveGLSL } from './fade.ts';
 import { isShown, prominenceVersion, radiusFor } from './places.ts';
 import type { Place } from './places.ts';
-import { decodeRoads, inflate } from './pack.ts';
+import { DATA_URL, decodeRoads, inflate } from './pack.ts';
 import {
   createViewCone,
   detailArea,
   detailBuild,
+  mayBuild,
+  NEAR_BUILD,
   detailReach,
   detailVersion,
   fogFar,
@@ -1295,7 +1299,9 @@ export interface RoadData {
   roads: Road[];
 }
 
-export async function loadRoads(url = '/data/roads.bin'): Promise<RoadData> {
+// Under the deploy's base, as `kit.ts` and `cast.ts` fetch theirs, so a build
+// served from a sub-path finds its data. Node has no `import.meta.env`.
+export async function loadRoads(url = `${DATA_URL}roads.bin`): Promise<RoadData> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);
   return decodeRoads(await inflate(await response.arrayBuffer()));
@@ -1926,6 +1932,15 @@ const TILE_ROWS = Math.round(180 / TILE);
 /** Triangles of resident road. `OutlineEffect` draws them twice. */
 const TRIANGLE_BUDGET = 260_000;
 const triangleBudget = (): number => detailArea(TRIANGLE_BUDGET);
+/**
+ * Bytes of laid ribbon kept for the next tile that wants the same road in the
+ * same band; see `ribbonOf`. A lane a thousand units long in the near band is
+ * about 1,000 vertices and 25 KB of doubles and colours, so this holds the
+ * roads of a region several times over.
+ */
+const RIBBON_CACHE_BYTES = 24 * 1048576;
+/** The share of a class's reach a road dissolves over, at its far end; see the material. */
+const REACH_FADE = 0.15;
 /** Milliseconds of building allowed in one frame. Same law as the settlements. */
 const BUILD_BUDGET_MS = 3;
 /** How far the viewer moves, or turns, before the candidate list is worked out again. */
@@ -1973,6 +1988,8 @@ export interface RoadStats {
 export interface Roads {
   group: THREE.Group;
   stats: RoadStats;
+  /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
+  proxies(): THREE.Object3D[];
   /**
    * Every road in `roads.bin`, which is every road that is drawn: the bake
    * joins the built towns and there is no load-time pass left. For the console
@@ -2243,16 +2260,44 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   // chunks they match, so the order does not matter.
   lightWindows(material);
   const lit = material.onBeforeCompile;
+  /**
+   * **And a road dissolves over the last `REACH_FADE` of its class's reach**,
+   * where it used to pop in whole the scan its nearest priced point came
+   * inside it (`priceRoads`) and out whole the scan it left. It has no ink, so
+   * a screen door in the fill is the whole of it (`fade.ts`); the distance is
+   * the fragment's own from the camera against its class's reach, handed in
+   * per vertex as `roadClass` and per scan as `roadReach` — a `vec3`, one
+   * for each of the three `ROAD_CLASSES`. A long road whose
+   * nearest point is inside its reach now dissolves along its far end rather
+   * than standing whole to it. With `FADES` off the reach is a number no
+   * distance on the planet reaches.
+   */
+  const NO_REACH = 1e9;
+  const reachUniform = { value: new THREE.Vector3(NO_REACH, NO_REACH, NO_REACH) };
   material.onBeforeCompile = (shader, renderer) => {
     lit(shader, renderer);
+    shader.uniforms['roadReach'] = reachUniform;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float roadLayer;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nattribute float roadLayer;\nattribute float roadClass;\nuniform vec3 roadReach;\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;',
+      )
       .replace(
         '#include <project_vertex>',
-        `#include <project_vertex>\n\tgl_Position.z += roadLayer * ${LAYER_DEPTH.toExponential(3)} * gl_Position.w;`,
+        `#include <project_vertex>\n\tgl_Position.z += roadLayer * ${LAYER_DEPTH.toExponential(3)} * gl_Position.w;` +
+          '\n\tvRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;' +
+          '\n\tvRoadReach = roadClass < 0.5 ? roadReach.x : roadClass < 1.5 ? roadReach.y : roadReach.z;',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        '#include <clipping_planes_fragment>\n' +
+          `float roadFade = 1.0 - smoothstep(vRoadReach * ${(1 - REACH_FADE).toFixed(3)}, vRoadReach, distance(vRoadWorld, cameraPosition));\n` +
+          dissolveGLSL('roadFade'),
       );
   };
-  material.customProgramCacheKey = () => 'roads:layers:lit';
+  material.customProgramCacheKey = () => 'roads:layers:lit:fade';
 
   const scratch = new THREE.Vector3();
   const roads = data.roads;
@@ -2524,33 +2569,49 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     }
   }
 
-  function raise(tile: Tile, band: number, sign: number): void {
+  /**
+   * One road's ribbon in one band, cached: its vertices in world units at
+   * double precision, their colours, and each one's gate light.
+   *
+   * **A tile used to be rebuilt road by road**, re-sampling every road in it
+   * at `span` with several `elevationAt` a section, whenever any one road
+   * crossed its class reach and changed the tile's drawn set (`signOf`) — a
+   * whole 4-degree tile re-laid for one lane. A road's ribbon in a band is a
+   * pure function of the road, the band and the prominence version (its ramp
+   * and its gate lights ask `isShown`), so it is laid once and kept, and a
+   * tile is assembled by copying: the tile's own origin is subtracted from the
+   * doubles exactly as it was from the points being laid, so the buffer is the
+   * one it always was. Least recently used first out past `RIBBON_CACHE_BYTES`.
+   */
+  interface Ribbon {
+    position: Float64Array;
+    color: Float32Array;
+    /** The first of the two light bytes; the hour is always 255. See `ribbonGlow`. */
+    glow: Uint8Array;
+    bytes: number;
+  }
+  const ribbons = new Map<number, Ribbon>();
+  let ribbonBytes = 0;
+
+  function ribbonOf(index: number, band: number): Ribbon {
+    const key = index * SPANS.length + band;
+    const known = ribbons.get(key);
+    if (known !== undefined) {
+      // Most recently used last, which is the order the cache empties in.
+      ribbons.delete(key);
+      ribbons.set(key, known);
+      return known;
+    }
     const span = SPANS[band]!.span;
-    /**
-     * The tile's corners, relative to the first of them, and the mesh placed
-     * there: at the planet's radius a float steps by 0.001 to 0.002 of a unit,
-     * which is more than a depth layer is anywhere past the player's feet, and
-     * two surfaces a layer apart then fight. Across a tile the step is about a
-     * ten-thousandth.
-     */
-    let origin: THREE.Vector3 | null = null;
     const positions: number[] = [];
     const colors: number[] = [];
-    /** Each vertex's road's depth layer; see `LAYER_DEPTH`. */
-    const layers: number[] = [];
-    /** Each vertex's light and its hour, the two bytes a town's floor carries; see `ribbonGlow`. */
     const glow: number[] = [];
-    let layer = 0;
     let lights: readonly GateLight[] = NO_LIGHTS;
-    let drawn = 0;
 
     const push = (p: THREE.Vector3, c: THREE.Color): void => {
-      origin ??= p.clone();
-      positions.push(p.x - origin.x, p.y - origin.y, p.z - origin.z);
+      positions.push(p.x, p.y, p.z);
       colors.push(c.r, c.g, c.b);
-      layers.push(layer);
-      // 255 is the hour that never comes: a gate's light burns till dawn.
-      glow.push(ribbonGlow(lights, p), 255);
+      glow.push(ribbonGlow(lights, p));
     };
     const quad = (
       p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3,
@@ -2596,9 +2657,107 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const far = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     const stations: number[] = [];
 
+    const road = roads[index]!;
+    const style = ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!;
+    // Gate to gate, on the course the bake tested: nothing is clipped,
+    // because nothing of a road is inside a square to begin with.
+    const course = geometry.course(index);
+    const path = geometry.path(index);
+    const ramp = rampFor(index);
+    lights = gateLightsFor(index);
+    const half = style.width * 0.5 * (BAND_WIDTH[band] ?? 1);
+
+    /**
+     * The surface, sampled once per road at its middle.
+     *
+     * **Every road drawn is made ground.** It takes the region's own
+     * carriageway colour — the same `GroundStyle.road` the streets inside the
+     * towns at either end are paved with, so a road entering a town continues
+     * rather than changing surface at the sign — and a trunk is that same
+     * surface worn darker by what runs on it.
+     *
+     * There used to be a third answer here: a `lane` was drawn as a dirt
+     * track, `dirt(ground)`, the local ground shifted to brown. It was the
+     * right colour for the wrong object — *¿son caminos? Fuera, solo
+     * carreteras* — and what the user wanted was **one material**, so a lane
+     * is drawn in the same made surface as everything else and is narrower.
+     * The branch is gone rather than unreachable.
+     *
+     * The region comes from the road's own end rather than from the ground it
+     * crosses, because a carriageway is a thing people built and `regions.ts`
+     * is where the kit keeps who built it.
+     */
+    readMiddle(index, point);
+    groundColorAt(world, scratch.copy(point).multiplyScalar(PLANET_RADIUS), ground);
+    const surface = groundStyleFor(regionOf(road.a).id);
+    crown.setHex(surface.road);
+    const marked = surface.marked && band === 0;
+    if (road.cls === 2) crown.lerp(ink, 0.12);
+    trodden(ground, verge);
+    /**
+     * The edge of the carriageway, and it costs **no triangle at all**.
+     *
+     * The user asked for a road that reads as more than one flat band, and the
+     * obvious way to do it — a narrower crown strip inside the carriageway, or
+     * a dashed line down the middle — needs two more points in every
+     * cross-section, which is ten triangles a section against six: **+67% of
+     * the whole network's geometry**, against a 260,000 triangle budget that
+     * already binds at altitude, for a mark 1.2 units wide that stops
+     * resolving at about sixty units. So the two tones are put where the
+     * section already has a vertex: the shoulder quads carry `kerb` at the
+     * carriageway's edge instead of the crown's own colour, and the crown quad
+     * keeps it.
+     *
+     * The buffers are non-indexed, so the two quads meeting at ±half do not
+     * share vertices and the step is a **hard line** rather than a gradient —
+     * which is the whole point, and is why this reads at the distance a
+     * Gouraud ramp across half a carriageway would not. Geometrically that
+     * line is where the shoulder starts dropping, so the tone is drawing an
+     * edge that is really there.
+     *
+     * A tone of the crown and not a neutral, for `GROUND_STYLES`' own reason:
+     * a dark neutral band on the ground is what a *shadow* looks like in this
+     * scene. `ink` is a warm brown and the mix is small.
+     */
+    kerb.copy(crown).lerp(ink, 0.26);
+
+    // The stations are measured along the path, so a section is still at
+    // most `span` units long, both ends land exactly on the two kerbs, and
+    // every break in the height law — the end of an approach, the end of a
+    // ramp — is a section rather than a chord across it. See
+    // `ribbonStations` and `ribbonSection`, which `pnpm check` walks too.
+    ribbonStations(path.length, course.approach, ramp, span, stations);
+    ribbonSection(world, course, path, ramp, half, stations[0]!, near);
+    for (let k = 1; k < stations.length; k++) {
+      ribbonSection(world, course, path, ramp, half, stations[k]!, far);
+      quad(near[0]!, far[0]!, far[1]!, near[1]!, verge, kerb);
+      quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
+      quad(near[2]!, far[2]!, far[3]!, near[3]!, kerb, verge);
+      if (marked) dash(near[1]!, far[1]!, far[2]!, stations[k]! - stations[k - 1]!, half);
+      for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
+    }
+
+    const made: Ribbon = {
+      position: Float64Array.from(positions),
+      color: Float32Array.from(colors),
+      glow: Uint8Array.from(glow),
+      bytes: positions.length * 8 + colors.length * 4 + glow.length,
+    };
+    ribbons.set(key, made);
+    ribbonBytes += made.bytes;
+    for (const [oldest, ribbon] of ribbons) {
+      if (ribbonBytes <= RIBBON_CACHE_BYTES) break;
+      ribbons.delete(oldest);
+      ribbonBytes -= ribbon.bytes;
+    }
+    return made;
+  }
+
+  function raise(tile: Tile, band: number, sign: number): void {
+    const parts: { ribbon: Ribbon; road: Road }[] = [];
+    let vertices = 0;
+    let drawn = 0;
     for (const index of tile.members) {
-      const road = roads[index]!;
-      const style = ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!;
       // The level of detail, and it has to be applied *here* rather than only in
       // the table it is written in. The first version admitted a tile and then
       // drew everything in it, so `ROAD_CLASSES[].reach` documented a
@@ -2609,84 +2768,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       // drawn set moves.
       if (roadDrawn[index] === 0) continue;
       drawn++;
-      layer = road.layer;
-      // Gate to gate, on the course the bake tested: nothing is clipped,
-      // because nothing of a road is inside a square to begin with.
-      const course = geometry.course(index);
-      const path = geometry.path(index);
-      const ramp = rampFor(index);
-      lights = gateLightsFor(index);
-      const half = style.width * 0.5 * (BAND_WIDTH[band] ?? 1);
-
-      /**
-       * The surface, sampled once per road at its middle.
-       *
-       * **Every road drawn is made ground.** It takes the region's own
-       * carriageway colour — the same `GroundStyle.road` the streets inside the
-       * towns at either end are paved with, so a road entering a town continues
-       * rather than changing surface at the sign — and a trunk is that same
-       * surface worn darker by what runs on it.
-       *
-       * There used to be a third answer here: a `lane` was drawn as a dirt
-       * track, `dirt(ground)`, the local ground shifted to brown. It was the
-       * right colour for the wrong object — *¿son caminos? Fuera, solo
-       * carreteras* — and what the user wanted was **one material**, so a lane
-       * is drawn in the same made surface as everything else and is narrower.
-       * The branch is gone rather than unreachable.
-       *
-       * The region comes from the road's own end rather than from the ground it
-       * crosses, because a carriageway is a thing people built and `regions.ts`
-       * is where the kit keeps who built it.
-       */
-      readMiddle(index, point);
-      groundColorAt(world, scratch.copy(point).multiplyScalar(PLANET_RADIUS), ground);
-      const surface = groundStyleFor(regionOf(road.a).id);
-      crown.setHex(surface.road);
-      const marked = surface.marked && band === 0;
-      if (road.cls === 2) crown.lerp(ink, 0.12);
-      trodden(ground, verge);
-      /**
-       * The edge of the carriageway, and it costs **no triangle at all**.
-       *
-       * The user asked for a road that reads as more than one flat band, and the
-       * obvious way to do it — a narrower crown strip inside the carriageway, or
-       * a dashed line down the middle — needs two more points in every
-       * cross-section, which is ten triangles a section against six: **+67% of
-       * the whole network's geometry**, against a 260,000 triangle budget that
-       * already binds at altitude, for a mark 1.2 units wide that stops
-       * resolving at about sixty units. So the two tones are put where the
-       * section already has a vertex: the shoulder quads carry `kerb` at the
-       * carriageway's edge instead of the crown's own colour, and the crown quad
-       * keeps it.
-       *
-       * The buffers are non-indexed, so the two quads meeting at ±half do not
-       * share vertices and the step is a **hard line** rather than a gradient —
-       * which is the whole point, and is why this reads at the distance a
-       * Gouraud ramp across half a carriageway would not. Geometrically that
-       * line is where the shoulder starts dropping, so the tone is drawing an
-       * edge that is really there.
-       *
-       * A tone of the crown and not a neutral, for `GROUND_STYLES`' own reason:
-       * a dark neutral band on the ground is what a *shadow* looks like in this
-       * scene. `ink` is a warm brown and the mix is small.
-       */
-      kerb.copy(crown).lerp(ink, 0.26);
-
-      // The stations are measured along the path, so a section is still at
-      // most `span` units long, both ends land exactly on the two kerbs, and
-      // every break in the height law — the end of an approach, the end of a
-      // ramp — is a section rather than a chord across it. See
-      // `ribbonStations` and `ribbonSection`, which `pnpm check` walks too.
-      ribbonStations(path.length, course.approach, ramp, span, stations);
-      ribbonSection(world, course, path, ramp, half, stations[0]!, near);
-      for (let k = 1; k < stations.length; k++) {
-        ribbonSection(world, course, path, ramp, half, stations[k]!, far);
-        quad(near[0]!, far[0]!, far[1]!, near[1]!, verge, kerb);
-        quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
-        quad(near[2]!, far[2]!, far[3]!, near[3]!, kerb, verge);
-        if (marked) dash(near[1]!, far[1]!, far[2]!, stations[k]! - stations[k - 1]!, half);
-        for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
-      }
+      const ribbon = ribbonOf(index, band);
+      parts.push({ ribbon, road: roads[index]! });
+      vertices += ribbon.glow.length;
     }
 
     // A tile none of whose roads made it into the mesh is *built* — it is
@@ -2694,25 +2778,64 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     // in the queue on every scan for as long as the viewer stood still.
     tile.band = band;
     tile.sign = sign;
-    if (positions.length === 0) return;
+    if (vertices === 0) return;
+
+    /**
+     * The tile's corners, relative to the first of them, and the mesh placed
+     * there: at the planet's radius a float steps by 0.001 to 0.002 of a unit,
+     * which is more than a depth layer is anywhere past the player's feet, and
+     * two surfaces a layer apart then fight. Across a tile the step is about a
+     * ten-thousandth.
+     */
+    const first = parts.find((part) => part.ribbon.glow.length > 0)!.ribbon.position;
+    const ox = first[0]!;
+    const oy = first[1]!;
+    const oz = first[2]!;
+    const positions = new Float32Array(vertices * 3);
+    const colors = new Float32Array(vertices * 3);
+    /** Each vertex's road's depth layer; see `LAYER_DEPTH`. */
+    const layers = new Float32Array(vertices);
+    /** And its class, which the dissolve reads its reach by. */
+    const classes = new Uint8Array(vertices);
+    /** Each vertex's light and its hour, the two bytes a town's floor carries; see `ribbonGlow`. */
+    const glow = new Uint8Array(vertices * 2);
+    let v = 0;
+    for (const { ribbon, road } of parts) {
+      const count = ribbon.glow.length;
+      const source = ribbon.position;
+      for (let i = 0; i < count; i++) {
+        positions[(v + i) * 3] = source[i * 3]! - ox;
+        positions[(v + i) * 3 + 1] = source[i * 3 + 1]! - oy;
+        positions[(v + i) * 3 + 2] = source[i * 3 + 2]! - oz;
+        glow[(v + i) * 2] = ribbon.glow[i]!;
+        // 255 is the hour that never comes: a gate's light burns till dawn.
+        glow[(v + i) * 2 + 1] = 255;
+      }
+      colors.set(ribbon.color, v * 3);
+      layers.fill(road.layer, v, v + count);
+      classes.fill(road.cls, v, v + count);
+      v += count;
+    }
+
     const buffer = new THREE.BufferGeometry();
-    buffer.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    buffer.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    buffer.setAttribute('roadLayer', new THREE.Float32BufferAttribute(layers, 1));
+    buffer.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    buffer.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    buffer.setAttribute('roadLayer', new THREE.BufferAttribute(layers, 1));
+    buffer.setAttribute('roadClass', new THREE.BufferAttribute(classes, 1));
     // Normalised, so the shader reads 0..1 out of each byte, as it does a town's.
-    buffer.setAttribute('atlasLit', new THREE.BufferAttribute(new Uint8Array(glow), 2, true));
+    buffer.setAttribute('atlasLit', new THREE.BufferAttribute(glow, 2, true));
     buffer.computeVertexNormals();
     buffer.computeBoundingSphere();
 
     const mesh = new THREE.Mesh(buffer, material);
     mesh.name = `roads:${tile.members.length}`;
-    mesh.position.copy(origin!);
+    mesh.position.set(ox, oy, oz);
     // A mark on the ground takes the ground's shadows; it casts none.
     mesh.receiveShadow = true;
     group.add(mesh);
     tile.mesh = mesh;
-    tile.triangles = positions.length / 9;
-    tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length;
+    tile.triangles = vertices / 3;
+    tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length + classes.length;
     tile.drawn = drawn;
   }
 
@@ -2799,6 +2922,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     // what `check-world.ts` gets.
     eye.copy(cone.active ? cone.apex : viewer);
     classReaches(reaches);
+    if (FADES) reachUniform.value.set(reaches[0] ?? NO_REACH, reaches[1] ?? NO_REACH, reaches[2] ?? NO_REACH);
     priceRoads();
     const candidates: { tile: Tile; distance: number; band: number; sign: number }[] = [];
     for (const tile of list) {
@@ -2985,6 +3109,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     stats,
     all: roads,
     ribbonHeightAt,
+    proxies: () => [proxyOf(material)],
 
     degrees() {
       const count = new Int32Array(places.length);
@@ -3017,6 +3142,10 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       if (scannedProminence !== prominenceVersion()) {
         for (const tile of list) drop(tile);
         ramps.clear();
+        // Both were laid on the ramps just cleared.
+        gateLights.clear();
+        ribbons.clear();
+        ribbonBytes = 0;
         scannedProminence = prominenceVersion();
         scannedAt.set(Infinity, Infinity, Infinity);
       }
@@ -3036,7 +3165,12 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       if (queue.length > 0) {
         const began = performance.now();
         let built = 0;
-        while (queue.length > 0 && performance.now() - began < detailBuild(BUILD_BUDGET_MS)) {
+        while (queue.length > 0) {
+          // The road under your feet out of the whole frame, a far tile out of
+          // its share of it; see `mayBuild` in `view.ts`.
+          const head = queue[0]!.tile;
+          const near = head.anchor.distanceTo(viewer) - head.bound < NEAR_BUILD;
+          if (!mayBuild(began, detailBuild(BUILD_BUDGET_MS), near)) break;
           const next = queue.shift()!;
           if (next.tile.band === next.band && next.tile.sign === next.sign) continue;
           drop(next.tile);
