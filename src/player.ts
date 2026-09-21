@@ -29,6 +29,7 @@ import {
   SHORE_REACH,
   buildBoat,
   buildPlane,
+  buildSplash,
   isWater,
 } from './vehicles.ts';
 
@@ -139,10 +140,50 @@ const HULL_PROBES = [0, 0.5, -0.5];
 /** Directions tried when stepping ashore, nearest the bow first. */
 const ASHORE_DIRECTIONS = 16;
 
+/**
+ * How long a craft takes to grow in when you take it and to shrink away when
+ * you leave it, in seconds.
+ *
+ * They used to be switched: `visible` on the frame you walked into the sea, off
+ * on the frame you stepped ashore, and a launch popping into being round a man
+ * up to his knees in the surf reads as a glitch rather than as the design it
+ * is. A quarter of a second is long enough to be seen as growth and short
+ * enough that the ride has started before it is over. **The craft you leave
+ * stays where you left it** while it goes: it is let go into the world at the
+ * transform it had, so the boat shrinks on the water beside the beach and not
+ * under your feet on the sand.
+ */
+const CRAFT_GROW = 0.25;
+/** The smallest a craft is drawn at on its way in or out; below it, it is hidden. */
+const CRAFT_SEED = 0.02;
+/**
+ * The ring that marks a craft arriving or leaving: how long it lives, and the
+ * radii it runs between, in units. About a hull's length across at the end —
+ * the launch is 27 long — so it reads as the water or the dust the craft
+ * disturbed and not as an effect of its own.
+ */
+const SPLASH_TIME = 0.45;
+const SPLASH_FROM = 5;
+const SPLASH_TO = 15;
+/** And how tall its wall is, from a splash to a line on the water. */
+const SPLASH_RISE = 0.7;
+const SPLASH_FLAT = 0.05;
+
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
 
 export type Vehicle = 'foot' | 'boat' | 'plane';
+
+/**
+ * What the player just did, or was refused, for whoever tells the player so.
+ *
+ * - `boarded`: walked into the sea, and is in the boat.
+ * - `took-off`, `landed`: the plane, from anywhere and back onto land.
+ * - `landing`, `go-around`: the fly key in the air, down and back up.
+ * - `ditched`: a landing that came down on water, which is the boat.
+ * - `ashore`, `ashore-refused`: `E` in the boat, with land in reach or not.
+ */
+export type PlayerEvent = 'boarded' | 'took-off' | 'landing' | 'go-around' | 'landed' | 'ditched' | 'ashore' | 'ashore-refused';
 
 export interface PlayerInput {
   move: { x: number; y: number };
@@ -173,6 +214,8 @@ export interface Player {
   vehicle: Vehicle;
   /** Units above sea level. The camera reads it to open the view out. */
   altitude: number;
+  /** True while the plane is coming down: the fly key is then a go-around. */
+  landing: boolean;
   /**
    * Vehicle intent, written by whoever reads the keyboard.
    *
@@ -277,6 +320,13 @@ export interface PlayerOptions {
    * `goTo` asks it on arrival.
    */
   freeSpotNear?: (point: THREE.Vector3, radius: number, out: THREE.Vector3) => boolean;
+  /**
+   * Told what the player just did, or was refused: see `PlayerEvent`. The
+   * state machine is here and the words are the HUD's, so this is the whole of
+   * what passes between them. Never called by `goTo`: a teleport is not a
+   * ride.
+   */
+  onEvent?: (event: PlayerEvent) => void;
 }
 
 export function createPlayer(
@@ -315,10 +365,36 @@ export function createPlayer(
    * model was dropped 0.9 into it.
    */
   const seat = new THREE.Group();
-  craft.add(seat, boat, plane.group);
+  /**
+   * And one group round each craft, carrying nothing but its size as it grows
+   * in and shrinks away (`CRAFT_GROW`). A uniform scale, so it commutes with
+   * `craft`'s roll and nose and `T * R * S` has nothing to get wrong; a group of
+   * its own, so the craft's own transform is never touched.
+   */
+  const boatMount = new THREE.Group();
+  const planeMount = new THREE.Group();
+  boatMount.add(boat);
+  planeMount.add(plane.group);
+  craft.add(seat, boatMount, planeMount);
   seat.add(avatar.group);
-  boat.visible = false;
-  plane.group.visible = false;
+  interface Mount {
+    group: THREE.Group;
+    /** 0 gone, 1 fully grown; eased into a scale by `tend`. */
+    grown: number;
+    /** Let go into the world, shrinking where it was left. */
+    loose: boolean;
+  }
+  const mounts: Record<'boat' | 'plane', Mount> = {
+    boat: { group: boatMount, grown: 0, loose: false },
+    plane: { group: planeMount, grown: 0, loose: false },
+  };
+  boatMount.visible = false;
+  planeMount.visible = false;
+
+  /** The ring a craft leaves on the water or the ground; see `SPLASH_TIME`. */
+  const splash = buildSplash();
+  splash.visible = false;
+  let splashAge = SPLASH_TIME;
 
   /** Put the avatar's hip on a craft's published seat. */
   function seatOn(mount: { y: number; z: number }): void {
@@ -387,6 +463,10 @@ export function createPlayer(
   const pushed = new THREE.Vector3();
   const spot = new THREE.Vector3();
   const body: Body = { x: 0, z: 0, vx: 0, vz: 0 };
+  /** Where a splash goes, and the up it lies across. */
+  const wake = new THREE.Vector3();
+  const wakeUp = new THREE.Vector3();
+  const LOCAL_UP = new THREE.Vector3(0, 1, 0);
   function onSphere(x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
     return out.copy(origin).addScaledVector(flatX, x).addScaledVector(flatZ, z).setLength(origin.length());
   }
@@ -501,8 +581,12 @@ export function createPlayer(
     // also the promise that a landing can never strand you on the sea.
     if (isWater(ground)) {
       board();
+      spray(PLANET_RADIUS);
+      options.onEvent?.('ditched');
       return;
     }
+    spray(ground);
+    options.onEvent?.('landed');
     vehicle = 'foot';
     height = ground;
     position.setLength(height);
@@ -524,6 +608,9 @@ export function createPlayer(
    */
   function goAshore(): boolean {
     const arc = SHORE_REACH / position.length();
+    // Where the boat is, before the player leaves it: the splash marks the
+    // water it was on, not the beach.
+    wake.copy(position);
     for (let i = 0; i < ASHORE_DIRECTIONS; i++) {
       // Nearest the bow first, alternating sides, so you climb out over the
       // side you were pointing at.
@@ -534,6 +621,7 @@ export function createPlayer(
       const ground = groundRadius(world, probe);
       if (isWater(ground)) continue;
 
+      spray(PLANET_RADIUS, wake);
       position.copy(probe);
       up.copy(position).normalize();
       forward.copy(direction).projectOnPlane(up).normalize();
@@ -657,7 +745,11 @@ export function createPlayer(
     // Walk into the sea and you are in the boat. That is the whole entry: no
     // key, no jetty, and no way left to walk on water — which is what the sea
     // did until this existed.
-    if (!airborne && isWater(ground)) board();
+    if (!airborne && isWater(ground)) {
+      board();
+      spray(PLANET_RADIUS);
+      options.onEvent?.('boarded');
+    }
   }
 
   function sail(dt: number, input: PlayerInput): void {
@@ -774,7 +866,104 @@ export function createPlayer(
     lean += (wanted - lean) * approach(BANK_SMOOTHING, dt);
   }
 
+  /**
+   * Starts the ring a craft leaves behind, at `radius` under `at` — the sea's
+   * surface for the boat, the ground for the plane. It lies in the world, not
+   * on the player, so a take-off climbs away from it.
+   */
+  function spray(radius: number, at: THREE.Vector3 = position): void {
+    const world = object.parent;
+    if (world === null) return;
+    if (splash.parent !== world) world.add(splash);
+    wakeUp.copy(at).normalize();
+    // A hair over the surface so the ring's foot is not coplanar with it.
+    splash.position.copy(wakeUp).multiplyScalar(radius + 0.15);
+    splash.quaternion.setFromUnitVectors(LOCAL_UP, wakeUp);
+    splash.scale.set(SPLASH_FROM, SPLASH_RISE, SPLASH_FROM);
+    // A scale and a rotation, so this cannot be a reflection — and a
+    // reflection is exactly the one thing the ink would draw as a solid blob.
+    splash.updateMatrix();
+    if (splash.matrix.determinant() <= 0) throw new Error('player: the splash ring would be mirrored');
+    splash.visible = true;
+    splashAge = 0;
+  }
+
+  function ripple(dt: number): void {
+    if (splashAge >= SPLASH_TIME) return;
+    splashAge += dt;
+    if (splashAge >= SPLASH_TIME) {
+      splash.visible = false;
+      return;
+    }
+    const t = splashAge / SPLASH_TIME;
+    const out = 1 - (1 - t) * (1 - t);
+    const radius = mix(SPLASH_FROM, SPLASH_TO, out);
+    splash.scale.set(radius, mix(SPLASH_RISE, SPLASH_FLAT, t), radius);
+  }
+
+  /**
+   * A craft the player has just left is let go into the world where it was
+   * last drawn — before this frame's pose moves anything — so it shrinks
+   * there. `attach` keeps its world transform, which is only ever a rotation,
+   * a translation and the mount's own uniform scale.
+   */
+  function release(which: 'boat' | 'plane'): void {
+    const mount = mounts[which];
+    if (vehicle === which || mount.loose || mount.grown <= 0) return;
+    const world = object.parent;
+    if (world === null) {
+      mount.grown = 0;
+      return;
+    }
+    world.attach(mount.group);
+    mount.loose = true;
+  }
+
+  /** Back under the player, at the craft's own origin. */
+  function mountBack(mount: Mount): void {
+    craft.add(mount.group);
+    mount.group.position.set(0, 0, 0);
+    mount.group.quaternion.identity();
+    mount.loose = false;
+  }
+
+  /** Grows the craft you are in and shrinks the one you left; see `CRAFT_GROW`. */
+  function tend(which: 'boat' | 'plane', dt: number): void {
+    const mount = mounts[which];
+    const wanted = vehicle === which;
+    // Taken again before it had gone: back under you, from the size it had got to.
+    if (wanted && mount.loose) mountBack(mount);
+    const step = dt / CRAFT_GROW;
+    mount.grown = wanted ? Math.min(1, mount.grown + step) : Math.max(0, mount.grown - step);
+    if (mount.grown <= 0) {
+      mount.group.visible = false;
+      if (mount.loose) mountBack(mount);
+      return;
+    }
+    const g = mount.grown;
+    const size = CRAFT_SEED + (1 - CRAFT_SEED) * g * g * (3 - 2 * g);
+    // Uniform and positive, so the determinant is `size`^3 and never a mirror.
+    if (!(size > 0)) throw new Error('player: a craft was scaled through zero');
+    mount.group.scale.setScalar(size);
+    mount.group.visible = true;
+  }
+
+  /** No growing on a teleport: whatever you arrive in is simply there. */
+  function snapCraft(): void {
+    for (const which of ['boat', 'plane'] as const) {
+      const mount = mounts[which];
+      if (mount.loose) mountBack(mount);
+      mount.grown = vehicle === which ? 1 : 0;
+      mount.group.scale.setScalar(1);
+      mount.group.visible = vehicle === which;
+    }
+    splashAge = SPLASH_TIME;
+    splash.visible = false;
+  }
+
   function pose(dt: number, speed_: number): void {
+    release('boat');
+    release('plane');
     // The basis is right-handed with the avatar facing +Z, which puts local +X
     // on its left. Rolling about +Z therefore leans it right, and a left turn
     // (a positive rotation about `up`) needs a negative roll.
@@ -783,8 +972,9 @@ export function createPlayer(
     object.quaternion.setFromRotationMatrix(basis);
     object.position.copy(position);
 
-    boat.visible = vehicle === 'boat';
-    plane.group.visible = vehicle === 'plane';
+    tend('boat', dt);
+    tend('plane', dt);
+    ripple(dt);
     craft.position.set(0, 0, 0);
     craft.rotation.set(0, 0, 0);
     // On foot and in the boat the body stands on the origin and owns its own
@@ -845,6 +1035,7 @@ export function createPlayer(
     airborne: false,
     vehicle,
     altitude: 0,
+    landing: false,
     controls,
     update(dt, input) {
       if (input.fly === true) controls.command = 'fly';
@@ -866,8 +1057,18 @@ export function createPlayer(
         if (vehicle === 'plane') {
           landing = !landing;
           if (!landing) targetAltitude = Math.max(PLANE_CIRCUIT, altitude);
-        } else if (command === 'fly') takeOff();
-        else if (vehicle === 'boat') goAshore();
+          options.onEvent?.(landing ? 'landing' : 'go-around');
+        } else if (command === 'fly') {
+          // The ring is left on what you took off from: the sea, or the ground.
+          spray(vehicle === 'boat' ? PLANET_RADIUS : position.length());
+          takeOff();
+          options.onEvent?.('took-off');
+        } else if (vehicle === 'boat') {
+          // In open ocean there is nowhere to stand and the key does nothing,
+          // which is the rule that keeps anyone from being stranded — and a
+          // key that silently does nothing reads as a broken key.
+          options.onEvent?.(goAshore() ? 'ashore' : 'ashore-refused');
+        }
       }
 
       if (vehicle === 'plane') fly(dt, input);
@@ -878,6 +1079,7 @@ export function createPlayer(
       player.airborne = airborne || vehicle === 'plane';
       player.vehicle = vehicle;
       player.altitude = position.length() - PLANET_RADIUS;
+      player.landing = landing && vehicle === 'plane';
       pose(dt, velocity);
     },
     setBodyVisible(visible) {
@@ -936,6 +1138,8 @@ export function createPlayer(
       player.airborne = false;
       player.vehicle = vehicle;
       player.altitude = position.length() - PLANET_RADIUS;
+      player.landing = false;
+      snapCraft();
       pose(0, 0);
     },
   };

@@ -5,6 +5,8 @@ import { landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand, groundRadius } f
 import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
+import type { PlayerEvent } from './player.ts';
+import { actionOf, codeOf, inputBlocked, labelOf, registerModal } from './controls.ts';
 import { prepareAvatar } from './avatar.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
 import { detailRadiusFor, loadPlaces, prominenceRadius, setProminenceRadius } from './places.ts';
@@ -12,7 +14,7 @@ import { createBorders } from './borders.ts';
 import { createRoads, loadRoads } from './roads.ts';
 // From the contract rather than from `./monuments/index.ts`, which is the whole
 // registry: see `deferred` in `start()`. `index.ts` re-exports this, and taking
-// it from there would drag all seventy-seven model files into the first load for
+// it from there would drag all eighty-five model files into the first load for
 // one function that has nothing to do with them.
 import { createContext } from './monuments/contract.ts';
 import { setDetailSites, setFlattenSites } from './terrain.ts';
@@ -25,6 +27,8 @@ import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, detail, fogFar, setDetail } from './view.ts';
 import type { FlagLayer } from './land-flags.ts';
 import type { Curtain } from './menu.ts';
+import type { TimeOfDay } from './settings.ts';
+import type { IconName } from './ui.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -89,8 +93,10 @@ const smoothstep = (edge0: number, edge1: number, x: number): number => {
  * Says what the loading screen is doing, and gives the browser a chance to paint
  * it.
  *
- * Building the land is about a second of synchronous work on the main thread —
- * a triangulation, a refinement pass driven by the relief, and 83 MB of buffers.
+ * Building the land is seconds of synchronous work on the main thread — a
+ * triangulation, a refinement pass driven by the relief, and about 112 MB of
+ * buffers (on the 1:10m outlines, measured headless on 2026-09-13; `BOOT`
+ * below budgets 7.5 s for it in a browser, and says that is a guess).
  * Without a yield between stages the browser never paints any of the messages,
  * so the screen sits on the first one and then jumps straight to the world,
  * which looks exactly like a hang.
@@ -149,6 +155,113 @@ function showBoot(label: string, [from, to, ms]: readonly [number, number, numbe
   }
 }
 
+/**
+ * A card over everything, for the few things the player has to be told before
+ * or instead of the world: no WebGL 2, a touch screen, a lost graphics context,
+ * a failure. **Built from `index.html`'s own markup and tokens rather than from
+ * `ui.ts`**, because the first two are asked before anything is downloaded and
+ * the last can be a download that failed — `ui.ts` is in the HUD's chunk, and a
+ * card that needs a chunk to say the chunks did not arrive says nothing.
+ */
+interface NoticeAction {
+  label: string;
+  primary?: boolean;
+  run(): void;
+}
+
+let noticeOpen = false;
+registerModal(() => noticeOpen);
+
+function notice(title: string, text: string, actions: readonly NoticeAction[]): void {
+  const root = document.getElementById('notice');
+  const heading = document.getElementById('notice-title');
+  const body = document.getElementById('notice-text');
+  const row = document.getElementById('notice-actions');
+  if (root === null || heading === null || body === null || row === null) {
+    // Nowhere to put it, which is only possible if `index.html` lost it.
+    alert(`${title}\n\n${text}`);
+    return;
+  }
+  heading.textContent = title;
+  body.textContent = text;
+  row.replaceChildren(
+    ...actions.map((action) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = action.primary === true ? 'n-btn primary' : 'n-btn';
+      button.textContent = action.label;
+      button.addEventListener('click', () => {
+        root.hidden = true;
+        noticeOpen = false;
+        action.run();
+      });
+      return button;
+    }),
+  );
+  root.hidden = false;
+  noticeOpen = true;
+  if (document.pointerLockElement !== null) document.exitPointerLock();
+  (row.querySelector('.primary') as HTMLButtonElement | null)?.focus({ preventScroll: true });
+}
+
+const reload: NoticeAction = { label: 'Reload', primary: true, run: () => location.reload() };
+
+let failed = false;
+
+/**
+ * Something the world cannot go on without has failed. Said wherever the player
+ * is — on the loading screen, over the menu or over the world — with a way out.
+ *
+ * It used to write into the loading screen's status line if the loading screen
+ * was in the page, and the loading screen stays in the page for 1.3 seconds
+ * after it has faded: an error in that window was written into an invisible
+ * element, over a spinner that never stopped. Once is enough; the first failure
+ * is the one worth reading.
+ */
+function fail(error: unknown): void {
+  console.error(error);
+  if (failed) return;
+  failed = true;
+  const message = error instanceof Error ? error.message : String(error);
+  notice(
+    'Something went wrong',
+    `atlas stopped: ${message}. Reloading usually fixes it; if it keeps happening, the browser's console says more.`,
+    [reload],
+  );
+}
+
+/**
+ * Whether this browser can draw the world at all. Three r182 is WebGL 2 only, and
+ * without it the renderer throws a few seconds in, after the data has been
+ * downloaded for nothing. The probe's context is handed straight back.
+ */
+function hasWebGL2(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (gl === null) return false;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A phone or a tablet with nothing but a finger. The controls are a keyboard
+ * and a mouse, and nothing in the world answers a touch — so the player is
+ * told so before the world downloads (7.4 MB of data and models on disk,
+ * 2026-09-21) and seconds of building freeze the phone, rather than after.
+ * `any-pointer: fine` rather than `pointer: fine`, because a tablet with a
+ * mouse plugged in has a coarse primary pointer and a fine one as well.
+ */
+function touchOnly(): boolean {
+  try {
+    return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+  } catch {
+    return false;
+  }
+}
+
 /** Fill the bar, fade the loading screen away, and take it out of the page. */
 function dismissLoading(): void {
   const loading = document.getElementById('loading');
@@ -187,6 +300,56 @@ const SPACE_BACKGROUND = new THREE.Color().setRGB(0.016, 0.024, 0.055, THREE.SRG
 const SENSITIVITY_KEY = 'atlas.sensitivity.v1';
 const PERFORMANCE_KEY = 'atlas.performance.v1';
 const HINTS_KEY = 'atlas.hints.v1';
+const RESOLUTION_KEY = 'atlas.resolution.v1';
+/** Whether the welcome card has been shown on this device. */
+const WELCOME_KEY = 'atlas.welcomed.v1';
+
+/**
+ * Where the player was, for the menu's "Continue in …": written here, read by
+ * `menu.ts`, and **the shape is the contract between the two** — `{ lat, lon,
+ * name, iso, savedAt }`, the nearest built town's name, the ISO code of the
+ * country underfoot or `''` at sea, and `Date.now()`. Every ten seconds and on
+ * `pagehide`, which is the last event a closing tab is sure to deliver.
+ */
+const LAST_PLACE_KEY = 'atlas.lastPlace.v1';
+const LAST_PLACE_MS = 10_000;
+
+/**
+ * How many pixels the world is drawn at, per CSS pixel. `auto` is what it
+ * always was — the screen's own ratio up to 2, which is where a 4K laptop
+ * stops being able to afford a two-pass ink — and the rest are the player's
+ * choice between sharpness and frames.
+ */
+const RESOLUTIONS = [
+  ['auto', 'Auto'],
+  ['sharp', 'Sharp'],
+  ['balanced', 'Balanced'],
+  ['fast', 'Fast'],
+] as const;
+type Resolution = (typeof RESOLUTIONS)[number][0];
+
+function pixelRatioFor(resolution: Resolution): number {
+  const screen = globalThis.devicePixelRatio || 1;
+  if (resolution === 'sharp') return screen;
+  if (resolution === 'balanced') return Math.min(screen, 1.5);
+  if (resolution === 'fast') return 1;
+  return Math.min(screen, 2);
+}
+
+/** The time-lapse's rate: an hour of sky a minute. */
+const TIME_LAPSE = 60;
+
+/**
+ * A tab left open on the pause card with nobody at it: after this long without
+ * a key, a click, a wheel or a move of the mouse, the loop draws at about 30
+ * frames a second instead of the display's own rate, and any input brings it
+ * back on the next frame. A little under 33.3 ms, so that a 60 Hz display
+ * draws every other frame rather than every third.
+ */
+const IDLE_AFTER_MS = 60_000;
+const IDLE_FRAME_MS = 30;
+/** How many frame intervals the worst and the 95th percentile are taken over: two seconds at 60 Hz. */
+const FRAME_WINDOW = 120;
 
 function readSetting(key: string): string | null {
   try {
@@ -206,6 +369,27 @@ function writeSetting(key: string, value: string): void {
 
 async function start(): Promise<void> {
   const began = performance.now();
+
+  // Before anything heavy is asked for: a browser that cannot draw the world
+  // is told so instead of downloading it, and a touch screen is told honestly
+  // what the controls are and allowed to try anyway.
+  if (!hasWebGL2()) {
+    notice(
+      'atlas needs WebGL 2',
+      'This browser cannot draw it: WebGL 2 is off or unsupported here. A current Chrome, Edge, Firefox or Safari on a computer will run it, as will turning hardware acceleration back on.',
+      [reload],
+    );
+    return;
+  }
+  if (touchOnly()) {
+    await new Promise<void>((resolve) => {
+      notice(
+        'atlas needs a keyboard and a mouse',
+        'You walk, sail and fly with the keys and look around with the mouse, and nothing here answers a touch yet. It is best on a computer.',
+        [{ label: 'Try anyway', primary: true, run: resolve }],
+      );
+    });
+  }
 
   await stage('reading the outlines');
   // The monuments have to be known before the world is. `terrain.ts` flattens
@@ -268,11 +452,14 @@ async function start(): Promise<void> {
   // later, in order — so a slow link makes the loading card sit on a stage, not
   // the world arrive without its monuments.
   const deferred = {
-    /** The front door: the whole Earth, turned by hand. 7.4 KB gzipped. */
+    /**
+     * The front door: the whole Earth, turned by hand, and the solar system
+     * round it. About 32 KB gzipped since the orrery (2026-09-13).
+     */
     menu: import('./menu.ts'),
     /** Six quadrupeds behind an eager glob, the way the vehicles arrive. */
     fauna: import('./fauna/index.ts'),
-    /** Seventy-seven model files behind an eager glob, 82 KB. The largest. */
+    /** Eighty-five model files behind an eager glob. The largest. */
     monuments: import('./monuments/index.ts'),
     /** With it, the whole scenery kit and the whole traffic kit. */
     settlements: import('./settlements.ts'),
@@ -306,11 +493,25 @@ async function start(): Promise<void> {
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
   };
+  // Each of them is awaited in its turn below, and a rejection there is a
+  // failure of `start()`. But one that fails *now* — a chunk that did not
+  // arrive — would sit rejected with nobody listening until its turn came,
+  // which the browser reports as an unhandled rejection seconds before the
+  // real error. Listening here marks them handled; the `await` still throws.
+  for (const chunk of Object.values(deferred) as Promise<unknown>[]) chunk.catch(() => {});
   // Started now, so the vehicles, the flora and the buildings download while
-  // the ocean and the land are built rather than after them.
-  const vehicleKit = deferred.kit.then(async ({ loadModels }) =>
-    (await Promise.all([loadModels('traffic/kit.bin'), loadModels('nature/kit.bin'), loadModels('buildings/kit.bin')])).flat(),
-  );
+  // the ocean and the land are built rather than after them. A kit that fails
+  // to arrive leaves the towns without parked cars and the roads without
+  // traffic, and the world otherwise whole — so its failure is caught here, at
+  // once, and is a warning rather than the fatal card.
+  const vehicleKit = deferred.kit
+    .then(async ({ loadModels }) =>
+      (await Promise.all([loadModels('traffic/kit.bin'), loadModels('nature/kit.bin'), loadModels('buildings/kit.bin')])).flat(),
+    )
+    .catch((error: unknown) => {
+      console.warn('the model kit did not load', error);
+      return [];
+    });
 
   // **`roads.bin` is the network, whole.** It used to arrive as a graph over all
   // 29,545 places and be cut down here at load — only asphalt, nothing crossing
@@ -326,8 +527,29 @@ async function start(): Promise<void> {
   // the same `builtGraph`, so a knob left turned fails there.
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // The ratio is set in `resize`, which runs on every resize and on every
+  // change of the screen's own ratio — browser zoom, or the window dragged to
+  // another monitor — and not only here: set once, it stayed whatever the
+  // first screen said for the rest of the session.
+  let resolution: Resolution = RESOLUTIONS.some(([value]) => value === readSetting(RESOLUTION_KEY))
+    ? (readSetting(RESOLUTION_KEY) as Resolution)
+    : 'auto';
+  renderer.setPixelRatio(pixelRatioFor(resolution));
   document.body.appendChild(renderer.domElement);
+  // A driver reset, a GPU switch, too many tabs: the context goes, and with it
+  // every buffer the streamers and the land uploaded. Rather than trust a
+  // world half put back by a restore, the answer is a reload, said once.
+  renderer.domElement.addEventListener('webglcontextlost', () => {
+    if (failed) return;
+    failed = true;
+    notice(
+      'The graphics card stopped drawing',
+      'The browser took the WebGL context away — a driver reset, a sleeping laptop or too many tabs can do it. Reload to put the world back.',
+      [reload],
+    );
+  });
+  // Frame statistics count both of `outline.render`'s passes: see `stats`.
+  renderer.info.autoReset = false;
   // Inverted-hull outline: this is what turns crude geometry into a drawing.
   // Without it a monument made of boxes looks like a mistake.
   const outline = new OutlineEffect(renderer, { defaultThickness: 0.003, defaultColor: [0.11, 0.02, 0.01] });
@@ -354,18 +576,24 @@ async function start(): Promise<void> {
   // clock: where you are standing is what decides whether it is day. It owns
   // the fog's *colour*; the loop below still owns its distances.
   const sky = createSky(scene, fog);
-  // `?at=lat,lon` skips the menu — for `scripts/shot.mjs` and anyone who wants
-  // a link to a place; `?time=ISO` freezes the sun there (`sky.setTime`) and
-  // `?height=N` starts the camera that far up. Debug surface, not a feature.
-  // The time is set here, before the menu, so a shot of the menu is of a
-  // chosen hour and not of whatever hour the machine taking it happens to be.
+  // `?at=lat,lon` skips the menu and puts you there — the pause card's "Copy
+  // link to here" writes exactly that, and `scripts/shot.mjs` has always used
+  // it; `?time=ISO` freezes the sun there (`sky.setTime`) and `?height=N`
+  // starts the camera that far up, which two are debug surface. The time is
+  // set here, before the menu, so a shot of the menu is of a chosen hour and
+  // not of whatever hour the machine taking it happens to be.
   const query = new URLSearchParams(location.search);
   if (query.get('time')) sky.setTime(query.get('time'));
+  /** Whether the sun follows the real clock: the settings' time-of-day row. */
+  let timeLive = !query.get('time');
+  let timeFast = false;
 
   // The hero's body is an authored character in `public/models/cast/`, fetched
   // alongside the world rather than after it; `buildAvatar` needs it by the
-  // time the player is made.
+  // time the player is made. Without it there is no player, so its failure is
+  // the fatal card — at once, rather than after the player has chosen a town.
   const avatarReady = prepareAvatar();
+  avatarReady.catch(fail);
   let townsfolkClock = 0;
   let townsfolkFrame = 0;
 
@@ -427,6 +655,8 @@ async function start(): Promise<void> {
     renderer,
     // `outline.render`, not `renderer.render`: a frame here is two passes.
     draw: (target, camera) => outline.render(target, camera),
+    // The Resolution setting's ratio, so a resize in the menu keeps it.
+    pixelRatio: () => pixelRatioFor(resolution),
     fallback: { lat: START.lat, lon: START.lon, name: 'Palma' },
     time: () => sky.state.time,
     sunDirection: () => sky.state.sun,
@@ -477,7 +707,10 @@ async function start(): Promise<void> {
     clouds.setVeil(veil);
     const inside = distance < PLANET_RADIUS * DOME_EXIT;
     if (skyDome !== undefined) skyDome.visible = inside;
-    if (moonDisc !== undefined) moonDisc.visible = inside;
+    // Not at the country and town stages: there the camera is choosing a place
+    // on the planet, and a grey disc hanging beside it is a second body to
+    // explain.
+    if (moonDisc !== undefined) moonDisc.visible = inside && menu.stage !== 'region' && menu.stage !== 'site';
     // The direction and not the light's position: the sun sits on the shadow
     // box, a few thousand units from the player.
     oceanSun.copy(sky.state.sun);
@@ -522,8 +755,8 @@ async function start(): Promise<void> {
   console.log(`${monuments.missing.length} placed landmarks have no model yet`);
 
   await stage('settling the country');
-  // The 7,320 anchors are asked for the ground once, here, which is the whole
-  // of what this costs before you move: about 30 ms of point-in-polygon.
+  // Every place's anchor is asked for the ground once, here, which is the
+  // whole of what this costs before you move: a point-in-polygon query each.
   // The network goes in with them: a town's own tracks leave on the headings
   // its roads actually take, which is the difference between a lane going
   // somewhere and a lane pointing at somewhere.
@@ -532,13 +765,7 @@ async function start(): Promise<void> {
   // the kit — vehicles and flora — is registered before anything can ask.
   // A kit that fails to arrive leaves the towns without parked cars and the
   // roads without traffic, and the world otherwise whole.
-  const [{ registerSceneryModels }, vehicleModels] = await Promise.all([
-    deferred.scenery,
-    vehicleKit.catch((error: unknown) => {
-      console.warn('the model kit did not load', error);
-      return [];
-    }),
-  ]);
+  const [{ registerSceneryModels }, vehicleModels] = await Promise.all([deferred.scenery, vehicleKit]);
   registerSceneryModels(vehicleModels);
   const settlements = createSettlements(world, places.all, {
     context: ctx,
@@ -548,8 +775,8 @@ async function start(): Promise<void> {
   scene.add(settlements.group);
   // Every place on the planet as one buffer of points, lit where the sun is
   // not. It reads the settlements' own anchors rather than asking the terrain
-  // again — 7,320 point-in-polygon queries the streamer has already paid for —
-  // and it exists because the settlement mesh cannot do this job: from the
+  // again — a point-in-polygon query a place, which the streamer has already
+  // paid for — and it exists because the settlement mesh cannot do this job: from the
   // plane's ceiling `settlements.ts` holds no towns at all, which is exactly
   // the altitude a night hemisphere is worth looking at from.
   const cityLights = createCityLights(places.all, settlements.anchors);
@@ -667,12 +894,30 @@ async function start(): Promise<void> {
     madeHeightAt,
     collide: (point, radius, push) => settlements.collide(point, radius, push),
     freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
+    // What the player did or was refused, in words. Only what the strip along
+    // the bottom does not already say: a refusal, a landing, and a landing
+    // that turned into a boat.
+    onEvent: (event: PlayerEvent) => {
+      if (event === 'ashore-refused') announce('No shore within reach — sail closer to land', 'boat');
+      else if (event === 'landing') announce(`Landing — ${labelOf('fly')} to go around`, 'plane');
+      else if (event === 'go-around') announce('Going around', 'plane');
+      else if (event === 'ditched') announce('Down on the water — you are in the boat', 'boat');
+    },
   });
   scene.add(player.object);
 
-  const rig = createCameraRig({ blocks: (point) => settlements.blocksSight(point) });
-  if (Number.isFinite(Number(query.get('height')))) rig.view.height = Number(query.get('height'));
-  const input = createInput(renderer.domElement);
+  const rig = createCameraRig({
+    blocks: (point) => settlements.blocksSight(point),
+    onViewRefused: () => announce('First person is on foot only', 'eye'),
+  });
+  // Only when it is asked for: `Number(null)` is 0, so the unguarded test put
+  // every ordinary load's walking camera on the ground.
+  const heightQuery = query.get('height');
+  if (heightQuery !== null && Number.isFinite(Number(heightQuery))) rig.view.height = Number(heightQuery);
+  const input = createInput(renderer.domElement, {
+    // An embed that may not lock the mouse: say once what works instead.
+    onLockRefused: () => announce('This page cannot lock the mouse — drag to look around', 'mouse'),
+  });
   const groundAt = (point: THREE.Vector3): number => groundRadius(world, point);
 
   // The pins are what make the map answer "where is anything", which the
@@ -697,10 +942,20 @@ async function start(): Promise<void> {
   const hud = createHud(world, {
     onSettings: () => settings.toggle(),
     onMap: () => (map.open ? map.hide() : map.show()),
+    onShare: shareHere,
+    // Inside the welcome card's click, so the lock is still the player's gesture.
+    onStart: () => input.lock(),
   });
   document.body.appendChild(hud.root);
 
-  const showCount = (): void => hud.setFound(monuments.visited.size, placements.length);
+  /**
+   * How many landmarks are found, counted over the placements that exist. The
+   * visited set is whatever `localStorage` has held since the first visit, and
+   * an id a later build renamed or removed is still in it: its size could read
+   * 86 of 85.
+   */
+  const foundCount = (): number => placements.reduce((sum, placement) => sum + (monuments.isVisited(placement.id) ? 1 : 0), 0);
+  const showCount = (): void => hud.setFound(foundCount(), placements.length);
   showCount();
 
   // Somewhere to go. It picks and it points; it never flies you — the plane's
@@ -734,6 +989,10 @@ async function start(): Promise<void> {
     onChoose: (id) => nav.select(id),
     onClear: () => nav.clear(),
     lockTarget: renderer.domElement,
+    key: codeOf('map'),
+    // A card holding the keyboard — Settings, the welcome, a notice — keeps
+    // `M` from opening the map underneath it. Closing is never blocked.
+    blocked: () => inputBlocked(),
   });
   document.body.appendChild(map.root);
 
@@ -746,21 +1005,57 @@ async function start(): Promise<void> {
   // be earlier in the document than the elements that carry it.
   document.body.insertBefore(names.root, document.body.firstChild);
 
-  /**
-   * The detail knob on the keyboard, because the console is not where you are
-   * when you find out a number is wrong.
-   *
-   * `[` and `]` step it by a quarter of itself, which is geometric rather than
-   * linear on purpose: the range runs from 0.25 to 6 and a fixed step would be
-   * a nudge at the top and a doubling at the bottom. It is deliberately *not*
-   * in `input.ts`'s `BINDINGS` — that table is the controls the game teaches on
-   * the hint card, and this is a setting.
-   */
-  function announce(text: string, iconName: 'flag' | 'eye' | 'sparkle' = 'sparkle'): void {
+  function announce(text: string, iconName: IconName = 'sparkle'): void {
     hud.toast(text, iconName);
   }
   function showDetail(value: number): void {
     announce(`Render distance ${value.toFixed(2)}×`, 'eye');
+  }
+
+  /**
+   * "Copy link to here", from the pause card: the address with `?at=` set to
+   * where you stand, which is the menu-skipping link `main.ts` has always
+   * read. Four decimals is eleven metres of real Earth, under three hundredths
+   * of a unit here.
+   */
+  function shareHere(): void {
+    const { lat, lon } = toLatLon(player.position);
+    const url = `${location.origin}${location.pathname}?at=${lat.toFixed(4)},${lon.toFixed(4)}`;
+    const copied = navigator.clipboard?.writeText(url);
+    if (copied === undefined) {
+      announce(`Copy this link: ${url}`, 'pin');
+      return;
+    }
+    copied.then(
+      () => announce('Link copied — it opens right here', 'pin'),
+      () => announce(`Copy this link: ${url}`, 'pin'),
+    );
+  }
+
+  /**
+   * A photo of the world: `P`. The canvas as a PNG, taken in the frame it was
+   * drawn — see `frame` — and saved as a download named for where it was taken.
+   * The HUD is HTML over the canvas and not in it, so a photo is the world
+   * alone without anything having to be hidden for it.
+   */
+  let photoWanted = false;
+  function savePhoto(canvas: HTMLCanvasElement): void {
+    const place = places.nearest(player.position).place.name;
+    const slug = place.normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'somewhere';
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+    canvas.toBlob((blob) => {
+      if (blob === null) {
+        announce('The photo could not be saved', 'camera');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `atlas-${slug}-${stamp}.png`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      announce('Photo saved', 'camera');
+    }, 'image/png');
   }
 
   /**
@@ -772,29 +1067,76 @@ async function start(): Promise<void> {
    * Every read and write of `localStorage` is wrapped, like the visited set's:
    * a private window throws on the *getter*, not on the write.
    */
-  let overlayOn = true;
-  try {
-    overlayOn = localStorage.getItem(OVERLAY_KEY) !== '0';
-  } catch {
-    overlayOn = true;
-  }
+  let overlayOn = readSetting(OVERLAY_KEY) !== '0';
   function setOverlay(on: boolean): boolean {
     overlayOn = on;
-    try {
-      localStorage.setItem(OVERLAY_KEY, on ? '1' : '0');
-    } catch {
-      // Nowhere to remember it. It still works for this session.
-    }
+    writeSetting(OVERLAY_KEY, on ? '1' : '0');
     return on;
   }
 
+  /**
+   * The keys that are settings rather than controls, from `controls.ts`'s one
+   * table. The detail knob is on the keyboard because the console is not where
+   * you are when you find out a number is wrong: `[` and `]` step it by a
+   * quarter of itself, which is geometric rather than linear on purpose — the
+   * range runs from 0.25 to 6 and a fixed step would be a nudge at the top and a
+   * doubling at the bottom — and they repeat while held. The toggles do not: a
+   * held `B` flipped the map layer at the keyboard's repeat rate.
+   */
   addEventListener('keydown', (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.code === 'KeyB') announce(setOverlay(!overlayOn) ? 'Flags and borders on' : 'Flags and borders off', 'flag');
-    else if (event.code === 'BracketLeft') showDetail(setDetail(Math.max(DETAIL_MIN, detail() / 1.25)));
-    else if (event.code === 'BracketRight') showDetail(setDetail(Math.min(DETAIL_MAX, detail() * 1.25)));
-    else if (event.code === 'KeyH' && !event.repeat) hud.toggleHints();
+    if (inputBlocked(event)) return;
+    const action = actionOf(event.code);
+    if (action === 'nearer') showDetail(setDetail(Math.max(DETAIL_MIN, detail() / 1.25)));
+    else if (action === 'farther') showDetail(setDetail(Math.min(DETAIL_MAX, detail() * 1.25)));
+    if (event.repeat) return;
+    if (action === 'flags') announce(setOverlay(!overlayOn) ? 'Flags and borders on' : 'Flags and borders off', 'flag');
+    // `H` can turn the strip back on as well as fold it, and what it turns on
+    // is remembered the way the settings' switch remembers it.
+    else if (action === 'hints') writeSetting(HINTS_KEY, hud.toggleHints() ? '1' : '0');
+    else if (action === 'photo') photoWanted = true;
   });
+
+  /**
+   * The time of day, from the settings: live, or an hour where you stand. The
+   * sky's clock is an offset and a rate (`sky.setTime`, `sky.setRate`), so a
+   * chosen hour keeps running from there. The hour is read off the chip, which
+   * is the clock the player sees — `clockAt`, the country's own zone or the
+   * sun's at sea — so the conversion is the difference between the hour shown
+   * and the hour wanted, applied to the sky's instant: "today" in local terms,
+   * whatever the zone. Nothing here is remembered.
+   */
+  const shownMinutes = (): number | null => {
+    const [hours, minutes] = hud.clock.split(':').map(Number);
+    return hours === undefined || minutes === undefined || !Number.isFinite(hours + minutes) ? null : hours * 60 + minutes;
+  };
+  const time: TimeOfDay = {
+    hour: () => (shownMinutes() ?? 720) / 60,
+    live: () => timeLive,
+    setHour(hour) {
+      const now = shownMinutes();
+      if (now === null) return hour;
+      const wanted = Math.round(hour * 60) % 1440;
+      sky.setTime(sky.state.time.getTime() + (wanted - now) * 60_000);
+      timeLive = false;
+      return hour;
+    },
+    setLive() {
+      sky.setRate(1);
+      sky.setTime(null);
+      timeLive = true;
+      timeFast = false;
+    },
+    fast: {
+      get: () => timeFast,
+      set(on) {
+        timeFast = on;
+        sky.setRate(on ? TIME_LAPSE : 1);
+        if (on) timeLive = false;
+        return on;
+      },
+    },
+  };
 
   /**
    * The gear. It owns no state: each row is a getter and a setter over a value
@@ -835,7 +1177,23 @@ async function start(): Promise<void> {
         return hud.setHints(on);
       },
     },
+    resolution: {
+      get: () => resolution,
+      set: (value) => {
+        resolution = RESOLUTIONS.find(([option]) => option === value)?.[0] ?? 'auto';
+        writeSetting(RESOLUTION_KEY, resolution);
+        resize();
+        return resolution;
+      },
+      options: RESOLUTIONS,
+    },
+    time,
     lockTarget: renderer.domElement,
+    // One card at a time: the settings over the world map would be two
+    // overlays holding the mouse, and the map's keys under a modal card.
+    onOpen: () => {
+      if (map.open) map.hide();
+    },
   });
   document.body.appendChild(settings.root);
 
@@ -853,11 +1211,58 @@ async function start(): Promise<void> {
   let overlayFade = 0;
 
   function resize(): void {
+    renderer.setPixelRatio(pixelRatioFor(resolution));
     renderer.setSize(innerWidth, innerHeight);
     rig.resize(innerWidth, innerHeight);
   }
   addEventListener('resize', resize);
   resize();
+  /**
+   * A change of the screen's own pixel ratio with no resize to announce it:
+   * the window dragged onto a monitor of another density. A media query on
+   * the current ratio fires once when it stops being true, and is then asked
+   * again about the new one.
+   */
+  const watchRatio = (): void => {
+    try {
+      matchMedia(`(resolution: ${globalThis.devicePixelRatio || 1}dppx)`).addEventListener(
+        'change',
+        () => {
+          resize();
+          watchRatio();
+        },
+        { once: true },
+      );
+    } catch {
+      // No `matchMedia` change events: the resize listener is all there is.
+    }
+  };
+  watchRatio();
+
+  /**
+   * Where the player is, for the menu's "Continue in …" (`LAST_PLACE_KEY`).
+   * Plain numbers and strings, so the same record is what a peer would be
+   * sent when there are peers.
+   */
+  function saveLastPlace(): void {
+    const { lat, lon } = toLatLon(player.position);
+    const id = world.countryAtPoint(player.position);
+    writeSetting(
+      LAST_PLACE_KEY,
+      JSON.stringify({
+        lat: Number(lat.toFixed(5)),
+        lon: Number(lon.toFixed(5)),
+        name: places.nearest(player.position).place.name,
+        iso: id > 0 ? world.countries[id - 1]!.iso : '',
+        savedAt: Date.now(),
+      }),
+    );
+  }
+  setInterval(saveLastPlace, LAST_PLACE_MS);
+  addEventListener('pagehide', saveLastPlace);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveLastPlace();
+  });
 
   // Without this the camera starts at the origin, which is the planet's centre,
   // and the first frames render from inside the Earth.
@@ -871,22 +1276,55 @@ async function start(): Promise<void> {
   let shadowStanding = -1;
 
   /**
-   * Rolling frame cost, on `atlas.stats`.
+   * Rolling frame cost, on `atlas.stats` and the settings' overlay.
    *
    * Worth carrying permanently: `OutlineEffect` draws the scene twice, so the
    * land mesh costs double its triangle count every frame, and terrain relief
    * took that mesh from 301k triangles to 766k in one commit. A number that is
    * always there is how the next such jump gets noticed on the day it lands
    * rather than on someone else's laptop.
+   *
+   * **It used to report half a frame and time only its draw.** `renderer.info`
+   * resets on every `renderer.render` and `outline.render` calls it twice, so
+   * the triangles and calls were the ink pass alone; `autoReset` is off now
+   * (see the renderer) and the counters are reset once, at the top of the
+   * frame, so they are both passes and a shadow redraw when there is one. And
+   * `frameMs` was the render call only. It is split now: `updateMs` is
+   * everything before the draw — the streamers, above all — `drawMs` is the
+   * two passes, and `frameMs` their sum, each a mean over half a second. A mean
+   * hides the hitch, so `p95Ms` and `worstMs` are the time *between* frames over
+   * the last `FRAME_WINDOW` of them, which is what a stutter is.
    */
-  const stats = { fps: 0, frameMs: 0, triangles: 0, calls: 0 };
+  const stats = { fps: 0, frameMs: 0, updateMs: 0, drawMs: 0, p95Ms: 0, worstMs: 0, triangles: 0, calls: 0 };
   let frames = 0;
   let sampledAt = previous;
-  let accumulated = 0;
+  let updateSum = 0;
+  let drawSum = 0;
+  const intervals = new Float32Array(FRAME_WINDOW);
+  const sorted = new Float32Array(FRAME_WINDOW);
+  let intervalCount = 0;
+  let intervalAt = 0;
+  /** The welcome card waits for the first arrival: the curtain up, or the first frame of a link. */
+  let welcomePending = readSetting(WELCOME_KEY) !== '1' && navigator.webdriver !== true;
 
   function frame(now: number): void {
     requestAnimationFrame(frame);
-    const dt = Math.min((now - previous) / 1000, 0.1);
+    // **A tab left open on the pause card draws at about 30 frames a second**
+    // after a minute with nobody at it: the GPU of a laptop left on a desk is
+    // somebody's battery. Any input is back to full rate on the next frame.
+    if (!input.looking && now - input.lastActive > IDLE_AFTER_MS && now - previous < IDLE_FRAME_MS) return;
+    const frameStart = performance.now();
+    renderer.info.reset();
+    // Clamped at 0 as well as at a tenth of a second: the first timestamp
+    // `requestAnimationFrame` hands over can be earlier than the
+    // `performance.now()` taken just before it was asked for, and a negative
+    // `dt` runs every chase in this loop backwards for a frame.
+    const dt = Math.max(0, Math.min((now - previous) / 1000, 0.1));
+    if (now > previous) {
+      intervals[intervalAt] = now - previous;
+      intervalAt = (intervalAt + 1) % FRAME_WINDOW;
+      intervalCount = Math.min(FRAME_WINDOW, intervalCount + 1);
+    }
     previous = now;
 
     // Order matters: the rig decides where you are looking, the player moves
@@ -1020,7 +1458,7 @@ async function start(): Promise<void> {
             country: owner?.name ?? place.iso,
             height: place.height,
             year: place.year,
-            found: monuments.visited.size,
+            found: foundCount(),
             total: placements.length,
           });
         }
@@ -1033,8 +1471,8 @@ async function start(): Promise<void> {
     // The HUD's two per-frame questions, both cached on its side: how you are
     // travelling, which decides the keys it shows, and whether the mouse is
     // free with nothing else on the screen, which is the pause card.
-    hud.setVehicle(player.vehicle);
-    hud.setPaused(document.pointerLockElement !== renderer.domElement && !map.open && !settings.open);
+    hud.setVehicle(player.vehicle, player.landing, rig.firstPerson);
+    hud.setPaused(!input.looking && !map.open && !settings.open, input.dragging);
     // The curtain from the menu's dive comes up once the town under it has had
     // its build: when the settlement streamer has nothing pending, or after a
     // second and a half whatever it says, so a slow machine is never left
@@ -1045,6 +1483,13 @@ async function start(): Promise<void> {
         curtain.lift();
         curtain = null;
       }
+    }
+    // Once per device, after the first arrival: what there is to do here.
+    // Remembered as soon as it is shown, so a reload does not show it twice.
+    if (welcomePending && curtain === null) {
+      welcomePending = false;
+      writeSetting(WELCOME_KEY, '1');
+      void hud.welcome(placements.length);
     }
     // Where you are, asked once and handed to both the disc and the chip.
     // Every frame, not throttled: `countryAtPoint` is 2 us and the nearest
@@ -1119,16 +1564,36 @@ async function start(): Promise<void> {
 
     const drawStart = performance.now();
     outline.render(scene, rig.camera);
-    accumulated += performance.now() - drawStart;
+    const drawEnd = performance.now();
+    // In the same task as the draw, before the browser composites and clears
+    // the drawing buffer: `toBlob` copies the canvas as it stands when it is
+    // called, so no `preserveDrawingBuffer` is needed for it.
+    if (photoWanted) {
+      photoWanted = false;
+      savePhoto(renderer.domElement);
+    }
+    updateSum += drawStart - frameStart;
+    drawSum += drawEnd - drawStart;
 
     frames++;
     if (now - sampledAt > 500) {
       stats.fps = Math.round((frames * 1000) / (now - sampledAt));
-      stats.frameMs = Number((accumulated / frames).toFixed(2));
+      stats.updateMs = Number((updateSum / frames).toFixed(2));
+      stats.drawMs = Number((drawSum / frames).toFixed(2));
+      stats.frameMs = Number(((updateSum + drawSum) / frames).toFixed(2));
+      if (intervalCount > 0) {
+        const span = sorted.subarray(0, intervalCount);
+        span.set(intervals.subarray(0, intervalCount));
+        span.sort();
+        stats.p95Ms = Number(span[Math.min(intervalCount - 1, Math.floor(intervalCount * 0.95))]!.toFixed(1));
+        stats.worstMs = Number(span[intervalCount - 1]!.toFixed(1));
+      }
+      // The last frame's, whole: both passes since the reset at the top.
       stats.triangles = renderer.info.render.triangles;
       stats.calls = renderer.info.render.calls;
       frames = 0;
-      accumulated = 0;
+      updateSum = 0;
+      drawSum = 0;
       sampledAt = now;
       if (performanceOn) hud.showPerformance(stats);
     }
@@ -1309,22 +1774,4 @@ async function start(): Promise<void> {
   });
 }
 
-start().catch((error: unknown) => {
-  console.error(error);
-  const loading = document.getElementById('loading');
-  const text = document.getElementById('loading-stage');
-  if (loading !== null && text !== null) {
-    loading.classList.add('failed');
-    text.textContent = `Something went wrong: ${String(error)}`;
-  } else {
-    // Past the loading screen there is nowhere else to say it, so it gets a
-    // card of its own rather than a silent console.
-    const card = document.createElement('div');
-    card.style.cssText =
-      'position:fixed;left:50%;top:24px;transform:translateX(-50%);z-index:40;padding:12px 18px;' +
-      'background:#fff2e8;border:3px solid #1e0603;border-radius:14px;box-shadow:0 5px 0 #1e0603;' +
-      'font:700 14px ui-rounded,system-ui,sans-serif;color:#1e0603';
-    card.textContent = `Something went wrong: ${String(error)}`;
-    document.body.appendChild(card);
-  }
-});
+start().catch(fail);

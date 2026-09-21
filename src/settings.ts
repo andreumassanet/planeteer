@@ -7,16 +7,20 @@
  * the world did not find any of them, which is the same as there not being
  * any. So this file owns nothing: each row is a getter and a setter handed in
  * by `main.ts`, which still owns the value and still persists it where it
- * always did, and the keys keep working. The panel is a second way in, not a
- * second copy of the state — it re-reads every value each time it opens, so a
- * change made by a key while it was closed is what it shows.
+ * always did, and the keys keep working while the panel is down. The panel is
+ * a second way in, not a second copy of the state — it re-reads every value
+ * each time it opens, so a change made by a key while it was closed is what it
+ * shows.
  *
  * It takes the mouse the way the world map does: opening it releases pointer
  * lock, and closing it asks for the lock back only if it was held when the
  * panel opened, so a player who opened it from the pause card is left on the
- * pause card rather than thrown back into mouse look.
+ * pause card rather than thrown back into mouse look. **And it holds the
+ * keyboard**: it registers with `controls.ts` as modal, so `Tab` walks its own
+ * controls and the arrows move its sliders instead of the player.
  */
 
+import { KEY_LIST, capOf, labelOf, onKeyLabels, registerModal } from './controls.ts';
 import { h, icon, installUi, ensureStyle, kbd } from './ui.ts';
 
 export interface Knob {
@@ -31,6 +35,31 @@ export interface Toggle {
   set(on: boolean): boolean;
 }
 
+/** One of a few named values: a segmented control. */
+export interface Choice {
+  get(): string;
+  set(value: string): string;
+  /** The values in order, each with the word its button shows. */
+  options: readonly (readonly [value: string, label: string])[];
+}
+
+/**
+ * The hour the sun is at, which is real unless the player picks one. Nothing
+ * here is remembered: a chosen hour lasts until the page is reloaded.
+ */
+export interface TimeOfDay {
+  /** The hour on the chip's clock, local to where you stand, 0 to 24. */
+  hour(): number;
+  /** Whether the sun is following the real clock. */
+  live(): boolean;
+  /** Puts the sun at this local hour, from where it keeps running; returns the hour. */
+  setHour(hour: number): number;
+  /** Back to the real clock, at the real rate. */
+  setLive(): void;
+  /** The day at an hour a minute. */
+  fast: Toggle;
+}
+
 export interface SettingsOptions {
   /** How far the world is built: `view.ts`'s knob, 0.25 to 6. */
   detail: Knob;
@@ -42,6 +71,10 @@ export interface SettingsOptions {
   performance: Toggle;
   /** The key hints along the bottom of the screen. */
   hints: Toggle;
+  /** How many pixels the world is drawn at, against the screen's own. */
+  resolution: Choice;
+  /** The sun's hour, live or chosen. Omit it and the row is not built. */
+  time?: TimeOfDay;
   /** Where to hand the pointer back to, if it was locked when the panel opened. */
   lockTarget: HTMLElement | null;
   /** Called on open, so whatever else holds the screen — the map — can let go. */
@@ -151,7 +184,7 @@ const STYLE = `
   margin-top: 4px;
 }
 .atlas-settings-key { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
-.atlas-settings-key > span:first-child { display: flex; gap: 4px; min-width: 104px; }
+.atlas-settings-key > span:first-child { display: flex; gap: 4px; min-width: 122px; flex-shrink: 0; }
 .atlas-settings-credit {
   margin-top: 18px;
   padding-top: 12px;
@@ -162,28 +195,22 @@ const STYLE = `
   line-height: 1.5;
 }
 .atlas-settings-credit a { color: inherit; }
+.atlas-settings-credit p + p { margin-top: 6px; }
 @media (max-width: 560px) {
   .atlas-settings-keys { grid-template-columns: 1fr; }
+  .atlas-settings-row { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-settings.on .atlas-settings-panel { animation: none; }
 }
 `;
 
-/** Every binding in the world, in the order a player meets them. */
-const KEYS: readonly [string[], string][] = [
-  [['W', 'A', 'S', 'D'], 'Move, or steer'],
-  [['Mouse'], 'Look around'],
-  [['Shift'], 'Run'],
-  [['Space'], 'Jump · climb in the plane'],
-  [['C'], 'Descend in the plane'],
-  [['F'], 'Take off · land'],
-  [['E'], 'Step ashore from the boat'],
-  [['V'], 'First person'],
-  [['M'], 'World map'],
-  [['Tab'], 'Next landmark to find'],
-  [['B'], 'Flags and borders'],
-  [['[', ']'], 'Render distance'],
-  [['H'], 'Key hints on screen'],
-  [['Esc'], 'Free the mouse'],
-];
+/** `HH:MM` for an hour of the day, 0 to 24. */
+function hourText(hour: number): string {
+  const minutes = Math.round(hour * 60) % 1440;
+  const pad = (n: number): string => (n < 10 ? `0${n}` : String(n));
+  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+}
 
 export function createSettings(options: SettingsOptions): Settings {
   installUi();
@@ -203,7 +230,7 @@ export function createSettings(options: SettingsOptions): Settings {
         'div',
         {},
         h('div', { class: 'atlas-settings-title', text: 'Settings' }),
-        h('div', { class: 'atlas-settings-sub', text: 'Saved on this device. The keys still work.' }),
+        h('div', { class: 'atlas-settings-sub', text: 'Saved on this device, all but the time of day.' }),
       ),
       close,
     ),
@@ -266,6 +293,24 @@ export function createSettings(options: SettingsOptions): Settings {
     return { value, slider, refresh };
   }
 
+  /** A segmented control over a choice: one button a value, the chosen one pressed. */
+  function makeChoice(choice: Choice, label: string): { element: HTMLElement; refresh(): void } {
+    const buttons = choice.options.map(([value, word]) => {
+      const button = h('button', { type: 'button', text: word, 'aria-pressed': 'false' });
+      button.addEventListener('click', () => {
+        choice.set(value);
+        refresh();
+      });
+      return [value, button] as const;
+    });
+    const element = h('div', { class: 'ui-seg', role: 'group', 'aria-label': label }, ...buttons.map(([, button]) => button));
+    const refresh = (): void => {
+      const current = choice.get();
+      for (const [value, button] of buttons) button.setAttribute('aria-pressed', String(value === current));
+    };
+    return { element, refresh };
+  }
+
   /* --- the sections ----------------------------------------------------- */
 
   const detail = makeSlider(
@@ -276,13 +321,74 @@ export function createSettings(options: SettingsOptions): Settings {
   const performance = makeSwitch(options.performance, 'Performance overlay');
   const flags = makeSwitch(options.flags, 'Flags and borders');
   const hints = makeSwitch(options.hints, 'Key hints');
+  const resolution = makeChoice(options.resolution, 'Resolution');
+
+  // The caps that name keys, rebuilt when `controls.ts` learns the layout.
+  const detailKeys = h('span');
+  const flagsKey = h('span');
+  const hintsKey = h('span');
+  const keyList = h('div', { class: 'atlas-settings-keys' });
+  function relabel(): void {
+    detailKeys.replaceChildren(kbd(labelOf('nearer')), ' ', kbd(labelOf('farther')));
+    flagsKey.replaceChildren(kbd(labelOf('flags')));
+    hintsKey.replaceChildren(kbd(labelOf('hints')));
+    keyList.replaceChildren(
+      ...KEY_LIST.map((hint) =>
+        h(
+          'div',
+          { class: 'atlas-settings-key' },
+          h('span', {}, ...hint.keys.map((key) => {
+            const cap = capOf(key);
+            return kbd(cap, cap.length > 3);
+          })),
+          h('span', { text: hint.label }),
+        ),
+      ),
+    );
+  }
+  relabel();
+  onKeyLabels(relabel);
+
+  /**
+   * The time of day: a slider over the hour where you stand, a button back to
+   * the real one, and the time-lapse. The sun is real and the night lights are
+   * among the best things in this world, and until this row you saw them only
+   * by playing at night.
+   */
+  const time = options.time;
+  const timeValue = h('div', { class: 'atlas-settings-value' });
+  const timeLive = h('button', { class: 'ui-btn small', type: 'button', text: 'Live' });
+  const timeInput = h('input', { class: 'ui-range', type: 'range', min: 0, max: 96, step: 1, 'aria-label': 'Hour of the day' });
+  const timeFast = time === undefined ? null : makeSwitch(time.fast, 'Time-lapse');
+  /** `chosen` is the hour just picked, which the chip's clock shows only from the next frame. */
+  const showTime = (chosen?: number): void => {
+    if (time === undefined) return;
+    const hour = chosen ?? time.hour();
+    const live = time.live();
+    timeValue.replaceChildren(document.createTextNode(hourText(hour)), h('small', { text: live ? 'live' : 'chosen' }));
+    timeLive.disabled = live;
+    if (document.activeElement !== timeInput) timeInput.value = String(Math.round(hour * 4) % 96);
+    timeInput.style.setProperty('--fill', `${((Number(timeInput.value) / 96) * 100).toFixed(1)}%`);
+    timeFast?.refresh();
+  };
+  if (time !== undefined) {
+    timeInput.addEventListener('input', () => {
+      showTime(time.setHour(Number(timeInput.value) / 4));
+    });
+    timeLive.addEventListener('click', () => {
+      time.setLive();
+      showTime();
+    });
+  }
+  /** The clock keeps running while the panel is open, and so does its number. */
+  let clockTimer = 0;
   const sensitivity = makeSlider(
     options.sensitivity,
     (v) => [`${Math.round(v * 100)}%`, v < 0.8 ? 'steady' : v > 1.3 ? 'quick' : 'default'],
     ['Slow', 'Fast'],
   );
 
-  panel.append(
+  const sections: (HTMLElement | null)[] = [
     h(
       'section',
       { class: 'atlas-settings-section' },
@@ -290,15 +396,38 @@ export function createSettings(options: SettingsOptions): Settings {
       row(
         'Render distance',
         'How far towns, trees, traffic and animals are built around you. Turn it down if the frame rate drops.',
-        h('div', { class: 'atlas-settings-side' }, detail.value, h('span', {}, kbd('['), ' ', kbd(']'))),
+        h('div', { class: 'atlas-settings-side' }, detail.value, detailKeys),
         detail.slider,
       ),
       row(
+        'Resolution',
+        "How sharp the world is drawn. Auto is the screen's own sharpness up to twice the pixels, Balanced stops at one and a half, and Fast draws one pixel a point, the lightest of all.",
+        resolution.element,
+      ),
+      row(
         'Performance overlay',
-        'Frames per second, the cost of a frame and the triangles drawn, in the corner.',
+        'Frames per second, what a frame costs to update and to draw, its worst hitch and the triangles drawn, in the corner.',
         performance.element,
       ),
     ),
+    time === undefined
+      ? null
+      : h(
+          'section',
+          { class: 'atlas-settings-section' },
+          h('div', { class: 'ui-eyebrow', text: 'Sky' }),
+          row(
+            'Time of day',
+            'Live is the real sun where you stand. Drag to put it at another hour; it runs on from there until you reload.',
+            h('div', { class: 'atlas-settings-side' }, timeValue, timeLive),
+            h('div', { class: 'atlas-settings-slider' }, h('span', { text: '00:00' }), timeInput, h('span', { text: '24:00' })),
+          ),
+          row(
+            'Time-lapse',
+            'The day at an hour a minute: the sun, the sky, the lights and the traffic. Until you reload.',
+            timeFast!.element,
+          ),
+        ),
     h(
       'section',
       { class: 'atlas-settings-section' },
@@ -306,7 +435,7 @@ export function createSettings(options: SettingsOptions): Settings {
       row(
         'Flags and borders from the air',
         "Each country's own colour, its frontiers and its name fade in as you climb in the plane.",
-        h('div', { class: 'atlas-settings-side' }, kbd('B'), flags.element),
+        h('div', { class: 'atlas-settings-side' }, flagsKey, flags.element),
       ),
     ),
     h(
@@ -317,25 +446,28 @@ export function createSettings(options: SettingsOptions): Settings {
       row(
         'Key hints',
         'The strip of keys along the bottom of the screen, for the way you are travelling.',
-        h('div', { class: 'atlas-settings-side' }, kbd('H'), hints.element),
+        h('div', { class: 'atlas-settings-side' }, hintsKey, hints.element),
       ),
-      h(
-        'div',
-        { class: 'atlas-settings-keys' },
-        ...KEYS.map(([keys, action]) =>
-          h('div', { class: 'atlas-settings-key' }, h('span', {}, ...keys.map((key) => kbd(key, key.length > 3))), h('span', { text: action })),
-        ),
-      ),
+      keyList,
     ),
+    // Who made what, and it is no longer "everything else in code": the people,
+    // the vehicles, the animals, the plants and most houses are CC0 models,
+    // credited as their LICENSE.txt files in `public/models/` credit them.
     h('div', {
       class: 'atlas-settings-credit',
       html:
-        'Coastlines from <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>. ' +
+        '<p>Coastlines and lakes from <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>. ' +
         'Towns from <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a>, ' +
-        '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC&nbsp;BY&nbsp;4.0</a>. ' +
-        'Everything else is drawn in code.',
+        '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC&nbsp;BY&nbsp;4.0</a>.</p>' +
+        '<p>The people and the livestock are by <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>, ' +
+        'as are the bus and the bicycle; the cars, the boats, the plants, the rocks and the houses and streets of the towns are ' +
+        '<a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>’s; more trees from ' +
+        '<a href="https://www.kaylousberg.com" target="_blank" rel="noopener">KayKit</a>, and the wooden church by CreativeTrio. ' +
+        'All of them CC0.</p>' +
+        '<p>The land, the sea, the sky, the flags, the landmarks and every other building are drawn in code.</p>',
     }),
-  );
+  ];
+  for (const section of sections) if (section !== null) panel.append(section);
 
   /* --- opening and closing ---------------------------------------------- */
 
@@ -348,22 +480,40 @@ export function createSettings(options: SettingsOptions): Settings {
     performance.refresh();
     flags.refresh();
     hints.refresh();
+    resolution.refresh();
+    showTime();
   }
+
+  registerModal(() => showing);
 
   function show(): void {
     if (showing) return;
     showing = true;
-    options.onOpen?.();
+    // Asked for the mouse before `onOpen`, which may close the map — and the
+    // map hands the lock back as it closes, which is the next paragraph's
+    // problem and not this one's.
     relock = options.lockTarget !== null && document.pointerLockElement === options.lockTarget;
+    options.onOpen?.();
     if (document.pointerLockElement) document.exitPointerLock();
     refresh();
     root.classList.add('on');
     close.focus({ preventScroll: true });
+    clockTimer = window.setInterval(() => showTime(), 1000);
   }
+
+  // **The panel holds the mouse while it is up.** Something closed as it
+  // opened — the map, which asks for the lock back as it goes — can have that
+  // request granted a moment later, behind the card, and the player is then
+  // looking at a settings panel with no cursor. A lock taken while the card is
+  // up is handed straight back.
+  document.addEventListener('pointerlockchange', () => {
+    if (showing && document.pointerLockElement !== null) document.exitPointerLock();
+  });
 
   function hide(): void {
     if (!showing) return;
     showing = false;
+    window.clearInterval(clockTimer);
     root.classList.remove('on');
     if (relock && options.lockTarget !== null) {
       // Chrome refuses a lock asked for too soon after one was released; that
@@ -379,16 +529,15 @@ export function createSettings(options: SettingsOptions): Settings {
   root.addEventListener('pointerdown', (event) => {
     if (event.target === root) hide();
   });
+  // The world's keys are the world's only while the panel is down — `B` and
+  // the brackets used to work over it and the rows followed them, but so did
+  // `Tab`, the arrows and `Space`, behind a card the player was reading.
+  // Everything a key did here is a control on the card.
   addEventListener('keydown', (event) => {
     if (!showing) return;
     if (event.code === 'Escape') {
       event.preventDefault();
       hide();
-    }
-    // The world keeps its keys while the panel is up — `B` and the brackets
-    // still work and the rows follow them.
-    if (event.code === 'KeyB' || event.code === 'BracketLeft' || event.code === 'BracketRight' || event.code === 'KeyH') {
-      requestAnimationFrame(refresh);
     }
   });
 

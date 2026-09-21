@@ -826,6 +826,25 @@ export function buildPlane(): { group: THREE.Group; propeller: THREE.Object3D } 
 }
 
 /**
+ * The ring a craft leaves when it arrives or goes: a splash on the water, a
+ * puff of dust on the ground. A unit annulus standing on `y = 0`, one unit
+ * across and one tall, which `player.ts` scales out and flattens as it fades —
+ * so the wall is 18% of the radius at every size, and the ink draws it as the
+ * comic's own mark for a splash rather than as a solid disc.
+ *
+ * Built through the same context as the hulls, so it is the world's cream and
+ * the world's pen. Sixteen sides, because the ink is what reads here and the
+ * pen draws a line at every one of them.
+ */
+export function buildSplash(): THREE.Mesh {
+  const ring = ctx.ringWall(0.82, 1, 1, P.white, 16);
+  ring.name = 'splash';
+  ring.castShadow = false;
+  ring.receiveShadow = false;
+  return ring;
+}
+
+/**
  * Published so `player.ts` can put the avatar's hip on the seat without either
  * file restating the other's numbers. `FIGURE.hipY` is where the body's own
  * origin puts the hip; the pose then shifts the whole body, and the seat has to

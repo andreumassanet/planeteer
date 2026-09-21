@@ -2,7 +2,8 @@
  * Somewhere to go.
  *
  * The plane is already the map: climb and the fog opens on the whole globe. What
- * it never had was a destination — sixty-five pins and no way to say *that one*.
+ * it never had was a destination — a pin for every landmark and no way to say
+ * *that one*.
  * This picks one landmark and then points at it, and it deliberately stops
  * there. It never flies you.
  *
@@ -29,6 +30,8 @@
  * disc in the corner can be.
  */
 import * as THREE from 'three';
+import { EARTH_KM, toUnit } from './cartography.ts';
+import { codeOf, inputBlocked } from './controls.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import type { DestinationEntry, Hud } from './hud.ts';
 import type { Minimap } from './minimap.ts';
@@ -53,9 +56,8 @@ export interface NavigationOptions {
    */
   countryHere?: () => string | null;
   /**
-   * `event.code` that cycles the destination. Pass `null` to take the key over
-   * yourself and call `advance()` — which is what binding it in `input.ts`
-   * would look like.
+   * `event.code` that cycles the destination, `controls.ts`'s `next` unless
+   * given. Pass `null` to take the key over yourself and call `advance()`.
    */
   key?: string | null;
 }
@@ -87,10 +89,6 @@ export interface Navigation {
   update(dt: number, player: Traveller, camera: THREE.PerspectiveCamera): void;
   dispose(): void;
 }
-
-const D2R = Math.PI / 180;
-/** Mean Earth radius, as in `minimap.ts`: the outlines are real. */
-const EARTH_KM = 6371;
 
 /**
  * How close counts as arrived, in world units.
@@ -125,8 +123,10 @@ const WAYPOINT_RISE = 90;
  */
 const MARKER_DEADZONE = 260;
 /**
- * How far inside the viewport an off-screen marker is pinned, in CSS pixels.
- * Wide enough that its label, which is centred above the tip, stays on screen.
+ * How far inside the viewport an off-screen marker is pinned, in CSS pixels:
+ * enough for the pin and a short label. A label can be up to 240 wide, which
+ * this does not cover, so the HUD slides a long one along to keep it on the
+ * screen rather than this pinning every marker 120 pixels in.
  */
 const MARKER_MARGIN = 84;
 
@@ -137,20 +137,14 @@ export function createNavigation(options: NavigationOptions): Navigation {
   // the chip anyway, at 2 us, and a copy kept here would be one more thing that
   // can go stale.
   const countryHere = options.countryHere ?? (() => null);
-  const key = options.key === undefined ? 'Tab' : options.key;
+  const key = options.key === undefined ? codeOf('next') : options.key;
   const count = placements.length;
 
-  // Unit vectors once, the same conversion the minimap uses for its pins, so a
-  // destination and the pin that stands for it cannot drift apart.
+  // Unit vectors once, through the one conversion both maps use for their pins,
+  // so a destination and the pin that stands for it cannot drift apart — and
+  // there is no copy of the `-` on z here to get wrong: see *Handedness*.
   const site = new Float32Array(count * 3);
-  placements.forEach((placement, i) => {
-    const lon = placement.lon * D2R;
-    const lat = placement.lat * D2R;
-    const c = Math.cos(lat);
-    site[i * 3] = c * Math.cos(lon);
-    site[i * 3 + 1] = Math.sin(lat);
-    site[i * 3 + 2] = -c * Math.sin(lon);
-  });
+  placements.forEach((placement, i) => toUnit(placement.lat, placement.lon, site, i * 3));
 
   const ranked: number[] = [];
   const closeness = new Float32Array(count);
@@ -276,9 +270,10 @@ export function createNavigation(options: NavigationOptions): Navigation {
   const events = new AbortController();
   if (key !== null) {
     addEventListener('keydown', (event) => {
-      // Leave the browser's own shortcuts alone, the same rule `input.ts` uses.
+      // Leave the browser's own shortcuts alone, the same rule `input.ts` uses,
+      // and a card's keys to the card: `Tab` walks the settings' own controls.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.code !== key) return;
+      if (event.code !== key || inputBlocked(event)) return;
       event.preventDefault();
       if (!event.repeat) advance();
     }, { signal: events.signal });

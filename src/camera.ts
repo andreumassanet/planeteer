@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FIGURE } from './avatar.ts';
+import { AVATAR_HEIGHT, FIGURE } from './avatar.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { BODY_RADIUS } from './player.ts';
 import type { Player } from './player.ts';
@@ -101,6 +101,22 @@ const BODY_NEAR = FIGURE.height * 0.5;
 
 /** Framing on foot: what `view` is, and what it returns to after a landing. */
 const WALK_FRAMING = { distance: 30, height: 15 };
+/**
+ * How far the wheel can take that framing, as a multiple of it: in to 0.6,
+ * where the lens is 20 units from the shoulders and a man fills a third of the
+ * frame, out to 2.5, where he is a figure in a street. The same angle at every
+ * zoom, because the tilt is the mouse's and the wheel is only the distance.
+ */
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 2.5;
+/**
+ * Pixels of wheel for a factor of e. A mouse notch is about a hundred pixels,
+ * which is 1.16x; a trackpad's dozens of small events add up to the same for
+ * the same travel, because it is the sum that is read and never the count.
+ */
+const ZOOM_PIXELS = 650;
+/** How fast the framing follows the wheel, per second: a glide rather than a step. */
+const ZOOM_RATE = 12;
 /** In the boat: wider, because the hull is longer than the avatar is tall. */
 const BOAT_FRAMING = { distance: 46, height: 20 };
 
@@ -251,25 +267,29 @@ const LOOK_DEADZONE = 0.002;
 /**
  * First person: where the eye sits, and what happens to the body it is inside.
  *
- * The eye is the avatar's own. `avatar.ts` stands its two eye boxes 0.62 above
- * `FIGURE.chinY`, so this is 5.72 of a 6.8-unit figure — 0.84 of its height,
- * low for a person and right for a four-head one — and what you see is what it
- * sees. Derived rather than written down because those proportions are still
- * being tuned: a literal 5.72 would slide off the head the first time `chinY`
- * moved, and nothing on screen would say so.
+ * **At the eyes of the body you actually are.** It used to be `FIGURE.chinY +
+ * 0.62`, where the code-built avatar stood its two eye boxes: 5.72 of a
+ * 6.8-unit figure, 0.84 of its height, right for a four-head body and low for
+ * anybody else. Since 2026-09-16 the hero is a CC0 character of about seven
+ * heads (`cast.ts`) scaled to `AVATAR_HEIGHT`, and on a seven-head body the
+ * eyes sit half a head under the crown: 1 - 0.5 / 7 = 0.93 of the height,
+ * which is also the adult standing eye height anthropometry gives. `FIGURE` is
+ * the seat conventions now and not the silhouette — `avatar.ts` says so — so
+ * the eye follows the height and not the chin, and moves with it.
  *
  * **The body is hidden rather than clipped.** In first person `main.ts` puts
- * the near plane at 0.86 units and the head is 0.78 across sitting on the lens;
- * what you would see is not a face but a full-screen rectangle of ink, because
- * `OutlineEffect` hulls the mesh and the hull is the thing you are inside.
- * Hiding the avatar leaves the boat and the plane standing — they are its
- * siblings in `player.ts`'s `craft` group, not its children.
+ * the near plane at 0.15 of the eye's height over the feet — 0.95 units — and
+ * the head is under a unit across sitting on the lens; what you would see is
+ * not a face but a full-screen rectangle of ink, because `OutlineEffect` hulls
+ * the mesh and the hull is the thing you are inside. Hiding the avatar leaves
+ * the boat and the plane standing — they are its siblings in `player.ts`'s
+ * `craft` group, not its children.
  *
  * There is deliberately **no head bob**: the eye rides `player.position`, not
  * the avatar's head. The walk cycle moves that head, and that is a good thing
  * to watch from behind and a bad thing to be inside.
  */
-const EYE_HEIGHT = FIGURE.chinY + 0.62;
+const EYE_HEIGHT = AVATAR_HEIGHT * 0.93;
 /**
  * How far the eye tips, measured the way `place` measures — positive is looking
  * down — but from level rather than from the framing's own elevation. Short of
@@ -306,7 +326,9 @@ export interface CameraRig {
    * whole design is that climbing swings the camera overhead and turns the
    * flight into the map — a cockpit view is the one framing that would take
    * that away. Boarding suspends first person and stepping back ashore returns
-   * it, with no second key to remember.
+   * it, with no second key to remember. **`V` in a craft is refused**, and
+   * says so through `onViewRefused`: it used to flip the state silently, show
+   * nothing, and then drop you into your own eyes on landing.
    */
   firstPerson: boolean;
   /** Update yaw/pitch from mouse look. Call BEFORE player.update. */
@@ -328,6 +350,8 @@ export interface CameraOptions {
    * ground stops the camera, as it always did.
    */
   blocks?: (point: THREE.Vector3) => boolean;
+  /** `V` pressed in a craft, where first person does not apply: for the HUD to say so. */
+  onViewRefused?: () => void;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -343,8 +367,15 @@ function ramp(value: number, from: number, to: number): number {
 
 export function createCameraRig(options: CameraOptions = {}): CameraRig {
   const camera = new THREE.PerspectiveCamera(FOV, 1, NEAR, FAR);
-  const { blocks } = options;
+  const { blocks, onViewRefused } = options;
   const view = { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height };
+  /**
+   * The wheel's multiple of `WALK_FRAMING`, and where it is heading. `view`
+   * is only written while the two differ, so a framing set by hand from the
+   * console stays until the wheel is next turned.
+   */
+  let zoom = 1;
+  let zoomTarget = 1;
 
   /**
    * Yaw is not stored as an angle. There is no fixed axis to measure it
@@ -450,8 +481,9 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       framing.distance = BOAT_FRAMING.distance;
       framing.height = BOAT_FRAMING.height;
     } else {
-      framing.distance = WALK_FRAMING.distance;
-      framing.height = WALK_FRAMING.height;
+      // The wheel's framing, so a landing comes back to the zoom you chose.
+      framing.distance = WALK_FRAMING.distance * zoomTarget;
+      framing.height = WALK_FRAMING.height * zoomTarget;
     }
   }
 
@@ -644,7 +676,23 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       player.controls.lift = (input.climb ? 1 : 0) - (input.dive ? 1 : 0);
       // `V` is read here for the same reason the vehicle keys are: this is the
       // one call that sees the keyboard, and the mode is the rig's own state.
-      if (input.view) firstPerson = !firstPerson;
+      if (input.view) {
+        if (player.vehicle === 'foot') firstPerson = !firstPerson;
+        else onViewRefused?.();
+      }
+
+      // The wheel, on foot and outside your own head: nearer or further along
+      // the framing's own line. `exp` of the travel rather than its sign, so a
+      // trackpad's stream of small deltas zooms as smoothly as it scrolls.
+      if (input.zoom !== 0 && player.vehicle === 'foot' && !firstPerson) {
+        zoomTarget = clamp(zoomTarget * Math.exp(input.zoom / ZOOM_PIXELS), ZOOM_MIN, ZOOM_MAX);
+      }
+      if (zoom !== zoomTarget && player.vehicle === 'foot' && !driving) {
+        zoom += (zoomTarget - zoom) * approach(ZOOM_RATE, dt);
+        if (Math.abs(zoomTarget - zoom) < 1e-3) zoom = zoomTarget;
+        view.distance = WALK_FRAMING.distance * zoom;
+        view.height = WALK_FRAMING.height * zoom;
+      }
 
       align(player);
       // Mouse right turns the view right, which about `up` is a negative angle.

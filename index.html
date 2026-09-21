@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>atlas · walk the whole Earth</title>
+    <meta name="description" content="Walk the whole Earth — on foot, by boat and by plane. An inked, cel-shaded planet built from the real coastlines, with its towns and its landmarks to find." />
+    <!-- The space the solar system is drawn against, which is also the page's own background. -->
+    <meta name="theme-color" content="#04060e" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="atlas" />
+    <meta property="og:title" content="atlas · walk the whole Earth" />
+    <meta property="og:description" content="An inked, cel-shaded planet built from the real coastlines: walk it, sail it and fly it, and find its landmarks." />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="atlas · walk the whole Earth" />
+    <meta name="twitter:description" content="An inked, cel-shaded planet built from the real coastlines: walk it, sail it and fly it, and find its landmarks." />
     <style>
       /*
        * The tokens, restated once for the loading screen: it has to paint before
@@ -194,7 +205,6 @@
         color: rgba(255, 242, 232, 0.82);
       }
       #loading-percent { font-variant-numeric: tabular-nums; color: var(--ui-paper); font-weight: 800; }
-      #loading.failed #loading-stage { color: #ffd2c7; }
       /* GeoNames is CC BY 4.0 and the licence asks for a credit somewhere a
          player sees it. This is that place, and the settings panel is the other.
          Natural Earth is public domain and is named for good manners. */
@@ -219,6 +229,58 @@
       @media (max-width: 520px) {
         .l-title { font-size: 64px; }
         .l-progress { width: 260px; }
+      }
+
+      /*
+       * The notice: a card over everything, for what the player has to be told
+       * before or instead of the world — no WebGL 2, a touch screen, a lost
+       * context, a failure (`notice` in `main.ts`). It is here and not in
+       * `ui.ts` for the reason the tokens above are: the first two are said
+       * before anything is downloaded, and the last may be a download that
+       * failed. It restates the card and the button of `ui.ts`, and nothing
+       * else may.
+       */
+      #notice {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: rgba(4, 6, 14, 0.55);
+        font-family: var(--ui-font);
+        color: var(--ui-ink);
+      }
+      #notice[hidden] { display: none; }
+      .n-card {
+        width: min(440px, 100%);
+        padding: 22px 24px 20px;
+        background: var(--ui-paper);
+        border: 3px solid var(--ui-ink);
+        border-radius: 14px;
+        box-shadow: 0 5px 0 var(--ui-ink);
+      }
+      .n-eyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.55; }
+      .n-title { margin-top: 4px; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+      .n-text { margin-top: 8px; font-size: 14px; font-weight: 600; line-height: 1.45; opacity: 0.72; overflow-wrap: anywhere; }
+      .n-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+      .n-btn {
+        font: 800 15px/1 var(--ui-font);
+        color: var(--ui-ink);
+        background: var(--ui-paper);
+        border: 3px solid var(--ui-ink);
+        border-radius: 11px;
+        box-shadow: 0 4px 0 var(--ui-ink);
+        padding: 11px 18px;
+        cursor: pointer;
+        transition: transform 0.09s ease, box-shadow 0.09s ease;
+      }
+      .n-btn.primary { background: var(--ui-gold); }
+      .n-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--ui-ink); }
+      .n-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--ui-ink); }
+      .n-btn:focus-visible { outline: 3px solid var(--ui-paper); outline-offset: 3px; }
+      @media (prefers-reduced-motion: reduce) {
+        .n-btn { transition: none; }
       }
     </style>
   </head>
@@ -296,6 +358,14 @@
         coastlines from <a href="https://www.naturalearthdata.com/">Natural Earth</a> ·
         towns from <a href="https://www.geonames.org/">GeoNames</a>,
         <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>
+      </div>
+    </div>
+    <div id="notice" role="alertdialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-text" hidden>
+      <div class="n-card">
+        <div class="n-eyebrow">atlas</div>
+        <h2 class="n-title" id="notice-title"></h2>
+        <p class="n-text" id="notice-text"></p>
+        <div class="n-actions" id="notice-actions"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
