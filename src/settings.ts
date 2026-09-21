@@ -75,10 +75,14 @@ export interface SettingsOptions {
   resolution: Choice;
   /** The sun's hour, live or chosen. Omit it and the row is not built. */
   time?: TimeOfDay;
+  /** The soundscape's level and whether it is on. Omit it and the section is not built. */
+  sound?: { volume: Knob; on: Toggle };
   /** Where to hand the pointer back to, if it was locked when the panel opened. */
   lockTarget: HTMLElement | null;
   /** Called on open, so whatever else holds the screen — the map — can let go. */
   onOpen?(): void;
+  /** Called on close. */
+  onClose?(): void;
 }
 
 export interface Settings {
@@ -382,6 +386,12 @@ export function createSettings(options: SettingsOptions): Settings {
   }
   /** The clock keeps running while the panel is open, and so does its number. */
   let clockTimer = 0;
+  const sound = options.sound;
+  const volume =
+    sound === undefined
+      ? null
+      : makeSlider(sound.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
+  const soundOn = sound === undefined ? null : makeSwitch(sound.on, 'Sound');
   const sensitivity = makeSlider(
     options.sensitivity,
     (v) => [`${Math.round(v * 100)}%`, v < 0.8 ? 'steady' : v > 1.3 ? 'quick' : 'default'],
@@ -428,6 +438,15 @@ export function createSettings(options: SettingsOptions): Settings {
             timeFast!.element,
           ),
         ),
+    sound === undefined
+      ? null
+      : h(
+          'section',
+          { class: 'atlas-settings-section' },
+          h('div', { class: 'ui-eyebrow', text: 'Sound' }),
+          row('Sound', 'The wind, the sea, the engines, footsteps, and a jingle when you find a landmark.', soundOn!.element),
+          row('Volume', 'How loud all of it is.', volume!.value, volume!.slider),
+        ),
     h(
       'section',
       { class: 'atlas-settings-section' },
@@ -463,8 +482,9 @@ export function createSettings(options: SettingsOptions): Settings {
         'as are the bus and the bicycle; the cars, the boats, the plants, the rocks and the houses and streets of the towns are ' +
         '<a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>’s; more trees from ' +
         '<a href="https://www.kaylousberg.com" target="_blank" rel="noopener">KayKit</a>, and the wooden church by CreativeTrio. ' +
-        'All of them CC0.</p>' +
-        '<p>The land, the sea, the sky, the flags, the landmarks and every other building are drawn in code.</p>',
+        'The footsteps, the interface and the jingles are Kenney’s too. All of them CC0.</p>' +
+        '<p>The land, the sea, the sky, the flags, the landmarks and every other building are drawn in code, ' +
+        'and so are the wind, the sea and the engines you hear.</p>',
     }),
   ];
   for (const section of sections) if (section !== null) panel.append(section);
@@ -481,6 +501,8 @@ export function createSettings(options: SettingsOptions): Settings {
     flags.refresh();
     hints.refresh();
     resolution.refresh();
+    volume?.refresh();
+    soundOn?.refresh();
     showTime();
   }
 
@@ -515,6 +537,7 @@ export function createSettings(options: SettingsOptions): Settings {
     showing = false;
     window.clearInterval(clockTimer);
     root.classList.remove('on');
+    options.onClose?.();
     if (relock && options.lockTarget !== null) {
       // Chrome refuses a lock asked for too soon after one was released; that
       // rejection is noise, the same rule `input.ts` and `map.ts` follow.

@@ -327,6 +327,13 @@ export interface PlayerOptions {
    * ride.
    */
   onEvent?: (event: PlayerEvent) => void;
+  /**
+   * A foot came down, on foot: once per half cycle of the gait, with `weight`
+   * the speed as a multiple of a walk. For the footsteps; nothing else reads it.
+   */
+  onStep?: (weight: number) => void;
+  /** Back on the ground after a jump or a fall, with the speed it landed at. */
+  onTouchdown?: (speed: number) => void;
 }
 
 export function createPlayer(
@@ -422,6 +429,8 @@ export function createPlayer(
   let height = 0;
   let vertical = 0;
   let airborne = false;
+  /** The gait's phase last frame, to see a heel strike go by. */
+  let lastStep = 0;
   let lean = 0;
 
   /** Flight state. `altitude` is above sea level, not above the ground. */
@@ -726,6 +735,7 @@ export function createPlayer(
       height += vertical * dt;
       if (height <= ground) {
         height = ground;
+        options.onTouchdown?.(-vertical);
         vertical = 0;
         airborne = false;
       }
@@ -1023,6 +1033,12 @@ export function createPlayer(
     // carries only the roll of a turn. Putting the bob on `craft` would move
     // the boat and the plane with it.
     avatar.stride(dt, speed_, airborne);
+    // A heel strike at each half of the cycle; see `Avatar.phase`.
+    const stepPhase = avatar.phase;
+    if (!airborne && speed_ > WALK_SPEED * 0.3 && (stepPhase < lastStep || (lastStep < 0.5 && stepPhase >= 0.5))) {
+      options.onStep?.(speed_ / WALK_SPEED);
+    }
+    lastStep = stepPhase;
     craft.rotation.z = lean;
   }
 

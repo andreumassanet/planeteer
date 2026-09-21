@@ -60,6 +60,8 @@ export interface HudOptions {
   onMap?(): void;
   /** "Copy link to here", on the pause card. */
   onShare?(): void;
+  /** A new country's card has just come in: the arrival, once per country. */
+  onArrival?(countryId: number): void;
   /**
    * The welcome card's button, from inside its click: the one moment the
    * caller may ask the browser for the mouse without a second click.
@@ -1105,6 +1107,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     arrival.classList.add('in');
     showing = true;
     showFor = 0;
+    options.onArrival?.(id);
   }
 
   function renderKeys(animate: boolean): void {

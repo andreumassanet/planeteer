@@ -17,7 +17,12 @@ import { createRoads, loadRoads } from './roads.ts';
 // it from there would drag all eighty-five model files into the first load for
 // one function that has nothing to do with them.
 import { createContext } from './monuments/contract.ts';
-import { setDetailSites, setFlattenSites } from './terrain.ts';
+import { setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
+import { biomeAt } from './biome.ts';
+import type { BiomeSample } from './biome.ts';
+import { createAudio } from './audio.ts';
+import type { Surface } from './audio.ts';
+import { BOAT_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
 import { createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
 import { createOcean } from './ocean.ts';
@@ -301,6 +306,13 @@ const SENSITIVITY_KEY = 'atlas.sensitivity.v1';
 const PERFORMANCE_KEY = 'atlas.performance.v1';
 const HINTS_KEY = 'atlas.hints.v1';
 const RESOLUTION_KEY = 'atlas.resolution.v1';
+/** `{ volume, on }`: the soundscape's two settings. */
+const SOUND_KEY = 'atlas.sound.v1';
+/**
+ * How far off the water the sea is still heard, in degrees of `shoreDistance`:
+ * 0.4 is 110 units, a few streets back from a harbour.
+ */
+const SEA_EARSHOT = 0.4;
 /** Whether the welcome card has been shown on this device. */
 const WELCOME_KEY = 'atlas.welcomed.v1';
 
@@ -889,16 +901,42 @@ async function start(): Promise<void> {
    * of a jump is raised a few frames later, around wherever you landed, and the
    * first frame it stands puts you on the nearest clear ground outside it.
    */
+  // The ear. Silent and nearly free until a gesture unlocks it — the browser's
+  // rule — so every pointer press and key press offers it the unlock, which is
+  // idempotent and also resumes a context a hidden tab suspended.
+  const audio = createAudio();
+  try {
+    const saved = JSON.parse(readSetting(SOUND_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
+    if (saved !== null && typeof saved.volume === 'number') audio.volume = saved.volume;
+    if (saved !== null && typeof saved.on === 'boolean') audio.muted = !saved.on;
+  } catch {
+    // A mangled setting is the default one.
+  }
+  const saveSound = (): void => writeSetting(SOUND_KEY, JSON.stringify({ volume: audio.volume, on: !audio.muted }));
+  const unlockAudio = (): void => audio.unlock();
+  addEventListener('pointerdown', unlockAudio, { capture: true });
+  addEventListener('keydown', unlockAudio, { capture: true });
+  /** What the foot is on, refreshed a couple of times a second in the loop. */
+  let footing: Surface = 'grass';
+
   await avatarReady;
   const player = createPlayer(world, spawn.lat, spawn.lon, {
     madeHeightAt,
+    onStep: (weight) => audio.step(footing, weight),
+    // A jump lands at about its take-off speed; stepping off a kerb does not.
+    onTouchdown: (speed) => {
+      if (speed > 12) audio.cue('land');
+    },
     collide: (point, radius, push) => settlements.collide(point, radius, push),
     freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a refusal, a landing, and a landing
     // that turned into a boat.
     onEvent: (event: PlayerEvent) => {
-      if (event === 'ashore-refused') announce('No shore within reach — sail closer to land', 'boat');
+      if (event === 'ashore-refused') {
+        announce('No shore within reach — sail closer to land', 'boat');
+        audio.cue('ui-error');
+      }
       else if (event === 'landing') announce(`Landing — ${labelOf('fly')} to go around`, 'plane');
       else if (event === 'go-around') announce('Going around', 'plane');
       else if (event === 'ditched') announce('Down on the water — you are in the boat', 'boat');
@@ -943,6 +981,8 @@ async function start(): Promise<void> {
     onSettings: () => settings.toggle(),
     onMap: () => (map.open ? map.hide() : map.show()),
     onShare: shareHere,
+    // The card for a new country, and the frontier's jingle with it.
+    onArrival: () => audio.cue('frontier'),
     // Inside the welcome card's click, so the lock is still the player's gesture.
     onStart: () => input.lock(),
   });
@@ -1188,12 +1228,34 @@ async function start(): Promise<void> {
       options: RESOLUTIONS,
     },
     time,
+    sound: {
+      volume: {
+        get: () => audio.volume,
+        set: (value) => {
+          audio.volume = value;
+          saveSound();
+          return audio.volume;
+        },
+        min: 0.05,
+        max: 1,
+      },
+      on: {
+        get: () => !audio.muted,
+        set: (on) => {
+          audio.muted = !on;
+          saveSound();
+          return on;
+        },
+      },
+    },
     lockTarget: renderer.domElement,
     // One card at a time: the settings over the world map would be two
     // overlays holding the mouse, and the map's keys under a modal card.
     onOpen: () => {
       if (map.open) map.hide();
+      audio.cue('ui-open');
     },
+    onClose: () => audio.cue('ui-close'),
   });
   document.body.appendChild(settings.root);
 
@@ -1307,6 +1369,16 @@ async function start(): Promise<void> {
   /** The welcome card waits for the first arrival: the curtain up, or the first frame of a link. */
   let welcomePending = readSetting(WELCOME_KEY) !== '1' && navigator.webdriver !== true;
 
+  // The ear's slow answers, refreshed twice a second in the loop.
+  let soundClock = 0;
+  const soundPoint = new THREE.Vector3();
+  const soundBiome: BiomeSample = { id: 'temperate', warmth: 0, moisture: 0, elevation: 0 };
+  let soundCold = false;
+  let soundSea = 0;
+  let soundWild = 1;
+  let soundWildTarget = 1;
+  let mapWasOpen = false;
+
   function frame(now: number): void {
     requestAnimationFrame(frame);
     // **A tab left open on the pause card draws at about 30 frames a second**
@@ -1358,6 +1430,43 @@ async function start(): Promise<void> {
     // vertex in the shaders. See `src/lights.ts`.
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     cityLights.update(renderer);
+
+    // The ear, after the sky: it wants the hour, the height over the ground and
+    // what the foot is on. The slow questions — the biome, the coast, whether
+    // this is a town — are asked twice a second; nothing in them moves faster.
+    soundClock -= dt;
+    if (soundClock <= 0) {
+      soundClock = 0.5;
+      const at = toLatLon(player.position);
+      const inTown = settlements.madeHeightAt(player.position) > 0;
+      const unit = soundPoint.copy(player.position).normalize();
+      biomeAt(unit.x, unit.y, unit.z, at.lat, at.lon, ground - PLANET_RADIUS, soundBiome);
+      soundCold = soundBiome.id === 'ice' || soundBiome.id === 'tundra';
+      footing = inTown ? 'paving' : soundCold ? 'snow' : soundBiome.id === 'desert' || soundBiome.id === 'rock' ? 'dirt' : 'grass';
+      soundSea = player.vehicle === 'boat' ? 1 : Math.max(0, 1 - shoreDistance(at.lat, at.lon) / SEA_EARSHOT);
+      soundWildTarget = inTown ? 0 : 1;
+    }
+    soundWild += (soundWildTarget - soundWild) * Math.min(1, dt * 0.8);
+    const speedNow = player.velocity;
+    audio.update(dt, {
+      mode: player.vehicle,
+      speed: speedNow,
+      throttle:
+        player.vehicle === 'plane'
+          ? (speedNow - PLANE_CRUISE_LOW * 0.55) / (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW * 0.55)
+          : player.vehicle === 'boat'
+            ? speedNow / BOAT_BOOST
+            : 0,
+      height: eyeOverGround,
+      sea: soundSea,
+      daylight: sky.state.daylight,
+      wild: soundWild,
+      cold: soundCold,
+    });
+    if (map.open !== mapWasOpen) {
+      mapWasOpen = map.open;
+      audio.cue(map.open ? 'ui-open' : 'ui-close');
+    }
 
     // Fog follows the camera's altitude. On the ground the horizon is ~930 units
     // out and the haze has to start before that; from the air it is tens of
@@ -1445,6 +1554,9 @@ async function start(): Promise<void> {
     // test per monument — and it only ever fires once per landmark.
     if (player.vehicle === 'foot') {
       for (const place of monuments.recordVisits(player.position)) {
+        // Every find gets the jingle, the destination included: the card is
+        // what the navigation panel replaces, not the moment.
+        audio.cue('landmark');
         // Walking into your own destination is one arrival, not two: the
         // navigation panel turns gold in place and says it better than a card.
         if (place.id !== nav.target?.id) {
@@ -1698,6 +1810,9 @@ async function start(): Promise<void> {
       // the worst distance a foot ends up below the floor, which is the check
       // that pays for the one line copied out of `avatar.ts`.
       life,
+      // `atlas.audio.stats`: whether the context is unlocked and running, how
+      // many recordings arrived, and how many voices are sounding.
+      audio,
       // `atlas.vegetation.stats` counts tiles, plants and triangles by level;
       // `atlas.vegetation.sample(lat, lon, level)` builds one tile and reports
       // what it cost, and `.verify(lat, lon)` builds it twice and compares.

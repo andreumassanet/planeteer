@@ -307,6 +307,15 @@ export interface Avatar {
   sit(dt: number): void;
   /** Back to a clean standing pose with the cycle at zero. For `goTo`. */
   reset(): void;
+  /**
+   * Where the gait is in its cycle, 0 to 1. The walk and run clips are played
+   * at this phase (`apply`), so a foot comes down twice a cycle at fixed
+   * phases, and the footsteps in `audio.ts` are timed at 0 and a half — the
+   * usual way a walk loop is authored, from a contact pose. That was not
+   * checked frame by frame against these clips; if a step sounds early or
+   * late, the offset belongs in `player.ts` where the steps are counted.
+   */
+  readonly phase: number;
 }
 
 /** Builds the body and returns the rig that poses it. Needs `prepareAvatar` first. */
@@ -480,5 +489,14 @@ export function buildAvatar(): Avatar {
   }
 
   reset();
-  return { group, stride, steer, sit, reset };
+  return {
+    group,
+    stride,
+    steer,
+    sit,
+    reset,
+    get phase() {
+      return phase;
+    },
+  };
 }

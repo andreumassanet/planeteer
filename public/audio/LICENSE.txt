@@ -1,0 +1,5 @@
+The sounds in this directory, rebuilt by scripts/build-audio.mjs.
+Trimmed, levelled to one peak and re-encoded as mono MP3; otherwise unchanged.
+
+Kenney (https://kenney.nl) — Impact Sounds, Interface Sounds, Music Jingles, RPG Audio.
+License: CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/).
