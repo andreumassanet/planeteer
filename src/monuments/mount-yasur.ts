@@ -85,13 +85,12 @@ import type { Group, Object3D, Monument, MonumentContext } from './contract.ts';
  * The plume: five lobes, not fifty
  * ---------------------------------------------------------------------------
  *
- * The cloud-top trap is written down elsewhere in this repo and it applies
- * exactly: lumps at one cell wavelength on a shell come out as sharp triangular
- * peaks and read as **snow-capped mountains**. So the plume is a throat, a
- * glowing base, a dark column and **five big lobes** — nothing small, nothing
- * repeated. It leans 0.17 radians toward +X and 0.05 toward +Z, which is what
- * turns a chimney into smoke, and the lean is on a group so every piece travels
- * with it and the determinant stays positive.
+ * The cloud-top trap applies exactly: lumps at one cell wavelength on a shell
+ * come out as sharp triangular peaks and read as **snow-capped mountains**. So
+ * the plume is a throat, a glowing base, a dark column and **five big lobes** —
+ * nothing small, nothing repeated. It leans 0.17 radians toward +X and 0.05
+ * toward +Z, which is what turns a chimney into smoke, and the lean is on a
+ * group so every piece travels with it and the determinant stays positive.
  *
  * Its value ladder runs dark → hot → dark → grey → pale, bottom to top: `bark`
  * throat, `orange` incandescence, `steel` column, `slate` billows, `bone` crown.

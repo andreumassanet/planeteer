@@ -68,6 +68,7 @@ import type { Pose as AnimalPose } from './fauna/body.ts';
 import { BY_BIOME, FAUNA_STYLES, nativeHere } from './fauna/regions.ts';
 import type { RegionId } from './fauna/regions.ts';
 import type { MonumentContext } from './monuments/contract.ts';
+import { latOf, lonOf, unitAt } from './sphere.ts';
 
 /**
  * Ambient life: the things that move.
@@ -159,7 +160,7 @@ const TAU = Math.PI * 2;
  * `detailCount(ROAD_MOVERS)` of them and lowering the occupancy only changes
  * *which* roads they come from. Measured standing in Ulm at the shipped detail
  * of 0.5: 18 * 0.5^1.5 = 6.4, and the world held **6 movers, all six on the
- * screen at once** — which is what the user saw as *abundan los coches mucho*.
+ * screen at once** — which reads as a country road thick with cars.
  *
  * It is 12 now, four at the shipped detail, and the occupancy change beside it
  * is what makes those four be on a road rather than on a village lane.
@@ -394,7 +395,7 @@ const FLOCK_MAX = 8;
  *
  * One draws the radius. The other lifts the whole flock clear of the highest
  * ground inside it — see the scan — and a second copy of 120 there would be the
- * failure `CLAUDE.md` opens with, sitting on a number nothing would ever
+ * failure this project has shipped most, sitting on a number nothing would ever
  * disagree about until somebody widened the ring.
  */
 const FLOCK_RADIUS: readonly [number, number] = [38, 120];
@@ -506,11 +507,11 @@ const WALK = {
  * `people.ts` returns a properly hinged body — hip and knee pivots under the
  * root, shoulder and elbow pivots under the trunk — and names none of them,
  * because until now nothing had ever needed to move one. Rather than reach into
- * another agent's file for a name, the pivots are identified by **geometry**,
- * which that file's own construction fixes: the hips are the two `Group`s under
- * the root with a lateral offset, the trunk is the one without, the shoulders
- * are the two `Group`s under the trunk with a lateral offset, and each of those
- * four has exactly one `Group` child, which is its second joint.
+ * a file this one does not own for a name, the pivots are identified by
+ * **geometry**, which that file's own construction fixes: the hips are the two
+ * `Group`s under the root with a lateral offset, the trunk is the one without,
+ * the shoulders are the two `Group`s under the trunk with a lateral offset, and
+ * each of those four has exactly one `Group` child, which is its second joint.
  *
  * The second test is safe because **every carried load is a `Mesh`**: a pack, a
  * jug, a parasol and a staff are all added to the trunk directly, so a `Group`
@@ -800,14 +801,13 @@ export interface HerdProbe {
    *
    * Every number below is a snapshot of the last scan, and a snapshot is
    * worthless if nothing has scanned. In an automated browser
-   * `requestAnimationFrame` is frozen while the tab is hidden — `CLAUDE.md`
-   * says so — so `atlas.goTo` moves the player and the streamers never run,
-   * and four `goTo` calls with no screenshot between them return **the same
-   * stale reading four times**. That is what a herd that "never appears"
-   * looked like for an evening: a constant bird count at four different
-   * biomes, which is impossible for a working scan and is the tell. If this
-   * number does not advance between two reads, the loop is frozen and nothing
-   * else here means anything.
+   * `requestAnimationFrame` is frozen while the tab is hidden, so `atlas.goTo`
+   * moves the player and the streamers never run, and four `goTo` calls with no
+   * screenshot between them return **the same stale reading four times**. That
+   * is what a herd that "never appears" looked like for an evening: a constant
+   * bird count at four different biomes, which is impossible for a working scan
+   * and is the tell. If this number does not advance between two reads, the
+   * loop is frozen and nothing else here means anything.
    */
   frame: number;
   /** Animals handed to `createLife`. Zero means the option never arrived. */
@@ -956,7 +956,8 @@ export function roadFrameOf(
   coursePoint(course, t, frameHere);
   courseTangent(course, t, out.forward);
   // Sideways is `up x forward`: the same hand every basis in this project is
-  // built with. `makeBasis(east, up, north)` is the reflection — see CLAUDE.md.
+  // built with. `makeBasis(east, up, north)` is the reflection, because
+  // `east x up` is `-north`.
   frameSide.crossVectors(frameHere, out.forward).normalize();
   out.dir.copy(frameHere).addScaledVector(frameSide, lateral / PLANET_RADIUS).normalize();
   out.height = PLANET_RADIUS;
@@ -997,9 +998,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
   // Scratch. Nothing in the frame loop allocates.
   // ------------------------------------------------------------------
 
-  const endA = new THREE.Vector3();
-  const endB = new THREE.Vector3();
-  const pole = new THREE.Vector3();
   const here = new THREE.Vector3();
   const upAxis = new THREE.Vector3();
   const northward = new THREE.Vector3();
@@ -1021,8 +1019,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
     direction[i * 3 + 1] = here.y;
     direction[i * 3 + 2] = here.z;
   });
-  const readPlace = (index: number, target: THREE.Vector3): THREE.Vector3 =>
-    target.set(direction[index * 3]!, direction[index * 3 + 1]!, direction[index * 3 + 2]!);
 
   /**
    * Every road's midpoint and its own half-length, once.
@@ -1049,9 +1045,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
 
   /**
-   * Which side of each road its traffic keeps, as the sign of a lateral
-   * offset: `roadFrameOf` steps along `up x forward`, which is the mover's
-   * **left** (screen right is `forward x up`; see CLAUDE.md), so +1 keeps left
+   * Which side of each road its traffic keeps, as the sign of a lateral offset:
+   * `roadFrameOf` steps along `up x forward`, which is the mover's **left**
+   * (screen right is `forward x up`, never `up x forward`), so +1 keeps left
    * and -1 keeps right. Every car on the planet kept left until 2026-09-21.
    *
    * Decided by the country of the road's first town, `road.a` — the town whose
@@ -1634,7 +1630,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
     return rig.clips.some((clip) => clip.name === 'Idle') ? 'Idle' : (rig.clips[0]?.name ?? 'Idle');
   }
 
-  const herdMatrix = new THREE.Matrix4();
   const herdNormal = new THREE.Matrix3();
   const herdPoint = new THREE.Vector3();
   const herdQuat = new THREE.Quaternion();
@@ -1651,9 +1646,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * the key carrying it and the builder re-deriving it. The centre comes out of
    * two seeded draws inside `forEachCell` and the frame out of a third, so a
    * builder that re-derived them would be a second copy of a draw *order* — the
-   * exact shape of the fault `CLAUDE.md` opens with, and one that would fail
-   * silently by seating every animal on ground a few units from the ground it
-   * is standing on.
+   * exact shape of the fault this project has shipped most, and one that would
+   * fail silently by seating every animal on ground a few units from the ground
+   * it is standing on.
    */
   interface HerdSite {
     species: string;
@@ -2338,11 +2333,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // --- the pasture ------------------------------------------------------
     //
     // **The biome says what kind of animal, the region says whose, and there is
-    // no third table.** That is the pair `CLAUDE.md` names and it is `src/fauna/
-    // regions.ts`'s whole design: `BY_BIOME` is keyed on `BiomeId` and `RANGE`
-    // on `RegionId`, and neither knows about the other. A camel reaches the
-    // Kazakh steppe because its range includes `east-europe`, and there is still
-    // no camel in Serbia because Serbian ground is `temperate`.
+    // no third table.** That is the pair the vegetation uses and it is
+    // `src/fauna/regions.ts`'s whole design: `BY_BIOME` is keyed on `BiomeId`
+    // and `RANGE` on `RegionId`, and neither knows about the other. A camel
+    // reaches the Kazakh steppe because its range includes `east-europe`, and
+    // there is still no camel in Serbia because Serbian ground is `temperate`.
     //
     // The order of the gates is the trap the bird scan already wrote down: the
     // **cheap seeded draw goes before the point-in-polygon**, because
@@ -2373,10 +2368,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
         // here is a subtraction; rejecting it in `consider` is a `biomeAt`, a
         // `countryAt` and a point-in-polygon first.
         //
-        // **Counted rather than timed, and deliberately** — this machine runs
-        // several agents and the same cold scan over Finnmark read 11.7 ms and
-        // then 16.4 ms with *less* work in it, which is the machine and not the
-        // code. The cells are exact:
+        // **Counted rather than timed, and deliberately** — on a loaded machine
+        // the same cold scan over Finnmark read 11.7 ms and then 16.4 ms with
+        // *less* work in it, which is the machine and not the code. The cells
+        // are exact:
         //
         // ```
         //   latitude   cells visited   inside the reach   rejected here
@@ -2404,8 +2399,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
         let choices = herdStock.get(key);
         if (choices === undefined) {
-          const lat = Math.asin(Math.max(-1, Math.min(1, centre.y))) / DEG;
-          const lon = Math.atan2(-centre.z, centre.x) / DEG;
+          const lat = latOf(centre.y);
+          const lon = lonOf(centre.x, centre.z);
           const biome = biomeAt(centre.x, centre.y, centre.z, lat, lon, ground, herdSample);
           const index = world.countryAt(lat, lon);
           const country = index > 0 ? world.countries[index - 1] : undefined;
@@ -2453,11 +2448,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
           // a 12-unit one leaves them in the fields between the villages, which
           // is where a cow is.
           const keepOut = radiusOf(nearest) + 12;
-          herdProbe.set(
-            Math.cos(nearest.lat * DEG) * Math.cos(nearest.lon * DEG),
-            Math.sin(nearest.lat * DEG),
-            -Math.cos(nearest.lat * DEG) * Math.sin(nearest.lon * DEG),
-          );
+          unitAt(nearest.lat, nearest.lon, herdProbe);
           if (herdProbe.angleTo(centre) * PLANET_RADIUS < keepOut) return;
         }
         herds.clearOfTown++;
@@ -2506,13 +2497,13 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
         // **And off the two other things that are built.** The town gate above
         // is a disc and it was the only one: a herd could stand in a
-        // carriageway, which is where the user found one, or inside a
-        // monument's footprint, which is 55 units of pad with a landmark on it.
-        // The road is a *line* and not a disc — the same distinction
-        // `vegetation.ts` makes, and the same two halves stated by the two files
-        // that own them: `roadClearance` is half the drawn strip and the herd
-        // brings its own `spread`. It runs after the town gate for the reason
-        // that one runs last, and after the draws so that no seed moves.
+        // carriageway, and one did, or inside a monument's footprint, which is
+        // 55 units of pad with a landmark on it. The road is a *line* and not a
+        // disc — the same distinction `vegetation.ts` makes, and the same two
+        // halves stated by the two files that own them: `roadClearance` is half
+        // the drawn strip and the herd brings its own `spread`. It runs after
+        // the town gate for the reason that one runs last, and after the draws
+        // so that no seed moves.
         if (!clearOfMade(centre, spread)) return;
         herds.clearOfMade++;
         const bearing = rng.unit() * TAU;
@@ -2597,8 +2588,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
             ? 0.55
             : 0.12 + 0.88 * BIOMES[biomeAt(
                 centre.x, centre.y, centre.z,
-                Math.asin(Math.max(-1, Math.min(1, centre.y))) / DEG,
-                Math.atan2(-centre.z, centre.x) / DEG,
+                latOf(centre.y),
+                lonOf(centre.x, centre.z),
                 Math.max(0, elevation), biomeSample(),
               ).id].cover;
           // **And the ground it is asked about is the ground the flock circles
@@ -2697,8 +2688,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
     visit: (row: number, col: number) => void,
   ): void {
     const length = viewer.length() || 1;
-    const lat = Math.asin(Math.max(-1, Math.min(1, viewer.y / length))) / DEG;
-    const lon = Math.atan2(-viewer.z, viewer.x) / DEG;
+    const lat = latOf(viewer.y / length);
+    const lon = lonOf(viewer.x, viewer.z);
     const rows = Math.ceil(range / (size * DEG * PLANET_RADIUS)) + 1;
     // A degree of longitude shrinks with the cosine, so a high-latitude scan
     // needs more columns to cover the same ground. Clamped, or a pole is a scan
@@ -2715,10 +2706,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   /** A unit vector inside one lat/lon cell. The planet's own handedness. */
   function cellPoint(row: number, col: number, size: number, u: number, v: number): THREE.Vector3 {
-    const lat = (row + u) * size;
-    const lon = (col + v) * size;
-    const cos = Math.cos(lat * DEG);
-    return new THREE.Vector3(cos * Math.cos(lon * DEG), Math.sin(lat * DEG), -cos * Math.sin(lon * DEG));
+    return unitAt((row + u) * size, (col + v) * size, new THREE.Vector3());
   }
 
   const wrap = (t: number): number => {

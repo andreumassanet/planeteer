@@ -15,6 +15,8 @@
  * 297 ms of shore indexing into the chunk behind it.
  */
 
+import { toUnit } from '../sphere.ts';
+
 /** Distinct from `terrain.ts`'s seed and from `random.ts`'s. */
 const SEED = 0x50142;
 
@@ -96,21 +98,20 @@ export function ridged(x: number, y: number, z: number, octaves = 4): number {
   return sum / total;
 }
 
-const DEG = Math.PI / 180;
-
 /**
  * A point on the unit sphere, in **this project's** frame and not in a fresh
- * one.
+ * one — latitude first, unlike `globe.ts`'s `onSphere`, and as a tuple.
  *
- * `z = -cos(lat) * sin(lon)`, which is `globe.ts`'s `onSphere` and `geo.ts`'s
- * `toLatLon` inverted, and the sign is not a detail: the planet was mirrored
- * for months and every check passed, because a mirrored globe is self-
- * consistent and only a third party can see it. Sixteen places convert and this
- * is the seventeenth, so it is written the same way rather than derived again.
+ * `z = -cos(lat) * sin(lon)`, and the sign is not a detail: the planet was
+ * mirrored for months and every check passed, because a mirrored globe is self-
+ * consistent and only a third party can see it. So it is `sphere.ts`'s
+ * `toUnit`, the one conversion every other file goes through, rather than a
+ * formula derived again.
  */
 export function onSphere(lat: number, lon: number): [number, number, number] {
-  const c = Math.cos(lat * DEG);
-  return [c * Math.cos(lon * DEG), Math.sin(lat * DEG), -c * Math.sin(lon * DEG)];
+  const out: [number, number, number] = [0, 0, 0];
+  toUnit(lat, lon, out);
+  return out;
 }
 
 /** The dot product of two lat/lon directions — a cosine of the angle between. */

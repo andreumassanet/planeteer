@@ -49,7 +49,7 @@ export const hex = (color: number): string => `#${color.toString(16).padStart(6,
  * displayed colour. The menu's background has to be the same pixel or the
  * dome's edge shows as a disc when the camera leaves it; this is it in hex.
  */
-export const SPACE_CSS = '#04060e';
+const SPACE_CSS = '#04060e';
 
 /* ------------------------------------------------------------------------- *
  * The stylesheet

@@ -66,8 +66,8 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * round where this arch is pointed. The head is six horizontal courses of
  * decreasing width instead. `OutlineEffect` inks every course, which is the
  * right answer twice over: the real arch *is* a tiled surface laid in courses,
- * and the note in `CLAUDE.md` is that few joints read as natural and many read
- * as manufactured. This is the most manufactured object on the planet.
+ * and the joint-count rule is that few joints read as natural and many read as
+ * manufactured. This is the most manufactured object on the planet.
  *
  * The recess behind it is `brown`, not a neutral: an iwan is a half-domed cave
  * facing the square, it is in shade all day, and the note beside `ctx.palette`

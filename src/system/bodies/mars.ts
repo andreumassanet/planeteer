@@ -319,8 +319,8 @@ export const MARS_GROUND: GroundModel = {
 };
 
 /**
- * The countries, and the rule that produced them is the one that produced the
- * second wave of monuments: **name them after what is already on the map.**
+ * The countries, and the rule that produced them is the one that chose the
+ * later monuments: **name them after what is already on the map.**
  *
  * Every one is a real Martian province with a real centre. Nobody has to argue
  * about whether Tharsis is a place, and a player who looks Mars up finds the

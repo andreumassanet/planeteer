@@ -20,8 +20,8 @@
  * **The mix is one number per voice, here, and never in the bake.** Every
  * recording is levelled to the same peak by the bake so that re-baking cannot
  * move the balance; the balance is `GAIN` and the `*_LEVEL` constants below.
- * They were set by reading the synthesis, not by listening on the machine that
- * wrote them — a player's ear is the review they still need.
+ * They were set by reading the synthesis rather than by ear, and a player's ear
+ * is the review they still need.
  */
 
 export type Surface = 'grass' | 'paving' | 'snow' | 'dirt';

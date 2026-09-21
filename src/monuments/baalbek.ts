@@ -42,8 +42,8 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * exaggeration at all. That is unusual under this contract and it happens for a
  * simple reason — the thing is already tall and narrow, so the `building` tier's
  * 40 units of height and the six-column crop meet without either having to give.
- * Half-diagonal over height: **0.65** against the 2.00 cap, the most slack any
- * monument in this wave has.
+ * Half-diagonal over height: **0.65** against the 2.00 cap, the most slack of
+ * any monument written alongside it.
  *
  * What *is* cropped is the plan. The stylobate was 88 by 48 metres and ten
  * columns wide; this is six of them on a platform 38 by 34 units, which is about

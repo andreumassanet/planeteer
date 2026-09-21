@@ -31,10 +31,11 @@ import type { Group, Monument, Vector3 } from './contract.ts';
  *
  * Checks that fall out of the same arithmetic, and that the file asserts by
  * construction rather than by trust: every one of the twelve edge tubes is `a`
- * long, and every one of the eight centre-to-corner tubes is `a * sqrt(3) / 2 =
- * 0.866 a`. **The diagonals are the shorter of the two lengths, not the longer.**
- * Half a body diagonal is always less than an edge; a brief that says otherwise
- * is remembering a photograph, not measuring a cube.
+ * long, and every one of the eight centre-to-corner tubes is
+ * `a * sqrt(3) / 2 = 0.866 a`. **The diagonals are the shorter of the two
+ * lengths, not the longer.** Half a body diagonal is always less than an edge;
+ * a description that says otherwise is remembering a photograph, not measuring
+ * a cube.
  *
  * Proportions are the real ones, undistorted. At 102 m the Atomium is 18 m
  * across the spheres and 29 m between their centres, so the whole model is those

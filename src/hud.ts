@@ -39,7 +39,7 @@ import type { Nearby } from './places.ts';
 import type { Vehicle } from './player.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { createFlagCanvas } from './flags.ts';
-import { countryFacts } from './country-facts.ts';
+import { countryFacts, loadCountryFacts } from './country-facts.ts';
 import type { CountryFacts } from './country-facts.ts';
 import { capOf, hintsFor, labelOf, onKeyLabels, registerModal } from './controls.ts';
 import type { KeyHint } from './controls.ts';
@@ -898,6 +898,10 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   // first frontier; empty (and hidden) for the few features that are not
   // countries.
   const arrivalFacts = h('div', { class: 'atlas-arrival-facts' });
+  // Asked for now rather than at the first frontier: fetched on demand, the
+  // first card came up without its line and grew one a moment later. 10 KB
+  // gzipped, after the world is already standing; a failure is retried then.
+  setTimeout(() => void loadCountryFacts().catch(() => undefined), 0);
   const arrival = h(
     'div',
     { class: 'atlas-arrival ui-card' },

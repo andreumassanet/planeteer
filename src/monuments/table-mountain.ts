@@ -308,7 +308,8 @@ const LEDGE_INSET = 1.4;
 const SCREE_BASE_Z = 29;
 const SCREE_BASE_X = 46;
 const SCREE_TOP_Z = 18.5;
-const SCREE_TOP_X = 32;
+// No half-length at the scree line: the frustum is one shape stretched in x, so
+// it is `SCREE_TOP_Z * SCREE_BASE_X / SCREE_BASE_Z` and not a number of its own.
 /** The apron's centre: the massif's own, so the model straddles the Y axis. */
 const MASSIF_X = -2;
 const MASSIF_Z = -3;

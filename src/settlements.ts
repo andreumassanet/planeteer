@@ -53,10 +53,10 @@ import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scene
 import type { Solid, SolidField } from './scenery/solids.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
-import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
+import { isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
 import { biomeAt, biomeSample } from './biome.ts';
 import { VEHICLES, createTrafficContext, placedScale, placedSize, trafficFor, variantRng as vehicleRng } from './traffic/index.ts';
-import type { TrafficContext, TrafficStyle, Vehicle } from './traffic/index.ts';
+import type { TrafficStyle, Vehicle } from './traffic/index.ts';
 import type { Place } from './places.ts';
 import {
   createViewCone,
@@ -83,7 +83,8 @@ import {
   validatePart,
   variantRng,
 } from './scenery/index.ts';
-import type { PartKind, Placed, Plot, RegionStyle, SceneryContext, Weighted } from './scenery/index.ts';
+import type { PartKind, Placed, RegionStyle, SceneryContext, Weighted } from './scenery/index.ts';
+import { unitAt } from './sphere.ts';
 
 /**
  * The join: 29,545 populated places on one side, twenty-two parametric parts on
@@ -113,8 +114,6 @@ import type { PartKind, Placed, Plot, RegionStyle, SceneryContext, Weighted } fr
  * and refuse the plots that are too steep to build on, which is what a town
  * does.
  */
-
-const DEG = Math.PI / 180;
 
 /**
  * How big a settlement is, and where that number lives now.
@@ -219,7 +218,7 @@ const PIXELS_PER_RADIAN = 937;
  * `OutlineEffect` draws the scene twice, so this is 760,000 triangles a frame on
  * top of the land mesh's 2.18 M, which is drawn twice too: about a sixth more
  * than the land alone for the thing the whole planet was built to hold (the
- * land's count is `CLAUDE.md`'s, 2026-09-13). It was set when this was 640,000
+ * land's count as measured on 2026-09-13). It was set when this was 640,000
  * and the land 1.5 M, and has moved since with the towns and the land both.
  *
  * It binds where the count cap does not. The densest 1,500-unit neighbourhood on
@@ -402,14 +401,14 @@ const WIDEST_FOOTPRINT = 55;
  * and how wide they are is `streetBand`'s.
  *
  * **And the roads out are not this file's any more.** A town used to draw the
- * last stretch of every road itself — a track from its centre out past its
- * edge — because only the town knew where its terrace was. It came out as a
- * narrow strip fading to dirt under the end of a road that had stopped four
- * units short of the kerb, with the two surfaces stacked a quarter of a unit
- * apart for up to forty units, and the user's word for it was *un caminito que
- * renderiza muy mal*. The square's edge and its gates are pure functions of the
- * place now, so `roads.ts` lays the ribbon to the gate and climbs it to the
- * gate's own terrace, and the town draws nothing for it.
+ * last stretch of every road itself — a track from its centre out past its edge
+ * — because only the town knew where its terrace was. It came out as a narrow
+ * strip fading to dirt under the end of a road that had stopped four units
+ * short of the kerb, with the two surfaces stacked a quarter of a unit apart
+ * for up to forty units: a poor little path that rendered badly. The square's
+ * edge and its gates are pure functions of the place now, so `roads.ts` lays
+ * the ribbon to the gate and climbs it to the gate's own terrace, and the town
+ * draws nothing for it.
  */
 
 // ---------------------------------------------------------------------------
@@ -1183,13 +1182,7 @@ export function createSettlements(
   );
 
   const slots: Slot[] = places.map((place) => {
-    const lat = place.lat * DEG;
-    const lon = place.lon * DEG;
-    const direction = new THREE.Vector3(
-      Math.cos(lat) * Math.cos(lon),
-      Math.sin(lat),
-      -Math.cos(lat) * Math.sin(lon),
-    );
+    const direction = unitAt(place.lat, place.lon, new THREE.Vector3());
     const style = regionFor(place.iso, continentOf.get(place.iso) ?? '', place.lat);
     return {
       place,
@@ -1233,14 +1226,8 @@ export function createSettlements(
   });
 
   const monumentSites = (options.monuments ?? []).map((placement) => {
-    const lat = placement.lat * DEG;
-    const lon = placement.lon * DEG;
     return {
-      direction: new THREE.Vector3(
-        Math.cos(lat) * Math.cos(lon),
-        Math.sin(lat),
-        -Math.cos(lat) * Math.sin(lon),
-      ),
+      direction: unitAt(placement.lat, placement.lon, new THREE.Vector3()),
       radius: (placement.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE,
     };
   });
@@ -1403,7 +1390,6 @@ export function createSettlements(
    * cell will be paved at, so the choice has to exist before either.
    */
   let townGridNow: TownGrid = townGrid(radiusFor(0));
-  let cellSeed = '';
   let baseElevation = 0;
   /** One lattice corner per key, and one terrace per cell. `raise` clears both. */
   const corners = new Map<number, Corner>();
@@ -1670,11 +1656,6 @@ export function createSettlements(
   const kerbFoot = new THREE.Color();
   const KERB_INK = new THREE.Color(0x2a1410);
 
-  const smoothRamp = (value: number, from: number, to: number): number => {
-    const t = Math.min(1, Math.max(0, (value - from) / (to - from)));
-    return t * t * (3 - 2 * t);
-  };
-
   /**
    * Something standing on the floor that lights the floor: a street lamp, or a
    * building with a window on.
@@ -1734,10 +1715,9 @@ export function createSettlements(
    * filtered once for the cell and is two or three entries long.
    *
    * Measured with `atlas.settlements.compare(name)`, which drops a town and
-   * raises it again, 21 reps, **best of** rather than median because this
-   * machine runs several agents at once and a rep caught by a collection reads
-   * as 20 ms of building. Same code, the emitter list stubbed empty against the
-   * real one:
+   * raises it again, 21 reps, **best of** rather than median because the
+   * machine was loaded and a rep caught by a collection reads as 20 ms of
+   * building. Same code, the emitter list stubbed empty against the real one:
    *
    * ```
    *                     triangles   raise, no pools   with pools
@@ -1953,10 +1933,10 @@ export function createSettlements(
    * 3. **The edge slope is what ends it, and a quay's face where the sea
    *    does.** See `EDGE_RUN` and `edgeSink`: the kerb that stood round the
    *    square from 2026-09-06 is a slope from the paving down into the ground
-   *    since 2026-09-13, because the user asked for one. The square's edge is
-   *    still a straight line — it is where a road arrives, and a ragged one is
-   *    a road ending against a zigzag — and so are the risers between terraces
-   *    inside it, which are walls.
+   *    since 2026-09-13, so the town sits in the land rather than on a box. The
+   *    square's edge is still a straight line — it is where a road arrives, and
+   *    a ragged one is a road ending against a zigzag — and so are the risers
+   *    between terraces inside it, which are walls.
    * 4. **And where a street crosses one of those risers, a flight of steps.**
    *    See `Flight` in `floor.ts`.
    *
@@ -1984,27 +1964,27 @@ export function createSettlements(
      * **One colour for the floor of every town in a region, and the land under
      * it does not enter into it.** The floor used to be the biome's own dirt
      * under the town's centre, trodden and pulled 30 to 60% of the way towards
-     * the region's paving, and that is exactly what the user saw: over
-     * temperate ground it came out `#9c9478`, a grey-olive a shade off the grass
-     * beside it, and over ice `#dfd4c2` to `#f3e2ca`, near white — the same
-     * region green in a valley and white on the next hill, because the biome
-     * cools with elevation. *El color del suelo a veces es verde, otras blanco.*
-     * A base is a made thing, and a made thing is the colour it was made of.
+     * the region's paving, and that is exactly what it looked like: over
+     * temperate ground it came out `#9c9478`, a grey-olive a shade off the
+     * grass beside it, and over ice `#dfd4c2` to `#f3e2ca`, near white — the
+     * same region green in a valley and white on the next hill, because the
+     * biome cools with elevation. A town's floor was sometimes green and
+     * sometimes white. A base is a made thing, and a made thing is the colour
+     * it was made of.
      *
      * **And what it is made of is the region's road** (2026-09-13). For the few
      * hours between the square and this it was the region's own paving — a
-     * khaki `tan` in most of the table —
-     * with the streets in `GroundStyle.road` and the edge slope running from a
-     * kerb tone out to the local dirt, and the user saw both halves of that at
-     * once: the slope was the wrong colour, and a street band ending at the
-     * town's edge with no road beyond it *parece que está ahí porque sí*. What
-     * they asked for was the whole base in the carriageway's own colour — *no
-     * todas las carreteras son blancas, pues el suelo de las ciudades tiene que
-     * ser del mismo color que las carreteras de ahí* — so a town stands on one
-     * made surface, its foundations, and a road arriving runs on into it rather
-     * than changing material at the kerb. The yards keep `cellTone`'s grain and
-     * the streets and the slope do not, which is all that is left to tell them
-     * apart before a building stands on one.
+     * khaki `tan` in most of the table — with the streets in `GroundStyle.road`
+     * and the edge slope running from a kerb tone out to the local dirt, and
+     * both halves of that showed at once: the slope was the wrong colour, and a
+     * street band ending at the town's edge with no road beyond it looked as if
+     * it were there for no reason. The answer is the whole base in the
+     * carriageway's own colour — the roads are not white everywhere, so a
+     * town's floor is the colour of the roads around it — so a town stands on
+     * one made surface, its foundations, and a road arriving runs on into it
+     * rather than changing material at the kerb. The yards keep `cellTone`'s
+     * grain and the streets and the slope do not, which is all that is left to
+     * tell them apart before a building stands on one.
      */
     roadColor.setHex(style.road);
     walkColor.setHex(style.walk);
@@ -3109,7 +3089,6 @@ export function createSettlements(
      */
     const grid = townGrid(slot.radius);
     townGridNow = grid;
-    cellSeed = slot.seed;
     baseElevation = Math.max(0, world.elevationAt(up));
     corners.clear();
     terraces.clear();
@@ -3204,11 +3183,10 @@ export function createSettlements(
        * hill cannot swallow it at all; what the hill can do is be too steep to
        * cut a terrace into, and that is what `terraceAt` answers with `MAX_CUT`.
        *
-       * The refusal is the one the user asked for — *hay que ver qué hacemos con
-       * las ciudades que están en pendientes porque se solapan con la montaña* —
-       * landed per plot rather than per town, so a hillside town builds the part
-       * of itself that stands and leaves the part that would have been a house
-       * halfway into a mountain.
+       * The refusal is the answer to the towns on slopes that overlapped their
+       * mountain, landed per plot rather than per town, so a hillside town
+       * builds the part of itself that stands and leaves the part that would
+       * have been a house halfway into a mountain.
        */
       const level = terraceAt(entry.plot.col, entry.plot.row);
       if (level === null) {
@@ -4157,8 +4135,8 @@ export function createSettlements(
      *
      * The choice between them is the only architectural question this file had
      * to answer that `placement.ts` does not, so the measurement stays in the
-     * source rather than in a commit message. See `CLAUDE.md` for the numbers it
-     * produced and for why the answer is not the obvious one.
+     * source rather than in a commit message. The numbers it produced, and why
+     * the answer is not the obvious one, are in this file's header.
      */
     compare(name = 'Paris') {
       const slot = slots.find((entry) => entry.place.name === name);

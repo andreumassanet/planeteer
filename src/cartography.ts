@@ -16,14 +16,14 @@
  * hundred lines away, and drew every map this project has ever shown mirrored
  * east for west. Nothing could tell, for exactly the reason the mirrored planet
  * could not: the pins, the coastline and the bearing wedge are all built from
- * the same wrong basis and all agree with each other. See the trap in
- * `CLAUDE.md`. There is one `setFrame` now and both maps call it.
+ * the same wrong basis and all agree with each other. There is one `setFrame`
+ * now and both maps call it.
  */
 import type { World } from './geo.ts';
 import { CONTINENT_COLORS, DEFAULT_LAND } from './theme.ts';
 import { hex } from './ui.ts';
+import { toUnit, unitAt } from './sphere.ts';
 
-export const D2R = Math.PI / 180;
 export const R2D = 180 / Math.PI;
 export const TAU = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
@@ -32,19 +32,15 @@ const HALF_PI = Math.PI / 2;
 export const EARTH_KM = 6371;
 
 /**
- * lat/lon in degrees to a unit vector, in the one convention this project has.
+ * lat/lon in degrees to a unit vector, in the one convention this project has:
+ * `sphere.ts`'s `toUnit`, re-exported because both maps and the chip's arrow
+ * reach for it here.
  *
  * The `-` on z is not a taste: `z = +cos(lat) * sin(lon)` puts east where west
  * belongs and mirrors the entire planet, which this repo shipped for months
- * without a single check noticing. Every conversion goes through here or matches
- * it exactly.
+ * without a single check noticing. Every conversion goes through `sphere.ts`.
  */
-export function toUnit(lat: number, lon: number, out: Float32Array, at = 0): void {
-  const c = Math.cos(lat * D2R);
-  out[at] = c * Math.cos(lon * D2R);
-  out[at + 1] = Math.sin(lat * D2R);
-  out[at + 2] = -c * Math.sin(lon * D2R);
-}
+export { toUnit };
 
 /**
  * Where the map is standing and which way its paper is turned.
@@ -200,6 +196,8 @@ export interface Shape {
   hiddenBelow: number;
 }
 
+const ringPoint = { x: 0, y: 0, z: 0 };
+
 /**
  * Converts the outlines to unit vectors and thins them to a map's own
  * resolution.
@@ -228,12 +226,7 @@ export function buildShapes(world: World, minStep: number, minRadius: number): S
       let lastY = 0;
       let lastZ = 0;
       for (const point of ring) {
-        const lon = point[0]! * D2R;
-        const lat = point[1]! * D2R;
-        const c = Math.cos(lat);
-        const x = c * Math.cos(lon);
-        const y = Math.sin(lat);
-        const z = -c * Math.sin(lon);
+        const { x, y, z } = unitAt(point[1]!, point[0]!, ringPoint);
         if (xyz.length > 0) {
           const dx = x - lastX;
           const dy = y - lastY;
@@ -428,7 +421,7 @@ export function thinMarks(
  * The dumbest possible label placer — a linear scan of axis-aligned rectangles —
  * and it is the right one at this volume: 85 landmarks and 239 countries is
  * under 350 candidates, each tested against at most a few dozen survivors. The
- * landmark list grows by a curated wave at a time, so this has room.
+ * landmark list grows a curated batch at a time, so this has room.
  * Ordered by importance by the caller, so what gets dropped is the least
  * important thing in a crowd rather than the last one considered.
  */

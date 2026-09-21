@@ -13,9 +13,9 @@ const opt = (name, dflt) => { const i = args.indexOf(name); return i >= 0 ? args
 const url = opt('--url', 'about:blank');
 const [w, h] = opt('--size', '1600x900').split('x').map(Number);
 // A Chrome profile is ~170 MB and /tmp is a tmpfs in RAM: 75 leaked ones once filled
-// it and took every shell down with it. Made under the scratchpad when there is one,
+// it and took every shell down with it. Made under `SHOT_PROFILE_DIR` when it is set,
 // and removed on the way out whatever happens.
-const profile = mkdtempSync(join(process.env.CLAUDE_SCRATCHPAD ?? tmpdir(), 'shot-'));
+const profile = mkdtempSync(join(process.env.SHOT_PROFILE_DIR ?? tmpdir(), 'shot-'));
 const cleanup = () => { try { rmSync(profile, { recursive: true, force: true }); } catch {} };
 process.on('exit', cleanup); process.on('SIGINT', () => { cleanup(); process.exit(130); }); process.on('SIGTERM', () => { cleanup(); process.exit(143); });
 const chrome = spawn('google-chrome-stable', [

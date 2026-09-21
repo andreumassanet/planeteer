@@ -43,11 +43,11 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * ---------------------------------------------------------------------------
  *
  * Every arch head here is stepped courses rather than a `column` on its side,
- * for the reason the contract spells out: a laid-down prism is a **whole** prism
- * and `OutlineEffect` inks the half you meant to bury, so the arches come out as
- * wheels. Charles Bridge lost a round to it. Three courses of falling width, set
- * *shallower* than the wall they hang in, give a pointed head with an ink line
- * under it and nothing else.
+ * for the reason the contract spells out: a laid-down prism is a **whole**
+ * prism and `OutlineEffect` inks the half you meant to bury, so the arches come
+ * out as wheels. Charles Bridge lost a revision to it. Three courses of falling
+ * width, set *shallower* than the wall they hang in, give a pointed head with
+ * an ink line under it and nothing else.
  *
  * ---------------------------------------------------------------------------
  * Proportion

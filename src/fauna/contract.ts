@@ -2,7 +2,7 @@
  * The fauna kit: what a land animal is, how big it is, and how it walks.
  *
  * **This directory exists because a quadruped gait is not the biped rig with two
- * more legs**, and `CLAUDE.md` refused to build one for exactly that reason:
+ * more legs**, and this project refused to build one for exactly that reason:
  * *a herd wants a quadruped kit with its own gait, and the nearest thing here is
  * a two-legged rig whose whole design rests on a knee only lifting a foot while
  * the thigh is behind vertical. A bad cow is worse than no cow.* That sentence

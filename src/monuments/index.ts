@@ -20,10 +20,10 @@ export type { Group, Mesh, Object3D, Vector3 } from './contract.ts';
  *
  * **Adding a monument is one file and nothing else.** Drop `taj-mahal.ts` into
  * this folder exporting a `Monument`, and it is in the world and on the contact
- * sheet. No line to add here, which matters because sixty of these are written
- * in parallel by agents who never see each other's work: a registry everyone has
- * to append to is a registry everyone collides in, and a monument that builds
- * perfectly but was never registered is the one failure nobody notices.
+ * sheet. No line to add here, which matters because the monuments are written
+ * independently of each other: a registry every file has to append to is a
+ * registry every change collides in, and a monument that builds perfectly but
+ * was never registered is the one failure nobody notices.
  *
  * The cost of the magic is that a file can go missing silently, so it does not:
  * anything in this folder that exports no `Monument` lands in `SKIPPED`, and the
@@ -65,20 +65,16 @@ export type { Group, Mesh, Object3D, Vector3 } from './contract.ts';
  *    Chunky and readable beats detailed, because the ink does the drawing; bare
  *    is a different thing from chunky, and it is what underspending looks like.
  *
- *    Optional, and meant to stay optional: several agents have written a small
- *    z-buffered software rasterizer in the scratchpad — `main.ts`'s four-step
- *    ramp and light rig, a couple of hundred lines — to render their own
- *    monument at true thumbnail size without waiting for a dozen siblings to
- *    stop reloading the sheet. It has changed real decisions: the Petronas piers
+ *    Optional, and meant to stay optional: a small throwaway z-buffered
+ *    software rasterizer — `main.ts`'s four-step ramp and light rig, a couple
+ *    of hundred lines — renders one monument at true thumbnail size without
+ *    waiting on the sheet. It has changed real decisions: the Petronas piers
  *    went from `bone` to `white` because at that size the eight-pointed plan
  *    dissolved into one dark slab, and Hagia Sophia's buttresses were rebuilt
- *    after it showed them reading as free-standing posts. It is a heavy tool for
- *    a small question. Reach for it when the sheet is too busy to read, or when
- *    you cannot tell what a shape is doing at 260 pixels — not as a ritual.
- * 7. If you write a throwaway script to check something, **name it after your
- *    monument id** — `stonehenge-check.ts`, not `check.ts`. The scratchpad is
- *    shared with every other agent in the wave, and one of them has already had
- *    a `check.ts` overwritten underneath a running command.
+ *    after it showed them reading as free-standing posts. It is a heavy tool
+ *    for a small question. Reach for it when the sheet is too busy to read, or
+ *    when you cannot tell what a shape is doing at 260 pixels — not as a
+ *    ritual.
  */
 const MODULES = import.meta.glob<Record<string, unknown>>(
   ['./*.ts', '!./contract.ts', '!./index.ts'],

@@ -9,10 +9,10 @@
  *
  * **Nothing in `src/` imports this file.** Every planet other than Earth is
  * behind an `import()` in the same way the monument registry and the scenery
- * kit are, for the reason the bundle trap in `docs/traps.md` measured: a module
- * in the initial graph is fetched *and parsed* before `start()` runs, so code
- * the first frame does not need is a delay in front of the data it does. Earth
- * is the detailed one and its first load may not move.
+ * kit are, and for a measured reason: a module in the initial graph is fetched
+ * *and parsed* before `start()` runs, so code the first frame does not need is
+ * a delay in front of the data it does. Earth is the detailed one and its first
+ * load may not move.
  *
  * ---
  *
@@ -209,8 +209,8 @@ export const apparentPixels = (drawnRadius: number, distance: number): number =>
  * `orbits.ts` works in the J2000 ecliptic: +x at the vernal equinox, +z at the
  * ecliptic north pole, right-handed. `globe.ts` puts north at +y and `geo.ts`
  * reads longitude as `atan2(-z, x)`, because this planet was mirrored for
- * months and the repair was to choose one hand and hold it in all sixteen
- * places that convert. Mapping `(x, y, z) -> (x, z, -y)` lands ecliptic north
+ * months and the repair was to choose one hand and hold it everywhere that
+ * converts — which is one file, `sphere.ts`, since 2026-09-21. Mapping `(x, y, z) -> (x, z, -y)` lands ecliptic north
  * on the world's north pole and — this is the part worth checking rather than
  * believing — **carries ecliptic longitude to world longitude unchanged**:
  * ecliptic longitude 90 is `(0, 1, 0)`, which arrives at `(0, 0, -1)`, whose
@@ -647,10 +647,6 @@ export function nationAt(body: Body, lat: number, lon: number): Nation | null {
   }
   return best;
 }
-
-/** A seeded alien, drawn the way `lookFor` draws a person. Re-exported here so
- * the contract owns the shape and `alien.ts` owns the geometry. */
-export type AlienDraw = (rng: Rng, species: Species) => Alien;
 
 export { PLANET_RADIUS };
 export type { OrbitId, Rng };

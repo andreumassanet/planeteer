@@ -28,6 +28,7 @@ import { GROUND_LIFT, LINE_HALF, groundStyleFor, trodden } from './scenery/groun
 import { PALETTE } from './theme.ts';
 import { assignGates, gateGlow, gateLevel, gatesOf, offsetDirection, streetBand, townFrame, townGrid } from './scenery/grid.ts';
 import type { Gate, TownGrid } from './scenery/grid.ts';
+import { latOf, lonOf, unitAt } from './sphere.ts';
 
 /**
  * The road network: which settlements are joined, and what that looks like.
@@ -63,15 +64,14 @@ import type { Gate, TownGrid } from './scenery/grid.ts';
  * **What replaced `roadClip` and `roadSpan`** (2026-09-13), for anyone reading
  * an older note: a road used to run from one place's *centre* to the other's
  * and have its two ends cut off at `radiusFor + TOWN_STANDOFF`, leaving the
- * last forty units to a narrow track each town drew for itself. The user's
- * verdict on that join was *un caminito que renderiza muy mal*, and what they
- * asked for was one line: *que la ciudad esté sobre una base cuadrada y los
- * caminos se conecten ahí*. So a town is a north-up square now
- * (`scenery/grid.ts`) with a gate wherever a street meets its edge, and a road
- * *starts and stops at a gate*: nothing is clipped, because nothing is drawn
- * inside a square in the first place. The one-definition pair is `courseOf`
- * (where the ribbon runs) and `rampOf` + `crownLift` (how high), and the
- * invariants they carry are written beside them.
+ * last forty units to a narrow track each town drew for itself. That join
+ * rendered as a poor little path, and the fix is one line: a town stands on a
+ * square base and the roads connect to it there. So a town is a north-up square
+ * now (`scenery/grid.ts`) with a gate wherever a street meets its edge, and a
+ * road *starts and stops at a gate*: nothing is clipped, because nothing is
+ * drawn inside a square in the first place. The one-definition pair is
+ * `courseOf` (where the ribbon runs) and `rampOf` + `crownLift` (how high), and
+ * the invariants they carry are written beside them.
  */
 
 const DEG = Math.PI / 180;
@@ -158,13 +158,13 @@ export interface RoadClass {
    * map and 7,456 is a wash, and that difference is density and not legibility.
    *
    * **All three classes are drawn, and all three are asphalt** (2026-09-08). A
-   * `lane` used to be a dirt track and the user's word for it was *caminos*;
-   * what they asked for was one material and not a smaller network, so a lane is
-   * a narrow made road between two small towns and the class is nothing but this
-   * lever. **It is the lever to reach for if the world reads as busy, and the
-   * row to move is the `road` and not the `lane`** — which is not what it looks
-   * like, so it was measured. Same standpoints, headless at detail 0.5, over the
-   * 17,238-road network:
+   * `lane` used to be a dirt track, which read as a footpath rather than a
+   * road, and the answer was one material and not a smaller network, so a lane
+   * is a narrow made road between two small towns and the class is nothing but
+   * this lever. **It is the lever to reach for if the world reads as busy, and
+   * the row to move is the `road` and not the `lane`** — which is not what it
+   * looks like, so it was measured. Same standpoints, headless at detail 0.5,
+   * over the 17,238-road network:
    *
    * ```
    *                        shipped   lane 1,300 -> 650   road 5,000 -> 3,000
@@ -247,7 +247,7 @@ const BAND_WIDTH = [1, 0.8, 0.62];
  * ```
  *
  * **The pairs it is asked about are adjacent again, which is what the
- * derivation above assumes.** For one round it also priced the two towns a
+ * derivation above assumes.** For a while it also priced the two towns a
  * *route* ran between, because the network was baked over the whole gazetteer
  * and a city's own edges all ran to unbuilt suburbs. Repricing every edge that
  * way was measured and rejected: in a dense region the nearest built place is
@@ -346,7 +346,7 @@ const gateOffset = { x: 0, z: 0 };
  * to is this plus `GROUND_LIFT`. It is a handful of `elevationAt` calls, so
  * every caller caches it per road end rather than per frame.
  */
-export function gateHeight(place: Place, gate: number, world: World): number | null {
+function gateHeight(place: Place, gate: number, world: World): number | null {
   const town = townOf(place);
   const which = town.gates[gate];
   if (which === undefined) return null;
@@ -1030,10 +1030,9 @@ export function bendFor(a: Place, b: Place): number {
   return (((seed >>> 0) / 4294967296) * 2 - 1) * 0.05;
 }
 
-/** Unit vector at a place. The negative z is the planet's handedness; see CLAUDE.md. */
+/** Unit vector at a place, in the planet's handedness (`sphere.ts`). */
 export function placeDirection(place: Place, target: THREE.Vector3): THREE.Vector3 {
-  const cos = Math.cos(place.lat * DEG);
-  return target.set(cos * Math.cos(place.lon * DEG), Math.sin(place.lat * DEG), -cos * Math.sin(place.lon * DEG));
+  return unitAt(place.lat, place.lon, target);
 }
 
 // ---------------------------------------------------------------------------
@@ -1101,11 +1100,11 @@ export function waterProbeSteps(course: RoadCourse): number {
  *   It is a *subgraph* of Gabriel and it still contains the minimum spanning
  *   tree, which is the whole reason the thinning pass can lean on it.
  *
- * They were measured against each other before either shipped — see
- * `docs/traps.md` — and the answer is that neither one alone is the network:
- * Gabriel at mean degree 4.25 is a lattice and the relative neighbourhood graph
- * at 2.64 is a chain. `build-roads.ts` keeps Gabriel and then uses the
- * subgraph relation to decide which of Gabriel's extra edges are worth having.
+ * They were measured against each other before either shipped, and the answer
+ * is that neither one alone is the network: Gabriel at mean degree 4.25 is a
+ * lattice and the relative neighbourhood graph at 2.64 is a chain.
+ * `build-roads.ts` keeps Gabriel and then uses the subgraph relation to decide
+ * which of Gabriel's extra edges are worth having.
  */
 export type ProximityGraph = 'gabriel' | 'rng';
 
@@ -1227,17 +1226,17 @@ export function pairKey(places: number, a: number, b: number): number {
  * The candidate pairs, over the places that are actually **built**.
  *
  * **The network is a graph over the 9,734 towns that stand, not over the 29,545
- * rows of the gazetteer, and that one line is the whole of this round.** Gabriel
- * over the gazetteer joins a place to its nearest neighbours, and a city's
- * nearest neighbours are its own suburbs — `PROMINENCE_RADIUS` hides two thirds
- * of the file, so every edge out of Madrid ran to a village that is not built,
- * `classOf` called it a lane because it reads the *smaller* end, and a whole
- * layer of machinery grew up to reconstruct city-to-city connections out of a
- * graph that never held them: a prune for dead ends at unbuilt villages, routes
- * chained through hidden junctions, a floor putting one road back at each
- * orphaned metropolis. None of that exists here. Every endpoint is a town you
- * can walk into, every road joins two of them, and the user's sentence is the
- * specification: *solo conexiones entre ciudades.*
+ * rows of the gazetteer, and that one line is the whole of the design.**
+ * Gabriel over the gazetteer joins a place to its nearest neighbours, and a
+ * city's nearest neighbours are its own suburbs — `PROMINENCE_RADIUS` hides two
+ * thirds of the file, so every edge out of Madrid ran to a village that is not
+ * built, `classOf` called it a lane because it reads the *smaller* end, and a
+ * whole layer of machinery grew up to reconstruct city-to-city connections out
+ * of a graph that never held them: a prune for dead ends at unbuilt villages,
+ * routes chained through hidden junctions, a floor putting one road back at
+ * each orphaned metropolis. None of that exists here. Every endpoint is a town
+ * you can walk into, every road joins two of them, and the specification is one
+ * sentence: connections between towns, and nothing else.
  *
  * Measured over the shipped `places.bin` (2026-09-08), carried through the water
  * and slope tests below:
@@ -1248,12 +1247,12 @@ export function pairKey(places: number, a: number, b: number): number {
  *   rng                     12,595  10,918    731     946     806   8.3%
  * ```
  *
- * Gabriel is what ships, unthinned. It is a **median degree of 4** — *no hace
- * falta que conectes una ciudad con 20* — where the relative neighbourhood graph
- * is a median of 2 and reads as a chain, and the thinning pass that used to sit
- * between them is gone with the lattice it was invented for: Gabriel over the
- * gazetteer was 4.14 at a 106-unit spacing and Gabriel over the built towns is
- * not, because the points are 260 units apart to begin with.
+ * Gabriel is what ships, unthinned. It is a **median degree of 4** — a town
+ * needs a few roads out of it, not twenty — where the relative neighbourhood
+ * graph is a median of 2 and reads as a chain, and the thinning pass that used
+ * to sit between them is gone with the lattice it was invented for: Gabriel
+ * over the gazetteer was 4.14 at a 106-unit spacing and Gabriel over the built
+ * towns is not, because the points are 260 units apart to begin with.
  *
  * The indices that come back are indices into the **whole** `places.bin`, so
  * `roads.bin` still stores what it always stored and everything downstream reads
@@ -1329,24 +1328,22 @@ const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
 /**
  * Whether a road crosses ground steeper than anything is built on.
  *
- * **A road on a mountain face is a carriageway sunk into rock, and the user
- * asked for it to go**: *en las pendientes hemos quitado la decoración, está
- * muy bien, pero también hay que quitar las carreteras y caminos.* The
- * vegetation had already answered the same question — nothing grows on scree —
- * and `MAX_SLOPE` is `terrain.ts`'s one definition of how steep that is, the
- * angle of repose, so this asks it through `gradeAt` rather than writing a
- * second gradient.
+ * **A road on a mountain face is a carriageway sunk into rock, so it goes the
+ * way the decoration on the slopes went.** The vegetation had already answered
+ * the same question — nothing grows on scree — and `MAX_SLOPE` is
+ * `terrain.ts`'s one definition of how steep that is, the angle of repose, so
+ * this asks it through `gradeAt` rather than writing a second gradient.
  *
  * **All or nothing, and it is asked in the bake.** Clipping a road at the foot
  * of the slope would leave a carriageway stopping in a field, so a pair whose
- * road touches scree anywhere is simply not joined — *si en ningún momento se
- * pasa por una montaña.* It ran as a load-time pass over the shipped file for
- * one round, at 350 ms of `reliefAt` every time the world started; a road that
- * is refused for good is a road that should not be in the file, so
- * `build-roads.ts` asks it now and `bendThatWorks` uses it to **bow round the
- * mountain** the way it already bows round a bay. Over the 20,022 candidates,
- * 1,928 are steep on their own seeded bow, the search saves 338 of them, and
- * 1,590 are refused (2026-09-08).
+ * road touches scree anywhere is simply not joined: two towns are connected
+ * only if the road between them never crosses a mountain. It ran as a load-time
+ * pass over the shipped file for a while, at 350 ms of `reliefAt` every time
+ * the world started; a road that is refused for good is a road that should not
+ * be in the file, so `build-roads.ts` asks it now and `bendThatWorks` uses it
+ * to **bow round the mountain** the way it already bows round a bay. Over the
+ * 20,022 candidates, 1,928 are steep on their own seeded bow, the search saves
+ * 338 of them, and 1,590 are refused (2026-09-08).
  *
  * The refusal is emphatic rather than knife-edge, which is the measurement that
  * says the rule means what it claims: the worst grade along a refused road runs
@@ -1626,12 +1623,12 @@ export function layersOf(roads: readonly Road[], places: readonly Place[]): Uint
  * units, so the ribbon is lifted and the residue is that the ground cuts
  * through it.
  *
- * **It was 1.1 and the residue was an eighth of the planet, which is what the
- * user was looking at when they said the roads sink into the terrain.** The
- * measurement that had never been taken is the *mesh* against the exact relief
- * out in open country, where nothing claims detail — over the 1,234,410 land
- * triangles of the shipped mesh, the share standing more than a given height
- * over `elevationAt` (2026-09-06):
+ * **It was 1.1 and the residue was an eighth of the planet, which is what
+ * showed as roads sinking into the terrain.** The measurement that had never
+ * been taken is the *mesh* against the exact relief out in open country, where
+ * nothing claims detail — over the 1,234,410 land triangles of the shipped
+ * mesh, the share standing more than a given height over `elevationAt`
+ * (2026-09-06):
  *
  * ```
  *   over    0.5    1.1    1.5    2.0    2.6    3.0    3.5    5.0
@@ -1667,10 +1664,7 @@ export function layersOf(roads: readonly Road[], places: readonly Place[]): Uint
  * draw — **6 of 62,601 sections cut through, 0.01%, worst 8.39 units**
  * (2026-09-08, over the whole shipped network at this lift; it was 140 of
  * 81,538, 0.17%, at a lift of 1.5 over a network four times as large). That is
- * the number `SPANS` bought at 18 units, and it is not what the user saw.
- *
- * See the trap in CLAUDE.md for what a detail claim along the network — the fix
- * that would actually delete this — would cost.
+ * the number `SPANS` bought at 18 units, and it is not what showed on screen.
  */
 export const RIBBON_LIFT = 3.0;
 
@@ -1689,15 +1683,15 @@ const DASH_PIECE = 6;
  * How far the dash stands off the crown it is painted on: the paint's own
  * thickness, and what keeps it in front.
  *
- * It was half a depth layer in front (`LAYER_DEPTH`), and on the screen it
- * flickered (2026-09-21, *las líneas de enmedio hacen como flickering*): half a
- * layer is 5e-7 of clip depth, which with the near plane at five units is
- * 0.00005 of a unit at thirty and 0.0005 at a hundred, and the ribbon's
- * corners were written at the planet's radius, where a float steps by 0.001 to
- * 0.002. The dash and the crown each came off their plane by more than the
- * offset between them. A lift is a distance and holds at every range; 0.04 is
- * twenty times that rounding and still under anything a foot or a wheel can find —
- * `ribbonHeightAt` is the crown's and nothing stands on the paint.
+ * It was half a depth layer in front (`LAYER_DEPTH`), and on the screen the
+ * centre line flickered (2026-09-21): half a layer is 5e-7 of clip depth, which
+ * with the near plane at five units is 0.00005 of a unit at thirty and 0.0005
+ * at a hundred, and the ribbon's corners were written at the planet's radius,
+ * where a float steps by 0.001 to 0.002. The dash and the crown each came off
+ * their plane by more than the offset between them. A lift is a distance and
+ * holds at every range; 0.04 is twenty times that rounding and still under
+ * anything a foot or a wheel can find — `ribbonHeightAt` is the crown's and
+ * nothing stands on the paint.
  */
 const DASH_LIFT = 0.04;
 
@@ -1875,8 +1869,8 @@ export function createRoadIndex(roads: readonly Road[], places: readonly Place[]
     reach += course.length / 16 / PLANET_RADIUS;
     half[i] = reach;
     if (reach > widest) widest = reach;
-    const lat = Math.asin(Math.min(1, Math.max(-1, mid.y))) / DEG;
-    const lon = Math.atan2(-mid.z, mid.x) / DEG;
+    const lat = latOf(mid.y);
+    const lon = lonOf(mid.x, mid.z);
     const row = Math.min(ROWS - 1, Math.max(0, Math.floor((90 - lat) / CELL)));
     const col = ((Math.floor((lon + 180) / CELL) % COLS) + COLS) % COLS;
     grid[row * COLS + col]!.push(i);
@@ -1887,8 +1881,8 @@ export function createRoadIndex(roads: readonly Road[], places: readonly Place[]
   return {
     near(direction, radius, out) {
       out.length = 0;
-      const lat = Math.asin(Math.min(1, Math.max(-1, direction.y))) / DEG;
-      const lon = Math.atan2(-direction.z, direction.x) / DEG;
+      const lat = latOf(direction.y);
+      const lon = lonOf(direction.x, direction.z);
       const span = (radius + widestUnits) / UNITS_PER_DEGREE;
       const rowSpan = Math.ceil(span / CELL);
       // The longitude span of a cell shrinks with the cosine, which is what
@@ -2440,8 +2434,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
 
   roads.forEach((_, i) => {
     readMiddle(i, point);
-    const lat = Math.asin(Math.min(1, Math.max(-1, point.y))) / DEG;
-    const lon = Math.atan2(-point.z, point.x) / DEG;
+    const lat = latOf(point.y);
+    const lon = lonOf(point.x, point.z);
     const row = Math.min(TILE_ROWS - 1, Math.max(0, Math.floor((90 - lat) / TILE)));
     const col = ((Math.floor((lon + 180) / TILE) % TILE_COLS) + TILE_COLS) % TILE_COLS;
     const key = row * TILE_COLS + col;
@@ -2677,12 +2671,12 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
      * rather than changing surface at the sign — and a trunk is that same
      * surface worn darker by what runs on it.
      *
-     * There used to be a third answer here: a `lane` was drawn as a dirt
-     * track, `dirt(ground)`, the local ground shifted to brown. It was the
-     * right colour for the wrong object — *¿son caminos? Fuera, solo
-     * carreteras* — and what the user wanted was **one material**, so a lane
-     * is drawn in the same made surface as everything else and is narrower.
-     * The branch is gone rather than unreachable.
+     * There used to be a third answer here: a `lane` was drawn as a dirt track,
+     * `dirt(ground)`, the local ground shifted to brown. It was the right
+     * colour for the wrong object — a footpath where a road was meant — and the
+     * network wants **one material**, so a lane is drawn in the same made
+     * surface as everything else and is narrower. The branch is gone rather
+     * than unreachable.
      *
      * The region comes from the road's own end rather than from the ground it
      * crosses, because a carriageway is a thing people built and `regions.ts`
@@ -2698,16 +2692,15 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     /**
      * The edge of the carriageway, and it costs **no triangle at all**.
      *
-     * The user asked for a road that reads as more than one flat band, and the
-     * obvious way to do it — a narrower crown strip inside the carriageway, or
-     * a dashed line down the middle — needs two more points in every
-     * cross-section, which is ten triangles a section against six: **+67% of
-     * the whole network's geometry**, against a 260,000 triangle budget that
-     * already binds at altitude, for a mark 1.2 units wide that stops
-     * resolving at about sixty units. So the two tones are put where the
-     * section already has a vertex: the shoulder quads carry `kerb` at the
-     * carriageway's edge instead of the crown's own colour, and the crown quad
-     * keeps it.
+     * A road has to read as more than one flat band, and the obvious way to do
+     * it — a narrower crown strip inside the carriageway, or a dashed line down
+     * the middle — needs two more points in every cross-section, which is ten
+     * triangles a section against six: **+67% of the whole network's
+     * geometry**, against a 260,000 triangle budget that already binds at
+     * altitude, for a mark 1.2 units wide that stops resolving at about sixty
+     * units. So the two tones are put where the section already has a vertex:
+     * the shoulder quads carry `kerb` at the carriageway's edge instead of the
+     * crown's own colour, and the crown quad keeps it.
      *
      * The buffers are non-indexed, so the two quads meeting at ±half do not
      * share vertices and the step is a **hard line** rather than a gradient —

@@ -73,10 +73,10 @@ const ctx: TrafficContext = createTrafficContext(sceneryCtx);
  * The scenery kit, if it will load.
  *
  * A house beside a car is the only honest test of the scale decision, so the
- * sheet wants one — but `src/scenery/` is being edited by two other agents and a
- * static import takes this page down every time one of their files is mid-move.
- * Dynamic and guarded: the street scene gets a real gabled house when the kit is
- * healthy and a plain block when it is not, and the banner says which.
+ * sheet wants one — but a static import of `src/scenery/` takes this page down
+ * every time one of its files is mid-edit. Dynamic and guarded: the street
+ * scene gets a real gabled house when the kit is healthy and a plain block when
+ * it is not, and the banner says which.
  */
 let houseOf: ((style: unknown, variant: number) => THREE.Group) | null = null;
 let sceneryStyles: Record<string, unknown> | null = null;

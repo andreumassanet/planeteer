@@ -115,13 +115,14 @@ import type { Monument } from './contract.ts';
  *    which is the proportion that actually matters, since the pair has to read
  *    as a big pod and a small one.
  * 3. **The plan widths are proportions off elevation photographs, not a spec
- *    sheet.** I have the tower's heights to the metre and not its base width,
- *    so the base is set by slenderness instead: **12.8 : 1** across the buttress
- *    noses (9.40 units wide, 120 tall), which is what the elevation measures to
- *    within the accuracy of measuring a photograph. The bare hexagonal shaft
- *    alone is 24 : 1 at the ground and 82 : 1 at the neck. Nothing was widened
- *    "so it reads": the brief's own warning is that any thickening makes it a
- *    chimney, and a chimney is what 10 : 1 would already look like.
+ *    sheet.** The tower's heights are known to the metre and its base width is
+ *    not, so the base is set by slenderness instead: **12.8 : 1** across the
+ *    buttress noses (9.40 units wide, 120 tall), which is what the elevation
+ *    measures to within the accuracy of measuring a photograph. The bare
+ *    hexagonal shaft alone is 24 : 1 at the ground and 82 : 1 at the neck.
+ *    Nothing was widened "so it reads": the brief's own warning is that any
+ *    thickening makes it a chimney, and a chimney is what 10 : 1 would already
+ *    look like.
  *
  * ## The six things that must survive to a thumbnail
  *

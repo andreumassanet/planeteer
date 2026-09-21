@@ -22,6 +22,7 @@ import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { reliefAt } from '../src/terrain.ts';
+import { toUnit } from '../src/sphere.ts';
 import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -215,11 +216,11 @@ for (const m of source.monuments) {
  * deficit on the pass after, which is what the twenty-four passes are for.
  */
 const DEG = Math.PI / 180;
-const toVector = (lat: number, lon: number): number[] => [
-  Math.cos(lat * DEG) * Math.cos(lon * DEG),
-  Math.sin(lat * DEG),
-  -Math.cos(lat * DEG) * Math.sin(lon * DEG),
-];
+const toVector = (lat: number, lon: number): number[] => {
+  const v = [0, 0, 0];
+  toUnit(lat, lon, v);
+  return v;
+};
 const RADIUS = PLANET_RADIUS;
 
 function separate(): string[] {

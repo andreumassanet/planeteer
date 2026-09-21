@@ -11,12 +11,12 @@ import { AVATAR_HEIGHT } from './stature.ts';
  * ## What it is, and the three bodies it replaced
  *
  * This is the one object a player looks at for the whole session. It was ten
- * smooth capsules, then thirty-five faceted prisms, then soft lathes — each built
- * in code, each a rigid piece per joint, and each rejected on sight: the last
- * verdict (2026-09-16) was that it looked like Roblox and that standing still it
- * was a statue. Both halves of that were structural. A body that is a rigid
- * piece per bone *is* a Roblox body however the pieces are shaped, and a pose
- * computed from sines has no weight in it.
+ * smooth capsules, then thirty-five faceted prisms, then soft lathes — each
+ * built in code, each a rigid piece per joint, and each read wrong: the last
+ * (2026-09-16) looked like Roblox, and standing still it was a statue. Both
+ * halves of that were structural. A body that is a rigid piece per bone *is* a
+ * Roblox body however the pieces are shaped, and a pose computed from sines has
+ * no weight in it.
  *
  * So the hero is now an authored character on an authored rig: Quaternius's
  * CC0 casual man in a hoodie (`src/cast.ts`, `scripts/build-cast.mjs`), one
@@ -173,7 +173,7 @@ export const FIGURE = {
  * walk is the ratio: 2.9 is a sprint car. Real jogging is 2.1 times a walk (3.0
  * m/s against 1.4), and games that exaggerate both put their run at about twice
  * their walk. 90 is that: 23.8 m/s, 13 heights a second, a third off the old
- * number. It moved on the user's word (*corre demasiado rápido*, 2026-09-13).
+ * number. It came down on 2026-09-13, because the run read as far too fast.
  *
  * Tied to the planet's size at the other end: at radius 16000 a full lap is
  * 100,531 units, about 19 minutes at a run.

@@ -184,17 +184,18 @@ const TURN_TRAIL = 0.25;
  *   **It used to be `max(0, move.y)`, and that clamp was the fix for the wrong
  *   half of the problem.** It stopped `S` being an oscillator — swing the
  *   camera behind a man walking backwards and `S` points the other way, so he
- *   turns, so the camera swings again — at the cost of the thing the user
- *   actually wanted: *"si camino con la S no veo por donde voy"*. The
+ *   turns, so the camera swings again — at the cost of the thing that actually
+ *   mattered: walking on `S`, you could not see where you were going. The
  *   oscillation is not caused by the pull, it is caused by the input being
  *   **re-derived from the camera every frame**, so the fix belongs at that end.
  *   `steer` below latches the basis, and with the feedback broken the clamp has
  *   nothing left to prevent: it is `min(1, |move|)` now, so `S` swings the
  *   camera round and a pure strafe still does, because `A` with the camera
  *   coming behind you is a person sidestepping and then walking where they are
- *   looking, which is what a person does. A fixed rate was a 329-unit turn at the 130-unit run of the time and a 114-unit one at a walk,
- *   which is the same law reading as a drift and as a spin depending only on
- *   whether Shift is down. Rate proportional to speed is one radius at both.
+ *   looking, which is what a person does. A fixed rate was a 329-unit turn at
+ *   the 130-unit run of the time and a 114-unit one at a walk, which is the
+ *   same law reading as a drift and as a spin depending only on whether Shift
+ *   is down. Rate proportional to speed is one radius at both.
  * - **It yields to the mouse, on the axis it acts on.** A yaw delta resets
  *   `sinceLook`; the pull is silent for `RETURN_DELAY` and fades back over
  *   `RETURN_EASE`, so a look you are still making is never contested and one
@@ -210,16 +211,15 @@ const TURN_TRAIL = 0.25;
  *   choice stale. Almost every third-person game does the same and this is why.
  *
  * The radius was chosen by what a **held diagonal** describes, because that was
- * the only case where this did visible work — see the trap in CLAUDE.md.
- * Measured, holding `W`+`A`: the error settles at 41.4 degrees rather than 45 —
- * the camera never catches a diagonal, because the input is re-derived from the
- * camera every frame — and the camera then turns for ever at 21.9 deg/s at a
- * run and 7.6 at a walk, which is **340 units of radius at both**, 50 avatars,
- * 44 degrees of turn in two seconds. That is the curve somebody running makes
- * when they change their mind about where they are going. `RETURN_GAIN` governs
- * only the small errors and there it is worth almost nothing: measured, a
- * 90-degree swing followed by `W` is closed 85 degrees by the body's own turn
- * and 4.7 by this.
+ * the only case where this did visible work. Measured, holding `W`+`A`: the
+ * error settles at 41.4 degrees rather than 45 — the camera never catches a
+ * diagonal, because the input is re-derived from the camera every frame — and
+ * the camera then turns for ever at 21.9 deg/s at a run and 7.6 at a walk,
+ * which is **340 units of radius at both**, 50 avatars, 44 degrees of turn in
+ * two seconds. That is the curve somebody running makes when they change their
+ * mind about where they are going. `RETURN_GAIN` governs only the small errors
+ * and there it is worth almost nothing: measured, a 90-degree swing followed by
+ * `W` is closed 85 degrees by the body's own turn and 4.7 by this.
  */
 const RETURN_GAIN = 2.6;
 /**
@@ -248,8 +248,8 @@ const RETURN_RADIUS = 233;
  * that is facing the other way, and pricing that as an arc gives a half-turn a
  * radius of 233 units: measured before this, holding `S` at a walk closed 26.5
  * degrees in 2.4 seconds, **11 deg/s, about fourteen seconds and a thousand
- * units of walking to come round.** The user's report of it was exact: *"si
- * camino con la S no veo por donde voy"*.
+ * units of walking to come round.** Walking on `S`, you could not see where you
+ * were going.
  *
  * So the ceiling opens with the error, from the radius law at `RETURN_WIDE`
  * (below which nothing changes, and the 340-unit measurement still holds) to

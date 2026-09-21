@@ -18,9 +18,9 @@ import type { MonumentContext, Review } from '../monuments/index.ts';
  *
  * A hundred monuments cannot be reviewed by opening a hundred files, and they
  * cannot be reviewed in the world either — you would have to walk to each one.
- * This is the tool that makes the fan-out reviewable: every registered monument
- * on one page, under identical light, against the same ground and the same
- * 6.8-unit figure, with the validator's complaints printed underneath.
+ * This is the tool that makes the whole set reviewable: every registered
+ * monument on one page, under identical light, against the same ground and the
+ * same 6.8-unit figure, with the validator's complaints printed underneath.
  *
  * Everything on it is drawn into a **single** WebGL context, scissored cell by
  * cell. A canvas each is the obvious implementation and it dies at about sixteen
@@ -130,12 +130,12 @@ function statLine(label: string, value: string, over: boolean): string {
 /**
  * One cell.
  *
- * Every line of it is wrapped, and that is not defensive habit. The captions are
- * built in a top-level loop, so a single monument that throws while its card is
- * being written takes down the whole module and blanks the sheet for *everyone* —
- * which is exactly what one missing `realHeight` did, at the moment fifty-four
- * agents most needed the tool to review their work. A broken monument may cost
- * its own cell and nothing more.
+ * Every line of it is wrapped, and that is not defensive habit. The captions
+ * are built in a top-level loop, so a single monument that throws while its
+ * card is being written takes down the whole module and blanks the sheet for
+ * *everyone* — which is exactly what one missing `realHeight` did, at the
+ * moment the sheet was most needed. A broken monument may cost its own cell and
+ * nothing more.
  */
 function addCell(review: Review): void {
   const { monument, measurements, problems, flaws } = review;
@@ -294,11 +294,11 @@ function resize(): void {
 /**
  * Remember the controls across a reload.
  *
- * With a dozen agents landing files the dev server reloads constantly, and a
- * review that loses its filter and its front view every few seconds is a review
- * nobody does twice. `sessionStorage` and not `localStorage` on purpose: it is
- * per tab, so a reload keeps your state and a fresh tab still opens on the whole
- * sheet with nothing hidden. Same idiom as the flag sheet's scroll memory.
+ * While files are landing the dev server reloads constantly, and a review that
+ * loses its filter and its front view every few seconds is a review nobody does
+ * twice. `sessionStorage` and not `localStorage` on purpose: it is per tab, so
+ * a reload keeps your state and a fresh tab still opens on the whole sheet with
+ * nothing hidden. Same idiom as the flag sheet's scroll memory.
  *
  * Wrapped, because a browser with site data disabled throws on the *getter*, and
  * this module builds the page at top level — an unguarded throw here would blank

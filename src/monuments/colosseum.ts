@@ -1,4 +1,4 @@
-import type { Group, Mesh, Monument, Object3D } from './contract.ts';
+import type { Mesh, Monument, Object3D } from './contract.ts';
 
 /**
  * Colosseum.

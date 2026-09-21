@@ -25,8 +25,6 @@ import { fbm, oceanDistance, MAX_RELIEF } from './terrain.ts';
  * cases those three lines cannot know: see `Known misses` below.
  */
 
-const DEG = Math.PI / 180;
-
 const clamp = (value: number, min: number, max: number): number =>
   value < min ? min : value > max ? max : value;
 

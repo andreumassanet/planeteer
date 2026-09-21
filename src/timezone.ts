@@ -20,8 +20,8 @@
  * zone name, split by meridians where a country holds several. Neither is
  * timezone logic — the platform does all of that.
  *
- * The fallback is deliberate rather than an error path, the way `CLAUDE.md`
- * asks weather to be: where there is no zone for a place, or the platform
+ * The fallback is deliberate rather than an error path, the way the weather
+ * is: where there is no zone for a place, or the platform
  * cannot resolve one, the clock falls back to **local mean solar time from the
  * longitude**. That is never absent, never wrong about the sky, and at worst an
  * hour or two from the civil answer.

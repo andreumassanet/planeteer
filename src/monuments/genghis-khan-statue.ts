@@ -37,8 +37,9 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * thing monumental rather than merely large. Sixteen columns round it rather
  * than the real thirty-six: at this size thirty-six columns are 1.6 units apart
  * and `OutlineEffect` draws them as one grey band, where sixteen read as a
- * colonnade. That is the joint-count note in `CLAUDE.md` in its usual direction,
- * and the count was chosen by what the ink can resolve.
+ * colonnade. That is the joint-count rule (few ink lines read as natural, many
+ * as manufactured) in its usual direction, and the count was chosen by what the
+ * ink can resolve.
  *
  * **The horse's line.** Deep chest, level back, high croup, and a neck that
  * leaves the shoulder at about 50 degrees. Four legs straight down, which is

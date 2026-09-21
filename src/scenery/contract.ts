@@ -144,13 +144,14 @@ export const LEGIBLE_AT = (distance: number): number => distance / 234;
  * join, in world units.
  *
  * `OutlineEffect` hulls each mesh on its own, so two faces that are flush get
- * no ink between them — the Niagara trap in `docs/traps.md`. A base course
- * painted onto a wall is a change of colour and nothing else; stepped out by
- * this much it is an edge, and an edge is a line. 0.08 is two pixels at 40
- * units and under one at 120, the least that reliably wins the depth test
- * against the hull behind it, and every course, band, frame and cap in the kit
- * stands off by exactly it. The old parts used 0.06 for their glazing and it
- * was the first thing to disappear under the pen at a grazing angle.
+ * no ink between them, which is what happened to Niagara's American curtain. A
+ * base course painted onto a wall is a change of colour and nothing else;
+ * stepped out by this much it is an edge, and an edge is a line. 0.08 is two
+ * pixels at 40 units and under one at 120, the least that reliably wins the
+ * depth test against the hull behind it, and every course, band, frame and cap
+ * in the kit stands off by exactly it. The old parts used 0.06 for their
+ * glazing and it was the first thing to disappear under the pen at a grazing
+ * angle.
  */
 export const PROUD = 0.08;
 
@@ -257,7 +258,7 @@ export const KINDS: Record<PartKind, KindSpec> = {
   // triangles and a two-pane window fourteen, where the band each replaced was
   // twelve, and a house wants six or seven of them plus a course, an eave band,
   // a ridge cap and a lintel at twelve apiece. The cost that binds is the
-  // 150-unit city at altitude (CLAUDE.md, pending 3), and it rises by less
+  // 150-unit city at altitude, and it rises by less
   // than a fifth because a cap is a ceiling: the median part is a two-storey
   // house, and one of those measures 216 against the 264 it may spend.
   dwelling: { height: 16, minHeight: 5, footprint: 9, triangles: 264, meshes: 30, colors: 5 },
@@ -539,7 +540,7 @@ export interface SceneryContext extends MonumentContext {
    * second in the first's — merge per colour. A lit piece keeps its mark on the
    * whole, at the strongest of them. And the determinant of every piece is
    * asserted positive, because a reflected piece flips its winding and the pen
-   * draws it as a solid blob; see the invariant in CLAUDE.md.
+   * draws it as a solid blob.
    */
   merged(meshes: readonly THREE.Mesh[]): THREE.Mesh;
 
@@ -559,8 +560,8 @@ export interface SceneryContext extends MonumentContext {
    * drum without showing daylight through its own floor.
    *
    * `rings` is the number of bands up the profile, and it is an *ink* decision
-   * before it is a geometry one — see the note in `CLAUDE.md` about the Space
-   * Needle's legs. Three bands read as a dome; six read as a beach ball.
+   * before it is a geometry one, because every band is an ink line. Three bands
+   * read as a dome; six read as a beach ball.
    */
   dome(radius: number, height: number, color: number, sides?: number, rings?: number): THREE.Mesh;
 

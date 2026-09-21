@@ -4,13 +4,13 @@ import { PALETTE, createToonRamp } from '../theme.ts';
 /**
  * The monument contract.
  *
- * Sixty of these will be written by sixty different hands, in parallel, with no
- * chance to look at each other's work. Everything in this file exists to make
- * that produce one world instead of sixty. The rule that does most of the work
- * is short: **a monument may only make materials through `ctx.toon`, and
- * `ctx.toon` only accepts colours from `PALETTE`.** Same ramp, same outline
- * width, same twenty-four colours, so a Colosseum written on Tuesday and a
- * Taj Mahal written on Wednesday are lit and inked identically.
+ * Sixty of these are written one file at a time, each with no chance to look at
+ * the others. Everything in this file exists to make that produce one world
+ * instead of sixty. The rule that does most of the work is short: **a monument
+ * may only make materials through `ctx.toon`, and `ctx.toon` only accepts
+ * colours from `PALETTE`.** Same ramp, same outline width, same twenty-four
+ * colours, so a Colosseum written on Tuesday and a Taj Mahal written on
+ * Wednesday are lit and inked identically.
  *
  * Everything else — tiers, footprints, budgets — is enforced mechanically by
  * `validate` below, and shown per monument on the contact sheet.
@@ -122,12 +122,13 @@ const FOOTPRINT_FILL = 0.55;
  * **It is measured on the half-diagonal, not the width, so work the number out
  * before you plan rather than after.** `measure` takes the greatest horizontal
  * distance any vertex reaches from the Y axis, which for a rectangular building
- * is `hypot(width, depth) / 2`; the test is `2 * radius <= MAX_ASPECT * height`,
- * so what must hold is `halfDiagonal / height <= 2`. A merely rectangular
- * building can fail a cap that sounds as though it were aimed at bridges: the
- * Parthenon's true half-diagonal against its height is 2.13 where 2.00 is
- * allowed — seven per cent too flat to build honestly — and its agent found that
- * out having already planned at true scale.
+ * is `hypot(width, depth) / 2`; the test is
+ * `2 * radius <= MAX_ASPECT * height`, so what must hold is
+ * `halfDiagonal / height <= 2`. A merely rectangular building can fail a cap
+ * that sounds as though it were aimed at bridges: the Parthenon's true
+ * half-diagonal against its height is 2.13 where 2.00 is allowed — seven per
+ * cent too flat to build honestly — and that came out only after it had been
+ * planned at true scale.
  *
  * **The policy is settled; do not invent a different one.** Crop to a
  * representative section, then *exaggerate the vertical* until the crop sits
@@ -363,7 +364,7 @@ const TONE_FACTOR = new Map<number, number>();
 const TONE_RANGE: [number, number] = [0.5, 1.5];
 
 /** The palette colour a tone was derived from; a palette colour is its own base. */
-export function baseOf(color: number): number {
+function baseOf(color: number): number {
   return TONE_BASE.get(color) ?? color;
 }
 
@@ -687,7 +688,7 @@ export function validate(monument: Monument, group: THREE.Group): string[] {
     return [`tier '${monument.tier}' is not one of ${Object.keys(TIERS).join(', ')}`];
   }
 
-  // --- metadata: the errors a fan-out actually makes are typos in these ---
+  // --- metadata: the errors a hand-written file makes are typos in these ---
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(monument.id)) {
     problems.push(`id '${monument.id}' is not kebab-case`);
   }
@@ -817,10 +818,10 @@ export function validate(monument: Monument, group: THREE.Group): string[] {
  *   ten were sealed inside it and every cutwater the file promised was absent
  *   from the render. Only a deliberate second render found it.
  * - **`floating`** — a part standing on nothing. Three of Niagara Falls' seven
- *   tree clumps sat over the void, because the rims they were placed on are yawed
- *   planks whose edges do not run along `z`. Its agent wrote the probe this uses,
- *   and put the reason nobody saw it better than I can: *"invisible from both
- *   fixed views, obvious the moment the sheet spins."*
+ *   tree clumps sat over the void, because the rims they were placed on are
+ *   yawed planks whose edges do not run along `z`. The probe this uses was
+ *   written for it, and the reason nobody saw it is short: invisible from both
+ *   fixed views, obvious the moment the sheet spins.
  *
  * The causes do not generalise. The symptoms do, so the symptoms are what get
  * measured, and between them they cover the family: a part buried in a wall, a
@@ -1056,13 +1057,13 @@ export function findFlaws(group: THREE.Group): Flaw[] {
  * Parts with nothing directly beneath their base — **an author's tool for their
  * own file, deliberately not on the contact sheet.**
  *
- * This is the Niagara Falls agent's probe, taken rather than rewritten. It works
- * by dropping a point below each base corner and asking whether any other part's
- * *oriented* box contains it; oriented is the whole trick, because the rims its
- * tree clumps sat on are yawed planks and against an axis-aligned box every one
- * of them looked supported. It found three clumps over the void that were
- * "invisible from both fixed views, obvious the moment the sheet spins", and
- * after the fix it reported nothing but the pieces meant to hang.
+ * This is the probe written for Niagara Falls, taken rather than rewritten. It
+ * works by dropping a point below each base corner and asking whether any other
+ * part's *oriented* box contains it; oriented is the whole trick, because the
+ * rims its tree clumps sat on are yawed planks and against an axis-aligned box
+ * every one of them looked supported. It found three clumps over the void that
+ * were invisible from both fixed views and obvious the moment the sheet spins,
+ * and after the fix it reported nothing but the pieces meant to hang.
  *
  * It is exactly right in the hands of someone who knows which of their own parts
  * are supposed to float, and useless as a sheet-wide warning. Measured across

@@ -105,11 +105,11 @@ interface Station {
  * A closed box-section loft: four runs of quads between the stations and a cap
  * at each end.
  *
- * **The winding is the whole of it**, and it is the trap `CLAUDE.md` writes up
+ * **The winding is the whole of it**, and it is a trap this project has met
  * twice over: a shell wound inside out has every face pointing into itself, so
- * `OutlineEffect`'s `BackSide` hull becomes front-facing and the mesh renders as
- * a solid ink blob. Nothing about the geometry says which way round it is, so
- * the check is arithmetic — the signed volume of the closed shell, by the
+ * `OutlineEffect`'s `BackSide` hull becomes front-facing and the mesh renders
+ * as a solid ink blob. Nothing about the geometry says which way round it is,
+ * so the check is arithmetic — the signed volume of the closed shell, by the
  * divergence theorem, must come out **positive**. `assertOutward` below is that
  * check and it runs on every shell this file builds.
  *
@@ -262,7 +262,6 @@ const SHEER = 2.1;
 const FOREDECK = 2.2;
 
 const halfAt = (z: number) => alongZ(HULL, 'half', z);
-const keelAt = (z: number) => alongZ(HULL, 'keel', z);
 
 /**
  * Half the hull plus a margin: how far ahead of the origin land stops the boat.
@@ -536,12 +535,12 @@ export const PLANE_BOOST = 1.6;
  *
  * **It was 0.55, and the plane was not even getting that.** 31.5 degrees a
  * second is a 360 in 11.4 s, and the diagonal normalisation meant for walking
- * took 29% off it whenever `W` was held with `A` — 22 degrees a second, a 360 in
- * 16 s and a 1,300-unit circle at the circuit, which is `levers` in `player.ts`.
- * On top of that the chase camera trailed the turn at `RECENTRE_RATE` and took
- * 0.7 s to show two thirds of it, so the first second of full stick turned the
- * view **15 degrees, and 10 with the throttle open**. The user's word for it was
- * *gira súper poco*. At 1.0, rolled in by `PLANE_ROLL_TIME` and followed by
+ * took 29% off it whenever `W` was held with `A` — 22 degrees a second, a 360
+ * in 16 s and a 1,300-unit circle at the circuit, which is `levers` in
+ * `player.ts`. On top of that the chase camera trailed the turn at
+ * `RECENTRE_RATE` and took 0.7 s to show two thirds of it, so the first second
+ * of full stick turned the view **15 degrees, and 10 with the throttle open**:
+ * it barely turned. At 1.0, rolled in by `PLANE_ROLL_TIME` and followed by
  * `TURN_TRAIL`, the first second turns the view 33 degrees either way. (All of
  * these are the update laws stepped at 60 Hz, 2026-09-13, not a browser.)
  *

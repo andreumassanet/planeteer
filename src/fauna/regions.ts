@@ -1,8 +1,8 @@
 /**
  * Where the animals are: what the climate supports, and whose ground it is.
  *
- * **Two tables and not a third, and the pair is the one `CLAUDE.md` already
- * names.** `BIOMES[id].plants` says what grows per climate and `NATIVE_TO` in
+ * **Two tables and not a third, and the pair is the one the vegetation already
+ * uses.** `BIOMES[id].plants` says what grows per climate and `NATIVE_TO` in
  * `scenery/regions.ts` is the range map that stops a saguaro growing outside the
  * Americas. A camel in the Sahara and a llama in the Andes is exactly that pair
  * run again: **`BY_BIOME` says what kind of animal a climate can carry, `RANGE`
@@ -16,14 +16,13 @@
  * has no camel in it. Neither table needed to know about the other.
  *
  * **Why `BY_BIOME` lives here and not in `biome.ts`.** It is the same inversion
- * `terrain.ts` refuses with the monument registry: `biome.ts` is near the bottom
- * of the stack and this kit is near the top, so a fauna list there would make
- * the ground's own classifier depend on a registry built out of
- * `import.meta.glob`. `biome.ts` is also another agent's file. What this table
- * *does* take from it is the id, and nothing else — the climate model stays
- * exactly where it is.
+ * `terrain.ts` refuses with the monument registry: `biome.ts` is near the
+ * bottom of the stack and this kit is near the top, so a fauna list there would
+ * make the ground's own classifier depend on a registry built out of
+ * `import.meta.glob`. What this table *does* take from it is the id, and
+ * nothing else — the climate model stays exactly where it is.
  */
-import { REGIONS, REGION_IDS, regionFor as sceneryRegionFor } from '../scenery/regions.ts';
+import { REGIONS, REGION_IDS } from '../scenery/regions.ts';
 import type { RegionId } from '../scenery/regions.ts';
 import type { BiomeId } from '../biome.ts';
 import type { FaunaStyle } from './contract.ts';
@@ -101,10 +100,6 @@ export const BY_BIOME: Record<BiomeId, readonly Weighted<string>[]> = {
     { item: 'horse', weight: 1 },
   ],
 };
-
-export const BIOME_IDS_WITH_FAUNA = (Object.keys(BY_BIOME) as BiomeId[]).filter(
-  (id) => BY_BIOME[id].length > 0,
-);
 
 /**
  * Which regions an animal is native to. **Anything unlisted lives anywhere**,
@@ -276,17 +271,6 @@ export const FAUNA_STYLES: Record<RegionId, FaunaStyle> = {
     density: 0.35,
   },
 };
-
-/**
- * The fauna style at a place, resolved through the scenery kit's own
- * `regionFor`, so the whole project keeps exactly one answer to *whose ground is
- * this*.
- */
-export function faunaFor(iso: string, continent: string, lat: number): FaunaStyle {
-  return FAUNA_STYLES[sceneryRegionFor(iso, continent, lat).id as RegionId];
-}
-
-export const FAUNA_REGION_IDS = Object.keys(FAUNA_STYLES) as RegionId[];
 
 /**
  * Regions the scenery kit has and this table does not.

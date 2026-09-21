@@ -4,6 +4,7 @@ import { fbm } from './terrain.ts';
 import { createToonRamp } from './theme.ts';
 import { sunUniform } from './sun.ts';
 import type { OutlineTransform } from './outline.ts';
+import { latOf } from './sphere.ts';
 
 /**
  * The weather, as a solid.
@@ -160,8 +161,6 @@ const CLIMATE_PERIOD = 27.5;
  */
 const WIND_PERIOD_HOURS = 19;
 const WIND_TILT = 17 * (Math.PI / 180);
-
-const DEG = Math.PI / 180;
 
 /**
  * The pen, and **how far away it stops being a pen.**
@@ -566,7 +565,7 @@ function coverageAt(x: number, y: number, z: number): number {
     z * WEATHER_FREQUENCY + (warpZ - 0.5) * 2 * WARP_STRENGTH + 8.4,
     4,
   );
-  const lat = Math.asin(Math.max(-1, Math.min(1, y))) / DEG;
+  const lat = latOf(y);
   return raw + CLIMATE_BIAS * Math.cos((lat * Math.PI) / CLIMATE_PERIOD);
 }
 

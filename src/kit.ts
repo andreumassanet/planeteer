@@ -25,7 +25,7 @@ const BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
 const loader = new GLTFLoader();
 
 /** A gzipped GLB, parsed. Works in Node too, given the bytes. */
-export async function parseKit(bytes: ArrayBuffer | Uint8Array): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
+async function parseKit(bytes: ArrayBuffer | Uint8Array): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
   const raw = await inflate(bytes);
   const buffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
   const gltf = await new Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }>((resolve, reject) =>

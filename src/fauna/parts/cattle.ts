@@ -1,7 +1,7 @@
 /**
  * Cattle. The animal most of the world's grazing actually is.
  *
- * `CLAUDE.md` refused to build a quadruped with the sentence *a bad cow is worse
+ * This project refused to build a quadruped with the sentence *a bad cow is worse
  * than no cow*, so this is the file that sentence is about. It is the kit's
  * baseline in the literal sense: it stands in nine of the ten biomes that carry
  * anything at all, and the camel, the llama and the reindeer say *where you are*

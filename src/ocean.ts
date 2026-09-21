@@ -5,13 +5,14 @@ import { biomeAt, biomeSample } from './biome.ts';
 import { MOSAIC_WATER, OCEAN_COLOR, PALETTE, createToonRamp } from './theme.ts';
 import { fbm } from './terrain.ts';
 import { detail } from './view.ts';
+import { latOf, lonOf } from './sphere.ts';
 
 /**
  * The sea.
  *
  * It used to be one line of `globe.ts`: an icosphere at `PLANET_RADIUS` with
  * every vertex painted the same `OCEAN_COLOR`. Seven tenths of the planet was a
- * single flat blue, and the user's word for it was exact — *una capa azul y ya*.
+ * single flat blue: a coat of blue paint and nothing else.
  *
  * **What the sea is here is not scenery, it is a mechanic**, and that is the
  * constraint every idea below had to survive. Walk down a beach and you are in
@@ -70,10 +71,9 @@ const DEG = Math.PI / 180;
  * fixed bearings, 18.4 and 16.5 units long — went in on 2026-09-10 and came out
  * on 2026-09-13: two sines sum to a lattice and a lattice repeats, so from the
  * plane it was a grid of dots over every sea on the planet and on foot a tile
- * every couple of body lengths (*parece una textura que se repite cada metro*).
- * The sky reflection that came with them went too: without the waves it is a
- * wash towards the sky's colour, and from the boat it turned the sea milky. See
- * `docs/graphics.md`.
+ * every couple of body lengths, a texture repeating every metre. The sky
+ * reflection that came with them went too: without the waves it is a wash
+ * towards the sky's colour, and from the boat it turned the sea milky.
  */
 const OCEAN_SAG = 0.4;
 const OCEAN_DETAIL = Math.ceil(63.4349 / (angleForSag(OCEAN_SAG) / DEG)) - 1;
@@ -392,8 +392,8 @@ const waterShoal = new THREE.Color();
  * nothing.
  */
 function waterProfile(ux: number, uy: number, uz: number, out: Float64Array, offset: number): void {
-  const lat = Math.asin(clamp(uy, -1, 1)) / DEG;
-  const lon = Math.atan2(-uz, ux) / DEG;
+  const lat = latOf(uy);
+  const lon = lonOf(ux, uz);
   // Zero elevation, so this is the warmth term and nothing else — the sea has
   // no relief to lapse against. Going through `biomeAt` rather than writing the
   // line out is what stops the coast and the water disagreeing about the
@@ -539,8 +539,8 @@ function buildWater(world: World): {
     const x = unique[p * 3]!;
     const y = unique[p * 3 + 1]!;
     const z = unique[p * 3 + 2]!;
-    const lat = Math.asin(clamp(y, -1, 1)) / DEG;
-    const lon = Math.atan2(-z, x) / DEG;
+    const lat = latOf(y);
+    const lon = lonOf(x, z);
     if (world.countryAt(lat, lon) !== 0) distance[p] = 0;
     else wet++;
   }
@@ -777,7 +777,6 @@ function buildShallows(
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
   const along = new THREE.Vector3();
-  const outward = new THREE.Vector3();
   const chord = new THREE.Vector3();
   const offset = new THREE.Vector3();
   const color = new THREE.Color();
@@ -941,8 +940,8 @@ function buildShallows(
 
     for (let i = 0; i + 1 < n; i++) {
       spans++;
-      const lat = Math.asin(clamp(runAt[i]!.y, -1, 1)) / DEG;
-      const lon = Math.atan2(-runAt[i]!.z, runAt[i]!.x) / DEG;
+      const lat = latOf(runAt[i]!.y);
+      const lon = lonOf(runAt[i]!.x, runAt[i]!.z);
       const bucket = bucketFor(lat, lon);
       for (let band = 0; band < bands; band++) {
         // Wound so the face points away from the centre: the sea is only ever

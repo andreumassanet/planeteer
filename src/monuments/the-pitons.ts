@@ -4,11 +4,11 @@ import type { Group, Monument, MonumentContext, Object3D } from './contract.ts';
  * The Pitons — Soufrière, Saint Lucia.
  *
  * **Why Saint Lucia:** the small island states had one landmark between them.
- * The second wave gave the Caribbean the Citadelle Laferrière in Haiti and that
- * was the whole of it — nothing in the Lesser Antilles, nothing in the Bahamas,
- * nothing in Cuba or Jamaica or Trinidad, and nothing in the Pacific, the Indian
- * Ocean or the Mediterranean's islands either. Nearly forty sovereign states are
- * islands and the map had one pin on all of them.
+ * The list before it gave the Caribbean the Citadelle Laferrière in Haiti and
+ * that was the whole of it — nothing in the Lesser Antilles, nothing in the
+ * Bahamas, nothing in Cuba or Jamaica or Trinidad, and nothing in the Pacific,
+ * the Indian Ocean or the Mediterranean's islands either. Nearly forty
+ * sovereign states are islands and the map had one pin on all of them.
  *
  * The Pitons are the obvious answer for the arc. They are on the flag, they are
  * a World Heritage site, and they are the only thing in the Antilles you can

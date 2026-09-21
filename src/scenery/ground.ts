@@ -14,10 +14,10 @@ import type { RegionId } from './regions.ts';
  * them.
  *
  * **This is a separate file from `regions.ts` on purpose and the reason is
- * mechanical, not conceptual.** Two agents were writing the kit at once and a
- * blind collision inside one 640-line table is the kind nobody can untangle
- * afterwards. It is keyed on `RegionId` and read through `groundStyleFor`, so
- * folding it into `RegionStyle` later is a rename and nothing else.
+ * mechanical, not conceptual.** A blind collision between two concurrent edits
+ * of one 640-line table is the kind nobody can untangle afterwards. It is keyed
+ * on `RegionId` and read through `groundStyleFor`, so folding it into
+ * `RegionStyle` later is a rename and nothing else.
  *
  * The three rules it exists to keep:
  *
@@ -163,13 +163,13 @@ export interface GroundStyle {
  *
  * Going higher costs the other side: the player stands at `elevationAt`, so a
  * lift is exactly how far the avatar's soles sink into its own pavement. It is
- * *inside the disagreement the world already has*, which CLAUDE.md measures at
+ * *inside the disagreement the world already has*, which `pnpm check` measures at
  * 0.49 units mean and 4.78 worst between the mesh and where the feet go, so it
  * adds no error class that was not already there — but it is not free, and at
  * 0.7 it was already an ankle.
  *
  * **It is 1.0 since 2026-09-06, and both halves of that number were measured
- * rather than chosen.** The user asked for a town on a slightly raised surface
+ * rather than chosen.** A town is meant to stand on a slightly raised surface
  * with the roads arriving at it, and the raise is only affordable at all
  * because `KERB_DROP` gives the floor a side: a sheet lifted further with no
  * side to it shows daylight under its edge. The two are one decision.
@@ -197,28 +197,24 @@ export interface GroundStyle {
  * number is free to be what the town wants it to be instead of what the wading
  * would bear.
  *
- * **And what the town wants is to be visibly on something.** The user asked for
- * it twice, the second time with a picture: a cottage on a plinth with a
- * straight grey wall under it, *sin subidas suaves, no es una montaña, es para
- * diferenciar lo que es una ciudad*. At 1.0 with a 0.8 kerb the side of the
- * town is 1.8 units against a 6.8-unit avatar — a step, not a plinth, and from
- * any distance at all it is a colour change. 3.0 puts the visible face at
- * `GROUND_LIFT + KERB_DROP` = 3.8, which is 56% of the avatar and about a third
- * of a house: the proportion in the reference picture, read off it rather than
- * guessed.
+ * **And what the town wants is to be visibly on something.** The reference was
+ * a picture of a cottage on a plinth with a straight grey wall under it: no
+ * gentle rise, not a hill, a base that marks off what is a town. At 1.0 with a
+ * 0.8 kerb the side of the town is 1.8 units against a 6.8-unit avatar — a
+ * step, not a plinth, and from any distance at all it is a colour change. 3.0
+ * puts the visible face at `GROUND_LIFT + KERB_DROP` = 3.8, which is 56% of the
+ * avatar and about a third of a house: the proportion in the reference picture,
+ * read off it rather than guessed.
  *
- * **And on 2026-09-13 the user reversed the wall, and kept the lift.** The
- * plinth did its job — a town reads as a made thing from any distance — and
- * the same user then saw what a straight wall round a square does to the
- * landscape it stands in: *para que las ciudades no se noten como un cuadrado
- * aquí que se levanta de repente, ¿debería hacer como en las carreteras que hay
- * una pendiente pequeña en los bordes? Solo en los bordes exteriores. Aunque
- * tienes que tener en cuenta que a veces hay elevaciones y puede quedar raro si
- * no se hace bien.* So the outer edge is a slope now, at the road shoulders'
- * idea and the old collision ramp's gradient (`EDGE_RUN`), and the 3.0 stays:
- * the slope is what the side of the plinth became, not a reason for it to be
- * lower. The risers *between* terraces inside a town are still walls, and a
- * street that crosses one gets a flight of steps (`floor.ts`).
+ * **And on 2026-09-13 the wall was reversed, and the lift kept.** The plinth
+ * did its job — a town reads as a made thing from any distance — but a straight
+ * wall round a square is a box rising out of the landscape all at once, and on
+ * uneven ground it looks worse still. So the outer edge, and only the outer
+ * edge, is a small slope now, at the road shoulders' idea and the old collision
+ * ramp's gradient (`EDGE_RUN`), and the 3.0 stays: the slope is what the side
+ * of the plinth became, not a reason for it to be lower. The risers *between*
+ * terraces inside a town are still walls, and a street that crosses one gets a
+ * flight of steps (`floor.ts`).
  *
  * The two costs it does have are both paid elsewhere and worth naming. A body
  * *outside* the town climbs it up the edge slope, which is drawn and which
@@ -241,13 +237,13 @@ export const GROUND_LIFT = 3.0;
  * How tall one step of a town's platform is, in world units.
  *
  * **A town is a flat surface and the world is not, so a town on a hillside has
- * to be a staircase of flat surfaces.** The user asked for the platform and
- * then asked the question that follows from it — *hay que ver qué hacemos con
- * las ciudades que están en pendientes porque se solapan con la montaña* — and
- * there are only three answers: tilt the platform, which is not a platform;
- * refuse the town, which deletes Huesca, Bern, Innsbruck, Quito and Santiago
- * along with 14.6% of everything built; or cut the hill into steps, which is
- * what a hill town on this planet has always actually been.
+ * to be a staircase of flat surfaces.** The platform raises the question that
+ * follows from it — what to do with the towns on slopes, which overlap the
+ * mountain they stand on — and there are only three answers: tilt the platform,
+ * which is not a platform; refuse the town, which deletes Huesca, Bern,
+ * Innsbruck, Quito and Santiago along with 14.6% of everything built; or cut
+ * the hill into steps, which is what a hill town on this planet has always
+ * actually been.
  *
  * The relief under a built town's own footprint, over the 9,734 that stand
  * (2026-09-07): the median varies by **4.0 units** across the whole town, the
@@ -294,14 +290,15 @@ export const TERRACE_STEP = 4;
  * A town with nothing left falls back to the single building at its centre —
  * see `built.size === 0` in `raise` — so that column is the count of places
  * that come out as one hut on a mountainside, and it is the cost that matters:
- * the user's complaint was a town *overlapping* a mountain, and a town deleted
- * by a rule meant to fix that is the same failure wearing the other hat.
+ * the failure being fixed was a town *overlapping* a mountain, and a town
+ * deleted by a rule meant to fix that is the same failure wearing the other
+ * hat.
  *
  * **12 units**, where the wall is 15.8 — 2.3 avatars, a retaining wall a hill
  * town really has — and 234 places of 9,734 come out as one building. At 8 it
- * was 493, and Huesca (the town the user photographed) kept 3 of its 9 cells
- * against 6 at 12, on three terraces instead of one. Above 16 the wall is taller
- * than the houses standing on it.
+ * was 493, and Huesca (the town that showed the overlap) kept 3 of its 9 cells
+ * against 6 at 12, on three terraces instead of one. Above 16 the wall is
+ * taller than the houses standing on it.
  *
  * A cell steeper than this is not paved and nothing is built on it. `survey`
  * counts both the cells and the towns.
@@ -321,11 +318,11 @@ export const MAX_CUT = 12;
  *
  * **The town's edge was a plinth from 2026-09-06 to 2026-09-13, a top and a
  * side**, and this was the side's foot: a vertical band round the whole floor
- * from the paving down to 0.8 under the ground, and an apron (`APRON_SINK`, 3.2)
- * carried on from there down into the land. Both went when the user asked for a
- * slope instead (see `GROUND_LIFT` and `EDGE_RUN`): the edge slope starts on the
- * paving and dives under the ground by `EDGE_FOOT` on its own, so it has no foot
- * to hide and no apron behind it.
+ * from the paving down to 0.8 under the ground, and an apron (`APRON_SINK`,
+ * 3.2) carried on from there down into the land. Both went when the edge became
+ * a slope (see `GROUND_LIFT` and `EDGE_RUN`): the edge slope starts on the
+ * paving and dives under the ground by `EDGE_FOOT` on its own, so it has no
+ * foot to hide and no apron behind it.
  *
  * What is left is the sea. A paved cell whose neighbour stands in the water is
  * a quay, and a slope down to the water is a beach, which is a different thing:
@@ -346,14 +343,13 @@ export const KERB_DROP = 0.8;
  * units.
  *
  * **The town's outside edge is a slope since 2026-09-13, and this is how long
- * it is.** The user asked for it in so many words — *para que las ciudades no
- * se noten como un cuadrado aquí que se levanta de repente, ¿debería hacer como
- * en las carreteras que hay una pendiente pequeña en los bordes? Solo en los
- * bordes exteriores* — which reverses the plinth wall they asked for on
- * 2026-09-07 (see `GROUND_LIFT`). The slope is one course of cells laid from
- * the paving's own top at the kerb line down to `edgeSink` under the ground at
- * the far side of the course; `edgeSink` in `floor.ts` is solved so that on
- * level ground it crosses the ground exactly this far out.
+ * it is.** It reverses the plinth wall of 2026-09-07 (see `GROUND_LIFT`): a
+ * square that rises out of the land all at once reads as a box set down on it,
+ * and a small slope on the outer edges only, like a road's shoulders, lets it
+ * sit in the land. The slope is one course of cells laid from the paving's own
+ * top at the kerb line down to `edgeSink` under the ground at the far side of
+ * the course; `edgeSink` in `floor.ts` is solved so that on level ground it
+ * crosses the ground exactly this far out.
  *
  * **9 is the number this constant had when it was `KERB_BLEND`, and the
  * gradient is the reason it did not move.** The old constant was the width of
@@ -361,10 +357,10 @@ export const KERB_DROP = 0.8;
  * band of approach to climb it in so that the floor did not switch on in one
  * frame — the one place in the world the standing surface was not the drawn
  * one. Three times the rise, a gradient of 0.33, 18 degrees: the steepest thing
- * a body walks up without noticing, which is what the user's *pendiente
- * pequeña* is too. So the ramp that was collision is geometry now, at the same
- * gradient, and `floorLiftAt` reads the geometry. At `WALK_SPEED` (45 units/s)
- * the climb takes 0.2 s.
+ * a body walks up without noticing, which is what a small slope has to be here.
+ * So the ramp that was collision is geometry now, at the same gradient, and
+ * `floorLiftAt` reads the geometry. At `WALK_SPEED` (45 units/s) the climb
+ * takes 0.2 s.
  *
  * It is a *run on level ground* and not a promise of a gradient everywhere:
  * where the land outside falls away the slope still ends one course out, so it
@@ -379,17 +375,17 @@ export const EDGE_RUN = 9;
  * most: a narrow street keeps 0.7 of its half for the carriageway, so a
  * Mediterranean lane's 3.75 is 1.1 of pavement and 2.6 of road.
  *
- * **The town's floor is a street plan since 2026-09-17**, on the user's word
- * about the base everything stood on — *ahora está cutrísimo lo de la
- * plataforma y carreteras* — and the CC0 road packs they pointed at, Kenney's
- * City Kit (Roads) and Quaternius's Modular Streets. Those are tiles, and a
- * town here is not a tile grid it can be laid from: its streets are bands of
- * cells a terrace cuts and a flight climbs, and its roads are curves. So what
- * the packs lend is their section, drawn into the floor the town already
- * lays: an asphalt carriageway with a dashed centre line, a pale pavement
- * either side, and the yard behind it (`GroundStyle.yard`). The surface a foot
- * stands on is unchanged — the pavement is flush, a colour and not a kerb —
- * so `floor.ts` and everything that reads it are untouched.
+ * **The town's floor is a street plan since 2026-09-17**, replacing a base of
+ * one road colour, platform and carriageway alike, that read as crude, and it
+ * takes its section from two CC0 road packs, Kenney's City Kit (Roads) and
+ * Quaternius's Modular Streets. Those are tiles, and a town here is not a tile
+ * grid it can be laid from: its streets are bands of cells a terrace cuts and a
+ * flight climbs, and its roads are curves. So what the packs lend is their
+ * section, drawn into the floor the town already lays: an asphalt carriageway
+ * with a dashed centre line, a pale pavement either side, and the yard behind
+ * it (`GroundStyle.yard`). The surface a foot stands on is unchanged — the
+ * pavement is flush, a colour and not a kerb — so `floor.ts` and everything
+ * that reads it are untouched.
  *
  * 2.2 is a third of the avatar: one person, and a lamp standing in it.
  */
@@ -536,10 +532,10 @@ export function trodden(base: THREE.Color, target: THREE.Color): THREE.Color {
  * Unmade ground: a dirt track, and the ends of things.
  *
  * `trodden` is a yard — ground that is walked on and has stopped growing. This
- * is the next step along the same axis, and it exists because the user asked
- * for one: *caminos de tierra, no cesped.* A dirt road is not a made road that
- * has faded, and it is not a lawn stripe; it is earth, and earth is darker and
- * browner than the field it crosses rather than paler and greyer.
+ * is the next step along the same axis: a track of earth, not of grass. A dirt
+ * road is not a made road that has faded, and it is not a lawn stripe; it is
+ * earth, and earth is darker and browner than the field it crosses rather than
+ * paler and greyer.
  *
  * The three surfaces the kit now distinguishes, in order of how made they are:
  * `GroundStyle.road` (a carriageway, and it keeps its colour the whole way),

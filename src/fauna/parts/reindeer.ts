@@ -7,7 +7,7 @@
  * It is here because the north was empty. `tundra` and `boreal` between them are
  * a great deal of the planet's land and neither carried an animal that belonged
  * there — a cow on the Finnmark plateau is a cow in the wrong place, and an
- * empty plateau is what the user was looking at.
+ * empty plateau was all there was.
  *
  * **The antlers are the whole model.** At 30 pixels a reindeer is a brown lozenge
  * that could be anything, plus a pair of swept beams that could be nothing else,

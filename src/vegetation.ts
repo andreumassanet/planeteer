@@ -52,6 +52,7 @@ import {
   variantRng,
 } from './scenery/index.ts';
 import type { RegionId, RegionStyle, SceneryContext, ScenicPart, Weighted } from './scenery/index.ts';
+import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
 
 /**
  * What grows between the towns, which until now was nothing at all.
@@ -166,7 +167,7 @@ const cellsOf = (root: number, level: number): number =>
 const REFINE_BASE = 1.15;
 
 /**
- * And the knob's own lever on it, which is the one the user was asking for.
+ * And the knob's own lever on it, which is the one that matters.
  *
  * `REFINE` decides how far the *fine* levels reach, so it is the difference
  * between "trees near me and a scatter beyond" and "trees to the horizon". At
@@ -547,8 +548,8 @@ const SEATING = 0.05;
 /**
  * Where the plant's own slope rule comes from: `terrain.ts`, which owns it for
  * the whole world. It was written here, because a wood on a mountain face is
- * where the user saw it first; the road, the herd and the town's own paving ask
- * the same question now, so the definition moved and this file reads it.
+ * where it showed first; the road, the herd and the town's own paving ask the
+ * same question now, so the definition moved and this file reads it.
  */
 
 /**
@@ -611,13 +612,13 @@ interface FlatVariant {
 /**
  * The grass under your feet, which the plots above cannot be.
  *
- * A plot is a plant a few hundred square units, which is a wood and not a
- * lawn: the land between the trees was one flat colour from the boots to the
- * fog, and on 2026-09-17 the user said so (*noto el suelo muy plano, como que
- * falta cesped*). Grass is a field in the sense this file's header means, and
- * the header's arithmetic applies with more force — a clump every two units to
- * the fog is tens of millions of triangles — so the sward thins with distance,
- * and thins in a way that cannot be seen doing it.
+ * A plot is a plant a few hundred square units, which is a wood and not a lawn:
+ * the land between the trees was one flat colour from the boots to the fog, and
+ * until 2026-09-17 the ground read as flat, a lawn with no grass on it. Grass
+ * is a field in the sense this file's header means, and the header's arithmetic
+ * applies with more force — a clump every two units to the fog is tens of
+ * millions of triangles — so the sward thins with distance, and thins in a way
+ * that cannot be seen doing it.
  *
  * **Every site has a rank.** The sites are one lattice over the whole planet,
  * `SWARD_PITCH` apart in latitude and longitude on the quadtree's own cells, and
@@ -644,10 +645,9 @@ interface FlatVariant {
  * what is drawn to within a clump's own height. It has no ink: a pen round
  * every blade is a field of black hair.
  *
- * **It is the one thing on the land that `MAX_SLOPE` does not refuse**
- * (2026-09-17, on the user's word: *igual si podemos dejar que suba en las
- * pendientes*). A slope rule is about what stands — a trunk, a hoof, a wheel,
- * a wall — and a sward stands on nothing; it is the colour of the hill with a
+ * **It is the one thing on the land that `MAX_SLOPE` does not refuse** (since
+ * 2026-09-17). A slope rule is about what stands — a trunk, a hoof, a wheel, a
+ * wall — and a sward stands on nothing; it is the colour of the hill with a
  * grain to it, and a hill drawn green and bare above thirty degrees read as a
  * hill with a bald flank. It stops only where the probe does, at a face too
  * near vertical to have a top.
@@ -1053,12 +1053,9 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   const rebuildKeepouts = (): void => {
     let i = 0;
     const add = (lat: number, lon: number, radius: number, half = 0): void => {
-      const cos = Math.cos(lat * DEG);
-      builtUnit[i * 3] = cos * Math.cos(lon * DEG);
-      builtUnit[i * 3 + 1] = Math.sin(lat * DEG);
-      // Negative, like every other conversion in the project; see the
-      // mirrored-planet trap in CLAUDE.md.
-      builtUnit[i * 3 + 2] = -cos * Math.sin(lon * DEG);
+      // Through `sphere.ts`, like every other conversion in the project: the
+      // obvious hand-written one is the mirror image of the planet.
+      toUnit(lat, lon, builtUnit, i * 3);
       builtRadius[i] = radius;
       builtHalf[i] = half;
       i++;
@@ -1295,7 +1292,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     // ground towards the pole. X cross Y is Z, so X is Y cross Z — written this
     // way round because `makeBasis(east, up, north)` is the reflection that
     // fills a mesh with ink, and it is the one mistake here that an ordinary
-    // `Mesh` cannot show you. See the reflected-basis trap in CLAUDE.md.
+    // `Mesh` cannot show you, because it silently discards a reflection.
     north.set(0, 1, 0).projectOnPlane(up);
     if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(up);
     north.normalize();
@@ -1513,8 +1510,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           // few copses and the Amazon gets almost all of them, out of the same
           // table and with nothing here knowing what a desert is.
           const at = directionAt(cx, cz, scratch);
-          const lat = Math.asin(Math.max(-1, Math.min(1, at.y))) / DEG;
-          const lon = Math.atan2(-at.z, at.x) / DEG;
+          const lat = latOf(at.y);
+          const lon = lonOf(at.x, at.z);
           biomeAt(at.x, at.y, at.z, lat, lon, reliefAt(at.x, at.y, at.z), sample);
           if (!seed.chance(BIOMES[sample.id].cover)) continue;
           for (let i = 0; i < GROVE_PLANTS; i++) {
@@ -1564,8 +1561,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           continue;
         }
 
-        const lat = Math.asin(Math.max(-1, Math.min(1, direction.y))) / DEG;
-        const lon = Math.atan2(-direction.z, direction.x) / DEG;
+        const lat = latOf(direction.y);
+        const lon = lonOf(direction.x, direction.z);
         biomeAt(direction.x, direction.y, direction.z, lat, lon, relief, sample);
         // The one number `biome.ts` exists to give this file: a probability per
         // plot, not a spacing. A desert at 0.03 is not a wood with wider gaps.
@@ -1634,15 +1631,15 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         plantNorth.normalize();
         plantAcross.crossVectors(plantUp, plantNorth).normalize();
 
-        // Four probes at the plant's own footprint, **in the plant's own frame**
-        // and not the tile's, and they answer two questions for the price of
-        // one. How *low* the ground gets under the footprint is the bedding, as
-        // it always was. How it *leans* is the gradient across the same four
-        // heights, and that is what was missing: a plant stood plumb on a hill
-        // is buried on the uphill side by the slope times its own width, which
-        // is the thing the user could see. The relief is the only term that
-        // varies inside a tile — the shelf is the ring's and is constant — so
-        // this is still four `reliefAt` calls and nothing else, and they are
+        // Four probes at the plant's own footprint, **in the plant's own
+        // frame** and not the tile's, and they answer two questions for the
+        // price of one. How *low* the ground gets under the footprint is the
+        // bedding, as it always was. How it *leans* is the gradient across the
+        // same four heights, and that is what was missing: a plant stood plumb
+        // on a hill is buried on the uphill side by the slope times its own
+        // width, which is the thing that showed. The relief is the only term
+        // that varies inside a tile — the shelf is the ring's and is constant —
+        // so this is still four `reliefAt` calls and nothing else, and they are
         // `terrain.ts`'s four now rather than a copy of them here.
         const reach = Math.max(1.2, flat.footprint * scale * 0.6);
         gradeAt(plantUp, plantAcross, plantNorth, reach, slope);
@@ -1821,11 +1818,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     const lonStep = 360 / cells;
     const lon = -180 + (((column % cells) + cells) % cells) * lonStep + lonStep / 2;
     const cos = Math.cos(lat * DEG);
-    const direction = new THREE.Vector3(
-      cos * Math.cos(lon * DEG),
-      Math.sin(lat * DEG),
-      -cos * Math.sin(lon * DEG),
-    );
+    const direction = unitAt(lat, lon, new THREE.Vector3());
     const centre = direction
       .clone()
       .multiplyScalar(PLANET_RADIUS + reliefAt(direction.x, direction.y, direction.z));
@@ -1881,8 +1874,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   function enumerate(viewer: THREE.Vector3, range: number): Tile[] {
     const found: Tile[] = [];
     const direction = probe.copy(viewer).normalize();
-    const lat = Math.asin(Math.max(-1, Math.min(1, direction.y))) / DEG;
-    const lon = Math.atan2(-direction.z, direction.x) / DEG;
+    const lat = latOf(direction.y);
+    const lon = lonOf(direction.x, direction.z);
     const top = LEVELS - 1;
     const reach = (range + spanOf(top)) / UNITS_PER_DEGREE;
     const rows = rowsOf(top);
@@ -2247,9 +2240,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     if (known !== undefined) return known;
     const lat = -90 + a * stepOf(GROUND_LEVEL);
     const lon = -180 + column * (360 / cells);
-    const cos = Math.cos(lat * DEG);
-    sampleDirection.set(cos * Math.cos(lon * DEG), Math.sin(lat * DEG), -cos * Math.sin(lon * DEG));
-    const { x, y, z } = sampleDirection;
+    const { x, y, z } = unitAt(lat, lon, sampleDirection);
     biomeAt(x, y, z, lat, lon, reliefAt(x, y, z), sample);
     groundColorAt(world, sampleDirection, sampleColour);
     const made = { density: BIOMES[sample.id].sward, r: sampleColour.r, g: sampleColour.g, b: sampleColour.b };
@@ -2382,8 +2373,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           refused.thin++;
           continue;
         }
-        const cos = Math.cos(lat * DEG);
-        const direction = siteDirection.set(cos * Math.cos(lon * DEG), Math.sin(lat * DEG), -cos * Math.sin(lon * DEG));
+        const direction = unitAt(lat, lon, siteDirection);
         // The shore ramp is the one place the relief is under the shelf, and it
         // is sand.
         if (reliefAt(direction.x, direction.y, direction.z) < 0) {
@@ -2655,8 +2645,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       out.push(tile);
     };
     const step = stepOf(top);
-    const lat = Math.asin(Math.max(-1, Math.min(1, eyeDirection.y))) / DEG;
-    const lon = Math.atan2(-eyeDirection.z, eyeDirection.x) / DEG;
+    const lat = latOf(eyeDirection.y);
+    const lon = lonOf(eyeDirection.x, eyeDirection.z);
     const span = (far + spanOf(top)) / UNITS_PER_DEGREE;
     const first = Math.max(0, Math.floor((lat - span + 90) / step));
     const last = Math.min(rowsOf(top) - 1, Math.floor((lat + span + 90) / step));
@@ -2989,9 +2979,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       const ms = performance.now() - began;
       const after = stats.sward.refused;
       result?.mesh.geometry.dispose();
-      const direction = new THREE.Vector3(
-        Math.cos(lat * DEG) * Math.cos(lon * DEG), Math.sin(lat * DEG), -Math.cos(lat * DEG) * Math.sin(lon * DEG),
-      );
+      const direction = unitAt(lat, lon, new THREE.Vector3());
       biomeAt(direction.x, direction.y, direction.z, lat, lon, reliefAt(direction.x, direction.y, direction.z), sample);
       return {
         tile: tile.key,

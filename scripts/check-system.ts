@@ -34,6 +34,7 @@ import { createSceneryContext } from '../src/scenery/contract.ts';
 import { measure } from '../src/monuments/contract.ts';
 import { rngFrom } from '../src/scenery/random.ts';
 import { WALK_SPEED, RUN_SPEED } from '../src/avatar.ts';
+import { latOf, lonOf } from '../src/sphere.ts';
 
 import {
   ELEMENTS,
@@ -366,10 +367,10 @@ console.log('\n\n=== the scale ===\n');
 
 console.log(`  Earth is PLANET_RADIUS ${PLANET_RADIUS} against a real ${EARTH_RADIUS_KM} km,`);
 // Read a world unit as a metre and the planet is 1:398 — which is the sense
-// CLAUDE.md means, and it is *not* the avatar's scale. The avatar is 6.8 units
-// for a 1.75 m person, so the body is at about 1:0.26 of the same reading.
-// That conflict is real, it is written down rather than hidden, and it is the
-// reason this file states which of the two any number belongs to.
+// the scale table means, and it is *not* the avatar's scale. The avatar is 6.8
+// units for a 1.75 m person, so the body is at about 1:0.26 of the same
+// reading. That conflict is real, it is written down rather than hidden, and it
+// is the reason this file states which of the two any number belongs to.
 console.log(`  so one world unit is ${KM_PER_UNIT.toFixed(5)} km, and read as a metre that is 1:${((EARTH_RADIUS_KM * 1000) / PLANET_RADIUS).toFixed(0)}.`);
 near('Earth round-trips through surfaceRadiusOf', surfaceRadiusOf(EARTH_RADIUS_KM), PLANET_RADIUS, 1e-9);
 
@@ -463,7 +464,8 @@ console.log('\n  the neighbour rule — drawn radii against the gap between the 
  * because a reflection here would mirror the entire solar system exactly as
  * `z = +cos(lat) sin(lon)` mirrored the planet for months and passed every
  * check; and it must carry ecliptic longitude to *world* longitude unchanged,
- * where world longitude is `geo.ts`'s `atan2(-z, x)` and not a fresh one.
+ * where world longitude is `sphere.ts`'s `atan2(-z, x)`, the one `geo.ts` reads
+ * it with, and not a fresh one.
  */
 {
   const e1 = eclipticToWorld({ x: 1, y: 0, z: 0 });
@@ -479,8 +481,8 @@ console.log('\n  the neighbour rule — drawn radii against the gap between the 
     for (const lat of [0, 30, -60]) {
       const c = Math.cos(lat * DEG);
       const w = eclipticToWorld({ x: c * Math.cos(lon * DEG), y: c * Math.sin(lon * DEG), z: Math.sin(lat * DEG) });
-      const gotLon = Math.atan2(-w.z, w.x) / DEG;
-      const gotLat = Math.asin(w.y) / DEG;
+      const gotLon = lonOf(w.x, w.z);
+      const gotLat = latOf(w.y);
       if (Math.abs(((gotLon - lon + 540) % 360) - 180) > 1e-9) fail(`ecliptic lon ${lon} arrives as world lon ${gotLon.toFixed(4)}`);
       if (Math.abs(gotLat - lat) > 1e-9) fail(`ecliptic lat ${lat} arrives as world lat ${gotLat.toFixed(4)}`);
     }

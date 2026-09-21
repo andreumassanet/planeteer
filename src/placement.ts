@@ -8,6 +8,7 @@ import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import { NEAR_BUILD, createViewCone, detailPixels, detailReach, fogFar, frameOpenFor, horizonAt, slantRange } from './view.ts';
+import { unitAt } from './sphere.ts';
 
 /**
  * Where a monument stands, as baked by `scripts/build-monuments.ts`.
@@ -59,8 +60,6 @@ export async function loadPlacements(url = `${DATA_URL}monuments.json`): Promise
   if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);
   return ((await response.json()) as { monuments: Placement[] }).monuments;
 }
-
-const DEG = Math.PI / 180;
 
 /**
  * How far along the ground a monument is built, in world units.
@@ -145,11 +144,11 @@ const STORAGE_KEY = 'atlas.visited';
  * outlines, fills the ocean and raises the land before it asks for a single
  * landmark. Importing the registry here would put all of it in the initial
  * module graph, where the browser has to fetch and parse every byte before
- * `start()` runs at all — see the trap in `CLAUDE.md`. So `main.ts` fires
- * `import('./monuments/index.ts')` once the data is in and hands the result down
- * — the same trade `createLife` already makes with `src/traffic/index.ts`, which
- * has the same shape and the same second reason: a module that never imports the
- * registry can be run in Node, where `import.meta.glob` does not exist.
+ * `start()` runs at all. So `main.ts` fires `import('./monuments/index.ts')`
+ * once the data is in and hands the result down — the same trade `createLife`
+ * already makes with `src/traffic/index.ts`, which has the same shape and the
+ * same second reason: a module that never imports the registry can be run in
+ * Node, where `import.meta.glob` does not exist.
  *
  * Structural rather than `typeof import(...)` so that this file names what it
  * actually uses. It reads the ids and it builds; it does not know what else a
@@ -261,13 +260,7 @@ export function createMonuments(
   const slots: Slot[] = placements
     .filter((p) => known.has(p.id))
     .map((placement) => {
-      const lat = placement.lat * DEG;
-      const lon = placement.lon * DEG;
-      const direction = new THREE.Vector3(
-        Math.cos(lat) * Math.cos(lon),
-        Math.sin(lat),
-        -Math.cos(lat) * Math.sin(lon),
-      );
+      const direction = unitAt(placement.lat, placement.lon, new THREE.Vector3());
       // The ground is asked once, here: the relief does not move, and asking per
       // frame would put a point-in-polygon query behind every monument.
       const anchor = direction.clone().multiplyScalar(groundRadius(world, direction));

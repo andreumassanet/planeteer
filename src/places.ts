@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DATA_URL, decodePlaces, inflate } from './pack.ts';
+import { toUnit, unitAt } from './sphere.ts';
 
 /**
  * The 29,651 populated places, and the one question worth asking of them:
@@ -140,12 +141,11 @@ const EARTH_KM = 6371;
  *   24,900,000     96.9   150.0      Shanghai
  * ```
  *
- * The user's sentence was *"se nota como si el mundo estuviera lleno de casas
- * sin fin, no parece que haya ciudades sino casas por todo"* — the world reads
- * as endless houses rather than as cities — and that is exactly what a flat law
- * builds: every settlement on the planet within a factor of two of every other,
- * so a place of five thousand and a place of half a million are the same mark.
- * The gazetteer fixed *where the names are* and did nothing about *hierarchy*.
+ * The world read as endless houses rather than as cities, and that is exactly
+ * what a flat law builds: every settlement on the planet within a factor of two
+ * of every other, so a place of five thousand and a place of half a million are
+ * the same mark. The gazetteer fixed *where the names are* and did nothing
+ * about *hierarchy*.
  *
  * - **The bottom is the smallest thing that still reads as a settlement**, and
  *   that is a fact about the *houses*, not about the horizon. `settlements.ts`
@@ -416,12 +416,11 @@ export const PROMINENCE_CAP = 4000;
  *
  * **The gazetteer is a hierarchy and the footprint thinning is not.** The bake
  * keeps every row whose disc touches no larger disc, which is what stops towns
- * interpenetrating and is nothing to do with whether they should all exist:
- * the survivors' median spacing was **57 units**, and Mallorca carried nine of
- * them — Palma, Manacor, Inca, Alcúdia, Santanyí, Capdepera, Santa Margalida,
- * Campos, Cala Millor — on an island 235 units across. The user's sentence was
- * that Mallorca should show **only Palma**, and that is a statement about
- * rank, not about overlap.
+ * interpenetrating and is nothing to do with whether they should all exist: the
+ * survivors' median spacing was **57 units**, and Mallorca carried nine of them
+ * — Palma, Manacor, Inca, Alcúdia, Santanyí, Capdepera, Santa Margalida,
+ * Campos, Cala Millor — on an island 235 units across. Mallorca should show
+ * **only Palma**, and that is a statement about rank, not about overlap.
  *
  * A population threshold was the obvious lever and it is the one this project
  * already rejected once (`build-places.mjs`: cities15000 regressed eleven of
@@ -541,12 +540,13 @@ export function prominenceField(
   const rank = new Float64Array(n);
   const shade = new Float64Array(n);
   const buckets: (number[] | undefined)[] = new Array(ROWS * COLS);
+  const u = { x: 0, y: 0, z: 0 };
   for (let i = 0; i < n; i++) {
     const place = places[i]!;
-    const cos = Math.cos(place.lat * DEG);
-    ux[i] = cos * Math.cos(place.lon * DEG);
-    uy[i] = Math.sin(place.lat * DEG);
-    uz[i] = -cos * Math.sin(place.lon * DEG);
+    unitAt(place.lat, place.lon, u);
+    ux[i] = u.x;
+    uy[i] = u.y;
+    uz[i] = u.z;
     rank[i] = rankOf(place);
     shade[i] = shadeOf(place);
     const row = Math.min(ROWS - 1, Math.floor((place.lat + 90) / CELL));
@@ -631,18 +631,14 @@ export async function loadPlaces(
  * threat.
  */
 export function indexPlaces(all: readonly Place[], radius: number): Places {
-  const DEG = Math.PI / 180;
   const unit = new Float64Array(all.length * 3);
   const claim = new Float64Array(all.length);
   const label = new Float64Array(all.length);
   for (let i = 0; i < all.length; i++) {
     const place = all[i]!;
-    const cos = Math.cos(place.lat * DEG);
-    unit[i * 3] = cos * Math.cos(place.lon * DEG);
-    unit[i * 3 + 1] = Math.sin(place.lat * DEG);
-    // Negative, like every other conversion in the project. A `+` here puts
-    // east where west belongs; see the mirrored-planet trap in CLAUDE.md.
-    unit[i * 3 + 2] = -cos * Math.sin(place.lon * DEG);
+    // Through `sphere.ts`, like every other conversion in the project. A `+`
+    // on z puts east where west belongs.
+    toUnit(place.lat, place.lon, unit, i * 3);
     claim[i] = radiusOf(place);
     label[i] = labelRadiusOf(place);
   }

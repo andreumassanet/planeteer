@@ -6,14 +6,14 @@ import * as THREE from 'three';
  * ## Why a person is not built from the kit's prisms
  *
  * Everything else in this world is faceted on purpose — a house is a box, a
- * roof is a wedge, and one normal per face gives each plane its own cel band.
- * A body built the same way is a **Roblox figure**: a hexagonal drum for a head,
+ * roof is a wedge, and one normal per face gives each plane its own cel band. A
+ * body built the same way is a **Roblox figure**: a hexagonal drum for a head,
  * five-sided tubes for arms and bricks for feet, which is what the avatar was
- * until 2026-09-15 and what the user called it (*parece peor que roblox*). The
- * reference this project's form is taken from, messenger.abeto.co, draws its
- * people as smooth masses — an egg of a head, locks of hair, a jacket that
- * hangs, trainers with a sole — under exactly this world's lighting: one sun, a
- * stepped ramp, an ink line.
+ * until 2026-09-15, and it looked worse than Roblox. The reference this
+ * project's form is taken from, messenger.abeto.co, draws its people as smooth
+ * masses — an egg of a head, locks of hair, a jacket that hangs, trainers with
+ * a sole — under exactly this world's lighting: one sun, a stepped ramp, an ink
+ * line.
  *
  * **Smooth normals do not undo the cel look, and the ramp is why.** `theme.ts`
  * builds every ramp with `NearestFilter`, so the light is quantised to four

@@ -3,8 +3,8 @@ import type { Monument } from './contract.ts';
 /**
  * Niagara Falls.
  *
- * **Three things are taken from `victoria-falls.ts` and not rediscovered here.**
- * That file is the only other waterfall in the list and its agent did the
+ * **Three things are taken from `victoria-falls.ts` and not rediscovered
+ * here.** That file is the only other waterfall in the list and it did the
  * general work; this one is about where the two places differ, which is nearly
  * everywhere.
  *

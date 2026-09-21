@@ -452,8 +452,7 @@ async function start(): Promise<void> {
   // thread. Measured at 250 KB/s, five runs: the initial graph went **403 KB
   // gzipped over twelve chunks to 244 over ten**, the first data request
   // **1,709 ms -> 1,071**, the first frame **12,132 -> 11,408** — and the
-  // deferred 167 KB lands inside the build with time to spare. See the trap in
-  // `CLAUDE.md` for the same table at 100 KB/s and at full speed.
+  // deferred 167 KB lands inside the build with time to spare.
   //
   // They are fired *here* and not at the top of `start()` on purpose. The
   // download is bandwidth the data files are also spending, and the data files
@@ -709,10 +708,10 @@ async function start(): Promise<void> {
     // **The weather is there from space and gone while you choose.** The
     // country and town stages are a map you click on, and the deck over it is
     // in the way: a solid cell of stratus over eastern Spain hid which coast
-    // Valencia was on, and even veiled it was the thing the user asked to have
-    // out of the way. From the system and a planet's card it stays, because
-    // there it is most of what makes Earth look like Earth. It fades rather
-    // than switching, on the clock of the frames the menu draws.
+    // Valencia was on, and even veiled it was in the way. From the system and a
+    // planet's card it stays, because there it is most of what makes Earth look
+    // like Earth. It fades rather than switching, on the clock of the frames
+    // the menu draws.
     const now = performance.now();
     const step = Math.min(0.1, (now - veiledAt) / 1000);
     veiledAt = now;
@@ -855,7 +854,7 @@ async function start(): Promise<void> {
     places: places.all,
     monuments: placements,
     // The pruned network, the same list the streamer draws: a tree in the
-    // carriageway was the last of the three keepouts nobody had asked for.
+    // carriageway is what the last of the three keepouts is for.
     roads: baked.roads,
     // The drawn land and the towns' lawns, which the grass under your feet stands on.
     land,
@@ -1524,9 +1523,10 @@ async function start(): Promise<void> {
     // **And it follows the detail knob, which is the half that makes the other
     // half visible.** A knob that admits geometry at eight thousand units while
     // the haze closes at fourteen hundred spends the frame on a wall: nothing
-    // the user can see changes, which is exactly the complaint that produced the
-    // knob. `detailFog` opens it as the square root rather than linearly — see
-    // `view.ts` for why that is a judgement about the look and not arithmetic.
+    // the player can see changes, which is exactly the failure that produced
+    // the knob. `detailFog` opens it as the square root rather than linearly —
+    // see `view.ts` for why that is a judgement about the look and not
+    // arithmetic.
     //
     // **Measured from the ground under the player, with a quarter of that
     // ground's own height added back**, not from the sea. From a camera 15
@@ -1811,7 +1811,7 @@ async function start(): Promise<void> {
       // Which way the town lies, clockwise from where you are facing.
       // `cartography.ts` owns it because the sign of that answer is `setFrame`'s
       // `right = forward x up`, and this project has shipped the other order
-      // three times — see *Handedness* in `docs/traps.md`.
+      // three times.
       bearingTo(
         player.position,
         player.forward,

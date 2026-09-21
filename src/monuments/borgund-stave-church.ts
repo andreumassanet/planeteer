@@ -33,10 +33,10 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * **Each big roof is two courses, not one.** A roof of one taper is one clean
  * cone and reads as a tent; split at 40% of its rise, `OutlineEffect` draws a
  * line right round it and it reads as *shingled*, which is the whole surface of
- * this building. This is the note in `CLAUDE.md` about joint count used in the
- * direction it usually is not: a hand-laid shingle roof is manufactured, so more
- * joints is more true, and the geometric cost is that the pitch breaks by about
- * a degree in the middle.
+ * this building. This is the joint-count rule (few ink lines read as natural,
+ * many as manufactured) used in the direction it usually is not: a hand-laid
+ * shingle roof is manufactured, so more joints is more true, and the geometric
+ * cost is that the pitch breaks by about a degree in the middle.
  *
  * ---------------------------------------------------------------------------
  * Colour: a dark building that still has to have a range

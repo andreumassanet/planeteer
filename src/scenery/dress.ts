@@ -8,10 +8,10 @@ import type { Age, Carry, Garment, Hair, Headwear, Look, Pose, Sleeves } from '.
  * is that those are **two independent draws**.
  *
  * This is the region table for people, and it is a separate file from
- * `regions.ts` for the same mechanical reason `ground.ts` is: several agents
- * write the kit at once and a blind collision inside one 640-line table is the
- * kind nobody can untangle. It is keyed on `RegionId` and read through
- * `dressFor`, so folding it into `RegionStyle` later is a rename.
+ * `regions.ts` for the same mechanical reason `ground.ts` is: a blind collision
+ * between two concurrent edits of one 640-line table is the kind nobody can
+ * untangle. It is keyed on `RegionId` and read through `dressFor`, so folding
+ * it into `RegionStyle` later is a rename.
  *
  * ## The one decision this file exists to get right
  *

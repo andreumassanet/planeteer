@@ -1,11 +1,10 @@
 /**
- * The camel. The animal the user actually asked for.
+ * The camel, because the desert wants camels.
  *
- * *"en el desierto podria haber camellos."* One shape covers the dromedary and
- * the Bactrian, because at the distance a herd is seen the second hump is two
- * pixels and everything else about them is the same animal: the long rising
- * neck, the small head, the narrow slab of a body, and legs that are half the
- * standing height.
+ * One shape covers the dromedary and the Bactrian, because at the distance a
+ * herd is seen the second hump is two pixels and everything else about them is
+ * the same animal: the long rising neck, the small head, the narrow slab of a
+ * body, and legs that are half the standing height.
  *
  * **It is the one animal in the kit that does not walk.** `gait: 'pace'` moves
  * both legs on one side together, which is what a camel does and what makes it

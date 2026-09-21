@@ -11,7 +11,7 @@ import type { Vehicle } from '../contract.ts';
  * against the village under it without a single number being nudged.
  *
  * **The envelope is one lathe and the segment count is a deliberate reversal of
- * the usual answer.** `CLAUDE.md`: few joints say natural, many say
+ * the usual answer.** The joint-count rule: few joints say natural, many say
  * manufactured. A balloon is the most manufactured object here — it is a sewn
  * assembly of panels — so it gets *twelve* sides where a boulder gets an
  * icosahedron, and the four profile rings read as panel courses rather than as
@@ -69,11 +69,11 @@ export const hotAirBalloon: Vehicle = {
 
     // Two closed lathes stacked, and the joint between them is the point. A
     // single lathe would be one blank curve twenty units across — the largest
-    // flat area anything in this project has, and `CLAUDE.md`'s Niagara note
-    // says what happens to those. The crown's foot is pulled in to 0.94 of the
-    // skirt's shoulder so the two are not flush: flush, `OutlineEffect` gives
-    // the joint no line at all and the second colour is a painted band rather
-    // than a course.
+    // flat area anything in this project has, and a flat area with no joint in
+    // it renders as a blank patch, as Niagara's curtain did. The crown's foot
+    // is pulled in to 0.94 of the skirt's shoulder so the two are not flush:
+    // flush, `OutlineEffect` gives the joint no line at all and the second
+    // colour is a painted band rather than a course.
     const skirt = lathe(
       [
         [0, 0],

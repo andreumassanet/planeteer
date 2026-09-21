@@ -50,8 +50,9 @@
  * by then — except the body the camera has been sent to (`focus`), which a
  * planet near Earth on the day it is chosen must not lose. The fade is a real
  * fade and not a shrink: the fill turns transparent and keeps writing depth,
- * which is what hides the inside of its ink hull (see *The ink* in
- * `CLAUDE.md`), and the hull takes the fill's opacity on its own.
+ * which is what hides the inside of its ink hull (a see-through fill that
+ * writes no depth shows its whole hull through itself), and the hull takes the
+ * fill's opacity on its own.
  */
 
 import * as THREE from 'three';
@@ -60,6 +61,7 @@ import { fbm } from './terrain.ts';
 import { PALETTE } from './theme.ts';
 import { BODIES, EARTH_RADIUS_KM, centuriesSince2000, heliocentric, julianDay } from './system/index.ts';
 import type { Body, GroundSample } from './system/index.ts';
+import { latOf, lonOf } from './sphere.ts';
 
 const DEG = Math.PI / 180;
 const R = PLANET_RADIUS;
@@ -244,8 +246,8 @@ function paint(body: Body, geometry: THREE.BufferGeometry): void {
     cy /= length;
     cz /= length;
     // The world's own convention, so a body's lat/lon mean what its file says.
-    const lat = Math.asin(Math.max(-1, Math.min(1, cy))) / DEG;
-    const lon = Math.atan2(-cz, cx) / DEG;
+    const lat = latOf(cy);
+    const lon = lonOf(cx, cz);
 
     if (ground !== null) {
       const elevation = ground.relief(lat, lon);

@@ -60,7 +60,7 @@ export const DEFAULT_LAND = PALETTE.brown;
 
 export const OCEAN_COLOR = 0x2b7fa8;
 export const SKY_TOP = 0x6fc9d8;
-export const SKY_HORIZON = 0xfde6e1;
+const SKY_HORIZON = 0xfde6e1;
 export const FOG_COLOR = 0xc6b6cf;
 
 /**

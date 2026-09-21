@@ -27,6 +27,7 @@ import type { Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { createLife, emptyFrame, mergeGroup, poseAt, rigOf, roadFrameOf } from '../src/life.ts';
 import { setDetail } from '../src/view.ts';
+import { unitAt } from '../src/sphere.ts';
 import { PLACED_LENGTH_CAP, PLACED_SECTION, placedScale, placedSize } from '../src/traffic/contract.ts';
 import { FIGURE } from '../src/avatar.ts';
 import type { Vehicle } from '../src/traffic/contract.ts';
@@ -43,13 +44,7 @@ const check = (ok: boolean, label: string, detail = ''): void => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? `  ${detail}` : ''}`);
 };
 
-const DEG = Math.PI / 180;
-const dirAt = (lat: number, lon: number): Vector3 =>
-  new Vector3(
-    Math.cos(lat * DEG) * Math.cos(lon * DEG),
-    Math.sin(lat * DEG),
-    -Math.cos(lat * DEG) * Math.sin(lon * DEG),
-  );
+const dirAt = (lat: number, lon: number): Vector3 => unitAt(lat, lon, new Vector3());
 
 // --- the world ------------------------------------------------------------
 
@@ -240,13 +235,12 @@ console.log('re-deriving the cast:');
     for (let i = 0; i < 30; i++) life.update(viewer, at.altitude, camera, 1_000_000 + i);
     // And then force the scan, which is the thing being measured: stepping the
     // viewer past `RESCAN_MOVE` is what the timer does every 700 ms anyway.
-    // **The median and not the worst**, and that is not a softer test. This
-    // machine runs several agents and two dev servers at once, and a process
-    // descheduled mid-scan reads as a 10 ms scan: measured over three runs, the
-    // *Sahara* — where the scan admits nothing at all and does about 0.2 ms of
-    // real work — came back at 2.3, 3.4 and 4.4 ms. A worst-of-twelve on a
-    // loaded machine measures the machine. The median is what the frame will
-    // actually see and is stable across runs.
+    // **The median and not the worst**, and that is not a softer test. On a
+    // loaded machine a process descheduled mid-scan reads as a 10 ms scan:
+    // measured over three runs, the *Sahara* — where the scan admits nothing at
+    // all and does about 0.2 ms of real work — came back at 2.3, 3.4 and 4.4
+    // ms. A worst-of-twelve on a loaded machine measures the machine. The
+    // median is what the frame will actually see and is stable across runs.
     const times: number[] = [];
     let scan = 0;
     let build = 0;

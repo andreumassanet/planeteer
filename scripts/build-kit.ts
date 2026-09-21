@@ -516,7 +516,7 @@ const KAYKIT_FOREST = 'kaykit/forest-nature-pack/KayKit_Forest_Nature_Pack_1.0_F
  * the vegetation field and a town's yards stand, a few models a part. Flat
  * material colours, 16 to 230 triangles — the one nature pack whose weight fits
  * a field of thousands of plants; Quaternius's Ultimate Nature is 900 to 2,900
- * a tree (see *The kit* in `docs/built.md`).
+ * a tree.
  */
 const NATURE: StaticEntry[] = [
   ...['tree_oak', 'tree_default', 'tree_fat', 'tree_tall', 'tree_simple'].map((name) => ({ id: name.replace(/_/g, '-'), source: `${KENNEY_NATURE}${name}.glb` })),

@@ -2,15 +2,15 @@
  * One flat colour per country, taken from that country's own flag, and no two
  * that touch alike.
  *
- * **This replaced a drawn flag and the reason is worth keeping.** `land-flags.ts`
- * used to rasterise each flag and sample it per land triangle, so the map you
- * climbed into carried the real design — bands, crosses, a disc for Japan. The
- * user's verdict on the shipped thing was that it works and that *you cannot
- * tell the flags apart*: from 2,500 units a country is a few hundred pixels of
- * an irregular shape, the bands run at constant latitude across whatever the
- * outline happens to be, and two red-and-white flags side by side are two
- * red-and-white smudges. A political map does not draw flags, it fills each
- * country with a colour, and that is what this file computes.
+ * **This replaced a drawn flag and the reason is worth keeping.**
+ * `land-flags.ts` used to rasterise each flag and sample it per land triangle,
+ * so the map you climbed into carried the real design — bands, crosses, a disc
+ * for Japan. It worked, and you could not tell the flags apart: from 2,500
+ * units a country is a few hundred pixels of an irregular shape, the bands run
+ * at constant latitude across whatever the outline happens to be, and two
+ * red-and-white flags side by side are two red-and-white smudges. A political
+ * map does not draw flags, it fills each country with a colour, and that is
+ * what this file computes.
  *
  * The colour still *means* something, which is the whole of the design:
  *
@@ -1114,7 +1114,7 @@ const APART = 0.16;
 /**
  * How far a country's colour may travel from the flag's own, and in what.
  *
- * This is the other half of the trade and it is the half the user asked for:
+ * This is the other half of the trade and it is the half that matters most:
  * the colour has to still *mean* the flag. **The hue is what carries that**, so
  * it is capped hard and the rest is given room — a red is still a red a fifth
  * of the lightness away or at four fifths of its chroma, and it is an *orange*

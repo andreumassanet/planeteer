@@ -7,12 +7,12 @@ import * as THREE from 'three';
  * was absent one frame and whole the next, and the level-of-detail swaps that
  * now happen in one frame (`settle` in `vegetation.ts`, `rebuild` in
  * `settlements.ts`) still changed every plant or building in that frame. A
- * blend needs transparency, and transparency in this world is the ink's
- * enemy — a see-through fill that writes no depth shows its whole hull through
- * itself (see the clouds in `CLAUDE.md`). So the fade is a **screen door**: a
- * fixed dither across the screen and a threshold, every pixel either drawn
- * whole, with its depth, or discarded. At 60 frames a second over `FADE_MS`
- * the eye reads it as a dissolve.
+ * blend needs transparency, and transparency in this world is the ink's enemy —
+ * a see-through fill that writes no depth shows its whole hull through itself,
+ * which is what turned veiled clouds into sheets of ink. So the fade is a
+ * **screen door**: a fixed dither across the screen and a threshold, every
+ * pixel either drawn whole, with its depth, or discarded. At 60 frames a second
+ * over `FADE_MS` the eye reads it as a dissolve.
  *
  * Two fades of one place are **complementary**, and that is the design: a
  * mesh fading in keeps the pixels whose dither is at least `1 - t`, one fading

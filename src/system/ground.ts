@@ -164,8 +164,8 @@ export function makeGround(spec: GroundSpec): GroundModel {
 export const RELIEF_CEILING = 0.12;
 
 /** Earth's own numbers, so the ratio above has something to be a ratio of. */
-export const EARTH_MAX_RELIEF = 680;
-export const EARTH_LAND_RANGE_KM = 8.8;
+const EARTH_MAX_RELIEF = 680;
+const EARTH_LAND_RANGE_KM = 8.8;
 
 /** What a body is allowed, given its real relief range and its drawn radius. */
 export function reliefBudget(realRangeKm: number, surfaceRadius: number): number {

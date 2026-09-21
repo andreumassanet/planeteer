@@ -28,7 +28,6 @@ import * as THREE from 'three';
 import {
   FAUNA_SCALE,
   GAITS,
-  KINDS,
   LEG_ORDER,
   VARIANTS,
   createFaunaContext,
@@ -523,6 +522,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
 {
   const { loadLakes, loadWorld } = await import('../src/geo.ts');
   const { PLANET_RADIUS, UNITS_PER_DEGREE } = await import('../src/globe.ts');
+  const { unitAt } = await import('../src/sphere.ts');
   const { setDetailSites, setFlattenSites } = await import('../src/terrain.ts');
   const { radiusOf } = await import('../src/places.ts');
   const { decodePlaces, inflate } = await import('../src/pack.ts');
@@ -548,19 +548,10 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
   const life = createLife(world, raw, { animals: ANIMALS, rigs });
-  const DEGR = Math.PI / 180;
-  const at = (lat: number, lon: number, up: number): THREE.Vector3 =>
-    new THREE.Vector3(
-      Math.cos(lat * DEGR) * Math.cos(lon * DEGR),
-      Math.sin(lat * DEGR),
-      -Math.cos(lat * DEGR) * Math.sin(lon * DEGR),
-    ).multiplyScalar(PLANET_RADIUS + world.elevationAt(
-      new THREE.Vector3(
-        Math.cos(lat * DEGR) * Math.cos(lon * DEGR),
-        Math.sin(lat * DEGR),
-        -Math.cos(lat * DEGR) * Math.sin(lon * DEGR),
-      ),
-    ) + up);
+  const at = (lat: number, lon: number, up: number): THREE.Vector3 => {
+    const direction = unitAt(lat, lon, new THREE.Vector3());
+    return direction.clone().multiplyScalar(PLANET_RADIUS + world.elevationAt(direction) + up);
+  };
 
   const PLACES: [string, number, number][] = [
     ['Ulm, temperate', 48.40, 9.99],
@@ -582,11 +573,11 @@ console.log('\nin the world — what a herd costs, against what a mover would');
       // Forty frames: the scan admits, then `serve` builds one herd a frame
       // under `BUILD_BUDGET_MS`, exactly as it does in the browser.
       //
-      // **The median and not the worst, and that is not the softer test.** This
-      // machine runs several agents at once and a process descheduled mid-scan
-      // reads as a ten-millisecond scan; `check-life.ts` says the same thing
-      // about the same file. The first scan is separately worth having, because
-      // it is the only cold one — every cache in the herd path is filled by it.
+      // **The median and not the worst, and that is not the softer test.** On a
+      // loaded machine a process descheduled mid-scan reads as a
+      // ten-millisecond scan; `check-life.ts` says the same thing about the
+      // same file. The first scan is separately worth having, because it is the
+      // only cold one — every cache in the herd path is filled by it.
       const scans: number[] = [];
       const builds: number[] = [];
       for (let frame = 0; frame < 40; frame++) {
@@ -617,7 +608,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   check(s.animals > s.herd, 'and a herd is more than one animal for one draw call',
     `${n(s.animals / Math.max(1, s.herd), 1)} animals a mesh — as movers they would be ${s.animals} meshes`);
 
-  // The desert, which is the row the user asked about.
+  // The desert, which is the row the camel is for.
   const sahara = at(23.0, 12.0, 8);
   for (let frame = 0; frame < 40; frame++) life.update(sahara, 8, undefined, frame * 0.05);
   check(life.stats.herd > 0, 'and there are camels in the Sahara',

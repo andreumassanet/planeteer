@@ -1,19 +1,18 @@
 /**
  * Each country's own colour, laid over its own land, at an opacity you can set.
  *
- * **It used to be the flag itself and it is not any more.** `flags.ts` draws all
- * 232 flags from the specs in `flag-data.ts`, and this file rasterised one of
- * those into a scratch canvas per country, read it back, and picked a pixel per
- * land triangle by where that triangle fell in the country's lon/lat box. It
- * worked, and the user's verdict on it was that *you cannot tell the flags
- * apart*: from 2,500 units a country is a few hundred pixels of an irregular
- * shape, the bands run at constant latitude across whatever the outline happens
- * to be, and two red-and-white flags side by side are two red-and-white
- * smudges. A political map does not draw flags. It fills each country with one
- * colour, and `country-colors.ts` is where that colour is decided — from the
- * country's own flag, so it still means something, and de-conflicted against
- * every neighbour, so no frontier on the planet has the same fill on both
- * sides.
+ * **It used to be the flag itself and it is not any more.** `flags.ts` draws
+ * all 232 flags from the specs in `flag-data.ts`, and this file rasterised one
+ * of those into a scratch canvas per country, read it back, and picked a pixel
+ * per land triangle by where that triangle fell in the country's lon/lat box.
+ * It worked, and you could not tell the flags apart: from 2,500 units a country
+ * is a few hundred pixels of an irregular shape, the bands run at constant
+ * latitude across whatever the outline happens to be, and two red-and-white
+ * flags side by side are two red-and-white smudges. A political map does not
+ * draw flags. It fills each country with one colour, and `country-colors.ts` is
+ * where that colour is decided — from the country's own flag, so it still means
+ * something, and de-conflicted against every neighbour, so no frontier on the
+ * planet has the same fill on both sides.
  *
  * What is left here is the other half: **which triangles are which country's,
  * and getting one flat colour onto each of them.** Three things about that
@@ -207,12 +206,12 @@ export interface LandFlagState {
   /**
    * How many times `build` has been called and how many steps it has taken.
    *
-   * A build is **760 steps over about 50 calls** at `FLAG_BUILD_MS` (2026-09-08,
-   * on the mesh `pnpm check` builds). Far fewer calls than that after seconds of
-   * wall clock means the render loop is not running — a hidden or throttled tab,
-   * which is the trap `CLAUDE.md` writes down about `requestAnimationFrame` —
-   * and `steps` climbing well past 760 with `progress` still near zero would
-   * mean the generator was being restarted rather than resumed. Those two look
+   * A build is **760 steps over about 50 calls** at `FLAG_BUILD_MS`
+   * (2026-09-08, on the mesh `pnpm check` builds). Far fewer calls than that
+   * after seconds of wall clock means the render loop is not running — a hidden
+   * or throttled tab, where `requestAnimationFrame` stops or slows — and
+   * `steps` climbing well past 760 with `progress` still near zero would mean
+   * the generator was being restarted rather than resumed. Those two look
    * identical in `buildMs` alone, which is why both numbers are here.
    */
   calls: number;
@@ -277,14 +276,14 @@ const SLICE = 65536;
  * ever spend whatever the frames are doing.
  *
  * **`build(4)` is a share of a frame and not a fixed sum, and the difference is
- * the whole of this.** `main.ts` passes 4 ms to protect the frame rate, which is
- * a quarter of a 60 Hz frame. When the loop is *not* running at frame rate — a
- * hidden tab, a throttled one, an automated browser between screenshots, which
- * is the trap `CLAUDE.md` writes down about `requestAnimationFrame` — there is
- * no frame rate left to protect, and holding to 4 ms means a build that needs
- * 51 calls never gets them and the map layer simply never appears, however long
- * you wait. That is not a hypothetical: it is what a review of this layer
- * reported, 20 calls in 55 seconds of wall clock and `ready` still false.
+ * the whole of this.** `main.ts` passes 4 ms to protect the frame rate, which
+ * is a quarter of a 60 Hz frame. When the loop is *not* running at frame rate —
+ * a hidden tab, a throttled one, an automated browser between screenshots, all
+ * of them places where `requestAnimationFrame` stops or slows — there is no
+ * frame rate left to protect, and holding to 4 ms means a build that needs 51
+ * calls never gets them and the map layer simply never appears, however long
+ * you wait. That is not a hypothetical: it is what this layer was measured
+ * doing, 20 calls in 55 seconds of wall clock and `ready` still false.
  *
  * So the allowance is `budgetMs` scaled by how long the gap between calls
  * actually was, floored at what the caller asked for and capped at
@@ -368,7 +367,7 @@ const TABLE_SHARE = 236 / 240.4;
  * reason it always had one: 4 ms here is not 4 ms everywhere.
  *
  * And see `FRAME_MS` for what happens when the caller is *not* a 60 Hz loop,
- * which is the case that made this layer look broken from a review harness.
+ * which is the case that made this layer look broken in an automated browser.
  */
 export function createFlagLayer(world: World, mesh: THREE.Mesh): FlagLayer {
   const held = layers.get(mesh);

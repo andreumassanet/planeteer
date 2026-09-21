@@ -65,16 +65,16 @@ export interface PlotOptions {
    * How much room a plot has, as a fraction of the pitch, low and high.
    *
    * **It is an option because tying it to the pitch is what made the pitch
-   * un-tunable, and that cost the world its density.** CLAUDE.md carried the
-   * finding as a flat law — *shrinking the pitch makes it worse, not better,
-   * because `plots` sizes a plot at `pitch * [0.5, 0.88]` and a narrower pitch
-   * fits fewer houses* — and the law is true only while these two numbers are
-   * one number. What a settlement wants is a **fine lattice with the same
-   * plots on it**: the room a plot has to offer is set by the parts that stand
-   * in it, which are authored at `SCENERY_SCALE` and do not care what the
-   * lattice is, while how many plots a disc holds goes as the square of the
-   * pitch. Pass a wider fraction with a tighter pitch and the absolute plot
-   * sizes are unchanged to the last unit — see `PLOT_PITCH` in
+   * un-tunable, and that cost the world its density.** The finding was once
+   * written down as a flat law — *shrinking the pitch makes it worse, not
+   * better, because `plots` sizes a plot at `pitch * [0.5, 0.88]` and a
+   * narrower pitch fits fewer houses* — and the law is true only while these
+   * two numbers are one number. What a settlement wants is a **fine lattice
+   * with the same plots on it**: the room a plot has to offer is set by the
+   * parts that stand in it, which are authored at `SCENERY_SCALE` and do not
+   * care what the lattice is, while how many plots a disc holds goes as the
+   * square of the pitch. Pass a wider fraction with a tighter pitch and the
+   * absolute plot sizes are unchanged to the last unit — see `PLOT_PITCH` in
    * `settlements.ts`, which does exactly that and buys 1.4 times the cells.
    *
    * The default is the pair the review sheet's `hamlet` has always used.

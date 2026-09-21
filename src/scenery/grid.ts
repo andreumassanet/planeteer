@@ -7,16 +7,15 @@ import { MAX_CUT, TERRACE_STEP, cellKey } from './ground.ts';
  * run and where a road may come into it.
  *
  * **A town used to be a jittered disc of plots with a ragged floor grown out of
- * whatever landed, and the user's verdict on it was a heap of houses.** Sixty
- * per cent of buildings stood inside a neighbour, a quarter of the drawn street
- * was under a wall, the floor was a patchwork of three tones, and a road ended
- * four units short of a kerb and handed over to a narrow track of the town's
- * own. What they asked for instead was one line: *que la ciudad esté sobre una
- * base cuadrada y los caminos se conecten ahí.* This file is that square, as
- * pure functions of a place's built radius (`radiusOf`), so that the town that
- * stands on it (`settlements.ts`) and the roads that arrive at it (`roads.ts`,
- * the bake and `pnpm check`) cannot disagree about where its edge is or where
- * its gates are.
+ * whatever landed, and it read as a heap of houses.** Sixty per cent of
+ * buildings stood inside a neighbour, a quarter of the drawn street was under a
+ * wall, the floor was a patchwork of three tones, and a road ended four units
+ * short of a kerb and handed over to a narrow track of the town's own. What
+ * replaced it is one line: a town stands on a square base, and the roads
+ * connect to it there. This file is that square, as pure functions of a place's
+ * built radius (`radiusOf`), so that the town that stands on it
+ * (`settlements.ts`) and the roads that arrive at it (`roads.ts`, the bake and
+ * `pnpm check`) cannot disagree about where its edge is or where its gates are.
  *
  * **The square is inscribed in `radiusOf`'s disc**, half-side `r / sqrt 2`,
  * and that is a measurement rather than a taste. The bake thins every pair of
@@ -227,7 +226,7 @@ export function isAvenue(grid: TownGrid, col: number, row: number): boolean {
  * every corner of its own cell by at least a unit. Which cells are refused, and
  * which are cut to a level higher than their own, is `cellLevel`'s.
  */
-export function terraceLevel(high: number, base: number): number {
+function terraceLevel(high: number, base: number): number {
   return base + TERRACE_STEP * Math.round((high - base) / TERRACE_STEP);
 }
 
@@ -237,8 +236,9 @@ export function terraceLevel(high: number, base: number): number {
  *
  * One definition, shared by the town and the roads, because a gate is a point
  * in this frame and a road that computed it in another would miss the kerb.
- * `makeBasis(across, up, north)` has a positive determinant with `across = up x
- * north`; the other way round is the reflection CLAUDE.md warns about.
+ * `makeBasis(across, up, north)` has a positive determinant with
+ * `across = up x north`; the other way round is a reflection, and a reflected
+ * basis flips the winding of everything built in it.
  */
 export function townFrame(up: THREE.Vector3, across: THREE.Vector3, north: THREE.Vector3): void {
   north.set(0, 1, 0).projectOnPlane(up);
@@ -378,7 +378,7 @@ export function partnerOf(grid: TownGrid, c: number): number {
  * Every cell that shares a street with `(col, row)`, itself first: one cell,
  * the two either side of a band, or the four round a crossing of two bands.
  */
-export function groupOf(grid: TownGrid, col: number, row: number): (readonly [number, number])[] {
+function groupOf(grid: TownGrid, col: number, row: number): (readonly [number, number])[] {
   const c = partnerOf(grid, col);
   const r = partnerOf(grid, row);
   const group: (readonly [number, number])[] = [[col, row]];
@@ -464,16 +464,15 @@ function ownLevel(grid: TownGrid, ground: TownGround, col: number, row: number):
  * it. **The one definition**: `settlements.ts` paves by it, `gateLevel` is it
  * at a gate, and the road climbs to what it says.
  *
- * **A street is one level across its width, so the cells that share one share
- * a level.** A band street is paved half by the cell on each side of it, and
+ * **A street is one level across its width, so the cells that share one share a
+ * level.** A band street is paved half by the cell on each side of it, and
  * until 2026-09-13 each of the two cut its own terrace off its own corners.
  * Where the hill put them a step apart, a riser ran down the middle of the
- * street lengthways, and the street climbed it by two half-flights of steps, each
- * wherever its own half happened to meet its own riser — which the user found
- * all over Madrid: *a veces las escaleras suben a diferentes sitios y queda un
- * lío de escaleras. No debería haber elevaciones enmedio de las aceras, pero
- * claro, si lo haces en mitad de una parcela también quedará raro porque el
- * edificio estará flotando.*
+ * street lengthways, and the street climbed it by two half-flights of steps,
+ * each wherever its own half happened to meet its own riser — which came out
+ * all over Madrid as a muddle of steps climbing to different places. A pavement
+ * should have no change of level in the middle of it, and one in the middle of
+ * a plot leaves a building floating.
  *
  * So a riser goes on the one line in a town that is neither a street nor a
  * plot: **the back of the lot**, where the two cells of a block meet with no
@@ -581,7 +580,7 @@ export function gateLevel(
  * town's approach, over which the square falloff takes the road from the
  * floor's brightest to dark.
  */
-export const GATE_GLOW_RUN = 24;
+const GATE_GLOW_RUN = 24;
 
 /**
  * The light at a gate a road comes in by: its centre in the town's frame, the
@@ -611,16 +610,16 @@ export function gateGlow(grid: TownGrid, gate: Gate, band: number): { x: number;
  *
  * **One road to a gate was a rule with no limit on which way the gate faced,
  * and it sent a road out of the back of a town whenever the gate it wanted was
- * taken.** Almost every built town is a square of four gates, one a side, and
- * a town with two roads leaving the same way gave the second a side gate or the
+ * taken.** Almost every built town is a square of four gates, one a side, and a
+ * town with two roads leaving the same way gave the second a side gate or the
  * back one. Over the first gated network (2026-09-13), 1,538 of 34,290 road
  * ends left by a gate more than ninety degrees off their way, 1,515 of them at
  * towns of four gates, and for 833 a gate facing the right way was open and
  * taken; with the curve's handle then carrying the road out of the wrong side
  * for up to three quarters of its length (`HANDLE_MAX` in `roads.ts`), that
  * came to 520 roads turning through more than a half circle and 227 running
- * more than 50 units behind the town they had just left — 194 at Kindu. The
- * user: *carreteras que dan una vuelta y vuelven a la misma ciudad.*
+ * more than 50 units behind the town they had just left — 194 at Kindu: roads
+ * that turn round and come back to the town they left.
  *
  * So a gate facing further off than this is never handed to a road while a
  * gate within it is open: the road shares the best-facing gate instead, which

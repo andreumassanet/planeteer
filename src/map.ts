@@ -1,7 +1,7 @@
 /**
  * The whole planet on one sheet, behind `M`.
  *
- * **This has to earn its place beside the plane**, because `CLAUDE.md` already
+ * **This has to earn its place beside the plane**, because the design already
  * says the plane *is* the map: climb to the ceiling and the fog opens on the
  * globe with no map screen at all. That is still true and this does not replace
  * it. What it does is the four things altitude cannot do:
@@ -118,6 +118,7 @@ import {
   toUnit,
   tracePin,
 } from './cartography.ts';
+import { latOf, lonOf } from './sphere.ts';
 
 export interface WorldMapOptions {
   /** Every placement, the same array the minimap and `navigation.ts` are given. */
@@ -1149,8 +1150,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       // Clamped the way `geo.ts`'s own `resolve` clamps, and for the same
       // reason: the polar edge of the Antarctic ring lies exactly on +/-90, so
       // no segment ever straddles a ray cast along it.
-      antipodeLat = Math.max(-89.999, Math.min(89.999, -Math.asin(uy) * R2D));
-      antipodeLon = Math.atan2(uz, -ux) * R2D;
+      antipodeLat = Math.max(-89.999, Math.min(89.999, latOf(-uy)));
+      antipodeLon = lonOf(-ux, -uz);
 
       // Where the avatar is facing, as a screen angle: zero is up the sheet.
       heading = Math.atan2(

@@ -95,7 +95,7 @@ export const STEP_TREAD = 1.5;
  * the four treads of a `TERRACE_STEP` flight are 1.35 deep, a gradient of 0.59
  * — 31 degrees, a stair and not a ramp.
  */
-export const FLIGHT_RUN = 0.45;
+const FLIGHT_RUN = 0.45;
 
 /**
  * How far a flight's side stands in from the edge of its street, in world units.
@@ -104,8 +104,8 @@ export const FLIGHT_RUN = 0.45;
  * street side of its rectangle, and next to an avenue that is the cell's own
  * edge — so a flight as wide as the street would stand its side face in the
  * plane of the house front, two faces of different colour in one plane of one
- * merged mesh, which is the z-fight `CLAUDE.md` names. Half a unit is a
- * doorstep between the stairs and the door, and it is well past `PROUD`.
+ * merged mesh, which is a z-fight. Half a unit is a doorstep between the stairs
+ * and the door, and it is well past `PROUD`.
  */
 export const FLIGHT_INSET = 0.5;
 

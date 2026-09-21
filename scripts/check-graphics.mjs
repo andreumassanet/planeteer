@@ -1,6 +1,6 @@
 // Real WebGL regression check, against a `vite preview` of a build rather than
 // the dev server — the dev server's eager `import.meta.glob` loads abort in
-// headless Chrome (see *Validation* in docs/graphics.md):
+// headless Chrome:
 //   pnpm build && pnpm preview        # serves http://localhost:4173
 //   node scripts/check-graphics.mjs http://localhost:4173
 // Uses shot.mjs's Chrome driver; no extra project dependency.

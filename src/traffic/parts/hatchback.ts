@@ -6,11 +6,10 @@ import type { Vehicle } from '../contract.ts';
  *
  * Until 2026-09-17 every vehicle in the kit was built here from `solid` boxes;
  * the history of that — the greenhouse inset, the windows that must not be
- * panes, the wheel's eight sides — is in the git history of this file and in
- * *The kits* in `docs/traps.md`. What survives is the declaration: the placer
- * still reads `size` and nothing else, so a toy-proportioned asset is fitted
- * by width (see `TrafficContext.vehicle`) and comes out shorter than the code
- * car was, 4.87 against 5.16.
+ * panes, the wheel's eight sides — is in the git history of this file. What
+ * survives is the declaration: the placer still reads `size` and nothing else,
+ * so a toy-proportioned asset is fitted by width (see `TrafficContext.vehicle`)
+ * and comes out shorter than the code car was, 4.87 against 5.16.
  *
  * No mount. The glass is opaque slate like every window in this world, so a
  * driver is never seen, and a rider nobody sees is ~700 triangles a car.

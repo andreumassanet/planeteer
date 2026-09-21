@@ -19,11 +19,10 @@
  *   notices. Every position and normal is read.
  * - **A building has to be made of tones.** A `dwelling`, `block` or `civic`
  *   part drawing one flat colour a surface is the failure the whole kit was
- *   re-authored out of — see *A dark band a floor is a stripe* in
- *   `docs/traps.md`. Tones are free against the colour budget, so nothing else
- *   in the contract can catch a part that spends none: this asks that **every**
- *   variant draws at least `TONE_MARGIN` more tones than it has palette
- *   colours.
+ *   re-authored out of, because a flat colour is what a box looks like. Tones
+ *   are free against the colour budget, so nothing else in the contract can
+ *   catch a part that spends none: this asks that **every** variant draws at
+ *   least `TONE_MARGIN` more tones than it has palette colours.
  * - **No two colours in one plane.** Two faces of different colours that lie
  *   in one plane, face the same way and overlap where something can see them
  *   are one surface drawn twice at one depth, and a merged town z-fights on it
@@ -32,13 +31,13 @@
  *   `fightsIn`.
  * - **The tables agree with the files.** Every id a region or a biome names
  *   exists, and every part that is not a person is named by one of them —
- *   the trap in `docs/traps.md` about the sheet asking only half the world.
+ *   otherwise a review sheet that asks the tables asks only half the world.
  *
  * The registry cannot be used here: `import.meta.glob` is a Vite transform and
  * does not exist in Node, so the parts are read off disk and imported by path.
- * Pass kinds or ids to check a subset — `node scripts/check-scenery.ts tree
- * scatter` — which is what an agent rewriting one family of parts wants while
- * another agent's files are mid-edit.
+ * Pass kinds or ids to check a subset —
+ * `node scripts/check-scenery.ts tree scatter` — which is what rewriting one
+ * family of parts wants while other files are mid-edit.
  *
  * `node scripts/check-scenery.ts`, or `pnpm scenery`.
  */

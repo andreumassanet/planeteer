@@ -41,8 +41,7 @@
  *
  * **The basis is `cartography.ts`'s.** `setFrame` is the one definition of which
  * way round a map's screen goes and this file is the reason it exists: it built
- * its own `right = up x forward` for months and drew every map mirrored. See
- * *Handedness* in `docs/traps.md`.
+ * its own `right = up x forward` for months and drew every map mirrored.
  */
 import type * as THREE from 'three';
 import type { World } from './geo.ts';

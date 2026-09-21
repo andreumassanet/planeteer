@@ -111,9 +111,9 @@ import type { Group, Monument, Vector3 } from './contract.ts';
  * says Nepal and this file agrees with it because two copies of a fact are two
  * chances to be wrong. `countryAt(27.988, 86.925)` returns nothing at 1:110m —
  * the point falls between the polygons — and `build-monuments.ts` has already
- * snapped the placement 2.2 km to 27.9739, 86.909. That is the same trap
- * `CLAUDE.md` records for coastal cities, met on a watershed instead of a
- * coast, and it is handled in the bake rather than here.
+ * snapped the placement 2.2 km to 27.9739, 86.909. That is the same trap as a
+ * coastal city whose coordinate falls in the sea, met on a watershed instead of
+ * a coast, and it is handled in the bake rather than here.
  */
 
 const DEG = Math.PI / 180;
@@ -141,7 +141,7 @@ const TOP = 84;
  * 62.8 is the summit pyramid blunting into a dome. Both are the opposite of
  * Fuji's single monotone sweep, and both are checkable in this table.
  *
- * The first band was 28 degrees for one round and the model came out standing
+ * The first band was 28 degrees in one version and the model came out standing
  * on a plinth: at that angle the apron is nearly a floor, and a wide flat
  * hexagon lit from above reads as a base plate with a mountain set on it, not
  * as the foot of the mountain. 35 is enough to lose it and still shallow enough

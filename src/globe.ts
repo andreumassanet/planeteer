@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { ShapeUtils } from 'three';
 import type { LandRing, World } from './geo.ts';
 import { LAND_HEIGHT, insideRing } from './geo.ts';
-import { MAX_RELIEF, RELIEF_DETAIL, detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt, shoreAt, shoreSample } from './terrain.ts';
+import { RELIEF_DETAIL, detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt, shoreAt, shoreSample } from './terrain.ts';
 import { CONTINENT_COLORS, DEFAULT_LAND, MOSAIC_LAND, PALETTE, createToonRamp } from './theme.ts';
 import type { FlagLayer, LandFlagData, RingSpan } from './land-flags.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
+import { latOf, lonOf, unitAt } from './sphere.ts';
 
 /**
  * Planet radius.
@@ -195,10 +196,13 @@ const EMBED = 25;
  */
 const MIN_TRIANGLE_HEIGHT = 0.05;
 
-/** A point on the unit sphere. Matches `toLatLon` in `geo.ts`, inverted. */
+/**
+ * A point on the unit sphere: `sphere.ts`'s `unitAt`, longitude first, which is
+ * the order the outlines store a point in. Matches `toLatLon` in `geo.ts`,
+ * inverted.
+ */
 export function onSphere(lon: number, lat: number, target: THREE.Vector3): THREE.Vector3 {
-  const cos = Math.cos(lat * DEG);
-  return target.set(cos * Math.cos(lon * DEG), Math.sin(lat * DEG), -cos * Math.sin(lon * DEG));
+  return unitAt(lat, lon, target);
 }
 
 const smoothstep = (edge0: number, edge1: number, x: number): number => {
@@ -663,8 +667,8 @@ function groundShade(
   tint: THREE.Color,
   target: THREE.Color,
 ): THREE.Color {
-  const lat = Math.asin(uy < -1 ? -1 : uy > 1 ? 1 : uy) / DEG;
-  const lon = Math.atan2(-uz, ux) / DEG;
+  const lat = latOf(uy);
+  const lon = lonOf(ux, uz);
   biomeAt(ux, uy, uz, lat, lon, elevation, shadeSample);
   const biome = BIOMES[shadeSample.id];
   target.setHex(biome.color);
@@ -864,13 +868,13 @@ const MOSAIC_FINE_SHARE = 2 / 3;
  *
  * The hex cells are a grain and nothing bigger than a grain: at 12 units they
  * are under the eye's notice past a stone's throw, and a plain seen from the
- * road was one colour to the horizon, which is what the user saw as flat
- * (2026-09-17, *noto el suelo muy plano*). A blot is value noise in world
- * space — three dimensions, so it has no plane to hand over and no seam — at
- * two scales, `PATCH_BROAD` for the field and `PATCH_FINE` for the edge of it.
- * It moves the light by `PATCH_LIGHT` either way everywhere, and the hue only
- * where the ground is green: a lush blot is deeper and bluer, a dry one warmer
- * and yellower, and snow and sand take the light and nothing else.
+ * road was one colour to the horizon, which read as flat ground (2026-09-17). A
+ * blot is value noise in world space — three dimensions, so it has no plane to
+ * hand over and no seam — at two scales, `PATCH_BROAD` for the field and
+ * `PATCH_FINE` for the edge of it. It moves the light by `PATCH_LIGHT` either
+ * way everywhere, and the hue only where the ground is green: a lush blot is
+ * deeper and bluer, a dry one warmer and yellower, and snow and sand take the
+ * light and nothing else.
  *
  * **One function for the land and the sward** (`vegetation.ts`), so a blade of
  * grass is the blot it grows in.
@@ -1145,7 +1149,6 @@ export function buildLand(world: World): THREE.Mesh {
   const edge2 = new THREE.Vector3();
   const normal = new THREE.Vector3();
 
-  const top = new THREE.Color();
   const cliff = new THREE.Color();
   const ground = new THREE.Color();
 
@@ -1323,8 +1326,8 @@ export function buildLand(world: World): THREE.Mesh {
         // every midpoint it splits, so the lon/lat list the triangulator was
         // handed no longer covers the indices that come back out of it.
         scratch.copy(unit[a!]!).add(unit[b!]!).add(unit[c!]!).normalize();
-        const lat = Math.asin(Math.max(-1, Math.min(1, scratch.y))) / DEG;
-        const lon = Math.atan2(-scratch.z, scratch.x) / DEG;
+        const lat = latOf(scratch.y);
+        const lon = lonOf(scratch.x, scratch.z);
         return !drops.some((lake) => insideRing(lake.points, lon, clampLat(lat)));
       });
       droppedFaces += before - triangles.length;
@@ -1540,8 +1543,8 @@ export function coastEdges(world: World): Uint8Array[] {
       along.subVectors(b, a).normalize();
       outward.crossVectors(mid, along).normalize();
       probe.copy(mid).addScaledVector(outward, COAST_PROBE / PLANET_RADIUS).normalize();
-      const lat = Math.asin(Math.max(-1, Math.min(1, probe.y))) / DEG;
-      const lon = Math.atan2(-probe.z, probe.x) / DEG;
+      const lat = latOf(probe.y);
+      const lon = lonOf(probe.x, probe.z);
       if (world.countryAt(lat, lon) !== 0) continue;
       // **An edge lying in a lake is not a coast, it is a frontier under the
       // water.** A country's outline runs along its border through the middle

@@ -258,7 +258,7 @@ export function horizonAt(altitude: number, planetRadius: number): number {
  *
  * What it scales, and the exponents are not decoration:
  *
- * - **Reach, linearly.** It is a radius; the user asked for a radius.
+ * - **Reach, linearly.** It is a radius, and a radius is what the knob means.
  * - **Triangle budgets and resident caps, as the square.** Doubling a radius
  *   quadruples the ground inside it, so a budget that grew linearly would
  *   silently clip the reach it had just been asked to double — the cap would
@@ -267,9 +267,9 @@ export function horizonAt(altitude: number, planetRadius: number): number {
  *   vanish, so a reach that grew without them buys only *large* things further
  *   away. Floored at `MIN_PIXELS_FLOOR`, below which a settlement really is a
  *   smudge with an ink line round it and a tree really is one dark pixel.
- * - **Vegetation's `REFINE`, linearly**, which is the lever the user was
- *   actually asking about: it is how far the *fine* levels reach, so it is what
- *   puts dense trees at a distance rather than a thin scatter of them.
+ * - **Vegetation's `REFINE`, linearly**, which is the lever that actually
+ *   matters: it is how far the *fine* levels reach, so it is what puts dense
+ *   trees at a distance rather than a thin scatter of them.
  * - **The build budget, as the square root.** Trebling the reach multiplies the
  *   cold build by about nine and a fill that takes four seconds reads as broken;
  *   but milliseconds of building are milliseconds of frame, so this one is
@@ -289,11 +289,11 @@ export function horizonAt(altitude: number, planetRadius: number): number {
  *
  * 0.5 is lighter than the world was before the knob existed: 9 resident
  * vegetation tiles and 75,088 triangles against detail 1's 39 and 284,540, and
- * the fog closes at 963 units. It is set there because seven agents are running
- * browser windows on one machine while this is being built, and a window that
- * costs a quarter of a millisecond is a window that can be left open. **It is
- * not a judgement about the right default** — the measured headroom is sixteen
- * times what these budgets admit, and the range above is meant to be spent.
+ * the fog closes at 963 units. It is set there because the world was built on a
+ * machine running several browser windows at once, and a window that costs a
+ * quarter of a millisecond is a window that can be left open. **It is not a
+ * judgement about the right default** — the measured headroom is sixteen times
+ * what these budgets admit, and the range above is meant to be spent.
  * `atlas.detail(3)` is the world this was tuned for. **Since 2026-09-21 it is
  * only where a machine starts**: the automatic knob (`sampleFrame`) moves it
  * from there by what the frames say, and remembers where it got to.
@@ -379,12 +379,12 @@ function applyDetail(value: number): number {
 
 /**
  * **The default was never a judgement about the right detail, and this is what
- * replaces it with one.** `DETAIL_DEFAULT` is 0.5 because seven agents shared
- * one machine while it was set; on the machine the world is actually played
- * on, the frame itself says how much it can afford. So, while `auto` is on,
- * every frame hands in two numbers — the interval since the last one and the
- * milliseconds `main.ts` spent inside it — and every `AUTO_WINDOW_MS` the
- * knob moves one `AUTO_STEP` if the window says so:
+ * replaces it with one.** `DETAIL_DEFAULT` is 0.5 because it was set on a
+ * machine shared by several browser windows; on the machine the world is
+ * actually played on, the frame itself says how much it can afford. So, while
+ * `auto` is on, every frame hands in two numbers — the interval since the last
+ * one and the milliseconds `main.ts` spent inside it — and every
+ * `AUTO_WINDOW_MS` the knob moves one `AUTO_STEP` if the window says so:
  *
  * - **Down** when frames are being dropped: the median interval over a
  *   quarter longer than the display's own period, or the 95th percentile over

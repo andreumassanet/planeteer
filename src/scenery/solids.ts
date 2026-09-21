@@ -3,12 +3,11 @@
  * body cannot walk into, and a volume a camera cannot see through.
  *
  * **Until this existed a town was a floor and nothing else.** The player stood
- * on `madeHeightAt` and walked straight through every house in the world, which
- * is what the user reported: *you walk through everything*. A building is now a
- * wall, and only a wall — the solids have no roof a foot can stand on. The jump
- * (8.5 units, `JUMP_HEIGHT` in `player.ts`) clears a small house, and what was
- * asked for was walls, not rooftops to hop across, so to a body a footprint is
- * infinitely tall and `top` is the camera's alone.
+ * on `madeHeightAt` and walked straight through every house in the world. A
+ * building is now a wall, and only a wall — the solids have no roof a foot can
+ * stand on. The jump (8.5 units, `JUMP_HEIGHT` in `player.ts`) clears a small
+ * house, and the point is walls, not rooftops to hop across, so to a body a
+ * footprint is infinitely tall and `top` is the camera's alone.
  *
  * **The frame is the town's own tangent frame**, and it is the same one
  * `madeHeightAt` reads the floor in: `x` along the town's `across` axis and `z`
@@ -83,7 +82,7 @@ export interface SolidField {
  * sorts what it finds back into index order — so this moves the cost and never
  * the answer.
  */
-export const SOLID_CELL = 16;
+const SOLID_CELL = 16;
 /** Cells a side, at most. A field wider than 64 cells gets wider cells instead. */
 const MAX_SIDE = 64;
 

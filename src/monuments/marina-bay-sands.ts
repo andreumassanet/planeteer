@@ -1,4 +1,4 @@
-import type { Mesh, Monument, MonumentContext } from './contract.ts';
+import type { Mesh, Monument } from './contract.ts';
 
 /**
  * Marina Bay Sands.
@@ -206,7 +206,6 @@ const STERN_BASE = -27.6;
 const CANTILEVER = 15.3;
 
 const PLINTH_TOP = 1.2;
-const TOP = 39.7;
 
 // ---------------------------------------------------------------------------
 // The tower, in offsets from the centre of its slab where it meets the deck.

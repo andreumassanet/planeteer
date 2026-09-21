@@ -44,7 +44,6 @@ const INK = '#1e0603';
 /** Pan-Arab and pan-African, which between them account for some forty flags. */
 const RED = '#ce1126';
 const GREEN = '#007a3d';
-const YELLOW = '#fcd116';
 
 const UK_BLUE = '#012169';
 const UK_RED = '#c8102e';

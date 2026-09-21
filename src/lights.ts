@@ -327,7 +327,7 @@ export function poolByte(strength: number, falloff: number): number {
  * 2026-09-13 only the floor carried light: a road entering a lit town at night
  * met a floor glowing amber at the kerb and stayed dark itself, and once the
  * floor was the road's own colour the line between them was the whole
- * difference — *la luz debería afectar a todo, porque si no se nota un corte.*
+ * difference. The light has to reach everything, or the cut shows.
  */
 export function poolAt(strength: number, distance: number, inner: number, reach: number): number {
   if (distance >= reach) return 0;

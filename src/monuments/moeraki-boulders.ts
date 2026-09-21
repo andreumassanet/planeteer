@@ -349,8 +349,8 @@ const BANK_FOOT = 1.0;
 const BANK: readonly Mass[] = [
   // --- the beds. Every one is rolled a couple of degrees so the strata dip to
   // --- the right, which is what a bed does and what a course of masonry cannot.
-  { x: -9.7, width: 22.0, base: 1.0, height: 4.1, front: -9.4, depth: 7.0, batter: 0.99, yaw: 0.035, roll: -0.028, stratum: 0 },
-  { x: 8.8, width: 23.2, base: 1.0, height: 3.8, front: -9.2, depth: 7.2, batter: 0.99, yaw: -0.05, roll: -0.032, stratum: 0 },
+  { x: -9.7, width: 22.0, base: BANK_FOOT, height: 4.1, front: -9.4, depth: 7.0, batter: 0.99, yaw: 0.035, roll: -0.028, stratum: 0 },
+  { x: 8.8, width: 23.2, base: BANK_FOOT, height: 3.8, front: -9.2, depth: 7.2, batter: 0.99, yaw: -0.05, roll: -0.032, stratum: 0 },
   { x: -11.0, width: 20.0, base: 3.4, height: 5.0, front: -10.5, depth: 5.9, batter: 0.985, yaw: -0.06, roll: -0.045, stratum: 0 },
   { x: 7.4, width: 27.2, base: 3.4, height: 4.7, front: -10.3, depth: 6.1, batter: 0.985, yaw: 0.045, roll: -0.05, stratum: 0 },
   { x: -6.6, width: 28.8, base: 6.0, height: 4.6, front: -11.4, depth: 5.0, batter: 0.98, yaw: 0.05, roll: -0.04, stratum: 1 },
@@ -361,10 +361,10 @@ const BANK: readonly Mass[] = [
   // --- lobes standing out of the face: two of fallen mudstone at the foot, and
   // --- two ribs of harder rock rising out of the beach through the pale bed.
   // --- Wide at the bottom and narrow at the top — a profile no wall has.
-  { x: -12.0, width: 6.8, base: 1.0, height: 5.0, front: -7.9, depth: 3.4, batter: 0.4, yaw: 0.2, roll: 0.05, stratum: 0 },
-  { x: 4.6, width: 5.6, base: 1.0, height: 4.2, front: -8.3, depth: 3.0, batter: 0.36, yaw: -0.26, roll: -0.07, stratum: 0 },
-  { x: -6.6, width: 5.0, base: 1.0, height: 8.0, front: -9.5, depth: 2.8, batter: 0.62, yaw: -0.16, roll: 0.06, stratum: 0 },
-  { x: 9.8, width: 5.8, base: 1.0, height: 7.4, front: -9.7, depth: 3.0, batter: 0.66, yaw: 0.21, roll: -0.05, stratum: 0 },
+  { x: -12.0, width: 6.8, base: BANK_FOOT, height: 5.0, front: -7.9, depth: 3.4, batter: 0.4, yaw: 0.2, roll: 0.05, stratum: 0 },
+  { x: 4.6, width: 5.6, base: BANK_FOOT, height: 4.2, front: -8.3, depth: 3.0, batter: 0.36, yaw: -0.26, roll: -0.07, stratum: 0 },
+  { x: -6.6, width: 5.0, base: BANK_FOOT, height: 8.0, front: -9.5, depth: 2.8, batter: 0.62, yaw: -0.16, roll: 0.06, stratum: 0 },
+  { x: 9.8, width: 5.8, base: BANK_FOOT, height: 7.4, front: -9.7, depth: 3.0, batter: 0.66, yaw: 0.21, roll: -0.05, stratum: 0 },
 
   // --- the crest: seven turf lumps and one patch of bare earth, running down
   // --- from 15.4 at the far left to 12.6 at the near right. They overlap in x

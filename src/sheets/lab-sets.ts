@@ -685,7 +685,6 @@ export const SETS: Record<string, LabSet> = {
           a.root.position.x = -1.6;
           c.root.position.x = 1.6;
           group.add(a.root, c.root);
-          const mixer = new THREE.AnimationMixer(group);
           a.actions.get('Idle')!.play();
           c.actions.get('Idle')!.play();
           const both = { update: (dt: number) => { a.mixer.update(dt); c.mixer.update(dt); } };

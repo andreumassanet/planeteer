@@ -765,8 +765,8 @@ function softOf(ctx: SceneryContext): SoftKit {
  * Every piece is a **soft shape** from `soft.ts` — lathes and ellipsoids with
  * smooth normals, the hero's own construction at a crowd's resolution. Until
  * 2026-09-15 a person here was four-sided tapers and boxes, which is a toy
- * soldier: the user's verdict on the whole cast was that it looked worse than
- * Roblox, and at the distance a crowd is seen the prisms were the reason.
+ * soldier: the whole cast looked worse than Roblox, and at the distance a crowd
+ * is seen the prisms were the reason.
  *
  * **The joints are exactly where they were, and `life.ts` depends on it.** The
  * root holds two hips and a trunk, the trunk holds two shoulders and a head,

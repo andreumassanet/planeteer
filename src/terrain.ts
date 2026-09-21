@@ -1,5 +1,6 @@
 import type { LandRing } from './geo.ts';
 import { MAX_FOOTPRINT } from './monuments/contract.ts';
+import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
 
 /**
  * The shape of the land, as one pure function of a point on the unit sphere.
@@ -364,16 +365,10 @@ for (let r = 0; r < RANGES.length; r++) {
   let cy = 0;
   let cz = 0;
   range.path.forEach(([lat, lon], i) => {
-    const cos = Math.cos(lat * DEG);
-    const x = cos * Math.cos(lon * DEG);
-    const y = Math.sin(lat * DEG);
-    const z = -cos * Math.sin(lon * DEG);
-    points[i * 3] = x;
-    points[i * 3 + 1] = y;
-    points[i * 3 + 2] = z;
-    cx += x;
-    cy += y;
-    cz += z;
+    toUnit(lat, lon, points, i * 3);
+    cx += points[i * 3]!;
+    cy += points[i * 3 + 1]!;
+    cz += points[i * 3 + 2]!;
   });
   const length = Math.hypot(cx, cy, cz) || 1;
   cx /= length;
@@ -755,18 +750,8 @@ function buildShoreIndex(rings: LandRing[], isLand: (lat: number, lon: number) =
       const olat = mlat + tx * step;
       const olon = (a[0]! + b[0]!) * 0.5 + (-ty * step) / cos;
       if (isLand(olat, olon)) continue;
-      const acos = Math.cos(alat * DEG);
-      const bcos = Math.cos(blat * DEG);
-      ax.push(
-        acos * Math.cos(a[0]! * DEG),
-        Math.sin(alat * DEG),
-        -acos * Math.sin(a[0]! * DEG),
-      );
-      bx.push(
-        bcos * Math.cos(b[0]! * DEG),
-        Math.sin(blat * DEG),
-        -bcos * Math.sin(b[0]! * DEG),
-      );
+      toUnit(alat, a[0]!, ax, ax.length);
+      toUnit(blat, b[0]!, bx, bx.length);
     }
   }
 
@@ -780,10 +765,10 @@ function buildShoreIndex(rings: LandRing[], isLand: (lat: number, lon: number) =
   // A segment lands in every cell of its own bounding box. Segments are 20 units
   // long at the median against a 130-unit cell, so that is nearly always one.
   for (let sIndex = 0; sIndex < count; sIndex++) {
-    const alat = Math.asin(clamp(shoreAx[sIndex * 3 + 1]!, -1, 1)) / DEG;
-    const blat = Math.asin(clamp(shoreBx[sIndex * 3 + 1]!, -1, 1)) / DEG;
-    const alon = Math.atan2(-shoreAx[sIndex * 3 + 2]!, shoreAx[sIndex * 3]!) / DEG;
-    const blon = Math.atan2(-shoreBx[sIndex * 3 + 2]!, shoreBx[sIndex * 3]!) / DEG;
+    const alat = latOf(shoreAx[sIndex * 3 + 1]!);
+    const blat = latOf(shoreBx[sIndex * 3 + 1]!);
+    const alon = lonOf(shoreAx[sIndex * 3]!, shoreAx[sIndex * 3 + 2]!);
+    const blon = lonOf(shoreBx[sIndex * 3]!, shoreBx[sIndex * 3 + 2]!);
     const r0 = clamp(Math.floor((90 - Math.max(alat, blat)) / shoreCell), 0, shoreRows - 1);
     const r1 = clamp(Math.floor((90 - Math.min(alat, blat)) / shoreCell), 0, shoreRows - 1);
     const c0 = Math.floor((Math.min(alon, blon) + 180) / shoreCell);
@@ -958,8 +943,8 @@ export function shoreSample(): ShoreSample {
 /** Fills `target` with the shore at a point on the unit sphere. */
 export function shoreAt(x: number, y: number, z: number, target: ShoreSample): ShoreSample {
   if (!queried) beginQueries();
-  const lat = Math.asin(clamp(y, -1, 1)) / DEG;
-  const lon = Math.atan2(-z, x) / DEG;
+  const lat = latOf(y);
+  const lon = lonOf(x, z);
   shoreRocky = 0;
   target.fall = shoreFall(x, y, z, lat, lon, shoreDistance(lat, lon) - COAST_CELL * 0.5);
   target.sand = target.fall > 0 ? 1 - shoreRocky : 0;
@@ -1187,14 +1172,12 @@ export function setFlattenSites(sites: readonly FlattenSite[]): void {
   const cores = new Float64Array(sites.length);
   const ceilings = new Float64Array(sites.length);
   sites.forEach((site, i) => {
-    const cos = Math.cos(site.lat * DEG);
-    directions[i * 3] = cos * Math.cos(site.lon * DEG);
-    directions[i * 3 + 1] = Math.sin(site.lat * DEG);
-    // Negative, like every other conversion in the repo. With `+sin` this frame
-    // is the mirror image of the world's, so each pad lands at longitude `-lon`
-    // — and because the sites are only ever compared with each other, nothing
-    // downstream can tell. See the assertion in `check-world.ts`.
-    directions[i * 3 + 2] = -cos * Math.sin(site.lon * DEG);
+    // Through `sphere.ts`, like every other conversion in the repo. Written out
+    // here with `+sin`, this frame would be the mirror image of the world's and
+    // each pad would land at longitude `-lon` — and because the sites are only
+    // ever compared with each other, nothing downstream could tell. See the
+    // assertion in `check-world.ts`.
+    toUnit(site.lat, site.lon, directions, i * 3);
     // A footprint the contract could not have issued is a bug upstream, and
     // clamping it is cheaper than a pad the size of a country.
     const footprint = site.footprint;
@@ -1256,10 +1239,7 @@ export function setDetailSites(sites: readonly DetailSite[]): void {
   const directions = new Float64Array(sites.length * 3);
   const reach = new Float64Array(sites.length);
   sites.forEach((site, i) => {
-    const cos = Math.cos(site.lat * DEG);
-    directions[i * 3] = cos * Math.cos(site.lon * DEG);
-    directions[i * 3 + 1] = Math.sin(site.lat * DEG);
-    directions[i * 3 + 2] = -cos * Math.sin(site.lon * DEG);
+    toUnit(site.lat, site.lon, directions, i * 3);
     reach[i] = Math.max(0, site.radius) * DETAIL_MARGIN;
   });
   detailDirection = directions;
@@ -1280,8 +1260,8 @@ function buildDetailGrid(): number[][] {
   const grid: number[][] = Array.from({ length: SITE_COLS * SITE_ROWS }, () => []);
   for (let i = 0; i < reach.length; i++) {
     const y = directions[i * 3 + 1]!;
-    const lat = Math.asin(y < -1 ? -1 : y > 1 ? 1 : y) / DEG;
-    const lon = Math.atan2(-directions[i * 3 + 2]!, directions[i * 3]!) / DEG;
+    const lat = latOf(y);
+    const lon = lonOf(directions[i * 3]!, directions[i * 3 + 2]!);
     // Registered in every cell its disc touches, so a query only ever looks at
     // the one cell it is in. A reach of at most a few tenths of a degree
     // against four-degree cells means that is nearly always one cell.
@@ -1304,8 +1284,8 @@ function buildDetailGrid(): number[][] {
 export function detailWeightAt(x: number, y: number, z: number): number {
   if (detailDirection === null) return 0;
   const grid = detailGrid ?? (detailGrid = buildDetailGrid());
-  const lat = Math.asin(y < -1 ? -1 : y > 1 ? 1 : y) / DEG;
-  const lon = Math.atan2(-z, x) / DEG;
+  const lat = latOf(y);
+  const lon = lonOf(x, z);
   const cell =
     Math.min(SITE_ROWS - 1, Math.max(0, Math.floor((90 - lat) / SITE_CELL))) * SITE_COLS +
     (((Math.floor((lon + 180) / SITE_CELL) % SITE_COLS) + SITE_COLS) % SITE_COLS);
@@ -1482,13 +1462,11 @@ function beginQueries(): void {
   // Pole simply lands in every cell of the bottom row.
   const cosReach = Math.cos(furthest / unitsPerRadian + SITE_CELL * DEG);
   const grid: number[][] = Array.from({ length: SITE_COLS * SITE_ROWS }, () => []);
+  const centre = { x: 0, y: 0, z: 0 };
   for (let r = 0; r < SITE_ROWS; r++) {
-    const lat = (90 - (r + 0.5) * SITE_CELL) * DEG;
+    const lat = 90 - (r + 0.5) * SITE_CELL;
     for (let c = 0; c < SITE_COLS; c++) {
-      const lon = (-180 + (c + 0.5) * SITE_CELL) * DEG;
-      const cx = Math.cos(lat) * Math.cos(lon);
-      const cy = Math.sin(lat);
-      const cz = -Math.cos(lat) * Math.sin(lon);
+      const { x: cx, y: cy, z: cz } = unitAt(lat, -180 + (c + 0.5) * SITE_CELL, centre);
       const cell = grid[r * SITE_COLS + c]!;
       for (let i = 0; i < count; i++) {
         const dot = cx * directions[i * 3]! + cy * directions[i * 3 + 1]! + cz * directions[i * 3 + 2]!;
@@ -1644,7 +1622,7 @@ function padClaim(x: number, y: number, z: number, lat: number, lon: number): nu
 /** See `padClaim`. Kept as the name `globe.ts` has always asked for. */
 export function flattenWeightAt(x: number, y: number, z: number): number {
   if (!queried) beginQueries();
-  return padClaim(x, y, z, Math.asin(clamp(y, -1, 1)) / DEG, Math.atan2(-z, x) / DEG);
+  return padClaim(x, y, z, latOf(y), lonOf(x, z));
 }
 
 /**
@@ -1660,8 +1638,8 @@ export function flattenWeightAt(x: number, y: number, z: number): number {
  */
 export function reliefAt(x: number, y: number, z: number): number {
   if (!queried) beginQueries();
-  const lat = Math.asin(clamp(y, -1, 1)) / DEG;
-  const lon = Math.atan2(-z, x) / DEG;
+  const lat = latOf(y);
+  const lon = lonOf(x, z);
   const relief = rawRelief(x, y, z, lat, lon);
   if (siteGrid === null) return relief;
   lookUpPads(x, y, z, lat, lon, relief);
@@ -1673,10 +1651,10 @@ export function reliefAt(x: number, y: number, z: number): number {
  *
  * **One definition, because four files ask the same question and a slope that
  * refuses a tree and admits a carriageway is a road up a cliff.** It began in
- * `vegetation.ts`, where the user could see it first — a wood on a mountain
- * face is a set of trunks sunk into the rock — and the same face is what a road
- * climbs, what a herd stands on and what a town tries to pave. They all read
- * this now, through `gradeAt`.
+ * `vegetation.ts`, where it showed first — a wood on a mountain face is a set
+ * of trunks sunk into the rock — and the same face is what a road climbs, what
+ * a herd stands on and what a town tries to pave. They all read this now,
+ * through `gradeAt`.
  *
  * It is the **angle of repose**: the steepest a loose slope holds without
  * sliding, 30 to 35 degrees for scree, which is the real reason a mountain face
@@ -1771,7 +1749,7 @@ const probes = [0, 0, 0, 0];
 
 /** `rawRelief` at a point on the unit sphere, for the probes in `beginQueries`. */
 function rawReliefAt(x: number, y: number, z: number): number {
-  return rawRelief(x, y, z, Math.asin(clamp(y, -1, 1)) / DEG, Math.atan2(-z, x) / DEG);
+  return rawRelief(x, y, z, latOf(y), lonOf(x, z));
 }
 
 /** The land as the noise alone would have it, before any monument flattens it. */

@@ -7,7 +7,7 @@ import { PALETTE } from './theme.ts';
  * Static models from CC0 packs: a vehicle, a tree, a rock, a house.
  *
  * The same treatment `cast.ts` gives the people, without the skeleton, and for
- * the same reasons (see *The cast* in `docs/built.md`):
+ * the same reasons:
  *
  * - **One geometry a model.** A pack model is a handful of nodes and a handful
  *   of materials; every node's transform is applied and everything is merged
@@ -528,7 +528,7 @@ export function isGlass(slot: string, color: THREE.Color): boolean {
 }
 
 /** How many vertices each slot covers. */
-export function slotShares(model: Pick<Model, 'slot' | 'slots'>): number[] {
+function slotShares(model: Pick<Model, 'slot' | 'slots'>): number[] {
   const shares = new Array<number>(model.slots.length).fill(0);
   for (const s of model.slot) shares[s]!++;
   return shares;

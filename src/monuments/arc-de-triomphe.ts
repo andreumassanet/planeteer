@@ -52,9 +52,9 @@ import type { Monument } from './contract.ts';
  *
  * **Footprint is declared tight on purpose: 21, not the tier's 55.** The
  * measured reach is 20.84 (the crowning cornice's corners). At 4.36 units apart
- * the two Paris footprints overlap whatever I declare, so the only thing left to
- * decide is how much of the tower's plan this sits on, and the answer is as
- * little as the geometry allows.
+ * the two Paris footprints overlap whatever this file declares, so the only
+ * thing left to decide is how much of the tower's plan this sits on, and the
+ * answer is as little as the geometry allows.
  *
  * ## Proportion, which is the whole job here
  *

@@ -322,13 +322,13 @@ export function orbitPath(id: OrbitId, date: Date, segments = 128): Heliocentric
 /**
  * The moon, geocentric, from the largest terms of the lunar theory.
  *
- * **It exists because the user asked whether the sun and the moon were physical
- * yet, and today they are not**: `sun.ts` hangs two 1.1-degree discs five radii
- * out and its moon is a *lantern* — always full, always opposite the sun, so
- * that night has a direction for the four-band ramp to step across. That is a
- * good decision for standing outside at 2 a.m. and it is not a position. This
- * is the position, and the two are allowed to disagree because they answer
- * different questions; nothing here changes what `sun.ts` draws.
+ * **It exists because the sun and the moon in the sky are not physical yet**:
+ * `sun.ts` hangs two 1.1-degree discs five radii out and its moon is a
+ * *lantern* — always full, always opposite the sun, so that night has a
+ * direction for the four-band ramp to step across. That is a good decision for
+ * standing outside at 2 a.m. and it is not a position. This is the position,
+ * and the two are allowed to disagree because they answer different questions;
+ * nothing here changes what `sun.ts` draws.
  *
  * Six terms in longitude, two in latitude, three in distance — the head of
  * Meeus's chapter 47, which runs to sixty. What that buys and what it costs is

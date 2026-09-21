@@ -39,7 +39,7 @@ import { CLOUD_ORDER } from './clouds.ts';
  * where one drew a gap the other drew a dash and the dashes filled each other
  * in.
  *
- * So what is left is one mark and it is the mark that was asked for: a **7-unit
+ * So what is left is one mark and it is the mark a frontier needs: a **7-unit
  * dashed ink line, drawn once per frontier**, and no shading at all. The
  * country-coloured band is gone rather than tuned — the map layer in
  * `land-flags.ts` fills each country with its own colour and says whose ground

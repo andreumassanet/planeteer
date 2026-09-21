@@ -3,6 +3,7 @@ import type { Avatar } from './avatar.ts';
 import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar } from './avatar.ts';
 import type { World } from './geo.ts';
 import { LAND_HEIGHT, PLANET_RADIUS, groundRadius } from './globe.ts';
+import { unitAt } from './sphere.ts';
 import { slide } from './scenery/solids.ts';
 import type { Body, Walls } from './scenery/solids.ts';
 import {
@@ -169,7 +170,6 @@ const SPLASH_TO = 15;
 const SPLASH_RISE = 0.7;
 const SPLASH_FLAT = 0.05;
 
-const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
 
 export type Vehicle = 'foot' | 'boat' | 'plane';
@@ -1102,9 +1102,7 @@ export function createPlayer(
       avatar.group.visible = visible;
     },
     goTo(lat, lon) {
-      const phi = (90 - lat) * DEG;
-      const theta = lon * DEG;
-      position.set(Math.sin(phi) * Math.cos(theta), Math.cos(phi), -Math.sin(phi) * Math.sin(theta));
+      unitAt(lat, lon, position);
       up.copy(position).normalize();
       // Never arrive inside a building. The town at the far end is usually not
       // standing yet, and the first frame it is pushes you out of it — see

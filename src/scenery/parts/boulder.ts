@@ -17,7 +17,6 @@ export const boulder: ScenicPart = {
   note: "Kenney stone, low and faceted, in the region's own rock.",
 
   build(ctx, rng, style) {
-    const { palette } = ctx;
     const id = rng.pick([...MODELS]);
     const paint = rolePaint(sceneryModel(id), [[/stone|dirt|default/i, rng.pick(style.stone)], [/grass/i, rng.pick(style.foliage)]]);
     return ctx.fitted(id, {

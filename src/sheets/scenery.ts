@@ -35,7 +35,6 @@ import {
 } from '../scenery/dress.ts';
 import { BIOMES, BIOME_IDS } from '../biome.ts';
 import type {
-  Measurements,
   PartReview,
   RegionStyle,
   SceneryContext,

@@ -43,14 +43,14 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * where more of them read as courses on something built, and a wall of cast
  * concrete shafts is as built as anything on the planet.
  *
- * **Each shaft also steps 0.9 further forward than the one inside it**, and that
- * is not styling, it is the coplanar-mesh trap in `CLAUDE.md`: `OutlineEffect`
- * hulls every mesh separately, so twelve slabs sharing one front plane render as
- * one blank white rectangle with no ink between them — which is exactly what
- * happened to Niagara's American curtain. Stepped in depth, every shaft gets its
- * own line down its full height, and the forward splay is true of the building.
- * The five `slate` reveals between them are the shadow grooves, set back 1.4 so
- * they read as gaps rather than as stripes.
+ * **Each shaft also steps 0.9 further forward than the one inside it**, and
+ * that is not styling, it is the coplanar-mesh trap: `OutlineEffect` hulls
+ * every mesh separately, so twelve slabs sharing one front plane render as one
+ * blank white rectangle with no ink between them — which is exactly what
+ * happened to Niagara's American curtain. Stepped in depth, every shaft gets
+ * its own line down its full height, and the forward splay is true of the
+ * building. The five `slate` reveals between them are the shadow grooves, set
+ * back 1.4 so they read as gaps rather than as stripes.
  *
  * ---------------------------------------------------------------------------
  * Colour

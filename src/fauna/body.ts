@@ -278,15 +278,15 @@ export function buildAnimal(ctx: FaunaContext, given: Shape, pose: Pose): Body {
   const head = new THREE.Group();
   head.position.y = -neckLength;
   // Undo the neck's own angle and then drop the muzzle: a head is level with
-  // the world on an alert animal and points at the ground on a grazing one,
-  // and neither is the angle its neck happens to be at.
-  // **Composed, not applied: the head's world angle is `neckAngle + this`, so
-  // `-neckAngle` cancels the neck and what is left is the droop alone.** The
-  // droop's sign was inverted for one round and nothing could see it — `R_x(t)`
-  // sends +Z to `(0, -sin t, cos t)`, so a *positive* rotation points the muzzle
-  // down, and the first version's negative one pointed every animal's nose at
-  // the sky. It measured as a grazing cow whose nose was 0.8 units **higher**
-  // than a standing one.
+  // the world on an alert animal and points at the ground on a grazing one, and
+  // neither is the angle its neck happens to be at. **Composed, not applied:
+  // the head's world angle is `neckAngle + this`, so `-neckAngle` cancels the
+  // neck and what is left is the droop alone.** The droop's sign was inverted
+  // in one version and nothing could see it — `R_x(t)` sends +Z to
+  // `(0, -sin t, cos t)`, so a *positive* rotation points the muzzle down, and
+  // the first version's negative one pointed every animal's nose at the sky. It
+  // measured as a grazing cow whose nose was 0.8 units **higher** than a
+  // standing one.
   head.rotation.x = -neckAngle + (pose.kind === 'graze' ? DROOP : poseHead(pose));
   neck.add(head);
 

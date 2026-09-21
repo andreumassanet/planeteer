@@ -10,14 +10,13 @@ import { inflate } from './pack.ts';
  * ## Why they are not built in code any more
  *
  * Every person in atlas was generated from primitives until 2026-09-16 — first
- * prisms, then smooth lathes — and both were rejected on sight as Roblox. The
- * research behind replacing them is in `docs/built.md` (*The cast*); the short
- * form is that a rigid piece per bone reads as a toy however it is shaped, and
- * that every polished reference with people in it, messenger.abeto.co included,
- * draws them as **one continuous skinned mesh played by authored clips**. So the
- * cast is Quaternius's CC0 modular men and women (`scripts/build-cast.mjs`):
- * fifteen outfits on one 62-joint rig, and the pack's own idle, walk, run and
- * gesture clips.
+ * prisms, then smooth lathes — and both read as Roblox. The short form of the
+ * research behind replacing them is that a rigid piece per bone reads as a toy
+ * however it is shaped, and that every polished reference with people in it,
+ * messenger.abeto.co included, draws them as **one continuous skinned mesh
+ * played by authored clips**. So the cast is Quaternius's CC0 modular men and
+ * women (`scripts/build-cast.mjs`): fifteen outfits on one 62-joint rig, and
+ * the pack's own idle, walk, run and gesture clips.
  *
  * ## What the world does to them
  *
@@ -436,7 +435,7 @@ const aimOwn = new THREE.Quaternion();
 const aimParent = new THREE.Quaternion();
 
 /** Swings `bone` so that the world point `tip` comes to lie along `direction`, given in `frame`. */
-export function aimBone(bone: THREE.Bone, tip: THREE.Vector3, direction: THREE.Vector3, frame: THREE.Object3D): void {
+function aimBone(bone: THREE.Bone, tip: THREE.Vector3, direction: THREE.Vector3, frame: THREE.Object3D): void {
   bone.getWorldPosition(aimFrom);
   aimAlong.copy(tip).sub(aimFrom).normalize();
   aimTo.copy(direction).transformDirection(frame.matrixWorld);

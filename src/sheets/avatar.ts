@@ -7,8 +7,8 @@ import { PALETTE, SKY_TOP } from '../theme.ts';
 import { BOAT_DECK, PLANE_SEAT, buildBoat, buildPlane } from '../vehicles.ts';
 
 /**
- * The avatar's review sheet, and the reason it exists is the one in the brief:
- * *a character you have only seen in one still frame is not finished*.
+ * The avatar's review sheet, and the reason it exists is one sentence: *a
+ * character you have only seen in one still frame is not finished*.
  *
  * Twelve cells, all animating, all at the game's own framing, because every
  * decision in `avatar.ts` was taken against a size and an angle: 30 units back,

@@ -47,9 +47,9 @@
  */
 
 import type { Body, Decoration, Species } from './contract.ts';
-import { AU_UNITS, drawnRadiusOf, SUN_DRAWN, meshWithin, systemPosition, validateBody } from './contract.ts';
-import type { OrbitId, Vec3 } from './contract.ts';
-import { heliocentric, orbitPath, periodOf } from './orbits.ts';
+import { drawnRadiusOf, SUN_DRAWN, systemPosition, validateBody } from './contract.ts';
+import type { Vec3 } from './contract.ts';
+import { heliocentric } from './orbits.ts';
 
 export * from './contract.ts';
 export { fbm, ridged, onSphere, alignment } from './noise.ts';
@@ -134,8 +134,6 @@ export const SPECIES: ReadonlyMap<string, Species> = species;
 export const DECORATIONS: readonly Decoration[] = decorations.sort((a, b) => a.id.localeCompare(b.id));
 
 export const body = (id: string): Body | undefined => BODIES.find((one) => one.id === id);
-export const speciesOf = (body: Body): Species | undefined =>
-  body.species === null ? undefined : species.get(body.species);
 
 /**
  * Which decorations may stand on this world.
@@ -161,28 +159,6 @@ export function positionOf(id: string, date: Date): Vec3 {
 /** What a body is drawn at in the orrery. The Sun is off the law; see the contract. */
 export const drawnRadius = (body: Body): number =>
   body.kind === 'star' ? SUN_DRAWN : drawnRadiusOf(body.radiusKm);
-
-/** Past this range it is a pin and not a mesh. `settlements.ts`'s inequality. */
-export const geometryWithin = (body: Body): number => meshWithin(drawnRadius(body));
-
-/**
- * One orbit as a closed polyline, in the orrery's frame and units.
- *
- * Sampled in eccentric anomaly, which is what puts the samples where the
- * curvature is — see `orbitPath`. The conversion to the world frame is one
- * relabelling and it is the contract's, not a second copy: a frame conversion
- * written twice is how this planet stayed mirrored for months.
- */
-export function orbitFor(id: OrbitId, date: Date, segments = 128): Vec3[] {
-  return orbitPath(id, date, segments).map((p) => ({
-    x: p.x * AU_UNITS,
-    y: p.z * AU_UNITS,
-    z: -p.y * AU_UNITS,
-  }));
-}
-
-/** A body's year, in Earth days. Derived from the mean longitude's own rate. */
-export const yearOf = (body: Body): number => (body.orbit === null ? 0 : periodOf(body.orbit));
 
 /** Everything wrong with the registry, for the check script and the sheets. */
 export function registryProblems(): string[] {

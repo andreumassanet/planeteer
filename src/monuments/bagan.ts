@@ -38,9 +38,10 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  *
  * do that — the decrement grows from 0.8 to 1.3 all the way up, which is what
  * makes it a corn cob rather than a cone. Seven ink lines up a spire is the
- * *manufactured* end of the joint-count note in `CLAUDE.md`, and it is right
- * here for the same reason it is right at the Registan: this is a plastered
- * brick surface laid in receding string courses and it is meant to read as one.
+ * *manufactured* end of the joint-count rule (few ink lines read as natural,
+ * many as manufactured), and it is right here for the same reason it is right
+ * at the Registan: this is a plastered brick surface laid in receding string
+ * courses and it is meant to read as one.
  *
  * The top half is `gold`. Ananda's sikhara and hti really are gilded, and it is
  * also the one thing that lifts a white temple off a pale sky.

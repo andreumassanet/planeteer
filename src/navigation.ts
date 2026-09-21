@@ -142,7 +142,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
 
   // Unit vectors once, through the one conversion both maps use for their pins,
   // so a destination and the pin that stands for it cannot drift apart — and
-  // there is no copy of the `-` on z here to get wrong: see *Handedness*.
+  // there is no copy of the `-` on z here to get wrong.
   const site = new Float32Array(count * 3);
   placements.forEach((placement, i) => toUnit(placement.lat, placement.lon, site, i * 3));
 
@@ -169,12 +169,12 @@ export function createNavigation(options: NavigationOptions): Navigation {
    * The order `Tab` walks.
    *
    * **The country you are standing in comes first, and that is the whole of
-   * what this key is for now**: the user asked for *"los monumentos del pais en
-   * el que estas"*. It is a sort key rather than a filter, deliberately —
-   * landmarks stand in **59 of 239 countries**, so a filter would make `Tab` do
-   * nothing at all in three quarters of the world, and over water it would do
-   * nothing anywhere. Sorting instead means the panel opens on what is around
-   * you and keeps going into the neighbours when your own country runs out.
+   * what this key is for now**: the landmarks of the country you are in. It is
+   * a sort key rather than a filter, deliberately — landmarks stand in **59 of
+   * 239 countries**, so a filter would make `Tab` do nothing at all in three
+   * quarters of the world, and over water it would do nothing anywhere. Sorting
+   * instead means the panel opens on what is around you and keeps going into
+   * the neighbours when your own country runs out.
    *
    * Unvisited before visited, then nearest, exactly as before, inside each
    * group.
@@ -353,10 +353,10 @@ export function createNavigation(options: NavigationOptions): Navigation {
     // from the middle of the screen to the horizon point — and facing the
     // destination that line is a few pixels long and points wherever the head
     // last nodded, so the marker sat pinned to the top edge and flipped to the
-    // bottom. The user's words were that it went up, or something weird, when
-    // they looked that way. Now a horizon point in the frame is marked where it
-    // is, which is where the destination lies beyond; the tip points down at
-    // it, as it points down at the ground when the landmark is in sight.
+    // bottom: looking that way, it went up, or somewhere stranger. Now a
+    // horizon point in the frame is marked where it is, which is where the
+    // destination lies beyond; the tip points down at it, as it points down at
+    // the ground when the landmark is in sight.
     const inside = !behind
       && x >= MARKER_MARGIN && x <= width - MARKER_MARGIN
       && y >= MARKER_MARGIN && y <= height - MARKER_MARGIN;

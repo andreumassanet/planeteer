@@ -5,7 +5,7 @@
  *
  * It reaches its ground through the *biome* rather than through a country: the
  * high Andes come back `rock` and `steppe` from `biomeAt`, and both of those
- * carry a llama. The pair is the mechanism `CLAUDE.md` asks for — the climate
+ * carry a llama. The pair is the mechanism the fauna is built on — the climate
  * says a llama could live here, the region says only the Andes may.
  *
  * Everything about the silhouette is above the shoulder: a neck two thirds of

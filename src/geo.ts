@@ -1,6 +1,7 @@
 import type { Vector3 } from 'three';
 import { DATA_URL, decodeCountries, decodeLakes, inflate } from './pack.ts';
 import { prepareTerrain, reliefAt } from './terrain.ts';
+import { latLonOf } from './sphere.ts';
 
 export interface Country {
   iso: string;
@@ -104,12 +105,9 @@ export interface World {
   elevationAt(point: Vector3): number;
 }
 
+/** Latitude and longitude of a point of any length: `sphere.ts`'s `latLonOf`. */
 export function toLatLon(point: { x: number; y: number; z: number }): { lat: number; lon: number } {
-  const length = Math.hypot(point.x, point.y, point.z) || 1;
-  return {
-    lat: Math.asin(point.y / length) * (180 / Math.PI),
-    lon: Math.atan2(-point.z, point.x) * (180 / Math.PI),
-  };
+  return latLonOf(point);
 }
 
 /** Shoelace area of a ring, in square degrees. Sign discarded. */

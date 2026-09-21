@@ -34,7 +34,7 @@ import * as THREE from 'three';
  *   whose matrix is a reflection, and a merged buffer has no matrix to flip
  *   by, so a mirrored piece's triangles are written with two corners swapped.
  *   Without it the piece is drawn inside out and its hull front-facing: a
- *   solid blob of ink (see the determinant rule in `CLAUDE.md`).
+ *   solid blob of ink.
  *
  * Importable in Node: it depends on three and nothing else, which is what
  * `scripts/check-life.ts` needs of `life.ts`.

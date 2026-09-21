@@ -14,9 +14,11 @@ import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Color, Vector3 } from 'three';
+import ts from 'typescript';
 import { insideRing, loadWorld, toLatLon } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, LAND_HEIGHT, buildLand, coastEdges, groundColorAt, groundRadius, onSphere } from '../src/globe.ts';
 import { bearingTo, toUnit } from '../src/cartography.ts';
+import { latOf, lonOf, unitAt } from '../src/sphere.ts';
 import { createOcean, oceanLimits } from '../src/ocean.ts';
 import { OCEAN_COLOR } from '../src/theme.ts';
 import { MAX_RELIEF, SHORE_LIP, flattenWeightAt, reliefAt, setDetailSites, setFlattenSites } from '../src/terrain.ts';
@@ -35,7 +37,7 @@ import {
   radiusOf,
 } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
-import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodeLakes, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
+import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import {
   CROWN_FALL,
   MAX_ROAD_LENGTH,
@@ -323,10 +325,13 @@ console.log('the wire');
  * - **The basis.** East, north and up from `globe.ts`'s `onSphere`, which the
  *   land mesh is built with, and from `cartography.ts`'s `toUnit`, which the
  *   maps and the chip's arrow use: east crosses north into up, and both agree
- *   with `at()`, written here from the textbook.
- * - **The way back.** `geo.ts`'s `toLatLon` returns the coordinate `at()` was
- *   given, and `countryAtPoint` finds Lisbon in Portugal — mirrored, Lisbon's
- *   longitude lands in the sea south of Sardinia.
+ *   with `at()`, written here from the textbook. Both are `sphere.ts` under the
+ *   names their callers knew, and `sphere.ts`'s own `unitAt` is held to `at()`
+ *   beside them.
+ * - **The way back.** `geo.ts`'s `toLatLon` and `sphere.ts`'s `latOf` and
+ *   `lonOf` return the coordinate `at()` was given, and `countryAtPoint` finds
+ *   Lisbon in Portugal — mirrored, Lisbon's longitude lands in the sea south of
+ *   Sardinia.
  * - **A fact about the Earth.** Standing in Madrid facing north, `bearingTo`
  *   puts Barcelona on the right and Lisbon on the left. That is the answer the
  *   minimap's wedge and the chip's arrow draw, and a mirror swaps it.
@@ -346,9 +351,17 @@ console.log('the wire');
     if (Math.hypot(unit[0]! - textbook.x, unit[1]! - textbook.y, unit[2]! - textbook.z) > 1e-6) {
       wrong.push(`toUnit disagrees with the textbook at ${lat},${lon}`);
     }
+    if (unitAt(lat, lon, new Vector3()).distanceTo(textbook) > 1e-9) {
+      wrong.push(`unitAt disagrees with the textbook at ${lat},${lon}`);
+    }
     const back = toLatLon(at(lat, lon));
     if (Math.abs(back.lat - lat) > 1e-9 || Math.abs(back.lon - lon) > 1e-9) {
       wrong.push(`toLatLon reads ${lat},${lon} back as ${back.lat.toFixed(2)},${back.lon.toFixed(2)}`);
+    }
+    const unitLat = latOf(textbook.y);
+    const unitLon = lonOf(textbook.x, textbook.z);
+    if (Math.abs(unitLat - lat) > 1e-9 || Math.abs(unitLon - lon) > 1e-9) {
+      wrong.push(`latOf and lonOf read ${lat},${lon} back as ${unitLat.toFixed(2)},${unitLon.toFixed(2)}`);
     }
   }
   const madrid = at(40.42, -3.7);
@@ -360,6 +373,76 @@ console.log('the wire');
   const lisbonIn = world.countryAtPoint(at(38.72, -9.14));
   if (lisbonIn === 0 || world.countries[lisbonIn - 1]!.name !== 'Portugal') wrong.push('Lisbon is not in Portugal');
   check(wrong.length === 0, 'the planet is right-handed, like the Earth', wrong.slice(0, 4).join('; '));
+}
+
+/**
+ * And nothing in `src/` converts by hand.
+ *
+ * The check above holds `sphere.ts` to the Earth, which is worth exactly as
+ * much as the number of conversions that do not go through it: when that file
+ * was made the formula was spelled out 53 times in `src/` alone, any one of
+ * which could have been the fourth mirror. So every file under `src/` but
+ * `sphere.ts` is read as the TypeScript parser sees it — string and template
+ * literals blanked, which is where the GLSL lives, and comments with them — and
+ * either of the two shapes that give a conversion away fails the check with its
+ * file and line:
+ *
+ * - **a longitude**: `Math.atan2(…)` taken to degrees (`/ DEG`, `* R2D`,
+ *   `* (180 / Math.PI)`) with an argument negated or a `z` in it — the world's
+ *   `atan2(-z, x)`, or the mirror's `atan2(z, x)`. The ecliptic's
+ *   `atan2(y, x)` in `system/orbits.ts` is neither, and a monument's yaw stays
+ *   in radians.
+ * - **a component**: anything times `Math.sin` or `Math.cos` of something
+ *   named for a longitude — `cos * Math.sin(lon * DEG)`,
+ *   `Math.cos(lat) * Math.cos(place.lon)`.
+ *
+ * It is a net, not a proof: a conversion through a variable called `theta`
+ * passes it. The scripts are not read, because a check's textbook witness —
+ * `at()` above — is supposed to be written out by hand. And the GLSL cannot
+ * import, so it converts on its own and is checked by eye: `lights.ts`'s
+ * `atlasSolarHour` reads a longitude as `atan(-upDir.z, upDir.x)`.
+ */
+{
+  const DEGREES = String.raw`\s*(?:\/\s*(?:DEG|D2R|RAD)\b|\*\s*(?:R2D\b|\(?\s*180\s*\/\s*Math\.PI))`;
+  const LONGITUDE = new RegExp(String.raw`Math\.atan2\(([^()]*)\)` + DEGREES, 'g');
+  const TELLS = /(?:^|,)\s*-|\b\w*z\b/;
+  const OF_LONGITUDE = String.raw`Math\.(?:sin|cos)\([^()]*(?:(?<![A-Za-z])lon|Lon\b)[^()]*\)`;
+  const FACTOR = String.raw`(?:Math\.cos\([^()]*\)|(?<![\w$])[A-Za-z_$][\w$]*(?:\[[^\]]*\])?!?)`;
+  const COMPONENT = new RegExp(String.raw`${FACTOR}\s*\*\s*${OF_LONGITUDE}|${OF_LONGITUDE}\s*\*\s*${FACTOR}`, 'g');
+  const blank = (text: string): string => text.replace(/[^\n]/g, ' ');
+  const blankLiterals = (file: string, text: string): string => {
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    const chars = text.split('');
+    const visit = (node: ts.Node): void => {
+      if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isRegularExpressionLiteral(node)) {
+        for (let i = node.getStart(source); i < node.end; i++) if (chars[i] !== '\n') chars[i] = ' ';
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return chars.join('');
+  };
+  const byHand: string[] = [];
+  const src = resolve(here, '../src');
+  const files = (readdirSync(src, { recursive: true }) as string[])
+    .filter((file) => file.endsWith('.ts') && file !== 'sphere.ts')
+    .sort();
+  for (const file of files) {
+    // Comments go second, and only safely then: a literal such as
+    // `'./parts/*.ts'` would have opened one that swallowed the code after it.
+    const code = blankLiterals(file, readFileSync(resolve(src, file), 'utf8'))
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, blank);
+    const lineOf = (index: number): number => code.slice(0, index).split('\n').length;
+    for (const match of code.matchAll(LONGITUDE)) {
+      if (TELLS.test(match[1]!)) byHand.push(`src/${file}:${lineOf(match.index)} a longitude`);
+    }
+    for (const match of code.matchAll(COMPONENT)) byHand.push(`src/${file}:${lineOf(match.index)} a component`);
+  }
+  check(
+    byHand.length === 0,
+    `no lat/lon conversion written out by hand in src/ (${files.length} files read; use sphere.ts)`,
+    byHand.slice(0, 6).join('; '),
+  );
 }
 
 console.log('places');
@@ -1792,9 +1875,9 @@ if (existsSync(placesPath)) {
    * `proximityGraph` is shared with the road bake — so a file whose field was
    * baked against a different ratio, a different rank or a different radius
    * fails here by name. The rest is the study that chose the rule, as
-   * assertions: see `PROMINENCE_RADIUS` in `places.ts` for the table these
-   * rows come from. Mallorca is the island the rule was asked for and the
-   * pairs are the ones a pure "bigger place nearby" rule got wrong.
+   * assertions: see `PROMINENCE_RADIUS` in `places.ts` for the table these rows
+   * come from. Mallorca is the island the rule was written for and the pairs
+   * are the ones a pure "bigger place nearby" rule got wrong.
    */
   {
     const began = Date.now();
@@ -2085,9 +2168,9 @@ console.log('\nroads');
     /**
      * Every road starts and stops on a gate its two towns can use.
      *
-     * **This is the contract the square was built for** — *que la ciudad esté
-     * sobre una base cuadrada y los caminos se conecten ahí* — and it is three
-     * things per road end, each a way the join has gone wrong before:
+     * **This is the contract the square was built for** — a town stands on a
+     * square base and the roads connect to it there — and it is three things
+     * per road end, each a way the join has gone wrong before:
      *
      * - **The gate can be used.** `gateOpen`: `gateLevel` cuts it (no corner in
      *   the sea, no cell steeper than `MAX_CUT`), and its approach is dry. A
@@ -2539,8 +2622,8 @@ console.log('\nroads');
      * would divide by three times the towns that can carry a road and say
      * nothing about the map. A mean near two is a chain and near six is a
      * hairball; the band is unchanged at 2.8 to 4.5 and has never been widened.
-     * The median is the number the user's sentence is about — *no hace falta que
-     * conectes una ciudad con 20* — and it is 4.
+     * The median is the number that matters — a town needs a few roads out of
+     * it, not twenty — and it is 4.
      */
     const degree = new Int32Array(settled.length);
     for (const road of roads) {
@@ -2650,16 +2733,17 @@ console.log('\nroads');
      * deleted. What is left to check is that the file really has that shape:
      *
      * - **Both ends of every road are built.** One `isShown` per row, and it is
-     *   the assertion the whole round turns on: if it holds there are no dead
+     *   the assertion the whole network turns on: if it holds there are no dead
      *   ends at unbuilt villages, no junctions standing on nothing and no road
      *   that ends in a field, by construction rather than by a pass.
-     * - **No road crosses ground steeper than `MAX_SLOPE`** — *si en ningún
-     *   momento se pasa por una montaña.* Re-walked rather than trusted, the
-     *   same way the water test is: the bake tests a course and writes down a
-     *   `bend` and two gates, and if the two ever drift, every road in the world
-     *   would still be a road between two real towns and some of them would
-     *   climb a scree face. `crossesScree` is `roads.ts`'s and asks
-     *   `terrain.ts`'s one definition of how steep the ground may be.
+     * - **No road crosses ground steeper than `MAX_SLOPE`**: two towns are
+     *   connected only if the road never crosses a mountain. Re-walked rather
+     *   than trusted, the same way the water test is: the bake tests a course
+     *   and writes down a `bend` and two gates, and if the two ever drift,
+     *   every road in the world would still be a road between two real towns
+     *   and some of them would climb a scree face. `crossesScree` is
+     *   `roads.ts`'s and asks `terrain.ts`'s one definition of how steep the
+     *   ground may be.
      * - **The bake accounts for every candidate it did not keep.** The graph is
      *   a pure function of `places.bin`, so the check builds it again, gives
      *   each candidate the gates `candidateGates` gives it, and asks the file to
@@ -2818,11 +2902,11 @@ console.log('\nroads');
        * and 39 had no built town within `MAX_ROAD_LENGTH` at all. None of those
        * is a fault in this file — they are the water test, the slope rule and
        * the longest road this world will build, each doing exactly what it
-       * says, and the user's own sentence covers them: *si una ciudad no se
-       * puede conectar con ninguna porque está encima de una montaña no pasa
-       * nada.* The gates add a fourth reason, which is the same one seen from
-       * the town: a town every one of whose gates is in the sea or on ground too
-       * steep to cut has nowhere for a road to come in.
+       * says, and the rule covers them: a town that cannot be connected to any
+       * other because it stands on a mountain simply has no road. The gates add
+       * a fourth reason, which is the same one seen from the town: a town every
+       * one of whose gates is in the sea or on ground too steep to cut has
+       * nowhere for a road to come in.
        *
        * Bounded at 8% so a re-bake has room and a rule that stopped joining
        * anything does not: 748 of 9,749, 7.7%, on 2026-09-21. It was 12%,
@@ -3582,7 +3666,7 @@ console.log('\nmade ground');
         }
       }
 
-      // The two kerbs, which is where the join the user photographed was.
+      // The two kerbs, which is where the join between road and town showed.
       for (const end of [0, 1] as const) {
         const kerb = end === 0 ? ramp.kerbA : ramp.kerbB;
         const town = townOf(placesRaw[end === 0 ? road.a : road.b]!);

@@ -11,8 +11,9 @@
  * rather than a neighbour's facts.
  *
  * **Not in the first load.** It is 10 KB gzipped of something nothing needs
- * until the first frontier, so it is fetched on first ask and kept: every call
- * after the first resolves from the same promise.
+ * until the first frontier, so it is fetched once the HUD exists — early
+ * enough that the first card has its line — and kept: every call after the
+ * first resolves from the same promise.
  */
 import { DATA_URL } from './pack.ts';
 

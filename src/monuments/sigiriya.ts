@@ -41,12 +41,13 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * ---------------------------------------------------------------------------
  *
  * The rock is a stack of seven-sided `taper`s and the count of them was chosen
- * against the note in `CLAUDE.md`: *few joints say natural, many say
- * manufactured*. Seven courses would have read as a layer cake, which is exactly
- * wrong for a homogeneous gneiss plug with no bedding in it at all. Four, with
- * the third one **wider at the top than at the bottom**, gives a swelling
- * overhang two thirds of the way up and one hard ink line under it, and that
- * single reversal is what makes the silhouette a monolith rather than a cone.
+ * against the joint-count rule: *few joints say natural, many say
+ * manufactured*. Seven courses would have read as a layer cake, which is
+ * exactly wrong for a homogeneous gneiss plug with no bedding in it at all.
+ * Four, with the third one **wider at the top than at the bottom**, gives a
+ * swelling overhang two thirds of the way up and one hard ink line under it,
+ * and that single reversal is what makes the silhouette a monolith rather than
+ * a cone.
  *
  * Seven sides rather than eight because seven is odd: a face lands on +Z and a
  * *corner* lands opposite it, so the front elevation and the back are different
@@ -153,12 +154,11 @@ export const sigiriya: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The rock. Four courses, and the count is the note in `CLAUDE.md` about
-    //    joints: *few say natural, many say manufactured*, and a homogeneous
-    //    gneiss plug has no bedding in it at all. Seven sides rather than eight
-    //    because seven is odd — a face lands on +Z and a corner opposite it, so
-    //    the front elevation and the back are different shapes, which a rock
-    //    should be.
+    // 1. The rock. Four courses, and the count is the joint-count rule: *few
+    //    say natural, many say manufactured*, and a homogeneous gneiss plug has
+    //    no bedding in it at all. Seven sides rather than eight because seven
+    //    is odd — a face lands on +Z and a corner opposite it, so the front
+    //    elevation and the back are different shapes, which a rock should be.
     // -----------------------------------------------------------------------
     let base = 0;
     const colors = [scrub, rock, lit, crown];

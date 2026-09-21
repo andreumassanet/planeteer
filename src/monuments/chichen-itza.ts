@@ -1,4 +1,4 @@
-import type { Group, Mesh, Monument, Vector3 } from './contract.ts';
+import type { Mesh, Monument, Vector3 } from './contract.ts';
 
 /**
  * Chichen Itza — El Castillo, the pyramid of Kukulcan.

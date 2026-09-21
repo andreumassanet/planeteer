@@ -8,7 +8,7 @@
  * on the cloud deck, which is exactly as real as the deck `src/clouds.ts`
  * already builds over Earth and is the only honest way to make this walkable.
  * The alternative was to leave the four giants as pins nobody can land on, and
- * that is a worse answer to "todo el sistema solar" than a stated fiction is.
+ * that is a worse answer to "the whole solar system" than a stated fiction is.
  *
  * The second axis is **methane**: how much of the deck is the bright methane-ice
  * cirrus that sits fifty kilometres above the blue. That is a real number —

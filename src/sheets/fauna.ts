@@ -41,7 +41,7 @@ import {
   reviewAnimal,
   variantRng,
 } from '../fauna/index.ts';
-import type { Animal, FaunaContext, FaunaStyle, RegionId } from '../fauna/index.ts';
+import type { FaunaContext, FaunaStyle, RegionId } from '../fauna/index.ts';
 import type { Pose } from '../fauna/body.ts';
 
 const sceneryCtx = createSceneryContext();

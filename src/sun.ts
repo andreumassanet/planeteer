@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from './globe.ts';
 import { DAY_MOOD, NIGHT_MOOD, ORBIT_LOOK, TWILIGHT_MOOD, setToonMood, type Mood } from './theme.ts';
+import { unitAt } from './sphere.ts';
 
 /**
  * The real sun, at the real time.
@@ -133,12 +134,7 @@ export function solarPosition(
 
 /** The surface normal at a subsolar point already found; see `sunDirection`. */
 function directionOf(solar: Solar, target: THREE.Vector3): THREE.Vector3 {
-  const cos = Math.cos(solar.declination * DEG);
-  return target.set(
-    cos * Math.cos(solar.subsolarLon * DEG),
-    Math.sin(solar.declination * DEG),
-    -cos * Math.sin(solar.subsolarLon * DEG),
-  );
+  return unitAt(solar.declination, solar.subsolarLon, target);
 }
 const solarScratch: Solar = { declination: 0, subsolarLon: 0, equationOfTime: 0 };
 
@@ -154,7 +150,7 @@ export function sunDirection(date: Date, target: THREE.Vector3): THREE.Vector3 {
 }
 
 /** Degrees of the sun above the horizon for someone standing at `up`. */
-export function sunElevation(sun: THREE.Vector3, up: THREE.Vector3): number {
+function sunElevation(sun: THREE.Vector3, up: THREE.Vector3): number {
   return Math.asin(THREE.MathUtils.clamp(sun.dot(up), -1, 1)) / DEG;
 }
 
@@ -291,9 +287,9 @@ const SHADOW_STEP_MS = (SHADOW_STEP / 360) * 86_400_000;
  * floor included, so a shadowed surface keeps `1 - intensity` of its sunlight
  * plus every bit of the ambient and hemisphere fill — which is why a cast
  * shadow can go darker than the ramp's own shadow band without going to the
- * neutral black the docs call mud. Measured at Palma, 2026-09-05, sun at 47
+ * neutral black that reads as mud. Measured at Palma, 2026-09-05, sun at 47
  * degrees, sRGB luminance of the same paving: in the sun 226, in the ramp's
- * shadow band 154, in a cast shadow 134 at 0.65 — see `docs/traps.md`.
+ * shadow band 154, in a cast shadow 134 at 0.65.
  */
 const SHADOW_INTENSITY = 0.65;
 /** Units the receiving surface is pushed along its normal before the test. */

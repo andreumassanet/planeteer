@@ -6,7 +6,7 @@ import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
 import { bodyPaint, isGlass } from '../models.ts';
 import { sceneryModel } from '../scenery/contract.ts';
-import type { Model, Paint } from '../models.ts';
+import type { Paint } from '../models.ts';
 import type { Rng, Weighted } from '../scenery/random.ts';
 
 /**
@@ -25,8 +25,9 @@ import type { Rng, Weighted } from '../scenery/random.ts';
  * medium — follows from that one and could have been bolted on; this one could
  * not.
  *
- * The second reason is smaller and still real: `src/scenery/contract.ts` is
- * being edited by two other agents. A directory beside it needs no sequencing.
+ * The second reason is smaller and still real: `src/scenery/contract.ts`
+ * changes for reasons of its own, and a directory beside it never has to wait
+ * on them.
  *
  * What is **not** duplicated, because duplicating it is how a world stops being
  * one world:
@@ -190,7 +191,8 @@ export const PLACED_LENGTH_CAP = 20;
  * person in the basket.
  *
  * Determinant is `PLACED_SECTION^2 * lengthScale`, which is positive for every
- * vehicle in the kit — see the reflected-basis trap in `CLAUDE.md`.
+ * vehicle in the kit. A negative one would flip the winding, and the ink hull
+ * would render the vehicle as a solid blob.
  */
 export function placedScale(vehicle: Vehicle): [number, number, number] {
   if (KINDS[vehicle.kind].medium === 'air') return [1, 1, 1];
@@ -522,9 +524,9 @@ export interface Mount {
    * Where the feet actually go: a crank, a stirrup, a footrest, a pedal box.
    * In the vehicle's frame, not the seat's.
    *
-   * Published because the crowd agent asked for it and it is the only thing
-   * that decides the two joint angles of an `astride` pose. Absent means the
-   * feet hang or rest on the floor of a footwell.
+   * Published because the crowd needs it and it is the only thing that decides
+   * the two joint angles of an `astride` pose. Absent means the feet hang or
+   * rest on the floor of a footwell.
    */
   footrest?: readonly [number, number, number];
   /**
@@ -588,12 +590,12 @@ export interface TrafficContext extends SceneryContext {
    * normals, which black-holes the whole mesh.
    *
    * **The windows are why this shape rather than four boxes.** A car's glass
-   * against its body is the coplanar case from `CLAUDE.md` word for word: hull
-   * the two meshes separately, the flush faces lose the depth test, and the
-   * window renders as a colour patch with no line round it. Making the
-   * greenhouse its own *narrower, inset* mass is not a workaround for that, it
-   * is what a car actually is — and it buys the window band an ink line the
-   * whole way round for no extra mesh at all.
+   * against its body is the coplanar case word for word: hull the two meshes
+   * separately, the flush faces lose the depth test, and the window renders as
+   * a colour patch with no line round it. Making the greenhouse its own
+   * *narrower, inset* mass is not a workaround for that, it is what a car
+   * actually is — and it buys the window band an ink line the whole way round
+   * for no extra mesh at all.
    */
   solid(spec: SolidSpec): THREE.Mesh;
 
@@ -663,7 +665,7 @@ export interface SolidSpec {
 
 /**
  * How many sides a road wheel gets, and it is the one number in this file that
- * was chosen by measuring rather than by taste. See `CLAUDE.md`.
+ * was chosen by measuring rather than by taste.
  */
 export const WHEEL_SIDES = 8;
 
@@ -1035,7 +1037,7 @@ export function validateVehicle(vehicle: Vehicle, group: THREE.Group): string[] 
  * Whether a rider actually fits the seats this vehicle declares.
  *
  * Split out and exported because it is the half of the contract that depends on
- * a number owned by another agent, and because it is the half worth re-running
+ * a number owned by another module, and because it is the half worth re-running
  * on its own the day that number moves.
  */
 export function mountProblems(vehicle: Vehicle, built: Extent): string[] {
@@ -1116,13 +1118,13 @@ const SIL_Y = 150;
  *
  * Why a profile and not the bounding box the scenery kit compares. `varietyOf`
  * there asks whether two builds differ in `height x radius`, which is the right
- * question for a house — a house that is 3 storeys instead of 2 *is* a different
- * house. It is the wrong question here, because the brief a vehicle kit is
- * answering is "several distinct car models rather than one car recoloured", and
- * a saloon, a hatchback and an estate are **the same box to within a tenth of a
- * unit** and are three obviously different cars. What tells them apart is where
- * the mass is along the length: a boot step behind the cabin, a tailgate that
- * runs to the ground, a roof carried to the tail.
+ * question for a house — a house that is 3 storeys instead of 2 *is* a
+ * different house. It is the wrong question here, because what a vehicle kit
+ * has to deliver is "several distinct car models rather than one car
+ * recoloured", and a saloon, a hatchback and an estate are **the same box to
+ * within a tenth of a unit** and are three obviously different cars. What tells
+ * them apart is where the mass is along the length: a boot step behind the
+ * cabin, a tailgate that runs to the ground, a roof carried to the tail.
  *
  * Rasterising rather than sampling a few heights, because a pickup's bed is a
  * hole in the middle of the profile and a height field cannot see a hole.

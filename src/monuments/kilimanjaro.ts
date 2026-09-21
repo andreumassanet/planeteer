@@ -116,7 +116,7 @@ const DEG = Math.PI / 180;
  * mesh, which is what keeps the band stack seamless: one linear map takes the
  * cone to the stretched cone, so anything lying on the first still lies on the
  * second. Slabs rotated inside it are sheared as well as stretched — which cost
- * a round: sheared *wide* they read as torn paper stuck on the mountain, so
+ * a revision: sheared *wide* they read as torn paper stuck on the mountain, so
  * everything lying on this flank is narrow and long, and the shear is then free
  * variety instead, and the reason no two ridges here are the same ridge.
  */
@@ -138,11 +138,11 @@ const SIDES = 24;
  * this a massif rather than a hill, and the 34 is the shoulder turning over onto
  * a flat top instead of closing to a point.
  *
- * That bench was 21 degrees for one round and it was too much of a good thing:
- * a 28-degree break at a single seam runs a hard horizontal ring right round the
- * mountain, and the model came back reading as a cornice on a drum — a dam, not
- * a massif. At 34 against its neighbours' 49 and 55 the shoulder is still in the
- * outline and no longer an edge.
+ * That bench was 21 degrees in one version and it was too much of a good thing:
+ * a 28-degree break at a single seam runs a hard horizontal ring right round
+ * the mountain, and the model came back reading as a cornice on a drum — a dam,
+ * not a massif. At 34 against its neighbours' 49 and 55 the shoulder is still
+ * in the outline and no longer an edge.
  *
  * The roll-over at the top is the same break left deliberately sharp — 52
  * degrees to 27 across one seam. A shoulder easing *onto a plateau* is not a
@@ -330,10 +330,11 @@ const TEETH: [bearing: number, height: number, half: number][] = [
  * never on screen. The note in the build where it stood has the numbers.
  *
  * Between them the four plates hold about 60% of the table, all of it west and
- * south, which is both the right shape and — with the stranded patch — the right
- * century. They were half that size for a round and vanished at thumbnail size:
- * against Fuji's cape, which is half of Fuji, an ice cap that is 8% of the
- * silhouette is not a landmark's worth of the most famous ice on the planet.
+ * south, which is both the right shape and — with the stranded patch — the
+ * right century. They were half that size in one version and vanished at
+ * thumbnail size: against Fuji's cape, which is half of Fuji, an ice cap that
+ * is 8% of the silhouette is not a landmark's worth of the most famous ice on
+ * the planet.
  *
  * Every corner is kept inside the ellipse the table's 24-gon inscribes, 13.0 by
  * 9.3. A slab that overhangs the plateau is a slab hanging in the air.

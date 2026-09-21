@@ -12,13 +12,13 @@
  *
  * **It is a graph over the places that are *built* — 9,749 of the 29,614 rows
  * of the gazetteer on 2026-09-21 — and that is the whole shape of this file**
- * (2026-09-08).
- * `builtGraph` in `src/roads.ts` carries the argument and the measurements; the
- * consequence here is that every endpoint is a town you can walk into, so the
- * network needs no prune for dead ends at unbuilt villages, no chaining through
- * hidden junctions and no floor putting a road back at an orphaned city. All of
- * that was machinery for reconstructing city-to-city connections out of a graph
- * that never held them, and it is deleted. *Solo conexiones entre ciudades.*
+ * (2026-09-08). `builtGraph` in `src/roads.ts` carries the argument and the
+ * measurements; the consequence here is that every endpoint is a town you can
+ * walk into, so the network needs no prune for dead ends at unbuilt villages,
+ * no chaining through hidden junctions and no floor putting a road back at an
+ * orphaned city. All of that was machinery for reconstructing city-to-city
+ * connections out of a graph that never held them, and it is deleted.
+ * Connections between towns, and nothing else.
  *
  * Four decisions, and all four are visible from the air or from the kerb the
  * moment they are wrong:
@@ -30,14 +30,14 @@
  * 2. **Which gate of each town a road comes in by** (2026-09-13). A town is a
  *    square now and a road runs from a gate on one kerb to a gate on another
  *    (`courseOf`); see `candidateGates`, `gatesToward` and the second pass.
- * 3. **Whether the road can be built.** A road may cross a border — that is most
- *    of what makes a network read as one — but it may not cross **water**, it
- *    may not cross **scree**, it may not run **through a town**, its own two
+ * 3. **Whether the road can be built.** A road may cross a border — that is
+ *    most of what makes a network read as one — but it may not cross **water**,
+ *    it may not cross **scree**, it may not run **through a town**, its own two
  *    included, and it has to be able to **climb to both gates** at
- *    `RAMP_GRADE`: *solo conexiones entre ciudades, si en ningún momento se pasa
- *    por una montaña.* All of it is a walk along the course that will be drawn,
- *    and all of it can be answered by bending the road or by taking another
- *    gate; see `trial`.
+ *    `RAMP_GRADE`: towns are connected only where the road never crosses a
+ *    mountain. All of it is a walk along the course that will be drawn, and all
+ *    of it can be answered by bending the road or by taking another gate; see
+ *    `trial`.
  * 4. **What a town does when nothing wants to join it.** See `rescueOrphans`:
  *    one road to the nearest built town by a dry, gentle path, for a place the
  *    proximity test left alone but the ground did not refuse.
@@ -79,6 +79,7 @@ import {
   waterProbeSteps,
 } from '../src/roads.ts';
 import type { GraphEdge, ProximityGraph, Road } from '../src/roads.ts';
+import { latOf, lonOf } from '../src/sphere.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const countriesPath = resolve(here, '../public/data/countries.bin');
@@ -134,9 +135,9 @@ const MAX_LENGTH = MAX_ROAD_LENGTH;
 /**
  * How the candidate pairs are chosen.
  *
- * **Measured, on the real 7,320 places, before committing** — the numbers are in
- * CLAUDE.md and the summary is that the shape of the graph is the whole
- * difference between a road map and a hairball:
+ * **Measured, on the real 7,320 places, before committing**, and the summary is
+ * that the shape of the graph is the whole difference between a road map and a
+ * hairball:
  *
  * - **k-nearest** is not a graph, it is a mess: it is not symmetric, a town in a
  *   cluster reaches only inside its cluster, and one in open country reaches
@@ -157,10 +158,10 @@ const MAX_LENGTH = MAX_ROAD_LENGTH;
  * inside a lane's own reach covered in carriageway — so half of it was dropped
  * again by a rule built on the RNG subgraph relation. Over the **built towns**
  * the same rule is a road map: 20,022 candidates, a median degree of 4 and a
- * spacing of 260 units, which is *no hace falta que conectes una ciudad con 20*
- * and nothing to thin. Measured on the shipped `places.bin`, both graphs
- * carried through the water and slope tests (2026-09-08, before roads ran gate
- * to gate):
+ * spacing of 260 units — a town needs a few roads out of it, not twenty — and
+ * nothing to thin. Measured on the shipped `places.bin`, both graphs carried
+ * through the water and slope tests (2026-09-08, before roads ran gate to
+ * gate):
  *
  * ```
  *              candidates   roads    wet   steep   towns with none   degree
@@ -446,8 +447,8 @@ function trial(road: Road): Verdict {
     const t = step / steps;
     const near = Math.min(t, 1 - t) * course.length;
     coursePoint(course, t, point);
-    const lat = Math.asin(Math.min(1, Math.max(-1, point.y))) / DEG;
-    const lon = Math.atan2(-point.z, point.x) / DEG;
+    const lat = latOf(point.y);
+    const lon = lonOf(point.x, point.z);
     if (world.countryAt(lat, lon) === 0) return { refusal: 'wet', near };
     if (t > course.share && t < 1 - course.share) {
       townOffset(townA, point, offset);
@@ -519,7 +520,7 @@ function bendThatWorks(road: Road, length: number, natural: number): number | nu
   // Palma's coast at 101.5 units a second against a walking speed of 45. The
   // movers read a measured path now (`coursePath`), so the reason for this
   // ceiling is gone; raising it back toward 0.5 to recover the roads it cost
-  // is a re-bake this round did not also take on, not a rejection.
+  // is a re-bake nobody has taken on yet, not a rejection.
   const limit = Math.min(0.3, Math.max(0.15, 110 / length));
   for (let k = 1; k <= BEND_TRIES; k++) {
     for (const sign of [1, -1]) {
@@ -689,8 +690,8 @@ const testMs = Date.now() - testBegan;
  * **What it fixes and what it deliberately does not**, audited over the shipped
  * `places.bin` (2026-09-08, before gates): of the 733 towns Gabriel and the
  * ground left with nothing, this joined 419 and left 314. The ones it leaves
- * are the ones the user already accepted — *si una ciudad no se puede conectar
- * con ninguna porque está encima de una montaña no pasa nada* — plus the
+ * are the ones the rule already accepts — a town that cannot be connected to
+ * any other because it stands on a mountain simply has no road — plus the
  * islands, which this cannot help and should not.
  */
 /**
