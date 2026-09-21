@@ -1,0 +1,16 @@
+{
+  // The bakes and the checks, which `tsconfig.json` never saw: they run under
+  // Node's own type stripping, so a type error in one was found by running it
+  // or not at all. They import `src/` files directly, so those are checked
+  // again here under Node's types as well as the browser's.
+  //
+  // `erasableSyntaxOnly` comes from the base for the same reason: Node strips
+  // types and nothing else, so an `enum`, a `namespace` or a parameter
+  // property anywhere a script reaches would typecheck, bundle and then fail
+  // only when a check ran.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"]
+  },
+  "include": ["scripts/**/*.ts", "src/**/*.ts"]
+}

@@ -11,6 +11,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "isolatedModules": true,
+    "erasableSyntaxOnly": true,
     "types": ["vite/client"]
   },
   "include": ["src/**/*.ts", "vite.config.ts"]

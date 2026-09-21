@@ -377,7 +377,7 @@ console.log('what one second of the clock moves:');
     const map = new Map<string, { p: Vector3; g: string }>();
     for (const child of life.group.children) {
       if (!child.visible || child.name === 'birds') continue;
-      map.set(child.name, { p: child.position.clone(), g: (child as { geometry: { uuid: string } }).geometry.uuid });
+      map.set(child.name, { p: child.position.clone(), g: (child as unknown as { geometry: { uuid: string } }).geometry.uuid });
     }
     return map;
   };

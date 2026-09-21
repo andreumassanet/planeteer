@@ -164,7 +164,9 @@ export async function loadCountries(url = `${DATA_URL}countries.bin`): Promise<C
 }
 
 /**
- * The inland water, off the wire: 410 rings, 36 KB gzipped.
+ * The inland water, off the wire: 26 rings, 7.8 KB gzipped (2026-09-21; it was
+ * 410 rings and 36 KB before `build-lakes.mjs` kept only what the mesh can pay
+ * for).
  *
  * Separate from `loadWorld` and handed *in* to it, rather than fetched inside
  * it, for the reason `main.ts` writes down about the other four files:

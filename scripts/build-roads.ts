@@ -10,8 +10,9 @@
  *   node scripts/build-roads.ts        # write public/data/roads.bin
  *   node scripts/build-roads.ts --dry  # report the graph and write nothing
  *
- * **It is a graph over the 9,734 places that are *built*, not over the 29,545
- * rows of the gazetteer, and that is the whole shape of this file** (2026-09-08).
+ * **It is a graph over the places that are *built* — 9,749 of the 29,614 rows
+ * of the gazetteer on 2026-09-21 — and that is the whole shape of this file**
+ * (2026-09-08).
  * `builtGraph` in `src/roads.ts` carries the argument and the measurements; the
  * consequence here is that every endpoint is a town you can walk into, so the
  * network needs no prune for dead ends at unbuilt villages, no chaining through
@@ -206,8 +207,8 @@ type Candidate = GraphEdge;
 /**
  * Every place that is built, which is the only vertex set this file has.
  *
- * A degree averaged over the 29,545 rows of `places.bin` would be a statement
- * about the gazetteer and not about the map: 19,811 of them are not built and
+ * A degree averaged over all the rows of `places.bin` would be a statement
+ * about the gazetteer and not about the map: 19,865 of them are not built and
  * cannot be an endpoint, so they would drag every number here to a third of
  * itself. Counted over `built`, the shape is the shape you can see.
  */

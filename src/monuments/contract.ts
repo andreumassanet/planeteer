@@ -36,7 +36,9 @@ const TAU = Math.PI * 2;
  *
  * Neither is a game. So size is chosen by *how far away the thing should still
  * be nameable*, and the four tiers below are that answer. A tier fixes the
- * model's height; real height survives only as `realHeight`, on the info card.
+ * model's height; real height survives only as a number of metres — the
+ * source's `height`, which the info card reads through `monuments.json`, and
+ * `realHeight` here, which `pnpm check` holds equal to it.
  *
  * The consequence is deliberate and worth stating plainly: Christ the Redeemer
  * (38 m) and the Eiffel Tower (330 m) are both `landmark`, both 120 units. In
@@ -505,7 +507,9 @@ export interface Monument {
   lat: number;
   lon: number;
   /**
-   * Metres, for the info card — **not** the model's height. See `TIERS`.
+   * Metres — **not** the model's height; see `TIERS`. The info card prints
+   * the source list's `height`, from `monuments.json`, and this is the model's
+   * copy of the same number.
    *
    * **Optional, and omitting it is the right answer whenever the real height is
    * unknown, disputed or meaningless. Do not invent a number to satisfy the
@@ -517,7 +521,7 @@ export interface Monument {
    * monument — the card simply says less about it.
    *
    * When it is here it must agree with the source list, because two copies of a
-   * fact are two chances to be wrong.
+   * fact are two chances to be wrong — and `pnpm check` asserts that it does.
    */
   realHeight?: number;
   tier: MonumentTier;

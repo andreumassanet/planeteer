@@ -427,6 +427,45 @@ check(collisions.length === 0, 'country codes are unique', collisions.join('; ')
 }
 
 /**
+ * Every drawn country GeoNames has a row for has its facts baked, for the card
+ * that names it as you cross in (`src/country-facts.ts`). The file records the
+ * ones GeoNames has no row for, because this check runs where `countryInfo.txt`
+ * is not — CI has only what is committed — and when the source *is* beside the
+ * repo, that list is held to it too: a code on it that GeoNames does carry is
+ * a join the bake missed.
+ */
+{
+  const infoPath = resolve(here, '../public/data/countries-info.json');
+  const info = existsSync(infoPath)
+    ? (JSON.parse(readFileSync(infoPath, 'utf8')) as {
+        without: string[];
+        countries: Record<string, { name: string; population: number; areaKm2: number; languages: string[]; continent: string }>;
+      })
+    : { without: [], countries: {} };
+  const without = new Set(info.without);
+  const unfacted = world.countries.filter((c) => !(c.iso in info.countries) && !without.has(c.iso));
+  const malformed = Object.entries(info.countries)
+    .filter(([, f]) => !f.name || !(f.population >= 0) || !(f.areaKm2 > 0) || !Array.isArray(f.languages) || !f.continent)
+    .map(([iso]) => iso);
+  const sourcePath = resolve(here, '../../.cache/countryInfo.txt');
+  const missed: string[] = [];
+  if (existsSync(sourcePath)) {
+    const alpha3 = new Set(
+      readFileSync(sourcePath, 'utf8').split('\n').filter((line) => line && !line.startsWith('#')).map((line) => line.split('\t')[1]),
+    );
+    for (const iso of without) if (alpha3.has(iso)) missed.push(`${iso} is in GeoNames`);
+  }
+  check(
+    unfacted.length === 0 && malformed.length === 0 && missed.length === 0,
+    'every drawn country GeoNames knows has its facts',
+    `${Object.keys(info.countries).length} with facts, ${without.size} GeoNames has no row for` +
+      (existsSync(sourcePath) ? '' : ' (countryInfo.txt not here to hold that list to)') +
+      [...unfacted.map((c) => ` — ${c.iso} ${c.name} has none`), ...malformed.map((iso) => ` — ${iso} malformed`), ...missed.map((m) => ` — ${m}`)]
+        .slice(0, 5).join(''),
+  );
+}
+
+/**
  * A lake is water to `countryAt` everywhere the mesh draws it as water.
  *
  * `globe.ts` cuts every lake out of every land ring its outline reaches into,
@@ -2432,8 +2471,8 @@ console.log('\nroads');
      * The shape of the graph, as a line to read and one band.
      *
      * **Counted over the built towns and not over `places.bin`**, which is the
-     * only vertex set the network has now: averaging a degree over the 29,545
-     * rows would divide by three times the towns that can carry a road and say
+     * only vertex set the network has now: averaging a degree over every row
+     * would divide by three times the towns that can carry a road and say
      * nothing about the map. A mean near two is a chain and near six is a
      * hairball; the band is unchanged at 2.8 to 4.5 and has never been widened.
      * The median is the number the user's sentence is about — *no hace falta que

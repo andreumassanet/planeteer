@@ -2,23 +2,23 @@ import * as THREE from 'three';
 import { DATA_URL, decodePlaces, inflate } from './pack.ts';
 
 /**
- * The 29,545 populated places, and the one question worth asking of them:
+ * The 29,614 populated places, and the one question worth asking of them:
  * **what is the nearest, and are you in it?**
  *
  * The data is `public/data/places.bin`, baked by `scripts/build-places.mjs`
- * from GeoNames `cities5000` (CC BY 4.0, credited in `README.md` and on the
- * loading card), with every row already checked to sit on land and to agree
+ * from GeoNames `cities5000` (CC BY 4.0, credited on the loading card and the
+ * settings card, and in `LICENSE`), with every row already checked to sit on land and to agree
  * with `countryAt`. It replaced Natural Earth's own populated places, which are
  * a *cartographic* file rather than a gazetteer and gave Spain 48 towns.
  *
  * The bake thins it against `radiusFor` below — a gazetteer lists one row per
  * municipality, so 60% of the raw rows had a neighbour inside their own built
- * radius — which is why 64,229 rows arrive here as 29,545 with no overlap left
- * at all.
+ * radius — which is why 64,231 rows on land arrive here as 29,614 with no
+ * overlap left at all (2026-09-21).
  *
  * This file is deliberately not the settlement builder. It answers where you
  * are; what gets *built* at a place is `src/settlements.ts`, which reads the
- * same array out of here rather than parsing 29,545 rows a second time. Two
+ * same array out of here rather than parsing 29,614 rows a second time. Two
  * indexes over the same data that can drift apart is the exact shape of bug
  * this project keeps writing down.
  */
@@ -295,7 +295,7 @@ export function labelRadiusFor(pop: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Prominence: which of the 29,545 places is a *built* town
+// Prominence: which of the 29,614 places is a *built* town
 // ---------------------------------------------------------------------------
 
 /**
@@ -530,12 +530,14 @@ export async function loadPlaces(
  * array off disk without pretending to be a browser.
  *
  * There is no spatial grid here, and that is a measurement rather than an
- * omission: the whole set is one flat `Float32Array` of unit vectors, and the
- * nearest is the largest dot product. 29,545 rows is 89,000 multiply-adds,
- * which `pnpm check` measures at about 20 microseconds — a hundredth of a
- * 60 fps frame, for a question the HUD asks once. It was 5 us over Natural
- * Earth's 7,320; a grid becomes worth its second structure somewhere well past this. A grid would be faster and would also be a second
- * structure to keep in step with the array, for no budget that is under threat.
+ * omission: the built rows are one flat `Float64Array` of unit vectors, and the
+ * nearest is the largest dot product. 9,749 rows is 29,000 multiply-adds, which
+ * `pnpm check` measured at 10.4 microseconds a query (2026-09-21) — well under
+ * a hundredth of a 60 fps frame, for a question the HUD asks once. It was 5 us
+ * over Natural Earth's 7,320 and about 20 over all 29,545 rows before the
+ * built ones were packed apart. A grid would be faster and would also be a
+ * second structure to keep in step with the array, for no budget that is under
+ * threat.
  */
 export function indexPlaces(all: readonly Place[], radius: number): Places {
   const DEG = Math.PI / 180;

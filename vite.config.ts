@@ -18,11 +18,13 @@ export default defineConfig({
       // 244.5 KB gzipped to 248.4, because `sheets/flags.ts` needs a small
       // corner of Three and Rollup splits the Three chunk in two to serve it.
       // The four that were still listed here on 2026-09-08 cost the same shape
-      // of thing and more of it: with them the world's first load is **249.2 KB
-      // gzipped across 10 chunks**, and with the world alone it is **245.6 KB in
+      // of thing and more of it: with them the world's first load was **249.2
+      // KB gzipped across 10 chunks**, and with the world alone **245.6 KB in
       // one** — 3.6 KB and nine round trips, paid by the page everyone opens for
-      // pages nobody opens in production. If a sheet is ever wanted online, give
-      // it its own build rather than another entry beside this one.
+      // pages nobody opens in production. Those are that day's sizes: the
+      // world's own main chunk had grown to 279.6 KB gzipped by 2026-09-21, and
+      // the sheets' cost was not re-measured. If a sheet is ever wanted online,
+      // give it its own build rather than another entry beside this one.
       input: { main: 'index.html' },
     },
     // There is no `manualChunks` here and that is a decision. Rollup already

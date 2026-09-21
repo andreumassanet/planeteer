@@ -1,13 +1,26 @@
 {
   "name": "atlas",
   "private": true,
+  "description": "An explorer of Earth: a walkable planet holding the world's notable landmarks, on foot and by boat and plane.",
+  "license": "MIT",
+  "author": "Andreu Massanet",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andreumassanet/atlas.git"
+  },
   "type": "module",
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
+    "sources": "node scripts/fetch-sources.mjs",
     "data": "node scripts/build-countries.mjs",
     "monuments": "node scripts/build-monuments.ts",
     "places": "node scripts/build-places.mjs",
     "lakes": "node scripts/build-lakes.mjs",
     "roads": "node scripts/build-roads.ts",
+    "facts": "node scripts/build-country-info.mjs",
     "check": "node scripts/check-world.ts",
     "people": "node scripts/check-people.ts",
     "cast": "node scripts/build-cast.mjs",
@@ -17,15 +30,17 @@
     "system": "node scripts/check-system.ts",
     "traffic": "node scripts/check-traffic.ts",
     "scenery": "node scripts/check-scenery.ts",
+    "solids": "node scripts/check-solids.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json"
   },
   "dependencies": {
     "three": "^0.182.0"
   },
   "devDependencies": {
+    "@types/node": "^24.13.6",
     "@types/three": "^0.182.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.5"

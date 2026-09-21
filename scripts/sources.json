@@ -1,0 +1,49 @@
+{
+  "recorded": "2026-09-21",
+  "cache": "../.cache, beside the repository; every bake reads its source from there unless given a path",
+  "note": "The copies in ../.cache were downloaded before this file existed and nobody wrote down from where. The URLs are each file's canonical source; sha256 and bytes are of the copy the bakes were last run against, so `node scripts/fetch-sources.mjs` says when what it downloads is not that copy. GeoNames rebuilds its dumps daily, so its hashes will drift; Natural Earth changes by release.",
+  "sources": [
+    {
+      "file": "ne10.geojson",
+      "what": "Natural Earth 1:10m Cultural, Admin 0 - Countries (ne_10m_admin_0_countries), as GeoJSON",
+      "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson",
+      "licence": "Public domain (https://www.naturalearthdata.com/about/terms-of-use/)",
+      "bakes": ["build-countries.mjs"],
+      "sha256": "239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255",
+      "bytes": 13287234
+    },
+    {
+      "file": "ne50-lakes.geojson",
+      "what": "Natural Earth 1:50m Physical, Lakes + Reservoirs (ne_50m_lakes), as GeoJSON",
+      "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_lakes.geojson",
+      "licence": "Public domain (https://www.naturalearthdata.com/about/terms-of-use/)",
+      "bakes": ["build-lakes.mjs"],
+      "sha256": "d350b75978b26fe839b797c2c529b2fb8f47fb3983c03f4964e36d5df9378a52",
+      "bytes": 876018
+    },
+    {
+      "file": "cities5000.txt",
+      "what": "GeoNames cities5000: every populated place over about 5,000 people or seat of an administrative division",
+      "url": "https://download.geonames.org/export/dump/cities5000.zip",
+      "unzip": "cities5000.txt",
+      "licence": "CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), credited on the loading screen and the settings card",
+      "bakes": ["build-places.mjs"],
+      "sha256": "28fab10de3ef86d9e0468fd726bc26582bea3beb92fa5f63689729a974728ac1",
+      "bytes": 15019711
+    },
+    {
+      "file": "countryInfo.txt",
+      "what": "GeoNames countryInfo: ISO codes, capital, area, population, continent, currency and languages of each country",
+      "url": "https://download.geonames.org/export/dump/countryInfo.txt",
+      "licence": "CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), credited with the places",
+      "bakes": ["build-places.mjs", "build-country-info.mjs"],
+      "sha256": "93bafc525813f22e4711ff9ed6d626343094ce48c26388dc7c49189b3d7d5512",
+      "bytes": 31678
+    }
+  ],
+  "assets": {
+    "dir": "assets",
+    "what": "The CC0 model packs build-cast.mjs, build-kit.ts and retarget-clips.ts read: Quaternius, Kenney, KayKit and Poly Pizza models",
+    "note": "Not fetched by fetch-sources.mjs: each pack is a download from its own site, and ../.cache/assets/INVENTORY.md lists every one with its URL, its licence and when it was taken. What each bake used is named in the LICENSE.txt it writes beside its output under public/models/."
+  }
+}

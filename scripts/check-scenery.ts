@@ -45,6 +45,7 @@
 import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Object3D } from 'three';
 import {
   KINDS,
   VARIANTS,
@@ -112,7 +113,12 @@ type MeshLike = {
   geometry?: { getAttribute(name: string): Attribute | undefined; dispose(): void };
   matrixWorld: { elements: number[] };
 };
-type GroupLike = { updateMatrixWorld(deep: boolean): void; traverse(fn: (o: never) => void): void };
+/**
+ * What these helpers need of a group: Three's own two methods. It was a
+ * hand-written `traverse(fn: (o: never) => void)`, which Three's `Group` is not
+ * assignable to — invisible while nothing typechecked `scripts/`.
+ */
+type GroupLike = Pick<Object3D, 'updateMatrixWorld' | 'traverse'>;
 
 /** Every drawn colour in a group, as stamped — tones included, so 'green x0.85' and 'green' are two. */
 function drawnColors(group: GroupLike): Set<number> {

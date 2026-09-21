@@ -11,8 +11,8 @@
  * you are standing in and `sheets/flags.html` draws 234 flags from them; nothing in
  * this world can be *in* a lake — `countryAt` returns open water there, exactly
  * as it does at sea — so a name would be 412 strings nobody reads. `pnpm check`
- * names them from coordinates, the way it already names the 25 biome places and
- * the 22 cities whose clocks it checks.
+ * reads them by their own outlines instead: it samples every lake on a grid
+ * against `countryAt`, and counts the land the mesh draws over the water.
  *
  * **Outer rings only, the same rule the outlines follow**, so an island in a
  * lake is drowned unless the *country* data draws it as a ring of its own —
@@ -81,7 +81,8 @@ const OUT = resolve(here, '../public/data/lakes.bin');
  * The build column is one run each and is noisy at the top — 46 lakes read
  * faster than 27 — so read the triangles.
  *
- * 0.5 true square degrees is 27 lakes, the largest set inside the budget the
+ * 0.5 true square degrees is 27 rings — 26 lakes, since the source carries
+ * Lake Volta twice (see `seen` below) — the largest set inside the budget the
  * lakes are worth (the no-lake mesh plus a fifth) with room left for the world
  * to grow into. It is a ring about **223 world units across, 33 avatars**, and
  * the shape argument agrees with the budget rather than fighting it:

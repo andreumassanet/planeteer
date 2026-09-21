@@ -14,9 +14,11 @@
  * database is to ship the *names* and let the platform do the rest.
  * `Intl.DateTimeFormat` carries the full IANA rules — the offsets, the daylight
  * saving transitions, the historical changes, and updates to all three — in
- * every browser and in Node. What this file holds is a table of country to zone
- * name, which is a few hundred short strings of code, not an external asset,
- * and no timezone logic whatsoever.
+ * every browser and in Node. The names come from two places: GeoNames' own zone
+ * for every town, baked into `places.bin`, which is what the chip reads; and,
+ * for ground whose nearest town is across a border, a table here of country to
+ * zone name, split by meridians where a country holds several. Neither is
+ * timezone logic — the platform does all of that.
  *
  * The fallback is deliberate rather than an error path, the way `CLAUDE.md`
  * asks weather to be: where there is no zone for a place, or the platform

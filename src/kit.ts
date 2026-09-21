@@ -9,9 +9,10 @@ import type { Model, Rig, RigSource } from './models.ts';
  *
  * Two shapes of file. `models/traffic/kit.bin` is every vehicle in one GLB, one
  * node a model, and `models/nature/kit.bin` every plant and rock; each is loaded
- * whole, because a region's traffic is most of the kit and the flora is 69 KB. `models/fauna/<id>.bin`
- * is one animal a file with its skeleton and clips, loaded the first time a
- * herd of it is near, because a region grazes two or three of the nine.
+ * whole, because a region's traffic is most of the kit and the flora is 96 KB
+ * (2026-09-21). `models/fauna/<id>.bin` is one animal a file with its skeleton
+ * and clips, loaded the first time a herd of it is near, because a region
+ * grazes a few of the eight rigs and never all of them.
  *
  * Every file is a gzipped GLB, like `public/data/*.bin`, and nothing in it
  * needs work on arrival: the slots, the creased normals and the ink's normals

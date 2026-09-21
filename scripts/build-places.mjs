@@ -17,8 +17,8 @@
  * GeoNames' `cities5000` is that file: every settlement over about 5,000 people
  * or seat of an administrative division, 69,622 of them, with real populations
  * and coordinates good to a few metres. **It is CC BY 4.0, not public domain** —
- * see the credit in `README.md` and on the loading screen, which is the whole of
- * what the licence asks and is not optional.
+ * see the credit on the loading screen, on the settings card and in `LICENSE`,
+ * which is the whole of what the licence asks and is not optional.
  *
  * Four decisions are baked in here and each is measured. The numbers are from
  * the run this file was written against.
@@ -90,18 +90,19 @@
  *
  * What the thinning costs is written down: it is the same compression
  * `build-monuments.ts` makes when it pushes the Sphinx off the Pyramids. Madrid
- * claims 66 units and deletes the real towns 25 km out of it. Keep the
- * ordering, give up the ratio.
+ * claims 103 units under `radiusFor`'s `0.465 * pop^0.36` and deletes the real
+ * towns 45 km out of it. Keep the ordering, give up the ratio.
  *
- * **117 places over a million people lose their ground to a neighbour and about
- * a hundred of those are right**: they are city districts and dormitory suburbs
- * — Brooklyn, Giza, Yokohama, Bekasi, Navi Mumbai, Soweto — which is exactly
- * what a 1:400 planet should do with them. The ones that are not right are two
- * genuine cities standing closer than the sum of their radii, and the file
- * cannot have both: **Kyoto and Kobe lose to Osaka, Hong Kong to Shenzhen,
- * Düsseldorf to Köln, San Diego to Tijuana, Manila to Quezon City.** The last
- * two are the sharper case, because there the *smaller* name is the famous one
- * and it loses on a municipal census.
+ * **140 places over a million people lose their ground to a neighbour**
+ * (2026-09-21, under the current radius law; it was 117 under the old one) **and
+ * most of those are right**: they are city districts and dormitory suburbs —
+ * Brooklyn, Giza, Yokohama, Bekasi, Soweto, Pudong — which is exactly what a
+ * 1:400 planet should do with them. The ones that are not right are two genuine
+ * cities standing closer than the sum of their radii, and the file cannot have
+ * both: **Kyoto and Kobe lose to Osaka, Shenzhen to Guangzhou, Tianjin to
+ * Beijing, Düsseldorf to Köln, San Diego to Tijuana, Manila to Quezon City.**
+ * The last two are the sharper case, because there the *smaller* name is the
+ * famous one and it loses on a municipal census.
  *
  * **A rename was tried for exactly that and it is measured as wrong.** The rule
  * was: when the absorbed place outranks its host in GeoNames' own `PPLC > PPLA >
@@ -116,10 +117,10 @@
  *
  * **Population is carried to three significant figures**, which is 36 KB of the
  * wire and no information at all: every consumer of it is a slow curve.
- * `radiusFor` is a power law with an exponent of 0.1876 and `urbanityOf` is a
+ * `radiusFor` is a power law with an exponent of 0.36 and `urbanityOf` is a
  * log, so rounding Madrid's 3,255,944 to 3,260,000 moves its built radius by
- * **0.07 units at the worst place in the file** — a hundredth of an avatar, a
- * fortieth of a house. The figures are census counts of a dozen different
+ * 0.05 units, and the worst place in the file, Longyan, by **0.12** (2026-09-21)
+ * — a sixtieth of an avatar, a twentieth of a house. The figures are census counts of a dozen different
  * vintages and estimates besides; the fourth digit was never real.
  *
  * **Six fields survive** — `name`, `lat`, `lon`, `pop`, `iso` and `zone`, plus
@@ -287,10 +288,11 @@ function snapToLand(lat, lon, wantIso) {
  *   alternative strips the accents off Málaga and Nîmes for nothing. Every name
  *   is Latin script; the median is 8 characters and the longest 57.
  * - `population` is the municipality, where Natural Earth's `POP_MAX` was the
- *   agglomeration. **It does not matter**, and that is worth knowing before
- *   anyone tries to reconstruct one: `radiusFor` is a power law with an exponent
- *   of 0.1876, so Madrid's 3.2 M against a metro 5.6 M is 66 units of radius
- *   against 73 — a tenth, under one house. It is rounded to three significant
+ *   agglomeration. **It matters less than it looks**, and that is worth
+ *   knowing before anyone tries to reconstruct one: `radiusFor` is a power law
+ *   with an exponent of 0.36, so Madrid's 3.3 M against a metro 5.6 M is 103
+ *   units of radius against 125 — about a fifth, where the old law's exponent
+ *   of 0.1876 made it a tenth. It is rounded to three significant
  *   figures here rather than at the write, so what the thinning measures is what
  *   ships.
  * - `feature code` decides two things and then does not survive. It carries
@@ -439,7 +441,8 @@ for (const p of candidates) {
  *   pass here any more. The file this replaced needed one; a gazetteer keyed on
  *   `geonameid` plus this rule does not.
  * - **A big city clears a big ring**, because the separation carries *its* own
- *   radius too. Madrid at 66 units deletes a 30-unit town 25 km away. That is
+ *   radius too. Madrid at 103 units deletes a 30-unit town — about 106,000
+ *   people — anywhere within 53 km. That is
  *   the 1:400 compression, stated once, and it is the same one every monument
  *   and every crop in the contract makes.
  *

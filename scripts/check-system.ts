@@ -107,7 +107,7 @@ console.log('  sidereal period, derived from the mean-longitude rate against the
 console.log('    body        derived        real      error     P^2/a^3');
 for (const id of Object.keys(ELEMENTS) as OrbitId[]) {
   const days = periodOf(id);
-  const real = REAL_PERIOD[id];
+  const real = REAL_PERIOD[id]!;
   const years = days / 365.25636;
   const a = ELEMENTS[id]!.epoch.a;
   // Kepler's third law, in years and au, where the constant is exactly 1. `a`

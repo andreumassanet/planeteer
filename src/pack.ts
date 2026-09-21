@@ -28,7 +28,7 @@
  * own `toFixed` produced and divided back by the same power of ten, and `n/10^d`
  * and `Number(v.toFixed(d))` are both the nearest double to the same decimal, so
  * the round trip is exact rather than close. `pnpm check` asserts it over all
- * 188,912 outline points, 29,614 places and 16,960 roads (2026-09-13).
+ * 188,507 outline points, 29,614 places and 17,186 roads (2026-09-21).
  */
 
 import type { Country } from './geo.ts';
@@ -501,7 +501,8 @@ export function decodeLakes(bytes: Uint8Array): number[][][] {
  * **The third plane is the only one gzip can do anything with and that is the
  * point.** The places are ordered by population, so nothing about their
  * coordinates is sorted and the low two bytes are noise — 107.8 KB of it, which
- * is close to the entropy of 23,867 coordinates at 111 m. What the top plane
+ * is close to the entropy of 23,867 coordinates at 111 m (the file when the
+ * format was written; it holds 29,614 now). What the top plane
  * carries is that the world's cities sit in a band of latitude, and it comes out
  * at about a byte in eight.
  */
@@ -516,8 +517,8 @@ export function encodePlaces(places: readonly Place[]): Uint8Array {
 
   writeText(out, places.map((p) => p.name));
 
-  // The country codes are a 228-entry alphabet over 23,867 rows, so they are one
-  // byte each into a table rather than three characters each.
+  // The country codes are an alphabet of a couple of hundred over 29,614 rows,
+  // so they are one byte each into a table rather than three characters each.
   const table: string[] = [];
   const index = new Map<string, number>();
   for (const place of places) {
@@ -553,8 +554,9 @@ export function encodePlaces(places: readonly Place[]): Uint8Array {
     previous = place.pop;
   }
 
-  // 218 capitals and 662 snapped rows out of 23,867: a flag byte a row would be
-  // 23.3 KB to say "no" 23,000 times, so both ship as delta-coded index lists.
+  // 218 capitals and 1,237 snapped rows out of 29,614 (2026-09-21): a flag byte
+  // a row would be 29 KB to say "no" 28,000 times, so both ship as delta-coded
+  // index lists.
   const capitals: number[] = [];
   const snapped: number[] = [];
   places.forEach((place, i) => {
@@ -721,8 +723,9 @@ export function encodeRoads(placeCount: number, graph: string, roads: readonly R
   }
 
   // `b` is not ordered at all: a Gabriel neighbour of a big city is any of
-  // 23,867 towns, so this column is 49,287 x 14.5 bits of genuine entropy and
-  // there is nothing to take out of it. Two planes of a `Uint16`.
+  // tens of thousands of rows, so this column is genuine entropy — 49,287 x
+  // 14.5 bits when it was measured, over 23,867 towns — and there is nothing
+  // to take out of it. Two planes of a `Uint16`.
   const ends = new Int32Array(n);
   for (let i = 0; i < n; i++) {
     ends[i] = roads[i]!.b;
