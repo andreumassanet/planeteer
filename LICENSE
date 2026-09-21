@@ -38,6 +38,9 @@ public/ are derived from third-party sources and carry their own terms:
 - public/models/*/: CC0 1.0 Universal kits by Kenney, Quaternius, Kay Lousberg
   and CreativeTrio, rebuilt by the bake scripts. Each directory's LICENSE.txt
   names the packs it was built from.
+- public/audio/: CC0 1.0 Universal sounds from Kenney's Impact Sounds,
+  Interface Sounds, Music Jingles and RPG Audio, re-encoded by
+  scripts/build-audio.mjs; its LICENSE.txt names them.
 
 scripts/sources.json records where each data source is downloaded from, its
 licence, and the hash of the copy the bakes were last run against;

@@ -8,7 +8,7 @@ import type { MonumentContext } from './monuments/contract.ts';
 import { PALETTE } from './theme.ts';
 import { lookFor } from './scenery/dress.ts';
 import { rngFrom } from './scenery/random.ts';
-import { frameOpen } from './view.ts';
+import { frameOpenFor } from './view.ts';
 
 /**
  * The people of the world, dressed and set moving: the cast (`cast.ts`) worn
@@ -340,7 +340,7 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
         let entry = standing.get(anchor.key);
         if (entry === undefined) {
           // A few a frame, and only while the frame has room (`view.ts`).
-          if (dressed >= DRESS_PER_FRAME || !frameOpen(true)) continue;
+          if (dressed >= DRESS_PER_FRAME || !frameOpenFor(dressed, true)) continue;
           const made = dress(anchor, clock);
           if (made === null) continue;
           entry = made;

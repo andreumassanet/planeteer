@@ -25,7 +25,7 @@ import {
   createViewCone,
   detailArea,
   detailBuild,
-  frameOpen,
+  frameOpenFor,
   mayBuild,
   NEAR_BUILD,
   detailCount,
@@ -2757,7 +2757,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       let built = 0;
       // One a frame whatever the slice says, so the sward always moves — but
       // only while the frame has room; see `mayBuild` in `view.ts`.
-      while (swardQueue.length > 0 && triangles < cap && (built === 0 ? frameOpen(true) : mayBuild(began, allowance, true))) {
+      while (swardQueue.length > 0 && triangles < cap && (built === 0 ? frameOpenFor(0, true) : mayBuild(began, allowance, true))) {
         const tile = swardQueue.shift()!;
         if (swardStanding.has(tile.key)) continue;
         const sowing = performance.now();

@@ -32,7 +32,7 @@ import { BIOMES, biomeAt, biomeSample } from './biome.ts';
 import {
   createViewCone,
   detailBuild,
-  frameOpen,
+  frameOpenFor,
   mayBuild,
   detailCount,
   detailReach,
@@ -2846,7 +2846,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       // A dressing is a whole skinned clone. A few a frame, and only while the
       // frame has room: a verge that comes into view with nine walkers on it
       // dresses them over three frames, each hidden until it is.
-      if (dressedThisFrame >= DRESS_PER_FRAME || !frameOpen(true)) return;
+      if (dressedThisFrame >= DRESS_PER_FRAME || !frameOpenFor(dressedThisFrame, true)) return;
       dressedThisFrame++;
       const person = folk!.dress(mover.key, mover.pool.split('|')[1] ?? 'atlantic-europe');
       if (person === null) return;
@@ -2897,7 +2897,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       // One herd stood up a frame, and only while the frame has room: each
       // animal is a skinned copy of its rig. Until then the merged herd stands
       // in for it, which is what it is at any distance past this.
-      if (herdsStoodThisFrame >= HERDS_PER_FRAME || !frameOpen(true)) return false;
+      if (herdsStoodThisFrame >= HERDS_PER_FRAME || !frameOpenFor(herdsStoodThisFrame, true)) return false;
       herdsStoodThisFrame++;
       const holder = new THREE.Group();
       holder.name = `herd-animated:${mover.key}`;

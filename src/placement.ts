@@ -7,7 +7,7 @@ import { mergeMeshes } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
 import type { MonumentContext } from './monuments/contract.ts';
-import { NEAR_BUILD, createViewCone, detailPixels, detailReach, fogFar, frameOpen, horizonAt, slantRange } from './view.ts';
+import { NEAR_BUILD, createViewCone, detailPixels, detailReach, fogFar, frameOpenFor, horizonAt, slantRange } from './view.ts';
 
 /**
  * Where a monument stands, as baked by `scripts/build-monuments.ts`.
@@ -496,7 +496,7 @@ export function createMonuments(
         // spire at the top of the frame.
         const bound = footprint + 150;
         if (distance < range && legible && cone.admits(slot.anchor, bound)) {
-          if (slot.object === null && !slot.failed && raised < RAISES_PER_FRAME && frameOpen(distance - footprint < NEAR_BUILD)) {
+          if (slot.object === null && !slot.failed && raised < RAISES_PER_FRAME && frameOpenFor(raised, distance - footprint < NEAR_BUILD)) {
             raise(slot);
             raised++;
           }

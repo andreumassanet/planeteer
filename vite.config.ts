@@ -22,8 +22,9 @@ export default defineConfig({
       // KB gzipped across 10 chunks**, and with the world alone **245.6 KB in
       // one** — 3.6 KB and nine round trips, paid by the page everyone opens for
       // pages nobody opens in production. Those are that day's sizes: the
-      // world's own main chunk had grown to 279.6 KB gzipped by 2026-09-21, and
-      // the sheets' cost was not re-measured. If a sheet is ever wanted online,
+      // world's own main chunk had grown to 279.6 KB gzipped by the morning of
+      // 2026-09-21 and 293.2 by its evening (the soundscape, the key table, the
+      // fades and the HUD's new cards), and the sheets' cost was not re-measured. If a sheet is ever wanted online,
       // give it its own build rather than another entry beside this one.
       input: { main: 'index.html' },
     },

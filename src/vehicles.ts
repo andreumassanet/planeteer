@@ -591,12 +591,13 @@ export const ALTITUDE_RATE = 1.1;
 /**
  * The launch's wheel, in the boat's own frame.
  *
- * **Published for the same reason `PLANE_SEAT` is**: `avatar.ts` has to put two
- * hands on this rim, and until this existed it restated the hub, the radii, the
- * thickness and the rake out of the comments in this file. Four numbers copied
- * across a boundary that nothing checks — move the wheel and the hands stay
- * where it used to be, with no error and no assertion, and from the one camera
- * the player actually uses the helmsman's own back hides the gap.
+ * **Published for the same reason `PLANE_SEAT` is**: the code-built helmsman's
+ * hands were put on this rim from `avatar.ts`, which restated the hub, the
+ * radii, the thickness and the rake out of the comments in this file until
+ * this existed. The CC0 hero stands at the helm in the pack's idle and no
+ * longer reaches for it, so today the one reader is the wheel's own build in
+ * this file; it stays exported and in one place for the hands that come back
+ * the day the helmsman grips it again.
  *
  * The rake is the column's: 25 degrees off horizontal, so the face turns towards
  * the helmsman instead of lying flat like a bus.

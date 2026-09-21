@@ -642,11 +642,38 @@ export function frameOpen(near: boolean): boolean {
 }
 
 /**
+ * `frameOpen` for work counted per frame rather than timed: the first near
+ * item of the frame always goes (`done` is how many this caller has done), for
+ * the reason `FIRST_BUILD_MS` gives, and the rest wait for the allowance.
+ */
+export function frameOpenFor(done: number, near: boolean): boolean {
+  return (near && done === 0) || frameOpen(near);
+}
+
+/**
+ * How long into its own slice a streamer may still start its first near build
+ * of the frame when the frame's allowance is already spent.
+ *
+ * **The frame's allowance is served in order, and in order starves the end of
+ * the queue.** With towns and roads first, a view with dozens of towns in
+ * reach spent every frame's 8 ms before the wood and the herds were asked: on
+ * a software renderer, 56 seconds after arriving over San Diego the wood had 4
+ * tiles and 9 near ones pending against the 16 the per-streamer slices had
+ * built, and no herd stood at all (2026-09-21). So every streamer with near
+ * work starts one build a frame whatever the frame has spent — the worst frame
+ * is then one build per streamer, which is exactly what the separate slices
+ * cost before this allowance existed — and only the rest waits its turn.
+ */
+const FIRST_BUILD_MS = 1;
+
+/**
  * Whether a streamer may start one more build: inside its own slice (`share`
- * milliseconds since it began, at `began`) and inside the frame's.
+ * milliseconds since it began, at `began`) and inside the frame's — or, for
+ * near work, as its first build of the frame (`FIRST_BUILD_MS`).
  */
 export function mayBuild(began: number, share: number, near: boolean): boolean {
-  return performance.now() - began < share && frameOpen(near);
+  const own = performance.now() - began;
+  return own < share && (frameOpen(near) || (near && own < FIRST_BUILD_MS));
 }
 
 /**
