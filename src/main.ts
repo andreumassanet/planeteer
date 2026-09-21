@@ -1570,6 +1570,7 @@ async function start(): Promise<void> {
             country: owner?.name ?? place.iso,
             height: place.height,
             year: place.year,
+            note: place.note,
             found: foundCount(),
             total: placements.length,
           });
@@ -1605,9 +1606,10 @@ async function start(): Promise<void> {
     }
     // Where you are, asked once and handed to both the disc and the chip.
     // Every frame, not throttled: `countryAtPoint` is 2 us and the nearest
-    // place is a scan of 9,734 dot products, which is another 7. The disc
-    // frames itself on the first and names the second; the chip's own debounce
-    // — a country has to hold before it counts as an arrival — lives in the HUD.
+    // place is a scan of 9,749 dot products, which is another 10 (10.4 us,
+    // measured 2026-09-21). The disc frames itself on the first and names the
+    // second; the chip's own debounce — a country has to hold before it counts
+    // as an arrival — lives in the HUD.
     const standingIn = world.countryAtPoint(player.position);
     const nearbyPlace = places.nearest(player.position);
     minimap.update(player.position, player.forward, {

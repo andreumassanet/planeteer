@@ -50,7 +50,7 @@ interface Source {
 
 const source = JSON.parse(
   readFileSync(resolve(here, 'monuments.source.json'), 'utf8'),
-) as { monuments: Source[] };
+) as { monuments: Source[]; notes?: Record<string, string> };
 
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 const isoOf = (id: number): string => (id > 0 ? world.countries[id - 1]!.iso : '');
@@ -131,6 +131,8 @@ interface Placed {
   footprint: number;
   height?: number;
   year?: number;
+  /** The card's sentence, from the source's `notes`. */
+  note?: string;
   snappedKm?: number;
   /** Radius of same-shelf ground the seat pass below managed to find. */
   clearance?: number;
@@ -177,6 +179,7 @@ for (const m of source.monuments) {
     footprint: footprintOf(m.id),
     ...(m.height === undefined ? {} : { height: m.height }),
     ...(m.year === undefined ? {} : { year: m.year }),
+    ...(source.notes?.[m.id] === undefined ? {} : { note: source.notes[m.id] }),
     ...(movedKm > 0 ? { snappedKm: Number(movedKm.toFixed(1)) } : {}),
   });
 }

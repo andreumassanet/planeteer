@@ -39,6 +39,8 @@ import type { Nearby } from './places.ts';
 import type { Vehicle } from './player.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { createFlagCanvas } from './flags.ts';
+import { countryFacts } from './country-facts.ts';
+import type { CountryFacts } from './country-facts.ts';
 import { capOf, hintsFor, labelOf, onKeyLabels, registerModal } from './controls.ts';
 import type { KeyHint } from './controls.ts';
 import { ensureStyle, h, hex, icon, installUi, kbd } from './ui.ts';
@@ -158,6 +160,8 @@ export interface LandmarkArrival {
    * anything older than a date.
    */
   year?: number;
+  /** A sentence about it, when the source has one. */
+  note?: string;
   found: number;
   total: number;
 }
@@ -187,6 +191,11 @@ const OFFSHORE_KM = 40;
 const HOLD = 5.5;
 /** And the landmark card, which is a rarer event and carries more to read. */
 const FOUND_HOLD = 8;
+/**
+ * Longer again when it carries a sentence: the notes run to about 140
+ * characters, five or six seconds of reading on their own.
+ */
+const NOTE_HOLD = 4;
 /** The chip's little jolt when the place under it changes. */
 const BUMP = 0.22;
 /** And how long "Arrived" holds before the destination panel puts itself away. */
@@ -391,6 +400,14 @@ const STYLE = `
   letter-spacing: -0.015em;
   line-height: 1.08;
 }
+.atlas-arrival-facts {
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  opacity: 0.85;
+}
+.atlas-arrival-facts:empty { display: none; }
 .atlas-arrival-fact, .atlas-found-fact {
   margin-top: 3px;
   font-size: 12.5px;
@@ -418,6 +435,17 @@ const STYLE = `
 }
 .atlas-found.in { opacity: 1; transform: translate(0, -50%); }
 .atlas-found-text { text-align: right; }
+.atlas-found-note {
+  margin-top: 6px;
+  max-width: 290px;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  opacity: 0.8;
+  text-wrap: pretty;
+}
+.atlas-found-note:empty { display: none; }
 .atlas-found-meter {
   margin: 8px 0 0 auto;
   width: 150px;
@@ -715,6 +743,23 @@ const km = (value: number): string => `${Math.round(value).toLocaleString('en')}
  * it" is confirmed by walking the line with `countryAt`, not read off a
  * bounding box. Where nothing more interesting is true, it is the extent.
  */
+/** "47 million", "8.4 million", "1.4 billion", "38,000": a population as it is said. */
+function peopleText(population: number): string {
+  if (population >= 1e9) return `${(population / 1e9).toFixed(1)} billion`;
+  if (population >= 1e7) return `${Math.round(population / 1e6)} million`;
+  if (population >= 1e6) return `${(population / 1e6).toFixed(1)} million`;
+  return Math.round(population).toLocaleString('en');
+}
+
+/** The card's first line: capital, people, the language most of them speak. */
+function describeCountry(facts: CountryFacts): string {
+  const parts: string[] = [];
+  if (facts.capital) parts.push(`Capital ${facts.capital}`);
+  if (facts.population > 0) parts.push(`${peopleText(facts.population)} people`);
+  if (facts.languages.length > 0) parts.push(facts.languages[0]!);
+  return parts.join(' · ');
+}
+
 function factFor(world: World, id: number): string {
   const country = world.countries[id - 1]!;
 
@@ -847,11 +892,17 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const arrivalFlag = h('span');
   const arrivalName = h('div', { class: 'atlas-arrival-name' });
   const arrivalFact = h('div', { class: 'atlas-arrival-fact' });
+  // What a person would tell you about the place — its capital, how many live
+  // there, what they speak — above the line the outlines can say for
+  // themselves. Filled when `country-facts.ts` answers, which is once, on the
+  // first frontier; empty (and hidden) for the few features that are not
+  // countries.
+  const arrivalFacts = h('div', { class: 'atlas-arrival-facts' });
   const arrival = h(
     'div',
     { class: 'atlas-arrival ui-card' },
     arrivalFlag,
-    h('div', {}, h('div', { class: 'atlas-card-eyebrow', text: 'You are now in' }), arrivalName, arrivalFact),
+    h('div', {}, h('div', { class: 'atlas-card-eyebrow', text: 'You are now in' }), arrivalName, arrivalFacts, arrivalFact),
   );
 
   const foundEyebrow = h('div', { class: 'atlas-card-eyebrow' });
@@ -859,10 +910,11 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const foundFact = h('div', { class: 'atlas-found-fact' });
   const foundMeter = h('i');
   const foundFlag = h('span');
+  const foundNote = h('div', { class: 'atlas-found-note' });
   const found = h(
     'div',
     { class: 'atlas-found ui-card' },
-    h('div', { class: 'atlas-found-text' }, foundEyebrow, foundName, foundFact, h('div', { class: 'atlas-found-meter' }, foundMeter)),
+    h('div', { class: 'atlas-found-text' }, foundEyebrow, foundName, foundFact, foundNote, h('div', { class: 'atlas-found-meter' }, foundMeter)),
     foundFlag,
   );
 
@@ -1103,6 +1155,12 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     }
     arrivalName.textContent = country.name;
     arrivalFact.textContent = `${country.continent} · ${fact}`;
+    arrivalFacts.textContent = '';
+    void countryFacts(country.iso).then((known) => {
+      // A later card has the slot by now, or there is nothing to say.
+      if (known === null || announced !== id) return;
+      arrivalFacts.textContent = describeCountry(known);
+    });
     arrivalFlag.replaceChildren(createFlagCanvas(country.iso, 66, 44));
     arrival.classList.add('in');
     showing = true;
@@ -1267,10 +1325,11 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       if (landmark.height !== undefined && landmark.height > 0) lines.push(`${landmark.height.toLocaleString('en')} m`);
       if (landmark.year !== undefined) lines.push(yearText(landmark.year));
       foundFact.textContent = lines.join(' · ');
+      foundNote.textContent = landmark.note ?? '';
       foundMeter.style.width = `${((landmark.found / Math.max(1, landmark.total)) * 100).toFixed(1)}%`;
       foundFlag.replaceChildren(createFlagCanvas(landmark.iso, 66, 44));
       found.classList.add('in');
-      foundFor = FOUND_HOLD;
+      foundFor = FOUND_HOLD + (landmark.note ? NOTE_HOLD : 0);
     },
     arriveAt(name, iso) {
       destinationName.textContent = name;

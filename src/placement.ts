@@ -43,6 +43,8 @@ export interface Placement {
   clearance?: number;
   height?: number;
   year?: number;
+  /** One sentence for the card that greets you there; `notes` in the source. */
+  note?: string;
   snappedKm?: number;
 }
 

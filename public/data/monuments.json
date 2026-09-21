@@ -9,6 +9,7 @@
    "footprint": 35,
    "height": 330,
    "year": 1889,
+   "note": "Built as the entrance arch of the 1889 World's Fair and meant to last twenty years; it was the tallest structure on Earth until 1930.",
    "clearance": 35
   },
   {
@@ -20,6 +21,7 @@
    "footprint": 21,
    "height": 50,
    "year": 1836,
+   "note": "Napoleon ordered it after Austerlitz in 1806; it took thirty years, and twelve avenues radiate from the star around it.",
    "clearance": 21
   },
   {
@@ -29,6 +31,7 @@
    "lat": 48.636,
    "lon": -1.511,
    "footprint": 52,
+   "note": "A granite islet crowned by a Benedictine abbey, in a bay where the tide is said to come in as fast as a galloping horse.",
    "clearance": 0
   },
   {
@@ -40,6 +43,7 @@
    "footprint": 52,
    "height": 48,
    "year": 80,
+   "note": "Opened in AD 80 with a hundred days of games; some 50,000 spectators sat under a canvas awning worked by sailors.",
    "clearance": 52
   },
   {
@@ -51,6 +55,7 @@
    "footprint": 15,
    "height": 57,
    "year": 1372,
+   "note": "It began to lean in 1178, while it was still being built on soft ground; engineers took 40 cm off the lean between 1990 and 2001.",
    "clearance": 15
   },
   {
@@ -62,6 +67,7 @@
    "footprint": 55,
    "height": 136,
    "year": 1626,
+   "note": "Michelangelo designed the dome of the largest church in the world, raised over the traditional tomb of Saint Peter.",
    "clearance": 55
   },
   {
@@ -71,6 +77,7 @@
    "lat": 41.404,
    "lon": 2.174,
    "footprint": 38,
+   "note": "Gaudí gave it the last 43 years of his life and is buried in its crypt; begun in 1882, it is still being built.",
    "clearance": 8
   },
   {
@@ -80,6 +87,7 @@
    "lat": 37.176,
    "lon": -3.588,
    "footprint": 48,
+   "note": "The palace-fortress of the Nasrid sultans of Granada, its courts lined with carved stucco and cooled by water from the Sierra Nevada.",
    "clearance": 48
   },
   {
@@ -90,6 +98,7 @@
    "lon": -2.8765,
    "footprint": 37,
    "year": 1997,
+   "note": "Frank Gehry's titanium-clad museum on the Nervión, whose success gave a name to the 'Bilbao effect'.",
    "clearance": 37
   },
   {
@@ -101,6 +110,7 @@
    "footprint": 10,
    "height": 96,
    "year": 1859,
+   "note": "Big Ben is strictly the 13.7-tonne bell inside; the tower was renamed Elizabeth Tower in 2012 for the Queen's Diamond Jubilee.",
    "clearance": 10
   },
   {
@@ -112,6 +122,7 @@
    "footprint": 55,
    "height": 65,
    "year": 1894,
+   "note": "A bascule bridge dressed as a Gothic castle; its two leaves still rise to let tall ships into the Pool of London.",
    "clearance": 55
   },
   {
@@ -121,6 +132,7 @@
    "lat": 51.179,
    "lon": -1.826,
    "footprint": 14,
+   "note": "Raised in stages from about 3000 BC; its axis lines up with the midsummer sunrise and the midwinter sunset.",
    "clearance": 14
   },
   {
@@ -132,6 +144,7 @@
    "footprint": 44,
    "height": 26,
    "year": 1791,
+   "note": "Berlin's neoclassical gate, crowned by the Quadriga, stood in the no man's land of the Wall until 1989.",
    "clearance": 44
   },
   {
@@ -142,6 +155,7 @@
    "lon": 10.75,
    "footprint": 40,
    "year": 1886,
+   "note": "Ludwig II's fairy-tale castle, still unfinished when he died in 1886; it inspired Disney's Sleeping Beauty Castle.",
    "clearance": 40
   },
   {
@@ -153,6 +167,7 @@
    "footprint": 39,
    "height": 102,
    "year": 1958,
+   "note": "Built for the 1958 World's Fair: an iron crystal cell magnified 165 billion times, its spheres joined by tubes and escalators.",
    "clearance": 39
   },
   {
@@ -162,6 +177,7 @@
    "lat": 51.884,
    "lon": 4.64,
    "footprint": 55,
+   "note": "Nineteen windmills built around 1740 to keep the polders of the Alblasserwaard drained, and most of them still turn.",
    "clearance": 55
   },
   {
@@ -171,6 +187,7 @@
    "lat": 50.086,
    "lon": 14.411,
    "footprint": 54,
+   "note": "Prague's stone bridge over the Vltava, begun under Charles IV in 1357 and lined with thirty Baroque statues.",
    "clearance": 54
   },
   {
@@ -182,6 +199,7 @@
    "footprint": 12.3,
    "height": 65,
    "year": 1561,
+   "note": "Ivan the Terrible built it on Red Square to mark the capture of Kazan; each of its chapels wears its own dome.",
    "clearance": 12.3
   },
   {
@@ -191,6 +209,7 @@
    "lat": 37.971,
    "lon": 23.727,
    "footprint": 51,
+   "note": "The temple of Athena on the Acropolis, finished in 438 BC; its columns swell and lean so that they look straight.",
    "clearance": 8
   },
   {
@@ -202,6 +221,7 @@
    "footprint": 30,
    "height": 55,
    "year": 537,
+   "note": "For nearly a thousand years the largest cathedral in the world; its dome seems to float on a ring of forty windows.",
    "clearance": 0
   },
   {
@@ -212,6 +232,7 @@
    "lon": 12.5387,
    "footprint": 9.5,
    "year": 1913,
+   "note": "Edvard Eriksen's bronze of Hans Christian Andersen's mermaid, only 1.25 metres tall, on a rock in Copenhagen harbour.",
    "snappedKm": 2.2,
    "clearance": 9.5
   },
@@ -224,6 +245,7 @@
    "footprint": 27.6,
    "height": 74.5,
    "year": 1986,
+   "note": "Reykjavík's concrete church, its stepped tower modelled on the basalt columns that lava forms as it cools.",
    "clearance": 0
   },
   {
@@ -234,6 +256,7 @@
    "lon": 7.8125,
    "footprint": 24,
    "year": 1180,
+   "note": "A wooden stave church from about 1180, its tiered roofs watched over by carved dragon heads.",
    "clearance": 24
   },
   {
@@ -243,6 +266,7 @@
    "lat": 42.6624,
    "lon": 44.6203,
    "footprint": 34,
+   "note": "A 14th-century church alone on a ridge at 2,170 metres, under the glaciers of Mount Kazbek.",
    "clearance": 34
   },
   {
@@ -253,6 +277,7 @@
    "lon": 66.9758,
    "footprint": 36.5,
    "year": 1660,
+   "note": "Samarkand's great square, framed by three madrasas covered in blue tilework: the heart of the Timurid city.",
    "clearance": 36.5
   },
   {
@@ -262,6 +287,7 @@
    "lat": 29.9354,
    "lon": 52.8916,
    "footprint": 33.5,
+   "note": "The ceremonial capital of the Achaemenid kings, founded by Darius I around 518 BC and burned by Alexander in 330 BC.",
    "clearance": 33.5
   },
   {
@@ -271,6 +297,7 @@
    "lat": 34.0069,
    "lon": 36.2039,
    "footprint": 27,
+   "note": "Roman temples of Jupiter and Bacchus, raised on foundation stones that weigh up to 800 tonnes each.",
    "clearance": 27
   },
   {
@@ -280,6 +307,7 @@
    "lat": 30.9626,
    "lon": 46.1031,
    "footprint": 38,
+   "note": "A stepped temple mound built around 2100 BC for Nanna, the moon god of the Sumerian city of Ur.",
    "clearance": 38
   },
   {
@@ -291,6 +319,7 @@
    "footprint": 39,
    "height": 73,
    "year": 1653,
+   "note": "The white marble tomb Shah Jahan built for Mumtaz Mahal; its stone shifts from pink to white to gold with the light.",
    "clearance": 39
   },
   {
@@ -300,6 +329,7 @@
    "lat": 7.957,
    "lon": 80.7603,
    "footprint": 23.5,
+   "note": "A palace on top of a rock 180 metres high, entered between the paws of a colossal stone lion, built by King Kashyapa in the 5th century.",
    "clearance": 23.5
   },
   {
@@ -309,6 +339,7 @@
    "lat": 31.62,
    "lon": 74.877,
    "footprint": 39,
+   "note": "The holiest gurdwara of Sikhism, its gilded sanctum standing in a pool; its kitchen feeds tens of thousands every day.",
    "clearance": 39
   },
   {
@@ -318,6 +349,7 @@
    "lat": 40.356,
    "lon": 116.008,
    "footprint": 52,
+   "note": "Not one wall but many, built and rebuilt over two thousand years; its surveyed branches add up to 21,196 km.",
    "clearance": 52
   },
   {
@@ -327,6 +359,7 @@
    "lat": 39.916,
    "lon": 116.397,
    "footprint": 48,
+   "note": "The palace of the Ming and Qing emperors for five centuries: 980 buildings behind a moat and a ten-metre wall.",
    "clearance": 48
   },
   {
@@ -336,6 +369,7 @@
    "lat": 34.385,
    "lon": 109.278,
    "footprint": 34,
+   "note": "Some 8,000 life-size clay soldiers buried with China's first emperor around 210 BC, no two faces alike.",
    "clearance": 34
   },
   {
@@ -345,6 +379,7 @@
    "lat": 29.658,
    "lon": 91.117,
    "footprint": 52,
+   "note": "The winter palace of the Dalai Lamas, thirteen storeys climbing the Red Hill above Lhasa at 3,700 metres.",
    "clearance": 52
   },
   {
@@ -354,6 +389,7 @@
    "lat": 21.1703,
    "lon": 94.8672,
    "footprint": 43,
+   "note": "More than 2,000 Buddhist temples and pagodas still stand on the plain, of over 10,000 built between the 11th and 13th centuries.",
    "clearance": 43
   },
   {
@@ -364,6 +400,7 @@
    "lon": 103.867,
    "footprint": 48,
    "height": 65,
+   "note": "The largest religious monument on Earth, built for Vishnu in the early 12th century; its five towers are lotus buds.",
    "clearance": 48
   },
   {
@@ -373,6 +410,7 @@
    "lat": 30.329,
    "lon": 35.444,
    "footprint": 48,
+   "note": "The Nabataeans carved their city into rose-red sandstone; the Treasury's façade is cut straight out of the cliff.",
    "clearance": 48
   },
   {
@@ -384,6 +422,7 @@
    "footprint": 14.5,
    "height": 828,
    "year": 2010,
+   "note": "The tallest building in the world since 2010, 828 metres to the tip of a spire visible from 95 km away.",
    "clearance": 14.5
   },
   {
@@ -395,6 +434,7 @@
    "footprint": 26,
    "height": 333,
    "year": 1958,
+   "note": "Modelled on the Eiffel Tower and 13 metres taller, painted white and international orange for air safety.",
    "clearance": 26
   },
   {
@@ -405,6 +445,7 @@
    "lon": 138.728,
    "footprint": 55,
    "height": 3776,
+   "note": "Japan's highest peak, a near-perfect cone of a volcano that last erupted in 1707.",
    "clearance": 55
   },
   {
@@ -414,6 +455,7 @@
    "lat": 34.8819,
    "lon": 134.6961,
    "footprint": 28,
+   "note": "The White Heron, Japan's finest surviving feudal castle, which came through the bombing of 1945 almost untouched.",
    "clearance": 28
   },
   {
@@ -425,6 +467,7 @@
    "footprint": 15.2,
    "height": 452,
    "year": 1998,
+   "note": "The tallest twin towers in the world, joined by a skybridge at the 41st floor; each plan is an eight-pointed star.",
    "clearance": 15.2
   },
   {
@@ -435,6 +478,7 @@
    "lon": 103.861,
    "footprint": 31,
    "year": 2010,
+   "note": "Three hotel towers carrying a 340-metre SkyPark, with an infinity pool nearly 200 metres above the bay.",
    "clearance": 0
   },
   {
@@ -444,6 +488,7 @@
    "lat": -7.608,
    "lon": 110.204,
    "footprint": 51,
+   "note": "The largest Buddhist temple in the world, a 9th-century mountain of terraces holding 504 statues of the Buddha.",
    "clearance": 51
   },
   {
@@ -455,6 +500,7 @@
    "footprint": 14.5,
    "height": 508,
    "year": 2004,
+   "note": "Once the tallest building in the world, it rides out typhoons on a 660-tonne steel ball hung near its top.",
    "clearance": 14.5
   },
   {
@@ -464,6 +510,7 @@
    "lat": 37.579,
    "lon": 126.977,
    "footprint": 42,
+   "note": "The main palace of the Joseon kings, founded in 1395, burned in the invasions of 1592 and rebuilt in 1867.",
    "clearance": 42
   },
   {
@@ -474,6 +521,7 @@
    "lon": 86.8832,
    "footprint": 55,
    "height": 8849,
+   "note": "The highest point on Earth, 8,849 metres; Tenzing Norgay and Edmund Hillary first stood on it in 1953.",
    "snappedKm": 4.4,
    "clearance": 55
   },
@@ -486,6 +534,7 @@
    "footprint": 20,
    "height": 40,
    "year": 2008,
+   "note": "A 40-metre steel horseman on the steppe east of Ulaanbaatar; you can walk out onto the horse's head.",
    "clearance": 20
   },
   {
@@ -497,6 +546,7 @@
    "footprint": 27,
    "height": 210,
    "year": 1993,
+   "note": "Built partly over the Atlantic in Casablanca, with a 210-metre minaret and a roof that slides open.",
    "clearance": 0
   },
   {
@@ -507,6 +557,7 @@
    "lon": 30.9912,
    "footprint": 55,
    "height": 139,
+   "note": "The Great Pyramid of Khufu was the tallest thing people had built for almost 4,000 years, the last ancient wonder still standing.",
    "clearance": 55
   },
   {
@@ -516,6 +567,7 @@
    "lat": 29.8322,
    "lon": 31.2808,
    "footprint": 40,
+   "note": "A lion with a king's head, carved from the bedrock of the Giza plateau around 2500 BC, facing the sunrise.",
    "clearance": 40
   },
   {
@@ -525,6 +577,7 @@
    "lat": 22.337,
    "lon": 31.626,
    "footprint": 54,
+   "note": "Ramesses II's temples, cut into a cliff above the Nile; in the 1960s they were sawn apart and lifted 65 metres, out of Lake Nasser's way.",
    "clearance": 54
   },
   {
@@ -534,6 +587,7 @@
    "lat": 13.905,
    "lon": -4.555,
    "footprint": 41,
+   "note": "The largest mud-brick building in the world; every year the whole town replasters it at the Crépissage festival.",
    "clearance": 41
   },
   {
@@ -544,6 +598,7 @@
    "lon": -1.3308,
    "footprint": 43,
    "year": 1482,
+   "note": "Built by the Portuguese in 1482, the oldest European building south of the Sahara, later a hub of the Atlantic slave trade.",
    "snappedKm": 2.2,
    "clearance": 0
   },
@@ -554,6 +609,7 @@
    "lat": 12.032,
    "lon": 39.043,
    "footprint": 46.7,
+   "note": "Eleven medieval churches carved downward into the living rock, joined by trenches and tunnels.",
    "clearance": 46.7
   },
   {
@@ -564,6 +620,7 @@
    "lon": 37.355,
    "footprint": 55,
    "height": 5895,
+   "note": "Africa's highest mountain, a free-standing volcano of three cones whose summit glaciers are shrinking fast.",
    "clearance": 55
   },
   {
@@ -573,6 +630,7 @@
    "lat": -17.925,
    "lon": 25.858,
    "footprint": 54,
+   "note": "Mosi-oa-Tunya, 'the smoke that thunders': the Zambezi falls more than 100 metres along a curtain 1.7 km wide.",
    "clearance": 54
   },
   {
@@ -582,6 +640,7 @@
    "lat": -20.2613,
    "lon": 44.4379,
    "footprint": 34,
+   "note": "A dirt road lined with Grandidier's baobabs up to 800 years old, the last of a forest long since cleared.",
    "clearance": 34
   },
   {
@@ -592,6 +651,7 @@
    "lon": 18.403,
    "footprint": 55,
    "height": 1085,
+   "note": "A flat-topped sandstone massif over Cape Town, often draped in the cloud the city calls its tablecloth.",
    "clearance": 8
   },
   {
@@ -603,6 +663,7 @@
    "footprint": 24,
    "height": 93,
    "year": 1886,
+   "note": "A gift from France in 1886: copper skin on an iron frame designed by Gustave Eiffel, turned green within a few decades.",
    "snappedKm": 2.2,
    "clearance": 0
   },
@@ -615,6 +676,7 @@
    "footprint": 18,
    "height": 443,
    "year": 1931,
+   "note": "Built in 410 days during the Depression, it was the tallest building in the world for almost forty years.",
    "clearance": 0
   },
   {
@@ -626,6 +688,7 @@
    "footprint": 55,
    "height": 227,
    "year": 1937,
+   "note": "The longest suspension span in the world when it opened in 1937, painted a colour called International Orange.",
    "snappedKm": 2.2,
    "clearance": 0
   },
@@ -637,6 +700,7 @@
    "lon": -103.459,
    "footprint": 55,
    "year": 1941,
+   "note": "Four presidents, each face 18 metres tall, carved into the granite of the Black Hills between 1927 and 1941.",
    "clearance": 55
   },
   {
@@ -648,6 +712,7 @@
    "footprint": 11.3,
    "height": 184,
    "year": 1962,
+   "note": "Built in 400 days for the 1962 World's Fair in Seattle, on a foundation deep enough to ride out earthquakes.",
    "clearance": 11.3
   },
   {
@@ -659,6 +724,7 @@
    "footprint": 4.8,
    "height": 553,
    "year": 1976,
+   "note": "Toronto's communications tower, the tallest free-standing structure in the world from 1976 until 2007.",
    "snappedKm": 2.2,
    "clearance": 4.8
   },
@@ -669,6 +735,7 @@
    "lat": 43.083,
    "lon": -79.075,
    "footprint": 52,
+   "note": "Three falls on the border of Canada and the United States, together the most powerful waterfall in North America.",
    "clearance": 0
   },
   {
@@ -680,6 +747,7 @@
    "footprint": 32,
    "height": 79,
    "year": 1893,
+   "note": "A railway hotel built as a château on the cliff above Quebec City, said to be the most photographed hotel in the world.",
    "snappedKm": 2.2,
    "clearance": 0
   },
@@ -691,6 +759,7 @@
    "lon": -72.2437,
    "footprint": 31,
    "year": 1820,
+   "note": "The largest fortress in the Americas, built by Henri Christophe after Haiti's independence to hold off a French return.",
    "clearance": 31
   },
   {
@@ -701,6 +770,7 @@
    "lon": -61.06,
    "footprint": 38,
    "height": 771,
+   "note": "Two volcanic spires rising straight out of the Caribbean on the south-west coast of Saint Lucia.",
    "clearance": 0
   },
   {
@@ -711,6 +781,7 @@
    "lon": -88.569,
    "footprint": 50,
    "height": 30,
+   "note": "At the equinoxes the afternoon sun draws a serpent of light down the northern stairs of El Castillo.",
    "clearance": 50
   },
   {
@@ -720,6 +791,7 @@
    "lat": 19.692,
    "lon": -98.844,
    "footprint": 54.5,
+   "note": "A city of perhaps 100,000 people around AD 450, laid out along the Avenue of the Dead below the Pyramid of the Sun.",
    "clearance": 54.5
   },
   {
@@ -731,6 +803,7 @@
    "footprint": 48,
    "height": 38,
    "year": 1931,
+   "note": "An Art Deco statue of reinforced concrete and soapstone on the 700-metre peak of Corcovado, arms open over Rio.",
    "clearance": 8
   },
   {
@@ -741,6 +814,7 @@
    "lon": -62.5362,
    "footprint": 47,
    "height": 979,
+   "note": "The highest uninterrupted waterfall in the world, 979 metres off the lip of the tepui Auyán-tepui.",
    "clearance": 47
   },
   {
@@ -751,6 +825,7 @@
    "lon": -77.5854,
    "footprint": 27,
    "year": 1949,
+   "note": "A neo-Gothic basilica built across a river gorge in the south of Colombia, a few kilometres from Ecuador.",
    "clearance": 27
   },
   {
@@ -760,6 +835,7 @@
    "lat": -13.163,
    "lon": -72.545,
    "footprint": 52,
+   "note": "An Inca estate built around 1450 on a ridge above the Urubamba, missed by the Spanish and made famous in 1911.",
    "clearance": 52
   },
   {
@@ -769,6 +845,7 @@
    "lat": -27.125,
    "lon": -109.277,
    "footprint": 29,
+   "note": "Nearly a thousand stone figures carved by the Rapa Nui; most stand with their backs to the sea, watching over the villages.",
    "clearance": 0
   },
   {
@@ -778,6 +855,7 @@
    "lat": -50.496,
    "lon": -73.138,
    "footprint": 54,
+   "note": "One of the few glaciers on Earth that is not retreating; its 70-metre front calves into Lago Argentino.",
    "clearance": 54
   },
   {
@@ -788,6 +866,7 @@
    "lon": 151.279,
    "footprint": 45,
    "year": 1973,
+   "note": "Jørn Utzon's shells took sixteen years to build, and their roofs carry more than a million glazed tiles.",
    "clearance": 0
   },
   {
@@ -799,6 +878,7 @@
    "footprint": 52,
    "height": 134,
    "year": 1932,
+   "note": "The 'Coathanger', opened in 1932, its steel arch rising 134 metres above the harbour.",
    "clearance": 52
   },
   {
@@ -809,6 +889,7 @@
    "lon": 131.036,
    "footprint": 55,
    "height": 348,
+   "note": "A sandstone monolith sacred to the Anangu, rising 348 metres from the desert and glowing red at sunset.",
    "clearance": 55
   },
   {
@@ -818,6 +899,7 @@
    "lat": -45.3458,
    "lon": 170.7241,
    "footprint": 28,
+   "note": "Spherical concretions up to two metres across, weathered out of the mudstone cliffs of the Otago coast.",
    "clearance": 28
   },
   {
@@ -828,6 +910,7 @@
    "lon": 158.3344,
    "footprint": 25,
    "year": 1200,
+   "note": "Nearly a hundred artificial islets of stacked basalt columns off Pohnpei, the seat of the Saudeleur dynasty.",
    "snappedKm": 4.4,
    "clearance": 0
   },
@@ -839,6 +922,7 @@
    "lon": 169.447,
    "footprint": 26,
    "height": 361,
+   "note": "One of the most accessible active volcanoes in the world, erupting several times an hour for at least 800 years.",
    "clearance": 4
   },
   {
@@ -848,6 +932,7 @@
    "lat": -89.999,
    "lon": 0,
    "footprint": 14,
+   "note": "The bottom of the world, on ice 2,700 metres thick; Amundsen's party reached it first, on 14 December 1911.",
    "clearance": 14
   }
  ]

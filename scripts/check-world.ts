@@ -1201,9 +1201,11 @@ if (placed.length > 0) {
    * 41.2 km, off St Peter's.
    */
   {
-    const sourceList = (JSON.parse(readFileSync(resolve(here, 'monuments.source.json'), 'utf8')) as {
+    const sourceFile = JSON.parse(readFileSync(resolve(here, 'monuments.source.json'), 'utf8')) as {
       monuments: { id: string; name: string; iso: string; lat: number; lon: number; height?: number; year?: number }[];
-    }).monuments;
+      notes?: Record<string, string>;
+    };
+    const sourceList = sourceFile.monuments;
     const stale: string[] = [];
     if (sourceList.length !== monuments.length) stale.push(`${sourceList.length} in the source, ${monuments.length} placed`);
     const KM_PER_UNIT = 6371 / PLANET_RADIUS;
@@ -1218,6 +1220,11 @@ if (placed.length > 0) {
       for (const key of ['name', 'iso', 'height', 'year'] as const) {
         if (got[key] !== want[key]) stale.push(`${want.id} ${key} ${String(got[key])} vs ${String(want[key])}`);
       }
+      // The card's sentence rides the same bake: a note edited in the source
+      // and never re-baked is the old sentence on the player's screen.
+      const note = sourceFile.notes?.[want.id];
+      if ((got as { note?: string }).note !== note) stale.push(`${want.id} note differs from the source`);
+      if (note === undefined) stale.push(`${want.id} has no note in the source`);
       const km = (at(want.lat, want.lon).angleTo(at(got.lat, got.lon)) * PLANET_RADIUS) * KM_PER_UNIT;
       const spread = km - (got.snappedKm ?? 0);
       const reach = ((got.footprint ?? MAX_FOOTPRINT) + MAX_FOOTPRINT + 12 + 20) * KM_PER_UNIT;
