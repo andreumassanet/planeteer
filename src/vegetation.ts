@@ -13,7 +13,7 @@ import type { BiomeId } from './biome.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
-import { isShown, prominenceVersion, radiusFor } from './places.ts';
+import { isShown, prominenceVersion, radiusOf } from './places.ts';
 import { townGrid } from './scenery/grid.ts';
 import { EDGE_RUN } from './scenery/ground.ts';
 import { sceneryModel } from './scenery/contract.ts';
@@ -522,7 +522,7 @@ const BUILD_BUDGET_MS = 2.5;
 /**
  * Ground kept clear around what is built.
  *
- * **`radiusFor` is `places.ts`'s and there must not be a second one.** It is
+ * **`radiusOf` is `places.ts`'s and there must not be a second one.** It is
  * what the HUD names a place by, what `settlements.ts` builds inside, and — now
  * — what the paving covers, so a tree placed against any other number grows up
  * through the asphalt. The monument radius is the model's own footprint out of
@@ -1064,7 +1064,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       i++;
     };
     for (const place of options.places ?? []) {
-      if (isShown(place)) add(place.lat, place.lon, radiusFor(place.pop), townGrid(place.pop).half);
+      if (isShown(place)) add(place.lat, place.lon, radiusOf(place), townGrid(radiusOf(place)).half);
     }
     for (const site of options.monuments ?? []) {
       add(site.lat, site.lon, (site.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE);

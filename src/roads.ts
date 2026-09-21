@@ -5,7 +5,7 @@ import { createToonRamp } from './theme.ts';
 import { lightWindows, poolAt } from './lights.ts';
 import { proxyOf } from './warm.ts';
 import { FADES, dissolveGLSL } from './fade.ts';
-import { isShown, prominenceVersion, radiusFor } from './places.ts';
+import { isShown, prominenceVersion, radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 import { DATA_URL, decodeRoads, inflate } from './pack.ts';
 import {
@@ -104,7 +104,7 @@ export interface Road {
   bend: number;
   /**
    * Which of town `a`'s gates the road leaves by, and which of `b`'s it comes
-   * in by: indices into `gatesOf(townGrid(pop))` for that town.
+   * in by: indices into `gatesOf(townGrid(radiusOf(place)))` for that town.
    *
    * **Baked, for the bow's reason.** A gate is chosen by `assignGates` over the
    * town's own roads, and then, where the road through that gate would be wet,
@@ -224,7 +224,7 @@ const BAND_WIDTH = [1, 0.8, 0.62];
 /**
  * Which class a road between two places is.
  *
- * **`radiusFor` and nothing else**, because a settlement already has exactly one
+ * **`radiusOf` and nothing else**, because a settlement already has exactly one
  * definition of how big it is and inventing a second measure of importance is
  * how the HUD ends up calling a place a city while the map draws it as a hamlet.
  * A road is only as important as its *smaller* end — a lane joining a village to
@@ -259,8 +259,8 @@ const BAND_WIDTH = [1, 0.8, 0.62];
  * produces over the shipped bake (2026-09-08): **lane 7,456 · road 9,507 ·
  * trunk 275**.
  */
-export function classOf(popA: number, popB: number): number {
-  const importance = Math.min(radiusFor(popA), radiusFor(popB));
+export function classOf(a: { pop: number; radius?: number }, b: { pop: number; radius?: number }): number {
+  const importance = Math.min(radiusOf(a), radiusOf(b));
   if (importance >= 55.5) return 2;
   if (importance >= 17.1) return 1;
   return 0;
@@ -283,7 +283,7 @@ function roadPole(a: THREE.Vector3, b: THREE.Vector3, target: THREE.Vector3): TH
  *
  * `scenery/grid.ts` is the one definition of all three, and `settlements.ts`
  * raises the town from the same calls about the same place — `townFrame` about
- * the place's own direction, `townGrid` of its population — so the gate a road
+ * the place's own direction, `townGrid` of its built radius — so the gate a road
  * arrives at and the paving the town cuts there are one point and not two that
  * happen to agree. Cached per place, because a town is asked once per road end
  * and a city stands at the end of eight roads.
@@ -306,11 +306,12 @@ export function townOf(place: Place): Town {
   const across = new THREE.Vector3();
   const north = new THREE.Vector3();
   townFrame(up, across, north);
-  const grid = townGrid(place.pop);
-  let gates = gateLists.get(place.pop);
+  const radius = radiusOf(place);
+  const grid = townGrid(radius);
+  let gates = gateLists.get(radius);
   if (gates === undefined) {
     gates = gatesOf(grid);
-    gateLists.set(place.pop, gates);
+    gateLists.set(radius, gates);
   }
   const town: Town = { up, across, north, grid, gates };
   towns.set(place, town);

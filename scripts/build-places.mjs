@@ -93,16 +93,20 @@
  * claims 103 units under `radiusFor`'s `0.465 * pop^0.36` and deletes the real
  * towns 45 km out of it. Keep the ordering, give up the ratio.
  *
- * **140 places over a million people lose their ground to a neighbour**
- * (2026-09-21, under the current radius law; it was 117 under the old one) **and
- * most of those are right**: they are city districts and dormitory suburbs —
- * Brooklyn, Giza, Yokohama, Bekasi, Soweto, Pudong — which is exactly what a
- * 1:400 planet should do with them. The ones that are not right are two genuine
- * cities standing closer than the sum of their radii, and the file cannot have
- * both: **Kyoto and Kobe lose to Osaka, Shenzhen to Guangzhou, Tianjin to
- * Beijing, Düsseldorf to Köln, San Diego to Tijuana, Manila to Quezon City.**
- * The last two are the sharper case, because there the *smaller* name is the
- * famous one and it loses on a municipal census.
+ * **93 places over a million people lose their ground to a neighbour**
+ * (2026-09-21; it was 140 until the thinning began fitting cities rather than
+ * deleting them, and 117 under the old radius law) **and most of those are
+ * right**: they are city districts and dormitory suburbs — Brooklyn, Giza,
+ * Yokohama, Bekasi, Soweto, Pudong — which is exactly what a 1:400 planet
+ * should do with them. The ones that were not right were two genuine cities
+ * standing closer than the sum of their radii — **Kyoto inside Osaka, Shenzhen
+ * inside Guangzhou, Tianjin inside Beijing, Düsseldorf inside Köln, San Diego
+ * inside Tijuana** — and those are kept now, smaller: see `FIT_POPULATION`.
+ * What is left is where no square fits. **Kobe** is 73 units from Osaka and
+ * **Manila** 22 from Quezon City, and Manila is the sharper case, because there
+ * the *smaller* name is the famous one and it loses on a municipal census;
+ * both are aliases of the town that stands (`ALIAS_POPULATION`), so the menu
+ * finds them.
  *
  * **A rename was tried for exactly that and it is measured as wrong.** The rule
  * was: when the absorbed place outranks its host in GeoNames' own `PPLC > PPLA >
@@ -126,12 +130,15 @@
  * **Six fields survive** — `name`, `lat`, `lon`, `pop`, `iso` and `zone`, plus
  * `capital` on the national capitals. What was dropped and why is at `parse()`
  * below.
- * **And one is computed**: `prominence`, the distance to the nearest place at
- * twice the rank, which is what decides whether a place is *built* — the
- * footprint thinning above says no two towns overlap and nothing about whether
- * all 29,545 should exist. It is a field and not a filter so that `roads.bin`'s
- * indices stay valid and the radius stays a runtime knob; the study and the
- * numbers are on `PROMINENCE_RADIUS` in `places.ts`.
+ * **And three are computed.** `radius`, on the 113 rows the thinning built
+ * smaller than `radiusFor` says (`FIT_POPULATION`), and `aliases`, the names it
+ * folded into a row (`ALIAS_POPULATION`; 2,395 on 771 rows, 2026-09-21). And
+ * `prominence`, the distance to the nearest place at twice the rank, which is
+ * what decides whether a place is *built* — the footprint thinning above says
+ * no two towns overlap and nothing about whether all of them should exist. It
+ * is a field and not a filter so that `roads.bin`'s indices stay valid and the
+ * radius stays a runtime knob; the study and the numbers are on
+ * `PROMINENCE_RADIUS` in `places.ts`.
  *
  * **Coordinates are rounded before they are tested, not after.** See PRECISION.
  *
@@ -160,6 +167,7 @@ import {
   prominenceField,
   radiusFor,
   rankOf,
+  shadeOf,
 } from '../src/places.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -432,8 +440,9 @@ for (const p of candidates) {
  * The thinning, and the whole of what makes a gazetteer usable.
  *
  * Greedy, largest first, and a candidate is kept only when its built disc
- * touches no kept one — `units >= radiusFor(a) + radiusFor(b)`, imported from
- * `places.ts` so there is exactly one definition of how big a settlement is.
+ * touches no kept one — `units >= radiusOf(a) + radiusOf(b)`, the law's
+ * `radiusFor` from `places.ts` wherever the fit below has not built a place
+ * smaller, so there is exactly one definition of how big a settlement is.
  * Two consequences follow and both are deliberate:
  *
  * - **A duplicate cannot survive.** Two rows for the same city are zero units
@@ -485,46 +494,201 @@ for (const p of candidates) {
  * bigger cap would have searched too few cells and let a city stand inside a
  * larger one, silently and only near the very largest places.
  */
+/**
+ * **A big place that collides is fitted, not deleted** (2026-09-21).
+ *
+ * Deleting the lower-ranked of two colliding discs is right for a suburb and
+ * wrong for a city, and the rule above cannot tell them apart: it took the
+ * ground of 140 places over a million people, and among the districts it
+ * should take — Brooklyn, Giza, Pudong — were Kyoto, Tianjin, Shenzhen, San
+ * Diego, Mecca and Pretoria, for every one of which the menu's search answered
+ * *nothing by that name that is built*. So a place of `FIT_POPULATION` or more,
+ * or a national capital, is kept *smaller* rather than deleted, by the first of
+ * two steps that works, and every other place is thinned exactly as before:
+ *
+ * - **It takes the room the kept discs leave it**: the largest radius that
+ *   clears every one of them by the rule above, floored to a whole unit, if
+ *   that is at least `FIT_RADIUS`. Tianjin stands at 121 units beside Beijing's
+ *   150, and Mecca at 49 beside Jeddah.
+ * - **Otherwise a neighbour gives it ground**, if the neighbour is across a
+ *   national border, or is a *peer* — under `PROMINENCE_RATIO` times its rank,
+ *   the ratio that already decides which twins both stand — or the place is a
+ *   capital. The two split the distance between them in proportion to their
+ *   own radii, the host keeping at least `HOST_KEEPS` of its own (across a
+ *   border, only `FIT_RADIUS`: a border is where the rule was most plainly
+ *   wrong, San Diego deleted by Tijuana and Amritsar by Lahore). Osaka keeps 65
+ *   of its 97 units and Kyoto stands at 43; San Diego and Tijuana share their
+ *   70 units 33 and 37. Across a border the smaller of the two need not reach
+ *   `FIT_POPULATION` itself, because both of a border pair survive if either is
+ *   that big — San Cristóbal takes ground from Cúcuta. **A national capital
+ *   never gives ground**: it is the one place a country is sure to have, and
+ *   without this Singapore went from 125 units to 59, and lost its only road,
+ *   to Mukim Pulai, a Johor subdistrict the source gives 506,000 people.
+ *
+ * The share runs inside the greedy loop and not in a pass before it, because a
+ * pass cannot know which of a pair a third place will take anyway, and inside
+ * the loop it does not have to: **shrinking a kept disc can never make two
+ * discs overlap**, so a host that yields after smaller places were thinned
+ * against it at full size leaves empty ground between them, and does not bring
+ * back what it absorbed. Neither step is taken where a host would *hide* the
+ * place anyway (`shadeOf`, `isShown`): a city kept small and never built is a
+ * deletion with extra steps, and its name is better as an alias.
+ *
+ * The three numbers were swept together over this file, by replaying this loop
+ * before anything was re-baked. `absent` is places over a million with nothing
+ * built at them, `lost` the towns built before and not after (of them, over
+ * half a million), and the rows and built towns are the file's:
+ *
+ * ```
+ *   FIT_POPULATION  FIT_RADIUS  HOST_KEEPS        rows   built   absent  capitals lost   lost (>500k)
+ *   (delete all)         —           —          29,614   9,749     140        15           —
+ *   250,000             24         2/3          29,663   9,813      93        12          64 (3)
+ *   1,000,000           24         2/3          29,639   9,770      93        12          37 (5)
+ *   500,000             20         2/3          29,647   9,799      91        12          48 (3)
+ *   500,000             30         2/3          29,649   9,792      93        14          50 (3)
+ *   500,000             24     (borders only)    29,612   9,774     105        15          44 (3)
+ *   500,000             24         1/2          29,655   9,799      91        13          49 (3)
+ *   500,000             24         3/4          29,639   9,788      97        15          46 (3)
+ *   500,000             24         2/3          29,651   9,796      93        12          50 (3)
+ * ```
+ *
+ * - **500,000**, because the cities over a million come back the same at any
+ *   threshold (93 absent either way) and what the threshold decides is the half
+ *   million to a million: at 500,000 Düsseldorf, Antwerp, Dortmund,
+ *   Kitakyushu, Jammu and 30 more stand that 1,000,000 leaves unbuilt, and at
+ *   250,000 the fit starts carving towns out of a metro's own ring — 64 towns
+ *   lost against 50 — for places nobody searches for.
+ * - **24 units**, because it is the smallest square `townGrid` cuts three
+ *   cells a side, with a street down the middle. 20 brings back Gujranwala and
+ *   Jinhua as two-by-two squares, four lots under the name of a city of two
+ *   million; 30 loses Macau and Porto-Novo, both capitals, for no city.
+ * - **Two thirds**, because with a share only across borders Kyoto, Tainan and
+ *   Pretoria stay deleted (Osaka leaves Kyoto 11 units, and it takes 24); at
+ *   three quarters Pretoria, Dongguan and Macau are deleted again; and at a half
+ *   Osaka gives Kobe 24 units and shrinks to 49, and Kyoto then fits at 59 — a
+ *   city bigger than the one it was folded into.
+ *
+ * What it costs, against the file before it (2026-09-21), is two lists. **50
+ * towns that were built are not**: most are the restored city's own districts
+ * and satellites (Tanggu in Tianjin, Nilüfer in Bursa, Sumaré in Campinas,
+ * Hikone hidden by Kyoto); a few are towns in their own right that a restored
+ * city now outranks (Hạ Long beside Haiphong, Shimonoseki across the strait
+ * from Kitakyushu); and one is a GeoNames artefact — Puyang, a county seat the
+ * source gives 3.59 M, fits beside Hangzhou and takes Yiwu. **And 27 cities
+ * that were built are smaller**: the 21 hosts that gave ground, and six a
+ * restored neighbour now comes before — Hong Kong goes from 138 units to 38
+ * beside Shenzhen, and has no road now where it had one, and Wuxi from 115 to
+ * 46 beside Suzhou. Where they are big enough to be looked for, what the fit
+ * takes and what it still cannot fit are at least names: see
+ * `ALIAS_POPULATION`.
+ */
+const FIT_POPULATION = 500_000;
+/** The smallest radius a place is fitted to, in world units; see `FIT_POPULATION`. */
+const FIT_RADIUS = 24;
+/** How much of its own radius a host keeps when it gives a peer or a capital ground; see `FIT_POPULATION`. */
+const HOST_KEEPS = 2 / 3;
+
 const CELL = 0.5;
 const key = (a, b) => a * 2000 + (((b % 720) + 720) % 720);
 const grid = new Map();
 const places = [];
 const absorbed = [];
+const fitted = [];
+const shares = [];
 
 // `rankOf` and its `CAPITAL_RANK` live in `places.ts` now: the prominence field
 // below ranks the same rows, and two copies of the number would be two answers
 // to "which of these is bigger". The sweep that chose 100,000 is above.
 
+/**
+ * Whether `host`, built at `built` and `units` away, would hide `p` — the
+ * question `isShown` asks at the shipped radius, with `shadeOf` for a host
+ * built smaller than its population. Only the hosts `p` collides with are
+ * asked: they are the neighbours a fit or a share is about.
+ */
+function hides(host, built, units, p) {
+  if (p.capital || units >= PROMINENCE_RADIUS) return false;
+  const radius = built === radiusFor(host.pop) ? undefined : built;
+  return shadeOf({ pop: host.pop, capital: host.capital, radius }) >= PROMINENCE_RATIO * rankOf(p);
+}
+
+/**
+ * The radius `p` is kept at among the kept places it collides with, and what
+ * each host that gives it ground shrinks to — or null, and it is absorbed. See
+ * `FIT_POPULATION`.
+ */
+function fit(p, natural, hosts) {
+  const big = p.capital || p.pop >= FIT_POPULATION;
+  // A capital smaller than a fitted town is kept whole or not at all.
+  const least = Math.min(FIT_RADIUS, natural);
+  let room = natural;
+  for (const { host, units } of hosts) room = Math.min(room, units - host.built);
+  room = Math.floor(room);
+  if (big && room >= least && !hosts.some(({ host, units }) => hides(host, host.built, units, p))) {
+    return { built: room, yielding: [] };
+  }
+  let take = natural;
+  const yielding = [];
+  for (const { host, units } of hosts) {
+    const across = host.iso !== p.iso && (p.pop >= FIT_POPULATION || host.pop >= FIT_POPULATION);
+    const peer = big && (p.capital || rankOf(host) < PROMINENCE_RATIO * rankOf(p));
+    if (host.capital || (!across && !peer)) {
+      take = Math.min(take, units - host.built);
+      continue;
+    }
+    const own = radiusFor(host.pop);
+    const keeps = Math.min(host.built, across ? FIT_RADIUS : Math.max(FIT_RADIUS, Math.ceil(HOST_KEEPS * own)));
+    const share = (units * natural) / (natural + own);
+    take = Math.min(take, Math.max(share, units - host.built), units - keeps);
+    yielding.push({ host, units });
+  }
+  take = Math.floor(take);
+  if (yielding.length === 0 || take < least) return null;
+  // A host shrinks only as far as it must, to a whole unit.
+  const after = ({ host, units }) =>
+    yielding.some((y) => y.host === host) && host.built > units - take ? Math.floor(units - take) : host.built;
+  if (hosts.some((h) => hides(h.host, after(h), h.units, p))) return null;
+  return { built: take, yielding: yielding.map((y) => ({ host: y.host, built: after(y) })) };
+}
+
 for (const p of onLand.slice().sort((a, b) => rankOf(b) - rankOf(a) || a.name.localeCompare(b.name, 'en'))) {
-  const radius = radiusFor(p.pop);
+  const natural = radiusFor(p.pop);
   const a = Math.floor((p.lat + 90) / CELL);
   const b = Math.floor((p.lon + 180) / CELL);
   // The furthest a conflict can be: this radius plus the largest one anywhere.
-  const dLat = Math.ceil((radius + BIGGEST_SETTLEMENT) / (PLANET_RADIUS * DEG) / CELL);
+  const dLat = Math.ceil((natural + BIGGEST_SETTLEMENT) / (PLANET_RADIUS * DEG) / CELL);
   const span = Math.min(360, Math.ceil(dLat / Math.max(0.02, Math.cos(p.lat * DEG))));
-  let host = null;
-  outer: for (let da = -dLat; da <= dLat; da++) {
+  const hosts = [];
+  for (let da = -dLat; da <= dLat; da++) {
     for (let db = -span; db <= span; db++) {
       const bucket = grid.get(key(a + da, b + db));
       if (bucket === undefined) continue;
       for (const q of bucket) {
-        if (unitsBetween(p.lat, p.lon, q.lat, q.lon) < radius + q.radius) {
-          host = q;
-          break outer;
-        }
+        const units = unitsBetween(p.lat, p.lon, q.lat, q.lon);
+        if (units < natural + q.built) hosts.push({ host: q, units });
       }
     }
   }
-  if (host !== null) {
-    absorbed.push({ name: p.name, pop: p.pop, capital: p.capital, into: host.name });
+  const kept = hosts.length === 0 ? { built: natural, yielding: [] } : fit(p, natural, hosts);
+  if (kept === null) {
+    // The host it is folded into is the one it overlaps deepest.
+    let deepest = hosts[0];
+    for (const h of hosts) if (h.units - h.host.built < deepest.units - deepest.host.built) deepest = h;
+    absorbed.push({ name: p.name, pop: p.pop, capital: p.capital, into: deepest.host });
     continue;
   }
-  const kept = { ...p, radius };
-  places.push(kept);
+  if (hosts.length > 0) fitted.push({ place: p, built: kept.built, natural });
+  for (const { host, built } of kept.yielding) {
+    if (built >= host.built) continue;
+    shares.push({ to: p.name, from: host, was: host.built, now: built, across: host.iso !== p.iso });
+    host.built = built;
+  }
+  const row = { ...p, built: kept.built };
+  places.push(row);
   const cell = key(a, b);
   let bucket = grid.get(cell);
   if (bucket === undefined) grid.set(cell, (bucket = []));
-  bucket.push(kept);
+  bucket.push(row);
 }
 
 /**
@@ -536,16 +700,69 @@ for (const p of onLand.slice().sort((a, b) => rankOf(b) - rankOf(a) || a.name.lo
  */
 places.sort((a, b) => b.pop - a.pop || a.name.localeCompare(b.name, 'en'));
 
+/** What ships as `Place.radius`: the built radius, only where it is not the law's. */
+const storedRadius = (p) => (p.built === radiusFor(p.pop) ? undefined : p.built);
+
+/**
+ * **The names the thinning took are kept as aliases of the place that took
+ * them**, so the menu's search answers them: every absorbed place of this
+ * many people or more, and every absorbed national capital whatever its size
+ * — Monaco finds Nice, the Vatican Rome — on the row of the host it overlapped
+ * deepest, biggest first. `Places.aliases` points a name whose host is itself
+ * hidden at the built town nearest it in the same country. One alias a name —
+ * the biggest place that had it — and none that only repeats its host's own
+ * name.
+ *
+ * 100,000 is where a name starts being one somebody types, and it is what the
+ * aliases cost that says so. Over this file (2026-09-21), on a `places.bin` of
+ * 381 KB gzipped, the capitals counted at every threshold:
+ *
+ * ```
+ *   threshold    aliases   on the wire
+ *      50,000      5,281   +31.3 KB
+ *     100,000      2,395   +15.3 KB
+ *     250,000        754    +5.5 KB
+ *   1,000,000        103    +0.8 KB
+ * ```
+ *
+ * At 250,000 Mainz, Halle, Oviedo, Portsmouth, Tsukuba and Scottsdale are not
+ * answers, and each is a name a player would type; at 50,000 the list more
+ * than doubles for Roubaix, Saint-Denis, Compton and Dearborn — the districts
+ * and dormitory towns of the city they were folded into, which is what the
+ * thinning is right about — for twice the bytes. They live in `places.bin`
+ * rather than beside it because the menu needs them at the front door, which
+ * is the first load either way, and a second file indexing this one would be
+ * a second freshness contract like `roads.bin`'s.
+ */
+const ALIAS_POPULATION = 100_000;
+const aliasByName = new Map();
+for (const a of absorbed) {
+  if ((a.pop < ALIAS_POPULATION && !a.capital) || a.name === a.into.name) continue;
+  const seen = aliasByName.get(a.name);
+  if (seen === undefined || a.pop > seen.pop) aliasByName.set(a.name, a);
+}
+const aliasesOf = new Map();
+for (const a of [...aliasByName.values()].sort((x, y) => y.pop - x.pop || x.name.localeCompare(y.name, 'en'))) {
+  let list = aliasesOf.get(a.into);
+  if (list === undefined) aliasesOf.set(a.into, (list = []));
+  list.push(a.name);
+}
+
 /**
  * The prominence field: how far each place is from the nearest place at least
  * `PROMINENCE_RATIO` times its rank, which is what decides whether anything is
  * *built* there. See `PROMINENCE_RADIUS` in `places.ts` for the study; the
  * function is shared with `pnpm check`, which recomputes the field from the
  * shipped rows and asserts it byte for byte. It runs after the sort so the
- * check can replay it over exactly the array the file carries.
+ * check can replay it over exactly the array the file carries — with the
+ * radius as the file carries it, only where it was fitted, because that is
+ * what `shadeOf` reads.
  */
 const prominenceBegan = Date.now();
-const prominence = prominenceField(places, PLANET_RADIUS);
+const prominence = prominenceField(
+  places.map((p) => ({ lat: p.lat, lon: p.lon, pop: p.pop, capital: p.capital, radius: storedRadius(p) })),
+  PLANET_RADIUS,
+);
 const prominenceMs = Date.now() - prominenceBegan;
 
 /**
@@ -577,6 +794,8 @@ const shipped = places.map((p, i) => ({
   zone: p.zone,
   ...(p.capital ? { capital: true } : {}),
   ...(p.movedKm > 0 ? { snappedKm: Number(p.movedKm.toFixed(1)) } : {}),
+  ...(storedRadius(p) !== undefined ? { radius: storedRadius(p) } : {}),
+  ...(aliasesOf.has(p) ? { aliases: aliasesOf.get(p) } : {}),
 }));
 const packed = gzipSync(encodePlaces(shipped), { level: 9 });
 if (JSON.stringify(decodePlaces(await inflate(packed))) !== JSON.stringify(shipped)) {
@@ -619,11 +838,11 @@ for (const p of places) {
     }
   }
   gaps.push(best);
-  if (best < p.radius) overlapping++;
+  if (best < p.built) overlapping++;
 }
 gaps.sort((x, y) => x - y);
 const at = (f) => gaps[Math.floor(f * (gaps.length - 1))];
-const radii = places.map((p) => p.radius).sort((x, y) => x - y);
+const radii = places.map((p) => p.built).sort((x, y) => x - y);
 console.log(
   `\ngap to the nearest neighbour: p10 ${at(0.1).toFixed(0)}u · ` +
   `median ${at(0.5).toFixed(0)}u · p90 ${at(0.9).toFixed(0)}u ` +
@@ -683,7 +902,34 @@ if (stranded.length) {
 const lostCapitals = absorbed.filter((a) => a.capital);
 if (lostCapitals.length) {
   console.log(`\n${lostCapitals.length} national capitals stand inside a larger neighbour:`);
-  for (const c of lostCapitals) console.log(`  ${c.name} (pop ${c.pop}) inside ${c.into}`);
+  for (const c of lostCapitals) console.log(`  ${c.name} (pop ${c.pop}) inside ${c.into.name}`);
+}
+
+/**
+ * What the fit kept, and what gave it room: the rows to read after a re-bake
+ * next to the list below. A city fitted small is the compression working; a
+ * host that gave up a third of its radius is the cost of it.
+ */
+{
+  const restored = fitted.filter((f) => f.place.pop >= 1e6).sort((x, y) => y.place.pop - x.place.pop);
+  console.log(
+    `\n${fitted.length} kept smaller rather than deleted (${fitted.filter((f) => f.place.capital).length} capitals), ` +
+    `${restored.length} of them over a million; ${shares.length} hosts gave ground:`,
+  );
+  const line = (f) => `${f.place.name} ${f.built}/${f.natural.toFixed(0)}`;
+  for (let k = 0; k < restored.length; k += 6) console.log('  ' + restored.slice(k, k + 6).map(line).join(' · '));
+  for (const g of shares) {
+    console.log(
+      `  ${g.from.name.padEnd(16)} ${g.was.toFixed(0).padStart(3)} -> ${String(g.now).padStart(3)}  for ${g.to}` +
+      `${g.across ? ', across a border' : ''}`,
+    );
+  }
+  const names = [...aliasesOf.values()].reduce((n, list) => n + list.length, 0);
+  const bare = gzipSync(encodePlaces(shipped.map(({ aliases, ...row }) => row)), { level: 9 }).length;
+  console.log(
+    `  ${names} names absorbed at ${ALIAS_POPULATION.toLocaleString('en')} or more, or capitals, kept as aliases of ` +
+    `${aliasesOf.size} places, +${((readFileSync(OUT).length - bare) / 1024).toFixed(1)} KB gzipped`,
+  );
 }
 
 /**
@@ -694,7 +940,7 @@ if (lostCapitals.length) {
 const big = absorbed.filter((a) => a.pop >= 1e6).sort((x, y) => y.pop - x.pop);
 console.log(`\n${absorbed.length} thinned away, ${big.length} of them over a million; the largest:`);
 for (const a of big.slice(0, 12)) {
-  console.log(`  ${`${a.name} (${a.pop})`.padEnd(40)} inside ${a.into}`);
+  console.log(`  ${`${a.name} (${a.pop})`.padEnd(40)} inside ${a.into.name}`);
 }
 
 const shape = [...mismatches.entries()].sort((a, b) => b[1].n - a[1].n);

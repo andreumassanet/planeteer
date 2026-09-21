@@ -26,7 +26,7 @@ import {
   townOf,
 } from './roads.ts';
 import type { CoursePath, Road, RoadCourse, RoadRamp } from './roads.ts';
-import { isShown, prominenceVersion, radiusFor } from './places.ts';
+import { isShown, prominenceVersion, radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
 import {
@@ -2447,12 +2447,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
         if (nearest !== undefined) {
           // **The margin is 12 and it was 40, and 40 emptied Europe.** The test
           // is only there to stop a herd standing inside the buildings, and
-          // `radiusFor` already *is* where the buildings are. Measured around
+          // `radiusOf` already *is* where the buildings are. Measured around
           // Ulm — the densest 1,500-unit neighbourhood on the planet, 192 places
           // in it — a 40-unit margin left **0 herds at the shipped detail** and
           // a 12-unit one leaves them in the fields between the villages, which
           // is where a cow is.
-          const keepOut = radiusFor(nearest.pop) + 12;
+          const keepOut = radiusOf(nearest) + 12;
           herdProbe.set(
             Math.cos(nearest.lat * DEG) * Math.cos(nearest.lon * DEG),
             Math.sin(nearest.lat * DEG),

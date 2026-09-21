@@ -129,7 +129,7 @@ export interface MenuBody {
    * Other names the search should find a site by, as written, to an index into
    * `sites`. The hook for the famous places a bake folded into a neighbour —
    * searching for one finds the town that stands for it rather than nothing.
-   * Optional, and on Earth empty until there is a list to fill it with.
+   * Optional; on Earth it is `places.bin`'s own list, through `Places.aliases`.
    */
   aliases?: ReadonlyMap<string, number>;
 }

@@ -9,7 +9,7 @@ import type { PlayerEvent } from './player.ts';
 import { actionOf, codeOf, inputBlocked, labelOf, registerModal } from './controls.ts';
 import { prepareAvatar } from './avatar.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
-import { detailRadiusFor, loadPlaces, prominenceRadius, setProminenceRadius } from './places.ts';
+import { detailRadiusOf, loadPlaces, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
 import { createRoads, loadRoads } from './roads.ts';
 // From the contract rather than from `./monuments/index.ts`, which is the whole
@@ -434,7 +434,7 @@ async function start(): Promise<void> {
   // level ground: a town lays its floor from the exact relief while the land
   // around it is a triangulation of it, and where the two disagree by more than
   // the floor's lift a triangle edge draws a straight line across the paving.
-  setDetailSites(places.all.map((place) => ({ lat: place.lat, lon: place.lon, radius: detailRadiusFor(place.pop) })));
+  setDetailSites(places.all.map((place) => ({ lat: place.lat, lon: place.lon, radius: detailRadiusOf(place) })));
   // The lakes are the fourth file in that flight and they are handed to
   // `loadWorld` rather than fetched by it, for the same reason as the rest:
   // nothing about them depends on the outlines, so a serial `await` would spend
@@ -663,7 +663,9 @@ async function start(): Promise<void> {
   await stage('opening the sky');
   const { createMenu, earthBody } = await deferred.menu;
   const menu = createMenu({
-    bodies: [earthBody(world, places.all)],
+    // The aliases are the famous names the bake folded into a neighbour —
+    // Kobe into Osaka, Manila into Quezon City — so the search answers them.
+    bodies: [earthBody(world, places.all, places.aliases())],
     scene,
     renderer,
     // `outline.render`, not `renderer.render`: a frame here is two passes.

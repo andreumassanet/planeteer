@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from './globe.ts';
 import { PALETTE } from './theme.ts';
-import { radiusFor } from './places.ts';
+import { radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 
 /**
@@ -646,8 +646,8 @@ export function createCityLights(
     position[i * 3 + 2] = point.z;
     // Smaller than the built town on purpose: a settlement's radius is where its
     // last house stands, and what is *lit* is a fraction of the ground inside
-    // it. `radiusFor` is a radius, so this is 1.8 times it as a diameter.
-    span[i] = radiusFor(place.pop) * 0.9;
+    // it. `radiusOf` is a radius, so this is 1.8 times it as a diameter.
+    span[i] = radiusOf(place) * 0.9;
 
     bright[i] = brightnessOf(place.pop);
   }

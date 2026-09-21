@@ -26,12 +26,13 @@ import {
   PROMINENCE_RADIUS,
   PROMINENCE_RATIO,
   SMALLEST_SETTLEMENT,
-  detailRadiusFor,
+  detailRadiusOf,
   indexPlaces,
   isShown,
-  labelRadiusFor,
+  labelRadiusOf,
   prominenceField,
   radiusFor,
+  radiusOf,
 } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
 import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodeLakes, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
@@ -159,7 +160,7 @@ const placesPath = resolve(here, '../public/data/places.bin');
 const placesRaw: Place[] = existsSync(placesPath)
   ? decodePlaces(await inflate(readFileSync(placesPath)))
   : [];
-setDetailSites(placesRaw.map((p) => ({ lat: p.lat, lon: p.lon, radius: detailRadiusFor(p.pop) })));
+setDetailSites(placesRaw.map((p) => ({ lat: p.lat, lon: p.lon, radius: detailRadiusOf(p) })));
 
 const loadStart = Date.now();
 const lakeRings = decodeLakes(await inflate(lakes));
@@ -1639,18 +1640,21 @@ if (existsSync(placesPath)) {
    * bake's thinning exists to produce and the one that goes stale silently.
    *
    * `build-places.mjs` keeps a place only when its built disc touches no kept
-   * one, and the separation it uses is `radiusFor(a) + radiusFor(b)` — imported
+   * one, and the separation it uses is `radiusOf(a) + radiusOf(b)` — imported
    * from `places.ts`, so **the bake is a function of a constant that lives in
    * `src/`**. Widen `radiusFor` and nothing in the data changes and nothing in
    * the world complains: the towns simply start interpenetrating, each laying
    * its own paving over the other's, which is the failure that reads as a bug in
    * the settlement builder. This is the assertion that says *re-bake the places*
-   * instead.
+   * instead. It reads `radiusOf`, not the law, because a city the bake fitted
+   * between its neighbours is only clear of them at the radius it was fitted to
+   * — and the stored radius is a whole unit, floored, so the clearance the bake
+   * tested survives both the wire and this arithmetic.
    *
-   * The search has to go out to `radiusFor(p) + BIGGEST_SETTLEMENT` and not to the nearest
-   * neighbour, because the binding conflict is not always the closest one: a
-   * hamlet 60 units away clears a 30-unit town and a metropolis 120 units away
-   * does not.
+   * The search has to go out to `radiusOf(p) + BIGGEST_SETTLEMENT` and not to
+   * the nearest neighbour, because the binding conflict is not always the
+   * closest one: a hamlet 60 units away clears a 30-unit town and a metropolis
+   * 120 units away does not.
    */
   {
     const CELL = 0.5;
@@ -1675,7 +1679,7 @@ if (existsSync(placesPath)) {
     const overlapExamples: string[] = [];
     for (let i = 0; i < places.length; i++) {
       const p = places[i]!;
-      const radius = radiusFor(p.pop);
+      const radius = radiusOf(p);
       const a = Math.floor((p.lat + 90) / CELL);
       const b = Math.floor((p.lon + 180) / CELL);
       const dLat = Math.ceil((radius + BIGGEST_SETTLEMENT) / (PLANET_RADIUS * DEG) / CELL);
@@ -1685,7 +1689,7 @@ if (existsSync(placesPath)) {
           for (const j of cells.get(cellKey(a + da, b + db)) ?? []) {
             if (j <= i) continue;
             const q = places[j]!;
-            const want = radius + radiusFor(q.pop);
+            const want = radius + radiusOf(q);
             const got = arc(p, q);
             if (got >= want) continue;
             overlapping++;
@@ -1707,6 +1711,59 @@ if (existsSync(placesPath)) {
   }
 
   /**
+   * The two things the thinning writes beside a row rather than deriving from
+   * it: a fitted radius and the names it folded in.
+   *
+   * A stored radius is only ever *smaller* than the law's — the bake fits a
+   * city into the room its neighbours leave, or shrinks a host to give one
+   * room, and grows nothing — and a whole unit, which is what lets the overlap
+   * assertion above hold at the radius the bake tested. And every alias has to
+   * reach a built town in its own country through `Places.aliases`, because
+   * the menu offers only built towns and an alias that reached a hidden one
+   * would be dropped there without a word — except where the country has no
+   * built town at all, which is Bahrain (2026-09-21): Manama stands inside Al
+   * Muharraq and Al Muharraq is hidden by Dammam, so the honest answer to
+   * *Manama* is nothing, and the check lists it rather than failing on it.
+   */
+  {
+    const stored = places.filter((p) => p.radius !== undefined);
+    const badRadius = stored.filter(
+      (p) => !Number.isInteger(p.radius) || p.radius! >= radiusFor(p.pop) || p.radius! < SMALLEST_SETTLEMENT,
+    );
+    check(
+      badRadius.length === 0,
+      'a stored radius is a whole unit under the law’s',
+      badRadius.length === 0
+        ? `${stored.length} places built smaller than \`radiusFor\`, ${stored.filter(isShown).length} of them shown`
+        : badRadius.slice(0, 4).map((p) => `${p.name} ${p.radius} against ${radiusFor(p.pop).toFixed(1)}`).join(', '),
+    );
+    const aliases = index.aliases();
+    const builtIn = new Set(places.filter(isShown).map((p) => p.iso));
+    let written = 0;
+    const wrong: string[] = [];
+    const unreached: string[] = [];
+    for (const host of places) {
+      for (const name of host.aliases ?? []) {
+        written++;
+        const town = aliases.get(name);
+        if (town === undefined) {
+          if (builtIn.has(host.iso)) wrong.push(`${name} unreached`);
+          else unreached.push(`${name} (${host.iso})`);
+        } else if (!isShown(places[town]!) || places[town]!.iso !== host.iso) {
+          wrong.push(`${name} -> ${places[town]!.name}`);
+        }
+      }
+    }
+    check(
+      wrong.length === 0,
+      'every alias finds a built town in its own country',
+      `${aliases.size} of ${written} names, to ${new Set(aliases.values()).size} towns` +
+        (unreached.length > 0 ? `; ${unreached.length} in a country with none built: ${unreached.join(', ')}` : '') +
+        (wrong.length > 0 ? `; ${wrong.slice(0, 4).join(', ')}` : ''),
+    );
+  }
+
+  /**
    * The size law has a *hierarchy* in it, which is the thing it did not have.
    *
    * The old assertion checked the two clamps and nothing else, and the law it
@@ -1720,10 +1777,10 @@ if (existsSync(placesPath)) {
     radiusFor(1) === SMALLEST_SETTLEMENT
       && radiusFor(4e7) === BIGGEST_SETTLEMENT
       && radiusFor(24_900_000) / radiusFor(5_000) > 8
-      && labelRadiusFor(1) > radiusFor(1),
+      && labelRadiusOf({ pop: 1 }) > radiusFor(1),
     'the settlement radius spreads, and the label band is outside it',
-    `hamlet ${radiusFor(5_000).toFixed(0)}u built / ${labelRadiusFor(5_000).toFixed(0)}u named, ` +
-    `Shanghai ${radiusFor(24_900_000).toFixed(0)}u / ${labelRadiusFor(24_900_000).toFixed(0)}u, ` +
+    `hamlet ${radiusFor(5_000).toFixed(0)}u built / ${labelRadiusOf({ pop: 5_000 }).toFixed(0)}u named, ` +
+    `Shanghai ${radiusFor(24_900_000).toFixed(0)}u / ${labelRadiusOf({ pop: 24_900_000 }).toFixed(0)}u, ` +
     `spread ${(radiusFor(24_900_000) / radiusFor(5_000)).toFixed(1)}x`,
   );
 
@@ -1993,7 +2050,7 @@ console.log('\nroads');
     // quietly promote a lane between two hamlets into a trunk road.
     let misclassed = 0;
     for (const road of roads) {
-      if (classOf(settled[road.a]!.pop, settled[road.b]!.pop) !== road.cls) misclassed++;
+      if (classOf(settled[road.a]!, settled[road.b]!) !== road.cls) misclassed++;
     }
     check(misclassed === 0, 'every road is the class its two ends earn', `${misclassed} wrong`);
 
@@ -2261,7 +2318,7 @@ console.log('\nroads');
             for (let c = col - lonSpan; c <= col + lonSpan; c++) {
               for (const j of grid[r * COLS + (((c % COLS) + COLS) % COLS)]!) {
                 if (j === road.a || j === road.b) continue;
-                const limit = radiusFor(settled[j]!.pop);
+                const limit = radiusOf(settled[j]!);
                 shownAt.copy(shownUnit[j]!);
                 const gap = unitAt.angleTo(shownAt) * PLANET_RADIUS;
                 if (gap >= limit) continue;
@@ -2665,7 +2722,7 @@ console.log('\nroads');
         if (gateA < 0 || gateB < 0) return true;
         bowProbe.a = edge.a;
         bowProbe.b = edge.b;
-        bowProbe.cls = classOf(settled[edge.a]!.pop, settled[edge.b]!.pop);
+        bowProbe.cls = classOf(settled[edge.a]!, settled[edge.b]!);
         bowProbe.bend = packedBend(bendFor(settled[edge.a]!, settled[edge.b]!));
         bowProbe.gateA = gateA;
         bowProbe.gateB = gateB;
@@ -2695,7 +2752,7 @@ console.log('\nroads');
           if (j === edge.a || j === edge.b || !isShown(place)) continue;
           placeDirection(place, townAt);
           if (townAt.dot(course.gateA) < 0.998) continue;
-          const limit = radiusFor(place.pop);
+          const limit = radiusOf(place);
           for (let step = 0; step <= steps; step++) {
             coursePoint(course, step / steps, at);
             if (at.angleTo(townAt) * PLANET_RADIUS < limit) return true;
@@ -2748,7 +2805,7 @@ console.log('\nroads');
       for (let i = 0; i < settled.length; i++) {
         if (!isShown(settled[i]!) || degree[i]! > 0) continue;
         alone++;
-        if (radiusFor(settled[i]!.pop) < 55) continue;
+        if (radiusOf(settled[i]!) < 55) continue;
         aloneBig++;
         if (aloneNames.length < 6) aloneNames.push(settled[i]!.name);
       }
@@ -3259,7 +3316,7 @@ console.log('\nmade ground');
     const hillside = (x: number, z: number): number => 100 + 0.34 * x + 0.21 * z + 2.5 * Math.sin(x * 0.11 + z * 0.07);
     const sizes = new Map<number, TownGrid>();
     for (let k = 0; k <= 160; k++) {
-      const grid = townGrid(Math.round(10 ** (k / 20)));
+      const grid = townGrid(radiusFor(Math.round(10 ** (k / 20))));
       if (!sizes.has(grid.cells)) sizes.set(grid.cells, grid);
     }
     let doubleBanded = 0;

@@ -25,7 +25,7 @@ import * as THREE from 'three';
 import { OutlineEffect } from '../outline.ts';
 import { loadLakes, loadWorld } from '../geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from '../globe.ts';
-import { loadPlaces, radiusFor } from '../places.ts';
+import { loadPlaces, radiusOf } from '../places.ts';
 import { loadPlacements } from '../placement.ts';
 import { setDetailSites, setFlattenSites } from '../terrain.ts';
 import { createSky } from '../sun.ts';
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   await stage('reading the outlines');
   const [placements, places, lakes] = await Promise.all([loadPlacements(), loadPlaces(PLANET_RADIUS), loadLakes()]);
   setFlattenSites(placements);
-  setDetailSites(places.all.map((place) => ({ lat: place.lat, lon: place.lon, radius: radiusFor(place.pop) })));
+  setDetailSites(places.all.map((place) => ({ lat: place.lat, lon: place.lon, radius: radiusOf(place) })));
   const world = await loadWorld(UNITS_PER_DEGREE, lakes);
   mark('outlines');
 
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   // The one number this sheet exists to print: the menu is up and turning
   // *here*, before the weather and before every kit `main.ts` builds after it.
   const menu = createMenu({
-    bodies: [earthBody(world, places.all)],
+    bodies: [earthBody(world, places.all, places.aliases())],
     scene,
     renderer,
     draw: (target, camera) => outline.render(target, camera),

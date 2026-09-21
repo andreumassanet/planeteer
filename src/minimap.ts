@@ -30,7 +30,7 @@
  *   it is the arrow at the centre.
  * - **The towns are on it.** `hud.ts` says *near Palma* and until now nothing
  *   said where Palma was. The built places — `isShown`, the same 9,734 rows the
- *   settlements and the trees agree on — are dots sized by `radiusFor`, so the
+ *   settlements and the trees agree on — are dots sized by `radiusOf`, so the
  *   disc answers *which one* and *how big* in the same mark.
  *
  * What survives from the globe is the part that was never about scale: the rim
@@ -53,7 +53,7 @@ import {
   SMALLEST_SETTLEMENT,
   isShown,
   prominenceVersion,
-  radiusFor,
+  radiusOf,
   rankOf,
 } from './places.ts';
 import type { Nearby, Place } from './places.ts';
@@ -479,8 +479,9 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       townRow[k] = i;
       // A dot that says how big the town is, off the one size law rather than a
       // second set of population bands: 1.7 px at the floor of `radiusFor` and
-      // 4.2 at its ceiling, which is a village against a capital.
-      townDot[k] = 1.7 + ((radiusFor(place.pop) - SMALLEST_SETTLEMENT) / spread) * 2.5;
+      // 4.2 at its ceiling, which is a village against a capital — and as
+      // built (`radiusOf`), so a fitted city is the dot its square is.
+      townDot[k] = 1.7 + ((radiusOf(place) - SMALLEST_SETTLEMENT) / spread) * 2.5;
       townSlot.set(i, k);
     }
   }

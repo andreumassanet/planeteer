@@ -50,7 +50,7 @@ import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { decodePlaces, decodeRoads, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
-import { detailRadiusFor, isShown, radiusFor } from '../src/places.ts';
+import { detailRadiusOf, isShown, radiusOf } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import {
@@ -120,7 +120,7 @@ setFlattenSites(
     monuments: { id: string; iso: string; lat: number; lon: number }[];
   }).monuments,
 );
-setDetailSites(places.map((place) => ({ lat: place.lat, lon: place.lon, radius: detailRadiusFor(place.pop) })));
+setDetailSites(places.map((place) => ({ lat: place.lat, lon: place.lon, radius: detailRadiusOf(place) })));
 
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
@@ -463,7 +463,7 @@ function trial(road: Road): Verdict {
         for (const j of builtCells[r * TOWN_COLS + (((c % TOWN_COLS) + TOWN_COLS) % TOWN_COLS)]!) {
           if (j === road.a || j === road.b) continue;
           townAt.set(unit[j * 3]!, unit[j * 3 + 1]!, unit[j * 3 + 2]!);
-          if (point.angleTo(townAt) * PLANET_RADIUS < radiusFor(places[j]!.pop)) return { refusal: 'through', near };
+          if (point.angleTo(townAt) * PLANET_RADIUS < radiusOf(places[j]!)) return { refusal: 'through', near };
         }
       }
     }
@@ -645,7 +645,7 @@ candidates.forEach((edge, i) => {
     refused.shut++;
     return;
   }
-  const cls = classOf(places[edge.a]!.pop, places[edge.b]!.pop);
+  const cls = classOf(places[edge.a]!, places[edge.b]!);
   // Rounded to what the wire will carry before it is tested; see `packedBend`.
   const natural = packedBend(bendFor(places[edge.a]!, places[edge.b]!));
   const road: Road = { a: edge.a, b: edge.b, cls, bend: natural, gateA, gateB, layer: 0 };
@@ -752,7 +752,7 @@ function rescueOrphans(rows: readonly Row[]): { put: Row[]; joined: number; trie
       const taken = used.get(target) ?? new Set<number>();
       const toward = gatesToward(target, orphan);
       const theirs = [...toward.filter((g) => !taken.has(g)), ...toward.filter((g) => taken.has(g))].slice(0, 1);
-      const cls = classOf(places[a]!.pop, places[b]!.pop);
+      const cls = classOf(places[a]!, places[b]!);
       const natural = packedBend(bendFor(places[a]!, places[b]!));
       for (const gm of mine) {
         for (const gt of theirs) {

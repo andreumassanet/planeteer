@@ -1238,7 +1238,7 @@ const DETAIL_MARGIN = 1.6;
 export interface DetailSite {
   lat: number;
   lon: number;
-  /** The settlement's built radius, in world units. `places.radiusFor(pop)`. */
+  /** How far out the mesh stays fine, in world units: `places.detailRadiusOf(place)`. */
   radius: number;
 }
 

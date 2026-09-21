@@ -28,7 +28,7 @@
  * own `toFixed` produced and divided back by the same power of ten, and `n/10^d`
  * and `Number(v.toFixed(d))` are both the nearest double to the same decimal, so
  * the round trip is exact rather than close. `pnpm check` asserts it over all
- * 188,507 outline points, 29,614 places and 17,186 roads (2026-09-21).
+ * 188,507 outline points, 29,651 places and 17,217 roads (2026-09-21).
  */
 
 import type { Country } from './geo.ts';
@@ -49,11 +49,12 @@ const VERSION = 1;
 
 const MAGIC_COUNTRIES = 0x434c5441; // 'ATLC'
 /**
- * 'ATLZ', and it was 'ATLP' until the places grew a time zone column
- * (2026-09-21). A new magic for the reason `MAGIC_ROADS` gives: a stale
+ * 'ATLA', and it was 'ATLS' until the places grew their aliases, 'ATLZ' until
+ * they grew a built radius (both 2026-09-21), and 'ATLP' before they grew a
+ * time zone column. A new magic for the reason `MAGIC_ROADS` gives: a stale
  * `places.bin` fails on its first four bytes with "re-bake it".
  */
-const MAGIC_PLACES = 0x5a4c5441; // 'ATLZ'
+const MAGIC_PLACES = 0x414c5441; // 'ATLA'
 /**
  * 'ATLG', and it was 'ATLR' until the roads grew two gate columns and a depth
  * layer (2026-09-13).
@@ -618,6 +619,43 @@ export function encodePlaces(places: readonly Place[]): Uint8Array {
   for (let i = 0; i < n; i++) zones[i] = zoneLists[index.get(places[i]!.iso)!]!.indexOf(places[i]!.zone);
   out.raw(zones);
 
+  // The built radius, on the rows the bake built smaller than `radiusFor` —
+  // the cities it fitted and the hosts that gave them ground, 113 of 29,651
+  // (2026-09-21) — so an index list like the capitals', and a whole unit
+  // each. See `radiusOf`.
+  const fitted: number[] = [];
+  places.forEach((place, i) => {
+    if (place.radius !== undefined) fitted.push(i);
+  });
+  out.varint(fitted.length);
+  at = 0;
+  for (const i of fitted) {
+    out.varint(i - at);
+    at = i;
+  }
+  for (const i of fitted) {
+    const value = places[i]!.radius!;
+    if (!Number.isInteger(value) || value <= 0) throw new Error(`radius ${value} at ${places[i]!.name} is not a whole unit`);
+    out.varint(value);
+  }
+
+  // The aliases: the rows that carry any as an index list, how many each
+  // carries, and every name as one blob, in row order. See `Place.aliases`.
+  const hosts: number[] = [];
+  places.forEach((place, i) => {
+    if (place.aliases === undefined) return;
+    if (place.aliases.length === 0) throw new Error(`${place.name} carries an empty alias list`);
+    hosts.push(i);
+  });
+  out.varint(hosts.length);
+  at = 0;
+  for (const i of hosts) {
+    out.varint(i - at);
+    at = i;
+  }
+  for (const i of hosts) out.varint(places[i]!.aliases!.length);
+  writeText(out, hosts.flatMap((i) => places[i]!.aliases!));
+
   return out.done();
 }
 
@@ -683,6 +721,28 @@ export function decodePlaces(bytes: Uint8Array): Place[] {
     places[i]!.zone = zone;
   }
 
+  const fitted: number[] = [];
+  at = 0;
+  for (let k = reader.varint(); k > 0; k--) {
+    at += reader.varint();
+    fitted.push(at);
+  }
+  for (const i of fitted) places[i]!.radius = reader.varint();
+
+  const hosts: number[] = [];
+  at = 0;
+  for (let k = reader.varint(); k > 0; k--) {
+    at += reader.varint();
+    hosts.push(at);
+  }
+  const counts = hosts.map(() => reader.varint());
+  const aliases = readText(reader, counts.reduce((sum, count) => sum + count, 0));
+  let from = 0;
+  hosts.forEach((i, k) => {
+    places[i]!.aliases = aliases.slice(from, from + counts[k]!);
+    from += counts[k]!;
+  });
+
   reader.finish();
   return places;
 }
@@ -745,10 +805,10 @@ export function encodeRoads(placeCount: number, graph: string, roads: readonly R
   writePlanes(out, bends, 2, 32768);
 
   // Which gate of each town the road comes in by: an index into
-  // `gatesOf(townGrid(pop))`, so a byte — the widest town on the planet has
-  // 36 gates. Stored for the bow's reason: the bake chooses it *with* the water
-  // and slope tests, so the gate the curve was tested through is the gate it
-  // is drawn through. See `Road.gateA` in `src/roads.ts`.
+  // `gatesOf(townGrid(radiusOf(place)))`, so a byte — the widest town on the
+  // planet has 36 gates. Stored for the bow's reason: the bake chooses it
+  // *with* the water and slope tests, so the gate the curve was tested through
+  // is the gate it is drawn through. See `Road.gateA` in `src/roads.ts`.
   for (const column of ['gateA', 'gateB'] as const) {
     const gates = new Uint8Array(n);
     for (let i = 0; i < n; i++) {

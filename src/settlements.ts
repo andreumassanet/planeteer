@@ -53,7 +53,7 @@ import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scene
 import type { Solid, SolidField } from './scenery/solids.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
-import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor } from './places.ts';
+import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
 import { biomeAt, biomeSample } from './biome.ts';
 import { VEHICLES, createTrafficContext, placedScale, placedSize, trafficFor, variantRng as vehicleRng } from './traffic/index.ts';
 import type { TrafficContext, TrafficStyle, Vehicle } from './traffic/index.ts';
@@ -119,10 +119,12 @@ const DEG = Math.PI / 180;
 /**
  * How big a settlement is, and where that number lives now.
  *
- * `radiusFor` is `places.ts`'s, not this file's, and it must stay that way: the
+ * `radiusOf` is `places.ts`'s, not this file's, and it must stay that way: the
  * HUD names the place you are standing in from the same radius this file builds
  * the buildings inside, so a second copy would put the chip's "Lyon" over ground
- * with no Lyon on it. The law and the measurements behind it are documented
+ * with no Lyon on it. It is the law's `radiusFor(pop)` except where the bake
+ * fitted a city smaller than that, and a town's square (`townGrid`) is cut from
+ * it and nothing else. The law and the measurements behind it are documented
  * there.
  */
 
@@ -1046,6 +1048,7 @@ interface Slot {
   style: RegionStyle;
   /** What the ground here is made of. Keyed on `style.id`; see `scenery/ground.ts`. */
   ground: GroundStyle;
+  /** `radiusOf(place)`, asked once. */
   radius: number;
   seed: string;
   /** Unit vector at the settlement, so the distance test costs no trigonometry. */
@@ -1192,7 +1195,7 @@ export function createSettlements(
       place,
       style,
       ground: groundStyleFor(style.id),
-      radius: radiusFor(place.pop),
+      radius: radiusOf(place),
       // Identity, not order: the same town on every load and after the list
       // grows. Latitude and longitude are in the string because two places do
       // share a name — the United States has five Springfields.
@@ -1399,7 +1402,7 @@ export function createSettlements(
    * surfaces this cell is cut to — and a house has to stand on the same one its
    * cell will be paved at, so the choice has to exist before either.
    */
-  let townGridNow: TownGrid = townGrid(0);
+  let townGridNow: TownGrid = townGrid(radiusFor(0));
   let cellSeed = '';
   let baseElevation = 0;
   /** One lattice corner per key, and one terrace per cell. `raise` clears both. */
@@ -3104,7 +3107,7 @@ export function createSettlements(
      * paved and nothing is built on them — `planTown`'s keepout test — and a
      * town smaller than its landmark is that landmark's square.
      */
-    const grid = townGrid(slot.place.pop);
+    const grid = townGrid(slot.radius);
     townGridNow = grid;
     cellSeed = slot.seed;
     baseElevation = Math.max(0, world.elevationAt(up));
@@ -4029,7 +4032,7 @@ export function createSettlements(
    * exact — and the real number replaces it the moment the town exists.
    */
   function estimateTriangles(slot: Slot): number {
-    const grid = townGrid(slot.place.pop);
+    const grid = townGrid(slot.radius);
     const cells = grid.cells * grid.cells;
     // 0.72 is the mean fill and 150 the measured mean triangles per part over an
     // 814-place sample (9 parts and 1,344 triangles for the median settlement).
@@ -4185,7 +4188,7 @@ export function createSettlements(
       // (part, variant, piece), where a piece is one mesh of the built variant
       // and therefore one colour.
       const instanceBegan = performance.now();
-      const plan = planTown(slot, townGrid(slot.place.pop)).placed;
+      const plan = planTown(slot, townGrid(slot.radius)).placed;
       const buckets = new Map<string, number>();
       let instancedTriangles = 0;
       let instancedBytes = 0;

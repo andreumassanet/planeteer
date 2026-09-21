@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
-import { radiusFor } from '../places.ts';
 import { MAX_CUT, TERRACE_STEP, cellKey } from './ground.ts';
 
 /**
@@ -14,13 +13,14 @@ import { MAX_CUT, TERRACE_STEP, cellKey } from './ground.ts';
  * four units short of a kerb and handed over to a narrow track of the town's
  * own. What they asked for instead was one line: *que la ciudad esté sobre una
  * base cuadrada y los caminos se conecten ahí.* This file is that square, as
- * pure functions of a place's population, so that the town that stands on it
- * (`settlements.ts`) and the roads that arrive at it (`roads.ts`, the bake and
- * `pnpm check`) cannot disagree about where its edge is or where its gates are.
+ * pure functions of a place's built radius (`radiusOf`), so that the town that
+ * stands on it (`settlements.ts`) and the roads that arrive at it (`roads.ts`,
+ * the bake and `pnpm check`) cannot disagree about where its edge is or where
+ * its gates are.
  *
- * **The square is inscribed in `radiusFor`'s disc**, half-side `r / sqrt 2`,
+ * **The square is inscribed in `radiusOf`'s disc**, half-side `r / sqrt 2`,
  * and that is a measurement rather than a taste. The bake thins every pair of
- * places to at least `radiusFor(a) + radiusFor(b)` apart, and two north-up
+ * places to at least `radiusOf(a) + radiusOf(b)` apart, and two north-up
  * squares inscribed in discs that do not overlap cannot overlap either: over
  * the 9,749 built towns (2026-09-13), a half-side of `0.707 r` leaves **0**
  * pairs of squares touching, `0.8 r` leaves 10, `0.9 r` 71 and `r` 194. Every
@@ -112,11 +112,15 @@ export interface TownGrid {
 
 const grids = new Map<number, TownGrid>();
 
-/** The square a place of this population stands on. Cached: it is asked per road end. */
-export function townGrid(pop: number): TownGrid {
-  const known = grids.get(pop);
+/**
+ * The square a place built at this radius stands on — `radiusOf(place)`, never
+ * the law's answer for its population, which a fitted city is smaller than.
+ * Cached: it is asked per road end.
+ */
+export function townGrid(radius: number): TownGrid {
+  const known = grids.get(radius);
   if (known !== undefined) return known;
-  const half = radiusFor(pop) / Math.SQRT2;
+  const half = radius / Math.SQRT2;
   const cells = Math.max(1, Math.round((2 * half) / TOWN_PITCH));
   const pitch = (2 * half) / cells;
   const shift = (cells - 1) / 2;
@@ -132,7 +136,7 @@ export function townGrid(pop: number): TownGrid {
   }
   slots.sort((a, b) => a - b);
   const grid: TownGrid = { half, cells, pitch, shift, avenue, low, high, slots };
-  grids.set(pop, grid);
+  grids.set(radius, grid);
   return grid;
 }
 

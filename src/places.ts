@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { DATA_URL, decodePlaces, inflate } from './pack.ts';
 
 /**
- * The 29,614 populated places, and the one question worth asking of them:
+ * The 29,651 populated places, and the one question worth asking of them:
  * **what is the nearest, and are you in it?**
  *
  * The data is `public/data/places.bin`, baked by `scripts/build-places.mjs`
@@ -13,12 +13,14 @@ import { DATA_URL, decodePlaces, inflate } from './pack.ts';
  *
  * The bake thins it against `radiusFor` below — a gazetteer lists one row per
  * municipality, so 60% of the raw rows had a neighbour inside their own built
- * radius — which is why 64,231 rows on land arrive here as 29,614 with no
- * overlap left at all (2026-09-21).
+ * radius — which is why 64,231 rows on land arrive here as 29,651 with no
+ * overlap left at all (2026-09-21). A city the thinning would have deleted is
+ * kept smaller instead where it can be, and carries its own radius; that is
+ * `radiusOf` below, and it is the only answer to how big a place is built.
  *
  * This file is deliberately not the settlement builder. It answers where you
  * are; what gets *built* at a place is `src/settlements.ts`, which reads the
- * same array out of here rather than parsing 29,614 rows a second time. Two
+ * same array out of here rather than parsing 29,651 rows a second time. Two
  * indexes over the same data that can drift apart is the exact shape of bug
  * this project keeps writing down.
  */
@@ -28,9 +30,27 @@ export interface Place {
   iso: string;
   lat: number;
   lon: number;
-  /** Natural Earth's `POP_MAX`: the metro figure, not the municipality. */
+  /**
+   * GeoNames' own figure, which is the municipality and not the metro area
+   * (`build-places.mjs` has what that costs), to three significant figures.
+   */
   pop: number;
   capital?: boolean;
+  /**
+   * The built radius, in world units, **only where the bake built this place
+   * smaller than `radiusFor(pop)`** — a city fitted between neighbours it
+   * would otherwise have been deleted by, or a host that gave up ground to one
+   * (see the thinning in `build-places.mjs`). A whole unit. Nothing reads it
+   * but `radiusOf`, which is the one answer to how big a place is built.
+   */
+  radius?: number;
+  /**
+   * The names of the places the bake folded into this one, biggest first —
+   * every absorbed place of `ALIAS_POPULATION` or more and every absorbed
+   * capital, so that searching for Kobe finds Osaka rather than nothing. See
+   * `Places.aliases`.
+   */
+  aliases?: readonly string[];
   /** How far the bake had to move it to get it onto land, in real km. */
   snappedKm?: number;
   /**
@@ -57,9 +77,9 @@ export interface Nearby {
   units: number;
   /** The same distance in real Earth kilometres. */
   km: number;
-  /** Where its buildings reach; see `radiusFor`. */
+  /** Where its buildings reach; see `radiusOf`. */
   radius: number;
-  /** And where its name still reaches; see `labelRadiusFor`. */
+  /** And where its name still reaches; see `labelRadiusOf`. */
   labelRadius: number;
   /** Inside the buildings. "Palma". */
   inside: boolean;
@@ -69,6 +89,17 @@ export interface Nearby {
 
 export interface Places {
   all: readonly Place[];
+  /**
+   * Every name in the file's `aliases`, as written, to the index in `all` of
+   * the *built* town it stands for: the place it was folded into, or — where
+   * that place is itself hidden (`isShown`) — the built town nearest it in the
+   * same country, and no entry where the country has none built: *Tangier ·
+   * for Gibraltar* is the nearest built town and the wrong answer. What
+   * `earthBody` in `menu.ts` takes. The bake keeps one alias a name, the
+   * biggest place's. Built on each call against the current prominence radius;
+   * the menu asks once.
+   */
+  aliases(): Map<string, number>;
   /**
    * The closest place to a point, by angle on the sphere, so altitude does not
    * enter into it: from the plane you are still over somewhere.
@@ -165,12 +196,17 @@ const EARTH_KM = 6371;
  * the middle instead of the top, is the row that loses Amsterdam, Bratislava and
  * Rabat.
  *
- * **And the cap is bounded by the gazetteer before it is bounded by the frame.**
- * At 200 the two biggest cities in a delta eat each other: Beijing and Tianjin
- * are 113 km apart, which is 282 units, so any cap over 141 deletes Tianjin, and
- * Guangzhou–Shenzhen goes at 131. 150 keeps both by a margin measured in a
- * couple of kilometres, and that is the same bound the triangle budget gave
- * independently.
+ * **The cap was also written down as bounded by the gazetteer, and on these
+ * coordinates it never was.** Beijing and Tianjin are 108 km apart on GeoNames'
+ * own coordinates, which is 271 units, and Guangzhou and Shenzhen 105 km, 264
+ * units (2026-09-21), so any cap over 135 puts Tianjin inside Beijing and any
+ * over 132 puts Shenzhen inside Guangzhou — and 150 does both. This note said
+ * 150 kept both; the bake deleted both. They stand now because the thinning
+ * *fits* a big city between the neighbours it collides with instead of
+ * deleting it (`FIT_POPULATION` in `build-places.mjs`) — Tianjin at 121 units
+ * — which no single law could do: a cap low enough to keep the pair apart would
+ * shrink every megacity on the planet for the sake of two. So the bound on the
+ * cap is the triangle budget's alone.
  *
  * What it does *not* buy is free, and the re-bake is what settled the numbers:
  * **the world keeps 24% more places — 29,545 against 23,866** — because a
@@ -178,7 +214,9 @@ const EARTH_KM = 6371;
  * incompressible thing in `places.bin`. That is **266 KB on the wire against
  * 323**, and `roads.bin` 128 against 149 with it. The 15 capitals standing
  * inside a larger neighbour are the *same fifteen* as before to one swap:
- * Hong Kong is a place again and Macau is inside it.
+ * Hong Kong is a place again and Macau is inside it. (Twelve since the thinning
+ * began fitting a city rather than deleting it, 2026-09-21: Pretoria, Macau and
+ * Porto-Novo stand; see `build-places.mjs`.)
  *
  * **It lives here rather than in `settlements.ts` because two of them would
  * drift.** This is the ground truth for both the buildings that get placed and
@@ -202,15 +240,42 @@ export const BIGGEST_SETTLEMENT = 150;
 /** And the smallest, for the same reason: it is the floor of the same law. */
 export const SMALLEST_SETTLEMENT = 12;
 
+/** The law's two constants, named once because `populationFor` runs it backwards. */
+const LAW_SCALE = 0.465;
+const LAW_EXPONENT = 0.36;
+
 export function radiusFor(pop: number): number {
-  return Math.min(BIGGEST_SETTLEMENT, Math.max(SMALLEST_SETTLEMENT, 0.465 * pop ** 0.36));
+  return Math.min(BIGGEST_SETTLEMENT, Math.max(SMALLEST_SETTLEMENT, LAW_SCALE * pop ** LAW_EXPONENT));
+}
+
+/**
+ * The law run backwards, unclamped: the population a place built at `radius`
+ * would have. Only `shadeOf` asks it, about a place the bake built smaller
+ * than its own population.
+ */
+export function populationFor(radius: number): number {
+  return (radius / LAW_SCALE) ** (1 / LAW_EXPONENT);
+}
+
+/**
+ * **How big a place is built, and the one answer to it.** `radiusFor` is the
+ * law and this is the place: its stored radius where the bake fitted it
+ * smaller (`Place.radius`), the law's answer everywhere else. Every consumer
+ * of a place's size — the town's square (`townGrid`), the thinning's own
+ * check, the trees and the herds keeping off it, the road bake's "through a
+ * third town", a road's class, the chip, the minimap's dot, the city light —
+ * asks this and not `radiusFor(place.pop)`, because a fitted Kyoto is 43 units
+ * and a disc of the law's 77 laid over it would stand in Osaka.
+ */
+export function radiusOf(place: { pop: number; radius?: number }): number {
+  return place.radius ?? radiusFor(place.pop);
 }
 
 /**
  * How far out the *name* still applies, as opposed to the buildings.
  *
  * These have to be two numbers and it is worth saying why, because collapsing
- * them was the obvious thing and it is wrong. `radiusFor` is where the houses
+ * them was the obvious thing and it is wrong. `radiusOf` is where the houses
  * are, and at 1:400 a median town's houses are a 15-unit disc — a third of a
  * second's walk. A chip that only named a place while you stood
  * inside that would essentially never name one, which is the whole feature.
@@ -222,7 +287,7 @@ export function radiusFor(pop: number): number {
  * about 1,000 units and a settlement is a low, wide cluster rather than a
  * tower, so it stops reading as a town well before it stops being drawn.
  *
- * The consequence to keep in mind: inside `radiusFor` the chip says *Palma*,
+ * The consequence to keep in mind: inside `radiusOf` the chip says *Palma*,
  * and in the band outside it says *near Palma*. The second is not a weaker
  * version of the first — it is a different and true statement, and the reason
  * the band is allowed to be generous.
@@ -284,18 +349,18 @@ export function radiusFor(pop: number): number {
  */
 const DETAIL_FLOOR = 20;
 
-export function detailRadiusFor(pop: number): number {
-  return Math.max(DETAIL_FLOOR, radiusFor(pop));
+export function detailRadiusOf(place: { pop: number; radius?: number }): number {
+  return Math.max(DETAIL_FLOOR, radiusOf(place));
 }
 
 const APPROACH = 220;
 
-export function labelRadiusFor(pop: number): number {
-  return radiusFor(pop) + APPROACH;
+export function labelRadiusOf(place: { pop: number; radius?: number }): number {
+  return radiusOf(place) + APPROACH;
 }
 
 // ---------------------------------------------------------------------------
-// Prominence: which of the 29,614 places is a *built* town
+// Prominence: which of the 29,651 places is a *built* town
 // ---------------------------------------------------------------------------
 
 /**
@@ -312,6 +377,28 @@ export const CAPITAL_RANK = 100_000;
 
 export function rankOf(place: { pop: number; capital?: boolean }): number {
   return place.capital ? Math.max(place.pop, CAPITAL_RANK) : place.pop;
+}
+
+/**
+ * The rank a place *hides its neighbours with*, which is its rank unless the
+ * bake built it smaller than its population — then it is no more than the
+ * population its built radius stands for (`populationFor`).
+ *
+ * **A place is hidden by its fame and hides by its size**, and the asymmetry
+ * is the point. Before the thinning fitted cities, a place's population and
+ * its built disc said the same thing and one number did for both. A fitted
+ * place breaks that: Yangzhou's 4.56 M (a prefecture figure) fits between
+ * Nanjing and its neighbours at 31 units, and ranked by population it hid
+ * Taizhou — 1.61 M, built at 80 units, 114 away — so the map traded a city of
+ * 80 units for a town of 31 (2026-09-21). By its built size, 31 units stands for
+ * about 117,000 people and hides nothing over half that. The other direction
+ * is left alone on purpose: a fitted Kyoto is still hidden or not by what is
+ * twice *its* population, because what it is called is the whole reason it was
+ * kept. Only `prominenceField` and the bake's thinning ask this.
+ */
+export function shadeOf(place: { pop: number; capital?: boolean; radius?: number }): number {
+  const rank = rankOf(place);
+  return place.radius === undefined ? rank : Math.min(rank, populationFor(place.radius));
 }
 
 /**
@@ -427,7 +514,9 @@ export function isShown(place: Place): boolean {
  * at least `PROMINENCE_RATIO` times its own, searched on the bake's own
  * half-degree grid in doubling squares: everything inside X units lies inside
  * the square scanned for X, so the first square that finds anything holds the
- * true nearest. Floored, not rounded, so that `prominence < R` is exactly
+ * true nearest. A hider is compared by `shadeOf` and the hidden by `rankOf`,
+ * which differ only for a place the bake built smaller than its population.
+ * Floored, not rounded, so that `prominence < R` is exactly
  * "a hider is nearer than R" at whole-unit radii. Capped at `PROMINENCE_CAP`,
  * which 266 places reach on the shipped file (2026-09-05; p10 46, median 102,
  * p90 359); a capital is stored at the cap without searching. 86 ms in the
@@ -438,7 +527,7 @@ export function isShown(place: Place): boolean {
  * second definition of what "prominent" means.
  */
 export function prominenceField(
-  places: readonly { lat: number; lon: number; pop: number; capital?: boolean }[],
+  places: readonly { lat: number; lon: number; pop: number; capital?: boolean; radius?: number }[],
   planetRadius: number,
 ): Uint16Array {
   const n = places.length;
@@ -450,6 +539,7 @@ export function prominenceField(
   const uy = new Float64Array(n);
   const uz = new Float64Array(n);
   const rank = new Float64Array(n);
+  const shade = new Float64Array(n);
   const buckets: (number[] | undefined)[] = new Array(ROWS * COLS);
   for (let i = 0; i < n; i++) {
     const place = places[i]!;
@@ -458,6 +548,7 @@ export function prominenceField(
     uy[i] = Math.sin(place.lat * DEG);
     uz[i] = -cos * Math.sin(place.lon * DEG);
     rank[i] = rankOf(place);
+    shade[i] = shadeOf(place);
     const row = Math.min(ROWS - 1, Math.floor((place.lat + 90) / CELL));
     const col = (((Math.floor((place.lon + 180) / CELL) % COLS) + COLS) % COLS);
     (buckets[row * COLS + col] ??= []).push(i);
@@ -496,7 +587,7 @@ export function prominenceField(
           const bucket = buckets[r * COLS + (((col + dc) % COLS) + COLS) % COLS];
           if (bucket === undefined) continue;
           for (const j of bucket) {
-            if (j === i || rank[j]! < want) continue;
+            if (j === i || shade[j]! < want) continue;
             const dx = ux[i]! - ux[j]!;
             const dy = uy[i]! - uy[j]!;
             const dz = uz[i]! - uz[j]!;
@@ -531,8 +622,8 @@ export async function loadPlaces(
  *
  * There is no spatial grid here, and that is a measurement rather than an
  * omission: the built rows are one flat `Float64Array` of unit vectors, and the
- * nearest is the largest dot product. 9,749 rows is 29,000 multiply-adds, which
- * `pnpm check` measured at 10.4 microseconds a query (2026-09-21) — well under
+ * nearest is the largest dot product. 9,796 rows is 29,000 multiply-adds, which
+ * `pnpm check` measured at 10.8 microseconds a query (2026-09-21) — well under
  * a hundredth of a 60 fps frame, for a question the HUD asks once. It was 5 us
  * over Natural Earth's 7,320 and about 20 over all 29,545 rows before the
  * built ones were packed apart. A grid would be faster and would also be a
@@ -552,8 +643,8 @@ export function indexPlaces(all: readonly Place[], radius: number): Places {
     // Negative, like every other conversion in the project. A `+` here puts
     // east where west belongs; see the mirrored-planet trap in CLAUDE.md.
     unit[i * 3 + 2] = -cos * Math.sin(place.lon * DEG);
-    claim[i] = radiusFor(place.pop);
-    label[i] = labelRadiusFor(place.pop);
+    claim[i] = radiusOf(place);
+    label[i] = labelRadiusOf(place);
   }
 
   /**
@@ -561,7 +652,7 @@ export function indexPlaces(all: readonly Place[], radius: number): Places {
    *
    * **A hidden place is never the nearest.** Nothing is built there, so a chip
    * saying *Manacor* over an empty field would be the "Lyon over ground with no
-   * Lyon on it" bug that `radiusFor` lives here to prevent; skipping it makes
+   * Lyon on it" bug that `radiusOf` lives here to prevent; skipping it makes
    * the chip say *near Palma*, which is true. Every hidden place is inside its
    * *hider's* label band (`PROMINENCE_RADIUS` is under `APPROACH`), and the
    * hider may itself be hidden, so the nearest built town can be further:
@@ -590,22 +681,49 @@ export function indexPlaces(all: readonly Place[], radius: number): Places {
   };
 
   const direction = new THREE.Vector3();
+  let best = -2;
+  let found = 0;
+  /**
+   * The built row nearest a unit direction, into `found`, and its dot product
+   * into `best` — among one country's rows only, when `iso` is given, and
+   * `found` is -1 where that country has none built.
+   */
+  const scan = (x: number, y: number, z: number, iso?: string): void => {
+    best = -2;
+    found = iso === undefined ? 0 : -1;
+    for (let k = 0; k < builtCount; k++) {
+      const dot = x * builtUnit[k * 3]! + y * builtUnit[k * 3 + 1]! + z * builtUnit[k * 3 + 2]!;
+      if (dot > best && (iso === undefined || all[builtIndex[k]!]!.iso === iso)) {
+        best = dot;
+        found = builtIndex[k]!;
+      }
+    }
+  };
 
   return {
     all,
+    aliases() {
+      refresh();
+      const out = new Map<string, number>();
+      for (let i = 0; i < all.length; i++) {
+        const names = all[i]!.aliases;
+        if (names === undefined) continue;
+        let town = i;
+        if (!isShown(all[i]!)) {
+          scan(unit[i * 3]!, unit[i * 3 + 1]!, unit[i * 3 + 2]!, all[i]!.iso);
+          if (found < 0) continue;
+          town = found;
+        }
+        // The rows are in rank order, so the first town to claim a name is
+        // the biggest; the bake has already kept one alias a name.
+        for (const name of names) if (!out.has(name)) out.set(name, town);
+      }
+      return out;
+    },
     nearest(point) {
       refresh();
       direction.copy(point).normalize();
-      const { x, y, z } = direction;
-      let best = -2;
-      let found = 0;
-      for (let k = 0; k < builtCount; k++) {
-        const dot = x * builtUnit[k * 3]! + y * builtUnit[k * 3 + 1]! + z * builtUnit[k * 3 + 2]!;
-        if (dot > best) {
-          best = dot;
-          found = builtIndex[k]!;
-        }
-      }
+      scan(direction.x, direction.y, direction.z);
       // Along the surface, not through the planet: at 600 units apart the chord
       // and the arc differ by a millimetre, but at a quarter of the way round
       // the world they differ by a fifth, and the HUD prints this number.
