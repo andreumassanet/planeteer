@@ -126,11 +126,11 @@ const STYLE = `
   backdrop-filter: blur(4px);
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0.2s;
+  transition: opacity 0.2s ease, visibility 0s 0.2s;
   font-family: var(--ui-font);
   color: var(--ui-ink);
 }
-.atlas-settings.on { opacity: 1; visibility: visible; }
+.atlas-settings.on { opacity: 1; visibility: visible; transition-delay: 0s; }
 .atlas-settings.on .atlas-settings-panel { animation: ui-pop 0.32s var(--ui-spring) both; }
 .atlas-settings-panel {
   width: min(600px, 100%);
@@ -515,6 +515,7 @@ export function createSettings(options: SettingsOptions): Settings {
 
   let showing = false;
   let relock = false;
+  let previousFocus: HTMLElement | null = null;
 
   function refresh(): void {
     detail.refresh();
@@ -534,6 +535,7 @@ export function createSettings(options: SettingsOptions): Settings {
   function show(): void {
     if (showing) return;
     showing = true;
+    previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // Asked for the mouse before `onOpen`, which may close the map — and the
     // map hands the lock back as it closes, which is the next paragraph's
     // problem and not this one's.
@@ -561,13 +563,19 @@ export function createSettings(options: SettingsOptions): Settings {
     window.clearInterval(clockTimer);
     root.classList.remove('on');
     options.onClose?.();
-    if (relock && options.lockTarget !== null) {
+    if (relock && options.lockTarget !== null && typeof options.lockTarget.requestPointerLock === 'function') {
       // Chrome refuses a lock asked for too soon after one was released; that
       // rejection is noise, the same rule `input.ts` and `map.ts` follow.
-      const request: unknown = options.lockTarget.requestPointerLock();
-      if (request instanceof Promise) request.catch(() => {});
+      try {
+        const request: unknown = options.lockTarget.requestPointerLock();
+        if (request instanceof Promise) request.catch(() => {});
+      } catch {
+        // Keep the panel closed if the browser refuses synchronously.
+      }
     }
     (document.activeElement as HTMLElement | null)?.blur?.();
+    if (!relock && previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    previousFocus = null;
   }
 
   close.addEventListener('click', hide);
@@ -584,6 +592,19 @@ export function createSettings(options: SettingsOptions): Settings {
     if (event.code === 'Escape') {
       event.preventDefault();
       hide();
+    } else if (event.code === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const controls = [...panel.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
+        .filter((element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !panel.contains(active))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
   });
 

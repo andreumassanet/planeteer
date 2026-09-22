@@ -119,6 +119,7 @@ import {
   tracePin,
 } from './cartography.ts';
 import { latOf, lonOf } from './sphere.ts';
+import { inputBlocked } from './controls.ts';
 
 export interface WorldMapOptions {
   /** Every placement, the same array the minimap and `navigation.ts` are given. */
@@ -1073,9 +1074,13 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // around". Chrome rejects the request if the lock was released too recently;
     // an unhandled rejection there is noise, not news — the same rule
     // `input.ts` uses.
-    if (lockTarget !== null) {
-      const request: unknown = lockTarget.requestPointerLock();
-      if (request instanceof Promise) request.catch(() => {});
+    if (lockTarget !== null && typeof lockTarget.requestPointerLock === 'function') {
+      try {
+        const request: unknown = lockTarget.requestPointerLock();
+        if (request instanceof Promise) request.catch(() => {});
+      } catch {
+        // Some browsers throw synchronously when pointer lock is unavailable.
+      }
     }
   }
 
@@ -1083,6 +1088,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     addEventListener('keydown', (event) => {
       // Leave the browser's own shortcuts alone, the same rule `input.ts` uses.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (inputBlocked(event)) return;
       if (event.code === key) {
         event.preventDefault();
         if (!event.repeat) {

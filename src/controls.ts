@@ -278,7 +278,7 @@ export function registerModal(isOpen: () => boolean): () => void {
 }
 
 /** Anything a key typed into is meant for. */
-const EDITABLE = 'input, select, textarea, [contenteditable=""], [contenteditable="true"]';
+const EDITABLE = 'input, select, textarea';
 /** And anything a key pressed on is meant for, when it is on a dialog. */
 const CONTROL = 'button, a[href], [role="button"], [role="switch"], [role="slider"], [role="tab"]';
 const DIALOG = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]';
@@ -288,16 +288,15 @@ const DIALOG = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]';
  *
  * True while a modal card is open, while an input method is composing, when
  * the key was typed into a field, and when it was pressed on a button or a
- * switch that lives on a dialog. **Only ever asked of `keydown`**: a `keyup`
- * is always the world's, or a key held when a card opened would stay held
- * after it closed.
+ * switch that lives on a dialog. Without an event, checks the focused element
+ * before a frame consumes held input. Key releases still clear held keys even
+ * when blocked; only their browser behaviour is left alone.
  */
 export function inputBlocked(event?: Event): boolean {
   for (const open of modals) if (open()) return true;
-  if (event === undefined) return false;
-  if ((event as KeyboardEvent).isComposing === true) return true;
-  const target = event.target;
+  if ((event as KeyboardEvent | undefined)?.isComposing === true) return true;
+  const target = event?.target ?? (typeof document === 'undefined' ? null : document.activeElement);
   if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
-  if (target.closest(EDITABLE) !== null) return true;
+  if (target.closest(EDITABLE) !== null || (target instanceof HTMLElement && target.isContentEditable)) return true;
   return target.closest(CONTROL) !== null && target.closest(DIALOG) !== null;
 }

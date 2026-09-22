@@ -1,84 +1,167 @@
 #!/usr/bin/env node
-// Headless-Chrome screenshot driver over CDP (Node 24 has a WebSocket client).
-//   node shot.mjs --url URL [--size 1600x900] [steps...]
-// steps, in order:  --wait MS | --eval JS (awaits promises) | --shot FILE.png | --log
-// Prints eval results as JSON. Keeps one Chrome per run.
+// Headless Chrome over CDP, using Node's built-in WebSocket client.
+// node shot.mjs --url URL [--size 1600x900] [--timeout MS] [steps...]
+// Steps, in order: --wait MS | --eval JS (awaits promises) | --shot FILE.png | --log
+// CHROME_BIN can point to a Chrome or Chromium executable.
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = (name, dflt) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : dflt; };
+const opt = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 const url = opt('--url', 'about:blank');
 const [w, h] = opt('--size', '1600x900').split('x').map(Number);
-// A Chrome profile is ~170 MB and /tmp is a tmpfs in RAM: 75 leaked ones once filled
-// it and took every shell down with it. Made under `SHOT_PROFILE_DIR` when it is set,
-// and removed on the way out whatever happens.
-const profile = mkdtempSync(join(process.env.SHOT_PROFILE_DIR ?? tmpdir(), 'shot-'));
-const cleanup = () => { try { rmSync(profile, { recursive: true, force: true }); } catch {} };
-process.on('exit', cleanup); process.on('SIGINT', () => { cleanup(); process.exit(130); }); process.on('SIGTERM', () => { cleanup(); process.exit(143); });
-const chrome = spawn('google-chrome-stable', [
-  '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
-  '--no-first-run', '--no-default-browser-check', '--hide-scrollbars',
-  `--window-size=${w},${h}`, '--enable-unsafe-swiftshader', 'about:blank',
-], { stdio: ['ignore', 'ignore', 'pipe'] });
-const wsUrl = await new Promise((resolve, reject) => {
-  let buf = '';
-  chrome.stderr.on('data', (d) => {
-    buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) resolve(m[1]);
-  });
-  chrome.on('exit', () => reject(new Error('chrome exited\n' + buf)));
-  setTimeout(() => reject(new Error('no devtools url\n' + buf)), 15000);
-});
-const ws = new WebSocket(wsUrl);
-await new Promise((r) => ws.addEventListener('open', r));
-let id = 0; const pending = new Map(); const listeners = [];
-ws.addEventListener('message', (ev) => {
-  const msg = JSON.parse(ev.data);
-  if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
-  else for (const l of listeners) l(msg);
-});
-const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
-  const n = ++id; pending.set(n, (m) => m.error ? reject(new Error(method + ': ' + JSON.stringify(m.error))) : resolve(m.result));
-  ws.send(JSON.stringify({ id: n, method, params, sessionId }));
-});
-const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
-const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
-await send('Page.enable', {}, sessionId);
-await send('Runtime.enable', {}, sessionId);
-await send('Network.enable', {}, sessionId);
-const reqs = new Map();
-listeners.push((m) => {
-  if (m.sessionId !== sessionId) return;
-  if (m.method === 'Network.requestWillBeSent') reqs.set(m.params.requestId, m.params.request.url);
-  if (m.method === 'Network.loadingFailed') logs.push('NETFAIL ' + (reqs.get(m.params.requestId) ?? '?').replace(url, '') + ' ' + m.params.errorText + (m.params.canceled ? ' (canceled)' : ''));
-  if (m.method === 'Network.responseReceived' && m.params.response.status >= 400) logs.push('HTTP ' + m.params.response.status + ' ' + m.params.response.url.replace(url, ''));
-});
-const logs = [];
-listeners.push((m) => {
-  if (m.sessionId !== sessionId) return;
-  if (m.method === 'Runtime.consoleAPICalled') logs.push(m.params.type + ': ' + m.params.args.map((a) => a.value ?? a.description ?? '').join(' '));
-  if (m.method === 'Runtime.exceptionThrown') logs.push('EXC: ' + (m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text));
-});
-await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false }, sessionId);
-const loaded = new Promise((r) => listeners.push((m) => m.sessionId === sessionId && m.method === 'Page.loadEventFired' && r()));
-await send('Page.navigate', { url }, sessionId);
-await loaded;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-for (let i = 0; i < args.length; i++) {
-  const a = args[i];
-  if (a === '--wait') { await sleep(Number(args[++i])); }
-  else if (a === '--eval') {
-    const expression = args[++i];
-    const r = await send('Runtime.evaluate', { expression: `(async () => (${expression}))()`, awaitPromise: true, returnByValue: true }, sessionId);
-    console.log(r.exceptionDetails ? 'EVAL ERROR ' + JSON.stringify(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text) : JSON.stringify(r.result.value));
-  }
-  else if (a === '--shot') {
-    const file = args[++i];
-    const { data } = await send('Page.captureScreenshot', { format: 'png' }, sessionId);
-    writeFileSync(file, Buffer.from(data, 'base64')); console.log('wrote', file);
-  }
-  else if (a === '--log') { console.log(logs.join('\n')); logs.length = 0; }
+const timeout = Number(opt('--timeout', '120000'));
+if (![w, h, timeout].every(value => Number.isSafeInteger(value) && value > 0)) {
+  throw new Error('Size and timeout must be positive integers');
 }
-ws.close(); chrome.kill(); await new Promise((r) => chrome.on('exit', r)); cleanup();
+
+// Remove the profile after the browser stops writing, including on failure.
+const profile = mkdtempSync(join(process.env.SHOT_PROFILE_DIR ?? tmpdir(), 'shot-'));
+let chrome, ws, watchdog, startupTimer;
+const logs = [];
+const pending = new Map();
+const listeners = [];
+let nextId = 0;
+
+function rejectPending(error) {
+  for (const { reject } of pending.values()) reject(error);
+  pending.clear();
+}
+
+const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+  if (ws?.readyState !== WebSocket.OPEN) return reject(new Error('Chrome connection is closed'));
+  const id = ++nextId;
+  pending.set(id, { resolve, reject });
+  ws.send(JSON.stringify({ id, method, params, sessionId }));
+});
+
+async function run() {
+  chrome = spawn(process.env.CHROME_BIN ?? 'google-chrome-stable', [
+    '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
+    '--no-first-run', '--no-default-browser-check', '--hide-scrollbars',
+    `--window-size=${w},${h}`, '--enable-unsafe-swiftshader', 'about:blank',
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const wsUrl = await new Promise((resolve, reject) => {
+    let stderr = '';
+    chrome.stderr.on('data', data => {
+      stderr = (stderr + data).slice(-65536);
+      const match = stderr.match(/DevTools listening on (ws:\/\/\S+)/);
+      if (match) resolve(match[1]);
+    });
+    chrome.on('error', reject);
+    chrome.on('exit', () => reject(new Error('Chrome exited\n' + stderr)));
+    startupTimer = setTimeout(() => reject(new Error('No DevTools URL\n' + stderr)), 15000);
+  }).finally(() => clearTimeout(startupTimer));
+
+  ws = new WebSocket(wsUrl);
+  ws.addEventListener('message', event => {
+    const message = JSON.parse(event.data);
+    const reply = pending.get(message.id);
+    if (reply) {
+      pending.delete(message.id);
+      if (message.error) reply.reject(new Error(JSON.stringify(message.error)));
+      else reply.resolve(message.result);
+    } else {
+      for (const listener of listeners) listener(message);
+    }
+  });
+  ws.addEventListener('close', () => rejectPending(new Error('Chrome connection closed')));
+  ws.addEventListener('error', () => rejectPending(new Error('Chrome connection failed')));
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true });
+    ws.addEventListener('error', () => reject(new Error('Cannot connect to Chrome')), { once: true });
+    ws.addEventListener('close', () => reject(new Error('Chrome closed before connecting')), { once: true });
+  });
+
+  const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
+  await send('Page.enable', {}, sessionId);
+  await send('Runtime.enable', {}, sessionId);
+  await send('Network.enable', {}, sessionId);
+  const requests = new Map();
+  listeners.push(message => {
+    if (message.sessionId !== sessionId) return;
+    const { method, params } = message;
+    if (method === 'Network.requestWillBeSent') requests.set(params.requestId, params.request.url);
+    if (method === 'Network.loadingFailed') logs.push('NETFAIL ' + (requests.get(params.requestId) ?? '?') + ' ' + params.errorText);
+    if (method === 'Network.responseReceived' && params.response.status >= 400) logs.push('HTTP ' + params.response.status + ' ' + params.response.url);
+    if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') requests.delete(params.requestId);
+    if (method === 'Runtime.consoleAPICalled') logs.push(params.type + ': ' + params.args.map(arg => arg.value ?? arg.description ?? '').join(' '));
+    if (method === 'Runtime.exceptionThrown') logs.push('EXC: ' + (params.exceptionDetails.exception?.description ?? params.exceptionDetails.text));
+  });
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false }, sessionId);
+  const loaded = new Promise(resolve => listeners.push(message => {
+    if (message.sessionId === sessionId && message.method === 'Page.loadEventFired') resolve();
+  }));
+  const navigation = await send('Page.navigate', { url }, sessionId);
+  if (navigation.errorText) throw new Error('Navigation failed: ' + navigation.errorText);
+  await loaded;
+
+  for (let i = 0; i < args.length; i++) {
+    const argument = args[i];
+    if (['--url', '--size', '--timeout'].includes(argument)) { i++; continue; }
+    if (argument === '--wait') {
+      const ms = Number(args[++i]);
+      if (!Number.isFinite(ms) || ms < 0) throw new Error('--wait needs a non-negative number');
+      await new Promise(resolve => setTimeout(resolve, ms).unref());
+    } else if (argument === '--eval') {
+      const expression = args[++i];
+      if (expression === undefined) throw new Error('--eval needs an expression');
+      const result = await send('Runtime.evaluate', {
+        expression: `(async () => (${expression}))()`, awaitPromise: true, returnByValue: true,
+      }, sessionId);
+      if (result.exceptionDetails) {
+        throw new Error('EVAL ERROR ' + (result.exceptionDetails.exception?.description ?? result.exceptionDetails.text));
+      }
+      console.log(JSON.stringify(result.result.value) ?? 'null');
+    } else if (argument === '--shot') {
+      const file = args[++i];
+      if (file === undefined) throw new Error('--shot needs a filename');
+      const { data } = await send('Page.captureScreenshot', { format: 'png' }, sessionId);
+      writeFileSync(file, Buffer.from(data, 'base64'));
+      console.log('wrote', file);
+    } else if (argument === '--log') {
+      console.log(logs.join('\n'));
+      logs.length = 0;
+    } else {
+      throw new Error('Unknown option: ' + argument);
+    }
+  }
+}
+
+let interrupt;
+const interrupted = new Promise((_, reject) => { interrupt = reject; });
+const onSignal = signal => {
+  process.exitCode = signal === 'SIGINT' ? 130 : 143;
+  interrupt(new Error('Interrupted by ' + signal));
+};
+process.on('SIGINT', onSignal);
+process.on('SIGTERM', onSignal);
+try {
+  await Promise.race([
+    run(),
+    interrupted,
+    new Promise((_, reject) => { watchdog = setTimeout(() => reject(new Error(`Chrome timed out after ${timeout} ms`)), timeout); }),
+  ]);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  if (logs.length) console.error(logs.join('\n'));
+  process.exitCode ||= 1;
+} finally {
+  clearTimeout(watchdog);
+  clearTimeout(startupTimer);
+  rejectPending(new Error('Chrome driver stopped'));
+  ws?.close();
+  if (chrome?.pid && chrome.exitCode === null && chrome.signalCode === null) {
+    const exited = new Promise(resolve => chrome.once('exit', resolve));
+    chrome.kill();
+    const force = setTimeout(() => chrome.kill('SIGKILL'), 3000);
+    await exited;
+    clearTimeout(force);
+  }
+  rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+  process.off('SIGINT', onSignal);
+  process.off('SIGTERM', onSignal);
+}

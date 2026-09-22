@@ -130,7 +130,9 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     view: false,
   };
 
-  const held = new Set<string>();
+  // Track physical keys independently: W and ArrowUp can both hold forward,
+  // and releasing either must leave the other pressed.
+  const held = new Map<string, string>();
   let sensitivity = 1;
   /** Until when a mouse delta over `MAX_DELTA` is the lock's jump rather than a hand. */
   let settleUntil = 0;
@@ -149,16 +151,17 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
   };
 
   function refresh(): void {
-    const x = (held.has('right') ? 1 : 0) - (held.has('left') ? 1 : 0);
-    const y = (held.has('up') ? 1 : 0) - (held.has('down') ? 1 : 0);
+    const actions = new Set(held.values());
+    const x = (actions.has('right') ? 1 : 0) - (actions.has('left') ? 1 : 0);
+    const y = (actions.has('up') ? 1 : 0) - (actions.has('down') ? 1 : 0);
     // A diagonal must not be faster than a straight line.
     const length = Math.hypot(x, y);
     const scale = length > 1 ? 1 / length : 1;
     state.move.x = x * scale;
     state.move.y = y * scale;
-    state.run = held.has('run');
-    state.climb = held.has('jump');
-    state.dive = held.has('dive');
+    state.run = actions.has('run');
+    state.climb = actions.has('jump');
+    state.dive = actions.has('dive');
   }
 
   function release(): void {
@@ -178,7 +181,10 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     // Leave the browser's own shortcuts alone.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     // Nor the settings card's slider, nor a search box: see `inputBlocked`.
-    if (inputBlocked(event)) return;
+    if (inputBlocked(event)) {
+      release();
+      return;
+    }
     const bound = actionOf(event.code);
     const action = bound === undefined ? undefined : HELD[bound];
     if (action === undefined) {
@@ -187,12 +193,15 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       return;
     }
     event.preventDefault();
+    // A modal or a lost window focus may have released this key. An old
+    // auto-repeat must not start moving again without a fresh press.
+    if (event.repeat && !held.has(event.code)) return;
     // The edge fires once per physical press: `repeat` would otherwise make a
     // held Space into a jump every frame the key auto-repeats.
-    if (EDGES.has(action) && !event.repeat && !held.has(action)) {
+    if (EDGES.has(action) && !event.repeat && !held.has(event.code)) {
       state[action as 'jump' | 'fly' | 'exit' | 'view'] = true;
     }
-    held.add(action);
+    held.set(event.code, action);
     refresh();
   }, { signal });
 
@@ -206,11 +215,8 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       release();
       return;
     }
-    const bound = actionOf(event.code);
-    const action = bound === undefined ? undefined : HELD[bound];
-    if (action === undefined) return;
-    event.preventDefault();
-    held.delete(action);
+    if (!held.delete(event.code)) return;
+    if (!inputBlocked(event)) event.preventDefault();
     refresh();
   }, { signal });
 
@@ -220,6 +226,10 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     release();
     engaged = false;
     dragHeld = false;
+  }, { signal });
+
+  addEventListener('focusin', (event) => {
+    if (inputBlocked(event)) release();
   }, { signal });
 
   /** When the lock was last let go of: Escape, alt-tab, a card taking the mouse. */
@@ -327,7 +337,12 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
   addEventListener('wheel', touch, { signal, passive: true });
 
   return {
-    state,
+    get state() {
+      // A card can open between key events. Clear the previous frame's held
+      // input before the camera or the player consumes it behind that card.
+      if (inputBlocked()) release();
+      return state;
+    },
     get sensitivity() {
       return sensitivity;
     },
@@ -355,6 +370,9 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     },
     dispose() {
       events.abort();
+      release();
+      engaged = false;
+      dragHeld = false;
       if (document.pointerLockElement === target) document.exitPointerLock();
     },
   };

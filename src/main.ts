@@ -26,6 +26,7 @@ import { BOAT_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
 import { createOcean } from './ocean.ts';
+import { proxyOf, warmShaders } from './warm.ts';
 import { createCityLights, lightBrightness, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
@@ -875,16 +876,13 @@ async function start(): Promise<void> {
   // chooses, so the first town, landmark or animal is not also a shader link.
   // The skinned twin is the rigs' own material, and a plain `ctx.toon` colour
   // stands for the craft; see `warm.ts`.
-  void import('./warm.ts')
-    .then(({ proxyOf, warmShaders }) =>
-      warmShaders(
-        renderer,
-        outline,
-        scene,
-        [settlements, monuments, roads, vegetation, life, { proxies: () => [proxyOf(inkSource)] }],
-        modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
-      ),
-    )
+  void warmShaders(
+    renderer,
+    outline,
+    scene,
+    [settlements, monuments, roads, vegetation, life, { proxies: () => [proxyOf(inkSource)] }],
+    modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
+  )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
     .catch((error: unknown) => console.warn('the shader warm-up failed:', error));
   const at = query.get('at')?.split(',').map(Number);

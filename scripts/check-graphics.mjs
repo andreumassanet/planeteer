@@ -1,12 +1,14 @@
 // Real WebGL regression check, against a `vite preview` of a build rather than
 // the dev server — the dev server's eager `import.meta.glob` loads abort in
 // headless Chrome:
-//   pnpm build && pnpm preview        # serves http://localhost:4173
-//   node scripts/check-graphics.mjs http://localhost:4173
+//   pnpm build && pnpm graphics
+// An optional URL uses an existing preview instead of starting one.
 // Uses shot.mjs's Chrome driver; no extra project dependency.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { preview } from 'vite';
 
 async function check() {
   const deadline = Date.now() + 90000;
@@ -21,6 +23,26 @@ async function check() {
   const renderer = a.renderer;
   const gl = renderer.getContext();
   const ensure = (ok, message) => { if (!ok) throw new Error(message); };
+  const frames = async count => {
+    for (let i = 0; i < count; i++) await new Promise(resolve => requestAnimationFrame(resolve));
+  };
+  await frames(3);
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+  document.querySelector('button[aria-label="Settings"]').click();
+  const panel = document.querySelector('.atlas-settings');
+  ensure(panel.classList.contains('on'), 'Settings did not open');
+  ensure(a.input.state.move.y === 0, 'Opening settings left the player walking');
+  await frames(2);
+  ensure(panel.contains(document.activeElement), 'Settings did not take keyboard focus');
+  window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+  panel.querySelector('.atlas-settings-close').click();
+  ensure(!panel.classList.contains('on'), 'Settings did not close');
+  a.map.show();
+  await frames(2);
+  ensure(a.map.open, 'Map did not open');
+  a.map.hide();
+  ensure(!a.map.open, 'Map did not close');
+  ensure(a.failures.size === 0, `World update failed: ${JSON.stringify([...a.failures])}`);
   const land = a.scene.getObjectByName('land');
   const scene = new a.scene.constructor();
   const camera = a.rig.camera.clone();
@@ -70,14 +92,25 @@ async function check() {
   }
 }
 
-const url = new URL(process.argv[2] ?? 'http://localhost:4173');
-url.search = '?at=39.5696,2.6502&time=2026-09-10T10:00:00Z';
-const result = spawnSync(process.execPath, [
-  fileURLToPath(new URL('./shot.mjs', import.meta.url)), '--url', url.href,
-  '--size', '960x640', '--eval', `(${check.toString()})()`, '--log',
-], { encoding: 'utf8', timeout: 120000 });
-process.stdout.write(result.stdout ?? '');
-process.stderr.write(result.stderr ?? '');
-assert.equal(result.status, 0, result.error?.message ?? 'Chrome driver fails');
-assert.match(result.stdout, /"result":"GRAPHICS_OK"/);
-assert.doesNotMatch(result.stdout, /EVAL ERROR|EXC:|error:/i);
+let server;
+try {
+  if (process.argv[2] === undefined) {
+    server = await preview({ preview: { host: '127.0.0.1', port: 0, open: false } });
+  }
+  const url = new URL(process.argv[2] ?? server.resolvedUrls.local[0]);
+  url.searchParams.set('at', '39.5696,2.6502');
+  url.searchParams.set('time', '2026-09-10T10:00:00Z');
+  const { stdout, stderr } = await promisify(execFile)(process.execPath, [
+    fileURLToPath(new URL('./shot.mjs', import.meta.url)), '--url', url.href,
+    '--size', '960x640', '--eval', `(${check.toString()})()`, '--log',
+  ], { timeout: 125000 });
+  process.stdout.write(stdout);
+  process.stderr.write(stderr);
+  assert.match(stdout, /"result":"GRAPHICS_OK"/);
+  assert.doesNotMatch(stdout, /EVAL ERROR|EXC:|error:|NETFAIL|HTTP [45]\d\d/i);
+} catch (error) {
+  console.error(error.stderr ?? error.message);
+  process.exitCode = 1;
+} finally {
+  if (server) await new Promise((resolve, reject) => server.httpServer.close(error => error ? reject(error) : resolve()));
+}

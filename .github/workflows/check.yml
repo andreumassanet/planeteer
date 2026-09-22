@@ -1,9 +1,7 @@
-# The headless checks, on every push and pull request.
+# The data, input and browser checks, on every push and pull request.
 #
 # Independent of the deploy: Vercel builds and publishes every push on its own,
-# and this is what says whether that build is of a world that still holds
-# together. Every error this project has shipped was a data error, invisible in
-# a screenshot and obvious in a table, and these are the tables.
+# and these checks validate the baked world, model contracts, input and WebGL.
 #
 # Nothing here reads ../.cache: the checks run against what is committed under
 # public/, which is what ships. The bakes are not run — their sources are not
@@ -44,6 +42,9 @@ jobs:
       - name: typecheck (src and scripts)
         run: pnpm typecheck
 
+      - name: input
+        run: pnpm input
+
       - name: world
         run: pnpm check
       - name: traffic
@@ -63,3 +64,6 @@ jobs:
 
       - name: build
         run: pnpm exec vite build
+
+      - name: browser (driver, UI and WebGL)
+        run: pnpm browser
