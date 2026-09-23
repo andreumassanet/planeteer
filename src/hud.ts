@@ -41,7 +41,7 @@ import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { createFlagCanvas } from './flags.ts';
 import { countryFacts, loadCountryFacts } from './country-facts.ts';
 import type { CountryFacts } from './country-facts.ts';
-import { capOf, hintsFor, labelOf, onKeyLabels, registerModal } from './controls.ts';
+import { capOf, hintsFor, holdFocus, labelOf, onKeyLabels, registerModal } from './controls.ts';
 import type { KeyHint } from './controls.ts';
 import { ensureStyle, h, hex, icon, installUi, kbd } from './ui.ts';
 import type { IconName } from './ui.ts';
@@ -1235,6 +1235,9 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     if (!welcoming) return;
     welcoming = false;
     welcomeRoot.classList.remove('on');
+    // The focus goes back to the world and not to a control: nothing opened
+    // this card, so there is no control to return it to, and the keys are the
+    // world's again the moment it closes.
     (document.activeElement as HTMLElement | null)?.blur?.();
     // Unknown until the next frame says: the button has just asked for the
     // mouse, and whether it got it is the browser's to answer.
@@ -1249,9 +1252,14 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     closeWelcome();
   });
   addEventListener('keydown', (event) => {
-    if (welcoming && event.code === 'Escape') {
+    if (!welcoming) return;
+    if (event.code === 'Escape') {
       event.preventDefault();
       closeWelcome();
+    } else {
+      // Modal means the focus as well as the keys: `Tab` walked off this card
+      // onto the controls behind it while it was still up.
+      holdFocus(event, welcomeCard);
     }
   });
 

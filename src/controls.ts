@@ -277,6 +277,42 @@ export function registerModal(isOpen: () => boolean): () => void {
   return () => modals.delete(isOpen);
 }
 
+/** What `Tab` can land on inside a card. */
+const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]';
+
+/**
+ * Walks `Tab` and `Shift+Tab` round a modal card's own controls, from its last
+ * to its first and back, and from anywhere outside it onto it. Call it from the
+ * card's own `keydown` while the card is open; it returns whether it moved the
+ * focus.
+ *
+ * **Holding the game's keys is not holding the focus.** `registerModal` stops
+ * the world answering a key behind a card, and the browser's own `Tab` goes on
+ * walking the page: the welcome card and the notices said `aria-modal` and let
+ * `Tab` out onto the controls behind them. The settings had this written out
+ * for themselves; it is here so that every card holds the focus the same way.
+ *
+ * It takes every `Tab`, not only the two at the ends, so that two cards up at
+ * once cannot pull the focus between them: the notice, which is over
+ * everything and whose listener `notice.ts` adds as it loads, before any
+ * card's, answers the key, and the card under it finds it answered
+ * (`defaultPrevented`) and leaves it.
+ */
+export function holdFocus(event: KeyboardEvent, card: Element): boolean {
+  if (event.code !== 'Tab' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
+  event.preventDefault();
+  const controls = [...card.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0,
+  );
+  // Nothing on the card takes the focus, so nowhere else may either.
+  if (controls.length === 0) return false;
+  const at = controls.indexOf(document.activeElement as HTMLElement);
+  const step = event.shiftKey ? -1 : 1;
+  const next = at < 0 ? (step > 0 ? 0 : controls.length - 1) : (at + step + controls.length) % controls.length;
+  controls[next]!.focus();
+  return true;
+}
+
 /** Anything a key typed into is meant for. */
 const EDITABLE = 'input, select, textarea';
 /** And anything a key pressed on is meant for, when it is on a dialog. */

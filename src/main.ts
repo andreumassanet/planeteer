@@ -6,7 +6,9 @@ import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
 import type { PlayerEvent } from './player.ts';
-import { actionOf, codeOf, inputBlocked, labelOf, registerModal } from './controls.ts';
+import { actionOf, codeOf, inputBlocked, labelOf } from './controls.ts';
+import { notice } from './notice.ts';
+import type { NoticeAction } from './notice.ts';
 import { prepareAvatar } from './avatar.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
 import { detailRadiusOf, loadPlaces, prominenceRadius, setProminenceRadius } from './places.ts';
@@ -160,55 +162,6 @@ function showBoot(label: string, [from, to, ms]: readonly [number, number, numbe
     fill.style.transitionDuration = `${ms}ms`;
     fill.style.transform = `translateX(${((to * 0.98 - 1) * 100).toFixed(1)}%)`;
   }
-}
-
-/**
- * A card over everything, for the few things the player has to be told before
- * or instead of the world: no WebGL 2, a touch screen, a lost graphics context,
- * a failure. **Built from `index.html`'s own markup and tokens rather than from
- * `ui.ts`**, because the first two are asked before anything is downloaded and
- * the last can be a download that failed — `ui.ts` is in the HUD's chunk, and a
- * card that needs a chunk to say the chunks did not arrive says nothing.
- */
-interface NoticeAction {
-  label: string;
-  primary?: boolean;
-  run(): void;
-}
-
-let noticeOpen = false;
-registerModal(() => noticeOpen);
-
-function notice(title: string, text: string, actions: readonly NoticeAction[]): void {
-  const root = document.getElementById('notice');
-  const heading = document.getElementById('notice-title');
-  const body = document.getElementById('notice-text');
-  const row = document.getElementById('notice-actions');
-  if (root === null || heading === null || body === null || row === null) {
-    // Nowhere to put it, which is only possible if `index.html` lost it.
-    alert(`${title}\n\n${text}`);
-    return;
-  }
-  heading.textContent = title;
-  body.textContent = text;
-  row.replaceChildren(
-    ...actions.map((action) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = action.primary === true ? 'n-btn primary' : 'n-btn';
-      button.textContent = action.label;
-      button.addEventListener('click', () => {
-        root.hidden = true;
-        noticeOpen = false;
-        action.run();
-      });
-      return button;
-    }),
-  );
-  root.hidden = false;
-  noticeOpen = true;
-  if (document.pointerLockElement !== null) document.exitPointerLock();
-  (row.querySelector('.primary') as HTMLButtonElement | null)?.focus({ preventScroll: true });
 }
 
 const reload: NoticeAction = { label: 'Reload', primary: true, run: () => location.reload() };
@@ -596,9 +549,13 @@ async function start(): Promise<void> {
   // set here, before the menu, so a shot of the menu is of a chosen hour and
   // not of whatever hour the machine taking it happens to be.
   const query = new URLSearchParams(location.search);
-  if (query.get('time')) sky.setTime(query.get('time'));
+  const wantedTime = query.get('time');
+  // A `?time=` that is not a date is refused by the sky, which keeps the real
+  // clock — and then the clock is still live, and the settings say so.
+  const timeTaken = wantedTime !== null && wantedTime !== '' && sky.setTime(wantedTime);
+  if (wantedTime && !timeTaken) console.warn(`atlas: ?time=${wantedTime} is not a date; the sky keeps the real clock`);
   /** Whether the sun follows the real clock: the settings' time-of-day row. */
-  let timeLive = !query.get('time');
+  let timeLive = !timeTaken;
   let timeFast = false;
 
   // The hero's body is an authored character in `public/models/cast/`, fetched
@@ -1176,8 +1133,7 @@ async function start(): Promise<void> {
       const now = shownMinutes();
       if (now === null) return hour;
       const wanted = Math.round(hour * 60) % 1440;
-      sky.setTime(sky.state.time.getTime() + (wanted - now) * 60_000);
-      timeLive = false;
+      if (sky.setTime(sky.state.time.getTime() + (wanted - now) * 60_000)) timeLive = false;
       return hour;
     },
     setLive() {
@@ -1793,9 +1749,10 @@ async function start(): Promise<void> {
     // chip too. The zone is the nearest town's when it stands in this country;
     // over water there is no country and `clockAt` falls back to local mean
     // solar time from the longitude, which is the honest answer at sea and is
-    // never absent.
+    // never absent. Guarded like the world's own updates: `Intl` throws on a
+    // date it cannot format, and a throw here would be one every frame.
     const here = toLatLon(player.position);
-    hud.update(
+    guard('hud', () => hud.update(
       standingIn,
       nearbyPlace,
       clockAt(
@@ -1816,7 +1773,7 @@ async function start(): Promise<void> {
         nearbyPlace.place.lat,
         nearbyPlace.place.lon,
       ),
-    );
+    ));
   }
 
   console.log(`atlas ready in ${Math.round(performance.now() - began)} ms`);

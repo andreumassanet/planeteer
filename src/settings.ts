@@ -20,7 +20,7 @@
  * controls and the arrows move its sliders instead of the player.
  */
 
-import { KEY_LIST, capOf, labelOf, onKeyLabels, registerModal } from './controls.ts';
+import { KEY_LIST, capOf, holdFocus, labelOf, onKeyLabels, registerModal } from './controls.ts';
 import { h, icon, installUi, ensureStyle, kbd } from './ui.ts';
 
 export interface Knob {
@@ -592,19 +592,8 @@ export function createSettings(options: SettingsOptions): Settings {
     if (event.code === 'Escape') {
       event.preventDefault();
       hide();
-    } else if (event.code === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      const controls = [...panel.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
-        .filter((element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0);
-      const first = controls[0];
-      const last = controls[controls.length - 1];
-      const active = document.activeElement;
-      if (event.shiftKey && (active === first || !panel.contains(active))) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
-        event.preventDefault();
-        first?.focus();
-      }
+    } else {
+      holdFocus(event, panel);
     }
   });
 

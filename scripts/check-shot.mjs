@@ -48,7 +48,11 @@ test('a stalled evaluation times out and closes Chrome', () => withProfiles(asyn
   );
 }));
 
-test('SIGTERM stops the browser and removes its profile', () => withProfiles(async env => {
+// Windows has no POSIX signals: `kill('SIGTERM')` ends the driver outright,
+// before it can close anything, so there is nothing of the driver's to test.
+const posix = process.platform === 'win32' ? { skip: 'POSIX signals only' } : {};
+
+test('SIGTERM stops the browser and removes its profile', posix, () => withProfiles(async env => {
   const child = spawn(process.execPath, [driver, '--eval', '"ready"', '--wait', '60000'], {
     env, stdio: ['ignore', 'pipe', 'pipe'],
   });

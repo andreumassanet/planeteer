@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 async function check() {
-  const [{ createInput }, { createSettings }, { createWorldMap }, { inputBlocked }] = await Promise.all([
+  const [{ createInput }, { createSettings }, { createWorldMap }, { inputBlocked }, { createHud }, { notice, noticeOpen }] = await Promise.all([
     import('/src/input.ts'), import('/src/settings.ts'), import('/src/map.ts'), import('/src/controls.ts'),
+    import('/src/hud.ts'), import('/src/notice.ts'),
   ]);
   const ensure = (ok, message) => { if (!ok) throw new Error(message); };
   const checks = [];
@@ -17,6 +18,10 @@ async function check() {
     try { run(); checks.push(name); }
     catch (error) { failures.push(`${name}: ${error.message}`); }
   };
+  // The notice is written into `index.html`'s own markup, so it is tested on it.
+  const page = new DOMParser().parseFromString(await (await fetch('/index.html')).text(), 'text/html');
+  const noticeCard = document.importNode(page.getElementById('notice'), true);
+  document.body.append(noticeCard);
   const key = (target, type, code, extra = {}) => {
     const event = new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...extra });
     target.dispatchEvent(event);
@@ -112,6 +117,48 @@ async function check() {
         }
       });
     }
+    test('the welcome card keeps Tab inside and gives the focus back to the world', () => {
+      const hud = createHud({ countries: [] });
+      document.body.append(hud.root);
+      try {
+        void hud.welcome(3);
+        const go = hud.root.querySelector('.atlas-welcome-go');
+        ensure(document.activeElement === go, 'opening focuses Start exploring');
+        ensure(key(go, 'keydown', 'Tab').defaultPrevented && document.activeElement === go, 'Tab stays on the card');
+        ensure(key(go, 'keydown', 'Tab', { shiftKey: true }).defaultPrevented && document.activeElement === go, 'Shift+Tab stays on the card');
+        opener.focus();
+        key(opener, 'keydown', 'Tab');
+        ensure(document.activeElement === go, 'a focus that got behind the card is brought back onto it');
+        key(go, 'keydown', 'Escape');
+        ensure(!hud.welcoming, 'Escape closes it');
+        ensure(document.activeElement === document.body, 'and the focus goes back to the world');
+      } finally {
+        // A card left up holds every key the tests after this one send.
+        if (hud.welcoming) key(document.body, 'keydown', 'Escape');
+        hud.root.remove();
+      }
+    });
+    test('a notice keeps Tab inside, over a card that is open under it', () => {
+      let ran = 0;
+      settings.show();
+      try {
+        notice('Something went wrong', 'A check.', [{ label: 'Later', run() {} }, { label: 'Reload', primary: true, run() { ran++; } }]);
+        const [later, reload] = [...noticeCard.querySelectorAll('button')];
+        ensure(noticeOpen() && document.activeElement === reload, 'opening focuses the primary action');
+        ensure(key(reload, 'keydown', 'Tab').defaultPrevented && document.activeElement === later, 'Tab wraps from the last action to the first');
+        key(later, 'keydown', 'Tab');
+        ensure(document.activeElement === reload, 'and walks on to the next, not into the settings under it');
+        key(reload, 'keydown', 'Tab', { shiftKey: true });
+        key(later, 'keydown', 'Tab', { shiftKey: true });
+        ensure(document.activeElement === reload, 'Shift+Tab wraps the other way');
+        reload.click();
+        ensure(!noticeOpen() && ran === 1 && noticeCard.hidden, 'an action closes it and runs');
+        ensure(!noticeCard.contains(document.activeElement), 'and the focus leaves the closed card');
+      } finally {
+        if (noticeOpen()) noticeCard.querySelector('button')?.click();
+        settings.hide();
+      }
+    });
     // Give rejected pointer-lock promises a turn to reach the console if unhandled.
     await new Promise(resolve => setTimeout(resolve, 50));
     ensure(failures.length === 0, failures.join('\n'));
@@ -120,7 +167,7 @@ async function check() {
     settings.hide();
     map.dispose();
     input.dispose();
-    for (const element of [canvas, opener, field, editor, settings.root]) element.remove();
+    for (const element of [canvas, opener, field, editor, settings.root, noticeCard]) element.remove();
   }
 }
 

@@ -526,8 +526,16 @@ export interface Sky {
    * instant and keeps it running from there; `setTime(null)` goes back to the
    * real one. `setRate(600)` runs ten minutes a second, which is how you watch
    * a dawn without waiting for one.
+   *
+   * **A time that is not a time is refused, and the clock keeps the one it
+   * had.** `?time=bad` used to reach the anchor as `NaN`: the sky drew an
+   * `Invalid Date` at an elevation of `NaN`, the traffic and the clouds were
+   * handed the same `NaN`, and the chip's `Intl.DateTimeFormat` threw a
+   * `RangeError` every frame. `setTime` returns whether it took the time, so a
+   * caller that tracks "the clock is live" can leave it live; `setRate`
+   * ignores a rate that is not finite for the same reason.
    */
-  setTime(when: Date | string | number | null): void;
+  setTime(when: Date | string | number | null): boolean;
   setRate(rate: number): void;
 }
 
@@ -866,10 +874,14 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     update,
     placeShadow,
     setTime(when) {
-      anchor = when === null ? Date.now() : new Date(when).getTime();
+      const next = when === null ? Date.now() : new Date(when).getTime();
+      if (!Number.isFinite(next)) return false;
+      anchor = next;
       anchorReal = Date.now();
+      return true;
     },
     setRate(next) {
+      if (!Number.isFinite(next)) return;
       anchor = anchor + (Date.now() - anchorReal) * rate;
       anchorReal = Date.now();
       rate = next;

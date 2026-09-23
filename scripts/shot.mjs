@@ -19,6 +19,10 @@ if (![w, h, timeout].every(value => Number.isSafeInteger(value) && value > 0)) {
 
 // Remove the profile after the browser stops writing, including on failure.
 const profile = mkdtempSync(join(process.env.SHOT_PROFILE_DIR ?? tmpdir(), 'shot-'));
+// On POSIX this Chrome leads a process group of its own, so the browser and
+// every helper it started can be asked about and signalled together, and no
+// other browser is. Windows ties the helpers to the browser with a job object.
+const GROUP = process.platform !== 'win32';
 let chrome, ws, watchdog, startupTimer;
 const logs = [];
 const pending = new Map();
@@ -42,7 +46,7 @@ async function run() {
     '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--hide-scrollbars',
     `--window-size=${w},${h}`, '--enable-unsafe-swiftshader', 'about:blank',
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  ], { stdio: ['ignore', 'ignore', 'pipe'], detached: GROUP });
   const wsUrl = await new Promise((resolve, reject) => {
     let stderr = '';
     chrome.stderr.on('data', data => {
@@ -85,7 +89,10 @@ async function run() {
     if (message.sessionId !== sessionId) return;
     const { method, params } = message;
     if (method === 'Network.requestWillBeSent') requests.set(params.requestId, params.request.url);
-    if (method === 'Network.loadingFailed') logs.push('NETFAIL ' + (requests.get(params.requestId) ?? '?') + ' ' + params.errorText);
+    // A request the page cancelled on purpose (a streamer dropping a fetch it
+    // no longer wants) is not a failure, and is logged apart so no check reads
+    // it as one.
+    if (method === 'Network.loadingFailed') logs.push((params.canceled ? 'NETCANCEL ' : 'NETFAIL ') + (requests.get(params.requestId) ?? '?') + ' ' + params.errorText);
     if (method === 'Network.responseReceived' && params.response.status >= 400) logs.push('HTTP ' + params.response.status + ' ' + params.response.url);
     if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') requests.delete(params.requestId);
     if (method === 'Runtime.consoleAPICalled') logs.push(params.type + ': ' + params.args.map(arg => arg.value ?? arg.description ?? '').join(' '));
@@ -131,6 +138,75 @@ async function run() {
   }
 }
 
+/** Whether anything of this Chrome still runs: the browser, or on POSIX any helper in its group. */
+function running() {
+  if (!chrome?.pid) return false;
+  if (!GROUP) return chrome.exitCode === null && chrome.signalCode === null;
+  try {
+    process.kill(-chrome.pid, 0);
+    return true;
+  } catch (error) {
+    // ESRCH is an empty group. EPERM is a member that cannot be signalled,
+    // which is still a member.
+    return error.code === 'EPERM';
+  }
+}
+
+function signal(name) {
+  try {
+    if (GROUP) process.kill(-chrome.pid, name);
+    else chrome.kill(name);
+  } catch {
+    // Already gone.
+  }
+}
+
+async function stopped(ms) {
+  const end = Date.now() + ms;
+  while (running()) {
+    if (Date.now() >= end) return false;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  return true;
+}
+
+/**
+ * Closes this Chrome and waits until nothing of it is left to write into the
+ * profile. Waiting for the browser's own process was not that: its helpers
+ * could still be writing into `Default/` while the profile was removed, and
+ * `rmSync` failed with ENOTEMPTY on a run that had passed. So the browser is
+ * asked to close first, which stops the helpers and lets them flush, then the
+ * whole group is terminated and finally killed if it does not go.
+ */
+async function closeChrome() {
+  if (!chrome?.pid) return;
+  if (running() && ws?.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ id: ++nextId, method: 'Browser.close' }));
+    } catch {
+      // The connection went as it was asked; the signals below still apply.
+    }
+  }
+  if (await stopped(5000)) return;
+  signal('SIGTERM');
+  if (await stopped(3000)) return;
+  signal('SIGKILL');
+  if (!(await stopped(3000))) console.error(`warning: Chrome ${chrome.pid} is still running`);
+}
+
+/**
+ * Removes the profile, retrying what a closing browser can still hold briefly.
+ * A profile that cannot be removed is reported and not thrown: it is not the
+ * run's result, and a run that passed used to exit 1 because of it.
+ */
+function removeProfile() {
+  try {
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    console.error(`warning: the Chrome profile ${profile} could not be removed: ${error.message}`);
+  }
+}
+
 let interrupt;
 const interrupted = new Promise((_, reject) => { interrupt = reject; });
 const onSignal = signal => {
@@ -153,15 +229,9 @@ try {
   clearTimeout(watchdog);
   clearTimeout(startupTimer);
   rejectPending(new Error('Chrome driver stopped'));
+  await closeChrome();
   ws?.close();
-  if (chrome?.pid && chrome.exitCode === null && chrome.signalCode === null) {
-    const exited = new Promise(resolve => chrome.once('exit', resolve));
-    chrome.kill();
-    const force = setTimeout(() => chrome.kill('SIGKILL'), 3000);
-    await exited;
-    clearTimeout(force);
-  }
-  rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+  removeProfile();
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
 }
