@@ -702,3 +702,151 @@ export function assignGates(
   }
   return chosen;
 }
+
+// ---------------------------------------------------------------------------
+// The outskirts: where a town stops before its square does
+// ---------------------------------------------------------------------------
+
+/**
+ * The smallest square, in cells a side, that gives any of its cells up to the
+ * outskirts. Below it a town is a few houses round a crossroads, and every
+ * cell it loses is a quarter of it.
+ */
+export const OUTSKIRT_MIN_CELLS = 5;
+
+/**
+ * How far out a cell is, past which the town may stop, where `outskirtScore`
+ * of 1 is the square's edge at the middle of a side. Its corners score 1.41,
+ * so a town keeps about a disc a little wider than its square is tall, and the
+ * wobble decides how far in the edge comes on each side. Measured over every
+ * size of square from 5 to 18 cells and forty seeds each (2026-09-23), a town
+ * gives up 14 to 18% of its cells, and 27% at the most.
+ */
+export const OUTSKIRT_CUT = 1.05;
+
+/**
+ * Past this score a cell is the town's edge rather than its middle: houses in
+ * yards of the land's own ground, rather than blocks on paving.
+ */
+export const OUTSKIRT_RING = 0.7;
+
+/** How much the outline wanders, as a share of the score: plus or minus half of it. */
+const OUTSKIRT_WOBBLE = 0.4;
+
+/** How many cells one swell of the wobble spans. */
+const OUTSKIRT_SWELL = 2.4;
+
+/** FNV-1a over a string: the town's seed as a number, for the wobble. */
+function seedHash(seed: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** A value in [0, 1) at a lattice point, for a seed. */
+function latticeValue(seed: number, i: number, j: number): number {
+  let h = Math.imul(seed ^ Math.imul(i, 0x27d4eb2d), 0x165667b1) ^ Math.imul(j, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+/** Smooth value noise in [0, 1), so neighbouring cells wobble together. */
+function wobbleAt(seed: number, x: number, y: number): number {
+  const i = Math.floor(x);
+  const j = Math.floor(y);
+  const fx = x - i;
+  const fy = y - j;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const a = latticeValue(seed, i, j);
+  const b = latticeValue(seed, i + 1, j);
+  const c = latticeValue(seed, i, j + 1);
+  const d = latticeValue(seed, i + 1, j + 1);
+  const top = a + (b - a) * sx;
+  const bottom = c + (d - c) * sx;
+  return top + (bottom - top) * sy;
+}
+
+/**
+ * How far out cell `(col, row)` stands, with the town's own wobble on it: its
+ * centre's distance from the town's as a share of the square's half-side, plus
+ * or minus `OUTSKIRT_WOBBLE / 2`. A pure function of the square and the seed,
+ * so the town's outline and the mix of what stands at its edge are the same
+ * answer.
+ */
+export function outskirtScore(grid: TownGrid, seed: string, col: number, row: number): number {
+  const distance = Math.hypot(cellCentre(grid, col), cellCentre(grid, row)) / grid.half;
+  const h = seedHash(seed);
+  return distance + (wobbleAt(h, col / OUTSKIRT_SWELL, row / OUTSKIRT_SWELL) - 0.5) * OUTSKIRT_WOBBLE;
+}
+
+/**
+ * The cells of the square a town does not build, by `cellKey`.
+ *
+ * **A square read from the air is a square whatever stands on it**, because the
+ * outline is what the eye takes first, and every town on the planet had the
+ * same one. So a town past `OUTSKIRT_MIN_CELLS` stops short of its square
+ * where `outskirtScore` passes `OUTSKIRT_CUT` — the corners always, a side
+ * where the wobble brings the edge in — and the square stays what the roads,
+ * the vegetation and the neighbours keep off.
+ *
+ * Three rules keep that from being holes in a town:
+ *
+ * - **Only from the outside in.** A cell goes only if the cells it goes with
+ *   reach the square's edge, so a town has an outline and no clearings: an
+ *   unbuilt cell inside the paving would take the edge slope down into a pit.
+ * - **`keep` is never given up**: the main streets, every street a road comes
+ *   in by, and whatever the caller must stand on — a landmark's cells.
+ * - **No cell left as a spur**: a cell with three of its four sides on the
+ *   outskirts is one house on a promontory of slope, and it goes too.
+ */
+export function outskirtsOf(
+  grid: TownGrid,
+  seed: string,
+  keep: (col: number, row: number) => boolean,
+): Set<number> {
+  const out = new Set<number>();
+  const cells = grid.cells;
+  if (cells < OUTSKIRT_MIN_CELLS) return out;
+  const may = (col: number, row: number): boolean =>
+    !isAvenue(grid, col, row) && !keep(col, row) && outskirtScore(grid, seed, col, row) > OUTSKIRT_CUT;
+  const gone = (col: number, row: number): boolean => !inGrid(grid, col, row) || out.has(cellKey(col, row));
+  // Flood in from the edge through the cells that may go.
+  const queue: [number, number][] = [];
+  for (let c = 0; c < cells; c++) {
+    for (const [col, row] of [[c, 0], [c, cells - 1], [0, c], [cells - 1, c]] as const) {
+      const key = cellKey(col, row);
+      if (!out.has(key) && may(col, row)) {
+        out.add(key);
+        queue.push([col, row]);
+      }
+    }
+  }
+  while (queue.length > 0) {
+    const [col, row] = queue.pop()!;
+    for (const [dc, dr] of SIDES) {
+      const c = col + dc;
+      const r = row + dr;
+      if (!inGrid(grid, c, r) || out.has(cellKey(c, r)) || !may(c, r)) continue;
+      out.add(cellKey(c, r));
+      queue.push([c, r]);
+    }
+  }
+  // Spurs: a cell standing out into the outskirts on three sides.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let col = 0; col < cells; col++) {
+      for (let row = 0; row < cells; row++) {
+        const key = cellKey(col, row);
+        if (out.has(key) || isAvenue(grid, col, row) || keep(col, row)) continue;
+        let open = 0;
+        for (const [dc, dr] of SIDES) if (gone(col + dc, row + dr)) open++;
+        if (open >= 3) out.add(key);
+      }
+    }
+  }
+  return out;
+}

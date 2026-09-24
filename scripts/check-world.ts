@@ -86,7 +86,10 @@ import {
   gateLevel,
   gatesOf,
   groundOf,
+  isAvenue,
   offsetDirection,
+  OUTSKIRT_MIN_CELLS,
+  outskirtsOf,
   partnerOf,
   streetBand,
   townGrid,
@@ -3484,6 +3487,69 @@ console.log('\nmade ground');
       gateWrong === 0 && gateCells > 0,
       'and every gate’s cells are cut to the level gateLevel gives the road',
       `${gateCells} gate cells, ${gateWrong} disagreeing`,
+    );
+
+    /**
+     * And where a town stops short of its square (`outskirtsOf`), over every
+     * size of square and forty seeds each: never on a main street or a cell
+     * the caller keeps, never a clearing inside the town — every cell given up
+     * reaches the square's edge through others given up, or the edge slope
+     * would go down into a pit — the same answer twice, and the town keeps
+     * most of itself.
+     */
+    let outskirtTowns = 0;
+    let outskirtCells = 0;
+    let outskirtOf = 0;
+    let onStreet = 0;
+    let onKept = 0;
+    let clearings = 0;
+    let unstable = 0;
+    let leastKept = 1;
+    for (const grid of sizes.values()) {
+      if (grid.cells < OUTSKIRT_MIN_CELLS) continue;
+      const keep = (col: number, row: number): boolean => col === 1 && row === 1;
+      for (let s = 0; s < 40; s++) {
+        const seed = `outskirts-${s}`;
+        const out = outskirtsOf(grid, seed, keep);
+        const again = outskirtsOf(grid, seed, keep);
+        if (out.size !== again.size || [...out].some((key) => !again.has(key))) unstable++;
+        outskirtTowns++;
+        outskirtCells += out.size;
+        outskirtOf += grid.cells * grid.cells;
+        leastKept = Math.min(leastKept, 1 - out.size / (grid.cells * grid.cells));
+        const reached = new Set<number>();
+        const queue: [number, number][] = [];
+        for (const key of out) {
+          const col = Math.floor(key / 1024) - 512;
+          const row = (key % 1024) - 512;
+          if (isAvenue(grid, col, row)) onStreet++;
+          if (keep(col, row)) onKept++;
+          if (col === 0 || row === 0 || col === grid.cells - 1 || row === grid.cells - 1) {
+            reached.add(key);
+            queue.push([col, row]);
+          }
+        }
+        while (queue.length > 0) {
+          const [col, row] = queue.pop()!;
+          for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const key = cellKey(col + dc, row + dr);
+            if (!out.has(key) || reached.has(key)) continue;
+            reached.add(key);
+            queue.push([col + dc, row + dr]);
+          }
+        }
+        clearings += out.size - reached.size;
+      }
+    }
+    check(
+      onStreet === 0 && onKept === 0 && clearings === 0 && unstable === 0 && outskirtCells > 0,
+      'a town stops short of its square only from its edge in, off its main streets and the cells it keeps, the same way twice',
+      `${outskirtTowns} towns, ${outskirtCells} of ${outskirtOf} cells given up; ${onStreet} on a main street, ${onKept} kept, ${clearings} in a clearing, ${unstable} unstable`,
+    );
+    check(
+      leastKept >= 0.7,
+      'and every town keeps most of its square',
+      `the least kept ${(leastKept * 100).toFixed(0)}% of its cells`,
     );
 
     /**

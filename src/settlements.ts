@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { FolkAnchor } from './folk.ts';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, groundColorAt, groundRadius } from './globe.ts';
+import { GROUND_MARKS_GLSL, PLANET_RADIUS, groundColorAt, groundPatchesChunk, groundRadius } from './globe.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import { mergeMeshes, sourceVertex } from './merge.ts';
@@ -43,6 +43,10 @@ import {
   gatesOf,
   inGrid,
   isAvenue,
+  OUTSKIRT_MIN_CELLS,
+  OUTSKIRT_RING,
+  outskirtScore,
+  outskirtsOf,
   streetBand,
   townFrame,
   townGrid,
@@ -55,6 +59,8 @@ import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
 import { isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
 import { biomeAt, biomeSample } from './biome.ts';
+import { MAX_SLOPE, gradeAt } from './terrain.ts';
+import type { Slope } from './terrain.ts';
 import { VEHICLES, createTrafficContext, placedScale, placedSize, trafficFor, variantRng as vehicleRng } from './traffic/index.ts';
 import type { TrafficStyle, Vehicle } from './traffic/index.ts';
 import type { Place } from './places.ts';
@@ -479,6 +485,26 @@ const NEAR_ALLOWANCE = 240_000;
  * How urban a town must be (`urbanityOf`) before its region's towers are towers:
  * 0.5 is a place of 200,000. Below it `TOWER_PART` is built as `TOWERLESS_PART`.
  */
+/**
+ * How much less often a cell past `OUTSKIRT_RING` is built than one inside it,
+ * as a factor on the fill: the edge of a town has gaps between its houses.
+ */
+const OUTER_FILL = 0.75;
+/** And how much more readily an empty one grows a tree, as a factor on `greenery`. */
+const OUTER_GREENERY = 1.4;
+
+/** How many cells past the square's edge the country round a town reaches, at most (the disc stops it first). */
+const COUNTRY_RING = 2;
+/** The share of the country's cells that are an orchard, and that are a loose tree or two. The rest is meadow. */
+const ORCHARD_SHARE = 0.4;
+const LOOSE_SHARE = 0.4;
+/**
+ * How far from the town's cells, as a share of the pitch, the country may grow
+ * on a cell of the edge slope: past the slope's middle, where it has come down
+ * to within about a unit of the ground a tree is seated on.
+ */
+const SLOPE_CLEAR = 0.55;
+
 const TOWER_URBANITY = 0.5;
 const TOWER_PART = 'skyscraper';
 const TOWERLESS_PART = 'city-block';
@@ -1039,6 +1065,25 @@ function townMaterial(): THREE.MeshToonMaterial {
   // Every town buffer carries `outlineNormal` (see `FlatVariant.outline`).
   material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal: true };
   lightWindows(material);
+  /**
+   * **The ground a town draws is the land's, and it takes the land's marks.**
+   * A lawn and the edge slope are the land's own colour, and without the
+   * patches the land and the sward draw with (`GROUND_MARKS_GLSL`) they came
+   * out a flat shade darker and bluer than the field they meet: (144, 162,
+   * 102) against about (155, 172, 97) beside Madrid (2026-09-24), a band
+   * round every town. The patches only move a green, so the paving, the
+   * streets and the houses are untouched.
+   */
+  const windows = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    windows.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vAtlasPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vAtlasPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vAtlasPos;\n${GROUND_MARKS_GLSL}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>\n  ${groundPatchesChunk('vAtlasPos')}`);
+  };
   return material;
 }
 
@@ -1316,6 +1361,8 @@ export function createSettlements(
   const up = new THREE.Vector3();
   const north = new THREE.Vector3();
   const across = new THREE.Vector3();
+  /** `gradeAt`'s answer for the country round a town, reused. */
+  const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
   const basis = new THREE.Matrix4();
   const origin = new THREE.Vector3();
   const scratch = new THREE.Vector3();
@@ -1632,6 +1679,10 @@ export function createSettlements(
   const faceB = new THREE.Vector3();
   const faceNormal = new THREE.Vector3();
   const floor = new THREE.Color();
+  const apronCorner0 = new THREE.Color();
+  const apronCorner1 = new THREE.Color();
+  const apronCorner2 = new THREE.Color();
+  const apronCorner3 = new THREE.Color();
   /** The paving of one cell: the region's floor, times the cell's own tone. */
   const cellFloor = new THREE.Color();
   const roadColor = new THREE.Color();
@@ -2095,12 +2146,21 @@ export function createSettlements(
      */
     const plazaKey = cells % 2 === 1 && cells >= 3 ? cellKey(grid.shift, grid.shift) : -1;
 
-    if (style.yard === 'land') {
+    /**
+     * A yard at the town's edge is the land's own ground in every region whose
+     * yards are not already earth: a paved Mediterranean yard in the middle of
+     * the town, and a lawn at its edge, which is what lets the paving give out
+     * before the town does.
+     */
+    const outerYard = (col: number, row: number): boolean =>
+      style.yard !== 'earth' && cells >= OUTSKIRT_MIN_CELLS && outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING;
+    if (style.yard !== 'earth') {
       out.lawn = new Uint8Array(cells * cells);
       for (let col = 0; col < cells; col++) {
         for (let row = 0; row < cells; row++) {
           const key = cellKey(col, row);
           if (!levels.has(key) || pavedCells.has(key) || key === plazaKey) continue;
+          if (style.yard === 'paved' && !outerYard(col, row)) continue;
           if (blocked(cellCentre(grid, col), cellCentre(grid, row))) continue;
           out.lawn[col * cells + row] = 1;
         }
@@ -2229,7 +2289,7 @@ export function createSettlements(
       // The yard takes the land's own mosaic, one tone a cell drawn from the
       // same range the land's shader uses, so the one made surface in the view
       // is not the one with no grain. `cellTone`'s note has the rest.
-      cellFloor.copy(pavedCells.has(key) ? walkColor : yardColor).multiplyScalar(cellTone(slot.seed, col, row));
+      cellFloor.copy(pavedCells.has(key) ? walkColor : outerYard(col, row) ? landColor : yardColor).multiplyScalar(cellTone(slot.seed, col, row));
       const plaza = blocked(cellCentre(grid, col), cellCentre(grid, row));
       /**
        * The middle of a town with a middle cell, where its two avenues cross:
@@ -2247,18 +2307,25 @@ export function createSettlements(
        * its centre line is (as a share of the cell across the street), how far
        * its kerbs stand from that line, and the cuts it asks for.
        */
-      const streetsOn = (index: number): { centre: number; half: number }[] => {
+      /**
+       * **A band street is paved half by the cell on each side of it, and only
+       * where both are town.** Where the town stops short of its square
+       * (`outskirtsOf`) the cell across a band may be gone, and its half on
+       * this side would be half a street with a kerb onto the fields — so it
+       * is this cell's yard instead, as the edge of the square always was.
+       */
+      const streetsOn = (index: number, across: (step: number) => boolean): { centre: number; half: number }[] => {
         const list: { centre: number; half: number }[] = [];
         if (grid.avenue[index] === 1) list.push({ centre: 0.5, half: pitch * 0.5 });
         else {
-          if (grid.low[index] === 1) list.push({ centre: 0, half: band });
-          if (grid.high[index] === 1) list.push({ centre: 1, half: band });
+          if (grid.low[index] === 1 && across(-1)) list.push({ centre: 0, half: band });
+          if (grid.high[index] === 1 && across(1)) list.push({ centre: 1, half: band });
         }
         return list;
       };
       // A street "on u" runs along z: its lateral axis is u.
-      const alongZ = plaza || crossing ? [] : streetsOn(col);
-      const alongX = plaza || crossing ? [] : streetsOn(row);
+      const alongZ = plaza || crossing ? [] : streetsOn(col, (step) => levels.has(cellKey(col + step, row)));
+      const alongX = plaza || crossing ? [] : streetsOn(row, (step) => levels.has(cellKey(col, row + step)));
       const cutsFor = (streets: { centre: number; half: number }[], lengthwise: boolean, origin: number): number[] => {
         const list = new Set<number>([0, 1]);
         for (const street of streets) {
@@ -2462,6 +2529,18 @@ export function createSettlements(
     const sb: number[] = [0, 0, 0];
     const sc: number[] = [0, 0, 0];
     const sd: number[] = [0, 0, 0];
+    /** `groundColorAt` at lattice corner `(i, j)`, each corner asked once. */
+    const groundColors = new Map<number, THREE.Color>();
+    const groundAtCorner = (i: number, j: number): THREE.Color => {
+      const key = cellKey(i, j);
+      let found = groundColors.get(key);
+      if (found === undefined) {
+        directionAt(cornerOffset(grid, i), cornerOffset(grid, j), groundDir);
+        found = groundColorAt(world, groundDir.multiplyScalar(PLANET_RADIUS), new THREE.Color());
+        groundColors.set(key, found);
+      }
+      return found;
+    };
     for (const [key, apron] of field.aprons ?? []) {
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
@@ -2474,8 +2553,16 @@ export function createSettlements(
       pointAt(b, apronCorner(field, apron, col + 1, row), sb);
       pointAt(c, apronCorner(field, apron, col + 1, row + 1), sc);
       pointAt(d, apronCorner(field, apron, col, row + 1), sd);
-      if (apron.diagonal === 0) pushQuad(out, sa, sb, sc, sd, floor, floor, floor, floor);
-      else pushQuad(out, sb, sc, sd, sa, floor, floor, floor, floor);
+      // The land's own colour at each corner, in the mosaic tone of the cell,
+      // as the land beside it is drawn: one flat colour read at the town's
+      // middle was a band round every town a shade off the ground it meets.
+      const tone = cellTone(slot.seed, col, row);
+      apronCorner0.copy(groundAtCorner(col, row)).multiplyScalar(tone);
+      apronCorner1.copy(groundAtCorner(col + 1, row)).multiplyScalar(tone);
+      apronCorner2.copy(groundAtCorner(col + 1, row + 1)).multiplyScalar(tone);
+      apronCorner3.copy(groundAtCorner(col, row + 1)).multiplyScalar(tone);
+      if (apron.diagonal === 0) pushQuad(out, sa, sb, sc, sd, apronCorner0, apronCorner1, apronCorner2, apronCorner3);
+      else pushQuad(out, sb, sc, sd, sa, apronCorner1, apronCorner2, apronCorner3, apronCorner0);
 
       const side = (p: Corner, q: Corner, pi: number, pj: number, qi: number, qj: number, dc: number, dr: number): void => {
         const near = cellKey(col + dc, row + dr);
@@ -2611,10 +2698,11 @@ export function createSettlements(
       // Each street this cell carries: which way it runs, and the line down the
       // middle of the cell's share of it.
       const streets: [boolean, number, number][] = [];
-      if (grid.low[col] === 1) streets.push([true, x0 + band * 0.5, band]);
-      if (grid.high[col] === 1) streets.push([true, x0 + pitch - band * 0.5, band]);
-      if (grid.low[row] === 1) streets.push([false, z0 + band * 0.5, band]);
-      if (grid.high[row] === 1) streets.push([false, z0 + pitch - band * 0.5, band]);
+      // A band only where the cell across it is town too, as the street is drawn.
+      if (grid.low[col] === 1 && levels.has(cellKey(col - 1, row))) streets.push([true, x0 + band * 0.5, band]);
+      if (grid.high[col] === 1 && levels.has(cellKey(col + 1, row))) streets.push([true, x0 + pitch - band * 0.5, band]);
+      if (grid.low[row] === 1 && levels.has(cellKey(col, row - 1))) streets.push([false, z0 + band * 0.5, band]);
+      if (grid.high[row] === 1 && levels.has(cellKey(col, row + 1))) streets.push([false, z0 + pitch - band * 0.5, band]);
       if (grid.avenue[col] === 1 && grid.avenue[row] !== 1) {
         streets.push([true, x0 + 2.6, 2.6], [true, x0 + pitch - 2.6, 2.6]);
       }
@@ -2804,6 +2892,129 @@ export function createSettlements(
       detailedStyles.set(key, found);
     }
     return found;
+  }
+
+  /**
+   * What `planTown` put in the country round a town rather than on its floor,
+   * so `raise` seats it on the relief rather than on a terrace.
+   */
+  const inTheCountry = new WeakSet<Placed>();
+
+  /**
+   * The country a town fades into: orchards, trees and bushes on the cells it
+   * gave up (`outskirtsOf`) and on the lattice's next two cells out, as far as
+   * its disc — the ground the vegetation keeps off for the town's sake and
+   * that was left bare.
+   *
+   * **A town cut short of its square read as a stamp on an empty clearing**,
+   * because the wood and the herds keep off the whole of `radiusOf`'s disc and
+   * nothing else grew there: the outline changed and the town still ended in
+   * a line. So the town grows its own edge out of the region's trees and
+   * scatter — in rows, a cell at a time, which is what an orchard is, and
+   * loose where it is not — and leaves alone:
+   *
+   * - **the edge slope**, the course of cells round the paving (anything
+   *   within a cell of it, diagonals too), which stands at the floor's own
+   *   height and is not ground;
+   * - **the way the roads come in**, the lanes of every gate a road uses and
+   *   one cell either side, out to the disc;
+   * - **a landmark's ground**, the same keepouts the town wraps round;
+   * - and the sea and anything steeper than `MAX_SLOPE`, which `raise` asks of
+   *   the relief when it seats each one.
+   */
+  function countryside(slot: Slot, grid: TownGrid, style: RegionStyle): Placed[] {
+    const out: Placed[] = [];
+    const cells = grid.cells;
+    const town = (col: number, row: number): boolean => inGrid(grid, col, row) && terraceAt(col, row) !== null;
+    const nearTown = (col: number, row: number): boolean => {
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (town(col + dc, row + dr)) return true;
+      return false;
+    };
+    // The lanes the roads come in along, widened by a cell, on the side each leaves by.
+    const gates = gatesOf(grid);
+    const lanes: { side: number; from: number; to: number }[] = [];
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gates[index];
+      if (gate === undefined) continue;
+      const along = gate.cells.map(([col, row]) => (gate.outX !== 0 ? row : col));
+      lanes.push({ side: gate.side, from: Math.min(...along) - 1, to: Math.max(...along) + 1 });
+    }
+    const onRoad = (col: number, row: number): boolean => lanes.some((lane) => {
+      const along = lane.side === 0 || lane.side === 2 ? row : col;
+      if (along < lane.from || along > lane.to) return false;
+      if (lane.side === 0) return col >= cells - 1;
+      if (lane.side === 2) return col <= 0;
+      if (lane.side === 1) return row >= cells - 1;
+      return row <= 0;
+    });
+    const half = grid.pitch * 0.5;
+    const disc = slot.radius;
+    /** How far a point is from the nearest cell of the town, in world units. */
+    const fromTown = (x: number, z: number): number => {
+      const col = cellIndex(grid, x);
+      const row = cellIndex(grid, z);
+      let best = Infinity;
+      for (let dc = -1; dc <= 1; dc++) {
+        for (let dr = -1; dr <= 1; dr++) {
+          if (!town(col + dc, row + dr)) continue;
+          const dx = Math.max(Math.abs(x - cellCentre(grid, col + dc)) - half, 0);
+          const dz = Math.max(Math.abs(z - cellCentre(grid, row + dr)) - half, 0);
+          best = Math.min(best, Math.hypot(dx, dz));
+        }
+      }
+      return best;
+    };
+    const clear = (x: number, z: number): boolean => fromTown(x, z) >= grid.pitch * SLOPE_CLEAR;
+    for (let col = -COUNTRY_RING; col < cells + COUNTRY_RING; col++) {
+      for (let row = -COUNTRY_RING; row < cells + COUNTRY_RING; row++) {
+        if (town(col, row) || onRoad(col, row)) continue;
+        // A cell of the edge slope takes nothing on its inner half, where the
+        // slope still stands over the ground; its outer half is nearly at it.
+        const onSlope = nearTown(col, row);
+        const cx = cellCentre(grid, col);
+        const cz = cellCentre(grid, row);
+        if (Math.hypot(Math.abs(cx) + half, Math.abs(cz) + half) > disc) continue;
+        if (keepouts.some((keepout) => Math.hypot(keepout.x - cx, keepout.z - cz) < keepout.radius + half)) continue;
+        const rng = rngFrom(slot.seed, 'country', col, row);
+        const draw = rng.unit();
+        if (draw < ORCHARD_SHARE) {
+          // An orchard: one species in a square of rows.
+          const trees = fitting(style.trees, half);
+          if (trees === null) continue;
+          const id = rng.weighted(trees);
+          const rows = 2;
+          const step = grid.pitch / rows;
+          const variant = rng.int(VARIANTS);
+          for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < rows; j++) {
+              const x = cx - half + step * (i + 0.5) + rng.jitter() * 0.4;
+              const z = cz - half + step * (j + 0.5) + rng.jitter() * 0.4;
+              if (onSlope && !clear(x, z)) continue;
+              out.push({
+                partId: id, variant, scale: rng.spread(0.9, 0.06),
+                plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: step, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
+              });
+            }
+          }
+        } else if (draw < ORCHARD_SHARE + LOOSE_SHARE) {
+          // Loose: a tree or two and a bush, anywhere in the cell.
+          const count = 2 + rng.int(3);
+          for (let k = 0; k < count; k++) {
+            const mix = k < 2 ? fitting(style.trees, half) : fitting(style.scatter, half) ?? fitting(style.trees, half);
+            if (mix === null) continue;
+            const x = cx + rng.jitter() * half * 0.8;
+            const z = cz + rng.jitter() * half * 0.8;
+            if (onSlope && !clear(x, z)) continue;
+            out.push({
+              partId: rng.weighted(mix), variant: rng.int(VARIANTS), scale: rng.spread(1, 0.14),
+              plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: half, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
+            });
+          }
+        }
+      }
+    }
+    for (const entry of out) inTheCountry.add(entry);
+    return out;
   }
 
   function planTown(slot: Slot, grid: TownGrid): { placed: Placed[] } {
@@ -3031,9 +3242,25 @@ export function createSettlements(
       const rect = rectOf(grid, band, col, col, row, row);
       if (rect.x1 - rect.x0 < 1 || rect.z1 - rect.z0 < 1 || blocked(rect)) continue;
       const rng = rngFrom(slot.seed, 'cell', col, row);
-      const edge = Math.max(Math.abs(cellCentre(grid, col)), Math.abs(cellCentre(grid, row))) / Math.max(1, grid.half);
-      if (rng.chance(fill)) {
-        const ids = candidates(mixAt(style, urbanity, edge, Infinity), rng);
+      /**
+       * **The edge of a town is houses in their yards, not blocks on paving.**
+       * A square built alike to its kerb ends in a wall of flats however its
+       * outline goes, so past `OUTSKIRT_RING` a cell is built a little less
+       * often, only with the region's houses, and a cell left empty is given
+       * the greenery more readily than one in the middle.
+       */
+      const ringed = cells >= OUTSKIRT_MIN_CELLS;
+      const score = ringed ? outskirtScore(grid, slot.seed, col, row)
+        : Math.max(Math.abs(cellCentre(grid, col)), Math.abs(cellCentre(grid, row))) / Math.max(1, grid.half);
+      const edge = Math.min(1, score);
+      const outer = ringed && score > OUTSKIRT_RING;
+      if (rng.chance(outer ? fill * OUTER_FILL : fill)) {
+        let mix = mixAt(style, urbanity, edge, Infinity);
+        if (outer) {
+          const homes = mix.filter((entry) => KIND_OF.get(entry.item) !== 'block');
+          if (homes.length > 0) mix = homes;
+        }
+        const ids = candidates(mix, rng);
         const took = placeAny(ids, plotsFor(col, row), rng);
         if (took !== null) {
           const [c0, c1, r0, r1] = took;
@@ -3045,7 +3272,7 @@ export function createSettlements(
       const room = Math.min(rect.x1 - rect.x0, rect.z1 - rect.z0) * 0.5;
       const trees = fitting(style.trees, room);
       const scatter = fitting(style.scatter, room);
-      const mix = trees !== null && rng.chance(style.greenery * (1 - edge * 0.45)) ? trees
+      const mix = trees !== null && rng.chance(outer ? Math.min(1, style.greenery * OUTER_GREENERY) : style.greenery * (1 - edge * 0.45)) ? trees
         : scatter !== null && rng.chance(0.45) ? scatter : null;
       if (mix === null) continue;
       const x = (rect.x0 + rect.x1) * 0.5 + rng.jitter() * (rect.x1 - rect.x0) * 0.15;
@@ -3057,6 +3284,7 @@ export function createSettlements(
         plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: room, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
       });
     }
+    if (cells >= OUTSKIRT_MIN_CELLS) placed.push(...countryside(slot, grid, style));
     return { placed };
   }
 
@@ -3097,6 +3325,26 @@ export function createSettlements(
     // across its width. `cellLevel` is the one definition, and `roads.ts` asks
     // it the same question about the gate cells through `gateLevel`.
     for (const [key, level] of townTerraces(grid, townGround)) terraces.set(key, level);
+    // And the cells the town stops short of its square in, which are not paved
+    // either: taken out after the levels, so a street's cells keep the level
+    // their whole group was cut to. The streets the roads come in by and the
+    // cells under a landmark are kept whole.
+    const kept = new Set<number>();
+    const gates = gatesOf(grid);
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gates[index];
+      if (gate === undefined) continue;
+      for (const [col, row] of gate.cells) {
+        for (let c = 0; c < grid.cells; c++) kept.add(gate.outX !== 0 ? cellKey(c, row) : cellKey(col, c));
+      }
+    }
+    const half = grid.pitch * 0.5;
+    const outskirts = outskirtsOf(grid, slot.seed, (col, row) => kept.has(cellKey(col, row)) || keepouts.some((keepout) => {
+      const dx = Math.max(Math.abs(keepout.x - cellCentre(grid, col)) - half, 0);
+      const dz = Math.max(Math.abs(keepout.z - cellCentre(grid, row)) - half, 0);
+      return dx * dx + dz * dz < keepout.radius * keepout.radius;
+    }));
+    for (const key of outskirts) terraces.set(key, null);
 
     const placed = planTown(slot, grid).placed;
 
@@ -3188,7 +3436,17 @@ export function createSettlements(
        * builds the part of itself that stands and leaves the part that would
        * have been a house halfway into a mountain.
        */
-      const level = terraceAt(entry.plot.col, entry.plot.row);
+      // The country round the town stands on the relief, where the wood does,
+      // and only where the wood would: out of the sea and off a cliff.
+      const country = inTheCountry.has(entry);
+      if (country) {
+        gradeAt(scratch, across, north, Math.max(1, footprint), slope);
+        if (slope.grade > MAX_SLOPE) {
+          buried++;
+          continue;
+        }
+      }
+      const level = country ? elevation - GROUND_LIFT : terraceAt(entry.plot.col, entry.plot.row);
       if (level === null) {
         buried++;
         continue;
@@ -3824,12 +4082,14 @@ export function createSettlements(
       if (floor.lawn === null || !inGrid(grid, col, row) || floor.lawn[col * grid.cells + row] !== 1) return null;
       const u = x - (cellCentre(grid, col) - grid.pitch * 0.5);
       const v = z - (cellCentre(grid, row) - grid.pitch * 0.5);
-      // The streets through the cell, as `buildGround` cuts them.
-      const street = (index: number, t: number): boolean =>
+      // The streets through the cell, as `buildGround` cuts them: a band only
+      // where the cell across it is town too.
+      const street = (index: number, t: number, across: (step: number) => boolean): boolean =>
         grid.avenue[index] === 1 ||
-        (grid.low[index] === 1 && t < band + margin) ||
-        (grid.high[index] === 1 && t > grid.pitch - band - margin);
-      if (street(col, u) || street(row, v)) return null;
+        (grid.low[index] === 1 && t < band + margin && across(-1)) ||
+        (grid.high[index] === 1 && t > grid.pitch - band - margin && across(1));
+      if (street(col, u, (step) => field.terraces.has(cellKey(col + step, row))) ||
+        street(row, v, (step) => field.terraces.has(cellKey(col, row + step)))) return null;
       if (floor.solids !== null && solidAt(floor.solids, x, z, margin) !== null) return null;
       return PLANET_RADIUS + level + GROUND_LIFT;
     }

@@ -958,6 +958,23 @@ vec3 atlasPatches(vec3 colour, vec3 pos) {
   return mix(tinted, tinted * vec3(1.18, 1.08, 0.72), smoothstep(0.5, 0.9, blot) * green);
 }`;
 
+/**
+ * The patches alone, for a material that is not the land's but draws some of
+ * its ground: `diffuseColor` at a world position `pos` (a GLSL expression) run
+ * through `atlasPatches`, and faded out where a pixel covers a good share of
+ * the finer blot, as the land fades them. Needs `GROUND_MARKS_GLSL` in the
+ * fragment shader. A town's lawns and its edge slope are the land's own
+ * colour, and without these they read a shade off the ground they meet.
+ */
+export function groundPatchesChunk(pos: string): string {
+  return /* glsl */ `{
+    vec2 atlasPatchPlane = atlasPlaneOf(${pos});
+    float atlasPatchFoot = max(length(dFdx(atlasPatchPlane)), length(dFdy(atlasPatchPlane)));
+    diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, ${pos}),
+      1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasPatchFoot));
+  }`;
+}
+
 const MOSAIC_GLSL = /* glsl */ `
 varying vec3 vAtlasPos;
 uniform float atlasMosaic;
