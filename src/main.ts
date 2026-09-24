@@ -470,6 +470,8 @@ async function start(): Promise<void> {
     navigation: import('./navigation.ts'),
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
+    /** The other players, if a relay is configured; see `server/`. */
+    peers: import('./peers.ts'),
   };
   // Each of them is awaited in its turn below, and a rejection there is a
   // failure of `start()`. But one that fails *now* — a chunk that did not
@@ -794,6 +796,14 @@ async function start(): Promise<void> {
   const folk = createFolk(ctx);
   const townsfolk = createTownsfolk(folk, settlements);
   scene.add(townsfolk.group);
+  // The other players. `VITE_PEERS_URL` is the relay's address, set in the
+  // host's environment for a build; in development it is the relay's own
+  // `wrangler dev` (`pnpm peers`), and with neither the world is single-player.
+  const { createPeers } = await deferred.peers;
+  const peersUrl: string =
+    import.meta.env.VITE_PEERS_URL ?? (import.meta.env.DEV ? 'ws://localhost:8787/ws' : '');
+  const peers = peersUrl === '' ? null : createPeers(peersUrl, folk);
+  if (peers !== null) scene.add(peers.group);
   const { createLife } = await deferred.life;
   const { VEHICLES } = await deferred.traffic;
   const { ANIMALS } = await deferred.fauna;
@@ -1567,6 +1577,7 @@ async function start(): Promise<void> {
     // because breathing does not speed up when `setRate` runs the sun at 600x.
     townsfolkClock += dt;
     guard('townsfolk', () => townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame));
+    if (peers !== null) guard('peers', () => peers.update(dt, player));
 
     // The weather turns with the same clock the sun does, so scrubbing the time
     // scrubs the sky: `atlas.sky.setRate(600)` runs a front past you in seconds.
@@ -1648,6 +1659,7 @@ async function start(): Promise<void> {
     // as an arrival — lives in the HUD.
     const standingIn = world.countryAtPoint(player.position);
     const nearbyPlace = places.nearest(player.position);
+    if (peers !== null) minimap.setPeers(peers.marks);
     guard('minimap', () =>
       minimap.update(player.position, player.forward, {
         country: standingIn,
@@ -1708,7 +1720,8 @@ async function start(): Promise<void> {
     const moving =
       player.velocity > 0 ||
       life.stats.nearestMoving < SHADOW_COVER ||
-      townsfolk.stats.nearestMoving < SHADOW_COVER;
+      townsfolk.stats.nearestMoving < SHADOW_COVER ||
+      (peers !== null && peers.nearestMoving < SHADOW_COVER);
     const cadence = moving ? 0 : SHADOW_STILL_MS;
     if (sky.state.shadow > 0 && (now - shadowDrawnAt >= cadence || standing !== shadowStanding)) {
       // The light moves only here, in the frame the map is drawn from it — see
@@ -1802,6 +1815,8 @@ async function start(): Promise<void> {
   Object.assign(globalThis, {
     atlas: {
       world,
+      // `atlas.peers.stats`: the relay's state, our id, who is connected.
+      peers,
       player,
       rig,
       scene,

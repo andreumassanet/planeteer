@@ -40,7 +40,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json"
+    "peers": "npx -y wrangler@4 dev --config server/wrangler.jsonc",
+    "peers:deploy": "npx -y wrangler@4 deploy --config server/wrangler.jsonc",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p server/tsconfig.json"
   },
   "dependencies": {
     "three": "^0.182.0"

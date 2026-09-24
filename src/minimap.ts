@@ -148,6 +148,12 @@ export interface Minimap {
    * would not appear until you took a step.
    */
   invalidate(): void;
+  /**
+   * The other players, as points on the unit sphere; see `peers.ts`. Drawn on
+   * the overlay, not the base, because they move while you stand still — and
+   * one past the rim sits on it, pointing the way to them.
+   */
+  setPeers(marks: readonly { x: number; y: number; z: number }[]): void;
   /** What the disc is showing and what it costs. `atlas.minimap.stats`. */
   readonly stats: MinimapStats;
 }
@@ -323,6 +329,9 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   // Violet is the only palette colour that collides with nothing already on the
   // disc — not the ocean, not any continent fill, not cream, gold or crimson.
   const violet = hex(PALETTE.violet);
+  // And pink for the other players: round dots, where every landmark is a pin.
+  const pink = hex(PALETTE.pink);
+  let peerMarks: readonly { x: number; y: number; z: number }[] = [];
   const faintInk = 'rgba(30, 6, 3, 0.42)';
   const borderWidth = Math.max(1, size / 200);
   const uiScale = size / DEFAULT_SIZE;
@@ -983,6 +992,30 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     ctx.drawImage(base, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    const rim = discRadius - 5 * uiScale;
+    for (const mark of peerMarks) {
+      let x = mark.x * rx + mark.y * ry + mark.z * rz;
+      let y = -(mark.x * fx + mark.y * fy + mark.z * fz);
+      let reach = Math.hypot(x, y) * scale;
+      // Behind the horizon it is still somewhere round the rim.
+      if (mark.x * ux + mark.y * uy + mark.z * uz <= 0) reach = Infinity;
+      if (reach > rim) {
+        const length = Math.hypot(x, y) || 1;
+        x = (x / length) * rim;
+        y = (y / length) * rim;
+      } else {
+        x *= scale;
+        y *= scale;
+      }
+      ctx.beginPath();
+      ctx.arc(centre + x, centre + y, 3.5 * uiScale, 0, Math.PI * 2);
+      ctx.fillStyle = pink;
+      ctx.fill();
+      ctx.lineWidth = 1.5 * uiScale;
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+    }
+
     // The player, always dead centre, turned to the heading: the arrow moves
     // now and the world holds still, which is the opposite of what this disc
     // used to do and is what makes a country a shape you can recognise.
@@ -1162,6 +1195,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     invalidate() {
       baseStale = true;
       overlayStale = true;
+    },
+    setPeers(marks) {
+      if (marks.length > 0 || peerMarks.length > 0) overlayStale = true;
+      peerMarks = marks;
     },
     get stats() {
       const sorted = Array.from(samples.subarray(0, sampleCount)).sort((a, b) => a - b);
