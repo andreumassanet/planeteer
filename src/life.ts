@@ -49,7 +49,7 @@ import { regionFor } from './scenery/regions.ts';
 import { POSES, buildPerson } from './scenery/people.ts';
 import type { Look } from './scenery/people.ts';
 import { lookFor } from './scenery/dress.ts';
-import { AVATAR_HEIGHT, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
+import { AVATAR_HEIGHT, RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
 import {
   RIDER_HEIGHT,
   VARIANTS,
@@ -71,6 +71,10 @@ import { BY_BIOME, FAUNA_STYLES, nativeHere } from './fauna/regions.ts';
 import type { RegionId } from './fauna/regions.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
+import { THROUGH_HALF_WIDTH, mainStreetHalf, offsetDirection } from './scenery/grid.ts';
+import { groundStyleFor } from './scenery/ground.ts';
+import { driveThrough, streetCost, streetPose, turnInTown } from './through.ts';
+import type { StreetLeg, StreetPose } from './through.ts';
 
 /**
  * Ambient life: the things that move.
@@ -119,14 +123,25 @@ import { latOf, lonOf, unitAt } from './sphere.ts';
  * - It is deterministic for the same reason the rest of the world is: identity,
  *   a seed, and a time. No `Math.random()`, no `Date`.
  *
+ * **The one exception is a near herd** (2026-09-24), whose animals graze,
+ * wander and get out of your way, which depends on where you have walked and
+ * so cannot be a function of the clock. It is seeded, near, capped, and it
+ * cannot leave anything behind: see `HERD_HOME_REACH`.
+ *
  * ## What is here
  *
  * `road`, `water`, `air`, `foot` and `herd`. The herd arrived last and it
  * arrived as a **merged** thing rather than as a mover, which is the split
- * above read the other way: grazing is the one activity in this world that is
- * honestly motionless, so five animals cost one draw call. The kit it is built
- * from is `src/fauna/`, whose gait this file never touches — a herd is frozen —
- * and whose sizes it reads only through `Animal.size`.
+ * above read the other way: from any distance a grazing herd is motionless,
+ * so five animals cost one draw call. Near, it stands up as its animals and
+ * lives (`herdStep`). The kit it is built from is `src/fauna/`, whose sizes
+ * this file reads through `Animal.size` and whose baked rigs' clips it plays:
+ * `Eating`, `Idle` and `Walk`, which is every clip the kit bakes — a trot is
+ * the walk played faster, and the sheep, whose pack has no walk, bob.
+ *
+ * A **road vehicle** drives a loop through the towns on its way (`through.ts`)
+ * and turns round at each end of it; a walker is still the out-and-back chain
+ * below.
  *
  * ## Importable in Node, on purpose
  *
@@ -177,9 +192,11 @@ const FOOT_MOVERS = 10;
  * That is the whole reason the animals arrived as a merged group and not as a
  * cast of movers. `settlements.ts` measured merging a town at one draw call
  * against 218 and this file is built on the consequence — *anything still is
- * merged, anything moving is its own mesh* — and a **grazing herd is genuinely
- * still**, which is the rare case where the cheap answer is also the right
- * picture. `people.ts` had already done the work that makes it safe: its
+ * merged, anything moving is its own mesh* — and **a grazing herd is still
+ * from anywhere but close by**, which is the rare case where the cheap answer
+ * is also the right picture; close by, inside `HERD_ANIMATED_REACH`, it is its
+ * animals, each its own mesh, and they move. `people.ts` had already done the
+ * work that makes the still frames safe: its
  * standing poses are measured into double support with both feet down precisely
  * so a frozen figure does not float, and `pnpm fauna` runs the quadruped
  * version of that assertion over all four.
@@ -229,6 +246,40 @@ const HERD_REACH = 380;
  * everything else is a still frame of the same clip in the merged herd.
  */
 const HERD_ANIMATED_REACH = 70;
+
+/**
+ * **And a near herd is alive, which is what makes the swap back a question.**
+ * Its animals graze, wander between spots of their own field, trot now and
+ * then and get out of your way; the far herd is still frames of them where
+ * they stood when it was built. So past `HERD_HOME_REACH` they walk back to
+ * those spots and turn the way they were, and the herd goes back to its merged
+ * buffer only once every one of them is there — which is the swap `view.ts`
+ * asks for, a change of detail and not of place. Past `HERD_HOLD_REACH` it
+ * goes back wherever they are: 126 units off, a cow is twenty pixels long, and
+ * `stats.snapped` counts it.
+ */
+const HERD_HOME_REACH = HERD_ANIMATED_REACH * 0.85;
+const HERD_HOLD_REACH = HERD_ANIMATED_REACH * 1.8;
+/**
+ * Ground asked about for the animals' decisions in one frame, across every
+ * near herd: a decision is a `gradeAt` under the spot and one every stance of
+ * the way to it, an `elevationAt` and a landmark's pad. An animal that finds
+ * none left waits a frame.
+ */
+const GRAZE_PROBES = 8;
+/**
+ * How near you are before an animal moves off, on top of its own length, by
+ * how fast you are going: standing, walking, running, and anything faster,
+ * which is a vehicle. The speeds between are `WALK_SPEED` and `RUN_SPEED`.
+ */
+const FLEE_REACH = [4, 9, 18, 28] as const;
+const FLEE_PACE = [1.5, (WALK_SPEED + RUN_SPEED) / 2, RUN_SPEED * 1.4] as const;
+/** How much faster than its walk an animal trots, which is how it runs from anything faster than a walk. */
+const TROT = 2.4;
+/** How long an animal bolts for after it has been run into. */
+const BOLT_SECONDS = 1.6;
+/** Which ways an animal tries, turned from straight away from you, in radians. */
+const FLEE_TURNS = [0, 0.7, -0.7, 1.4, -1.4] as const;
 
 /**
  * How a cast rider's legs fold, in the rider's own frame: a bench's thigh level
@@ -480,6 +531,14 @@ const DRESS_PER_FRAME = 3;
 const HERDS_PER_FRAME = 1;
 /** Movers inside this of the camera are admitted whatever it is pointed at. */
 const KEEP_ALL_WITHIN = 340;
+/**
+ * How far into its reach a vehicle has to be before a rescan may add it while
+ * it can be seen, as a share of the reach: the outer part is the haze, where
+ * the fog brings it in. See `consider`.
+ */
+const EMERGE_BEYOND = 0.7;
+/** A viewer who has moved this far since the last scan has jumped, and the whole cast is laid out afresh. */
+const FRESH_JUMP = 1500;
 
 // ---------------------------------------------------------------------------
 // The walk, taken from the two files that already own it
@@ -758,7 +817,97 @@ interface Mover {
   /** A walker drawn from the cast, when there is one: its own skinned body. */
   person?: { holder: THREE.Group; person: Person } | null;
   /** A herd near enough to be its animals rather than its merged buffer. */
-  animated?: { holder: THREE.Group; heads: { rigged: Rigged; rig: string }[] } | null;
+  animated?: Herding | null;
+}
+
+/**
+ * What an animal of a near herd is doing: standing still with its head down
+ * or up, on its way somewhere at a walk or a trot, getting away from you, or
+ * going back to the spot the far herd has it at — and then standing there.
+ */
+type GrazeMode = 'graze' | 'idle' | 'walk' | 'trot' | 'flee' | 'home' | 'settled';
+
+/**
+ * One animal of a herd standing near enough to be itself: its rig, its clips,
+ * where it is in the herd's own plane (x across, z along, y up from the
+ * ground at the herd's centre — the frame `buildHerd` seats it in), and where
+ * it is going.
+ */
+interface Grazer {
+  rigged: Rigged;
+  rig: string;
+  /** The group its place in the herd is written to. */
+  place: THREE.Group;
+  /** The clip the far herd holds it in, its grazing and standing clips, and its walk if its rig has one. */
+  rest: THREE.AnimationAction | undefined;
+  graze: THREE.AnimationAction | undefined;
+  idle: THREE.AnimationAction | undefined;
+  walk: THREE.AnimationAction | undefined;
+  current: THREE.AnimationAction | undefined;
+  halfLength: number;
+  halfWidth: number;
+  height: number;
+  /** Half the diagonal of the box it stands in: `gradeAt`'s reach under its hooves. */
+  stance: number;
+  /** Its walking speed, units a second: the pace its `Walk` clip plays at 1. */
+  pace: number;
+  homeX: number;
+  homeZ: number;
+  homeY: number;
+  homeYaw: number;
+  x: number;
+  z: number;
+  y: number;
+  /** About +y, facing +z at 0: the frame `buildHerd` turns it in. */
+  yaw: number;
+  fromY: number;
+  toX: number;
+  toZ: number;
+  toY: number;
+  leg: number;
+  speed: number;
+  /** Where to face while it stands, or NaN: away from you, once it has stopped. */
+  face: number;
+  mode: GrazeMode;
+  timer: number;
+  /** Decisions taken, which seeds the next one. */
+  draws: number;
+  /** Seconds left of bolting after something ran into it. */
+  bolt: number;
+  /** Seconds it has stood blocked by a neighbour on its way. */
+  stuck: number;
+  /** The stride phase of a rig with no walk of its own, for its bob. */
+  bob: number;
+  /** In the world this frame, for `collide`. */
+  world: THREE.Vector3;
+  facing: THREE.Vector3;
+}
+
+/** The ground a herd was admitted on: `HerdSite` in `createLife`, as much of it as a near herd reads. */
+interface HerdGround {
+  centre: THREE.Vector3;
+  right: THREE.Vector3;
+  forward: THREE.Vector3;
+  relief: number;
+  spread: number;
+}
+
+/** A herd stood up as its animals. */
+interface Herding {
+  holder: THREE.Group;
+  heads: Grazer[];
+  site: HerdGround;
+  /** How far from the herd's centre its animals may go; see `roomOf`. */
+  room: number;
+  /** The nearest built town, which no animal walks into: its centre and radius. */
+  town: THREE.Vector3 | null;
+  townRadius: number;
+  /** The herd's frame in the world this frame: its mesh's X, Y and Z. */
+  axisX: THREE.Vector3;
+  axisY: THREE.Vector3;
+  axisZ: THREE.Vector3;
+  /** Whether the viewer has gone far enough that its animals are walking home. */
+  homing: boolean;
 }
 
 interface Flock {
@@ -780,6 +929,26 @@ export interface LifeStats {
   animals: number;
   /** Of those, how many are standing up as animated rigs near the player. */
   animated: number;
+  /**
+   * The animals of the near herds by what they are doing this frame: standing
+   * (grazing, looking about, or settled at their own spot), walking or
+   * trotting somewhere, and getting away from you; and how many near herds
+   * are walking home because you have left them (`HERD_HOME_REACH`).
+   */
+  grazing: number;
+  wandering: number;
+  fleeing: number;
+  homing: number;
+  /**
+   * Near herds handed back to their merged buffer before every animal was
+   * home, since the world began: out of range, or dropped by a rescan. Each
+   * is a herd whose animals jumped back to their spots, 126 units off or out
+   * of sight.
+   */
+  snapped: number;
+  /** Road vehicles drawn on a town's streets this frame, and turning round in a town or on the road (`through.ts`). */
+  inTown: number;
+  turning: number;
   birds: number;
   /** Draw calls this file adds, before `OutlineEffect` doubles them. */
   meshes: number;
@@ -876,9 +1045,11 @@ export interface Life {
   /**
    * Call each frame, after the streamers. `clock` is seconds of the **world's**
    * time (`sky.state.time`) and not of the machine's, so the traffic runs with
-   * `setRate` and scrubs with `setTime`.
+   * `setRate` and scrubs with `setTime`. `dt` is the machine's seconds since
+   * the last call, which the near herds live by; left out, it is measured, and
+   * a headless check hands it in.
    */
-  update(viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number): void;
+  update(viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number, dt?: number): void;
   /**
    * Sweeps the walk cycle over every body of three regions and reports the worst
    * distance any part of a rig ends up below the floor.
@@ -904,6 +1075,26 @@ export interface Life {
    * wake `effects.ts` lays behind it. Nothing is allocated.
    */
   eachBoat(visit: (mesh: THREE.Object3D) => void): void;
+  /**
+   * The animals of the near herds, where each is in its herd's plane and
+   * where the far herd has it, with the ground the herd was admitted on: for
+   * `pnpm fauna` and the console. Allocates.
+   */
+  grazers(): {
+    key: string;
+    centre: THREE.Vector3;
+    right: THREE.Vector3;
+    forward: THREE.Vector3;
+    room: number;
+    heads: { x: number; z: number; y: number; homeX: number; homeZ: number; stance: number; mode: string; world: THREE.Vector3 }[];
+  }[];
+  /**
+   * The countryside's farms, mills and fields (`countryside.ts`), which a
+   * herd keeps off as it keeps off a road. Handed over once the vegetation
+   * that plans them exists, before the first scan; herds already sited are
+   * sited again.
+   */
+  setCountry(country: { occupied(direction: THREE.Vector3, radius: number): boolean } | null): void;
 }
 
 export interface LifeOptions {
@@ -943,6 +1134,20 @@ export interface LifeOptions {
    * a herd's cell stays one answer for ever.
    */
   fields?: FieldIndex;
+  /**
+   * The standing towns, for a vehicle driving through one (`through.ts`):
+   * `floorAt` is the height of a town's floor under a direction, a radius from
+   * the planet's centre or 0 off every standing floor (`madeHeightAt` in
+   * `settlements.ts`), and `blocked` whether a body of `radius` at a point
+   * would stand in a wall. Handed in because `settlements.ts` does not load
+   * in Node; without them a drive through a town is not drawn, and the car is
+   * hidden for as long as it takes, which is what `pnpm life` sees unless it
+   * hands in a floor of its own.
+   */
+  streets?: {
+    floorAt(direction: THREE.Vector3): number;
+    blocked(point: THREE.Vector3, radius: number): boolean;
+  };
 }
 
 /**
@@ -1026,7 +1231,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
   };
 
   const stats: LifeStats = {
-    road: 0, water: 0, foot: 0, herd: 0, animals: 0, animated: 0, birds: 0,
+    road: 0, water: 0, foot: 0, herd: 0, animals: 0, animated: 0,
+    grazing: 0, wandering: 0, fleeing: 0, homing: 0, snapped: 0, inTown: 0, turning: 0, birds: 0,
     meshes: 0, triangles: 0, pooled: 0, megabytes: 0, lastBuildMs: 0, lastScanMs: 0, reach: 0,
     nearestMoving: Infinity,
   };
@@ -1159,15 +1365,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * **The transit is the town.** A road stops at a gate now, and the route's
    * next road leaves the same town by another one, so between the two the
    * mover crosses the square along its streets — axis-aligned, so the gates'
-   * offsets apart in x plus in z. It is not *driven*: this file cannot see a
-   * town's terraces (`settlements.ts` is not importable in Node, and a town on
-   * a hill is a staircase of level cells), and a car driven across at its gate's
-   * level would sink into one terrace and float over the next. The old route did
-   * exactly that, from centre to centre at the ribbon's lift over the relief,
-   * straight through every platform on the way. So a mover is hidden for as
-   * long as the crossing takes and comes out of the next gate, which from the
-   * road is what a car turning into the streets looks like. Two roads through
-   * one gate have no transit at all.
+   * offsets apart in x plus in z. **A walker's is not walked**, and is hidden
+   * for as long as it takes: the pavements are the townsfolk's. A vehicle's is
+   * driven, on the standing town's own floor — see `DriveHop`, and the
+   * vanishing car that replaced this for them. Two roads through one gate have
+   * no transit at all.
    */
   interface Hop {
     road: number;
@@ -1235,7 +1437,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
 
   /**
-   * Where a route puts a mover at one instant, out and back.
+   * Where a walker's route puts it at one instant, out and back. A vehicle's
+   * is a loop: see `Drive`.
    *
    * **The route is travelled in both directions, and that is a fix for a
    * measured pop rather than a flourish.** With the distance wrapping at the end
@@ -1295,6 +1498,368 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const back = cycle >= 0.5;
     return { at: (back ? 1 - cycle : cycle) * 2 * chain.total, back };
   }
+
+  // ------------------------------------------------------------------
+  // The drive: a vehicle's route, through the towns and round at its ends
+  // ------------------------------------------------------------------
+
+  /**
+   * One road of a vehicle's route and the drive through the town at its far
+   * end onto the next (`through.ts`), or none where the route ends there.
+   *
+   * **A vehicle's route is a loop and not an out-and-back**, and that is the
+   * whole of what changed for the traffic (2026-09-24). A walker's chain is
+   * above: it is hidden while it crosses a town and turns round on the spot at
+   * each end of its route, which from the verge is a person changing their
+   * mind. A car did the same and it read as a car vanishing into a town and
+   * appearing on a road out of it, and as a car reversing its heading in one
+   * frame at the end of its round. So a drive is: the roads and the towns
+   * between them out, a turn at the far end, the same roads and towns back on
+   * the other lane, and a turn at the start — every piece of it drawn, and
+   * nothing in it a jump.
+   */
+  interface DriveHop {
+    road: number;
+    forward: boolean;
+    /** The stretch of the road driven, as distances from its `a` gate, and its length. */
+    from: number;
+    to: number;
+    length: number;
+    /**
+     * How much of it, at its start and at its end the way the run goes, the
+     * vehicle spends slowing into or speeding out of a turn on the
+     * carriageway; and what the hop costs of the route with them.
+     */
+    rampFrom: number;
+    rampTo: number;
+    cost: number;
+    /** The drive through the town at this road's far end, onto the next hop. */
+    through: StreetLeg[] | null;
+    throughCost: number;
+    /** That town, by place index, and a key for what `paved` found there. */
+    town: number;
+    key: string;
+  }
+  /**
+   * Where a route turns round: in the town at that end, along its main
+   * streets (`turnInTown`), or — at a town with none, or a gate off them — on
+   * the road's own carriageway short of the gate, on the half circle between
+   * its two lanes.
+   */
+  interface DriveTurn {
+    legs: StreetLeg[] | null;
+    town: number;
+    key: string;
+    road: number;
+    /** Which end of `road` the turn is at: its `b` end, or its `a`. */
+    atB: boolean;
+    cost: number;
+  }
+  interface Drive {
+    hops: DriveHop[];
+    /** The outward run's cost, roads and towns. */
+    run: number;
+    end: DriveTurn;
+    start: DriveTurn;
+    /** The whole loop: out, round, back, round. */
+    total: number;
+  }
+
+  /**
+   * How much slower than its road a car turns round on the carriageway, as
+   * route per unit of its half circle: a lane's offset of 1.87 is a half
+   * circle of 5.9 units, which at a lane's 28 a second takes 1.3 s and at a
+   * trunk's 50, 0.7 s. It slows into it over `RIBBON_RAMP` of the road.
+   */
+  const RIBBON_SLOW = 6;
+  const RIBBON_RAMP = 12;
+  const drives = new Map<string, Drive>();
+  /** A town's main street, its half-width: a function of the town's region. */
+  const mainHalfOf = (town: number): number =>
+    mainStreetHalf(townOf(places[town]!).grid, groundStyleFor(regionAt(town).id).street);
+
+  function turnAt(town: number, gate: number, road: number, atB: boolean, lane: number): DriveTurn {
+    const square = townOf(places[town]!);
+    const legs = turnInTown(square.grid, square.gates, gate, mainHalfOf(town), lane, sideOf(road));
+    return {
+      legs, town, key: `${town}|${gate}|turn`, road, atB,
+      cost: legs !== null ? streetCost(legs) : Math.PI * lane * RIBBON_SLOW,
+    };
+  }
+
+  function driveFor(first: number, key: string, lane: number): Drive {
+    const known = drives.get(key);
+    if (known !== undefined) return known;
+    const hops: DriveHop[] = [{
+      road: first, forward: true, from: 0, to: lengthOf(first), length: lengthOf(first),
+      rampFrom: 0, rampTo: 0, cost: lengthOf(first),
+      through: null, throughCost: 0, town: roads[first]!.b, key: '',
+    }];
+    let run = hops[0]!.length;
+    let at = roads[first]!.b;
+    let previous = first;
+    for (let hop = 1; hop < MAX_HOPS && run < MIN_ROUTE; hop++) {
+      const from = edgeStart[at]!;
+      const to = edgeStart[at + 1]!;
+      if (to - from < 2) break;
+      const rng = rngFrom(key, 'hop', hop);
+      const square = townOf(places[at]!);
+      const gateIn = gateAt(roads[previous]!, at);
+      // The walkers' draw, with one more refusal: a road out of this town
+      // that no drive through it reaches.
+      let next = -1;
+      let legs: StreetLeg[] | null = null;
+      for (let tries = 0; tries < 6 && next < 0; tries++) {
+        const candidate = edgeOf[from + rng.int(to - from)]!;
+        if (candidate === previous) continue;
+        legs = driveThrough(square.grid, square.gates, gateIn, gateAt(roads[candidate]!, at), mainHalfOf(at), lane, sideOf(previous));
+        if (legs !== null) next = candidate;
+      }
+      if (next < 0 || legs === null) break;
+      const arrived = hops.at(-1)!;
+      arrived.through = legs;
+      arrived.throughCost = streetCost(legs);
+      arrived.key = `${at}|${gateIn}|${gateAt(roads[next]!, at)}`;
+      run += arrived.throughCost;
+      const road = roads[next]!;
+      const forward = road.a === at;
+      at = forward ? road.b : road.a;
+      hops.push({
+        road: next, forward, from: 0, to: lengthOf(next), length: lengthOf(next),
+        rampFrom: 0, rampTo: 0, cost: lengthOf(next),
+        through: null, throughCost: 0, town: at, key: '',
+      });
+      run += hops.at(-1)!.length;
+      previous = next;
+    }
+    const last = hops.at(-1)!;
+    const end = turnAt(at, gateAt(roads[last.road]!, at), last.road, last.forward, lane);
+    const start = turnAt(roads[first]!.a, roads[first]!.gateA, first, false, lane);
+    // A turn on the carriageway is a half circle short of the gate, so the
+    // road it turns on is driven only as far as it, and the car slows into it
+    // over the last of that.
+    const trim = (hop: DriveHop, atB: boolean, atEnd: boolean): void => {
+      const cut = Math.min(lane, lengthOf(hop.road) / 4);
+      if (atB) hop.to -= cut;
+      else hop.from += cut;
+      hop.length -= cut;
+      const ramp = Math.min(RIBBON_RAMP, hop.length / 3);
+      if (atEnd) hop.rampTo = ramp;
+      else hop.rampFrom = ramp;
+    };
+    if (end.legs === null) trim(last, last.forward, true);
+    if (start.legs === null) trim(hops[0]!, false, false);
+    run = 0;
+    for (const hop of hops) {
+      hop.cost = hopCost(hop);
+      run += hop.cost + hop.throughCost;
+    }
+    const made: Drive = { hops, run, end, start, total: 2 * run + end.cost + start.cost };
+    if (drives.size > 4000) drives.clear();
+    drives.set(key, made);
+    return made;
+  }
+
+  /**
+   * What the last `driveFrame` put the vehicle on — 0 a road, 1 a town's
+   * street, 2 a turn in a town, 3 a turn on the carriageway — for `stats`.
+   */
+  let drivePart = 0;
+  const streetScratch: StreetPose = { x: 0, z: 0, fx: 0, fz: 1, mx: 0, mz: 1 };
+  const turnFrame = emptyFrame();
+  const turnLeft = new THREE.Vector3();
+
+  /**
+   * What a hop costs of the route: its length, less what its ramps save
+   * being driven at a speed between the road's and the turn's.
+   */
+  function hopCost(hop: DriveHop): number {
+    const k = 1 / RIBBON_SLOW;
+    return hop.length - hop.rampFrom - hop.rampTo + ((hop.rampFrom + hop.rampTo) * 2) / (1 + k);
+  }
+
+  /**
+   * How far along a hop, the way the run goes, `q` of its cost has taken the
+   * vehicle: steadily, and through a ramp at a steady change of speed —
+   * `through.ts`'s `eased`, between the road's rate and the turn's.
+   */
+  function hopGround(hop: DriveHop, q: number): number {
+    const k = 1 / RIBBON_SLOW;
+    const rampCost = (ramp: number): number => (ramp * 2) / (1 + k);
+    const first = rampCost(hop.rampFrom);
+    if (q < first) {
+      const t = q / first;
+      return (hop.rampFrom * (2 * k * t + (1 - k) * t * t)) / (1 + k);
+    }
+    const middle = hop.length - hop.rampFrom - hop.rampTo;
+    if (q < first + middle) return hop.rampFrom + (q - first);
+    const last = rampCost(hop.rampTo);
+    const t = last > 0 ? Math.min(1, (q - first - middle) / last) : 1;
+    return hop.rampFrom + middle + (hop.rampTo * (2 * t + (k - 1) * t * t)) / (1 + k);
+  }
+
+  /** Where a drive puts a vehicle at `at` units of its loop. */
+  function driveFrame(drive: Drive, at: number, lane: number, out: Frame, ground: boolean): void {
+    let q = at;
+    if (q < drive.run) return runFrame(drive, q, false, lane, out, ground);
+    q -= drive.run;
+    if (q < drive.end.cost) return turnRound(drive.end, q, lane, out, ground);
+    q -= drive.end.cost;
+    if (q < drive.run) return runFrame(drive, drive.run - q, true, lane, out, ground);
+    q -= drive.run;
+    turnRound(drive.start, Math.min(q, drive.start.cost), lane, out, ground);
+  }
+
+  /** The outward run at `q`, driven out or, `back`, home. */
+  function runFrame(drive: Drive, q: number, back: boolean, lane: number, out: Frame, ground: boolean): void {
+    drivePart = 0;
+    let along = q;
+    for (let index = 0; index < drive.hops.length; index++) {
+      const hop = drive.hops[index]!;
+      if (along <= hop.cost || index === drive.hops.length - 1) {
+        const local = hopGround(hop, Math.max(0, Math.min(hop.cost, along)));
+        const sign = (hop.forward ? 1 : -1) * (back ? -1 : 1);
+        roadFrame(hop.road, hop.forward ? hop.from + local : hop.to - local, lane * sign * sideOf(hop.road), out, ground);
+        if (sign < 0) out.forward.negate();
+        // The town ahead is asked about before the car reaches it, so it
+        // does not wait at the gate for the answer.
+        if (ground && out.live) {
+          const ahead = back ? along : hop.cost - along;
+          if (ahead < PAVED_AHEAD) {
+            if (!back && hop.through !== null) paved(hop.town, hop.through, hop.key);
+            else if (!back && index === drive.hops.length - 1 && drive.end.legs !== null) paved(drive.end.town, drive.end.legs, drive.end.key);
+            else if (back && index > 0) {
+              const behind = drive.hops[index - 1]!;
+              if (behind.through !== null) paved(behind.town, behind.through, behind.key);
+            } else if (back && drive.start.legs !== null) paved(drive.start.town, drive.start.legs, drive.start.key);
+          }
+        }
+        return;
+      }
+      along -= hop.cost;
+      if (hop.through !== null && along < hop.throughCost) {
+        drivePart = 1;
+        // `along` is measured the way the run goes out; driven home, the
+        // drive through the town starts from its other end.
+        streetFrame(hop.town, hop.through, back ? hop.throughCost - along : along, back, hop.key, out, ground);
+        return;
+      }
+      along -= hop.throughCost;
+    }
+  }
+
+  /** A turn at one end of the loop, `q` units into it. */
+  function turnRound(turn: DriveTurn, q: number, lane: number, out: Frame, ground: boolean): void {
+    drivePart = turn.legs !== null ? 2 : 3;
+    if (turn.legs !== null) {
+      streetFrame(turn.town, turn.legs, q, false, turn.key, out, ground);
+      return;
+    }
+    // On the carriageway: the half circle between the two lanes, its far
+    // point on the gate's kerb line. Arriving is moving towards that end.
+    const length = lengthOf(turn.road);
+    const radius = Math.min(lane, length / 4);
+    // That is `trim`'s cut in `driveFor`, and the half circle's far point is
+    // on the kerb line.
+    const s = turn.atB ? length - radius : radius;
+    roadFrame(turn.road, s, 0, turnFrame, ground);
+    const motion = turnFrame.forward;
+    if (!turn.atB) motion.negate();
+    turnLeft.crossVectors(turnFrame.dir, motion).normalize();
+    const angle = (Math.PI * q) / Math.max(1e-6, turn.cost);
+    const offset = lane * sideOf(turn.road);
+    const sin = Math.sin(angle);
+    const cos = Math.cos(angle);
+    out.dir
+      .copy(turnFrame.dir)
+      .addScaledVector(motion, (radius * sin) / PLANET_RADIUS)
+      .addScaledVector(turnLeft, (offset * cos) / PLANET_RADIUS)
+      .normalize();
+    out.forward.copy(motion).multiplyScalar(radius * cos).addScaledVector(turnLeft, -offset * sin).normalize();
+    out.height = turnFrame.height;
+    out.roll = 0;
+    out.live = turnFrame.live;
+  }
+
+  /**
+   * A vehicle on a town's streets, on the standing town's own floor.
+   *
+   * **Drawn only where that floor is there to drive on**: the town has to be
+   * standing, and the drive has to have been found clear the first time it
+   * was — every few units of it on paving, outside every wall and off every
+   * landmark's pad (`paved`). A town on a hill can lose a cell of its main
+   * street to the slope, and a landmark can stand across one; a car on such a
+   * drive is hidden for as long as it takes, which is what every drive was
+   * before.
+   */
+  function streetFrame(
+    town: number, legs: readonly StreetLeg[], q: number, back: boolean, key: string, out: Frame, ground: boolean,
+  ): void {
+    streetPose(legs, q, back, streetScratch);
+    const square = townOf(places[town]!);
+    offsetDirection(square.up, square.across, square.north, streetScratch.x, streetScratch.z, out.dir);
+    out.forward.copy(square.across).multiplyScalar(streetScratch.fx).addScaledVector(square.north, streetScratch.fz);
+    out.roll = 0;
+    if (!ground) {
+      out.height = PLANET_RADIUS + 20;
+      out.live = true;
+      return;
+    }
+    const floor = options.streets?.floorAt(out.dir) ?? 0;
+    out.live = floor > 0 && paved(town, legs, key);
+    out.height = floor > 0 ? floor : PLANET_RADIUS + Math.max(0, world.elevationAt(out.dir));
+  }
+
+  /**
+   * Whether a drive through a standing town is clear, by its key, found once:
+   * see `streetFrame`. A town that is not standing is not asked and not
+   * remembered, and one answer is found a frame, because each is a few dozen
+   * floor and wall queries; a vehicle asks as it nears the town, so the
+   * answer is there when it arrives.
+   */
+  const pavedCache = new Map<string, boolean>();
+  let pavedThisFrame = 0;
+  const PAVED_PER_FRAME = 1;
+  /** How far short of a town, in route, a vehicle asks `paved` about it. */
+  const PAVED_AHEAD = 160;
+  /** How often along a drive `paved` asks, in world units. */
+  const PAVED_STEP = 2.5;
+  const pavedPose: StreetPose = { x: 0, z: 0, fx: 0, fz: 1, mx: 0, mz: 1 };
+  const pavedDir = new THREE.Vector3();
+  const pavedPoint = new THREE.Vector3();
+
+  function paved(town: number, legs: readonly StreetLeg[], key: string): boolean {
+    const known = pavedCache.get(key);
+    if (known !== undefined) return known;
+    const streets = options.streets;
+    if (streets === undefined || pavedThisFrame >= PAVED_PER_FRAME) return false;
+    const square = townOf(places[town]!);
+    if (streets.floorAt(square.up) <= 0) return false;
+    pavedThisFrame++;
+    const cost = streetCost(legs);
+    let length = 0;
+    for (const leg of legs) length += leg.length;
+    const steps = Math.max(2, Math.ceil(length / PAVED_STEP));
+    let clear = true;
+    for (let i = 0; i <= steps && clear; i++) {
+      // Both ways: out on one lane and back on the other.
+      for (const back of [false, true]) {
+        streetPose(legs, (i / steps) * cost, back, pavedPose);
+        offsetDirection(square.up, square.across, square.north, pavedPose.x, pavedPose.z, pavedDir);
+        const floor = streets.floorAt(pavedDir);
+        if (floor <= 0 || flattenWeightAt(pavedDir.x, pavedDir.y, pavedDir.z) > 0) { clear = false; break; }
+        pavedPoint.copy(pavedDir).multiplyScalar(floor + 1);
+        if (streets.blocked(pavedPoint, THROUGH_HALF_WIDTH)) { clear = false; break; }
+      }
+    }
+    if (pavedCache.size > 4000) pavedCache.clear();
+    pavedCache.set(key, clear);
+    return clear;
+  }
+
+  /** Where on its loop a vehicle is: phase plus the clock, wrapped. */
+  const driveAt = (drive: Drive, phase: number, speed: number, clock: number): number =>
+    wrap(phase + (clock * speed) / drive.total) * drive.total;
 
   // ------------------------------------------------------------------
   // Region tables, cached per place
@@ -1703,6 +2268,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
   /** Bounded the way `chains` is, and emptied at the top of a scan for the same reason. */
   const herdSites = new Map<string, HerdSite>();
+  /** The countryside's occupancy, once `setCountry` hands it over; see `clearOfMade`. */
+  let country: { occupied(direction: THREE.Vector3, radius: number): boolean } | null = null;
 
   /**
    * What a member of a herd is doing.
@@ -2144,6 +2711,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   function clearOfMade(centre: THREE.Vector3, spread: number): boolean {
     if (flattenWeightAt(centre.x, centre.y, centre.z) > 0) return false;
+    if (country !== null && country.occupied(centre, spread)) return false;
     // A standing aircraft's field: `fieldsNear` answers the fields whose own
     // radius reaches within `spread` of the herd's centre, which is the test.
     fieldHits.length = 0;
@@ -2181,6 +2749,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   const candidates: Mover[] = [];
   const nearRoads: { index: number; near: number }[] = [];
+  /** Whether this scan lays the cast out afresh: see `EMERGE_BEYOND`. */
+  let freshCast = true;
 
   /**
    * Works out where a candidate is right now, cheaply, and keeps it if it is
@@ -2211,6 +2781,13 @@ export function createLife(world: World, places: readonly Place[], options: Life
     point.copy(probeFrame.dir).multiplyScalar(probeFrame.height);
     const distance = point.distanceTo(viewer);
     if (distance > range || !cone.admits(point, 14)) return;
+    // **A vehicle arrives by driving in**, from the haze at the edge of its
+    // reach or out of a town, and is not put down on the road in front of
+    // you. Every one of them used to be admitted wherever the clock had it,
+    // which on a rescan was a car appearing mid-street a hundred units away;
+    // now one near enough to be seen waits until it is far, or until the
+    // whole cast is being laid out afresh — the first scan, or a jump.
+    if (mover.family === 'road' && !freshCast && probeFrame.live && distance < range * EMERGE_BEYOND) return;
     candidates.push({ ...mover, at: point.clone(), mesh: null, distance });
   }
 
@@ -2286,18 +2863,17 @@ export function createLife(world: World, places: readonly Place[], options: Life
             const id = rng.weighted(style.road);
             const pooled = `v|${id}|${region}|${rng.int(VARIANTS)}`;
             const key = `r${i}.${slot}`;
-            const chain = chainFor(i, key);
-            const phase = rng.unit();
-            const speed = Math.min(ROAD_SPEED[cls]! * rng.spread(1, 0.16), chain.total / MIN_SECONDS);
             const lateral = width * 0.26;
+            const drive = driveFor(i, key, lateral);
+            const phase = rng.unit();
+            const speed = Math.min(ROAD_SPEED[cls]! * rng.spread(1, 0.16), drive.run / MIN_SECONDS);
             consider({
               family: 'road',
               key,
               pool: pooled,
               speed,
               route: (clock, out, ground) => {
-                const where = alongAt(chain, phase, speed, clock);
-                chainFrame(chain, where.at, lateral, out, ground, where.back);
+                driveFrame(drive, driveAt(drive, phase, speed, clock), lateral, out, ground);
               },
             }, viewer, roadRange);
           }
@@ -2557,8 +3133,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
         // **A herd is a mover that does not move**, which is what lets it share
         // every piece of machinery in this file — the view cone, the
         // nearest-first budget, the least-recently-used pool — for no new code
-        // at all. Grazing is the one activity in the world that is honestly
-        // static.
+        // at all. Its origin never moves; its animals do, near, inside it.
         const route = (_clock: number, out: Frame): void => {
           out.dir.copy(centre);
           out.height = height;
@@ -2916,17 +3491,22 @@ export function createLife(world: World, places: readonly Place[], options: Life
   let animatedHeads = 0;
   let lastUpdate = 0;
   const fitScratch = new THREE.Vector3();
+  const homeQuat = new THREE.Quaternion();
+  const homeScale = new THREE.Vector3();
 
   /**
    * Stands a herd up as its animals, each a skinned copy of its rig playing the
    * clip its merged frame was taken from — `Eating` for a grazer, `Idle` for the
    * rest — from that same instant, so the swap from the merged buffer is not a
-   * jump. False if the cap or a rig not yet arrived says wait.
+   * jump; then lives it (`herdStep`). False if the cap or a rig not yet
+   * arrived says wait.
    */
-  function animateHerd(mover: Mover, pooled: Pooled, mesh: THREE.Mesh, dt: number): boolean {
+  function animateHerd(mover: Mover, pooled: Pooled, mesh: THREE.Mesh, dt: number, viewer: THREE.Vector3): boolean {
     const rigs = options.rigs;
     if (rigs === undefined || pooled.animals === undefined) return false;
     if (!mover.animated) {
+      const site = herdSites.get(mover.pool);
+      if (site === undefined) return false;
       if (animatedHeads + pooled.animals.length > HERD_ANIMATED_CAP) return false;
       // One herd stood up a frame, and only while the frame has room: each
       // animal is a skinned copy of its rig. Until then the merged herd stands
@@ -2935,7 +3515,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       herdsStoodThisFrame++;
       const holder = new THREE.Group();
       holder.name = `herd-animated:${mover.key}`;
-      const heads: { rigged: Rigged; rig: string }[] = [];
+      const heads: Grazer[] = [];
       for (const head of pooled.animals) {
         const entry = bestiary.get(head.species);
         const style = FAUNA_STYLES[head.region as RegionId];
@@ -2966,33 +3546,74 @@ export function createLife(world: World, places: readonly Place[], options: Life
         head.matrix.decompose(place.position, place.quaternion, place.scale);
         place.add(fit);
         holder.add(place);
-        const clipName = clipFor(rig, head.pose);
-        const action = rigged.actions.get(clipName);
-        if (action !== undefined) {
-          action.reset().play();
+        const rest = rigged.actions.get(clipFor(rig, head.pose));
+        if (rest !== undefined) {
+          rest.reset().setEffectiveWeight(1).play();
           // From the instant the merged herd held it in, so the swap is not a jump.
           const still = rig.far[farFrameOf(rig, head.pose, `${head.species}|${head.region}|${head.variant}|${head.pose}`)];
-          action.time = still?.time ?? 0;
-          action.timeScale = 0.85 + rngFrom(mover.key, 'rate', heads.length).unit() * 0.3;
+          rest.time = still?.time ?? 0;
+          rest.timeScale = 0.85 + rngFrom(mover.key, 'rate', heads.length).unit() * 0.3;
         }
-        heads.push({ rigged, rig: choice.id });
+        // Its own yaw and size, out of the matrix `buildHerd` seated it with:
+        // a turn about +y and a uniform scale, so the angle is the
+        // quaternion's.
+        head.matrix.decompose(herdPoint, homeQuat, homeScale);
+        const scale = homeScale.x;
+        const yaw = 2 * Math.atan2(homeQuat.y, homeQuat.w);
+        const halfLength = (entry.size[0] * scale) / 2;
+        heads.push({
+          rigged, rig: choice.id, place,
+          rest,
+          graze: rigged.actions.get('Eating') ?? rigged.actions.get('Idle'),
+          idle: rigged.actions.get('Idle'),
+          walk: rigged.actions.get('Walk'),
+          current: rest,
+          halfLength,
+          halfWidth: (entry.size[1] * scale) / 2,
+          height: entry.size[2] * scale,
+          stance: Math.max(1.2 * FAUNA_RESCALE, Math.hypot(entry.size[0], entry.size[1]) * 0.5),
+          // A cow walks about a metre a second, which at the animals' scale is
+          // a third of its own length.
+          pace: halfLength * 2 * 0.3,
+          homeX: herdPoint.x, homeZ: herdPoint.z, homeY: herdPoint.y, homeYaw: yaw,
+          x: herdPoint.x, z: herdPoint.z, y: herdPoint.y, yaw,
+          fromY: herdPoint.y, toX: herdPoint.x, toZ: herdPoint.z, toY: herdPoint.y, leg: 0, speed: 0,
+          face: NaN,
+          mode: 'settled',
+          timer: rngFrom(mover.key, 'first', heads.length).range(0.5, 4),
+          draws: 0, bolt: 0, stuck: 0, bob: 0,
+          world: new THREE.Vector3(), facing: new THREE.Vector3(),
+        });
       }
       if (heads.length === 0) return false;
       group.add(holder);
-      mover.animated = { holder, heads };
+      const town = nearestShown(site.centre, `p${mover.pool.slice(2)}`);
+      mover.animated = {
+        holder, heads, site,
+        room: 0,
+        town: town < 0 ? null : unitAt(places[town]!.lat, places[town]!.lon, new THREE.Vector3()),
+        townRadius: town < 0 ? 0 : radiusOf(places[town]!),
+        axisX: new THREE.Vector3(), axisY: new THREE.Vector3(), axisZ: new THREE.Vector3(),
+        homing: false,
+      };
+      mover.animated.room = roomOf(mover.animated);
       animatedHeads += heads.length;
     }
-    const { holder, heads } = mover.animated;
-    holder.visible = true;
-    holder.position.copy(mesh.position);
-    holder.quaternion.copy(mesh.quaternion);
-    for (const head of heads) head.rigged.mixer.update(dt);
+    const herd = mover.animated;
+    herd.holder.visible = true;
+    herd.holder.position.copy(mesh.position);
+    herd.holder.quaternion.copy(mesh.quaternion);
+    herd.axisX.copy(right);
+    herd.axisY.copy(frame.dir);
+    herd.axisZ.copy(forward);
+    herdStep(mover, herd, dt, viewer);
     return true;
   }
 
   function releaseHerd(mover: Mover): void {
     const animated = mover.animated;
     if (!animated) return;
+    if (!settledHerd(animated)) stats.snapped++;
     for (const head of animated.heads) {
       head.rigged.mixer.stopAllAction();
       head.rigged.root.removeFromParent();
@@ -3003,6 +3624,376 @@ export function createLife(world: World, places: readonly Place[], options: Life
     group.remove(animated.holder);
     animatedHeads -= animated.heads.length;
     mover.animated = null;
+  }
+
+  // ------------------------------------------------------------------
+  // A near herd, alive
+  // ------------------------------------------------------------------
+
+  /**
+   * How far from its centre a herd's animals may go.
+   *
+   * **The field a herd was admitted on is the field it lives in**, and it is
+   * the scan's own gates asked again, wider: `clearOfMade` — the carriageways,
+   * a standing aircraft's field, a landmark's pad — and the nearest town's
+   * disc, over the whole of it. The admission asked them at `spread`, the disc
+   * the animals were scattered over; this tries twice and one and a half times
+   * that and takes the widest that passes, so a herd in open country has room
+   * to walk off from you and one beside a lane stays in the strip it has. The
+   * disc is convex, so a straight walk between two spots in it never leaves it
+   * — never crosses a road the disc is clear of. What it cannot answer for is
+   * the ground inside it, which `grazable` asks spot by spot.
+   */
+  function roomOf(herd: Herding): number {
+    const site = herd.site;
+    let farthest = 0;
+    for (const head of herd.heads) farthest = Math.max(farthest, Math.hypot(head.homeX, head.homeZ));
+    const townGap = herd.town === null ? Infinity : herd.town.angleTo(site.centre) * PLANET_RADIUS - herd.townRadius;
+    for (const share of [2, 1.5]) {
+      const room = site.spread * share;
+      if (room <= townGap && clearOfMade(site.centre, room)) return room;
+    }
+    return Math.max(farthest, Math.min(site.spread, townGap));
+  }
+
+  const grazeDir = new THREE.Vector3();
+  const grazeSlope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
+  let grazeProbes = 0;
+
+  /** Where a spot of a herd's plane is, as a unit vector. */
+  function grazeDirection(site: HerdGround, x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+    return out
+      .copy(site.centre)
+      .addScaledVector(site.right, x / PLANET_RADIUS)
+      .addScaledVector(site.forward, z / PLANET_RADIUS)
+      .normalize();
+  }
+
+  /**
+   * Whether an animal may stand at `(x, z)` of its herd's plane, and walk
+   * there from where it is: inside the herd's room, outside the town, on land,
+   * off a landmark's pad, and on ground no steeper than `MAX_SLOPE` under its
+   * hooves — there and every stance of the way. Returns the seat there, as
+   * `buildHerd` measures one, or NaN.
+   */
+  function grazable(herd: Herding, head: Grazer, x: number, z: number): number {
+    const site = herd.site;
+    if (Math.hypot(x, z) > herd.room) return NaN;
+    grazeDirection(site, x, z, grazeDir);
+    if (herd.town !== null && herd.town.angleTo(grazeDir) * PLANET_RADIUS < herd.townRadius + head.halfLength) return NaN;
+    if (world.elevationAt(grazeDir) <= 0) return NaN;
+    if (flattenWeightAt(grazeDir.x, grazeDir.y, grazeDir.z) > 0) return NaN;
+    // The way there, a stance at a time: a walk of three lengths is four
+    // or five asks.
+    const way = Math.hypot(x - head.x, z - head.z);
+    const steps = Math.min(8, Math.ceil(way / head.stance));
+    for (let step = 1; step < steps; step++) {
+      const share = step / steps;
+      grazeDirection(site, head.x + (x - head.x) * share, head.z + (z - head.z) * share, herdSeat);
+      if (gradeAt(herdSeat, site.right, site.forward, head.stance, grazeSlope).grade > MAX_SLOPE) return NaN;
+    }
+    gradeAt(grazeDir, site.right, site.forward, head.stance, grazeSlope);
+    if (grazeSlope.grade > MAX_SLOPE) return NaN;
+    return Math.min(reliefAt(grazeDir.x, grazeDir.y, grazeDir.z), grazeSlope.lowest) - site.relief;
+  }
+
+  /** Whether a spot keeps a body's length from every other animal of the herd, and from where each is going. */
+  function spaced(herd: Herding, head: Grazer, x: number, z: number): boolean {
+    for (const other of herd.heads) {
+      if (other === head) continue;
+      const gap = (head.halfLength + other.halfLength) * 0.8;
+      if (Math.hypot(other.x - x, other.z - z) < gap) return false;
+      if (moving(other) && Math.hypot(other.toX - x, other.toZ - z) < gap) return false;
+    }
+    return true;
+  }
+
+  const moving = (head: Grazer): boolean =>
+    head.mode === 'walk' || head.mode === 'trot' || head.mode === 'flee' || head.mode === 'home';
+
+  /** Every animal of a herd at its own spot, facing its own way, in its own clip: what the far herd shows. */
+  function settledHerd(herd: Herding): boolean {
+    for (const head of herd.heads) if (head.mode !== 'settled') return false;
+    return true;
+  }
+
+  /** Crossfades an animal into a clip, played at `rate`. */
+  function playClip(head: Grazer, action: THREE.AnimationAction | undefined, rate: number): void {
+    if (action === undefined) return;
+    action.timeScale = rate;
+    if (head.current === action) return;
+    action.reset().setEffectiveWeight(1).play();
+    if (head.current !== undefined) head.current.crossFadeTo(action, 0.35, false);
+    head.current = action;
+  }
+
+  /** Sets an animal walking to a spot whose seat is `seat`. */
+  function setOff(head: Grazer, x: number, z: number, seat: number, mode: GrazeMode, speed: number): void {
+    head.fromY = head.y;
+    head.toX = x;
+    head.toZ = z;
+    head.toY = seat;
+    head.leg = Math.max(1e-6, Math.hypot(x - head.x, z - head.z));
+    head.mode = mode;
+    head.speed = speed;
+    head.stuck = 0;
+    head.face = NaN;
+    playClip(head, head.walk ?? head.idle, head.walk !== undefined ? speed / head.pace : 1);
+  }
+
+  /** Stands an animal still, grazing or with its head up, for `seconds`. */
+  function standStill(head: Grazer, grazing: boolean, seconds: number): void {
+    head.mode = grazing ? 'graze' : 'idle';
+    head.timer = seconds;
+    head.speed = 0;
+    playClip(head, grazing ? head.graze : head.idle, 1);
+  }
+
+  /** Its own spot, its own way, its own clip: the far herd's frame of it. */
+  function settle(head: Grazer): void {
+    head.x = head.homeX;
+    head.z = head.homeZ;
+    head.y = head.homeY;
+    head.yaw = head.homeYaw;
+    head.mode = 'settled';
+    head.speed = 0;
+    head.face = NaN;
+    playClip(head, head.rest, head.rest?.timeScale ?? 1);
+  }
+
+  /**
+   * A near herd, one frame: what each animal decides and where it goes.
+   *
+   * **Nothing here is a function of the clock**, which is the one thing in
+   * this file that is not, and it is not because it cannot be: what a herd
+   * does depends on where you have walked. What it keeps from the rest of the
+   * file is its seeding — every decision is drawn from the herd, the animal
+   * and how many it has taken, so the same walk past the same herd is the same
+   * herd — and that it cannot leave anything behind: see `HERD_HOME_REACH`.
+   */
+  function herdStep(mover: Mover, herd: Herding, dt: number, viewer: THREE.Vector3): void {
+    const away = mover.at.distanceTo(viewer);
+    herd.homing = away > HERD_HOME_REACH;
+    herdGap.copy(viewer).sub(herd.holder.position);
+    const px = herdGap.dot(herd.axisX);
+    const pz = herdGap.dot(herd.axisZ);
+    // How alarming you are: standing, walking, running, driving.
+    let threat: number = FLEE_PACE.length;
+    for (let i = 0; i < FLEE_PACE.length; i++) {
+      if (viewerPace < FLEE_PACE[i]!) {
+        threat = i;
+        break;
+      }
+    }
+    const heads = herd.heads;
+    for (let i = 0; i < heads.length; i++) {
+      const head = heads[i]!;
+      head.timer -= dt;
+      head.bolt = Math.max(0, head.bolt - dt);
+      if (herd.homing) {
+        if (head.mode !== 'settled') {
+          if (head.mode !== 'home') setOff(head, head.homeX, head.homeZ, head.homeY, 'home', head.pace);
+          // Fast enough to be there before you are `HERD_HOLD_REACH` off at
+          // the pace you are leaving, and never slower than a walk: a herd
+          // walked away from strolls home, one driven away from trots.
+          const left = Math.hypot(head.homeX - head.x, head.homeZ - head.z);
+          // Less the time it takes to turn its own way round once there.
+          const time = Math.max(0.3, ((HERD_HOLD_REACH - away) / Math.max(1, viewerPace)) * 0.7 - 0.8);
+          head.speed = Math.max(head.pace, Math.min(head.pace * 4, left / time));
+          if (head.walk !== undefined && head.current === head.walk) head.walk.timeScale = head.speed / head.pace;
+        }
+      } else {
+        const dx = head.x - px;
+        const dz = head.z - pz;
+        const near = Math.hypot(dx, dz);
+        const reach = FLEE_REACH[threat]! + head.halfLength * 2;
+        const alarmed = near < reach || head.bolt > 0;
+        if (alarmed && (head.mode !== 'flee' || head.timer <= 0)) {
+          flee(mover, herd, head, i, dx, dz, near, reach, threat >= 2 || head.bolt > 0);
+        } else if (!alarmed && head.timer <= 0 && !moving(head)) {
+          wander(mover, herd, head, i);
+        } else if (head.mode === 'home') {
+          // You came back before it got there.
+          standStill(head, false, 0.5);
+        }
+      }
+      stepHead(herd, head, dt);
+      head.rigged.mixer.update(dt);
+    }
+  }
+  const herdGap = new THREE.Vector3();
+
+  /**
+   * Away from you, from where it stands: straight away if it can, else a
+   * little either side of that, as far as your reach and a length or two —
+   * pulled in to the herd's room at its edge, where an animal turns along the
+   * fence rather than through it.
+   */
+  function flee(
+    mover: Mover, herd: Herding, head: Grazer, index: number,
+    dx: number, dz: number, near: number, reach: number, fast: boolean,
+  ): void {
+    const base = near > 1e-3 ? Math.atan2(dx, dz) : rngFrom(mover.key, 'flee', index, head.draws).unit() * TAU;
+    const distance = Math.max(head.halfLength * 3, reach - near + head.halfLength * 2);
+    const speed = fast ? head.pace * TROT : head.pace * 1.6;
+    for (const turn of FLEE_TURNS) {
+      if (grazeProbes >= GRAZE_PROBES) break;
+      const angle = base + turn;
+      let x = head.x + Math.sin(angle) * distance;
+      let z = head.z + Math.cos(angle) * distance;
+      const out = Math.hypot(x, z);
+      if (out > herd.room * 0.97) {
+        x *= (herd.room * 0.97) / out;
+        z *= (herd.room * 0.97) / out;
+      }
+      // Pulled in by the room, a spot can end up no further from you.
+      if (Math.hypot(x - (head.x - dx), z - (head.z - dz)) <= near + head.halfLength * 0.5) continue;
+      grazeProbes++;
+      const seat = grazable(herd, head, x, z);
+      if (Number.isNaN(seat)) continue;
+      setOff(head, x, z, seat, 'flee', speed);
+      head.timer = 0.8;
+      return;
+    }
+    // Nowhere to go this frame: it stands and turns its back on you, and
+    // looks again soon.
+    if (moving(head)) standStill(head, false, 0.3);
+    head.face = base;
+    head.timer = 0.3;
+  }
+
+  /** What an animal does next when nothing is bothering it: mostly nothing. */
+  function wander(mover: Mover, herd: Herding, head: Grazer, index: number): void {
+    if (grazeProbes >= GRAZE_PROBES) {
+      head.timer = 0.05;
+      return;
+    }
+    const rng = rngFrom(mover.key, 'graze', index, head.draws++);
+    const roll = rng.unit();
+    if (roll < 0.5) return standStill(head, true, rng.range(5, 12));
+    if (roll < 0.65) return standStill(head, false, rng.range(2, 5));
+    // A few lengths away, and back towards its own spot when it has strayed.
+    const trot = rng.chance(0.12);
+    const distance = rng.range(1, 3) * head.halfLength * 2;
+    const strayed = Math.hypot(head.x - head.homeX, head.z - head.homeZ) > herd.room * 0.5;
+    const angle = strayed
+      ? Math.atan2(head.homeX - head.x, head.homeZ - head.z) + rng.jitter() * 0.8
+      : rng.unit() * TAU;
+    const x = head.x + Math.sin(angle) * distance;
+    const z = head.z + Math.cos(angle) * distance;
+    grazeProbes++;
+    if (!spaced(herd, head, x, z)) return standStill(head, true, rng.range(2, 4));
+    const seat = grazable(herd, head, x, z);
+    if (Number.isNaN(seat)) return standStill(head, true, rng.range(2, 4));
+    setOff(head, x, z, seat, trot ? 'trot' : 'walk', trot ? head.pace * TROT : head.pace);
+  }
+
+  /**
+   * One animal, one frame: it turns towards where it is going and walks
+   * there, faster the straighter it is facing — so it turns before it sets
+   * off, which is what an animal with four legs does — and waits where a
+   * neighbour stands in its way.
+   */
+  function stepHead(herd: Herding, head: Grazer, dt: number): void {
+    if (moving(head)) {
+      const tx = head.toX - head.x;
+      const tz = head.toZ - head.z;
+      const left = Math.hypot(tx, tz);
+      if (left < 0.3) {
+        arrive(herd, head, dt);
+      } else {
+        const error = angleBetween(head.yaw, Math.atan2(tx, tz));
+        const rate = head.mode === 'flee' || head.mode === 'trot' ? 3.6 : 1.8;
+        head.yaw += Math.max(-rate * dt, Math.min(rate * dt, error));
+        const along = Math.max(0, Math.cos(error));
+        const step = Math.min(left, head.speed * along * along * dt);
+        const nx = head.x + Math.sin(head.yaw) * step;
+        const nz = head.z + Math.cos(head.yaw) * step;
+        // Going home it walks through: every spot it could wait at is
+        // somebody's, and the far herd is waiting for it.
+        if (head.mode !== 'home' && blockedBy(herd, head, nx, nz)) {
+          head.stuck += dt;
+          if (head.stuck > 1.5) standStill(head, true, 2);
+        } else {
+          head.stuck = 0;
+          const out = Math.hypot(nx, nz);
+          const scale = out > herd.room ? herd.room / out : 1;
+          head.x = nx * scale;
+          head.z = nz * scale;
+          const done = 1 - Math.min(1, Math.hypot(head.toX - head.x, head.toZ - head.z) / head.leg);
+          head.y = head.fromY + (head.toY - head.fromY) * done;
+        }
+        if (head.walk === undefined) head.bob += (step / Math.max(1e-6, head.halfLength)) * 2;
+      }
+    } else if (!Number.isNaN(head.face)) {
+      const error = angleBetween(head.yaw, head.face);
+      head.yaw += Math.max(-2.5 * dt, Math.min(2.5 * dt, error));
+    }
+    // A rig with no walk of its own bobs at its stride while it moves.
+    const bob = head.walk === undefined && moving(head) ? Math.abs(Math.sin(head.bob * Math.PI)) * head.height * 0.04 : 0;
+    head.place.position.set(head.x, head.y + bob, head.z);
+    head.place.quaternion.setFromAxisAngle(herdUp, head.yaw);
+    const herdAt = herd.holder.position;
+    head.world
+      .copy(herdAt)
+      .addScaledVector(herd.axisX, head.x)
+      .addScaledVector(herd.axisY, head.y)
+      .addScaledVector(herd.axisZ, head.z);
+    head.facing
+      .copy(herd.axisX).multiplyScalar(Math.sin(head.yaw))
+      .addScaledVector(herd.axisZ, Math.cos(head.yaw));
+  }
+
+  /** Whether a step would put an animal inside a neighbour it is not already touching. */
+  function blockedBy(herd: Herding, head: Grazer, x: number, z: number): boolean {
+    for (const other of herd.heads) {
+      if (other === head) continue;
+      const gap = (head.halfWidth + other.halfWidth) * 1.2;
+      const after = Math.hypot(other.x - x, other.z - z);
+      if (after < gap && after < Math.hypot(other.x - head.x, other.z - head.z)) return true;
+    }
+    return false;
+  }
+
+  function arrive(herd: Herding, head: Grazer, dt: number): void {
+    head.x = head.toX;
+    head.z = head.toZ;
+    head.y = head.toY;
+    if (head.mode === 'home') {
+      // Its own way round, and then it is the far herd's frame of it.
+      const error = angleBetween(head.yaw, head.homeYaw);
+      if (Math.abs(error) < 0.04) settle(head);
+      else {
+        head.face = head.homeYaw;
+        head.yaw += Math.sign(error) * Math.min(Math.abs(error), 4 * dt);
+        playClip(head, head.idle, 1);
+      }
+      return;
+    }
+    const rng = rngFrom(herd.holder.name, 'arrive', head.draws++);
+    if (head.mode === 'flee') standStill(head, false, rng.range(1.5, 3));
+    else standStill(head, rng.chance(0.75), rng.range(4, 10));
+  }
+
+  /** The signed turn from `from` to `to`, in (-pi, pi]. */
+  const angleBetween = (from: number, to: number): number => {
+    let turn = (to - from) % TAU;
+    if (turn > Math.PI) turn -= TAU;
+    if (turn <= -Math.PI) turn += TAU;
+    return turn;
+  };
+
+  /**
+   * A near herd out of sight while you walk away from it: every animal put
+   * back at once, which nobody can see.
+   */
+  function settleUnseen(herd: Herding): void {
+    for (const head of herd.heads) {
+      if (head.mode === 'settled') continue;
+      settle(head);
+      head.place.position.set(head.x, head.y, head.z);
+      head.place.quaternion.setFromAxisAngle(herdUp, head.yaw);
+    }
   }
 
   /** How far through its own stride a walker is, from the clock alone. */
@@ -3016,8 +4007,15 @@ export function createLife(world: World, places: readonly Place[], options: Life
   /** Skinned clones made this frame; see `DRESS_PER_FRAME` and `HERDS_PER_FRAME`. */
   let dressedThisFrame = 0;
   let herdsStoodThisFrame = 0;
+  /** The near herds drawn this frame, for `collide`. */
+  const herdsShown: Herding[] = [];
+  /** How fast the viewer is going, smoothed, and where it was last frame. */
+  let viewerPace = 0;
+  const paceFrom = new THREE.Vector3();
 
-  function update(viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number): void {
+  function update(
+    viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number, dt?: number,
+  ): void {
     herds.frame++;
     walkersShown.length = 0;
     lastViewer.copy(viewer);
@@ -3031,6 +4029,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       scannedProminence = prominenceVersion();
       shownCache.clear();
       ramps.clear();
+      pavedCache.clear();
       scannedVersion = -1;
     }
     if (
@@ -3040,6 +4039,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       cone.turnFrom(scannedAxis) > RESCAN_TURN ||
       Math.abs(altitude - scannedAltitude) > Math.max(60, scannedAltitude * 0.25)
     ) {
+      freshCast = scanned.x === Infinity || viewer.distanceTo(scanned) > FRESH_JUMP;
       scanned.copy(viewer);
       scannedAxis.copy(cone.axis);
       scannedAltitude = altitude;
@@ -3055,15 +4055,33 @@ export function createLife(world: World, places: readonly Place[], options: Life
     stats.herd = 0;
     stats.animals = 0;
     stats.animated = 0;
+    stats.inTown = 0;
+    stats.turning = 0;
+    stats.grazing = 0;
+    stats.wandering = 0;
+    stats.fleeing = 0;
+    stats.homing = 0;
+    pavedThisFrame = 0;
+    grazeProbes = 0;
+    herdsShown.length = 0;
     // The animated animals keep the machine's time, not the sky's: a cow does
     // not chew faster when `setRate` runs the sun at 600x.
-    const realDt = lastUpdate === 0 ? 0 : Math.min(0.1, (now - lastUpdate) / 1000);
+    const realDt = dt ?? (lastUpdate === 0 ? 0 : Math.min(0.1, (now - lastUpdate) / 1000));
     lastUpdate = now;
+    // How fast the viewer is going, which is what a herd reads you by. A jump
+    // is not a gallop.
+    if (realDt > 0) {
+      const moved = viewer.distanceTo(paceFrom);
+      const pace = moved > 400 ? 0 : moved / realDt;
+      viewerPace += (pace - viewerPace) * Math.min(1, realDt * 6);
+    }
+    paceFrom.copy(viewer);
     stats.meshes = 0;
     stats.triangles = 0;
     stats.nearestMoving = Infinity;
 
     for (const mover of movers.values()) {
+      drivePart = 0;
       mover.route(clock, frame, true);
       mover.at.copy(frame.dir).multiplyScalar(frame.height);
 
@@ -3085,7 +4103,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
       }
       if (!frame.live || !cone.keeps(mover.at, 20)) {
         if (mover.mesh !== null) mover.mesh.visible = false;
-        if (mover.animated) mover.animated.holder.visible = false;
+        if (mover.animated) {
+          // Walked away from while out of sight: home at once, unseen.
+          if (mover.at.distanceTo(viewer) > HERD_HOME_REACH) settleUnseen(mover.animated);
+          mover.animated.holder.visible = false;
+        }
         continue;
       }
 
@@ -3115,11 +4137,24 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
       const away = mover.at.distanceTo(viewer);
       if (mover.family === 'herd' && pooled.animals !== undefined) {
-        const near = away < HERD_ANIMATED_REACH;
-        if (near && animateHerd(mover, pooled, mesh, realDt)) {
+        // Stood up inside the reach, and held past it until every animal is
+        // back where the merged herd has it: see `HERD_HOME_REACH`.
+        const standing = mover.animated;
+        const wanted = standing
+          ? away < HERD_HOLD_REACH && !(away >= HERD_ANIMATED_REACH && settledHerd(standing))
+          : away < HERD_ANIMATED_REACH;
+        if (wanted && animateHerd(mover, pooled, mesh, realDt, viewer)) {
+          const herd = mover.animated!;
           mesh.visible = false;
-          stats.animated += mover.animated!.heads.length;
+          stats.animated += herd.heads.length;
           stats.nearestMoving = Math.min(stats.nearestMoving, away);
+          herdsShown.push(herd);
+          if (herd.homing) stats.homing++;
+          for (const head of herd.heads) {
+            if (head.mode === 'flee') stats.fleeing++;
+            else if (moving(head)) stats.wandering++;
+            else stats.grazing++;
+          }
         } else if (mover.animated) {
           releaseHerd(mover);
         }
@@ -3128,6 +4163,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
       }
 
       stats[mover.family]++;
+      if (mover.family === 'road') {
+        if (drivePart === 1 || drivePart === 2) stats.inTown++;
+        if (drivePart >= 2) stats.turning++;
+      }
       // What was *built*, not what was asked for: `buildHerd` drops an animal
       // whose own patch is scree, and a count taken from the request would
       // report cattle that are not on the screen.
@@ -3192,6 +4231,26 @@ export function createLife(world: World, places: readonly Place[], options: Life
         push.addScaledVector(walkerGap, (reach - d) / d);
         hit = true;
       }
+      // And the animals of a near herd, each as two discs along its body, its
+      // own width across: whatever walks or drives into one is stopped, and
+      // the animal bolts. Nothing else happens to it.
+      for (const herd of herdsShown) {
+        for (const head of herd.heads) {
+          walkerGap.copy(point).sub(head.world);
+          const up = walkerGap.dot(point) / r;
+          if (up > head.height || up < -AVATAR_HEIGHT) continue;
+          walkerGap.addScaledVector(point, -up / r);
+          const along = walkerGap.dot(head.facing);
+          const spine = Math.max(0, head.halfLength - head.halfWidth);
+          walkerGap.addScaledVector(head.facing, -Math.max(-spine, Math.min(spine, along)));
+          const touch = radius + head.halfWidth;
+          const d = walkerGap.length();
+          if (d >= touch || d < 1e-6) continue;
+          push.addScaledVector(walkerGap, (touch - d) / d);
+          head.bolt = BOLT_SECONDS;
+          hit = true;
+        }
+      }
       return hit;
     },
 
@@ -3199,6 +4258,31 @@ export function createLife(world: World, places: readonly Place[], options: Life
       for (const mover of movers.values()) {
         if (mover.family === 'water' && mover.mesh !== null && mover.mesh.visible) visit(mover.mesh);
       }
+    },
+
+    grazers() {
+      const out: ReturnType<Life['grazers']> = [];
+      for (const mover of movers.values()) {
+        const herd = mover.animated;
+        if (!herd) continue;
+        out.push({
+          key: mover.key,
+          centre: herd.site.centre.clone(),
+          right: herd.site.right.clone(),
+          forward: herd.site.forward.clone(),
+          room: herd.room,
+          heads: herd.heads.map((head) => ({
+            x: head.x, z: head.z, y: head.y, homeX: head.homeX, homeZ: head.homeZ,
+            stance: head.stance, mode: head.mode, world: head.world.clone(),
+          })),
+        });
+      }
+      return out;
+    },
+
+    setCountry(value) {
+      country = value;
+      herdSites.clear();
     },
   };
 }

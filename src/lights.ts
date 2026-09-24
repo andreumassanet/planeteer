@@ -241,6 +241,17 @@ export function setSunDirection(direction: THREE.Vector3, subsolarLon: number): 
   atlasSubsolar.value = subsolarLon * DEG;
 }
 
+/**
+ * How far into the night a point is, 0 by day to 1 after dusk: `atlasNight`
+ * above, for the one light drawn on the CPU's side — a lighthouse's beam
+ * (`countryside-motion.ts`) — so it comes on at the same minute as the windows
+ * round it. The master gain rides on it, as it does on theirs.
+ */
+export function nightAt(up: THREE.Vector3): number {
+  const t = Math.min(1, Math.max(0, (up.dot(atlasSun.value) - NIGHT_FULL) / (NIGHT_NONE - NIGHT_FULL)));
+  return (1 - t * t * (3 - 2 * t)) * atlasGain.value;
+}
+
 export function lightBrightness(value?: number): number {
   if (value !== undefined) atlasGain.value = Math.max(0, value);
   return atlasGain.value;

@@ -919,7 +919,11 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     const dotClear = 5 * uiScale;
     const pinClear = pinRise + pinHead + 3 * uiScale;
     baseCtx.font = `800 ${(9.5 * uiScale).toFixed(1)}px ${FONT}`;
-    if (towns > 0 && chipTown >= 0 && townKept[0] === chipTown) {
+    // Written here, so the loop below starts after it: `write` tries every
+    // side of a dot, and a name whose first side is taken by itself finds
+    // another and is drawn twice.
+    const chipFirst = towns > 0 && chipTown >= 0 && townKept[0] === chipTown ? 1 : 0;
+    if (chipFirst === 1) {
       write(gazetteer[townRow[chipTown]!]!.name, townKeptX[0]!, townKeptY[0]!, dotClear);
     }
     baseCtx.font = `800 ${(9 * uiScale).toFixed(1)}px ${FONT}`;
@@ -927,7 +931,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       write(monuments[keptPin[n]!]!.name, keptX[n]!, keptY[n]!, pinClear);
     }
     baseCtx.font = `800 ${(9.5 * uiScale).toFixed(1)}px ${FONT}`;
-    for (let n = 0; n < towns; n++) {
+    for (let n = chipFirst; n < towns; n++) {
       write(gazetteer[townRow[townKept[n]!]!]!.name, townKeptX[n]!, townKeptY[n]!, dotClear);
     }
 

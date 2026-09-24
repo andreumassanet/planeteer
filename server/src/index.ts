@@ -28,12 +28,15 @@
  *   `{ t: 'vp', v, p, sp }` the driver's pose and speed, from seat 0 only,
  *     and no further from the vehicle's last pose than it could have gone
  *     (`driveReach` in `limits.ts`); a vehicle does not teleport, its driver
- *     does, and leaves it where it was.
+ *     does, and leaves it where it was;
+ *   `{ t: 'look', l }` how the player now looks (`LOOK_PATTERN`).
  * - server -> client:
- *   `{ t: 'hi', id, peers: [[id, name, ...state]], vehicles: [[v, pose | null, seats]] }`
+ *   `{ t: 'hi', id, peers: [[id, name, ...state]], vehicles: [[v, pose | null, seats]], looks }`
  *     once, on joining; `vehicles` is every vehicle moved off its site or
  *     with anybody in it, and `seats` is by player id, `null` for empty;
- *   `{ t: 'in', id, name }` when someone joins;
+ *     `looks` is how each player who said so looks, by id;
+ *   `{ t: 'in', id, name, look? }` when someone joins;
+ *   `{ t: 'look', id, l }` when someone changes how they look;
  *   `{ t: 'at', id, s: state }` whenever someone moves;
  *   `{ t: 'bye', id }` when someone leaves;
  *   `{ t: 'seat', v, seats, ask? }` on any change of who sits where. It is
@@ -44,7 +47,11 @@
  *   `{ t: 'park', v, p }` when a vehicle comes to rest at `p`, or goes back
  *     to its site with `p: null`.
  *
- * A socket opens with `?name=` and `?key=`: the key is a secret the client
+ * A socket opens with `?name=`, `?look=` and `?key=`. The look is how the
+ * player chose to look, which the relay checks the shape of and passes on
+ * and never reads; an older client sends none, and an older relay drops it
+ * and the `look` message both, so a client on either side of the change still
+ * sees the other, dressed as the crowd. The key is a secret the client
  * makes once a page and keeps across its reconnections, never sent to anyone
  * else. A player who disconnects from a seat leaves it on the vehicle, and a
  * `sit` from a socket with that key is the same player coming back — granted
@@ -61,7 +68,7 @@
  * hibernation rebuilds the map from `getWebSockets()`.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_RADIUS, MAX_SPEED, MIN_RADIUS, driveReach } from './limits.ts';
+import { MAX_RADIUS, MAX_SPEED, MIN_RADIUS, cleanLook, driveReach } from './limits.ts';
 
 /** How many sockets one room accepts; the next is refused with 1013. */
 const MAX_PLAYERS = 100;
@@ -71,6 +78,13 @@ const MIN_INTERVAL_MS = 60;
 const DRIVE_INTERVAL_MS = 50;
 /** Between two claims, or two leavings, by one socket. */
 const SEAT_INTERVAL_MS = 250;
+/**
+ * Between two changes of look by one socket. Every accepted change has every
+ * client near that player build a new body (a merge and a weld of the cast's
+ * parts), so the rate is what one socket may cost everybody round it; the card
+ * sends the first of a run of clicks at once and the last one after this.
+ */
+const LOOK_INTERVAL_MS = 1000;
 /** Longer than any valid message: a pose with a vehicle id is under 200 characters. */
 const MAX_MESSAGE = 512;
 // Where a player or a vehicle can be and how fast it can go — `MIN_RADIUS`,
@@ -111,6 +125,8 @@ type Pose = number[];
 interface Attachment {
   id: string;
   name: string;
+  /** How the player looks, `''` for a client that did not say (`cleanLook`). */
+  look: string;
   /** The page's secret across its reconnections, `''` for a client that sent none. */
   key: string;
   state: State | null;
@@ -119,7 +135,7 @@ interface Attachment {
   /** The last pose it sent as a driver, so a wake knows where the vehicle is. */
   drive: { v: string; p: Pose; at: number } | null;
   /** When each kind of message was last accepted; kept here so a hibernation forgives nothing. */
-  rate: { s: number; vp: number; sit: number; up: number };
+  rate: { s: number; vp: number; sit: number; up: number; look: number };
 }
 
 /** What storage keeps of a vehicle at rest. */
@@ -207,11 +223,12 @@ function attachmentOf(socket: WebSocket): Attachment | null {
   return {
     id: raw.id,
     name: raw.name ?? '',
+    look: raw.look ?? '',
     key: raw.key ?? '',
     state: raw.state ?? null,
     seat: raw.seat ?? null,
     drive: raw.drive ?? null,
-    rate: raw.rate ?? { s: 0, vp: 0, sit: 0, up: 0 },
+    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, ...raw.rate },
   };
 }
 
@@ -279,9 +296,11 @@ export class Room extends DurableObject<Env> {
     const id = crypto.randomUUID().slice(0, 8);
     const query = new URL(request.url).searchParams;
     const name = cleanName(query.get('name'));
+    const look = cleanLook(query.get('look'));
     const key = query.get('key') ?? '';
     server.serializeAttachment({
-      id, name, key: KEY.test(key) ? key : '', state: null, seat: null, drive: null, rate: { s: 0, vp: 0, sit: 0, up: 0 },
+      id, name, look, key: KEY.test(key) ? key : '', state: null, seat: null, drive: null,
+      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0 },
     } satisfies Attachment);
 
     // The lazy half of the silence and the expiry: whatever a newcomer is
@@ -290,14 +309,18 @@ export class Room extends DurableObject<Env> {
     this.settle(now);
     this.expire(now);
     const peers: unknown[] = [];
+    // Beside the rows rather than in them: a row's length is what an older
+    // client checks a state by, and a tenth field would drop every peer.
+    const looks: Record<string, string> = {};
     for (const socket of sockets) {
       const other = attachmentOf(socket);
       if (other?.state) peers.push([other.id, other.name, ...other.state]);
+      if (other !== null && other.look !== '') looks[other.id] = other.look;
     }
     const vehicles: unknown[] = [];
     for (const [v, craft] of this.crafts) vehicles.push([v, craft.pose, trimmed(craft.seats)]);
-    server.send(JSON.stringify({ t: 'hi', id, peers, vehicles }));
-    this.broadcast(JSON.stringify({ t: 'in', id, name }), server);
+    server.send(JSON.stringify({ t: 'hi', id, peers, vehicles, looks }));
+    this.broadcast(JSON.stringify(look === '' ? { t: 'in', id, name } : { t: 'in', id, name, look }), server);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -318,10 +341,11 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (typeof value !== 'object' || value === null) return;
-    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown };
+    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown };
     if (typed.t === 'vp') this.drive(socket, self, typed, now);
     else if (typed.t === 'sit') this.sit(socket, self, typed, now);
     else if (typed.t === 'up') this.up(socket, self, typed, now);
+    else if (typed.t === 'look') this.restyle(socket, self, typed.l, now);
   }
 
   override async webSocketClose(socket: WebSocket, code: number): Promise<void> {
@@ -355,6 +379,17 @@ export class Room extends DurableObject<Env> {
     self.state = state;
     socket.serializeAttachment(self);
     this.broadcast(JSON.stringify({ t: 'at', id: self.id, s: state }), socket);
+  }
+
+  /** A new look, kept for whoever joins next and passed on to everyone else. */
+  private restyle(socket: WebSocket, self: Attachment, raw: unknown, now: number): void {
+    if (now - self.rate.look < LOOK_INTERVAL_MS) return;
+    const look = cleanLook(raw);
+    if (look === '' || look === self.look) return;
+    self.rate.look = now;
+    self.look = look;
+    socket.serializeAttachment(self);
+    this.broadcast(JSON.stringify({ t: 'look', id: self.id, l: look }), socket);
   }
 
   private leave(socket: WebSocket): void {

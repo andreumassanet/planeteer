@@ -149,6 +149,106 @@ function checkCraft(model: CraftModel): void {
 
 for (const model of craft.values()) checkCraft(model);
 
+// --- the motion ------------------------------------------------------------------
+//
+// Every craft driven hard for a few seconds — flat out, full lock, a stop —
+// through `craft/motion.ts`, then let go: every matrix under it stays proper,
+// every inked mesh keeps its outline normal, the wheels stay on their axles,
+// a car's body leans and pitches and comes back square, and the propeller
+// winds down to still. The airstrip and the windsock are built on a flat
+// ground and held to the same.
+
+console.log('\nthe motion:');
+{
+  const { AT_REST, motionOf } = await import('../src/craft/motion.ts');
+  const worst = { det: Infinity };
+  const proper = (group: THREE.Object3D, label: string): void => {
+    group.updateMatrixWorld(true);
+    group.traverse((part) => {
+      const det = part.matrixWorld.determinant();
+      worst.det = Math.min(worst.det, det);
+      if (!(det > 0)) fail(`${label}: '${part.name}' has a reflected or collapsed matrix under its motion (det ${f(det, 4)})`);
+    });
+  };
+  for (const model of craft.values()) {
+    const group = model.build(0);
+    const motion = motionOf(group, model);
+    if (motionOf(group, model) !== motion) fail(`${model.id}: a second ask made a second motion`);
+    const wheels: [THREE.Object3D, THREE.Vector3][] = [];
+    group.traverse((part) => {
+      if (part.name === 'wheel') wheels.push([part, part.position.clone()]);
+    });
+    const sprung = group.getObjectByName('sprung');
+    if (sprung === undefined) fail(`${model.id}: no sprung group`);
+    const air = model.kind === 'plane' || model.kind === 'balloon';
+    let leaned = 0;
+    let pitched = 0;
+    const input = { ...AT_REST, engine: true, grounded: true };
+    for (let t = 0; t < 6; t += 1 / 60) {
+      // Up to speed, round a hard left, and a hard stop.
+      input.speed = t < 3 ? Math.min(45, t * 30) : Math.max(0, 45 - (t - 3) * 90);
+      input.turnRate = t > 1 && t < 3 ? 0.9 : 0;
+      input.steering = t > 1 && t < 3 ? -1 : 0;
+      input.grounded = !(air && t > 2 && t < 4);
+      motion.update(1 / 60, input);
+      if (sprung !== undefined) {
+        leaned = Math.max(leaned, sprung.rotation.z);
+        pitched = Math.max(pitched, Math.abs(sprung.rotation.x));
+      }
+      if (Math.round(t * 60) % 30 === 0) proper(group, model.id);
+    }
+    if ((model.kind === 'car' || model.kind === 'van') && (leaned < 0.01 || pitched < 0.01)) {
+      fail(`${model.id}: the body did not lean out of a hard turn or pitch on the brake (roll ${f(leaned, 3)}, pitch ${f(pitched, 3)})`);
+    }
+    for (const [wheel, at] of wheels) if (wheel.position.distanceTo(at) > 1e-9) fail(`${model.id}: a wheel moved off its axle`);
+    for (let t = 0; t < 8; t += 1 / 60) motion.update(1 / 60, AT_REST);
+    if (motion.settling) fail(`${model.id}: eight seconds after it was let go of it is still moving`);
+    if (sprung !== undefined && (Math.abs(sprung.rotation.x) > 1e-3 || Math.abs(sprung.rotation.z) > 1e-3)) fail(`${model.id}: the body did not come back square`);
+    proper(group, model.id);
+    group.traverse((part) => {
+      const mesh = part as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const ink = (mesh.material as THREE.Material).userData.outlineParameters as { visible?: boolean } | undefined;
+      if (ink?.visible === false) return;
+      if (mesh.geometry.getAttribute('outlineNormal') === undefined) fail(`${model.id}: '${mesh.name}' is inked and has no outlineNormal`);
+    });
+    // A moored launch rides the swell, and only a launch does.
+    if (model.kind === 'boat' && sprung !== undefined) {
+      let heave = 0;
+      for (let t = 0; t < 4; t += 1 / 60) {
+        motion.update(1 / 60, { ...AT_REST, moored: true });
+        heave = Math.max(heave, Math.abs(sprung.position.y));
+      }
+      if (heave < 0.05) fail(`${model.id}: a moored launch does not ride the swell (${f(heave, 3)})`);
+      proper(group, model.id);
+    }
+    console.log(`  ${model.id.padEnd(12)} lean ${f(leaned, 3)}  pitch ${f(pitched, 3)}  wheels ${wheels.length}  at rest after it was let go`);
+  }
+
+  const { buildStrip, buildWindsock, STRIP_LENGTH } = await import('../src/craft/airstrip.ts');
+  const site = { at: new THREE.Vector3(0.3, 0.8, 0.2).normalize(), forward: new THREE.Vector3() };
+  site.forward.set(0, 1, 0).projectOnPlane(site.at).normalize();
+  const strip = buildStrip(site, () => 16000, new THREE.Color(0.4, 0.5, 0.3));
+  const position = strip.geometry.getAttribute('position');
+  const normal = strip.geometry.getAttribute('normal');
+  let down = 0;
+  const n = new THREE.Vector3();
+  for (let i = 0; i < normal.count; i++) if (n.fromBufferAttribute(normal, i).dot(site.at) <= 0) down++;
+  if (down > 0) fail(`the airstrip has ${down} vertices facing the ground`);
+  strip.geometry.computeBoundingSphere();
+  const reach = strip.geometry.boundingSphere!.radius * 2;
+  if (reach < STRIP_LENGTH) fail(`the airstrip is ${f(reach)} long, shorter than the ${STRIP_LENGTH} it stands for`);
+  const sock = buildWindsock();
+  const pivot = sock.getObjectByName('rotor');
+  if (pivot === undefined) fail('the windsock has no pivot');
+  for (let t = 0; t < 4; t += 0.25) {
+    if (pivot !== undefined) pivot.rotation.set(0.6 * Math.sin(t), t * 2, 0);
+    proper(sock, 'windsock');
+  }
+  console.log(`  airstrip     ${position.count / 3} triangles, ${f(reach, 0)} units end to end; windsock ${sock.children.length} parts`);
+  console.log(`  the least determinant under any motion: ${f(worst.det, 4)}`);
+}
+
 // --- the hero, measured again -------------------------------------------------
 
 console.log('\nthe hero the seats are built round, re-measured off the cast:');

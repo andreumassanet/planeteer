@@ -13,17 +13,24 @@
  * there are nearly always two states to interpolate between: at ten a second
  * and a network's jitter, drawing the newest one would be a figure stepping.
  *
- * Near, a peer is a cast character playing the hero's own walk and run, chest
- * deep and slow when swimming, or held in its seat when it sits in a vehicle —
+ * Near, a peer is a cast character dressed as that player chose to look — the
+ * appearance their card sends as a short code (`appearance.ts`), which the
+ * relay passes on beside the name; a peer that sent none, from an older
+ * client or through an older relay, is dressed as the crowd is — played by
+ * the hero's own motion (`createMotion` in `avatar.ts`) from the speed and the
+ * state on the wire: the walk and the run, the jump and its landing, the
+ * crawl and treading water, or held in its seat when it sits in a vehicle —
  * the vehicle itself is the fleet's, drawn once for everybody; past
  * `DRAW_REACH` it is only a mark on the minimap. A peer is a moving mesh and
  * therefore its own, never merged.
  */
 import * as THREE from 'three';
 import type { Folk } from './folk.ts';
+import { decodeAppearance } from './appearance.ts';
 import { foldLegs, limbsOf } from './cast.ts';
 import type { Limbs, Person } from './cast.ts';
-import { AVATAR_HEIGHT, RUN_SPEED, RUN_STRIDE, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE } from './avatar.ts';
+import { AVATAR_HEIGHT, SEAT_SHIN, SEAT_THIGH, createMotion } from './avatar.ts';
+import type { Motion } from './avatar.ts';
 import type { Player } from './player.ts';
 import { PLAYER_STATES } from './craft/contract.ts';
 import type { FleetSeats, PlayerState } from './craft/contract.ts';
@@ -41,11 +48,13 @@ const SILENT_MS = 10_000;
 const DRAW_REACH = 2_500;
 /** Reconnection backoff, doubling from the first to the last. */
 const RETRY_MS = [1_000, 30_000] as const;
-/** How far a swimmer's feet are under the surface their pose is on: chest deep. */
-const SWIM_DEPTH = AVATAR_HEIGHT * 0.72;
-/** A swimmer's stroke, as the walk clip played this many times a second. */
-const SWIM_CADENCE = 0.6;
 const NAME_KEY = 'atlas.peers.name';
+/**
+ * The least time between two looks sent, a little over the relay's own
+ * (`LOOK_INTERVAL_MS` in `server/src/index.ts`), which drops one sooner: a
+ * run of clicks on the card sends the first at once and the last after this.
+ */
+const LOOK_SEND_MS = 1100;
 
 /**
  * This page's secret on the relay, the same across every reconnection and
@@ -72,11 +81,12 @@ interface Snapshot {
 
 interface Body {
   person: Person;
-  idle: THREE.AnimationAction;
-  walk: THREE.AnimationAction;
-  run: THREE.AnimationAction;
+  /** The hero's own: `createMotion` in `avatar.ts`. */
+  motion: Motion;
   limbs: Limbs;
-  phase: number;
+  /** Last frame's facing and whether it was off the ground, for a turn and a landing. */
+  facing: THREE.Vector3;
+  airborne: boolean;
 }
 
 interface Peer {
@@ -153,6 +163,11 @@ export interface Peers {
    * Returns the name as it was kept.
    */
   rename(name: string): string;
+  /**
+   * How we look, as `encodeAppearance` writes it: sent with every connection
+   * and, while one is open, to everyone at once.
+   */
+  setLook(code: string): void;
   /** Our id on the relay, from its `hi`; `null` until then and while disconnected. */
   readonly id: string | null;
   /** Sends one typed message. False, and nothing sent, while the socket is not open. */
@@ -169,12 +184,34 @@ export interface Peers {
   useSeats(seats: FleetSeats, seatOf: (id: string) => PeerSeat | null): void;
 }
 
-function storedName(): string {
+/** The name kept on this device, which the next connection sends. */
+export function storedName(): string {
   try {
     return localStorage.getItem(NAME_KEY) ?? '';
   } catch {
     return '';
   }
+}
+
+/**
+ * A name as the relay will take it: printable, one line, twenty characters.
+ * The relay cleans it again (`cleanName` in `server/src/index.ts`); this is
+ * so that what the field shows is what the others will see.
+ */
+export const cleanName = (name: string): string => name.replace(/[\p{C}<>]/gu, '').trim().slice(0, 20);
+
+/**
+ * Keeps a name for the next connection without a connection of its own: the
+ * traveller's card on the front door, before there are any peers to rename.
+ */
+export function storeName(name: string): string {
+  const kept = cleanName(name);
+  try {
+    localStorage.setItem(NAME_KEY, kept);
+  } catch {
+    // Private mode; the name lasts this visit.
+  }
+  return kept;
 }
 
 function labelOf(name: string): THREE.Sprite {
@@ -225,6 +262,14 @@ export function createPeers(url: string, folk: Folk): Peers {
    * and heard again is only an `at`, which carries no name.
    */
   const names = new Map<string, string>();
+  /** Every look the relay has told us, by id, kept past a drop for silence like the names. */
+  const looks = new Map<string, string>();
+  /** Ours, and when it last went out on the open socket. */
+  let look = '';
+  let lookSentAt = 0;
+  /** The look the socket being opened carries in its address. */
+  let lookInAddress = '';
+  let lookTimer = 0;
   const stats: PeersStats = { state: 'off', id: null, name: storedName(), peers: 0, drawn: 0, sent: 0, received: 0 };
   const messageListeners = new Set<(message: RelayMessage) => void>();
   const stateListeners = new Set<(state: PeersStats['state']) => void>();
@@ -244,6 +289,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   const up = new THREE.Vector3();
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
+  const cross = new THREE.Vector3();
   const hipAt = new THREE.Vector3();
 
   function setState(state: PeersStats['state']): void {
@@ -258,6 +304,8 @@ export function createPeers(url: string, folk: Folk): Peers {
     try {
       const address = new URL(url);
       if (stats.name !== '') address.searchParams.set('name', stats.name);
+      if (look !== '') address.searchParams.set('look', look);
+      lookInAddress = look;
       address.searchParams.set('key', key);
       open = new WebSocket(address);
     } catch (error) {
@@ -273,6 +321,12 @@ export function createPeers(url: string, folk: Folk): Peers {
     open.onopen = () => {
       setState('open');
       retry = RETRY_MS[0];
+      // Changed while this socket was still connecting: its address has the old one.
+      if (look !== lookInAddress) {
+        lookSentAt = performance.now();
+        open.send(JSON.stringify({ t: 'look', l: look }));
+        stats.sent++;
+      }
     };
     open.onmessage = (event) => {
       if (typeof event.data !== 'string') return;
@@ -285,6 +339,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       stats.id = null;
       for (const id of [...peers.keys()]) drop(id);
       names.clear();
+      looks.clear();
       setState('closed');
       setTimeout(connect, retry);
       retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
@@ -292,7 +347,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   }
 
   function receive(text: string): void {
-    let message: { t?: unknown; id?: string; name?: string; s?: State; peers?: unknown[][] };
+    let message: { t?: unknown; id?: string; name?: string; s?: State; peers?: unknown[][]; looks?: unknown; look?: unknown; l?: unknown };
     try {
       message = JSON.parse(text);
     } catch {
@@ -309,6 +364,13 @@ export function createPeers(url: string, folk: Folk): Peers {
         sentAt = performance.now();
         send(lastPlayer);
       }
+      // Before the rows: a peer is dressed on the frame it is first drawn, and
+      // the look has to be known by then.
+      if (typeof message.looks === 'object' && message.looks !== null) {
+        for (const [id, code] of Object.entries(message.looks as Record<string, unknown>)) {
+          if (typeof code === 'string') looks.set(id, code);
+        }
+      }
       for (const row of message.peers ?? []) {
         const [id, name, ...state] = row as [string, string, ...State];
         if (typeof name === 'string') names.set(id, name);
@@ -316,12 +378,19 @@ export function createPeers(url: string, folk: Folk): Peers {
       }
     } else if (message.t === 'in' && typeof message.id === 'string') {
       if (typeof message.name === 'string') names.set(message.id, message.name);
+      if (typeof message.look === 'string') looks.set(message.id, message.look);
       peerOf(message.id, message.name ?? '');
     } else if (message.t === 'at' && typeof message.id === 'string' && Array.isArray(message.s)) {
       heard(message.id, null, message.s, now);
+    } else if (message.t === 'look' && typeof message.id === 'string' && typeof message.l === 'string') {
+      looks.set(message.id, message.l);
+      // Undressed, and dressed again in the new clothes on the next frame it is drawn.
+      const peer = peers.get(message.id);
+      if (peer !== undefined) undress(peer);
     } else if (message.t === 'bye' && typeof message.id === 'string') {
       drop(message.id);
       names.delete(message.id);
+      looks.delete(message.id);
     }
     for (const listener of messageListeners) {
       try {
@@ -364,11 +433,19 @@ export function createPeers(url: string, folk: Folk): Peers {
     peer.heard = now;
   }
 
+  function undress(peer: Peer): void {
+    if (peer.body === null) return;
+    peer.holder.remove(peer.body.person.root);
+    peer.body.motion.unlay();
+    folk.release(peer.body.person);
+    peer.body = null;
+  }
+
   function drop(id: string): void {
     const peer = peers.get(id);
     if (peer === undefined) return;
     group.remove(peer.holder);
-    if (peer.body !== null) folk.release(peer.body.person);
+    undress(peer);
     peer.label.material.map?.dispose();
     peer.label.material.dispose();
     peers.delete(id);
@@ -383,7 +460,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   }
 
   /** The state `DELAY_MS` ago, blended between the two either side of it; `null` before the first. */
-  const drawn = { position: new THREE.Vector3(), forward: new THREE.Vector3(), speed: 0, state: 'foot' as PlayerState };
+  const drawn = { position: new THREE.Vector3(), forward: new THREE.Vector3(), speed: 0, state: 'foot' as PlayerState, airborne: false };
   function sample(peer: Peer, now: number): typeof drawn | null {
     const list = peer.snapshots;
     const newest = list[list.length - 1];
@@ -398,6 +475,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       drawn.forward.copy(newest.forward);
       drawn.speed = at - newest.at > 500 ? 0 : newest.speed;
       drawn.state = newest.state;
+      drawn.airborne = newest.airborne;
       return drawn;
     }
     const t = THREE.MathUtils.clamp((at - a.at) / Math.max(1, b.at - a.at), 0, 1);
@@ -405,6 +483,7 @@ export function createPeers(url: string, folk: Folk): Peers {
     drawn.forward.lerpVectors(a.forward, b.forward, t);
     drawn.speed = a.speed + (b.speed - a.speed) * t;
     drawn.state = t < 0.5 ? a.state : b.state;
+    drawn.airborne = t < 0.5 ? a.airborne : b.airborne;
     return drawn;
   }
 
@@ -412,50 +491,40 @@ export function createPeers(url: string, folk: Folk): Peers {
     if (peer.body !== null) return peer.body;
     // At the hero's own height, never a child's or a random adult's: a peer
     // walks with the hero's stride and wears its name at the hero's head.
-    const person = folk.dress(`peer:${peer.id}`, 'atlantic-europe', undefined, AVATAR_HEIGHT);
+    // As they chose to look, or, with no look or one this build cannot read,
+    // as the crowd.
+    const appearance = decodeAppearance(looks.get(peer.id));
+    const person =
+      appearance !== null
+        ? folk.wear(appearance, AVATAR_HEIGHT)
+        : folk.dress(`peer:${peer.id}`, 'atlantic-europe', undefined, AVATAR_HEIGHT);
     if (person === null) return null;
     // Read in the rest pose, before any clip has moved a bone.
     const limbs = limbsOf(person);
-    const action = (name: 'Idle_Neutral' | 'Walk' | 'Run') => {
-      const found = person.actions.get(name)!;
-      found.play();
-      found.setEffectiveWeight(0);
-      found.timeScale = 0;
-      return found;
-    };
     person.root.traverse((object) => {
       if ((object as THREE.Mesh).isMesh) object.castShadow = true;
     });
     peer.holder.add(person.root);
-    peer.body = { person, idle: action('Idle_Neutral'), walk: action('Walk'), run: action('Run'), limbs, phase: 0 };
-    peer.body.idle.timeScale = 1;
+    peer.body = { person, motion: createMotion(person), limbs, facing: new THREE.Vector3(), airborne: false };
     return peer.body;
   }
 
-  /** The hero's own blend: idle under a crawl, walk blending to run between the two speeds, each clip at the stride's phase. */
-  function stride(body: Body, dt: number, speed: number): void {
-    const running = THREE.MathUtils.smoothstep(speed, WALK_SPEED, RUN_SPEED);
-    const moving = THREE.MathUtils.smoothstep(speed, 0.2, 1.5);
-    const length = WALK_STRIDE + (RUN_STRIDE - WALK_STRIDE) * running;
-    body.phase = (body.phase + (speed * dt) / length) % 1;
-    body.person.root.position.set(0, 0, 0);
-    body.idle.setEffectiveWeight(1 - moving);
-    body.walk.setEffectiveWeight(moving * (1 - running));
-    body.run.setEffectiveWeight(moving * running);
-    body.walk.time = body.phase * body.walk.getClip().duration;
-    body.run.time = body.phase * body.run.getClip().duration;
-    body.person.mixer.update(dt);
-  }
-
-  /** Chest deep, the walk clip slowed to a stroke whether or not the swimmer is moving: treading water. */
-  function swim(body: Body, dt: number): void {
-    body.phase = (body.phase + dt * SWIM_CADENCE) % 1;
-    body.person.root.position.set(0, -SWIM_DEPTH, 0);
-    body.idle.setEffectiveWeight(0);
-    body.walk.setEffectiveWeight(1);
-    body.run.setEffectiveWeight(0);
-    body.walk.time = body.phase * body.walk.getClip().duration;
-    body.person.mixer.update(dt);
+  /**
+   * On foot, played exactly as the hero is: the walk and the run blended by
+   * speed, the turn on the spot, the jump and the knees giving at its landing.
+   * How hard a peer landed is not on the wire, so every landing is an
+   * ordinary jump's.
+   */
+  function stride(body: Body, dt: number, speed: number, airborne: boolean): void {
+    let turn = 0;
+    if (dt > 0 && body.facing.lengthSq() > 0) {
+      cross.crossVectors(body.facing, forward);
+      turn = Math.atan2(cross.dot(up), body.facing.dot(forward)) / dt;
+    }
+    body.facing.copy(forward);
+    if (body.airborne && !airborne) body.motion.land(0);
+    body.airborne = airborne;
+    body.motion.foot(dt, speed, airborne, { turn });
   }
 
   /**
@@ -465,11 +534,7 @@ export function createPeers(url: string, folk: Folk): Peers {
    */
   function seat(peer: Peer, body: Body, dt: number, pose: 'sit' | 'stand'): void {
     const root = body.person.root;
-    root.position.set(0, 0, 0);
-    body.idle.setEffectiveWeight(1);
-    body.walk.setEffectiveWeight(0);
-    body.run.setEffectiveWeight(0);
-    body.person.mixer.update(dt);
+    body.motion.still(dt);
     if (pose === 'sit') foldLegs(body.limbs, peer.holder, SEAT_THIGH, SEAT_SHIN);
     peer.holder.updateMatrixWorld(true);
     hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));
@@ -557,8 +622,10 @@ export function createPeers(url: string, folk: Folk): Peers {
         if (body === null) continue;
         // Seated in a vehicle nobody here has built: the name alone, where they are.
         body.person.root.visible = state.state !== 'seated';
-        if (state.state === 'foot') stride(body, dt, state.speed);
-        else if (state.state === 'swim') swim(body, dt);
+        // A swimmer's position is the water's surface, which is where the
+        // swimming clips are drawn from.
+        if (state.state === 'foot') stride(body, dt, state.speed, state.airborne);
+        else if (state.state === 'swim') body.motion.swim(dt, state.speed);
       }
       stats.peers = peers.size;
     },
@@ -582,19 +649,30 @@ export function createPeers(url: string, folk: Folk): Peers {
       return stats.name;
     },
     rename(name) {
-      const kept = name.replace(/[\p{C}<>]/gu, '').trim().slice(0, 20);
+      const kept = cleanName(name);
       if (kept === stats.name) return kept;
-      stats.name = kept;
-      try {
-        localStorage.setItem(NAME_KEY, kept);
-      } catch {
-        // Private mode; the name lasts this visit.
-      }
+      stats.name = storeName(kept);
       // The relay learns a name only as a socket opens, so a rename is a
       // reconnection, straight away rather than after the backoff.
       retry = 0;
       socket?.close();
       return kept;
+    },
+    setLook(code) {
+      if (code === look) return;
+      look = code;
+      // The next connection carries it in its address; the open one is told
+      // now, or as soon as the relay would take another.
+      window.clearTimeout(lookTimer);
+      const sendLook = (): void => {
+        if (socket === null || socket.readyState !== WebSocket.OPEN) return;
+        lookSentAt = performance.now();
+        socket.send(JSON.stringify({ t: 'look', l: look }));
+        stats.sent++;
+      };
+      const wait = LOOK_SEND_MS - (performance.now() - lookSentAt);
+      if (wait <= 0) sendLook();
+      else lookTimer = window.setTimeout(sendLook, wait);
     },
     get id() {
       return stats.id;

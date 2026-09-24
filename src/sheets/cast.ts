@@ -1,7 +1,9 @@
 import * as THREE from 'three';
-import { AVATAR_HEIGHT, RUN_SPEED, WALK_SPEED, buildAvatar, prepareAvatar } from '../avatar.ts';
+import { AVATAR_HEIGHT, RUN_SPEED, SWIM_STROKE, WALK_SPEED, buildAvatar, prepareAvatar, wardrobeCast } from '../avatar.ts';
 import type { Avatar } from '../avatar.ts';
-import { OUTFITS } from '../cast.ts';
+import { DEFAULT_APPEARANCE, SLOTS, WARDROBE, coloursOf, encodeAppearance, randomAppearance, wardrobeOf } from '../appearance.ts';
+import type { Appearance } from '../appearance.ts';
+import { OUTFITS, paintWith } from '../cast.ts';
 import type { ClipName, Person } from '../cast.ts';
 import { createFolk } from '../folk.ts';
 import { createContext } from '../monuments/contract.ts';
@@ -10,15 +12,23 @@ import { rngFrom } from '../scenery/random.ts';
 import { PALETTE, SKY_TOP } from '../theme.ts';
 
 /**
- * The cast sheet: the hero and every outfit, dressed the way one region
- * dresses them, playing one clip, in the world's own light and pen.
+ * The cast sheet: the hero, every choice on the traveller's card, and every
+ * outfit the crowd wears, playing one clip, in the world's own light and pen.
  *
- * `?region=east-asia` picks the wardrobe, `?clip=Walk` the clip, `?close=0.3`
- * the distance as a share of the game's own framing, `?az=160` the bearing
- * (0 is astern, where the game camera lives).
+ * `?show=` picks what: `wardrobe` (the default) is the hero as he ships and
+ * as this browser has dressed him, then every head, top, bottom and pair of
+ * shoes of each body, each on the default traveller of that body so one part
+ * changes a cell; `random` is travellers from the card's Randomise
+ * (`?seed=` for others); `crowd` is every outfit dressed the way one region
+ * dresses them (`?region=east-asia`). `?clip=Walk` the clip, `?close=0.3` the
+ * distance as a share of the game's own framing, `?az=160` the bearing (0 is
+ * astern, where the game camera lives). Each wardrobe cell is labelled with
+ * its code, which `atlas.traveller.wear(code)` puts on the hero in the world.
  */
 
 const params = new URLSearchParams(location.search);
+const show = params.get('show') ?? 'wardrobe';
+const seed = params.get('seed') ?? 'sheet';
 const region = params.get('region') ?? 'atlantic-europe';
 const clip = (params.get('clip') ?? 'Idle_Neutral') as ClipName;
 const azimuth = Number(params.get('az') ?? 160);
@@ -65,27 +75,58 @@ function stage(): THREE.Scene {
 /** The outfit `folk.dress` picks for a key, restated so the sheet can find a key for each. */
 const outfitOf = (key: string) => OUTFITS[rngFrom(key, 'outfit').int(OUTFITS.length)];
 
+function cellFor(label: string, note: string, object: THREE.Object3D, mixer?: THREE.AnimationMixer, hero?: Avatar): Cell {
+  const scene = stage();
+  scene.add(object);
+  return { scene, camera: new THREE.PerspectiveCamera(55, 0.8, 0.5, 400), frame: cellFrame(label, note), ...(mixer ? { mixer } : {}), ...(hero ? { hero } : {}) };
+}
+
+const SLOT_TITLE = { head: 'hair', top: 'top', bottom: 'bottom', feet: 'shoes' } as const;
+
 async function build(): Promise<Cell[]> {
   await prepareAvatar();
-  while (!folk.ready) await new Promise((resolve) => setTimeout(resolve, 50));
   const cells: Cell[] = [];
-  {
-    const scene = stage();
-    const hero = buildAvatar();
-    scene.add(hero.group);
-    cells.push({ scene, camera: new THREE.PerspectiveCamera(55, 0.8, 0.5, 400), frame: cellFrame('hero', 'crimson, the pack'), hero });
-  }
-  for (const outfit of OUTFITS) {
-    let key: string | null = null;
-    for (let attempt = 0; attempt < 2000 && key === null; attempt++) {
-      if (outfitOf(`sheet|${outfit}|${attempt}`) === outfit) key = `sheet|${outfit}|${attempt}`;
+  if (show === 'crowd') {
+    while (!folk.ready) await new Promise((resolve) => setTimeout(resolve, 50));
+    for (const outfit of OUTFITS) {
+      let key: string | null = null;
+      for (let attempt = 0; attempt < 2000 && key === null; attempt++) {
+        if (outfitOf(`sheet|${outfit}|${attempt}`) === outfit) key = `sheet|${outfit}|${attempt}`;
+      }
+      const person: Person | null = key === null ? null : folk.dress(key, region);
+      if (person === null) continue;
+      (person.actions.get(clip) ?? person.actions.get('Idle_Neutral')!).play();
+      cells.push(cellFor(outfit, region, person.root, person.mixer));
     }
-    const person: Person | null = key === null ? null : folk.dress(key, region);
-    if (person === null) continue;
-    const scene = stage();
-    scene.add(person.root);
+    return cells;
+  }
+  const hero = buildAvatar(DEFAULT_APPEARANCE);
+  cells.push(cellFor('hero', 'as he ships', hero.group, undefined, hero));
+  const yours = buildAvatar();
+  cells.push(cellFor('yours', encodeAppearance(yours.appearance), yours.group, undefined, yours));
+  const cast = await wardrobeCast();
+  const dressed = (appearance: Appearance, label: string, note: string): void => {
+    const person = cast.make(wardrobeOf(appearance), paintWith(coloursOf(appearance)), AVATAR_HEIGHT);
     (person.actions.get(clip) ?? person.actions.get('Idle_Neutral')!).play();
-    cells.push({ scene, camera: new THREE.PerspectiveCamera(55, 0.8, 0.5, 400), frame: cellFrame(outfit, region), mixer: person.mixer });
+    cells.push(cellFor(label, note, person.root, person.mixer));
+  };
+  if (show === 'random') {
+    for (let i = 0; i < 24; i++) {
+      const appearance = randomAppearance(rngFrom(seed, i));
+      dressed(appearance, `random ${i + 1}`, encodeAppearance(appearance));
+    }
+    return cells;
+  }
+  for (const body of ['man', 'woman'] as const) {
+    const base: Appearance = { ...DEFAULT_APPEARANCE, body, head: 0, top: 0, bottom: 0, feet: 0 };
+    for (const slot of SLOTS) {
+      WARDROBE[body][slot].forEach((choice, i) => {
+        const appearance = { ...base, [slot]: i };
+        dressed(appearance, `${body} · ${SLOT_TITLE[slot]} · ${choice.label}`, encodeAppearance(appearance));
+      });
+    }
+    const bare = { ...base, pack: false };
+    dressed(bare, `${body} · no rucksack`, encodeAppearance(bare));
   }
   return cells;
 }
@@ -123,7 +164,10 @@ function render(now: number): void {
     const rect = cell.frame.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > innerHeight || rect.width < 4) continue;
     if (running) {
-      cell.hero?.stride(dt, clip === 'Walk' ? WALK_SPEED : clip === 'Run' ? RUN_SPEED : 0, false);
+      // The hero is played by its motion, which picks its own clip from a
+      // speed: a swim clip asked for swims him, the rest walk or stand him.
+      if (clip === 'Swim' || clip === 'Swim_Idle') cell.hero?.swim(dt, clip === 'Swim' ? SWIM_STROKE * 0.7 : 0, 0);
+      else cell.hero?.stride(dt, clip === 'Walk' ? WALK_SPEED : clip === 'Run' ? RUN_SPEED : 0, false);
       cell.mixer?.update(dt);
     }
     const near = closeInput.checked ? CLOSE : 1;

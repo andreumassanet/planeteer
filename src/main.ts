@@ -9,7 +9,8 @@ import type { PlayerEvent } from './player.ts';
 import { actionOf, codeOf, inputBlocked } from './controls.ts';
 import { notice } from './notice.ts';
 import type { NoticeAction } from './notice.ts';
-import { AVATAR_HEIGHT, prepareAvatar } from './avatar.ts';
+import { AVATAR_HEIGHT, dressHero, heroAppearance, prepareAvatar, wardrobeCast } from './avatar.ts';
+import { decodeAppearance, encodeAppearance } from './appearance.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
 import { loadPlaces, terrainSiteOf, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
@@ -23,8 +24,8 @@ import { setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
 import { biomeAt } from './biome.ts';
 import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
-import { crashStrength, createEffects } from './effects.ts';
 import type { OtherVisitor } from './effects.ts';
+import type { FeatureKind } from './countryside.ts';
 import type { Surface } from './audio.ts';
 import type { Music, MusicMoment } from './music.ts';
 import { BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
@@ -41,7 +42,7 @@ import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { Where } from './talk.ts';
-import { unitAt } from './sphere.ts';
+import { latOf, lonOf, unitAt } from './sphere.ts';
 import type { CraftKind, CraftModel } from './craft/contract.ts';
 
 /**
@@ -302,6 +303,13 @@ const SEA_EARSHOT = 0.4;
 const TALK_REACH = AVATAR_HEIGHT * 1.3;
 const TALK_LEAVE = AVATAR_HEIGHT * 4;
 const TALK_COAST = 0.12;
+/**
+ * The vehicles a townsperson points out, and how near one has to stand to be
+ * worth it: 800 units, about 630 m at `SCENERY_SCALE`, a few minutes' walk and
+ * far enough to reach a big city's plane field from its middle.
+ */
+const TALK_CRAFT = ['plane', 'balloon', 'boat'] as const;
+const TALK_CRAFT_REACH = 800;
 /** Whether the welcome card has been shown on this device. */
 const WELCOME_KEY = 'atlas.welcomed.v1';
 
@@ -469,6 +477,10 @@ async function start(): Promise<void> {
     /** With it, the whole scenery kit and the whole traffic kit. */
     settlements: import('./settlements.ts'),
     vegetation: import('./vegetation.ts'),
+    /** The wakes, the smoke, the dust and a crash's debris; made with the streamers. */
+    effects: import('./effects.ts'),
+    /** What turns, shines and smokes in the country the vegetation's tiles plan. */
+    countryMotion: import('./countryside-motion.ts'),
     life: import('./life.ts'),
     /** The people: the cast dressed by region, standing in towns and walking verges. */
     folk: import('./folk.ts'),
@@ -501,6 +513,8 @@ async function start(): Promise<void> {
     names: import('./names.ts'),
     /** The other players, if a relay is configured; see `server/`. */
     peers: import('./peers.ts'),
+    /** The traveller's card, which the menu opens before anything else is built. */
+    traveller: import('./traveller.ts'),
     /**
      * The vehicles you can take: their models, where they stand, and the
      * relay's half of who has moved which. Built once the player is.
@@ -668,6 +682,44 @@ async function start(): Promise<void> {
   // and everything after them — nine imports and every streamer — still
   // arrives underneath a menu the player is already using.
   await stage('opening the sky');
+  // The other players. `VITE_PEERS_URL` is the relay's address, set in the
+  // host's environment for a build; in development it is the relay's own
+  // `wrangler dev` (`pnpm peers`), and with neither the world is single-player.
+  const peersUrl: string =
+    import.meta.env.VITE_PEERS_URL ?? (import.meta.env.DEV ? 'ws://localhost:8787/ws' : '');
+  const peersModule = await deferred.peers;
+  /** The sound, once there is some, for the card's open and close. */
+  let audioLink: ReturnType<typeof createAudio> | null = null;
+  /** The connection, once there is one: the card below is made long before it. */
+  let peersLink: import('./peers.ts').Peers | null = null;
+  // **The traveller's card**, opened from the front door and from Settings.
+  // Every change dresses the hero at once (`dressHero`, which keeps it on this
+  // device) and goes to the other players as a code beside the name. The name
+  // is the relay's rename, or, before there is a connection, what the first
+  // one will send.
+  const { createTraveller } = await deferred.traveller;
+  const traveller = createTraveller({
+    appearance: {
+      get: heroAppearance,
+      set: (appearance) => {
+        dressHero(appearance).catch((error: unknown) => console.warn('atlas: the new clothes did not arrive', error));
+        peersLink?.setLook(encodeAppearance(appearance));
+      },
+    },
+    cast: wardrobeCast,
+    ...(peersUrl === ''
+      ? {}
+      : {
+          name: {
+            get: () => peersLink?.name ?? peersModule.storedName(),
+            set: (name: string) => (peersLink === null ? peersModule.storeName(name) : peersLink.rename(name)),
+          },
+        }),
+    lockTarget: renderer.domElement,
+    onOpen: () => audioLink?.cue('ui-open'),
+    onClose: () => audioLink?.cue('ui-close'),
+  });
+  document.body.appendChild(traveller.root);
   const { createMenu, earthBody } = await deferred.menu;
   const menu = createMenu({
     // The aliases are the famous names the bake folded into a neighbour —
@@ -680,6 +732,7 @@ async function start(): Promise<void> {
     // The Resolution setting's ratio, so a resize in the menu keeps it.
     pixelRatio: () => pixelRatioFor(resolution),
     fallback: { lat: START.lat, lon: START.lon, name: 'Palma' },
+    traveller,
     time: () => sky.state.time,
     sunDirection: () => sky.state.sun,
   });
@@ -830,25 +883,25 @@ async function start(): Promise<void> {
   // The people are authored characters (`cast.ts`), dressed by `folk.ts`: the
   // townsfolk stand on the spots each town publishes and the walkers are handed
   // to `life.ts`, which draws a verge walker from the cast when it has one.
-  const { createFolk, createTownsfolk, PERSON_RADIUS } = await deferred.folk;
+  const { createFolk, createTownsfolk, isYoung, PERSON_RADIUS } = await deferred.folk;
   const folk = createFolk(ctx);
   const townsfolk = createTownsfolk(folk, settlements);
   scene.add(townsfolk.group);
   const { createTalk } = await deferred.talk;
   const talk = createTalk();
-  // The other players. `VITE_PEERS_URL` is the relay's address, set in the
-  // host's environment for a build; in development it is the relay's own
-  // `wrangler dev` (`pnpm peers`), and with neither the world is single-player.
-  const { createPeers } = await deferred.peers;
-  const peersUrl: string =
-    import.meta.env.VITE_PEERS_URL ?? (import.meta.env.DEV ? 'ws://localhost:8787/ws' : '');
-  const peers = peersUrl === '' ? null : createPeers(peersUrl, folk);
-  if (peers !== null) scene.add(peers.group);
+  // The other players, on the relay chosen above, wearing what the card chose.
+  const peers = peersUrl === '' ? null : peersModule.createPeers(peersUrl, folk);
+  if (peers !== null) {
+    // Before the first connection, which carries it in its address.
+    peers.setLook(encodeAppearance(heroAppearance()));
+    scene.add(peers.group);
+    peersLink = peers;
+  }
   // Where the vehicles you can take stand, which is a function of the world
   // alone and costs nothing until asked: built this early so the herds here
-  // and the wood below keep off the field a plane or a balloon stands in. The
+  // and the wood below keep off a plane's airstrip and a balloon's field. The
   // fleet itself, which needs the player, takes the same index further down.
-  const { createSiteIndex } = await deferred.fleet;
+  const { createSiteIndex, fleetMaterials } = await deferred.fleet;
   const fleetSites = createSiteIndex({ world, places: places.all, roads: baked.roads, monuments: placements });
   const { createLife } = await deferred.life;
   const { VEHICLES } = await deferred.traffic;
@@ -856,6 +909,7 @@ async function start(): Promise<void> {
   const { createRigLibrary } = await deferred.kit;
   const { modelMaterial } = await import('./models.ts');
   const inkSource = ctx.toon(ctx.palette.ink);
+  const streetPush = new THREE.Vector3();
   const life = createLife(world, places.all, {
     context: ctx,
     roads: baked.roads,
@@ -869,6 +923,12 @@ async function start(): Promise<void> {
       modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
     ),
     fields: fleetSites,
+    // A vehicle driving through a town rides its floor and keeps out of its
+    // walls; the answers are the standing towns', the ones the player gets.
+    streets: {
+      floorAt: (direction) => settlements.madeHeightAt(direction),
+      blocked: (point, radius) => settlements.collide(point, radius, streetPush),
+    },
   });
   scene.add(life.group);
 
@@ -890,15 +950,27 @@ async function start(): Promise<void> {
     fields: fleetSites,
   });
   scene.add(vegetation.group);
+  // The herds keep off the farms, mills and fields the vegetation plans, as they keep off a road.
+  life.setCountry(vegetation.countryside);
   if (vegetation.broken.length > 0) console.warn('scenery parts that broke the contract:', vegetation.broken);
   if (vegetation.missing.length > 0) console.warn('biome tables name plants that do not exist:', vegetation.missing);
 
   // What moving leaves behind it — wakes, smoke, dust, a crash's debris — in
   // three pools and at most four draw calls; see `effects.ts`. Made here so
   // its programs are warmed with the streamers'.
+  const { createEffects, crashStrength } = await deferred.effects;
   const effects = createEffects();
   effects.enabled = readSetting(EFFECTS_KEY) !== '0';
   scene.add(effects.group);
+
+  // The sails, blades and wheels turning near you, a lighthouse's beam after
+  // dark, the smoke off a campfire: two meshes and the effects' puffs, fed
+  // by the vegetation tiles that hold the mills, lighthouses and camps.
+  const { createCountryMotion } = await deferred.countryMotion;
+  const countryMotion = createCountryMotion(ctx);
+  scene.add(countryMotion.group);
+  effects.setSmokers(countryMotion.smokers);
+  const countryEye = new THREE.Vector3();
 
   await stage('packing your bag');
   // Everything the world needs is now standing, so the menu stops being a
@@ -909,13 +981,14 @@ async function start(): Promise<void> {
   report = null;
   // Every program the streamers will draw with, compiled while the player
   // chooses, so the first town, landmark or animal is not also a shader link.
-  // The skinned twin is the rigs' own material, and a plain `ctx.toon` colour
-  // stands for the craft; see `warm.ts`.
+  // The skinned twin is the rigs' own material, a plain `ctx.toon` colour
+  // stands for the craft, and the fleet adds its airstrips' and propeller
+  // discs'; see `warm.ts`.
   void warmShaders(
     renderer,
     outline,
     scene,
-    [settlements, monuments, roads, vegetation, life, effects, { proxies: () => [proxyOf(inkSource)] }],
+    [settlements, monuments, roads, vegetation, life, effects, countryMotion, { proxies: () => [proxyOf(inkSource), ...fleetMaterials().map((material) => proxyOf(material))] }],
     modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
@@ -973,6 +1046,7 @@ async function start(): Promise<void> {
   // rule — so every pointer press and key press offers it the unlock, which is
   // idempotent and also resumes a context a hidden tab suspended.
   const audio = createAudio();
+  audioLink = audio;
   try {
     const saved = JSON.parse(readSetting(SOUND_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
     if (saved !== null && typeof saved.volume === 'number') audio.volume = saved.volume;
@@ -1044,7 +1118,8 @@ async function start(): Promise<void> {
     // people: a townsman standing or strolling and a walker on the verge are
     // solid too, each a body `PERSON_RADIUS` wide. A person gives no way, being
     // where their town or their route puts them; the body walking into them is
-    // the one pushed out.
+    // the one pushed out. So is an animal of a near herd, by its own length
+    // and width, and it bolts (`life.collide`).
     collide: (point, radius, push) => {
       let hit = settlements.collide(point, radius, push);
       if (vehicleWalls !== null && vehicleWalls(point, radius, vehiclePush)) {
@@ -1094,6 +1169,7 @@ async function start(): Promise<void> {
     link: fleetSync ?? createLocalLink(),
     player,
     madeHeightAt,
+    land,
     parked: {
       near: (viewer, radius, out) => settlements.parkedNear(viewer, radius, out),
       hide: (id) => settlements.hideParked(id),
@@ -1175,6 +1251,8 @@ async function start(): Promise<void> {
   const talkCrown = new THREE.Vector3();
   const talkLandmark = new THREE.Vector3();
   const talkNorth = new THREE.Vector3(0, 1, 0);
+  const talkHere = new THREE.Vector3();
+  const talkSites: ReturnType<typeof fleetSites.near> = [];
   function startTalk(key: string): void {
     const here = toLatLon(player.position);
     const index = world.countryAtPoint(player.position);
@@ -1190,6 +1268,24 @@ async function start(): Promise<void> {
       nearest = angle;
       landmark = { name: placement.name, km: angle * EARTH_KM, bearing: bearingTo(player.position, talkNorth, placement.lat, placement.lon) ?? 0 };
     }
+    // The vehicles still standing at their sites near enough to point at,
+    // the nearest of each kind: one search of the site index, whose towns
+    // near a townsperson are already worked out.
+    const craft: Where['craft'][number][] = [];
+    talkSites.length = 0;
+    fleetSites.near(talkHere.copy(player.position).normalize(), TALK_CRAFT_REACH, talkSites);
+    for (const kind of TALK_CRAFT) {
+      let best: (typeof talkSites)[number] | null = null;
+      let bestAngle = TALK_CRAFT_REACH / PLANET_RADIUS;
+      for (const site of talkSites) {
+        if (site.kind !== kind || fleet.claimsParked(site.id)) continue;
+        const angle = site.at.angleTo(talkHere);
+        if (angle < bestAngle) [best, bestAngle] = [site, angle];
+      }
+      if (best !== null) {
+        craft.push({ kind, bearing: bearingTo(player.position, talkNorth, latOf(best.at.y), lonOf(best.at.x, best.at.z)) ?? 0 });
+      }
+    }
     talk.start(key, {
       iso: country?.iso ?? '',
       countryName: country?.name ?? '',
@@ -1198,10 +1294,20 @@ async function start(): Promise<void> {
       capital: nearby.place.capital === true,
       coastal: shoreDistance(here.lat, here.lon) < TALK_COAST,
       warmth: soundBiome.warmth,
+      biome: soundBiome.id,
+      elevation: soundBiome.elevation,
       hour: Number.isFinite(hour) ? hour : 12,
       landmark,
+      craft,
+      young: isYoung(key),
     });
     engaged = townsfolk.engage(key, player.position);
+    // And the traveller turns to them, as they turn to the traveller: a
+    // conversation held over a shoulder reads as nobody talking to anybody.
+    if (townsfolk.crownOf(key, talkCrown)) {
+      talkCrown.sub(player.position).projectOnPlane(player.up);
+      if (talkCrown.lengthSq() > 1e-4) player.forward.copy(talkCrown.normalize());
+    }
     audio.cue('ui-open');
   }
   const { createHud } = await deferred.hud;
@@ -1565,6 +1671,7 @@ async function start(): Promise<void> {
             online: () => peers.online,
           },
         }),
+    traveller: { show: (relock: boolean) => traveller.show({ relock }) },
     lockTarget: renderer.domElement,
     // One card at a time: the settings over the world map would be two
     // overlays holding the mouse, and the map's keys under a modal card.
@@ -1698,9 +1805,19 @@ async function start(): Promise<void> {
    * world — the player, the camera, the draw — carries on around it.
    */
   const failures = new Map<string, number>();
+  /**
+   * What each guarded subsystem costs a frame, in milliseconds, smoothed over
+   * about a second: `atlas.timings()`. Two clock reads a subsystem a frame,
+   * which is nothing next to what any of them does.
+   */
+  const timings = new Map<string, number>();
   function guard(name: string, run: () => void): void {
+    const began = performance.now();
     try {
       run();
+      const spent = performance.now() - began;
+      const was = timings.get(name);
+      timings.set(name, was === undefined ? spent : was + (spent - was) * 0.05);
     } catch (error) {
       const count = failures.get(name) ?? 0;
       if (count === 0) console.error(`atlas: ${name} failed, and the rest of the world carries on`, error);
@@ -1933,6 +2050,7 @@ async function start(): Promise<void> {
     // frame is short: a town that has not arrived is a hole in the world, and
     // a tile of grass that has not arrived is grass that arrives next frame.
     guard('vegetation', () => vegetation.update(player.position, altitude, rig.camera));
+    guard('country', () => countryMotion.update(dt, rig.camera.getWorldPosition(countryEye), vegetation));
 
     // After the roads, because a vehicle drives on one and the road under it
     // should have arrived first — and **on the world's clock rather than the
@@ -2035,7 +2153,7 @@ async function start(): Promise<void> {
     if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
-    hud.setPaused(!input.looking && !map.open && !settings.open, input.dragging);
+    hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
     // had its build — the towns, the roads, and the wood and grass near you
     // with nothing pending — or after a second and a half whatever they say,
@@ -2240,6 +2358,23 @@ async function start(): Promise<void> {
       peers,
       player,
       /**
+       * How you look: `atlas.traveller.show()` opens the card,
+       * `atlas.traveller.code()` is what the others are sent, and
+       * `atlas.traveller.wear('a1...')` dresses the hero in a code — one off
+       * `/sheets/cast.html`, say — as the card would.
+       */
+      traveller: {
+        show: () => traveller.show(),
+        code: () => encodeAppearance(heroAppearance()),
+        wear: (code: string) => {
+          const appearance = decodeAppearance(code);
+          if (appearance === null) return false;
+          void dressHero(appearance);
+          peers?.setLook(encodeAppearance(appearance));
+          return true;
+        },
+      },
+      /**
        * The vehicles: `atlas.fleet.stats` (sites worked out by kind, built,
        * moved, what you are in), `atlas.fleet.nearest('boat')` for the nearest
        * launch, and `atlas.fleet.board(id)` to be put beside one and in it —
@@ -2319,6 +2454,9 @@ async function start(): Promise<void> {
       effects,
       // Which subsystems have thrown inside the loop, and how many times: see `guard`.
       failures,
+      // `atlas.timings()`: milliseconds a frame each guarded subsystem costs,
+      // smoothed, the dearest first.
+      timings: () => Object.fromEntries([...timings].sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, Number(v.toFixed(3))])),
       // `atlas.audio.stats`: whether the context is unlocked and running, how
       // many recordings arrived, and how many voices are sounding.
       audio,
@@ -2347,6 +2485,26 @@ async function start(): Promise<void> {
       // `atlas.vegetation.sample(lat, lon, level)` builds one tile and reports
       // what it cost, and `.verify(lat, lon)` builds it twice and compares.
       vegetation,
+      // `atlas.countryside.stats` is what the country between the towns holds
+      // standing and what turns in it; `atlas.countryside.find('windmill')`
+      // is the nearest one to you (`farm`, `turbines`, `lighthouse`, `shrine`,
+      // `stones`, `ruin`, `camp`, `fishing`, `oasis`, `cairn`), and
+      // `atlas.countryside.plan()` what the cell you stand in holds.
+      countryside: {
+        get stats() {
+          return { ...vegetation.stats.country, motion: countryMotion.stats };
+        },
+        find: (kind: FeatureKind, reach = 4) => {
+          const here = toLatLon(player.position);
+          return vegetation.countryside?.find(kind, here.lat, here.lon, reach) ?? null;
+        },
+        plan: () => {
+          const here = toLatLon(player.position);
+          const plan = vegetation.countryside?.planAt(here.lat, here.lon);
+          return plan === undefined ? null : { key: plan.key, kind: plan.kind, region: plan.style.id, pieces: plan.pieces.map((piece) => piece.part), fields: plan.fields.map((field) => field.crop), fences: plan.lines.length, meadows: plan.meadows.length };
+        },
+        motion: countryMotion,
+      },
       // `atlas.clouds.stats` is the deck's cost: cells kept, coverage,
       // triangles, chunks and the build. `atlas.clouds.group.visible = false`
       // is the A/B.

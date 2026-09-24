@@ -1,6 +1,7 @@
 /**
  * The relay's protocol, against a running relay: the seats, the driven poses,
- * the parks that outlive a socket, and the old player poses beside them.
+ * the parks that outlive a socket, the old player poses beside them, and how
+ * each player looks.
  *
  * It starts nothing. Run the relay first (`pnpm peers`, which is
  * `wrangler dev` on port 8787, or any port given to it) and point this at it:
@@ -31,8 +32,10 @@ class Client {
   id = '';
   hi: Message | null = null;
 
-  private constructor(name: string, key?: string) {
-    this.socket = new WebSocket(`${URL_}?name=${encodeURIComponent(name)}${key === undefined ? '' : `&key=${key}`}`);
+  private constructor(name: string, key?: string, look?: string) {
+    this.socket = new WebSocket(
+      `${URL_}?name=${encodeURIComponent(name)}${key === undefined ? '' : `&key=${key}`}${look === undefined ? '' : `&look=${encodeURIComponent(look)}`}`,
+    );
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data)) as Message;
       const waiter = this.waiters.findIndex((w) => w.match(message));
@@ -41,8 +44,8 @@ class Client {
     });
   }
 
-  static async join(name: string, key?: string): Promise<Client> {
-    const client = new Client(name, key);
+  static async join(name: string, key?: string, look?: string): Promise<Client> {
+    const client = new Client(name, key, look);
     const hi = await client.next((m) => m.t === 'hi');
     client.hi = hi;
     client.id = String(hi.id);
@@ -286,7 +289,25 @@ async function main(): Promise<void> {
   const refused = await got('stranger answered', stranger.next((m) => m.t === 'seat' && m.v === v5 && m.ask === 0));
   check(refused !== null && (refused.seats as unknown[])[0] !== stranger.id, 'and a stranger on another key does not', refused);
 
-  await Promise.all([a.close(), b.close(), d.close(), back.close(), stranger.close()]);
+  // --- How a player looks ------------------------------------------------------
+  // Codes as `encodeAppearance` writes them; the relay checks their shape only.
+  const dressed = await Client.join('Gi', undefined, 'a12030405060a');
+  const shown = await got('in with a look', a.next((m) => m.t === 'in' && m.id === dressed.id));
+  check(shown?.look === 'a12030405060a', 'a join with ?look= is announced with it', shown);
+  const late = await Client.join('Hu');
+  check((late.hi?.looks as Record<string, unknown> | undefined)?.[dressed.id] === 'a12030405060a', 'hi carries every look by id', late.hi?.looks);
+  dressed.send({ t: 'look', l: 'a0000000000b1' });
+  const changed = await got('look', a.next((m) => m.t === 'look' && m.id === dressed.id));
+  check(changed?.l === 'a0000000000b1', 'a change of look is passed on', changed);
+  check(await dressed.none((m) => m.t === 'look'), 'and not echoed to its sender');
+  await sleep(300);
+  dressed.send({ t: 'look', l: '<b>A</b>' });
+  check(await a.none((m) => m.t === 'look' && m.id === dressed.id), 'a look that is not a code is dropped');
+  const plain = await Client.join('Io', undefined, '<script>');
+  const bare = await got('in without a look', a.next((m) => m.t === 'in' && m.id === plain.id));
+  check(bare !== null && !('look' in bare), 'a join whose ?look= is not a code carries none', bare);
+
+  await Promise.all([a.close(), b.close(), d.close(), back.close(), stranger.close(), dressed.close(), late.close(), plain.close()]);
   console.log(failures === 0 ? '\nall relay checks pass' : `\n${failures} relay check(s) failed`);
   process.exit(failures === 0 ? 0 : 1);
 }

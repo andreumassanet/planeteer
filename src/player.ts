@@ -10,6 +10,8 @@ import { slide } from './scenery/solids.ts';
 import type { Body, Walls } from './scenery/solids.ts';
 import type { TravelMode } from './controls.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
+import { AT_REST, motionOf } from './craft/motion.ts';
+import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import {
   AVATAR_HIP,
   BALLOON_CEILING,
@@ -46,6 +48,7 @@ import {
   PLANE_LANDING_GRADE,
   PLANE_LANDING_TIME,
   PLANE_ROTATE,
+  PLANE_RUN_TIME,
   PLANE_TAXI,
   PLANE_THROTTLE_DOWN,
   PLANE_THROTTLE_UP,
@@ -140,9 +143,17 @@ const CLIMB_SLOPE = 2.75;
  */
 export const BODY_RADIUS = FIGURE.shoulderHalf;
 
-/** Radians of roll at a hard turn, and how much lateral acceleration earns it. */
+/**
+ * Radians of roll at a hard turn, and how much lateral acceleration earns it.
+ *
+ * The gain was 0.0016 while a run was 90 units a second, and at today's 20 a
+ * run swept round a steady curve at a radian and a half a second leaned by
+ * under three degrees, which nobody could see. 0.005 is ten degrees for that
+ * curve at a run and three at a walk: a body leaning into a turn the way a
+ * runner does, and still inside `MAX_LEAN` for anything but a hairpin.
+ */
 const MAX_LEAN = 0.3;
-const LEAN_GAIN = 0.0016;
+const LEAN_GAIN = 0.005;
 const LEAN_SMOOTHING = 8;
 
 /** Roll into a turn, per vehicle. A plane banks; a launch only heels. */
@@ -192,8 +203,6 @@ const HULL_PROBES = [0, 0.5, -0.5];
 const HULL_MARGIN = 3.6 * BODY_SCALE;
 /** Directions tried when stepping out of a vehicle, the seat's own side first. */
 const STEP_OFF_DIRECTIONS = 16;
-/** A wheel's radius, near enough, for how fast the named wheels of a model turn. */
-const WHEEL_RADIUS = 0.6;
 
 /**
  * The ring that marks going into the water, taking off and landing: how long
@@ -246,20 +255,40 @@ const SWIM_OUT = 1.5;
  */
 const SWIM_CLIMB_OUT = AVATAR_HEIGHT * 1.6;
 /**
- * The swim is the walk cycle, slowed and laid forward: there is no swimming
- * clip in the cast, and a body pitched forward from the chest with its legs
- * working slowly under the surface reads as swimming from where the camera is.
- * Radians of pitch at rest (treading water) and at full speed, and the share
- * of the walk's cadence the legs keep.
+ * How hard a landing was, from the speed it came down at: an ordinary jump
+ * lands at `JUMP_SPEED` and is 0, and a fall that lands `LANDING_HARD` jumps'
+ * speed faster is 1 — about a drop of three terraces. `Avatar.land` bends the
+ * knees by it.
  */
-const SWIM_PITCH_REST = 0.18;
-const SWIM_PITCH_MOVING = 1.0;
-const SWIM_CADENCE = 0.55;
+const LANDING_HARD = 1.5;
 
 /** How fast a car's pitch follows the ground under its two axles. */
 const TILT_SMOOTHING = 10;
-/** How far the body of a car rolls in a hard turn, radians. */
-const CAR_ROLL = 0.05;
+
+/**
+ * The launch under way: how far its bow comes up onto the plane at its
+ * cruise, radians, and how much of that it gives back flat out; how fast the
+ * bow follows, per second; how much higher the hull rides on the plane, in
+ * units; the chop's pitch at speed; and the share of the full heel it leans
+ * *out* of a turn when slow (`bank`).
+ */
+const BOW_LIFT = 0.09;
+const BOW_SETTLE = 0.035;
+const BOW_SMOOTHING = 1.5;
+const BOW_RISE = 0.25;
+const CHOP = 0.012;
+const HEEL_OUT = 0.3;
+
+/**
+ * The balloon's basket on its pendulum: the pivot, as a share of the whole
+ * balloon's height — the middle of the envelope — and how far a turn swings
+ * it out, in radians per unit a second squared of the turn's pull, to a stop.
+ * The hardest turn at the cruise (`BALLOON_TURN` at `BALLOON_SPEED`) pulls
+ * 4.5, a swing of two and a half degrees.
+ */
+const BALLOON_PIVOT = 0.62;
+const BALLOON_SWING = 0.01;
+const BALLOON_SWING_MAX = 0.05;
 
 /**
  * The plane's floor in the air, over the ground, in units: its wheels are on
@@ -550,12 +579,12 @@ export function createPlayer(
 
   let state: PlayerState = 'foot';
   interface Held extends Ride {
-    /** The model's turning parts, found once: see `CraftModel.build`. */
-    props: THREE.Object3D[];
-    rotors: THREE.Object3D[];
-    wheels: THREE.Object3D[];
+    /** The model's springs, wheels and propeller: see `craft/motion.ts`. */
+    motion: CraftMotion;
   }
   let ride: Held | null = null;
+  /** What the held vehicle's motion is handed each frame, rewritten rather than made. */
+  const motionInput: MotionInput = { ...AT_REST };
   /** A plane or a balloon standing on the ground. */
   let grounded = false;
   let bodyWanted = true;
@@ -574,11 +603,20 @@ export function createPlayer(
   /** The gait's phase last frame, to see a heel strike go by. */
   let lastStep = 0;
   let lean = 0;
-  /** How far the body hangs under `position`, and how far it is pitched forward, swimming. */
+  /** How far the body hangs under `position`, swimming. */
   let sink = 0;
-  let swimPitch = SWIM_PITCH_REST;
+  /**
+   * What the walk tells the body besides its speed: how fast it turned this
+   * frame, and how far the camera looks off its facing (`MotionCues`).
+   */
+  const cues = { turn: 0, look: 0 };
   /** A car's or a taxiing plane's nose, following the ground under it. */
   let tilt = 0;
+  /** The launch's bow, up onto the plane; the balloon's swing out of a turn, and how far it hangs free. */
+  let bowLift = 0;
+  let swing = 0;
+  let aloft = 0;
+  const hangFrom = new THREE.Vector3();
 
   /** Flight state. `altitude` is above sea level, not above the ground. */
   let altitude = 0;
@@ -807,7 +845,10 @@ export function createPlayer(
       height += vertical * dt;
       if (height <= ground) {
         height = ground;
-        if (!isWater(ground)) options.onTouchdown?.(-vertical);
+        if (!isWater(ground)) {
+          options.onTouchdown?.(-vertical);
+          avatar.land((-vertical - JUMP_SPEED) / (JUMP_SPEED * LANDING_HARD));
+        }
         vertical = 0;
         airborne = false;
       }
@@ -880,6 +921,8 @@ export function createPlayer(
       turn = angleAbout(forward, facing, up) * approach(TURN_SMOOTHING, dt);
       forward.applyAxisAngle(up, turn).normalize();
     }
+    cues.turn = dt > 0 ? turn / dt : 0;
+    cues.look = angleAbout(forward, heading, up);
     const leanTarget = dt > 0
       ? clamp((-turn / dt) * velocity * LEAN_GAIN, -MAX_LEAN, MAX_LEAN)
       : 0;
@@ -1093,7 +1136,7 @@ export function createPlayer(
     let time = CAR_COAST_TIME;
     if (run) {
       wanted = PLANE_ROTATE * 1.25;
-      time = PLANE_ACCELERATION_TIME;
+      time = PLANE_RUN_TIME;
     } else if (stick.y > 0) {
       wanted = PLANE_TAXI * stick.y;
       time = CAR_ACCELERATION_TIME;
@@ -1304,12 +1347,14 @@ export function createPlayer(
   /**
    * The launch's heel, eased after its rudder.
    *
-   * A left turn is a positive `turnRate` and comes out here as a positive roll,
-   * which in `pose`'s basis leans the hull right — *out* of the turn, as a
-   * displacement hull heels. A plane rolls through `roll`, into the turn.
+   * A left turn is a positive `turnRate`, and a positive roll in `pose`'s
+   * basis leans the hull right. Slow, the launch is a displacement hull and
+   * heels a little *out* of the turn; on the plane (`pace` 1) it banks *into*
+   * it the whole `limit`, as a planing hull does, and in between it passes
+   * through upright. A plane rolls through `roll`, into the turn.
    */
-  function bank(dt: number, limit: number, rate: number): void {
-    const wanted = clamp(turnRate / rate, -1, 1) * limit;
+  function bank(dt: number, limit: number, rate: number, pace: number): void {
+    const wanted = clamp(turnRate / rate, -1, 1) * limit * (HEEL_OUT - (1 + HEEL_OUT) * pace);
     lean += (wanted - lean) * approach(BANK_SMOOTHING, dt);
   }
 
@@ -1354,13 +1399,21 @@ export function createPlayer(
     splash.scale.set(radius, mix(splashReach * SPLASH_RISE, SPLASH_FLAT, t), radius);
   }
 
-  /** The vehicle's own moving parts: propellers, rotors and wheels, at the speed it is going. */
+  /**
+   * The vehicle's own moving parts — its springs, wheels and propeller — at
+   * what it is doing: `craft/motion.ts`. A passenger does not drive, so his
+   * vehicle is handed the speed it carried him at and nothing about a wheel.
+   */
   function spin(held: Held, dt: number, speed_: number): void {
-    const engine = isAir(held.model.kind) ? !grounded || speed_ > 0.5 : true;
-    for (const prop of held.props) prop.rotation.z += engine ? dt * (8 + speed_ * 0.06) : 0;
-    for (const rotor of held.rotors) rotor.rotation.y += engine ? dt * 6 : 0;
-    const forwardSign = speed >= 0 ? 1 : -1;
-    for (const wheel of held.wheels) wheel.rotation.x += (forwardSign * speed_ * dt) / WHEEL_RADIUS;
+    const kind = held.model.kind;
+    const driving = held.seat === 0;
+    motionInput.speed = driving ? speed : speed_;
+    motionInput.turnRate = driving ? turnRate : 0;
+    motionInput.steering = driving ? steering : 0;
+    motionInput.grounded = isAir(kind) ? grounded : !airborne;
+    motionInput.engine = true;
+    motionInput.moored = false;
+    held.motion.update(dt, motionInput);
   }
 
   function poseRide(held: Held, dt: number, speed_: number): void {
@@ -1374,13 +1427,21 @@ export function createPlayer(
     spin(held, dt, speed_);
 
     if (kind === 'boat') {
-      bank(dt, BOAT_HEEL, BOAT_TURN);
-      // A swell, so a moored boat is not a parked box. Two frequencies that do
-      // not divide, or the roll and the pitch beat together and it reads as a
-      // loop.
-      const heel = lean + Math.sin(swell * 0.9) * 0.05;
-      craft.position.y = Math.sin(swell * 1.3) * 0.18;
-      craft.rotation.set(Math.sin(swell * 0.7) * 0.035, 0, heel);
+      // How far onto the plane the launch is: 0 standing, 1 at its cruise.
+      const pace = clamp(Math.abs(speed_) / BOAT_SPEED, 0, 1);
+      bank(dt, BOAT_HEEL, BOAT_TURN, pace);
+      // The bow comes up as the hull climbs onto the plane and settles a
+      // little once it is over the hump, eased like the hull's own weight.
+      const wanted = BOW_LIFT * pace - BOW_SETTLE * clamp((speed_ - BOAT_SPEED) / (BOAT_BOOST - BOAT_SPEED), 0, 1);
+      bowLift += (wanted - bowLift) * approach(BOW_SMOOTHING, dt);
+      // A swell, so a moored boat is not a parked box: two frequencies that
+      // do not divide, or the roll and the pitch beat together and it reads
+      // as a loop. Under way the long swell gives way to a quick chop, and
+      // the hull rides higher on the plane.
+      const calm = 1 - 0.5 * pace;
+      const heel = lean + Math.sin(swell * 0.9) * 0.05 * calm;
+      craft.position.y = Math.sin(swell * 1.3) * 0.18 * calm + BOW_RISE * pace;
+      craft.rotation.set(Math.sin(swell * 0.7) * 0.035 * calm + Math.sin(swell * 3.1) * CHOP * pace - bowLift, 0, heel);
       return;
     }
     if (kind === 'plane' && !grounded) {
@@ -1396,15 +1457,24 @@ export function createPlayer(
       return;
     }
     if (kind === 'balloon') {
-      // A basket hangs: a slow pendulum, and nothing else.
-      craft.rotation.set(Math.sin(swell * 0.6) * 0.02, 0, Math.sin(swell * 0.45) * 0.03);
+      // A basket hangs from its envelope: a slow pendulum about the middle of
+      // the envelope, swung out of a turn, and still once it is standing on
+      // its skids. Out of a turn is to the right of a left one, which about a
+      // pivot overhead is a negative roll.
+      aloft += ((grounded ? 0 : 1) - aloft) * approach(1, dt);
+      const out = -clamp(turnRate * speed_ * BALLOON_SWING, -BALLOON_SWING_MAX, BALLOON_SWING_MAX);
+      swing += (out - swing) * approach(0.8, dt);
+      craft.rotation.set(Math.sin(swell * 0.6) * 0.02 * aloft, 0, (Math.sin(swell * 0.45) * 0.03 + swing) * aloft);
+      const pivot = held.model.size[2] * BALLOON_PIVOT;
+      hangFrom.set(0, pivot, 0).applyEuler(craft.rotation);
+      craft.position.set(-hangFrom.x, pivot - hangFrom.y, -hangFrom.z);
       return;
     }
-    // On wheels: the nose on the ground's slope and a little body roll out of
-    // a hard turn.
-    const rollTarget = clamp((turnRate * speed_) / (CAR_TURN * CAR_SPEED), -1, 1) * CAR_ROLL;
-    lean += (rollTarget - lean) * approach(BANK_SMOOTHING, dt);
-    craft.rotation.set(tilt, 0, lean);
+    // On wheels: the nose on the ground's slope. How the body sits on its
+    // springs — the roll out of a turn, the squat and the dive — is the
+    // model's own motion (`spin`), under the pose rather than in it.
+    lean = 0;
+    craft.rotation.set(tilt, 0, 0);
   }
 
   function pose(dt: number, speed_: number): void {
@@ -1433,14 +1503,12 @@ export function createPlayer(
     }
 
     if (state === 'swim') {
-      // The walk, slowed and laid forward from the chest, which is at the
-      // surface: see `SWIM_PITCH_REST`.
+      // The group hangs chest deep, which is what the camera frames; the
+      // body's own clips, a crawl and treading water, are drawn with the
+      // waterline at their origin, and `swim` gives the depth back to them.
       sink += (SWIM_DEPTH - sink) * approach(SINK_RATE, dt);
-      avatar.stride(dt, speed_ * SWIM_CADENCE, false);
-      const pace = clamp(speed_ / SWIM_SPEED, 0, 1);
-      swimPitch += (mix(SWIM_PITCH_REST, SWIM_PITCH_MOVING, pace) - swimPitch) * approach(3, dt);
+      avatar.swim(dt, speed_, sink);
       swell += dt;
-      seat.rotation.x = swimPitch;
       hang.position.y = -sink;
       craft.position.y = Math.sin(swell * 1.7) * 0.08;
       craft.rotation.z = lean * 0.5;
@@ -1453,7 +1521,7 @@ export function createPlayer(
     hang.position.y = -sink;
     // On foot the avatar owns its own vertical bob and lateral sway, so `craft`
     // carries only the roll of a turn.
-    avatar.stride(dt, speed_, airborne);
+    avatar.stride(dt, speed_, airborne, cues);
     // A heel strike at each half of the cycle; see `Avatar.phase`.
     const stepPhase = avatar.phase;
     if (!airborne && speed_ > WALK_SPEED * 0.3 && (stepPhase < lastStep || (lastStep < 0.5 && stepPhase >= 0.5))) {
@@ -1472,6 +1540,9 @@ export function createPlayer(
     airborne = false;
     lean = 0;
     tilt = 0;
+    bowLift = 0;
+    swing = 0;
+    aloft = 0;
     turnRate = 0;
     roll = 0;
     climbRate = 0;
@@ -1560,12 +1631,7 @@ export function createPlayer(
     },
     board(next, at) {
       dropRide();
-      const held: Held = { ...next, props: [], rotors: [], wheels: [] };
-      next.group.traverse((part) => {
-        if (part.name === 'prop') held.props.push(part);
-        else if (part.name === 'rotor') held.rotors.push(part);
-        else if (part.name === 'wheel') held.wheels.push(part);
-      });
+      const held: Held = { ...next, motion: motionOf(next.group, next.model) };
       ride = held;
       state = 'seated';
       still();

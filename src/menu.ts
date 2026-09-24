@@ -218,6 +218,11 @@ export interface MenuDeps {
   draw(scene: THREE.Scene, camera: THREE.Camera): void;
   /** Where `Continue` goes when nothing is remembered. `main.ts`'s `START`. */
   fallback: { lat: number; lon: number; name: string };
+  /**
+   * The traveller's card (`traveller.ts`), which the menu has a button for.
+   * While it is up the menu leaves the keys alone. Omit it and there is no button.
+   */
+  traveller?: { show(): void; readonly open: boolean };
   /** The sky's clock. The planets are laid out for it and the town card reads it. */
   time(): Date;
   /** The sun `sun.ts` lights the land by, for `verify()`'s witness. */
@@ -1373,7 +1378,12 @@ export function createMenu(deps: MenuDeps): Menu {
     h('label', { class: 'm-search-box ui-card' }, icon('search', 19), searchInput, kbd('/')),
     results,
   );
-  const topRight = h('div', { class: 'm-top-right m-chrome' }, continueButton, search);
+  const travellerButton =
+    deps.traveller === undefined
+      ? null
+      : h('button', { class: 'ui-btn m-traveller m-fade', title: 'How you look to everyone else' }, icon('walk', 16), 'Your traveller');
+  travellerButton?.addEventListener('click', () => deps.traveller?.show());
+  const topRight = h('div', { class: 'm-top-right m-chrome' }, continueButton, travellerButton, search);
 
   const dock = h('div', { class: 'm-dock m-fade m-chrome' });
   const info = h('div', { class: 'm-info ui-card m-fade m-chrome' });
@@ -2044,6 +2054,7 @@ export function createMenu(deps: MenuDeps): Menu {
     setOff(back, !(stage !== 'system' && open));
     setOff(search, !(open && stage !== 'planet'));
     setOff(continueButton, !open);
+    if (travellerButton !== null) setOff(travellerButton, !open);
     setOff(select, !(open ? stage === 'site' && picked !== null && !flying : true));
     setOff(progressPill, built || !open);
     if (flying || !open) closeResults();
@@ -2734,6 +2745,8 @@ export function createMenu(deps: MenuDeps): Menu {
 
   addEventListener('keydown', (event) => {
     if (chosen !== null) return;
+    // The card holds the keyboard: its Escape closes it, not a stage of this.
+    if (deps.traveller?.open === true) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (document.activeElement === searchInput) return;
     touch();

@@ -22,13 +22,16 @@ import { PerspectiveCamera, Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
-import { indexPlaces, terrainSiteOf } from '../src/places.ts';
+import { indexPlaces, radiusOf, terrainSiteOf } from '../src/places.ts';
 import { ROAD_CLASSES, courseOf, coursePath, coursePoint, emptyCourse, parameterAt } from '../src/roads.ts';
 import type { Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { createLife, emptyFrame, mergeGroup, poseAt, rigOf, roadFrameOf } from '../src/life.ts';
 import { setDetail } from '../src/view.ts';
 import { unitAt } from '../src/sphere.ts';
+import { THROUGH_HALF_WIDTH, gatesOf, mainStreetHalf, onThroughRoad, townGrid } from '../src/scenery/grid.ts';
+import { driveThrough, streetCost, streetPose } from '../src/through.ts';
+import type { StreetPose } from '../src/through.ts';
 import { PLACED_LENGTH_CAP, PLACED_SECTION, placedScale, placedSize } from '../src/traffic/contract.ts';
 import { FIGURE } from '../src/avatar.ts';
 import type { Vehicle } from '../src/traffic/contract.ts';
@@ -352,6 +355,155 @@ check(worstStep < 3, 'the ground under a walker never steps more than three unit
 
 console.log('');
 
+// --- through a town -------------------------------------------------------
+//
+// A car used to vanish at one gate of a town and appear at the next. Now it
+// drives the main streets between them, and turns round in one where its
+// route ends (`through.ts`) — so the plan of every drive is asserted against
+// the square it is laid in: the car's whole width on the street paving, clear
+// of every building plot, which a street band never is; inside the through
+// carriageway the town keeps clear of parked cars and people once the lane
+// change at the gate is done; and no jump anywhere along it. The heights are
+// the standing town's floor, which only the browser has.
+
+console.log('through a town:');
+{
+  const pose: StreetPose = { x: 0, z: 0, fx: 0, fz: 1, mx: 0, mz: 1 };
+  const before: StreetPose = { x: 0, z: 0, fx: 0, fz: 1, mx: 0, mz: 1 };
+  const LANE = 7.2 * 0.26;
+  let drives = 0;
+  let turns = 0;
+  let samples = 0;
+  let offPaving = 0;
+  let offCarriage = 0;
+  let worstJump = 0;
+  let worstTurn = 0;
+  let worstOut = 0;
+  const regions = new Map<string, number>([['atlantic-europe', 9.75], ['mediterranean', 7.5], ['polar', 12]]);
+  const seen = new Set<number>();
+  for (let i = 0; i < roads.length && seen.size < 120; i += 41) {
+    for (const town of [roads[i]!.a, roads[i]!.b]) {
+      const radius = radiusOf(places[town]!);
+      if (seen.has(radius)) continue;
+      seen.add(radius);
+      const grid = townGrid(radius);
+      const gates = gatesOf(grid);
+      for (const street of regions.values()) {
+        const half = mainStreetHalf(grid, street);
+        for (const side of [1, -1]) {
+          for (let from = 0; from < gates.length; from++) {
+            for (let to = 0; to < gates.length; to++) {
+              const legs = driveThrough(grid, gates, from, to, half, LANE, side);
+              if (legs === null) continue;
+              if (from === to) turns++;
+              else drives++;
+              const cost = streetCost(legs);
+              const steps = Math.ceil(cost / 0.25);
+              for (const back of from === to ? [false] : [false, true]) {
+                for (let k = 0; k <= steps; k++) {
+                  streetPose(legs, (k / steps) * cost, back, pose);
+                  if (k > 0) {
+                    worstJump = Math.max(worstJump, Math.hypot(pose.x - before.x, pose.z - before.z));
+                    worstTurn = Math.max(worstTurn, Math.acos(Math.max(-1, Math.min(1, pose.fx * before.fx + pose.fz * before.fz))));
+                  }
+                  Object.assign(before, pose);
+                  samples++;
+                  // The car's width, across the way it faces.
+                  const blend = Math.abs(pose.x) > grid.half - 6.5 || Math.abs(pose.z) > grid.half - 6.5;
+                  for (const across of [-THROUGH_HALF_WIDTH, 0, THROUGH_HALF_WIDTH]) {
+                    const x = pose.x + pose.fz * across;
+                    const z = pose.z - pose.fx * across;
+                    worstOut = Math.max(worstOut, Math.max(Math.abs(x), Math.abs(z)) - grid.half);
+                    // At the gate the lane changes from the road's to the
+                    // street's, over `LANE_BLEND`: the centre line is what has
+                    // to be on the paving there, and the car's width beyond it.
+                    if (blend && across !== 0) continue;
+                    const paving = Math.min(Math.abs(x), Math.abs(z)) <= half + 1e-6;
+                    if (!paving) offPaving++;
+                    else if (!blend && !onThroughRoad(x, z, half, 1e-6)) offCarriage++;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  console.log(
+    `  ${seen.size} squares, ${drives} drives and ${turns} turns laid out, ${samples.toLocaleString()} samples; ` +
+    `worst step ${worstJump.toFixed(2)} units in 0.25 of route, worst turn ${(worstTurn * 180 / Math.PI).toFixed(1)} degrees`,
+  );
+  check(drives > 0 && turns > 0, 'towns are driven through and turned round in');
+  check(offPaving === 0, 'a vehicle in a town is on its street paving, never on a plot', `${offPaving} of ${samples} samples off it`);
+  check(offCarriage === 0, 'and past the gate inside the carriageway the town keeps clear', `${offCarriage} outside it`);
+  check(worstOut <= 1e-6, 'and never past the edge of the square', `worst ${worstOut.toFixed(3)} past it`);
+  check(worstJump < 0.5 && worstTurn < 0.35, 'and never jumps or snaps round on the way',
+    `${worstJump.toFixed(2)} units and ${(worstTurn * 180 / Math.PI).toFixed(1)} degrees in the worst quarter-unit of route`);
+
+  // And driven: a world whose towns all stand, on a stand-in floor three
+  // units over the ground, and a quarter of an hour of the clock at twenty
+  // frames a second. Every vehicle drawn in two frames running has moved
+  // along the ground no faster than a road allows and turned no faster than a
+  // car can, in town or out of it. How high it rides in a town is the real
+  // floor's, which the browser has and this does not.
+  const floored = createLife(world, places, {
+    roads, vehicles,
+    streets: {
+      floorAt: (direction) => PLANET_RADIUS + Math.max(0, world.elevationAt(direction)) + 3,
+      blocked: () => false,
+    },
+  });
+  setDetail(3);
+  const spot = spots[0]!;
+  const dir = dirAt(spot.lat, spot.lon);
+  const viewer = dir.clone().multiplyScalar(PLANET_RADIUS + Math.max(0, world.elevationAt(dir)) + spot.altitude);
+  const was = new Map<string, { p: Vector3; q: Vector3 }>();
+  const up = new Vector3();
+  // The fastest a vehicle is asked to go: a trunk's 50 and its seeded spread
+  // of 16% (`ROAD_SPEED` in `life.ts`).
+  const ROAD_TOP = 50 * 1.16;
+  let inTown = 0;
+  let turning = 0;
+  let driven = 0;
+  let fastest = 0;
+  let sharpest = 0;
+  const STEP = 0.05;
+  for (let frame = 0; frame < 900 * 20; frame += 1) {
+    floored.update(viewer, spot.altitude, undefined, 4_000_000 + frame * STEP, STEP);
+    inTown += floored.stats.inTown;
+    driven += floored.stats.road;
+    turning += floored.stats.turning;
+    for (const child of floored.group.children) {
+      if (!child.visible || !child.name.startsWith('road:')) continue;
+      const facing = new Vector3(0, 0, 1).applyQuaternion(child.quaternion);
+      const last = was.get(child.name);
+      if (last !== undefined) {
+        // Along the ground: the height in a town here is the stand-in floor,
+        // and the ribbon climbs to the real one at the gate.
+        const moved = child.position.clone().sub(last.p);
+        moved.addScaledVector(up, -moved.dot(up.copy(last.p).normalize()));
+        fastest = Math.max(fastest, moved.length() / STEP);
+        sharpest = Math.max(sharpest, last.q.angleTo(facing) / STEP);
+      }
+      was.set(child.name, { p: child.position.clone(), q: facing });
+    }
+    for (const name of [...was.keys()]) {
+      if (!floored.group.children.some((child) => child.name === name && child.visible)) was.delete(name);
+    }
+  }
+  setDetail(1);
+  console.log(
+    `  driven at Ulm: ${driven.toLocaleString()} vehicle-frames, ${inTown.toLocaleString()} on a town's streets, ` +
+    `${turning.toLocaleString()} turning round; ` +
+    `fastest ${fastest.toFixed(1)} units a second, sharpest turn ${(sharpest * 180 / Math.PI).toFixed(0)} degrees a second`,
+  );
+  check(inTown > 0 && turning > 0, 'vehicles drive into the towns and turn round in them, drawn');
+  check(fastest < ROAD_TOP * 1.25, 'and no vehicle jumps, on a road, in a town or turning', `${fastest.toFixed(1)} against ${ROAD_TOP}`);
+  check(sharpest < 540 * Math.PI / 180, 'and none snaps round', `${(sharpest * 180 / Math.PI).toFixed(0)} degrees a second`);
+}
+console.log('');
+
 // --- one second of the clock ----------------------------------------------
 //
 // **The one thing a still frame cannot show, as a table.** Everything here is a
@@ -452,11 +604,14 @@ console.log('what one second of the clock moves:');
   // that cannot reach `MIN_ROUTE` is travelled in `MIN_SECONDS` instead, so the
   // floor is not the class speed. The ceiling is the class speed with room to
   // spare: a mover reads a measured `coursePath` now, so there is no bow ripple
-  // left in it (`arcParameter` had taken it from 15% to 3%), and a crossing of a
-  // town between two gates is hidden for exactly the time its streets take, so
-  // the jump from one gate to the next is never faster than the walk.
+  // left in it (`arcParameter` had taken it from 15% to 3%), and a walker's
+  // crossing of a town between two gates is hidden for exactly the time its
+  // streets take, so the jump from one gate to the next is never faster than
+  // the walk. A vehicle drives it (see *through a town*); here, with no floor
+  // handed in, a vehicle in a town is hidden, and a road mover's median can be
+  // a car stopped in a turn, which that section measures instead.
   const wanted: Record<string, [number, number]> = {
-    road: [5, 130], foot: [1.5, 10], water: [10, 25],
+    road: [0, 130], foot: [1.5, 10], water: [10, 25],
   };
   for (const [family, list] of moved) {
     list.sort((a, b) => a - b);

@@ -9,17 +9,20 @@
  * `SEAT_SHIN`) with its hips put on `FIGURE.hipY`. Measured in Node on
  * 2026-09-24 with the skeleton updated before the box was read — a skinned
  * body's precise box is read through its bone matrices, which only a render
- * or `skeleton.update()` refreshes — it is:
+ * or `skeleton.update()` refreshes — and again the same day, once the hero
+ * wore the pack's own rucksack and the cast was scaled sole to crown in its
+ * bind pose (`BODY_HEIGHT` in `cast.ts`), which made him 2% smaller and the
+ * rucksack 0.07 shallower; the knee's two rows are the first measurement's:
  *
  * ```
  *                     seated, about the hip     standing, about the soles
- *   crown             +2.01  (0.533 H)          3.83   (1.016 H, the tuft)
- *   sole              -1.07  (0.284 H)             0
- *   toe, ahead        +1.41  (0.374 H)          +0.59  (0.157 H, the pack's
+ *   crown             +1.96  (0.520 H)          3.75   (0.995 H)
+ *   sole              -1.05  (0.279 H)             0
+ *   toe, ahead        +1.37  (0.363 H)          +0.58  (0.154 H, the pack's
  *   knee, ahead       +0.98  (0.260 H)                  depth either way)
  *   knee, above       +0.25  (0.066 H)
- *   back, behind      -0.71  (0.188 H, the pack)
- *   half-width         0.56  (0.149 H)           0.56  (0.149 H)
+ *   back, behind      -0.64  (0.170 H, the pack)
+ *   half-width         0.55  (0.146 H)           0.55  (0.146 H)
  * ```
  *
  * The crowd's `SEATED` would put the sole 0.97 under the hip, the toe 1.09
@@ -45,15 +48,15 @@ const H = AVATAR_HEIGHT;
 
 /** The hero seated, about the hip, and standing, about the soles. See above. */
 export const HERO = {
-  crown: 0.533 * H,
-  sole: 0.284 * H,
-  toe: 0.374 * H,
+  crown: 0.52 * H,
+  sole: 0.279 * H,
+  toe: 0.363 * H,
   knee: 0.26 * H,
   kneeTop: 0.066 * H,
-  back: 0.188 * H,
-  half: 0.149 * H,
-  standing: 1.016 * H,
-  depth: 0.157 * H,
+  back: 0.17 * H,
+  half: 0.146 * H,
+  standing: 0.995 * H,
+  depth: 0.154 * H,
 } as const;
 
 /**

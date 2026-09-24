@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone as cloneRig } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { tone } from './monuments/contract.ts';
 import { inflate } from './pack.ts';
+import { PALETTE } from './theme.ts';
 
 /**
  * The cast: the people of this world, as authored skinned characters.
@@ -18,11 +20,29 @@ import { inflate } from './pack.ts';
  * women (`scripts/build-cast.mjs`): fifteen outfits on one 62-joint rig, and
  * the pack's own idle, walk, run and gesture clips.
  *
+ * ## An outfit is four parts, and the parts mix
+ *
+ * Every outfit in the pack is a head (with its hair or hat), a top (the torso,
+ * the arms and the hands), a bottom and a pair of shoes, each a skinned mesh
+ * of its own, and the man's adventurer carries a rucksack as a fifth. The pack
+ * is modular on purpose: **every man is skinned to one rig and every woman to
+ * another** — the same 62 joints in the same order and inverse bind matrices
+ * equal to the last bit within a body (checked against the source files on
+ * 2026-09-24), different between the two — so any man's head goes on any
+ * man's top, trousers and shoes, and the seams meet. A `Wardrobe` is that
+ * choice, one `WornPart` a slot; an `OutfitId` alone is the pack's own
+ * outfit, every part of it, which is what the crowd wears.
+ *
+ * The rucksack is the one part that crosses the two rigs. It hangs off the
+ * chest, which both rigs have in the same place in their joint list, so it is
+ * skinned correctly on a woman too; it is only moved to meet her back
+ * (`PACK_FIT`), which is a little further forward than a man's.
+ *
  * ## What the world does to them
  *
  * - **One mesh, one material, one draw call** (two with the ink). A pack
  *   character is four meshes and up to eleven materials; drawn as shipped that
- *   is twenty-two calls a person. Every primitive is merged into one geometry
+ *   is twenty-two calls a person. Every chosen part is merged into one geometry
  *   whose colours are vertex colours, which is also what lets two people in the
  *   same outfit wear different clothes: `make` paints a fresh colour attribute
  *   over shared positions, normals and weights.
@@ -31,8 +51,12 @@ import { inflate } from './pack.ts';
  *   `soft.ts` finding — and fully smoothed, the flat planes of a jacket go
  *   blotchy. Welding every edge under 50 degrees keeps the planes and closes the
  *   hull, the way the world's own faceted buildings are drawn.
- * - **The world's ramp and pen.** Materials are `MeshToonMaterial` on the ramp
- *   `createContext` shares, with the same ink as everything else.
+ * - **The world's ramp, pen and palette.** Materials are `MeshToonMaterial` on
+ *   the ramp `createContext` shares, with the same ink as everything else, and
+ *   every colour is the world's: what a person chooses or is dressed in goes
+ *   onto the surfaces `roleOf` names, and every other surface — a tie, a
+ *   buckle, a hard hat — is the pack's own colour moved onto the nearest entry
+ *   of the palette (`paletteOf`).
  */
 
 export const OUTFITS = [
@@ -54,25 +78,331 @@ export const OUTFITS = [
 ] as const;
 export type OutfitId = (typeof OUTFITS)[number];
 
-export const CLIPS = ['Idle', 'Idle_Neutral', 'Walk', 'Run', 'Wave', 'Interact', 'Roll', 'Jump_Start', 'Jump', 'Jump_Land'] as const;
+/** Which of the two rigs an outfit is on. */
+export type BodyKind = 'man' | 'woman';
+export const bodyOf = (outfit: OutfitId): BodyKind => (outfit.startsWith('woman') ? 'woman' : 'man');
+
+/** The slots an outfit is cut into, in the order a wardrobe lists them. */
+export const PARTS = ['head', 'top', 'bottom', 'feet', 'pack'] as const;
+export type PartName = (typeof PARTS)[number];
+
+/** One part of one outfit, worn. */
+export interface WornPart {
+  outfit: OutfitId;
+  part: PartName;
+}
+
+/** Parts chosen from any outfits of one body, at most one a slot. */
+export type Wardrobe = readonly WornPart[];
+
+/**
+ * Which part a pack mesh is, by its node's name: `Casual_Head`, `Suit_Body`,
+ * `Farmer_Pants`, `Backpack` (and the pack's own typo, `Formad_Head`).
+ */
+function partOf(node: string): PartName | null {
+  if (/_Head$/.test(node)) return 'head';
+  if (/_Body$/.test(node)) return 'top';
+  if (/_(Legs|Pants)$/.test(node)) return 'bottom';
+  if (/_Feet$/.test(node)) return 'feet';
+  if (/^Backpack$/.test(node)) return 'pack';
+  return null;
+}
+
+/**
+ * Every clip a person can play: the pack's seven, then the Universal Animation
+ * Library's retargeted onto the same rig (`scripts/retarget-clips.ts`) — the
+ * jump and its landing, the stroke and treading water, talking, and a second
+ * idle.
+ */
+export const CLIPS = [
+  'Idle',
+  'Idle_Neutral',
+  'Walk',
+  'Run',
+  'Wave',
+  'Interact',
+  'Roll',
+  'Jump_Start',
+  'Jump',
+  'Jump_Land',
+  'Swim',
+  'Swim_Idle',
+  'Talk',
+  'Idle_Shift',
+] as const;
 export type ClipName = (typeof CLIPS)[number];
 
 /** Where the baked files live, relative to the site root. */
 const BASE = `${import.meta.env?.BASE_URL ?? '/'}models/cast/`;
 
-/** Below this, in the pack's own metres, a vertex is part of a shoe. */
-const FEET_Y = 0.11;
-
 /** Faces meeting at less than this share a normal. See the note on creased normals. */
 const CREASE = (50 * Math.PI) / 180;
 
 /**
+ * How tall each body is drawn from, sole to crown, in the pack's metres: what
+ * `make`'s `height` is a share of. Measured off the bake on 2026-09-24 — the
+ * man in a hoodie 1.8704 and the woman in her casual clothes 1.8521, each
+ * from the lowest sole to the top of the hair.
+ *
+ * **One number a body, not a box a person**, and it was a box until the
+ * parts mixed: every outfit was scaled by its own bounds, so a punk's mohawk
+ * (1.97 over the sole) made the body under it six per cent smaller than a man
+ * in a suit, and a traveller who tried a hat on would have shrunk.
+ */
+export const BODY_HEIGHT: Readonly<Record<BodyKind, number>> = { man: 1.8704, woman: 1.8521 };
+
+/**
+ * How far the rucksack, which is cut to the man's back, is moved to sit on a
+ * woman's, in the pack's metres. Her back is five centimetres further forward
+ * at the chest and her shoulders three lower, and at no offset the straps
+ * stood off her shoulders (seen side-on in an offline render on 2026-09-24).
+ */
+const PACK_FIT: Readonly<Record<BodyKind, readonly [number, number, number]>> = {
+  man: [0, 0, 0],
+  woman: [0, -0.03, 0.05],
+};
+
+/**
  * Turns a material's colour into the one this person wears, or `null` to keep
  * the pack's own. Called with the pack's material name — `Skin`, `Hair`,
- * `Purple`, `Worker_Vest` — which is the only handle the pack gives on what a
- * surface is.
+ * `Purple`, `Worker_Vest` — and the part it is on, which between them are the
+ * only handle the pack gives on what a surface is. `roleOf` reads them;
+ * `paintWith` is the paint almost every caller wants.
  */
-export type Paint = (material: string, original: THREE.Color) => number | THREE.Color | null;
+export type Paint = (material: string, original: THREE.Color, worn: WornPart) => number | THREE.Color | null;
+
+// ---------------------------------------------------------------------------
+// What each surface is
+// ---------------------------------------------------------------------------
+
+/**
+ * What a surface of a part is, for whoever colours it. `keep` is a detail of
+ * the outfit that stays its own colour (on the palette); `-light` and `-dark`
+ * are a second cloth on the same garment, drawn as a tone of the first so the
+ * garment stays one garment whatever colour it is.
+ */
+export type Role =
+  | 'skin'
+  | 'stubble'
+  | 'beard'
+  | 'hair'
+  | 'hair-dark'
+  | 'eye'
+  | 'top'
+  | 'top-light'
+  | 'top-dark'
+  | 'bottom'
+  | 'bottom-dark'
+  | 'shoes'
+  | 'shoes-light'
+  | 'shoes-dark'
+  | 'pack'
+  | 'pack-light'
+  | 'pack-dark'
+  | 'keep';
+
+/**
+ * The surfaces whose names say what they are in every outfit of the pack.
+ * `Brown` on a woman's head is her eyes and on her boots is leather, so a
+ * colour name alone is never one of these.
+ */
+const GENERIC: ReadonlyMap<string, Role> = new Map<string, Role>([
+  ['Skin', 'skin'],
+  ['Skin_Darker', 'stubble'],
+  ['Eye', 'eye'],
+  ['Eyebrows', 'hair'],
+  ['Hair', 'hair'],
+  ['Hair_Brown', 'hair'],
+  ['Hair_Blond', 'hair'],
+  ['Moustache', 'beard'],
+  ['Earrings', 'keep'],
+]);
+
+/**
+ * Every other surface of every part, by outfit and part, read off the pack's
+ * files and an offline render of each part (2026-09-24). `pnpm people` fails
+ * on a material this table and `GENERIC` do not name, so a re-bake from a
+ * newer pack cannot quietly paint a hat in a shirt's colour.
+ */
+const ROLES: Readonly<Record<string, Readonly<Record<string, Role>>>> = {
+  'man-adventurer/top': { Green: 'top', LightGreen: 'top-light' },
+  'man-adventurer/bottom': { Brown: 'bottom', Brown2: 'bottom-dark' },
+  'man-adventurer/feet': { Grey: 'shoes', Black: 'keep' },
+  'man-adventurer/pack': { LightGreen: 'pack', Green: 'pack-dark', Gold: 'pack-light', Brown: 'keep' },
+  'man-beach/top': { LightBrown: 'top' },
+  'man-beach/bottom': { Red_Dark: 'bottom', White: 'keep' },
+  'man-beach/feet': { Red_Dark: 'shoes' },
+  'man-casual/top': { LightBrown: 'top' },
+  'man-casual/bottom': { LightBlue: 'bottom' },
+  'man-casual/feet': { Red_Dark: 'shoes', White: 'keep' },
+  'man-hoodie/top': { Purple: 'top' },
+  'man-hoodie/bottom': { LightBlue: 'bottom' },
+  'man-hoodie/feet': { Purple: 'shoes', White: 'keep' },
+  // The straw hat and its band.
+  'man-farmer/head': { Beige: 'keep', Red: 'keep' },
+  // The dungarees' bib is on the torso and is the trousers' cloth.
+  'man-farmer/top': { Brown: 'top', LightBlue: 'bottom', Beige: 'keep' },
+  'man-farmer/bottom': { LightBlue: 'bottom' },
+  'man-farmer/feet': { Brown: 'shoes', Brown2: 'shoes-dark' },
+  // The crest and the shaved sides under it.
+  'man-punk/head': { Red: 'hair', Red_Dark: 'hair-dark' },
+  // A leather waistcoat over a white shirt: the waistcoat is the top.
+  'man-punk/top': { Black: 'top', White: 'keep' },
+  'man-punk/bottom': { LightBlue: 'bottom' },
+  'man-punk/feet': { Black: 'shoes' },
+  'man-suit/top': { Suit: 'top', White: 'keep', Tie: 'keep' },
+  'man-suit/bottom': { Suit: 'bottom' },
+  'man-suit/feet': { Black: 'shoes' },
+  'man-worker/head': { Worker_Yellow: 'keep' },
+  'man-worker/top': { Worker_Vest: 'top', Worker_Yellow: 'keep', LightBrown: 'keep' },
+  'man-worker/bottom': { Brown: 'bottom', Brown2: 'bottom-dark' },
+  'man-worker/feet': { Grey: 'shoes', Black: 'keep' },
+  'woman-adventurer/head': { Brown: 'eye' },
+  'woman-adventurer/top': { LightGreen: 'top', Green: 'top-dark', White: 'keep', Brown2: 'keep', Gold: 'keep' },
+  // The tunic's hem comes down over the shorts, in the tunic's cloth.
+  'woman-adventurer/bottom': { Brown_02: 'bottom', Brown2: 'bottom-dark', LightGreen: 'top', White: 'keep', Gold: 'keep' },
+  'woman-adventurer/feet': { Brown_02: 'shoes', Brown2: 'shoes-dark' },
+  'woman-casual/head': { Brown: 'eye' },
+  'woman-casual/top': { White: 'top' },
+  'woman-casual/bottom': { Orange: 'bottom' },
+  'woman-casual/feet': { Grey: 'shoes' },
+  // Her hair is the pack's `Red`.
+  'woman-formal/head': { Brown: 'eye', Red: 'hair' },
+  'woman-formal/top': { LimeGreen: 'top', Gold: 'keep' },
+  'woman-formal/bottom': { LimeGreen: 'bottom' },
+  'woman-formal/feet': { Red: 'shoes' },
+  // Grey hair (`White`) under a brown hood.
+  'woman-medieval/head': { Brown: 'eye', White: 'hair', DarkBrown: 'keep', Black: 'keep' },
+  'woman-medieval/top': { DarkBrown: 'top', LightBrown: 'top-light', Black: 'keep', Gold: 'keep', Metal: 'keep' },
+  'woman-medieval/bottom': { Black: 'bottom' },
+  'woman-medieval/feet': { DarkBrown: 'shoes', LightBrown: 'shoes-light' },
+  'woman-punk/head': { Brown: 'eye', Pink: 'hair', Black: 'keep' },
+  'woman-punk/top': { Pink: 'top', Black: 'keep' },
+  'woman-punk/bottom': { Black: 'bottom' },
+  'woman-punk/feet': { Black: 'shoes', Grey: 'keep' },
+  'woman-suit/head': { Brown: 'eye' },
+  'woman-suit/top': { Black: 'top', White: 'keep' },
+  'woman-suit/bottom': { Black: 'bottom' },
+  'woman-suit/feet': { Black: 'shoes' },
+  'woman-worker/head': { Brown: 'eye', DarkBrown: 'hair', Worker_Yellow: 'keep' },
+  'woman-worker/top': { Worker_Vest: 'top', White: 'keep', Worker_Yellow: 'keep' },
+  'woman-worker/bottom': { Brown_02: 'bottom', Brown2: 'bottom-dark' },
+  'woman-worker/feet': { Black: 'shoes' },
+};
+
+/** What a surface is, or `null` for one nobody has named; `paintWith` keeps those. */
+export function roleOf(worn: WornPart, material: string): Role | null {
+  return ROLES[`${worn.outfit}/${worn.part}`]?.[material] ?? GENERIC.get(material) ?? null;
+}
+
+/** The palette's own values, to tell a colour that may be toned from one that may not. */
+const PALETTE_VALUES = new Set<number>(Object.values(PALETTE));
+
+/**
+ * The entries a surface the pack coloured may be moved onto: every one but
+ * `ink`, which is the pen's. A dark band of ink on a body is read as a line
+ * before it is read as cloth — the lesson the tower blocks' black glazing
+ * taught — so the suit's black goes to the nearest dark that is not the pen.
+ */
+const SNAP: readonly number[] = Object.values(PALETTE).filter((value) => value !== PALETTE.ink);
+const snapped = new Map<number, number>();
+
+/** The palette entry nearest the pack's own colour, compared in sRGB. */
+export function paletteOf(original: THREE.Color): number {
+  const hex = original.getHex();
+  const known = snapped.get(hex);
+  if (known !== undefined) return known;
+  const channel = (value: number, shift: number) => (value >> shift) & 255;
+  let best = SNAP[0]!;
+  let bestD = Infinity;
+  for (const candidate of SNAP) {
+    const d =
+      (channel(hex, 16) - channel(candidate, 16)) ** 2 +
+      (channel(hex, 8) - channel(candidate, 8)) ** 2 +
+      (channel(hex, 0) - channel(candidate, 0)) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = candidate;
+    }
+  }
+  snapped.set(hex, best);
+  return best;
+}
+
+/**
+ * Skin, as the cast wears it. `dress.ts`'s ramp is the right set of people and
+ * one of its entries is the wrong colour here: `tan` goes olive on a large
+ * smooth face under the blue fill light, where it was a few pixels of prism
+ * before. It is swapped for a warm tone of the same weight; the others stand.
+ * The crowd and the traveller's card both read it.
+ */
+export const castSkin = (color: number): number => (color === PALETTE.tan ? tone(PALETTE.apricot, 0.8) : color);
+
+/** A second cloth of a garment, a tone of the first; a colour off the palette is left as it is. */
+const shade = (color: number, factor: number): number => (PALETTE_VALUES.has(color) ? tone(color, factor) : color);
+
+/** The colours one person wears, by role. Every one a palette entry or a tone of one. */
+export interface Colours {
+  skin: number;
+  hair: number;
+  /** The eyes: `ink` for everybody, which is what the pack's own dots are drawn as. */
+  eye: number;
+  top: number;
+  bottom: number;
+  shoes: number;
+  /** The rucksack, where the wardrobe has one. */
+  pack: number;
+  /** A child: whatever beard the head was drawn with goes the colour of the skin. */
+  young?: boolean;
+}
+
+/** The paint for a set of colours: each surface by its role, and the rest on the palette. */
+export function paintWith(colours: Colours): Paint {
+  return (material, original, worn) => {
+    switch (roleOf(worn, material) ?? 'keep') {
+      case 'skin':
+        return colours.skin;
+      case 'stubble':
+        return colours.young === true ? colours.skin : shade(colours.skin, 0.88);
+      case 'beard':
+        return colours.young === true ? colours.skin : colours.hair;
+      case 'hair':
+        return colours.hair;
+      case 'hair-dark':
+        return shade(colours.hair, 0.7);
+      case 'eye':
+        return colours.eye;
+      case 'top':
+        return colours.top;
+      case 'top-light':
+        return shade(colours.top, 1.25);
+      case 'top-dark':
+        return shade(colours.top, 0.72);
+      case 'bottom':
+        return colours.bottom;
+      case 'bottom-dark':
+        return shade(colours.bottom, 0.72);
+      case 'shoes':
+        return colours.shoes;
+      case 'shoes-light':
+        return shade(colours.shoes, 1.25);
+      case 'shoes-dark':
+        return shade(colours.shoes, 0.72);
+      case 'pack':
+        return colours.pack;
+      case 'pack-light':
+        return shade(colours.pack, 1.2);
+      case 'pack-dark':
+        return shade(colours.pack, 0.75);
+      case 'keep':
+        return paletteOf(original);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The people
+// ---------------------------------------------------------------------------
 
 export interface Person {
   /** Feet on y = 0, facing +Z, `height` tall. Owns the scale; animate below it. */
@@ -85,39 +415,63 @@ export interface Person {
   actions: ReadonlyMap<ClipName, THREE.AnimationAction>;
   /** Materials this person's colours came from, in slot order. */
   slots: readonly string[];
-  /** Which outfit this is, so a released person goes back to the right pool. */
-  outfit: OutfitId;
+  /** Which wardrobe this is (an outfit's id, or a wardrobe's key), so a released person goes back to the right pool. */
+  outfit: string;
   /** How tall this person was dressed, in world units: the `height` `make` was given. */
   height: number;
 }
 
+/** One part of one outfit as loaded: its geometry, and which material each vertex is. */
+interface PartSource {
+  geometry: THREE.BufferGeometry;
+  materials: { name: string; color: THREE.Color }[];
+  vertexMaterial: Uint8Array;
+}
+
+/** One outfit as loaded, before any material: the rig and the parts, apart. */
+interface Source {
+  outfit: OutfitId;
+  /** The pack's scene with every part taken out: the armature and its bones. */
+  bare: THREE.Group;
+  /** The node the parts hung from, which the merged body hangs from in its place. */
+  anchor: string;
+  /** The skin's joints by name, in its order, and their inverse bind matrices. */
+  joints: string[];
+  inverses: THREE.Matrix4[];
+  bindMatrix: THREE.Matrix4;
+  parts: Map<PartName, PartSource>;
+}
+
 interface Template {
-  /** The pack's scene with one merged skinned mesh in it. */
+  /** The pack's rig with one merged skinned mesh in it. */
   scene: THREE.Group;
   mesh: THREE.SkinnedMesh;
   /** Per vertex, which slot its colour comes from. */
   slot: Uint8Array;
-  slots: string[];
-  defaults: THREE.Color[];
-  /** Bind-pose height in the pack's own units. */
+  slots: { material: string; worn: WornPart; color: THREE.Color }[];
+  /** Sole to crown in the pack's own units: `BODY_HEIGHT` for its body. */
   height: number;
-  stats: SlotStat[];
-}
-
-/** How much of an outfit a material covers, and how high: what a `Paint` needs to tell a shirt from trousers. */
-export interface SlotStat {
-  name: string;
-  vertices: number;
-  /** Mean bind-pose height of its vertices, in the pack's metres. */
-  meanY: number;
+  /** People made from it and not released. A composite with none may be let go. */
+  live: number;
+  /** An outfit's own template is kept; a mixed wardrobe's is trimmed when idle. */
+  mixed: boolean;
 }
 
 export interface Cast {
   readonly outfits: readonly OutfitId[];
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
-  /** Which materials an outfit has, how much each covers and how high. */
-  slotsOf(outfit: OutfitId): readonly SlotStat[];
-  make(outfit: OutfitId, paint: Paint, height: number, young?: boolean): Person;
+  /** Whether an outfit's parts are loaded, so `make` may use them. */
+  has(outfit: OutfitId): boolean;
+  /** Loads more outfits; resolves once `make` may use every one of them. */
+  ensure(outfits: readonly OutfitId[]): Promise<void>;
+  /** The materials of one part of a loaded outfit, for the checks and the sheets. */
+  materialsOf(worn: WornPart): readonly string[];
+  /**
+   * A person in an outfit, or in a wardrobe mixed from several of one body.
+   * Every outfit named must be loaded (`has`); a wardrobe with no head, top,
+   * bottom or feet of its own simply has none.
+   */
+  make(dress: OutfitId | Wardrobe, paint: Paint, height: number, young?: boolean): Person;
   /**
    * Hands a person back for `make` to dress again, repainted. **Never dispose a
    * person's geometry**: its positions, normals and weights are the outfit's,
@@ -140,10 +494,17 @@ export interface Cast {
  */
 export const YOUNG_HEAD = 1.3;
 
+/**
+ * How many mixed wardrobes a cast keeps built while nobody wears them. The
+ * traveller's card builds one per click, and a wardrobe is about half a
+ * megabyte of geometry; the fifteen outfits' own are always kept.
+ */
+const IDLE_MIXES = 6;
+
 /** One material for the whole cast, built by the caller so it shares the world's ramp. */
 export function castMaterial(gradientMap: THREE.Texture, ink: { thickness: number; color: [number, number, number] }): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap });
-  // The hull rides smooth normals of its own (`outlineNormal`, see `prepare`).
+  // The hull rides smooth normals of its own (`outlineNormal`, see `assemble`).
   material.userData.outlineParameters = { ...ink, outlineNormal: true };
   return material;
 }
@@ -166,13 +527,15 @@ function weldedNormals(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
   const face = new THREE.Vector3();
+  const along = new THREE.Vector3();
+  const own = new THREE.Vector3();
   for (let i = 0; i + 2 < position.count; i += 3) {
     a.fromBufferAttribute(position, i);
     b.fromBufferAttribute(position, i + 1);
     c.fromBufferAttribute(position, i + 2);
     // Area-weighted, so a sliver does not pull a corner off true.
-    face.subVectors(c, b).cross(b.clone().sub(a));
-    if (face.dot(new THREE.Vector3().fromBufferAttribute(normal, i)) < 0) face.negate();
+    face.subVectors(c, b).cross(along.subVectors(b, a));
+    if (face.dot(own.fromBufferAttribute(normal, i)) < 0) face.negate();
     for (let k = 0; k < 3; k++) {
       const key = keyOf(i + k);
       const sum = sums.get(key);
@@ -182,7 +545,7 @@ function weldedNormals(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
   }
   const out = new Float32Array(position.count * 3);
   for (let i = 0; i < position.count; i++) {
-    const n = sums.get(keyOf(i))!.clone().normalize();
+    const n = own.copy(sums.get(keyOf(i))!).normalize();
     out[i * 3] = n.x;
     out[i * 3 + 1] = n.y;
     out[i * 3 + 2] = n.z;
@@ -190,129 +553,260 @@ function weldedNormals(geometry: THREE.BufferGeometry): THREE.BufferAttribute {
   return new THREE.BufferAttribute(out, 3);
 }
 
-function prepare(gltf: { scene: THREE.Group }, material: THREE.Material): Template {
+/** Splits a loaded outfit into its rig and its parts. Material-free, so every cast shares it. */
+function split(outfit: OutfitId, gltf: { scene: THREE.Group }): Source {
   const scene = gltf.scene;
-  const parts: THREE.SkinnedMesh[] = [];
-  scene.traverse((object) => {
-    if ((object as THREE.SkinnedMesh).isSkinnedMesh) parts.push(object as THREE.SkinnedMesh);
-  });
-  if (parts.length === 0) throw new Error('cast: an outfit with no skinned mesh');
-  // A prop the bake did not strip would draw in the pack's own material, off the
-  // world's ramp and without ink. Nothing unskinned belongs to a person.
+  const meshes: THREE.SkinnedMesh[] = [];
   const loose: THREE.Object3D[] = [];
   scene.traverse((object) => {
-    if ((object as THREE.Mesh).isMesh && !(object as THREE.SkinnedMesh).isSkinnedMesh) loose.push(object);
+    if ((object as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(object as THREE.SkinnedMesh);
+    // A prop the bake did not strip would draw in the pack's own material, off
+    // the world's ramp and without ink. Nothing unskinned belongs to a person.
+    else if ((object as THREE.Mesh).isMesh) loose.push(object);
   });
+  if (meshes.length === 0) throw new Error(`cast: ${outfit} has no skinned mesh`);
   for (const object of loose) object.removeFromParent();
-  const skeleton = parts[0]!.skeleton;
-  if (parts.some((part) => part.skeleton !== skeleton)) throw new Error('cast: an outfit on two skeletons');
+  const skeleton = meshes[0]!.skeleton;
+  if (meshes.some((mesh) => mesh.skeleton !== skeleton)) throw new Error(`cast: ${outfit} is on two skeletons`);
+  // The pack's meshes sit under the armature with their own transforms baked
+  // into the bind matrix; merging assumes they share one, and says so if not.
+  if (meshes.some((mesh) => !mesh.bindMatrix.equals(meshes[0]!.bindMatrix))) {
+    throw new Error(`cast: ${outfit} has parts with different bind matrices`);
+  }
 
-  const slots: string[] = [];
-  const defaults: THREE.Color[] = [];
-  const geometries: THREE.BufferGeometry[] = [];
-  const vertexSlots: number[] = [];
-  const slotOf = (name: string, color: THREE.Color): number => {
-    let slot = slots.indexOf(name);
-    if (slot < 0) {
-      slot = slots.length;
-      slots.push(name);
-      defaults.push(color.clone());
+  const collected = new Map<PartName, { geometries: THREE.BufferGeometry[]; materials: { name: string; color: THREE.Color }[]; vertexMaterial: number[] }>();
+  for (const mesh of meshes) {
+    // A part of one material is its node's own mesh; a part of several is a
+    // group named for the node, with a mesh a material under it.
+    const part = partOf(mesh.name) ?? partOf(mesh.parent?.name ?? '');
+    if (part === null) throw new Error(`cast: ${outfit} has a part called ${mesh.name} (${mesh.parent?.name})`);
+    let entry = collected.get(part);
+    if (entry === undefined) collected.set(part, (entry = { geometries: [], materials: [], vertexMaterial: [] }));
+    const own = mesh.material as THREE.MeshStandardMaterial;
+    let index = entry.materials.findIndex((known) => known.name === own.name);
+    if (index < 0) {
+      index = entry.materials.length;
+      entry.materials.push({ name: own.name, color: own.color.clone() });
     }
-    return slot;
-  };
-  for (const part of parts) {
-    const own = part.material as THREE.MeshStandardMaterial;
-    const slot = slotOf(own.name, own.color);
-    // The pack paints shoes with whatever the outfit is made of — a hoodie's
-    // purple runs down to the trainers — so a surface whose vertices hang off a
-    // foot gets a slot of its own, `<material>@feet`, and a paint can tell them
-    // apart. The material name is the only other handle there is.
-    const feet = slotOf(`${own.name}@feet`, own.color);
-    const source = part.geometry.clone();
+    const source = mesh.geometry.clone();
     for (const name of Object.keys(source.attributes)) {
       if (!['position', 'normal', 'skinIndex', 'skinWeight'].includes(name)) source.deleteAttribute(name);
     }
-    // The pack's meshes sit under the armature with their own transforms baked
-    // into the bind matrix; merging assumes they share one, and says so if not.
-    if (!part.bindMatrix.equals(parts[0]!.bindMatrix)) throw new Error('cast: parts with different bind matrices');
     const creased = toCreasedNormals(source, CREASE);
-    geometries.push(creased);
-    const joints = creased.getAttribute('skinIndex');
-    const weights = creased.getAttribute('skinWeight');
-    const heights = creased.getAttribute('position');
-    for (let v = 0; v < joints.count; v++) {
-      let best = 0;
-      for (let k = 1; k < 4; k++) if (weights.getComponent(v, k) > weights.getComponent(v, best)) best = k;
-      const bone = skeleton.bones[joints.getComponent(v, best)]?.name ?? '';
-      // The toe of a trainer is weighted to the shin as often as to the foot,
-      // so the height settles what the bone does not: nothing but a shoe is
-      // this near the ground in any outfit of the pack.
-      vertexSlots.push(/^Foot/.test(bone) || heights.getY(v) < FEET_Y ? feet : slot);
+    source.dispose();
+    entry.geometries.push(creased);
+    for (let v = 0; v < creased.getAttribute('position').count; v++) entry.vertexMaterial.push(index);
+  }
+  const parts = new Map<PartName, PartSource>();
+  for (const [part, entry] of collected) {
+    const geometry = mergeGeometries(entry.geometries, false);
+    if (geometry === null) throw new Error(`cast: ${outfit}'s ${part} cannot merge`);
+    for (const piece of entry.geometries) piece.dispose();
+    parts.set(part, { geometry, materials: entry.materials, vertexMaterial: Uint8Array.from(entry.vertexMaterial) });
+  }
+
+  const anchor = meshes[0]!.parent!.name;
+  const joints = skeleton.bones.map((bone) => bone.name);
+  const inverses = skeleton.boneInverses.map((matrix) => matrix.clone());
+  const bindMatrix = meshes[0]!.bindMatrix.clone();
+  for (const mesh of meshes) {
+    mesh.removeFromParent();
+    mesh.geometry.dispose();
+  }
+  return { outfit, bare: scene, anchor, joints, inverses, bindMatrix, parts };
+}
+
+/**
+ * Every outfit's download and split, shared by every cast on the page: the
+ * hero's, the crowd's and the traveller's card each build their own material
+ * and templates, and none of them fetches or parses a file another has.
+ */
+const sources = new Map<OutfitId, Promise<Source>>();
+let clipSource: Promise<Map<ClipName, THREE.AnimationClip>> | null = null;
+
+async function fetchGltf(file: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
+  const response = await fetch(`${BASE}${file}.bin`);
+  if (!response.ok) throw new Error(`cast: ${file} answered ${response.status}`);
+  // Gzipped GLB, like the data: see `scripts/build-cast.mjs`.
+  const raw = await inflate(await response.arrayBuffer());
+  return new GLTFLoader().parseAsync(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer, '');
+}
+
+function sourceOf(outfit: OutfitId): Promise<Source> {
+  let found = sources.get(outfit);
+  if (found === undefined) {
+    found = fetchGltf(outfit).then((gltf) => split(outfit, gltf));
+    // A failed download is asked again by the next caller, not remembered.
+    found.catch(() => sources.delete(outfit));
+    sources.set(outfit, found);
+  }
+  return found;
+}
+
+function clipsOf(): Promise<Map<ClipName, THREE.AnimationClip>> {
+  if (clipSource === null) {
+    // `retargeted` is the library's clips on this rig (`retarget-clips.ts`).
+    clipSource = Promise.all([fetchGltf('clips'), fetchGltf('retargeted')]).then(([clipFile, libraryFile]) => {
+      const clips = new Map<ClipName, THREE.AnimationClip>();
+      for (const clip of [...clipFile.animations, ...libraryFile.animations]) {
+        if ((CLIPS as readonly string[]).includes(clip.name)) clips.set(clip.name as ClipName, clip);
+      }
+      return clips;
+    });
+    clipSource.catch(() => (clipSource = null));
+  }
+  return clipSource;
+}
+
+/** A wardrobe's pool key: the same parts in any order are the same wardrobe. */
+function keyOf(wardrobe: Wardrobe): string {
+  return PARTS.map((part) => wardrobe.find((worn) => worn.part === part))
+    .filter((worn): worn is WornPart => worn !== undefined)
+    .map((worn) => `${worn.outfit}.${worn.part}`)
+    .join('+');
+}
+
+/** The parts of a wardrobe in slot order, one a slot, checked to be of one body. */
+function ordered(wardrobe: Wardrobe): WornPart[] {
+  const list: WornPart[] = [];
+  let body: BodyKind | null = null;
+  for (const part of PARTS) {
+    const worn = wardrobe.filter((entry) => entry.part === part);
+    if (worn.length > 1) throw new Error(`cast: a wardrobe with two ${part}s`);
+    if (worn.length === 0) continue;
+    // The rucksack hangs off a chest both rigs share; every other part is its rig's.
+    if (part !== 'pack') {
+      const own = bodyOf(worn[0]!.outfit);
+      if (body !== null && own !== body) throw new Error('cast: a wardrobe mixing the two bodies');
+      body = own;
     }
+    list.push(worn[0]!);
   }
-  const merged = mergeGeometries(geometries, false);
-  if (merged === null) throw new Error('cast: parts that cannot merge');
-  const slot = Uint8Array.from(vertexSlots);
-  merged.setAttribute('outlineNormal', weldedNormals(merged));
-  merged.setAttribute('color', new THREE.BufferAttribute(new Float32Array(slot.length * 3), 3));
-
-  const mesh = new THREE.SkinnedMesh(merged, material);
-  mesh.name = 'body';
-  const parent = parts[0]!.parent!;
-  parent.add(mesh);
-  mesh.bind(skeleton, parts[0]!.bindMatrix);
-  for (const part of parts) {
-    part.removeFromParent();
-    part.geometry.dispose();
-  }
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  // A skinned body's bounds move with the pose; one generous sphere is cheaper
-  // than recomputing, and culling a person whose arm is up is the wrong answer.
-  mesh.frustumCulled = false;
-
-  const position = merged.getAttribute('position');
-  const stats: SlotStat[] = slots.map((name) => ({ name, vertices: 0, meanY: 0 }));
-  for (let v = 0; v < slot.length; v++) {
-    const stat = stats[slot[v]!]!;
-    stat.vertices++;
-    stat.meanY += position.getY(v);
-  }
-  for (const stat of stats) stat.meanY = stat.vertices > 0 ? stat.meanY / stat.vertices : 0;
-
-  scene.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(scene, true);
-  return { scene, mesh, slot, slots, defaults, height: bounds.max.y - bounds.min.y, stats };
+  if (body === null) throw new Error('cast: a wardrobe with nothing but a rucksack');
+  return list;
 }
 
 /**
  * Loads the outfits asked for and the shared clips. Everything after this is
- * synchronous, which is what lets `buildAvatar` stay a plain function.
+ * synchronous, which is what lets `buildAvatar` stay a plain function; more
+ * outfits arrive through `ensure`.
  */
 export async function loadCast(material: THREE.Material, outfits: readonly OutfitId[] = OUTFITS): Promise<Cast> {
-  const loader = new GLTFLoader();
-  // Gzipped GLB, like the data: see `scripts/build-cast.mjs`.
-  const load = async (file: string) => {
-    const response = await fetch(`${BASE}${file}.bin`);
-    if (!response.ok) throw new Error(`cast: ${file} answered ${response.status}`);
-    const raw = await inflate(await response.arrayBuffer());
-    return loader.parseAsync(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer, '');
+  const clips = await clipsOf();
+  const loaded = new Map<OutfitId, Source>();
+  const load = async (list: readonly OutfitId[]): Promise<void> => {
+    const got = await Promise.all(list.map((id) => sourceOf(id)));
+    for (const source of got) loaded.set(source.outfit, source);
   };
-  // `jump` is the library's clips retargeted onto this rig (`retarget-clips.ts`).
-  const [clipFile, jumpFile, ...files] = await Promise.all([load('clips'), load('jump'), ...outfits.map((id) => load(id))]);
-  const clips = new Map<ClipName, THREE.AnimationClip>();
-  for (const clip of [...clipFile!.animations, ...jumpFile!.animations]) {
-    if ((CLIPS as readonly string[]).includes(clip.name)) clips.set(clip.name as ClipName, clip);
+  await load(outfits);
+
+  const templates = new Map<string, Template>();
+  const spare = new Map<string, Person[]>();
+  /** Mixed wardrobes nobody wears, oldest first. */
+  const idle: string[] = [];
+
+  const need = (outfit: OutfitId): Source => {
+    const found = loaded.get(outfit);
+    if (found === undefined) throw new Error(`cast: ${outfit} was not loaded`);
+    return found;
+  };
+
+  function assemble(parts: readonly WornPart[], mixed: boolean): Template {
+    const body = bodyOf(parts.find((worn) => worn.part !== 'pack')!.outfit);
+    const base = need(parts.find((worn) => worn.part !== 'pack')!.outfit);
+    const geometries: THREE.BufferGeometry[] = [];
+    /** The parts moved to fit this body, which are this template's own to dispose. */
+    const fitted: THREE.BufferGeometry[] = [];
+    const slots: Template['slots'] = [];
+    const vertexSlots: number[] = [];
+    for (const worn of parts) {
+      const source = need(worn.outfit);
+      const part = source.parts.get(worn.part);
+      if (part === undefined) throw new Error(`cast: ${worn.outfit} has no ${worn.part}`);
+      let geometry = part.geometry;
+      // Only the rucksack crosses rigs (`ordered`), and it is cut to the man's.
+      if (bodyOf(worn.outfit) !== body) {
+        const [x, y, z] = PACK_FIT[body];
+        geometry = geometry.clone().translate(x, y, z);
+        fitted.push(geometry);
+      }
+      geometries.push(geometry);
+      const first = slots.length;
+      for (const own of part.materials) slots.push({ material: own.name, worn, color: own.color });
+      for (const index of part.vertexMaterial) vertexSlots.push(first + index);
+    }
+    const merged = mergeGeometries(geometries, false);
+    if (merged === null) throw new Error('cast: parts that cannot merge');
+    for (const geometry of fitted) geometry.dispose();
+    const slot = Uint8Array.from(vertexSlots);
+    merged.setAttribute('outlineNormal', weldedNormals(merged));
+    merged.setAttribute('color', new THREE.BufferAttribute(new Float32Array(slot.length * 3), 3));
+
+    // The rig of the first part's outfit, bound afresh: every outfit of a body
+    // has the same joints in the same order with the same inverse bind
+    // matrices, so any of them carries any of its parts.
+    const scene = base.bare.clone(true);
+    const bones = new Map<string, THREE.Bone>();
+    scene.traverse((object) => {
+      if ((object as THREE.Bone).isBone) bones.set(object.name, object as THREE.Bone);
+    });
+    const skeleton = new THREE.Skeleton(
+      base.joints.map((name) => {
+        const bone = bones.get(name);
+        if (bone === undefined) throw new Error(`cast: the rig lost ${name}`);
+        return bone;
+      }),
+      base.inverses.map((matrix) => matrix.clone()),
+    );
+    const mesh = new THREE.SkinnedMesh(merged, material);
+    mesh.name = 'body';
+    const parent = scene.getObjectByName(base.anchor) ?? scene;
+    parent.add(mesh);
+    mesh.bind(skeleton, base.bindMatrix);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    // A skinned body's bounds move with the pose; one generous sphere is cheaper
+    // than recomputing, and culling a person whose arm is up is the wrong answer.
+    mesh.frustumCulled = false;
+    return { scene, mesh, slot, slots, height: BODY_HEIGHT[body], live: 0, mixed };
   }
-  const templates = new Map<OutfitId, Template>();
-  outfits.forEach((id, i) => templates.set(id, prepare(files[i]!, material)));
+
+  function templateFor(dress: OutfitId | Wardrobe): { key: string; template: Template } {
+    const whole = typeof dress === 'string';
+    const parts = whole
+      ? PARTS.filter((part) => need(dress).parts.has(part)).map((part) => ({ outfit: dress, part }))
+      : ordered(dress);
+    const key = whole ? dress : keyOf(parts);
+    let template = templates.get(key);
+    if (template === undefined) {
+      template = assemble(parts, !whole);
+      templates.set(key, template);
+    }
+    const waiting = idle.indexOf(key);
+    if (waiting >= 0) idle.splice(waiting, 1);
+    return { key, template };
+  }
+
+  /** Lets go of the oldest idle mixed wardrobes past `IDLE_MIXES`, and every spare person in them. */
+  function trim(): void {
+    while (idle.length > IDLE_MIXES) {
+      const key = idle.shift()!;
+      const template = templates.get(key);
+      templates.delete(key);
+      for (const person of spare.get(key) ?? []) {
+        person.mesh.geometry.dispose();
+        person.mesh.skeleton.dispose();
+      }
+      spare.delete(key);
+      template?.mesh.geometry.dispose();
+    }
+  }
 
   const colour = new THREE.Color();
-  const spare = new Map<OutfitId, Person[]>();
   const paintInto = (template: Template, paint: Paint, colors: Float32Array): void => {
-    const bySlot = template.slots.map((name, s) => {
-      const chosen = paint(name, template.defaults[s]!);
-      if (chosen === null) return template.defaults[s]!.clone();
+    const bySlot = template.slots.map(({ material: name, worn, color }) => {
+      const chosen = paint(name, color, worn);
+      if (chosen === null) return color.clone();
       return chosen instanceof THREE.Color ? chosen.clone() : new THREE.Color(chosen);
     });
     for (let v = 0; v < template.slot.length; v++) {
@@ -322,10 +816,15 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       colors[v * 3 + 2] = colour.b;
     }
   };
+
   return {
-    outfits,
+    get outfits() {
+      return [...loaded.keys()];
+    },
     clips,
-    slotsOf: (outfit) => templates.get(outfit)!.stats,
+    has: (outfit) => loaded.has(outfit),
+    ensure: (outfits) => load(outfits.filter((outfit) => !loaded.has(outfit))),
+    materialsOf: (worn) => need(worn.outfit).parts.get(worn.part)?.materials.map((own) => own.name) ?? [],
     release(person) {
       person.mixer.stopAllAction();
       // A person let go mid-gesture keeps the weights it was blending with.
@@ -339,11 +838,17 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       const pool = spare.get(person.outfit) ?? [];
       pool.push(person);
       spare.set(person.outfit, pool);
+      const template = templates.get(person.outfit);
+      if (template !== undefined && --template.live <= 0 && template.mixed) {
+        template.live = 0;
+        idle.push(person.outfit);
+        trim();
+      }
     },
-    make(outfit, paint, height, young = false) {
-      const template = templates.get(outfit);
-      if (template === undefined) throw new Error(`cast: ${outfit} was not loaded`);
-      const reused = spare.get(outfit)?.pop();
+    make(dress, paint, height, young = false) {
+      const { key, template } = templateFor(dress);
+      template.live++;
+      const reused = spare.get(key)?.pop();
       if (reused !== undefined) {
         const attribute = reused.mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
         paintInto(template, paint, attribute.array as Float32Array);
@@ -389,7 +894,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       const mixer = new THREE.AnimationMixer(scene);
       const actions = new Map<ClipName, THREE.AnimationAction>();
       for (const [name, clip] of clips) actions.set(name, mixer.clipAction(clip));
-      return { root, mesh: body, bones, mixer, actions, slots: template.slots, outfit, height };
+      return { root, mesh: body, bones, mixer, actions, slots: template.slots.map((entry) => entry.material), outfit: key, height };
     },
   };
 }

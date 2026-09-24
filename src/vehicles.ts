@@ -706,12 +706,19 @@ export const PLANE_TOUCHDOWN = 4;
 /**
  * The light aircraft on the ground: the speed it lifts off at — a take-off run
  * has to reach it with the climb key held — and the most it taxis at without
- * it. The run opens the throttle for a quarter past it, over
- * `PLANE_ACCELERATION_TIME`, so from standing to rotation is about four seconds
- * and two hundred units of field; the wheels then leave it at no climb at all,
- * and the climb builds from there (`PLANE_VERTICAL_TIME`).
+ * it. The run opens the throttle for a quarter past it, over `PLANE_RUN_TIME`,
+ * so from standing to rotation is 2.6 seconds and 136 units of strip; the
+ * wheels then leave it at no climb at all, and the climb builds from there
+ * (`PLANE_VERTICAL_TIME`).
+ *
+ * **The run has its own time constant because it has to fit its strip.** Over
+ * `PLANE_ACCELERATION_TIME` it was 4.2 s and 220 units, and a strip long
+ * enough for that, 260 units, fitted beside 874 of the 1,186 towns that keep
+ * a plane (`STRIP_LENGTH` in `craft/airstrip.ts`); in the air the throttle
+ * keeps its slower ease.
  */
 export const PLANE_ROTATE = PLANE_CRUISE_LOW * 0.6;
+export const PLANE_RUN_TIME = 1.6;
 export const PLANE_TAXI = 30;
 /** Steepest ground a plane may be set down on, as rise over run: a field, not a hillside. */
 export const PLANE_LANDING_GRADE = Math.tan(12 * (Math.PI / 180));

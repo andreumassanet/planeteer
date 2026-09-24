@@ -7,8 +7,10 @@
  * them twice and asks for the same answer, and then asks each kind the
  * question its medium poses: a car on its road and out of every town's
  * square, a launch on open water with room round it, a plane and a balloon on
- * flat land clear of the towns, the roads and the landmarks — and clear of
- * the wood, which the real vegetation streamer is built headless to answer.
+ * flat land clear of the towns, the roads and the landmarks, a plane at the
+ * end of an airstrip that is all of those along its length and that its
+ * take-off run fits — and clear of the wood, which the real vegetation
+ * streamer is built headless to answer.
  *
  *   node scripts/check-fleet.ts
  */
@@ -19,14 +21,26 @@ import { fileURLToPath } from 'node:url';
 import { Object3D, Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from '../src/globe.ts';
-import { gradeAt, setDetailSites, setFlattenSites } from '../src/terrain.ts';
+import { gradeAt, setDetailSites, setFlattenSites, shoreDistance } from '../src/terrain.ts';
 import type { Slope } from '../src/terrain.ts';
 import { indexPlaces, isShown, radiusOf, terrainSiteOf } from '../src/places.ts';
 import { ROAD_CLASSES, courseOf, coursePath, roadClearance, townOf, townOffset } from '../src/roads.ts';
 import type { CoursePath, Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { latOf, lonOf, unitAt } from '../src/sphere.ts';
-import { SITE_ROOM, applyPose, createLocalLink, createSiteIndex, distanceToPath, writePose } from '../src/fleet.ts';
+import {
+  SITE_ROOM,
+  STRIP_BACK,
+  STRIP_HALF,
+  STRIP_LENGTH,
+  applyPose,
+  createLocalLink,
+  createSiteIndex,
+  distanceToPath,
+  stripKeepouts,
+  stripPoint,
+  writePose,
+} from '../src/fleet.ts';
 import type { FleetSite } from '../src/fleet.ts';
 import { isWater } from '../src/vehicles.ts';
 import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
@@ -277,6 +291,95 @@ console.log('\nlight aircraft:');
 fieldCheck('plane', SITE_ROOM.plane, Math.tan((8 * Math.PI) / 180));
 const bigTowns = shown.filter((t) => t.place.pop >= 400_000 || t.place.capital === true).length;
 console.log(`       ${byKind.get('plane')?.length ?? 0} of the ${bigTowns} towns over 400,000 or capitals found a field`);
+
+// --- airstrips ----------------------------------------------------------------------
+//
+// Every plane stands at the near end of a strip it can take off down. This walks
+// each strip at half the search's spacing, on its centre line and both edges,
+// with its own town, road and landmark tests: no water, no town, no road, no
+// landmark on it, and nowhere steeper than a plane may be set down on. The
+// search's own law is 8 degrees over the strip's width at its own samples; in
+// between, the check allows the landing grade, 12.
+
+console.log('\nairstrips:');
+{
+  const planes = byKind.get('plane') ?? [];
+  const STEP = 10;
+  const edge = new Vector3();
+  const across = new Vector3();
+  const landing = Math.tan((12 * Math.PI) / 180);
+  let wetStrips = 0;
+  let steepStrips = 0;
+  let townStrips = 0;
+  let roadStrips = 0;
+  let monumentStrips = 0;
+  let worstGrade = 0;
+  const bad: string[] = [];
+  const nearRoads = (at: Vector3, clear: number): boolean => {
+    for (let r = 0; r < roads.length; r++) {
+      const road = roads[r]!;
+      const a = places[road.a]!;
+      const b = places[road.b]!;
+      const ea = unitAt(a.lat, a.lon, point);
+      if (units(ea, at) > 1400) {
+        const eb = unitAt(b.lat, b.lon, point);
+        if (units(eb, at) > 1400) continue;
+      }
+      if (distanceToPath(pathOf(r), at) < roadClearance(road.cls) + clear) return true;
+    }
+    return false;
+  };
+  for (const site of planes) {
+    let wetHere = false;
+    let steepHere = false;
+    let townHere = false;
+    let roadHere = false;
+    let monumentHere = false;
+    across.crossVectors(site.forward, site.at).normalize();
+    const mid = stripPoint(site, STRIP_LENGTH / 2, 0, new Vector3());
+    const towns = townsAround(mid);
+    for (let along = -STRIP_BACK; along <= STRIP_LENGTH + 1e-6; along += STEP) {
+      const centre = stripPoint(site, along, 0, new Vector3());
+      for (const lateral of [-STRIP_HALF, 0, STRIP_HALF]) {
+        if (isWater(ground(stripPoint(site, along, lateral, edge)))) wetHere = true;
+      }
+      const grade = gradeAt(centre, across, site.forward, STRIP_HALF, slope).grade;
+      worstGrade = Math.max(worstGrade, grade);
+      if (grade > landing) steepHere = true;
+      for (const town of towns) if (units(town.at, centre) < radiusOf(town.place) + STRIP_HALF) townHere = true;
+      if (!roadHere && nearRoads(centre, STRIP_HALF)) roadHere = true;
+      for (const m of monuments) {
+        if (units(unitAt(m.lat, m.lon, point), centre) < (m.footprint ?? MAX_FOOTPRINT) + STRIP_HALF) monumentHere = true;
+      }
+    }
+    if (wetHere) wetStrips++;
+    if (steepHere) steepStrips++;
+    if (townHere) townStrips++;
+    if (roadHere) roadStrips++;
+    if (monumentHere) monumentStrips++;
+    if ((wetHere || steepHere || townHere || roadHere || monumentHere) && bad.length < 5) {
+      bad.push(`${site.id}${wetHere ? ' wet' : ''}${steepHere ? ' steep' : ''}${townHere ? ' town' : ''}${roadHere ? ' road' : ''}${monumentHere ? ' landmark' : ''}`);
+    }
+  }
+  check(wetStrips === 0, 'no airstrip crosses water, edge to edge', `${wetStrips} of ${planes.length}; ${bad.join(', ')}`);
+  check(townStrips === 0, 'no airstrip crosses a town', `${townStrips}`);
+  check(roadStrips === 0, 'no airstrip crosses a road', `${roadStrips}`);
+  check(monumentStrips === 0, 'no airstrip crosses a landmark', `${monumentStrips}`);
+  check(steepStrips === 0, 'no airstrip is steeper than a landing anywhere along it', `${steepStrips}; the steepest ${((Math.atan(worstGrade) * 180) / Math.PI).toFixed(1)} degrees`);
+  // The discs the wood keeps off cover the whole strip.
+  let uncovered = 0;
+  for (const site of planes.filter((_, i) => i % 10 === 0)) {
+    const discs = stripKeepouts(site);
+    for (let along = -STRIP_BACK; along <= STRIP_LENGTH + 1e-6; along += 5) {
+      for (const lateral of [-STRIP_HALF, -STRIP_HALF / 2, 0, STRIP_HALF / 2, STRIP_HALF]) {
+        stripPoint(site, along, lateral, edge);
+        if (!discs.some((disc) => units(disc.at, edge) <= disc.radius + 1e-3)) uncovered++;
+      }
+    }
+  }
+  check(uncovered === 0, "an airstrip's keepout discs cover all of it", `${uncovered} points outside every disc`);
+}
+
 console.log('\nballoons:');
 fieldCheck('balloon', SITE_ROOM.balloon, Math.tan((14 * Math.PI) / 180));
 
@@ -320,22 +423,49 @@ console.log('\nthe wood keeps off the fields:');
   let tiles = 0;
   let plantsNear = 0;
   const intruded: string[] = [];
+  const side = new Vector3();
+  /**
+   * How far inside the ground a site keeps a point is: for a balloon, its
+   * field's radius less the distance from its centre; for a plane, the least
+   * of the distances to the strip's four sides, in the strip's own frame.
+   * Positive is inside.
+   */
+  const inside = (site: FleetSite, at: Vector3): number => {
+    if (site.kind !== 'plane') return SITE_ROOM.balloon - units(at, site.at);
+    side.crossVectors(site.forward, site.at).normalize();
+    const d = at.clone().sub(site.at);
+    const along = d.dot(site.forward) * PLANET_RADIUS;
+    const lateral = d.dot(side) * PLANET_RADIUS;
+    return Math.min(along + STRIP_BACK, STRIP_LENGTH - along, STRIP_HALF - Math.abs(lateral));
+  };
+  const tileAt = new Vector3();
   for (const site of probes) {
-    const room = site.kind === 'plane' ? SITE_ROOM.plane : SITE_ROOM.balloon;
-    for (let level = 0; level < 4; level++) {
-      const mesh = wood.raiseTile(latOf(site.at.y), lonOf(site.at.x, site.at.z), level);
-      if (mesh === null) continue;
-      tiles++;
-      const position = mesh.geometry.getAttribute('position');
-      let worst = Infinity;
-      for (let i = 0; i < position.count; i++) {
-        vertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld).normalize();
-        const d = units(vertex, site.at);
-        if (d < worst) worst = d;
+    // A strip crosses more than one tile: its stand, its middle and its far end.
+    const spots = site.kind === 'plane' ? [0, STRIP_LENGTH / 2, STRIP_LENGTH] : [0];
+    const seen = new Set<string>();
+    for (const along of spots) {
+      stripPoint(site, along, 0, tileAt);
+      for (let level = 0; level < 4; level++) {
+        const mesh = wood.raiseTile(latOf(tileAt.y), lonOf(tileAt.x, tileAt.z), level);
+        if (mesh === null) continue;
+        const key = `${level}:${mesh.position.x.toFixed(1)}:${mesh.position.z.toFixed(1)}`;
+        if (seen.has(key)) {
+          mesh.geometry.dispose();
+          continue;
+        }
+        seen.add(key);
+        tiles++;
+        const position = mesh.geometry.getAttribute('position');
+        let worst = -Infinity;
+        for (let i = 0; i < position.count; i++) {
+          vertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld).normalize();
+          const d = inside(site, vertex);
+          if (d > worst) worst = d;
+        }
+        if (worst > -40) plantsNear++;
+        if (worst > 0) intruded.push(`${site.id} level ${level}: a plant ${worst.toFixed(1)} units inside`);
+        mesh.geometry.dispose();
       }
-      if (worst < room + 40) plantsNear++;
-      if (worst < room) intruded.push(`${site.id} level ${level}: a plant ${worst.toFixed(1)} units from the centre`);
-      mesh.geometry.dispose();
     }
   }
   check(
@@ -344,7 +474,7 @@ console.log('\nthe wood keeps off the fields:');
   );
   check(
     intruded.length === 0,
-    `no plant stands inside a plane's or a balloon's field (${probes.length} fields, ${tiles} tiles, ${plantsNear} with a plant within 40 units of the edge)`,
+    `no plant stands on an airstrip or in a balloon's field (${probes.length} fields, ${tiles} tiles, ${plantsNear} with a plant within 40 units of the edge)`,
     intruded.slice(0, 4).join('; '),
   );
 }
@@ -497,9 +627,12 @@ console.log('\nthe ride, headless:');
   check(ashore !== null && (player.state === 'foot' || player.state === 'swim'), 'and is left for the shore or the water', player.state);
 
   // The plane: a take-off run, a climb, and down again.
-  const plane = sites.find((site) => site.kind === 'plane' && site.place === boat.place) ?? byKind.get('plane')![0]!;
+  // One far inland: the flight below runs a few thousand units down the
+  // strip's heading, and has to come down on land.
+  const plane =
+    sites.find((site) => site.kind === 'plane' && shoreDistance(latOf(site.at.y), lonOf(site.at.x, site.at.z)) > 8) ?? byKind.get('plane')![0]!;
   board(plane);
-  check(player.mode === 'plane' && player.grounded && !player.airborne, 'a plane is taken on the ground');
+  check(player.mode === 'plane' && player.grounded && !player.airborne, 'a plane is taken on the ground', `${plane.id}, ${places[plane.place]!.name}`);
   check(player.leave() !== null, 'and can be left there');
   board(plane);
   events.length = 0;
@@ -507,7 +640,12 @@ console.log('\nthe ride, headless:');
   let firstSecond = 0;
   for (let t = 0; t < 8; t += 1 / 60) {
     step(1 / 60, { climb: true });
-    if (liftOff < 0 && events.includes('took-off')) liftOff = player.altitude;
+    if (liftOff < 0 && events.includes('took-off')) {
+      liftOff = player.altitude;
+      // The run has to fit the strip it starts on, with room to spare.
+      const run = units(plane.at, player.position.clone().normalize());
+      check(run < STRIP_LENGTH - 30, 'a take-off run leaves the ground well inside its strip', `${run.toFixed(0)} units of ${STRIP_LENGTH}`);
+    }
     else if (liftOff >= 0 && firstSecond < 60) firstSecond++;
     if (firstSecond === 60) {
       check(player.altitude - liftOff < 15, 'a take-off climbs gently off the ground, not to a circuit', `${(player.altitude - liftOff).toFixed(1)} units in its first second`);

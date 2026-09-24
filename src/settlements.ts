@@ -41,15 +41,22 @@ import {
   cellCentre,
   cellIndex,
   cornerOffset,
+  COUNTRY_RING,
+  countryReach,
   gateGlow,
   gatesOf,
+  hasThroughStreets,
   inGrid,
   isAvenue,
+  mainStreetHalf,
   OUTSKIRT_MIN_CELLS,
   OUTSKIRT_RING,
   outskirtScore,
   outskirtsOf,
   streetBand,
+  onThroughRoad,
+  THROUGH_HALF_WIDTH,
+  throughClear,
   townFrame,
   townGrid,
   townTerraces,
@@ -496,8 +503,6 @@ const OUTER_FILL = 0.75;
 /** And how much more readily an empty one grows a tree, as a factor on `greenery`. */
 const OUTER_GREENERY = 1.4;
 
-/** How many cells past the square's edge the country round a town reaches, at most (the disc stops it first). */
-const COUNTRY_RING = 2;
 /** The share of the country's cells that are an orchard, and that are a loose tree or two. The rest is meadow. */
 const ORCHARD_SHARE = 0.4;
 const LOOSE_SHARE = 0.4;
@@ -2859,7 +2864,33 @@ export function createSettlements(
     // the other half of the street stays clear — and along an avenue it parks
     // with its centre 1.9 in from the kerb, which clears a placed hatchback's
     // side by 0.4.
+    //
+    // **Except down the two main streets' carriageway**, which is the town's
+    // through road (`throughClear` in `scenery/grid.ts`): a vehicle driving
+    // from one road to the next crosses the square along them, so nothing
+    // parks in it and nobody stands in it. A person whose spot falls in it
+    // stands at its side instead, on the pavement, where the street has one
+    // wide enough; where it has not, or where the spot is in the crossing
+    // street's carriageway, they are left out. Every seeded draw is still
+    // taken, so the rest of the town stands where it stood.
     const parkChance = Math.min(0.55, 0.12 + urbanity * 0.5);
+    const mainHalf = mainStreetHalf(grid, style.street);
+    const driven = hasThroughStreets(grid);
+    const through = driven ? throughClear(mainHalf) : -Infinity;
+    /** Whether a person at `(x, z)` would stand on the through road, the middle crossing included. */
+    const inThrough = (x: number, z: number): boolean => driven && onThroughRoad(x, z, mainHalf, CLEAR_FOLK);
+    /**
+     * Whether a car parked at `(x, z)`, along z or along x, would reach into
+     * it: its half-width across its own street, and about half a placed car's
+     * length, `CLEAR_CAR * 0.75`, along it.
+     */
+    const parksInThrough = (x: number, z: number, alongZ: boolean): boolean => {
+      const across = through + THROUGH_HALF_WIDTH;
+      const along = through + CLEAR_CAR * 0.75;
+      return alongZ
+        ? Math.abs(x) < across || Math.abs(z) < along
+        : Math.abs(z) < across || Math.abs(x) < along;
+    };
     const spot: number[] = [];
     const folkChance = Math.min(0.6, 0.2 + urbanity * 0.55);
     for (const key of levels.keys()) {
@@ -2891,7 +2922,9 @@ export function createSettlements(
         if (rng.chance(parkChance)) {
           const along = rng.range(0.15, 0.85) * pitch;
           const yaw = alongZ ? (rng.chance(0.5) ? 0 : Math.PI) : (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2);
-          if (spotAt(alongZ ? line : x0 + along, alongZ ? z0 + along : line, out.kerbs, yaw, CLEAR_CAR)) parked = along;
+          const px = alongZ ? line : x0 + along;
+          const pz = alongZ ? z0 + along : line;
+          if (!parksInThrough(px, pz, alongZ) && spotAt(px, pz, out.kerbs, yaw, CLEAR_CAR)) parked = along;
         }
         if (rng.chance(folkChance)) {
           const start = alongZ ? z0 : x0;
@@ -2901,12 +2934,21 @@ export function createSettlements(
           for (let k = 0; k < 2; k++) {
             if (k > 0 && !rng.chance(0.42)) break;
             const along = rng.range(0.1, 0.9) * pitch;
-            const off = rng.jitter() * reach * 0.5;
+            let off = rng.jitter() * reach * 0.5;
             // A pair talking, some of the time: the second stands a pace off
             // the first, across the street's line, and each faces the other.
             const pair = k === 0 && rng.chance(PAIR_SHARE);
             if (!clearOfCar(along)) continue;
+            // Out of a main street's carriageway, onto its pavement: across
+            // this street's own line, to the side of it this cell paves.
+            const across = line + off;
+            if (Math.abs(across) < through + CLEAR_FOLK) {
+              const kerb = (line < 0 ? -1 : 1) * (through + CLEAR_FOLK + 0.05);
+              if (Math.abs(kerb) > mainHalf - CLEAR_FOLK * 0.5) continue;
+              off = kerb - line;
+            }
             const [x, z] = pointOf(along, off);
+            if (inThrough(x, z)) continue;
             const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
             if (level === undefined) continue;
             spot.length = 0;
@@ -2914,7 +2956,7 @@ export function createSettlements(
             if (pair) {
               // Across the line, towards its middle, so both stay on the band.
               const [px, pz] = pointOf(along, off + (off > 0 ? -1 : 1) * PAIR_GAP);
-              if (standable(px, pz, level)) {
+              if (standable(px, pz, level) && !inThrough(px, pz)) {
                 pavingAt(px, pz, level, spot);
                 const [ax, ay, az, bx, by, bz] = spot as [number, number, number, number, number, number];
                 // Neither strolls: both ends are the spot itself. The yaw is
@@ -2931,9 +2973,11 @@ export function createSettlements(
             let lo = along;
             let hi = along;
             while (lo - STROLL_STEP > 0.08 * pitch && clearOfCar(lo - STROLL_STEP) &&
-              standable(...pointOf(lo - STROLL_STEP, off), level)) lo -= STROLL_STEP;
+              standable(...pointOf(lo - STROLL_STEP, off), level) &&
+              !inThrough(...pointOf(lo - STROLL_STEP, off))) lo -= STROLL_STEP;
             while (hi + STROLL_STEP < 0.92 * pitch && clearOfCar(hi + STROLL_STEP) &&
-              standable(...pointOf(hi + STROLL_STEP, off), level)) hi += STROLL_STEP;
+              standable(...pointOf(hi + STROLL_STEP, off), level) &&
+              !inThrough(...pointOf(hi + STROLL_STEP, off))) hi += STROLL_STEP;
             if (hi - lo < STROLL_MIN) lo = hi = along;
             out.folk.push(...spot);
             pavingAt(...pointOf(lo, off), level, out.folk);
@@ -3166,7 +3210,7 @@ export function createSettlements(
      * places were thinned by, so inside our own nothing else stands, and past
      * it we ask.
      */
-    const disc = Math.max(slot.radius, grid.half + COUNTRY_RING * grid.pitch);
+    const disc = countryReach(slot.radius);
     const neighbours: { x: number; z: number; radius: number }[] = [];
     if (disc > slot.radius) {
       const cosReach = Math.cos((disc + BIGGEST_SETTLEMENT) / PLANET_RADIUS);

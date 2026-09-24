@@ -54,6 +54,11 @@ import {
 } from './scenery/index.ts';
 import type { RegionId, RegionStyle, SceneryContext, ScenicPart, Weighted } from './scenery/index.ts';
 import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
+import { FIELD_CLEARANCE, LEVELS, MONUMENT_CLEARANCE, ROOT_STEP, WIDEST_FOOTPRINT, cellsOf, rootOf, rowsOf, stepOf } from './tile-grid.ts';
+import { createCountryside } from './countryside.ts';
+import type { Countryside, CountrysideStats } from './countryside.ts';
+import { BEACON_STRIDE, ROTOR_STRIDE, SMOKE_STRIDE, createCountryBuilder, strawOf } from './countryside-tile.ts';
+import type { CountryBuilder, CountryMotionRows } from './countryside-tile.ts';
 
 /**
  * What grows between the towns, which until now was nothing at all.
@@ -103,56 +108,8 @@ const DEG = Math.PI / 180;
 // The grid
 // ---------------------------------------------------------------------------
 
-/**
- * Latitude spanned by the *coarsest* tile, in degrees, and the number of levels
- * under it.
- *
- * The grid is a quadtree in latitude and longitude, and it has to be one rather
- * than four independent grids for a reason that is invisible until you look at a
- * hillside: if the levels did not nest, the boundary between two of them would
- * be a seam — the same ground covered twice, or a gap with nothing in it, in a
- * ring around the viewer that moves as you walk. Nesting makes the cover exact.
- * A level-`L` tile is exactly the four level-`L-1` tiles under it, because the
- * latitude step halves and the longitude cell count doubles at every step down.
- *
- * 5 degrees and four levels put the finest tile at 0.625 degrees, which is 174
- * world units — about two thirds of the distance at which a house stops being
- * legible, and small enough that frustum culling has something to throw away.
- */
-const ROOT_STEP = 5;
-const LEVELS = 4;
-
-/** Degrees of latitude spanned by a tile of this level. 0.625 to 5. */
-const stepOf = (level: number): number => ROOT_STEP / 2 ** (LEVELS - 1 - level);
-
 /** And the same in world units, which is what every distance decision uses. */
 const spanOf = (level: number): number => stepOf(level) * UNITS_PER_DEGREE;
-
-/** Rows of latitude at this level. Integral at every level, by construction. */
-const rowsOf = (level: number): number => Math.round(180 / stepOf(level));
-
-/** The root band a level-`level` row belongs to. */
-const rootOf = (row: number, level: number): number =>
-  Math.floor(row / 2 ** (LEVELS - 1 - level));
-
-/**
- * Longitude cells in a root band, rounded to a power of two.
- *
- * A power of two and not the nearest integer, because the quadtree's whole
- * property is that a cell splits into exactly two: round to 60 cells at the
- * equator and the level below cannot be 120 without the tiles ceasing to nest.
- * The cost is that a tile is up to 40% off square in longitude, which nothing
- * can see — the plot grid is laid out in the tile's own half-extents and does
- * not care what shape they are.
- */
-function rootCells(root: number): number {
-  const lat = -90 + (root + 0.5) * ROOT_STEP;
-  const want = (360 * Math.cos(lat * DEG)) / ROOT_STEP;
-  return 2 ** Math.max(0, Math.round(Math.log2(Math.max(1, want))));
-}
-
-const cellsOf = (root: number, level: number): number =>
-  rootCells(root) * 2 ** (LEVELS - 1 - level);
 
 /**
  * How near a tile has to be before it is split into its four children.
@@ -531,17 +488,8 @@ const BUILD_BUDGET_MS = 2.5;
  * `monuments.json`, falling back to the contract's widest for a landmark that
  * has no model yet, exactly as `settlements.ts` does it.
  */
-const WIDEST_FOOTPRINT = 55;
-const MONUMENT_CLEARANCE = 6;
-/**
- * And round a standing plane's or balloon's field (`fleet.ts`), past the
- * field's own radius and the plant's own spread: open grass between the tip
- * and the first trunk, so the aircraft reads as standing in a clearing rather
- * than parked against a hedge. It was 3, which left a balloon's envelope, 7.3
- * of its 8-unit field, under four units from the nearest canopy; 6 is a body
- * and a half more.
- */
-const FIELD_CLEARANCE = 6;
+// `WIDEST_FOOTPRINT`, `MONUMENT_CLEARANCE` and `FIELD_CLEARANCE` are
+// `tile-grid.ts`'s, which the country's plan keeps off by too.
 
 /**
  * How far a plant is seated into the ground, as a share of its own height.
@@ -719,6 +667,8 @@ const PETALS: readonly [RegExp, number][] = [
 ];
 /** The ground's colour times these at the root and at the tip. */
 const SWARD_ROOT = 0.76;
+/** The share of a meadow's sites that flower (`countryside.ts`), against `SWARD_FLOWER_SHARE` in open grass. */
+const MEADOW_SHARE = 0.3;
 const SWARD_TIP = 1.5;
 /** And how far the tip is pushed off grey, so a lit blade is a greener one and not a paler one. */
 const SWARD_TIP_SATURATION = 1.35;
@@ -882,7 +832,22 @@ export interface VegetationStats {
     medianTileMs: number;
     p90TileMs: number;
     /** Sites refused since the world loaded, by what refused them. */
-    refused: { thin: number; shore: number; unprobed: number; built: number; road: number };
+    refused: { thin: number; shore: number; unprobed: number; built: number; road: number; field: number };
+  };
+  /**
+   * The countryside between the towns (`countryside.ts`): the plans worked out
+   * and what refused them, and what the standing tiles hold of them — pieces,
+   * fields, fences, and what turns, shines and smokes.
+   */
+  country: CountrysideStats & {
+    pieces: number;
+    fields: number;
+    fences: number;
+    rotors: number;
+    beacons: number;
+    smokes: number;
+    /** Near tiles waiting for the drawn land to lay their fields on. */
+    provisional: number;
   };
 }
 
@@ -922,6 +887,14 @@ export interface Vegetation {
    * its geometry. For the headless checks, which ask where plants stand.
    */
   raiseTile(lat: number, lon: number, level?: number): THREE.Mesh | null;
+  /** The countryside's planner, for the console: `plan`, `planAt`, `find`. Null without the places. */
+  countryside: Countryside | null;
+  /**
+   * Every drawn tile's rotors, lamps and fires, for `countryside-motion.ts`.
+   * Only drawn tiles: a staged one is not on the screen, and a retiring one
+   * is, until the tile that replaces it is.
+   */
+  motion(visit: (rows: CountryMotionRows) => void): void;
 }
 
 /**
@@ -976,6 +949,12 @@ interface Standing extends Cell {
   triangles: number;
   plants: number;
   bytes: number;
+  /** The countryside's pieces, fields and fences in it (`countryside-tile.ts`). */
+  pieces: number;
+  fields: number;
+  fences: number;
+  /** What in it turns, shines or smokes, for `countryside-motion.ts`; null for nothing. */
+  motion: CountryMotionRows | null;
   /** In the group and drawn. False while it waits for what it replaces; see `settle`. */
   shown: boolean;
 }
@@ -1195,6 +1174,39 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    */
   const floras = new Map<string, Weighted<string>[]>();
 
+  // ------------------------------------------------------------------
+  // The countryside between the towns
+  // ------------------------------------------------------------------
+
+  /**
+   * The planner (`countryside.ts`) and what makes its plans into tile
+   * geometry (`countryside-tile.ts`). A farm's house is the region's own
+   * dwelling out of the scenic kit, so the planner is told which parts those
+   * are and how much ground each takes.
+   */
+  const dwellingsOf = new Map<string, { item: string; weight: number; footprint: number }[]>();
+  const country: { planner: Countryside; builder: CountryBuilder } | null = (() => {
+    if (options.places === undefined) return null;
+    const planner = createCountryside(world, {
+      places: options.places,
+      monuments: options.monuments,
+      roads: options.roads,
+      fields: options.fields,
+      dwellings(style) {
+        let list = dwellingsOf.get(style.id);
+        if (list === undefined) {
+          list = style.buildings
+            .filter((entry) => KIND_OF.get(entry.item) === 'dwelling')
+            .map((entry) => ({ item: entry.item, weight: entry.weight, footprint: part(entry.item)!.footprint }));
+          if (list.length === 0) list = [{ item: 'gabled-house', weight: 1, footprint: part('gabled-house')?.footprint ?? 7.4 }];
+          dwellingsOf.set(style.id, list);
+        }
+        return list;
+      },
+    });
+    return { planner, builder: createCountryBuilder(world, ctx, planner, variantOf) };
+  })();
+
   function floraFor(biome: BiomeId, style: RegionStyle, level: number): Weighted<string>[] {
     const key = `${biome}|${style.id}|${level}`;
     const cached = floras.get(key);
@@ -1314,7 +1326,15 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     onRoad: number;
     /** Plots refused because the ground under them is steeper than `MAX_SLOPE`. */
     onSlope: number;
+    /** Plots refused because a farm, a field or a fence of the countryside is there. */
+    onCountry: number;
     fastPath: boolean;
+    pieces: number;
+    fields: number;
+    fences: number;
+    motion: CountryMotionRows | null;
+    /** Near, and its fields laid on the relief because the drawn land was not ready: built again when it is. */
+    provisional: boolean;
   }
 
   /**
@@ -1447,7 +1467,13 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       builtOver: 0,
       onRoad: 0,
       onSlope: 0,
+      onCountry: 0,
       fastPath: false,
+      pieces: 0,
+      fields: 0,
+      fences: 0,
+      motion: null,
+      provisional: false,
     };
 
     if (!frameTile(tile)) return empty;
@@ -1502,6 +1528,11 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       centreElevation > 0 && shoreDistance(tile.lat, tile.lon) > radiusDeg + 0.5;
 
     gatherKeepouts(tile);
+    // The countryside's plans under the tile, whose pieces, fields and fences
+    // the wood keeps off at every level, drawn or not.
+    const plans = country === null ? [] : country.builder.plansUnder(tile.level, tile.row, tile.column);
+    const countryFrame = { level: tile.level, across, north, inverse: tileInverse };
+    country?.builder.prepare(plans, countryFrame);
 
     const pitch = pitchOf(tile.level);
     const levelScale = SCALE_OF[tile.level]!;
@@ -1593,6 +1624,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     let builtOver = 0;
     let onRoad = 0;
     let onSlope = 0;
+    let onCountry = 0;
     let plots = 0;
     let checked = false;
 
@@ -1684,6 +1716,10 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           builtOver++;
           continue;
         }
+        if (country !== null && country.builder.blocks(x, z, spread)) {
+          onCountry++;
+          continue;
+        }
 
         directionAt(x, z, plantUp);
         // Its own upright, not the tile's. A level-3 tile is 1,400 units across
@@ -1765,8 +1801,26 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       }
     }
 
+    const plants = placed.length;
+    // And the countryside itself, into the same buffer: legible at this level
+    // as a plant of its size would be.
+    const built = country === null
+      ? null
+      : country.builder.build(plans, countryFrame, legibleFloor(tile.level), land, land !== undefined && stats.sward.ready);
+    if (built !== null) {
+      for (const item of built.placed) placed.push(item);
+      vertices += built.vertices;
+    }
+    const countryside = {
+      pieces: built?.pieces ?? 0,
+      fields: built?.fields ?? 0,
+      fences: built?.fences ?? 0,
+      motion: built?.motion ?? null,
+      provisional: (built?.provisional ?? false) && land !== undefined && !stats.sward.ready,
+    };
+
     if (placed.length === 0) {
-      return { ...empty, plots, inTheSea, builtOver, onRoad, onSlope, fastPath: inland };
+      return { ...empty, plots, inTheSea, builtOver, onRoad, onSlope, onCountry, fastPath: inland, ...countryside };
     }
 
     const position = new Float32Array(vertices * 3);
@@ -1857,7 +1911,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     return {
       mesh,
       triangles: vertices / 3,
-      plants: placed.length,
+      plants,
       // 12 bytes of position, 3 of normal, 3 of colour, 3 of the ink's normal.
       bytes: vertices * 21,
       plots,
@@ -1865,7 +1919,9 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       builtOver,
       onRoad,
       onSlope,
+      onCountry,
       fastPath: inland,
+      ...countryside,
     };
   }
 
@@ -2004,7 +2060,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     byLevel: new Array(LEVELS).fill(0),
     retiring: 0,
     staged: 0,
-    sward: { tiles: 0, clumps: 0, triangles: 0, megabytes: 0, pending: 0, barren: 0, lastBuildMs: 0, ready: false, retiring: 0, staged: 0, slowestTileMs: 0, medianTileMs: 0, p90TileMs: 0, byRank: [], reach: 1, refused: { thin: 0, shore: 0, unprobed: 0, built: 0, road: 0 } },
+    sward: { tiles: 0, clumps: 0, triangles: 0, megabytes: 0, pending: 0, barren: 0, lastBuildMs: 0, ready: false, retiring: 0, staged: 0, slowestTileMs: 0, medianTileMs: 0, p90TileMs: 0, byRank: [], reach: 1, refused: { thin: 0, shore: 0, unprobed: 0, built: 0, road: 0, field: 0 } },
+    country: { planned: 0, cached: 0, slowestMs: 0, meanMs: 0, byKind: {}, refused: {}, pieces: 0, fields: 0, fences: 0, rotors: 0, beacons: 0, smokes: 0, provisional: 0 },
   };
 
   let queue: Tile[] = [];
@@ -2085,6 +2142,13 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    */
   const retiring = new Map<string, Standing>();
   let wantedTiles: Tile[] = [];
+  /**
+   * Near tiles whose fields were laid on the relief because the drawn land
+   * could not yet be asked (`countryside-tile.ts`). Once it can, each is built
+   * again and swapped for the old one the way a level change is, so a field
+   * never stays floating over, or sunk under, the ground it was meant for.
+   */
+  const provisional = new Set<string>();
   /** Tiles arriving and leaving by dissolving; see `fade.ts`. The sward has its own ranks. */
   const fader = createFader();
 
@@ -2344,6 +2408,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   const clumpBasis = new THREE.Matrix4();
   const clumpLocal = new THREE.Matrix4();
   const tint = new THREE.Color();
+  /** A field of straw's colour, for the grass that grows as its crop. */
+  const strawTint = new THREE.Color();
   const inverseRotation = new THREE.Matrix3();
   interface Square {
     ux: number; uy: number; uz: number;
@@ -2421,7 +2487,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         const rng = rngFrom('sward', J, I);
         const strayNorth = rng.jitter() * SWARD_PITCH * SWARD_JITTER;
         const strayEast = rng.jitter() * SWARD_PITCH * SWARD_JITTER;
-        const flower = rng.chance(SWARD_FLOWER_SHARE);
+        // Drawn as a number, not a verdict: a meadow moves the threshold (`MEADOW_SHARE`).
+        const bloomDraw = rng.unit();
         const pick = rng.weighted(grassWeights);
         const petal = rng.int(SWARD_FLOWERS.length);
         const size = rng.unit();
@@ -2483,6 +2550,28 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           refused.road++;
           continue;
         }
+        // The countryside: no grass through a paddy, a pond or a ploughed
+        // field, grass the colour of the crop in a field of straw, and a
+        // meadow thick with flowers.
+        let straw: number | null = null;
+        let meadow = false;
+        let meadowPetal = 0;
+        if (country !== null) {
+          const field = country.planner.fieldAt(direction);
+          if (field !== null) {
+            straw = strawOf(ctx, field.crop);
+            if (straw === null) {
+              refused.field++;
+              continue;
+            }
+          } else {
+            const found = country.planner.meadowAt(direction);
+            if (found !== null) {
+              meadow = true;
+              meadowPetal = found.petal;
+            }
+          }
+        }
         let radius = land.radiusAt(direction, faceUp);
         if (radius === null) {
           refused.unprobed++;
@@ -2505,8 +2594,11 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         }
 
         const grass = SWARD_GRASS[pick]!;
+        const flower = straw === null && bloomDraw < (meadow ? MEADOW_SHARE : SWARD_FLOWER_SHARE);
         const bloom = flower && ground.density >= 0.6;
-        const clump = bloom ? clumpOf(SWARD_FLOWERS[petal]!) : clumpOf(siteRank >= 1 ? grass.far : grass.id);
+        // A meadow is mostly one flower, with the others through it.
+        const bloomPetal = meadow && (I + J) % 3 !== 0 ? meadowPetal : petal;
+        const clump = bloom ? clumpOf(SWARD_FLOWERS[bloomPetal]!) : clumpOf(siteRank >= 1 ? grass.far : grass.id);
         const [short, tall] = bloom ? SWARD_FLOWER_HEIGHT : grass.height;
         const height = short + (tall - short) * size;
 
@@ -2528,9 +2620,9 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           nx: faceUp.x,
           ny: faceUp.y,
           nz: faceUp.z,
-          r: ground.r * shade,
-          g: ground.g * shade,
-          b: ground.b * shade,
+          r: (straw === null ? ground.r : strawTint.set(straw).r) * shade,
+          g: (straw === null ? ground.g : strawTint.g) * shade,
+          b: (straw === null ? ground.b : strawTint.b) * shade,
           rank: siteRank,
         });
         vertices += clump.triangles * 3;
@@ -2875,6 +2967,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       const near = tile.distance - Math.hypot(tile.halfEast, tile.halfNorth) < NEAR_BUILD;
       if (nearOnly && !near) break;
       if (!mayBuild(began, allowance, near)) break;
+      // The countryside's plans under it first, over as many frames as they take.
+      if (country !== null && !standing.has(tile.key) && !country.builder.ensure(tile.level, tile.row, tile.column, () => mayBuild(began, allowance, near))) break;
       queue.shift();
       if (standing.has(tile.key)) continue;
       // This level has had its share. The tile is dropped rather than
@@ -2893,11 +2987,17 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         triangles: result.triangles,
         plants: result.plants,
         bytes: result.bytes,
+        pieces: result.pieces,
+        fields: result.fields,
+        fences: result.fences,
+        motion: result.motion,
         level: tile.level,
         row: tile.row,
         column: tile.column,
         shown: false,
       });
+      if (result.provisional) provisional.add(tile.key);
+      else provisional.delete(tile.key);
       residentTriangles += result.triangles;
       residentByLevel[tile.level] = residentByLevel[tile.level]! + result.triangles;
       // The real cap. See `residentTriangles`.
@@ -2929,6 +3029,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         retiring.clear();
         barren.clear();
         rebuildKeepouts();
+        country?.planner.reset();
+        provisional.clear();
         scannedDetail = -1;
       }
       if (
@@ -2958,6 +3060,16 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       updateSward(viewer, camera);
       // The sward has its own slice; the wood's is what the wood spent.
       const sown = performance.now() - sowing;
+      if (provisional.size > 0 && stats.sward.ready) {
+        for (const key of provisional) {
+          const tile = wantedTiles.find((wanted) => wanted.key === key);
+          if (tile !== undefined && standing.has(key)) {
+            retire(key);
+            queue.unshift(tile);
+          }
+        }
+        provisional.clear();
+      }
       built += buildTiles(began + sown, false);
       if (built > 0) {
         stats.lastBuildMs = Number((performance.now() - began - sown).toFixed(2));
@@ -2967,6 +3079,12 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
 
       let triangles = 0;
       let plants = 0;
+      let pieces = 0;
+      let fieldCount = 0;
+      let fences = 0;
+      let rotors = 0;
+      let beacons = 0;
+      let smokes = 0;
 
       let bytes = 0;
       // The stats' own array, refilled: this runs every frame.
@@ -2977,6 +3095,18 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         plants += entry.plants;
         bytes += entry.bytes;
         byLevel[entry.level]!++;
+        pieces += entry.pieces;
+        fieldCount += entry.fields;
+        fences += entry.fences;
+        if (entry.motion !== null) {
+          rotors += entry.motion.rotors.length / ROTOR_STRIDE;
+          beacons += entry.motion.beacons.length / BEACON_STRIDE;
+          smokes += entry.motion.smokes.length / SMOKE_STRIDE;
+        }
+      }
+      if (country !== null) {
+        Object.assign(stats.country, country.planner.stats);
+        Object.assign(stats.country, { pieces, fields: fieldCount, fences, rotors, beacons, smokes, provisional: provisional.size });
       }
       residentTriangles = triangles;
       for (let level = 0; level < LEVELS; level++) residentByLevel[level] = 0;
@@ -3016,6 +3146,10 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         builtOver: result.builtOver,
         onRoad: result.onRoad,
         onSlope: result.onSlope,
+        onCountry: result.onCountry,
+        pieces: result.pieces,
+        fields: result.fields,
+        fences: result.fences,
         fastPath: result.fastPath,
         kilobytes: Number((result.bytes / 1024).toFixed(1)),
         buildMs: Number(ms.toFixed(2)),
@@ -3102,6 +3236,13 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         worst = Math.max(worst, best);
       }
       return { tile: `${level}/${row}/${column}`, parent: parent.length, children: children.length, unmatched, worstGap: Number(worst.toFixed(4)) };
+    },
+
+    countryside: country?.planner ?? null,
+
+    motion(visit) {
+      for (const entry of standing.values()) if (entry.shown && entry.motion !== null) visit(entry.motion);
+      for (const entry of retiring.values()) if (entry.motion !== null) visit(entry.motion);
     },
 
     verify(lat, lon, level = 0) {

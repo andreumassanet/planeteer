@@ -94,6 +94,12 @@ export interface SettingsOptions {
    * not built, which is a world with no relay.
    */
   players?: { name: { get(): string; set(name: string): string }; online(): number | null };
+  /**
+   * The traveller's card: how you look. The row's button closes this card and
+   * opens that one, which hands the pointer back on closing if this one would
+   * have. Omit it and the row is not built.
+   */
+  traveller?: { show(relock: boolean): void };
   /** Where to hand the pointer back to, if it was locked when the panel opened. */
   lockTarget: HTMLElement | null;
   /** Called on open, so whatever else holds the screen — the map — can let go. */
@@ -473,6 +479,14 @@ export function createSettings(options: SettingsOptions): Settings {
       if (event.code === 'Enter') nameInput.blur();
     });
   }
+  const travellerButton = h('button', { type: 'button', class: 'ui-btn small' }, icon('walk'), 'Change');
+  travellerButton.addEventListener('click', () => {
+    const handBack = relock;
+    // Closed without asking for the pointer: the next card asks, when it closes.
+    relock = false;
+    hide();
+    options.traveller?.show(handBack);
+  });
   const sensitivity = makeSlider(
     options.sensitivity,
     (v) => [`${Math.round(v * 100)}%`, v < 0.8 ? 'steady' : v > 1.3 ? 'quick' : 'default'],
@@ -550,6 +564,18 @@ export function createSettings(options: SettingsOptions): Settings {
                 row('Music', 'A tune in the style of the country you are in, now and then, and quiet in between.', musicOn!.element),
                 row('Music volume', 'How loud the music is, apart from everything else.', musicVolume!.value, musicVolume!.slider),
               ]),
+        ),
+    options.traveller === undefined
+      ? null
+      : h(
+          'section',
+          { class: 'atlas-settings-section' },
+          h('div', { class: 'ui-eyebrow', text: 'You' }),
+          row(
+            'Your traveller',
+            'Man or woman, skin, hair, clothes and colours, and whether you carry a rucksack. The others see you as you choose.',
+            travellerButton,
+          ),
         ),
     players === undefined
       ? null

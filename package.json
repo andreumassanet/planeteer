@@ -33,6 +33,7 @@
     "craft": "node scripts/check-craft.ts",
     "effects": "node scripts/check-effects.ts",
     "fleet": "node scripts/check-fleet.ts",
+    "country": "node scripts/check-country.ts",
     "scenery": "node scripts/check-scenery.ts",
     "solids": "node scripts/check-solids.ts",
     "input": "node scripts/check-input.ts",

@@ -139,6 +139,20 @@ export function townGrid(radius: number): TownGrid {
   return grid;
 }
 
+/** How many cells past the square's edge the country round a town reaches, at most (the disc stops it first). */
+export const COUNTRY_RING = 2;
+
+/**
+ * How far from its centre a town's own country reaches: its disc, or for a
+ * town too small to have room inside it, `COUNTRY_RING` cells past its square.
+ * `settlements.ts` plants its orchards out to here and the countryside between
+ * the towns (`countryside.ts`) starts past it.
+ */
+export function countryReach(radius: number): number {
+  const grid = townGrid(radius);
+  return Math.max(radius, grid.half + COUNTRY_RING * grid.pitch);
+}
+
 /**
  * Where the streets run, along one axis of a square `cells` wide.
  *
@@ -310,6 +324,88 @@ export function gatesOf(grid: TownGrid): Gate[] {
     }
   }
   return gates;
+}
+
+// ---------------------------------------------------------------------------
+// Through traffic: the carriageway a town keeps down its main streets
+// ---------------------------------------------------------------------------
+
+/**
+ * Half the width of the widest vehicle that drives through a town, in world
+ * units: a placed city bus is 4.46 across, a hatchback 3.00 (2026-09-24,
+ * `pnpm life`).
+ */
+export const THROUGH_HALF_WIDTH = 2.25;
+
+/**
+ * The radius a vehicle turns on at a town's middle crossing where the street
+ * allows it, in world units. A real car's turning circle is about ten metres
+ * across, 6.3 units of radius at the scenery's scale; a town's main street is
+ * 5 to 12 units wide, and this is what its paving has room for.
+ */
+export const THROUGH_TURN = 4;
+
+/** What a town keeps between a through lane's outer side and its kerb, for a person on the pavement. */
+const KERB_ROOM = 2;
+
+/**
+ * Whether a town has the two main streets a vehicle can drive through it by:
+ * a square of one cell is one house and its yard, and has no street at all.
+ */
+export function hasThroughStreets(grid: TownGrid): boolean {
+  return grid.cells >= 2;
+}
+
+/**
+ * Whether a gate is where a main street meets the edge — a street through the
+ * middle of the square. Nine road ends in ten are (31,973 of 34,808,
+ * 2026-09-24).
+ */
+export function isMainGate(gate: Gate): boolean {
+  return Math.abs(gate.outX !== 0 ? gate.z : gate.x) < 1e-6;
+}
+
+/**
+ * Half the width of a main street, from its centre line to its building line:
+ * the whole middle cell of a square an odd number of cells wide, which is an
+ * avenue, and one band either side of the middle boundary of an even one.
+ */
+export function mainStreetHalf(grid: TownGrid, street: number): number {
+  return grid.cells % 2 === 1 ? grid.pitch * 0.5 : streetBand(grid, street);
+}
+
+/**
+ * How far off a main street's centre line through traffic drives, one lane
+ * each way — or 0, one lane down the middle, where the street is too narrow
+ * for two and a pavement, which a band street 7.2 across is: an avenue of a
+ * 12-unit cell drives 1.75 off it. Never more than
+ * 0.6 of the turn, so the inside lane on the middle crossing's curve stays a
+ * curve.
+ */
+export function throughLane(half: number): number {
+  return Math.max(0, Math.min(half - THROUGH_HALF_WIDTH - KERB_ROOM, 0.4 * half, THROUGH_TURN * 0.6));
+}
+
+/**
+ * How far either side of a main street's centre line through traffic sweeps:
+ * what the town keeps clear of parked cars and of people standing, and what
+ * `scripts/check-life.ts` holds a drive through a town to.
+ */
+export function throughClear(half: number): number {
+  return throughLane(half) + THROUGH_HALF_WIDTH;
+}
+
+/**
+ * Whether `(x, z)` in a town's frame is on the through road, `margin` wider
+ * all round: either main street's carriageway, and the whole of their
+ * crossing, which a vehicle turning cuts the corners of. `half` is the main
+ * street's (`mainStreetHalf`).
+ */
+export function onThroughRoad(x: number, z: number, half: number, margin: number): boolean {
+  const clear = throughClear(half) + margin;
+  const ax = Math.abs(x);
+  const az = Math.abs(z);
+  return ax < clear || az < clear || (ax < half + margin && az < half + margin);
 }
 
 // ---------------------------------------------------------------------------

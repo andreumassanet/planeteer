@@ -445,9 +445,12 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
   }
 
   /** The re-strikes due in the lookahead, for every note held by tremolo. */
-  function strikeTremolos(horizon: number): void {
+  function strikeTremolos(now: number, horizon: number): void {
     for (const t of tremolos) {
       if (!t.active || t.bus === null) continue;
+      // Strikes the clock has already passed — a long frame, a throttled
+      // window — are skipped as a missed note is, not all started at once.
+      if (t.next < now) t.next = now;
       while (t.next < horizon && t.next < t.end) {
         if (voices < MAX_VOICES) {
           const accent = t.count % 2 === 0 ? 0.9 : 0.72;
@@ -556,7 +559,7 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
         fading.pop();
       }
       const horizon = now + LOOKAHEAD;
-      strikeTremolos(horizon);
+      strikeTremolos(now, horizon);
       if (!on) {
         if (current !== null) {
           fadeOut(current, now, 1.5);

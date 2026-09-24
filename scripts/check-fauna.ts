@@ -770,6 +770,185 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   }
   check(identical === WHERE.length, 'two worlds build the same herds, vertex for vertex',
     `${identical} of ${WHERE.length} places identical`);
+
+  // -------------------------------------------------------------------------
+  console.log('\n  a near herd, alive — it wanders, gets out of your way, and goes home');
+  // -------------------------------------------------------------------------
+  //
+  // **Where an animal of a near herd goes is the herd's own admission asked
+  // again**, and this is the assertion that it is: walked up to, run past,
+  // stood beside and left, every animal of every near herd, every frame, is
+  // inside its herd's room, on land, off a landmark's pad, on ground no
+  // steeper than `MAX_SLOPE` under its own stance, clear of every road by the
+  // road's own clearance and outside every built town's disc. Then that it
+  // moved at all, that it moved off when approached, that the herd went back
+  // to its merged buffer only with every animal at its own spot, and that
+  // walking into one is a wall.
+  {
+    const { decodeRoads } = await import('../src/pack.ts');
+    const { indexPlaces, isShown, radiusOf } = await import('../src/places.ts');
+    const { roadClearance, roadGeometryFor, roadIndexFor } = await import('../src/roads.ts');
+    const { MAX_SLOPE, flattenWeightAt, gradeAt } = await import('../src/terrain.ts');
+    const { WALK_SPEED, RUN_SPEED } = await import('../src/avatar.ts');
+    const placed = indexPlaces(raw, 0).all;
+    const roadsRaw = decodeRoads(await inflate(readFileSync(resolve(here, '../public/data/roads.bin'))));
+    const network = roadsRaw.places === placed.length ? roadsRaw.roads : [];
+    const geometry = roadGeometryFor(network, placed);
+    const index = roadIndexFor(network, placed);
+    const hits: number[] = [];
+    const segment = new THREE.Vector3();
+    const toward = new THREE.Vector3();
+    const foot = new THREE.Vector3();
+    const last = new THREE.Vector3();
+    const here3 = new THREE.Vector3();
+    /** How far inside a road's clearance a spot is, or 0 where it is clear of every road. */
+    const intoRoad = (direction: THREE.Vector3): number => {
+      let worst = 0;
+      toward.copy(direction).multiplyScalar(PLANET_RADIUS);
+      for (const hit of index.near(direction, 40, hits)) {
+        const path = geometry.path(hit);
+        const clear = roadClearance(network[hit]!.cls);
+        for (let step = 0; step < path.count; step++) {
+          here3.set(path.xyz[step * 3]!, path.xyz[step * 3 + 1]!, path.xyz[step * 3 + 2]!).multiplyScalar(PLANET_RADIUS);
+          if (step > 0) {
+            segment.subVectors(here3, last);
+            const lengthSq = segment.lengthSq();
+            const t = lengthSq > 1e-6 ? Math.max(0, Math.min(1, foot.subVectors(toward, last).dot(segment) / lengthSq)) : 0;
+            foot.copy(last).addScaledVector(segment, t);
+            worst = Math.max(worst, clear - foot.distanceTo(toward));
+          }
+          last.copy(here3);
+        }
+      }
+      return worst;
+    };
+    const townDirs = placed.filter((place) => isShown(place)).map((place) => ({
+      dir: unitAt(place.lat, place.lon, new THREE.Vector3()), radius: radiusOf(place),
+    }));
+    const intoTown = (direction: THREE.Vector3): number => {
+      let worst = 0;
+      for (const town of townDirs) {
+        if (town.dir.dot(direction) < 0.999) continue;
+        worst = Math.max(worst, town.radius - town.dir.angleTo(direction) * PLANET_RADIUS);
+      }
+      return worst;
+    };
+
+    const slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
+    const dir = new THREE.Vector3();
+    let frames = 0;
+    let samples = 0;
+    let outOfRoom = 0;
+    let wet = 0;
+    let onPad = 0;
+    let worstGrade = 0;
+    let worstRoad = 0;
+    let worstTown = 0;
+    let furthest = 0;
+    let fled = 0;
+    let herdsLived = 0;
+    let homeAtRelease = true;
+    let walls = 0;
+    let wallTries = 0;
+
+    const spots: [string, number, number][] = [
+      ['Ulm', 48.40, 9.99],
+      ['Cornwall', 50.3, -5.0],
+      ['the Mongolian steppe', 46.5, 103.0],
+      ['the Serengeti', -2.3, 34.8],
+    ];
+    for (const [name, lat, lon] of spots) {
+      const lively = createLife(world, placed, { animals: ANIMALS, rigs, roads: network });
+      const start = at(lat, lon, 2);
+      for (let frame = 0; frame < 40; frame++) lively.update(start, 2, undefined, frame * 0.05, 0.05);
+      // The nearest herd standing, and a walk up to it from 45 units off.
+      let target: THREE.Vector3 | null = null;
+      for (const child of lively.group.children) {
+        if (!child.visible || !child.name.startsWith('herd:')) continue;
+        if (target === null || child.position.distanceTo(start) < target.distanceTo(start)) target = child.position.clone();
+      }
+      if (target === null) {
+        console.log(`  ${name.padEnd(24)} no herd near enough to walk to`);
+        continue;
+      }
+      const up = target.clone().normalize();
+      const side = new THREE.Vector3(0, 1, 0).projectOnPlane(up).normalize();
+      const walkTo = (offset: number): THREE.Vector3 => {
+        const d = up.clone().addScaledVector(side, offset / PLANET_RADIUS).normalize();
+        return d.multiplyScalar(PLANET_RADIUS + Math.max(0, world.elevationAt(d)) + 2);
+      };
+      // Out, in at a walk, through at a run, standing among them, and away.
+      const legs: [number, number, number][] = [
+        [45, 45, 2], [45, 4, WALK_SPEED], [4, 4, 6], [4, -30, RUN_SPEED], [-30, -30, 4], [-30, 160, WALK_SPEED * 2],
+      ];
+      let offset = 45;
+      let clock = 10;
+      let lived = false;
+      let snappedBefore = lively.stats.snapped;
+      const homes = new Map<string, number>();
+      for (const [from, to, pace] of legs) {
+        offset = from;
+        const seconds = to === from ? pace : Math.abs(to - from) / pace;
+        const step = 0.05;
+        for (let t = 0; t < seconds; t += step) {
+          if (to !== from) offset += Math.sign(to - from) * pace * step;
+          const viewer = walkTo(offset);
+          lively.update(viewer, 2, undefined, (clock += step), step);
+          frames++;
+          const standing = lively.grazers();
+          if (standing.length > 0) lived = true;
+          for (const herd of standing) {
+            for (const head of herd.heads) {
+              samples++;
+              if (Math.hypot(head.x, head.z) > herd.room + 1e-3) outOfRoom++;
+              dir.copy(herd.centre).addScaledVector(herd.right, head.x / PLANET_RADIUS)
+                .addScaledVector(herd.forward, head.z / PLANET_RADIUS).normalize();
+              if (world.elevationAt(dir) <= 0) wet++;
+              if (flattenWeightAt(dir.x, dir.y, dir.z) > 0) onPad++;
+              worstGrade = Math.max(worstGrade, gradeAt(dir, herd.right, herd.forward, head.stance, slope).grade);
+              if (samples % 7 === 0) worstRoad = Math.max(worstRoad, intoRoad(dir));
+              if (samples % 7 === 0) worstTown = Math.max(worstTown, intoTown(dir));
+              furthest = Math.max(furthest, Math.hypot(head.x - head.homeX, head.z - head.homeZ));
+              if (head.mode === 'flee') fled++;
+              homes.set(herd.key, Math.max(homes.get(herd.key) ?? 0, Math.hypot(head.x - head.homeX, head.z - head.homeZ)));
+            }
+          }
+          // Walk into the nearest animal: the body is pushed back out of it.
+          if (to === from && pace === 6 && standing.length > 0 && t < step) {
+            for (const herd of standing) {
+              for (const head of herd.heads) {
+                wallTries++;
+                const push = new THREE.Vector3();
+                const into = head.world.clone().addScaledVector(herd.right, 0.3);
+                if (lively.collide(into, 0.7, 0.7, push) && push.length() > 0) walls++;
+              }
+            }
+          }
+        }
+      }
+      if (lived) herdsLived++;
+      if (lively.stats.snapped !== snappedBefore) homeAtRelease = false;
+      snappedBefore = lively.stats.snapped;
+      console.log(
+        `  ${name.padEnd(24)} ${lively.grazers().length === 0 ? 'handed back' : 'still standing'}` +
+        `, furthest from its spot ${n(Math.max(0, ...homes.values()), 1)} units, snapped ${lively.stats.snapped}`,
+      );
+    }
+    console.log(
+      `  ${frames} frames, ${samples} animal-frames: worst grade ${n(worstGrade, 3)} against ${n(MAX_SLOPE, 3)}, ` +
+      `deepest into a road's clearance ${n(worstRoad, 2)}, into a town ${n(worstTown, 2)}`,
+    );
+    check(herdsLived >= 3, 'a near herd stands up as its animals where you walk to one', `${herdsLived} of ${spots.length} places`);
+    check(furthest > 2, 'and its animals move: nothing near is a statue', `furthest ${n(furthest, 1)} units from its spot`);
+    check(fled > 0, 'they move off when you come close', `${fled} animal-frames running from you`);
+    check(outOfRoom === 0, 'every animal stays inside its herd\'s room', `${outOfRoom} of ${samples}`);
+    check(wet === 0 && onPad === 0, 'and on land, off every landmark\'s pad', `${wet} wet, ${onPad} on a pad`);
+    check(worstGrade <= MAX_SLOPE, 'and never on ground steeper than MAX_SLOPE', `worst ${n(worstGrade, 3)}`);
+    check(worstRoad <= 0, 'and never inside a road\'s clearance', `deepest ${n(worstRoad, 2)} units`);
+    check(worstTown <= 0, 'and never inside a built town\'s disc', `deepest ${n(worstTown, 2)} units`);
+    check(homeAtRelease, 'walked away from, a herd goes back to its merged frames only with every animal home');
+    check(wallTries > 0 && walls === wallTries, 'and an animal is a wall to whoever walks into it', `${walls} of ${wallTries}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

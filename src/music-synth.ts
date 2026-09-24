@@ -214,9 +214,12 @@ export function renderModal(spec: ModalSpec, frequency: number, sampleRate: numb
     } else {
       let phase = 0;
       let env = amplitude;
+      // The pitch falls by a fixed ratio a sample: one power, not one a sample.
+      const sag = Math.pow(2, -sagPerSample / 12);
+      let f = f0;
       for (let n = 0; n < total; n++) {
-        const f = f0 * Math.pow(2, (-sagPerSample * n) / 12);
         phase += (2 * Math.PI * f) / sampleRate;
+        f *= sag;
         out[n] = out[n]! + Math.sin(phase) * env;
         env *= decay;
       }

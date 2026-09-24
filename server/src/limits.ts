@@ -61,3 +61,21 @@ export const JITTER_MS = 1_000;
 export function driveReach(elapsedMs: number, slack: number): number {
   return slack + (MAX_SPEED * (Math.max(0, elapsedMs) + JITTER_MS)) / 1000;
 }
+
+/**
+ * How a traveller looks, as the relay passes it on: `encodeAppearance` in
+ * `src/appearance.ts` writes thirteen characters, a version letter and one
+ * base-36 digit a field, and this is looser than that on purpose — a short
+ * run of lower-case letters and digits, with room for the fields a later
+ * client appends. The relay never reads it; the game's `decodeAppearance` is
+ * the one reader, and draws anything it cannot as the crowd. What this stops
+ * is anything else riding along under the name: markup, a long string, a
+ * number where text was expected. `pnpm people` holds every code the game can
+ * write to it.
+ */
+export const LOOK_PATTERN = /^[0-9a-z]{1,24}$/;
+
+/** A look as the relay keeps it, or `''` for none — whatever it was sent. */
+export function cleanLook(raw: unknown): string {
+  return typeof raw === 'string' && LOOK_PATTERN.test(raw) ? raw : '';
+}

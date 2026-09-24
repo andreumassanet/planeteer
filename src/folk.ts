@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { AVATAR_HEIGHT, FIGURE, WALK_SPEED, WALK_STRIDE } from './avatar.ts';
-import { OUTFITS, castMaterial, foldLegs, limbsOf, loadCast, reachArms } from './cast.ts';
+import { OUTFITS, castMaterial, castSkin, foldLegs, limbsOf, loadCast, paintWith, reachArms } from './cast.ts';
 import { bakeSkin } from './models.ts';
-import type { Cast, ClipName, OutfitId, Paint, Person, SlotStat } from './cast.ts';
-import { tone } from './monuments/contract.ts';
+import type { Cast, ClipName, Person } from './cast.ts';
 import type { MonumentContext } from './monuments/contract.ts';
+import { coloursOf, wardrobeOf } from './appearance.ts';
+import type { Appearance } from './appearance.ts';
 import { PALETTE } from './theme.ts';
 import { lookFor } from './scenery/dress.ts';
 import { rngFrom } from './scenery/random.ts';
@@ -20,12 +21,14 @@ import { frameOpenFor } from './view.ts';
  * right: clothing is regional, appearance is not, and the two are separate draws
  * from one seed. What changed is what the colours go onto. A `Look` names a
  * skin, a hair colour, a top, a bottom, shoes and one bright thing; the cast's
- * outfits name their materials `Purple`, `Worker_Vest`, `LightBrown`. So an
- * outfit's materials are sorted into those roles by what they are *on* — the
- * one with the most surface above the waist is the top, the one with the most
- * below is the bottom, anything on a foot is a shoe — and everything smaller
- * keeps the pack's own colour, because a tie, an earring and a hard hat are the
- * details that make an outfit that outfit.
+ * outfits name their materials `Purple`, `Worker_Vest`, `LightBrown`. So every
+ * surface of every outfit has a role (`roleOf` in `cast.ts`, a table read off
+ * the pack) — the hoodie is the top, the jeans the bottom, the trainers the
+ * shoes — and the look's colours go onto the roles, while a tie, an earring
+ * and a hard hat keep their own colour moved onto the palette, because those
+ * are the details that make an outfit that outfit. The traveller's card dresses
+ * the hero with the same roles (`paintWith`), and `wear` dresses another player
+ * as they chose to look.
  *
  * ## Standing people are not statues any more
  *
@@ -42,23 +45,17 @@ import { frameOpenFor } from './view.ts';
  * The town publishes, with each spot, the stretch of its own street a person
  * there may walk (`Ground.folk` in `settlements.ts`): one terrace level, off
  * the steps, clear of the car parked on it. Most who have one stroll it end to
- * end and back, pausing at each end, on the hero's own stride
- * (`WALK_STRIDE`: the cycle is driven by the distance walked, as the verge
- * walkers' is); some stand in pairs turned to each other, gesturing as they
- * talk; the rest stand, and glance at the player as he passes. Everything that
- * decides who does which is seeded by the person's key. They are solid
- * (`collide`, a body `PERSON_RADIUS` wide), and one of them at a time can be
- * held in conversation (`engage`), which stops them and turns them to face the
- * player; `talk.ts` says the words.
+ * end and back, easing off and pulling up and pausing at each end, on the
+ * hero's own stride (`WALK_STRIDE`: the cycle is driven by the distance
+ * walked, as the verge walkers' is); some stand in pairs turned to each
+ * other, talking by turns — the library's talking idle for the one speaking,
+ * a gesture now and then from the one listening; the rest stand, in one of
+ * three idles, and glance at the player as he passes. Everything that decides
+ * who does which is seeded by the person's key. They are solid (`collide`, a
+ * body `PERSON_RADIUS` wide), and one of them at a time can be held in
+ * conversation (`engage`), which stops them, turns them to face the player,
+ * and has them wave and then talk; `talk.ts` says the words.
  */
-
-/**
- * Skin, as the cast wears it. `dress.ts`'s ramp is the right set of people and
- * one of its entries is the wrong colour here: `tan` goes olive on a large
- * smooth face under the blue fill light, where it was a few pixels of prism
- * before. It is swapped for a warm tone of the same weight; the others stand.
- */
-const SKIN = new Map<number, number>([[PALETTE.tan, tone(PALETTE.apricot, 0.8)]]);
 
 /** Whether two colours are close enough to read as one at a distance. */
 function near(a: number, b: number): boolean {
@@ -66,14 +63,16 @@ function near(a: number, b: number): boolean {
   return Math.hypot(d(16), d(8), d(0)) < 0.2;
 }
 
-/** Below this height, in the pack's metres, a material is on the legs. */
-const WAIST = 0.9;
-
 export interface Folk {
   /** False until the cast has loaded; nobody is dressed before that. */
   readonly ready: boolean;
   /** A person of `region`, the same person for the same `key` every time. */
   dress(key: string, region: string, warmth?: number, height?: number): Person | null;
+  /**
+   * A traveller as they chose to look (`appearance.ts`): another player, at
+   * `height`. `null` until the cast has loaded.
+   */
+  wear(appearance: Appearance, height: number): Person | null;
   /** Gives a person back to be dressed again; see `Cast.release`. */
   release(person: Person): void;
   /**
@@ -112,6 +111,12 @@ const ADULT_HEIGHT: readonly [number, number] = [AVATAR_HEIGHT * 0.9, AVATAR_HEI
 const YOUNG_HEIGHT = AVATAR_HEIGHT * 0.62;
 const YOUNG_SHARE = 0.14;
 
+/**
+ * Whether the townsperson `key` is dressed as a child: the one draw `dress`
+ * makes, so a conversation (`talk.ts`) knows a child from the same key.
+ */
+export const isYoung = (key: string): boolean => rngFrom(key, 'age').chance(YOUNG_SHARE);
+
 export function createFolk(ctx: MonumentContext): Folk {
   let cast: Cast | null = null;
   const source = ctx.toon(ctx.palette.ink);
@@ -122,29 +127,16 @@ export function createFolk(ctx: MonumentContext): Folk {
     })
     .catch((error: unknown) => console.warn('folk: the cast did not load', error));
 
-  const roles = new Map<OutfitId, { top: string | null; bottom: string | null }>();
-  const rolesOf = (outfit: OutfitId, stats: readonly SlotStat[]) => {
-    let found = roles.get(outfit);
-    if (found !== undefined) return found;
-    const garments = stats.filter(
-      (stat) => stat.vertices > 0 && !/@feet$|^Skin|^Hair|^Eyebrows|^Moustache|^Eye$/.test(stat.name),
-    );
-    const largest = (list: SlotStat[]) =>
-      list.length === 0 ? null : list.reduce((a, b) => (b.vertices > a.vertices ? b : a)).name;
-    found = {
-      top: largest(garments.filter((stat) => stat.meanY >= WAIST)),
-      bottom: largest(garments.filter((stat) => stat.meanY < WAIST)),
-    };
-    roles.set(outfit, found);
-    return found;
-  };
-
   return {
     get ready() {
       return cast !== null;
     },
     release(person) {
       cast?.release(person);
+    },
+    wear(appearance, height) {
+      if (cast === null) return null;
+      return cast.make(wardrobeOf(appearance), paintWith(coloursOf(appearance)), height);
     },
     seated(key, region, height, pose) {
       const person = this.dress(key, region, undefined, height);
@@ -173,30 +165,28 @@ export function createFolk(ctx: MonumentContext): Folk {
     },
     dress(key, region, warmth, tall) {
       if (cast === null) return null;
-      const young = tall === undefined && rngFrom(key, 'age').chance(YOUNG_SHARE);
+      const young = tall === undefined && isYoung(key);
       const look = lookFor(rngFrom(key, 'folk'), region, {
         ...(warmth === undefined ? {} : { warmth }),
         ...(young ? { age: 'child' as const } : {}),
       });
       const pick = rngFrom(key, 'outfit');
       const outfit = OUTFITS[pick.int(OUTFITS.length)]!;
-      const { top, bottom } = rolesOf(outfit, cast.slotsOf(outfit));
-      const skin = SKIN.get(look.skin) ?? look.skin;
+      const skin = castSkin(look.skin);
       // A top the colour of the skin under it reads as a bare body at forty
       // units; the wardrobe tables were written for bodies where it did not.
-      const top_ = near(look.top, skin) ? look.accent : look.top;
-      const bottom_ = near(look.bottom, skin) ? look.trim : look.bottom;
-      const paint: Paint = (name) => {
-        if (name.endsWith('@feet')) return look.trim;
-        if (name.startsWith('Skin')) return skin;
-        // A child has no beard to paint, and the outfit may: it goes skin.
-        if (young && /^(Moustache|Beard)/.test(name)) return skin;
-        if (/^(Hair|Eyebrows|Moustache)/.test(name)) return look.hairColor;
-        if (name === 'Eye') return ctx.palette.ink;
-        if (name === top) return top_;
-        if (name === bottom) return bottom_;
-        return null;
-      };
+      // Every surface of the outfit is coloured by what it is (`roleOf` in
+      // `cast.ts`): the garments by the look, a tie or a hard hat on the palette.
+      const paint = paintWith({
+        skin,
+        hair: look.hairColor,
+        eye: ctx.palette.ink,
+        top: near(look.top, skin) ? look.accent : look.top,
+        bottom: near(look.bottom, skin) ? look.trim : look.bottom,
+        shoes: look.trim,
+        pack: look.accent,
+        young,
+      });
       const height = young ? YOUNG_HEIGHT : THREE.MathUtils.clamp(look.height, ADULT_HEIGHT[0], ADULT_HEIGHT[1]);
       return cast.make(outfit, paint, tall ?? height, young);
     },
@@ -272,6 +262,34 @@ const TURN_RATE = 4.5;
 /** Seconds a walk and a stand take to cross-fade. */
 const BLEND_TIME = 0.25;
 /**
+ * A stroller sets off and pulls up rather than starting and stopping dead:
+ * the pace follows what is wanted at `STROLL_EASE` a second, and slows over
+ * the last `STROLL_SLOWING` units of the stretch to `STROLL_ARRIVE` of itself.
+ * The walk's weight follows the pace, and its cycle the distance, so the feet
+ * keep time with the ground all the way down to a stop.
+ */
+const STROLL_EASE = 3;
+const STROLL_SLOWING = AVATAR_HEIGHT * 0.8;
+const STROLL_ARRIVE = 0.35;
+/**
+ * Which idle a standing person breathes to: mostly the relaxed one, some the
+ * ready stance, some with their weight on one leg (the library's second idle),
+ * by these shares.
+ */
+const STANCES: readonly [ClipName, number][] = [
+  ['Idle_Neutral', 0.6],
+  ['Idle', 0.2],
+  ['Idle_Shift', 0.2],
+];
+/**
+ * Talking is the library's talking idle, hands and all, faded in over
+ * `TALK_BLEND` seconds: all the while somebody is held in conversation by the
+ * player, and by turns in a pair talking to each other, each of the two
+ * speaking for `TALK_TURN` seconds and listening for as long.
+ */
+const TALK_BLEND = 0.6;
+const TALK_TURN: readonly [number, number] = [3, 7];
+/**
  * Inside this a person not otherwise busy turns their head to the player,
  * as far as `GLANCE_LIMIT` either side of where their body faces.
  */
@@ -289,6 +307,9 @@ interface Standing {
   mode: Mode;
   base: THREE.AnimationAction;
   walk: THREE.AnimationAction;
+  talk: THREE.AnimationAction;
+  /** How much of the standing pose is the talking one, 0 to 1. */
+  talking: number;
   gesture: THREE.AnimationAction | null;
   gestureAt: number;
   nextGesture: number;
@@ -307,10 +328,15 @@ interface Standing {
   heading: 1 | -1;
   length: number;
   speed: number;
+  /** The pace now, eased towards `speed` setting off and away from it pulling up. */
+  pace: number;
   /** The yaw of `from -> to` in the town's frame. */
   strollYaw: number;
   /** Seconds left standing at the end of a stretch. */
   pause: number;
+  /** A pair's turn at speaking, in seconds, and where in the turns this one starts; drawn once. */
+  turnLength: number;
+  speaksAt: number;
   /** How far into the walk cycle, 0 to 1, driven by the distance walked. */
   phase: number;
   /** How much of the walk is showing, 0 to 1. */
@@ -346,7 +372,7 @@ export interface Townsfolk {
   crownOf(key: string, out: THREE.Vector3): boolean;
   /**
    * `nearestMoving` is how far from the viewer the nearest person in the
-   * middle of a gesture or a stroll stands, or Infinity: `main.ts` redraws
+   * middle of a gesture, a stroll or a sentence stands, or Infinity: `main.ts` redraws
    * the shadow map every frame while it is inside the box. An idle stance is
    * not counted — breathing moves a shadow by less than one of the map's
    * 0.29-unit texels.
@@ -409,9 +435,19 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     const holder = new THREE.Group();
     holder.add(person.root);
     group.add(holder);
-    // Mostly the relaxed idle; some stand ready, the way people waiting do.
-    const base = person.actions.get(hash(anchor.key, 'stance') < 0.7 ? 'Idle_Neutral' : 'Idle')!;
+    // Mostly the relaxed idle; some stand ready, the way people waiting do,
+    // and some with their weight on one leg.
+    let pick = hash(anchor.key, 'stance');
+    let stance: ClipName = STANCES[0]![0];
+    for (const [clip, share] of STANCES) {
+      stance = clip;
+      if ((pick -= share) < 0) break;
+    }
+    const base = person.actions.get(stance)!;
     base.play();
+    // Every action a pooled person comes back with is at a time scale of one
+    // and full weight (`Cast.release`): each is set here before it plays.
+    base.setEffectiveWeight(1);
     // Out of step with each other, or a square breathes in unison.
     base.time = hash(anchor.key, 'phase') * base.getClip().duration;
     base.timeScale = 0.85 + hash(anchor.key, 'rate') * 0.3;
@@ -421,6 +457,11 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     walk.play();
     walk.timeScale = 0;
     walk.setEffectiveWeight(0);
+    const talk = person.actions.get('Talk')!;
+    talk.play();
+    talk.setEffectiveWeight(0);
+    talk.time = hash(anchor.key, 'talk') * talk.getClip().duration;
+    talk.timeScale = 0.9 + hash(anchor.key, 'talk-rate') * 0.2;
     const length = anchor.from.distanceTo(anchor.to);
     const mode: Mode = anchor.chatting
       ? 'chat'
@@ -440,6 +481,8 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
       mode,
       base,
       walk,
+      talk,
+      talking: 0,
       gesture: null,
       gestureAt: 0,
       nextGesture: clock + (mode === 'chat' ? 1 : 3) + hash(anchor.key, 'first') * (mode === 'chat' ? 5 : 14),
@@ -453,8 +496,11 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
       heading: hash(anchor.key, 'heading') < 0.5 ? 1 : -1,
       length,
       speed: WALK_SPEED * THREE.MathUtils.lerp(STROLL_PACE[0], STROLL_PACE[1], hash(anchor.key, 'pace')),
+      pace: 0,
       strollYaw,
       pause: hash(anchor.key, 'pause') * STROLL_PAUSE[1],
+      turnLength: THREE.MathUtils.lerp(TALK_TURN[0], TALK_TURN[1], hash(anchor.key, 'turn')),
+      speaksAt: hash(anchor.key, 'speaks') * 2,
       phase: hash(anchor.key, 'stride'),
       walking: 0,
       head,
@@ -480,8 +526,12 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
    */
   function stroll(entry: Standing, dt: number): boolean {
     const { anchor } = entry;
-    if (entry.held) return false;
+    if (entry.held) {
+      entry.pace = 0;
+      return false;
+    }
     if (entry.pause > 0) {
+      entry.pace = 0;
       entry.pause -= dt;
       if (entry.pause <= 0) {
         entry.heading = entry.heading === 1 ? -1 : 1;
@@ -492,15 +542,25 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     }
     entry.targetYaw = entry.heading === 1 ? entry.strollYaw : entry.strollYaw + Math.PI;
     // Not yet facing the way: turn on the spot first.
-    if (Math.abs(turnBetween(entry.yaw, entry.targetYaw)) > 0.5) return false;
-    const step = (entry.speed * dt) / entry.length;
+    if (Math.abs(turnBetween(entry.yaw, entry.targetYaw)) > 0.5) {
+      entry.pace = 0;
+      return false;
+    }
+    // Setting off, and pulling up over the last few steps of the stretch.
+    const left = (entry.heading === 1 ? 1 - entry.along : entry.along) * entry.length;
+    const wanted = entry.speed * THREE.MathUtils.clamp(left / STROLL_SLOWING, STROLL_ARRIVE, 1);
+    entry.pace += (wanted - entry.pace) * (1 - Math.exp(-STROLL_EASE * dt));
+    const step = (entry.pace * dt) / entry.length;
     let next = entry.along + step * entry.heading;
     // Somebody standing just ahead is waited for.
     ahead.lerpVectors(anchor.from, anchor.to, THREE.MathUtils.clamp(next, 0, 1));
     gap.copy(viewerAt).sub(ahead);
     if (gap.lengthSq() < (PERSON_RADIUS * 3) ** 2) {
       local.copy(anchor.to).sub(anchor.from).multiplyScalar(entry.heading);
-      if (gap.dot(local) > 0) return false;
+      if (gap.dot(local) > 0) {
+        entry.pace = 0;
+        return false;
+      }
     }
     if (next >= 1 || next <= 0) {
       next = THREE.MathUtils.clamp(next, 0, 1);
@@ -527,9 +587,20 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
 
   /** A gesture fades in over a quarter second and out over the last third of one. */
   function animate(entry: Standing, dt: number, clock: number, near: boolean): void {
-    const { person, base, walk } = entry;
+    const { person, base, walk, talk } = entry;
     const moving = entry.mode === 'stroll' && stroll(entry, dt);
-    entry.walking = THREE.MathUtils.clamp(entry.walking + (moving ? dt : -dt) / BLEND_TIME, 0, 1);
+    // The walk shows as much as the pace is of a stroll, so a body easing to
+    // a stop has its legs slowing with it rather than walking on the spot.
+    const stepping = moving ? THREE.MathUtils.clamp(entry.pace / (entry.speed * 0.6), 0, 1) : 0;
+    const d0 = stepping - entry.walking;
+    entry.walking = THREE.MathUtils.clamp(entry.walking + Math.sign(d0) * Math.min(Math.abs(d0), dt / BLEND_TIME), 0, 1);
+    // Talking: to the player while held, by turns in a pair.
+    let speaking = entry.held;
+    if (!speaking && entry.mode === 'chat') {
+      speaking = Math.floor(clock / entry.turnLength + entry.speaksAt) % 2 === 0;
+    }
+    const t0 = (speaking ? 1 : 0) - entry.talking;
+    entry.talking += Math.sign(t0) * Math.min(Math.abs(t0), dt / TALK_BLEND);
     // Turning, whoever is asking: the stroll's way, the partner, the player.
     if (entry.held) entry.targetYaw = yawTowards(entry, holdTowards);
     else if (entry.mode !== 'stroll') entry.targetYaw = entry.restYaw;
@@ -537,7 +608,8 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     entry.yaw += Math.sign(d) * Math.min(Math.abs(d), TURN_RATE * dt);
     place(entry);
 
-    if (entry.gesture === null && entry.walking === 0 && clock >= entry.nextGesture) {
+    // A gesture is for a listener: a speaker's hands are already talking.
+    if (entry.gesture === null && entry.walking === 0 && entry.talking < 0.5 && clock >= entry.nextGesture) {
       const list = entry.mode === 'chat' ? TALKING : GESTURES;
       startGesture(entry, list[Math.floor(hash(entry.anchor.key, `g${Math.floor(clock)}`) * list.length)]!, clock);
     }
@@ -558,7 +630,8 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     }
     walk.time = entry.phase * walk.getClip().duration;
     walk.setEffectiveWeight(entry.walking);
-    base.setEffectiveWeight((1 - entry.walking) * (1 - g));
+    base.setEffectiveWeight((1 - entry.walking) * (1 - g) * (1 - entry.talking));
+    talk.setEffectiveWeight((1 - entry.walking) * (1 - g) * entry.talking);
     if (entry.head !== null) entry.head.quaternion.copy(entry.headRest);
     person.mixer.update(dt);
     if (entry.head === null) return;
@@ -623,6 +696,11 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
         if (entry.anchor !== anchor) {
           entry.anchor = anchor;
           entry.length = anchor.from.distanceTo(anchor.to);
+          // Its facing and its stretch read again, off the new anchor.
+          local.set(0, 0, 1).applyQuaternion(anchor.quaternion).applyQuaternion(inverse.copy(anchor.town).invert());
+          entry.restYaw = Math.atan2(local.x, local.z);
+          local.copy(anchor.to).sub(anchor.from).applyQuaternion(inverse);
+          entry.strollYaw = Math.atan2(local.x, local.z);
           if (entry.mode === 'stroll' && entry.length <= 1) entry.mode = 'stand';
           if (entry.mode === 'stroll') entry.position.lerpVectors(anchor.from, anchor.to, entry.along);
           else entry.position.copy(anchor.position);
@@ -639,7 +717,7 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
           stats.animated++;
         }
         if (entry.walking > 0) stats.strolling++;
-        if (entry.gesture !== null || entry.walking > 0) {
+        if (entry.gesture !== null || entry.walking > 0 || entry.talking > 0) {
           stats.nearestMoving = Math.min(stats.nearestMoving, entry.position.distanceTo(viewer));
         }
       }
@@ -660,7 +738,11 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
         if (d2 >= reach * reach) continue;
         const d = Math.sqrt(d2);
         // Dead centre: out along any direction on the ground.
-        if (d < 1e-6) gap.set(1, 0, 0).addScaledVector(point, -point.x / (r * r)).normalize();
+        if (d < 1e-6) {
+          gap.set(1, 0, 0).addScaledVector(point, -point.x / (r * r));
+          if (gap.lengthSq() < 1e-6) gap.set(0, 0, 1).addScaledVector(point, -point.z / (r * r));
+          gap.normalize();
+        }
         else gap.divideScalar(d);
         push.addScaledVector(gap, reach - d);
         hit = true;

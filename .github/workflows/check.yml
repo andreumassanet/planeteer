@@ -63,6 +63,8 @@ jobs:
         run: pnpm solids
       - name: fleet
         run: pnpm fleet
+      - name: country
+        run: pnpm country
       - name: craft
         run: pnpm craft
       - name: effects

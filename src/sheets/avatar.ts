@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar, prepareAvatar } from '../avatar.ts';
+import { AVATAR_HEIGHT, FALL_AFTER, FIGURE, RUN_SPEED, SWIM_STROKE, WALK_SPEED, buildAvatar, prepareAvatar } from '../avatar.ts';
 import type { Avatar } from '../avatar.ts';
 import { measure } from '../monuments/contract.ts';
 import { OutlineEffect } from '../outline.ts';
@@ -10,17 +10,29 @@ import { BOAT_DECK, PLANE_SEAT, buildBoat, buildPlane } from '../vehicles.ts';
  * The avatar's review sheet, and the reason it exists is one sentence: *a
  * character you have only seen in one still frame is not finished*.
  *
- * Twelve cells, all animating, all at the game's own framing, because every
- * decision in `avatar.ts` was taken against a size and an angle: 30 units back,
- * 15 up, 55 degree lens, which puts the figure at about 175 px and the smallest
- * legible feature at 0.14 units. A turntable at arm's length would have said
+ * A cell for everything the body does, all animating, all at the game's own
+ * framing, because every decision in `avatar.ts` was taken against a size and
+ * an angle: 30 units back, 15 up, 55 degree lens, which puts the figure at
+ * about 175 px and the smallest legible feature at 0.14 units. A turntable at arm's length would have said
  * yes to detail that is ink at the distance this is played from.
  *
  * It also exists because the world's dev server reloads whenever anybody
  * touches anything, and a walk cycle cannot be judged through a reload.
  */
 
-type Mode = 'foot' | 'boat' | 'plane';
+type Mode = 'foot' | 'boat' | 'plane' | 'swim';
+
+/**
+ * A cell that loops through something the game does once: off the ground for
+ * `air` seconds of every `period`, landing with `hardness`; or the speed
+ * swung between a walk and a run; or the body turned to and fro on the spot.
+ */
+interface Loop {
+  air?: number;
+  period: number;
+  hardness?: number;
+  swing?: 'speed' | 'turn';
+}
 
 interface CellSpec {
   label: string;
@@ -30,6 +42,7 @@ interface CellSpec {
   speed: number;
   airborne?: boolean;
   mode?: Mode;
+  loop?: Loop;
   /** Degrees above the horizon. The game is 26.6 on foot and swings overhead in the air. */
   elevation?: number;
 }
@@ -44,7 +57,12 @@ const CELLS: CellSpec[] = [
   { label: 'run · astern', note: '', azimuth: 0, speed: RUN_SPEED },
   { label: 'run · three-quarter', note: '', azimuth: 40, speed: RUN_SPEED },
   { label: 'run · side', note: 'bent elbows, longer stride', azimuth: 90, speed: RUN_SPEED },
-  { label: 'jump · side', note: 'one leg tucked, one reaching', azimuth: 70, speed: 110, airborne: true },
+  { label: 'jump · side', note: 'the library loop, and the knees at landing', azimuth: 70, speed: WALK_SPEED, loop: { air: 0.68, period: 1.6, hardness: 0 } },
+  { label: 'fall · side', note: `arms up past ${FALL_AFTER} s, a hard landing`, azimuth: 80, speed: 0, loop: { air: 2.2, period: 4.2, hardness: 1 } },
+  { label: 'walk ↔ run · side', note: 'the blend: no foot changes step', azimuth: 90, speed: 0, loop: { period: 5, swing: 'speed' } },
+  { label: 'turn on the spot', note: 'a shuffle, not a turntable', azimuth: 30, speed: 0, loop: { period: 3, swing: 'turn' } },
+  { label: 'swim · three-quarter', note: 'the crawl, stroke by distance', azimuth: 40, speed: SWIM_STROKE * 0.7, mode: 'swim' },
+  { label: 'tread water · front', note: 'head and shoulders out', azimuth: 160, speed: 0, mode: 'swim' },
   // **There is no cell that shows the grip, and that was tried rather than
   // assumed.** The wheel is enclosed: the helmsman covers it from astern and
   // from either beam — `vehicles.ts` raycast it at 0 px from the boat camera —
@@ -72,6 +90,9 @@ interface Cell {
   propeller: THREE.Object3D | null;
   frame: HTMLElement;
   swell: number;
+  /** Seconds this cell has run, for its loop. */
+  clock: number;
+  wasAirborne: boolean;
 }
 
 function buildCell(spec: CellSpec): Cell {
@@ -91,7 +112,8 @@ function buildCell(spec: CellSpec): Cell {
     new THREE.CylinderGeometry(60, 60, 1.6, 48),
     new THREE.MeshToonMaterial({ color: mode === 'foot' ? PALETTE.green : 0x2b7fa8 }),
   );
-  ground.position.y = -0.8 - (mode === 'foot' ? 0 : BOAT_DECK);
+  // A swimmer's origin is the surface, and the water is drawn opaque as the sea is.
+  ground.position.y = -0.8 - (mode === 'foot' || mode === 'swim' ? 0 : BOAT_DECK);
   scene.add(ground);
 
   const avatar = buildAvatar();
@@ -132,7 +154,7 @@ function buildCell(spec: CellSpec): Cell {
   frame.append(box, bar);
   document.getElementById('grid')!.append(frame);
 
-  return { spec, scene, camera, avatar, craft, propeller, frame: box, swell: 0 };
+  return { spec, scene, camera, avatar, craft, propeller, frame: box, swell: 0, clock: 0, wasAirborne: false };
 }
 
 await prepareAvatar();
@@ -198,8 +220,32 @@ function render(now: number): void {
         cell.avatar.steer(dt, heel);
         cell.craft.position.y = Math.sin(cell.swell * 1.3) * 0.32;
         cell.craft.rotation.set(Math.sin(cell.swell * 0.7) * 0.035, 0, heel);
+      } else if (mode === 'swim') {
+        cell.avatar.swim(dt, cell.spec.speed, 0);
       } else {
-        cell.avatar.stride(dt, cell.spec.speed, cell.spec.airborne === true);
+        cell.clock += dt;
+        const loop = cell.spec.loop;
+        const u = loop === undefined ? 0 : cell.clock % loop.period;
+        let speed = cell.spec.speed;
+        let airborne = cell.spec.airborne === true;
+        let turn = 0;
+        if (loop?.air !== undefined) {
+          airborne = u < loop.air;
+          // Up and down on the jump's own arc, so a fall reads as one.
+          const k = u / loop.air;
+          cell.avatar.group.position.y = airborne ? Math.max(0, 4 * k * (1 - k)) * (loop.air > 1 ? 12 : 2.3) : 0;
+          if (cell.wasAirborne && !airborne) cell.avatar.land(loop.hardness ?? 0);
+          cell.wasAirborne = airborne;
+        }
+        if (loop?.swing === 'speed') speed = WALK_SPEED + (RUN_SPEED - WALK_SPEED) * (0.5 - 0.5 * Math.cos((u / loop.period) * Math.PI * 2));
+        if (loop?.swing === 'turn') {
+          const yaw = Math.sin((u / loop.period) * Math.PI * 2) * 1.2;
+          turn = (yaw - cell.avatar.group.rotation.y) / Math.max(dt, 1e-3);
+          cell.avatar.group.rotation.y = yaw;
+        }
+        // The camera's look, off the body's facing: see `MotionCues.look`.
+        const look = -(cell.spec.azimuth * DEG + (turnInput.checked ? spin : 0)) - cell.avatar.group.rotation.y;
+        cell.avatar.stride(dt, speed, airborne, { turn, look: Math.atan2(Math.sin(look), Math.cos(look)) });
       }
     }
 

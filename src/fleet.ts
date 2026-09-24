@@ -4,12 +4,14 @@
  *
  * **Where they stand is a pure function of the world.** Cars wait on the road
  * a few lengths out of a town's gates, launches lie off the shore nearest a
- * coastal town, light aircraft stand in a flat field beside the big cities and
- * the capitals, and a few towns have a balloon. Every one of those is decided
+ * coastal town, light aircraft stand at the end of an airstrip beside the big
+ * cities and the capitals, and a few towns have a balloon. Every one of those is decided
  * from `places.bin`, `roads.bin`, the outlines and the relief, seeded by the
  * place's index and never by `Math.random`, so every client puts the same car
  * on the same kerb without a word on the wire — and a vehicle's id,
- * `<model>:<placeIndex>:<n>`, names the same machine everywhere.
+ * `<model>:<placeIndex>:<n>`, names the same machine everywhere. A plane's
+ * field is an airstrip, laid on a heading the search chooses and drawn with a
+ * windsock beside it (`craft/airstrip.ts`).
  *
  * **What has moved is the link's.** A `FleetLink` (`craft/contract.ts`) says
  * which vehicles are somewhere other than their site and who sits in them. With
@@ -30,7 +32,10 @@
  */
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from './globe.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
+import { BIOMES, biomeAt, biomeSample } from './biome.ts';
+import { createLandProbe } from './land-probe.ts';
+import type { LandProbe } from './land-probe.ts';
 import { isShown, radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 import {
@@ -55,13 +60,35 @@ import { latOf, lonOf, unitAt } from './sphere.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { MAX_FOOTPRINT } from './monuments/contract.ts';
 import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
-import { WATERLINE, isWater } from './vehicles.ts';
+import { CAR_BOOST, CAR_FAST_LOCK, CAR_GRIP_SPEED, CAR_TURN, WATERLINE, isWater } from './vehicles.ts';
+import { AT_REST, discMaterial, motionOf } from './craft/motion.ts';
+import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import type { CraftKind, CraftModel, FleetLink, FleetSeats, MovedVehicle, WirePose } from './craft/contract.ts';
 import { writePose } from './player.ts';
 import type { Player } from './player.ts';
 import type { ParkedCar } from './settlements.ts';
+import {
+  STRIP_APPROACH,
+  STRIP_BACK,
+  STRIP_DRAWN,
+  STRIP_HALF,
+  STRIP_LENGTH,
+  buildStrip,
+  buildWindsock,
+  stripColor,
+  stripMaterial,
+  stripPoint,
+} from './craft/airstrip.ts';
 
 export { writePose };
+
+/**
+ * The two materials the fleet draws with that the craft's own does not cover:
+ * the airstrips' and the propeller discs'. For the shader warm-up (`warm.ts`),
+ * which compiles them while the menu is up.
+ */
+export const fleetMaterials = (): THREE.Material[] => [stripMaterial(), discMaterial()];
+export { STRIP_APPROACH, STRIP_BACK, STRIP_DRAWN, STRIP_HALF, STRIP_LENGTH, stripPoint };
 
 const DEG = Math.PI / 180;
 
@@ -138,10 +165,42 @@ const BALLOON_GRADE = Math.tan(14 * DEG);
 const BALLOON_SHARE = 0.04;
 /** Margin between a field and whatever it keeps clear of, in units. */
 const FIELD_CLEAR = 6;
+/**
+ * Past this many degrees of the coast field's own distance to water, plus the
+ * whole reach of a town's field search, the search does not ask the outlines
+ * whether its ground is dry: see `inlandFor`.
+ */
+const COAST_MARGIN = 1.5;
 /** Rings and bearings a field is searched on, outward from the town. */
 const FIELD_RINGS = 6;
 const FIELD_STEP = 28;
 const FIELD_BEARINGS = 12;
+
+/** How much further than `STRIP_HALF` a town's disc or a road's edge is kept from the centre line. */
+const STRIP_CLEAR = 2;
+/** How far apart the strip is walked for water near a coast, once it has passed everything else. */
+const STRIP_WATER_STEP = 5;
+/** How far apart the strip is sampled for the search, and the discs the wood keeps off. */
+const STRIP_STEP = 20;
+/**
+ * The keepout discs along the strip: one every `STRIP_STEP` or a little less,
+ * each wide enough that the union of two neighbours is `STRIP_HALF` wide where
+ * they meet.
+ */
+const STRIP_DISC = Math.hypot(STRIP_HALF, STRIP_STEP / 2);
+/**
+ * Headings tried from each stand: straight out of the town first, then either
+ * side of it a sixteenth of a turn at a time to square across it. A strip
+ * aimed back at its own town crosses it.
+ */
+const STRIP_HEADINGS = 9;
+/**
+ * A plane's stand is searched on more rings than a balloon's, because a strip
+ * is harder to fit than a disc: for a 200-unit strip, eight rings and
+ * sixteen headings found one for 800 of the 1,186 towns, twenty rings and
+ * nine headings for 1,016 (2026-09-24).
+ */
+const PLANE_RINGS = 20;
 
 /**
  * The room each kind's site keeps, in units: half a car's length out of a
@@ -184,10 +243,11 @@ export interface FleetSource {
 }
 
 /**
- * Ground a standing plane or balloon keeps to itself: the centre of its field
- * and the field's radius, `SITE_ROOM` for its kind. A wood and a herd keep off
- * it (`vegetation.ts`, `life.ts`), each bringing its own spread, the way they
- * keep off a road.
+ * Ground a standing plane or balloon keeps to itself: a disc of it. A
+ * balloon's field is one, `SITE_ROOM.balloon` round the site; a plane's
+ * airstrip is a row of them down its length (`STRIP_DISC` each, every
+ * `STRIP_STEP`). A wood and a herd keep off it (`vegetation.ts`, `life.ts`),
+ * each bringing its own spread, the way they keep off a road.
  */
 export interface FieldKeepout {
   at: THREE.Vector3;
@@ -197,15 +257,23 @@ export interface FieldKeepout {
 /** The fields alone, which is all the wood and the herds ask of the fleet. */
 export interface FieldIndex {
   /**
-   * Every plane's and balloon's field within `radius` units of `direction`,
-   * appended to `out`. **Pure and complete**: the towns it needs are worked
+   * Every disc of every airstrip and balloon field within `radius` units of
+   * `direction`, appended to `out`. **Pure and complete**: the towns it needs are worked
    * out on the spot and kept, with no cap and nothing streamed, so a tile of
    * wood built in Node and one built in the browser, first or last, keep off
    * the same ground. Only a big city or a balloon town has a field to search
    * for, so a tile pays for a handful of searches the first time and a lookup
-   * after that.
+   * after that: an airstrip's is the dear one, a median town's search well
+   * under a millisecond, one in a hundred 7 ms and the worst 26 (every built
+   * town, headless, 2026-09-24).
    */
   fieldsNear(direction: THREE.Vector3, radius: number, out: FieldKeepout[]): FieldKeepout[];
+  /**
+   * Every plane site whose town is within `radius` units plus the widest
+   * reach of a strip, appended to `out`: what the strips are drawn from. Pure
+   * and complete, like `fieldsNear`.
+   */
+  planesNear(direction: THREE.Vector3, radius: number, out: FleetSite[]): FleetSite[];
 }
 
 export interface SiteIndex extends FieldIndex {
@@ -226,10 +294,55 @@ export interface SiteIndex extends FieldIndex {
   readonly counts: Readonly<Record<CraftKind, number>> & { towns: number };
 }
 
-/** The furthest a site stands from its town's centre: the biggest square, and the widest search past it. */
+/**
+ * The furthest a car, a launch or a balloon stands from its town's centre: the
+ * biggest square, and the widest search past it. A plane can stand further
+ * out, and is found through `planesNear` and its own spread.
+ */
 const SITE_SPREAD = 150 + Math.max(BOAT_SEARCH, FIELD_CLEAR + FIELD_RINGS * FIELD_STEP + 40);
-/** And the furthest a field's edge reaches from it: the last ring `fieldSite` tries, and the field on it. */
-const FIELD_SPREAD = 150 + 2 * Math.max(PLANE_FIELD, BALLOON_FIELD) + FIELD_CLEAR + 4 + (FIELD_RINGS - 1) * FIELD_STEP;
+/**
+ * And the furthest a field's edge reaches from it: the last ring a search
+ * tries, the stand on it, and for a plane the strip run out from there.
+ */
+const FIELD_SPREAD =
+  150 + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + STRIP_LENGTH + STRIP_APPROACH + STRIP_DISC;
+
+
+/**
+ * The discs a strip keeps: `STRIP_DISC` wide, every `STRIP_STEP` or a little
+ * less from its back end to `STRIP_APPROACH` past its far one.
+ */
+export function stripKeepouts(site: Pick<FleetSite, 'at' | 'forward'>): FieldKeepout[] {
+  const out: FieldKeepout[] = [];
+  const span = STRIP_BACK + STRIP_LENGTH + STRIP_APPROACH;
+  const count = Math.ceil(span / STRIP_STEP);
+  for (let i = 0; i <= count; i++) {
+    const along = -STRIP_BACK + (span * i) / count;
+    out.push({ at: stripPoint(site, along, 0, new THREE.Vector3()), radius: STRIP_DISC });
+  }
+  return out;
+}
+
+/**
+ * The order a strip's samples are tested in: its far end, its near end, then
+ * halving the gaps. A strip that fails fails mostly far out — a road, a
+ * coast, a hillside a few hundred units off — and this finds it in the first
+ * few samples rather than the last.
+ */
+const STRIP_ORDER: readonly number[] = (() => {
+  const count = Math.ceil((STRIP_LENGTH + STRIP_BACK) / STRIP_STEP) + 1;
+  const order = [count - 1, 0];
+  const seen = new Set(order);
+  for (let stride = 1 << Math.ceil(Math.log2(count)); stride >= 1; stride >>= 1) {
+    for (let i = 0; i < count; i += stride) {
+      if (seen.has(i)) continue;
+      seen.add(i);
+      order.push(i);
+    }
+  }
+  return order;
+})();
+const STRIP_SAMPLES = STRIP_ORDER.length;
 /** Degrees in one cell of the town index. */
 const CELL = 2;
 const COLS = 360 / CELL;
@@ -464,13 +577,32 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     }
   }
 
-  /** A field: land under the whole disc, flat enough, clear of towns, roads and landmarks. */
-  function field(direction: THREE.Vector3, reach: number, grade: number): boolean {
-    if (wet(direction)) return false;
+  /**
+   * Land for `reach` all round, by the coast field alone: `terrain.ts`'s
+   * distance to any water, a bilinear sample on half-degree cells. It is
+   * trusted only for a whole town's search at once, and with a margin: near a
+   * coast it is out by most of a degree in places (off Port of Spain it puts
+   * the Gulf of Paria 0.8 degrees further than it is), so a coastal town asks
+   * the outlines and an inland one does not.
+   */
+  const inlandFor = (p: number): boolean =>
+    shoreDistance(places[p]!.lat, places[p]!.lon) > FIELD_SPREAD / UNITS_PER_DEGREE + COAST_MARGIN;
+
+  /**
+   * A field: land under the whole disc, flat enough, clear of towns, roads
+   * and landmarks. The dearest test, the outlines under five points, goes
+   * last, and not at all for a town far inland.
+   */
+  function field(direction: THREE.Vector3, reach: number, grade: number, inland: boolean): boolean {
     north.set(0, 1, 0).projectOnPlane(direction);
     if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(direction);
     north.normalize();
     across.crossVectors(direction, north).normalize();
+    if (nearMonument(direction, reach) || nearTown(direction, reach + FIELD_CLEAR)) return false;
+    if (gradeAt(direction, across, north, reach, slope).grade > grade) return false;
+    if (nearRoad(direction, reach + FIELD_CLEAR)) return false;
+    if (inland) return true;
+    if (wet(direction)) return false;
     for (let k = 0; k < 4; k++) {
       const bearing = (k / 4) * Math.PI * 2;
       corner
@@ -480,22 +612,68 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
         .normalize();
       if (wet(corner)) return false;
     }
-    if (gradeAt(direction, across, north, reach, slope).grade > grade) return false;
-    return !nearTown(direction, reach + FIELD_CLEAR) && !nearRoad(direction, reach + FIELD_CLEAR) && !nearMonument(direction, reach);
+    return true;
+  }
+
+  const strip = { at: new THREE.Vector3(), forward: new THREE.Vector3() };
+  const stripAt = new THREE.Vector3();
+  const stripAcross = new THREE.Vector3();
+
+  /**
+   * The strip from a stand at `strip.at` down `strip.forward`: flat enough
+   * over its own width, clear of the towns, the roads and the landmarks, and
+   * — unless the town is `inland` — on land from edge to edge. The samples go
+   * in `STRIP_ORDER` and the cheap tests first, so a strip that fails usually
+   * fails in a few probes; the water is walked again at `STRIP_WATER_STEP`
+   * once everything else has passed, because a creek or a fjord is narrower
+   * than the gap between two samples.
+   */
+  function stripClear(inland: boolean): boolean {
+    stripAcross.crossVectors(strip.forward, strip.at).normalize();
+    const clear = STRIP_HALF + STRIP_CLEAR;
+    for (let n = 0; n < STRIP_SAMPLES; n++) {
+      const along = -STRIP_BACK + ((STRIP_LENGTH + STRIP_BACK) * STRIP_ORDER[n]!) / (STRIP_SAMPLES - 1);
+      stripPoint(strip, along, 0, stripAt);
+      if (nearMonument(stripAt, STRIP_HALF) || nearTown(stripAt, clear)) return false;
+      if (gradeAt(stripAt, stripAcross, strip.forward, STRIP_HALF, slope).grade > PLANE_GRADE) return false;
+      if (nearRoad(stripAt, clear)) return false;
+      if (!inland && (wet(stripAt) || wet(stripPoint(strip, along, STRIP_HALF, corner)) || wet(stripPoint(strip, along, -STRIP_HALF, corner)))) return false;
+    }
+    if (inland) return true;
+    for (let along = -STRIP_BACK; along <= STRIP_LENGTH; along += STRIP_WATER_STEP) {
+      for (let edge = -1; edge <= 1; edge++) if (wet(stripPoint(strip, along, edge * STRIP_HALF, corner))) return false;
+    }
+    return true;
   }
 
   function fieldSite(p: number, model: string, reach: number, grade: number, salt: string, out: FleetSite[]): void {
     const radius = radiusOf(places[p]!);
     const start = rngFrom(salt, p).unit() * Math.PI * 2;
-    for (let j = 0; j < FIELD_RINGS; j++) {
+    const plane = model === FLEET_MODELS.plane;
+    const rings = plane ? PLANE_RINGS : FIELD_RINGS;
+    const inland = inlandFor(p);
+    for (let j = 0; j < rings; j++) {
       const d = radius + reach + FIELD_CLEAR + 4 + j * FIELD_STEP;
       for (let k = 0; k < FIELD_BEARINGS; k++) {
         around(p, start + (k / FIELD_BEARINGS) * Math.PI * 2, d, at);
-        if (!field(at, reach, grade)) continue;
+        if (!field(at, reach, grade, inland)) continue;
         // Facing away from the town, which is the way a take-off goes.
         outward(p, at, forward);
-        out.push(site(model, p, 0, at, forward));
-        return;
+        if (!plane) {
+          out.push(site(model, p, 0, at, forward));
+          return;
+        }
+        // A plane's stand is only as good as the strip it can take off down:
+        // straight out of the town first, then swinging either side of that
+        // by a sixteenth of a turn at a time, to straight back past it.
+        strip.at.copy(at);
+        for (let h = 0; h < STRIP_HEADINGS; h++) {
+          const turn = Math.ceil(h / 2) * (h % 2 === 1 ? 1 : -1) * ((Math.PI * 2) / STRIP_HEADINGS);
+          strip.forward.copy(forward).applyAxisAngle(at, turn).projectOnPlane(at).normalize();
+          if (!stripClear(inland)) continue;
+          out.push(site(model, p, 0, at, strip.forward));
+          return;
+        }
       }
     }
   }
@@ -539,15 +717,36 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
 
   const nearTowns: number[] = [];
   const fieldTowns: number[] = [];
+  /** Each airstrip's discs, worked out once. */
+  const strips = new Map<FleetSite, readonly FieldKeepout[]>();
+  const discsOf = (entry: FleetSite): readonly FieldKeepout[] => {
+    let discs = strips.get(entry);
+    if (discs === undefined) strips.set(entry, (discs = stripKeepouts(entry)));
+    return discs;
+  };
   return {
     sitesOf,
     fieldsNear(direction, radius, out) {
       // Its own list of towns: a field search asks `townsNear` again inside.
       for (const p of townsNear(direction, radius + FIELD_SPREAD, fieldTowns)) {
         for (const entry of fieldsOf(p)) {
-          const room = entry.kind === 'plane' ? SITE_ROOM.plane : SITE_ROOM.balloon;
+          if (entry.kind === 'plane') {
+            // The whole strip, if any of it is near: the stand is inside it.
+            if (entry.at.angleTo(direction) * PLANET_RADIUS > radius + STRIP_LENGTH + STRIP_APPROACH + STRIP_DISC) continue;
+            for (const disc of discsOf(entry)) {
+              if (disc.at.angleTo(direction) * PLANET_RADIUS < radius + disc.radius) out.push(disc);
+            }
+            continue;
+          }
+          const room = SITE_ROOM.balloon;
           if (entry.at.angleTo(direction) * PLANET_RADIUS < radius + room) out.push({ at: entry.at, radius: room });
         }
+      }
+      return out;
+    },
+    planesNear(direction, radius, out) {
+      for (const p of townsNear(direction, radius + FIELD_SPREAD, fieldTowns)) {
+        for (const entry of fieldsOf(p)) if (entry.kind === 'plane') out.push(entry);
       }
       return out;
     },
@@ -817,6 +1016,23 @@ const PARKED_SEARCH = BOARD_REACH + 12;
  * ground and is walked under.
  */
 const BALLOON_WALL = 0.2;
+/**
+ * How near an airstrip's middle has to be to be drawn, and how far it may go
+ * before it is put away, in units from the player: further than a vehicle,
+ * because it is a mark on a landscape seen from a climbing plane and costs a
+ * draw call and a few hundred triangles.
+ */
+const STRIP_REACH = 1400;
+const STRIP_KEEP = STRIP_REACH * 1.15;
+/** Inside this the windsocks swing; further out they hang still, a few pixels tall. */
+const SOCK_REACH = 500;
+/** Inside this a moored launch rides the swell; further out it lies still. */
+const MOOR_REACH = 400;
+/** What a moored launch's motion is handed: nobody aboard, afloat. */
+const MOORED: Readonly<MotionInput> = { ...AT_REST, moored: true };
+/** Where the windsock stands: down the strip from the plane's stand, and off its left edge. */
+const SOCK_ALONG = 24;
+const SOCK_OFF = STRIP_DRAWN + 5;
 
 export type FleetEvent = 'boarded' | 'left' | 'taken' | 'leave-refused';
 
@@ -846,6 +1062,11 @@ export interface FleetOptions extends FleetSource {
     hide(id: string): void;
   };
   onEvent?: (event: FleetEvent, model: CraftModel | null) => void;
+  /**
+   * The land mesh, for laying an airstrip on what is drawn rather than on the
+   * relief under it (`land-probe.ts`). Without it a strip lies on the relief.
+   */
+  land?: THREE.Mesh;
 }
 
 export interface FleetStats {
@@ -856,6 +1077,9 @@ export interface FleetStats {
   moved: number;
   /** The vehicle and seat you are in, or null. */
   riding: string | null;
+  /** Airstrips drawn, and waiting to be. */
+  strips: number;
+  stripsPending: number;
 }
 
 export interface Prompt {
@@ -921,6 +1145,31 @@ interface Drawn {
   site: FleetSite | null;
   /** Seconds to the next re-seat, for a vehicle standing at its site. */
   reseat: number;
+  /** Its springs, wheels and propeller: `craft/motion.ts`. */
+  motion: CraftMotion;
+  /**
+   * Somebody else's vehicle, as its poses imply it is going: where it was and
+   * which way it faced last frame, and the speed and turn read off the two,
+   * smoothed. `tracked` is false until there is a last frame to read.
+   */
+  last: THREE.Vector3;
+  lastForward: THREE.Vector3;
+  tracked: boolean;
+  speed: number;
+  turn: number;
+}
+
+/** An airstrip standing: its mesh, its windsock and the windsock's pivot, and the site it is for. */
+interface DrawnStrip {
+  site: FleetSite;
+  group: THREE.Group;
+  strip: THREE.Mesh;
+  sock: THREE.Object3D | null;
+  /** Where the middle of the strip is, as a point at the ground, for its distance. */
+  middle: THREE.Vector3;
+  /** The wind's own bearing here, off straight down the strip, and a phase for its gusts. */
+  wind: number;
+  phase: number;
 }
 
 export function createFleet(options: FleetOptions): Fleet {
@@ -963,6 +1212,113 @@ export function createFleet(options: FleetOptions): Fleet {
   const bays: ParkedCar[] = [];
   const localPoint = new THREE.Vector3();
   const inverse = new THREE.Quaternion();
+  const heading = new THREE.Vector3();
+  const turned = new THREE.Vector3();
+  /** What another player's vehicle's motion is handed, rewritten every frame. */
+  const remote: MotionInput = { ...AT_REST };
+
+  // ---- the airstrips -------------------------------------------------------
+
+  const strips = new Map<string, DrawnStrip>();
+  /** The plane sites near enough to have their strip drawn, nearest first; rewritten by every scan. */
+  let stripsWanted: { site: FleetSite; distance: number }[] = [];
+  const planeSites: FleetSite[] = [];
+  /** The drawn land, indexed round the player on the first strip that needs it. */
+  let probe: LandProbe | null = null;
+  const stripColour = new THREE.Color();
+  const stripGround = new THREE.Color();
+  const stripBiome = biomeSample();
+  const stripPose: WirePose = new Array(9).fill(0);
+  let clock = 0;
+
+  /** The drawn land's radius along a direction, or the relief's where the index has no answer. */
+  const surface = (direction: THREE.Vector3): number =>
+    probe?.radiusAt(direction) ?? groundRadius(world, point.copy(direction).multiplyScalar(PLANET_RADIUS));
+
+  function middleOf(site: FleetSite, out: THREE.Vector3): THREE.Vector3 {
+    stripPoint(site, STRIP_LENGTH / 2, 0, out);
+    return out.multiplyScalar(groundRadius(world, point.copy(out).multiplyScalar(PLANET_RADIUS)));
+  }
+
+  function scanStrips(): void {
+    planeSites.length = 0;
+    up.copy(player.position).normalize();
+    sites.planesNear(up, STRIP_KEEP, planeSites);
+    stripsWanted = [];
+    for (const site of planeSites) {
+      const distance = middleOf(site, centre).distanceTo(player.position);
+      if (distance <= (strips.has(site.id) ? STRIP_KEEP : STRIP_REACH)) stripsWanted.push({ site, distance });
+    }
+    stripsWanted.sort((a, b) => a.distance - b.distance || (a.site.id < b.site.id ? -1 : 1));
+    const keep = new Set(stripsWanted.map((want) => want.site.id));
+    for (const [id, drawnStrip] of strips) {
+      if (keep.has(id)) continue;
+      group.remove(drawnStrip.group);
+      // The windsock shares its template's geometry; only the strip's own goes.
+      drawnStrip.strip.geometry.dispose();
+      strips.delete(id);
+    }
+  }
+
+  function buildStripFor(site: FleetSite): DrawnStrip {
+    // The land's own colour under the middle, and whether it has a sward to mow.
+    stripPoint(site, STRIP_LENGTH / 2, 0, centre);
+    point.copy(centre).multiplyScalar(PLANET_RADIUS);
+    groundColorAt(world, point, stripGround);
+    const lat = latOf(centre.y);
+    const lon = lonOf(centre.x, centre.z);
+    biomeAt(centre.x, centre.y, centre.z, lat, lon, world.elevationAt(point), stripBiome);
+    stripColor(stripGround, BIOMES[stripBiome.id].sward, stripColour);
+
+    const holder = new THREE.Group();
+    holder.name = `airstrip:${site.id}`;
+    const strip = buildStrip(site, surface, stripColour);
+    holder.add(strip);
+
+    // The windsock, stood upright off the strip's left edge and facing down it.
+    const sock = buildWindsock();
+    stripPoint(site, SOCK_ALONG, -SOCK_OFF, centre);
+    point.copy(centre).multiplyScalar(surface(centre));
+    applyPose(writePose(point, site.forward, centre, stripPose), sock);
+    holder.add(sock);
+    group.add(holder);
+    const rng = rngFrom('fleet-windsock', site.place);
+    return {
+      site,
+      group: holder,
+      strip,
+      sock: sock.getObjectByName('rotor') ?? null,
+      middle: middleOf(site, new THREE.Vector3()),
+      // A strip is laid into the prevailing wind, so the sock points back
+      // down it, give or take a seeded quarter of a right angle.
+      wind: Math.PI + (rng.unit() - 0.5) * 0.8,
+      phase: rng.unit() * Math.PI * 2,
+    };
+  }
+
+  /** Builds what is wanted and not standing, inside the frame's allowance, and swings the near windsocks. */
+  function updateStrips(dt: number, began: number): void {
+    clock += dt;
+    for (const want of stripsWanted) {
+      if (strips.has(want.site.id)) continue;
+      if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD)) break;
+      if (options.land !== undefined) {
+        probe ??= createLandProbe(options.land);
+        // Gathered a slice a frame; the strips wait for it rather than lie on the relief.
+        if (!probe.prepare(player.position)) break;
+      }
+      strips.set(want.site.id, buildStripFor(want.site));
+    }
+    for (const drawnStrip of strips.values()) {
+      if (drawnStrip.sock === null || drawnStrip.middle.distanceTo(player.position) > SOCK_REACH + STRIP_LENGTH / 2) continue;
+      // A slow swing and a quicker gust over it, never the same twice, and the
+      // tail lifting as the gust fills it.
+      const t = clock + drawnStrip.phase;
+      const gust = 0.5 + 0.5 * Math.sin(t * 0.9) * Math.sin(t * 0.37 + 1.3);
+      drawnStrip.sock.rotation.y = drawnStrip.wind + 0.3 * Math.sin(t * 0.45) + 0.1 * Math.sin(t * 1.7);
+      drawnStrip.sock.rotation.x = 0.55 - 0.45 * gust;
+    }
+  }
 
   // Something moved, or somebody got in or out: the candidates are stale. And
   // a town's parked car somebody took is the fleet's to draw from now on.
@@ -1019,6 +1375,9 @@ export function createFleet(options: FleetOptions): Fleet {
       spare.id = id;
       spare.site = site;
       spare.reseat = 0;
+      spare.tracked = false;
+      spare.speed = spare.turn = 0;
+      spare.motion.rest();
       return spare;
     }
     const built = model.build(variant);
@@ -1044,7 +1403,70 @@ export function createFleet(options: FleetOptions): Fleet {
         object.receiveShadow = true;
       }
     });
-    return { id, model, variant, group: built, seats, site, reseat: 0 };
+    // After the seats, so the springs carry them too.
+    const motion = motionOf(built, model);
+    return {
+      id,
+      model,
+      variant,
+      group: built,
+      seats,
+      site,
+      reseat: 0,
+      motion,
+      last: new THREE.Vector3(),
+      lastForward: new THREE.Vector3(),
+      tracked: false,
+      speed: 0,
+      turn: 0,
+    };
+  }
+
+  /**
+   * Somebody else's vehicle, moving: its springs, wheels and propeller handed
+   * what its poses say it is doing — the speed along its nose and the turn
+   * between this frame's heading and the last, smoothed over an eighth of a
+   * second, because a sampled pose steps by whatever the frame did. The wheel
+   * is read back off the turn through the steering law (`steerWheels` in
+   * `player.ts`), so a car turning on the spot does not show full lock.
+   */
+  function animate(entry: Drawn, dt: number, at: WirePose): void {
+    point.set(at[0]!, at[1]!, at[2]!);
+    heading.set(at[3]!, at[4]!, at[5]!).normalize();
+    if (entry.tracked && dt > 0) {
+      up.copy(point).normalize();
+      const along = localPoint.copy(point).sub(entry.last).dot(heading) / dt;
+      const turn = Math.asin(Math.max(-1, Math.min(1, turned.crossVectors(entry.lastForward, heading).dot(up)))) / dt;
+      const ease = 1 - Math.exp(-8 * dt);
+      entry.speed += (along - entry.speed) * ease;
+      entry.turn += (turn - entry.turn) * ease;
+    }
+    entry.last.copy(point);
+    entry.lastForward.copy(heading);
+    entry.tracked = true;
+    const kind = entry.model.kind;
+    const pace = Math.abs(entry.speed);
+    remote.speed = entry.speed;
+    remote.turnRate = entry.turn;
+    remote.steering = 0;
+    if (kind === 'car' || kind === 'van') {
+      const grip = Math.min(1, pace / CAR_GRIP_SPEED);
+      const lock = 1 + (CAR_FAST_LOCK - 1) * Math.min(1, pace / CAR_BOOST);
+      const reach = CAR_TURN * grip * lock;
+      if (reach > 1e-3) remote.steering = Math.max(-1, Math.min(1, (-entry.turn / reach) * (entry.speed < 0 ? -1 : 1)));
+    }
+    remote.grounded = kind === 'plane' || kind === 'balloon' ? point.length() - groundRadius(world, point) < 1.5 : true;
+    remote.engine = true;
+    remote.moored = false;
+    entry.motion.update(dt, remote);
+  }
+
+  /** A vehicle nobody is driving: a launch near enough to see rides its mooring, anything else eases to rest. */
+  function settle(entry: Drawn, dt: number): void {
+    entry.tracked = false;
+    entry.speed = entry.turn = 0;
+    if (entry.model.kind === 'boat' && entry.group.position.distanceTo(player.position) < MOOR_REACH) entry.motion.update(dt, MOORED);
+    else if (entry.motion.settling) entry.motion.update(dt, AT_REST);
   }
 
   function putAway(entry: Drawn): void {
@@ -1059,9 +1481,11 @@ export function createFleet(options: FleetOptions): Fleet {
     }
     // Not kept: its geometry is its own (`CraftModel.build` makes a fresh
     // copy) and goes now, or every take-off from a city leaks what did not
-    // fit in the pool. The materials are the world's shared ones and stay.
+    // fit in the pool. The materials are the world's shared ones and stay,
+    // and so does a propeller's swept disc, whose one circle every plane
+    // shares (`craft/motion.ts`).
     entry.group.traverse((part) => {
-      if ((part as THREE.Mesh).isMesh) (part as THREE.Mesh).geometry.dispose();
+      if ((part as THREE.Mesh).isMesh && part.name !== 'prop-disc') (part as THREE.Mesh).geometry.dispose();
     });
   }
 
@@ -1072,6 +1496,7 @@ export function createFleet(options: FleetOptions): Fleet {
 
   /** The candidates: sites near the player, and anything moved near him, nearest first. */
   function scan(): void {
+    scanStrips();
     wanted = [];
     const here = player.position;
     found.length = 0;
@@ -1081,6 +1506,9 @@ export function createFleet(options: FleetOptions): Fleet {
     // under its track.
     if (here.length() - groundRadius(world, here) > REACH) return;
     sites.near(up, REACH, found, FRESH_TOWNS);
+    // A plane stands further out of its town than `near` looks for a town;
+    // its strip search is already worked out, so this is a lookup.
+    for (const plane of planeSites) if (!found.includes(plane)) found.push(plane);
     const seen = new Set<string>();
     for (const site of found) {
       // Moved elsewhere, it is found by its pose below; taken but not yet
@@ -1292,6 +1720,8 @@ export function createFleet(options: FleetOptions): Fleet {
     pooled: 0,
     moved: 0,
     riding: null,
+    strips: 0,
+    stripsPending: 0,
   };
 
   const fleet: Fleet = {
@@ -1302,6 +1732,8 @@ export function createFleet(options: FleetOptions): Fleet {
       stats.pooled = [...pool.values()].reduce((sum, spares) => sum + spares.length, 0);
       stats.moved = link.moved.size;
       stats.riding = held === null ? null : `${held.id} seat ${heldSeat}`;
+      stats.strips = strips.size;
+      stats.stripsPending = stripsWanted.filter((want) => !strips.has(want.site.id)).length;
       return stats;
     },
     get prompt() {
@@ -1424,6 +1856,7 @@ export function createFleet(options: FleetOptions): Fleet {
         group.add(entry.group);
         place(entry);
       }
+      updateStrips(dt, began);
 
       // Anything somebody else is driving moves every frame; a parked one
       // is set down again now and then, on whatever made ground has arrived.
@@ -1434,7 +1867,10 @@ export function createFleet(options: FleetOptions): Fleet {
           const driven = link.sample(entry.id, pose);
           if (driven || isPose(moved.pose)) {
             applyPose(driven ? pose : moved.pose, entry.group);
-            if (driven) drivenNow.push(entry);
+            if (driven) {
+              drivenNow.push(entry);
+              animate(entry, dt, pose);
+            } else settle(entry, dt);
             entry.site = null;
             continue;
           }
@@ -1449,6 +1885,7 @@ export function createFleet(options: FleetOptions): Fleet {
           entry.reseat = RESEAT_SECONDS;
           applyPose(sitePose(entry.site, pose), entry.group);
         }
+        settle(entry, dt);
       }
 
       prompt = findPrompt();
