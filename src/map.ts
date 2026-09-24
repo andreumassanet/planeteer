@@ -511,8 +511,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   function prepareRings(): SheetRing[] {
     if (rings !== null) return rings;
-    const coast = coastEdges(world);
-    rings = world.rings.map((ring, r) => {
+    // A world with no outlines is a sheet of sea: the UI's own tests open the
+    // map over a stub world, and `coastEdges` has nothing to read there.
+    const source = world.rings ?? [];
+    const coast = source.length > 0 ? coastEdges(world) : [];
+    rings = source.map((ring, r) => {
       const n = ring.points.length;
       const u = new Float32Array(n);
       const v = new Float32Array(n);
@@ -548,7 +551,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // its biggest ring; a country of many islands is named by its largest.
     for (const [c, country] of world.countries.entries()) {
       let span = 0;
-      for (const [r, ring] of world.rings.entries()) {
+      for (const [r, ring] of source.entries()) {
         if (ring.country !== c + 1) continue;
         const sheetRing = rings[r]!;
         span = Math.max(span, Math.min(sheetRing.u1 - sheetRing.u0, (sheetRing.v1 - sheetRing.v0) * 1.6));
