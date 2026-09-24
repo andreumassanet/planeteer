@@ -23,7 +23,10 @@ import { setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
 import { biomeAt } from './biome.ts';
 import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
+import { crashStrength, createEffects } from './effects.ts';
+import type { OtherVisitor } from './effects.ts';
 import type { Surface } from './audio.ts';
+import type { Music, MusicMoment } from './music.ts';
 import { BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
@@ -37,9 +40,9 @@ import type { FlagLayer } from './land-flags.ts';
 import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
-import type { CraftKind } from './craft/contract.ts';
 import type { Where } from './talk.ts';
 import { unitAt } from './sphere.ts';
+import type { CraftKind, CraftModel } from './craft/contract.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -278,6 +281,12 @@ const HINTS_KEY = 'atlas.hints.v1';
 const RESOLUTION_KEY = 'atlas.resolution.v1';
 /** `{ volume, on }`: the soundscape's two settings. */
 const SOUND_KEY = 'atlas.sound.v1';
+/** Whether the wakes, the smoke and the dust are drawn: `'0'` off, anything else on. */
+const EFFECTS_KEY = 'atlas.effects.v1';
+/** Whether a crash shakes the lens: `'1'` or `'0'`; unset follows the system's reduced-motion preference. */
+const SHAKE_KEY = 'atlas.shake.v1';
+/** `{ volume, on }`: the music's, apart from the sound's. */
+const MUSIC_KEY = 'atlas.music.v1';
 /**
  * How far off the water the sea is still heard, in degrees of `shoreDistance`:
  * 0.4 is 110 units, a few streets back from a harbour.
@@ -884,6 +893,13 @@ async function start(): Promise<void> {
   if (vegetation.broken.length > 0) console.warn('scenery parts that broke the contract:', vegetation.broken);
   if (vegetation.missing.length > 0) console.warn('biome tables name plants that do not exist:', vegetation.missing);
 
+  // What moving leaves behind it — wakes, smoke, dust, a crash's debris — in
+  // three pools and at most four draw calls; see `effects.ts`. Made here so
+  // its programs are warmed with the streamers'.
+  const effects = createEffects();
+  effects.enabled = readSetting(EFFECTS_KEY) !== '0';
+  scene.add(effects.group);
+
   await stage('packing your bag');
   // Everything the world needs is now standing, so the menu stops being a
   // loading screen you cannot leave and becomes a choice. `choose` resolves on
@@ -899,7 +915,7 @@ async function start(): Promise<void> {
     renderer,
     outline,
     scene,
-    [settlements, monuments, roads, vegetation, life, { proxies: () => [proxyOf(inkSource)] }],
+    [settlements, monuments, roads, vegetation, life, effects, { proxies: () => [proxyOf(inkSource)] }],
     modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
@@ -965,7 +981,44 @@ async function start(): Promise<void> {
     // A mangled setting is the default one.
   }
   const saveSound = (): void => writeSetting(SOUND_KEY, JSON.stringify({ volume: audio.volume, on: !audio.muted }));
-  const unlockAudio = (): void => audio.unlock();
+  // The music: `music.ts` and its synthesis are fetched on the gesture that
+  // opens the sound, and only if the music is on, so none of it is in the
+  // first load. Its settings live here until it arrives.
+  const musicSettings = { volume: 0.6, on: true };
+  try {
+    const saved = JSON.parse(readSetting(MUSIC_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
+    if (saved !== null && typeof saved.volume === 'number') musicSettings.volume = Math.min(1, Math.max(0, saved.volume));
+    if (saved !== null && typeof saved.on === 'boolean') musicSettings.on = saved.on;
+  } catch {
+    // A mangled setting is the default one.
+  }
+  const saveMusic = (): void => writeSetting(MUSIC_KEY, JSON.stringify(musicSettings));
+  let music: Music | null = null;
+  let musicLoading = false;
+  /** A style asked for from the console before the music arrived. */
+  let musicAsked: string | null = null;
+  const musicMoment: MusicMoment = {
+    mode: 'foot', height: 0, iso: '', continent: '', lat: 0, lon: 0, daylight: 1, town: false, place: 0, hour: 12,
+  };
+  function loadMusic(): void {
+    const out = audio.output;
+    if (music !== null || musicLoading || !musicSettings.on || out === null) return;
+    musicLoading = true;
+    import('./music.ts')
+      .then(({ createMusic }) => {
+        music = createMusic(out.context, out.node, musicSettings);
+        if (musicAsked !== null) music.play(musicAsked);
+      })
+      .catch(() => {
+        // No music is silence, never an error on the player's screen; the next gesture tries again.
+        musicLoading = false;
+      });
+  }
+  audio.onCue = (name) => music?.cue(name);
+  const unlockAudio = (): void => {
+    audio.unlock();
+    loadMusic();
+  };
   addEventListener('pointerdown', unlockAudio, { capture: true });
   addEventListener('keydown', unlockAudio, { capture: true });
   /** What the foot is on, refreshed a couple of times a second in the loop. */
@@ -978,10 +1031,14 @@ async function start(): Promise<void> {
   await avatarReady;
   const player = createPlayer(world, spawn.lat, spawn.lon, {
     madeHeightAt,
-    onStep: (weight) => audio.step(footing, weight),
+    onStep: (weight) => {
+      audio.step(footing, weight);
+      effects.step(weight);
+    },
     // A jump lands at about its take-off speed; stepping off a kerb does not.
     onTouchdown: (speed) => {
       if (speed > 12) audio.cue('land');
+      effects.touchdown(speed);
     },
     // The towns' walls and parked cars, every vehicle standing about, and the
     // people: a townsman standing or strolling and a walker on the verge are
@@ -1002,7 +1059,8 @@ async function start(): Promise<void> {
     freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a landing refused, and why.
-    onEvent: (event: PlayerEvent) => {
+    onEvent: (event: PlayerEvent, strength: number) => {
+      effects.event(event, strength);
       if (event === 'water-refused') {
         announce('A plane cannot land on water — find a field', 'plane');
         audio.cue('ui-error');
@@ -1011,8 +1069,11 @@ async function start(): Promise<void> {
         audio.cue('ui-error');
       } else if (event === 'landed') audio.cue('land');
       // A car into a wall: the landing's thud, which is the one knock the
-      // sound has. Anything that wants to shake or spark hooks in here too.
-      else if (event === 'crashed') audio.cue('land');
+      // sound has, and the lens knocked with it.
+      else if (event === 'crashed') {
+        audio.cue('land');
+        rig.shake(crashStrength(strength));
+      }
     },
   });
   scene.add(player.object);
@@ -1051,6 +1112,19 @@ async function start(): Promise<void> {
   });
   scene.add(fleet.group);
   vehicleWalls = (point, radius, push) => fleet.collide(point, radius, push);
+  // The wakes and trails of everything else under way: the vehicles other
+  // players drive, and the boats of the traffic. The visitors are made once,
+  // so a frame hands them over without making anything.
+  {
+    let visitOther: OtherVisitor = () => {};
+    const driven = (object: THREE.Object3D, model: CraftModel): void => visitOther(object, model.kind, model);
+    const boat = (object: THREE.Object3D): void => visitOther(object, 'boat', null);
+    effects.setOthers((visit) => {
+      visitOther = visit;
+      fleet.eachDriven(driven);
+      life.eachBoat(boat);
+    });
+  }
   // A town built from here on leaves out a parked car the fleet has, and one
   // already standing folds it away (`hideParked`, through the fleet).
   settlements.setParkedTaken((id) => fleet.claimsParked(id));
@@ -1061,6 +1135,10 @@ async function start(): Promise<void> {
     blocks: (point) => settlements.blocksSight(point),
     onViewRefused: () => announce('First person is on foot only', 'eye'),
   });
+  // A crash shakes the lens unless the player said not to, or the system asks
+  // for less motion and the player has not said either way.
+  const shakeSaved = readSetting(SHAKE_KEY);
+  rig.shakes = shakeSaved === null ? !matchMedia('(prefers-reduced-motion: reduce)').matches : shakeSaved === '1';
   // Only when it is asked for: `Number(null)` is 0, so the unguarded test put
   // every ordinary load's walking camera on the ground.
   const heightQuery = query.get('height');
@@ -1393,6 +1471,22 @@ async function start(): Promise<void> {
       min: 0.3,
       max: 3,
     },
+    effects: {
+      get: () => effects.enabled,
+      set: (on) => {
+        effects.enabled = on;
+        writeSetting(EFFECTS_KEY, on ? '1' : '0');
+        return on;
+      },
+    },
+    shake: {
+      get: () => rig.shakes,
+      set: (on) => {
+        rig.shakes = on;
+        writeSetting(SHAKE_KEY, on ? '1' : '0');
+        return on;
+      },
+    },
     performance: {
       get: () => performanceOn,
       set: (on) => {
@@ -1436,6 +1530,29 @@ async function start(): Promise<void> {
         set: (on) => {
           audio.muted = !on;
           saveSound();
+          return on;
+        },
+      },
+    },
+    music: {
+      volume: {
+        get: () => musicSettings.volume,
+        set: (value) => {
+          musicSettings.volume = Math.min(1, Math.max(0, value));
+          if (music !== null) music.volume = musicSettings.volume;
+          saveMusic();
+          return musicSettings.volume;
+        },
+        min: 0.05,
+        max: 1,
+      },
+      on: {
+        get: () => musicSettings.on,
+        set: (on) => {
+          musicSettings.on = on;
+          if (music !== null) music.on = on;
+          else loadMusic();
+          saveMusic();
           return on;
         },
       },
@@ -1593,6 +1710,8 @@ async function start(): Promise<void> {
 
   // The ear's slow answers, refreshed twice a second in the loop.
   let soundClock = 0;
+  /** The slow questions have been asked again, and the music has not heard them. */
+  let musicDue = false;
   const soundPoint = new THREE.Vector3();
   const soundBiome: BiomeSample = { id: 'temperate', warmth: 0, moisture: 0, elevation: 0 };
   let soundCold = false;
@@ -1681,6 +1800,23 @@ async function start(): Promise<void> {
         ? 1
         : Math.max(0, 1 - shoreDistance(at.lat, at.lon) / SEA_EARSHOT);
       soundWildTarget = inTown ? 0 : 1;
+      // A road is paved as a town is, for the dust off a wheel.
+      effects.setGround(inTown || madeHeightAt(player.position) > 0, soundBiome.id);
+      if (music !== null) {
+        // Where the music thinks you are: the country (0 is the sea), the
+        // town, the hour a raga keeps to, and the nearest place, which seeds it.
+        const index = world.countryAtPoint(player.position);
+        const country = index > 0 ? world.countries[index - 1]! : null;
+        const nearby = places.nearest(player.position);
+        musicMoment.iso = country?.iso ?? '';
+        musicMoment.continent = country?.continent ?? '';
+        musicMoment.lat = at.lat;
+        musicMoment.lon = at.lon;
+        musicMoment.town = inTown;
+        musicMoment.place = nearby.index;
+        musicMoment.hour = Number.parseInt(clockAt(sky.state.time, musicMoment.iso, at.lon, at.lat, nearby.place), 10);
+        musicDue = true;
+      }
     }
     soundWild += (soundWildTarget - soundWild) * Math.min(1, dt * 0.8);
     const speedNow = player.velocity;
@@ -1688,6 +1824,17 @@ async function start(): Promise<void> {
     // engine too.
     const soundKind = player.ride?.model.kind ?? null;
     const soundMode = soundKind === null ? (player.state === 'swim' ? 'swim' : 'foot') : soundKind === 'van' ? 'car' : soundKind;
+    if (music !== null) {
+      const tune = music;
+      if (musicDue) {
+        musicDue = false;
+        musicMoment.mode = soundMode;
+        musicMoment.height = eyeOverGround;
+        musicMoment.daylight = sky.state.daylight;
+        guard('music', () => tune.observe(musicMoment));
+      }
+      guard('music', () => tune.update());
+    }
     guard('audio', () => audio.update(dt, {
       mode: soundMode,
       speed: speedNow,
@@ -1824,6 +1971,8 @@ async function start(): Promise<void> {
     // players, who may be sitting in one of them.
     guard('fleet', () => fleet.update(dt, rig.camera));
     if (peers !== null) guard('peers', () => peers.update(dt, player));
+    // After everything that moves, so a wake starts where the boat now is.
+    guard('effects', () => effects.update(dt, player, rig.camera));
 
     // The weather turns with the same clock the sun does, so scrubbing the time
     // scrubs the sky: `atlas.sky.setRate(600)` runs a front past you in seconds.
@@ -2163,11 +2312,37 @@ async function start(): Promise<void> {
       // `atlas.talk.script('<key>', where)` is a conversation's lines without
       // the bubble; `atlas.talk.with` is who you are talking to.
       talk,
+      // `atlas.effects.stats`: the puffs, foam discs and debris alive, what a
+      // full pool refused, the other vehicles followed, the draw calls and the
+      // update's cost. `atlas.effects.burst('crash' | 'splash' | 'dust' |
+      // 'ripple')` makes one where you stand; `.enabled = false` is the A/B.
+      effects,
       // Which subsystems have thrown inside the loop, and how many times: see `guard`.
       failures,
       // `atlas.audio.stats`: whether the context is unlocked and running, how
       // many recordings arrived, and how many voices are sounding.
       audio,
+      // `atlas.music.stats`: the style, whether a piece is playing or the
+      // music is resting, the phrase, the voices and when it next changes.
+      // `atlas.music.play('japan')` forces a style for review (it starts at
+      // once), `atlas.music.play()` hands it back to the map, and
+      // `atlas.music.styles` lists them.
+      music: {
+        get stats() {
+          return music?.stats ?? { loaded: false, loading: musicLoading, on: musicSettings.on };
+        },
+        get styles() {
+          return ['iberia', 'latin', 'brazil', 'andes', 'north-america', 'atlantic-folk', 'nordic', 'east-europe', 'mediterranean', 'maghreb', 'middle-east', 'sub-saharan', 'south-asia', 'east-asia', 'japan', 'southeast-asia', 'oceania', 'polar', 'sea', 'sky'];
+        },
+        play(style?: string | null): string {
+          if (music !== null) return music.play(style);
+          musicAsked = style ?? null;
+          loadMusic();
+          return audio.output === null
+            ? 'The sound is not open yet: click in the world once, then ask again.'
+            : musicSettings.on ? 'Loading the music; it will start in a moment.' : 'Music is off in Settings.';
+        },
+      },
       // `atlas.vegetation.stats` counts tiles, plants and triangles by level;
       // `atlas.vegetation.sample(lat, lon, level)` builds one tile and reports
       // what it cost, and `.verify(lat, lon)` builds it twice and compares.

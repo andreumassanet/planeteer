@@ -74,6 +74,10 @@ export interface SettingsOptions {
   sensitivity: Knob;
   /** The frame-rate card in the corner. */
   performance: Toggle;
+  /** Wakes, smoke, dust and a crash's debris (`effects.ts`). Omit it and the row is not built. */
+  effects?: Toggle;
+  /** Whether a crash shakes the camera. Omit it and the row is not built. */
+  shake?: Toggle;
   /** The key hints along the bottom of the screen. */
   hints: Toggle;
   /** How many pixels the world is drawn at, against the screen's own. */
@@ -82,6 +86,8 @@ export interface SettingsOptions {
   time?: TimeOfDay;
   /** The soundscape's level and whether it is on. Omit it and the section is not built. */
   sound?: { volume: Knob; on: Toggle };
+  /** The music, with its own level and switch, separate from the sound's. Omit it and the rows are not built. */
+  music?: { volume: Knob; on: Toggle };
   /**
    * The other players: the name they see over you, and how many of them are
    * connected, `null` while there is no connection. Omit it and the section is
@@ -358,6 +364,8 @@ export function createSettings(options: SettingsOptions): Settings {
     ['Near · fast', 'Far · heavy'],
   );
   const performance = makeSwitch(options.performance, 'Performance overlay');
+  const effects = options.effects === undefined ? null : makeSwitch(options.effects, 'Effects');
+  const shake = options.shake === undefined ? null : makeSwitch(options.shake, 'Camera shake');
   const flags = makeSwitch(options.flags, 'Flags and borders');
   const hints = makeSwitch(options.hints, 'Key hints');
   const resolution = makeChoice(options.resolution, 'Resolution');
@@ -427,6 +435,12 @@ export function createSettings(options: SettingsOptions): Settings {
       ? null
       : makeSlider(sound.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
   const soundOn = sound === undefined ? null : makeSwitch(sound.on, 'Sound');
+  const music = options.music;
+  const musicVolume =
+    music === undefined
+      ? null
+      : makeSlider(music.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
+  const musicOn = music === undefined ? null : makeSwitch(music.on, 'Music');
   /**
    * The name over you, kept as it is typed and handed over on `change` — Enter
    * or leaving the field — because every rename is a reconnection.
@@ -488,6 +502,16 @@ export function createSettings(options: SettingsOptions): Settings {
         "How sharp the world is drawn. Auto is the screen's own sharpness up to twice the pixels, Balanced stops at one and a half, and Fast draws one pixel a point, the lightest of all.",
         resolution.element,
       ),
+      effects === null
+        ? null
+        : row(
+            'Effects',
+            'The wake behind a boat, the smoke of an engine and a plane, the dust off wheels and feet, the splash and the debris of a crash.',
+            effects.element,
+          ),
+      shake === null
+        ? null
+        : row('Camera shake', 'A knock felt through the camera when you crash. Off by default if your system asks for less motion.', shake.element),
       row(
         'Performance overlay',
         'Frames per second, what a frame costs to update and to draw, its worst hitch and the triangles drawn, in the corner.',
@@ -520,6 +544,12 @@ export function createSettings(options: SettingsOptions): Settings {
           h('div', { class: 'ui-eyebrow', text: 'Sound' }),
           row('Sound', 'The wind, the sea, the engines, footsteps, and a jingle when you find a landmark.', soundOn!.element),
           row('Volume', 'How loud all of it is.', volume!.value, volume!.slider),
+          ...(music === undefined
+            ? []
+            : [
+                row('Music', 'A tune in the style of the country you are in, now and then, and quiet in between.', musicOn!.element),
+                row('Music volume', 'How loud the music is, apart from everything else.', musicVolume!.value, musicVolume!.slider),
+              ]),
         ),
     players === undefined
       ? null
@@ -583,11 +613,15 @@ export function createSettings(options: SettingsOptions): Settings {
     autoDetail?.refresh();
     sensitivity.refresh();
     performance.refresh();
+    effects?.refresh();
+    shake?.refresh();
     flags.refresh();
     hints.refresh();
     resolution.refresh();
     volume?.refresh();
     soundOn?.refresh();
+    musicVolume?.refresh();
+    musicOn?.refresh();
     showTime();
     showPlayers();
   }

@@ -458,6 +458,342 @@ const clampLat = (lat: number): number => (lat > 89.999 ? 89.999 : lat < -89.999
 const EDGE_KEY = 8388608;
 
 /**
+ * How far apart the points laid inside a ring are before it is triangulated,
+ * in degrees of latitude: a little under `MAX_EDGE`, so the refinement is left
+ * the relief to follow rather than the triangles' length.
+ */
+const STEINER_SPACING = (MAX_EDGE / DEG) * 0.85;
+
+/** Below this `quality` a triangle is a needle, and the pass after the refinement flips it. */
+const NEEDLE = 0.3;
+
+/**
+ * A needle shorter than this, in world units, is left alone by the grading:
+ * it is a few pixels at any distance it can be seen from, and chasing it
+ * down to the coast's own spacing is most of the triangles for none of the look.
+ */
+const NEEDLE_MIN_EDGE = 45;
+
+/** How many rounds of circumcentres the grading puts in; each halves what is left. */
+const GRADE_ROUNDS = 4;
+
+/**
+ * Points laid on a lattice inside a ring and its holes, kept a third of the
+ * spacing clear of every boundary, for `retriangulate` to put into the mesh.
+ *
+ * **An ear clipper handed only a boundary can only join boundary to boundary.**
+ * A coast is densified to a hundredth of a degree and a country's interior has
+ * no points at all, so what came out was fans of needles: triangles a few
+ * hundred units long and a unit wide, running from one stretch of coast to the
+ * far one. The refinement split them by length and they stayed needles, and
+ * flat-shaded on the relief every one was a crease the pen drew — the long
+ * straight ink lines that ran across hillsides and met in a point. Interior
+ * points are what a triangulation needs to have anything but needles to make.
+ *
+ * Found by scanlines, not by a point-in-polygon test a point: each row and the
+ * two either side of it are cut by every boundary edge once, which is a pass
+ * over the outline per row rather than per point.
+ */
+function steinerPoints(rings: readonly (readonly number[][])[]): number[] {
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  for (const ring of rings) {
+    for (const p of ring) {
+      if (p[1]! < minLat) minLat = p[1]!;
+      if (p[1]! > maxLat) maxLat = p[1]!;
+    }
+  }
+  const out: number[] = [];
+  const step = STEINER_SPACING;
+  const margin = step * 0.34;
+  if (maxLat - minLat < step) return out;
+  const crossings = (lat: number, into: number[]): void => {
+    into.length = 0;
+    for (const ring of rings) {
+      for (let i = 0, n = ring.length; i < n; i++) {
+        const a = ring[i]!;
+        const b = ring[(i + 1) % n]!;
+        const ay = a[1]!;
+        const by = b[1]!;
+        if ((ay > lat) === (by > lat)) continue;
+        into.push(a[0]! + ((lat - ay) / (by - ay)) * (b[0]! - a[0]!));
+      }
+    }
+    into.sort((x, y) => x - y);
+  };
+  const inside = (xs: readonly number[], lon: number, clear: number): boolean => {
+    let count = 0;
+    for (const x of xs) {
+      if (Math.abs(x - lon) < clear) return false;
+      if (x < lon) count++;
+    }
+    return (count & 1) === 1;
+  };
+  const row: number[] = [];
+  const below: number[] = [];
+  const above: number[] = [];
+  for (let lat = Math.ceil(minLat / step) * step; lat < maxLat; lat += step) {
+    if (Math.abs(lat) > 88) continue;
+    crossings(lat, row);
+    if (row.length < 2) continue;
+    crossings(lat - margin, below);
+    crossings(lat + margin, above);
+    const stride = step / Math.max(0.2, Math.cos(lat * DEG));
+    const clear = margin / Math.max(0.2, Math.cos(lat * DEG));
+    // Staggered a half step every other row, so the lattice is triangles
+    // rather than squares cut along one diagonal.
+    const shift = (Math.round(lat / step) & 1) * stride * 0.5;
+    for (let lon = Math.ceil((row[0]! - shift) / stride) * stride + shift; lon < row[row.length - 1]!; lon += stride) {
+      if (inside(row, lon, clear) && inside(below, lon, clear) && inside(above, lon, clear)) out.push(lon, lat);
+    }
+  }
+  return out;
+}
+
+/**
+ * The ear clipper's triangles made Delaunay, with `steiner`'s points put in.
+ *
+ * **Lawson's flips, on the boundary the ear clipper was given.** An edge is
+ * flipped when the vertex across it lies inside the circle through the other
+ * three, and `accept` does not refuse the new edge — tested on the sphere, where the circle through three points is the
+ * plane through them — and only if both new triangles keep their orientation in
+ * the lon/lat plane the outline was cut in, which is the plane `countryAt`
+ * answers in. A boundary edge has one triangle and no twin, so the outline,
+ * every coast and every lake shore come out exactly as they went in: this
+ * changes which interior points are joined, and nothing about where the land
+ * ends.
+ *
+ * A point is put in by walking to the triangle holding it, splitting that in
+ * three and flipping outwards from it: the incremental constrained Delaunay
+ * triangulation. `unit` and `lonLat` grow by the points that went in.
+ */
+function retriangulate(
+  unit: THREE.Vector3[],
+  lonLat: number[],
+  faces: number[][],
+  steiner: readonly number[],
+  accept?: (a: number, b: number) => boolean,
+  grade = false,
+): number[][] {
+  const V: number[] = [];
+  for (const [a, b, c] of faces as [number, number, number][]) V.push(a, b, c);
+  const T: number[] = new Array<number>(V.length).fill(-1);
+  const KEY = 16777216;
+  const half = new Map<number, number>();
+  for (let h = 0; h < V.length; h++) {
+    const from = V[h]!;
+    const to = V[h - (h % 3) + ((h % 3) + 1) % 3]!;
+    const twin = half.get(to * KEY + from);
+    if (twin !== undefined) {
+      T[h] = twin;
+      T[twin] = h;
+    } else half.set(from * KEY + to, h);
+  }
+  half.clear();
+
+  const next = (h: number): number => h - (h % 3) + ((h % 3) + 1) % 3;
+  const prev = (h: number): number => h - (h % 3) + ((h % 3) + 2) % 3;
+  const orient = (a: number, b: number, c: number): number =>
+    (lonLat[b * 2]! - lonLat[a * 2]!) * (lonLat[c * 2 + 1]! - lonLat[a * 2 + 1]!)
+    - (lonLat[b * 2 + 1]! - lonLat[a * 2 + 1]!) * (lonLat[c * 2]! - lonLat[a * 2]!);
+  // Which way round the ear clipper wound them; every triangle agrees.
+  let sense = 0;
+  for (let t = 0; t < V.length && sense === 0; t += 3) sense = Math.sign(orient(V[t]!, V[t + 1]!, V[t + 2]!));
+  if (sense === 0) return faces;
+  const e1 = new THREE.Vector3();
+  const e2 = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  /** Whether `s` lies inside the circle through `p`, `q`, `r` on the sphere. */
+  const inCircle = (p: number, q: number, r: number, s: number): boolean => {
+    const P = unit[p]!;
+    e1.subVectors(unit[q]!, P);
+    e2.subVectors(unit[r]!, P);
+    n.crossVectors(e1, e2);
+    if (n.dot(P) < 0) n.negate();
+    d.subVectors(unit[s]!, P);
+    return n.dot(d) > 1e-18;
+  };
+  const f1 = new THREE.Vector3();
+  const f2 = new THREE.Vector3();
+  /** 1 for an equilateral triangle, towards 0 for a needle: twice the area over the squared edges, scaled. */
+  const quality = (a: number, b: number, c: number): number => {
+    const A = unit[a]!;
+    const B = unit[b]!;
+    const C = unit[c]!;
+    f1.subVectors(B, A);
+    f2.subVectors(C, A);
+    const sum = f1.lengthSq() + f2.lengthSq() + B.distanceToSquared(C);
+    return sum > 0 ? (2 * Math.sqrt(3) * f1.cross(f2).length()) / sum : 0;
+  };
+  const stack: number[] = [];
+  const legalize = (): void => {
+    let budget = V.length * 20 + 1000;
+    while (stack.length > 0 && budget-- > 0) {
+      const h = stack.pop()!;
+      const g = T[h]!;
+      if (g < 0) continue;
+      const h1 = next(h);
+      const h2 = prev(h);
+      const g1 = next(g);
+      const g2 = prev(g);
+      const p = V[h]!;
+      const q = V[h1]!;
+      const r = V[h2]!;
+      const s = V[g2]!;
+      if (!inCircle(p, q, r, s)) continue;
+      // The two triangles the flip would make, both still the right way round.
+      if (Math.sign(orient(p, s, r)) !== sense || Math.sign(orient(s, q, r)) !== sense) continue;
+      // After the refinement only a needle is worth a flip: the relief was
+      // fitted to these triangles, and one that is merely not Delaunay is
+      // left as it was fitted.
+      if (accept !== undefined) {
+        const before = Math.min(quality(p, q, r), quality(q, p, s));
+        if (before > NEEDLE || Math.min(quality(p, s, r), quality(s, q, r)) < before * 1.25) continue;
+        if (!accept(r, s)) continue;
+      }
+      const t = h - (h % 3);
+      const u = g - (g % 3);
+      const tg1 = T[g1]!;
+      const th2 = T[h2]!;
+      const tg2 = T[g2]!;
+      const th1 = T[h1]!;
+      V[t] = p; V[t + 1] = s; V[t + 2] = r;
+      V[u] = s; V[u + 1] = q; V[u + 2] = r;
+      T[t] = tg1; if (tg1 >= 0) T[tg1] = t;
+      T[t + 1] = u + 2; T[u + 2] = t + 1;
+      T[t + 2] = th2; if (th2 >= 0) T[th2] = t + 2;
+      T[u] = tg2; if (tg2 >= 0) T[tg2] = u;
+      T[u + 1] = th1; if (th1 >= 0) T[th1] = u + 1;
+      stack.push(t, t + 2, u, u + 1);
+    }
+    stack.length = 0;
+  };
+
+  for (let h = 0; h < V.length; h++) if (T[h]! > h) stack.push(h);
+  legalize();
+
+  const point = new THREE.Vector3();
+  /**
+   * Puts the point at `lon, lat` into the mesh, walking to it from triangle
+   * `from`; false when it is not inside this ring or lies on an edge. A point
+   * too near a boundary edge is refused as well: the boundary is shared with
+   * the next ring and cannot be split, so a point on top of it could only make
+   * the needles it was meant to break.
+   */
+  const insert = (lon: number, lat: number, from: number): boolean => {
+    const m = unit.length;
+    lonLat.push(lon, lat);
+    // Walk from `from` towards the point, across whichever edge it lies
+    // beyond; out through the boundary means it is not in this ring.
+    let t = from;
+    let found = -1;
+    for (let steps = 0; steps < 4096; steps++) {
+      let moved = false;
+      let flat = false;
+      for (let i = 0; i < 3; i++) {
+        const side = orient(V[t + i]!, V[t + (i + 1) % 3]!, m) * sense;
+        if (side < 0) {
+          const twin = T[t + i]!;
+          if (twin < 0) { steps = 4096; break; }
+          t = twin - (twin % 3);
+          moved = true;
+          break;
+        }
+        if (side < 1e-12) flat = true;
+        else if (T[t + i]! < 0) {
+          // Its distance from a boundary edge, against that edge's length.
+          const i0 = V[t + i]! * 2;
+          const i1 = V[t + (i + 1) % 3]! * 2;
+          const length2 = (lonLat[i1]! - lonLat[i0]!) ** 2 + (lonLat[i1 + 1]! - lonLat[i0 + 1]!) ** 2;
+          if (side * side < length2 * length2 * 0.0625) flat = true;
+        }
+      }
+      if (steps >= 4096) break;
+      if (!moved) {
+        if (!flat) found = t;
+        break;
+      }
+    }
+    if (found < 0) {
+      lonLat.length -= 2;
+      return false;
+    }
+    unit.push(onSphere(lon, lat, point).clone());
+    const a = V[found]!;
+    const b = V[found + 1]!;
+    const c = V[found + 2]!;
+    const tab = T[found]!;
+    const tbc = T[found + 1]!;
+    const tca = T[found + 2]!;
+    const t1 = V.length;
+    const t2 = t1 + 3;
+    V.push(b, c, m, c, a, m);
+    T.push(-1, -1, -1, -1, -1, -1);
+    // (a, b, m) keeps its slot and its twin across a-b.
+    V[found + 2] = m;
+    T[found + 1] = t1 + 2; T[t1 + 2] = found + 1;
+    T[t1] = tbc; if (tbc >= 0) T[tbc] = t1;
+    T[t1 + 1] = t2 + 2; T[t2 + 2] = t1 + 1;
+    T[t2] = tca; if (tca >= 0) T[tca] = t2;
+    T[t2 + 1] = found + 2; T[found + 2] = t2 + 1;
+    T[found] = tab; if (tab >= 0) T[tab] = found;
+    stack.push(found, t1, t2);
+    legalize();
+    at = found;
+    return true;
+  };
+
+  let at = 0;
+  for (let k = 0; k + 1 < steiner.length; k += 2) insert(steiner[k]!, steiner[k + 1]!, at);
+
+  // **Graded, by circumcentres.** The lattice keeps a third of its spacing off
+  // the boundary, and a coast is a vertex every few units: what fills the gap
+  // is a fan from one lattice point to a hundred coastal ones, each triangle
+  // two hundred units long and three wide. A needle's circumcentre lies half
+  // way down its length, so putting it in halves the fan; a few rounds of that
+  // grade the mesh from the coast's spacing to the lattice's. The boundary
+  // itself is never touched (see `insert`).
+  if (grade) {
+    const minEdge = NEEDLE_MIN_EDGE / PLANET_RADIUS;
+    for (let round = 0; round < GRADE_ROUNDS; round++) {
+      let added = 0;
+      const count = V.length;
+      for (let t = 0; t < count; t += 3) {
+        const a = V[t]!;
+        const b = V[t + 1]!;
+        const c = V[t + 2]!;
+        if (quality(a, b, c) > NEEDLE) continue;
+        const A = unit[a]!;
+        const longest = Math.max(A.distanceTo(unit[b]!), A.distanceTo(unit[c]!), unit[b]!.distanceTo(unit[c]!));
+        if (longest < minEdge) continue;
+        // The circumcentre in the lon/lat plane, with longitude shrunk by the
+        // cosine of the triangle's own latitude so the circle is a circle.
+        const k = Math.cos(((lonLat[a * 2 + 1]! + lonLat[b * 2 + 1]! + lonLat[c * 2 + 1]!) / 3) * DEG);
+        const ax = lonLat[a * 2]! * k;
+        const ay = lonLat[a * 2 + 1]!;
+        const bx = lonLat[b * 2]! * k - ax;
+        const by = lonLat[b * 2 + 1]! - ay;
+        const cx = lonLat[c * 2]! * k - ax;
+        const cy = lonLat[c * 2 + 1]! - ay;
+        const dd = 2 * (bx * cy - by * cx);
+        if (Math.abs(dd) < 1e-14) continue;
+        const b2 = bx * bx + by * by;
+        const c2 = cx * cx + cy * cy;
+        const ux = (cy * b2 - by * c2) / dd;
+        const uy = (bx * c2 - cx * b2) / dd;
+        if (insert((ax + ux) / k, ay + uy, t)) added++;
+      }
+      if (added === 0) break;
+    }
+  }
+
+  const out: number[][] = [];
+  for (let t = 0; t < V.length; t += 3) out.push([V[t]!, V[t + 1]!, V[t + 2]!]);
+  return out;
+}
+
+/**
  * Subdivides the triangulated interior until every edge is both short enough
  * and close enough to the relief.
  *
@@ -1330,8 +1666,19 @@ export function buildLand(world: World): THREE.Mesh {
     // The same points in the plane they were triangulated in, which is where
     // the refinement takes its midpoints: see `refine`.
     const lonLat = all.flatMap(([lon, lat]) => [lon!, lat!]);
+    faces = retriangulate(unit, lonLat, faces, steinerPoints([outline, ...holeOutlines]), undefined, true);
     const relief = unit.map((p) => reliefAt(p.x, p.y, p.z));
-    let triangles = refine(unit, lonLat, relief, faces);
+    // And once more after the refinement, which splits an edge where the
+    // relief asks and leaves the vertex across it joined to every new point: a
+    // fan, which is the needles again. Flipping cannot add a point, so the
+    // relief the refinement paid for is kept, only joined up better.
+    // A new edge has to pass the test `refine` put every other edge to, or the
+    // flip would trade a needle for a triangle that misses the relief.
+    let triangles = retriangulate(unit, lonLat, refine(unit, lonLat, relief, faces), [], (a, b) => {
+      onSphere((lonLat[a * 2]! + lonLat[b * 2]!) * 0.5, (lonLat[a * 2 + 1]! + lonLat[b * 2 + 1]!) * 0.5, scratch);
+      const pad = Math.max(flattenWeightAt(scratch.x, scratch.y, scratch.z), detailWeightAt(scratch.x, scratch.y, scratch.z));
+      return Math.abs(reliefAt(scratch.x, scratch.y, scratch.z) - (relief[a]! + relief[b]!) * 0.5) <= sagFor(pad);
+    });
 
     // The fallback for a lake this ring could not splice: drop the faces that
     // came out on the water. It leaves a shore ragged at the refinement's own

@@ -899,6 +899,11 @@ export interface Life {
    * it that gives way.
    */
   collide(point: THREE.Vector3, radius: number, personRadius: number, push: THREE.Vector3): boolean;
+  /**
+   * Every boat under way and drawn, as the last `update` posed it: for the
+   * wake `effects.ts` lays behind it. Nothing is allocated.
+   */
+  eachBoat(visit: (mesh: THREE.Object3D) => void): void;
 }
 
 export interface LifeOptions {
@@ -3188,6 +3193,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
         hit = true;
       }
       return hit;
+    },
+
+    eachBoat(visit) {
+      for (const mover of movers.values()) {
+        if (mover.family === 'water' && mover.mesh !== null && mover.mesh.visible) visit(mover.mesh);
+      }
     },
   };
 }

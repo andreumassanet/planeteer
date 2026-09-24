@@ -891,6 +891,12 @@ export interface Fleet extends FleetSeats {
   claimedParked(): Iterable<string>;
   /** Every frame, after the player has moved. */
   update(dt: number, camera?: THREE.Camera): void;
+  /**
+   * Every vehicle somebody else drove this frame and that is drawn here: its
+   * group, posed, and its model. For what a moving vehicle leaves behind it —
+   * a wake, a trail of smoke — which is `effects.ts`'s and not the fleet's.
+   */
+  eachDriven(visit: (group: THREE.Object3D, model: CraftModel) => void): void;
   /** `E`: take the prompted seat, or leave the one you are in. */
   use(): void;
   /** The vehicle and seat you are in. */
@@ -952,6 +958,8 @@ export function createFleet(options: FleetOptions): Fleet {
    * stood: its site, for as long as this session lasts. See `adopt`.
    */
   const bayPose = new Map<string, WirePose>();
+  /** What `eachDriven` walks: rewritten by every `update`, never reallocated. */
+  const drivenNow: Drawn[] = [];
   const bays: ParkedCar[] = [];
   const localPoint = new THREE.Vector3();
   const inverse = new THREE.Quaternion();
@@ -1419,12 +1427,14 @@ export function createFleet(options: FleetOptions): Fleet {
 
       // Anything somebody else is driving moves every frame; a parked one
       // is set down again now and then, on whatever made ground has arrived.
+      drivenNow.length = 0;
       for (const entry of drawn.values()) {
         const moved = link.moved.get(entry.id);
         if (moved !== undefined) {
           const driven = link.sample(entry.id, pose);
           if (driven || isPose(moved.pose)) {
             applyPose(driven ? pose : moved.pose, entry.group);
+            if (driven) drivenNow.push(entry);
             entry.site = null;
             continue;
           }
@@ -1442,6 +1452,10 @@ export function createFleet(options: FleetOptions): Fleet {
       }
 
       prompt = findPrompt();
+    },
+
+    eachDriven(visit) {
+      for (const entry of drivenNow) visit(entry.group, entry.model);
     },
 
     use() {

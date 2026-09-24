@@ -50,6 +50,15 @@ const CAMERA_LAG_UP = 4;
 /** What the camera orbits: the head, a little under the crown. */
 const PIVOT_HEIGHT = AVATAR_HEIGHT * 0.85;
 /**
+ * A shake's reach at full strength, in units, and how long it takes to die
+ * away. A tenth of a body is about a degree of view at the walking framing:
+ * felt, and never enough to lose the horizon. It is an offset laid on after
+ * the chase and taken off before the next one, so it never feeds the chase
+ * itself and cannot push the lens into a wall it was held off.
+ */
+const SHAKE_REACH = AVATAR_HEIGHT * 0.1;
+const SHAKE_TIME = 0.45;
+/**
  * On foot the camera and what it looks at are both moved `SHOULDER` to the
  * right of the body, together, so the person stands a little left of the
  * middle and **stays there however the view turns**: the camera orbits the
@@ -401,6 +410,14 @@ export interface CameraRig {
   /** Place the camera with no interpolation: first frame, and after a teleport. */
   snap(player: Player, groundRadiusAt: (p: THREE.Vector3) => number): void;
   resize(width: number, height: number): void;
+  /**
+   * A knock felt through the lens: `strength` from 0 to 1, a car into a wall
+   * at full boost being about 1. Small and quickly gone — `SHAKE_REACH` at its
+   * strongest, over `SHAKE_TIME` — and nothing at all while `shakes` is off.
+   */
+  shake(strength: number): void;
+  /** Whether `shake` moves the lens. The Settings card's *Camera shake*. */
+  shakes: boolean;
 }
 
 export interface CameraOptions {
@@ -510,6 +527,12 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
   let sinceLook = RETURN_DELAY + RETURN_EASE;
   /** The avatar's group, looked up once and hidden while the eye is inside it. */
 
+  /** What the shake laid on the lens this frame, taken off again before the next chase. */
+  const shaken = new THREE.Vector3();
+  const shakeAxis = new THREE.Vector3();
+  let shakeLeft = 0;
+  let shakePower = 0;
+  let shakeClock = 0;
   const pivot = new THREE.Vector3();
   const offset = new THREE.Vector3();
   const right = new THREE.Vector3();
@@ -772,11 +795,17 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     aimAt(player, 0);
   }
 
-  return {
+  const rig: CameraRig = {
     camera,
     heading,
     steer,
     view,
+    shakes: true,
+    shake(strength) {
+      if (!rig.shakes || !(strength > 0)) return;
+      shakePower = Math.max(shakePower * (shakeLeft / SHAKE_TIME), Math.min(1, strength));
+      shakeLeft = SHAKE_TIME;
+    },
     get firstPerson() {
       return firstPerson;
     },
@@ -1027,4 +1056,45 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       camera.updateProjectionMatrix();
     },
   };
+
+  /** Takes last frame's shake off the lens, so the chase starts from where it left it. */
+  function unshake(): void {
+    camera.position.sub(shaken);
+    shaken.set(0, 0, 0);
+  }
+
+  /**
+   * Lays this frame's shake on: two incommensurate sines across the lens's own
+   * right and up, dying as the square of the time left.
+   */
+  function shakeStep(dt: number): void {
+    if (shakeLeft <= 0) return;
+    shakeLeft = Math.max(0, shakeLeft - dt);
+    shakeClock += dt;
+    if (!rig.shakes) {
+      shakeLeft = 0;
+      return;
+    }
+    const fall = shakeLeft / SHAKE_TIME;
+    const reach = SHAKE_REACH * shakePower * fall * fall;
+    shakeAxis.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    shaken.copy(shakeAxis).multiplyScalar(Math.sin(shakeClock * 47) * reach);
+    shakeAxis.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    shaken.addScaledVector(shakeAxis, Math.sin(shakeClock * 61 + 1.3) * reach * 0.7);
+    camera.position.add(shaken);
+  }
+
+  const chase = rig.follow;
+  const snapTo = rig.snap;
+  rig.follow = (dt, player, groundRadiusAt) => {
+    unshake();
+    chase(dt, player, groundRadiusAt);
+    shakeStep(dt);
+  };
+  rig.snap = (player, groundRadiusAt) => {
+    shaken.set(0, 0, 0);
+    shakeLeft = 0;
+    snapTo(player, groundRadiusAt);
+  };
+  return rig;
 }

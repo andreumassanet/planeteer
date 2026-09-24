@@ -197,6 +197,8 @@ export function balloonModel(): CraftModel {
     seats: SEATS,
     draft: 0,
     variants: PAINTS.length,
+    // From the top of the coil to the envelope's mouth, on the basket's axis.
+    burner: [FRAME + 0.07 * H, MOUTH_Y],
     build: buildBalloon,
   });
 }

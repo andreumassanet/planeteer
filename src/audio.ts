@@ -72,6 +72,14 @@ export interface Audio {
   /** 0 to 1, a linear gain on the master; the slider that sets it is logarithmic. */
   volume: number;
   muted: boolean;
+  /**
+   * The context and the last node before the speakers — the limiter every
+   * sound shares — once `unlock` has opened them. The music joins here, past
+   * the effects' master, so its volume and theirs are separate.
+   */
+  readonly output: { context: AudioContext; node: AudioNode } | null;
+  /** Told of every cue as it plays: the music ducks under the jingles. */
+  onCue: ((name: Cue) => void) | null;
   readonly stats: {
     unlocked: boolean;
     state: string;
@@ -123,6 +131,7 @@ const between = (a: number, b: number): number => a + Math.random() * (b - a);
 export function createAudio(): Audio {
   let context: AudioContext | null = null;
   let master: GainNode | null = null;
+  let output: { context: AudioContext; node: AudioNode } | null = null;
   let volume = 0.8;
   let muted = false;
   let loaded = 0;
@@ -409,6 +418,7 @@ export function createAudio(): Audio {
       squeeze.attack.value = 0.01;
       squeeze.release.value = 0.25;
       squeeze.connect(ctx.destination);
+      output = { context: ctx, node: squeeze };
       master = ctx.createGain();
       master.gain.value = level();
       master.connect(squeeze);
@@ -512,6 +522,7 @@ export function createAudio(): Audio {
     },
 
     cue(name) {
+      audio.onCue?.(name);
       if (name === 'land') {
         play(`land-${Math.floor(Math.random() * LANDINGS)}`, GAIN.land, between(0.95, 1.05));
         return;
@@ -533,6 +544,11 @@ export function createAudio(): Audio {
       muted = value;
       if (master !== null && context !== null) follow(master.gain, level(), context.currentTime, 0.05);
     },
+
+    get output() {
+      return output;
+    },
+    onCue: null,
 
     get stats() {
       return {

@@ -65,6 +65,10 @@ jobs:
         run: pnpm fleet
       - name: craft
         run: pnpm craft
+      - name: effects
+        run: pnpm effects
+      - name: music
+        run: pnpm music
 
       - name: build
         run: pnpm exec vite build

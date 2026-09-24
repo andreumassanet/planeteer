@@ -55,6 +55,12 @@ export interface CraftModel {
   seats: readonly Seat[];
   /** Hull below the waterline, for a water craft; 0 for anything else. */
   draft: number;
+  /**
+   * A balloon's burner: the heights, in the model's frame and on its axis,
+   * where the flame leaves the coil and where it enters the envelope. What
+   * `effects.ts` draws the flame between while it climbs.
+   */
+  burner?: readonly [number, number];
   /** How many looks the model has; `build` takes one of `0 .. variants - 1`. */
   variants: number;
   /**
