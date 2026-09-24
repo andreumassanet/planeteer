@@ -167,6 +167,14 @@ const ZOOM_PIXELS = 650;
 const ZOOM_RATE = 12;
 /** In the boat: wider, because the hull is longer than the avatar is tall. */
 const BOAT_FRAMING = { distance: 16, height: 6 };
+/**
+ * In any vehicle, framed on its own size: this many of its longest dimension
+ * behind it, and this share of it over it, plus a body of each, so a car sits
+ * behind its own boot and a balloon's envelope stays in the frame whatever the
+ * models measure.
+ */
+const RIDE_BACK = 1.6;
+const RIDE_UP = 0.45;
 
 /**
  * Flight framing, given as an orbit and an angle rather than as the two offsets
@@ -410,6 +418,16 @@ export interface CameraOptions {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+/** In a vehicle's seat, which is every framing that is not a foot's; swimming is a foot's. */
+const seated = (player: Player): boolean => player.state === 'seated';
+/**
+ * What the camera orbits: the head on foot and afloat — where the body hangs
+ * under the surface, the head is `sink` nearer it — and in a vehicle a little
+ * over the middle of it, so a balloon is orbited round its envelope and not
+ * round the basket.
+ */
+const pivotHeight = (player: Player): number =>
+  player.ride !== null ? Math.max(PIVOT_HEIGHT, player.ride.model.size[2] * 0.6) : PIVOT_HEIGHT - player.sink;
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (rate: number, dt: number) => 1 - Math.exp(-rate * dt);
 /** An angle folded into (-pi, pi], so a gap is always closed the short way round. */
@@ -540,19 +558,26 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     steer.normalize();
   }
 
-  /** Where the framing wants to be for what the player is currently riding. */
+  /** Where the framing wants to be for what the player is currently doing. */
   function want(player: Player): void {
-    if (player.vehicle === 'plane') {
-      const t = clamp(player.altitude / PLANE_CEILING, 0, 1);
-      // Two different eases: the angle has to open early, or the first thousand
-      // units of a climb look like nothing is happening.
-      const elevation = mix(FLIGHT_LOW.elevation, FLIGHT_HIGH.elevation, Math.pow(t, 0.6));
-      const orbit = mix(FLIGHT_LOW.orbit, FLIGHT_HIGH.orbit, Math.sqrt(t));
-      framing.distance = orbit * Math.cos(elevation);
-      framing.height = orbit * Math.sin(elevation);
-    } else if (player.vehicle === 'boat') {
-      framing.distance = BOAT_FRAMING.distance;
-      framing.height = BOAT_FRAMING.height;
+    if (player.ride !== null) {
+      const [length, width, tall] = player.ride.model.size;
+      const kind = player.ride.model.kind;
+      const extent = Math.max(length, width * 0.8, tall);
+      framing.distance = extent * RIDE_BACK + AVATAR_HEIGHT * 2;
+      framing.height = extent * RIDE_UP + AVATAR_HEIGHT;
+      if (kind === 'boat') {
+        framing.distance = Math.max(framing.distance, BOAT_FRAMING.distance);
+        framing.height = Math.max(framing.height, BOAT_FRAMING.height);
+      } else if ((kind === 'plane' || kind === 'balloon') && player.airborne) {
+        const t = clamp(player.altitude / PLANE_CEILING, 0, 1);
+        // Two different eases: the angle has to open early, or the first thousand
+        // units of a climb look like nothing is happening.
+        const elevation = mix(FLIGHT_LOW.elevation, FLIGHT_HIGH.elevation, Math.pow(t, 0.6));
+        const orbit = mix(FLIGHT_LOW.orbit, FLIGHT_HIGH.orbit, Math.sqrt(t));
+        framing.distance = Math.max(framing.distance, orbit * Math.cos(elevation));
+        framing.height = Math.max(framing.height, orbit * Math.sin(elevation));
+      }
     } else {
       // The wheel's framing, so a landing comes back to the zoom you chose.
       walkFraming(zoomTarget, framing);
@@ -566,14 +591,14 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    */
   function place(player: Player, smoothed = false): void {
     if (smoothed) pivot.copy(orbit);
-    else pivot.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
+    else pivot.copy(player.position).addScaledVector(player.up, pivotHeight(player));
 
     // `view` sets the framing; pitch tilts that whole offset about the camera's
     // own right axis, so the distance is preserved and only the elevation
     // moves. The clamp is applied against the framing's own elevation, which is
     // why `view.height = 30000` still works as the map lever: it just arrives
     // at the ceiling instead of overshooting the pole.
-    const ceiling = player.vehicle === 'foot' ? MAX_ELEVATION : MAX_ELEVATION_RIDING;
+    const ceiling = seated(player) ? MAX_ELEVATION_RIDING : MAX_ELEVATION;
     const base = Math.atan2(view.height, view.distance);
     pitch = Math.min(Math.max(pitch, MIN_ELEVATION - base), ceiling - base);
 
@@ -583,7 +608,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     offset.applyAxisAngle(right, -pitch);
     desired.copy(pivot).add(offset);
     // Camera and aim moved right together: see `SHOULDER`.
-    const framed = player.vehicle === 'foot' ? 1 - ramp(zoom, 2, 5) : 0;
+    const framed = seated(player) ? 0 : 1 - ramp(zoom, 2, 5);
     desired.addScaledVector(right, SHOULDER * framed);
     target.copy(pivot).addScaledVector(right, SHOULDER * framed);
   }
@@ -682,7 +707,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
 
   /** Eases the lens towards the one for what you are doing; see `FOV_FOOT`. */
   function lens(player: Player, rate: number): void {
-    const wanted = player.vehicle !== 'foot' ? FOV_CRAFT
+    const wanted = seated(player) ? FOV_CRAFT
       : firstPerson ? FOV_EYE
       : FOV_FOOT + FOV_RUN * ramp(player.velocity, WALK_SPEED, RUN_SPEED);
     if (Math.abs(wanted - camera.fov) < 0.01) return;
@@ -690,8 +715,8 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     camera.updateProjectionMatrix();
   }
 
-  /** True when the eye is actually in the head: first person is a foot mode. */
-  const inTheHead = (player: Player): boolean => firstPerson && player.vehicle === 'foot';
+  /** True when the eye is actually in the head: first person is a foot mode, and swimming is one. */
+  const inTheHead = (player: Player): boolean => firstPerson && !seated(player);
 
   /**
    * Shows or hides the avatar.
@@ -736,7 +761,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     pitch = clamp(pitch, EYE_MIN_ELEVATION, EYE_MAX_ELEVATION);
     const elevation = pitch;
 
-    camera.position.copy(player.position).addScaledVector(player.up, EYE_HEIGHT);
+    camera.position.copy(player.position).addScaledVector(player.up, EYE_HEIGHT - player.sink);
     offset.copy(heading).multiplyScalar(Math.cos(elevation))
       .addScaledVector(player.up, -Math.sin(elevation));
     // `aimAt` takes its target in `pivot`, and going through it rather than
@@ -760,26 +785,23 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     },
     aim(dt, input, player) {
       // `aim` is where input becomes intent, and it is the only call that sees
-      // both the keyboard and the player, so the vehicle keys are forwarded
-      // from here. The player treats them as a slot, not an event: setting the
-      // same command twice in a frame still performs it once.
-      if (input.fly) player.controls.command = 'fly';
-      else if (input.exit) player.controls.command = 'exit';
+      // both the keyboard and the player, so the held climb and descend are
+      // forwarded from here.
       player.controls.lift = (input.climb ? 1 : 0) - (input.dive ? 1 : 0);
       // `V` is read here for the same reason the vehicle keys are: this is the
       // one call that sees the keyboard, and the mode is the rig's own state.
       if (input.view) {
-        if (player.vehicle === 'foot') firstPerson = !firstPerson;
+        if (!seated(player)) firstPerson = !firstPerson;
         else onViewRefused?.();
       }
 
       // The wheel, on foot and outside your own head: nearer or further along
       // the framing's own line. `exp` of the travel rather than its sign, so a
       // trackpad's stream of small deltas zooms as smoothly as it scrolls.
-      if (input.zoom !== 0 && player.vehicle === 'foot' && !firstPerson) {
+      if (input.zoom !== 0 && !seated(player) && !firstPerson) {
         zoomTarget = clamp(zoomTarget * Math.exp(input.zoom / ZOOM_PIXELS), ZOOM_MIN, ZOOM_MAX);
       }
-      if (zoom !== zoomTarget && player.vehicle === 'foot' && !driving) {
+      if (zoom !== zoomTarget && !seated(player) && !driving) {
         zoom += (zoomTarget - zoom) * approach(ZOOM_RATE, dt);
         if (Math.abs(zoomTarget - zoom) < 1e-3) zoom = zoomTarget;
         walkFraming(zoom, view);
@@ -808,11 +830,11 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       lastMove.x = input.move.x;
       lastMove.y = input.move.y;
       steering = moving;
-      // Any frame on foot, first person included, ends a ride: the next craft
-      // hands its opening gap to the look again.
-      if (player.vehicle === 'foot') riding = false;
+      // Any frame out of a seat, first person included, ends a ride: the next
+      // vehicle hands its opening gap to the look again.
+      if (!seated(player)) riding = false;
 
-      if (player.vehicle !== 'foot') {
+      if (seated(player)) {
         // A vehicle has a bow, and you steer it rather than the camera, so the
         // view drifts back behind it. Yaw only: a look down at the globe is not
         // undone by this.
@@ -865,7 +887,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     follow(dt, player, groundRadiusAt) {
       want(player);
       lens(player, approach(FOV_RATE, dt));
-      if (player.vehicle !== 'foot') driving = true;
+      if (seated(player)) driving = true;
       if (driving) {
         const rate = approach(FRAMING_RATE, dt);
         view.distance += (framing.distance - view.distance) * rate;
@@ -873,7 +895,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         // Hand `view` back once a landing has finished putting it away, so the
         // console lever stays the player's on foot.
         if (
-          player.vehicle === 'foot' &&
+          !seated(player) &&
           Math.abs(view.distance - framing.distance) < 0.5 &&
           Math.abs(view.height - framing.height) < 0.5
         ) {
@@ -890,7 +912,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       // because a climb is part of it and `velocity` is only the ground speed.
       travel.subVectors(player.position, previous);
       previous.copy(player.position);
-      lead += ((player.vehicle === 'foot' ? 0 : 1) - lead) * approach(FRAMING_RATE, dt);
+      lead += ((seated(player) ? 1 : 0) - lead) * approach(FRAMING_RATE, dt);
       // `v / CAMERA_LAG` is the trail of the continuous chase; the discrete one
       // below trails slightly less, and using the continuous figure overshoots
       // the target enough to push the camera past the vertical at cruise.
@@ -905,9 +927,9 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         eye(player);
         return;
       }
-      if (player.vehicle === 'foot') {
+      if (!seated(player)) {
         // Chase the pivot, then orbit it exactly.
-        drift.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT).sub(orbit);
+        drift.copy(player.position).addScaledVector(player.up, pivotHeight(player)).sub(orbit);
         if (drift.lengthSq() > AVATAR_HEIGHT * AVATAR_HEIGHT * 400) drift.multiplyScalar(1 / chase);
         const rise = drift.dot(player.up);
         drift.addScaledVector(player.up, -rise);
@@ -953,7 +975,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       // Without this the frame after a teleport measures the whole jump as one
       // frame of velocity, and the lead throws the camera across the planet.
       previous.copy(player.position);
-      lead = player.vehicle === 'foot' ? 0 : 1;
+      lead = seated(player) ? 1 : 0;
       // A heading carried across a teleport points at nothing in particular, so
       // it is rebuilt from the player's own facing.
       heading.copy(player.forward).projectOnPlane(player.up);
@@ -961,15 +983,15 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       heading.normalize();
       // The view is dead astern now, so a craft has no look left to return.
       glance = 0;
-      riding = player.vehicle !== 'foot';
+      riding = seated(player);
 
       // Only take `view` over if the rig already owns it, or is about to: a
       // teleport must not quietly reset a framing the console set by hand.
-      if (driving || player.vehicle !== 'foot') {
+      if (driving || seated(player)) {
         want(player);
         view.distance = framing.distance;
         view.height = framing.height;
-        driving = player.vehicle !== 'foot';
+        driving = seated(player);
       }
 
       if (inTheHead(player)) {
@@ -978,10 +1000,10 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         return;
       }
 
-      orbit.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
+      orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
       held = Infinity;
-      place(player, player.vehicle === 'foot');
-      const lift = unclip(desired, groundRadiusAt, player.vehicle === 'foot');
+      place(player, !seated(player));
+      const lift = unclip(desired, groundRadiusAt, !seated(player));
       camera.position.copy(desired);
       showBody(player, camera.position.distanceTo(pivot) > BODY_NEAR);
       aimAt(player, lift);

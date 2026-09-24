@@ -32,12 +32,11 @@ export interface InputState {
   run: boolean;
   /** Edge-triggered: true for exactly one frame per press. */
   jump: boolean;
-  /** Held. In the plane they are the altitude: Space climbs, C descends. */
+  /** Held. In the air they are the altitude: Space climbs, C descends. */
   climb: boolean;
   dive: boolean;
-  /** Edge-triggered. `fly` takes off and lands, `exit` steps out of the boat. */
-  fly: boolean;
-  exit: boolean;
+  /** Edge-triggered: get into the vehicle beside you, or out of the one you are in. */
+  use: boolean;
   /** Edge-triggered: swaps the third-person rig for the avatar's own eye. */
   view: boolean;
 }
@@ -108,13 +107,12 @@ const HELD: Partial<Record<string, string>> = {
   run: 'run',
   jump: 'jump',
   descend: 'dive',
-  fly: 'fly',
-  ashore: 'exit',
+  use: 'use',
   view: 'view',
 };
 
 /** Actions that fire once per physical press rather than while held. */
-const EDGES = new Set(['jump', 'fly', 'exit', 'view']);
+const EDGES = new Set(['jump', 'use', 'view']);
 
 export function createInput(target: HTMLElement, options: InputOptions = {}): Input {
   const state: InputState = {
@@ -125,8 +123,7 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     jump: false,
     climb: false,
     dive: false,
-    fly: false,
-    exit: false,
+    use: false,
     view: false,
   };
 
@@ -168,8 +165,7 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     held.clear();
     refresh();
     state.jump = false;
-    state.fly = false;
-    state.exit = false;
+    state.use = false;
     state.view = false;
     state.look.x = 0;
     state.look.y = 0;
@@ -199,7 +195,7 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     // The edge fires once per physical press: `repeat` would otherwise make a
     // held Space into a jump every frame the key auto-repeats.
     if (EDGES.has(action) && !event.repeat && !held.has(event.code)) {
-      state[action as 'jump' | 'fly' | 'exit' | 'view'] = true;
+      state[action as 'jump' | 'use' | 'view'] = true;
     }
     held.set(event.code, action);
     refresh();
@@ -364,8 +360,7 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       state.look.y = 0;
       state.zoom = 0;
       state.jump = false;
-      state.fly = false;
-      state.exit = false;
+      state.use = false;
       state.view = false;
     },
     dispose() {

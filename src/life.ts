@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Person } from './cast.ts';
 import type { Folk } from './folk.ts';
+import type { FieldIndex, FieldKeepout } from './fleet.ts';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { mergeMeshes } from './merge.ts';
@@ -923,6 +924,12 @@ export interface LifeOptions {
    * quadruped of `fauna/body.ts`.
    */
   rigs?: RigSource;
+  /**
+   * The fields a light plane or a balloon stands in (`fleet.ts`), which a herd
+   * keeps off the way it keeps off a road. Answered from the world alone, so
+   * a herd's cell stays one answer for ever.
+   */
+  fields?: FieldIndex;
 }
 
 /**
@@ -2093,7 +2100,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   /**
    * Is there room for a herd here, clear of the two built things that are not a
-   * town?
+   * town — and of the field a plane or a balloon stands in, which is not built
+   * but is taken?
    *
    * **A road is a line and a monument is a pad, and neither is the disc the town
    * gate above tests.** The road half is `vegetation.ts`'s test with a herd in
@@ -2119,8 +2127,14 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const roadIndex =
     roads.length > 0 && places.length > 0 ? roadIndexFor(roads, places) : null;
 
+  const fieldHits: FieldKeepout[] = [];
+
   function clearOfMade(centre: THREE.Vector3, spread: number): boolean {
     if (flattenWeightAt(centre.x, centre.y, centre.z) > 0) return false;
+    // A standing aircraft's field: `fieldsNear` answers the fields whose own
+    // radius reaches within `spread` of the herd's centre, which is the test.
+    fieldHits.length = 0;
+    if (options.fields !== undefined && options.fields.fieldsNear(centre, spread, fieldHits).length > 0) return false;
     if (roadIndex === null) return true;
     const widest = spread + roadClearance(ROAD_CLASSES.length - 1);
     madeToward.copy(centre).multiplyScalar(PLANET_RADIUS);

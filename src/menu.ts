@@ -1346,7 +1346,7 @@ export function createMenu(deps: MenuDeps): Menu {
     'div',
     { class: 'm-brand m-fade m-chrome' },
     h('div', { class: 'm-wordmark', text: 'atlas' }),
-    h('div', { class: 'm-tagline', text: 'Walk the whole Earth — on foot, by boat and by plane.' }),
+    h('div', { class: 'm-tagline', text: 'Walk the whole Earth — on foot, by car, by boat and by plane.' }),
     h('div', { class: 'ui-tag ink m-now' }, icon('sun'), 'Every planet where it is right now'),
     h('div', { class: 'm-scale', text: 'The directions are real. The sizes and the distances are not to scale.' }),
   );
@@ -1435,8 +1435,8 @@ export function createMenu(deps: MenuDeps): Menu {
    * you in — you walked, sailed or flew somewhere from there, and Continue
    * means *there* — unless the menu's is the newer, which is a town picked and
    * never played. Whichever it is, it becomes a spawn like any other: a
-   * latitude and a longitude `main.ts` stands the player on, which puts them in
-   * the boat if it is sea.
+   * latitude and a longitude `main.ts` stands the player on, which has them
+   * swimming if it is sea.
    */
   const last = ((): MenuSpawn | null => {
     const started = recall();

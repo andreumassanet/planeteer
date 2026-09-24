@@ -1,5 +1,6 @@
 // The peers relay: one Cloudflare Worker and one Durable Object that holds
-// every connected player's socket and passes each one's position to the rest.
+// every connected player's socket, passes each one's position to the rest, and
+// keeps who sits in which vehicle and where each was left.
 // Deployed on its own (`pnpm peers:deploy`); Vercel serves the world and knows
 // this only as `VITE_PEERS_URL`.
 {
@@ -10,7 +11,7 @@
     "bindings": [{ "name": "ROOM", "class_name": "Room" }]
   },
   // The free plan only runs SQLite-backed Durable Objects, so the class is
-  // declared as one even though the room keeps nothing on disk.
+  // declared as one; the room keeps where vehicles were left in its storage.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
   "observability": { "enabled": true }
 }

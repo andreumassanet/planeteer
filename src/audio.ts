@@ -1,5 +1,5 @@
 /**
- * What the world sounds like: the wind, the sea, the two engines, birds by day
+ * What the world sounds like: the wind, the sea, the engines, birds by day
  * and crickets by night, the footsteps, and the few cues that mark an event.
  *
  * **The loops are synthesised and the one-shots are recorded**, and the split
@@ -39,14 +39,19 @@ export type Cue =
 
 /** What the world is doing this frame, as far as the ear cares. */
 export interface Soundscape {
-  mode: 'menu' | 'foot' | 'boat' | 'plane';
+  /**
+   * What the player is doing, which is what decides the engine: a car's is the
+   * launch's outboard loop pitched up and opened out, a balloon has none, and a
+   * swimmer hears the sea and the wind and nothing else.
+   */
+  mode: 'menu' | 'foot' | 'swim' | 'car' | 'boat' | 'plane' | 'balloon';
   /** Units a second over the ground or the water. */
   speed: number;
   /** The craft's speed as a fraction of its range, 0 idle to 1 flat out. */
   throttle: number;
   /** The eye's height over the ground under it, in units. */
   height: number;
-  /** How much of the surroundings is sea: 1 in the boat or on the beach, 0 inland. */
+  /** How much of the surroundings is sea: 1 in a boat, in the water or on the beach, 0 inland. */
   sea: number;
   /** `sky.state.daylight`: 0 full night, 1 full day. */
   daylight: number;
@@ -108,6 +113,7 @@ const WIND_LEVEL = 0.14;
 const SEA_LEVEL = 0.3;
 const BOAT_LEVEL = 0.14;
 const PLANE_LEVEL = 0.13;
+const CAR_LEVEL = 0.11;
 const BIRD_LEVEL = 0.05;
 const CRICKET_LEVEL = 0.025;
 
@@ -420,6 +426,8 @@ export function createAudio(): Audio {
       const now = ctx.currentTime;
       const flying = state.mode === 'plane';
       const sailing = state.mode === 'boat';
+      const driving = state.mode === 'car';
+      const drifting = state.mode === 'balloon';
       const walking = state.mode === 'foot';
       const menu = state.mode === 'menu';
       const throttle = clamp01(state.throttle);
@@ -437,8 +445,8 @@ export function createAudio(): Audio {
         ? 0
         : flying
           ? WIND_LEVEL * (1.1 + 1.4 * throttle + 0.6 * high)
-          : sailing
-            ? WIND_LEVEL * (0.8 + 0.6 * throttle)
+          : sailing || drifting
+            ? WIND_LEVEL * (0.8 + 0.6 * throttle + 0.6 * (drifting ? high : 0))
             : WIND_LEVEL * (0.45 + 0.9 * clamp01(state.height / 60));
       follow(wind.gain.gain, windLevel * (0.55 + 0.45 * gust), now);
       follow(wind.band.frequency, (flying ? 600 + 900 * throttle : 320) * (0.75 + 0.5 * gust), now, 0.8);
@@ -455,12 +463,19 @@ export function createAudio(): Audio {
       follow(sea.gain.gain, SEA_LEVEL * seaNear * (0.4 + 0.6 * shaped), now, 0.2);
       follow(sea.foam.gain, SEA_LEVEL * 0.18 * seaNear * shaped * shaped, now, 0.15);
 
-      const motor = sailing ? BOAT_LEVEL * (0.35 + 0.65 * throttle) : 0;
+      // One loop for both motors on the ground and the water: the launch's
+      // outboard, and a car's engine, which is the same square an octave under
+      // a sawtooth pitched up and let through a wider filter.
+      const motor = sailing
+        ? BOAT_LEVEL * (0.35 + 0.65 * throttle)
+        : driving
+          ? CAR_LEVEL * (0.3 + 0.7 * throttle)
+          : 0;
       follow(boat.gain.gain, motor, now);
-      const putt = 30 + 26 * throttle;
+      const putt = driving ? 42 + 70 * throttle : 30 + 26 * throttle;
       follow(boat.low.frequency, putt, now);
       follow(boat.high.frequency, putt * 2, now);
-      follow(boat.filter.frequency, 220 + 480 * throttle, now);
+      follow(boat.filter.frequency, driving ? 320 + 900 * throttle : 220 + 480 * throttle, now);
 
       const engine = flying ? PLANE_LEVEL * (0.45 + 0.55 * throttle) : 0;
       follow(plane.gain.gain, engine, now);

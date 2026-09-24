@@ -2,7 +2,7 @@
  * Every key in the world, and the one answer to whether a key belongs to it.
  *
  * **There were five tables and they could disagree.** `input.ts` bound the
- * movement and the craft, `navigation.ts` took `Tab`, `map.ts` took `M`,
+ * movement and the vehicles, `navigation.ts` took `Tab`, `map.ts` took `M`,
  * `main.ts` took `B`, `H` and the brackets in a handler of its own, and the two
  * lists that teach the keys — the strip along the bottom of the HUD and the
  * card in the settings — each typed the caps out again as QWERTY letters.
@@ -24,7 +24,13 @@
  * modal, and a key typed into a field or pressed on a dialog's button is that
  * field's or that button's.
  */
-import type { Vehicle } from './player.ts';
+/**
+ * How the player is getting about, as far as the keys are concerned: on foot,
+ * swimming, at the wheel of one of the four kinds of vehicle, or in somebody
+ * else's as a passenger, where the only key that does anything is the one that
+ * gets you out. `player.ts` says which (`Player.mode`).
+ */
+export type TravelMode = 'foot' | 'swim' | 'car' | 'boat' | 'plane' | 'balloon' | 'passenger';
 
 /** What a key does in the world, as opposed to which key it is. */
 export type Action =
@@ -35,8 +41,7 @@ export type Action =
   | 'run'
   | 'jump'
   | 'descend'
-  | 'fly'
-  | 'ashore'
+  | 'use'
   | 'view'
   | 'map'
   | 'next'
@@ -62,11 +67,13 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // key would be a very tiring plane.
   jump: ['Space'],
   descend: ['KeyC'],
-  fly: ['KeyF'],
-  ashore: ['KeyE'],
+  // `E` for everything a vehicle asks: get in, take the wheel, get out. There
+  // used to be a second key, `F`, that took off from anywhere, and it went with
+  // the plane everybody owned.
+  use: ['KeyE'],
   // `V` for view, which is where three decades of third-person games put it.
   // Every other letter within reach of the movement hand is already spoken
-  // for: C descends, E goes ashore, F flies.
+  // for: C descends, E gets in and out.
   view: ['KeyV'],
   map: ['KeyM'],
   next: ['Tab'],
@@ -202,11 +209,10 @@ export const KEY_LIST: readonly KeyHint[] = [
   { keys: MOVE, label: 'Move, or steer' },
   { keys: ['mouse'], label: 'Look around' },
   { keys: ['wheel'], label: 'Camera nearer or further, on foot' },
-  { keys: ['run'], label: 'Run · boost the boat and the plane' },
-  { keys: ['jump'], label: 'Jump · climb in the plane' },
-  { keys: ['descend'], label: 'Descend in the plane' },
-  { keys: ['fly'], label: 'Take off · land · go around' },
-  { keys: ['ashore'], label: 'Step ashore from the boat' },
+  { keys: ['run'], label: 'Run · swim faster · boost a vehicle' },
+  { keys: ['jump'], label: 'Jump · take off and climb · rise in a balloon' },
+  { keys: ['descend'], label: 'Descend and land · sink a balloon' },
+  { keys: ['use'], label: 'Get in a vehicle you are next to · get out' },
   { keys: ['view'], label: 'First person, on foot' },
   { keys: ['map'], label: 'World map' },
   { keys: ['next'], label: 'Next landmark to find' },
@@ -220,42 +226,82 @@ export const KEY_LIST: readonly KeyHint[] = [
 /**
  * The keys worth showing along the bottom for the way you are travelling right
  * now, in the order they are used. Eight keys you can use on foot are not the
- * four you can use in a boat, and a landing is not a flight: while the plane is
- * coming down, the fly key is a go-around, and the strip says so.
+ * four you can use at a wheel, and a plane on the ground is not one in the air:
+ * `airborne` says which, and it is what turns the climb key's "Take off" into
+ * "Climb" and the way out into nothing, because nobody steps out of a plane in
+ * flight.
  */
-export function hintsFor(vehicle: Vehicle, landing = false, firstPerson = false): KeyHint[] {
-  if (vehicle === 'boat') {
-    return [
-      { keys: MOVE, label: 'Steer' },
-      { keys: ['run'], label: 'Boost' },
-      { keys: ['ashore'], label: 'Go ashore' },
-      { keys: ['fly'], label: 'Take off' },
-      { keys: ['map'], label: 'Map' },
-      { keys: ['photo'], label: 'Photo' },
-    ];
+export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false): KeyHint[] {
+  const out: KeyHint = { keys: ['use'], label: 'Get out' };
+  switch (mode) {
+    case 'swim':
+      return [
+        { keys: MOVE, label: 'Swim' },
+        { keys: ['run'], label: 'Faster' },
+        { keys: ['view'], label: firstPerson ? 'Third person' : 'First person' },
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'car':
+      return [
+        { keys: MOVE, label: 'Drive' },
+        { keys: ['run'], label: 'Boost' },
+        out,
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'boat':
+      return [
+        { keys: MOVE, label: 'Steer' },
+        { keys: ['run'], label: 'Boost' },
+        out,
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'plane':
+      return airborne
+        ? [
+            { keys: MOVE, label: 'Steer' },
+            { keys: ['run'], label: 'Boost' },
+            { keys: ['jump'], label: 'Climb' },
+            { keys: ['descend'], label: 'Descend · land' },
+            { keys: ['flags'], label: 'Flags' },
+            { keys: ['map'], label: 'Map' },
+            { keys: ['photo'], label: 'Photo' },
+          ]
+        : [
+            { keys: MOVE, label: 'Taxi' },
+            { keys: ['jump'], label: 'Hold to take off' },
+            out,
+            { keys: ['map'], label: 'Map' },
+            { keys: ['photo'], label: 'Photo' },
+          ];
+    case 'balloon':
+      return [
+        { keys: MOVE, label: 'Steer' },
+        { keys: ['jump'], label: 'Rise' },
+        { keys: ['descend'], label: 'Sink' },
+        ...(airborne ? [] : [out]),
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'passenger':
+      return [
+        out,
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    default:
+      return [
+        { keys: MOVE, label: 'Move' },
+        { keys: ['run'], label: 'Run' },
+        { keys: ['jump'], label: 'Jump' },
+        { keys: ['view'], label: firstPerson ? 'Third person' : 'First person' },
+        { keys: ['map'], label: 'Map' },
+        { keys: ['next'], label: 'Landmarks' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
   }
-  if (vehicle === 'plane') {
-    return [
-      { keys: MOVE, label: 'Steer' },
-      { keys: ['run'], label: 'Boost' },
-      { keys: ['jump'], label: 'Climb' },
-      { keys: ['descend'], label: 'Descend' },
-      { keys: ['fly'], label: landing ? 'Go around' : 'Land' },
-      { keys: ['flags'], label: 'Flags' },
-      { keys: ['map'], label: 'Map' },
-      { keys: ['photo'], label: 'Photo' },
-    ];
-  }
-  return [
-    { keys: MOVE, label: 'Move' },
-    { keys: ['run'], label: 'Run' },
-    { keys: ['jump'], label: 'Jump' },
-    { keys: ['fly'], label: 'Fly' },
-    { keys: ['view'], label: firstPerson ? 'Third person' : 'First person' },
-    { keys: ['map'], label: 'Map' },
-    { keys: ['next'], label: 'Landmarks' },
-    { keys: ['photo'], label: 'Photo' },
-  ];
 }
 
 /* ------------------------------------------------------------------------- *

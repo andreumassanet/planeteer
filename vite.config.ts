@@ -7,8 +7,9 @@ export default defineConfig({
       // **The world is the only entry, and the review sheets in `sheets/`
       // are deliberately not here.** They are development tools — the monuments
       // on a grid, the kit's 1,848 variants, a street of vehicles, the body from
-      // twelve angles — and `pnpm dev` serves every one of them with no config
-      // at all, because Vite resolves any HTML under the root on request. In
+      // twelve angles, the craft a player can take with the hero in every seat
+      // — and `pnpm dev` serves every one of them with no config at all,
+      // because Vite resolves any HTML under the root on request. In
       // production they are a 404, which is the one kind of breakage nobody
       // working in dev can see, so it is written here rather than left to be
       // discovered.

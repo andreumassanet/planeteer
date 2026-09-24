@@ -17,7 +17,7 @@
  *   and the settings are also keys; players who never read the keys found
  *   neither, so they are buttons as well.
  * - **The keys, along the bottom**, for the way you are travelling right now —
- *   eight keys you can use on foot are not the four you can use in a boat, and
+ *   eight keys you can use on foot are not the four you can use at a wheel, and
  *   the old card listed all twelve all the time. It says itself once, then
  *   folds down to a badge; `H` opens it again and the settings can put it away.
  *   Which keys, and what their caps print on this keyboard, is `controls.ts`'s.
@@ -27,6 +27,8 @@
  * - **A toast** for the keys that change a setting and for anything the world
  *   refused, and **a frame counter** for the settings panel's performance
  *   switch.
+ * - **The prompt**, over the keys, while a vehicle you could take is within
+ *   reach: `E  Drive`, or `E  Get in` when somebody else has the wheel.
  * - **The welcome card**, once per device: what there is to do here, in five
  *   keys, the first time anybody lands.
  *
@@ -36,13 +38,12 @@
  */
 import type { World } from './geo.ts';
 import type { Nearby } from './places.ts';
-import type { Vehicle } from './player.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { createFlagCanvas } from './flags.ts';
 import { countryFacts, loadCountryFacts } from './country-facts.ts';
 import type { CountryFacts } from './country-facts.ts';
 import { capOf, hintsFor, holdFocus, labelOf, onKeyLabels, registerModal } from './controls.ts';
-import type { KeyHint } from './controls.ts';
+import type { KeyHint, TravelMode } from './controls.ts';
 import { ensureStyle, h, hex, icon, installUi, kbd } from './ui.ts';
 import type { IconName } from './ui.ts';
 
@@ -113,10 +114,12 @@ export interface Hud {
   setFound(found: number, total: number): void;
   /**
    * How you are travelling, which decides the keys along the bottom — and
-   * whether the plane is coming down, and whether the eye is in the head, which
-   * decide what two of them say. Cheap to call every frame.
+   * whether a plane or a balloon is off the ground, and whether the eye is in
+   * the head, which decide what some of them say. Cheap to call every frame.
    */
-  setVehicle(vehicle: Vehicle, landing?: boolean, firstPerson?: boolean): void;
+  setMode(mode: TravelMode, airborne?: boolean, firstPerson?: boolean): void;
+  /** What `E` would do here — `Drive`, `Get in` — or null for nothing in reach. Cheap to call every frame. */
+  setPrompt(label: string | null, iconName?: IconName): void;
   /** Whether the key strip is wanted at all: the settings switch. */
   readonly hints: boolean;
   setHints(on: boolean): boolean;
@@ -224,10 +227,14 @@ const LABEL_MARGIN = 12;
  */
 const sizeWord = (radius: number): string => (radius < 13 ? 'village' : radius < 30 ? 'town' : 'city');
 
-const MODE: Record<Vehicle, [IconName, string]> = {
+const MODE: Record<TravelMode, [IconName, string]> = {
   foot: ['walk', 'On foot'],
+  swim: ['swim', 'Swimming'],
+  car: ['car', 'Driving'],
   boat: ['boat', 'At sea'],
   plane: ['plane', 'Flying'],
+  balloon: ['balloon', 'Ballooning'],
+  passenger: ['seat', 'Passenger'],
 };
 
 /** A row of caps for one line of a key list: `W A S D`, `Shift`. */
@@ -626,6 +633,28 @@ const STYLE = `
   .atlas-toast { bottom: 118px; }
 }
 
+/* --- the prompt: what E does here ------------------------------------------------- */
+.atlas-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 136px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 8px;
+  font-size: 15px;
+  font-weight: 800;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.15s ease, transform 0.25s var(--ui-spring);
+}
+.atlas-prompt.on { opacity: 1; transform: translate(-50%, 0); }
+.atlas-prompt svg { width: 19px; height: 19px; }
+@media (max-width: 1080px) {
+  .atlas-prompt { bottom: 170px; }
+}
+
 /* --- the pause card ------------------------------------------------------------ */
 .atlas-pause {
   position: absolute;
@@ -961,6 +990,11 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const toastIcon = h('span');
   const toastText = h('span');
   const toast = h('div', { class: 'atlas-toast ui-card', role: 'status' }, toastIcon, toastText);
+  const promptKey = h('span');
+  const promptIcon = h('span');
+  const promptText = h('span');
+  const prompt = h('div', { class: 'atlas-prompt ui-card', role: 'status' }, promptKey, promptIcon, promptText);
+  let promptShown: string | null = null;
 
   const pauseSettings = h('button', { class: 'ui-btn' }, icon('gear', 18), 'Settings');
   const pauseMap = h('button', { class: 'ui-btn' });
@@ -1010,7 +1044,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     welcomeCard,
   );
 
-  root.append(bar, chip, arrival, found, destination, waypoint, keys, toast, pause, perf, welcomeRoot);
+  root.append(bar, chip, arrival, found, destination, waypoint, keys, toast, prompt, pause, perf, welcomeRoot);
 
   // The placements carry an ISO code and the panel wants a country.
   const countryNames = new Map(world.countries.map((country) => [country.iso, country.name]));
@@ -1062,8 +1096,9 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   let labelWidth = -1;
   let labelShift = 0;
 
-  let vehicle: Vehicle | null = null;
-  let landing = false;
+  let mode: TravelMode | null = null;
+  /** A plane or a balloon off the ground: the chip names only what it is over, and the keys say so. */
+  let flying = false;
   let firstPerson = false;
   let hintsOn = true;
   let keysOpenFor = KEYS_HOLD;
@@ -1089,7 +1124,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
    */
   function keyOf(countryId: number, near: Nearby | null): string {
     if (near === null) return '';
-    if (vehicle === 'plane') return near.inside ? `${near.index}!` : '';
+    if (flying) return near.inside ? `${near.index}!` : '';
     if (countryId === 0) return near.km <= OFFSHORE_KM ? `${near.index}@` : '';
     return near.near ? `${near.index}${near.inside ? '!' : '~'}` : '';
   }
@@ -1103,15 +1138,15 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     // country yet, read as the sea: *Off Bourges* over Bourges' own square.
     if (settled < 0) return;
     const country = settled > 0 ? world.countries[settled - 1]! : null;
-    const mode = placeSettled.slice(-1);
-    if (country !== null) chipMode = mode === '!' ? 'in' : mode === '~' ? 'near' : null;
+    const relation = placeSettled.slice(-1);
+    if (country !== null) chipMode = relation === '!' ? 'in' : relation === '~' ? 'near' : null;
     // At sea the chip says the sea — the ocean is not somewhere you arrived —
     // unless a town's quay is in sight: *Off Palma* from the bay. "Water" and
     // not "sea", because a lake is country 0 as well and Baikal is not a sea.
     // (It said "Open ocean", which was wrong on every lake.)
     // And only a place that was settled *at sea* (`@`): walking ashore, the
     // town can settle a moment before the country does.
-    else chipMode = mode === '@' && settledPlace !== null && settledPlace.km <= OFFSHORE_KM && vehicle !== 'plane' ? 'off' : null;
+    else chipMode = relation === '@' && settledPlace !== null && settledPlace.km <= OFFSHORE_KM && !flying ? 'off' : null;
     const place = chipMode === null ? null : settledPlace;
     chipName.textContent =
       place === null
@@ -1180,12 +1215,12 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   }
 
   function renderKeys(animate: boolean): void {
-    if (vehicle === null) return;
-    const [iconName, label] = MODE[vehicle];
+    if (mode === null) return;
+    const [iconName, label] = MODE[mode];
     keysBadge.replaceChildren(icon(iconName));
-    keysMode.textContent = vehicle === 'plane' && landing ? 'Landing' : label;
+    keysMode.textContent = mode === 'plane' && !flying ? 'On the ground' : label;
     keysList.replaceChildren(
-      ...hintsFor(vehicle, landing, firstPerson).map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
+      ...hintsFor(mode, flying, firstPerson).map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
       h('span', {}, kbd(labelOf('hints')), 'Hide'),
     );
     if (!animate) return;
@@ -1195,7 +1230,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   }
 
   function refreshKeys(): void {
-    keys.classList.toggle('off', !hintsOn || vehicle === null);
+    keys.classList.toggle('off', !hintsOn || mode === null);
     keys.classList.toggle('folded', keysOpenFor <= 0);
   }
 
@@ -1214,8 +1249,8 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     welcomeList.replaceChildren(
       row([kbd(labelOf('next'), true)], 'Point at the next landmark to find'),
       row([kbd(labelOf('map'))], 'The whole planet on one map: click a pin to head there'),
-      row(capsOf({ keys: ['forward', 'left', 'back', 'right'], label: '' }), 'Walk into the sea and you are in a boat'),
-      row([kbd(labelOf('fly'))], `Take off from anywhere, and hold ${labelOf('jump')} to climb`),
+      row([kbd(labelOf('use'))], 'Walk up to a car, a boat or a plane and take it'),
+      row(capsOf({ keys: ['forward', 'left', 'back', 'right'], label: '' }), 'Walk into the sea and you swim'),
     );
   }
 
@@ -1225,6 +1260,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     keysMore.replaceChildren(kbd(labelOf('hints')), 'keys');
     destinationHint.textContent = `${labelOf('next')} · next`;
     pauseMap.replaceChildren(icon('map', 18), 'Map', kbd(labelOf('map')));
+    if (promptShown !== null) promptKey.replaceChildren(kbd(labelOf('use')));
     renderPause();
     renderKeys(false);
     if (welcoming) renderWelcome();
@@ -1376,20 +1412,30 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       foundCount.textContent = text;
       foundTotal.textContent = `/ ${total} found`;
     },
-    setVehicle(next, nextLanding = false, nextFirstPerson = false) {
-      const view = next === 'foot' && nextFirstPerson;
-      const coming = next === 'plane' && nextLanding;
-      if (next === vehicle && coming === landing && view === firstPerson) return;
-      // A new way of travelling, or a landing begun or abandoned, opens the
-      // strip again because what the keys do has changed; looking through
-      // your own eyes changes one word, and only rewrites it.
-      const reopen = next !== vehicle || coming !== landing;
-      vehicle = next;
-      landing = coming;
+    setMode(next, nextAirborne = false, nextFirstPerson = false) {
+      const view = (next === 'foot' || next === 'swim') && nextFirstPerson;
+      const aloft = (next === 'plane' || next === 'balloon' || next === 'passenger') && nextAirborne;
+      if (next === mode && aloft === flying && view === firstPerson) return;
+      // A new way of travelling, or a take-off or a landing, opens the strip
+      // again because what the keys do has changed; looking through your own
+      // eyes changes one word, and only rewrites it.
+      const reopen = next !== mode || aloft !== flying;
+      mode = next;
+      flying = aloft;
       firstPerson = view;
       if (reopen) keysOpenFor = KEYS_HOLD;
       renderKeys(reopen);
       refreshKeys();
+    },
+    setPrompt(label, iconName = 'sparkle') {
+      const key = label === null ? null : `${label}|${iconName}`;
+      if (key === promptShown) return;
+      promptShown = key;
+      prompt.classList.toggle('on', label !== null);
+      if (label === null) return;
+      promptKey.replaceChildren(kbd(labelOf('use')));
+      promptIcon.replaceChildren(icon(iconName));
+      promptText.textContent = label;
     },
     get hints() {
       return hintsOn;
@@ -1500,7 +1546,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       } else {
         placeHeldFor += dt;
       }
-      const settle = vehicle === 'plane' ? SETTLE_FLIGHT : SETTLE_PLACE;
+      const settle = flying ? SETTLE_FLIGHT : SETTLE_PLACE;
       if (key !== placeSettled && (jumped || placeHeldFor >= settle)) {
         placeSettled = key;
         settledPlace = key === '' ? null : place;

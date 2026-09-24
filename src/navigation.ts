@@ -40,7 +40,8 @@ import type { Placement } from './placement.ts';
 /** As much of the player as this reads. `player.ts` owns the rest. */
 interface Traveller {
   position: THREE.Vector3;
-  vehicle: string;
+  /** `foot`, `swim` or `seated`: `PLAYER_STATES`. */
+  state: string;
 }
 
 export interface NavigationOptions {
@@ -99,11 +100,12 @@ export interface Navigation {
  */
 const ARRIVE_RANGE = 140;
 /**
- * And arriving is on foot, for the reason `placement.ts` gives: from the air you
- * can see half a continent. Flying over your destination is not reaching it —
- * the last hundred metres are the reward for the flight.
+ * And arriving is out of a vehicle — on foot, or swimming up to a lighthouse —
+ * for the reason `placement.ts` gives: from the air you can see half a
+ * continent. Flying over your destination is not reaching it, and neither is
+ * driving past it — the last hundred metres are the reward for the trip.
  */
-const ARRIVE_ON_FOOT = 'foot';
+const ARRIVE_SEATED = 'seated';
 
 /** How long the shortlist stays open after the last press. */
 const BROWSE_HOLD = 3.5;
@@ -412,7 +414,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
       if (chosen < 0) return;
 
       const reach = anchor.distanceTo(position);
-      if (reach <= ARRIVE_RANGE && player.vehicle === ARRIVE_ON_FOOT) {
+      if (reach <= ARRIVE_RANGE && player.state !== ARRIVE_SEATED) {
         const placement = placements[chosen]!;
         clear();
         // The panel you watched the whole way there resolves in place, which is

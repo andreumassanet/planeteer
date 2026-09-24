@@ -6,7 +6,7 @@ import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
 import type { PlayerEvent } from './player.ts';
-import { actionOf, codeOf, inputBlocked, labelOf } from './controls.ts';
+import { actionOf, codeOf, inputBlocked } from './controls.ts';
 import { notice } from './notice.ts';
 import type { NoticeAction } from './notice.ts';
 import { AVATAR_HEIGHT, prepareAvatar } from './avatar.ts';
@@ -24,7 +24,7 @@ import { biomeAt } from './biome.ts';
 import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
 import type { Surface } from './audio.ts';
-import { BOAT_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
+import { BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
 import { createOcean } from './ocean.ts';
@@ -37,6 +37,7 @@ import type { FlagLayer } from './land-flags.ts';
 import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
+import type { CraftKind } from './craft/contract.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -477,6 +478,13 @@ async function start(): Promise<void> {
     names: import('./names.ts'),
     /** The other players, if a relay is configured; see `server/`. */
     peers: import('./peers.ts'),
+    /**
+     * The vehicles you can take: their models, where they stand, and the
+     * relay's half of who has moved which. Built once the player is.
+     */
+    craft: import('./craft/index.ts'),
+    fleet: import('./fleet.ts'),
+    fleetSync: import('./fleet-sync.ts'),
   };
   // Each of them is awaited in its turn below, and a rejection there is a
   // failure of `start()`. But one that fails *now* — a chunk that did not
@@ -809,6 +817,12 @@ async function start(): Promise<void> {
     import.meta.env.VITE_PEERS_URL ?? (import.meta.env.DEV ? 'ws://localhost:8787/ws' : '');
   const peers = peersUrl === '' ? null : createPeers(peersUrl, folk);
   if (peers !== null) scene.add(peers.group);
+  // Where the vehicles you can take stand, which is a function of the world
+  // alone and costs nothing until asked: built this early so the herds here
+  // and the wood below keep off the field a plane or a balloon stands in. The
+  // fleet itself, which needs the player, takes the same index further down.
+  const { createSiteIndex } = await deferred.fleet;
+  const fleetSites = createSiteIndex({ world, places: places.all, roads: baked.roads, monuments: placements });
   const { createLife } = await deferred.life;
   const { VEHICLES } = await deferred.traffic;
   const { ANIMALS } = await deferred.fauna;
@@ -827,6 +841,7 @@ async function start(): Promise<void> {
     rigs: createRigLibrary(
       modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
     ),
+    fields: fleetSites,
   });
   scene.add(life.group);
 
@@ -844,6 +859,8 @@ async function start(): Promise<void> {
     // The drawn land and the towns' lawns, which the grass under your feet stands on.
     land,
     lawns: settlements,
+    // And the fields the light planes and balloons stand in, so no tree grows through a wing.
+    fields: fleetSites,
   });
   scene.add(vegetation.group);
   if (vegetation.broken.length > 0) console.warn('scenery parts that broke the contract:', vegetation.broken);
@@ -869,6 +886,18 @@ async function start(): Promise<void> {
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
     .catch((error: unknown) => console.warn('the shader warm-up failed:', error));
+  // The vehicles' code and models, before the world takes the sky back from
+  // the menu below: the menu draws while anything here is awaited, and its
+  // frame hides the dome whenever its camera is out past it, so an await
+  // after that hand-back left the world with no sky.
+  const { createFleet, createLocalLink } = await deferred.fleet;
+  const { createFleetSync } = await deferred.fleetSync;
+  const craftModels = await deferred.craft
+    .then(({ loadCraft }) => loadCraft())
+    .catch((error: unknown) => {
+      console.warn('the vehicles did not load', error);
+      return new Map();
+    });
   const at = query.get('at')?.split(',').map(Number);
   const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite);
   const spawn = skipMenu
@@ -933,19 +962,49 @@ async function start(): Promise<void> {
     collide: (point, radius, push) => settlements.collide(point, radius, push),
     freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
-    // the bottom does not already say: a refusal, a landing, and a landing
-    // that turned into a boat.
+    // the bottom does not already say: a landing refused, and why.
     onEvent: (event: PlayerEvent) => {
-      if (event === 'ashore-refused') {
-        announce('No shore within reach — sail closer to land', 'boat');
+      if (event === 'water-refused') {
+        announce('A plane cannot land on water — find a field', 'plane');
         audio.cue('ui-error');
-      }
-      else if (event === 'landing') announce(`Landing — ${labelOf('fly')} to go around`, 'plane');
-      else if (event === 'go-around') announce('Going around', 'plane');
-      else if (event === 'ditched') announce('Down on the water — you are in the boat', 'boat');
+      } else if (event === 'steep-refused') {
+        announce('Too steep to land here — find flatter ground', 'plane');
+        audio.cue('ui-error');
+      } else if (event === 'landed') audio.cue('land');
     },
   });
   scene.add(player.object);
+
+  // The vehicles you can take. A relay, when there is one, says who has moved
+  // what and who sits where, and every client agrees on the rest because the
+  // sites are a function of the world (`fleet.ts`); with none, the local link
+  // keeps what you moved on this machine. A craft kit that fails to load
+  // leaves the world with nothing to drive and otherwise whole.
+  const fleetSync = peers === null ? null : createFleetSync(peers);
+  const fleet = createFleet({
+    world,
+    places: places.all,
+    roads: baked.roads,
+    monuments: placements,
+    sites: fleetSites,
+    models: craftModels,
+    link: fleetSync ?? createLocalLink(),
+    player,
+    madeHeightAt,
+    onEvent: (event, model) => {
+      const iconName: IconName = modeIcon(model?.kind ?? null);
+      if (event === 'leave-refused') {
+        announce(model?.kind === 'balloon' ? 'Set the balloon down before getting out' : 'Nobody gets out in the air — land first', iconName);
+        audio.cue('ui-error');
+      } else if (event === 'taken') {
+        announce('Somebody else just took that seat', iconName);
+        audio.cue('ui-error');
+      } else if (event === 'boarded') audio.cue('ui-confirm');
+      else if (event === 'left') audio.cue('ui-click');
+    },
+  });
+  scene.add(fleet.group);
+  if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
     blocks: (point) => settlements.blocksSight(point),
@@ -1079,6 +1138,11 @@ async function start(): Promise<void> {
   // be earlier in the document than the elements that carry it.
   document.body.insertBefore(names.root, document.body.firstChild);
 
+  /** The HUD's icon for a kind of vehicle, and a neutral one for none. */
+  function modeIcon(kind: CraftKind | null): IconName {
+    if (kind === 'car' || kind === 'van') return 'car';
+    return kind === 'boat' || kind === 'plane' || kind === 'balloon' ? kind : 'sparkle';
+  }
   function announce(text: string, iconName: IconName = 'sparkle'): void {
     hud.toast(text, iconName);
   }
@@ -1471,6 +1535,9 @@ async function start(): Promise<void> {
     // relative to that, and only then does the camera chase the result. Chasing
     // first would leave the camera a frame behind its own aim.
     rig.aim(dt, input.state, player);
+    // `E`, before the player moves: into the vehicle beside you, or out of
+    // the one you are in, so this frame already drives or walks.
+    if (input.state.use) fleet.use();
     player.update(dt, {
       move: input.state.move,
       run: input.state.run,
@@ -1511,20 +1578,30 @@ async function start(): Promise<void> {
       biomeAt(unit.x, unit.y, unit.z, at.lat, at.lon, ground - PLANET_RADIUS, soundBiome);
       soundCold = soundBiome.id === 'ice' || soundBiome.id === 'tundra';
       footing = inTown ? 'paving' : soundCold ? 'snow' : soundBiome.id === 'desert' || soundBiome.id === 'rock' ? 'dirt' : 'grass';
-      soundSea = player.vehicle === 'boat' ? 1 : Math.max(0, 1 - shoreDistance(at.lat, at.lon) / SEA_EARSHOT);
+      soundSea = player.state === 'swim' || player.ride?.model.kind === 'boat'
+        ? 1
+        : Math.max(0, 1 - shoreDistance(at.lat, at.lon) / SEA_EARSHOT);
       soundWildTarget = inTown ? 0 : 1;
     }
     soundWild += (soundWildTarget - soundWild) * Math.min(1, dt * 0.8);
     const speedNow = player.velocity;
+    // What is heard is the vehicle, whoever drives it: a passenger hears the
+    // engine too.
+    const soundKind = player.ride?.model.kind ?? null;
+    const soundMode = soundKind === null ? (player.state === 'swim' ? 'swim' : 'foot') : soundKind === 'van' ? 'car' : soundKind;
     guard('audio', () => audio.update(dt, {
-      mode: player.vehicle,
+      mode: soundMode,
       speed: speedNow,
       throttle:
-        player.vehicle === 'plane'
-          ? (speedNow - PLANE_CRUISE_LOW * 0.55) / (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW * 0.55)
-          : player.vehicle === 'boat'
+        soundMode === 'plane'
+          ? player.airborne
+            ? (speedNow - PLANE_CRUISE_LOW * 0.55) / (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW * 0.55)
+            : speedNow / PLANE_CRUISE_LOW
+          : soundMode === 'boat'
             ? speedNow / BOAT_BOOST
-            : 0,
+            : soundMode === 'car'
+              ? speedNow / CAR_BOOST
+              : 0,
       height: eyeOverGround,
       sea: soundSea,
       daylight: sky.state.daylight,
@@ -1621,6 +1698,9 @@ async function start(): Promise<void> {
     // because breathing does not speed up when `setRate` runs the sun at 600x.
     townsfolkClock += dt;
     guard('townsfolk', () => townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame));
+    // The vehicles after everything they stand on, and before the other
+    // players, who may be sitting in one of them.
+    guard('fleet', () => fleet.update(dt, rig.camera));
     if (peers !== null) guard('peers', () => peers.update(dt, player));
 
     // The weather turns with the same clock the sun does, so scrubbing the time
@@ -1639,9 +1719,10 @@ async function start(): Promise<void> {
     oceanLights[1]!.intensity = sky.moon.intensity;
     guard('ocean', () => ocean.update(rig.camera.position, oceanLights));
 
-    // Arriving is only an arrival on foot. `recordVisits` is cheap — a distance
-    // test per monument — and it only ever fires once per landmark.
-    if (player.vehicle === 'foot') {
+    // Arriving is only an arrival out of a vehicle — on foot or swimming up to
+    // a lighthouse. `recordVisits` is cheap — a distance test per monument —
+    // and it only ever fires once per landmark.
+    if (player.state !== 'seated') {
       for (const place of monuments.recordVisits(player.position)) {
         // Every find gets the jingle, the destination included: the card is
         // what the navigation panel replaces, not the moment.
@@ -1673,7 +1754,9 @@ async function start(): Promise<void> {
     // The HUD's two per-frame questions, both cached on its side: how you are
     // travelling, which decides the keys it shows, and whether the mouse is
     // free with nothing else on the screen, which is the pause card.
-    hud.setVehicle(player.vehicle, player.landing, rig.firstPerson);
+    hud.setMode(player.mode, player.airborne, rig.firstPerson);
+    const offer = fleet.prompt;
+    hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
     hud.setPaused(!input.looking && !map.open && !settings.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
     // had its build — the towns, the roads, and the wood and grass near you
@@ -1866,6 +1949,14 @@ async function start(): Promise<void> {
       // `atlas.peers.stats`: the relay's state, our id, who is connected.
       peers,
       player,
+      /**
+       * The vehicles: `atlas.fleet.stats` (sites worked out by kind, built,
+       * moved, what you are in), `atlas.fleet.nearest('boat')` for the nearest
+       * launch, and `atlas.fleet.board(id)` to be put beside one and in it —
+       * with no id, the nearest of anything. `atlas.fleet.sites.all()` works
+       * out the whole planet's, which takes seconds.
+       */
+      fleet,
       rig,
       scene,
       // `atlas.sky.setTime('2026-09-04T05:20:00Z')` freezes the world at that

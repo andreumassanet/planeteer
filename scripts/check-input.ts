@@ -76,12 +76,11 @@ test('a modal clears movement and pending actions before the player reads them',
     key(keys, 'keydown', 'KeyW');
     key(keys, 'keydown', 'ShiftLeft');
     key(keys, 'keydown', 'Space');
-    key(keys, 'keydown', 'KeyF');
     key(keys, 'keydown', 'KeyE');
     key(keys, 'keydown', 'KeyV');
     open = true;
     assert.deepEqual(input.state.move, { x: 0, y: 0 });
-    for (const action of ['run', 'climb', 'jump', 'fly', 'exit', 'view'] as const) {
+    for (const action of ['run', 'climb', 'jump', 'use', 'view'] as const) {
       assert.equal(input.state[action], false, action);
     }
     key(keys, 'keydown', 'KeyD');

@@ -21,6 +21,7 @@ import type { Place } from './places.ts';
 import { roadClearance, roadGeometryFor, roadIndexFor } from './roads.ts';
 import type { Road, RoadIndex } from './roads.ts';
 import type { Settlements } from './settlements.ts';
+import type { FieldIndex, FieldKeepout } from './fleet.ts';
 import {
   createViewCone,
   detailArea,
@@ -532,6 +533,13 @@ const BUILD_BUDGET_MS = 2.5;
  */
 const WIDEST_FOOTPRINT = 55;
 const MONUMENT_CLEARANCE = 6;
+/**
+ * And round a standing plane's or balloon's field (`fleet.ts`), past the
+ * field's own radius and the plant's own spread: a wing's width of open grass
+ * between the tip and the first trunk, so the aircraft reads as standing in a
+ * clearing rather than parked against a hedge.
+ */
+const FIELD_CLEARANCE = 3;
 
 /**
  * How far a plant is seated into the ground, as a share of its own height.
@@ -906,6 +914,12 @@ export interface Vegetation {
   sampleSward(lat: number, lon: number): unknown;
   /** What one tile costs and what is standing on it, for the console. */
   sample(lat: number, lon: number, level?: number): unknown;
+  /**
+   * The tile over a point at a level, built as the streamer builds it and
+   * handed over placed, or null if nothing grows there; the caller disposes
+   * its geometry. For the headless checks, which ask where plants stand.
+   */
+  raiseTile(lat: number, lon: number, level?: number): THREE.Mesh | null;
 }
 
 /**
@@ -1006,6 +1020,13 @@ export interface VegetationOptions {
   land?: THREE.Mesh;
   /** The towns' lawns, which the sward grows on too. */
   lawns?: Pick<Settlements, 'swardAt' | 'floorChanges'>;
+  /**
+   * The fields a light plane or a balloon stands in (`fleet.ts`), so no tree
+   * grows through a wing. Asked per tile and answered from the world alone,
+   * so a tile is the same whatever the fleet has built. The grass is left to
+   * grow under them: a field is grass.
+   */
+  fields?: FieldIndex;
 }
 
 export function createVegetation(world: World, options: VegetationOptions = {}): Vegetation {
@@ -1256,6 +1277,19 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   }
   const roadKeepouts: RoadKeepout[] = [];
 
+  /**
+   * A plane's or balloon's field in the tile's frame. A disc like a town, but
+   * the plant brings its own spread to it the way it does to a road, because
+   * what has to stay clear is the wing and not the ground under the trunk.
+   */
+  interface FieldDisc {
+    x: number;
+    z: number;
+    radius: number;
+  }
+  const fieldKeepouts: FieldDisc[] = [];
+  const fieldHits: FieldKeepout[] = [];
+
   /** Where a local offset from the tile centre lands on the sphere. */
   function directionAt(x: number, z: number, target: THREE.Vector3): THREE.Vector3 {
     return target
@@ -1351,6 +1385,21 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
      * exactly the coastal roads that needed a bow, and on every road's last
      * stretch into its gate.
      */
+    // The fields, which the fleet works out from the world on the spot. The
+    // margin is the plant's spread, which nothing here is wider than.
+    fieldKeepouts.length = 0;
+    if (options.fields !== undefined) {
+      fieldHits.length = 0;
+      const reach = Math.hypot(tile.halfEast, tile.halfNorth);
+      for (const field of options.fields.fieldsNear(tile.direction, reach + FIELD_CLEARANCE + 40, fieldHits)) {
+        fieldKeepouts.push({
+          x: field.at.dot(across) * PLANET_RADIUS,
+          z: field.at.dot(north) * PLANET_RADIUS,
+          radius: field.radius + FIELD_CLEARANCE,
+        });
+      }
+    }
+
     roadKeepouts.length = 0;
     if (roadIndex !== null && roadGeometry !== null) {
       const reach = Math.hypot(tile.halfEast, tile.halfNorth);
@@ -1618,6 +1667,19 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         }
         if (blocked) {
           onRoad++;
+          continue;
+        }
+        for (const field of fieldKeepouts) {
+          const dx = x - field.x;
+          const dz = z - field.z;
+          const clear = field.radius + spread;
+          if (dx * dx + dz * dz < clear * clear) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) {
+          builtOver++;
           continue;
         }
 
@@ -2956,6 +3018,16 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         kilobytes: Number((result.bytes / 1024).toFixed(1)),
         buildMs: Number(ms.toFixed(2)),
       };
+    },
+
+    raiseTile(lat, lon, level = 0) {
+      const step = stepOf(level);
+      const row = Math.min(rowsOf(level) - 1, Math.max(0, Math.floor((lat + 90) / step)));
+      const cells = cellsOf(rootOf(row, level), level);
+      const column = Math.floor((((lon + 180) % 360) / 360) * cells);
+      const mesh = raise(tileAt(level, row, column, new THREE.Vector3())).mesh;
+      mesh?.updateMatrixWorld(true);
+      return mesh;
     },
 
     /**

@@ -1,5 +1,15 @@
 /**
- * The two vehicles: a launch for the water and a floatplane for the air.
+ * How every vehicle is driven, and the two that came before them.
+ *
+ * **Nobody owns a vehicle any more.** The cars, launches, light aircraft and
+ * balloons you find about the world are `src/craft/`'s models, placed by
+ * `fleet.ts` and driven by `player.ts` on the numbers below — the medium's
+ * speeds, turns and limits, and `isWater`, which is still what the sea is.
+ * The launch and the floatplane that follow were everybody's own boat and
+ * plane until then: summoned by walking into the sea and by a key, grown in
+ * round the player, and shrunk away when he left them. They stay built for the
+ * avatar's review sheet, which frames the body against them, and the history
+ * of their sizing is below because every seat since was argued the same way.
  *
  * They exist for different reasons. The boat is what makes the sea a surface —
  * until it existed, walking into the ocean dropped you to sea level and you
@@ -78,6 +88,62 @@ const SEA_LEVEL_EPSILON = 0.5;
 export function isWater(ground: number): boolean {
   return ground <= PLANET_RADIUS + SEA_LEVEL_EPSILON;
 }
+
+/**
+ * Where the water's surface is taken to be, over the sea's own radius: what a
+ * hull's waterline and a swimmer's chest ride on.
+ *
+ * Not zero, because the sea is not drawn at zero. The water sphere is exact at
+ * its vertices and sags 0.39 between them, and the shallows along every coast
+ * are lifted 0.35 to 0.75 over it (`LIFT_SHELF`, `LIFT_COAST` in `ocean.ts`),
+ * so the surface anyone sees near a shore is about half a unit up. A hull
+ * floated at zero sat visibly low in the surf; half a unit reads as afloat in
+ * both places, and the half-unit either way is under the width of the pen.
+ */
+export const WATERLINE = 0.5;
+
+// ---------------------------------------------------------------------------
+// The numbers every craft is driven by
+// ---------------------------------------------------------------------------
+//
+// The models are `src/craft/`'s. What stays here is how each medium is driven,
+// because `player.ts` drives them and the camera, the audio and the fleet read
+// the same numbers.
+
+/**
+ * A car on the road: cruise and flat out, in units a second — 45 is 128 km/h
+ * at this scale's 1.267 units a metre and 75 a sprint no road here is long
+ * enough to hold, which is the arcade point of it — and backwards, slowly.
+ */
+export const CAR_SPEED = 45;
+export const CAR_BOOST = 75;
+export const CAR_REVERSE = 12;
+/** Time constants of the throttle, the brake and the coast, in seconds. */
+export const CAR_ACCELERATION_TIME = 1.3;
+export const CAR_BRAKE_TIME = 0.45;
+export const CAR_COAST_TIME = 2.2;
+/**
+ * Full lock, radians a second, reached from `CAR_GRIP_SPEED` up: a car does not
+ * turn standing still, and a car that turned at full rate from a crawl spun on
+ * the spot.
+ */
+export const CAR_TURN = 1.25;
+export const CAR_GRIP_SPEED = 10;
+/**
+ * The most a wheel climbs in one go without it being a wall, in units: a kerb
+ * is 0.4, a terrace riser four, and a car climbs the first and not the second.
+ */
+export const CAR_STEP = 1.1;
+
+/**
+ * The balloon: it drifts, it does not fly. Its speed along the heading you
+ * steer, the most it rises or sinks a second, how fast it turns, and the
+ * highest it goes above the sea.
+ */
+export const BALLOON_SPEED = 10;
+export const BALLOON_CLIMB = 9;
+export const BALLOON_TURN = 0.45;
+export const BALLOON_CEILING = 2400;
 
 // ---------------------------------------------------------------------------
 // A lofted shell
@@ -590,6 +656,23 @@ export const PLANE_LANDING_TIME = 1.2;
 export const CLIMB_RATE = 1.15;
 /** How fast the plane actually reaches the altitude it is asked for. */
 export const ALTITUDE_RATE = 1.1;
+
+/**
+ * The light aircraft on the ground: the speed it lifts off at — a take-off run
+ * has to reach it with the climb key held — and the most it taxis at without
+ * it. From standing to rotation is about three seconds and a hundred and fifty
+ * units of field.
+ */
+export const PLANE_ROTATE = PLANE_CRUISE_LOW * 0.6;
+export const PLANE_TAXI = 30;
+/**
+ * How fast the target altitude comes down, in units a second, while the
+ * descend key is held, on top of the climb law's own division: the law alone
+ * halves the height and never reaches the ground, and a landing has to.
+ */
+export const PLANE_SINK = 30;
+/** Steepest ground a plane may be set down on, as rise over run: a field, not a hillside. */
+export const PLANE_LANDING_GRADE = Math.tan(12 * (Math.PI / 180));
 
 /**
  * Where the pilot's hip goes, in the plane's own frame — the seat surface, in
