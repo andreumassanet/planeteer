@@ -2,10 +2,12 @@
  * The sheep. The smallest thing in the kit, and therefore the one the pixel
  * arithmetic is actually about.
  *
- * A sheep is **1.3 m nose to tail, which is 4.9 world units and 15 pixels at
- * 300** — two above the gull that `life.ts`'s traps call *a bird*, and the
- * measurement that says nothing in this kit needs the monument crop. See
- * `LEGIBILITY` in the contract.
+ * A sheep is **1.3 m nose to tail**, which was 4.9 world units and 15 pixels at
+ * 300 while the animals were at avatar scale — two above the gull that
+ * `life.ts`'s traps call *a bird*, and the measurement that said nothing in this
+ * kit needs the monument crop. Since 2026-09-24 it is 1.65 units, 5 pixels at
+ * 300 and 15 at 100, and still no smaller than the gull, which came down with
+ * it. See `LEGIBILITY` in the contract.
  *
  * At 15 pixels a sheep is a pale lozenge with a dark head and four dark stalks,
  * and that is exactly what one is. So the whole budget goes on the fleece — an
@@ -16,7 +18,7 @@
  * curl is in `body.ts` and nothing in the kit calls for it yet.
  */
 import { buildAnimal } from '../body.ts';
-import { coatFor } from '../contract.ts';
+import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
 
@@ -82,7 +84,7 @@ export const sheep: Animal = {
   id: 'sheep',
   name: 'Sheep',
   kind: 'small',
-  size: [6.44, 2.43, 3.84],
+  size: atFaunaScale([6.44, 2.43, 3.84]),
   gait: 'walk',
   note: 'Everywhere there is grass. The pale lozenge with a dark head.',
   // Quaternius's sheep (Farm Animal Pack, CC0): a fleece and a dark face.

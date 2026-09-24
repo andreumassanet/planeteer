@@ -14,6 +14,7 @@
  *
  *   node scripts/check-life.ts     (or `pnpm life`)
  */
+import { BODY_SCALE } from '../src/stature.ts';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -98,8 +99,8 @@ for (const file of readdirSync(PARTS).filter((name) => name.endsWith('.ts')).sor
 
 // --- placed scale ---------------------------------------------------------
 //
-// The kit is authored at `SCENERY_SCALE` and placed at twice it, cropped in
-// length past `PLACED_LENGTH_CAP`. Both halves of that are checked here rather
+// The kit is authored at `SCENERY_SCALE` and placed at `PLACED_SECTION` times
+// it, cropped in length past `PLACED_LENGTH_CAP`. Both halves of that are checked here rather
 // than in `check-traffic.ts`, which is about the kit as authored.
 
 console.log('placed scale:');
@@ -121,23 +122,22 @@ check(
   byLength.every((entry) => placedSize(entry)[0] <= PLACED_LENGTH_CAP + 1e-6),
   'no placed vehicle is longer than the cap',
 );
-// A car roof between the avatar's hip and chin is the whole reason the section
-// doubled. It was 4.26, just under the chest, while the cars were built here;
-// the baked Kenney hatchback is fitted to the lane's width and is 3.80
-// (2026-09-17), a hand's width under the chest (4.44) and well over the hip (3.0).
+// A car roof at a person's shoulder: 1.5 m against 1.75, which is where it is
+// in life. Since 2026-09-24 a person is drawn at 1.7 times the world's scale
+// and the kit placed at 1.35 times it (`PLACED_SECTION`), so the Kenney
+// hatchback's roof is 2.57 against a chest at about 2.46 and a crown at 3.77:
+// just over the chest, lower than life by the ratio of the two scales.
 const hatchback = vehicles.find((entry) => entry.id === 'hatchback');
 check(
-  hatchback !== undefined && placedSize(hatchback)[2] > FIGURE.hipY && placedSize(hatchback)[2] < FIGURE.chinY,
-  'a placed hatchback\'s roof is between the avatar\'s hip and chin',
+  hatchback !== undefined && placedSize(hatchback)[2] > FIGURE.chestY && placedSize(hatchback)[2] < FIGURE.height,
+  'a placed hatchback\'s roof is between a person\'s chest and crown',
   hatchback ? placedSize(hatchback).map((n) => n.toFixed(2)).join(' x ') : '',
 );
-// And the roads were widened to take it: two of them give way on a lane and
-// pass on a road, which is the difference those classes exist to draw.
+// And every class is a two-lane road: two cars pass on the narrowest of them.
 if (hatchback !== undefined) {
   const width = placedSize(hatchback)[1];
-  check(width + 0.4 <= ROAD_CLASSES[0]!.width, 'a placed car fits a lane', `${width.toFixed(2)} in ${ROAD_CLASSES[0]!.width}`);
-  check(width * 2 + 0.6 > ROAD_CLASSES[0]!.width, 'two do not pass on a lane', `${(width * 2 + 0.6).toFixed(2)} in ${ROAD_CLASSES[0]!.width}`);
-  check(width * 2 + 0.6 <= ROAD_CLASSES[1]!.width, 'two pass on a road', `${(width * 2 + 0.6).toFixed(2)} in ${ROAD_CLASSES[1]!.width}`);
+  const narrowest = Math.min(...ROAD_CLASSES.map((entry) => entry.width));
+  check(width * 2 + 0.6 <= narrowest, 'two placed cars pass on every class of road', `${(width * 2 + 0.6).toFixed(2)} in ${narrowest}`);
 }
 console.log('');
 
@@ -332,8 +332,10 @@ for (let i = 0; i < roads.length; i += 613) {
   const path = coursePath(course);
   const length = path.length;
   if (length < 40) continue;
-  // 45 units a second at 60 fps is 0.75 units a frame, measured along the path
-  // a mover actually reads.
+  // 0.75 units a step, measured along the path a mover actually reads: a frame
+  // at 45 units a second and 60 fps, the walk's speed when this was written.
+  // Since 2026-09-24 a mover goes from a walker's pace (`WALK_SPEED`, 6, spread
+// down to about 4.2) to 50, 0.07 to 0.83 units a frame.
   let previous: number | null = null;
   for (let along = 0; along <= length; along += 0.75) {
     coursePoint(course, parameterAt(path, along), onCurve);
@@ -381,7 +383,8 @@ console.log('what one second of the clock moves:');
    * mover reverses *and crosses to the other side of the carriageway* — see
    * `chainFrame` — which is a real jump of twice its lateral offset, up to
    * about ten units on a lane. Divide that by a tenth of a second and it reads
-   * as ninety units a second for a walker whose speed is forty. It is a
+   * as ninety units a second for a walker whose speed is forty (the numbers of
+   * before 2026-09-24, when a lane was 8.25 wide and the walk 45). It is a
    * sampling artefact of the window, and the window alone decides whether it is
    * seen:
    *
@@ -427,9 +430,9 @@ console.log('what one second of the clock moves:');
     }
   }
 
-  // A tenth of a second, not a whole one: a walker at 45 units a second covers
-  // two full stride cycles in a second and can land back in the pose he
-  // started from, which is an artefact of the sample rate and not a still
+  // A tenth of a second, not a whole one: a walker covers about a whole stride
+  // cycle in a second (`WALK_STRIDE`; two at the 45 units a second of before
+  // 2026-09-24) and can land back in the pose he started from, which is an artefact of the sample rate and not a still
   // walker.
   life.update(viewer, at.altitude, camera, 3_000_000.2);
   const before = snap();
@@ -453,7 +456,7 @@ console.log('what one second of the clock moves:');
   // town between two gates is hidden for exactly the time its streets take, so
   // the jump from one gate to the next is never faster than the walk.
   const wanted: Record<string, [number, number]> = {
-    road: [10, 260], foot: [4, 70], water: [22, 46],
+    road: [5, 130], foot: [1.5, 10], water: [10, 25],
   };
   for (const [family, list] of moved) {
     list.sort((a, b) => a - b);
@@ -576,7 +579,9 @@ for (const [key, row] of jumped) {
   shared++;
   if (other !== row) apart++;
 }
-check(shared > 4 && apart === 0, 'a mover arrived at by a day of frames is where a cold start puts it', `${shared} shared, ${apart} apart`);
+// At least three in common: the reaches came down with the people (2026-09-24)
+// and the census round one spot holds four or five movers now, not a dozen.
+check(shared >= 3 && apart === 0, 'a mover arrived at by a day of frames is where a cold start puts it', `${shared} shared, ${apart} apart`);
 console.log('');
 
 // --- the merge ------------------------------------------------------------
@@ -659,7 +664,7 @@ console.log('the rig:');
   }
   const share = moved / (before.position.length / 3);
   check(share > 0.08 && share < 0.35, 'swinging one hip moves one leg and nothing else', `${(share * 100).toFixed(1)}% of vertices`);
-  check(worst > 1.5 && worst < 4, 'and moves it about a leg length', `${worst.toFixed(2)} units`);
+  check(worst > 1.5 * BODY_SCALE && worst < 4 * BODY_SCALE, 'and moves it about a leg length', `${worst.toFixed(2)} units`);
 
   // The bob is the re-seat, and it has to be there: a walk with a flat head is
   // a person on rails.
@@ -674,7 +679,7 @@ console.log('the rig:');
     low = Math.min(low, crown);
     high = Math.max(high, crown);
   }
-  check(high - low > 0.05 && high - low < 0.6, 'the head bobs over a cycle', `${(high - low).toFixed(3)} units`);
+  check(high - low > 0.05 * BODY_SCALE && high - low < 0.6 * BODY_SCALE, 'the head bobs over a cycle', `${(high - low).toFixed(3)} units`);
 }
 console.log('');
 

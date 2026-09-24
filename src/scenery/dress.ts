@@ -1,4 +1,5 @@
 import { PALETTE } from '../theme.ts';
+import { BODY_SCALE } from '../stature.ts';
 import type { Rng, Weighted } from './random.ts';
 import type { RegionId } from './regions.ts';
 import type { Age, Carry, Garment, Hair, Headwear, Look, Pose, Sleeves } from './people.ts';
@@ -761,8 +762,8 @@ export function lookFor(rng: Rng, region: string, options: LookOptions = {}): Lo
 
   const heightSpread =
     age === 'child'
-      ? who.range(3.7, 5.15)
-      : who.range(5.95, 7.15) * (age === 'elder' ? 0.965 : 1);
+      ? who.range(3.7, 5.15) * BODY_SCALE
+      : who.range(5.95, 7.15) * BODY_SCALE * (age === 'elder' ? 0.965 : 1);
   const girth = who.range(0.87, 1.17) * (age === 'child' ? 1.03 : 1);
   const stoop = age === 'elder' ? who.range(0.06, 0.19) : who.range(0, 0.03);
   const sway = who.jitter();

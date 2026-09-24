@@ -567,7 +567,8 @@ export function alienFor(rng: Rng, species: Species, options: AlienOptions = {})
  *
  * How wide one of these is is a **pose** and not a body — `villager.footprint`
  * on Earth is declared at the reach of the widest pose, because the same
- * neutral 6.8-unit figure measures 1.94 standing and 2.52 talking, and *one arm
+ * neutral figure measured 1.94 standing and 2.52 talking at 6.8 units tall
+ * (before 2026-09-24), and *one arm
  * up and out is worth more than the whole rest of the figure*. Four arms make
  * that worse and `work` is the pose that finds it.
  *

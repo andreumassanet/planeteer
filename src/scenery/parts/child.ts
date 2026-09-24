@@ -1,4 +1,5 @@
 import type { ScenicPart } from '../contract.ts';
+import { BODY_SCALE } from '../../stature.ts';
 import { lookFor } from '../dress.ts';
 import { buildPerson } from '../people.ts';
 
@@ -29,7 +30,7 @@ export const child: ScenicPart = {
   kind: 'person',
   // The adult's 2.9 scaled by the tallest child over the tallest adult, then
   // measured rather than trusted: the worst of 2,800 builds is 1.82.
-  footprint: 2.0,
+  footprint: 2.0 * BODY_SCALE,
   note: 'One child: bigger head, shorter legs, the same wardrobe. Not an adult scaled down.',
 
   build(ctx, rng, style) {

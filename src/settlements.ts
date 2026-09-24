@@ -3,6 +3,7 @@ import type { FolkAnchor } from './folk.ts';
 import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, groundColorAt, groundPatchesChunk, groundRadius } from './globe.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
+import { BODY_SCALE } from './stature.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import { mergeMeshes, sourceVertex } from './merge.ts';
 import { proxyOf } from './warm.ts';
@@ -58,7 +59,7 @@ import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scene
 import type { Solid, SolidField } from './scenery/solids.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
-import { isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
+import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
 import { biomeAt, biomeSample } from './biome.ts';
 import { MAX_SLOPE, gradeAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
@@ -505,6 +506,8 @@ const LOOSE_SHARE = 0.4;
  * to within about a unit of the ground a tree is seated on.
  */
 const SLOPE_CLEAR = 0.55;
+/** How far off a road's centre line the country keeps: the carriageway's half and a crown. */
+const ROAD_KEEP = 7.5;
 
 const TOWER_URBANITY = 0.5;
 const TOWER_PART = 'skyscraper';
@@ -1966,8 +1969,8 @@ export function createSettlements(
    * of the stairs when the car's own centre is clear of them.
    */
   const CLEAR_LAMP = 0.6;
-  const CLEAR_FOLK = 1.3;
-  const CLEAR_CAR = 6.5;
+  const CLEAR_FOLK = 1.3 * BODY_SCALE;
+  const CLEAR_CAR = 4.4;
 
   /**
    * The floor of one settlement: its square.
@@ -2154,7 +2157,7 @@ export function createSettlements(
      * before the town does.
      */
     const outerYard = (col: number, row: number): boolean =>
-      style.yard !== 'earth' && cells >= OUTSKIRT_MIN_CELLS && outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING;
+      style.yard !== 'earth' && (cells < OUTSKIRT_MIN_CELLS || outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING);
     if (style.yard !== 'earth') {
       out.lawn = new Uint8Array(cells * cells);
       for (let col = 0; col < cells; col++) {
@@ -2749,9 +2752,10 @@ export function createSettlements(
     //
     // On the street bands and the avenues, which is the only ground in the town
     // no building stands on. A car parks on the middle of its own cell's half of
-    // a band — a placed hatchback is 4.44 across against a band of 3 to 3.6, so
-    // the other half of the street stays clear — and along an avenue it parks a
-    // car's width in from the kerb.
+    // a band — a placed hatchback is 3.00 across against a band of 3 to 3.6, so
+    // the other half of the street stays clear — and along an avenue it parks
+    // with its centre 1.9 in from the kerb, which clears a placed hatchback's
+    // side by 0.4.
     const parkChance = Math.min(0.55, 0.12 + urbanity * 0.5);
     const folkChance = Math.min(0.6, 0.2 + urbanity * 0.55);
     for (const key of levels.keys()) {
@@ -2769,10 +2773,10 @@ export function createSettlements(
       if (grid.low[row] === 1 && levels.has(cellKey(col, row - 1))) streets.push([false, z0 + band * 0.5, band]);
       if (grid.high[row] === 1 && levels.has(cellKey(col, row + 1))) streets.push([false, z0 + pitch - band * 0.5, band]);
       if (grid.avenue[col] === 1 && grid.avenue[row] !== 1) {
-        streets.push([true, x0 + 2.6, 2.6], [true, x0 + pitch - 2.6, 2.6]);
+        streets.push([true, x0 + 1.9, 1.9], [true, x0 + pitch - 1.9, 1.9]);
       }
       if (grid.avenue[row] === 1 && grid.avenue[col] !== 1) {
-        streets.push([false, z0 + 2.6, 2.6], [false, z0 + pitch - 2.6, 2.6]);
+        streets.push([false, z0 + 1.9, 1.9], [false, z0 + pitch - 1.9, 1.9]);
       }
       for (const [alongZ, line, reach] of streets) {
         if (rng.chance(parkChance)) {
@@ -2981,8 +2985,8 @@ export function createSettlements(
    * - **the edge slope**, the course of cells round the paving (anything
    *   within a cell of it, diagonals too), which stands at the floor's own
    *   height and is not ground;
-   * - **the way the roads come in**, the lanes of every gate a road uses and
-   *   one cell either side, out to the disc;
+   * - **the way the roads come in**, a strip `ROAD_KEEP` either side of each
+   *   road's line out of its gate;
    * - **a landmark's ground**, the same keepouts the town wraps round;
    * - and the sea and anything steeper than `MAX_SLOPE`, which `raise` asks of
    *   the relief when it seats each one.
@@ -2995,25 +2999,36 @@ export function createSettlements(
       for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (town(col + dc, row + dr)) return true;
       return false;
     };
-    // The lanes the roads come in along, widened by a cell, on the side each leaves by.
+    // The roads coming in: each runs straight out of its gate for its first
+    // stretch (`courseOf`'s stub), so what keeps off it is a strip as wide as
+    // the carriageway and a tree's crown either side, from the kerb outwards.
     const gates = gatesOf(grid);
-    const lanes: { side: number; from: number; to: number }[] = [];
-    for (const index of roadGates.get(slot.place) ?? []) {
-      const gate = gates[index];
-      if (gate === undefined) continue;
-      const along = gate.cells.map(([col, row]) => (gate.outX !== 0 ? row : col));
-      lanes.push({ side: gate.side, from: Math.min(...along) - 1, to: Math.max(...along) + 1 });
-    }
-    const onRoad = (col: number, row: number): boolean => lanes.some((lane) => {
-      const along = lane.side === 0 || lane.side === 2 ? row : col;
-      if (along < lane.from || along > lane.to) return false;
-      if (lane.side === 0) return col >= cells - 1;
-      if (lane.side === 2) return col <= 0;
-      if (lane.side === 1) return row >= cells - 1;
-      return row <= 0;
+    const used = (roadGates.get(slot.place) ?? []).map((index) => gates[index]).filter((gate) => gate !== undefined);
+    const clearOfRoads = (x: number, z: number): boolean => used.every((gate) => {
+      const out = (x - gate.x) * gate.outX + (z - gate.z) * gate.outZ;
+      const lateral = Math.abs((x - gate.x) * gate.outZ - (z - gate.z) * gate.outX);
+      return out < -1 || lateral > ROAD_KEEP;
     });
     const half = grid.pitch * 0.5;
-    const disc = slot.radius;
+    /**
+     * How far out the country may reach: the town's disc, or for a town too
+     * small to have room inside it, `COUNTRY_RING` cells past its square —
+     * as long as no other built town's disc is there. The discs are what the
+     * places were thinned by, so inside our own nothing else stands, and past
+     * it we ask.
+     */
+    const disc = Math.max(slot.radius, grid.half + COUNTRY_RING * grid.pitch);
+    const neighbours: { x: number; z: number; radius: number }[] = [];
+    if (disc > slot.radius) {
+      const cosReach = Math.cos((disc + BIGGEST_SETTLEMENT) / PLANET_RADIUS);
+      for (const other of slots) {
+        if (other === slot || !isShown(other.place)) continue;
+        if (other.direction.dot(slot.direction) < cosReach) continue;
+        neighbours.push({ x: other.direction.dot(across) * PLANET_RADIUS, z: other.direction.dot(north) * PLANET_RADIUS, radius: other.radius });
+      }
+    }
+    const crowded = (x: number, z: number): boolean =>
+      Math.hypot(x, z) > slot.radius && neighbours.some((other) => Math.hypot(x - other.x, z - other.z) < other.radius + half);
     /** How far a point is from the nearest cell of the town, in world units. */
     const fromTown = (x: number, z: number): number => {
       const col = cellIndex(grid, x);
@@ -3032,13 +3047,14 @@ export function createSettlements(
     const clear = (x: number, z: number): boolean => fromTown(x, z) >= grid.pitch * SLOPE_CLEAR;
     for (let col = -COUNTRY_RING; col < cells + COUNTRY_RING; col++) {
       for (let row = -COUNTRY_RING; row < cells + COUNTRY_RING; row++) {
-        if (town(col, row) || onRoad(col, row)) continue;
+        if (town(col, row)) continue;
         // A cell of the edge slope takes nothing on its inner half, where the
         // slope still stands over the ground; its outer half is nearly at it.
         const onSlope = nearTown(col, row);
         const cx = cellCentre(grid, col);
         const cz = cellCentre(grid, row);
         if (Math.hypot(Math.abs(cx) + half, Math.abs(cz) + half) > disc) continue;
+        if (crowded(cx, cz)) continue;
         if (keepouts.some((keepout) => Math.hypot(keepout.x - cx, keepout.z - cz) < keepout.radius + half)) continue;
         const rng = rngFrom(slot.seed, 'country', col, row);
         const draw = rng.unit();
@@ -3054,7 +3070,7 @@ export function createSettlements(
             for (let j = 0; j < rows; j++) {
               const x = cx - half + step * (i + 0.5) + rng.jitter() * 0.4;
               const z = cz - half + step * (j + 0.5) + rng.jitter() * 0.4;
-              if (onSlope && !clear(x, z)) continue;
+              if ((onSlope && !clear(x, z)) || !clearOfRoads(x, z)) continue;
               out.push({
                 partId: id, variant, scale: rng.spread(0.9, 0.06),
                 plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: step, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
@@ -3069,7 +3085,7 @@ export function createSettlements(
             if (mix === null) continue;
             const x = cx + rng.jitter() * half * 0.8;
             const z = cz + rng.jitter() * half * 0.8;
-            if (onSlope && !clear(x, z)) continue;
+            if ((onSlope && !clear(x, z)) || !clearOfRoads(x, z)) continue;
             out.push({
               partId: rng.weighted(mix), variant: rng.int(VARIANTS), scale: rng.spread(1, 0.14),
               plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: half, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
@@ -3336,8 +3352,30 @@ export function createSettlements(
       // A yard: what would have grown on the plot, in the middle of it.
       const room = Math.min(rect.x1 - rect.x0, rect.z1 - rect.z0) * 0.5;
       const trees = fitting(style.trees, room);
+      // **In a village the empty plot is its orchard.** Four cells or fewer is
+      // a crossroads and three or four houses, and a cell left bare there was
+      // a quarter of the village drawn as an empty yard; half of them are four
+      // trees of one kind in rows instead.
+      if (cells < OUTSKIRT_MIN_CELLS && trees !== null && rng.chance(0.55)) {
+        const id = rng.weighted(trees);
+        const variant = rng.int(VARIANTS);
+        const stepX = (rect.x1 - rect.x0) / 2;
+        const stepZ = (rect.z1 - rect.z0) / 2;
+        for (let i = 0; i < 2; i++) {
+          for (let j = 0; j < 2; j++) {
+            const x = rect.x0 + stepX * (i + 0.5) + rng.jitter() * 0.3;
+            const z = rect.z0 + stepZ * (j + 0.5) + rng.jitter() * 0.3;
+            placed.push({
+              partId: id, variant, scale: rng.spread(0.85, 0.06),
+              plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: room, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
+            });
+          }
+        }
+        continue;
+      }
       const scatter = fitting(style.scatter, room);
-      const mix = trees !== null && rng.chance(outer ? Math.min(1, style.greenery * OUTER_GREENERY) : style.greenery * (1 - edge * 0.45)) ? trees
+      const green = outer || cells < OUTSKIRT_MIN_CELLS;
+      const mix = trees !== null && rng.chance(green ? Math.min(1, style.greenery * OUTER_GREENERY) : style.greenery * (1 - edge * 0.45)) ? trees
         : scatter !== null && rng.chance(0.45) ? scatter : null;
       if (mix === null) continue;
       const x = (rect.x0 + rect.x1) * 0.5 + rng.jitter() * (rect.x1 - rect.x0) * 0.15;
@@ -3349,7 +3387,7 @@ export function createSettlements(
         plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: room, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
       });
     }
-    if (cells >= OUTSKIRT_MIN_CELLS) placed.push(...countryside(slot, grid, style));
+    placed.push(...countryside(slot, grid, style));
     return { placed };
   }
 
@@ -3806,12 +3844,13 @@ export function createSettlements(
 
       const style = trafficFor(slot.place.iso, continentOf.get(slot.place.iso) ?? '', slot.place.lat);
       // **A vehicle has to fit the town it is parked in, and the kit publishes
-      // the number that says so.** A placed city bus is 20 units long against a
+      // the number that says so.** A placed city bus is 10.4 units long (20 while
+      // vehicles were placed at twice their section, until 2026-09-24) against a
       // median built radius of 32, so a mix left unfiltered parks one bus across
-      // two thirds of a village. The gate is the *placed* length against the
+      // a third of a village. The gate is the *placed* length against the
       // town's own radius, which is one rule instead of a list of which vehicles
       // a village may have.
-      const longest = Math.max(12, slot.radius * 0.45);
+      const longest = Math.max(8, slot.radius * 0.45);
       const mix = style.road.filter((entry) => {
         const found = vehicleById.get(entry.item);
         return found !== undefined && placedSize(found)[0] <= longest;

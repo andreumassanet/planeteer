@@ -55,8 +55,9 @@ export interface LandRing {
 }
 
 /**
- * The shelf every ring stands on, in world units. The player is about 6.5 units
- * tall, so the land sits three storeys above the sea — which is the point of
+ * The shelf every ring stands on, in world units. The player was about 6.5 units
+ * tall when this was set, so the land sat three of him above the sea; it is
+ * about five of a 3.77-unit person since 2026-09-24 — which is the point of
  * building it as real geometry instead of pushing icosphere vertices outward:
  * `OutlineEffect` draws that silhouette as a hard black line.
  *

@@ -11,7 +11,7 @@
  * roll — and it costs one field in this file and not one triangle. See `GAITS`.
  */
 import { buildAnimal } from '../body.ts';
-import { coatFor } from '../contract.ts';
+import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
 
@@ -83,7 +83,7 @@ export const camel: Animal = {
   id: 'camel',
   name: 'Camel',
   kind: 'large',
-  size: [12.15, 2.82, 10.79],
+  size: atFaunaScale([12.15, 2.82, 10.79]),
   gait: 'pace',
   note: 'Desert and dry steppe of the Old World. The only pacer in the kit.',
   // No CC0 camel exists in the style; this is Quaternius's horse (Ultimate

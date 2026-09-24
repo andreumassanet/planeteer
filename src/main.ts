@@ -56,6 +56,18 @@ const SHADOW_STILL_MS = 180;
 
 /** How much of the ground's own height the haze and the streamers count; see the loop. */
 const HAZE_ELEVATION = 0.25;
+/**
+ * The lowest altitude the haze and the streamers are handed, in units.
+ *
+ * Twenty is where the walking camera used to stand over the ground — fifteen
+ * over a pivot five up — and it is the height every reach and the haze on foot
+ * were measured at. The camera stands at a person's eye now (2026-09-24,
+ * `camera.ts`), three units up, and handing that on would have closed the haze
+ * and every streamer's reach to a third, a town at the end of the street
+ * dissolving into fog. What you can see from the ground is the same as it
+ * was; only where you see it from has moved.
+ */
+const STREAM_FLOOR = 20;
 
 /**
  * Where the map layer fades in, in units above the ground under the player.
@@ -1492,7 +1504,10 @@ async function start(): Promise<void> {
     // elevation. Every streamer takes this number, so reach and haze stay one
     // question.
     const elevation = Math.max(0, ground - PLANET_RADIUS);
-    const altitude = Math.max(1, eyeOverGround + HAZE_ELEVATION * elevation);
+    // Floored at `STREAM_FLOOR`: on foot the lens is at eye level now, three
+    // units off the ground, and the horizon from there is a third of the one
+    // the haze and every streamer's reach were tuned against.
+    const altitude = Math.max(STREAM_FLOOR, eyeOverGround + HAZE_ELEVATION * elevation);
     const horizon = Math.sqrt(2 * PLANET_RADIUS * altitude);
     fog.near = horizon * 0.2;
     // `fogFar` rather than the expression it used to be, because the streamers
@@ -1507,7 +1522,7 @@ async function start(): Promise<void> {
     // between a cliff top and the sea then fall inside a single depth step and
     // every coastline starts z-fighting. Nothing is ever drawn closer than the
     // avatar, so near can grow with that distance instead.
-    const near = Math.min(500, Math.max(0.5, rig.camera.position.distanceTo(player.position) * 0.15));
+    const near = Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
     if (Math.abs(near - rig.camera.near) > near * 0.1) {
       rig.camera.near = near;
       rig.camera.updateProjectionMatrix();
@@ -1676,8 +1691,8 @@ async function start(): Promise<void> {
     // moving — the player, who is also the box, a vehicle, a walker, an
     // animated herd, a townsman mid-gesture — and every 180 ms while nothing
     // is, which is a slow crawl of the sun nobody sees. It was 45 ms while the
-    // player moved and 180 otherwise, the reference's numbers: at a run (90
-    // units a second) the hero's shadow fell four units behind his feet before
+    // player moved and 180 otherwise, the reference's numbers: at the run of
+    // the time (90 units a second) the hero's shadow fell four units behind his feet before
     // it snapped back, and a car passing a player who stood still jumped at
     // 5.5 Hz. And **at once when a streamer has changed what stands in the
     // world**, which is one integer compare per group: a town that arrives this

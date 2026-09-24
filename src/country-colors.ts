@@ -872,7 +872,7 @@ const ladders = new Map<string, RGB[]>();
  * So *touching* means, in this implementation, **that the two countries put a
  * ring vertex in the same 0.01-degree cell or in one of that cell's eight
  * neighbours** — a reach of one to two cells, 1.1 to 2.2 km, or 3 to 6 world
- * units against an avatar of 6.8. It is a test on vertices and not on edges,
+ * units against a person of 3.77. It is a test on vertices and not on edges,
  * which is exactly right here because the shared run makes both countries carry
  * the same vertices; the enclave pass below is what covers the case where they
  * do not.

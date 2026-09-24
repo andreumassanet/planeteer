@@ -13,7 +13,7 @@
  * sheep's body carrying a giraffe's arrangement.
  */
 import { buildAnimal } from '../body.ts';
-import { coatFor } from '../contract.ts';
+import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
 
@@ -78,7 +78,7 @@ export const llama: Animal = {
   id: 'llama',
   name: 'Llama',
   kind: 'small',
-  size: [7.09, 2.24, 6.55],
+  size: atFaunaScale([7.09, 2.24, 6.55]),
   gait: 'walk',
   note: 'The high Andes: rock and steppe, in latin-america and nowhere else.',
   // Quaternius's alpaca (Ultimate Animated Animals, CC0), which is the llama's

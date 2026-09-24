@@ -9,7 +9,7 @@
  * cow is nearly square. All three are in the table.
  */
 import { buildAnimal } from '../body.ts';
-import { coatFor } from '../contract.ts';
+import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
 
@@ -79,7 +79,7 @@ export const horse: Animal = {
   id: 'horse',
   name: 'Horse',
   kind: 'large',
-  size: [12.64, 2.55, 8.06],
+  size: atFaunaScale([12.64, 2.55, 8.06]),
   gait: 'walk',
   note: 'Steppe and grassland everywhere. The crest and the tail are what read.',
   // Quaternius's horse, and its donkey one in five (Ultimate Animated Animals,

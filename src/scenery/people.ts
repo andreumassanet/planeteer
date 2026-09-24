@@ -1,4 +1,5 @@
 import { FIGURE } from '../avatar.ts';
+import { BODY_SCALE } from '../stature.ts';
 import { createSoftKit } from '../soft.ts';
 import type { Ring, SoftKit } from '../soft.ts';
 import type { Group, Mesh, SceneryContext } from './contract.ts';
@@ -13,17 +14,15 @@ import { rngFrom } from './random.ts';
  * it, and the choice is worth the paragraph because three of the kit's central
  * assumptions do not survive contact with a crowd:
  *
- * 1. **A person is not built at `SCENERY_SCALE`.** The kit compresses a metre to
- *    1.267 units so a two-storey house is 10 units and reads as a 10 px mark at
- *    the horizon. Write a person in `STOREY`s and they come out **2.15 units
- *    tall — a third of the 6.8-unit avatar standing next to them.** A person is
- *    the one object in this world whose size is already decided by something
- *    else, and that something is `AVATAR_HEIGHT`. So the crowd is built at
- *    *avatar* scale, 3.78 u/m, three times the rest of the kit, and the
- *    consequence runs the other way too: **change `AVATAR_HEIGHT` and every
- *    person on the planet moves.** The relation the contract already accepts —
- *    a person's head at the eaves of a two-storey house, 6.8 against 7.6 — is
- *    the whole reason this works and it is not a bug to be fixed here.
+ * 1. **A person is built against `AVATAR_HEIGHT`, not in `STOREY`s.** A person
+ *    is the one object in this world whose size is decided by something else,
+ *    and the consequence runs both ways: **change `AVATAR_HEIGHT` and every
+ *    person on the planet moves.** Until 2026-09-24 that height was 6.8 units,
+ *    *avatar* scale, 3.78 u/m, three times the rest of the kit, and a person's
+ *    head reached the eaves of a two-storey house, 6.8 against 7.6. Since then
+ *    it is 1.75 m at `SCENERY_SCALE` times `STATURE` (1.7), 3.77 units
+ *    (`stature.ts`): a little larger than life against the houses round it,
+ *    a two-storey house about two of him.
  * 2. **Six variants is not a crowd.** `VARIANTS = 6` is right for houses: a
  *    village has ten of them and yaw plus a tenth of scale finishes the job. A
  *    street has *forty* people in a space where you can see all of them at once,
@@ -150,8 +149,8 @@ export const BODY: Figure = Object.freeze({
   // `buildAvatar` builds a trainer of two masses — a pale sole and an upper —
   // where the crowd builds one pressed flat underneath. These are the old boot's
   // numbers and the crowd's shoe is sized off them.
-  bootWidth: 0.58,
-  bootDepth: 0.96,
+  bootWidth: 0.58 * BODY_SCALE,
+  bootDepth: 0.96 * BODY_SCALE,
 });
 
 /**
@@ -164,8 +163,9 @@ export const BODY: Figure = Object.freeze({
  * puts a child at about 3.2, which is the same exaggeration applied to the same
  * real relation.
  *
- * The record is still stated at the nominal 6.8 and the builder shrinks it like
- * any other, so `height` stays the only thing a caller sets.
+ * The record is still stated at the adult's full height, `AVATAR_HEIGHT`, and
+ * the builder shrinks it like any other, so `height` stays the only thing a
+ * caller sets.
  */
 function childFigure(adult: Figure): Figure {
   const head = adult.head * 1.25;

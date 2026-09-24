@@ -76,7 +76,8 @@ const PRECISION_FINEST = 4;
  * One tolerance is one level of detail, and Douglas-Peucker then spends the
  * points where a coast turns, whichever coast it is. Swept 2026-09-13; the land
  * mesh measured headless with the game's own detail and flatten sites, and the
- * median segment in world units, islands / the rest, against a 6.8-unit body:
+ * median segment in world units, islands / the rest, against the 6.8-unit body
+ * of the time (a person is 3.77 units since 2026-09-24):
  *
  * | tolerance | points | median segment | land triangles |    MB | build  |
  * |-----------|--------|----------------|----------------|-------|--------|
@@ -86,7 +87,8 @@ const PRECISION_FINEST = 4;
  * | 0.007     |  227 k |  9.4 / 11.0    | 2.37 M         | 122.1 | 14.4 s |
  * | 0.005     |  272 k |  7.8 /  9.1    | 2.52 M         | 129.8 | 15.7 s |
  *
- * 0.01 is 1.1 km, three units, under half a body, and it costs what the
+ * 0.01 is 1.1 km, three units, under half that body (a person and a third
+ * now), and it costs what the
  * two-tier file cost. It was looked at rather than assumed: from 450 and from
  * 200 units up over Mallorca and Formentor it is close to indistinguishable from
  * keeping every point, and everything bigger than an island gains — Iberia goes

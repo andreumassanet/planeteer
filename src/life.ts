@@ -59,7 +59,8 @@ import {
 import type { Mount, TrafficContext, TrafficStyle, Vehicle } from './traffic/contract.ts';
 import { keepsLeft, trafficFor } from './traffic/regions.ts';
 import { KINDS as FAUNA_KINDS, VARIANTS as FAUNA_VARIANTS, createFaunaContext } from './fauna/contract.ts';
-import { rigPaint } from './fauna/contract.ts';
+import { FAUNA_RESCALE, rigPaint } from './fauna/contract.ts';
+import { BODY_SCALE } from './stature.ts';
 import type { Animal, AnimalShape, FaunaContext, RigChoice } from './fauna/contract.ts';
 import { makeRigged, paintColors, paintModel, posedGeometry } from './models.ts';
 import type { Model, Rig as ModelRig, RigSource, Rigged } from './models.ts';
@@ -201,20 +202,23 @@ const MAX_MOVERS = 90;
 /** How far along the ground each family is worth placing, at detail 1. */
 const ROAD_REACH = 1100;
 const WATER_REACH = 1700;
-const FOOT_REACH = 320;
+const FOOT_REACH = 130;
 const BIRD_REACH = 620;
 /**
  * How far a herd is worth building, and it is priced on **one animal** rather
  * than on the herd.
  *
- * A herd is a cluster forty units across, so pricing the cluster would keep it
- * legible to three thousand units — at which point it is a smudge of six animals
- * six pixels each, which is the outer-ring trap word for word. The mark that has
- * to read is the animal: a cattle beast is 11.97 units long, so `937 * 12 / 950`
- * is **12 pixels at the reach**, against the 8-pixel floor `settlements.ts`
- * admits a whole town at.
+ * A herd is a cluster about thirteen units across, so pricing the cluster would
+ * keep it legible to a thousand units — at which point it is a smudge of six
+ * animals four pixels each, which is the outer-ring trap word for word. The mark
+ * that has to read is the animal: a cattle beast is 6.8 units long since the
+ * animals came down to the person's stature (2026-09-24, `FAUNA_SCALE`), so
+ * `937 * 6.8 / 380` is **17 pixels at the reach**, against the 8-pixel floor
+ * `settlements.ts` admits a whole town at. (It was 11.97 units long and 950 of
+ * reach before, 12 px; and 4.0 long, 10 px, at the world's scale earlier on
+ * 2026-09-24.)
  */
-const HERD_REACH = 950;
+const HERD_REACH = 380;
 
 /**
  * How near a herd has to be to stand up as animated rigs, and how many animals
@@ -223,7 +227,7 @@ const HERD_REACH = 950;
  * (`TOWNSFOLK_RADIUS` and `TOWNSFOLK_CAP` in `folk.ts`): near and few move,
  * everything else is a still frame of the same clip in the merged herd.
  */
-const HERD_ANIMATED_REACH = 180;
+const HERD_ANIMATED_REACH = 70;
 
 /**
  * How a cast rider's legs fold, in the rider's own frame: a bench's thigh level
@@ -240,13 +244,14 @@ const HERD_ANIMATED_CAP = 36;
  *
  * A mover is a **near-field** feature and every streamer in this project has
  * learned the same lesson about admitting by radius from the air: at 3,000 units
- * up, `slantRange` admits the whole disc under the aircraft, and a 10-unit car
- * at 3,000 units is **3 pixels**. So there is a hard ceiling per family rather
- * than a reach that quietly grows. Water is the highest because a boat is 18
- * units and leaves a visible mark on an empty sea where a car does not on a
- * continent.
+ * up, `slantRange` admits the whole disc under the aircraft, and a 5-unit car
+ * at 3,000 units is **under 2 pixels**. So there is a hard ceiling per family
+ * rather than a reach that quietly grows. Water is the highest because a boat
+ * leaves a visible mark on an empty sea where a car does not on a continent.
+ * (The foot and herd ceilings came down with the body and the animals on
+ * 2026-09-24, from 700 and 900.)
  */
-const CEILING = { road: 1800, foot: 700, water: 4000, air: 1500, herd: 900 } as const;
+const CEILING = { road: 1800, foot: 300, water: 4000, air: 1500, herd: 400 } as const;
 
 /**
  * How fast a vehicle goes, by road class.
@@ -265,7 +270,8 @@ const CEILING = { road: 1800, foot: 700, water: 4000, air: 1500, herd: 900 } as 
  * 2026-09-13, which changes one line below: see the last paragraph.)
  *
  * The reference that does hold is the car against **itself**, and against the
- * length of street you can actually see. A placed vehicle is 10.3 units long:
+ * length of street you can actually see. A placed vehicle was 10.3 units long
+ * then:
  *
  * ```
  *                 own lengths / s      to cross 300 units of visible street
@@ -278,10 +284,17 @@ const CEILING = { road: 1800, foot: 700, water: 4000, air: 1500, herd: 900 } as 
  * A car crossing a village street in two seconds is a chase; in five it is
  * traffic. **What this gave up is that a running player overtook everything**,
  * which was the honest consequence of the reversal above rather than an
- * oversight: the player is the exaggeration, not the car. Since the run came
- * down to 90 a trunk's 100 passes him again, and a lane and a road still do not.
+ * oversight: the player is the exaggeration, not the car. When the run came
+ * down to 90 (2026-09-13) a trunk's 100 passed him again.
+ *
+ * **And on 2026-09-24 the speeds were halved again**, to [28, 39, 50], when the
+ * vehicles came down from twice their authored scale and a placed car went
+ * from about 10 units long to about 5 (6.6 since the section settled at 1.35
+ * the same day): in its own lengths a second the traffic is where the table
+ * leaves it. The run came down from 90 to 13.5, so every class passes a
+ * running player now.
  */
-const ROAD_SPEED = [55, 78, 100];
+const ROAD_SPEED = [28, 39, 50];
 
 /**
  * How likely a road of each class is to have a vehicle in a given slot.
@@ -311,8 +324,8 @@ const ROAD_SLOTS = 3;
  * shape of the network.** Over the 36,212 baked roads the **median is 98 units
  * long** — because `places.bin` holds 23,866 towns thinned only so that their
  * built radii do not overlap, so an edge between neighbours is short. A car
- * crosses the median road in **1.3 seconds** at today's 78, and then wraps back
- * to the start of it: measured before this,
+ * crosses the median road in **1.3 seconds** at the 78 of the time (2.5 at
+ * today's 39), and then wraps back to the start of it: measured before this,
  * a one-second sample of thirteen road movers had them travelling between 6.6
  * and 79 units, which is not traffic, it is a set of objects flickering.
  *
@@ -340,7 +353,7 @@ const MIN_SECONDS = 8;
 const ROAD_SCAN_CAP = 120;
 
 /** A craft under way. A boat is slow, and that is what makes it read as a boat. */
-const CRAFT_SPEED = 34;
+const CRAFT_SPEED = 17;
 /** The cell a boat is seeded in, and how many may share one. */
 const WATER_CELL = 1.5;
 const WATER_SLOTS = 3;
@@ -370,7 +383,7 @@ const HERD_CELL = 0.42;
 /** The cheap draw, taken before any ground query. See the trap. */
 const HERD_CHANCE = 0.30;
 /** How far across a herd stands, before the count widens it. */
-const HERD_SPREAD = 13;
+const HERD_SPREAD = 13 * FAUNA_RESCALE;
 
 const BIRD_CELL = 0.35;
 const FLOCK_CHANCE = 0.14;
@@ -381,13 +394,15 @@ const FLOCK_CHANCE = 0.14;
  *
  * A herring gull is 1.4 m across, which at `SCENERY_SCALE` is 1.8 units and at
  * 300 units of distance is **5 pixels including both wings** — a bird that is
- * not there. So the same exaggeration every monument in this project makes
- * applies to the smallest thing in it: at a 4.2-unit span a bird is 13 px at
- * 300 units and 33 px at 120, which is a bird. It is still a twentieth of the
- * hatchback parked below it.
+ * not there. So while a person was 6.8 units (until 2026-09-24) the same
+ * exaggeration every monument in this project makes was applied to the smallest
+ * thing in it: at a 4.2-unit span a bird was 13 px at 300 units and 33 px at
+ * 120. The span is written in the 6.8-unit figure's units and scaled with the
+ * body since, so it is 2.33 units now — 7 px at 300 units, 18 at 120 — which
+ * is a little smaller than a real gull at the animals' scale (`FAUNA_SCALE`).
  */
-const BIRD_SPAN = 4.2;
-const BIRD_LENGTH = 2.4;
+const BIRD_SPAN = 4.2 * BODY_SCALE;
+const BIRD_LENGTH = 2.4 * BODY_SCALE;
 const FLOCK_MIN = 3;
 const FLOCK_MAX = 8;
 /**
@@ -406,11 +421,13 @@ const MAX_BIRDS = 64;
  * How many poses one walking body is baked at, and how many bodies a region
  * gets.
  *
- * Ten phases at a 22-unit stride and 45 units a second is **20 poses a second**,
- * which is above the rate at which a walk stops reading as one, and six bodies
- * is what `PEOPLE_VARIANTS` would call a thin crowd — right here, because a
- * walker is only ever admitted inside 320 units and there are at most ten of
- * them. The cost is memory and it is the whole reason the number is not larger:
+ * Ten phases at a 22-unit stride and 45 units a second was **20 poses a
+ * second**, which is above the rate at which a walk stops reading as one; since
+ * the gait came down with the body (2026-09-24) a stride is `WALK_STRIDE`, 5.45
+ * units at 6 a second, and the same ten phases are 11 poses a second. Six
+ * bodies is what `PEOPLE_VARIANTS` would call a thin crowd — right here, because
+ * a walker is only ever admitted inside `FOOT_REACH` and there are at most ten
+ * of them. The cost is memory and it is the whole reason the number is not larger:
  * six bodies at ten phases is about 1.9 MB a region, held for the session.
  */
 const WALK_PHASES = 10;
@@ -1420,11 +1437,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * subtly wrong along its length. Baking it means the geometry the GPU sees is
    * the geometry that was measured.
    *
-   * **The rider is built at `RIDER_HEIGHT` and scaled with the vehicle**, so he
-   * ends up 4.6 units against the 6.8-unit pedestrian on the pavement rather than
-   * 2.3. That is the one relation the placed scale improves for free, and it is
-   * worth naming because the traffic contract calls it the whole cost of its own
-   * decision: a cyclist used to be a third the size of the person he rode past.
+   * **The rider is built at `RIDER_HEIGHT` and scaled with the vehicle.** While
+   * vehicles were placed at twice their authored scale (until 2026-09-24) that
+   * made him 4.6 units against a 6.8-unit pedestrian rather than 2.3, where a
+   * cyclist had been a third the size of the person he rode past. Placed at
+   * `PLACED_SECTION`, 1.35, he is 3.11 against a 3.77-unit pedestrian: a little
+   * smaller, because the vehicles take less of `STATURE` than the people do.
    */
   function buildVehicle(key: string, id: string, style: TrafficStyle, region: string, variant: number): Pooled | null | 'pending' {
     const entry = registry.get(id);
@@ -1688,8 +1706,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * the downhill half sank. Measured over 12,000 head on admitted sites, cattle
    * at their own spread (2026-09-08): an animal was off its own ground by
    * **0.39 units at the median, 1.71 at the p90 and 9.57 at the worst** —
-   * against a sheep that is 2.2 to 7.5 units tall, so the tail of that
-   * distribution is a whole animal in the air. The site gate below cannot fix
+   * against a sheep that was 2.2 to 7.5 units tall at the scale of the time,
+   * so the tail of that distribution is a whole animal in the air. The site gate below cannot fix
    * it, because it is a *mean* over the spread and the mean of a hillside is a
    * hillside.
    *
@@ -1733,7 +1751,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // diagonals, so half the diagonal of the box the animal stands in puts a
     // probe under each hoof. `size` is [length, width, height] and it is why
     // `Animal.size` is three numbers rather than a radius.
-    const stance = Math.max(1.2, Math.hypot(shape.size[0], shape.size[1]) * 0.5);
+    const stance = Math.max(1.2 * FAUNA_RESCALE, Math.hypot(shape.size[0], shape.size[1]) * 0.5);
     let vertices = 0;
     for (let i = 0; i < site.heads; i++) {
       const each = rngFrom(key, 'head', i);
@@ -2259,7 +2277,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
         }
 
         // Nobody walks a trunk road, and a walker is only worth having where a
-        // 6.8-unit figure is more than a few pixels.
+        // person is more than a few pixels.
         if (near < footRange && cls < 2) {
           for (let slot = 0; slot < 2; slot++) {
             const rng = rngFrom('walk', i, slot);

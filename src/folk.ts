@@ -210,13 +210,13 @@ export interface FolkSource {
 }
 
 /** How far from the player people are standing. Past this a person is a few pixels tall. */
-const TOWNSFOLK_RADIUS = 240;
+const TOWNSFOLK_RADIUS = 110;
 /** How many at once. Each is one skinned draw, twice with the ink. */
 const TOWNSFOLK_CAP = 40;
 /** How many are dressed in one frame, so walking into a square is not a hitch. */
 const DRESS_PER_FRAME = 3;
 /** Past this, a person's clip is advanced every few frames rather than every one. */
-const NEAR_ANIMATION = 90;
+const NEAR_ANIMATION = 40;
 
 interface Standing {
   anchor: FolkAnchor;

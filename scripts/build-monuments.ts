@@ -284,7 +284,7 @@ function separate(): string[] {
  * model and no terrain flattening can help: `terrain.ts` shapes the relief on
  * top of the shelf, and over water there is no shelf and no mesh to shape. The
  * anchor is where `placement.ts` samples the ground once, so the part of the
- * model beyond the coast is left standing on air, three avatars up.
+ * model beyond the coast is left standing on air, twenty units up.
  *
  * `snapToLand` above causes most of it and could not have avoided it: it takes
  * the *first* land it finds, which is by construction a point on the coastline
@@ -301,7 +301,8 @@ function separate(): string[] {
  * Island is *narrower* than the moai standing on it, so no distance exists that
  * would seat them.
  *
- * The budget is three avatars, and it was picked by sweeping it. Re-swept
+ * The budget is 20 units — three avatars when it was picked, while a person
+ * was 6.8 units — and it was picked by sweeping it. Re-swept
  * 2026-09-09 against the current outlines and landmark list, because the
  * figures on file matched neither any more — 19 overhang at 0, 14 at 12, 13 at
  * 20, 10 at 30, 8 at 55, against 29/23/20/16/10 today. What the tail buys is
@@ -333,7 +334,10 @@ function shelfAt(lat: number, lon: number): number {
   return world.elevationAt(new Vector3(x, y, z)) - reliefAt(x / length, y / length, z / length);
 }
 
-/** A step smaller than this is not a step: an avatar is 6.8 units tall. */
+/**
+ * A step smaller than this is not a step. Chosen while a person was 6.8 units
+ * tall; a person is 3.77 since 2026-09-24, and a stair's riser 0.32.
+ */
 const SEAT_TOLERANCE = 0.5;
 
 /** Steps `distance` units along `bearing` (0 is north) from a coordinate. */

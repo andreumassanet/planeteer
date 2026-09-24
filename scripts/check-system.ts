@@ -66,6 +66,7 @@ import {
 } from '../src/system/contract.ts';
 import type { Body, Decoration, GroundSample, Species } from '../src/system/contract.ts';
 import { alienFor, buildAlien } from '../src/system/alien.ts';
+import { AVATAR_HEIGHT } from '../src/stature.ts';
 
 const DEG = Math.PI / 180;
 
@@ -367,8 +368,9 @@ console.log('\n\n=== the scale ===\n');
 
 console.log(`  Earth is PLANET_RADIUS ${PLANET_RADIUS} against a real ${EARTH_RADIUS_KM} km,`);
 // Read a world unit as a metre and the planet is 1:398 — which is the sense
-// the scale table means, and it is *not* the avatar's scale. The avatar is 6.8
-// units for a 1.75 m person, so the body is at about 1:0.26 of the same
+// the scale table means, and it is *not* the avatar's scale. The avatar is 3.77
+// units for a 1.75 m person (6.8 until 2026-09-24, and the float32 line below
+// still counts in that figure), so the body is at about 1:0.46 of the same
 // reading. That conflict is real, it is written down rather than hidden, and it
 // is the reason this file states which of the two any number belongs to.
 console.log(`  so one world unit is ${KM_PER_UNIT.toFixed(5)} km, and read as a metre that is 1:${((EARTH_RADIUS_KM * 1000) / PLANET_RADIUS).toFixed(0)}.`);
@@ -380,9 +382,9 @@ near('Earth round-trips through surfaceRadiusOf', surfaceRadiusOf(EARTH_RADIUS_K
   // The spacing between representable float32 values at |x|.
   const ulp = 2 ** (Math.floor(Math.log2(neptune)) - 23);
   console.log(`\n  at true scale: 1 au is ${(auInUnits / 1e6).toFixed(1)} M units and Neptune's orbit ${(neptune / 1e9).toFixed(2)} G units.`);
-  console.log(`    float32 spacing there: ${ulp.toFixed(0)} units — ${(ulp / 6.8).toFixed(0)} avatars. Positions do not exist at that range.`);
+  console.log(`    float32 spacing there: ${ulp.toFixed(0)} units — ${(ulp / AVATAR_HEIGHT).toFixed(0)} people. Positions do not exist at that range.`);
   console.log(`    Earth from Mars at closest approach: ${apparentPixels(PLANET_RADIUS, 0.52 * auInUnits).toFixed(3)} px.`);
-  if (ulp < 6.8) fail('float32 can hold a true-scale Neptune after all — the compression argument needs re-deriving');
+  if (ulp < AVATAR_HEIGHT) fail('float32 can hold a true-scale Neptune after all — the compression argument needs re-deriving');
 }
 
 console.log(`\n  so the orrery is ${AU_UNITS} units to the au, linear, with the ellipses untouched.`);

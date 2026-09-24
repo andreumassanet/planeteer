@@ -38,7 +38,7 @@
  *
  * - **Float32 quantises it out of existence.** Three stores positions as
  *   `Float32Array`: 24 bits of mantissa. At 1.13e10 the spacing between
- *   representable numbers is `2^34 / 2^23` = **1,024 units — 150 avatars.** A
+ *   representable numbers is `2^34 / 2^23` = **1,024 units — 460 people.** A
  *   person standing on Neptune at true scale cannot be given a position; they
  *   snap to a lattice a kilometre and a half across. This is not a look, it is
  *   an arithmetic impossibility, and no amount of camera-relative rendering
@@ -52,7 +52,8 @@
  * ## So: two scales, and they are two views
  *
  * **The surface scale is not compressed at all and is not a choice.** The
- * avatar is 6.8 units and stands for a real 1.75 m person on every world, so
+ * avatar is 3.77 units (6.8 until 2026-09-24) and stands for a real 1.75 m
+ * person on every world, so
  * the kilometres per unit is fixed at Earth's 0.398 everywhere, so a body's
  * walkable radius is its *real* radius divided by that. Mars comes out at 8,514
  * units and Mercury at 6,128 — see `surfaceRadiusOf`. Nothing is decided here;
@@ -135,14 +136,16 @@ export const KM_PER_UNIT = EARTH_RADIUS_KM / PLANET_RADIUS;
 /**
  * How big a body is to stand on.
  *
- * The avatar is 6.8 units and is a person, on every world, so the scale cannot
- * vary between them — which makes this a division and not a decision. The
- * consequence worth knowing before anyone proposes normalising it: a lap of
- * Mars at a run is `2 pi * 8514 / RUN_SPEED` = **9.9 minutes** against Earth's
- * 18.6, and of Jupiter's 1-bar level **3.4 hours**. Mercury is a seven-minute
- * planet. That range is real and it is the point. (At the run of 90 units a
- * second; they were 6.9, 12.9, 2.4 and five at the 130 it was until
- * 2026-09-13, and the ratios between them did not move.)
+ * The avatar is a person, on every world, so the scale cannot vary between
+ * them — which makes this a division and not a decision. The consequence worth
+ * knowing before anyone proposes normalising it: a lap of Mars at a run is
+ * `2 pi * 8514 / RUN_SPEED` = **66 minutes** against Earth's 2.1 hours, and of
+ * Jupiter's 1-bar level about 23 hours. Mercury is 48 minutes' run. That range
+ * is real and it is the point. (At the run of 13.5 units a second since
+ * 2026-09-24, and 89 minutes, 2.8 hours, 31 hours and an hour at the 10 it was
+ * earlier that day; they were 9.9 minutes, 18.6, 3.4 hours and seven minutes at the 90 of
+ * 2026-09-13, and 6.9, 12.9, 2.4 hours and five at the 130 before it; the
+ * ratios between them did not move.)
  *
  * **This is declared and not yet wired.** `PLANET_RADIUS` is a module constant
  * in `globe.ts` that everything derives from, and making it per-body is that

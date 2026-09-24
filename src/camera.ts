@@ -1,35 +1,73 @@
 import * as THREE from 'three';
-import { AVATAR_HEIGHT, FIGURE } from './avatar.ts';
+import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED } from './avatar.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { BODY_RADIUS } from './player.ts';
 import type { Player } from './player.ts';
 import type { InputState } from './input.ts';
 import { PLANE_CEILING } from './vehicles.ts';
 
-const NEAR = 5;
+const NEAR = 0.5;
 const FAR = PLANET_RADIUS * 10;
-const FOV = 55;
+/**
+ * The lens, by what you are doing: 45 degrees on foot, a shade wider at a run,
+ * 60 in your own eyes and 55 in a craft.
+ *
+ * **On foot it is a long lens close behind**, the framing of the reference the
+ * whole camera was rebuilt against in 2026-09-24: 45 degrees, the camera two
+ * and a half bodies behind at the height of the eyes, so a person is a quarter
+ * of the frame and the street runs away from him at the height he sees it.
+ * 55 was right for a camera thirty units back and fifteen up, which framed a
+ * man at a sixth of the screen over a model village. The run opens it by four,
+ * which is how the lens says you are going faster without the world having to.
+ * The craft keep 55, because the flight's ceiling was worked out on that lens
+ * (`PLANE_CEILING`), and the eye takes 60, a person's own field.
+ */
+const FOV_FOOT = 45;
+const FOV_RUN = 4;
+const FOV_EYE = 60;
+const FOV_CRAFT = 55;
+/** How fast the lens follows a change of those, per second. */
+const FOV_RATE = 3;
 
 /**
  * How hard the camera chases per second. Higher is tighter and twitchier.
  *
  * An exponential chase trails a target moving at `v` by exactly `v / this`. On
- * foot at a run that is 13 units (19 when the run was 130) and it reads as
- * weight, which is why the number is low. At 3,400 units/s it is 490 — enough to drag the camera out of
+ * foot at a run that is 1.4 units (13 when the run was 90, 19 at 130, before
+ * the walk came down with the body on 2026-09-24) and it reads as weight,
+ * which is why the number is low. At 3,400 units/s it is 490 — enough to drag the camera out of
  * the sky and back down level with the plane, so the framing would say
  * "overhead, looking at the globe" and the picture would say "level flight".
  * See the lead term in `follow`.
  */
 const CAMERA_LAG = 7;
-/** Roughly the avatar's shoulders: what the camera actually looks at. */
-const PIVOT_HEIGHT = 5;
+/**
+ * And along `up` it is slower: a lens that rises and falls with every step and
+ * every kerb at the rate it follows a turn is a hand-held camera. Half the
+ * rate, which is what the reference's own rig does (4.5 across and 3 up).
+ */
+const CAMERA_LAG_UP = 4;
+/** What the camera orbits: the head, a little under the crown. */
+const PIVOT_HEIGHT = AVATAR_HEIGHT * 0.85;
+/**
+ * On foot the camera and what it looks at are both moved `SHOULDER` to the
+ * right of the body, together, so the person stands a little left of the
+ * middle and **stays there however the view turns**: the camera orbits the
+ * body and the offset turns with it. A first version looked at a point ahead
+ * of the body and to the side of it, and turning the view swung the person
+ * across the screen rather than the world round him. It fades out as the wheel
+ * pulls the camera back (`zoom` 2 to 5).
+ */
+const SHOULDER = AVATAR_HEIGHT * 0.32;
+/** How fast the lens goes back out once a wall that pulled it in is behind, per second. */
+const WALL_RELEASE = 4;
 
 const DEG = Math.PI / 180;
 /**
  * Elevation of the camera above the player's own horizon.
  *
  * The floor is negative so you can get under a monument and look up it: they
- * run to 140 units against an avatar of 6.5, and from a fixed overhead camera
+ * run to 140 units against a person of 3.77, and from a fixed overhead camera
  * you never see the top of anything. It stops at -22 because of what happens
  * next: the ground refuses to let the lens drop that far, the aim compensates
  * by raising what it looks at, and much past this the avatar leaves the bottom
@@ -60,30 +98,31 @@ const ROLL_FADE_FROM = 0.86;
 const ROLL_FADE_TO = 0.985;
 
 /** Never let the ground come closer to the lens than this. */
-const CLEARANCE = NEAR * 1.6;
-const MIN_DISTANCE = NEAR * 2;
+const CLEARANCE = 0.45;
+const MIN_DISTANCE = 1.6;
 /** Samples along the player-to-camera segment when testing for ground. */
 const COLLISION_STEPS = 6;
 /**
  * And for walls, on the same samples. A sample inside a building stops the lens
  * as the ground does, on foot only — the boat has no town to be in and the
  * plane is framed from above every roof — and three halvings then find the wall
- * to a forty-eighth of the segment, 0.7 units at the walking framing. A clear
+ * to a forty-eighth of the segment, 0.15 units at the walking framing. A clear
  * view costs six calls a test and a stop at most nine.
  */
 const WALL_REFINE = 3;
 /**
- * How far short of the wall it met the lens stops: half a unit, the nearest
- * near plane `main.ts` ever sets, so the wall stays out of the lens's own slab
+ * How far short of the wall it met the lens stops: half a unit, which was the
+ * nearest near plane `main.ts` set until 2026-09-24 and is twice its floor of
+ * 0.25 since, so the wall stays out of the lens's own slab
  * when the view runs along it rather than across it.
  */
 const WALL_MARGIN = 0.5;
 /**
  * The nearest a wall may bring the lens, and it is not `MIN_DISTANCE`.
  *
- * The ground never gets between the pivot and a lens ten units out; a wall
- * does, every time you walk along one with the camera across it, and flooring
- * that pull-in at ten would put the lens inside the building — where every
+ * The ground never gets between the pivot and a lens `MIN_DISTANCE` out; a
+ * wall does, every time you walk along one with the camera across it, and
+ * flooring that pull-in there would put the lens inside the building — where every
  * face is seen from behind and the ink hull is all that is drawn, a screen of
  * black. The body is kept `BODY_RADIUS` clear of every footprint, so a segment
  * leaving the pivot above it cannot meet a wall nearer than that, and a lens
@@ -99,16 +138,25 @@ const WALL_FLOOR = BODY_RADIUS;
  */
 const BODY_NEAR = FIGURE.height * 0.5;
 
-/** Framing on foot: what `view` is, and what it returns to after a landing. */
-const WALK_FRAMING = { distance: 30, height: 15 };
 /**
- * How far the wheel can take that framing, as a multiple of it: in to 0.6,
- * where the lens is 20 units from the shoulders and a man fills a third of the
- * frame, out to 2.5, where he is a figure in a street. The same angle at every
- * zoom, because the tilt is the mouse's and the wheel is only the distance.
+ * Framing on foot: what `view` is, and what it returns to after a landing.
+ *
+ * Three bodies behind the head and half a body over it: about ten
+ * degrees down, the eye of somebody walking a step behind you. It was 30 back
+ * and 15 up, 26.6 degrees down from 33.5 away, while a person was three times
+ * the world's scale (2026-09-24, `stature.ts`).
  */
-const ZOOM_MIN = 0.6;
-const ZOOM_MAX = 2.5;
+const WALK_FRAMING = { distance: AVATAR_HEIGHT * 3.2, height: AVATAR_HEIGHT * 0.55 };
+/**
+ * How far the wheel can take that framing, as a multiple of its distance: in
+ * to 0.55, over the shoulder, out to 14, over a town. **The height grows
+ * faster than the distance** (`ZOOM_RISE`), so pulling back also looks down:
+ * at 1 the camera is ten degrees down and walking, at 5 it is twenty-eight and
+ * over the street, at 14 fifty and over the whole town.
+ */
+const ZOOM_MIN = 0.55;
+const ZOOM_MAX = 14;
+const ZOOM_RISE = 1.7;
 /**
  * Pixels of wheel for a factor of e. A mouse notch is about a hundred pixels,
  * which is 1.16x; a trackpad's dozens of small events add up to the same for
@@ -118,7 +166,7 @@ const ZOOM_PIXELS = 650;
 /** How fast the framing follows the wheel, per second: a glide rather than a step. */
 const ZOOM_RATE = 12;
 /** In the boat: wider, because the hull is longer than the avatar is tall. */
-const BOAT_FRAMING = { distance: 46, height: 20 };
+const BOAT_FRAMING = { distance: 16, height: 6 };
 
 /**
  * Flight framing, given as an orbit and an angle rather than as the two offsets
@@ -130,7 +178,7 @@ const BOAT_FRAMING = { distance: 46, height: 20 };
  * overhead as the plane climbs is what makes the climb reveal the map, and it
  * is why the elevation ceiling above had to move.
  */
-const FLIGHT_LOW = { orbit: 62, elevation: 17 * DEG };
+const FLIGHT_LOW = { orbit: 24, elevation: 17 * DEG };
 const FLIGHT_HIGH = { orbit: 340, elevation: 88 * DEG };
 /** How fast the framing follows a change of vehicle. 0.5 s, so it reads as a move. */
 const FRAMING_RATE = 2.2;
@@ -211,12 +259,14 @@ const TURN_TRAIL = 0.25;
  *   choice stale. Almost every third-person game does the same and this is why.
  *
  * The radius was chosen by what a **held diagonal** describes, because that was
- * the only case where this did visible work. Measured, holding `W`+`A`: the
- * error settles at 41.4 degrees rather than 45 — the camera never catches a
- * diagonal, because the input is re-derived from the camera every frame — and
- * the camera then turns for ever at 21.9 deg/s at a run and 7.6 at a walk,
- * which is **340 units of radius at both**, 50 avatars, 44 degrees of turn in
- * two seconds. That is the curve somebody running makes when they change their
+ * the only case where this did visible work. Measured, holding `W`+`A`, while
+ * the radius below was 233 and the run 130: the error settles at 41.4 degrees
+ * rather than 45 — the camera never catches a diagonal, because the input is
+ * re-derived from the camera every frame — and the camera then turns for ever
+ * at 21.9 deg/s at a run and 7.6 at a walk, which is **340 units of radius at
+ * both**, 50 avatars of the time, 44 degrees of turn in two seconds. The law
+ * scales with the radius, so at today's 25 it is about 35 units, sixteen
+ * people. That is the curve somebody running makes when they change their
  * mind about where they are going. `RETURN_GAIN` governs only the small errors
  * and there it is worth almost nothing: measured, a 90-degree swing followed by
  * `W` is closed 85 degrees by the body's own turn and 4.7 by this.
@@ -233,13 +283,17 @@ const RETURN_GAIN = 2.6;
  * without a line of this file changing. Written as the radius, the run can move
  * and the camera does not. The 340 above is this law on the diagonal under the
  * old `max(0, move.y)` gate, which put 0.707 of it in play: 233 / 0.707 = 329.
+ *
+ * It was 233 until 2026-09-24, when the walk and the run came down about
+ * tenfold with the body; 25 keeps the curve in step with them.
  */
-const RETURN_RADIUS = 233;
+const RETURN_RADIUS = 25;
 /**
  * The ceiling when the error is large, and why there are two of them.
  *
  * `RETURN_RADIUS` is a **radius**: `velocity / RETURN_RADIUS` holds the
- * camera's arc at 233 units whether you walk or run, which is the curve
+ * camera's arc at one radius whether you walk or run (233 units when this was
+ * measured, 25 since 2026-09-24), which is the curve
  * somebody running makes when they change their mind. That is the right law for
  * a small error, because a small error *is* a curve you are walking.
  *
@@ -252,7 +306,8 @@ const RETURN_RADIUS = 233;
  * were going.
  *
  * So the ceiling opens with the error, from the radius law at `RETURN_WIDE`
- * (below which nothing changes, and the 340-unit measurement still holds) to
+ * (below which nothing changes, and the 340-unit measurement still holds at
+ * the scale of its radius) to
  * `RETURN_RUSH` at a half-turn — 150 deg/s, which closes 180 degrees in about
  * 1.2 seconds. Fast enough to be a turn and slow enough to be a swing.
  */
@@ -278,7 +333,7 @@ const LOOK_DEADZONE = 0.002;
  * the eye follows the height and not the chin, and moves with it.
  *
  * **The body is hidden rather than clipped.** In first person `main.ts` puts
- * the near plane at 0.15 of the eye's height over the feet — 0.95 units — and
+ * the near plane at 0.15 of the eye's height over the feet — 0.31 units — and
  * the head is under a unit across sitting on the lens; what you would see is
  * not a face but a full-screen rectangle of ink, because `OutlineEffect` hulls
  * the mesh and the hull is the thing you are inside. Hiding the avatar leaves
@@ -366,9 +421,14 @@ function ramp(value: number, from: number, to: number): number {
 }
 
 export function createCameraRig(options: CameraOptions = {}): CameraRig {
-  const camera = new THREE.PerspectiveCamera(FOV, 1, NEAR, FAR);
+  const camera = new THREE.PerspectiveCamera(FOV_FOOT, 1, NEAR, FAR);
   const { blocks, onViewRefused } = options;
   const view = { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height };
+  /** The walking framing at a zoom of the wheel's: see `ZOOM_RISE`. */
+  const walkFraming = (at: number, into: { distance: number; height: number }): void => {
+    into.distance = WALK_FRAMING.distance * at;
+    into.height = WALK_FRAMING.height * Math.pow(at, ZOOM_RISE);
+  };
   /**
    * The wheel's multiple of `WALK_FRAMING`, and where it is heading. `view`
    * is only written while the two differ, so a framing set by hand from the
@@ -440,6 +500,19 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
   const look = new THREE.Vector3();
   const cross = new THREE.Vector3();
   const travel = new THREE.Vector3();
+  /** What the lens looks at: the pivot, on foot moved `SHOULDER` to the right with the camera. */
+  const target = new THREE.Vector3();
+  const drift = new THREE.Vector3();
+  /**
+   * On foot, the pivot as the camera follows it: the body's head chased at
+   * `CAMERA_LAG` across and `CAMERA_LAG_UP` along `up`. **The chase is on the
+   * pivot and not on the lens**, so turning the view is an exact orbit round
+   * the body at the frame it happens; a lens chased through space cut the
+   * chord of every turn and the body drifted round the screen.
+   */
+  const orbit = new THREE.Vector3();
+  /** How far out from the pivot the lens is held after a wall; see `WALL_RELEASE`. */
+  let held = Infinity;
   const previous = new THREE.Vector3();
   /** How much of the lead term is in play; 1 in a vehicle, 0 on foot. */
   let lead = 0;
@@ -482,14 +555,18 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       framing.height = BOAT_FRAMING.height;
     } else {
       // The wheel's framing, so a landing comes back to the zoom you chose.
-      framing.distance = WALK_FRAMING.distance * zoomTarget;
-      framing.height = WALK_FRAMING.height * zoomTarget;
+      walkFraming(zoomTarget, framing);
     }
   }
 
-  /** Where the camera wants to be, before any interpolation or collision. */
-  function place(player: Player): void {
-    pivot.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
+  /**
+   * Where the camera wants to be, before any interpolation or collision. On
+   * foot `follow` hands in the pivot it has smoothed (`orbit`), because on foot
+   * the chase is on the pivot and the orbit round it is exact.
+   */
+  function place(player: Player, smoothed = false): void {
+    if (smoothed) pivot.copy(orbit);
+    else pivot.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
 
     // `view` sets the framing; pitch tilts that whole offset about the camera's
     // own right axis, so the distance is preserved and only the elevation
@@ -505,6 +582,10 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     // Negative: a positive rotation about the right axis would drop the camera.
     offset.applyAxisAngle(right, -pitch);
     desired.copy(pivot).add(offset);
+    // Camera and aim moved right together: see `SHOULDER`.
+    const framed = player.vehicle === 'foot' ? 1 - ramp(zoom, 2, 5) : 0;
+    desired.addScaledVector(right, SHOULDER * framed);
+    target.copy(pivot).addScaledVector(right, SHOULDER * framed);
   }
 
   /**
@@ -541,7 +622,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       sample.copy(pivot).addScaledVector(offset, t * distance);
       // The margin grows from nothing at the pivot to the full lens
       // clearance at the far end. Demanding clearance the whole way asks the
-      // ground to stay 8 units from the player's own shoulders, which it
+      // ground to stay that far from the player's own shoulders, which it
       // never is: every low camera then read as blocked and got yanked into
       // the avatar's back.
       if (ground && sample.length() < groundRadiusAt(sample) + CLEARANCE * t) {
@@ -584,7 +665,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * ever look down.
    */
   function aimAt(player: Player, lift: number): void {
-    sample.copy(pivot).addScaledVector(player.up, lift);
+    sample.copy(target).addScaledVector(player.up, lift);
 
     // The roll, chosen rather than inferred. `camera.up` follows the surface
     // normal — which is why the view does not roll over when you cross a pole —
@@ -597,6 +678,16 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     const along = length > 1e-6 ? Math.abs(look.dot(player.up) / length) : 0;
     camera.up.copy(player.up).lerp(heading, ramp(along, ROLL_FADE_FROM, ROLL_FADE_TO)).normalize();
     camera.lookAt(sample);
+  }
+
+  /** Eases the lens towards the one for what you are doing; see `FOV_FOOT`. */
+  function lens(player: Player, rate: number): void {
+    const wanted = player.vehicle !== 'foot' ? FOV_CRAFT
+      : firstPerson ? FOV_EYE
+      : FOV_FOOT + FOV_RUN * ramp(player.velocity, WALK_SPEED, RUN_SPEED);
+    if (Math.abs(wanted - camera.fov) < 0.01) return;
+    camera.fov += (wanted - camera.fov) * rate;
+    camera.updateProjectionMatrix();
   }
 
   /** True when the eye is actually in the head: first person is a foot mode. */
@@ -652,6 +743,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     // calling `lookAt` here is what keeps the explicit roll: straight down, the
     // view direction is parallel to `up` and there is no roll left to infer.
     pivot.copy(camera.position).addScaledVector(offset, EYE_FOCUS);
+    target.copy(pivot);
     aimAt(player, 0);
   }
 
@@ -690,8 +782,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       if (zoom !== zoomTarget && player.vehicle === 'foot' && !driving) {
         zoom += (zoomTarget - zoom) * approach(ZOOM_RATE, dt);
         if (Math.abs(zoomTarget - zoom) < 1e-3) zoom = zoomTarget;
-        view.distance = WALK_FRAMING.distance * zoom;
-        view.height = WALK_FRAMING.height * zoom;
+        walkFraming(zoom, view);
       }
 
       align(player);
@@ -749,7 +840,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
           const away = Math.atan2(cross.dot(player.up), heading.dot(player.forward));
           // The ceiling opens with the error, and **the speed factor rides the
           // radius half only**. `velocity / RETURN_RADIUS` is there to hold the
-          // arc at 233 units whether you walk or run; the rush explicitly abandons
+          // arc at one radius whether you walk or run; the rush explicitly abandons
           // the radius law, so scaling it by speed would put the same argument
           // on both sides of its own exception — and it measures as one, a
           // half-turn at a walk taking 3.5 s instead of 1.2.
@@ -773,6 +864,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     },
     follow(dt, player, groundRadiusAt) {
       want(player);
+      lens(player, approach(FOV_RATE, dt));
       if (player.vehicle !== 'foot') driving = true;
       if (driving) {
         const rate = approach(FRAMING_RATE, dt);
@@ -813,14 +905,41 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         eye(player);
         return;
       }
+      if (player.vehicle === 'foot') {
+        // Chase the pivot, then orbit it exactly.
+        drift.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT).sub(orbit);
+        if (drift.lengthSq() > AVATAR_HEIGHT * AVATAR_HEIGHT * 400) drift.multiplyScalar(1 / chase);
+        const rise = drift.dot(player.up);
+        drift.addScaledVector(player.up, -rise);
+        orbit.addScaledVector(drift, chase).addScaledVector(player.up, rise * approach(CAMERA_LAG_UP, dt));
+        place(player, true);
+        const lift = unclip(desired, groundRadiusAt, true);
+        // A wall pulls the lens in at once and lets it out gently.
+        drift.subVectors(desired, pivot);
+        const reach = drift.length();
+        held = reach < held ? reach : held + (reach - held) * approach(WALL_RELEASE, dt);
+        camera.position.copy(pivot).addScaledVector(drift, reach > 1e-6 ? held / reach : 0);
+        showBody(player, camera.position.distanceTo(pivot) > BODY_NEAR);
+        aimAt(player, lift);
+        return;
+      }
+      // In a craft the lens is chased as it always was, and the pivot is
+      // kept where the body is for the step back ashore.
+      orbit.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
+      held = Infinity;
       place(player);
       desired.addScaledVector(travel, lead * trail);
-      const walls = player.vehicle === 'foot';
+      const walls = false;
       // The ground is answered where the camera wants to be, not where it has
       // got to so far. Measured after the interpolation, the lift is only the
       // sliver the lerp gave back each frame, and the aim barely moves.
       const lift = unclip(desired, groundRadiusAt, walls);
-      camera.position.lerp(desired, chase);
+      // Across at the chase and along `up` slower, on foot: see `CAMERA_LAG_UP`.
+      drift.subVectors(desired, camera.position);
+      const rise = drift.dot(player.up);
+      drift.addScaledVector(player.up, -rise);
+      camera.position.addScaledVector(drift, chase)
+        .addScaledVector(player.up, rise * (walls ? approach(CAMERA_LAG_UP, dt) : chase));
       // Again on the smoothed position, because the lerp cuts corners: it
       // crosses the ground the target was already clear of — and a lens
       // swinging back out after a wall passes through the building it left.
@@ -829,6 +948,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       aimAt(player, lift);
     },
     snap(player, groundRadiusAt) {
+      lens(player, 1);
       lastUp.copy(player.up);
       // Without this the frame after a teleport measures the whole jump as one
       // frame of velocity, and the lead throws the camera across the planet.
@@ -858,7 +978,9 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         return;
       }
 
-      place(player);
+      orbit.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
+      held = Infinity;
+      place(player, player.vehicle === 'foot');
       const lift = unclip(desired, groundRadiusAt, player.vehicle === 'foot');
       camera.position.copy(desired);
       showBody(player, camera.position.distanceTo(pivot) > BODY_NEAR);

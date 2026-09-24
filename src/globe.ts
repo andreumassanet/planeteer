@@ -17,18 +17,19 @@ import { latOf, lonOf, unitAt } from './sphere.ts';
  * At 400 the world was a marble: the horizon (~sqrt(2*R*h)) was 126 units and
  * Spain is 70 wide, so you saw a whole country at once. 4000 fixed that but was
  * still too small for its own islands — Mallorca came out 59 units across
- * against a 6.8-unit avatar, a 1.3-second walk. At 16000 it is 235 units, about
- * 35 avatars, and a lap of the planet is 19 minutes at a run.
+ * against the 6.8-unit avatar of the time, a 1.3-second walk. At 16000 it is
+ * 235 units, about sixty people of today's 3.77, and a lap of the planet is
+ * about two hours at a run (19 minutes at the run of 90, before 2026-09-24).
  *
  * Note what does *not* change with it: the triangle count. The land mesh is
  * built from angles, not distances, so a bigger planet is the same 302,000
  * triangles spread further apart. Nor does `LAND_HEIGHT`: a coastal cliff is a
- * human-scale feature, so it stays 20 units — three avatars — while the
+ * human-scale feature, so it stays 20 units — five people — while the
  * geography around it grows.
  */
 export const PLANET_RADIUS = 16000;
 
-/** World units per degree of arc. One degree is 279 units; the player is 6.8. */
+/** World units per degree of arc. One degree is 279 units; the player is 3.77. */
 export const UNITS_PER_DEGREE = (PLANET_RADIUS * Math.PI) / 180;
 
 // Re-exported so nothing outside `geo.ts` has to know that the cliff height
@@ -128,7 +129,7 @@ const PAD_SAG = 0.6;
  * Floor on the edge length: at some point a smaller triangle is a smaller
  * triangle and not more mountain. Without it a cliff in the noise would recurse
  * until the pass limit stopped it, and pay a few hundred thousand triangles for
- * a feature two avatars wide.
+ * a feature twenty units wide.
  */
 const MIN_EDGE = 0.08 * DEG;
 
@@ -175,8 +176,8 @@ const EMBED = 25;
  * Thinnest triangle worth keeping, in world units: its area over its longest
  * edge, which is its own height.
  *
- * A triangle this thin is invisible — a twentieth of a unit against a 6.8-unit
- * avatar — and its normal is worse than invisible. Positions are float32, so at
+ * A triangle this thin is invisible — a twentieth of a unit against a 3.77-unit
+ * person — and its normal is worse than invisible. Positions are float32, so at
  * a radius of 16,000 they carry about a thousandth of a unit; the cross product
  * of two edges of a sliver is made of that rounding error and points wherever it
  * likes, including sideways out of a horizontal surface.
@@ -826,8 +827,9 @@ export async function landFlags(world: World, mesh: THREE.Mesh): Promise<FlagLay
  * `groundColorAt`'s readers (a town's floor, a road's verge) need not know it
  * exists.
  *
- * Twelve units is 1.8 avatars, against the reference's facets at about 1.5 of
- * its own character; it is also the plot pitch of the kit's tightest region
+ * Twelve units was 1.8 avatars while a person was 6.8 units (three people of
+ * today's 3.77), against the reference's facets at about 1.5 of its own
+ * character; it is also the plot pitch of the kit's tightest region
  * (13), so a town's paving cells and the land's are the same grain and the
  * town is part of the mosaic rather than a plate on it. Human scale, like
  * `LAND_HEIGHT`: it does not move with `PLANET_RADIUS`. `HEX_SUPER` is the

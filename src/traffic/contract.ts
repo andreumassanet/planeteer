@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SCENERY_SCALE, STOREY, AVATAR_HEIGHT, createSceneryContext } from '../scenery/contract.ts';
+import { BODY_SCALE } from '../stature.ts';
 import { measure } from '../monuments/contract.ts';
 import type { Measurements } from '../monuments/contract.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
@@ -52,7 +53,9 @@ import type { Rng, Weighted } from '../scenery/random.ts';
 
 /**
  * **A vehicle is built at `SCENERY_SCALE`, 1.267 units per metre, the same as
- * every house and every road. It is not built against the 6.8-unit person.**
+ * every house and every road.** Until 2026-09-24 it was not built against the
+ * person, who was 6.8 units tall; since then a person is 3.77 (`stature.ts`),
+ * and the vehicle is placed at `PLACED_SECTION` to stand beside him.
  *
  * This is the one decision in the file and everything else is downstream, so it
  * is written out with the numbers rather than asserted. Three things want to
@@ -75,6 +78,7 @@ import type { Rng, Weighted } from '../scenery/random.ts';
  *                                                             likewise)
  *   gabled-house        6.2 .. 7.8 wide, 7.6 tall at 2 storeys
  *   a person            6.80 tall, 5.46 seated, 2.60 across the shoulders
+ *                       (until 2026-09-24; 3.77 tall now, `AVATAR_HEIGHT`)
  * ```
  *
  * **At avatar scale a car is wider than a lane.** 6.62 against 5.5: it does not
@@ -91,17 +95,20 @@ import type { Rng, Weighted } from '../scenery/random.ts';
  * expect, because **the roads and the houses were both authored at this scale
  * and the person is the only thing in the world that was not.**
  *
- * So the cost of the decision is precisely one thing: **a 6.8-unit person is
- * three times too big to stand beside these vehicles**, exactly as he is
- * already three times too big beside the houses. He is not a new error, he is
- * the existing one arriving somewhere it shows more — and it shows more because
- * the error scales with how close the object's size is to a person's. A house
- * is four times a person, so a 3x error still leaves it overhead and it reads as
- * *slightly toy*. A car is one person tall, so the same 3x error puts the roof
- * at his knee and it reads as *broken*.
+ * So the cost of the decision, while a person was 6.8 units, was precisely one
+ * thing: **he was three times too big to stand beside these vehicles**, exactly
+ * as he was three times too big beside the houses. He was not a new error, he
+ * was the existing one arriving somewhere it showed more — and it showed more
+ * because the error scales with how close the object's size is to a person's.
+ * A house is four times a person, so a 3x error still left it overhead and it
+ * read as *slightly toy*. A car is one person tall, so the same 3x error put the
+ * roof at his knee and it read as *broken*. On 2026-09-24 the person came down
+ * to 3.77 units, 1.7 times this scale (`STATURE` in `stature.ts`), and the
+ * vehicles are placed 1.35 times it (`PLACED_SECTION`), which leaves most of
+ * the error gone and the rest chosen.
  *
- * **`RIDER_SCALE` is the answer to that and it is not a fudge**: a rider is the
- * crowd's own figure scaled to this world, and every seat in the kit is
+ * **`RIDER_SCALE` was the answer to it until then and it is not a fudge**: a
+ * rider is the crowd's own figure scaled to this world, and every seat in the kit is
  * validated against the seated pose *after* that scaling, mechanically, in
  * `validateVehicle`. See `SEATED`.
  *
@@ -117,68 +124,51 @@ export { SCENERY_SCALE, STOREY, AVATAR_HEIGHT };
 // ---------------------------------------------------------------------------
 
 /**
- * **The kit is authored at `SCENERY_SCALE` and placed at twice it.**
+ * **The kit is authored at `SCENERY_SCALE` and placed at 1.35 times it**, since
+ * 2026-09-24, because a person is drawn at 1.7 times it (`STATURE`) and 1.35 is
+ * as much as a 7.2-unit road lets two cars pass on.
  *
- * The arithmetic above is right about every relation it measures and it is
- * measuring the wrong pair. It sizes a car against the *road* and against the
- * *house*, both of which are 1.267 units per metre, and gets a car that fits
- * both — and then the thing standing at the kerb is a 6.8-unit person, because
- * `AVATAR_HEIGHT` was decided before any of this and every person on the planet
- * is built from it. A hatchback at 1:1.267 is **1.96 tall against a 6.8 avatar:
- * 29% of him, where life gives 83%.** The roof is at his knee. The file's own
- * conclusion says what that reads as, and it was right: *broken* rather than
- * toy.
+ * Until then it was placed at twice it, and the reason is worth keeping. The
+ * arithmetic above sized a car against the *road* and the *house*, both 1.267
+ * units per metre, and the thing standing at the kerb was a 6.8-unit person: a
+ * code-built hatchback at 1:1.267 was **1.96 tall against him, 29% of him,
+ * where life gives 83%**, the roof at his knee. So the section doubled — the
+ * roof came to his chest — at the price of a vehicle **twice the size it should
+ * be relative to a building**, and the roads were widened by 1.5 to take it
+ * (`ROAD_CLASSES` 8.25, 12.75 and 18; `GroundStyle.street` likewise).
  *
- * So the section doubles. What that buys, measured on the built kit:
+ * With the person at 3.77 units the section is 1.35 rather than 2. The
+ * declared sizes of the baked kit, `[length, width, height]`, placed (by
+ * arithmetic from the authored sizes; his chest is about 2.46 on this body):
  *
  * ```
- *                     authored          placed (x2)      against the avatar
- *   hatchback   5.16 x 2.22 x 2.13   10.32 x 4.44 x 4.26   roof at chestY 4.44
- *   boxy-suv    5.70 x 2.44 x 2.78   11.40 x 4.88 x 5.56   roof at chinY 5.10
- *   minibus     6.85 x 2.60 x 3.84   13.70 x 5.20 x 7.68   over his head
- *   bicycle     2.50 x 0.55 x 1.35    5.00 x 1.10 x 2.70   bars at hipY 3.00
+ *   hatchback   6.59 x 3.00 x 2.57   roof just over his chest
+ *   boxy-suv    6.29 x 3.29 x 2.88   roof between his chest and crown
+ *   minibus     7.10 x 3.51 x 3.62   roof just under his crown (3.77)
+ *   bicycle     3.40 x 0.89 x 1.85
  * ```
  *
- * A car roof at the chest is what a car looks like from the pavement, and it is
- * the one relation that could not be got by rescaling anything else: the roads
- * and the houses are already at 1.267 and moving *them* moves the whole world.
- *
- * **What it costs is written down rather than hidden.** A placed car is 10.3
- * long against a 7.0-wide, 7.6-tall house — as long as the house is tall, where
- * life gives 0.36 of it. Every made thing in this world is compressed 3x
- * against a person and the vehicles are now compressed 1.5x, so a vehicle is
- * **twice the size it should be relative to a building** and correct relative
- * to the person who gets out of it. That is the same trade every monument crop
- * in this project makes, and the person is the one to be right about because he
- * is the one you stand next to.
- *
- * The roads were widened by 1.5 to take it — `ROAD_CLASSES` in `roads.ts` and
- * `GroundStyle.street` in `scenery/ground.ts` — which is less than 2 on purpose:
- * two placed hatchbacks are 8.88 across against a 8.25-unit lane, so on a lane
- * they give way to each other and on a `road` (12.75) they pass, which is what
- * those two classes are for.
+ * so a car is a little large against the house and a little small against the
+ * person, which is the compromise. Every road class came back to one width,
+ * 7.2 (`ROAD_CLASSES` in `roads.ts`), on which two hatchbacks, 6.0 across
+ * together and 6.6 with 0.3 either side, pass. A bus (4.46) and a car do not.
  */
-export const PLACED_SECTION = 2;
+export const PLACED_SECTION = 1.35;
 
 /**
- * How long a placed vehicle may come out, before the length stops doubling.
+ * How long a placed vehicle may come out, before the length is cropped.
  *
- * **The section is a relation to a person and the length is not.** Doubling a
- * city bus takes it to 29.5 units against a **median settlement radius of 32**
- * — one bus is the town — and past about twenty units a road vehicle also stops
- * fitting the curvature of the road it is on, because `courseOf` bends and a
- * rigid body does not. So the length is capped and the section is not, which
- * crops the longest vehicles rather than shrinking them: exactly what every
- * monument in this project does to a city.
+ * **The section is a relation to a person and the length is not.** Past about
+ * twenty units a road vehicle stops fitting the curvature of the road it is on,
+ * because `courseOf` bends and a rigid body does not, so the length is capped
+ * and the section is not, which crops the longest vehicles rather than
+ * shrinking them: exactly what every monument in this project does to a city.
  *
- * **It binds on one vehicle of the eighteen** and that is the measurement worth
- * keeping, because the request that produced it named three. Placed lengths, in
- * order: bicycle 5.0, scooter 5.1, hand-cart 5.5, auto-rickshaw 6.6, tractor
- * 7.7, kei truck 8.6, rowing boat 9.0, sailing dinghy 9.2, hatchback 10.3,
- * SUV 11.4, saloon 11.8, panel van 12.7, pickup 13.6, minibus 13.7, fishing
- * boat 18.2, box truck 19.4, **city bus 20.0 (from 29.5)**. The tractor was
- * expected to need cropping and does not: at 7.7 it is shorter than a
- * hatchback, and cropping it would give a cube with wheels on.
+ * **While the section was doubled it bound on one vehicle of the eighteen**: the
+ * code-built city bus, 29.5 placed, cropped to 20. Since 2026-09-24 a vehicle is
+ * placed at 1.35, the longest declared size on the road or the water is the
+ * city bus's 7.74, 10.4 placed, and the cap binds on none; it stays as the
+ * guard it is.
  */
 export const PLACED_LENGTH_CAP = 20;
 
@@ -247,35 +237,35 @@ export function placedSize(vehicle: Vehicle): [number, number, number] {
  */
 export const SEATED = {
   /** Standing, for reference. */
-  standing: 6.8,
+  standing: 6.8 * BODY_SCALE,
   /** Crown above the seat surface, bare head. */
-  crown: 3.84,
+  crown: 3.84 * BODY_SCALE,
   /**
    * Clear height a seat must have over it. The envelope over 400 bodies, not
    * the canonical one: 3.9 for a bare head, 4.8 to admit a conical hat or a
    * headload. A vehicle picks one and says which.
    */
-  headroomBare: 3.9,
-  headroomHatted: 4.8,
+  headroomBare: 3.9 * BODY_SCALE,
+  headroomHatted: 4.8 * BODY_SCALE,
   /** Sole below the seat. A footwell shallower than this puts the boot through the floor. */
-  sole: 1.75,
+  sole: 1.75 * BODY_SCALE,
   /** Knee ahead of it, so the seat pan has to be at least this deep. */
-  knee: 1.34,
+  knee: 1.34 * BODY_SCALE,
   /** Toe ahead of it. A pedal or footrest wants to sit between the knee and here. */
-  toe: 1.97,
+  toe: 1.97 * BODY_SCALE,
   /** Back of the body behind it. What a seat back has to clear. */
-  back: 0.72,
+  back: 0.72 * BODY_SCALE,
   /** Half-width at the hips. Never the number to size a cab with. */
-  hipHalf: 0.98,
+  hipHalf: 0.98 * BODY_SCALE,
   /** Half-width at the shoulders. Also not the number to size a cab with. */
-  shoulderHalf: 1.3,
+  shoulderHalf: 1.3 * BODY_SCALE,
   /**
    * **Clear width a seat must have across it, elbows and all.** The one number
    * that gets a cab wrong, because the two obvious candidates — 1.96 across the
    * hips and 2.60 across the shoulders — are both smaller and both look like
    * the right answer.
    */
-  beam: 4.3,
+  beam: 4.3 * BODY_SCALE,
 } as const;
 
 /** The shape of the crowd's figure record, as much of it as this kit reads. */
@@ -302,8 +292,8 @@ export interface CrowdBody {
 export function seatedDrift(body: CrowdBody): string[] {
   const owed: [string, number, number][] = [
     ['standing', SEATED.standing, body.height],
-    ['crown (before the head cap)', SEATED.crown - 0.04, body.height - body.hip],
-    ['sole (canonical, before the envelope)', 1.66, body.shin + body.ankle],
+    ['crown (before the head cap)', SEATED.crown - 0.04 * BODY_SCALE, body.height - body.hip],
+    ['sole (canonical, before the envelope)', 1.66 * BODY_SCALE, body.shin + body.ankle],
     ['knee', SEATED.knee, body.thigh],
     ['hipHalf', SEATED.hipHalf, body.hipHalf],
     ['shoulderHalf', SEATED.shoulderHalf, body.shoulderHalf],
@@ -321,10 +311,12 @@ export function seatedDrift(body: CrowdBody): string[] {
  * and the flat facets keep their proportions. A person of 1.82 m at
  * `SCENERY_SCALE` is this.
  *
- * **It is a third of the crowd's own height, and that is the whole cost of the scale
- * decision above.** A rider on a bicycle in a street is a third the size of the
- * pedestrian on the pavement beside him. There is no arrangement of these
- * numbers that avoids it: the vehicle fits the road or it fits the person.
+ * **It was a third of the crowd's own height while a person was 6.8 units**
+ * (until 2026-09-24), and that was the whole cost of the scale decision above:
+ * a rider on a bicycle was a third the size of the pedestrian beside him. With
+ * the crowd at `AVATAR_HEIGHT`, 1.75 m at 1.7 times the scale, a 1.82 m rider
+ * placed at `PLACED_SECTION` is 3.11 against the pedestrian's 3.77: smaller,
+ * by the ratio of the two scales and not by the two heights.
  */
 export const RIDER_HEIGHT = 1.82 * SCENERY_SCALE;
 
@@ -508,7 +500,7 @@ export interface Mount {
    *
    * **This is the number that decides how many people a cab holds, and the
    * answer in this kit is always one.** A rider's elbows span 1.46 at
-   * `RIDER_SCALE` and a 2.22-wide hatchback has about 1.9 of interior, so a
+   * `RIDER_SCALE` and a hatchback authored 2.22 wide has about 1.9 of interior, so a
    * second seat beside the first would need 2.9. Every enclosed driver in the
    * kit therefore sits on the centreline, and that is arithmetic rather than a
    * modelling shortcut.
@@ -607,8 +599,9 @@ export interface TrafficContext extends SceneryContext {
    *
    * **By width first, and that is the whole scale decision for the assets.**
    * The packs draw vehicles as toys: a Kenney sedan is 0.59 as wide as it is
-   * long against a real one's 0.38. Sized to its length it would be seven
-   * placed units wide and no longer share a lane; sized to its width it fits
+   * long against a real one's 0.38. Sized to its length it would be about
+   * three and a half units wide (seven while vehicles were placed at twice
+   * their authored scale, until 2026-09-24) and no longer share a lane; sized to its width it fits
    * every lane rule `ROAD_CLASSES` was built on and comes out shorter, which is
    * what a toy car is. The declared `size` of a part follows from the model.
    *

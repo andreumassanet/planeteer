@@ -258,8 +258,8 @@ const SHORE_BIAS = 32;
  * rather than merely resolved.
  *
  * The inner value is capped by the boat, which floats at a fixed
- * `PLANET_RADIUS` and does not know this file exists: 0.75 units is a ninth of
- * the avatar, so the hull sits a little into the surf at the shore and level
+ * `PLANET_RADIUS` and does not know this file exists: 0.75 units is a third of
+ * a person (a ninth while a person was 6.8 units, until 2026-09-24), so the hull sits a little into the surf at the shore and level
  * with the sea everywhere else.
  */
 const LIFT_COAST = 0.75;

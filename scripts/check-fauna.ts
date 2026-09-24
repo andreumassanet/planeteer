@@ -39,6 +39,7 @@ import {
   validateAnimal,
   variantRng,
 } from '../src/fauna/contract.ts';
+import { BODY_SCALE, PERSON_METRES, STATURE } from '../src/stature.ts';
 import type { Animal, FaunaStyle, GaitName } from '../src/fauna/contract.ts';
 import { buildAnimal, hooves, legsOf, poseBody, strideOf } from '../src/fauna/body.ts';
 import type { Pose } from '../src/fauna/body.ts';
@@ -127,13 +128,13 @@ for (const id of Object.keys(RANGE)) {
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nscale — an animal is a living thing, so it is avatar-scale');
+console.log('\nscale — an animal is at the world\'s scale, with the person beside her');
 // ---------------------------------------------------------------------------
 
-check(Math.abs(FAUNA_SCALE - AVATAR_HEIGHT / 1.8) < 1e-9,
+check(Math.abs(FAUNA_SCALE - AVATAR_HEIGHT / PERSON_METRES) < 1e-9,
   'FAUNA_SCALE is derived from AVATAR_HEIGHT', `${n(FAUNA_SCALE, 4)} units/m`);
-check(FAUNA_SCALE > SCENERY_SCALE * 2.5,
-  'and it is not SCENERY_SCALE', `${n(FAUNA_SCALE, 2)} against ${n(SCENERY_SCALE, 3)} — a factor of ${n(FAUNA_SCALE / SCENERY_SCALE, 2)}`);
+check(Math.abs(FAUNA_SCALE - SCENERY_SCALE * STATURE) < 1e-9,
+  'and it is the world\'s scale drawn at the stature people are', `${n(FAUNA_SCALE, 4)} against ${n(SCENERY_SCALE, 4)} x ${STATURE}`);
 // The relation the traffic kit says is the one to be right about.
 const cowMetres = 1.4;
 check(m(cowMetres) / AVATAR_HEIGHT > 0.7 && m(cowMetres) / AVATAR_HEIGHT < 0.85,
@@ -483,28 +484,25 @@ check(nativeHere('sheep', 'polar') && nativeHere('cattle', 'oceania'),
   'sheep and cattle are unlisted, so they live anywhere');
 
 // ---------------------------------------------------------------------------
-console.log('\nlegibility — what avatar scale bought, in pixels');
+console.log('\nlegibility — what an animal is on the screen, in pixels');
 // ---------------------------------------------------------------------------
 
 /** The project's own lens: `937 * size / distance`. */
 const px = (size: number, distance: number): number => (937 * size) / distance;
-const BIRD_SPAN = 4.2;
-console.log('\n  id          length   at 300u   at 120u   at 40u    if it were scenery-scale, at 300u');
+const BIRD_SPAN = 4.2 * BODY_SCALE;
+console.log('\n  id          length   at 300u   at 120u   at 40u');
 for (const row of rows) {
   const length = row.length[1];
   console.log(
     `  ${row.animal.id.padEnd(11)} ${n(length, 2).padStart(6)}` +
-    `  ${n(px(length, 300), 1).padStart(7)}   ${n(px(length, 120), 1).padStart(7)}   ${n(px(length, 40), 1).padStart(6)}` +
-    `   ${n(px((length * SCENERY_SCALE) / FAUNA_SCALE, 300), 1).padStart(6)}`,
+    `  ${n(px(length, 300), 1).padStart(7)}   ${n(px(length, 120), 1).padStart(7)}   ${n(px(length, 40), 1).padStart(6)}`,
   );
 }
 const smallest = Math.min(...rows.map((row) => row.length[1]));
 check(px(smallest, 300) >= px(BIRD_SPAN, 300),
   'the smallest animal is at least as legible at 300 units as a bird is',
   `${n(px(smallest, 300), 1)} px against the gull's ${n(px(BIRD_SPAN, 300), 1)}`);
-check(px((smallest * SCENERY_SCALE) / FAUNA_SCALE, 300) < px(BIRD_SPAN, 300),
-  'and at scenery scale it would not have been',
-  `${n(px((smallest * SCENERY_SCALE) / FAUNA_SCALE, 300), 1)} px — which is why the gull needed a crop`);
+
 
 // ---------------------------------------------------------------------------
 console.log('\nin the world — what a herd costs, against what a mover would');
@@ -664,9 +662,12 @@ console.log('\nin the world — what a herd costs, against what a mover would');
     for (let frame = 0; frame < 40; frame++) fresh.update(spot, 8, undefined, frame * 0.05);
     return { reached: fresh.herds.clearOfTown, kept: fresh.herds.clearOfSlope };
   };
+  // The herd scan reaches `HERD_REACH`, six to thirteen cells since it came
+  // down with the animals (2026-09-24), so a steep place is one whose nearest
+  // cells are steep: the fjord is Geiranger, where the first six are.
   const STEEP: [string, number, number][] = [
     ['the Alps', 46.5, 8.0],
-    ['a Norwegian fjord', 61.1, 7.1],
+    ['Geirangerfjord', 62.1, 7.2],
   ];
   const GENTLE: [string, number, number][] = [
     ['the Sahara', 23.0, 12.0],

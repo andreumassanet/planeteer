@@ -6,6 +6,7 @@
  * imported by hand.
  */
 import { Box3, Vector3 } from 'three';
+import { BODY_SCALE } from '../src/stature.ts';
 import { createSceneryContext, KINDS, measure, validatePart } from '../src/scenery/contract.ts';
 import type { ScenicPart } from '../src/scenery/contract.ts';
 import { REGIONS, REGION_IDS } from '../src/scenery/regions.ts';
@@ -110,8 +111,8 @@ for (const part of [villager, child]) {
 function silhouette(group: import('three').Group, distance: number): Uint8Array {
   group.updateMatrixWorld(true);
   const pxPerUnit = 937 / distance;
-  const halfWidth = 3.0;
-  const top = 9.0;
+  const halfWidth = 3.0 * BODY_SCALE;
+  const top = 9.0 * BODY_SCALE;
   const w = Math.max(4, Math.round(halfWidth * 2 * pxPerUnit));
   const h = Math.max(4, Math.round(top * pxPerUnit));
   const bits = new Uint8Array(w * h);
@@ -233,9 +234,9 @@ const SHARES = [0.02, 0.05, 0.1];
 
 function report(label: string, looks: Look[]): void {
   for (const [distance, tall] of [
-    [40, '159 px tall'],
-    [120, '53 px'],
-    [300, '21 px'],
+    [Math.round(40 * BODY_SCALE), '159 px tall'],
+    [Math.round(120 * BODY_SCALE), '53 px'],
+    [Math.round(300 * BODY_SCALE), '21 px'],
   ] as const) {
     const ink = varietyAt(looks.slice(0, 40), distance, 0).ink;
     const counts = SHARES.map((share) => {

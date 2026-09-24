@@ -8,6 +8,7 @@ import { bodyPaint, makeRigged, modelFrom, modelMaterial, onPalette, paintModel,
 import type { Model, Paint } from '../models.ts';
 import { PALETTE } from '../theme.ts';
 import { createSceneryContext } from '../scenery/contract.ts';
+import { AVATAR_HEIGHT } from '../stature.ts';
 import { buildVariant as buildPart } from '../scenery/index.ts';
 import { REGIONS } from '../scenery/regions.ts';
 import { measure } from '../monuments/contract.ts';
@@ -648,7 +649,7 @@ export const SETS: Record<string, LabSet> = {
         hero: false,
         az: Math.PI / 2 - (35 * Math.PI) / 180,
         async build() {
-          const person = cast.make('man-hoodie', () => null, 6.8);
+          const person = cast.make('man-hoodie', () => null, AVATAR_HEIGHT);
           const action = person.actions.get(name);
           if (action === undefined) throw new Error(`no clip ${name}`);
           action.play();
@@ -671,7 +672,7 @@ export const SETS: Record<string, LabSet> = {
         if (probe === null) break;
         const bones = [...probe.bones.keys()];
         (window as unknown as { labBones?: string[] }).labBones ??= bones;
-        const young = probe.root.scale.x < 0.9 * (folk.dress(key, 'atlantic-europe', undefined, 6.8)?.root.scale.x ?? 0);
+        const young = probe.root.scale.x < 0.9 * (folk.dress(key, 'atlantic-europe', undefined, AVATAR_HEIGHT)?.root.scale.x ?? 0);
         folk.release(probe);
         (young ? children : adults).push(key);
       }

@@ -192,19 +192,21 @@ console.log('\n  what fits what, at the placed scale:');
  * **This table is now about the vehicle as *placed*, not as authored, and the
  * assertion at the bottom moved with it.**
  *
- * `src/life.ts` and `src/settlements.ts` put a vehicle down at `placedScale` —
- * twice the section, cropped in length — because a car at the authored scale has
- * its roof at the avatar's knee. So the widths that meet a carriageway are the
- * placed ones, and `ROAD_CLASSES` and `GroundStyle.street` were both widened by
- * 1.5 to take them.
+ * `src/life.ts` and `src/settlements.ts` put a vehicle down at `placedScale`,
+ * cropped in length, so the widths that meet a carriageway are the placed ones.
+ * Until 2026-09-24 that was twice the section, because a car at the authored
+ * scale had its roof at the 6.8-unit avatar's knee, and `ROAD_CLASSES` and
+ * `GroundStyle.street` were both widened by 1.5 to take it; since a person came
+ * down to 3.77 units the section is placed at 1.35 (`PLACED_SECTION`).
  *
  * The old assertion was *every road vehicle fits the narrowest street on the
- * planet*, which was the 4.0-unit Maghrebi alley. That alley is 6.0 now and a
- * placed city bus is 6.60 wide, so it fails — **and it should**: a bus does not
- * go down a medina alley, and the Maghrebi mix weights the hand-cart at 4 for
- * exactly that reason. What has to be true instead is that every road vehicle
- * fits the narrowest *road class*, because a vehicle that cannot use a lane is a
- * vehicle nothing can place anywhere.
+ * planet*, which was the 4.0-unit Maghrebi alley. That alley became 6.0 and a
+ * city bus placed at twice its section was 6.60 wide, so it failed — **and it
+ * should have**: a bus does not go down a medina alley, and the Maghrebi mix
+ * weights the hand-cart at 4 for exactly that reason. What has to be true
+ * instead is that every road vehicle fits the narrowest *road class*, because a
+ * vehicle that cannot use a lane is a vehicle nothing can place anywhere; the
+ * alley column is printed and not asserted.
  */
 const alley = 6.0;
 const lane = ROAD_CLASSES[0]!.width;

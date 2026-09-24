@@ -13,7 +13,7 @@
  * withers you would call a wither; a Sahelian one gets a fist of muscle over it.
  */
 import { buildAnimal } from '../body.ts';
-import { coatFor } from '../contract.ts';
+import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
 
@@ -93,7 +93,7 @@ export const cattle: Animal = {
   id: 'cattle',
   name: 'Cattle',
   kind: 'large',
-  size: [11.97, 3.36, 6.36],
+  size: atFaunaScale([11.97, 3.36, 6.36]),
   gait: 'walk',
   note: 'The world\'s baseline grazer: nine biomes, every region, a seeded zebu hump.',
   // Quaternius's cow, and its bull as the darker one in five (Ultimate Animated

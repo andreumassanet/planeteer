@@ -84,12 +84,13 @@ const OUT = resolve(here, '../public/data/lakes.bin');
  * 0.5 true square degrees is 27 rings — 26 lakes, since the source carries
  * Lake Volta twice (see `seen` below) — the largest set inside the budget the
  * lakes are worth (the no-lake mesh plus a fifth) with room left for the world
- * to grow into. It is a ring about **223 world units across, 33 avatars**, and
+ * to grow into. It is a ring about **223 world units across, a hundred
+ * people**, and
  * the shape argument agrees with the budget rather than fighting it:
  * `COAST_CELL` is half a degree, 140 units, and `buildCoastField` has to clear
  * a whole cell for any lake at all, so a lake smaller than that is one whose
  * shore is wider than the lake. What is lost is Geneva, Constance and every
- * reservoir — none of them 60 units across at 1:400, which is nine avatars, a
+ * reservoir — none of them 60 units across at 1:400, which is 27 people, a
  * pond you step over rather than a lake you take the boat onto. What is kept is
  * the Great Lakes, the Rift Valley, Baikal, Ladoga, Balkhash, Titicaca,
  * Nicaragua and Eyre.

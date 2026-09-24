@@ -23,6 +23,7 @@ import {
   SCENERY_SCALE,
   createSceneryContext,
 } from '../scenery/contract.ts';
+import { NOMINAL_HEIGHT, PERSON_METRES } from '../stature.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
 import { onPalette, toned } from '../models.ts';
@@ -31,43 +32,46 @@ import type { Rng, Weighted } from '../scenery/random.ts';
 import { swingLift } from '../avatar.ts';
 
 // ---------------------------------------------------------------------------
-// Scale: an animal is a living thing, and living things here are avatar-scale
+// Scale: an animal is a living thing, and takes the person's scale
 // ---------------------------------------------------------------------------
 
 /**
  * Units per metre for everything in this kit.
  *
- * **There are three scales in this world and an animal takes the person's.**
- * The kit compresses a metre to `SCENERY_SCALE`, 1.267 units — houses, roads,
- * street lamps, and vehicles as authored. A person is at *avatar* scale, 3.78,
- * because `AVATAR_HEIGHT` was decided before any of it. A vehicle is authored at
- * 1.267 and **placed** at twice it, which is a compromise: it fits the road at
- * one scale and the person at the other, and `traffic/contract.ts` writes down
- * that it can have only one of the two.
+ * **An animal takes the person's scale**, which since 2026-09-24 is the
+ * world's, `SCENERY_SCALE` (1.267 units to the metre: houses, roads, street
+ * lamps), drawn at `STATURE`, 1.7 times it: about 2.15 units to the metre.
  *
- * **An animal has no road to fit**, so the compromise that forced the vehicles
- * is simply absent, and what is left is the relation the traffic kit says is the
- * one to be right about: the person you stand next to. So a cow is built against
- * him and nothing else.
- *
- * The arithmetic is the traffic file's own, run on a cow. At `SCENERY_SCALE` a
- * 1.4 m cow is **1.77 units against a 6.8-unit person: 26% of him, where life
- * gives 80%** — the roof-at-the-knee reading the traffic file calls *broken*
- * rather than toy, and worse here, because the error scales with how close the
- * object is to a person's size and a cow is closer than a car is. At avatar
- * scale she is 5.29 units, **78% of him**, which is what a cow looks like from
- * the gate.
- *
- * What it costs is the same thing every person in this world already costs: an
- * animal is 3x too big against the house behind her, exactly as the shepherd is.
- * That is not a new error and it is not this kit's to fix.
+ * Until then there were three scales. A person was at *avatar* scale, 3.78 units
+ * to the metre, because `AVATAR_HEIGHT` was decided before any of the rest; a
+ * vehicle was authored at 1.267 and placed at twice it, a compromise between the
+ * road and the person. **An animal has no road to fit**, so it was built against
+ * the person you stand next to and nothing else: at `SCENERY_SCALE` a 1.4 m cow
+ * was 1.77 units against a 6.8-unit person, 26% of him where life gives 80%, and
+ * at avatar scale she was 5.29, 78% of him — at the price of being 3x too big
+ * against the house behind her, exactly as the shepherd was. With the person at
+ * 3.77 units the same cow is 3.02, 80% of him, and 1.7 times large against the
+ * house, as he is.
  *
  * Derived from `AVATAR_HEIGHT` rather than written down, so **the consequence
  * runs the same way `people.ts` records: change `AVATAR_HEIGHT` and every animal
  * on the planet moves**, which is correct — they are all one family of sizes.
  */
-export const PERSON_METRES = 1.8;
+export { PERSON_METRES };
 export const FAUNA_SCALE = AVATAR_HEIGHT / PERSON_METRES;
+
+/**
+ * **Since 2026-09-24 that is `SCENERY_SCALE` times `STATURE`**: a person came
+ * down to 1.7 times the world's own scale (`stature.ts`) and the animals came
+ * with him. The six
+ * species declare their sizes and this kit its caps in the units of the scale
+ * they were measured at — 6.8 units for a 1.8 m person — and are multiplied by
+ * this, so a declared size is still the measurement it was.
+ */
+export const FAUNA_RESCALE = FAUNA_SCALE / (NOMINAL_HEIGHT / 1.8);
+/** A declared `[length, width, height]` at the scale it was measured at, at the world's. */
+export const atFaunaScale = (size: readonly [number, number, number]): [number, number, number] =>
+  [size[0] * FAUNA_RESCALE, size[1] * FAUNA_RESCALE, size[2] * FAUNA_RESCALE];
 
 /**
  * Metres to world units.
@@ -80,7 +84,7 @@ export const FAUNA_SCALE = AVATAR_HEIGHT / PERSON_METRES;
  * is up for discussion is whether a camel is taller than a horse. That has an
  * external ground truth every reader already has: a cow is 1.4 m at the withers
  * and a sheep is 0.9, and `m(1.4)` is checkable by anyone who has seen a cow
- * where `5.29` is checkable by nobody.
+ * where `3.02` is checkable by nobody.
  */
 export const m = (metres: number): number => metres * FAUNA_SCALE;
 
@@ -96,33 +100,29 @@ export { AVATAR_HEIGHT, SCENERY_SCALE };
 export const LEGIBLE_AT = (distance: number): number => 937 / distance;
 
 /**
- * What avatar scale buys, in pixels, and why nothing here needs the crop the
- * bird needed.
+ * What the fauna's scale buys, in pixels, and why nothing here is cropped.
  *
- * `life.ts` had to enlarge its gull: *a herring gull is 1.4 m across, which at
- * `SCENERY_SCALE` is 1.8 units and at 300 units of distance is 5 pixels
- * including both wings* — so `BIRD_SPAN` is 4.2, a **2.37x crop**, and the trap
- * that records it is the smallest thing in the project to need one.
- *
- * **Avatar scale is a 2.98x enlargement over scenery scale and it is not a
- * crop**, and those two numbers are close enough to be worth saying out loud:
- * the gull's hand-tuned crop lands at **79% of the scale a living thing is
- * authored at in this world**. Sized the way this file sizes a sheep, the bird
- * would have been 5.29 units and would have needed no crop at all.
- *
- * So the fauna are checked against the same lens and pass without one:
+ * While a person was 6.8 units (until 2026-09-24) the animals were at avatar
+ * scale, 2.98 times scenery scale, and the table below had an `avatar` column:
+ * a sheep 4.91 units long, 15 px at 300 units, two above `life.ts`'s gull (4.2
+ * across then, a 2.37x crop on a real 1.4 m span). Since then they are at
+ * `FAUNA_SCALE`, scenery scale times `STATURE` (2.15 u/m; they were at scenery
+ * scale itself, 1.267, earlier on 2026-09-24), and the pixel columns are the
+ * lens's arithmetic on it:
  *
  * ```
- *                       real     scenery    avatar     px at 300u   px at 120u
- *   camel, nose to tail  3.0 m    3.80 u    11.33 u        35           88
- *   cattle, ditto        2.4      3.04       9.07          28           71
- *   horse, ditto         2.4      3.04       9.07          28           71
- *   sheep, ditto         1.3      1.65       4.91          15           38
- *   the gull, for scale  1.4      1.77       5.29 (4.2)    13 at 4.2
+ *                       real     fauna      px at 300u   px at 120u   px at 40u
+ *   camel, nose to tail  3.0 m    6.46 u       20           50          151
+ *   cattle, ditto        2.4      5.17         16           40          121
+ *   horse, ditto         2.4      5.17         16           40          121
+ *   sheep, ditto         1.3      2.80         8.7          22           66
  * ```
  *
- * The sheep is the floor and it lands at 15 px at 300 units, two above the gull
- * the traps call *a bird*. Nothing in this kit is cropped.
+ * They are 0.57 of the size they were on screen at a given distance, and
+ * the reaches came down with them (`HERD_REACH`, `HERD_ANIMATED_REACH` in
+ * `life.ts`), so an animal is drawn at the distances where it still reads.
+ * The gull scaled with the body, and the sheep is still at least as legible as
+ * it; `pnpm fauna` checks that. Nothing in this kit is cropped.
  */
 export const LEGIBILITY = { lens: 937, checkedAt: [300, 120, 40] } as const;
 
@@ -379,8 +379,8 @@ export interface KindSpec {
 export type AnimalKind = 'small' | 'large';
 
 export const KINDS: Record<AnimalKind, KindSpec> = {
-  small: { length: 9.5, minLength: 4.0, width: 2.8, height: 7.5, minHeight: 2.2, triangles: 320, meshes: 24, colors: 4, group: [4, 9] },
-  large: { length: 14.0, minLength: 9.0, width: 4.0, height: 12.5, minHeight: 4.2, triangles: 340, meshes: 28, colors: 5, group: [3, 6] },
+  small: { length: 9.5 * FAUNA_RESCALE, minLength: 4.0 * FAUNA_RESCALE, width: 2.8 * FAUNA_RESCALE, height: 7.5 * FAUNA_RESCALE, minHeight: 2.2 * FAUNA_RESCALE, triangles: 320, meshes: 24, colors: 4, group: [4, 9] },
+  large: { length: 14.0 * FAUNA_RESCALE, minLength: 9.0 * FAUNA_RESCALE, width: 4.0 * FAUNA_RESCALE, height: 12.5 * FAUNA_RESCALE, minHeight: 4.2 * FAUNA_RESCALE, triangles: 340, meshes: 28, colors: 5, group: [3, 6] },
 };
 
 /**

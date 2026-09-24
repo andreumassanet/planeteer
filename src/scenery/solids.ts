@@ -92,7 +92,7 @@ const MAX_SIDE = 64;
  * A body pushed out of a wall rests at exactly its radius from it, and the next
  * query measures that as a penetration of a few ulps. Counting it as a hit would
  * report a wall with no normal to slide along; a ten-thousandth of a unit is
- * invisible on a 6.8-unit avatar and well clear of the arithmetic.
+ * invisible on a 3.77-unit person and well clear of the arithmetic.
  */
 const TOUCH = 1e-4;
 
@@ -580,10 +580,11 @@ export interface Walls {
 /**
  * The longest sub-step, as a fraction of the body's radius.
  *
- * **One step a frame tunnels.** At `RUN_SPEED` (90) and the 0.1 s `main.ts`
- * caps a frame at, a step is 9 units — 13 when the run was 130 — against a body
- * 2.6 across, and a body that starts in front of a wall and ends behind it was
- * never inside it to be pushed. The distance from a point to a rectangle changes no faster than the
+ * **One step a frame tunnels.** At `RUN_SPEED` (13.5) and the 0.1 s `main.ts`
+ * caps a frame at, a step is 1.35 units against a body 1.44 across — 9 against
+ * 2.6 while a person was 6.8 units and the run 90, until 2026-09-24 — and a body
+ * that starts in front of a wall and ends behind it was never inside it to be
+ * pushed. The distance from a point to a rectangle changes no faster than the
  * point moves, so a clear body that steps half its radius is at worst half its
  * radius into anything: its centre is still outside, the push is along the
  * true contact normal, and no wall is thin enough to cross.
@@ -591,8 +592,8 @@ export interface Walls {
 export const STEP_FRACTION = 0.5;
 /**
  * A ceiling on the sub-steps, so a runaway speed costs a bounded frame. 32
- * steps of the avatar's 0.65 is 20.8 units, against the 9 the fastest foot
- * covers in the longest frame.
+ * steps of half the body's radius, 0.36, is 11.5 units, against the 1.35 the
+ * fastest foot covers in the longest frame (20.8 against 9 before 2026-09-24).
  */
 export const MAX_STEPS = 32;
 

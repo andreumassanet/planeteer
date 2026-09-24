@@ -76,11 +76,13 @@ export const EDGE_FOOT = 1.0;
  * How tall one step of a flight is, in world units.
  *
  * A flight divides its riser into whole steps as near this as they come: a
- * `TERRACE_STEP` of 4 is five risers of 0.8, which against the 6.8-unit avatar
- * is 22 cm a step at `AVATAR_HEIGHT`'s scale — a stair step — and a foot follows
- * each one on the frame it happens, the way it follows every rise.
+ * `TERRACE_STEP` of 4 is thirteen risers of 0.31, 24 cm at the world's scale —
+ * a low stair step against a person 3.77 units tall — and a foot follows each one
+ * on the frame it happens, the way it follows every rise. It was five of 0.8
+ * while a person was 6.8 units, and at his size now those were knee-high
+ * (2026-09-24).
  */
-export const STEP_RISE = 0.8;
+export const STEP_RISE = 0.32;
 
 /** How deep a tread is at most, in world units. A shallower cell gets steeper stairs rather than a longer flight. */
 export const STEP_TREAD = 1.5;

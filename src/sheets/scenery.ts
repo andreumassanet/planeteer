@@ -560,7 +560,7 @@ for (const id of DRESS_IDS) {
       'Same heights, same builds, same faces, same hair — different clothes. ' +
       'If a row differs in anything but cloth, the two forks in dress.ts have leaked into each other.',
     group,
-    radius: Math.hypot(span, 6.8) / 2 + 3,
+    radius: Math.hypot(span, AVATAR_HEIGHT) / 2 + 3,
     ground: PALETTE.green,
     focusY: 3.4,
     distanceScale: 1.25,
@@ -905,8 +905,8 @@ const partCells: PartCell[] = [];
 function buildCluster(part: ScenicPart, style: RegionStyle): { group: THREE.Group; radius: number; triangles: number } {
   const group = new THREE.Group();
   // A person is placed closer than their own declared footprint on purpose: 2.9
-  // is the reach of one arm mid-sentence, and a crowd spaced by it stands four
-  // avatars apart and reads as a car park.
+  // was the reach of one arm mid-sentence on the 6.8-unit body of before
+  // 2026-09-24, and a crowd spaced by the footprint reads as a car park.
   const pitch = part.kind === 'person' ? 5.2 : Math.max(part.footprint * 2.4, 6);
   // A wider disc for people, because the question a person's cluster answers is
   // "do thirty of these read as thirty people" and ten cannot answer it.

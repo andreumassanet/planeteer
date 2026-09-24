@@ -517,7 +517,8 @@ function bendThatWorks(road: Road, length: number, natural: number): number | nu
   // **The ceiling came down from 0.5 to 0.3 and the reason was a mover, not a
   // road.** The old half-sine bow ran a walker at a constant `t` up to 1.86
   // times too fast at a road's ends, which surfaced as a walker crossing
-  // Palma's coast at 101.5 units a second against a walking speed of 45. The
+  // Palma's coast at 101.5 units a second against the walking speed of 45 of
+  // the time. The
   // movers read a measured path now (`coursePath`), so the reason for this
   // ceiling is gone; raising it back toward 0.5 to recover the roads it cost
   // is a re-bake nobody has taken on yet, not a rejection.

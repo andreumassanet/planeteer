@@ -1413,7 +1413,10 @@ if (placed.length > 0) {
     const length = Math.hypot(p.x, p.y, p.z) || 1;
     return world.elevationAt(p) - reliefAt(p.x / length, p.y / length, p.z / length);
   };
-  /** A step smaller than this is not a step; the avatar is 6.8 units tall. */
+  /**
+   * A step smaller than this is not a step. Chosen while a person was 6.8
+   * units tall; a person is 3.77 since 2026-09-24, and a stair's riser 0.32.
+   */
   const SHELF_TOLERANCE = 0.5;
   const PROBE_BEARINGS = 24;
 
@@ -1457,7 +1460,7 @@ if (placed.length > 0) {
    * the same number until the coast started ramping.** "Short by 55 units" is
    * how much of the footprint radius has water under it, and it used to imply
    * the drop as well: the land was a shelf 20 units up with a vertical edge, so
-   * every one of these stood three avatars over the sea whatever its deficit
+   * every one of these stood twenty units over the sea whatever its deficit
    * was. It does not imply it any more. What decides how a model over water
    * *reads* is the height of its own ground above that water, and that is
    * printed here beside the deficit because it is the number a screenshot

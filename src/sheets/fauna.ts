@@ -10,8 +10,9 @@
  * technically correct and looks like a hinge is visible.
  *
  * The scale band is the second reason. The kit's whole scale argument is a
- * relation to a person — *a 1.4 m cow is 78% of a 6.8-unit avatar where at
- * scenery scale she would be 26%* — and a claim about a relation is worth
+ * relation to a person — *a 1.4 m cow is 80% of a person*, which while a
+ * person was 6.8 units (until 2026-09-24) took the animals off scenery scale
+ * and since then holds on it — and a claim about a relation is worth
  * nothing until the two things are in the same frame. So the last band stands
  * one of each beside a villager out of `people.ts`.
  *
@@ -43,6 +44,7 @@ import {
 } from '../fauna/index.ts';
 import type { FaunaContext, FaunaStyle, RegionId } from '../fauna/index.ts';
 import type { Pose } from '../fauna/body.ts';
+import { AVATAR_HEIGHT } from '../stature.ts';
 
 const sceneryCtx = createSceneryContext();
 const ctx: FaunaContext = createFaunaContext(sceneryCtx);
@@ -297,10 +299,9 @@ function rebuild(): void {
   {
     const grid = band(
       'Beside a person, which is the whole scale argument',
-      'The kit is at <b>avatar scale</b>, 3.78 units per metre, and not at <code>SCENERY_SCALE</code>&rsquo;s ' +
-      '1.267. At scenery scale a 1.4 m cow is 1.77 units against a 6.8-unit person &mdash; <b>26% of him, ' +
-      'where life gives 80%</b>, which is the roof-at-the-knee reading the traffic kit calls <i>broken</i>. ' +
-      'A vehicle could not have this, because it also has to fit a road; an animal has no road to fit.',
+      'The kit is at the stature people are drawn at (<code>STATURE</code>, 1.7 times the world\'s ' +
+      '<code>SCENERY_SCALE</code>): a 1.4 m cow is 3.02 units against a 3.77-unit person, <b>80% of him, ' +
+      'as in life</b>.',
       'wide',
     );
     for (const animal of ANIMALS) {
@@ -316,8 +317,8 @@ function rebuild(): void {
       const cell = card(
         grid,
         `${animal.name} and a villager`,
-        `${extent.height.toFixed(2)} against the avatar's 6.80 &mdash; ` +
-        `<b>${((100 * extent.height) / 6.8).toFixed(0)}%</b> of him`,
+        `${extent.height.toFixed(2)} against the avatar's ${AVATAR_HEIGHT.toFixed(2)} &mdash; ` +
+        `<b>${((100 * extent.height) / AVATAR_HEIGHT).toFixed(0)}%</b> of him`,
       );
       ground(cell.scene, 16);
       cell.scene.add(group);

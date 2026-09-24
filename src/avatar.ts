@@ -3,7 +3,7 @@ import { castMaterial, foldLegs, limbsOf, loadCast } from './cast.ts';
 import type { Cast } from './cast.ts';
 import { createContext } from './monuments/contract.ts';
 import { createSoftKit } from './soft.ts';
-import { AVATAR_HEIGHT } from './stature.ts';
+import { AVATAR_HEIGHT, BODY_SCALE } from './stature.ts';
 
 /**
  * The player's body: the character, the clips it plays and every pose it takes.
@@ -66,8 +66,9 @@ export { AVATAR_HEIGHT };
 const HEAD = AVATAR_HEIGHT / 4;
 
 /**
- * The skeleton, in world units above the sole, plus every half-width the model
- * is built from.
+ * The skeleton, above the sole, plus every half-width the model is built from:
+ * written in the units of the 6.8-unit figure it was drawn on and multiplied by
+ * `BODY_SCALE`, so every proportion argued below holds at `AVATAR_HEIGHT`.
  *
  * Half-widths are **across the flats** (the apothem), because that is what
  * `ctx.column` and `ctx.taper` take and it is the number you need when you
@@ -92,47 +93,48 @@ export const FIGURE = {
 
   // --- heights above the sole ---
   /** Top of the boot sole; the ankle pivot sits here. */
-  ankleY: 0.4,
-  kneeY: 1.66,
+  ankleY: 0.4 * BODY_SCALE,
+  kneeY: 1.66 * BODY_SCALE,
   /** Hip pivot. 44% of the height — the number that stopped it being a toddler. */
-  hipY: 3.0,
-  waistY: 3.78,
-  chestY: 4.44,
+  hipY: 3.0 * BODY_SCALE,
+  waistY: 3.78 * BODY_SCALE,
+  chestY: 4.44 * BODY_SCALE,
   /** Top of the shoulder mass. */
-  shoulderY: 4.78,
+  shoulderY: 4.78 * BODY_SCALE,
   /** Where the arms actually hang from, which is below the top of the shoulder. */
-  shoulderJointY: 4.42,
+  shoulderJointY: 4.42 * BODY_SCALE,
   /** Head base. `height - chinY` is exactly `head`. */
-  chinY: 5.1,
+  chinY: 5.1 * BODY_SCALE,
 
   // --- half-widths ---
-  shoulderHalf: 1.3,
-  chestHalf: 1.0,
-  waistHalf: 0.82,
-  hipHalf: 0.98,
+  shoulderHalf: 1.3 * BODY_SCALE,
+  chestHalf: 1.0 * BODY_SCALE,
+  waistHalf: 0.82 * BODY_SCALE,
+  hipHalf: 0.98 * BODY_SCALE,
   /** Front-to-back squash on the torso. */
-  bodyDepth: 0.74,
-  headHalf: 0.68,
+  bodyDepth: 0.74 * BODY_SCALE,
+  headHalf: 0.68 * BODY_SCALE,
   /** Front-to-back stretch on the head: a skull is deeper than it is wide. */
-  headDepth: 1.06,
+  headDepth: 1.06 * BODY_SCALE,
   /** Lateral offset of each hip and each shoulder from the centreline. */
-  hipX: 0.58,
+  hipX: 0.58 * BODY_SCALE,
   /**
    * Where the arm hangs from, and it is 1.24 rather than 1.16 because of what
    * came back from the first render: at 1.16 the arm's inner edge sits at 0.88
    * against a torso 1.00 wide, so the arms were *inside* the body's silhouette
    * standing still and only appeared when they swung. With the splay below, the
    * elbow now clears the hip by 0.31 units — about nine pixels at the camera's
-   * own distance, which is a gap you can see rather than two ink lines meeting.
+   * own distance, which is a gap you can see rather than two ink lines meeting
+   * (both measured on the 6.8-unit figure and its camera, before 2026-09-24).
    */
-  shoulderX: 1.24,
+  shoulderX: 1.24 * BODY_SCALE,
 
   // --- segments ---
-  thigh: 1.34,
-  shin: 1.26,
-  upperArm: 1.15,
-  forearm: 1.0,
-  hand: 0.33,
+  thigh: 1.34 * BODY_SCALE,
+  shin: 1.26 * BODY_SCALE,
+  upperArm: 1.15 * BODY_SCALE,
+  forearm: 1.0 * BODY_SCALE,
+  hand: 0.33 * BODY_SCALE,
 
   /**
    * Limb section radii, tip first then root: the crowd's arms and legs.
@@ -145,10 +147,10 @@ export const FIGURE = {
    * numbers would get visibly wrong, is the skeleton: every height above, the
    * hip and shoulder offsets and every segment length.
    */
-  thighRadius: [0.34, 0.42],
-  shinRadius: [0.25, 0.33],
-  upperArmRadius: [0.24, 0.28],
-  forearmRadius: [0.19, 0.24],
+  thighRadius: [0.34 * BODY_SCALE, 0.42 * BODY_SCALE],
+  shinRadius: [0.25 * BODY_SCALE, 0.33 * BODY_SCALE],
+  upperArmRadius: [0.24 * BODY_SCALE, 0.28 * BODY_SCALE],
+  forearmRadius: [0.19 * BODY_SCALE, 0.24 * BODY_SCALE],
 } as const;
 
 
@@ -175,37 +177,37 @@ export const FIGURE = {
  * their walk. 90 is that: 23.8 m/s, 13 heights a second, a third off the old
  * number. It came down on 2026-09-13, because the run read as far too fast.
  *
- * Tied to the planet's size at the other end: at radius 16000 a full lap is
- * 100,531 units, about 19 minutes at a run.
+ * **And both came down with the body** (2026-09-24). A person is 3.77 units
+ * now (`stature.ts`), and 45 would have been twelve body heights a second. 6
+ * is 1.6 heights a second, a brisk walk with a game's exaggeration and not a
+ * sprint car; the run keeps a little over twice it, 13.5, 3.6 heights a
+ * second. The planet did not shrink with the body: a full lap is 100,531
+ * units, about two hours at a run, which is what the plane is for.
  */
-export const WALK_SPEED = 45;
-export const RUN_SPEED = 90;
+export const WALK_SPEED = 6;
+export const RUN_SPEED = 13.5;
 
 /**
  * Distance covered by one full stride cycle, walking and running.
  *
  * The cycle is driven by distance, not by time, so the cadence keeps pace with
  * the ground at any speed and there is nothing to resynchronise when the speed
- * changes. What it does not do is plant a foot: with the hip swinging 0.42 each
- * way a stance foot sweeps 2.1 units under the body while the body covers 11,
- * and at a run 3.4 against 18. No stride at these speeds can close that with
- * this swing, and the rear camera sees the lift and the bob rather than the
- * slide (see `SWAY`).
+ * changes. It is the walk over a cadence of 1.1 cycles a second — a real walk
+ * is 0.9 to 1 — so the legs turn over as a body this size walks at this pace:
+ * about 1.45 body heights a cycle (5.45 on a 3.77-unit body), where the old 22
+ * at a 6.8-unit body was 3.2 and the feet slid.
  */
-export const WALK_STRIDE = 22;
+export const WALK_STRIDE = WALK_SPEED / 1.1;
 /**
  * Stride cycles a second at a full run, and the run's stride is derived from
  * it rather than written down.
  *
- * 2.5 is the cadence the run already had, 130 over a 52-unit stride — five
- * footfalls a second, 1.22 times the walk's 2.05 — so the legs turn over as
- * they always did and only the ground goes by slower. Keeping the 52 with the
- * slower run would have dropped the cadence to 1.73, **below the walk's**, and a
- * body that speeds up when Shift goes down while its legs slow down reads as
- * bounding on the moon. Derived, so the next change to `RUN_SPEED` cannot do
- * that either: the stride stays longer than the walk's for any run over 55.
+ * 1.5, three footfalls a second: a real run's, and above the walk's 1.1. It
+ * must stay above it — a body that speeds up when Shift goes down while its legs
+ * slow down reads as bounding on the moon — and it is written as a cadence so
+ * the next change to `RUN_SPEED` cannot break that.
  */
-const RUN_CADENCE = 2.5;
+const RUN_CADENCE = 1.5;
 const RUN_STRIDE = RUN_SPEED / RUN_CADENCE;
 
 
@@ -347,8 +349,12 @@ export function buildAvatar(): Avatar {
   // bone with `attach`, which keeps where it is and takes the bone's motion from
   // then on: it breathes, twists and bobs with the torso it is strapped to.
   // -------------------------------------------------------------------------
-  const chestAt = group.worldToLocal(chest.getWorldPosition(new THREE.Vector3()));
+  // Built in the 6.8-unit figure's own units about the chest and scaled into the
+  // world's with the group, like `FIGURE`: `attach` keeps its world size, so a
+  // pack built at world lengths would not follow the body it is strapped to.
+  const chestAt = group.worldToLocal(chest.getWorldPosition(new THREE.Vector3())).divideScalar(BODY_SCALE);
   const pack = new THREE.Group();
+  pack.scale.setScalar(BODY_SCALE);
   {
     const { rounded, band } = soft;
     const back = chestAt.z - 0.5;

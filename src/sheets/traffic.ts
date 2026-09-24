@@ -306,8 +306,8 @@ function vehicleCell(review: VehicleReview, showAll: boolean): HTMLElement {
  * drawn from its weights.
  *
  * **This is the review and the turntable is not.** A vehicle alone in a cell is
- * a model; a vehicle at a kerb beside a two-storey house and a 6.8-unit person
- * is the thing that will actually be shipped, and it is the only view in which
+ * a model; a vehicle at a kerb beside a two-storey house and a person at
+ * `AVATAR_HEIGHT` is the thing that will actually be shipped, and it is the only view in which
  * the scale decision — the one real decision in this kit — can be judged at all.
  */
 function regionCell(id: RegionId, style: TrafficStyle, distance: number): HTMLElement {
@@ -353,7 +353,9 @@ function regionCell(id: RegionId, style: TrafficStyle, distance: number): HTMLEl
   }
 
   // A house on each side, and a person on the near kerb. The person is the
-  // scale figure and is deliberately the one thing here at avatar scale.
+  // scale figure; since 2026-09-24 it is drawn at 1.7 times the scenery's scale
+  // (`STATURE`), and the vehicles on this street are shown as authored, not at
+  // the 1.35 times it the world places them at (`PLACED_SECTION`).
   const sceneryStyle = sceneryStyles?.[id];
   for (const [side, z] of [
     [-1, -8],
@@ -376,9 +378,12 @@ function regionCell(id: RegionId, style: TrafficStyle, distance: number): HTMLEl
   }
 
   // Two figures, and the pair of them *is* the argument. The pedestrian is the
-  // world's own person at 6.80; the rider is the same person built to
-  // `RIDER_HEIGHT` so he fits the vehicles. A street with both in it shows the
-  // cost of the scale decision honestly instead of hiding it.
+  // world's own person at `AVATAR_HEIGHT`; the rider is the same person built
+  // to `RIDER_HEIGHT` so he fits the vehicles. While a person was 6.8 units
+  // (until 2026-09-24) the pair showed the cost of the scale decision. Now the
+  // pedestrian is 3.77 and the rider 2.31 here, because this sheet shows the
+  // kit as authored; the world places a rider with his vehicle at
+  // `PLACED_SECTION`, where he is 3.11.
   if (scaleBox.checked) {
     const pedestrian = figure(AVATAR_HEIGHT, PALETTE.skyBlue, 7);
     pedestrian.position.set(-5.4, 0, -2);

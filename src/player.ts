@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Avatar } from './avatar.ts';
 import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED, buildAvatar } from './avatar.ts';
+import { BODY_SCALE } from './stature.ts';
 import type { World } from './geo.ts';
 import { LAND_HEIGHT, PLANET_RADIUS, groundRadius } from './globe.ts';
 import { unitAt } from './sphere.ts';
@@ -54,7 +55,8 @@ const TURN_SMOOTHING = 11;
  * is the normal case, and running up a 1-in-2 one asks the ground to rise at
  * half the run — 65 units a second at the 130 it was when this was found, which
  * this lagged by roughly 7 units, so the avatar walked a mountainside buried to
- * the knees. At today's 90 it would still be about 5. There is nothing to smooth there anyway:
+ * the knees. At the 90 of 2026-09-13 it would still have been about 5, and at
+ * today's 10 about half a unit. There is nothing to smooth there anyway:
  * ground that rose under your feet is ground you are already standing on.
  */
 const HEIGHT_SMOOTHING = 8;
@@ -63,11 +65,12 @@ const HEIGHT_SMOOTHING = 8;
  * Apex of a jump.
  *
  * Tied to the coastal cliff so it keeps clearing an ordinary step as that
- * number moves, and capped against the avatar so it stays a jump rather than a
- * pogo. The cap is what guarantees the second half of the rule: a 40-unit cliff
- * must not be climbable by jumping at it.
+ * number moves, and capped against the body so it stays a jump rather than a
+ * pogo: 0.6 of a person, about a metre, which is a game's jump and not a
+ * real one's half. The cap is what guarantees the second half of the rule: a
+ * 40-unit cliff must not be climbable by jumping at it.
  */
-const JUMP_HEIGHT = Math.min(LAND_HEIGHT * 0.45, AVATAR_HEIGHT * 1.25);
+const JUMP_HEIGHT = Math.min(LAND_HEIGHT * 0.45, AVATAR_HEIGHT * 0.6);
 /** Seconds to the top. Gravity is derived from it, not chosen: the arc is the input. */
 const JUMP_RISE = 0.34;
 const GRAVITY = (2 * JUMP_HEIGHT) / (JUMP_RISE * JUMP_RISE);
@@ -77,9 +80,28 @@ const JUMP_SPEED = (2 * JUMP_HEIGHT) / JUMP_RISE;
  * A drop larger than this is a cliff: you come off it and fall, instead of
  * gliding down as if the ground were a ramp. Rises are still absorbed by the
  * smoothing, which is what lets you walk up a hillside without it reading as a
- * wall.
+ * wall. A little over the body's height: a drop you would step off rather
+ * than jump from is the most a foot can glide down.
  */
-const STEP_DOWN = LAND_HEIGHT * 0.5;
+const STEP_DOWN = AVATAR_HEIGHT * 1.2;
+
+/**
+ * The most a foot takes in one step without it being a wall, in units, and
+ * the steepest ground it walks up at any pace, as rise over run.
+ *
+ * **A person is 3.77 units, and a terrace is four.** Following every rise on
+ * the frame it happened was right while a person was 6.8 units and a terrace
+ * came to his hip (until 2026-09-24, `stature.ts`); at his size now it is a
+ * man stepping straight up a wall his own height. So a
+ * rise of more than `STEP_UP` plus `CLIMB_SLOPE` times the ground covered is
+ * a wall and stops him, in the air as on the ground — a jump does not clear it
+ * either — and he takes the stairs, which `floor.ts` lays wherever a street
+ * crosses a riser. `STEP_UP` passes a stair's riser with room to spare, and
+ * `CLIMB_SLOPE` is 70 degrees, so every hillside the relief makes is still
+ * walked up and only a made face is a wall.
+ */
+const STEP_UP = 0.6;
+const CLIMB_SLOPE = 2.75;
 
 /**
  * The body against a wall: a circle this wide, centred under the player.
@@ -164,10 +186,10 @@ const CRAFT_SEED = 0.02;
  * disturbed and not as an effect of its own.
  */
 const SPLASH_TIME = 0.45;
-const SPLASH_FROM = 5;
-const SPLASH_TO = 15;
+const SPLASH_FROM = 5 * BODY_SCALE;
+const SPLASH_TO = 15 * BODY_SCALE;
 /** And how tall its wall is, from a splash to a line on the water. */
-const SPLASH_RISE = 0.7;
+const SPLASH_RISE = 0.7 * BODY_SCALE;
 const SPLASH_FLAT = 0.05;
 
 const TAU = Math.PI * 2;
@@ -457,6 +479,10 @@ export function createPlayer(
   const basis = new THREE.Matrix4();
   /** What one frame on foot moves the body, as a tangent vector. */
   const moved = new THREE.Vector3();
+  /** Where the frame's step started, to go back to when it meets a wall of made ground. */
+  const stepFrom = new THREE.Vector3();
+  const stepUp = new THREE.Vector3();
+  const stepForward = new THREE.Vector3();
 
   /**
    * The walls, laid flat. `slide` works in a plane and the planet is not one, so
@@ -705,6 +731,9 @@ export function createPlayer(
       velocity = motion.length();
     }
     const distance = moved.length();
+    stepFrom.copy(position);
+    stepUp.copy(up);
+    stepForward.copy(forward);
     if (distance > 1e-9) {
       const arc = distance / position.length();
       axis.crossVectors(up, moved).normalize();
@@ -729,7 +758,16 @@ export function createPlayer(
       : 0;
     lean += (leanTarget - lean) * approach(LEAN_SMOOTHING, dt);
 
-    const ground = standingRadius(position);
+    let ground = standingRadius(position);
+    // A rise no stair and no hillside makes is a wall: see `STEP_UP`.
+    if (distance > 1e-9 && ground - height > STEP_UP + distance * CLIMB_SLOPE) {
+      position.copy(stepFrom);
+      up.copy(stepUp);
+      forward.copy(stepForward);
+      motion.set(0, 0, 0);
+      velocity = 0;
+      ground = standingRadius(position);
+    }
     if (airborne) {
       vertical -= GRAVITY * dt;
       height += vertical * dt;

@@ -183,14 +183,17 @@ const NORTH = new THREE.Vector3(0, 1, 0);
  * The sun's shadow map, and the box it covers.
  *
  * A planet cannot have one shadow map: 2048 texels over 32,000 units is a texel
- * every 15.6 units, two avatars. So the map covers a box that **follows the
- * player** — `SHADOW_REACH` either side of where you stand, 44 avatars — and
- * inside it a texel is `2 * 300 / 2048 = 0.293` units across the sun's bearing,
- * which is 23 texels up a 6.8-unit body. That is the reference's own ratio (a
+ * every 15.6 units, seven people. So the map covers a box that **follows the
+ * player** — `SHADOW_REACH` either side of where you stand, 45 people — and
+ * inside it a texel is `2 * 170 / 2048 = 0.166` units across the sun's bearing,
+ * which is 23 texels up a 3.77-unit body. It was 300 either side while a person
+ * was 6.8 units, the same 23 texels; the box came down with the body
+ * (2026-09-24: 100 while a person was 2.22, then 170 at 3.77), and so did the
+ * bias pair below, which scales with the texel. That is the reference's own ratio (a
  * 2048 map over ±24 on a planet of radius 14 is 26 texels a character), and it
  * is what keeps a hat's brim and a leg apart in the shadow at the distance the
  * camera actually sits. Along the bearing a texel stretches by
- * `1 / sin(elevation)`: 0.59 units at 30 degrees, 2.1 at 8, which is the
+ * `1 / sin(elevation)`: 0.33 units at 30 degrees, 1.2 at 8, which is the
  * arithmetic behind the fade below.
  *
  * Moving a directional light along its own direction changes nothing in the
@@ -220,7 +223,7 @@ const NORTH = new THREE.Vector3(0, 1, 0);
  * with `SHADOW_DEPTH` is exactly the kind this project keeps mis-stating.
  */
 const SHADOW_MAP_SIZE = 2048;
-const SHADOW_REACH = 300;
+const SHADOW_REACH = 170;
 const SHADOW_RELIEF = 700;
 /**
  * Degrees of sun elevation the shadow fades over: none from a sun on the
@@ -231,18 +234,19 @@ const SHADOW_SUN_FADE: readonly [number, number] = [4, 12];
 /**
  * Units of eye height above the ground under the player the shadow fades over.
  *
- * The box is 600 units across and its edge is a line where the shadows stop.
- * Standing on the ground you cannot see it — the ground 300 units out is seen
- * at three degrees of grazing and a 10-unit shadow there is one pixel tall —
- * and from the plane's circuit you can: at 320 units up the camera looks down
- * at the far edge of the box at fifty degrees, and every tree's shadow ends on
+ * The box is 340 units across (600 until 2026-09-24) and its edge is a line
+ * where the shadows stop. Standing on the ground you cannot see it — the
+ * ground at the box's edge is seen at a few degrees of grazing and a shadow
+ * there is a pixel or two tall — and from the plane's circuit you can: at 320
+ * units up the camera looks down at the far edge of the box at about sixty
+ * degrees (fifty while the box was 300 either side), and every tree's shadow ends on
  * the same moving line. So the fade is keyed to the plane: full on foot (the
  * camera is 15 up) and in the boat (20), and gone by the circuit altitude,
  * where the camera sits 18 above a plane 320 above the ground. Measured
  * against the ground under the *player* rather than sea level, so that a
  * mountain top keeps its shadows.
  */
-const SHADOW_EYE_FADE: readonly [number, number] = [100, 400];
+const SHADOW_EYE_FADE: readonly [number, number] = [60, 240];
 const SHADOW_DEPTH = SHADOW_REACH / Math.tan(SHADOW_SUN_FADE[1] * DEG) + SHADOW_RELIEF;
 const SHADOW_DISTANCE = 2 * SHADOW_DEPTH;
 const SHADOW_TEXEL = (2 * SHADOW_REACH) / SHADOW_MAP_SIZE;
@@ -293,9 +297,9 @@ const SHADOW_STEP_MS = (SHADOW_STEP / 360) * 86_400_000;
  */
 const SHADOW_INTENSITY = 0.65;
 /** Units the receiving surface is pushed along its normal before the test. */
-const SHADOW_NORMAL_BIAS = 0.6;
+const SHADOW_NORMAL_BIAS = 0.34;
 /** Units of depth the receiver is pulled towards the light. Negative is towards. */
-const SHADOW_BIAS = -0.25;
+const SHADOW_BIAS = -0.145;
 /**
  * Texels of blur across the shadow's edge. **One, not four.** r182's PCF path
  * samples a hardware `sampler2DShadow` (bilinear comparison already, so the

@@ -5,7 +5,7 @@ import { onPalette, paintModel, toned } from '../models.ts';
 import type { Model, Paint } from '../models.ts';
 import type { Measurements, MonumentContext } from '../monuments/contract.ts';
 import { rngFrom } from './random.ts';
-import { AVATAR_HEIGHT } from '../stature.ts';
+import { AVATAR_HEIGHT, BODY_SCALE, SCENERY_SCALE } from '../stature.ts';
 import type { Rng, Weighted } from './random.ts';
 
 /**
@@ -55,10 +55,10 @@ export { AVATAR_HEIGHT };
  * and one metre is 0.00251 units. The three candidate scales, with the numbers:
  *
  * - **True scale.** A 10 m house is 0.0251 units: a fortieth of one world unit,
- *   and 1/271 of the 6.8-unit avatar. Below the near plane. Not a decision, an
+ *   and 1/150 of a 3.77-unit person. Below the near plane. Not a decision, an
  *   absence.
- * - **Avatar scale** — the factor that makes a 1.8 m human 6.8 units, i.e.
- *   3.78 u/m. That same 10 m house is 37.8 units: taller than the `building`
+ * - **Avatar scale** — the factor that made a 1.8 m human 6.8 units, i.e.
+ *   3.78 u/m, the scale a person was on until 2026-09-24. That same 10 m house is 37.8 units: taller than the `building`
  *   tier, three-quarters of a modelled Colosseum, and five and a half avatars.
  *   A village of forty would out-mass every monument on the continent.
  * - **This kit: 1.267 u/m**, which is 505x true scale and very close to exactly
@@ -77,11 +77,12 @@ export { AVATAR_HEIGHT };
  *   given up two thirds of its dominance — and it still towers. At avatar scale
  *   it would be 3.2 houses tall, which is not a landmark, it is a block of
  *   flats.
- * - **The avatar has to read as a person.** At this scale his head reaches the
- *   eaves of a two-storey house: 6.8 against 7.6. Slightly toy, and deliberately
- *   so — it is the same register as the two references the project is built
- *   from. At true scale he is a 2.7 km giant; at avatar scale the world is
- *   correct and unreadable.
+ * - **A person is drawn 1.7 times it** (2026-09-24, `STATURE` in
+ *   `stature.ts`): 1.75 m is 3.77 units, a door comes to his chest, a
+ *   two-storey house is about two of him. Until then he was on the avatar
+ *   scale above, three times this one, and his head reached the eaves of the
+ *   house he stood beside; earlier that day he was on this scale exactly,
+ *   2.22, and read as a small figure in a big town.
  *
  * **Do not author in metres.** This constant exists to document the compression
  * and to be quoted in a review, not to be multiplied by inside a part file.
@@ -89,12 +90,12 @@ export { AVATAR_HEIGHT };
  * monument is authored in tiers: the moment a file starts converting from
  * metres, it starts arguing with the compression instead of using it.
  */
-export const SCENERY_SCALE = 1.267;
+export { SCENERY_SCALE };
 
 /**
  * The working unit of the kit: one floor of a building, 3 m in life.
  *
- * The avatar is 1.79 storeys. A house of 1 storey is a hut, 2 is a house, 4 is a
+ * A person is 0.58 of a storey. A house of 1 storey is a hut, 2 is a house, 4 is a
  * street, 8 is as tall as the fabric of a city ever gets here.
  */
 export const STOREY = 3 * SCENERY_SCALE;
@@ -215,10 +216,9 @@ export const GLASS_TONE = 0.72;
  * - `block` — the fabric of a town: 4 to 8 storeys, terraces and slabs.
  * - `civic` — the one building that tells you *where* you are: a church, a
  *   mosque, a pagoda. One per settlement, so it may cost twice a dwelling.
- * - `person` — somebody living there. The **one kind not authored at
- *   `SCENERY_SCALE`**: a person's size is set by `AVATAR_HEIGHT` and nothing
- *   else, so it is three times the scale of everything above it. That is why it
- *   is a row here rather than a short `dwelling` — see `src/scenery/people.ts`.
+ * - `person` — somebody living there. Sized by `AVATAR_HEIGHT` rather than
+ *   authored in storeys, which is why it is a row here rather than a short
+ *   `dwelling` — see `src/scenery/people.ts`.
  */
 export type PartKind = 'scatter' | 'tree' | 'dwelling' | 'block' | 'civic' | 'person';
 
@@ -277,8 +277,9 @@ export const KINDS: Record<PartKind, KindSpec> = {
   // by material, and a person never is: `settlements.ts` and `life.ts` both
   // merge one by vertex colour, so the seventh colour is two eyes and not a draw
   // call. The height range spans a small child under a hat (3.2) to the tallest
-  // adult in a conical one (8.4).
-  person: { height: 8.4, minHeight: 3.2, footprint: 3.2, triangles: 1130, meshes: 32, colors: 7 },
+  // adult in a conical one (8.4), on the 6.8-unit body those were measured on
+  // (`BODY_SCALE`).
+  person: { height: 8.4 * BODY_SCALE, minHeight: 3.2 * BODY_SCALE, footprint: 3.2 * BODY_SCALE, triangles: 1130, meshes: 32, colors: 7 },
 };
 
 /**
@@ -644,7 +645,7 @@ export interface ModelFit {
    * **A building's footprint is what the town's cells have room for, and a
    * Kenney house is wider than a code-built one.** Fitted to its radius alone a
    * suburban house at the gabled house's footprint came out 5.9 units tall
-   * against a 6.8-unit person; fitted to a radius of 9 it kept its height and
+   * against the 6.8-unit person of the time; fitted to a radius of 9 it kept its height and
    * no longer fitted the cells a gabled house had stood in, and a town lost a
    * building in each (Kempten, 2026-09-17). A corner cell of the median pitch
    * leaves a house 8.4 by 8.4, and `FIT_SCALE` lets it shrink a tenth.
@@ -1418,7 +1419,11 @@ export function varietyOf(measurements: readonly Measurements[]): Variety {
   const shapes = new Set<string>();
   const palettes = new Set<string>();
   for (const m of measurements) {
-    shapes.add(`${m.height.toFixed(1)}x${m.radius.toFixed(1)}`);
+    // A tenth of a unit is a bin for a house and about a fifth of a head for a
+    // 3.77-unit person, so the bins are one per cent wide on a log
+    // scale: the same share of a figure as of a tower.
+    const bin = (value: number): number => Math.round(Math.log(Math.max(value, 1e-3)) * 100);
+    shapes.add(`${bin(m.height)}x${bin(m.radius)}`);
     palettes.add([...m.colors].sort((a, b) => a - b).join(','));
   }
   return { shapes: shapes.size, palettes: palettes.size, samples: measurements.length };

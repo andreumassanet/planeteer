@@ -15,7 +15,7 @@
  * animal, which is what makes them read against a dark boreal ground.
  */
 import { buildAnimal } from '../body.ts';
-import { coatFor } from '../contract.ts';
+import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
 
@@ -83,7 +83,7 @@ export const reindeer: Animal = {
   id: 'reindeer',
   name: 'Reindeer',
   kind: 'small',
-  size: [9.10, 2.23, 6.42],
+  size: atFaunaScale([9.10, 2.23, 6.42]),
   gait: 'walk',
   note: 'Tundra and boreal forest, circumpolar. The antlers are the model.',
   // Quaternius's stag (Ultimate Animated Animals, CC0), antlers and all. Its

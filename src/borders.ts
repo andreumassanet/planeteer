@@ -74,8 +74,9 @@ const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : valu
 /**
  * Width of the line, in world units: the floor, the target and the ceiling.
  *
- * The avatar is 6.8, so `WIDTH` is about one person across — a painted line on
- * the ground rather than a pen stroke. It was a *world* width and nothing else,
+ * `WIDTH` was about one person across while a person was 6.8 units (until
+ * 2026-09-24), and is three people now — a painted line on the ground rather
+ * than a pen stroke. It was a *world* width and nothing else,
  * which is the opposite of `OutlineEffect`'s pen, and that is what made it
  * useless from anywhere but one altitude: the apparent width is
  * `(h / 2) / tan(fov / 2) * w / range`, about `864 * w / range` at 900 px and
@@ -130,7 +131,8 @@ const MIN_FADE = 0.004;
  * units, out in open country where `setDetailSites` makes no claim — which is
  * exactly where a frontier runs. `settlements.ts` measured what a given lift
  * loses to it (20.9% of ground at 0.10, 5.3% at 1.00, 2.2% at 1.50, 0.9% at
- * 2.00) and this is a quarter of an avatar, which is inside the 0.49-unit mean
+ * 2.00) and this is under a person's height (it was a quarter of the 6.8-unit
+ * avatar), which is inside the 0.49-unit mean
  * disagreement the world already has between the mesh and where the feet go.
  */
 const LIFT = 1.8;

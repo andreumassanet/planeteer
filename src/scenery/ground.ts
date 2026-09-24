@@ -98,7 +98,7 @@ export interface GroundStyle {
    *
    * **The first version made it a fraction of the plot pitch and that is the
    * wrong unit**, because the two things it has to clear are both absolute: the
-   * 6.8-unit avatar walking down it, and the eaves of the houses either side,
+   * person walking down it, and the eaves of the houses either side,
    * which are the parts' own declared footprints and do not scale with the
    * pitch either. A fifth of east-asia's 13-unit pitch is 4.2 units, which
    * disappeared under the machiya overhanging it; the same fifth of North
@@ -111,18 +111,20 @@ export interface GroundStyle {
    * more of the plot than the plot has to give.
    *
    * **Every number in the table is 1.5 times what it was, and the multiplier
-   * belongs to the vehicles rather than to the roads.** `src/traffic/` is
-   * placed at twice its authored scale — see `PLACED_SECTION` — so a hatchback
-   * is 4.44 across where it was 2.22, and a 4.0-unit Maghrebi alley was
-   * narrower than the car parked in it. `ROAD_CLASSES` in `roads.ts` moved by
-   * the same 1.5 for the same reason.
+   * belonged to the vehicles rather than to the roads.** While `src/traffic/`
+   * was placed at twice its authored scale (until 2026-09-24) a hatchback was
+   * 4.44 across, and a 4.0-unit Maghrebi alley was narrower than the car parked
+   * in it. The vehicles are placed at 1.35 times it now, 3.00 across, and the table
+   * was left where it is: at the nominal pitch of 12 (`TOWN_PITCH`) the cap
+   * below gives 7.2, the width every road class came down to, so the table
+   * decides a street's width only where it asks for less than that.
    *
    * **The 0.3 cap now binds in the tight-pitched regions, and that is the table
    * working rather than failing.** The share is `street * 0.5 / pitch`, so a
    * street can never take more than 0.6 of a plot pitch: east-asia's 9.75
    * against a 13-unit pitch asks for 0.375 and gets 0.3, an effective 7.8 —
-   * one placed car with room to walk past it, which is what a machiya street
-   * is. The regions where it does not bind are the ones with room to give:
+   * one placed car with room to walk past it while cars were placed at twice
+   * their scale, which is what a machiya street is. The regions where it does not bind are the ones with room to give:
    * north-america's 15 against a 20.8 pitch asks for 0.36 and also caps, and
    * nordic's 10.5 against 19.5 does not.
    */
@@ -192,7 +194,7 @@ export interface GroundStyle {
  * **It was 1.0 and what capped it there has been deleted.** The cap was the
  * avatar: the player's feet were at `elevationAt` and the paving was not, so the
  * lift was exactly how deep he waded through his own high street, and `FIGURE`
- * puts the ankle at 0.4 and the knee at 1.66. He stands *on* the floor now —
+ * put the ankle at 0.4 and the knee at 1.66 while he was 6.8 units tall. He stands *on* the floor now —
  * `madeHeightAt`, and `player.ts` takes the higher of the two surfaces — so the
  * number is free to be what the town wants it to be instead of what the wading
  * would bear.
@@ -200,11 +202,13 @@ export interface GroundStyle {
  * **And what the town wants is to be visibly on something.** The reference was
  * a picture of a cottage on a plinth with a straight grey wall under it: no
  * gentle rise, not a hill, a base that marks off what is a town. At 1.0 with a
- * 0.8 kerb the side of the town is 1.8 units against a 6.8-unit avatar — a
- * step, not a plinth, and from any distance at all it is a colour change. 3.0
- * puts the visible face at `GROUND_LIFT + KERB_DROP` = 3.8, which is 56% of the
- * avatar and about a third of a house: the proportion in the reference picture,
- * read off it rather than guessed.
+ * 0.8 kerb the side of the town is 1.8 units against the 6.8-unit avatar of the
+ * time — a step, not a plinth, and from any distance at all it is a colour
+ * change. 3.0 puts the visible face at `GROUND_LIFT + KERB_DROP` = 3.8, which
+ * was 56% of that avatar and is about a third of a house: the proportion in the
+ * reference picture, read off it rather than guessed. Since a person came down
+ * to 3.77 units (2026-09-24) the face is about his height; the lift stayed, because
+ * what it answers is the mesh's error against the relief, not the body.
  *
  * **And on 2026-09-13 the wall was reversed, and the lift kept.** The plinth
  * did its job — a town reads as a made thing from any distance — but a straight
@@ -252,13 +256,14 @@ export const GROUND_LIFT = 3.0;
  * did before terracing existed — the staircase only appears where the ground
  * actually falls.
  *
- * **4 units**, which is a little over half the avatar and a hair over what the
+ * **4 units**, which was a little over half the avatar while he was 6.8 units
+ * (it is 1.8 people since 2026-09-24) and a hair over what the
  * plinth's own face was when it had one (`GROUND_LIFT + KERB_DROP` = 3.8), so a
  * riser inside the town reads as the same kind of wall the town's edge used to
  * be. Smaller and a hillside town is a flight of shallow stairs with a wall
  * every cell; larger and the cut at each riser is deeper than the buildings
  * standing on it. A street that crosses one gets a flight of steps of
- * `STEP_RISE` (`floor.ts`), five of them to a `TERRACE_STEP`.
+ * `STEP_RISE` (`floor.ts`), thirteen of them to a `TERRACE_STEP`.
  */
 export const TERRACE_STEP = 4;
 
@@ -268,7 +273,7 @@ export const TERRACE_STEP = 4;
  * **This is the refusal, and it is stated as a depth rather than as a gradient
  * because what you see is the wall.** A cell is cut to one level surface, so the
  * face it shows on its low side is the drop across it plus the plinth — and a
- * drop is measured in avatars whatever the pitch of the lattice happens to be,
+ * drop is measured in people whatever the pitch of the lattice happens to be,
  * while a gradient is not: at the kit's own range of pitches, 12.6 to 20.9, one
  * gradient is two different walls.
  *
@@ -294,7 +299,8 @@ export const TERRACE_STEP = 4;
  * deleted by a rule meant to fix that is the same failure wearing the other
  * hat.
  *
- * **12 units**, where the wall is 15.8 — 2.3 avatars, a retaining wall a hill
+ * **12 units**, where the wall is 15.8 — seven people (2.3 of the 6.8-unit
+ * avatar when this was set), a retaining wall a hill
  * town really has — and 234 places of 9,734 come out as one building. At 8 it
  * was 493, and Huesca (the town that showed the overlap) kept 3 of its 9 cells
  * against 6 at 12, on three terraces instead of one. Above 16 the wall is
@@ -359,8 +365,8 @@ export const KERB_DROP = 0.8;
  * one. Three times the rise, a gradient of 0.33, 18 degrees: the steepest thing
  * a body walks up without noticing, which is what a small slope has to be here.
  * So the ramp that was collision is geometry now, at the same gradient, and
- * `floorLiftAt` reads the geometry. At `WALK_SPEED` (45 units/s) the climb
- * takes 0.2 s.
+ * `floorLiftAt` reads the geometry. At `WALK_SPEED` (6 units/s since
+ * 2026-09-24) the climb takes about 1.5 s; it took 0.2 at the old 45.
  *
  * It is a *run on level ground* and not a promise of a gradient everywhere:
  * where the land outside falls away the slope still ends one course out, so it
@@ -387,7 +393,10 @@ export const EDGE_RUN = 9;
  * pavement is flush, a colour and not a kerb — so `floor.ts` and everything
  * that reads it are untouched.
  *
- * 2.2 is a third of the avatar: one person, and a lamp standing in it.
+ * 2.2 was a third of the avatar while he was 6.8 units: one person, and a lamp
+ * standing in it. Since 2026-09-24 it is 0.58 of a 3.77-unit person, and one
+ * person 1.44 across the shoulders walks down it with room either side; at
+ * the 2.22 he was earlier that day, two walked abreast.
  */
 export const SIDEWALK = 2.2;
 
@@ -401,8 +410,13 @@ export const LINE_HALF = 0.3;
  */
 export const DASH = 4;
 
-/** How wide a street must be before it is marked: two placed cars, 4.44 each. */
-export const MARKED_STREET = 9;
+/**
+ * How wide a street must be before it is marked: two placed hatchbacks, 3.00
+ * each (`PLACED_SECTION`), and a little. A street at the common pitch is 7.2 and is marked, as the road
+ * that arrives in it is; the narrow alleys of the Maghreb and the Middle East
+ * are not.
+ */
+export const MARKED_STREET = 7;
 
 /** How deep a zebra crossing is, in from the mouth of a town's middle crossing, in world units. */
 export const ZEBRA = 3;

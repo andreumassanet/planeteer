@@ -24,9 +24,11 @@ const DEG = Math.PI / 180;
  * Ceiling on the relief, in world units above the ring's shelf.
  *
  * Worth stating in numbers, because "how tall is a mountain" has no natural
- * answer on a 16,000-unit planet: the avatar is 6.8 units and the coastal cliff
- * is 20, so 680 is a hundred avatars, and the Himalaya reads as a range from
- * orbit while still being ten seconds of running up a 30-degree slope. Real
+ * answer on a 16,000-unit planet: the avatar was 6.8 units when this was set
+ * and the coastal cliff is 20, so 680 was a hundred avatars (180 people of
+ * today's 3.77), and the Himalaya reads as a range from orbit while still
+ * being a climb you can run: ten seconds up a 30-degree slope at the run of
+ * 130 of the time, about a minute and a half at today's 13.5. Real
  * relief is nothing like this — Everest against Earth's radius is 0.14%, which
  * here would be 22 units, i.e. invisible. This is a caricature, deliberately.
  *
@@ -156,7 +158,8 @@ const LAND_SHELF = 20;
  *
  * `SHORE_RAMP` is the widest a shore ever gets and `SHORE_BLUFF` the narrowest.
  * Neither is a taste: the wide end is what the transition has to be to read as
- * one — 130 units is nineteen avatars and about a second of running — and the
+ * one — 130 units is sixty people and thirteen seconds at a run (nineteen
+ * avatars and about a second before 2026-09-24) — and the
  * narrow end is a floor rather than zero because a drop of `LAND_HEIGHT` in no
  * distance at all is the cliff this replaces, and the mesh cannot resolve it:
  * `MIN_EDGE` in `globe.ts` is 22 units, so a bluff thinner than that is drawn
@@ -995,7 +998,8 @@ function shoreFall(
  *
  * Both were measured over all 65 footprints, ray-casting the built mesh: at
  * this margin the shortened edges take the worst gap under a model from 2.24
- * units to 1.68, a quarter of an avatar. It used to be 35 units of margin — one
+ * units to 1.68, three quarters of a person (a quarter of the 6.8-unit avatar
+ * of the time). It used to be 35 units of margin — one
  * and a half untightened `MIN_EDGE` — for 1.03, and that margin is where a
  * 90-unit pad under a 55-unit model came from.
  */

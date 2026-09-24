@@ -177,7 +177,7 @@ const OUT = resolve(here, '../public/data/places.bin');
 
 /**
  * Decimal places kept on a coordinate: about 110 m, or 0.28 world units against
- * a 6.8-unit avatar.
+ * a 3.77-unit person.
  *
  * `build-countries.mjs` picks its precision per ring by how much quantising
  * distorts a *shape*. A city is a point and has no shape, so the constraint is

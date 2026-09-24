@@ -1155,7 +1155,8 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     settled = id;
     const country = id > 0 ? world.countries[id - 1]! : null;
     // Nor does a *town* get a card, and that is a budget: places sit a median
-    // 161 units apart, one every 1.8 seconds at a run against a 5.5 s card.
+    // 161 units apart, one every 16 seconds at a run (every 1.8 at the run of
+    // 90, before 2026-09-24) against a 5.5 s card.
     if (!country || id === announced) return;
     announced = id;
     let fact = facts.get(id);

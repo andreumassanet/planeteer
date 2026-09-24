@@ -126,7 +126,7 @@ export interface Road {
 
 export interface RoadClass {
   name: string;
-  /** Carriageway width in world units. The avatar is 6.8. */
+  /** Carriageway width in world units. A person is `AVATAR_HEIGHT`, 3.77. */
   width: number;
   /**
    * How far away it is still worth drawing, in world units.
@@ -149,8 +149,9 @@ export interface RoadClass {
    * on the land.
    *
    * The numbers are a width test worked out once here rather than measured per
-   * frame: at `937 * width / distance`, a lane is **5.9 px at 1,300** and a road
-   * 2.4 at 5,000, which is the point at which a mark stops being a road and
+   * frame: at `937 * width / distance`, a lane was **5.9 px at 1,300** and a
+   * road 2.4 at 5,000 while they were 8.25 and 12.75 wide (5.2 and 1.3 since
+   * every class became 7.2, 2026-09-24), which is the point at which a mark stops being a road and
    * starts being grey. What the table is compared against is a road's own
    * distance **from the eye** — see `classReaches` and `priceRoads`, and the
    * trap that says what comparing a tile's distance from the *player* cost. The
@@ -186,25 +187,24 @@ export interface RoadClass {
 }
 
 /**
- * **The widths are 1.5 times what they were, and the multiplier is the vehicles'
- * and not the roads'.** `src/traffic/` is placed at twice its authored scale —
- * see `PLACED_SECTION` — because a car at scenery scale has its roof at the
- * avatar's knee. That makes a hatchback 4.44 wide where it was 2.22, and 5.5
- * was a lane two of those could not share.
+ * **Every class is the width of the street it arrives in** (2026-09-24). A road
+ * runs on into a town's street at its gate, and a road wider than that street
+ * narrowed into it over its last `APPROACH` — a trunk lost 60% of its width in
+ * eighteen units, which read as a funnel at every town. 7.2 is a street at the
+ * cell pitch of 12 (`streetBand`), so the ribbon now meets the street it
+ * continues at the width it had all the way. It is 5.7 m, a two-lane country
+ * road: two placed hatchbacks (3.00 wide at `PLACED_SECTION`) pass on it with
+ * 0.3 either side, and a placed bus (4.46) does not pass a car.
  *
- * 1.5 and not 2, deliberately: two placed hatchbacks are 8.88 across against a
- * 8.25-unit lane, so on a lane they give way and on a `road` (12.75) they pass,
- * which is the difference those two classes exist to draw. A placed city bus is
- * 6.60 wide and fits a lane alone; two of them pass on a trunk.
- *
- * And a trunk at 18 units is still 2.6 avatars across, where a real motorway is
- * sixteen people wide. Nothing here is close to life-sized; the roads are only
- * as wide as the things on them need.
+ * Until then the classes were 8.25, 12.75 and 18, widened by 1.5 for vehicles
+ * placed at twice the world's scale; the vehicles came down with the people
+ * and the widths with them. What still tells the classes apart is their
+ * `reach`: a trunk is on the screen from much further off.
  */
 export const ROAD_CLASSES: readonly RoadClass[] = [
-  { name: 'lane', width: 8.25, reach: 1300 },
-  { name: 'road', width: 12.75, reach: 5000 },
-  { name: 'trunk', width: 18, reach: 34000 },
+  { name: 'lane', width: 7.2, reach: 1300 },
+  { name: 'road', width: 7.2, reach: 5000 },
+  { name: 'trunk', width: 7.2, reach: 34000 },
 ];
 
 /**
@@ -434,11 +434,12 @@ export function assignTownGates(
  * at a wall**: the street inside runs square to the square's edge, so a road
  * that arrives on a slant meets it at a kink, and a road that turns within its
  * own width of the kerb swings a corner of its carriageway over the paving. 18
- * is the trunk's whole drawn half-width (16.2, `roadClearance`) with a little
+ * was the trunk's whole drawn half-width (16.2, `roadClearance`) with a little
  * over, so the widest section on the planet is clear of the kerb before the
- * road is allowed to turn; it is also exactly one near-band span (`SPANS`), so
- * the approach is one piece of ribbon from the kerb out, and it is two and a
- * half avatars — a stretch of road you walk, not a notch in one.
+ * road is allowed to turn; since every class came down to 7.2 (2026-09-24) that
+ * half-width is 6.48 and 18 clears it well. It is also exactly one near-band
+ * span (`SPANS`), so the approach is one piece of ribbon from the kerb out, and
+ * it is eight people long — a stretch of road you walk, not a notch in one.
  *
  * Two facing gates closer than four of these share what there is: see
  * `courseOf`.
@@ -1312,9 +1313,11 @@ export async function loadRoads(url = `${DATA_URL}roads.bin`): Promise<RoadData>
  *
  * The water test's own `PROBE_STEP`, and for the same reason: it is the step at
  * which a road is already known to be sampled finely enough to catch a feature
- * it must not cross. `gradeAt` measures over the road's own half-width — 11.5
- * units for a `road`, 16.2 for a trunk, from `roadClearance` — so the probes
- * overlap along the whole carriageway rather than leaving gaps between them.
+ * it must not cross. `gradeAt` measures over the road's own half-width from
+ * `roadClearance`. While that was 11.5 units for a `road` and 16.2 for a trunk
+ * the probes overlapped along the whole carriageway; since every class came
+ * down to 7.2 wide (2026-09-24) it is 6.48, so each probe spans about 13 units
+ * of the 18-unit step and leaves about five between it and the next.
  */
 const SLOPE_STEP = 18;
 
@@ -1642,8 +1645,8 @@ export function layersOf(roads: readonly Road[], places: readonly Place[]): Uint
  * 20-unit step rather than anything a lift could reach.
  *
  * **It is 3.0, and what capped it at 1.5 has been deleted twice over.** The cap
- * was the avatar — the player walked at `elevationAt` and `FIGURE` puts his knee
- * at 1.66, so the lift was how deep he waded through the carriageway — and
+ * was the avatar — the player walked at `elevationAt` and `FIGURE` put his knee
+ * at 1.66 while he was 6.8 units tall, so the lift was how deep he waded through the carriageway — and
  * `ribbonHeightAt` ended that: `player.ts` stands *on* the ribbon now, so the
  * number is free to be what the road wants rather than what the wading would
  * bear. And what the road wants is **exactly `GROUND_LIFT`**, which is also 3.0:
@@ -1782,7 +1785,8 @@ const SHOULDER_SPREAD = 1.8;
  * Half the *drawn* strip and not half the carriageway: the shoulders are laid
  * below the ground so they bury themselves, and what a plant standing on one
  * would push up through is the crown plus however much of the shoulder the
- * relief lets show. 7.4 for a lane, 11.5 for a road, 16.2 for a trunk.
+ * relief lets show. 6.48 for every class since they all became 7.2 wide
+ * (2026-09-24); 7.4 for a lane, 11.5 for a road and 16.2 for a trunk before.
  *
  * Exported because `vegetation.ts` is the one file that has to keep something
  * off a road, and half a road's width is a fact about the road. What it adds to
@@ -3093,9 +3097,10 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       if (lift > best) best = lift;
     }
     if (best <= 0) return 0;
-    // A road is baked dry, so this cannot fire — and if a re-bake ever puts one
-    // in the water, standing on it is not the way to find out.
-    return ground <= 0 ? 0 : PLANET_RADIUS + ground + best;
+    // A road is baked dry, but the edge of its crown can hang a fraction of a
+    // unit over the water where a gate is on a quay: the ribbon is drawn there
+    // at the relief plus its lift, so that is where a foot stands.
+    return PLANET_RADIUS + ground + best;
   }
 
   return {

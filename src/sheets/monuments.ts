@@ -1,3 +1,4 @@
+import { BODY_SCALE } from '../stature.ts';
 import * as THREE from 'three';
 import { OutlineEffect } from '../outline.ts';
 import { PALETTE, SKY_TOP } from '../theme.ts';
@@ -20,7 +21,8 @@ import type { MonumentContext, Review } from '../monuments/index.ts';
  * cannot be reviewed in the world either — you would have to walk to each one.
  * This is the tool that makes the whole set reviewable: every registered
  * monument on one page, under identical light, against the same ground and the
- * same 6.8-unit figure, with the validator's complaints printed underneath.
+ * same 6.8-unit figure — the avatar's height until 2026-09-24, three times a
+ * person's now — with the validator's complaints printed underneath.
  *
  * Everything on it is drawn into a **single** WebGL context, scissored cell by
  * cell. A canvas each is the obvious implementation and it dies at about sixteen
@@ -39,11 +41,12 @@ const ctx: MonumentContext = createContext();
 const reviews: Review[] = MONUMENTS.map((monument) => reviewMonument(monument, ctx));
 
 // ---------------------------------------------------------------------------
-// The shared bits of every cell: light, ground, and something 6.8 units tall
+// The shared bits of every cell: light, ground, and a person
 // ---------------------------------------------------------------------------
 
 /**
- * A stand-in for the player, at exactly the avatar's height.
+ * A stand-in for the player: built at the 6.8-unit height a person had until
+ * 2026-09-24 and scaled by `BODY_SCALE` to the one they have now.
  *
  * This is the most useful thing on the sheet. "Is the Colosseum too big?" is
  * unanswerable looking at a Colosseum on its own and obvious the moment there is
@@ -62,6 +65,7 @@ function scaleFigure(): THREE.Group {
   const head = ctx.box(1.4, 1.4, 1.4, PALETTE.blush);
   head.position.y = 5.4;
   figure.add(head);
+  figure.scale.setScalar(BODY_SCALE);
   return figure;
 }
 

@@ -23,8 +23,9 @@ import * as THREE from 'three';
  *   through neither is white rather than a throw — one part drawn wrong is
  *   better than a continent with nothing on it.
  * - **Normals go through the inverse transpose and not the rotation.** A bus
- *   is placed at 2 x 2 x 1.35, and a normal rotated without the correction
- *   points off the surface by up to 8 degrees, which the ink then builds its
+ *   was placed at 2 x 2 x 1.35 while vehicles were doubled and cropped (until
+ *   2026-09-24), and under a scale like that a normal rotated without the
+ *   correction points off the surface by up to 8 degrees, which the ink then builds its
  *   hull along. The group's own transform is included, so a scale placed on
  *   the root is baked into the vertices.
  * - **The ink's normals ride along**: a painted mesh's welded `outlineNormal`,

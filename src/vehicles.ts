@@ -52,6 +52,7 @@
  */
 import * as THREE from 'three';
 import { FIGURE } from './avatar.ts';
+import { BODY_SCALE } from './stature.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { createContext } from './monuments/contract.ts';
 
@@ -204,14 +205,17 @@ function alongZ<K extends string>(
  * sole, so the waterline is at `-BOAT_DECK` and a review sheet has to put its
  * water disc there. That is what the boat cell in `/sheets/avatar.html` does.
  */
-export const BOAT_DECK = 2;
+export const BOAT_DECK = 2 * BODY_SCALE;
 /**
- * Cruise and full ahead. Set between a walk and the old 130-unit run, so the
- * coast still reads; the run came down to 90 on 2026-09-13 and the launch did
- * not, so it now cruises a little faster than a man running along the beach.
+ * Cruise and full ahead, in the launch's own lengths: five and a bit a second
+ * at cruise, twelve flat out — 24 and 55 m/s, a fast launch and a racing one.
+ * They were 115 and 250 while the launch was built three times the world's
+ * scale (`atCraftScale`), which at its size now would be twenty lengths a
+ * second. Oceans are the plane's; the launch is for a coast, a lake and the
+ * crossing to the next island, which at these speeds is seconds.
  */
-export const BOAT_SPEED = 115;
-export const BOAT_BOOST = 250;
+export const BOAT_SPEED = 30;
+export const BOAT_BOOST = 70;
 /** Rudder, radians per second. A half turn in 2.7 s. */
 export const BOAT_TURN = 1.15;
 export const BOAT_ACCELERATION_TIME = 1.1;
@@ -276,7 +280,7 @@ const halfAt = (z: number) => alongZ(HULL, 'half', z);
  *
  * What it spends is `SHORE_REACH`: see there.
  */
-export const BOAT_BOW = 13.5;
+export const BOAT_BOW = 13.5 * BODY_SCALE;
 
 /**
  * How far inland stepping ashore puts you.
@@ -294,7 +298,7 @@ export const BOAT_BOW = 13.5;
  * magnitude over `SEA_LEVEL_EPSILON`, which is the test that decides whether
  * you are back in the boat. No case stranded.
  */
-export const SHORE_REACH = 22;
+export const SHORE_REACH = 22 * BODY_SCALE;
 
 /**
  * Every mesh in a craft casts the sun's shadow and stands in everything
@@ -334,6 +338,24 @@ function castShadows(group: THREE.Object3D): void {
  * the wheel, because it was written for a boat that had nothing to hold. That
  * is `avatar.ts`, and the geometry it would need is now there.
  */
+/**
+ * **Both craft are built on the 6.8-unit body they were designed round and
+ * shown at the person's scale.** Every number in this file — the hull, the
+ * bench, the helm, the seat, the floats — is in that body's units and argued
+ * from its knees and hips; since a person came down to 3.77 units
+ * (2026-09-24, `stature.ts`) each model is built as it always was and wrapped
+ * in a group scaled by `BODY_SCALE`, and the few numbers `player.ts` reads —
+ * the deck, the bow, the reach ashore, the seat and the floats' clearance — are
+ * exported at the same scale. A scale of one positive number is no mirror.
+ */
+function atCraftScale(model: THREE.Group): THREE.Group {
+  const scaled = new THREE.Group();
+  scaled.name = model.name;
+  scaled.add(model);
+  scaled.scale.setScalar(BODY_SCALE);
+  return scaled;
+}
+
 export function buildBoat(): THREE.Group {
   const group = new THREE.Group();
 
@@ -481,7 +503,7 @@ export function buildBoat(): THREE.Group {
 
   group.name = 'boat';
   castShadows(group);
-  return group;
+  return atCraftScale(group);
 }
 
 // ---------------------------------------------------------------------------
@@ -511,21 +533,23 @@ const FLOAT_KEEL = 3.4;
 export const PLANE_FLOOR = 60;
 export const PLANE_CEILING = PLANET_RADIUS * 1.45;
 /** Clearance kept above the ground: the floats, and 0.6 under them. */
-export const PLANE_CLEARANCE = FLOAT_KEEL + 0.6;
+export const PLANE_CLEARANCE = (FLOAT_KEEL + 0.6) * BODY_SCALE;
 /** Altitude a take-off climbs to on its own: above the cliffs, below the haze. */
 export const PLANE_CIRCUIT = 320;
 
 /**
  * Cruise at the floor and at the ceiling.
  *
- * Speed rides altitude, and that is the whole travel design. Low, 380 crosses
- * Spain in eight seconds and you can see what you are crossing. High, 3400 at
+ * Speed rides altitude, and that is the whole travel design. Low, 140 crosses
+ * Spain in twenty seconds and you can see what you are crossing — it was 380
+ * while the plane was three times the world's scale, and at its size now that
+ * was a streak rather than a flight. High, 3400 at
  * 2.25 radii is 0.094 rad/s: the Pacific in half a minute. Flying low is
  * scenic, climbing is how you cover an ocean, and the loss of precision that
  * comes with the speed is exactly the loss of precision that comes with zooming
  * a map out.
  */
-export const PLANE_CRUISE_LOW = 380;
+export const PLANE_CRUISE_LOW = 140;
 export const PLANE_CRUISE_HIGH = 3400;
 export const PLANE_BOOST = 1.6;
 /**
@@ -547,8 +571,9 @@ export const PLANE_BOOST = 1.6;
  * **A rate and not a radius, and that is deliberate** — the opposite of what
  * `camera.ts` holds for the walk, and for the same reason: what the eye reads is
  * the curve against the view, and here the view grows with the speed. At the
- * circuit, 420 units a second at 1.0 is a ground track of 413 units radius under
- * a camera 62 units off the tail; at the ceiling it is 1,390 units (5 degrees of
+ * circuit, 185 units a second at 1.0 is a ground track of 181 units radius under
+ * a camera 61 units off the tail (420 and 413 before `PLANE_CRUISE_LOW` came
+ * down to 140, 2026-09-24); at the ceiling it is 1,390 units (5 degrees of
  * arc) under a camera that holds the whole globe. Held as a radius it would
  * either spin at the ceiling or be unable to turn over a town.
  */
@@ -568,7 +593,9 @@ export const ALTITUDE_RATE = 1.1;
 
 /**
  * Where the pilot's hip goes, in the plane's own frame — the seat surface, in
- * the crowd kit's convention, and the number `player.ts` puts the body on.
+ * the crowd kit's convention, and the number `player.ts` puts the body on. The
+ * table below is in that frame, the 6.8-unit body's units; `PLANE_SEAT` is it
+ * times `BODY_SCALE` (see `atCraftScale`).
  *
  * **1.90 is the footwell, not a taste.** The player's own seated figure is 1.85
  * from hip to sole, measured off the built mesh in the `sit` pose; 1.90 leaves
@@ -610,7 +637,10 @@ export const BOAT_HELM = {
   rake: -1.14,
 } as const;
 
-export const PLANE_SEAT = { y: 1.9, z: 0 } as const;
+/** The seat surface in the plane's own frame, where the model is built. */
+const SEAT = { y: 1.9, z: 0 } as const;
+/** And in the world's, where the body is put on it: see `atCraftScale`. */
+export const PLANE_SEAT = { y: SEAT.y * BODY_SCALE, z: SEAT.z * BODY_SCALE } as const;
 
 /**
  * Clear width across the cockpit.
@@ -711,12 +741,12 @@ export function buildPlane(): { group: THREE.Group; propeller: THREE.Object3D } 
   // ---- the cockpit --------------------------------------------------------
 
   const pan = ctx.box(2.6, 0.3, 1.5, P.bark);
-  pan.position.set(0, PLANE_SEAT.y - 0.3, PLANE_SEAT.z - 0.1);
+  pan.position.set(0, SEAT.y - 0.3, SEAT.z - 0.1);
   group.add(pan);
   // 1.45 behind the hip, not the crowd's 0.72: the player wears a rucksack and
   // it reaches 1.21 back. A seat back at the published figure goes through it.
   const backrest = ctx.box(2.6, 1.5, 0.28, P.bark);
-  backrest.position.set(0, PLANE_SEAT.y, PLANE_SEAT.z - 1.45);
+  backrest.position.set(0, SEAT.y, SEAT.z - 1.45);
   group.add(backrest);
 
   // The instrument panel stands forward of the toes, which reach 2.38 ahead of
@@ -822,7 +852,7 @@ export function buildPlane(): { group: THREE.Group; propeller: THREE.Object3D } 
 
   group.name = 'plane';
   castShadows(group);
-  return { group, propeller };
+  return { group: atCraftScale(group), propeller };
 }
 
 /**

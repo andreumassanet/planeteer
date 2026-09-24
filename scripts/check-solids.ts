@@ -94,8 +94,8 @@ console.log(`\none box  (body radius ${R}, from player.ts)`);
 
   // The corner: the push is along the diagonal and leaves the body exactly R
   // from the corner point, which is what rounds it.
-  const cx = 5 + 0.5;
-  const cz = 3 + 0.5;
+  const cx = 5 + R * 0.35;
+  const cz = 3 + R * 0.35;
   pushOut(field, cx, cz, R, push);
   const after = Math.hypot(cx + push.x - 5, cz + push.z - 3);
   check(near(after, R) && near(push.x, push.z), 'a corner pushes along the diagonal to exactly R',
@@ -175,7 +175,11 @@ console.log('\nsliding');
 
 // --- tunnelling ---------------------------------------------------------------
 
-console.log(`\ntunnelling  (RUN_SPEED ${RUN_SPEED}, dt 0.1, steps of ${STEP_FRACTION} R, at most ${MAX_STEPS})`);
+// Nine times the run: a person runs 1.35 units in a 0.1 s frame, which
+// no wall is thin enough to lose, so the subdivision is held to a speed that
+// would cross one in a single step.
+const FAST = RUN_SPEED * 9;
+console.log(`\ntunnelling  (${FAST} units/s, dt 0.1, steps of ${STEP_FRACTION} R, at most ${MAX_STEPS})`);
 {
   // A five-unit wall, across the path, approached from every phase of a frame.
   const wall = [box(0, 12.5, 100, 2.5)];
@@ -186,15 +190,15 @@ console.log(`\ntunnelling  (RUN_SPEED ${RUN_SPEED}, dt 0.1, steps of ${STEP_FRAC
   let cases = 0;
   for (let start = -20; start <= face; start += 0.37) {
     for (const angle of [0, 0.3, 0.7, 1.2]) {
-      const body: Body = { x: 0, z: start, vx: RUN_SPEED * Math.sin(angle), vz: RUN_SPEED * Math.cos(angle) };
+      const body: Body = { x: 0, z: start, vx: FAST * Math.sin(angle), vz: FAST * Math.cos(angle) };
       for (let frame = 0; frame < 6; frame++) {
         slide(body, 0.1, R, wallsOf(field));
         worst = Math.max(worst, body.z);
       }
       cases++;
       // The witness that the case is a real one: a single step of
-      // `RUN_SPEED * 0.1`, which is 9 units.
-      const jumped = start + RUN_SPEED * Math.cos(angle) * 0.1;
+      // `FAST * 0.1`, which is 9 units.
+      const jumped = start + FAST * Math.cos(angle) * 0.1;
       if (jumped > 15 + R) naive++;
     }
   }
