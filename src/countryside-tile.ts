@@ -11,6 +11,7 @@ import { PALETTE } from './theme.ts';
 import type { LandProbe } from './land-probe.ts';
 import { COUNTRY_PARTS, ROTOR_RADIUS, buildRotor, pieceRng } from './countryside-kit.ts';
 import type { RotorKind } from './countryside-kit.ts';
+import type { BodyKind } from './scenery/occupancy.ts';
 import type { CountryLine, CountryPiece, CountryPlan, CropField, CropId, Countryside } from './countryside.ts';
 import { cellsOf, rootOf } from './tile-grid.ts';
 
@@ -73,6 +74,8 @@ export interface CountryFlat {
   height: number;
   footprint: number;
   tilt: number;
+  /** What it is to a body walking into it (`vegetation.ts`'s `wallsOf`); absent, nothing. */
+  solid?: BodyKind;
 }
 
 export interface CountryPlaced {
@@ -199,7 +202,13 @@ export function createCountryBuilder(
     if (spec !== undefined) {
       try {
         const group = spec.build(ctx, pieceRng(spec.id, style.id, piece.variant), style);
-        made = { ...mergeMeshes(group), height: measure(group).height, footprint: spec.footprint, tilt: 0 };
+        made = {
+          ...mergeMeshes(group),
+          height: measure(group).height,
+          footprint: spec.footprint,
+          tilt: 0,
+          solid: spec.afloat === true ? undefined : spec.body ?? 'walls',
+        };
         group.traverse((object) => {
           const mesh = object as THREE.Mesh;
           if (mesh.isMesh) mesh.geometry.dispose();

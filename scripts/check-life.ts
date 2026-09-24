@@ -504,6 +504,112 @@ console.log('through a town:');
 }
 console.log('');
 
+// --- giving way -----------------------------------------------------------
+//
+// A vehicle that finds something standing in its lane stops short of it,
+// sounds its horn if it is the player, and drives on once it is gone. The
+// obstacle is put where the vehicle will be: a second world, the same world by
+// determinism, run a second and a half ahead, says where that is.
+
+console.log('giving way:');
+{
+  const streets = {
+    floorAt: (direction: Vector3) => PLANET_RADIUS + Math.max(0, world.elevationAt(direction)) + 3,
+    blocked: () => false,
+  };
+  const held = createLife(world, places, { roads, vehicles, streets });
+  const twin = createLife(world, places, { roads, vehicles, streets });
+  setDetail(3);
+  const spot = spots[0]!;
+  const dir = dirAt(spot.lat, spot.lon);
+  const viewer = dir.clone().multiplyScalar(PLANET_RADIUS + Math.max(0, world.elevationAt(dir)) + spot.altitude);
+  const STEP = 0.05;
+  const START = 5_000_000;
+  const AHEAD = 30;
+  for (let frame = 0; frame < 40; frame++) held.update(viewer, spot.altitude, undefined, START + frame * STEP, STEP);
+  for (let frame = 0; frame < 40 + AHEAD; frame++) twin.update(viewer, spot.altitude, undefined, START + frame * STEP, STEP);
+  type Drawn = { name: string; position: Vector3; visible: boolean; geometry?: { boundingBox: { min: Vector3; max: Vector3 } | null; computeBoundingBox(): void }; matrixWorld: import('three').Matrix4; updateMatrixWorld(force?: boolean): void };
+  const drawnIn = (instance: ReturnType<typeof createLife>, name: string): Drawn | undefined =>
+    instance.group.children.find((child) => child.name === name && child.visible) as unknown as Drawn | undefined;
+  // A vehicle on the road near the viewer, drawn now and a second and a half on.
+  let chosen: string | null = null;
+  const obstacleAt = new Vector3();
+  for (const child of held.group.children) {
+    if (!child.visible || !child.name.startsWith('road:') || child.position.distanceTo(viewer) > 350) continue;
+    const later = drawnIn(twin, child.name);
+    if (later === undefined) continue;
+    const moved = later.position.distanceTo(child.position);
+    if (moved < 25) continue;
+    chosen = child.name;
+    obstacleAt.copy(later.position);
+    break;
+  }
+  check(chosen !== null, 'a vehicle near the viewer to stand something in front of', chosen ?? 'none drawn');
+  if (chosen !== null) {
+    const RADIUS = 1.3;
+    let standing = true;
+    let horns = 0;
+    held.setInTheWay({
+      each(visit) {
+        if (standing) visit(obstacleAt, RADIUS, true);
+      },
+      horn: () => horns++,
+    });
+    // How far the obstacle is outside the vehicle's box, in the box's own frame.
+    const local = new Vector3();
+    const inverse = new (await import('three')).Matrix4();
+    const outside = (car: Drawn): number => {
+      car.updateMatrixWorld(true);
+      const geometry = car.geometry!;
+      if (geometry.boundingBox === null) geometry.computeBoundingBox();
+      const box = geometry.boundingBox!;
+      local.copy(obstacleAt).applyMatrix4(inverse.copy(car.matrixWorld).invert());
+      const dx = Math.max(box.min.x - local.x, 0, local.x - box.max.x);
+      const dz = Math.max(box.min.z - local.z, 0, local.z - box.max.z);
+      return Math.hypot(dx, dz) - RADIUS;
+    };
+    let closest = Infinity;
+    let clock = START + 40 * STEP;
+    let last = drawnIn(held, chosen)!.position.clone();
+    let restingSpeed = Infinity;
+    let restingGap = Infinity;
+    let hornsBy = 0;
+    let passed = false;
+    for (let frame = 0; frame < 200; frame++) {
+      held.update(viewer, spot.altitude, undefined, clock, STEP);
+      clock += STEP;
+      const car = drawnIn(held, chosen);
+      if (car === undefined) continue;
+      closest = Math.min(closest, outside(car));
+      const speed = car.position.distanceTo(last) / STEP;
+      last = car.position.clone();
+      // Stopped, before it has waited long enough to think of passing.
+      if (frame === 55) {
+        restingSpeed = speed;
+        restingGap = outside(car);
+      }
+      if (frame > 60 && speed > 1 && local.z < -1) passed = true;
+    }
+    hornsBy = horns;
+    check(closest > 0, 'a vehicle never runs into something standing in its lane', `${closest.toFixed(2)} units clear at the closest`);
+    check(restingSpeed < 0.2 && restingGap < 4, 'it stops, within its stopping distance of it',
+      `${restingSpeed.toFixed(2)} units a second, ${restingGap.toFixed(2)} units short of it`);
+    check(hornsBy >= 1, 'and sounds its horn at the player it waits behind', `${hornsBy} in 10 s`);
+    console.log(`  ${passed ? 'it pulled out and went past it after waiting' : 'it waited: the other lane was not free'}; ${held.stats.delayed.toFixed(1)} s behind its route`);
+    standing = false;
+    const from = last.clone();
+    for (let frame = 0; frame < 60; frame++) {
+      held.update(viewer, spot.altitude, undefined, clock, STEP);
+      clock += STEP;
+    }
+    const after = drawnIn(held, chosen);
+    const onward = after === undefined ? Infinity : after.position.distanceTo(from);
+    check(onward > 15, 'and drives on once it is clear', `${onward.toFixed(1)} units in 3 s`);
+  }
+  setDetail(1);
+}
+console.log('');
+
 // --- one second of the clock ----------------------------------------------
 //
 // **The one thing a still frame cannot show, as a table.** Everything here is a

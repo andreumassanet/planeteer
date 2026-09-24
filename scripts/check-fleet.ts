@@ -704,6 +704,98 @@ console.log('\nthe ride, headless:');
     check(beyond > 0, 'and does not pass through it', `${beyond.toFixed(2)} units short of it`);
   }
 
+  // A craft in the air against a building: a wall square across its way, and
+  // behind it everything under a roof `roof` over the ground. Near the ground
+  // `collide` answers for it, higher `collideAloft`, which a roof passes under.
+  {
+    type Push = (point: Vector3, radius: number, push: Vector3) => boolean;
+    const wallOf = (site: FleetSite, ahead: number, roof: number): { collide: Push; collideAloft: Push; gap: (point: Vector3) => number } => {
+      const wallAt = site.at.clone().addScaledVector(site.forward, ahead / PLANET_RADIUS).normalize();
+      const normal = site.forward.clone().negate();
+      const gap = (point: Vector3): number => point.clone().normalize().sub(wallAt).dot(normal) * PLANET_RADIUS;
+      const collide: Push = (point, radius, push) => {
+        const g = gap(point);
+        if (g >= radius) return false;
+        push.copy(normal).multiplyScalar(radius - g);
+        return true;
+      };
+      return {
+        collide,
+        collideAloft: (point, radius, push) => {
+          if (point.length() >= roof) {
+            push.set(0, 0, 0);
+            return false;
+          }
+          return collide(point, radius, push);
+        },
+        gap,
+      };
+    };
+    const fly = (who: ReturnType<typeof createPlayer>, seconds: number, input: { y?: number; climb?: boolean; dive?: boolean }, each?: () => void): void => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        heading.copy(who.forward);
+        who.update(1 / 60, { move: { x: 0, y: input.y ?? 0 }, run: false, jump: false, heading, climb: input.climb ?? false, dive: input.dive ?? false });
+        each?.();
+      }
+    };
+    const balloonModel = craft.get(balloon.model)!;
+    const basket = balloonModel.size[1] / 9;
+    const floor = ground(balloon.at);
+
+    // Low, into the wall: it stops at it and never enters it.
+    {
+      const roof = floor + 60;
+      const wall = wallOf(balloon, 30, roof);
+      const drifting = createPlayer(world, 41.39, 2.17, { collide: wall.collide, collideAloft: wall.collideAloft });
+      drifting.board({ vehicle: balloon.id, seat: 0, model: balloonModel, group: balloonModel.build(0) }, writePose(balloon.at.clone().multiplyScalar(floor), balloon.forward, balloon.at, []));
+      fly(drifting, 2.5, { climb: true });
+      let nearest = Infinity;
+      fly(drifting, 12, { y: 1 }, () => { nearest = Math.min(nearest, wall.gap(drifting.position)); });
+      check(drifting.airborne && nearest >= basket - 0.05, 'a balloon drifted into a wall stops at it and never enters it',
+        `${nearest.toFixed(2)} units off it at the nearest, a basket ${basket.toFixed(2)} across the half; ${(drifting.position.length() - floor).toFixed(1)} up`);
+    }
+
+    // High, over the roof, then down onto it: it passes over, and the roof
+    // holds it up rather than letting it be set down inside the building.
+    {
+      const roof = floor + 18;
+      const wall = wallOf(balloon, 30, roof);
+      const events: string[] = [];
+      const over = createPlayer(world, 41.39, 2.17, { collide: wall.collide, collideAloft: wall.collideAloft, onEvent: (event) => events.push(event) });
+      over.board({ vehicle: balloon.id, seat: 0, model: balloonModel, group: balloonModel.build(0) }, writePose(balloon.at.clone().multiplyScalar(floor), balloon.forward, balloon.at, []));
+      for (let t = 0; t < 30 && over.position.length() < roof + 25; t += 0.5) fly(over, 0.5, { climb: true });
+      fly(over, 1.5, {});
+      let seconds = 0;
+      for (; seconds < 20 && wall.gap(over.position) > -40; seconds += 0.5) fly(over, 0.5, { y: 1 });
+      const across = wall.gap(over.position);
+      let lowest = Infinity;
+      fly(over, 25, { dive: true }, () => { lowest = Math.min(lowest, over.position.length()); });
+      check(across < -basket && lowest >= roof - 0.05 && !over.grounded && !events.includes('landed'),
+        'a balloon passes over a roof it clears, and sinking onto it is held up by it, never set down inside',
+        `${(-across).toFixed(1)} units past the wall, lowest ${(lowest - roof).toFixed(2)} over the roof, ${over.grounded ? 'landed' : 'aloft'}`);
+    }
+
+    // A plane flown low into a tower knocks off it, says so, and is not through it.
+    {
+      const planeModel = craft.get(plane.model)!;
+      const floorAt = ground(plane.at);
+      const wall = wallOf(plane, 1400, floorAt + 5000);
+      const hits: { event: string; strength: number }[] = [];
+      const pilot = createPlayer(world, 41.39, 2.17, {
+        collide: wall.collide, collideAloft: wall.collideAloft,
+        onEvent: (event, strength) => hits.push({ event, strength }),
+      });
+      pilot.board({ vehicle: plane.id, seat: 0, model: planeModel, group: planeModel.build(0) }, writePose(plane.at.clone().multiplyScalar(floorAt), plane.forward, plane.at, []));
+      fly(pilot, 8, { climb: true });
+      let nearest = Infinity;
+      fly(pilot, 25, {}, () => { nearest = Math.min(nearest, wall.gap(pilot.position)); });
+      const crash = hits.find((hit) => hit.event === 'crashed');
+      check(crash !== undefined && crash.strength > 0 && nearest > 0 && pilot.airborne,
+        'a plane flown into a tower knocks off it, still flying, and never through it',
+        crash === undefined ? `${hits.map((hit) => hit.event).join(', ')}; ${nearest.toFixed(1)} off it` : `${crash.strength.toFixed(0)} units/s lost, ${nearest.toFixed(2)} off it at the nearest`);
+    }
+  }
+
   // A vehicle standing in the world is a wall to anybody on foot.
   {
     const { createFleet } = await import('../src/fleet.ts');

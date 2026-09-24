@@ -49,7 +49,7 @@ import { regionFor } from './scenery/regions.ts';
 import { POSES, buildPerson } from './scenery/people.ts';
 import type { Look } from './scenery/people.ts';
 import { lookFor } from './scenery/dress.ts';
-import { AVATAR_HEIGHT, RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
+import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
 import {
   RIDER_HEIGHT,
   VARIANTS,
@@ -367,6 +367,57 @@ const ROAD_SPEED = [28, 39, 50];
 const OCCUPANCY = [0.1, 0.4, 0.8];
 /** Vehicles per road at most. A road is up to about 1,100 units long. */
 const ROAD_SLOTS = 3;
+
+/**
+ * How a road vehicle gives way (`giveWay`).
+ *
+ * **A route is a function of the clock and a vehicle that waits is late**, so
+ * what waiting changes is not the route but *when on it* the vehicle is: each
+ * one carries a `delay`, in seconds of the clock, and is drawn at `clock -
+ * delay`. Braking is a `pace` under one, which grows the delay; once clear it
+ * drives at `1 + CATCH_UP` until the delay is gone, so it rejoins its
+ * schedule by driving a little faster rather than by a jump, and the route
+ * itself never learns anything happened. A vehicle out of `YIELD_REACH` never
+ * looks, and one that nothing held up has no delay: it is where a cold start
+ * puts it, which is what `pnpm life`'s determinism asserts.
+ *
+ * What it looks at is its own lane ahead, as far as it takes to stop from its
+ * speed at `BRAKE` plus `LOOK_MARGIN`: the player and whatever he drives, the
+ * vehicles standing about, the animals of a near herd, a walker, a townsman
+ * on a street and every other vehicle of the traffic — the last by its own
+ * box, so one crossing ahead blocks and one passing in the other lane does
+ * not. The speed allowed is the one that stops `STOP_GAP` short (`FOLLOW_GAP`
+ * behind another vehicle), and never more than that gap in one frame, so a
+ * standing obstacle is never entered whatever the frame rate.
+ *
+ * Kept waiting `PASS_AFTER` by something that is not traffic and does not
+ * move, on the open road, it looks down the other lane for `PASS_CLEAR` past
+ * the obstacle, and if that is empty it pulls out, at `LANE_CHANGE` across
+ * plus a share of its speed, passes, and pulls back in. Two vehicles that
+ * block each other — a crossing in a town — are settled by a rank drawn from
+ * the key, a vehicle pulled out to pass going first; one left `GRIDLOCK`
+ * behind other traffic stops looking at traffic until it moves. And one kept
+ * waiting `HORN_AFTER` by the player sounds its horn, again every `HORN_AGAIN`.
+ */
+const YIELD_REACH = 450;
+const BRAKE = 22;
+const ACCELERATE = 9;
+const LOOK_MARGIN = 20;
+const STOP_GAP = 2.5;
+const FOLLOW_GAP = 2.2;
+/** How much wider than the two bodies the corridor ahead is. */
+const LANE_MARGIN = 0.35;
+const CATCH_UP = 0.15;
+const PASS_AFTER = 3;
+const PASS_CLEAR = 70;
+const LANE_CHANGE = 2;
+const HORN_AFTER = 2;
+const HORN_AGAIN = 6;
+const GRIDLOCK = 9;
+/** A clock step longer than this, or backwards, is a jump (`setTime`, `setRate`): every delay is dropped. */
+const CLOCK_JUMP = 0.5;
+/** Bodies of the world outside this file a frame's traffic looks at, at most. */
+const WAY_OBSTACLES = 96;
 
 /**
  * How far a mover's route runs before it wraps, and how many roads it may take
@@ -818,6 +869,84 @@ interface Mover {
   person?: { holder: THREE.Group; person: Person } | null;
   /** A herd near enough to be its animals rather than its merged buffer. */
   animated?: Herding | null;
+  /** A road vehicle's giving way. Road movers only. */
+  way?: Way;
+}
+
+/** What kind of thing holds a road vehicle up; see `giveWay`. */
+const BLOCK_PLAYER = 0;
+const BLOCK_VEHICLE = 1;
+const BLOCK_PERSON = 2;
+const BLOCK_ANIMAL = 3;
+const BLOCK_TRAFFIC = 4;
+
+/** A road vehicle's giving way: see `YIELD_REACH`. */
+interface Way {
+  /** Seconds of the clock it is behind its route, and the share of the route's speed it drives at. */
+  delay: number;
+  pace: number;
+  /**
+   * Seconds it has stood behind the same kind of thing, and of those, behind
+   * one that has not moved; and until its horn may sound again.
+   */
+  waited: number;
+  stillFor: number;
+  horn: number;
+  /** Across its own left, units: pulled out to pass, and where it is going. */
+  shift: number;
+  shiftTo: number;
+  /** What it is passing, and how wide that is; valid while `shiftTo` is not 0. */
+  passing: THREE.Vector3;
+  passingRadius: number;
+  /** Where what it waits behind stood when the wait began, and what that was (`BLOCK_*`, -1 nothing). */
+  blockedAt: THREE.Vector3;
+  blocker: number;
+  /** Stopped looking at traffic after `GRIDLOCK`. */
+  ghost: boolean;
+  /** As drawn last frame: facing, whether drawn, and `drivePart`. */
+  facing: THREE.Vector3;
+  shown: boolean;
+  part: number;
+  /** Its box, from its geometry — the one it was measured from — and its lane: the offset and which side the road keeps (`sideOf`). */
+  sized: THREE.BufferGeometry | null;
+  halfLength: number;
+  halfWidth: number;
+  lane: number;
+  keep: number;
+  /** Who goes first when two block each other. */
+  rank: number;
+}
+
+function wayFor(key: string, lane: number, keep: number): Way {
+  let rank = 0;
+  for (let i = 0; i < key.length; i++) rank = (rank * 31 + key.charCodeAt(i)) >>> 0;
+  return {
+    delay: 0, pace: 1, waited: 0, stillFor: 0, horn: 0, shift: 0, shiftTo: 0,
+    passing: new THREE.Vector3(), passingRadius: 0, blockedAt: new THREE.Vector3(), blocker: -1, ghost: false,
+    facing: new THREE.Vector3(0, 0, 1), shown: false, part: 0,
+    // Until its geometry is there: a placed car, about.
+    sized: null, halfLength: 3.3, halfWidth: 1.2, lane, keep, rank,
+  };
+}
+
+/**
+ * What the traffic gives way to that is not this file's own, and what a herd
+ * keeps off: handed in by `main.ts` once the player and the fleet exist
+ * (`setInTheWay`).
+ */
+export interface InTheWay {
+  /**
+   * Every body the traffic stops for, each as a centre and a radius along the
+   * ground: the player, on foot or in what he drives (`player` true), and
+   * every vehicle standing about or driven by somebody else.
+   */
+  each(visit: (at: THREE.Vector3, radius: number, player: boolean) => void): void;
+  /** Whether a body of `radius` at `point` would stand in a townsman. */
+  people?(point: THREE.Vector3, radius: number): boolean;
+  /** Whether a vehicle a player has moved stands within `radius` of a point on the ground. */
+  parked?(point: THREE.Vector3, radius: number): boolean;
+  /** A road vehicle kept waiting by the player sounds its horn, here. */
+  horn?(at: THREE.Vector3): void;
 }
 
 /**
@@ -949,6 +1078,16 @@ export interface LifeStats {
   /** Road vehicles drawn on a town's streets this frame, and turning round in a town or on the road (`through.ts`). */
   inTown: number;
   turning: number;
+  /**
+   * Road vehicles giving way this frame — under their route's speed for
+   * something ahead — and of those, standing; pulled out to pass something
+   * standing in their lane; and the seconds of the clock the most delayed of
+   * them is behind its route.
+   */
+  yielding: number;
+  waiting: number;
+  passing: number;
+  delayed: number;
   birds: number;
   /** Draw calls this file adds, before `OutlineEffect` doubles them. */
   meshes: number;
@@ -1095,6 +1234,8 @@ export interface Life {
    * sited again.
    */
   setCountry(country: { occupied(direction: THREE.Vector3, radius: number): boolean } | null): void;
+  /** What the traffic gives way to and the herds keep off besides this file's own: see `InTheWay`. */
+  setInTheWay(way: InTheWay | null): void;
 }
 
 export interface LifeOptions {
@@ -1232,7 +1373,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   const stats: LifeStats = {
     road: 0, water: 0, foot: 0, herd: 0, animals: 0, animated: 0,
-    grazing: 0, wandering: 0, fleeing: 0, homing: 0, snapped: 0, inTown: 0, turning: 0, birds: 0,
+    grazing: 0, wandering: 0, fleeing: 0, homing: 0, snapped: 0, inTown: 0, turning: 0,
+    yielding: 0, waiting: 0, passing: 0, delayed: 0, birds: 0,
     meshes: 0, triangles: 0, pooled: 0, megabytes: 0, lastBuildMs: 0, lastScanMs: 0, reach: 0,
     nearestMoving: Infinity,
   };
@@ -2763,7 +2905,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * is inside the hysteresis anyway. The mover asks properly once it is standing
    * and is placed every frame.
    */
-  function consider(mover: Omit<Mover, 'at' | 'mesh' | 'distance'>, viewer: THREE.Vector3, range: number): void {
+  function consider(
+    mover: Omit<Mover, 'at' | 'mesh' | 'distance' | 'way'> & { lane?: number; keep?: number },
+    viewer: THREE.Vector3,
+    range: number,
+  ): void {
     const standing = movers.get(mover.key);
     if (standing !== undefined) {
       // **A mover that has driven out of the frame gives up its slot**, which
@@ -2788,7 +2934,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // now one near enough to be seen waits until it is far, or until the
     // whole cast is being laid out afresh — the first scan, or a jump.
     if (mover.family === 'road' && !freshCast && probeFrame.live && distance < range * EMERGE_BEYOND) return;
-    candidates.push({ ...mover, at: point.clone(), mesh: null, distance });
+    const { lane, keep, ...rest } = mover;
+    candidates.push({
+      ...rest, at: point.clone(), mesh: null, distance,
+      way: mover.family === 'road' ? wayFor(mover.key, lane ?? 0, keep ?? 1) : undefined,
+    });
   }
 
   function scan(viewer: THREE.Vector3, altitude: number): void {
@@ -2875,6 +3025,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
               route: (clock, out, ground) => {
                 driveFrame(drive, driveAt(drive, phase, speed, clock), lateral, out, ground);
               },
+              lane: lateral,
+              keep: sideOf(i),
             }, viewer, roadRange);
           }
         }
@@ -3126,6 +3278,15 @@ export function createLife(world: World, places: readonly Place[], options: Life
         // the town gate for the reason that one runs last, and after the draws
         // so that no seed moves.
         if (!clearOfMade(centre, spread)) return;
+        // **And off a vehicle a player has left in the field**, which is not
+        // the world's and so cannot be part of a cell's one answer: asked of a
+        // herd about to stand, and of one standing far enough off that going
+        // is not seen — never of one in front of you, which walks off it.
+        if (inTheWay?.parked !== undefined) {
+          const standing = movers.get(`g${row}.${col}`);
+          const unseen = standing === undefined || (!standing.animated && standing.distance > HERD_HOLD_REACH);
+          if (unseen && inTheWay.parked(centre, spread)) return;
+        }
         herds.clearOfMade++;
         const bearing = rng.unit() * TAU;
         const height = PLANET_RADIUS + ground;
@@ -3683,6 +3844,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     if (herd.town !== null && herd.town.angleTo(grazeDir) * PLANET_RADIUS < herd.townRadius + head.halfLength) return NaN;
     if (world.elevationAt(grazeDir) <= 0) return NaN;
     if (flattenWeightAt(grazeDir.x, grazeDir.y, grazeDir.z) > 0) return NaN;
+    if (inTheWay?.parked !== undefined && inTheWay.parked(grazeDir, head.halfLength)) return NaN;
     // The way there, a stance at a time: a walk of three lengths is four
     // or five asks.
     const way = Math.hypot(x - head.x, z - head.z);
@@ -3944,7 +4106,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
       .addScaledVector(herd.axisZ, Math.cos(head.yaw));
   }
 
-  /** Whether a step would put an animal inside a neighbour it is not already touching. */
+  /**
+   * Whether a step would put an animal inside a neighbour it is not already
+   * touching, or into a vehicle a player has left here that it is not already
+   * standing in.
+   */
   function blockedBy(herd: Herding, head: Grazer, x: number, z: number): boolean {
     for (const other of herd.heads) {
       if (other === head) continue;
@@ -3952,8 +4118,15 @@ export function createLife(world: World, places: readonly Place[], options: Life
       const after = Math.hypot(other.x - x, other.z - z);
       if (after < gap && after < Math.hypot(other.x - head.x, other.z - head.z)) return true;
     }
+    const parked = inTheWay?.parked;
+    if (parked !== undefined) {
+      if (parked(grazeDirection(herd.site, x, z, herdStepAt), head.halfWidth)) {
+        return !parked(grazeDirection(herd.site, head.x, head.z, herdStepAt), head.halfWidth);
+      }
+    }
     return false;
   }
+  const herdStepAt = new THREE.Vector3();
 
   function arrive(herd: Herding, head: Grazer, dt: number): void {
     head.x = head.toX;
@@ -4013,10 +4186,327 @@ export function createLife(world: World, places: readonly Place[], options: Life
   let viewerPace = 0;
   const paceFrom = new THREE.Vector3();
 
+  // ------------------------------------------------------------------
+  // Giving way: see `YIELD_REACH`
+  // ------------------------------------------------------------------
+
+  let inTheWay: InTheWay | null = null;
+  /** The clock `giveWay` last ran at, for its step; NaN before the first. */
+  let wayClock = NaN;
+  /** The road vehicles looking ahead this frame. */
+  const wayCars: Mover[] = [];
+  /** The bodies a frame's traffic looks at besides itself, four numbers each — x, y, z, radius — and what each is. */
+  const obstacle = new Float64Array(WAY_OBSTACLES * 4);
+  const obstacleKind = new Uint8Array(WAY_OBSTACLES);
+  let obstacles = 0;
+  const wayViewer = new THREE.Vector3();
+  /** How far from the viewer a body can matter to a vehicle inside `YIELD_REACH`. */
+  const WAY_GATHER = YIELD_REACH + 150;
+  function addBody(at: THREE.Vector3, radius: number, kind: number): void {
+    if (obstacles >= WAY_OBSTACLES || at.distanceToSquared(wayViewer) > WAY_GATHER * WAY_GATHER) return;
+    const i = obstacles++;
+    obstacle[i * 4] = at.x;
+    obstacle[i * 4 + 1] = at.y;
+    obstacle[i * 4 + 2] = at.z;
+    obstacle[i * 4 + 3] = radius;
+    obstacleKind[i] = kind;
+  }
+  /** Made once, so `InTheWay.each` is handed the same function every frame. */
+  const addOutside = (at: THREE.Vector3, radius: number, player: boolean): void =>
+    addBody(at, radius, player ? BLOCK_PLAYER : BLOCK_VEHICLE);
+  /** A walker, the width `collide` gives one. */
+  const WALKER_RADIUS = FIGURE.shoulderHalf;
+  /** How far past its bumper a vehicle in a town asks after the townsfolk, and how many times. */
+  const PEOPLE_PROBES = [1.5, 4, 7, 11, 16] as const;
+  /** The nearest thing `ahead` found: the gap to it along the lane, what it is, where, and how big. */
+  let aheadGap = Infinity;
+  let aheadKind = -1;
+  let aheadRadius = 0;
+  const aheadAt = new THREE.Vector3();
+  const wayUp = new THREE.Vector3();
+  const wayLeft = new THREE.Vector3();
+  const wayOtherLeft = new THREE.Vector3();
+  const wayProbe = new THREE.Vector3();
+  const wayFrom = new THREE.Vector3();
+  const passFrom = new THREE.Vector3();
+  const aheadBefore = new THREE.Vector3();
+
+  /**
+   * Whether a body `ra` long along the lane and `rc` across it, `(dx, dy, dz)`
+   * from `wayFrom`, is in the corridor `wayUp`, `facing` and `wayLeft` span:
+   * ahead of its centre, or with `alongside`, anywhere from `alongside`
+   * behind; and nearer than what was found so far.
+   */
+  function block(
+    way: Way, dx: number, dy: number, dz: number, ra: number, rc: number,
+    kind: number, reach: number, alongside: number,
+  ): boolean {
+    const h = dx * wayUp.x + dy * wayUp.y + dz * wayUp.z;
+    if (h > AVATAR_HEIGHT * 2 || h < -AVATAR_HEIGHT * 2) return false;
+    const f = way.facing;
+    const along = dx * f.x + dy * f.y + dz * f.z;
+    if (alongside > 0 ? along + ra < -alongside : along <= 0) return false;
+    if (along - ra > reach) return false;
+    const across = Math.abs(dx * wayLeft.x + dy * wayLeft.y + dz * wayLeft.z);
+    if (across >= way.halfWidth + rc + LANE_MARGIN) return false;
+    const gap = along - way.halfLength - ra;
+    if (gap >= aheadGap) return false;
+    aheadGap = gap;
+    aheadKind = kind;
+    aheadRadius = Math.max(ra, rc);
+    aheadAt.set(wayFrom.x + dx, wayFrom.y + dy, wayFrom.z + dz);
+    return true;
+  }
+
+  /**
+   * The nearest thing in a vehicle's lane from `from`, as far as `reach`:
+   * into `aheadGap` and its fellows. `alongside` 0 is the lane ahead as it
+   * drives, where two vehicles that block each other are settled by rank;
+   * above 0 it is a lane it would pull into, where anything counts, from that
+   * far behind.
+   */
+  function ahead(mover: Mover, way: Way, from: THREE.Vector3, reach: number, alongside: number): void {
+    aheadGap = Infinity;
+    aheadKind = -1;
+    wayFrom.copy(from);
+    wayUp.copy(from).normalize();
+    wayLeft.crossVectors(wayUp, way.facing).normalize();
+    for (let i = 0; i < obstacles; i++) {
+      const r = obstacle[i * 4 + 3]!;
+      block(
+        way, obstacle[i * 4]! - from.x, obstacle[i * 4 + 1]! - from.y, obstacle[i * 4 + 2]! - from.z,
+        r, r, obstacleKind[i]!, reach, alongside,
+      );
+    }
+    if (!way.ghost || alongside > 0) {
+      const f = way.facing;
+      for (const other of wayCars) {
+        if (other === mover) continue;
+        const o = other.way!;
+        const fo = o.facing;
+        wayOtherLeft.crossVectors(wayUp, fo);
+        // Its box, measured along this lane and across it.
+        const ra = Math.abs(f.dot(fo)) * o.halfLength + Math.abs(f.dot(wayOtherLeft)) * o.halfWidth;
+        const rc = Math.abs(wayLeft.dot(fo)) * o.halfLength + Math.abs(wayLeft.dot(wayOtherLeft)) * o.halfWidth;
+        const dx = other.at.x - from.x;
+        const dy = other.at.y - from.y;
+        const dz = other.at.z - from.z;
+        // Oncoming, it keeps its own lane and passes, whatever a bend or a
+        // town's turn does to the straight line ahead — except while either
+        // is pulled out, which is exactly when it is in the way.
+        if (alongside === 0 && f.dot(fo) < -0.5 && way.shift === 0 && o.shift === 0) continue;
+        if (alongside > 0) {
+          block(way, dx, dy, dz, ra, rc, BLOCK_TRAFFIC, reach, alongside);
+          continue;
+        }
+        // Would it stop for this one too? Then one of the two goes: the one
+        // pulled out to pass, else the higher rank.
+        const gapBefore = aheadGap;
+        const kindBefore = aheadKind;
+        const radiusBefore = aheadRadius;
+        aheadBefore.copy(aheadAt);
+        if (!block(way, dx, dy, dz, ra, rc, BLOCK_TRAFFIC, reach, 0)) continue;
+        // Already through each other — two drives of a town that share a
+        // corner — standing still undoes nothing: it drives out.
+        if (aheadGap < 0) {
+          aheadGap = gapBefore;
+          aheadKind = kindBefore;
+          aheadRadius = radiusBefore;
+          aheadAt.copy(aheadBefore);
+          continue;
+        }
+        const back = -(dx * fo.x + dy * fo.y + dz * fo.z);
+        const backAcross = Math.abs(dx * wayOtherLeft.x + dy * wayOtherLeft.y + dz * wayOtherLeft.z);
+        const mine = Math.abs(fo.dot(f)) * way.halfWidth + Math.abs(wayOtherLeft.dot(f)) * way.halfLength;
+        const mutual = back > 0 && backAcross < o.halfWidth + mine + LANE_MARGIN;
+        const first = (way.shiftTo !== 0) !== (o.shiftTo !== 0) ? way.shiftTo !== 0 : way.rank > o.rank;
+        // Nose to nose and close, neither goes: whoever pulled out goes back in.
+        const facing = f.dot(fo) < -0.5 && aheadGap < FOLLOW_GAP + 4;
+        if (mutual && first && !facing) {
+          aheadGap = gapBefore;
+          aheadKind = kindBefore;
+          aheadRadius = radiusBefore;
+          aheadAt.copy(aheadBefore);
+        }
+      }
+    }
+    // The people standing about a town's streets: asked at a few points
+    // past the bumper, only in town and only near.
+    const people = inTheWay?.people;
+    if (alongside === 0 && people !== undefined && (way.part === 1 || way.part === 2)) {
+      for (const probe of PEOPLE_PROBES) {
+        const gap = probe - WALKER_RADIUS;
+        if (gap >= aheadGap || probe > reach) break;
+        wayProbe.copy(from).addScaledVector(way.facing, way.halfLength + probe);
+        if (!people(wayProbe, way.halfWidth)) continue;
+        aheadGap = gap;
+        aheadKind = BLOCK_PERSON;
+        aheadRadius = WALKER_RADIUS;
+        aheadAt.copy(wayProbe);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Every road vehicle's pace, delay and lane for this frame, from what was
+   * drawn the last: see `YIELD_REACH`. Called before the movers are placed,
+   * so each is placed at `clock - delay`.
+   */
+  function giveWay(viewer: THREE.Vector3, clock: number): void {
+    const step = clock - wayClock;
+    wayClock = clock;
+    const jump = !(step >= 0 && step <= CLOCK_JUMP);
+    stats.yielding = 0;
+    stats.waiting = 0;
+    stats.passing = 0;
+    stats.delayed = 0;
+    wayCars.length = 0;
+    const reach2 = YIELD_REACH * YIELD_REACH;
+    for (const mover of movers.values()) {
+      const way = mover.way;
+      if (way === undefined) continue;
+      if (jump) {
+        // A jump of the clock is a new world: everybody on schedule.
+        way.delay = 0;
+        way.pace = 1;
+        way.waited = 0;
+        way.stillFor = 0;
+        way.horn = 0;
+        way.shift = 0;
+        way.shiftTo = 0;
+        way.ghost = false;
+        way.blocker = -1;
+        continue;
+      }
+      if (!way.shown) {
+        way.shift = 0;
+        way.shiftTo = 0;
+      }
+      if (way.shown && mover.at.distanceToSquared(viewer) < reach2) wayCars.push(mover);
+    }
+    if (jump || step === 0) return;
+
+    obstacles = 0;
+    if (wayCars.length > 0) {
+      wayViewer.copy(viewer);
+      inTheWay?.each(addOutside);
+      for (const walker of walkersShown) addBody(walker.at, WALKER_RADIUS, BLOCK_PERSON);
+      for (const herd of herdsShown) for (const head of herd.heads) addBody(head.world, head.halfLength, BLOCK_ANIMAL);
+    }
+
+    for (const mover of movers.values()) {
+      const way = mover.way;
+      if (way === undefined) continue;
+      aheadGap = Infinity;
+      aheadKind = -1;
+      const looking = way.shown && mover.at.distanceToSquared(viewer) < reach2;
+      if (looking) {
+        const top = mover.speed * (1 + CATCH_UP);
+        ahead(mover, way, mover.at, (top * top) / (2 * BRAKE) + LOOK_MARGIN, 0);
+        // What it waits behind, and whether that has stood still.
+        if (aheadKind !== way.blocker) {
+          way.blocker = aheadKind;
+          way.blockedAt.copy(aheadAt);
+          way.waited = 0;
+          way.stillFor = 0;
+        } else if (aheadKind >= 0 && aheadAt.distanceTo(way.blockedAt) > 0.75) {
+          way.blockedAt.copy(aheadAt);
+          way.stillFor = 0;
+        }
+        passLane(mover, way);
+      }
+
+      // The pace: what stops it short of the gap, eased up and cut at once.
+      const top = way.delay > 0 ? 1 + CATCH_UP : 1;
+      let target = top;
+      if (aheadGap < Infinity) {
+        const free = aheadGap - (aheadKind === BLOCK_TRAFFIC ? FOLLOW_GAP : STOP_GAP);
+        const allowed = free <= 0 ? 0 : Math.min(Math.sqrt(2 * BRAKE * free), free / step);
+        target = Math.min(top, allowed / mover.speed);
+      }
+      way.pace = target < way.pace ? target : Math.min(target, way.pace + (ACCELERATE * step) / mover.speed);
+      way.delay = Math.max(0, way.delay + step * (1 - way.pace));
+
+      if (way.pace < 0.1 && aheadKind >= 0) {
+        way.waited += step;
+        way.stillFor += step;
+      } else if (way.pace > 0.5) {
+        way.waited = 0;
+        way.stillFor = 0;
+        way.ghost = false;
+      }
+      way.horn = Math.max(0, way.horn - step);
+      if (aheadKind === BLOCK_PLAYER && way.waited > HORN_AFTER && way.horn === 0) {
+        way.horn = HORN_AGAIN;
+        inTheWay?.horn?.(mover.at);
+      }
+      if (aheadKind === BLOCK_TRAFFIC && way.waited > GRIDLOCK) way.ghost = true;
+
+      // Across, at a pace that grows with the speed, so it steers out rather than slides.
+      if (way.shift !== way.shiftTo) {
+        const rate = (LANE_CHANGE + 0.2 * mover.speed * way.pace) * step;
+        const d = way.shiftTo - way.shift;
+        way.shift = Math.abs(d) <= rate ? way.shiftTo : way.shift + Math.sign(d) * rate;
+      }
+
+      if (aheadKind >= 0 && way.pace < 0.98) stats.yielding++;
+      if (aheadKind >= 0 && way.pace < 0.1) stats.waiting++;
+      if (way.shiftTo !== 0 || way.shift !== 0) stats.passing++;
+      stats.delayed = Math.max(stats.delayed, way.delay);
+    }
+  }
+
+  /**
+   * Out to pass something standing in the lane, and back in once past it:
+   * see `PASS_AFTER`. Only on the open road, where the other lane is the
+   * oncoming one; in a town, or turning, it keeps its lane.
+   */
+  function passLane(mover: Mover, way: Way): void {
+    if (way.part !== 0) {
+      way.shiftTo = 0;
+      return;
+    }
+    if (way.shiftTo !== 0) {
+      const along = wayProbe.subVectors(way.passing, mover.at).dot(way.facing);
+      const clear = way.halfLength + way.passingRadius;
+      // Past it; or stuck out there, by something else, with it still ahead: back in.
+      const other = aheadKind >= 0 && aheadAt.distanceTo(way.passing) > way.passingRadius + 1;
+      if (along < -(clear + 3) || (other && way.waited > PASS_AFTER && along > clear + 2)) way.shiftTo = 0;
+      return;
+    }
+    if (
+      way.shift !== 0 || way.stillFor <= PASS_AFTER || aheadKind < 0 || aheadKind === BLOCK_TRAFFIC ||
+      aheadGap > STOP_GAP + 6
+    ) return;
+    const gap = aheadGap;
+    const kind = aheadKind;
+    const radius = aheadRadius;
+    passFrom.copy(aheadAt);
+    const offset = -2 * way.lane * way.keep;
+    wayUp.copy(mover.at).normalize();
+    wayLeft.crossVectors(wayUp, way.facing).normalize();
+    wayProbe.copy(mover.at).addScaledVector(wayLeft, offset);
+    ahead(mover, way, wayProbe, gap + way.halfLength + 2 * radius + PASS_CLEAR, way.halfLength * 2 + 4);
+    const free = aheadGap === Infinity;
+    aheadGap = gap;
+    aheadKind = kind;
+    aheadRadius = radius;
+    aheadAt.copy(passFrom);
+    if (!free) return;
+    way.shiftTo = offset;
+    way.passing.copy(passFrom);
+    way.passingRadius = radius;
+    way.waited = 0;
+  }
+
   function update(
     viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number, dt?: number,
   ): void {
     herds.frame++;
+    // Before anything is placed, and before last frame's walkers and animals
+    // are forgotten: they are what the traffic looks at.
+    giveWay(viewer, clock);
     walkersShown.length = 0;
     lastViewer.copy(viewer);
     dressedThisFrame = 0;
@@ -4082,7 +4572,23 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
     for (const mover of movers.values()) {
       drivePart = 0;
-      mover.route(clock, frame, true);
+      const way = mover.way;
+      mover.route(way === undefined ? clock : clock - way.delay, frame, true);
+      if (way !== undefined) {
+        way.part = drivePart;
+        way.shown = false;
+        way.facing.copy(frame.forward).projectOnPlane(frame.dir).normalize();
+        if (way.shift !== 0) {
+          // Out across its own left to pass, and turned towards where it is going.
+          wayLeft.crossVectors(frame.dir, way.facing).normalize();
+          frame.dir.addScaledVector(wayLeft, way.shift / PLANET_RADIUS).normalize();
+          const across = way.shiftTo - way.shift;
+          if (across !== 0) {
+            const steer = Math.sign(across) * Math.min(0.35, (LANE_CHANGE + 0.2 * mover.speed * way.pace) / Math.max(2, mover.speed * way.pace));
+            frame.forward.copy(way.facing).addScaledVector(wayLeft, steer).normalize();
+          }
+        }
+      }
       mover.at.copy(frame.dir).multiplyScalar(frame.height);
 
       if (mover.family === 'foot' && folk !== undefined) {
@@ -4124,6 +4630,16 @@ export function createLife(world: World, places: readonly Place[], options: Life
       }
       mesh.visible = true;
       if (mesh.geometry !== pooled.geometry) mesh.geometry = pooled.geometry;
+      if (way !== undefined) {
+        way.shown = true;
+        if (way.sized !== pooled.geometry) {
+          // Its box, which the traffic behind it and across its way measure it by.
+          way.sized = pooled.geometry;
+          const box = pooled.geometry.boundingBox ?? (pooled.geometry.computeBoundingBox(), pooled.geometry.boundingBox!);
+          way.halfLength = Math.max(-box.min.z, box.max.z);
+          way.halfWidth = Math.max(-box.min.x, box.max.x);
+        }
+      }
 
       // The one basis every placed thing in this project uses: X cross Y is Z,
       // so X is `up x forward` and never `makeBasis(east, up, north)`, whose
@@ -4283,6 +4799,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
     setCountry(value) {
       country = value;
       herdSites.clear();
+    },
+
+    setInTheWay(value) {
+      inTheWay = value;
     },
   };
 }

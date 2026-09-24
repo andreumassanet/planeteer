@@ -69,6 +69,12 @@ export interface Audio {
   /** One footfall on this surface; `weight` 1 is a walk, more is a run or a landing. */
   step(surface: Surface, weight?: number): void;
   cue(name: Cue): void;
+  /**
+   * A car's horn, once: the traffic kept waiting. `near` is 1 beside you and
+   * 0 out of earshot, and it is synthesised — two squares a major third
+   * apart, like every two-tone horn — so it costs no recording.
+   */
+  horn(near: number): void;
   /** 0 to 1, a linear gain on the master; the slider that sets it is logarithmic. */
   volume: number;
   muted: boolean;
@@ -124,6 +130,7 @@ const PLANE_LEVEL = 0.13;
 const CAR_LEVEL = 0.11;
 const BIRD_LEVEL = 0.05;
 const CRICKET_LEVEL = 0.025;
+const HORN_LEVEL = 0.06;
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const between = (a: number, b: number): number => a + Math.random() * (b - a);
@@ -519,6 +526,34 @@ export function createAudio(): Audio {
       const count = VARIANTS[surface];
       const pick = Math.floor(Math.random() * count);
       play(`step-${surface}-${pick}`, STEP_LEVEL[surface] * Math.min(1.6, weight), between(0.93, 1.07));
+    },
+
+    horn(near) {
+      const ctx = context;
+      if (ctx === null || master === null || near <= 0.02) return;
+      const at = ctx.currentTime + 0.01;
+      const length = between(0.28, 0.42);
+      const peak = HORN_LEVEL * clamp01(near);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1600;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(peak, at + 0.02);
+      env.gain.setValueAtTime(peak, at + length);
+      env.gain.linearRampToValueAtTime(0, at + length + 0.06);
+      filter.connect(env).connect(master);
+      const pitch = between(0.94, 1.06);
+      for (const frequency of [370, 466]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = frequency * pitch;
+        osc.connect(filter);
+        osc.start(at);
+        osc.stop(at + length + 0.08);
+        voices++;
+        osc.onended = () => voices--;
+      }
     },
 
     cue(name) {

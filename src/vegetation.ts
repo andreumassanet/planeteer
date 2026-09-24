@@ -56,6 +56,10 @@ import type { RegionId, RegionStyle, SceneryContext, ScenicPart, Weighted } from
 import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
 import { FIELD_CLEARANCE, LEVELS, MONUMENT_CLEARANCE, ROOT_STEP, WIDEST_FOOTPRINT, cellsOf, rootOf, rowsOf, stepOf } from './tile-grid.ts';
 import { createCountryside } from './countryside.ts';
+import { freeSpot, enclosed, pushOut, solidField } from './scenery/solids.ts';
+import type { Solid, SolidField } from './scenery/solids.ts';
+import { partShape, placeShape } from './scenery/occupancy.ts';
+import type { BodyKind, PartShape } from './scenery/occupancy.ts';
 import type { Countryside, CountrysideStats } from './countryside.ts';
 import { BEACON_STRIDE, ROTOR_STRIDE, SMOKE_STRIDE, createCountryBuilder, strawOf } from './countryside-tile.ts';
 import type { CountryBuilder, CountryMotionRows } from './countryside-tile.ts';
@@ -561,6 +565,41 @@ interface FlatVariant {
   footprint: number;
   /** How far this one follows the slope it stands on; see `TILT_OF`. */
   tilt: number;
+  /** What it is to a body walking into it; absent, nothing. See `SOLID_LEVEL`. */
+  solid?: BodyKind;
+}
+
+/**
+ * What of the kit a body cannot walk through: a tree's trunk, a boulder, and
+ * a building — a farmhouse is a region's own dwelling. A shrub, a tuft and
+ * the grass are walked through.
+ */
+function bodyOf(entry: ScenicPart): BodyKind | undefined {
+  if (entry.kind === 'tree') return 'trunk';
+  if (entry.id === 'boulder') return 'boulder';
+  if (entry.kind === 'dwelling' || entry.kind === 'civic' || entry.kind === 'block') return 'walls';
+  return undefined;
+}
+
+/**
+ * **The two finest levels are solid, and nothing coarser.** A level-0 tile
+ * reaches 400 units at the default detail and the player always stands in
+ * one once the streamer has caught up; a level-1 tile is what covers the
+ * ground in the frames before it has, after a jump or a spawn. What a coarser
+ * tile holds is never within reach of a foot.
+ */
+const SOLID_LEVEL = 1;
+/** Past a tile's half-diagonal, how far a query may still reach into its solids. */
+const SOLID_MARGIN = 20;
+
+/** A tile's solids, in its own tangent frame, and the frame. */
+interface TileWalls {
+  field: SolidField;
+  across: THREE.Vector3;
+  north: THREE.Vector3;
+  up: THREE.Vector3;
+  /** `up . direction` over this and a point may be near enough to meet a solid. */
+  cosBound: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -890,6 +929,16 @@ export interface Vegetation {
   /** The countryside's planner, for the console: `plan`, `planAt`, `find`. Null without the places. */
   countryside: Countryside | null;
   /**
+   * The trunks, boulders and farm buildings of the drawn tiles near a point
+   * as walls: `settlements.collide`'s contract, the displacement along the
+   * ground in `push`.
+   */
+  collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /** `settlements.freeSpotNear`'s contract, against the same solids. */
+  freeSpotNear(point: THREE.Vector3, radius: number, out: THREE.Vector3): boolean;
+  /** Whether a point is inside a farm building and under its roof. For the camera. */
+  blocksSight(point: THREE.Vector3): boolean;
+  /**
    * Every drawn tile's rotors, lamps and fires, for `countryside-motion.ts`.
    * Only drawn tiles: a staged one is not on the screen, and a retiring one
    * is, until the tile that replaces it is.
@@ -957,6 +1006,8 @@ interface Standing extends Cell {
   motion: CountryMotionRows | null;
   /** In the group and drawn. False while it waits for what it replaces; see `settle`. */
   shown: boolean;
+  /** Its solids, while it is drawn; see `SOLID_LEVEL`. */
+  walls: TileWalls | null;
 }
 
 /** Where a tile sits in the quadtree, which is all `overlaps` needs. */
@@ -1131,6 +1182,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       height: measured.height,
       footprint: entry.footprint,
       tilt: TILT_OF[entry.kind],
+      solid: bodyOf(entry),
     };
     built.traverse((object) => {
       const mesh = object as THREE.Mesh;
@@ -1335,6 +1387,8 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     motion: CountryMotionRows | null;
     /** Near, and its fields laid on the relief because the drawn land was not ready: built again when it is. */
     provisional: boolean;
+    /** What of it is solid, for the finest levels; see `SOLID_LEVEL`. */
+    walls: TileWalls | null;
   }
 
   /**
@@ -1362,6 +1416,43 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     tileMatrix.compose(origin, quaternion.setFromRotationMatrix(tileBasis), ONE);
     tileInverse.copy(tileMatrix).invert();
     return true;
+  }
+
+  /** Each part's obstacle, measured once from its first build. */
+  const shapes = new WeakMap<object, PartShape>();
+
+  /**
+   * A tile's solids, in the frame `frameTile` has just set: a disc for every
+   * trunk and boulder it places and the measured walls of every farm building,
+   * each where its placed matrix puts it. **What is solid is what is drawn**:
+   * the same list the buffer is merged from, so a tree is a wall exactly where
+   * one stands and nowhere else.
+   *
+   * A trunk's disc takes no roof (`top` 0), so the camera passes the trees:
+   * a lens pulled in behind every trunk in a wood is a lens that never
+   * settles. A building's walls take the height of what stands over them.
+   */
+  function wallsOf(tile: Tile, placed: readonly { flat: FlatVariant; matrix: THREE.Matrix4 }[]): TileWalls | null {
+    const solids: Solid[] = [];
+    const ground = origin.length();
+    for (const item of placed) {
+      const kind = item.flat.solid;
+      if (kind === undefined) continue;
+      let shape = shapes.get(item.flat);
+      if (shape === undefined) {
+        shape = partShape(item.flat.position, kind);
+        shapes.set(item.flat, shape);
+      }
+      placeShape(shape, item.matrix.elements, ground, solids);
+    }
+    if (solids.length === 0) return null;
+    return {
+      field: solidField(solids),
+      across: across.clone(),
+      north: north.clone(),
+      up: up.clone(),
+      cosBound: Math.cos((Math.hypot(tile.halfEast, tile.halfNorth) + SOLID_MARGIN) / PLANET_RADIUS),
+    };
   }
 
   /**
@@ -1474,6 +1565,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       fences: 0,
       motion: null,
       provisional: false,
+      walls: null,
     };
 
     if (!frameTile(tile)) return empty;
@@ -1817,6 +1909,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       fences: built?.fences ?? 0,
       motion: built?.motion ?? null,
       provisional: (built?.provisional ?? false) && land !== undefined && !stats.sward.ready,
+      walls: tile.level <= SOLID_LEVEL ? wallsOf(tile, placed) : null,
     };
 
     if (placed.length === 0) {
@@ -2109,6 +2202,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   }
 
   function release(entry: Standing): void {
+    walled.delete(entry);
     // The geometry is this tile's and nothing else holds it. The material is one
     // object shared by every tile on the planet.
     const mesh = entry.mesh;
@@ -2141,6 +2235,14 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    * goes at once, as before. `wantedTiles` is the last scan's list.
    */
   const retiring = new Map<string, Standing>();
+  /**
+   * The drawn tiles that have solids: a tile is solid from the frame it is
+   * shown to the frame it is released, retiring included, so a trunk is a
+   * wall exactly while it is on the screen.
+   */
+  const walled = new Set<Standing>();
+  const solidDir = new THREE.Vector3();
+  const solidPush = { x: 0, z: 0 };
   let wantedTiles: Tile[] = [];
   /**
    * Near tiles whose fields were laid on the relief because the drawn land
@@ -2191,6 +2293,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       group.add(entry.mesh);
       fader.in(entry.mesh);
       entry.shown = true;
+      if (entry.walls !== null) walled.add(entry);
     }
   }
 
@@ -2995,6 +3098,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         row: tile.row,
         column: tile.column,
         shown: false,
+        walls: result.walls,
       });
       if (result.provisional) provisional.add(tile.key);
       else provisional.delete(tile.key);
@@ -3239,6 +3343,46 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     },
 
     countryside: country?.planner ?? null,
+
+    collide(point, radius, push) {
+      push.set(0, 0, 0);
+      solidDir.copy(point).normalize();
+      let hit = false;
+      for (const entry of walled) {
+        const walls = entry.walls!;
+        if (solidDir.dot(walls.up) < walls.cosBound) continue;
+        if (!pushOut(walls.field, point.dot(walls.across), point.dot(walls.north), radius, solidPush)) continue;
+        push.addScaledVector(walls.across, solidPush.x).addScaledVector(walls.north, solidPush.z);
+        hit = true;
+      }
+      return hit;
+    },
+
+    freeSpotNear(point, radius, out) {
+      solidDir.copy(point).normalize();
+      for (const entry of walled) {
+        const walls = entry.walls!;
+        if (solidDir.dot(walls.up) < walls.cosBound) continue;
+        const x = point.dot(walls.across);
+        const z = point.dot(walls.north);
+        if (!freeSpot(walls.field, x, z, radius, solidPush)) continue;
+        out.copy(point).addScaledVector(walls.across, solidPush.x - x).addScaledVector(walls.north, solidPush.z - z);
+        out.setLength(point.length());
+        return true;
+      }
+      return false;
+    },
+
+    blocksSight(point) {
+      solidDir.copy(point).normalize();
+      const height = point.length();
+      for (const entry of walled) {
+        const walls = entry.walls!;
+        if (solidDir.dot(walls.up) < walls.cosBound) continue;
+        if (enclosed(walls.field, point.dot(walls.across), point.dot(walls.north), height)) return true;
+      }
+      return false;
+    },
 
     motion(visit) {
       for (const entry of standing.values()) if (entry.shown && entry.motion !== null) visit(entry.motion);

@@ -20,7 +20,9 @@
  * **A footprint is an oriented rectangle**, because that is what a building part
  * is from above. Its first axis is `(cos, sin)` in `(x, z)` and its second is
  * `(-sin, cos)`; `yawed` builds one from a Three `rotation.y`, whose sign is the
- * opposite way round and is the one mistake this record invites.
+ * opposite way round and is the one mistake this record invites. **Or a
+ * disc** (`disc`), which is what a trunk and a boulder are: `round`, with its
+ * radius in `hx` and `hz` both.
  *
  * Everything here is pure and allocation-free after `solidField`, so the same
  * code runs in the player's frame and in `scripts/check-solids.ts`, and it is
@@ -41,6 +43,8 @@ export interface Solid {
   hz: number;
   /** The roof, as a radius from the planet's centre. The camera's; a body ignores it. */
   top: number;
+  /** A disc of radius `hx` rather than a rectangle; its axes are then unused. */
+  round: boolean;
 }
 
 /**
@@ -128,7 +132,34 @@ const EDGE = 1e-9;
  * rotated house about its own centre, and a square house hides it.
  */
 export function yawed(x: number, z: number, yaw: number, hx: number, hz: number, top: number): Solid {
-  return { x, z, cos: Math.cos(yaw), sin: -Math.sin(yaw), hx, hz, top };
+  return { x, z, cos: Math.cos(yaw), sin: -Math.sin(yaw), hx, hz, top, round: false };
+}
+
+/** A round footprint: a trunk, a boulder. `top` as for a rectangle; 0 is one the camera never meets. */
+export function disc(x: number, z: number, radius: number, top: number): Solid {
+  return { x, z, cos: 1, sin: 0, hx: radius, hz: radius, top, round: true };
+}
+
+/** Whether `(x, z)` is inside a footprint grown by `margin`, its edge included. */
+function within(s: Solid, x: number, z: number, margin: number): boolean {
+  const dx = x - s.x;
+  const dz = z - s.z;
+  if (s.round) {
+    const r = s.hx + margin;
+    return dx * dx + dz * dz <= r * r;
+  }
+  return Math.abs(dx * s.cos + dz * s.sin) <= s.hx + margin && Math.abs(-dx * s.sin + dz * s.cos) <= s.hz + margin;
+}
+
+/** Whether `(x, z)` is strictly inside a footprint grown by `grow`, by more than `EDGE`: `freeSpot`'s test. */
+function strictlyWithin(s: Solid, x: number, z: number, grow: number): boolean {
+  const dx = x - s.x;
+  const dz = z - s.z;
+  if (s.round) {
+    const r = s.hx + grow - EDGE;
+    return dx * dx + dz * dz < r * r;
+  }
+  return Math.abs(dx * s.cos + dz * s.sin) < s.hx + grow - EDGE && Math.abs(-dx * s.sin + dz * s.cos) < s.hz + grow - EDGE;
 }
 
 /** Builds the field. Throws on a solid that is not one, which is a bug upstream. */
@@ -148,10 +179,11 @@ export function solidField(solids: readonly Solid[], cell: number = SOLID_CELL):
     if (Math.abs(s.cos * s.cos + s.sin * s.sin - 1) > 1e-6) {
       throw new Error(`solid ${i}'s axis (${s.cos}, ${s.sin}) is not a unit vector`);
     }
+    if (s.round && s.hx !== s.hz) throw new Error(`solid ${i} is a disc with two radii`);
     const c = Math.abs(s.cos);
     const sn = Math.abs(s.sin);
-    const halfX = c * s.hx + sn * s.hz;
-    const halfZ = sn * s.hx + c * s.hz;
+    const halfX = s.round ? s.hx : c * s.hx + sn * s.hz;
+    const halfZ = s.round ? s.hx : sn * s.hx + c * s.hz;
     ex[i] = halfX;
     ez[i] = halfZ;
     minX = Math.min(minX, s.x - halfX);
@@ -269,6 +301,19 @@ const sep = { x: 0, z: 0 };
 function separate(s: Solid, x: number, z: number, radius: number): number {
   const dx = x - s.x;
   const dz = z - s.z;
+  if (s.round) {
+    const reach = s.hx + radius;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= reach * reach) return 0;
+    const d = Math.sqrt(d2);
+    const depth = reach - d;
+    if (depth <= TOUCH) return 0;
+    // Dead centre has no normal; it leaves along +x, which is as good as any
+    // and the same every time.
+    sep.x = d > 1e-12 ? (dx / d) * depth : depth;
+    sep.z = d > 1e-12 ? (dz / d) * depth : 0;
+    return depth;
+  }
   const u = dx * s.cos + dz * s.sin;
   const v = -dx * s.sin + dz * s.cos;
   const au = Math.abs(u);
@@ -321,6 +366,9 @@ function separate(s: Solid, x: number, z: number, radius: number): number {
  * this cannot do is decide which way out of a *cluster* is nearest from inside
  * it — two terraced houses bounce a body between them — and that is
  * `freeSpot`, which `slide` asks whenever a frame hit anything.
+ *
+ * `over`, a radius from the planet's centre, leaves out every solid whose roof
+ * is at or under it: what a craft in the air asks, which a roof passes under.
  */
 export function pushOut(
   field: SolidField,
@@ -328,6 +376,7 @@ export function pushOut(
   z: number,
   radius: number,
   out: { x: number; z: number },
+  over = -Infinity,
 ): boolean {
   let px = x;
   let pz = z;
@@ -338,7 +387,9 @@ export function pushOut(
     let dx = 0;
     let dz = 0;
     for (let k = 0; k < count; k++) {
-      const depth = separate(field.solids[field.found[k]!]!, px, pz, radius);
+      const solid = field.solids[field.found[k]!]!;
+      if (solid.top <= over) continue;
+      const depth = separate(solid, px, pz, radius);
       // Strictly deeper, so a tie goes to the lower index: deterministic.
       if (depth <= deepest) continue;
       deepest = depth;
@@ -369,12 +420,7 @@ export function solidAt(field: SolidField, x: number, z: number, margin = 0): So
   const count = gather(field, field.found, x - margin, z - margin, x + margin, z + margin);
   for (let k = 0; k < count; k++) {
     const s = field.solids[field.found[k]!]!;
-    const dx = x - s.x;
-    const dz = z - s.z;
-    if (
-      Math.abs(dx * s.cos + dz * s.sin) <= s.hx + margin &&
-      Math.abs(-dx * s.sin + dz * s.cos) <= s.hz + margin
-    ) return s;
+    if (within(s, x, z, margin)) return s;
   }
   return null;
 }
@@ -392,9 +438,7 @@ export function enclosed(field: SolidField, x: number, z: number, height: number
   for (let k = 0; k < count; k++) {
     const s = field.solids[field.found[k]!]!;
     if (height >= s.top) continue;
-    const dx = x - s.x;
-    const dz = z - s.z;
-    if (Math.abs(dx * s.cos + dz * s.sin) <= s.hx && Math.abs(-dx * s.sin + dz * s.cos) <= s.hz) return true;
+    if (within(s, x, z, 0)) return true;
   }
   return false;
 }
@@ -403,13 +447,7 @@ export function enclosed(field: SolidField, x: number, z: number, height: number
 function clearOfGrown(field: SolidField, x: number, z: number, grow: number): boolean {
   const count = gather(field, field.found, x - grow, z - grow, x + grow, z + grow);
   for (let k = 0; k < count; k++) {
-    const s = field.solids[field.found[k]!]!;
-    const dx = x - s.x;
-    const dz = z - s.z;
-    if (
-      Math.abs(dx * s.cos + dz * s.sin) < s.hx + grow - EDGE &&
-      Math.abs(-dx * s.sin + dz * s.cos) < s.hz + grow - EDGE
-    ) return false;
+    if (strictlyWithin(field.solids[field.found[k]!]!, x, z, grow)) return false;
   }
   return true;
 }
@@ -432,16 +470,18 @@ function offer(field: SolidField, px: number, pz: number, x: number, z: number, 
  *
  * The free space is what is left outside the footprints grown by the body's
  * radius, and the nearest point of it to one inside is on the boundary of that
- * union: either the foot of a perpendicular on some edge, or a vertex — a
- * rectangle's corner, or where two edges cross. So those are the candidates,
- * and the nearest one that is clear of everything is the answer. Every
- * candidate inside `reach` comes from an edge inside it, which is why gathering
- * only the solids that reach the disc is enough.
+ * union: the foot of a perpendicular on some edge, the nearest point of some
+ * grown disc, or a vertex — a rectangle's corner, or where two boundaries
+ * cross. So those are the candidates, and the nearest one that is clear of
+ * everything is the answer. Every candidate inside `reach` comes from a
+ * boundary inside it, which is why gathering only the solids that reach the
+ * disc is enough.
  */
 function nearestExit(field: SolidField, count: number, x: number, z: number, grow: number, reach: number): void {
   const corners = field.corners;
   for (let k = 0; k < count; k++) {
     const s = field.solids[field.near[k]!]!;
+    if (s.round) continue;
     const ax = s.cos * (s.hx + grow);
     const az = s.sin * (s.hx + grow);
     const bx = -s.sin * (s.hz + grow);
@@ -460,6 +500,17 @@ function nearestExit(field: SolidField, count: number, x: number, z: number, gro
   best.found = false;
 
   for (let k = 0; k < count; k++) {
+    const s = field.solids[field.near[k]!]!;
+    if (s.round) {
+      // The grown disc's nearest point: straight out from its centre.
+      const r = s.hx + grow;
+      const dx = x - s.x;
+      const dz = z - s.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-12) offer(field, s.x + (dx / d) * r, s.z + (dz / d) * r, x, z, grow);
+      else offer(field, s.x + r, s.z, x, z, grow);
+      continue;
+    }
     const o = k * 8;
     for (let e = 0; e < 4; e++) {
       const px = corners[o + e * 2]!;
@@ -485,6 +536,20 @@ function nearestExit(field: SolidField, count: number, x: number, z: number, gro
         Math.abs(si.x - sj.x) > field.ex[i]! + field.ex[j]! + slack ||
         Math.abs(si.z - sj.z) > field.ez[i]! + field.ez[j]! + slack
       ) continue;
+      if (si.round && sj.round) {
+        circles(field, si, sj, x, z, grow);
+        continue;
+      }
+      if (si.round || sj.round) {
+        const round = si.round ? si : sj;
+        const o = (si.round ? b : a) * 8;
+        for (let e = 0; e < 4; e++) {
+          const px = corners[o + e * 2]!;
+          const pz = corners[o + e * 2 + 1]!;
+          crossing(field, round, px, pz, corners[o + ((e + 1) % 4) * 2]! - px, corners[o + ((e + 1) % 4) * 2 + 1]! - pz, x, z, grow);
+        }
+        continue;
+      }
       for (let e = 0; e < 4; e++) {
         const px = corners[a * 8 + e * 2]!;
         const pz = corners[a * 8 + e * 2 + 1]!;
@@ -511,15 +576,48 @@ function nearestExit(field: SolidField, count: number, x: number, z: number, gro
   }
 }
 
+/** Where two grown discs' rims cross, offered. */
+function circles(field: SolidField, a: Solid, b: Solid, x: number, z: number, grow: number): void {
+  const ra = a.hx + grow;
+  const rb = b.hx + grow;
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-12 || d > ra + rb || d < Math.abs(ra - rb)) return;
+  const along = (d * d + ra * ra - rb * rb) / (2 * d);
+  const across = Math.sqrt(Math.max(0, ra * ra - along * along));
+  const mx = a.x + (dx / d) * along;
+  const mz = a.z + (dz / d) * along;
+  offer(field, mx - (dz / d) * across, mz + (dx / d) * across, x, z, grow);
+  offer(field, mx + (dz / d) * across, mz - (dx / d) * across, x, z, grow);
+}
+
+/** Where a grown disc's rim crosses the segment from `(px, pz)` along `(rx, rz)`, offered. */
+function crossing(field: SolidField, round: Solid, px: number, pz: number, rx: number, rz: number, x: number, z: number, grow: number): void {
+  const r = round.hx + grow;
+  const fx = px - round.x;
+  const fz = pz - round.z;
+  const a = rx * rx + rz * rz;
+  const b = 2 * (fx * rx + fz * rz);
+  const c = fx * fx + fz * fz - r * r;
+  const discriminant = b * b - 4 * a * c;
+  if (a < 1e-12 || discriminant < 0) return;
+  const root = Math.sqrt(discriminant);
+  const t0 = (-b - root) / (2 * a);
+  const t1 = (-b + root) / (2 * a);
+  if (t0 >= 0 && t0 <= 1) offer(field, px + rx * t0, pz + rz * t0, x, z, grow);
+  if (t1 >= 0 && t1 <= 1) offer(field, px + rx * t1, pz + rz * t1, x, z, grow);
+}
+
 /**
  * The nearest point to `(x, z)` where a circle of `radius` overlaps nothing,
  * written to `out` as a position; false, and `out` untouched, when `(x, z)` is
  * already clear.
  *
- * It searches the footprints grown by the radius as **rectangles**, not as the
- * rounded shapes a circle really sweeps, so beside a convex corner the answer
- * can be up to `radius * (sqrt 2 - 1)` — half a unit for the avatar — further
- * out than it had to be. Exact on every flat, and a point it returns is always
+ * It searches the footprints grown by the radius as **rectangles** (and discs),
+ * not as the rounded shapes a circle really sweeps round a corner, so beside a
+ * convex corner the answer can be up to `radius * (sqrt 2 - 1)` — 0.3 units
+ * for the avatar — further out than it had to be. Exact on every flat, and a point it returns is always
  * clear. The disc it looks in doubles from four radii until it holds an answer,
  * so a body inside one house costs one round and a body inside a city block a
  * few; it is called only when a frame hit something.

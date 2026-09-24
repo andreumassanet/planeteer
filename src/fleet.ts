@@ -1109,6 +1109,19 @@ export interface Fleet extends FleetSeats {
    * vehicles. A vehicle is a box of its own length and width.
    */
   collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /**
+   * Every vehicle standing here that the player is not in, as its centre and
+   * a radius along the ground — half its length and width averaged, a
+   * balloon's basket — for the traffic to stop for (`InTheWay` in `life.ts`).
+   * Nothing is allocated.
+   */
+  eachStanding(visit: (at: THREE.Vector3, radius: number, player: boolean) => void): void;
+  /**
+   * Whether any vehicle a player has moved — drawn here or not — stands with
+   * its footprint within `radius` of the ground under `direction`: for a herd,
+   * which keeps off a plane left in its field.
+   */
+  movedNear(direction: THREE.Vector3, radius: number): boolean;
   /** Whether a town's parked car is somewhere else now, or has been taken: the town leaves it out. */
   claimsParked(id: string): boolean;
   /** Every vehicle the link says has moved or is sat in, parked cars among them. */
@@ -1788,6 +1801,30 @@ export function createFleet(options: FleetOptions): Fleet {
       // Along the ground: the part of the push that would lift a body is not a wall's.
       if (hit) push.projectOnPlane(up.copy(point).normalize());
       return hit;
+    },
+
+    eachStanding(visit) {
+      for (const entry of drawn.values()) {
+        const size = entry.model.size;
+        const radius = entry.model.kind === 'balloon' ? size[1] * BALLOON_WALL : (size[0] + size[1]) / 4;
+        visit(entry.group.position, radius, false);
+      }
+    },
+
+    movedNear(direction, radius) {
+      localPoint.copy(direction).normalize();
+      for (const [id, entry] of link.moved) {
+        const pose = entry.pose;
+        if (!isPose(pose)) continue;
+        const model = models.get(modelOfVehicle(id));
+        if (model === undefined) continue;
+        const size = model.size;
+        const reach = radius + (model.kind === 'balloon' ? size[1] * BALLOON_WALL : Math.max(size[0], size[1]) / 2);
+        const length = Math.hypot(pose[0]!, pose[1]!, pose[2]!);
+        const dot = (localPoint.x * pose[0]! + localPoint.y * pose[1]! + localPoint.z * pose[2]!) / length;
+        if (Math.acos(Math.min(1, dot)) * PLANET_RADIUS < reach) return true;
+      }
+      return false;
     },
 
     claimsParked(id) {

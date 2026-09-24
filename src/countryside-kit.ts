@@ -3,6 +3,7 @@ import { PROUD, TONES, rolePaint, sceneryModel } from './scenery/contract.ts';
 import type { RegionStyle, SceneryContext } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import type { Rng } from './scenery/random.ts';
+import type { BodyKind } from './scenery/occupancy.ts';
 import { bodyPaint, isGlass } from './models.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { PLACED_SECTION } from './traffic/contract.ts';
@@ -77,6 +78,12 @@ export interface CountryPart {
   smoke?: { y: number };
   /** Stands over water: a jetty's far end, a moored boat. Its base is not the ground's. */
   afloat?: boolean;
+  /**
+   * What it is to a body walking into it (`scenery/occupancy.ts`): walls
+   * measured off its triangles unless it says otherwise. A tree is its trunk;
+   * what floats is walked onto from the land, and is nothing.
+   */
+  body?: BodyKind;
   /** A triangle cap of its own, over `PIECE_TRIANGLES`: a baked model that is only ever near. */
   cap?: number;
   build(ctx: SceneryContext, rng: Rng, style: RegionStyle): THREE.Group;
@@ -881,6 +888,7 @@ const rocks: CountryPart = {
 const palm: CountryPart = {
   id: 'palm',
   footprint: 2,
+  body: 'trunk',
   build(ctx, rng, style) {
     const id = rng.pick(['tree-palmTall', 'tree-palm', 'tree-palmBend']);
     const paint = rolePaint(sceneryModel(id), [[/leaf/i, rng.pick(style.foliage)], [/bark|wood|trunk/i, PALETTE.brown]]);
@@ -892,6 +900,7 @@ const palm: CountryPart = {
 const olive: CountryPart = {
   id: 'olive',
   footprint: 2.2,
+  body: 'trunk',
   build(ctx, rng) {
     const id = rng.pick(['tree-default', 'tree-oak']);
     const paint = rolePaint(sceneryModel(id), [[/leaf/i, rng.pick([PALETTE.olive, PALETTE.darkOlive])], [/bark|wood|trunk/i, PALETTE.bark]]);

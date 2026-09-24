@@ -99,8 +99,8 @@ const STRIP_BAND = 16;
 /** How far the drawn strip runs past the ground the plane needs at either end. */
 const STRIP_END = 4;
 /** The two tones of the mown bands, either side of the strip's own colour. */
-const BAND_LIGHT = 1.05;
-const BAND_DARK = 0.95;
+const BAND_LIGHT = 1.1;
+const BAND_DARK = 0.9;
 
 let material: THREE.MeshToonMaterial | null = null;
 /** The strips' one material, made on first use: the land's ramp, the vertices' colours, no ink. */
@@ -120,19 +120,22 @@ export function stripMaterial(): THREE.MeshToonMaterial {
 
 const earth = new THREE.Color(PALETTE.brown);
 const mown = new THREE.Color(PALETTE.olive);
+/** Grass cut short and dried: what makes a strip read against the field it is cut from. */
+const stubble = new THREE.Color(PALETTE.sand);
 const hsl = { h: 0, s: 0, l: 0 };
 
 /**
- * The strip's colour from the land's under its middle: a shade lighter and a
- * little towards the palette's olive where there is grass to mow, and half way
+ * The strip's colour from the land's under its middle: lighter, a little
+ * towards the palette's olive and a third of the way to its sand where there
+ * is grass to mow — cut short and dry, or it is lost in the field — and half way
  * to the palette's brown where there is none. `sward` is `biome.ts`'s share of
  * the ground under grass, 0 to 1.
  */
 export function stripColor(ground: THREE.Color, sward: number, out: THREE.Color): THREE.Color {
   out.copy(ground);
   if (sward < 0.4) return out.lerp(earth, 0.5);
-  out.lerp(mown, 0.15).getHSL(hsl);
-  return out.setHSL(hsl.h, hsl.s, Math.min(1, hsl.l * 1.08));
+  out.lerp(mown, 0.15).lerp(stubble, 0.3).getHSL(hsl);
+  return out.setHSL(hsl.h, hsl.s, Math.min(1, hsl.l * 1.15));
 }
 
 const faceA = new THREE.Vector3();

@@ -671,7 +671,19 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
   const plans = new Map<string, CountryPlan>();
   const PLAN_CAP = 12_000;
 
+  // The cell asked last, answered without the key or the cache: the sward
+  // asks two questions a clump, and a tile's clumps are in a handful of cells.
+  let lastRow = NaN;
+  let lastColumn = NaN;
+  let lastPlan: CountryPlan | null = null;
   function plan(row: number, column: number): CountryPlan {
+    if (row === lastRow && column === lastColumn && lastPlan !== null) return lastPlan;
+    lastRow = row;
+    lastColumn = column;
+    lastPlan = planOf(row, column);
+    return lastPlan;
+  }
+  function planOf(row: number, column: number): CountryPlan {
     cellBounds(0, row, column, bounds);
     const key = `${row}/${Math.round((bounds.west + 180) / bounds.dLon)}`;
     const known = plans.get(key);
@@ -1338,6 +1350,7 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
     },
     reset() {
       plans.clear();
+      lastPlan = null;
       indexTowns();
       stats.cached = 0;
     },

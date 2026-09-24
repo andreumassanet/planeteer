@@ -316,6 +316,28 @@ const CRASH_QUIET = 0.6;
 const REFUSAL_QUIET = 4;
 /** A balloon over water holds its basket this far over the surface: it cannot come down on it. */
 const BALLOON_WATER_FLOOR = 3;
+/**
+ * The balloon's two bodies against a wall: the basket, a ninth of the
+ * envelope's width across (`craft/balloon.ts` makes the envelope 4.5 baskets
+ * wide), and the envelope, most of its own width, round `BALLOON_PIVOT` of
+ * the height.
+ */
+const BALLOON_BASKET = 1 / 9;
+const BALLOON_ENVELOPE = 0.45;
+/**
+ * Under this over the ground a craft in the air meets everything a car does —
+ * a tree, a parked car, a person — through `collide`; over it only the roofs
+ * still over it, through `collideAloft`.
+ */
+const AIR_LOW = AVATAR_HEIGHT;
+/**
+ * A plane flown into a wall keeps this share of its speed and is turned off
+ * it, and climbs away as a refused landing does: a knock, not a wreck. How
+ * wide it meets the wall is a share of its larger side, the fuselage and the
+ * inner wing.
+ */
+const PLANE_BOUNCE = 0.35;
+const PLANE_WALL = 0.3;
 /** How long a balloon takes to come round to the heading asked for, in seconds: it has no rudder, only the wind. */
 const BALLOON_TURN_TIME = 0.8;
 /** And a launch's rudder, over to its stop. */
@@ -493,10 +515,18 @@ export interface PlayerOptions {
    * wall's normal, and the slide is read off it. It is asked whether the player
    * is moving or not, and in the air too: the jump clears a small house and a
    * wall is a wall at any height. A car and a taxiing plane ask it with their
-   * own width; a boat and anything in the air never ask. Omit it and nothing is
-   * solid, which is what a headless caller gets.
+   * own width; a boat never asks, and a craft in the air asks it only within
+   * `AIR_LOW` of the ground. Omit it and nothing is solid, which is what a
+   * headless caller gets.
    */
   collide?: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean;
+  /**
+   * `collide` for a craft in the air, higher than `AIR_LOW` over the ground:
+   * only the walls whose roofs are over `point`'s own height — its length —
+   * push it, so a balloon drifts over a house it clears and into a tower it
+   * does not. Omit it and nothing is solid up there.
+   */
+  collideAloft?: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean;
   /**
    * The nearest point to `point` where a body of `radius` stands clear of every
    * building, into `out`; false when `point` already is. Only the direction of
@@ -696,6 +726,45 @@ export function createPlayer(
       out.x = spot.dot(flatX);
       out.z = spot.dot(flatZ);
       return true;
+    },
+  };
+
+  /**
+   * The walls again, for a craft in the air: asked at `airHeight` — the
+   * basket's floor, the plane's wheels — through `collide` while that is under
+   * `AIR_LOW` over the ground and `collideAloft` over it; and for a balloon,
+   * its envelope too, `airEnvelope` wide at `airEnvelopeHeight`. No free spot:
+   * nothing in the air was put inside a wall.
+   */
+  const { collideAloft } = options;
+  let airHeight = 0;
+  let airLow = false;
+  let airEnvelope = 0;
+  let airEnvelopeHeight = 0;
+  const airPushed = new THREE.Vector3();
+  /** Asks the walls in the air at one point, of a body of `radius`, into `push`. */
+  function airHit(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean {
+    push.set(0, 0, 0);
+    let hit = false;
+    const low = airLow ? collide : undefined;
+    point.setLength(airHeight);
+    if (low !== undefined) hit = low(point, radius, push);
+    else if (collideAloft !== undefined) hit = collideAloft(point, radius, push);
+    if (airEnvelope > 0 && collideAloft !== undefined) {
+      point.setLength(airEnvelopeHeight);
+      if (collideAloft(point, airEnvelope, airPushed)) {
+        push.add(airPushed);
+        hit = true;
+      }
+    }
+    return hit;
+  }
+  const airWalls: Walls | null = collide === undefined && collideAloft === undefined ? null : {
+    collide(x, z, radius, push) {
+      const hit = airHit(onSphere(x, z, query), radius, pushed);
+      push.x = pushed.dot(flatX);
+      push.z = pushed.dot(flatZ);
+      return hit;
     },
   };
 
@@ -1228,11 +1297,31 @@ export function createPlayer(
     }
     climbing += (asked - climbing) * approach(1 / PLANE_VERTICAL_TIME, dt);
 
-    advance(forward, (speed * dt) / before);
+    let radius = Math.min(PLANET_RADIUS + PLANE_CEILING, before + climbing * dt);
+    if (airWalls !== null) {
+      // A wall in the way is a knock — only a roof still over the plane is
+      // one, so this is nothing up high and cheap anywhere: asked along the way in
+      // steps no longer than the plane is wide, so no wall is crossed between
+      // two frames.
+      const wide = Math.max(model.size[0], model.size[1]) * PLANE_WALL;
+      const way = speed * dt;
+      const steps = Math.min(6, Math.max(1, Math.ceil(way / wide)));
+      airHeight = radius;
+      airLow = clearance < AIR_LOW;
+      airEnvelope = 0;
+      let struck = 0;
+      for (let step = 1; step <= steps && struck === 0; step++) {
+        pointAhead(forward, (way * step) / steps / before, probe);
+        if (airHit(probe, wide, pushed)) struck = step;
+      }
+      if (struck > 0) {
+        advance(forward, (way * (struck - 1)) / steps / before);
+        bounce(pushed);
+      } else advance(forward, way / before);
+    } else advance(forward, (speed * dt) / before);
 
     const under = groundRadius(world, position);
     const floor = under + PLANE_AIR_CLEARANCE;
-    let radius = Math.min(PLANET_RADIUS + PLANE_CEILING, before + climbing * dt);
     // The ground has the last word. That is what makes flying into the planet
     // impossible: a ridge rising under the plane lifts it, and the climb it
     // was asked for is kept, so the far side is level flight rather than a
@@ -1279,6 +1368,29 @@ export function createPlayer(
   }
 
   /**
+   * A plane in the air into a wall, `push` the way out of it: turned off the
+   * wall and slowed to `PLANE_BOUNCE` of its speed, climbing away as a refused
+   * landing does, and a `crashed` told with the speed lost.
+   */
+  function bounce(push: THREE.Vector3): void {
+    const depth = push.length();
+    if (depth < 1e-9) return;
+    direction.copy(push).divideScalar(depth);
+    // Out of the wall first, then the part of the heading into it turned back.
+    advance(direction, depth / position.length());
+    const into = forward.dot(direction);
+    if (into < 0) forward.addScaledVector(direction, -1.5 * into).projectOnPlane(up).normalize();
+    const lost = speed * (1 - PLANE_BOUNCE);
+    speed *= PLANE_BOUNCE;
+    goAround = PLANE_GO_AROUND;
+    climbing = Math.max(climbing, PLANE_CLIMB_MIN);
+    if (sinceCrash >= CRASH_QUIET) {
+      sinceCrash = 0;
+      options.onEvent?.('crashed', lost);
+    }
+  }
+
+  /**
    * The balloon: it rises and sinks on the two keys, drifts along the heading
    * you steer at a speed the throttle trims, and sets down wherever it touches
    * land. Over water it holds its basket clear of the surface and cannot come
@@ -1288,7 +1400,7 @@ export function createPlayer(
    * over `BALLOON_LIFT_TIME`, the heading comes round over `BALLOON_TURN_TIME`,
    * and the last of a descent settles rather than drops (`BALLOON_SETTLE`).
    */
-  function drift(dt: number, input: PlayerInput): void {
+  function drift(dt: number, input: PlayerInput, model: CraftModel): void {
     levers(input.move, stick);
     const lift = liftOf(input);
     if (grounded) {
@@ -1321,12 +1433,40 @@ export function createPlayer(
     if (lift > 0) asked = Math.min(BALLOON_CLIMB, Math.max(0, PLANET_RADIUS + BALLOON_CEILING - height) * BALLOON_SETTLE);
     else if (lift < 0) asked = -Math.min(BALLOON_CLIMB, Math.max(BALLOON_TOUCHDOWN, over * BALLOON_SETTLE));
     vertical += (asked - vertical) * approach(1 / BALLOON_LIFT_TIME, dt);
-    advance(forward, (speed * dt) / position.length());
+    const basket = model.size[1] * BALLOON_BASKET;
+    if (airWalls !== null) {
+      // Along the walls, as a car scrapes along them: a basket or an
+      // envelope drifted into a building stops at it and slides along it.
+      airHeight = height;
+      airLow = height - ground < AIR_LOW;
+      airEnvelope = model.size[1] * BALLOON_ENVELOPE;
+      airEnvelopeHeight = height + model.size[2] * BALLOON_PIVOT;
+      motion.copy(forward).multiplyScalar(speed);
+      moved.copy(motion).multiplyScalar(dt);
+      if (throughWalls(dt, airWalls, basket)) speed = Math.max(0, motion.dot(forward));
+      travel();
+    } else advance(forward, (speed * dt) / position.length());
 
     ground = standingRadius(position);
     water = isWater(ground);
     floor = water ? PLANET_RADIUS + WATERLINE + BALLOON_WATER_FLOOR : ground;
-    height = Math.min(PLANET_RADIUS + BALLOON_CEILING, height + vertical * dt);
+    let next = Math.min(PLANET_RADIUS + BALLOON_CEILING, height + vertical * dt);
+    // **And a roof holds it up.** Sinking onto a building, the basket stops on
+    // the roof it would have come down through, and cannot be set down inside
+    // it: only the walls whose roofs are over the new height push, so one
+    // that is over it now and was not a moment ago is a roof met on the way
+    // down.
+    if (next < height && collideAloft !== undefined) {
+      query.copy(position).setLength(next);
+      if (collideAloft(query, basket, airPushed)) {
+        query.setLength(height);
+        if (!collideAloft(query, basket, airPushed)) {
+          next = height;
+          vertical = 0;
+        }
+      }
+    }
+    height = next;
     if (height <= floor) {
       height = floor;
       if (!water && vertical <= 0 && lift <= 0) {
@@ -1618,7 +1758,7 @@ export function createPlayer(
         const model = ride.model;
         if (model.kind === 'boat') sail(dt, input, model);
         else if (model.kind === 'plane') fly(dt, input, model);
-        else if (model.kind === 'balloon') drift(dt, input);
+        else if (model.kind === 'balloon') drift(dt, input, model);
         else if (isRoad(model.kind)) drive(dt, input, model);
       } else walk(dt, input);
 

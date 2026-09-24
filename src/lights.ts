@@ -271,7 +271,7 @@ export function lightBrightness(value?: number): number {
  * triangles in it, a plot's spill was a square of evenly warm paving, and a
  * street at night read as yellow ground with a rim rather than as lamps. Up
  * close the pixel is asked instead: a disc under every lamp, stepped in
- * three bands the way the sun steps across the ramp, landing on walls as well
+ * two bands the way the sun steps across the ramp, landing on walls as well
  * as on the ground, and tinted by the surface it lands on rather than painted
  * over it. Past `LAMP_FIELD` the vertex pools take over again, where they are a
  * few pixels and read as what they are.

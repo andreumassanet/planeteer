@@ -1021,6 +1021,12 @@ export interface Settlements {
    * Only a standing town has walls, the same rule as its floor.
    */
   collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /**
+   * `collide` for a body in the air: only the buildings whose roofs are over
+   * `point`'s own height (its length) push it. A balloon's basket and a plane
+   * low over a town ask this; a roof it clears is not a wall.
+   */
+  collideAloft(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
   /** Whether a point is inside a building's walls and under its roof. For the camera. */
   blocksSight(point: THREE.Vector3): boolean;
   /**
@@ -4522,7 +4528,7 @@ export function createSettlements(
    * The push is the whole displacement `pushOut` returns, not a normal: the
    * player reads the wall's direction off it and slides along it.
    */
-  function collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean {
+  function collide(point: THREE.Vector3, radius: number, push: THREE.Vector3, over = -Infinity): boolean {
     push.set(0, 0, 0);
     wallDir.copy(point).normalize();
     let hit = false;
@@ -4532,7 +4538,7 @@ export function createSettlements(
       if (wallDir.dot(floor.up) < floor.cosBound) continue;
       const x = wallDir.dot(floor.across) * PLANET_RADIUS;
       const z = wallDir.dot(floor.north) * PLANET_RADIUS;
-      if (!pushOut(floor.solids, x, z, radius, wallPush)) continue;
+      if (!pushOut(floor.solids, x, z, radius, wallPush, over)) continue;
       push.addScaledVector(floor.across, wallPush.x).addScaledVector(floor.north, wallPush.z);
       hit = true;
     }
@@ -4876,7 +4882,8 @@ export function createSettlements(
       return floorVersion;
     },
 
-    collide,
+    collide: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => collide(point, radius, push),
+    collideAloft: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => collide(point, radius, push, point.length()),
     blocksSight,
     freeSpotNear,
 

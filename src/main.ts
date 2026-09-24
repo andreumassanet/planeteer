@@ -1025,14 +1025,14 @@ async function start(): Promise<void> {
   /**
    * The ground people made, which is the surface a foot actually stands on.
    *
-   * The town's plinth and the road's carriageway, from the two streamers that
-   * know what is *standing*; `terrain.ts` is still the one definition of the
-   * relief and `player.ts` takes the higher of the two. Both queries answer 0
-   * off their own surface, so on open ground this is two cheap rejections and no
-   * terrain query at all.
+   * The town's plinth, the road's carriageway and a monument's steps and
+   * plinth, from the streamers that know what is *standing*; `terrain.ts` is
+   * still the one definition of the relief and `player.ts` takes the higher of
+   * the two. Every query answers 0 off its own surface, so on open ground this
+   * is three cheap rejections and no terrain query at all.
    */
   const madeHeightAt = (point: THREE.Vector3): number =>
-    Math.max(settlements.madeHeightAt(point), roads.ribbonHeightAt(point));
+    Math.max(settlements.madeHeightAt(point), roads.ribbonHeightAt(point), monuments.madeHeightAt(point));
   /**
    * And the walls on it. A building is solid to a foot and opaque to the lens,
    * and both answers belong to the settlements for the reason the floor does:
@@ -1101,6 +1101,37 @@ async function start(): Promise<void> {
   /** The fleet's vehicles as walls, once the fleet is up; see `Fleet.collide`. */
   let vehicleWalls: ((point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean) | null = null;
   const vehiclePush = new THREE.Vector3();
+  /**
+   * Everything still that is a wall: a town's buildings, a monument's own
+   * walls and the trunks, boulders and farm buildings of the near wood. Each
+   * knows only its own, so the pushes are summed and a free spot is asked of
+   * each in turn.
+   */
+  const stillWalls = [settlements, monuments, vegetation] as const;
+  const stillPush = new THREE.Vector3();
+  const freeFrom = new THREE.Vector3();
+  const freeTo = new THREE.Vector3();
+  /**
+   * The nearest spot clear of every still wall. A spot one source finds may
+   * stand in another's — a door freed onto a tree — so each is asked from
+   * where the last one put the body, until a whole round moves it no more;
+   * four rounds, then whatever the last answer was.
+   */
+  const freeOfWalls = (point: THREE.Vector3, radius: number, out: THREE.Vector3): boolean => {
+    freeFrom.copy(point);
+    let moved = false;
+    for (let round = 0; round < 4; round++) {
+      let again = false;
+      for (const source of stillWalls) {
+        if (!source.freeSpotNear(freeFrom, radius, freeTo)) continue;
+        freeFrom.copy(freeTo);
+        again = moved = true;
+      }
+      if (!again) break;
+    }
+    if (moved) out.copy(freeFrom);
+    return moved;
+  };
 
   await avatarReady;
   const player = createPlayer(world, spawn.lat, spawn.lon, {
@@ -1114,14 +1145,21 @@ async function start(): Promise<void> {
       if (speed > 12) audio.cue('land');
       effects.touchdown(speed);
     },
-    // The towns' walls and parked cars, every vehicle standing about, and the
-    // people: a townsman standing or strolling and a walker on the verge are
-    // solid too, each a body `PERSON_RADIUS` wide. A person gives no way, being
+    // The towns' walls and parked cars, the monuments' own walls, the near
+    // wood's trunks, boulders and farm buildings, every vehicle standing
+    // about, and the people: a townsman standing or strolling and a walker on
+    // the verge are solid too, each a body `PERSON_RADIUS` wide. A person gives no way, being
     // where their town or their route puts them; the body walking into them is
     // the one pushed out. So is an animal of a near herd, by its own length
     // and width, and it bolts (`life.collide`).
     collide: (point, radius, push) => {
       let hit = settlements.collide(point, radius, push);
+      for (let i = 1; i < stillWalls.length; i++) {
+        if (!stillWalls[i]!.collide(point, radius, stillPush)) continue;
+        if (hit) push.add(stillPush);
+        else push.copy(stillPush);
+        hit = true;
+      }
       if (vehicleWalls !== null && vehicleWalls(point, radius, vehiclePush)) {
         if (hit) push.add(vehiclePush);
         else push.copy(vehiclePush);
@@ -1131,7 +1169,10 @@ async function start(): Promise<void> {
       const walkerHit = life.collide(point, radius, PERSON_RADIUS, push);
       return hit || folkHit || walkerHit;
     },
-    freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
+    // And a balloon or a plane higher than that: only the buildings whose
+    // roofs are still over it.
+    collideAloft: (point, radius, push) => settlements.collideAloft(point, radius, push),
+    freeSpotNear: freeOfWalls,
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a landing refused, and why.
     onEvent: (event: PlayerEvent, strength: number) => {
@@ -1188,6 +1229,23 @@ async function start(): Promise<void> {
   });
   scene.add(fleet.group);
   vehicleWalls = (point, radius, push) => fleet.collide(point, radius, push);
+  // What the traffic stops for and the herds keep off, besides each other: the
+  // player, whatever he drives, every vehicle standing about, and the people
+  // of a town's streets. A car kept waiting by the player sounds its horn,
+  // quieter the further off it is.
+  {
+    const folkPush = new THREE.Vector3();
+    life.setInTheWay({
+      each(visit) {
+        const model = player.ride?.model;
+        visit(player.position, model === undefined ? PERSON_RADIUS : (model.size[0] + model.size[1]) / 4, true);
+        fleet.eachStanding(visit);
+      },
+      people: (point, radius) => townsfolk.collide(point, radius, folkPush.set(0, 0, 0)),
+      parked: (point, radius) => fleet.movedNear(point, radius),
+      horn: (at) => audio.horn(Math.max(0, 1 - at.distanceTo(player.position) / 120)),
+    });
+  }
   // The wakes and trails of everything else under way: the vehicles other
   // players drive, and the boats of the traffic. The visitors are made once,
   // so a frame hands them over without making anything.
@@ -1208,7 +1266,7 @@ async function start(): Promise<void> {
   if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
-    blocks: (point) => settlements.blocksSight(point),
+    blocks: (point) => settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point),
     onViewRefused: () => announce('First person is on foot only', 'eye'),
   });
   // A crash shakes the lens unless the player said not to, or the system asks
