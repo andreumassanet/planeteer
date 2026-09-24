@@ -49,7 +49,7 @@ import { regionFor } from './scenery/regions.ts';
 import { POSES, buildPerson } from './scenery/people.ts';
 import type { Look } from './scenery/people.ts';
 import { lookFor } from './scenery/dress.ts';
-import { SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
+import { AVATAR_HEIGHT, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
 import {
   RIDER_HEIGHT,
   VARIANTS,
@@ -891,6 +891,14 @@ export interface Life {
   verify(): { bodies: number; phases: number; worstDip: number };
   /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
   proxies(): THREE.Object3D[];
+  /**
+   * Adds to `push` the displacement along the ground that takes a body of
+   * `radius` at `point` out of every walker drawn this frame, a walker being
+   * `personRadius` wide, and says whether it touched one. A walker keeps to
+   * its route, which is a function of the clock: it is the body walking into
+   * it that gives way.
+   */
+  collide(point: THREE.Vector3, radius: number, personRadius: number, push: THREE.Vector3): boolean;
 }
 
 export interface LifeOptions {
@@ -2879,6 +2887,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
     const { holder, person } = mover.person;
     holder.visible = true;
+    walkersShown.push(mover);
     forward.copy(frame.forward).projectOnPlane(frame.dir).normalize();
     right.crossVectors(frame.dir, forward).normalize();
     basis.makeBasis(right, frame.dir, forward);
@@ -2996,12 +3005,16 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   /** The viewer of the frame being drawn, for `drawWalker`'s share of `nearestMoving`. */
   const lastViewer = new THREE.Vector3();
+  /** The walkers drawn this frame, for `collide`. */
+  const walkersShown: Mover[] = [];
+  const walkerGap = new THREE.Vector3();
   /** Skinned clones made this frame; see `DRESS_PER_FRAME` and `HERDS_PER_FRAME`. */
   let dressedThisFrame = 0;
   let herdsStoodThisFrame = 0;
 
   function update(viewer: THREE.Vector3, altitude: number, camera: THREE.Camera | undefined, clock: number): void {
     herds.frame++;
+    walkersShown.length = 0;
     lastViewer.copy(viewer);
     dressedThisFrame = 0;
     herdsStoodThisFrame = 0;
@@ -3160,5 +3173,21 @@ export function createLife(world: World, places: readonly Place[], options: Life
     verify,
     // The movers, and the birds, whose material has no ink normals.
     proxies: () => [proxyOf(material), proxyOf(flockMesh.material as THREE.Material)],
+    collide(point, radius, personRadius, push) {
+      let hit = false;
+      const reach = radius + personRadius;
+      const r = point.length();
+      for (const mover of walkersShown) {
+        walkerGap.copy(point).sub(mover.at);
+        const up = walkerGap.dot(point) / r;
+        if (up > AVATAR_HEIGHT || up < -AVATAR_HEIGHT) continue;
+        walkerGap.addScaledVector(point, -up / r);
+        const d = walkerGap.length();
+        if (d >= reach || d < 1e-6) continue;
+        push.addScaledVector(walkerGap, (reach - d) / d);
+        hit = true;
+      }
+      return hit;
+    },
   };
 }

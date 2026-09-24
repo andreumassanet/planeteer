@@ -29,15 +29,17 @@ import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
 import { createOcean } from './ocean.ts';
 import { proxyOf, warmShaders } from './warm.ts';
-import { createCityLights, lightBrightness, setSunDirection } from './lights.ts';
+import { LAMP_FIELD, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
-import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail } from './view.ts';
+import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
 import type { FlagLayer } from './land-flags.ts';
 import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { CraftKind } from './craft/contract.ts';
+import type { Where } from './talk.ts';
+import { unitAt } from './sphere.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -281,6 +283,16 @@ const SOUND_KEY = 'atlas.sound.v1';
  * 0.4 is 110 units, a few streets back from a harbour.
  */
 const SEA_EARSHOT = 0.4;
+
+/**
+ * How near somebody has to stand to be talked to, centre to centre: about two
+ * metres; how far you can walk off before they stop talking; and how near the
+ * water, in degrees of `shoreDistance`, a town is to say it lives by it (about
+ * thirteen real km).
+ */
+const TALK_REACH = AVATAR_HEIGHT * 1.3;
+const TALK_LEAVE = AVATAR_HEIGHT * 4;
+const TALK_COAST = 0.12;
 /** Whether the welcome card has been shown on this device. */
 const WELCOME_KEY = 'atlas.welcomed.v1';
 
@@ -451,6 +463,8 @@ async function start(): Promise<void> {
     life: import('./life.ts'),
     /** The people: the cast dressed by region, standing in towns and walking verges. */
     folk: import('./folk.ts'),
+    /** What they say when spoken to; the words themselves arrive on the first conversation. */
+    talk: import('./talk.ts'),
     traffic: import('./traffic/index.ts'),
     /** The scenery contract, for the kit's model registry; it rides with the settlements. */
     scenery: import('./scenery/contract.ts'),
@@ -782,7 +796,9 @@ async function start(): Promise<void> {
   // plane's ceiling `settlements.ts` holds no towns at all, which is exactly
   // the altitude a night hemisphere is worth looking at from.
   const cityLights = createCityLights(places.all, settlements.anchors);
+  const nearLamps = new Float32Array(NEAR_LAMPS * 4);
   scene.add(cityLights.points);
+  scene.add(lampHalos);
   if (settlements.broken.length > 0) console.warn('scenery parts that broke the contract:', settlements.broken);
   if (settlements.missing.length > 0) console.warn('region tables name parts that do not exist:', settlements.missing);
 
@@ -805,10 +821,12 @@ async function start(): Promise<void> {
   // The people are authored characters (`cast.ts`), dressed by `folk.ts`: the
   // townsfolk stand on the spots each town publishes and the walkers are handed
   // to `life.ts`, which draws a verge walker from the cast when it has one.
-  const { createFolk, createTownsfolk } = await deferred.folk;
+  const { createFolk, createTownsfolk, PERSON_RADIUS } = await deferred.folk;
   const folk = createFolk(ctx);
   const townsfolk = createTownsfolk(folk, settlements);
   scene.add(townsfolk.group);
+  const { createTalk } = await deferred.talk;
+  const talk = createTalk();
   // The other players. `VITE_PEERS_URL` is the relay's address, set in the
   // host's environment for a build; in development it is the relay's own
   // `wrangler dev` (`pnpm peers`), and with neither the world is single-player.
@@ -899,7 +917,9 @@ async function start(): Promise<void> {
       return new Map();
     });
   const at = query.get('at')?.split(',').map(Number);
-  const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite);
+  // A latitude past a pole is a point on the far side of it, not a typo worth
+  // landing on: such a link gets the menu.
+  const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite) && Math.abs(at[0]!) <= 90 && Math.abs(at[1]!) <= 360;
   const spawn = skipMenu
     ? { body: 'earth', region: '', name: 'here', lat: at[0]!, lon: at[1]! }
     : await menu.choose();
@@ -951,6 +971,10 @@ async function start(): Promise<void> {
   /** What the foot is on, refreshed a couple of times a second in the loop. */
   let footing: Surface = 'grass';
 
+  /** The fleet's vehicles as walls, once the fleet is up; see `Fleet.collide`. */
+  let vehicleWalls: ((point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean) | null = null;
+  const vehiclePush = new THREE.Vector3();
+
   await avatarReady;
   const player = createPlayer(world, spawn.lat, spawn.lon, {
     madeHeightAt,
@@ -959,7 +983,22 @@ async function start(): Promise<void> {
     onTouchdown: (speed) => {
       if (speed > 12) audio.cue('land');
     },
-    collide: (point, radius, push) => settlements.collide(point, radius, push),
+    // The towns' walls and parked cars, every vehicle standing about, and the
+    // people: a townsman standing or strolling and a walker on the verge are
+    // solid too, each a body `PERSON_RADIUS` wide. A person gives no way, being
+    // where their town or their route puts them; the body walking into them is
+    // the one pushed out.
+    collide: (point, radius, push) => {
+      let hit = settlements.collide(point, radius, push);
+      if (vehicleWalls !== null && vehicleWalls(point, radius, vehiclePush)) {
+        if (hit) push.add(vehiclePush);
+        else push.copy(vehiclePush);
+        hit = true;
+      }
+      const folkHit = townsfolk.collide(point, radius, push);
+      const walkerHit = life.collide(point, radius, PERSON_RADIUS, push);
+      return hit || folkHit || walkerHit;
+    },
     freeSpotNear: (point, radius, out) => settlements.freeSpotNear(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a landing refused, and why.
@@ -971,6 +1010,9 @@ async function start(): Promise<void> {
         announce('Too steep to land here — find flatter ground', 'plane');
         audio.cue('ui-error');
       } else if (event === 'landed') audio.cue('land');
+      // A car into a wall: the landing's thud, which is the one knock the
+      // sound has. Anything that wants to shake or spark hooks in here too.
+      else if (event === 'crashed') audio.cue('land');
     },
   });
   scene.add(player.object);
@@ -991,6 +1033,10 @@ async function start(): Promise<void> {
     link: fleetSync ?? createLocalLink(),
     player,
     madeHeightAt,
+    parked: {
+      near: (viewer, radius, out) => settlements.parkedNear(viewer, radius, out),
+      hide: (id) => settlements.hideParked(id),
+    },
     onEvent: (event, model) => {
       const iconName: IconName = modeIcon(model?.kind ?? null);
       if (event === 'leave-refused') {
@@ -1004,6 +1050,11 @@ async function start(): Promise<void> {
     },
   });
   scene.add(fleet.group);
+  vehicleWalls = (point, radius, push) => fleet.collide(point, radius, push);
+  // A town built from here on leaves out a parked car the fleet has, and one
+  // already standing folds it away (`hideParked`, through the fleet).
+  settlements.setParkedTaken((id) => fleet.claimsParked(id));
+  for (const id of fleet.claimedParked()) settlements.hideParked(id);
   if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
@@ -1017,6 +1068,8 @@ async function start(): Promise<void> {
   const input = createInput(renderer.domElement, {
     // An embed that may not lock the mouse: say once what works instead.
     onLockRefused: () => announce('This page cannot lock the mouse — drag to look around', 'mouse'),
+    // `Ctrl` descends, and `Ctrl+W` would close the tab mid-flight.
+    guardUnload: () => player.ride !== null && player.airborne,
   });
   const groundAt = (point: THREE.Vector3): number => groundRadius(world, point);
 
@@ -1034,7 +1087,45 @@ async function start(): Promise<void> {
   });
   document.getElementById('minimap')!.appendChild(minimap.canvas);
 
-  const { bearingTo } = await deferred.cartography;
+  const { bearingTo, EARTH_KM } = await deferred.cartography;
+  /**
+   * Who `E` would talk to, decided with the prompt so that the key does what
+   * the prompt said; and what a conversation is told about where it is.
+   */
+  let talkOffer: string | null = null;
+  let engaged = false;
+  const talkCrown = new THREE.Vector3();
+  const talkLandmark = new THREE.Vector3();
+  const talkNorth = new THREE.Vector3(0, 1, 0);
+  function startTalk(key: string): void {
+    const here = toLatLon(player.position);
+    const index = world.countryAtPoint(player.position);
+    const country = index > 0 ? world.countries[index - 1]! : null;
+    const nearby = places.nearest(player.position);
+    const hour = Number.parseInt(clockAt(sky.state.time, country?.iso ?? '', here.lon, here.lat, nearby.place), 10);
+    // The nearest landmark, by the angle between it and here.
+    let landmark: Where['landmark'] = null;
+    let nearest = Infinity;
+    for (const placement of placements) {
+      const angle = unitAt(placement.lat, placement.lon, talkLandmark).angleTo(player.position);
+      if (angle >= nearest) continue;
+      nearest = angle;
+      landmark = { name: placement.name, km: angle * EARTH_KM, bearing: bearingTo(player.position, talkNorth, placement.lat, placement.lon) ?? 0 };
+    }
+    talk.start(key, {
+      iso: country?.iso ?? '',
+      countryName: country?.name ?? '',
+      town: nearby.place.name,
+      population: nearby.place.pop,
+      capital: nearby.place.capital === true,
+      coastal: shoreDistance(here.lat, here.lon) < TALK_COAST,
+      warmth: soundBiome.warmth,
+      hour: Number.isFinite(hour) ? hour : 12,
+      landmark,
+    });
+    engaged = townsfolk.engage(key, player.position);
+    audio.cue('ui-open');
+  }
   const { createHud } = await deferred.hud;
   // The gear and the map on the HUD's bar, and on its pause card. Both are
   // closures over things built a few lines further down, which is safe: they
@@ -1515,7 +1606,8 @@ async function start(): Promise<void> {
     // **A tab left open on the pause card draws at about 30 frames a second**
     // after a minute with nobody at it: the GPU of a laptop left on a desk is
     // somebody's battery. Any input is back to full rate on the next frame.
-    if (!input.looking && now - input.lastActive > IDLE_AFTER_MS && now - previous < IDLE_FRAME_MS) return;
+    const idle = !input.looking && now - input.lastActive > IDLE_AFTER_MS;
+    if (idle && now - previous < IDLE_FRAME_MS) return;
     const frameStart = performance.now();
     renderer.info.reset();
     // Clamped at 0 as well as at a tenth of a second: the first timestamp
@@ -1535,9 +1627,16 @@ async function start(): Promise<void> {
     // relative to that, and only then does the camera chase the result. Chasing
     // first would leave the camera a frame behind its own aim.
     rig.aim(dt, input.state, player);
-    // `E`, before the player moves: into the vehicle beside you, or out of
-    // the one you are in, so this frame already drives or walks.
-    if (input.state.use) fleet.use();
+    // `E`, before the player moves: on with the conversation you are in, or
+    // to the person nearer than any seat, or into the vehicle beside you, or
+    // out of the one you are in, so this frame already drives or walks.
+    if (input.state.use) {
+      if (talk.open) {
+        talk.next();
+        audio.cue(talk.open ? 'ui-click' : 'ui-close');
+      } else if (talkOffer !== null) startTalk(talkOffer);
+      else fleet.use();
+    }
     player.update(dt, {
       move: input.state.move,
       run: input.state.run,
@@ -1698,6 +1797,29 @@ async function start(): Promise<void> {
     // because breathing does not speed up when `setRate` runs the sun at 600x.
     townsfolkClock += dt;
     guard('townsfolk', () => townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame));
+    // The conversation, after whoever is in it has moved: it ends when they
+    // are gone or you have walked off or got into something, and otherwise
+    // holds them facing you with the bubble over their head.
+    guard('talk', () => {
+      const speaker = talk.with;
+      if (speaker === null) {
+        if (engaged) townsfolk.engage(null);
+        engaged = false;
+        return;
+      }
+      if (
+        player.mode !== 'foot' ||
+        !townsfolk.crownOf(speaker, talkCrown) ||
+        talkCrown.distanceTo(player.position) > TALK_LEAVE
+      ) {
+        talk.close();
+        townsfolk.engage(null);
+        engaged = false;
+        return;
+      }
+      engaged = townsfolk.engage(speaker, player.position);
+      talk.place(talkCrown, rig.camera, innerWidth, innerHeight);
+    });
     // The vehicles after everything they stand on, and before the other
     // players, who may be sitting in one of them.
     guard('fleet', () => fleet.update(dt, rig.camera));
@@ -1754,9 +1876,16 @@ async function start(): Promise<void> {
     // The HUD's two per-frame questions, both cached on its side: how you are
     // travelling, which decides the keys it shows, and whether the mouse is
     // free with nothing else on the screen, which is the pause card.
-    hud.setMode(player.mode, player.airborne, rig.firstPerson);
+    hud.setMode(player.mode, player.airborne, rig.firstPerson, fleet.stranded);
     const offer = fleet.prompt;
-    hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
+    // Somebody to talk to wins over a seat when they are the nearer of the two.
+    const talker = talk.open || player.mode !== 'foot' || player.airborne
+      ? null
+      : townsfolk.nearest(player.position, TALK_REACH);
+    talkOffer = talker !== null && (offer === null || talker.distance - PERSON_RADIUS < offer.gap) ? talker.key : null;
+    if (talk.open) hud.setPrompt(null);
+    else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
+    else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
     hud.setPaused(!input.looking && !map.open && !settings.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
     // had its build — the towns, the roads, and the wood and grass near you
@@ -1860,6 +1989,13 @@ async function start(): Promise<void> {
       shadowStanding = standing;
     }
 
+    // The near street lamps, lit per pixel: in view space, so after the
+    // camera has settled for the frame. See `NEAR_LAMPS` in `src/lights.ts`.
+    guard('near lamps', () => {
+      rig.camera.updateMatrixWorld();
+      setNearLamps(rig.camera, nearLamps, settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps));
+    });
+
     // The sheet behind `M` is opaque and covers the window, so the world under
     // it is not drawn: that frame goes to painting the map's tiles instead.
     const underMap = map.open;
@@ -1869,16 +2005,21 @@ async function start(): Promise<void> {
     // In the same task as the draw, before the browser composites and clears
     // the drawing buffer: `toBlob` copies the canvas as it stands when it is
     // called, so no `preserveDrawingBuffer` is needed for it.
+    // A frame under the map draws nothing, and the buffer it would copy is
+    // whatever the browser left there.
     if (photoWanted) {
       photoWanted = false;
-      savePhoto(renderer.domElement);
+      if (underMap) announce('Close the map to take a photo', 'camera');
+      else savePhoto(renderer.domElement);
     }
     updateSum += drawStart - frameStart;
     drawSum += drawEnd - drawStart;
     // The automatic detail knob: the interval and the work of this frame
     // (`sampleFrame` in `view.ts`). Not before the curtain is up.
     // Nor while the map is up: a frame with no draw would read as headroom.
-    if (curtain === null && !underMap) sampleFrame(interval, drawEnd - frameStart);
+    // Nor while the loop idles on the pause card at half rate on purpose.
+    if (curtain === null && !underMap && !idle) sampleFrame(interval, drawEnd - frameStart);
+    else if (curtain === null) skipFrame();
 
     frames++;
     if (now - sampledAt > 500) {
@@ -2016,6 +2157,12 @@ async function start(): Promise<void> {
       // the worst distance a foot ends up below the floor, which is the check
       // that pays for the one line copied out of `avatar.ts`.
       life,
+      // `atlas.townsfolk.stats`: the people standing in the near towns, how
+      // many are animated this frame and how many are strolling.
+      townsfolk,
+      // `atlas.talk.script('<key>', where)` is a conversation's lines without
+      // the bubble; `atlas.talk.with` is who you are talking to.
+      talk,
       // Which subsystems have thrown inside the loop, and how many times: see `guard`.
       failures,
       // `atlas.audio.stats`: whether the context is unlocked and running, how

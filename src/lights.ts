@@ -246,6 +246,189 @@ export function lightBrightness(value?: number): number {
   return atlasGain.value;
 }
 
+// ---------------------------------------------------------------------------
+// The near lamps: pools drawn per pixel round the camera
+// ---------------------------------------------------------------------------
+
+/**
+ * How many street lamps are lit per pixel at once: the nearest this many to the
+ * camera, out of every standing town's (`settlements.lampsNear`).
+ *
+ * **A pool written on a vertex is as fine as the floor under it, and the floor
+ * is coarse.** Its vertices are 4 to 15 units apart against a 14-unit pool, so
+ * seen from the street a lamp's pool was a lifted polygon with the floor's own
+ * triangles in it, a plot's spill was a square of evenly warm paving, and a
+ * street at night read as yellow ground with a rim rather than as lamps. Up
+ * close the pixel is asked instead: a disc under every lamp, stepped in
+ * three bands the way the sun steps across the ramp, landing on walls as well
+ * as on the ground, and tinted by the surface it lands on rather than painted
+ * over it. Past `LAMP_FIELD` the vertex pools take over again, where they are a
+ * few pixels and read as what they are.
+ */
+export const NEAR_LAMPS = 24;
+
+/** Where the per-pixel lamps hand back to the vertex pools, in units from the camera. */
+export const LAMP_FIELD = 170;
+
+/** How far one lamp reaches, in world units. `LAMP_POOL` in `settlements.ts` is the vertex pools' 14. */
+const LAMP_REACH = 17;
+
+/**
+ * The colour a lamp lights with: a sodium amber, warmer than a window and
+ * further from white, because what it lands on is the *surface's* colour and
+ * the light only tints it (`diffuseColor * LAMP_LIGHT`), where a window is
+ * itself the thing shining.
+ */
+const LAMP_LIGHT = new THREE.Color(PALETTE.gold).lerp(new THREE.Color(PALETTE.white), 0.45);
+
+/** Lamp heads in view space (xyz) and how lit each one is (w), refreshed each frame. */
+const atlasLamps = { value: Array.from({ length: NEAR_LAMPS }, () => new THREE.Vector4()) };
+const atlasLampCount = { value: 0 };
+const atlasLampTint = { value: LAMP_LIGHT.clone() };
+/** How much a lamp lifts the surface it lands on, over its own colour. */
+const LAMP_LIGHT_GAIN = 1.15;
+
+/**
+ * The GLSL for the near lamps' light on one fragment, as a banded amount 0..1.
+ *
+ * `pos` and `n` are the fragment's view-space position and normal. A lamp
+ * lights a face by how near it is (squared, so most of the drop is in the
+ * first half of the reach) and by how squarely the face looks at it, with a
+ * floor of a third so the ground under a lamp's own arm is still lit. The sum
+ * is then stepped: two bands with a narrow edge each, and a wall takes a
+ * little over half what the ground under the same lamp does, which is a comic's
+ * pool of light rather than a photograph's.
+ */
+const LAMP_CHUNK = /* glsl */ `
+  uniform vec4 atlasLamps[${NEAR_LAMPS}];
+  uniform int atlasLampCount;
+
+  float atlasLampLight(vec3 pos, vec3 n, float flatness) {
+    float sum = 0.0;
+    for (int i = 0; i < ${NEAR_LAMPS}; i++) {
+      if (i >= atlasLampCount) break;
+      vec3 d = atlasLamps[i].xyz - pos;
+      float dist = length(d);
+      if (dist >= ${LAMP_REACH.toFixed(1)}) continue;
+      float fall = 1.0 - dist / ${LAMP_REACH.toFixed(1)};
+      float facing = max(dot(n, d / max(dist, 1e-3)), 0.0);
+      sum += fall * fall * (0.34 + 0.66 * facing) * atlasLamps[i].w * mix(0.55, 1.0, flatness);
+    }
+    return 0.55 * smoothstep(0.07, 0.1, sum) + 0.45 * smoothstep(0.26, 0.31, sum);
+  }
+`;
+
+const lampView = new THREE.Vector3();
+
+/**
+ * Hands the shaders this frame's near lamps: `heads` is `settlements.lampsNear`'s
+ * output (`x, y, z, distance` in world space, nearest first) and `count` how
+ * many of them there are. Each is moved into the camera's view space here, so
+ * the fragment works on small numbers, and fades out over the last fifth of
+ * `LAMP_FIELD` so a lamp leaving the list goes out by degrees.
+ */
+export function setNearLamps(camera: THREE.Camera, heads: Float32Array, count: number): void {
+  const n = Math.min(count, NEAR_LAMPS);
+  const view = camera.matrixWorldInverse;
+  for (let i = 0; i < n; i++) {
+    lampView.set(heads[i * 4]!, heads[i * 4 + 1]!, heads[i * 4 + 2]!).applyMatrix4(view);
+    const distance = heads[i * 4 + 3]!;
+    const fade = 1 - Math.min(1, Math.max(0, (distance - LAMP_FIELD * 0.8) / (LAMP_FIELD * 0.2)));
+    atlasLamps.value[i]!.set(lampView.x, lampView.y, lampView.z, fade);
+  }
+  atlasLampCount.value = n;
+  halos.update(heads, n);
+}
+
+/**
+ * A soft glow round each near lamp's head, additive, so a street at night has
+ * its lights *in* it and not only under it. The same points buffer is
+ * rewritten each frame from `setNearLamps`; it is gated by the terminator in
+ * its own shader like everything else here, so by day it draws nothing.
+ */
+function createHalos(): { points: THREE.Points; update(heads: Float32Array, count: number): void } {
+  const position = new Float32Array(NEAR_LAMPS * 3);
+  const geometry = new THREE.BufferGeometry();
+  const attribute = new THREE.BufferAttribute(position, 3);
+  attribute.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', attribute);
+  geometry.setDrawRange(0, 0);
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), PLANET_RADIUS * 1.1);
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      ...THREE.UniformsUtils.clone(THREE.UniformsLib['fog']!),
+      atlasSun,
+      atlasGain,
+      atlasLight: { value: LAMP_LIGHT.clone() },
+      screenScale: { value: 450 },
+    },
+    vertexShader: /* glsl */ `
+      uniform vec3 atlasSun;
+      uniform float atlasGain;
+      uniform float screenScale;
+      varying float vAlpha;
+      #include <common>
+      #include <fog_pars_vertex>
+      ${NIGHT_CHUNK}
+      void main() {
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        float dist = max(-mvPosition.z, 1.0);
+        vAlpha = atlasNight(normalize(position), atlasSun) * atlasGain
+          * (1.0 - smoothstep(${(LAMP_FIELD * 0.7).toFixed(1)}, ${LAMP_FIELD.toFixed(1)}, dist));
+        gl_PointSize = clamp(2.6 * projectionMatrix[1][1] * screenScale / dist, 2.0, 96.0);
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 atlasLight;
+      varying float vAlpha;
+      #include <common>
+      #include <fog_pars_fragment>
+      void main() {
+        if (vAlpha < 0.004) discard;
+        float r = length(gl_PointCoord - 0.5) * 2.0;
+        float glow = (1.0 - smoothstep(0.0, 1.0, r));
+        float core = 1.0 - smoothstep(0.12, 0.2, r);
+        gl_FragColor = vec4(atlasLight, (glow * glow * 0.55 + core * 0.6) * vAlpha);
+        #ifdef USE_FOG
+          gl_FragColor *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
+        #endif
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: true,
+  });
+  material.userData.outlineParameters = { visible: false };
+  const points = new THREE.Points(geometry, material);
+  points.name = 'lamp-halos';
+  points.renderOrder = 2;
+  points.frustumCulled = false;
+  return {
+    points,
+    update(heads, count) {
+      for (let i = 0; i < count; i++) {
+        position[i * 3] = heads[i * 4]!;
+        position[i * 3 + 1] = heads[i * 4 + 1]!;
+        position[i * 3 + 2] = heads[i * 4 + 2]!;
+      }
+      attribute.needsUpdate = true;
+      geometry.setDrawRange(0, count);
+      material.uniforms.screenScale!.value = (typeof innerHeight === 'number' ? innerHeight : 900) * 0.5;
+    },
+  };
+}
+
+const halos = createHalos();
+
+/** The glow round the near lamps' heads, to add to the scene once. */
+export const lampHalos: THREE.Points = halos.points;
+
 /**
  * Draws one window's bedtime and returns it as the byte the buffer carries.
  *
@@ -373,6 +556,9 @@ export function lightWindows(material: THREE.Material): void {
     shader.uniforms.atlasSubsolar = atlasSubsolar;
     shader.uniforms.atlasLight = atlasLight;
     shader.uniforms.atlasGain = atlasGain;
+    shader.uniforms.atlasLamps = atlasLamps;
+    shader.uniforms.atlasLampCount = atlasLampCount;
+    shader.uniforms.atlasLampTint = atlasLampTint;
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -400,9 +586,11 @@ export function lightWindows(material: THREE.Material): void {
         uniform float atlasSubsolar;
         uniform vec3 atlasLight;
         uniform float atlasGain;
+        uniform vec3 atlasLampTint;
         varying vec2 vAtlasLit;
         varying vec3 vAtlasUp;
-        ${NIGHT_CHUNK}`,
+        ${NIGHT_CHUNK}
+        ${LAMP_CHUNK}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -412,8 +600,25 @@ export function lightWindows(material: THREE.Material): void {
         float atlasBed = ${BED_BASE.toFixed(1)} + vAtlasLit.y * ${(255 / BED_SPAN).toFixed(6)};
         float atlasAwake = 1.0 - smoothstep(atlasBed - 0.5, atlasBed + 0.5,
           atlasSolarHour(vAtlasUp, atlasSubsolar));
-        totalEmissiveRadiance += atlasLight * (${WINDOW_GAIN.toFixed(2)} * vAtlasLit.x * atlasAwake
-          * atlasGain * atlasNight(vAtlasUp, atlasSun));`,
+        float atlasDark = atlasGain * atlasNight(vAtlasUp, atlasSun);
+        // A face that looks at the sky is ground (a slope too: the edge of a
+        // town is one, and lit as a window it came out as a yellow rim round
+        // every town seen from the air), and on the ground the byte is
+        // a pool rather than a window: it tints the surface it lies on instead
+        // of being painted over it, and inside the near lamps' field it gives
+        // way to them (see NEAR_LAMPS), keeping a quarter as the spill of the
+        // lit rooms and the gates.
+        float atlasFlat = smoothstep(0.25, 0.5, dot(normal, normalize(mat3(viewMatrix) * vAtlasUp)));
+        float atlasNearField = atlasLampCount > 0
+          ? 1.0 - smoothstep(${(LAMP_FIELD * 0.6).toFixed(1)}, ${(LAMP_FIELD * 0.9).toFixed(1)}, length(vViewPosition))
+          : 0.0;
+        vec3 atlasPool = mix(atlasLight, diffuseColor.rgb * atlasLight * 0.9, atlasFlat)
+          * (1.0 - atlasFlat * atlasNearField * 0.75);
+        totalEmissiveRadiance += atlasPool * (${WINDOW_GAIN.toFixed(2)} * vAtlasLit.x * atlasAwake * atlasDark);
+        if (atlasLampCount > 0 && atlasDark > 0.0) {
+          float atlasLamp = atlasLampLight(-vViewPosition, normal, atlasFlat);
+          totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint * atlasLamp * atlasDark;
+        }`,
       );
   };
 }

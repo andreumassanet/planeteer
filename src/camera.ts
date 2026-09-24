@@ -923,6 +923,10 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
 
       align(player);
       if (inTheHead(player)) {
+        // The pivot kept on the body, so that `V` off pulls back from the
+        // head and not from wherever first person began.
+        orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
+        held = Infinity;
         showBody(player, false);
         eye(player);
         return;
@@ -930,10 +934,16 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       if (!seated(player)) {
         // Chase the pivot, then orbit it exactly.
         drift.copy(player.position).addScaledVector(player.up, pivotHeight(player)).sub(orbit);
-        if (drift.lengthSq() > AVATAR_HEIGHT * AVATAR_HEIGHT * 400) drift.multiplyScalar(1 / chase);
-        const rise = drift.dot(player.up);
-        drift.addScaledVector(player.up, -rise);
-        orbit.addScaledVector(drift, chase).addScaledVector(player.up, rise * approach(CAMERA_LAG_UP, dt));
+        // A jump of twenty bodies is caught outright, height and all. Scaling
+        // the drift by `1 / chase` for it caught only the level part (the rise
+        // goes at the slower `CAMERA_LAG_UP`), and in a frame with no time in
+        // it `1 / chase` is Infinity and the orbit NaN for good.
+        if (drift.lengthSq() > AVATAR_HEIGHT * AVATAR_HEIGHT * 400) orbit.add(drift);
+        else {
+          const rise = drift.dot(player.up);
+          drift.addScaledVector(player.up, -rise);
+          orbit.addScaledVector(drift, chase).addScaledVector(player.up, rise * approach(CAMERA_LAG_UP, dt));
+        }
         place(player, true);
         const lift = unclip(desired, groundRadiusAt, true);
         // A wall pulls the lens in at once and lets it out gently.
@@ -995,6 +1005,10 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       }
 
       if (inTheHead(player)) {
+        // The pivot kept on the body, so that `V` off pulls back from the
+        // head and not from wherever first person began.
+        orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
+        held = Infinity;
         showBody(player, false);
         eye(player);
         return;

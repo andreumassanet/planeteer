@@ -139,10 +139,11 @@ export const KM_PER_UNIT = EARTH_RADIUS_KM / PLANET_RADIUS;
  * The avatar is a person, on every world, so the scale cannot vary between
  * them — which makes this a division and not a decision. The consequence worth
  * knowing before anyone proposes normalising it: a lap of Mars at a run is
- * `2 pi * 8514 / RUN_SPEED` = **66 minutes** against Earth's 2.1 hours, and of
- * Jupiter's 1-bar level about 23 hours. Mercury is 48 minutes' run. That range
- * is real and it is the point. (At the run of 13.5 units a second since
- * 2026-09-24, and 89 minutes, 2.8 hours, 31 hours and an hour at the 10 it was
+ * `2 pi * 8514 / RUN_SPEED` = **45 minutes** against Earth's 1.4 hours, and of
+ * Jupiter's 1-bar level about 15.5 hours. Mercury is 32 minutes' run. That
+ * range is real and it is the point. (At the run of 20 units a second since
+ * late on 2026-09-24; 66 minutes, 2.1 hours, 23 hours and 48 minutes at the
+ * 13.5 earlier that day, and 89 minutes, 2.8 hours, 31 hours and an hour at the 10 it was
  * earlier that day; they were 9.9 minutes, 18.6, 3.4 hours and seven minutes at the 90 of
  * 2026-09-13, and 6.9, 12.9, 2.4 hours and five at the 130 before it; the
  * ratios between them did not move.)

@@ -41,6 +41,7 @@ export type Action =
   | 'run'
   | 'jump'
   | 'descend'
+  | 'dive'
   | 'use'
   | 'view'
   | 'map'
@@ -50,6 +51,8 @@ export type Action =
   | 'farther'
   | 'hints'
   | 'photo'
+  | 'mapIn'
+  | 'mapOut'
   | 'release';
 
 /**
@@ -64,12 +67,20 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   run: ['ShiftLeft', 'ShiftRight'],
   // Space is read twice: as an edge, which is the jump, and as a held key,
   // which is the climb. A plane that only climbed on the frame you pressed the
-  // key would be a very tiring plane.
+  // key would be a very tiring plane. In a plane or a balloon `Shift` climbs
+  // too (`player.ts`), and `C` or `Ctrl` goes down.
   jump: ['Space'],
   descend: ['KeyC'],
+  // **`Ctrl` is the one binding a browser will not always give up.** Held for
+  // a descent with `W` for the throttle it is `Ctrl+W`, which closes the tab
+  // and which no page can cancel; so while it is held in the air `input.ts`
+  // asks the browser to confirm leaving the page (`guardUnload`). Every other
+  // `Ctrl` shortcut that lands on a bound key is the world's while it is held.
+  dive: ['ControlLeft', 'ControlRight'],
   // `E` for everything a vehicle asks: get in, take the wheel, get out. There
   // used to be a second key, `F`, that took off from anywhere, and it went with
-  // the plane everybody owned.
+  // the plane everybody owned. It also talks to whoever is nearer than any
+  // seat, and moves a conversation on.
   use: ['KeyE'],
   // `V` for view, which is where three decades of third-person games put it.
   // Every other letter within reach of the movement hand is already spoken
@@ -83,6 +94,10 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   hints: ['KeyH'],
   // The one letter left near the right hand that nothing else wanted.
   photo: ['KeyP'],
+  // The world map's zoom, while it is up: its buttons as keys, since `Tab` on
+  // the map is the landmarks' and not a walk to its controls.
+  mapIn: ['Equal', 'NumpadAdd'],
+  mapOut: ['Minus', 'NumpadSubtract'],
   // The browser's, not ours: it frees the mouse and nothing can bind it.
   release: ['Escape'],
 };
@@ -107,6 +122,8 @@ const NAMED: Record<string, string> = {
   Space: 'Space',
   ShiftLeft: 'Shift',
   ShiftRight: 'Shift',
+  ControlLeft: 'Ctrl',
+  ControlRight: 'Ctrl',
   Tab: 'Tab',
   Escape: 'Esc',
   Enter: 'Enter',
@@ -120,6 +137,8 @@ const NAMED: Record<string, string> = {
 const US: Record<string, string> = {
   BracketLeft: '[',
   BracketRight: ']',
+  Equal: '+',
+  Minus: '−',
 };
 
 /** `navigator.keyboard`, which TypeScript's DOM library does not describe yet. */
@@ -209,12 +228,14 @@ export const KEY_LIST: readonly KeyHint[] = [
   { keys: MOVE, label: 'Move, or steer' },
   { keys: ['mouse'], label: 'Look around' },
   { keys: ['wheel'], label: 'Camera nearer or further, on foot' },
-  { keys: ['run'], label: 'Run · swim faster · boost a vehicle' },
-  { keys: ['jump'], label: 'Jump · take off and climb · rise in a balloon' },
-  { keys: ['descend'], label: 'Descend and land · sink a balloon' },
-  { keys: ['use'], label: 'Get in a vehicle you are next to · get out' },
+  { keys: ['run'], label: 'Run · swim faster · boost a car or a boat' },
+  { keys: ['jump'], label: 'Jump' },
+  { keys: ['jump', 'run'], label: 'Take off and climb · rise in a balloon' },
+  { keys: ['descend', 'dive'], label: 'Descend and land · sink a balloon' },
+  { keys: ['use'], label: 'Get in a vehicle you are next to · get out · talk to somebody' },
   { keys: ['view'], label: 'First person, on foot' },
   { keys: ['map'], label: 'World map' },
+  { keys: ['mapIn', 'mapOut'], label: 'Zoom the world map' },
   { keys: ['next'], label: 'Next landmark to find' },
   { keys: ['flags'], label: 'Flags and borders' },
   { keys: ['nearer', 'farther'], label: 'Render distance' },
@@ -229,10 +250,14 @@ export const KEY_LIST: readonly KeyHint[] = [
  * four you can use at a wheel, and a plane on the ground is not one in the air:
  * `airborne` says which, and it is what turns the climb key's "Take off" into
  * "Climb" and the way out into nothing, because nobody steps out of a plane in
- * flight.
+ * flight. `stranded` is a passenger aloft with nobody at the controls, whose
+ * `E` takes them (`fleet.ts`); any other passenger aloft has no way out to be
+ * shown.
  */
-export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false): KeyHint[] {
+export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false, stranded = false): KeyHint[] {
   const out: KeyHint = { keys: ['use'], label: 'Get out' };
+  const up: KeyHint = { keys: ['jump', 'run'], label: 'Climb' };
+  const down: KeyHint = { keys: ['descend', 'dive'], label: 'Descend' };
   switch (mode) {
     case 'swim':
       return [
@@ -261,17 +286,17 @@ export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false
     case 'plane':
       return airborne
         ? [
-            { keys: MOVE, label: 'Steer' },
-            { keys: ['run'], label: 'Boost' },
-            { keys: ['jump'], label: 'Climb' },
-            { keys: ['descend'], label: 'Descend · land' },
+            { keys: ['left', 'right'], label: 'Bank' },
+            { keys: ['forward', 'back'], label: 'Throttle' },
+            up,
+            { ...down, label: 'Descend · land on flat ground' },
             { keys: ['flags'], label: 'Flags' },
             { keys: ['map'], label: 'Map' },
             { keys: ['photo'], label: 'Photo' },
           ]
         : [
             { keys: MOVE, label: 'Taxi' },
-            { keys: ['jump'], label: 'Hold to take off' },
+            { ...up, label: 'Hold to take off' },
             out,
             { keys: ['map'], label: 'Map' },
             { keys: ['photo'], label: 'Photo' },
@@ -279,15 +304,15 @@ export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false
     case 'balloon':
       return [
         { keys: MOVE, label: 'Steer' },
-        { keys: ['jump'], label: 'Rise' },
-        { keys: ['descend'], label: 'Sink' },
+        { ...up, label: 'Rise' },
+        { ...down, label: 'Sink' },
         ...(airborne ? [] : [out]),
         { keys: ['map'], label: 'Map' },
         { keys: ['photo'], label: 'Photo' },
       ];
     case 'passenger':
       return [
-        out,
+        ...(!airborne ? [out] : stranded ? [{ keys: ['use'], label: 'Take the controls' } as KeyHint] : []),
         { keys: ['map'], label: 'Map' },
         { keys: ['photo'], label: 'Photo' },
       ];
@@ -321,6 +346,26 @@ const modals = new Set<() => boolean>();
 export function registerModal(isOpen: () => boolean): () => void {
   modals.add(isOpen);
   return () => modals.delete(isOpen);
+}
+
+const tabCards = new Set<() => boolean>();
+
+/**
+ * A card that takes `Tab` while it is up and leaves every other key to the
+ * world: the pause card, whose buttons a keyboard could not reach while `Tab`
+ * cycled the landmarks behind it. Its own `keydown` walks its controls with
+ * `holdFocus`; `navigation.ts` asks `tabTaken` and leaves the key alone.
+ * Returns the unregister.
+ */
+export function registerTabCard(isUp: () => boolean): () => void {
+  tabCards.add(isUp);
+  return () => tabCards.delete(isUp);
+}
+
+/** Whether a card that takes `Tab` is up. */
+export function tabTaken(): boolean {
+  for (const up of tabCards) if (up()) return true;
+  return false;
 }
 
 /** What `Tab` can land on inside a card. */

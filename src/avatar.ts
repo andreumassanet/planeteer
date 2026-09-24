@@ -180,12 +180,18 @@ export const FIGURE = {
  * **And both came down with the body** (2026-09-24). A person is 3.77 units
  * now (`stature.ts`), and 45 would have been twelve body heights a second. 6
  * is 1.6 heights a second, a brisk walk with a game's exaggeration and not a
- * sprint car; the run keeps a little over twice it, 13.5, 3.6 heights a
+ * sprint car; the run kept a little over twice it, 13.5, 3.6 heights a
  * second. The planet did not shrink with the body: a full lap is 100,531
  * units, about two hours at a run, which is what the plane is for.
+ *
+ * **And the run went back up** (later the same day): 13.5 read as a jog that
+ * cost a lot to get anywhere, on a planet where the next town is a few hundred
+ * units off. 20 is 5.3 heights a second — a sprinter's, held for as long as
+ * the key is — and three times a walk that came up to 6.5 with it, 1.7
+ * heights a second. A lap at a run is 84 minutes.
  */
-export const WALK_SPEED = 6;
-export const RUN_SPEED = 13.5;
+export const WALK_SPEED = 6.5;
+export const RUN_SPEED = 20;
 
 /**
  * Distance covered by one full stride cycle, walking and running.
@@ -194,7 +200,8 @@ export const RUN_SPEED = 13.5;
  * the ground at any speed and there is nothing to resynchronise when the speed
  * changes. It is the walk over a cadence of 1.1 cycles a second — a real walk
  * is 0.9 to 1 — so the legs turn over as a body this size walks at this pace:
- * about 1.45 body heights a cycle (5.45 on a 3.77-unit body), where the old 22
+ * about 1.57 body heights a cycle (5.91 on a 3.77-unit body, at the 6.5 walk
+ * of 2026-09-24; 1.45 at the 6 before it), where the old 22
  * at a 6.8-unit body was 3.2 and the feet slid.
  */
 export const WALK_STRIDE = WALK_SPEED / 1.1;
@@ -202,13 +209,15 @@ export const WALK_STRIDE = WALK_SPEED / 1.1;
  * Stride cycles a second at a full run, and the run's stride is derived from
  * it rather than written down.
  *
- * 1.5, three footfalls a second: a real run's, and above the walk's 1.1. It
- * must stay above it — a body that speeds up when Shift goes down while its legs
- * slow down reads as bounding on the moon — and it is written as a cadence so
- * the next change to `RUN_SPEED` cannot break that.
+ * 1.6, three and a bit footfalls a second: a hard run's, and above the walk's
+ * 1.1. It must stay above it — a body that speeds up when Shift goes down while
+ * its legs slow down reads as bounding on the moon — and it is written as a
+ * cadence so the next change to `RUN_SPEED` cannot break that. At 20 units a
+ * second it is a stride cycle of 12.5 units, 3.3 heights, which is a sprint's
+ * reach; 1.5 would have been 3.5 heights and a bound.
  */
-const RUN_CADENCE = 1.5;
-const RUN_STRIDE = RUN_SPEED / RUN_CADENCE;
+export const RUN_CADENCE = 1.6;
+export const RUN_STRIDE = RUN_SPEED / RUN_CADENCE;
 
 
 /**

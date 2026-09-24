@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import type { Folk } from './folk.ts';
 import { foldLegs, limbsOf } from './cast.ts';
 import type { Limbs, Person } from './cast.ts';
-import { AVATAR_HEIGHT, RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE } from './avatar.ts';
+import { AVATAR_HEIGHT, RUN_SPEED, RUN_STRIDE, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE } from './avatar.ts';
 import type { Player } from './player.ts';
 import { PLAYER_STATES } from './craft/contract.ts';
 import type { FleetSeats, PlayerState } from './craft/contract.ts';
@@ -41,13 +41,25 @@ const SILENT_MS = 10_000;
 const DRAW_REACH = 2_500;
 /** Reconnection backoff, doubling from the first to the last. */
 const RETRY_MS = [1_000, 30_000] as const;
-/** The run's stride, from its cadence of 1.5 Hz as `avatar.ts` states it. */
-const RUN_STRIDE = RUN_SPEED / 1.5;
 /** How far a swimmer's feet are under the surface their pose is on: chest deep. */
 const SWIM_DEPTH = AVATAR_HEIGHT * 0.72;
 /** A swimmer's stroke, as the walk clip played this many times a second. */
 const SWIM_CADENCE = 0.6;
 const NAME_KEY = 'atlas.peers.name';
+
+/**
+ * This page's secret on the relay, the same across every reconnection and
+ * sent to nobody but the relay: a player who drops out of a seat and comes
+ * back on a new socket is known by it, and given the seat back from wherever
+ * the vehicle has got to (`sit` in `server/src/index.ts`). Made per page, not
+ * stored: two tabs are two players.
+ */
+function pageKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  let key = '';
+  for (let i = 0; i < 32; i++) key += Math.floor(Math.random() * 16).toString(16);
+  return key;
+}
 
 interface Snapshot {
   at: number;
@@ -206,6 +218,13 @@ export function createPeers(url: string, folk: Folk): Peers {
   group.name = 'peers';
   const peers = new Map<string, Peer>();
   const marks: PeerMark[] = [];
+  /** The marks' objects, rewritten each frame rather than made anew. */
+  const markPool: PeerMark[] = [];
+  /**
+   * Every name the relay has told us, by id: a peer dropped here for silence
+   * and heard again is only an `at`, which carries no name.
+   */
+  const names = new Map<string, string>();
   const stats: PeersStats = { state: 'off', id: null, name: storedName(), peers: 0, drawn: 0, sent: 0, received: 0 };
   const messageListeners = new Set<(message: RelayMessage) => void>();
   const stateListeners = new Set<(state: PeersStats['state']) => void>();
@@ -215,6 +234,9 @@ export function createPeers(url: string, folk: Folk): Peers {
   let retry: number = RETRY_MS[0];
   let sentAt = 0;
   let nearestMoving = Infinity;
+  const key = pageKey();
+  /** The player `update` was last handed, so a new socket can say where we are at once. */
+  let lastPlayer: Player | null = null;
 
   const basis = new THREE.Matrix4();
   const local = new THREE.Matrix4();
@@ -232,14 +254,19 @@ export function createPeers(url: string, folk: Folk): Peers {
 
   function connect(): void {
     setState('connecting');
-    const address = new URL(url);
-    if (stats.name !== '') address.searchParams.set('name', stats.name);
     let open: WebSocket;
     try {
+      const address = new URL(url);
+      if (stats.name !== '') address.searchParams.set('name', stats.name);
+      address.searchParams.set('key', key);
       open = new WebSocket(address);
     } catch (error) {
+      // Refused before it began — a blocked scheme, a page the browser will
+      // not let open one — and asked again on the same backoff as a drop.
       console.warn('peers: no relay at', url, error);
       setState('closed');
+      setTimeout(connect, retry);
+      retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
       return;
     }
     socket = open;
@@ -257,6 +284,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       socket = null;
       stats.id = null;
       for (const id of [...peers.keys()]) drop(id);
+      names.clear();
       setState('closed');
       setTimeout(connect, retry);
       retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
@@ -274,16 +302,26 @@ export function createPeers(url: string, folk: Folk): Peers {
     const now = performance.now();
     if (message.t === 'hi' && typeof message.id === 'string') {
       stats.id = message.id;
+      // Where we are, before any listener answers the `hi`: a seat claimed
+      // back on a new socket is judged against this socket's own position,
+      // and the next state on the cadence is up to a tenth of a second off.
+      if (lastPlayer !== null) {
+        sentAt = performance.now();
+        send(lastPlayer);
+      }
       for (const row of message.peers ?? []) {
         const [id, name, ...state] = row as [string, string, ...State];
+        if (typeof name === 'string') names.set(id, name);
         heard(id, name, state, now);
       }
     } else if (message.t === 'in' && typeof message.id === 'string') {
+      if (typeof message.name === 'string') names.set(message.id, message.name);
       peerOf(message.id, message.name ?? '');
     } else if (message.t === 'at' && typeof message.id === 'string' && Array.isArray(message.s)) {
       heard(message.id, null, message.s, now);
     } else if (message.t === 'bye' && typeof message.id === 'string') {
       drop(message.id);
+      names.delete(message.id);
     }
     for (const listener of messageListeners) {
       try {
@@ -311,7 +349,7 @@ export function createPeers(url: string, folk: Folk): Peers {
 
   function heard(id: string, name: string | null, state: State, now: number): void {
     if (state.length !== 9) return;
-    const peer = peerOf(id, name ?? '');
+    const peer = peerOf(id, name ?? names.get(id) ?? '');
     const [x, y, z, fx, fy, fz, doing, speed, airborne] = state;
     peer.snapshots.push({
       at: now,
@@ -372,7 +410,9 @@ export function createPeers(url: string, folk: Folk): Peers {
 
   function dressed(peer: Peer): Body | null {
     if (peer.body !== null) return peer.body;
-    const person = folk.dress(`peer:${peer.id}`, 'atlantic-europe');
+    // At the hero's own height, never a child's or a random adult's: a peer
+    // walks with the hero's stride and wears its name at the hero's head.
+    const person = folk.dress(`peer:${peer.id}`, 'atlantic-europe', undefined, AVATAR_HEIGHT);
     if (person === null) return null;
     // Read in the rest pose, before any clip has moved a bone.
     const limbs = limbsOf(person);
@@ -451,6 +491,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   const peersApi: Peers = {
     group,
     update(dt, player) {
+      lastPlayer = player;
       if (socket === null && stats.state === 'off') connect();
       const now = performance.now();
       if (now - sentAt >= SEND_MS) {
@@ -461,7 +502,8 @@ export function createPeers(url: string, folk: Folk): Peers {
       marks.length = 0;
       nearestMoving = Infinity;
       stats.drawn = 0;
-      for (const peer of [...peers.values()]) {
+      // Deleting the entry being visited is safe in a Map's own iteration.
+      for (const peer of peers.values()) {
         if (now - peer.heard > SILENT_MS) {
           drop(peer.id);
           continue;
@@ -469,8 +511,14 @@ export function createPeers(url: string, folk: Folk): Peers {
         const state = sample(peer, now);
         if (state === null) continue;
         peer.shown.copy(state.position);
-        marks.push({ id: peer.id, name: peer.name || 'Traveller', x: 0, y: 0, z: 0 });
-        const mark = marks[marks.length - 1]!;
+        let mark = markPool[marks.length];
+        if (mark === undefined) {
+          mark = { id: '', name: '', x: 0, y: 0, z: 0 };
+          markPool.push(mark);
+        }
+        mark.id = peer.id;
+        mark.name = peer.name || 'Traveller';
+        marks.push(mark);
         up.copy(state.position).normalize();
         mark.x = up.x;
         mark.y = up.y;

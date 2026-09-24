@@ -535,11 +535,13 @@ const WIDEST_FOOTPRINT = 55;
 const MONUMENT_CLEARANCE = 6;
 /**
  * And round a standing plane's or balloon's field (`fleet.ts`), past the
- * field's own radius and the plant's own spread: a wing's width of open grass
- * between the tip and the first trunk, so the aircraft reads as standing in a
- * clearing rather than parked against a hedge.
+ * field's own radius and the plant's own spread: open grass between the tip
+ * and the first trunk, so the aircraft reads as standing in a clearing rather
+ * than parked against a hedge. It was 3, which left a balloon's envelope, 7.3
+ * of its 8-unit field, under four units from the nearest canopy; 6 is a body
+ * and a half more.
  */
-const FIELD_CLEARANCE = 3;
+const FIELD_CLEARANCE = 6;
 
 /**
  * How far a plant is seated into the ground, as a share of its own height.

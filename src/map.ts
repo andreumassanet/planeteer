@@ -75,7 +75,7 @@ import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { ensureStyle, FONT, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 import { EARTH_KM, LabelSpace, R2D, TAU, inkedText } from './cartography.ts';
 import { latLonOf, unitAt } from './sphere.ts';
-import { inputBlocked } from './controls.ts';
+import { actionOf, inputBlocked, labelOf } from './controls.ts';
 
 export interface WorldMapOptions {
   /** Every placement, the same array the minimap and `navigation.ts` are given. */
@@ -248,6 +248,7 @@ const STYLE = `
   color: var(--ui-ink);
 }
 .atlas-map.on { opacity: 1; visibility: visible; pointer-events: auto; }
+.atlas-map-sheet:focus { outline: none; }
 .atlas-map-sheet {
   position: absolute;
   inset: 14px;
@@ -447,8 +448,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   // --- the DOM --------------------------------------------------------------
 
-  const root = h('div', { class: 'atlas-map' });
-  const sheet = h('div', { class: 'atlas-map-sheet' });
+  // A dialog to assistive technology, and not a modal one: the world goes on
+  // flying under it and `Tab` still cycles the landmarks it shows.
+  const root = h('div', { class: 'atlas-map', role: 'dialog', 'aria-label': 'World map' });
+  // Focused on opening, so a screen reader says where it is; never by `Tab`.
+  const sheet = h('div', { class: 'atlas-map-sheet', tabindex: '-1' });
   const canvas = h('canvas');
   const ctx = canvas.getContext('2d')!;
   sheet.append(canvas);
@@ -485,6 +489,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     'div',
     { class: 'atlas-map-foot ui-card' },
     h('span', {}, kbd('M'), 'close'),
+    h('span', {}, kbd(labelOf('mapIn')), kbd(labelOf('mapOut')), 'zoom'),
     h('span', { class: 'quiet', text: 'drag to move · scroll to zoom' }),
     h('span', {
       text: options.peers === undefined
@@ -947,8 +952,15 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     return finished;
   }
 
+  /**
+   * Down to `limit` tiles past the first levels, the least recently drawn
+   * first. A tile asked for and never finished counts once no draw wants it:
+   * a quick pan leaves a trail of them, each holding its half-painted job, and
+   * they used to stay in the table for good.
+   */
   function evictTiles(limit: number): void {
-    const loose = [...tiles.values()].filter((tile) => tile.z > KEEP_LEVEL && tile.canvas !== null);
+    const pending = new Set(wanted);
+    const loose = [...tiles.values()].filter((tile) => tile.z > KEEP_LEVEL && (tile.canvas !== null || !pending.has(tile)));
     if (loose.length <= limit) return;
     loose.sort((a, b) => a.used - b.used);
     for (let k = 0; k < loose.length - limit; k++) {
@@ -1796,6 +1808,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     zoomAt(2, event.clientX - box.left, event.clientY - box.top);
   }, { signal });
 
+  // A click on a button leaves the focus where it was: a focused button on
+  // this dialog would hold every key the plane under the map is flown by
+  // (`inputBlocked`), and `Tab` with it.
+  for (const button of [zoomIn, zoomOut, locate]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
   zoomIn.addEventListener('click', () => zoomAt(2, width / 2, height / 2), { signal });
   zoomOut.addEventListener('click', () => zoomAt(0.5, width / 2, height / 2), { signal });
   locate.addEventListener('click', () => centreOnMe(), { signal });
@@ -1808,6 +1824,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // goes, so nothing else has to be told.
     if (document.pointerLockElement) document.exitPointerLock();
     root.classList.add('on');
+    sheet.focus({ preventScroll: true });
     resize();
     prepareRings();
     prepareTowns();
@@ -1823,6 +1840,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     if (!showing) return;
     showing = false;
     root.classList.remove('on');
+    if (root.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     tip.classList.remove('on');
     hover = null;
     press = null;
@@ -1845,7 +1863,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   if (key !== null) {
     addEventListener('keydown', (event) => {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (inputBlocked(event)) return;
+      // A key pressed on the map's own controls is blocked for the world, the
+      // map being a dialog, and is still the map's.
+      const own = showing && event.target instanceof Node && root.contains(event.target);
+      if (!own && inputBlocked(event)) return;
       if (event.code === key) {
         event.preventDefault();
         if (!event.repeat) {
@@ -1854,7 +1875,15 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         }
         return;
       }
-      if (event.code === 'Escape' && showing) hide();
+      if (!showing) return;
+      const action = actionOf(event.code);
+      if (event.code === 'Escape') hide();
+      else if (action === 'mapIn' || action === 'mapOut') {
+        event.preventDefault();
+        zoomAt(action === 'mapIn' ? 2 : 0.5, width / 2, height / 2);
+        hover = null;
+        renderTip();
+      }
     }, { signal });
   }
 

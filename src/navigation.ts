@@ -31,7 +31,7 @@
  */
 import * as THREE from 'three';
 import { EARTH_KM, toUnit } from './cartography.ts';
-import { codeOf, inputBlocked } from './controls.ts';
+import { codeOf, inputBlocked, tabTaken } from './controls.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import type { DestinationEntry, Hud } from './hud.ts';
 import type { Minimap } from './minimap.ts';
@@ -276,6 +276,8 @@ export function createNavigation(options: NavigationOptions): Navigation {
       // and a card's keys to the card: `Tab` walks the settings' own controls.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.code !== key || inputBlocked(event)) return;
+      // The pause card's own buttons are what `Tab` walks while it is up.
+      if (event.defaultPrevented || tabTaken()) return;
       event.preventDefault();
       if (!event.repeat) advance();
     }, { signal: events.signal });

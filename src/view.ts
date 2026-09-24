@@ -553,6 +553,20 @@ export function sampleFrame(intervalMs: number, workMs: number): void {
   deafUntil = now + AUTO_SETTLE_MS;
 }
 
+/**
+ * A frame that is not a measure of this machine — the map's sheet over an
+ * undrawn world, or the loop deliberately idling at half rate on the pause
+ * card — throws the window away instead of feeding it: at 30 frames a second
+ * on purpose, every interval reads as a dropped frame, and a tab left on the
+ * pause card for two minutes stepped the knob down to its floor.
+ */
+export function skipFrame(): void {
+  windowBegan = performance.now();
+  intervals.length = 0;
+  works.length = 0;
+  previousVote = 'hold';
+}
+
 /** A reach, a budget, a cap, a pixel floor and a build allowance, each scaled its own way. */
 export const detailReach = (units: number): number => units * current;
 export const detailArea = (count: number): number => Math.round(count * current * current);

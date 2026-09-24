@@ -87,6 +87,8 @@ export interface Person {
   slots: readonly string[];
   /** Which outfit this is, so a released person goes back to the right pool. */
   outfit: OutfitId;
+  /** How tall this person was dressed, in world units: the `height` `make` was given. */
+  height: number;
 }
 
 interface Template {
@@ -331,6 +333,9 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       person.root.removeFromParent();
       person.root.position.set(0, 0, 0);
       person.root.quaternion.identity();
+      // Hidden by whoever held it — a peer in a closed cab — it would be
+      // handed to the next townsman invisible.
+      person.root.visible = true;
       const pool = spare.get(person.outfit) ?? [];
       pool.push(person);
       spare.set(person.outfit, pool);
@@ -345,6 +350,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
         attribute.needsUpdate = true;
         reused.root.scale.setScalar(height / template.height);
         reused.bones.get('Head')?.scale.setScalar(young ? YOUNG_HEAD : 1);
+        reused.height = height;
         return reused;
       }
       const scene = cloneRig(template.scene) as THREE.Group;
@@ -383,7 +389,7 @@ export async function loadCast(material: THREE.Material, outfits: readonly Outfi
       const mixer = new THREE.AnimationMixer(scene);
       const actions = new Map<ClipName, THREE.AnimationAction>();
       for (const [name, clip] of clips) actions.set(name, mixer.clipAction(clip));
-      return { root, mesh: body, bones, mixer, actions, slots: template.slots, outfit };
+      return { root, mesh: body, bones, mixer, actions, slots: template.slots, outfit, height };
     },
   };
 }

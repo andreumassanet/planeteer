@@ -130,6 +130,22 @@ export const CAR_COAST_TIME = 2.2;
 export const CAR_TURN = 1.25;
 export const CAR_GRIP_SPEED = 10;
 /**
+ * How long the wheel takes to go over to a lock, in seconds, and how much of
+ * the lock is left at `CAR_BOOST`. The key used to be the lock, on the frame
+ * it went down, which is a car that twitches; and full lock at 75 units a
+ * second is a 60-unit circle, which at that speed is a spin.
+ */
+export const CAR_STEER_TIME = 0.15;
+export const CAR_FAST_LOCK = 0.6;
+/**
+ * A car driven into a wall: the share of its speed it comes back off it at,
+ * and the speed lost at a stroke that counts as a crash rather than a nudge,
+ * in units a second (about a third of the cruise). A crash is told
+ * (`PlayerEvent`), so whatever wants to shake, spark or bang can.
+ */
+export const CAR_BOUNCE = 0.25;
+export const CRASH_SPEED = 14;
+/**
  * The most a wheel climbs in one go without it being a wall, in units: a kerb
  * is 0.4, a terrace riser four, and a car climbs the first and not the second.
  */
@@ -142,6 +158,15 @@ export const CAR_STEP = 1.1;
  */
 export const BALLOON_SPEED = 10;
 export const BALLOON_CLIMB = 9;
+/**
+ * How the burner and the vent take hold, in seconds: a balloon is slow to
+ * start rising and slow to stop. And near the ground it settles rather than
+ * drops: the sink is held under this share of the basket's height a second,
+ * and never under `BALLOON_TOUCHDOWN`.
+ */
+export const BALLOON_LIFT_TIME = 1.25;
+export const BALLOON_SETTLE = 0.5;
+export const BALLOON_TOUCHDOWN = 1.5;
 export const BALLOON_TURN = 0.45;
 export const BALLOON_CEILING = 2400;
 
@@ -588,7 +613,7 @@ export function buildBoat(): THREE.Group {
 const FLOAT_KEEL = 3.4;
 
 /**
- * Lowest and highest the plane will hold.
+ * Highest the plane will hold.
  *
  * The ceiling is what makes the plane the map, and it is a lens calculation
  * rather than a taste: from 1.45 radii up the camera sits 2.47 radii from the
@@ -596,13 +621,9 @@ const FLOAT_KEEL = 3.4;
  * degrees off its centre — 25.9 of the 27.5 the 55 degree lens has. Lower and
  * the planet does not fit; much higher and it is a marble in an empty frame.
  */
-export const PLANE_FLOOR = 60;
 export const PLANE_CEILING = PLANET_RADIUS * 1.45;
 /** Clearance kept above the ground: the floats, and 0.6 under them. */
 export const PLANE_CLEARANCE = (FLOAT_KEEL + 0.6) * BODY_SCALE;
-/** Altitude a take-off climbs to on its own: above the cliffs, below the haze. */
-export const PLANE_CIRCUIT = 320;
-
 /**
  * Cruise at the floor and at the ceiling.
  *
@@ -617,7 +638,13 @@ export const PLANE_CIRCUIT = 320;
  */
 export const PLANE_CRUISE_LOW = 140;
 export const PLANE_CRUISE_HIGH = 3400;
-export const PLANE_BOOST = 1.6;
+/**
+ * The throttle, `W` and `S`, as a share of the cruise it opens up or closes
+ * down: 1.6 times flat out and two thirds of it held back. Flat out used to
+ * be the run key's, and the run key climbs now.
+ */
+export const PLANE_THROTTLE_UP = 0.6;
+export const PLANE_THROTTLE_DOWN = 0.35;
 /**
  * Rate of turn at full stick once the plane is banked into it, in radians a
  * second: 57 degrees a second, a 360 in 6.5 s with the roll-in, a half turn in
@@ -636,8 +663,8 @@ export const PLANE_BOOST = 1.6;
  *
  * **A rate and not a radius, and that is deliberate** — the opposite of what
  * `camera.ts` holds for the walk, and for the same reason: what the eye reads is
- * the curve against the view, and here the view grows with the speed. At the
- * circuit, 185 units a second at 1.0 is a ground track of 181 units radius under
+ * the curve against the view, and here the view grows with the speed. At 320
+ * units up, 185 units a second at 1.0 is a ground track of 181 units radius under
  * a camera 61 units off the tail (420 and 413 before `PLANE_CRUISE_LOW` came
  * down to 140, 2026-09-24); at the ceiling it is 1,390 units (5 degrees of
  * arc) under a camera that holds the whole globe. Held as a radius it would
@@ -649,28 +676,43 @@ export const PLANE_ACCELERATION_TIME = 2.6;
 export const PLANE_LANDING_TIME = 1.2;
 
 /**
- * Climb is exponential, not linear: holding the key multiplies the target
- * altitude. 1.15 per second takes the circuit height to the ceiling in 5.1 s,
- * and the same gesture reads as a zoom out of the map, which is what it is.
+ * The climb, as a vertical speed the keys ask for and the plane eases into.
+ *
+ * **It used to be an altitude the keys multiplied**, 1.15 of itself a second,
+ * with the plane chasing it — and a take-off set that altitude to the circuit,
+ * 320 units, on its own. So the wheels left the ground and the plane shot up
+ * three hundred units with nobody asking, and a tap of the climb key a few
+ * hundred up was another hundred. Now the key asks for a rate, the rate is
+ * reached over `PLANE_VERTICAL_TIME`, and letting go levels the plane off
+ * where it is.
+ *
+ * The rate is `PLANE_CLIMB_RATE` times the height over the ground, and never
+ * under `PLANE_CLIMB_MIN`: near the ground 18 units a second, about seven
+ * degrees at the low cruise, and higher up a share of the height a second so
+ * the climb still reads as a zoom out of the map — twenty-five over a field
+ * to the ceiling in about eleven seconds of the key held, where the old law
+ * took five from the circuit and so read as a lurch. Descending is the same law
+ * the other way, and it flares: under `PLANE_FLARE` times the height, and no
+ * less than `PLANE_TOUCHDOWN`, so a plane let down onto a field arrives at a
+ * few units a second rather than at the rate it came down from the clouds.
  */
-export const CLIMB_RATE = 1.15;
-/** How fast the plane actually reaches the altitude it is asked for. */
-export const ALTITUDE_RATE = 1.1;
+export const PLANE_CLIMB_MIN = 18;
+export const PLANE_CLIMB_RATE = 0.7;
+/** Time constant of the vertical speed, in seconds: a pull on the stick builds, and so does letting go. */
+export const PLANE_VERTICAL_TIME = 0.7;
+export const PLANE_FLARE = 0.6;
+export const PLANE_TOUCHDOWN = 4;
 
 /**
  * The light aircraft on the ground: the speed it lifts off at — a take-off run
  * has to reach it with the climb key held — and the most it taxis at without
- * it. From standing to rotation is about three seconds and a hundred and fifty
- * units of field.
+ * it. The run opens the throttle for a quarter past it, over
+ * `PLANE_ACCELERATION_TIME`, so from standing to rotation is about four seconds
+ * and two hundred units of field; the wheels then leave it at no climb at all,
+ * and the climb builds from there (`PLANE_VERTICAL_TIME`).
  */
 export const PLANE_ROTATE = PLANE_CRUISE_LOW * 0.6;
 export const PLANE_TAXI = 30;
-/**
- * How fast the target altitude comes down, in units a second, while the
- * descend key is held, on top of the climb law's own division: the law alone
- * halves the height and never reaches the ground, and a landing has to.
- */
-export const PLANE_SINK = 30;
 /** Steepest ground a plane may be set down on, as rise over run: a field, not a hillside. */
 export const PLANE_LANDING_GRADE = Math.tan(12 * (Math.PI / 180));
 

@@ -365,8 +365,8 @@ export const KERB_DROP = 0.8;
  * one. Three times the rise, a gradient of 0.33, 18 degrees: the steepest thing
  * a body walks up without noticing, which is what a small slope has to be here.
  * So the ramp that was collision is geometry now, at the same gradient, and
- * `floorLiftAt` reads the geometry. At `WALK_SPEED` (6 units/s since
- * 2026-09-24) the climb takes about 1.5 s; it took 0.2 at the old 45.
+ * `floorLiftAt` reads the geometry. At `WALK_SPEED` (6.5 units/s since
+ * 2026-09-24) the climb takes about 1.4 s; it took 0.2 at the old 45.
  *
  * It is a *run on level ground* and not a promise of a gradient everywhere:
  * where the land outside falls away the slope still ends one course out, so it

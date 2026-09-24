@@ -42,7 +42,7 @@ import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { createFlagCanvas } from './flags.ts';
 import { countryFacts, loadCountryFacts } from './country-facts.ts';
 import type { CountryFacts } from './country-facts.ts';
-import { capOf, hintsFor, holdFocus, labelOf, onKeyLabels, registerModal } from './controls.ts';
+import { capOf, hintsFor, holdFocus, labelOf, onKeyLabels, registerModal, registerTabCard } from './controls.ts';
 import type { KeyHint, TravelMode } from './controls.ts';
 import { ensureStyle, h, hex, icon, installUi, kbd } from './ui.ts';
 import type { IconName } from './ui.ts';
@@ -115,9 +115,11 @@ export interface Hud {
   /**
    * How you are travelling, which decides the keys along the bottom — and
    * whether a plane or a balloon is off the ground, and whether the eye is in
-   * the head, which decide what some of them say. Cheap to call every frame.
+   * the head, which decide what some of them say; and whether a passenger
+   * aloft has nobody at the controls, whose `E` takes them. Cheap to call
+   * every frame.
    */
-  setMode(mode: TravelMode, airborne?: boolean, firstPerson?: boolean): void;
+  setMode(mode: TravelMode, airborne?: boolean, firstPerson?: boolean, stranded?: boolean): void;
   /** What `E` would do here — `Drive`, `Get in` — or null for nothing in reach. Cheap to call every frame. */
   setPrompt(label: string | null, iconName?: IconName): void;
   /** Whether the key strip is wanted at all: the settings switch. */
@@ -1006,9 +1008,12 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   pauseShare.addEventListener('click', () => options.onShare?.());
   const pauseTitle = h('b');
   const pauseText = h('small');
+  // A dialog to assistive technology and to `inputBlocked`, so that `Enter`
+  // and `Space` on one of its buttons press the button rather than jump; not
+  // modal, because the world goes on behind it and a click on it plays.
   const pause = h(
     'div',
-    { class: 'atlas-pause' },
+    { class: 'atlas-pause', role: 'dialog', 'aria-label': 'Paused' },
     h(
       'div',
       { class: 'atlas-pause-main ui-card' },
@@ -1100,6 +1105,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   /** A plane or a balloon off the ground: the chip names only what it is over, and the keys say so. */
   let flying = false;
   let firstPerson = false;
+  let stranded = false;
   let hintsOn = true;
   let keysOpenFor = KEYS_HOLD;
   let paused: boolean | null = null;
@@ -1206,6 +1212,9 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       // A later card has the slot by now, or there is nothing to say.
       if (known === null || announced !== id) return;
       arrivalFacts.textContent = describeCountry(known);
+    }).catch(() => {
+      // Offline, or the file is missing: the card says what the outlines
+      // know, and the next crossing asks again.
     });
     arrivalFlag.replaceChildren(createFlagCanvas(country.iso, 66, 44));
     arrival.classList.add('in');
@@ -1220,7 +1229,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     keysBadge.replaceChildren(icon(iconName));
     keysMode.textContent = mode === 'plane' && !flying ? 'On the ground' : label;
     keysList.replaceChildren(
-      ...hintsFor(mode, flying, firstPerson).map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
+      ...hintsFor(mode, flying, firstPerson, stranded).map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
       h('span', {}, kbd(labelOf('hints')), 'Hide'),
     );
     if (!animate) return;
@@ -1287,6 +1296,13 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     // when the caller asks for the mouse.
     options.onStart?.();
     closeWelcome();
+  });
+  // The pause card takes `Tab` from the landmarks while it is up: its buttons
+  // are the only things on the screen a key can press.
+  const pauseUp = (): boolean => paused === true && !welcoming;
+  registerTabCard(pauseUp);
+  addEventListener('keydown', (event) => {
+    if (pauseUp()) holdFocus(event, pause);
   });
   addEventListener('keydown', (event) => {
     if (!welcoming) return;
@@ -1412,10 +1428,12 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       foundCount.textContent = text;
       foundTotal.textContent = `/ ${total} found`;
     },
-    setMode(next, nextAirborne = false, nextFirstPerson = false) {
+    setMode(next, nextAirborne = false, nextFirstPerson = false, nextStranded = false) {
       const view = (next === 'foot' || next === 'swim') && nextFirstPerson;
       const aloft = (next === 'plane' || next === 'balloon' || next === 'passenger') && nextAirborne;
-      if (next === mode && aloft === flying && view === firstPerson) return;
+      const alone = next === 'passenger' && aloft && nextStranded;
+      if (next === mode && aloft === flying && view === firstPerson && alone === stranded) return;
+      stranded = alone;
       // A new way of travelling, or a take-off or a landing, opens the strip
       // again because what the keys do has changed; looking through your own
       // eyes changes one word, and only rewrites it.
@@ -1475,6 +1493,9 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       if (next === paused) return;
       paused = next;
       pause.classList.toggle('on', next && !welcoming);
+      // A button left focused on a card that has gone would hold every key
+      // the world reads (`inputBlocked` asks the focused element).
+      if (!next && pause.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     },
     get welcoming() {
       return welcoming;

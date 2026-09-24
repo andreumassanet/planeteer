@@ -16,6 +16,10 @@ import { lookFor, DRESS_IDS, SKIN_TONES } from '../src/scenery/dress.ts';
 import { rngFrom } from '../src/scenery/random.ts';
 import { villager } from '../src/scenery/parts/villager.ts';
 import { child } from '../src/scenery/parts/child.ts';
+import * as phrases from '../src/phrases.ts';
+import { LANGUAGES, LINE_KEYS, PLACEHOLDERS, PLACEHOLDER_PATTERN, SPOKEN } from '../src/phrases.ts';
+import { compose } from '../src/talk.ts';
+import type { Where } from '../src/talk.ts';
 
 const ctx = createSceneryContext();
 const SAMPLES = Number(process.argv[2] ?? 150);
@@ -379,6 +383,89 @@ console.log(
 );
 
 console.log(`\nposes: ${Object.keys(POSES).length}   adult 4 heads, child ${(CHILD_BODY.height / CHILD_BODY.head).toFixed(2)} heads`);
+
+// ---------------------------------------------------------------------------
+// What they say
+// ---------------------------------------------------------------------------
+
+console.log('\n=== what they say ===');
+{
+  const english = LANGUAGES.en!;
+  const known = new Set<string>(PLACEHOLDERS);
+  const namesIn = (template: string): string[] => [...template.matchAll(PLACEHOLDER_PATTERN)].map((m) => m[1]!).sort();
+  let templates = 0;
+  for (const [code, language] of Object.entries(LANGUAGES)) {
+    if (language.compass.length !== 8 || language.compass.some((phrase) => phrase.trim() === '')) {
+      fail(`${code}: the compass wants eight phrases`);
+    }
+    for (const key of LINE_KEYS) {
+      const lines = language.lines[key];
+      const reference = english.lines[key];
+      if (lines === undefined || lines.length !== reference.length) {
+        fail(`${code}.${key}: ${lines?.length ?? 0} variants where English has ${reference.length}`);
+        continue;
+      }
+      lines.forEach((template, i) => {
+        templates++;
+        const names = namesIn(template);
+        for (const name of names) if (!known.has(name)) fail(`${code}.${key}[${i}]: unknown placeholder {${name}}`);
+        // Everything the English names, and nothing else: the translation
+        // under a line has to be about the same things.
+        if (names.join() !== namesIn(reference[i]!).join()) {
+          fail(`${code}.${key}[${i}] names {${names.join('}, {')}} where English names {${namesIn(reference[i]!).join('}, {')}}`);
+        }
+        if (/[{}]/.test(template.replace(PLACEHOLDER_PATTERN, ''))) fail(`${code}.${key}[${i}]: a stray brace`);
+        if (template.trim() !== template || template === '') fail(`${code}.${key}[${i}]: empty or padded`);
+      });
+    }
+    if (language.rtl === true && !/[\u0590-\u08ff]/.test(language.lines.welcome[0]!)) fail(`${code}: marked right to left and written left to right`);
+  }
+  // Every country's language exists and `Intl` can name the country in it.
+  let named = 0;
+  for (const [iso, [code, alpha2]] of Object.entries(SPOKEN)) {
+    const language = LANGUAGES[code];
+    if (!/^[A-Z]{3}$/.test(iso)) fail(`SPOKEN: ${iso} is not an outline code`);
+    if (language === undefined) {
+      fail(`SPOKEN.${iso}: no language ${code}`);
+      continue;
+    }
+    if (alpha2 === '') continue;
+    if (!/^[A-Z]{2}$/.test(alpha2)) fail(`SPOKEN.${iso}: ${alpha2} is not an alpha-2 code`);
+    const name = new Intl.DisplayNames([language.locale], { type: 'region' }).of(alpha2);
+    if (name === undefined || name === alpha2) fail(`SPOKEN.${iso}: Intl has no ${language.name} name for ${alpha2}`);
+    else named++;
+  }
+  // A conversation in every language, with everything it can mention, and
+  // again with nothing: no placeholder left unfilled, and the same twice.
+  const full: Where = {
+    iso: '', countryName: 'Testland', town: 'Testville', population: 2e6, capital: false, coastal: true,
+    warmth: 0.5, hour: 10, landmark: { name: 'Test Tower', km: 812.4, bearing: -2.9 },
+  };
+  const bare: Where = { ...full, countryName: '', population: 900, coastal: false, hour: 23, landmark: null };
+  const byLanguage = new Map<string, string>();
+  for (const [iso, [code]] of Object.entries(SPOKEN)) if (!byLanguage.has(code)) byLanguage.set(code, iso);
+  byLanguage.set('en', 'USA');
+  let spoken = 0;
+  for (const [code, iso] of byLanguage) {
+    for (const [where, capital] of [[full, 'Capitol'], [bare, undefined]] as const) {
+      for (let person = 0; person < 12; person++) {
+        const at = { ...where, iso };
+        const a = compose(phrases, capital, `check|${person}`, at);
+        const b = compose(phrases, capital, `check|${person}`, at);
+        if (JSON.stringify(a) !== JSON.stringify(b)) fail(`${code}: a conversation that differs from itself`);
+        if (a.lines.length < 3) fail(`${code}: a conversation of ${a.lines.length} lines`);
+        for (const line of a.lines) {
+          spoken++;
+          if (/[{}]/.test(line.said + line.meant)) fail(`${code}: unfilled in "${line.said}"`);
+        }
+      }
+    }
+  }
+  console.log(
+    `${Object.keys(LANGUAGES).length} languages, ${templates} templates; ${Object.keys(SPOKEN).length} countries spoken to ` +
+      `in their own, ${named} named by Intl; ${spoken} lines composed`,
+  );
+}
 
 console.log(failures === 0 ? '\nOK\n' : `\n${failures} failures\n`);
 process.exit(failures === 0 ? 0 : 1);

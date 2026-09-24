@@ -175,7 +175,7 @@ console.log('\nsliding');
 
 // --- tunnelling ---------------------------------------------------------------
 
-// Nine times the run: a person runs 1.35 units in a 0.1 s frame, which
+// Nine times the run: a person runs 2 units in a 0.1 s frame, which
 // no wall is thin enough to lose, so the subdivision is held to a speed that
 // would cross one in a single step.
 const FAST = RUN_SPEED * 9;

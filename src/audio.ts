@@ -386,7 +386,10 @@ export function createAudio(): Audio {
   const audio: Audio = {
     unlock() {
       if (context !== null) {
-        if (context.state === 'suspended' && !document.hidden) void context.resume();
+        // Not only `suspended`: Safari's `interrupted` — a call, Siri, another
+        // app taking the sound — is left for the page to resume, and a gesture
+        // is when it may.
+        if (context.state !== 'running' && context.state !== 'closed' && !document.hidden) context.resume().catch(() => {});
         return;
       }
       const Ctor = globalThis.AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -414,8 +417,8 @@ export function createAudio(): Audio {
       // A hidden tab keeps no engine running: the loop is frozen, so should the sound be.
       document.addEventListener('visibilitychange', () => {
         if (context === null) return;
-        if (document.hidden) void context.suspend();
-        else void context.resume();
+        if (document.hidden) context.suspend().catch(() => {});
+        else context.resume().catch(() => {});
       });
     },
 

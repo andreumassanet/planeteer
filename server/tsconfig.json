@@ -12,6 +12,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "types": ["./worker-configuration.d.ts"]
   },

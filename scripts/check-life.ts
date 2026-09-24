@@ -334,8 +334,8 @@ for (let i = 0; i < roads.length; i += 613) {
   if (length < 40) continue;
   // 0.75 units a step, measured along the path a mover actually reads: a frame
   // at 45 units a second and 60 fps, the walk's speed when this was written.
-  // Since 2026-09-24 a mover goes from a walker's pace (`WALK_SPEED`, 6, spread
-// down to about 4.2) to 50, 0.07 to 0.83 units a frame.
+  // Since 2026-09-24 a mover goes from a walker's pace (`WALK_SPEED`, 6.5,
+// spread down to about 4.5) to 50, 0.08 to 0.83 units a frame.
   let previous: number | null = null;
   for (let along = 0; along <= length; along += 0.75) {
     coursePoint(course, parameterAt(path, along), onCurve);

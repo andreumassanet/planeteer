@@ -305,6 +305,13 @@ const FOAM_WAVELENGTH_2 = 500;
 const FOAM_PERIOD = 11;
 const FOAM_PERIOD_2 = 7;
 const PHASE_WRAP = 90000;
+/**
+ * The two swells' common period, 77 s, which is what the clock handed to the
+ * shader wraps at: both periods divide it, so the wrap is seamless, and a
+ * float32 uniform of seconds since the page opened loses a step of 8 ms a day
+ * and the surf visibly stutters.
+ */
+const FOAM_CYCLE = FOAM_PERIOD * FOAM_PERIOD_2;
 
 /**
  * Cells the ribbon is cut into, so the frustum can throw most of it away.
@@ -1409,7 +1416,7 @@ export function createOcean(world: World): Ocean {
 
   const tint = new THREE.Color();
   const update = (camera: THREE.Vector3, lights: readonly OceanLight[]): void => {
-    if (uniforms !== undefined) uniforms.uTime.value = performance.now() / 1000;
+    if (uniforms !== undefined) uniforms.uTime.value = (performance.now() / 1000) % FOAM_CYCLE;
     // One path, from whichever body is doing the lighting. Two would be two
     // suns: the moon's path is only ever worth drawing when the sun's is not.
     let best: OceanLight | null = null;

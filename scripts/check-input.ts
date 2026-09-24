@@ -24,8 +24,8 @@ function withInput(run: (input: Input, keys: EventTarget, target: EventTarget) =
   }
 }
 
-function key(target: EventTarget, type: 'keydown' | 'keyup', code: string, repeat = false): Event {
-  const event = Object.assign(new Event(type, { cancelable: true }), { code, repeat });
+function key(target: EventTarget, type: 'keydown' | 'keyup', code: string, repeat = false, ctrlKey = false): Event {
+  const event = Object.assign(new Event(type, { cancelable: true }), { code, repeat, ctrlKey });
   target.dispatchEvent(event);
   return event;
 }
@@ -67,6 +67,21 @@ test('jump fires once per press while climb remains held', () => withInput((inpu
   assert.equal(input.state.climb, false);
   key(keys, 'keydown', 'Space');
   assert.equal(input.state.jump, true);
+}));
+
+test('Ctrl descends, and the keys it lands on are still the world\'s while it is held', () => withInput((input, keys) => {
+  key(keys, 'keydown', 'ControlLeft', false, true);
+  assert.equal(input.state.dive, true);
+  assert.equal(key(keys, 'keydown', 'KeyW', false, true).defaultPrevented, true);
+  assert.equal(input.state.move.y, 1);
+  // A key nothing binds is the browser's: Ctrl+R still reloads.
+  assert.equal(key(keys, 'keydown', 'KeyR', false, true).defaultPrevented, false);
+  key(keys, 'keyup', 'ControlLeft');
+  assert.equal(input.state.dive, false);
+  key(keys, 'keyup', 'KeyW');
+  // Without the world holding Ctrl, a Ctrl shortcut is left alone.
+  assert.equal(key(keys, 'keydown', 'KeyS', false, true).defaultPrevented, false);
+  assert.equal(input.state.move.y, 0);
 }));
 
 test('a modal clears movement and pending actions before the player reads them', () => withInput((input, keys) => {

@@ -93,6 +93,7 @@ import {
 } from './scenery/index.ts';
 import type { PartKind, Placed, RegionStyle, SceneryContext, Weighted } from './scenery/index.ts';
 import { unitAt } from './sphere.ts';
+import { PARKED_CRAFT, PARKED_SLOT } from './craft/contract.ts';
 
 /**
  * The join: 29,545 populated places on one side, twenty-two parametric parts on
@@ -527,6 +528,8 @@ const TOWERLESS_PART = 'city-block';
  * kerb empty and a Vietnamese one full.
  */
 const TOWN_PEOPLE = (urbanity: number): number => Math.round(3 + urbanity * 11);
+/** How many numbers one person takes in `Ground.folk`: see there. */
+const FOLK_STRIDE = 11;
 const TOWN_PARKED = (urbanity: number, density: number): number =>
   Math.round((0.6 + urbanity * 3.4) * Math.min(1.8, density * 2.6));
 
@@ -594,6 +597,13 @@ const LAMP_CAP = 30;
  * about how bright the lamp is.
  */
 const LAMP_POOL = 14;
+
+/**
+ * How far over its foot a lamp's light hangs, for the per-pixel pools
+ * (`lampsNear`): the kit's lamps are 4.8 to 5.8 units tall and their bulb
+ * hangs a little under the cap (`scenery/parts/street-lamp.ts`).
+ */
+const LAMP_HEAD = 4.5;
 const LAMP_STRENGTH = 1;
 
 /**
@@ -941,6 +951,31 @@ export interface Settlements {
    */
   folkNear(viewer: THREE.Vector3, radius: number, out: FolkAnchor[]): void;
   /**
+   * The street lamps of every standing town inside `radius` of `viewer`, the
+   * nearest first, written into `out` as `x, y, z, distance` in world space;
+   * returns how many were written, at most `out.length / 4`. What `lights.ts`
+   * lights the near ground with, per pixel. See `setNearLamps` there.
+   */
+  lampsNear(viewer: THREE.Vector3, radius: number, out: Float32Array): number;
+  /**
+   * The cars parked in every standing town inside `radius` of `viewer` that
+   * can be taken and have not been, in world space. Appends to `out`. See
+   * `ParkedCar`.
+   */
+  parkedNear(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
+  /**
+   * A parked car has been taken: its vertices in the town's buffer are folded
+   * away and its wall comes down, so the fleet's vehicle is the only one
+   * drawn. Idempotent, and nothing when its town is not standing.
+   */
+  hideParked(id: string): void;
+  /**
+   * Whether a parked car has been taken, asked by every build of a town so a
+   * car that is somewhere else is not also at its kerb. Until this is set,
+   * nothing has been.
+   */
+  setParkedTaken(test: (id: string) => boolean): void;
+  /**
    * How high the made ground stands here, as a radius from the planet's centre,
    * or 0 if this point is not on a town's floor.
    *
@@ -1093,6 +1128,8 @@ function townMaterial(): THREE.MeshToonMaterial {
 
 interface Slot {
   place: Place;
+  /** Index into the places this streamer was given, which is what a vehicle id names. */
+  index: number;
   style: RegionStyle;
   /** What the ground here is made of. Keyed on `style.id`; see `scenery/ground.ts`. */
   ground: GroundStyle;
@@ -1184,6 +1221,46 @@ interface Slot {
    * within reach, and walk all 29,545 slots to find them.
    */
   folk: FolkAnchor[];
+  /**
+   * The heads of this town's street lamps, in world space, three floats each,
+   * for `lampsNear`. Resolved once at `raise`, like `folk`, because the town
+   * does not move while it stands.
+   */
+  lampHeads: Float32Array | null;
+  /** The parked cars in the standing mesh that can be taken; see `ParkedCar`. */
+  parked: Bay[];
+}
+
+/**
+ * A car parked at a town's kerb that somebody can get into.
+ *
+ * **It is merged into the town like everything else that stands still**, which
+ * is what lets a city park a dozen cars for no draw call; and it becomes a
+ * vehicle of the fleet (`fleet.ts`) the moment anybody takes it. The two
+ * cannot both be drawn, so the town remembers where in its one buffer each
+ * such car's vertices are, and `hideParked` folds them to a point — and leaves
+ * the car out altogether whenever the town is built again (`parkedTaken`).
+ *
+ * `id` names it the way the fleet names a vehicle, `<model>:<placeIndex>:<n>`,
+ * with `n` counting from `PARKED_SLOT` along the town's bays: a function of the
+ * town's own build, and so the same on every client.
+ */
+export interface ParkedCar {
+  id: string;
+  /** The craft that takes its place: `PARKED_CRAFT` of the traffic kit's vehicle. */
+  model: string;
+  /** On the floor at the kerb, in the world. */
+  position: THREE.Vector3;
+  /** The way it faces, along the kerb: a unit tangent. */
+  forward: THREE.Vector3;
+}
+
+/** A `ParkedCar` and where it is in its town's buffer and walls. */
+interface Bay extends ParkedCar {
+  start: number;
+  count: number;
+  solid: Solid;
+  hidden: boolean;
 }
 
 export interface SettlementOptions {
@@ -1230,11 +1307,12 @@ export function createSettlements(
     world.countries.map((country) => [country.iso, country.continent]),
   );
 
-  const slots: Slot[] = places.map((place) => {
+  const slots: Slot[] = places.map((place, index) => {
     const direction = unitAt(place.lat, place.lon, new THREE.Vector3());
     const style = regionFor(place.iso, continentOf.get(place.iso) ?? '', place.lat);
     return {
       place,
+      index,
       style,
       ground: groundStyleFor(style.id),
       radius: radiusOf(place),
@@ -1261,6 +1339,8 @@ export function createSettlements(
       builtPeopled: false,
       stale: false,
       folk: [],
+      lampHeads: null,
+      parked: [],
     };
   });
 
@@ -1600,8 +1680,15 @@ export function createSettlements(
      */
     signals: number[];
     /**
-     * Where a person stands, as triples, and where a vehicle is parked, as
-     * quadruples with a yaw on the end.
+     * Where a person stands, as runs of `FOLK_STRIDE`, and where a vehicle is
+     * parked, as quadruples with a yaw on the end.
+     *
+     * A person's run is the spot, the two ends of the stretch of their own
+     * street they may stroll along (both the spot itself where there is no
+     * room: a flight of steps, a parked car or a landmark's keepout in the way),
+     * the yaw that turns them to a partner or NaN for a free one, and +1 or -1
+     * on the two halves of a pair talking to each other, 0 otherwise. All in
+     * the settlement's frame, at the paving's lift.
      *
      * Same arrangement as `lamps` and for the same reason: this is the only
      * place that knows where the streets are, and returning positions rather
@@ -1971,6 +2058,13 @@ export function createSettlements(
   const CLEAR_LAMP = 0.6;
   const CLEAR_FOLK = 1.3 * BODY_SCALE;
   const CLEAR_CAR = 4.4;
+  /** How far apart two people talking stand, centre to centre: about a metre and a half. */
+  const PAIR_GAP = 3 * BODY_SCALE;
+  /** How many of the first people on a street are one of a pair. */
+  const PAIR_SHARE = 0.3;
+  /** The pace a stroll's stretch is sampled at, and the shortest stretch worth walking. */
+  const STROLL_STEP = 0.8;
+  const STROLL_MIN = 3;
 
   /**
    * The floor of one settlement: its square.
@@ -2117,6 +2211,12 @@ export function createSettlements(
       const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
       if (level === undefined) return false;
       if (flightAt(field, x, z, clearance) !== null) return false;
+      pavingAt(x, z, level, into);
+      if (yaw !== undefined) into.push(yaw);
+      return true;
+    };
+    /** A point of the paving at `level`, in the settlement's frame, appended to `into`. */
+    const pavingAt = (x: number, z: number, level: number, into: number[]): void => {
       directionAt(x, z, groundDir);
       groundLocal
         .copy(groundDir)
@@ -2124,9 +2224,12 @@ export function createSettlements(
         .sub(origin)
         .applyMatrix4(inverse);
       into.push(groundLocal.x, groundLocal.y, groundLocal.z);
-      if (yaw !== undefined) into.push(yaw);
-      return true;
     };
+    /** Whether a person may stand at `x, z` on the terrace `level`: `spotAt`'s test, and the same level. */
+    const standable = (x: number, z: number, level: number): boolean =>
+      !blocked(x, z) &&
+      levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z))) === level &&
+      flightAt(field, x, z, CLEAR_FOLK) === null;
 
     /** Bilinear point inside a cell, from four points on its terrace. */
     const inside = (
@@ -2757,6 +2860,7 @@ export function createSettlements(
     // with its centre 1.9 in from the kerb, which clears a placed hatchback's
     // side by 0.4.
     const parkChance = Math.min(0.55, 0.12 + urbanity * 0.5);
+    const spot: number[] = [];
     const folkChance = Math.min(0.6, 0.2 + urbanity * 0.55);
     for (const key of levels.keys()) {
       const col = Math.floor(key / 1024) - 512;
@@ -2779,17 +2883,62 @@ export function createSettlements(
         streets.push([false, z0 + 1.9, 1.9], [false, z0 + pitch - 1.9, 1.9]);
       }
       for (const [alongZ, line, reach] of streets) {
+        // Where along the cell a car parked on this line, or NaN: a person
+        // keeps off it standing and strolling. People used to be placed with
+        // no regard for it, and a car is as wide as the band, so a person
+        // could stand inside a bonnet.
+        let parked = NaN;
         if (rng.chance(parkChance)) {
           const along = rng.range(0.15, 0.85) * pitch;
           const yaw = alongZ ? (rng.chance(0.5) ? 0 : Math.PI) : (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2);
-          spotAt(alongZ ? line : x0 + along, alongZ ? z0 + along : line, out.kerbs, yaw, CLEAR_CAR);
+          if (spotAt(alongZ ? line : x0 + along, alongZ ? z0 + along : line, out.kerbs, yaw, CLEAR_CAR)) parked = along;
         }
         if (rng.chance(folkChance)) {
+          const start = alongZ ? z0 : x0;
+          const pointOf = (along: number, off: number): [number, number] =>
+            alongZ ? [line + off, start + along] : [start + along, line + off];
+          const clearOfCar = (along: number): boolean => !(Math.abs(along - parked) < CLEAR_CAR + CLEAR_FOLK);
           for (let k = 0; k < 2; k++) {
             if (k > 0 && !rng.chance(0.42)) break;
             const along = rng.range(0.1, 0.9) * pitch;
             const off = rng.jitter() * reach * 0.5;
-            spotAt(alongZ ? line + off : x0 + along, alongZ ? z0 + along : line + off, out.folk, undefined, CLEAR_FOLK);
+            // A pair talking, some of the time: the second stands a pace off
+            // the first, across the street's line, and each faces the other.
+            const pair = k === 0 && rng.chance(PAIR_SHARE);
+            if (!clearOfCar(along)) continue;
+            const [x, z] = pointOf(along, off);
+            const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
+            if (level === undefined) continue;
+            spot.length = 0;
+            if (!spotAt(x, z, spot, undefined, CLEAR_FOLK)) continue;
+            if (pair) {
+              // Across the line, towards its middle, so both stay on the band.
+              const [px, pz] = pointOf(along, off + (off > 0 ? -1 : 1) * PAIR_GAP);
+              if (standable(px, pz, level)) {
+                pavingAt(px, pz, level, spot);
+                const [ax, ay, az, bx, by, bz] = spot as [number, number, number, number, number, number];
+                // Neither strolls: both ends are the spot itself. The yaw is
+                // taken in the settlement's frame, where +Y is up and a person
+                // faces +Z, which is the frame `folk.ts` turns them in.
+                out.folk.push(ax, ay, az, ax, ay, az, ax, ay, az, Math.atan2(bx - ax, bz - az), 1);
+                out.folk.push(bx, by, bz, bx, by, bz, bx, by, bz, Math.atan2(ax - bx, az - bz), -1);
+                break;
+              }
+            }
+            // The stretch of street this person may stroll: out from the spot
+            // both ways, a pace at a time, while it stays on this cell's level,
+            // off the steps and the landmarks and clear of the parked car.
+            let lo = along;
+            let hi = along;
+            while (lo - STROLL_STEP > 0.08 * pitch && clearOfCar(lo - STROLL_STEP) &&
+              standable(...pointOf(lo - STROLL_STEP, off), level)) lo -= STROLL_STEP;
+            while (hi + STROLL_STEP < 0.92 * pitch && clearOfCar(hi + STROLL_STEP) &&
+              standable(...pointOf(hi + STROLL_STEP, off), level)) hi += STROLL_STEP;
+            if (hi - lo < STROLL_MIN) lo = hi = along;
+            out.folk.push(...spot);
+            pavingAt(...pointOf(lo, off), level, out.folk);
+            pavingAt(...pointOf(hi, off), level, out.folk);
+            out.folk.push(NaN, 0);
           }
         }
       }
@@ -3486,6 +3635,8 @@ export function createSettlements(
     interface Standing {
       flat: FlatVariant;
       matrix: THREE.Matrix4;
+      /** A parked car that can be taken, whose vertices this merge records. */
+      bay?: Bay;
       /**
        * How much of the variant's window pattern this copy of it shows, 0 to 1.
        *
@@ -3758,7 +3909,8 @@ export function createSettlements(
         north: north.clone(),
         field: ground.field,
         cosBound: Math.cos((span + floorReach(ground.field)) / PLANET_RADIUS),
-        solids: solids.length > 0 ? solidField(solids) : null,
+        // Filled in once the parked cars are placed, which are walls too.
+        solids: null,
         grid,
         band,
         lawn: ground.lawn,
@@ -3811,6 +3963,7 @@ export function createSettlements(
      * trade twice: still and many, or moving and few.
      */
     slot.folk = [];
+    slot.parked = [];
     if (slot.peopled) {
       const urbanity = urbanityOf(slot.place.pop);
       const warmth = biomeAt(
@@ -3820,26 +3973,41 @@ export function createSettlements(
       const regionId = slot.style.id;
 
       const wantFolk = TOWN_PEOPLE(urbanity);
-      const spots = ground.folk.length / 3;
+      const spots = ground.folk.length / FOLK_STRIDE;
       // Nearest-the-centre first would put the whole crowd in the square; the
       // stride skips through the list instead, so a village's four people are
-      // spread over its four streets rather than standing on one.
+      // spread over its four streets rather than standing on one. A pair is
+      // taken whole, whichever half the stride lands on, or one of them would
+      // stand facing somebody who is not there.
       const stride = Math.max(1, Math.floor(spots / Math.max(1, wantFolk)));
       let placedFolk = 0;
+      let taken = -1;
+      const f = ground.folk;
       for (let i = 0; i < spots && placedFolk < wantFolk; i += stride) {
-        const rng = rngFrom(slot.seed, 'person', i);
-        // Published, not merged: a person is a skinned character now and
-        // `folk.ts` stands them here while the player is near. See `folkNear`.
-        // In the town's frame here; into the world's once the mesh is placed.
-        slot.folk.push({
-          key: `${slot.seed}|${i}`,
-          position: new THREE.Vector3(ground.folk[i * 3]!, ground.folk[i * 3 + 1]!, ground.folk[i * 3 + 2]!),
-          quaternion: new THREE.Quaternion().setFromAxisAngle(AXIS_Y, rng.range(0, Math.PI * 2)),
-          region: regionId,
-          warmth,
-          distance: 0,
-        });
-        placedFolk++;
+        const tag = f[i * FOLK_STRIDE + 10]!;
+        const first = tag === -1 ? i - 1 : i;
+        for (let j = Math.max(first, taken + 1); j < first + (tag === 0 ? 1 : 2); j++) {
+          const at = j * FOLK_STRIDE;
+          const rng = rngFrom(slot.seed, 'person', j);
+          const yaw = f[at + 9]!;
+          // Published, not merged: a person is a skinned character now and
+          // `folk.ts` stands them here while the player is near. See `folkNear`.
+          // In the town's frame here; into the world's once the mesh is placed.
+          slot.folk.push({
+            key: `${slot.seed}|${j}`,
+            position: new THREE.Vector3(f[at]!, f[at + 1]!, f[at + 2]!),
+            quaternion: new THREE.Quaternion().setFromAxisAngle(AXIS_Y, Number.isNaN(yaw) ? rng.range(0, Math.PI * 2) : yaw),
+            from: new THREE.Vector3(f[at + 3]!, f[at + 4]!, f[at + 5]!),
+            to: new THREE.Vector3(f[at + 6]!, f[at + 7]!, f[at + 8]!),
+            chatting: f[at + 10] !== 0,
+            town: new THREE.Quaternion(),
+            region: regionId,
+            warmth,
+            distance: 0,
+          });
+          placedFolk++;
+          taken = j;
+        }
       }
 
       const style = trafficFor(slot.place.iso, continentOf.get(slot.place.iso) ?? '', slot.place.lat);
@@ -3861,17 +4029,49 @@ export function createSettlements(
       let placedCars = 0;
       for (let i = 0; i < bays && placedCars < wantParked; i += bayStride) {
         const rng = rngFrom(slot.seed, 'parked', i);
-        const flat = parkedVariant(style, rng.weighted(mix), rng.int(VARIANTS));
+        const kind = rng.weighted(mix);
+        const flat = parkedVariant(style, kind, rng.int(VARIANTS));
         if (flat === null) break;
-        local.set(ground.kerbs[i * 4]!, ground.kerbs[i * 4 + 1]!, ground.kerbs[i * 4 + 2]!);
-        quaternion.setFromAxisAngle(AXIS_Y, ground.kerbs[i * 4 + 3]!);
+        const x = ground.kerbs[i * 4]!;
+        const y = ground.kerbs[i * 4 + 1]!;
+        const z = ground.kerbs[i * 4 + 2]!;
+        const yaw = ground.kerbs[i * 4 + 3]!;
+        // **A parked car is a wall**, the same box a building is: a body walks
+        // round it and a driven car stops against it. Its roof is the camera's,
+        // measured from the kerb it stands on.
+        const solid = solidOf(flat, x, z, yaw, 1, origin.length() - PLANET_RADIUS + y - GROUND_LIFT);
+        // The ordinal counts every car placed, taken or not, so the others keep
+        // their names when one is gone.
+        const ordinal = placedCars++;
+        const craft = PARKED_CRAFT[kind];
+        const id = craft === undefined || ordinal + PARKED_SLOT > 99 ? null : `${craft}:${slot.index}:${ordinal + PARKED_SLOT}`;
+        if (id !== null && parkedTaken(id)) continue;
+        solids.push(solid);
+        local.set(x, y, z);
+        quaternion.setFromAxisAngle(AXIS_Y, yaw);
         scaleVector.setScalar(1);
         transform.compose(local, quaternion, scaleVector);
-        standing.push({ flat, matrix: transform.clone(), glow: 0 });
+        let bay: Bay | undefined;
+        if (id !== null) {
+          // In the town's frame here, like the people; into the world's once
+          // the mesh is placed.
+          bay = {
+            id,
+            model: craft!,
+            position: local.clone(),
+            forward: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
+            start: 0,
+            count: 0,
+            solid,
+            hidden: false,
+          };
+          slot.parked.push(bay);
+        }
+        standing.push({ flat, matrix: transform.clone(), glow: 0, bay });
         vertices += flat.position.length / 3;
-        placedCars++;
       }
     }
+    if (slot.floor !== null) slot.floor.solids = solids.length > 0 ? solidField(solids) : null;
 
     const groundVertices = ground.position.length / 3;
     const total = vertices + groundVertices;
@@ -3925,6 +4125,10 @@ export function createSettlements(
       }
       color.set(source.color, cursor - count);
       const written = count / 3;
+      if (item.bay !== undefined) {
+        item.bay.start = vertex;
+        item.bay.count = written;
+      }
       if (item.glow > 0) {
         for (let i = 0; i < written; i++) {
           glow[(vertex + i) * 2] = Math.round(source.glow[i * 2]! * item.glow);
@@ -3983,9 +4187,29 @@ export function createSettlements(
     // it stands, so `folkNear` never has to.
     for (const person of slot.folk) {
       person.position.applyQuaternion(mesh.quaternion).add(mesh.position);
+      person.from.applyQuaternion(mesh.quaternion).add(mesh.position);
+      person.to.applyQuaternion(mesh.quaternion).add(mesh.position);
       person.quaternion.premultiply(mesh.quaternion);
+      person.town.copy(mesh.quaternion);
     }
     if (slot.folk.length > 0) inhabited.add(slot);
+    if (ground.lamps.length >= 3) {
+      const heads = new Float32Array(ground.lamps.length);
+      for (let i = 0; i + 2 < ground.lamps.length; i += 3) {
+        lampAt.set(ground.lamps[i]!, ground.lamps[i + 1]! + LAMP_HEAD, ground.lamps[i + 2]!)
+          .applyQuaternion(mesh.quaternion).add(mesh.position);
+        heads[i] = lampAt.x;
+        heads[i + 1] = lampAt.y;
+        heads[i + 2] = lampAt.z;
+      }
+      slot.lampHeads = heads;
+      lit.add(slot);
+    }
+    for (const bay of slot.parked) {
+      bay.position.applyQuaternion(mesh.quaternion).add(mesh.position);
+      bay.forward.applyQuaternion(mesh.quaternion);
+    }
+    if (slot.parked.length > 0) parkedTowns.add(slot);
 
     slot.mesh = mesh;
     slot.triangles = total / 3;
@@ -4022,6 +4246,10 @@ export function createSettlements(
     slot.stale = false;
     slot.folk = [];
     inhabited.delete(slot);
+    lit.delete(slot);
+    slot.lampHeads = null;
+    slot.parked = [];
+    parkedTowns.delete(slot);
     retireMesh(slot.mesh, instant);
     slot.mesh = null;
     slot.triangles = 0;
@@ -4057,7 +4285,11 @@ export function createSettlements(
     slot.floor = null;
     floors.delete(slot);
     inhabited.delete(slot);
+    lit.delete(slot);
+    slot.lampHeads = null;
     slot.folk = [];
+    parkedTowns.delete(slot);
+    slot.parked = [];
     slot.mesh = null;
     raise(slot);
     // Out as the new one comes in, on complementary pixels: a cross-dissolve.
@@ -4117,6 +4349,12 @@ export function createSettlements(
   const floors = new Set<Slot>();
   /** Every standing town with people in it, for `folkNear`; kept the same way. */
   const inhabited = new Set<Slot>();
+  /** Every standing town with street lamps, for `lampsNear`. */
+  const lit = new Set<Slot>();
+  /** The standing towns with a car in them that can be taken. */
+  const parkedTowns = new Set<Slot>();
+  /** Whether a parked car has been taken, and so is the fleet's to draw; see `parkedTaken`. */
+  let parkedTaken: (id: string) => boolean = () => false;
   /** Towns arriving and leaving by dissolving; see `fade.ts`. */
   const fader = createFader();
 
@@ -4437,6 +4675,83 @@ export function createSettlements(
           out.push(person);
         }
       }
+    },
+
+    lampsNear(viewer, radius, out) {
+      const max = Math.floor(out.length / 4);
+      if (max === 0) return 0;
+      const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
+      const direction = folkDirection.copy(viewer).normalize();
+      const r2 = radius * radius;
+      let count = 0;
+      for (const slot of lit) {
+        const heads = slot.lampHeads;
+        if (heads === null || slot.direction.dot(direction) < cosReach) continue;
+        for (let i = 0; i + 2 < heads.length; i += 3) {
+          const dx = heads[i]! - viewer.x;
+          const dy = heads[i + 1]! - viewer.y;
+          const dz = heads[i + 2]! - viewer.z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > r2) continue;
+          // An insertion into a list kept sorted by distance and capped: the
+          // nearest `max` of a few dozen, with no allocation.
+          let at = count < max ? count : max - 1;
+          if (count === max && d2 >= out[at * 4 + 3]!) continue;
+          while (at > 0 && out[(at - 1) * 4 + 3]! > d2) {
+            out.copyWithin(at * 4, (at - 1) * 4, at * 4);
+            at--;
+          }
+          out[at * 4] = heads[i]!;
+          out[at * 4 + 1] = heads[i + 1]!;
+          out[at * 4 + 2] = heads[i + 2]!;
+          out[at * 4 + 3] = d2;
+          if (count < max) count++;
+        }
+      }
+      for (let k = 0; k < count; k++) out[k * 4 + 3] = Math.sqrt(out[k * 4 + 3]!);
+      return count;
+    },
+
+    parkedNear(viewer, radius, out) {
+      const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
+      const direction = folkDirection.copy(viewer).normalize();
+      for (const slot of parkedTowns) {
+        if (slot.direction.dot(direction) < cosReach) continue;
+        for (const bay of slot.parked) {
+          if (!bay.hidden && bay.position.distanceTo(viewer) <= radius) out.push(bay);
+        }
+      }
+    },
+
+    hideParked(id) {
+      const parts = id.split(':');
+      const slot = slots[Number(parts[1])];
+      if (slot === undefined || slot.mesh === null) return;
+      const bay = slot.parked.find((entry) => entry.id === id);
+      if (bay === undefined || bay.hidden) return;
+      bay.hidden = true;
+      // Every vertex onto the first: the triangles are still in the buffer and
+      // draw nothing, and so do their ink hulls, which are built from the same
+      // positions. Cheaper than building the town again, and it is one car.
+      const position = slot.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const array = position.array as Float32Array;
+      const first = bay.start * 3;
+      for (let v = bay.start + 1; v < bay.start + bay.count; v++) {
+        array[v * 3] = array[first]!;
+        array[v * 3 + 1] = array[first + 1]!;
+        array[v * 3 + 2] = array[first + 2]!;
+      }
+      position.addUpdateRange(first, bay.count * 3);
+      position.needsUpdate = true;
+      const floor = slot.floor;
+      if (floor !== null && floor.solids !== null) {
+        const rest = floor.solids.solids.filter((solid) => solid !== bay.solid);
+        floor.solids = rest.length > 0 ? solidField(rest) : null;
+      }
+    },
+
+    setParkedTaken(test) {
+      parkedTaken = test;
     },
 
     update(viewer, altitude, camera) {

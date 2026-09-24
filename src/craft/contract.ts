@@ -123,3 +123,26 @@ export interface FleetSeats {
  */
 export const PLAYER_STATES = ['foot', 'swim', 'seated'] as const;
 export type PlayerState = (typeof PLAYER_STATES)[number];
+
+/**
+ * The cars parked in a town that can be taken, by the traffic kit's vehicle,
+ * and the craft that stands in for each once taken: the kit's hatchback,
+ * saloon and SUV become the hatchback, its panel van and minibus the van. The
+ * rest — a bus, a lorry, a tractor, a bicycle — stay parked, and stay solid.
+ *
+ * The craft is a third larger than the car it replaces, because the kit's cars
+ * are fitted to a lane and a craft to the person inside it (`cars.ts`).
+ */
+export const PARKED_CRAFT: Readonly<Record<string, string>> = {
+  hatchback: 'hatchback',
+  'saloon-car': 'hatchback',
+  'boxy-suv': 'hatchback',
+  'panel-van': 'van',
+  minibus: 'van',
+};
+
+/**
+ * Where a town's parked cars start counting in a vehicle id: the fleet's own
+ * sites at a town use `0` to `2`, and the relay takes `n` of one or two digits.
+ */
+export const PARKED_SLOT = 10;

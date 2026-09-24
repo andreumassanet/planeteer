@@ -424,7 +424,7 @@ console.log('\nthe ride, headless:');
   await import('./kit-node.ts');
   const { modelsFrom } = await import('../src/kit.ts');
   const { craftFrom } = await import('../src/craft/index.ts');
-  const { prepareAvatar } = await import('../src/avatar.ts');
+  const { prepareAvatar, WALK_SPEED } = await import('../src/avatar.ts');
   const { createPlayer } = await import('../src/player.ts');
   const craft = craftFrom(await modelsFrom(readFileSync(resolve(PUBLIC, 'models/traffic/kit.bin'))));
   await prepareAvatar();
@@ -466,7 +466,7 @@ console.log('\nthe ride, headless:');
   check(player.state === 'swim' && player.sink > 0, 'put on the water, the player swims', `${player.state}, sink ${player.sink.toFixed(2)}`);
   const surface = player.position.length() - PLANET_RADIUS;
   step(1, { y: 1 });
-  check(Math.abs(player.velocity - 3) < 0.3 && Math.abs(player.position.length() - PLANET_RADIUS - surface) < 1e-6, 'swims at half a walk, on the surface', `${player.velocity.toFixed(2)} units/s`);
+  check(Math.abs(player.velocity - WALK_SPEED / 2) < 0.3 && Math.abs(player.position.length() - PLANET_RADIUS - surface) < 1e-6, 'swims at half a walk, on the surface', `${player.velocity.toFixed(2)} units/s`);
   // Swim back towards the town until the shore takes him.
   const town = unitAt(places[boat.place]!.lat, places[boat.place]!.lon, new Vector3());
   let seconds = 0;
@@ -503,8 +503,24 @@ console.log('\nthe ride, headless:');
   check(player.leave() !== null, 'and can be left there');
   board(plane);
   events.length = 0;
-  step(8, { climb: true });
+  let liftOff = -1;
+  let firstSecond = 0;
+  for (let t = 0; t < 8; t += 1 / 60) {
+    step(1 / 60, { climb: true });
+    if (liftOff < 0 && events.includes('took-off')) liftOff = player.altitude;
+    else if (liftOff >= 0 && firstSecond < 60) firstSecond++;
+    if (firstSecond === 60) {
+      check(player.altitude - liftOff < 15, 'a take-off climbs gently off the ground, not to a circuit', `${(player.altitude - liftOff).toFixed(1)} units in its first second`);
+      firstSecond++;
+    }
+  }
   check(events.includes('took-off') && player.airborne, 'holding the climb key takes off', `${player.altitude.toFixed(0)} up, ${player.velocity.toFixed(0)} units/s`);
+  step(3, { run: true });
+  const climbed = player.altitude;
+  step(3, {});
+  const held = player.altitude;
+  step(2, {});
+  check(Math.abs(player.altitude - held) < held * 0.01 && held >= climbed, 'the run key climbs too, and letting go levels off', `${climbed.toFixed(0)} then ${held.toFixed(0)} then ${player.altitude.toFixed(0)}`);
   check(player.leave() === null, 'nobody steps out of a plane in flight');
   for (seconds = 0; seconds < 120 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
   check(player.grounded && events.some((event) => event === 'landed'), 'holding descend lands it', `after ${seconds} s; ${events.join(', ')}`);
@@ -521,6 +537,49 @@ console.log('\nthe ride, headless:');
   for (seconds = 0; seconds < 60 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
   check(player.grounded, 'sinks until it sets down', `after ${seconds} s`);
   check(player.leave() !== null && player.state !== 'seated', 'and is left where it landed');
+
+  // A car into a wall: it stops at it, comes back off it, and says so.
+  {
+    const hits: { event: string; strength: number }[] = [];
+    const up = car.at.clone();
+    const wallAt = car.at.clone().addScaledVector(car.forward, 40 / PLANET_RADIUS).normalize();
+    const normal = car.forward.clone().negate();
+    const crashing = createPlayer(world, 41.39, 2.17, {
+      onEvent: (event, strength) => hits.push({ event, strength }),
+      collide: (point, radius, push) => {
+        // A wall square across the road, 40 units ahead of the car's site.
+        const gap = point.clone().normalize().sub(wallAt).dot(normal) * PLANET_RADIUS;
+        if (gap >= radius) return false;
+        push.copy(normal).multiplyScalar(radius - gap);
+        return true;
+      },
+    });
+    const model = craft.get(car.model)!;
+    crashing.board({ vehicle: car.id, seat: 0, model, group: model.build(0) }, writePose(up.clone().multiplyScalar(ground(car.at)), car.forward, up, []));
+    for (let t = 0; t < 4; t += 1 / 60) {
+      heading.copy(crashing.forward);
+      crashing.update(1 / 60, { move: { x: 0, y: 1 }, run: true, jump: false, heading });
+    }
+    const beyond = crashing.position.clone().normalize().sub(wallAt).dot(normal) * PLANET_RADIUS;
+    const crash = hits.find((hit) => hit.event === 'crashed');
+    check(crash !== undefined && crash.strength > 0, 'a car driven into a wall crashes, and says how hard', crash === undefined ? hits.map((hit) => hit.event).join(', ') : `${crash.strength.toFixed(1)} units/s lost`);
+    check(beyond > 0, 'and does not pass through it', `${beyond.toFixed(2)} units short of it`);
+  }
+
+  // A vehicle standing in the world is a wall to anybody on foot.
+  {
+    const { createFleet } = await import('../src/fleet.ts');
+    const walker = createPlayer(world, latOf(car.at.y), lonOf(car.at.x, car.at.z));
+    const fleet = createFleet({ ...source, models: craft, link: createLocalLink('check'), player: walker });
+    for (let i = 0; i < 20; i++) fleet.update(0.1);
+    const standing = fleet.group.children.find((child) => child.name === 'vehicle:' + craft.get(car.model)!.id);
+    const push = new Vector3();
+    const inside = standing === undefined ? false : fleet.collide(standing.position.clone(), 1.3, push);
+    const pushed = push.length();
+    const away = standing === undefined ? true : fleet.collide(standing.position.clone().normalize().multiplyScalar(PLANET_RADIUS + 999), 1.3, push);
+    const clear = standing === undefined ? true : fleet.collide(standing.position.clone().applyAxisAngle(new Vector3(0, 1, 0), 30 / PLANET_RADIUS), 1.3, push);
+    check(standing !== undefined && inside && pushed > 1 && !away && !clear, 'a parked car pushes a body out of itself, and nothing near it or over it', `${fleet.stats.built} built, push ${pushed.toFixed(2)}`);
+  }
 
   // A teleport out of a seat is a teleport: on foot, the vehicle let go.
   board(car);

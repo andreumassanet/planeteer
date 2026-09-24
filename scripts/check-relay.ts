@@ -31,8 +31,8 @@ class Client {
   id = '';
   hi: Message | null = null;
 
-  private constructor(name: string) {
-    this.socket = new WebSocket(`${URL_}?name=${encodeURIComponent(name)}`);
+  private constructor(name: string, key?: string) {
+    this.socket = new WebSocket(`${URL_}?name=${encodeURIComponent(name)}${key === undefined ? '' : `&key=${key}`}`);
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data)) as Message;
       const waiter = this.waiters.findIndex((w) => w.match(message));
@@ -41,8 +41,8 @@ class Client {
     });
   }
 
-  static async join(name: string): Promise<Client> {
-    const client = new Client(name);
+  static async join(name: string, key?: string): Promise<Client> {
+    const client = new Client(name, key);
     const hi = await client.next((m) => m.t === 'hi');
     client.hi = hi;
     client.id = String(hi.id);
@@ -172,6 +172,9 @@ async function main(): Promise<void> {
   await got('rate-limited vp', other.next((m) => m.t === 'vp' && near(m.p, pose(11))));
   check(await other.none((m) => m.t === 'vp' && near(m.p, pose(12)), 300), 'a pose under 50 ms after the last is dropped');
   await sleep(100);
+  driver.send({ t: 'vp', v: v1, p: [-HERE[0], 0, 0, 0, 1, 0, 1, 0, 0], sp: 1 });
+  check(await other.none((m) => m.t === 'vp', 300), 'a pose across the planet from the last is dropped');
+  await sleep(100);
 
   // --- Getting out parks it --------------------------------------------------
   driver.send({ t: 'up', v: v1, p: pose(20) });
@@ -256,7 +259,34 @@ async function main(): Promise<void> {
   check(three !== undefined && (three[2] as unknown[])[0] === b.id, 'the quiet driver still holds the seat in hi', three);
   check(rows.some((r) => r[0] === v2 && near(r[1], pose(500))), 'every parked vehicle is in hi');
 
-  await Promise.all([a.close(), b.close(), d.close()]);
+  // --- A dropped driver's seat back, on a new socket with the same key ------
+  const v5 = vehicle(5);
+  const key = `check-relay-${run}-key`;
+  const e = await Client.join('Ed', key);
+  e.standAt(HERE);
+  await sleep(300);
+  e.send({ t: 'sit', v: v5, seat: 0 });
+  await got('e in v5', e.next((m) => m.t === 'seat' && m.v === v5 && m.ask === 0));
+  e.send({ t: 'vp', v: v5, p: pose(40), sp: 20 });
+  await got('v5 driven', d.next((m) => m.t === 'vp' && m.v === v5));
+  await e.close();
+  await got('v5 parked on the drop', d.next((m) => m.t === 'park' && m.v === v5));
+  // Back 3,000 units on, before saying where: the plane went on without the socket.
+  const back = await Client.join('Ed', key);
+  back.send({ t: 'sit', v: v5, seat: 0 });
+  const again = await got('seat back', back.next((m) => m.t === 'seat' && m.v === v5 && m.ask === 0));
+  check((again?.seats as unknown[] | undefined)?.[0] === back.id, 'a dropped driver on the same key gets the seat back, state or none', again);
+  await sleep(300);
+  back.send({ t: 'up', v: v5 });
+  await got('v5 left', d.next((m) => m.t === 'park' && m.v === v5));
+  const stranger = await Client.join('Fa', `${key}-other`);
+  stranger.standAt([HERE[0], 3_000, 0]);
+  await sleep(300);
+  stranger.send({ t: 'sit', v: v5, seat: 0 });
+  const refused = await got('stranger answered', stranger.next((m) => m.t === 'seat' && m.v === v5 && m.ask === 0));
+  check(refused !== null && (refused.seats as unknown[])[0] !== stranger.id, 'and a stranger on another key does not', refused);
+
+  await Promise.all([a.close(), b.close(), d.close(), back.close(), stranger.close()]);
   console.log(failures === 0 ? '\nall relay checks pass' : `\n${failures} relay check(s) failed`);
   process.exit(failures === 0 ? 0 : 1);
 }

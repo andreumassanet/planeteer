@@ -59,6 +59,7 @@ import { WATERLINE, isWater } from './vehicles.ts';
 import type { CraftKind, CraftModel, FleetLink, FleetSeats, MovedVehicle, WirePose } from './craft/contract.ts';
 import { writePose } from './player.ts';
 import type { Player } from './player.ts';
+import type { ParkedCar } from './settlements.ts';
 
 export { writePose };
 
@@ -793,6 +794,29 @@ const RESEAT_SECONDS = 0.5;
 const BOARD_REACH = AVATAR_HEIGHT * 2;
 /** Spare models of each kind kept for the next time one comes into reach. */
 const POOL_EACH = 6;
+/**
+ * The least time between two presses of `E` that are acted on, in
+ * milliseconds: every one is a seat taken or given up on the relay, which
+ * answers one of each a quarter of a second and drops the rest unanswered.
+ */
+const USE_INTERVAL_MS = 300;
+/**
+ * How long the link may say the seat in hand is somebody else's, or nobody's,
+ * before the fleet asks for it again, in seconds; and how many times it asks
+ * before a player on the ground is let out. A reconnection re-claims the seat
+ * on its own, and a relay that refuses it (it saw the socket drop somewhere
+ * else) would otherwise leave him driving a car nobody else sees move.
+ */
+const LOST_SEAT_SECONDS = 2;
+const LOST_SEAT_TRIES = 3;
+/** How far round the player the towns' parked cars are asked about, for the prompt. */
+const PARKED_SEARCH = BOARD_REACH + 12;
+/**
+ * A standing balloon's footprint as a wall, as a share of its width: the
+ * basket, not the envelope, which hangs a body's height and more over the
+ * ground and is walked under.
+ */
+const BALLOON_WALL = 0.2;
 
 export type FleetEvent = 'boarded' | 'left' | 'taken' | 'leave-refused';
 
@@ -812,6 +836,15 @@ export interface FleetOptions extends FleetSource {
    * foot walks on and not on the relief under it.
    */
   madeHeightAt?: (point: THREE.Vector3) => number;
+  /**
+   * The cars parked in the towns, which are merged into them until somebody
+   * takes one (`ParkedCar` in `settlements.ts`): where they are, and a way to
+   * take one out of its town so the fleet's is the only one drawn.
+   */
+  parked?: {
+    near(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
+    hide(id: string): void;
+  };
   onEvent?: (event: FleetEvent, model: CraftModel | null) => void;
 }
 
@@ -831,6 +864,8 @@ export interface Prompt {
   model: CraftModel;
   /** What `E` does: drive it, or take a passenger's seat. */
   label: 'Drive' | 'Get in';
+  /** How far the player stands from its nearest side, for whoever else `E` might be meant for. */
+  gap: number;
 }
 
 export interface Fleet extends FleetSeats {
@@ -839,6 +874,21 @@ export interface Fleet extends FleetSeats {
   readonly stats: FleetStats;
   /** The seat `E` would take now, or null. */
   readonly prompt: Prompt | null;
+  /**
+   * A passenger aloft with nobody at the controls, whose `E` takes them
+   * (`takeControls`) rather than asking to get out.
+   */
+  readonly stranded: boolean;
+  /**
+   * Pushes a body of `radius` at `point` out of every vehicle standing here
+   * that the player is not in: `settlements.collide`'s contract, for the
+   * vehicles. A vehicle is a box of its own length and width.
+   */
+  collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /** Whether a town's parked car is somewhere else now, or has been taken: the town leaves it out. */
+  claimsParked(id: string): boolean;
+  /** Every vehicle the link says has moved or is sat in, parked cars among them. */
+  claimedParked(): Iterable<string>;
   /** Every frame, after the player has moved. */
   update(dt: number, camera?: THREE.Camera): void;
   /** `E`: take the prompted seat, or leave the one you are in. */
@@ -868,7 +918,7 @@ interface Drawn {
 }
 
 export function createFleet(options: FleetOptions): Fleet {
-  const { world, models, link, player, madeHeightAt, onEvent } = options;
+  const { world, models, link, player, madeHeightAt, parked, onEvent } = options;
   const sites = options.sites ?? createSiteIndex(options);
   const group = new THREE.Group();
   group.name = 'fleet';
@@ -878,7 +928,14 @@ export function createFleet(options: FleetOptions): Fleet {
   let held: Drawn | null = null;
   let heldSeat = 0;
   let pending = false;
+  /** When `E` was last acted on; see `USE_INTERVAL_MS`. */
+  let usedAt = -Infinity;
+  /** Seconds the seat in hand has not been ours on the link, and the claims made for it since. */
+  let lostFor = 0;
+  let lostTries = 0;
   let prompt: Prompt | null = null;
+  /** The parked car the prompt is for, when it is one of a town's. */
+  let promptBay: ParkedCar | null = null;
   const lastScan = new THREE.Vector3(Infinity, 0, 0);
   let scanAge = Infinity;
   let wanted: { id: string; distance: number; site: FleetSite | null }[] = [];
@@ -890,9 +947,20 @@ export function createFleet(options: FleetOptions): Fleet {
   const up = new THREE.Vector3();
   const centre = new THREE.Vector3();
 
-  // Something moved, or somebody got in or out: the candidates are stale.
-  link.onChange(() => {
+  /**
+   * The towns' parked cars the fleet has taken over, by id, and where each
+   * stood: its site, for as long as this session lasts. See `adopt`.
+   */
+  const bayPose = new Map<string, WirePose>();
+  const bays: ParkedCar[] = [];
+  const localPoint = new THREE.Vector3();
+  const inverse = new THREE.Quaternion();
+
+  // Something moved, or somebody got in or out: the candidates are stale. And
+  // a town's parked car somebody took is the fleet's to draw from now on.
+  link.onChange((vehicle) => {
     scanAge = Infinity;
+    if (link.moved.has(vehicle)) parked?.hide(vehicle);
   });
 
   /** Where a site's vehicle stands: its origin on the surface its kind stands on. */
@@ -920,6 +988,11 @@ export function createFleet(options: FleetOptions): Fleet {
     const moved = link.moved.get(vehicle);
     if (moved !== undefined && isPose(moved.pose)) {
       for (let i = 0; i < 9; i++) out[i] = moved.pose[i]!;
+      return true;
+    }
+    const kerb = bayPose.get(vehicle);
+    if (kerb !== undefined) {
+      for (let i = 0; i < 9; i++) out[i] = kerb[i]!;
       return true;
     }
     const site = sites.byId(vehicle);
@@ -972,7 +1045,16 @@ export function createFleet(options: FleetOptions): Fleet {
     const key = `${entry.model.id}#${entry.variant}`;
     let spares = pool.get(key);
     if (spares === undefined) pool.set(key, (spares = []));
-    if (spares.length < POOL_EACH) spares.push(entry);
+    if (spares.length < POOL_EACH) {
+      spares.push(entry);
+      return;
+    }
+    // Not kept: its geometry is its own (`CraftModel.build` makes a fresh
+    // copy) and goes now, or every take-off from a city leaks what did not
+    // fit in the pool. The materials are the world's shared ones and stay.
+    entry.group.traverse((part) => {
+      if ((part as THREE.Mesh).isMesh) (part as THREE.Mesh).geometry.dispose();
+    });
   }
 
   function place(entry: Drawn): void {
@@ -1004,10 +1086,18 @@ export function createFleet(options: FleetOptions): Fleet {
     }
     for (const [id, moved] of link.moved) {
       if (seen.has(id) || !isPose(moved.pose)) continue;
+      seen.add(id);
       centre.set(moved.pose[0]!, moved.pose[1]!, moved.pose[2]!);
       const distance = centre.distanceTo(here);
       if (distance > KEEP) continue;
       wanted.push({ id, distance, site: sites.byId(id) });
+    }
+    // A town's car taken over and not moved since, still at its kerb.
+    for (const [id, kerb] of bayPose) {
+      if (seen.has(id)) continue;
+      centre.set(kerb[0]!, kerb[1]!, kerb[2]!);
+      const distance = centre.distanceTo(here);
+      if (distance <= KEEP) wanted.push({ id, distance, site: null });
     }
     wanted.sort((a, b) => a.distance - b.distance || (a.id < b.id ? -1 : 1));
   }
@@ -1025,9 +1115,42 @@ export function createFleet(options: FleetOptions): Fleet {
       const free = entry.model.seats.findIndex((_, i) => (seats[i] ?? null) === null);
       if (free < 0) continue;
       bestGap = gap;
-      best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? 'Drive' : 'Get in' };
+      best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? 'Drive' : 'Get in', gap };
     }
+    // And the cars parked in the towns, which are nobody's until one is taken.
+    if (parked !== undefined) {
+      bays.length = 0;
+      parked.near(player.position, PARKED_SEARCH, bays);
+      for (const bay of bays) {
+        if (drawn.has(bay.id) || bayPose.has(bay.id) || link.moved.has(bay.id)) continue;
+        const model = models.get(bay.model);
+        if (model === undefined) continue;
+        const gap = bay.position.distanceTo(player.position) - Math.max(model.size[0], model.size[1]) / 2;
+        if (gap > BOARD_REACH || gap >= bestGap) continue;
+        bestGap = gap;
+        best = { vehicle: bay.id, seat: 0, model, label: 'Drive', gap };
+        promptBay = bay;
+      }
+    }
+    if (best === null || best.vehicle !== promptBay?.id) promptBay = null;
     return best;
+  }
+
+  /**
+   * A town's parked car becomes the fleet's: built as a vehicle where the
+   * town had it, and folded out of the town's buffer, so there is one car and
+   * it is the one that can be driven off.
+   */
+  function adopt(bay: ParkedCar): Drawn | null {
+    const kerb = writePose(bay.position, bay.forward, up.copy(bay.position).normalize(), new Array<number>(9));
+    const entry = build(bay.id, null);
+    if (entry === null) return null;
+    bayPose.set(bay.id, kerb);
+    drawn.set(entry.id, entry);
+    group.add(entry.group);
+    applyPose(kerb, entry.group);
+    parked?.hide(bay.id);
+    return entry;
   }
 
   function takeSeat(entry: Drawn, seat: number): void {
@@ -1036,6 +1159,8 @@ export function createFleet(options: FleetOptions): Fleet {
     poseOf(entry.id, pose);
     held = entry;
     heldSeat = seat;
+    lostFor = 0;
+    lostTries = 0;
     player.board({ vehicle: entry.id, seat, model: entry.model, group: entry.group }, pose);
     if (seat === 0) link.drive(entry.id, player.pose(pose), 0);
     onEvent?.('boarded', entry.model);
@@ -1119,6 +1244,40 @@ export function createFleet(options: FleetOptions): Fleet {
     );
   }
 
+  /**
+   * The seat in hand, as the link has it. Asked for again when the link says
+   * it is not ours — see `LOST_SEAT_SECONDS` — and, refused every time, given
+   * up as soon as the player is on the ground: in the air he flies on and is
+   * let out where he lands.
+   */
+  function keepSeat(dt: number, entry: Drawn): void {
+    const holder = link.moved.get(entry.id)?.seats[heldSeat] ?? null;
+    if (holder === link.self || pending) {
+      if (holder === link.self) {
+        lostFor = 0;
+        lostTries = 0;
+      }
+      return;
+    }
+    lostFor += dt;
+    if (lostFor < LOST_SEAT_SECONDS) return;
+    lostFor = 0;
+    if (lostTries >= LOST_SEAT_TRIES) {
+      if (!player.airborne) leave();
+      return;
+    }
+    lostTries++;
+    pending = true;
+    link.claim(entry.id, heldSeat, player.pose([])).then(
+      () => {
+        pending = false;
+      },
+      () => {
+        pending = false;
+      },
+    );
+  }
+
   const stats: FleetStats = {
     sites: sites.counts,
     built: 0,
@@ -1140,10 +1299,68 @@ export function createFleet(options: FleetOptions): Fleet {
     get prompt() {
       return prompt;
     },
+    get stranded() {
+      if (held === null || heldSeat === 0 || !player.airborne) return false;
+      return (link.moved.get(held.id)?.seats[0] ?? null) === null;
+    },
+
+    collide(point, radius, push) {
+      push.set(0, 0, 0);
+      let hit = false;
+      for (const entry of drawn.values()) {
+        const g = entry.group;
+        const size = entry.model.size;
+        const reach = Math.max(size[0], size[1]) / 2 + radius;
+        localPoint.copy(point).sub(g.position);
+        if (localPoint.lengthSq() > (reach + size[2]) * (reach + size[2])) continue;
+        inverse.copy(g.quaternion).invert();
+        localPoint.applyQuaternion(inverse);
+        // Only at the vehicle's own height: a plane overhead is not a wall.
+        if (localPoint.y < -AVATAR_HEIGHT || localPoint.y > size[2]) continue;
+        const share = entry.model.kind === 'balloon' ? BALLOON_WALL : 0.5;
+        const hx = size[1] * share;
+        const hz = size[0] * share;
+        const cx = Math.max(-hx, Math.min(hx, localPoint.x));
+        const cz = Math.max(-hz, Math.min(hz, localPoint.z));
+        let dx = localPoint.x - cx;
+        let dz = localPoint.z - cz;
+        const d = Math.hypot(dx, dz);
+        if (d >= radius) continue;
+        if (d > 1e-9) {
+          dx *= (radius - d) / d;
+          dz *= (radius - d) / d;
+        } else {
+          // Inside the box: out by the nearer side.
+          const ox = hx - Math.abs(localPoint.x);
+          const oz = hz - Math.abs(localPoint.z);
+          if (ox < oz) {
+            dx = Math.sign(localPoint.x || 1) * (ox + radius);
+            dz = 0;
+          } else {
+            dx = 0;
+            dz = Math.sign(localPoint.z || 1) * (oz + radius);
+          }
+        }
+        localPoint.set(dx, 0, dz).applyQuaternion(g.quaternion);
+        push.add(localPoint);
+        hit = true;
+      }
+      // Along the ground: the part of the push that would lift a body is not a wall's.
+      if (hit) push.projectOnPlane(up.copy(point).normalize());
+      return hit;
+    },
+
+    claimsParked(id) {
+      return bayPose.has(id) || link.moved.has(id);
+    },
+    claimedParked() {
+      return [...link.moved.keys(), ...bayPose.keys()];
+    },
 
     update(dt, camera) {
       // The vehicle in hand: the driver tells the link where it is, and a
       // passenger is carried wherever the driver has it.
+      if (held !== null && player.ride !== null) keepSeat(dt, held);
       if (held !== null && player.ride !== null) {
         if (heldSeat === 0) {
           player.pose(lastPose);
@@ -1229,6 +1446,9 @@ export function createFleet(options: FleetOptions): Fleet {
 
     use() {
       if (pending) return;
+      const now = performance.now();
+      if (now - usedAt < USE_INTERVAL_MS) return;
+      usedAt = now;
       if (held !== null) {
         const driver = link.moved.get(held.id)?.seats[0] ?? null;
         if (heldSeat > 0 && player.airborne && driver === null) takeControls(held);
@@ -1236,8 +1456,8 @@ export function createFleet(options: FleetOptions): Fleet {
         return;
       }
       if (prompt === null) return;
-      const entry = drawn.get(prompt.vehicle);
-      if (entry !== undefined) void claim(entry, prompt.seat);
+      const entry = drawn.get(prompt.vehicle) ?? (promptBay?.id === prompt.vehicle ? adopt(promptBay) : null);
+      if (entry !== undefined && entry !== null) void claim(entry, prompt.seat);
     },
 
     current() {

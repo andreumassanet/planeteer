@@ -2801,6 +2801,8 @@ export function createMenu(deps: MenuDeps): Menu {
   /* --- the loop --------------------------------------------------------- */
 
   let resolveChoice: ((spawn: MenuSpawn) => void) | null = null;
+  /** One promise for every caller: a second `choose()` used to orphan the first's. */
+  let choice: Promise<MenuSpawn> | null = null;
   let running = true;
   let previous = performance.now();
 
@@ -2813,7 +2815,9 @@ export function createMenu(deps: MenuDeps): Menu {
   function frame(now: number): void {
     if (!running) return;
     requestAnimationFrame(frame);
-    const dt = Math.min((now - previous) / 1000, 0.1);
+    // The first timestamp can be earlier than the `performance.now()` taken
+    // before it was asked for; a negative `dt` runs every chase backwards.
+    const dt = Math.max(0, Math.min((now - previous) / 1000, 0.1));
     previous = now;
 
     orrery.update(time(), camera, renderer.domElement.clientHeight, dt);
@@ -3023,9 +3027,10 @@ export function createMenu(deps: MenuDeps): Menu {
     beforeRender: null,
     choose() {
       if (chosen !== null) return Promise.resolve(chosen);
-      return new Promise<MenuSpawn>((resolve) => {
+      choice ??= new Promise<MenuSpawn>((resolve) => {
         resolveChoice = resolve;
       });
+      return choice;
     },
     progress(fraction, label) {
       progressFraction = clamp01(fraction);

@@ -137,20 +137,26 @@ export function createFleetSync(peers: Peers): FleetSync {
     if (peers.send(message)) stats.sent++;
   }
 
-  /** Sends the reconnection's messages one at a time, as far apart as the relay's limits ask. */
+  /**
+   * Sends the reconnection's messages one at a time, as far apart as the
+   * relay's limits ask — **and none of them at once.** The room believes a
+   * claim only from a player whose position it has, and on a fresh socket it
+   * has none until `peers.ts` sends the first state on its own cadence; a
+   * `sit` sent inside the `hi` that opened the socket was refused every time,
+   * which after a rename or a blip left the driver driving a car nobody else
+   * saw move. One `FLUSH_MS` is three of those states.
+   */
   function flush(): void {
-    if (flushing !== null) return;
+    if (flushing !== null || outbox.length === 0) return;
     const next = () => {
       const message = outbox.shift();
-      if (message === undefined || !live) {
+      if (message !== undefined && live) post(message);
+      if (outbox.length === 0 || !live) {
         if (flushing !== null) clearInterval(flushing);
         flushing = null;
-        return;
       }
-      post(message);
     };
-    next();
-    if (outbox.length > 0) flushing = setInterval(next, FLUSH_MS);
+    flushing = setInterval(next, FLUSH_MS);
   }
 
   function settle(vehicle: string, won: boolean): void {
@@ -214,8 +220,16 @@ export function createFleetSync(peers: Peers): FleetSync {
       if (won) held = { vehicle, seat: wait.seat };
       else if (held?.vehicle === vehicle && held.seat === wait.seat) held = null;
       settle(vehicle, won);
-    } else if (wait === undefined && held?.vehicle === vehicle && seats[held.seat] !== me) {
-      held = null;
+    } else if (wait === undefined) {
+      if (held?.vehicle === vehicle && seats[held.seat] !== me) held = null;
+      // A seat granted after the claim for it timed out: nobody here is
+      // sitting in it, so it is given back rather than held for ever in
+      // everybody else's view.
+      const mine = seats.indexOf(me);
+      if (live && mine >= 0 && !(held?.vehicle === vehicle && held.seat === mine)) {
+        entry.seats[mine] = null;
+        post({ t: 'up', v: vehicle });
+      }
     }
     const drive = driven.get(vehicle);
     if (drive !== undefined && drive.driver !== (seats[0] ?? null)) driven.delete(vehicle);
@@ -333,7 +347,9 @@ export function createFleetSync(peers: Peers): FleetSync {
         return true;
       }
       const t = THREE.MathUtils.clamp((at - a.at) / Math.max(1, b.at - a.at), 0, 1);
-      for (const k of [0, 3, 6]) blend(a.pose, b.pose, t, into, k);
+      blend(a.pose, b.pose, t, into, 0);
+      blend(a.pose, b.pose, t, into, 3);
+      blend(a.pose, b.pose, t, into, 6);
       return true;
     },
 

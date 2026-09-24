@@ -11,11 +11,13 @@ import type { Body, Walls } from './scenery/solids.ts';
 import type { TravelMode } from './controls.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import {
-  ALTITUDE_RATE,
   AVATAR_HIP,
   BALLOON_CEILING,
   BALLOON_CLIMB,
+  BALLOON_LIFT_TIME,
+  BALLOON_SETTLE,
   BALLOON_SPEED,
+  BALLOON_TOUCHDOWN,
   BALLOON_TURN,
   BOAT_ACCELERATION_TIME,
   BOAT_BOOST,
@@ -23,27 +25,33 @@ import {
   BOAT_TURN,
   CAR_ACCELERATION_TIME,
   CAR_BOOST,
+  CAR_BOUNCE,
   CAR_BRAKE_TIME,
   CAR_COAST_TIME,
+  CAR_FAST_LOCK,
   CAR_GRIP_SPEED,
   CAR_REVERSE,
   CAR_SPEED,
+  CAR_STEER_TIME,
   CAR_STEP,
   CAR_TURN,
-  CLIMB_RATE,
+  CRASH_SPEED,
   PLANE_ACCELERATION_TIME,
-  PLANE_BOOST,
   PLANE_CEILING,
-  PLANE_CIRCUIT,
+  PLANE_CLIMB_MIN,
+  PLANE_CLIMB_RATE,
   PLANE_CRUISE_HIGH,
   PLANE_CRUISE_LOW,
-  PLANE_FLOOR,
+  PLANE_FLARE,
   PLANE_LANDING_GRADE,
   PLANE_LANDING_TIME,
   PLANE_ROTATE,
-  PLANE_SINK,
   PLANE_TAXI,
+  PLANE_THROTTLE_DOWN,
+  PLANE_THROTTLE_UP,
+  PLANE_TOUCHDOWN,
   PLANE_TURN,
+  PLANE_VERTICAL_TIME,
   SHORE_REACH,
   WATERLINE,
   buildSplash,
@@ -259,8 +267,18 @@ const CAR_ROLL = 0.05;
  * ink of the tyres off the grass.
  */
 const PLANE_AIR_CLEARANCE = 0.5;
-/** Where a refused landing climbs back to, over the ground. */
-const PLANE_BOUNCE = 60;
+/**
+ * Under this height over the ground, descending closes the throttle to an
+ * approach speed, so a landing is aimable.
+ */
+const PLANE_APPROACH = 120;
+/**
+ * A refused landing goes round again: this long climbing at `PLANE_CLIMB_MIN`
+ * whatever the keys say, about thirty units, and then the keys have it back.
+ */
+const PLANE_GO_AROUND = 2.5;
+/** Seconds between two crashes told, so a car ground along a wall is one bang and not sixty. */
+const CRASH_QUIET = 0.6;
 /**
  * Seconds between two tellings of the same refusal: held down over the sea,
  * the plane goes round again every time it gets low, and a toast a second is
@@ -269,6 +287,10 @@ const PLANE_BOUNCE = 60;
 const REFUSAL_QUIET = 4;
 /** A balloon over water holds its basket this far over the surface: it cannot come down on it. */
 const BALLOON_WATER_FLOOR = 3;
+/** How long a balloon takes to come round to the heading asked for, in seconds: it has no rudder, only the wind. */
+const BALLOON_TURN_TIME = 0.8;
+/** And a launch's rudder, over to its stop. */
+const RUDDER_TIME = 0.25;
 
 /**
  * What the player just did, or was refused, for whoever tells the player so.
@@ -277,8 +299,11 @@ const BALLOON_WATER_FLOOR = 3;
  * - `took-off`, `landed`: a plane or a balloon leaving the ground and coming back to it.
  * - `water-refused`, `steep-refused`: a plane let down onto the sea, or onto a
  *   hillside, which goes round again.
+ * - `crashed`: a car, or a plane on its wheels, driven into a wall or a
+ *   parked vehicle hard enough to count (`CRASH_SPEED`); told with the speed
+ *   the knock took off it, for whatever wants to shake or bang in proportion.
  */
-export type PlayerEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused';
+export type PlayerEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed';
 
 export interface PlayerInput {
   move: { x: number; y: number };
@@ -286,7 +311,11 @@ export interface PlayerInput {
   jump: boolean;
   /** Tangent direction the camera faces. Movement on foot is relative to this. */
   heading: THREE.Vector3;
-  /** Held, in the air: climb and descend. Optional; see `Player.controls`. */
+  /**
+   * Held, in the air: climb and descend. Optional; see `Player.controls`. In a
+   * plane or a balloon the run key climbs as well, so `Shift` and `Space` both
+   * go up and `C` or `Ctrl` go down.
+   */
   climb?: boolean;
   dive?: boolean;
 }
@@ -455,9 +484,10 @@ export interface PlayerOptions {
    * Told what the player just did, or was refused: see `PlayerEvent`. The
    * state machine is here and the words are the HUD's, so this is the whole of
    * what passes between them. Never called by `goTo`: a teleport is not a
-   * ride.
+   * ride. `strength` is a crash's lost speed, in units a second, and 0 for
+   * everything else.
    */
-  onEvent?: (event: PlayerEvent) => void;
+  onEvent?: (event: PlayerEvent, strength: number) => void;
   /**
    * A foot came down, on foot: once per half cycle of the gait, with `weight`
    * the speed as a multiple of a walk. For the footsteps; nothing else reads it.
@@ -552,7 +582,14 @@ export function createPlayer(
 
   /** Flight state. `altitude` is above sea level, not above the ground. */
   let altitude = 0;
-  let targetAltitude = PLANE_CIRCUIT;
+  /** The plane's vertical speed, eased towards what the keys ask: see `PLANE_CLIMB_MIN`. */
+  let climbing = 0;
+  /** Seconds of a go-around left after a refused landing; see `PLANE_GO_AROUND`. */
+  let goAround = 0;
+  /** The wheel, the rudder or the balloon's swing, eased after the key: -1 to 1, positive to the right. */
+  let steering = 0;
+  /** Seconds since a crash was last told; see `CRASH_QUIET`. */
+  let sinceCrash = CRASH_QUIET;
   let turnRate = 0;
   /** How far the plane is rolled into a turn, -1 to 1, positive to the left. */
   let roll = 0;
@@ -716,7 +753,7 @@ export function createPlayer(
     airborne = false;
     motion.clampLength(0, SWIM_SPRINT);
     spray(PLANET_RADIUS + WATERLINE, SWIM_SPLASH);
-    options.onEvent?.('swim');
+    options.onEvent?.('swim', 0);
   }
 
   /**
@@ -862,7 +899,7 @@ export function createPlayer(
           state = 'foot';
           height = ground;
           position.setLength(height);
-          options.onEvent?.('ashore');
+          options.onEvent?.('ashore', 0);
           return;
         }
       }
@@ -887,16 +924,25 @@ export function createPlayer(
   /**
    * A vehicle on wheels, moved one frame at `speed` along its bow: a car on the
    * road, a plane taxiing. Stopped by the water's edge, by a wall — the car's
-   * own width against the buildings, and its bumper against them too — and by
-   * a rise it cannot climb, which is a kerb's worth plus the angle of repose
-   * over the distance covered: a terrace riser is a wall and a hillside is not.
+   * own width against the buildings and whatever is parked, and its bumper
+   * against them too — and by a rise it cannot climb, which is a kerb's worth
+   * plus the angle of repose over the distance covered: a terrace riser is a
+   * wall and a hillside is not.
+   *
+   * **A wall is a knock, not a full stop.** A car driven into one comes back
+   * off it at `CAR_BOUNCE` of the speed it hit at, and one scraped along it
+   * loses what the wall took; either, past `CRASH_SPEED`, is a `crashed`
+   * event. The water's edge and a riser are not walls anybody hits: the car
+   * simply stops at them, as it always did.
    */
   function rollOn(dt: number, model: CraftModel, width: number): void {
     const half = model.size[0] / 2;
+    const hitAt = speed;
     motion.copy(forward).multiplyScalar(speed);
     moved.copy(motion).multiplyScalar(dt);
+    let scraped = false;
     if (walls !== null) {
-      throughWalls(dt, walls, width);
+      scraped = throughWalls(dt, walls, width);
       // Whatever the walls took off the motion is taken off the speed: a
       // car driven into a wall at an angle scrapes along it, and one driven
       // into it square stops.
@@ -904,16 +950,22 @@ export function createPlayer(
     }
     const distance = travel();
     // The bumper, on the side the car is going.
-    pointAhead(forward, (speed >= 0 ? half : -half) / position.length(), probe);
+    pointAhead(forward, (hitAt >= 0 ? half : -half) / position.length(), probe);
     let blocked = isWater(standingRadius(probe));
-    if (!blocked && collide !== undefined) blocked = collide(probe, width * 0.8, pushed);
+    let struck = false;
+    if (!blocked && collide !== undefined && collide(probe, width * 0.8, pushed)) blocked = struck = true;
     let ground = standingRadius(position);
     if (!blocked) blocked = isWater(ground);
     if (!blocked && !airborne && distance > 1e-9) blocked = ground - height > CAR_STEP + distance * MAX_SLOPE;
     if (blocked) {
       undo();
-      speed = 0;
+      speed = struck ? -hitAt * CAR_BOUNCE : 0;
       ground = standingRadius(position);
+    }
+    const lost = Math.abs(hitAt) - Math.abs(speed);
+    if ((struck || scraped) && lost > CRASH_SPEED && sinceCrash >= CRASH_QUIET) {
+      sinceCrash = 0;
+      options.onEvent?.('crashed', lost);
     }
     settle(dt, ground, AVATAR_HEIGHT);
     velocity = Math.abs(speed);
@@ -929,10 +981,17 @@ export function createPlayer(
     }
   }
 
-  /** Steering on wheels: no turn standing still, full lock from `CAR_GRIP_SPEED`, and reversed going backwards. */
+  /**
+   * Steering on wheels: the wheel goes over in `CAR_STEER_TIME`, there is no
+   * turn standing still, full lock from `CAR_GRIP_SPEED` easing to
+   * `CAR_FAST_LOCK` of it flat out, and reversed going backwards.
+   */
   function steerWheels(dt: number): void {
+    steering += (stick.x - steering) * approach(1 / CAR_STEER_TIME, dt);
+    if (stick.x === 0 && Math.abs(steering) < 1e-3) steering = 0;
     const grip = clamp(Math.abs(speed) / CAR_GRIP_SPEED, 0, 1);
-    const turn = airborne ? 0 : -stick.x * CAR_TURN * grip * (speed < 0 ? -1 : 1) * dt;
+    const lock = mix(1, CAR_FAST_LOCK, clamp(Math.abs(speed) / CAR_BOOST, 0, 1));
+    const turn = airborne ? 0 : -steering * CAR_TURN * grip * lock * (speed < 0 ? -1 : 1) * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
   }
@@ -960,7 +1019,9 @@ export function createPlayer(
   function sail(dt: number, input: PlayerInput, model: CraftModel): void {
     // Rudder and throttle are two levers, not a direction: see `levers`.
     levers(input.move, stick);
-    const turn = -stick.x * BOAT_TURN * dt;
+    steering += (stick.x - steering) * approach(1 / RUDDER_TIME, dt);
+    if (stick.x === 0 && Math.abs(steering) < 1e-3) steering = 0;
+    const turn = -steering * BOAT_TURN * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
 
@@ -1013,11 +1074,21 @@ export function createPlayer(
     velocity = Math.abs(speed);
   }
 
+  /**
+   * Up or down, as an aircraft reads the keys: the climb key or the run key
+   * up, the descend key down, and both together nothing. `Shift` was the
+   * plane's boost, and a climb on `Shift` is what everybody reaches for; the
+   * throttle is `W` alone now.
+   */
+  function liftOf(input: PlayerInput): number {
+    return clamp(controls.lift + (input.run ? 1 : 0), -1, 1);
+  }
+
   /** A plane on the ground: taxi on `W`, and a take-off run with the climb key held. */
   function taxi(dt: number, input: PlayerInput, model: CraftModel): void {
     levers(input.move, stick);
     steerWheels(dt);
-    const run = controls.lift > 0;
+    const run = liftOf(input) > 0;
     let wanted = 0;
     let time = CAR_COAST_TIME;
     if (run) {
@@ -1035,24 +1106,37 @@ export function createPlayer(
     // A fuselage's width against the buildings, not the span: a wingtip over
     // a garden wall is how a light aircraft is parked.
     rollOn(dt, model, Math.min(model.size[0], model.size[1]) * 0.25);
-    if (run && speed >= PLANE_ROTATE && !airborne) {
+    if (airborne) {
+      // Rolled off an edge: it is flying now, whatever speed it had, and it is
+      // not standing anywhere it could be left.
+      grounded = false;
+      altitude = position.length() - PLANET_RADIUS;
+      climbing = 0;
+      vertical = 0;
+      roll = 0;
+      options.onEvent?.('took-off', 0);
+      return;
+    }
+    if (run && speed >= PLANE_ROTATE) {
       grounded = false;
       airborne = true;
       altitude = position.length() - PLANET_RADIUS;
-      // A take-off climbs to the circuit on its own. Holding the climb key
-      // from there is what turns the flight into the map.
-      targetAltitude = Math.max(PLANE_CIRCUIT, altitude + PLANE_BOUNCE);
+      // The wheels leave the ground level, and the climb builds from nothing:
+      // the height is what the key goes on asking for, and nothing else.
+      climbing = 0;
+      goAround = 0;
       roll = 0;
       spray(height, craftSplash());
-      options.onEvent?.('took-off');
+      options.onEvent?.('took-off', 0);
     }
   }
 
-  /** Says a landing was refused, once in `REFUSAL_QUIET`. */
+  /** Says a landing was refused, once in `REFUSAL_QUIET`, and goes round again. */
   function refuse(event: 'water-refused' | 'steep-refused'): void {
+    goAround = PLANE_GO_AROUND;
     if (sinceRefusal < REFUSAL_QUIET) return;
     sinceRefusal = 0;
-    options.onEvent?.(event);
+    options.onEvent?.(event, 0);
   }
 
   function fly(dt: number, input: PlayerInput, model: CraftModel): void {
@@ -1072,51 +1156,58 @@ export function createPlayer(
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
 
-    const descending = controls.lift < 0;
-    const ground = groundRadius(world, position);
-    const low = position.length() - ground < PLANE_BOUNCE * 2;
+    const lift = goAround > 0 ? 1 : liftOf(input);
+    const descending = lift < 0;
+    const before = position.length();
+    const clearance = Math.max(0, before - groundRadius(world, position));
     // Speed rides altitude: see `PLANE_CRUISE_LOW` in `vehicles.ts`. Low is
     // scenic, high is how an ocean gets crossed; and coming down low the
     // throttle closes to an approach speed, so a landing is aimable.
     const fraction = clamp(altitude / PLANE_CEILING, 0, 1);
     const cruise = mix(PLANE_CRUISE_LOW, PLANE_CRUISE_HIGH, fraction);
-    const approaching = descending && low;
-    const wanted = approaching
-      ? PLANE_CRUISE_LOW * 0.55
-      : cruise * (1 + stick.y * 0.35) * (input.run ? PLANE_BOOST : 1);
+    const approaching = descending && clearance < PLANE_APPROACH;
+    const throttle = 1 + stick.y * (stick.y >= 0 ? PLANE_THROTTLE_UP : PLANE_THROTTLE_DOWN);
+    const wanted = approaching ? PLANE_CRUISE_LOW * 0.55 : cruise * throttle;
     speed += (wanted - speed) * approach(1 / (approaching ? PLANE_LANDING_TIME : PLANE_ACCELERATION_TIME), dt);
 
-    // Climbing multiplies the height asked for and descending divides it,
-    // which reads as a zoom of the map; descending also takes a fixed rate off
-    // it, because a division alone never reaches the ground and a landing has to.
-    if (controls.lift > 0) {
-      targetAltitude = clamp(Math.max(targetAltitude, PLANE_FLOOR) * Math.exp(CLIMB_RATE * dt), PLANE_FLOOR, PLANE_CEILING);
+    // The keys ask for a vertical speed and the plane eases into it: see
+    // `PLANE_CLIMB_MIN`. Let go and it levels off where it is.
+    const authority = Math.max(PLANE_CLIMB_MIN, clearance * PLANE_CLIMB_RATE);
+    let asked = 0;
+    if (goAround > 0) {
+      goAround -= dt;
+      asked = PLANE_CLIMB_MIN;
+    } else if (lift > 0) {
+      // Easing into the ceiling rather than hitting it.
+      asked = Math.min(authority, Math.max(0, PLANET_RADIUS + PLANE_CEILING - before) * PLANE_CLIMB_RATE);
     } else if (descending) {
-      targetAltitude = Math.max(0, targetAltitude * Math.exp(-CLIMB_RATE * dt) - PLANE_SINK * dt);
+      asked = -Math.min(authority, Math.max(PLANE_TOUCHDOWN, clearance * PLANE_FLARE));
     }
-    altitude += (targetAltitude - altitude) * approach(ALTITUDE_RATE, dt);
+    climbing += (asked - climbing) * approach(1 / PLANE_VERTICAL_TIME, dt);
 
-    const before = position.length();
     advance(forward, (speed * dt) / before);
 
     const under = groundRadius(world, position);
     const floor = under + PLANE_AIR_CLEARANCE;
-    const radius = Math.max(floor, PLANET_RADIUS + altitude);
+    let radius = Math.min(PLANET_RADIUS + PLANE_CEILING, before + climbing * dt);
+    // The ground has the last word. That is what makes flying into the planet
+    // impossible: a ridge rising under the plane lifts it, and the climb it
+    // was asked for is kept, so the far side is level flight rather than a
+    // fall off the edge.
+    if (radius < floor) {
+      radius = floor;
+      if (!descending) climbing = Math.max(0, climbing);
+    }
     climbRate = dt > 0 ? (radius - before) / dt : 0;
     position.setLength(radius);
-    // The ground has the last word, and then the altitude is read back from it.
-    // That is what makes flying into the planet impossible: a ridge rising under
-    // the plane lifts it, and because the request is updated too, the far side
-    // is a glide down instead of a fall off the edge.
     altitude = radius - PLANET_RADIUS;
     velocity = speed;
 
-    // Down on the floor with the descend key held and the height asked for
-    // under it: a touchdown, if the ground will take one.
-    if (descending && radius <= floor + 0.5 && PLANET_RADIUS + targetAltitude < floor) {
+    // Down on the floor with the descend key held: a touchdown, if the ground
+    // will take one.
+    if (descending && radius <= floor + 0.5) {
       if (isWater(under)) {
         // A landplane on the sea is a wreck, and nothing in this world is.
-        targetAltitude = under - PLANET_RADIUS + PLANE_BOUNCE;
         refuse('water-refused');
         return;
       }
@@ -1126,7 +1217,6 @@ export function createPlayer(
       pointAhead(forward, -half / radius, probe);
       const back = groundRadius(world, probe);
       if (Math.abs(front - back) / (2 * half) > PLANE_LANDING_GRADE || isWater(front) || isWater(back)) {
-        targetAltitude = under - PLANET_RADIUS + PLANE_BOUNCE;
         refuse('steep-refused');
         return;
       }
@@ -1135,12 +1225,13 @@ export function createPlayer(
       vertical = 0;
       roll = 0;
       climbRate = 0;
+      climbing = 0;
       height = standingRadius(position);
       position.setLength(height);
       // The landing rolls out rather than stopping dead: `taxi` brakes it.
       speed = Math.min(speed, PLANE_ROTATE);
       spray(height, craftSplash());
-      options.onEvent?.('landed');
+      options.onEvent?.('landed', 0);
     }
   }
 
@@ -1149,13 +1240,19 @@ export function createPlayer(
    * you steer at a speed the throttle trims, and sets down wherever it touches
    * land. Over water it holds its basket clear of the surface and cannot come
    * down, which is also why it cannot be left there.
+   *
+   * Everything about it is slow on purpose: the burner and the vent take hold
+   * over `BALLOON_LIFT_TIME`, the heading comes round over `BALLOON_TURN_TIME`,
+   * and the last of a descent settles rather than drops (`BALLOON_SETTLE`).
    */
   function drift(dt: number, input: PlayerInput): void {
     levers(input.move, stick);
-    const lift = controls.lift;
+    const lift = liftOf(input);
     if (grounded) {
       speed = 0;
       velocity = 0;
+      turnRate = 0;
+      steering = 0;
       if (lift <= 0) {
         height = standingRadius(position);
         position.setLength(height);
@@ -1164,18 +1261,28 @@ export function createPlayer(
       grounded = false;
       airborne = true;
       vertical = 0;
-      options.onEvent?.('took-off');
+      options.onEvent?.('took-off', 0);
     }
-    const turn = -stick.x * BALLOON_TURN * dt;
+    steering += (stick.x - steering) * approach(1 / BALLOON_TURN_TIME, dt);
+    if (stick.x === 0 && Math.abs(steering) < 1e-3) steering = 0;
+    const turn = -steering * BALLOON_TURN * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
     speed += (Math.max(0, BALLOON_SPEED * (1 + stick.y * 0.6)) - speed) * approach(0.5, dt);
-    vertical += (lift * BALLOON_CLIMB - vertical) * approach(0.8, dt);
+
+    let ground = standingRadius(position);
+    let water = isWater(ground);
+    let floor = water ? PLANET_RADIUS + WATERLINE + BALLOON_WATER_FLOOR : ground;
+    const over = Math.max(0, height - floor);
+    let asked = 0;
+    if (lift > 0) asked = Math.min(BALLOON_CLIMB, Math.max(0, PLANET_RADIUS + BALLOON_CEILING - height) * BALLOON_SETTLE);
+    else if (lift < 0) asked = -Math.min(BALLOON_CLIMB, Math.max(BALLOON_TOUCHDOWN, over * BALLOON_SETTLE));
+    vertical += (asked - vertical) * approach(1 / BALLOON_LIFT_TIME, dt);
     advance(forward, (speed * dt) / position.length());
 
-    const ground = standingRadius(position);
-    const water = isWater(ground);
-    const floor = water ? PLANET_RADIUS + WATERLINE + BALLOON_WATER_FLOOR : ground;
+    ground = standingRadius(position);
+    water = isWater(ground);
+    floor = water ? PLANET_RADIUS + WATERLINE + BALLOON_WATER_FLOOR : ground;
     height = Math.min(PLANET_RADIUS + BALLOON_CEILING, height + vertical * dt);
     if (height <= floor) {
       height = floor;
@@ -1184,8 +1291,9 @@ export function createPlayer(
         airborne = false;
         speed = 0;
         vertical = 0;
+        steering = 0;
         spray(height, craftSplash());
-        options.onEvent?.('landed');
+        options.onEvent?.('landed', 0);
       } else vertical = Math.max(0, vertical);
     }
     position.setLength(height);
@@ -1367,6 +1475,9 @@ export function createPlayer(
     turnRate = 0;
     roll = 0;
     climbRate = 0;
+    climbing = 0;
+    goAround = 0;
+    steering = 0;
     controls.lift = 0;
   }
 
@@ -1416,6 +1527,7 @@ export function createPlayer(
     altitude: 0,
     controls,
     update(dt, input) {
+      sinceCrash += dt;
       if (input.climb !== undefined || input.dive !== undefined) {
         controls.lift = (input.climb === true ? 1 : 0) - (input.dive === true ? 1 : 0);
       }
@@ -1466,7 +1578,6 @@ export function createPlayer(
       if (kind === 'boat') position.setLength(PLANET_RADIUS + WATERLINE);
       height = position.length();
       altitude = height - PLANET_RADIUS;
-      targetAltitude = altitude;
       // A plane or a balloon is taken standing on the ground, which is the
       // only place one can be left.
       grounded = isAir(kind) && height - standingRadius(position) < 1.5;
@@ -1484,6 +1595,9 @@ export function createPlayer(
       const held = ride;
       const kind = held.model.kind;
       if (isAir(kind) && !grounded) return null;
+      // A car in the air — off a quay, a terrace, a cliff — lands first: left
+      // mid-fall it would be parked in the air, for everyone, for a day.
+      if (airborne) return null;
       const out = player.pose(new Array<number>(9));
       // Out on the side the seat is on — a model's +X is its left — then
       // round the vehicle, nearest that side first; land if there is any
@@ -1591,7 +1705,6 @@ export function createPlayer(
       // Tokyo is mid-stride from Paris.
       avatar.reset();
       altitude = 0;
-      targetAltitude = PLANE_CIRCUIT;
       state = 'foot';
       sink = 0;
       // Teleporting into the water has you swimming, for the same reason

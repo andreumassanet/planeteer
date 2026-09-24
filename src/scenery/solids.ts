@@ -580,8 +580,9 @@ export interface Walls {
 /**
  * The longest sub-step, as a fraction of the body's radius.
  *
- * **One step a frame tunnels.** At `RUN_SPEED` (13.5) and the 0.1 s `main.ts`
- * caps a frame at, a step is 1.35 units against a body 1.44 across — 9 against
+ * **One step a frame tunnels.** At `RUN_SPEED` (20) and the 0.1 s `main.ts`
+ * caps a frame at, a step is 2 units against a body 1.44 across — 1.35 at the
+ * run of 13.5 earlier on 2026-09-24, 9 against
  * 2.6 while a person was 6.8 units and the run 90, until 2026-09-24 — and a body
  * that starts in front of a wall and ends behind it was never inside it to be
  * pushed. The distance from a point to a rectangle changes no faster than the
@@ -592,7 +593,7 @@ export interface Walls {
 export const STEP_FRACTION = 0.5;
 /**
  * A ceiling on the sub-steps, so a runaway speed costs a bounded frame. 32
- * steps of half the body's radius, 0.36, is 11.5 units, against the 1.35 the
+ * steps of half the body's radius, 0.36, is 11.5 units, against the 2 the
  * fastest foot covers in the longest frame (20.8 against 9 before 2026-09-24).
  */
 export const MAX_STEPS = 32;

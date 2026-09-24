@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AVATAR_HEIGHT } from './avatar.ts';
+import { AVATAR_HEIGHT, FIGURE, WALK_SPEED, WALK_STRIDE } from './avatar.ts';
 import { OUTFITS, castMaterial, foldLegs, limbsOf, loadCast, reachArms } from './cast.ts';
 import { bakeSkin } from './models.ts';
 import type { Cast, ClipName, OutfitId, Paint, Person, SlotStat } from './cast.ts';
@@ -36,6 +36,20 @@ import { frameOpenFor } from './view.ts';
  * nearest `TOWNSFOLK_CAP`, only inside `TOWNSFOLK_RADIUS` — and a town beyond
  * that has nobody visible in it, which at the distance where that happens is a
  * person a few pixels tall.
+ *
+ * ## And not all of them stand
+ *
+ * The town publishes, with each spot, the stretch of its own street a person
+ * there may walk (`Ground.folk` in `settlements.ts`): one terrace level, off
+ * the steps, clear of the car parked on it. Most who have one stroll it end to
+ * end and back, pausing at each end, on the hero's own stride
+ * (`WALK_STRIDE`: the cycle is driven by the distance walked, as the verge
+ * walkers' is); some stand in pairs turned to each other, gesturing as they
+ * talk; the rest stand, and glance at the player as he passes. Everything that
+ * decides who does which is seeded by the person's key. They are solid
+ * (`collide`, a body `PERSON_RADIUS` wide), and one of them at a time can be
+ * held in conversation (`engage`), which stops them and turns them to face the
+ * player; `talk.ts` says the words.
  */
 
 /**
@@ -189,6 +203,7 @@ export function createFolk(ctx: MonumentContext): Folk {
   };
 }
 
+
 // ---------------------------------------------------------------------------
 // The townsfolk
 // ---------------------------------------------------------------------------
@@ -201,12 +216,34 @@ export interface FolkAnchor {
   position: THREE.Vector3;
   /** The town's frame turned by this person's yaw: +Y is up, +Z is the way they face. */
   quaternion: THREE.Quaternion;
+  /**
+   * The two ends of the stretch of their own street this person may stroll
+   * along, in world space: level, off the steps, clear of the parked car. Both
+   * are `position` where there is no room to walk.
+   */
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  /** One of a pair standing talking, `quaternion` turned to face the other. */
+  chatting: boolean;
+  /** The town's own frame, with no yaw: what a person is turned in. */
+  town: THREE.Quaternion;
   distance: number;
 }
 
 export interface FolkSource {
   /** Every standing person inside `radius` of `viewer`, appended to `out`. */
   folkNear(viewer: THREE.Vector3, radius: number, out: FolkAnchor[]): void;
+}
+
+/** Somebody the player could talk to: `Townsfolk.nearest`'s answer, one reused object. */
+export interface Talker {
+  key: string;
+  /** Where their feet are now, in world space. Live while they stand. */
+  position: THREE.Vector3;
+  /** How tall they were dressed. */
+  height: number;
+  /** From the point asked about, along the ground. */
+  distance: number;
 }
 
 /** How far from the player people are standing. Past this a person is a few pixels tall. */
@@ -218,29 +255,111 @@ const DRESS_PER_FRAME = 3;
 /** Past this, a person's clip is advanced every few frames rather than every one. */
 const NEAR_ANIMATION = 40;
 
+/**
+ * How wide a standing person is to a body that walks into them: the hero's
+ * own shoulders, `FIGURE.shoulderHalf`, which is also the clearance the town
+ * keeps them off its steps by.
+ */
+export const PERSON_RADIUS = FIGURE.shoulderHalf;
+/** How many of the people who have a stretch of street to walk actually walk it. */
+const STROLL_SHARE = 0.6;
+/** A stroll is slower than the hero's walk, and on the same stride: see `WALK_STRIDE`. */
+const STROLL_PACE: readonly [number, number] = [0.6, 0.85];
+/** Seconds a stroller stands at each end before turning back. */
+const STROLL_PAUSE: readonly [number, number] = [2, 9];
+/** Radians a second a person turns: a quarter turn in about a third of a second. */
+const TURN_RATE = 4.5;
+/** Seconds a walk and a stand take to cross-fade. */
+const BLEND_TIME = 0.25;
+/**
+ * Inside this a person not otherwise busy turns their head to the player,
+ * as far as `GLANCE_LIMIT` either side of where their body faces.
+ */
+const GLANCE_REACH = AVATAR_HEIGHT * 3;
+const GLANCE_LIMIT = 1.1;
+
+const AXIS_UP = new THREE.Vector3(0, 1, 0);
+
+type Mode = 'stand' | 'stroll' | 'chat';
+
 interface Standing {
   anchor: FolkAnchor;
   holder: THREE.Group;
   person: Person;
+  mode: Mode;
   base: THREE.AnimationAction;
+  walk: THREE.AnimationAction;
   gesture: THREE.AnimationAction | null;
   gestureAt: number;
   nextGesture: number;
   owed: number;
   /** Which of the far frames this person animates on, so they do not all land on one. */
   lane: number;
+  /** Where the feet are now, in world space. */
+  position: THREE.Vector3;
+  /** The yaw the body has and the one it is turning to, in the town's frame. */
+  yaw: number;
+  targetYaw: number;
+  /** The yaw a standing or talking person turns back to when nothing else asks. */
+  restYaw: number;
+  /** A stroll: how far along `from -> to` (0 to 1), which way, and the length. */
+  along: number;
+  heading: 1 | -1;
+  length: number;
+  speed: number;
+  /** The yaw of `from -> to` in the town's frame. */
+  strollYaw: number;
+  /** Seconds left standing at the end of a stretch. */
+  pause: number;
+  /** How far into the walk cycle, 0 to 1, driven by the distance walked. */
+  phase: number;
+  /** How much of the walk is showing, 0 to 1. */
+  walking: number;
+  /** The head, for a glance, and its pose before the glance was put on it. */
+  head: THREE.Bone | null;
+  headRest: THREE.Quaternion;
+  glance: number;
+  /** Held in conversation by the player: stands, and faces them. */
+  held: boolean;
+  turns: number;
 }
 
 export interface Townsfolk {
   group: THREE.Group;
   update(viewer: THREE.Vector3, dt: number, clock: number, frame: number): void;
   /**
-   * `nearestMoving` is how far from the viewer the nearest person in the
-   * middle of a gesture stands, or Infinity: `main.ts` redraws the shadow map
-   * every frame while it is inside the box. An idle stance is not counted —
-   * breathing moves a shadow by less than one of the map's 0.29-unit texels.
+   * Adds to `push` the displacement along the ground that takes a body of
+   * `radius` at `point` out of every standing person it overlaps, and says
+   * whether it touched anybody. Only the dressed are solid: nobody further
+   * than `TOWNSFOLK_RADIUS` is standing at all.
    */
-  readonly stats: { standing: number; animated: number; nearestMoving: number };
+  collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /** The nearest standing person within `reach` of `point`, or null. One reused object. */
+  nearest(point: THREE.Vector3, reach: number): Talker | null;
+  /**
+   * Holds `key` in conversation — they stop, wave, and turn to face `towards`
+   * each frame — or lets whoever was held go, with null. False when `key` is
+   * not standing.
+   */
+  engage(key: string | null, towards?: THREE.Vector3): boolean;
+  /** Where a standing person's crown is, written into `out`; false if they are not standing. */
+  crownOf(key: string, out: THREE.Vector3): boolean;
+  /**
+   * `nearestMoving` is how far from the viewer the nearest person in the
+   * middle of a gesture or a stroll stands, or Infinity: `main.ts` redraws
+   * the shadow map every frame while it is inside the box. An idle stance is
+   * not counted — breathing moves a shadow by less than one of the map's
+   * 0.29-unit texels.
+   */
+  readonly stats: { standing: number; animated: number; strolling: number; nearestMoving: number };
+}
+
+/** The shortest signed turn from `from` to `to`, in (-PI, PI]. */
+function turnBetween(from: number, to: number): number {
+  let d = (to - from) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  else if (d <= -Math.PI) d += Math.PI * 2;
+  return d;
 }
 
 export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
@@ -250,12 +369,35 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
   const anchors: FolkAnchor[] = [];
   const keep = new Set<string>();
   const byDistance = (a: FolkAnchor, b: FolkAnchor): number => a.distance - b.distance;
-  const stats = { standing: 0, animated: 0, nearestMoving: Infinity };
+  const stats = { standing: 0, animated: 0, strolling: 0, nearestMoving: Infinity };
+  let heldKey: string | null = null;
+  const holdTowards = new THREE.Vector3();
+  let viewerAt = new THREE.Vector3();
+  /** The clock of the last update, for a gesture started between two. */
+  let now = 0;
 
   const hash = (key: string, salt: string) => rngFrom(key, salt).unit();
 
+  // Scratch, so nothing in the frame allocates.
+  const inverse = new THREE.Quaternion();
+  const local = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  const upAxis = new THREE.Vector3();
+  const parentTurn = new THREE.Quaternion();
+  const ahead = new THREE.Vector3();
+  const gap = new THREE.Vector3();
+  const talker: Talker = { key: '', position: new THREE.Vector3(), height: 0, distance: 0 };
+
+  /** The yaw, in the person's town frame, that faces a world point. */
+  function yawTowards(entry: Standing, point: THREE.Vector3): number {
+    inverse.copy(entry.anchor.town).invert();
+    local.copy(point).sub(entry.position).applyQuaternion(inverse);
+    return Math.atan2(local.x, local.z);
+  }
+
   function release(entry: Standing): void {
     group.remove(entry.holder);
+    if (entry.head !== null) entry.head.quaternion.copy(entry.headRest);
     // Back to the cast's pool, not disposed: see `Cast.release`.
     folk.release(entry.person);
     standing.delete(entry.anchor.key);
@@ -273,47 +415,170 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     // Out of step with each other, or a square breathes in unison.
     base.time = hash(anchor.key, 'phase') * base.getClip().duration;
     base.timeScale = 0.85 + hash(anchor.key, 'rate') * 0.3;
-    return {
+    // The walk is driven by distance, as the hero's and the verge walkers'
+    // are, so it is played held and its time is written each frame.
+    const walk = person.actions.get('Walk')!;
+    walk.play();
+    walk.timeScale = 0;
+    walk.setEffectiveWeight(0);
+    const length = anchor.from.distanceTo(anchor.to);
+    const mode: Mode = anchor.chatting
+      ? 'chat'
+      : length > 1 && hash(anchor.key, 'strolls') < STROLL_SHARE
+        ? 'stroll'
+        : 'stand';
+    // The anchor's yaw, read back out of its quaternion in the town's frame.
+    local.set(0, 0, 1).applyQuaternion(anchor.quaternion).applyQuaternion(inverse.copy(anchor.town).invert());
+    const yaw = Math.atan2(local.x, local.z);
+    local.copy(anchor.to).sub(anchor.from).applyQuaternion(inverse);
+    const strollYaw = Math.atan2(local.x, local.z);
+    const head = person.bones.get('Head') ?? null;
+    const entry: Standing = {
       anchor,
       holder,
       person,
+      mode,
       base,
+      walk,
       gesture: null,
       gestureAt: 0,
-      nextGesture: clock + 3 + hash(anchor.key, 'first') * 14,
+      nextGesture: clock + (mode === 'chat' ? 1 : 3) + hash(anchor.key, 'first') * (mode === 'chat' ? 5 : 14),
       owed: 0,
       lane: Math.floor(hash(anchor.key, 'lane') * 4),
+      position: anchor.position.clone(),
+      yaw,
+      targetYaw: yaw,
+      restYaw: yaw,
+      along: length > 1e-6 ? THREE.MathUtils.clamp(anchor.from.distanceTo(anchor.position) / length, 0, 1) : 0,
+      heading: hash(anchor.key, 'heading') < 0.5 ? 1 : -1,
+      length,
+      speed: WALK_SPEED * THREE.MathUtils.lerp(STROLL_PACE[0], STROLL_PACE[1], hash(anchor.key, 'pace')),
+      strollYaw,
+      pause: hash(anchor.key, 'pause') * STROLL_PAUSE[1],
+      phase: hash(anchor.key, 'stride'),
+      walking: 0,
+      head,
+      headRest: head === null ? new THREE.Quaternion() : head.quaternion.clone(),
+      glance: 0,
+      held: false,
+      turns: 0,
     };
+    place(entry);
+    return entry;
+  }
+
+  /** The holder where the entry says: its position, and its yaw in its town's frame. */
+  function place(entry: Standing): void {
+    entry.holder.position.copy(entry.position);
+    turn.setFromAxisAngle(AXIS_UP, entry.yaw);
+    entry.holder.quaternion.copy(entry.anchor.town).multiply(turn);
+  }
+
+  /**
+   * One step of a stroll: walk the stretch, stand at its end, turn, walk back.
+   * Anybody in the way — the player — is waited for rather than walked through.
+   */
+  function stroll(entry: Standing, dt: number): boolean {
+    const { anchor } = entry;
+    if (entry.held) return false;
+    if (entry.pause > 0) {
+      entry.pause -= dt;
+      if (entry.pause <= 0) {
+        entry.heading = entry.heading === 1 ? -1 : 1;
+        entry.turns++;
+      }
+      entry.targetYaw = entry.heading === 1 ? entry.strollYaw : entry.strollYaw + Math.PI;
+      return false;
+    }
+    entry.targetYaw = entry.heading === 1 ? entry.strollYaw : entry.strollYaw + Math.PI;
+    // Not yet facing the way: turn on the spot first.
+    if (Math.abs(turnBetween(entry.yaw, entry.targetYaw)) > 0.5) return false;
+    const step = (entry.speed * dt) / entry.length;
+    let next = entry.along + step * entry.heading;
+    // Somebody standing just ahead is waited for.
+    ahead.lerpVectors(anchor.from, anchor.to, THREE.MathUtils.clamp(next, 0, 1));
+    gap.copy(viewerAt).sub(ahead);
+    if (gap.lengthSq() < (PERSON_RADIUS * 3) ** 2) {
+      local.copy(anchor.to).sub(anchor.from).multiplyScalar(entry.heading);
+      if (gap.dot(local) > 0) return false;
+    }
+    if (next >= 1 || next <= 0) {
+      next = THREE.MathUtils.clamp(next, 0, 1);
+      entry.pause = THREE.MathUtils.lerp(STROLL_PAUSE[0], STROLL_PAUSE[1], hash(anchor.key, `p${entry.turns}`));
+    }
+    const moved = Math.abs(next - entry.along) * entry.length;
+    entry.along = next;
+    entry.position.lerpVectors(anchor.from, anchor.to, next);
+    entry.phase = (entry.phase + moved / WALK_STRIDE) % 1;
+    return moved > 0;
   }
 
   const GESTURES: readonly ClipName[] = ['Interact', 'Wave'];
+  /** A pair talking gestures as they talk. */
+  const TALKING: readonly ClipName[] = ['Interact', 'Interact', 'Wave'];
+
+  function startGesture(entry: Standing, which: ClipName, clock: number): void {
+    entry.gesture?.stop();
+    entry.gesture = entry.person.actions.get(which)!;
+    entry.gesture.reset().play();
+    entry.gesture.timeScale = 0;
+    entry.gestureAt = clock;
+  }
 
   /** A gesture fades in over a quarter second and out over the last third of one. */
-  function animate(entry: Standing, dt: number, clock: number): void {
-    const { person, base } = entry;
-    if (entry.gesture === null && clock >= entry.nextGesture) {
-      const which = GESTURES[Math.floor(hash(entry.anchor.key, `g${Math.floor(clock)}`) * GESTURES.length)]!;
-      entry.gesture = person.actions.get(which)!;
-      entry.gesture.reset().play();
-      entry.gesture.timeScale = 0;
-      entry.gestureAt = clock;
+  function animate(entry: Standing, dt: number, clock: number, near: boolean): void {
+    const { person, base, walk } = entry;
+    const moving = entry.mode === 'stroll' && stroll(entry, dt);
+    entry.walking = THREE.MathUtils.clamp(entry.walking + (moving ? dt : -dt) / BLEND_TIME, 0, 1);
+    // Turning, whoever is asking: the stroll's way, the partner, the player.
+    if (entry.held) entry.targetYaw = yawTowards(entry, holdTowards);
+    else if (entry.mode !== 'stroll') entry.targetYaw = entry.restYaw;
+    const d = turnBetween(entry.yaw, entry.targetYaw);
+    entry.yaw += Math.sign(d) * Math.min(Math.abs(d), TURN_RATE * dt);
+    place(entry);
+
+    if (entry.gesture === null && entry.walking === 0 && clock >= entry.nextGesture) {
+      const list = entry.mode === 'chat' ? TALKING : GESTURES;
+      startGesture(entry, list[Math.floor(hash(entry.anchor.key, `g${Math.floor(clock)}`) * list.length)]!, clock);
     }
+    let g = 0;
     if (entry.gesture !== null) {
       const duration = entry.gesture.getClip().duration;
       const t = clock - entry.gestureAt;
-      if (t >= duration) {
+      if (t >= duration || moving) {
         entry.gesture.stop();
         entry.gesture = null;
-        base.setEffectiveWeight(1);
-        entry.nextGesture = clock + 8 + hash(entry.anchor.key, `n${Math.floor(clock)}`) * 20;
+        const [rest, spread] = entry.mode === 'chat' ? [2, 6] : [8, 20];
+        entry.nextGesture = clock + rest + hash(entry.anchor.key, `n${Math.floor(clock)}`) * spread;
       } else {
-        const w = THREE.MathUtils.smoothstep(t, 0, 0.25) * (1 - THREE.MathUtils.smoothstep(t, duration - 0.3, duration));
+        g = THREE.MathUtils.smoothstep(t, 0, 0.25) * (1 - THREE.MathUtils.smoothstep(t, duration - 0.3, duration));
         entry.gesture.time = t;
-        entry.gesture.setEffectiveWeight(w);
-        base.setEffectiveWeight(1 - w);
+        entry.gesture.setEffectiveWeight(g * (1 - entry.walking));
       }
     }
+    walk.time = entry.phase * walk.getClip().duration;
+    walk.setEffectiveWeight(entry.walking);
+    base.setEffectiveWeight((1 - entry.walking) * (1 - g));
+    if (entry.head !== null) entry.head.quaternion.copy(entry.headRest);
     person.mixer.update(dt);
+    if (entry.head === null) return;
+    entry.headRest.copy(entry.head.quaternion);
+    // A glance at the player, near and not otherwise busy: the head alone,
+    // turned about the town's up, so the body keeps the way it was facing.
+    let want = 0;
+    if (near && !entry.held && entry.walking === 0 && entry.position.distanceToSquared(viewerAt) < GLANCE_REACH ** 2) {
+      want = THREE.MathUtils.clamp(turnBetween(entry.yaw, yawTowards(entry, viewerAt)), -GLANCE_LIMIT, GLANCE_LIMIT);
+    }
+    const e = want - entry.glance;
+    entry.glance += Math.sign(e) * Math.min(Math.abs(e), TURN_RATE * 0.5 * dt);
+    if (Math.abs(entry.glance) < 1e-3) return;
+    // The turn about the world's up, carried into the head's parent frame.
+    const parent = entry.head.parent!;
+    upAxis.set(0, 1, 0).applyQuaternion(entry.anchor.town);
+    parent.getWorldQuaternion(parentTurn);
+    turn.setFromAxisAngle(upAxis, entry.glance);
+    // parent^-1 * turn * parent * rest
+    entry.head.quaternion.copy(parentTurn).invert().multiply(turn).multiply(parentTurn).multiply(entry.headRest);
   }
 
   return {
@@ -321,6 +586,8 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     stats,
     update(viewer, dt, clock, frame) {
       if (!folk.ready) return;
+      viewerAt = viewer;
+      now = clock;
       // Every frame on foot, so nothing here allocates: the anchors are the
       // settlements' own objects, the list and the set are reused, and a map
       // may drop the entry it is visiting.
@@ -331,10 +598,13 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
       const wanted = anchors;
       keep.clear();
       for (const anchor of wanted) keep.add(anchor.key);
+      // Whoever is being talked to is kept, whatever the ranking says.
+      if (heldKey !== null && standing.has(heldKey)) keep.add(heldKey);
       for (const [key, entry] of standing) if (!keep.has(key)) release(entry);
 
       let dressed = 0;
       stats.animated = 0;
+      stats.strolling = 0;
       stats.nearestMoving = Infinity;
       for (const anchor of wanted) {
         let entry = standing.get(anchor.key);
@@ -347,21 +617,99 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
           standing.set(anchor.key, entry);
           dressed++;
         }
-        entry.anchor = anchor;
-        entry.holder.position.copy(anchor.position);
-        entry.holder.quaternion.copy(anchor.quaternion);
+        // The settlements hand out the same anchor objects while a town
+        // stands; a rebuilt town hands out new ones for the same key, and
+        // the person moves onto it.
+        if (entry.anchor !== anchor) {
+          entry.anchor = anchor;
+          entry.length = anchor.from.distanceTo(anchor.to);
+          if (entry.mode === 'stroll' && entry.length <= 1) entry.mode = 'stand';
+          if (entry.mode === 'stroll') entry.position.lerpVectors(anchor.from, anchor.to, entry.along);
+          else entry.position.copy(anchor.position);
+          place(entry);
+        }
         // Near people move every frame; far ones catch up every fourth, with the
         // time they missed, so a far square is not slower, only coarser.
         entry.owed += dt;
-        const stride = anchor.distance < NEAR_ANIMATION ? 1 : 4;
+        const near = anchor.distance < NEAR_ANIMATION;
+        const stride = near || entry.held ? 1 : 4;
         if ((frame + entry.lane) % stride === 0) {
-          animate(entry, entry.owed, clock);
+          animate(entry, entry.owed, clock, near);
           entry.owed = 0;
           stats.animated++;
         }
-        if (entry.gesture !== null) stats.nearestMoving = Math.min(stats.nearestMoving, anchor.distance);
+        if (entry.walking > 0) stats.strolling++;
+        if (entry.gesture !== null || entry.walking > 0) {
+          stats.nearestMoving = Math.min(stats.nearestMoving, entry.position.distanceTo(viewer));
+        }
       }
       stats.standing = standing.size;
+    },
+    collide(point, radius, push) {
+      let hit = false;
+      const reach = radius + PERSON_RADIUS;
+      const r = point.length();
+      for (const entry of standing.values()) {
+        gap.copy(point).sub(entry.position);
+        // Along the ground: the part of the gap that is not up.
+        const up = gap.dot(point) / r;
+        // Over their heads, or under their feet on a terrace below: no touch.
+        if (up > entry.person.height || up < -AVATAR_HEIGHT) continue;
+        gap.addScaledVector(point, -up / r);
+        const d2 = gap.lengthSq();
+        if (d2 >= reach * reach) continue;
+        const d = Math.sqrt(d2);
+        // Dead centre: out along any direction on the ground.
+        if (d < 1e-6) gap.set(1, 0, 0).addScaledVector(point, -point.x / (r * r)).normalize();
+        else gap.divideScalar(d);
+        push.addScaledVector(gap, reach - d);
+        hit = true;
+      }
+      return hit;
+    },
+    nearest(point, reach) {
+      let best: Standing | null = null;
+      let bestD = reach;
+      for (const entry of standing.values()) {
+        const d = entry.position.distanceTo(point);
+        if (d < bestD) {
+          bestD = d;
+          best = entry;
+        }
+      }
+      if (best === null) return null;
+      talker.key = best.anchor.key;
+      talker.position.copy(best.position);
+      talker.height = best.person.height;
+      talker.distance = bestD;
+      return talker;
+    },
+    engage(key, towards) {
+      if (heldKey !== null && heldKey !== key) {
+        const was = standing.get(heldKey);
+        if (was !== undefined) was.held = false;
+      }
+      heldKey = key;
+      if (key === null) return true;
+      const entry = standing.get(key);
+      if (entry === undefined) {
+        heldKey = null;
+        return false;
+      }
+      if (towards !== undefined) holdTowards.copy(towards);
+      if (!entry.held) {
+        entry.held = true;
+        // A wave hello, on the townsfolk's own clock.
+        startGesture(entry, 'Wave', now);
+      }
+      return true;
+    },
+    crownOf(key, out) {
+      const entry = standing.get(key);
+      if (entry === undefined) return false;
+      upAxis.set(0, 1, 0).applyQuaternion(entry.anchor.town);
+      out.copy(entry.position).addScaledVector(upAxis, entry.person.height);
+      return true;
     },
   };
 }

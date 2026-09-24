@@ -297,7 +297,9 @@ export function createSettings(options: SettingsOptions): Settings {
     const value = h('div', { class: 'atlas-settings-value' });
     const input = h('input', { class: 'ui-range', type: 'range', min: 0, max: 1000, step: 1 });
     const span = Math.log(knob.max / knob.min);
-    const toPosition = (v: number): number => (Math.log(v / knob.min) / span) * 1000;
+    // Clamped: a value under the knob's floor (a volume of 0 set from the
+    // console) is a log of 0, and the thumb and the fill would say -Infinity.
+    const toPosition = (v: number): number => (Math.log(Math.min(knob.max, Math.max(knob.min, v)) / knob.min) / span) * 1000;
     const fromPosition = (p: number): number => knob.min * Math.exp((p / 1000) * span);
     const show = (v: number): void => {
       const [main, small] = describe(v);
