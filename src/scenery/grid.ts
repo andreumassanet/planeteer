@@ -799,8 +799,10 @@ export function outskirtScore(grid: TownGrid, seed: string, col: number, row: nu
  * - **Only from the outside in.** A cell goes only if the cells it goes with
  *   reach the square's edge, so a town has an outline and no clearings: an
  *   unbuilt cell inside the paving would take the edge slope down into a pit.
- * - **`keep` is never given up**: the main streets, every street a road comes
- *   in by, and whatever the caller must stand on — a landmark's cells.
+ * - **`keep` is never given up**: every street a road comes in by, and
+ *   whatever the caller must stand on — a landmark's cells. A main street no
+ *   road comes in by is given up like any other cell: kept whole, it ran out
+ *   of the town as a pier with the fields either side of it.
  * - **No cell left as a spur**: a cell with three of its four sides on the
  *   outskirts is one house on a promontory of slope, and it goes too.
  */
@@ -812,8 +814,7 @@ export function outskirtsOf(
   const out = new Set<number>();
   const cells = grid.cells;
   if (cells < OUTSKIRT_MIN_CELLS) return out;
-  const may = (col: number, row: number): boolean =>
-    !isAvenue(grid, col, row) && !keep(col, row) && outskirtScore(grid, seed, col, row) > OUTSKIRT_CUT;
+  const may = (col: number, row: number): boolean => !keep(col, row) && outskirtScore(grid, seed, col, row) > OUTSKIRT_CUT;
   const gone = (col: number, row: number): boolean => !inGrid(grid, col, row) || out.has(cellKey(col, row));
   // Flood in from the edge through the cells that may go.
   const queue: [number, number][] = [];
@@ -841,7 +842,7 @@ export function outskirtsOf(
     for (let col = 0; col < cells; col++) {
       for (let row = 0; row < cells; row++) {
         const key = cellKey(col, row);
-        if (out.has(key) || isAvenue(grid, col, row) || keep(col, row)) continue;
+        if (out.has(key) || keep(col, row)) continue;
         let open = 0;
         for (const [dc, dr] of SIDES) if (gone(col + dc, row + dr)) open++;
         if (open >= 3) out.add(key);

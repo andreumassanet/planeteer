@@ -353,6 +353,17 @@ export function detailRadiusOf(place: { pop: number; radius?: number }): number 
   return Math.max(DETAIL_FLOOR, radiusOf(place));
 }
 
+/**
+ * What the relief has to be told about a place before it is asked anything
+ * (`setDetailSites` in `terrain.ts`): how far out the mesh stays fine, and —
+ * for a town that is built — the radius it stands in, which a town on steep
+ * ground opens a valley to. One definition, because the game, the road bake
+ * and every check that builds the land must hand the relief the same list.
+ */
+export function terrainSiteOf(place: Place): { lat: number; lon: number; radius: number; valley: number } {
+  return { lat: place.lat, lon: place.lon, radius: detailRadiusOf(place), valley: isShown(place) ? radiusOf(place) : 0 };
+}
+
 const APPROACH = 220;
 
 export function labelRadiusOf(place: { pop: number; radius?: number }): number {

@@ -524,7 +524,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   const { PLANET_RADIUS, UNITS_PER_DEGREE } = await import('../src/globe.ts');
   const { unitAt } = await import('../src/sphere.ts');
   const { setDetailSites, setFlattenSites } = await import('../src/terrain.ts');
-  const { radiusOf } = await import('../src/places.ts');
+  const { terrainSiteOf } = await import('../src/places.ts');
   const { decodePlaces, inflate } = await import('../src/pack.ts');
   const { createLife } = await import('../src/life.ts');
   const { setDetail } = await import('../src/view.ts');
@@ -544,7 +544,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
     : [];
   setFlattenSites(monuments as never);
   const raw = decodePlaces(await inflate(readFileSync(resolve(here, '../public/data/places.bin'))));
-  setDetailSites(raw.map((p) => ({ lat: p.lat, lon: p.lon, radius: radiusOf(p) })));
+  setDetailSites(raw.map(terrainSiteOf));
   const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
   const life = createLife(world, raw, { animals: ANIMALS, rigs });

@@ -21,7 +21,7 @@ import { PerspectiveCamera, Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
-import { detailRadiusOf, indexPlaces } from '../src/places.ts';
+import { indexPlaces, terrainSiteOf } from '../src/places.ts';
 import { ROAD_CLASSES, courseOf, coursePath, coursePoint, emptyCourse, parameterAt } from '../src/roads.ts';
 import type { Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
@@ -67,7 +67,7 @@ const monuments: { lat: number; lon: number; footprint?: number; clearance?: num
 setFlattenSites(monuments as never);
 
 const placesRaw = decodePlaces(await inflate(readFileSync(resolve(here, '../public/data/places.bin'))));
-setDetailSites(placesRaw.map((p) => ({ lat: p.lat, lon: p.lon, radius: detailRadiusOf(p) })));
+setDetailSites(placesRaw.map(terrainSiteOf));
 
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 const places = indexPlaces(placesRaw, 0).all;

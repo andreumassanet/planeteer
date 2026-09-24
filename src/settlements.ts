@@ -14,6 +14,7 @@ import {
   KERB_DROP,
   LINE_HALF,
   MARKED_STREET,
+  MAX_CUT,
   SIDEWALK,
   ZEBRA,
   ZEBRA_STRIPE,
@@ -2230,6 +2231,13 @@ export function createSettlements(
     // at the paving's own height, where `roads.ts` places it (`kerbA`), because
     // a point's offset in this frame moves with its radius.
     const gates = gatesOf(grid);
+    /** Every edge a road comes in over, as `cellKey * 4 + side`: the streets that do not end there. */
+    const roadEnds = new Set<number>();
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gates[index];
+      if (gate === undefined) continue;
+      for (const [col, row] of gate.cells) roadEnds.add(cellKey(col, row) * 4 + gate.side);
+    }
     const gateAt: number[] = [0, 0, 0];
     for (const index of roadGates.get(slot.place) ?? []) {
       const gate = gates[index];
@@ -2353,6 +2361,56 @@ export function createSettlements(
       const dashedX = alongX.some((street) => street.half * 2 >= MARKED_STREET);
       const us = cutsFor(alongZ, dashedX, x0);
       const vs = cutsFor(alongX, dashedZ, z0);
+      /**
+       * **A street that runs off the town with no road beyond it ends in a
+       * kerb.** Where the next cell along it is not town and no road comes in
+       * that way, the carriageway stopped dead at the paving's edge and read as
+       * a road cut off; a pavement across its end, as wide as the street's own
+       * pavements, reads as a street that stops there. `ends[side]` is that
+       * width as a share of the cell, or 0 where the street goes on: east,
+       * north, west, south, as `Gate.side` counts them.
+       */
+      const ends = [0, 0, 0, 0];
+      /**
+       * Whether the street goes on into the next cell: that cell is town, and
+       * — for a band, which two cells pave between them — so is the cell across
+       * the band from it, or the next cell carries none of it.
+       */
+      const goesOn = (dc: number, dr: number, street: { centre: number }): boolean => {
+        if (!levels.has(cellKey(col + dc, row + dr))) return false;
+        if (street.centre === 0.5) return true;
+        const step = street.centre === 0 ? -1 : 1;
+        return dc !== 0
+          ? levels.has(cellKey(col + dc, row + step))
+          : levels.has(cellKey(col + step, row + dr));
+      };
+      const endOf = (side: number, dc: number, dr: number, streets: { centre: number; half: number }[]): void => {
+        if (roadEnds.has(cellKey(col, row) * 4 + side)) return;
+        for (const street of streets) {
+          if (goesOn(dc, dr, street)) continue;
+          ends[side] = Math.max(ends[side]!, walkOf(street.half) / pitch);
+        }
+      };
+      endOf(0, 1, 0, alongX);
+      endOf(2, -1, 0, alongX);
+      endOf(1, 0, 1, alongZ);
+      endOf(3, 0, -1, alongZ);
+      // A crossing's four arms are avenues, and one whose next cell is gone
+      // was a mouth with a zebra across it opening onto the grass.
+      if (crossing) {
+        const avenue = [{ centre: 0.5, half: pitch * 0.5 }];
+        endOf(0, 1, 0, avenue);
+        endOf(2, -1, 0, avenue);
+        endOf(1, 0, 1, avenue);
+        endOf(3, 0, -1, avenue);
+      }
+      const capCut = (list: number[], low: number, high: number): number[] => {
+        if (low > 0) list.push(low);
+        if (high > 0) list.push(1 - high);
+        return [...new Set(list)].sort((m, n) => m - n);
+      };
+      const usCapped = capCut([...us], ends[2]!, ends[0]!);
+      const vsCapped = capCut([...vs], ends[3]!, ends[1]!);
 
       /** Where a point of the cell falls across the streets on one axis: 'yard', 'walk', 'road' or 'line'. */
       const across = (streets: { centre: number; half: number }[], t: number): 'yard' | 'walk' | 'road' | 'line' => {
@@ -2367,16 +2425,19 @@ export function createSettlements(
       };
       const dashOn = (coordinate: number): boolean => Math.floor(coordinate / DASH + 1e-6) % 2 === 0;
 
-      for (let iu = 0; iu < us.length - 1; iu++) {
-        const u0 = us[iu]!;
-        const u1 = us[iu + 1]!;
+      for (let iu = 0; iu < usCapped.length - 1; iu++) {
+        const u0 = usCapped[iu]!;
+        const u1 = usCapped[iu + 1]!;
         const uc = (u0 + u1) * 0.5;
         const roleU = across(alongZ, uc);
-        for (let iv = 0; iv < vs.length - 1; iv++) {
-          const v0 = vs[iv]!;
-          const v1 = vs[iv + 1]!;
+        for (let iv = 0; iv < vsCapped.length - 1; iv++) {
+          const v0 = vsCapped[iv]!;
+          const v1 = vsCapped[iv + 1]!;
           const vc = (v0 + v1) * 0.5;
           const roleV = across(alongX, vc);
+          // Inside a dead end's kerb, across the street it closes.
+          const cappedZ = roleU !== 'yard' && ((ends[3]! > 0 && vc < ends[3]!) || (ends[1]! > 0 && vc > 1 - ends[1]!));
+          const cappedX = roleV !== 'yard' && ((ends[2]! > 0 && uc < ends[2]!) || (ends[0]! > 0 && uc > 1 - ends[0]!));
           inside(ta, tb, tc, td, u0, v0, q0);
           inside(ta, tb, tc, td, u1, v0, q1);
           inside(ta, tb, tc, td, u1, v1, q2);
@@ -2387,15 +2448,19 @@ export function createSettlements(
             const walk = walkOf(pitch * 0.5) / pitch;
             const edgeU = uc < walk || uc > 1 - walk;
             const edgeV = vc < walk || vc > 1 - walk;
-            const mouthU = uc < ZEBRA / pitch || uc > 1 - ZEBRA / pitch;
-            const mouthV = vc < ZEBRA / pitch || vc > 1 - ZEBRA / pitch;
+            // A zebra across every mouth that goes on; a closed one has its kerb instead.
+            const mouthU = (uc < ZEBRA / pitch && ends[2] === 0) || (uc > 1 - ZEBRA / pitch && ends[0] === 0);
+            const mouthV = (vc < ZEBRA / pitch && ends[3] === 0) || (vc > 1 - ZEBRA / pitch && ends[1] === 0);
             const stripe = (t: number) => Math.floor((t - walk) / (ZEBRA_STRIPE / pitch)) % 2 === 0;
-            if (edgeU && edgeV) tint = walkColor;
+            const closed = (ends[3]! > 0 && vc < ends[3]!) || (ends[1]! > 0 && vc > 1 - ends[1]!) ||
+              (ends[2]! > 0 && uc < ends[2]!) || (ends[0]! > 0 && uc > 1 - ends[0]!);
+            if ((edgeU && edgeV) || closed) tint = walkColor;
             else if (mouthV && !mouthU && !edgeU) tint = stripe(uc) ? lineColor : roadColor;
             else if (mouthU && !mouthV && !edgeV) tint = stripe(vc) ? lineColor : roadColor;
             else tint = roadColor;
           }
           else if (roleU === 'yard' && roleV === 'yard') tint = cellFloor;
+          else if ((cappedZ && roleV === 'yard') || (cappedX && roleU === 'yard')) tint = walkColor;
           else if (roleU === 'yard' || roleV === 'yard') {
             // One street here: its own section, and its line dashed along it.
             const role = roleU === 'yard' ? roleV : roleU;
@@ -3345,6 +3410,33 @@ export function createSettlements(
       return dx * dx + dz * dz < keepout.radius * keepout.radius;
     }));
     for (const key of outskirts) terraces.set(key, null);
+    /**
+     * **A gate no road comes in by is not a gate.** Every gate's cells may be
+     * cut to `GATE_CUT`, deeper than any other cell, because a gate refused is
+     * a road lost; on a hillside, one no road uses came out as a cell sunk
+     * between walls with a street running into the grass. So a gate cell that
+     * is no used gate's own, and whose own corners span more than `MAX_CUT`,
+     * is not paved. No level changes — the road's ramp reads `gateLevel`,
+     * which is this cell's group's — it is only left unbuilt.
+     */
+    const used = new Set<number>();
+    for (const index of roadGates.get(slot.place) ?? []) {
+      for (const [col, row] of gates[index]?.cells ?? []) used.add(cellKey(col, row));
+    }
+    for (const gate of gates) {
+      for (const [col, row] of gate.cells) {
+        const key = cellKey(col, row);
+        if (used.has(key) || terraces.get(key) == null) continue;
+        let high = -Infinity;
+        let low = Infinity;
+        for (const [i, j] of [[col, row], [col + 1, row], [col + 1, row + 1], [col, row + 1]] as const) {
+          const elevation = townGround.corner(i, j);
+          high = Math.max(high, elevation);
+          low = Math.min(low, elevation);
+        }
+        if (high - low > MAX_CUT) terraces.set(key, null);
+      }
+    }
 
     const placed = planTown(slot, grid).placed;
 

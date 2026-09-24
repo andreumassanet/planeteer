@@ -28,13 +28,13 @@ import {
   PROMINENCE_RADIUS,
   PROMINENCE_RATIO,
   SMALLEST_SETTLEMENT,
-  detailRadiusOf,
   indexPlaces,
   isShown,
   labelRadiusOf,
   prominenceField,
   radiusFor,
   radiusOf,
+  terrainSiteOf,
 } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
 import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
@@ -86,7 +86,6 @@ import {
   gateLevel,
   gatesOf,
   groundOf,
-  isAvenue,
   offsetDirection,
   OUTSKIRT_MIN_CELLS,
   outskirtsOf,
@@ -165,7 +164,7 @@ const placesPath = resolve(here, '../public/data/places.bin');
 const placesRaw: Place[] = existsSync(placesPath)
   ? decodePlaces(await inflate(readFileSync(placesPath)))
   : [];
-setDetailSites(placesRaw.map((p) => ({ lat: p.lat, lon: p.lon, radius: detailRadiusOf(p) })));
+setDetailSites(placesRaw.map(terrainSiteOf));
 
 const loadStart = Date.now();
 const lakeRings = decodeLakes(await inflate(lakes));
@@ -3491,8 +3490,8 @@ console.log('\nmade ground');
 
     /**
      * And where a town stops short of its square (`outskirtsOf`), over every
-     * size of square and forty seeds each: never on a main street or a cell
-     * the caller keeps, never a clearing inside the town — every cell given up
+     * size of square and forty seeds each: never a cell the caller keeps nor
+     * one of the town's middle, never a clearing inside the town — every cell given up
      * reaches the square's edge through others given up, or the edge slope
      * would go down into a pit — the same answer twice, and the town keeps
      * most of itself.
@@ -3522,7 +3521,7 @@ console.log('\nmade ground');
         for (const key of out) {
           const col = Math.floor(key / 1024) - 512;
           const row = (key % 1024) - 512;
-          if (isAvenue(grid, col, row)) onStreet++;
+          if (Math.max(Math.abs(col - grid.shift), Math.abs(row - grid.shift)) < 1) onStreet++;
           if (keep(col, row)) onKept++;
           if (col === 0 || row === 0 || col === grid.cells - 1 || row === grid.cells - 1) {
             reached.add(key);
@@ -3543,8 +3542,8 @@ console.log('\nmade ground');
     }
     check(
       onStreet === 0 && onKept === 0 && clearings === 0 && unstable === 0 && outskirtCells > 0,
-      'a town stops short of its square only from its edge in, off its main streets and the cells it keeps, the same way twice',
-      `${outskirtTowns} towns, ${outskirtCells} of ${outskirtOf} cells given up; ${onStreet} on a main street, ${onKept} kept, ${clearings} in a clearing, ${unstable} unstable`,
+      'a town stops short of its square only from its edge in, never at its middle or on the cells it keeps, the same way twice',
+      `${outskirtTowns} towns, ${outskirtCells} of ${outskirtOf} cells given up; ${onStreet} at the middle, ${onKept} kept, ${clearings} in a clearing, ${unstable} unstable`,
     );
     check(
       leastKept >= 0.7,

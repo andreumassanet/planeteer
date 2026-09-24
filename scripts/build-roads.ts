@@ -50,7 +50,7 @@ import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { decodePlaces, decodeRoads, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
-import { detailRadiusOf, isShown, radiusOf } from '../src/places.ts';
+import { isShown, radiusOf, terrainSiteOf } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import {
@@ -121,7 +121,7 @@ setFlattenSites(
     monuments: { id: string; iso: string; lat: number; lon: number }[];
   }).monuments,
 );
-setDetailSites(places.map((place) => ({ lat: place.lat, lon: place.lon, radius: detailRadiusOf(place) })));
+setDetailSites(places.map(terrainSiteOf));
 
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 
