@@ -1,124 +1,80 @@
 /**
  * The whole planet on one sheet, behind `M`.
  *
- * **This has to earn its place beside the plane**, because the design already
- * says the plane *is* the map: climb to the ceiling and the fog opens on the
- * globe with no map screen at all. That is still true and this does not replace
- * it. What it does is the four things altitude cannot do:
+ * **This has to earn its place beside the plane**, because the plane *is* a
+ * map: climb to the ceiling and the fog opens on the globe. What this gives
+ * that altitude cannot is names, the far side of the planet, the visited set
+ * at a size you can read, and a destination you can *point* at — pointer lock
+ * holds the cursor everywhere else, so this is the one screen where you can
+ * click on where you want to go. It decides nothing itself: a landmark clicked
+ * goes to `navigation.ts`, a player clicked goes to `onJoin`.
  *
- * - **Names.** Nothing in the 3D world is labelled. From the ceiling you are
- *   looking at a continent with no way to tell which country it is or which of
- *   the specks below you is the Taj Mahal. This is the only place in atlas where
- *   the world writes its own names down.
- * - **The whole planet.** The ceiling is 1.45 radii, so the camera sits 2.45 out
- *   and sees a cap of `acos(1/2.45)` — 66 degrees, about a third of the surface.
- *   This is a projection of all of it, near side and far side together.
- * - **The visited set.** Monuments stop building at about 12,000 units and there
- *   are no pins in the world, so from the air the eighty-five landmarks are
- *   invisible whether you have found them or not. Here they are cream, gold and
- *   violet at a size you can read.
- * - **A destination you can point at.** Pointer lock holds the cursor, which is
- *   why `navigation.ts` had to put the chooser on `Tab` and cycle a list. A map
- *   is the one screen where releasing the lock is the right thing to do, so this
- *   is the only place you can *point* at where you want to go. It does not
- *   choose anything itself — it drives `navigation.ts`, which already owns what
- *   a destination is.
+ * ## What it is, and what it replaced
  *
- * And it costs one key from wherever you are standing. Climbing to the ceiling
- * and back down is minutes of flying and needs the aircraft.
+ * **A game map: a flat sheet you drag and zoom**, from the whole world down to
+ * the streets round a town, with the names coming in as there is room for
+ * them. It was an azimuthal equidistant disc centred on the player until
+ * 2026-09-24 — distance from the centre was true, and three quarters of the
+ * disc was the far hemisphere stretched round the rim — and the owner's verdict
+ * was that no game shows its map that way. A disc could not zoom either, so a
+ * cluster of landmarks (Paris holds three inside 0.04 degrees) was one pin at
+ * every size; on a sheet that zooms, they come apart.
  *
- * ## The projection, and what it costs
+ * **Miller cylindrical, north up, wrapping east to west.** Mercator is what a
+ * player knows from every web map and is conformal, but it cannot draw a pole,
+ * and the South Pole is a landmark. Miller is Mercator with the latitude
+ * scaled by 0.8 inside the logarithm: the poles are a finite line at the top
+ * and bottom, shapes at the latitudes people live at are nearly Mercator's,
+ * and Antarctica is wide rather than infinite. The sheet is 1 wide and
+ * `SHEET_HEIGHT` (0.733) tall in map units; `u` runs east from the
+ * antimeridian and `v` south from the north pole.
  *
- * **Azimuthal equidistant, centred on the player, north up.** Distance out from
- * the middle is true great-circle distance, so the rings at 5,000 / 10,000 /
- * 15,000 km are evenly spaced by construction and the rim is your antipode —
- * the furthest point on Earth from where you stand. In a game whose whole travel
- * model is that crossing an ocean is a climb, distance is *the* quantity, and
- * this is the projection that draws it.
+ * ## How the ground is painted
  *
- * Three costs, all real:
+ * **In tiles, as a web map is**, 256 pixels square on a pyramid of levels, and
+ * painted from the world's own definitions rather than from a picture of it:
+ * `groundColorAt` for the colour, which is what the land mesh is painted with,
+ * and `reliefAt` for the light. `groundColorAt` costs 40 microseconds a point
+ * (a country lookup and the biome's whole classifier), so it is asked on a
+ * coarse lattice, one point every `COLOUR_STEP` pixels, and blended; the
+ * relief costs one microsecond and is asked for every pixel, because the hill
+ * shading is where the detail is. The coast is a mask filled from the outlines
+ * — the same rings `countryAt` reads — so the edge of the land is exact at
+ * every zoom and the lattice only has to be right about the colour.
  *
- * - **The far half is stretched.** Circumferential scale is `theta / sin theta`:
- *   1.21 at 60 degrees out, 1.57 at 90, 5.2 at 150, unbounded at the rim. Shapes
- *   near the centre are honest and shapes near the rim are not — from Europe,
- *   Australia is drawn about the size of Africa and is a quarter of it. That is
- *   the trade taken deliberately: fidelity where you are, presence where you are
- *   not.
- * - **Three quarters of the disc is the far hemisphere**, because the near one
- *   is the inner half of the radius and area goes as the square. Standing in
- *   Mallorca that outer three quarters is very largely the Pacific, and the map
- *   looks emptier than it needs to.
- * - **The antipode is a point that maps to the entire rim**, so the one country
- *   containing it comes out as a ring smeared round the edge. It is drawn
- *   correctly rather than ignored; see `traceRing`.
+ * A tile is a generator that yields every few rows, and `update` runs them
+ * inside `TILE_BUDGET_MS` a frame, nearest the middle of the screen first.
+ * Until a tile is painted its nearest painted ancestor is drawn scaled up in
+ * its place, so zooming in sharpens rather than pops. The world's first level
+ * is painted in one go on the first open, so the sheet is never empty.
  *
- * **Two other projections were measured against it rather than argued about.**
- * Counting how many landmarks survive the pin thinning at a 660-pixel disc,
- * from six standpoints. Taken when there were 65 of them; there are 85 now and
- * the ratios are what the argument rests on, not the counts:
- *
- * ```
- *                equidistant   equal-area    orthographic (a globe)
- *   Mallorca       37 of 65      42 of 65      39 of the 51 it can show
- *   Tokyo          37            41            28 of 45
- *   Quito          42            42            17 of 28
- *   North Pole     38            41            37 of 52
- *   South Pole     44            43            12 of 13
- *   mid-Pacific    44            44            17 of 24
- * ```
- *
- * The third column is the whole argument for a whole-world projection and
- * against simply enlarging the minimap: **an orthographic map cannot show the
- * landmarks that are not on your side of the planet**, and from Quito that is
- * more than half of them. The second column is the real alternative — Lambert
- * azimuthal equal-area gives the near hemisphere 71% of the radius instead of
- * 50%, fills the sheet, tells the truth about area, and costs about five pins
- * *less* to crowding. It was rejected on shape rather than on area: its scale
- * factors at 150 degrees out are 0.26 radial against 3.86 circumferential, a
- * 15:1 shear, where equidistant's are 1 and 5.2. The far side of an equal-area
- * disc is squashed into a ring; the far side of this one is only stretched.
+ * **Everything that has to be crisp is drawn over the tiles as vectors**: the
+ * coast in ink, the frontiers thinner (`coastEdges` says which edge is which),
+ * the roads, the towns as the squares they are built as, the names, the pins,
+ * the players and you.
  *
  * ## What the world does while it is open
  *
- * **It keeps running, and that is a decision rather than an omission.** Pointer
- * lock is released so there is a cursor, which `input.ts` already reads as "stop
- * the mouse look" without being told anything; the keys are still live, so a key
- * you are deliberately holding still moves you. In the plane it *must* keep
- * running — you are six thousand units up and freezing the aircraft to look at a
- * chart is a lie — and a map that stops the world is a menu, which this is not
- * meant to be. Closing it asks for the lock back rather than leaving the player
- * on "click to look around".
- *
- * **North up rather than heading up, which is the opposite of the minimap and is
- * on purpose.** The disc in the corner is steered by, so the world turns under
- * the arrow. This is read, so opening it twice from the same place has to give
- * the same picture, and the heading is *shown* — the arrow at the centre turns —
- * which is strictly more than heading-up tells you. The one degeneracy is a
- * pole, where north is undefined; there it falls back to the heading, which is
- * the only direction that still exists there.
+ * **It keeps running.** Pointer lock is released so there is a cursor, which
+ * `input.ts` reads as "stop the mouse look" without being told; in the plane
+ * the aircraft keeps flying, because freezing it to read a chart would be a
+ * lie. Closing asks for the lock back rather than leaving the player on
+ * "click to look around".
  */
-import type * as THREE from 'three';
-import { type World, insideRing } from './geo.ts';
+import * as THREE from 'three';
+import type { World } from './geo.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, coastEdges, groundColorAt } from './globe.ts';
+import { reliefAt } from './terrain.ts';
 import { createFlagCanvas } from './flags.ts';
 import type { Placement } from './placement.ts';
+import { type Place, isShown, radiusOf, rankOf } from './places.ts';
+import { type Road, courseOf, coursePoint, emptyCourse } from './roads.ts';
+import { gatesOf, isAvenue, outskirtsOf, townGrid } from './scenery/grid.ts';
+import { cellKey } from './scenery/ground.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
-import { FONT, ensureStyle, h, hex, installUi, kbd, km } from './ui.ts';
-import {
-  EARTH_KM,
-  LabelSpace,
-  R2D,
-  type Shape,
-  TAU,
-  buildShapes,
-  createFrame,
-  inkedText,
-  setFrame,
-  sortByDepth,
-  thinMarks,
-  toUnit,
-  tracePin,
-} from './cartography.ts';
-import { latOf, lonOf } from './sphere.ts';
+import { ensureStyle, FONT, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
+import { EARTH_KM, LabelSpace, R2D, TAU, inkedText } from './cartography.ts';
+import { latLonOf, unitAt } from './sphere.ts';
 import { inputBlocked } from './controls.ts';
 
 export interface WorldMapOptions {
@@ -132,6 +88,13 @@ export interface WorldMapOptions {
   /** Clicking the one already chosen, which is how you put it away. */
   onClear(): void;
   /**
+   * Every place, the array `roads.bin` indexes into. The sheet draws the ones
+   * `isShown` builds; omit it for a map with no towns on it.
+   */
+  places?: readonly Place[];
+  /** The network, as `roads.bin` holds it. */
+  roads?: readonly Road[];
+  /**
    * Who owns pointer lock, so closing the map can hand the mouse back rather
    * than leaving you looking at "click to look around".
    */
@@ -139,12 +102,37 @@ export interface WorldMapOptions {
   /** `event.code` that opens and closes it. `null` to bind it yourself. */
   key?: string | null;
   /**
-   * Asked before the key opens the map, and a `true` leaves it shut: another
-   * overlay is up and the map would open *under* it — the settings card, which
-   * sits above this one. Closing is never blocked, and neither is `show()`,
+   * Whether something else holds the keyboard, so `M` does not open the map
+   * under a card. Consulted only by the key; `show()` is not gated by it,
    * which is what the console and the HUD's own button call.
    */
   blocked?: () => boolean;
+  /**
+   * The other players, as `peers.ts` last drew them: points on the unit
+   * sphere. Omit it for a world with no relay.
+   */
+  peers?: () => readonly MapPeer[];
+  /** Clicking a player, which is how you go and stand beside them. */
+  onJoin?(id: string): void;
+}
+
+export interface MapPeer {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface WorldMapStats {
+  /** Tiles painted and held, and how many are still being painted. */
+  tiles: number;
+  pending: number;
+  /** The zoom as pixels per degree of longitude, and the tile level drawn. */
+  pixelsPerDegree: number;
+  level: number;
+  /** The last draw, in milliseconds. */
+  drawMs: number;
 }
 
 export interface WorldMap {
@@ -154,110 +142,132 @@ export interface WorldMap {
   toggle(): void;
   show(): void;
   hide(): void;
+  /**
+   * Centre the sheet on a place, and optionally set the zoom as how many
+   * degrees of longitude the screen is wide. For the console and the shots.
+   */
+  focus(lat: number, lon: number, degreesAcross?: number): void;
+  readonly stats: WorldMapStats;
   /** Every frame. Returns immediately and costs nothing while it is closed. */
   update(position: THREE.Vector3, forward: THREE.Vector3): void;
   dispose(): void;
 }
 
-/** Ink rim, the same weight the minimap and the HUD cards use. */
-const RIM_WIDTH = 3;
-/** Redraws per second while it is open. Nothing on it moves quickly. */
-const MAX_FPS = 20;
-/** A redraw is skipped unless the centre or the heading moved by this much. */
-const MIN_SHIFT = 0.35;
-const MIN_TURN = 0.4 / R2D;
-/** Space left round the disc for the cards. */
-const MARGIN = 58;
-/** Below this the disc is not worth drawing; the map just does not open. */
-const MIN_SIZE = 240;
-/**
- * A drawn segment longer than this, in pixels, did not come from the outlines —
- * it came from the antipode. See the repair in `traceRing`.
- *
- * It is a screen-space test rather than an angular one because the thing it is
- * looking for is *created* by the projection: consecutive ring points are half a
- * pixel apart at the centre of the sheet, and the circumferential stretch near
- * the rim (`theta / sin theta`, which is 179 at one degree from the antipode)
- * is what turns that into a chord across the world.
- */
-const JUMP = 6;
-/** How finely the rim is walked when it has to be, in radians. */
-const RIM_STEP = 0.09;
+// ---------------------------------------------------------------------------
+// The projection
+// ---------------------------------------------------------------------------
 
-// Pin geometry in pixels. Bigger than the minimap's, because this is a sheet you
-// read rather than a dial you glance at.
-const PIN_RISE = 11;
-const PIN_HEAD = 5;
-/**
- * No two pins closer together than this.
- *
- * The same rule as the minimap and the same reason — Paris holds three
- * landmarks inside 0.04 degrees, and `build-monuments.ts` only ever separates
- * an overlapping pair by up to 38 km, which is a tenth of a degree. **No
- * whole-world projection can spread a cluster**, because an azimuthal map is
- * linear in *angle*: two landmarks 0.34 degrees apart are 0.34 degrees apart on
- * this sheet whether you are standing on them or on the other side of the
- * planet. So the map shows one pin per cluster, closest-first, and `Tab` is what
- * reaches inside one. The chosen destination is exempt, so whatever you picked
- * is on the sheet however crowded its corner is.
- */
-const PIN_SPACING = 15;
-/** How far the cursor may be from a pin and still be pointing at it. */
-const PICK_RANGE = 20;
-/** Rings, in real kilometres. The rim is the antipode at 20,015. */
-const RANGE_RINGS = [5000, 10000, 15000];
-/**
- * Where a ring's label may sit, as screen angles clockwise from east, in the
- * order they are tried.
- *
- * Down and to the right first — the one diagonal with neither the compass mark
- * at the top nor the head card in it — then fanning out a twelfth of a turn at a
- * time either way. The labels used to be painted into the land at that first
- * angle whatever was there, and on a sheet whose pins are drawn over the land
- * that put *5,000 km* under Kilimanjaro's pin and *15,000 km* under the Moeraki
- * Boulders. Now each one takes the first angle the label space has room at, like
- * every other word on the sheet, and is dropped only if the whole ring is full.
- */
-const RING_LABEL_ANGLES = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7, 8, -8, 9, -9, 10, -10, 11, -11]
-  .map((step) => Math.PI / 4 + (step * Math.PI) / 12);
+const DEG = Math.PI / 180;
+/** Miller's `y` at a pole: `1.25 ln tan(pi/4 + 0.4 * pi/2)`. */
+const Y_MAX = 1.25 * Math.log(Math.tan(Math.PI / 4 + 0.2 * Math.PI));
+/** The sheet's height when its width is 1. */
+const SHEET_HEIGHT = (2 * Y_MAX) / TAU;
 
-/** Countries smaller than this across, in pixels, do not get their name written. */
-const MIN_COUNTRY_LABEL = 26;
+const uOf = (lon: number): number => (lon + 180) / 360;
+const vOf = (lat: number): number =>
+  (Y_MAX - 1.25 * Math.log(Math.tan(Math.PI / 4 + 0.4 * lat * DEG))) / TAU;
+const lonOfU = (u: number): number => {
+  const lon = u * 360 - 180;
+  return lon - 360 * Math.floor((lon + 180) / 360);
+};
+const latOfV = (v: number): number =>
+  (2.5 * Math.atan(Math.exp(0.8 * (Y_MAX - v * TAU))) - 0.625 * Math.PI) * R2D;
+
+// ---------------------------------------------------------------------------
+// Tiles
+// ---------------------------------------------------------------------------
+
+const TILE = 256;
+/** The deepest level: 364 pixels a degree, about 0.8 world units a pixel; a big city fills a third of the screen. */
+const MAX_LEVEL = 9;
+/** Pixels of mask painted round a tile, so the shallows do not stop at its edge. */
+const PAD = 12;
+/** One `groundColorAt` every this many pixels, blended between. */
+const COLOUR_STEP = 16;
+/** One `reliefAt` every this many pixels; the light is blended between. */
+const RELIEF_STEP = 2;
+/** How far the shallows reach off a coast, in tile pixels, as two box passes. */
+const SHALLOW_RADIUS = 5;
+/** The frame's allowance for painting tiles, in milliseconds. */
+const TILE_BUDGET_MS = 12;
+/** Tiles held; the first three levels are always kept on top of these. */
+const MAX_TILES = 220;
+/** Levels painted up front and never evicted: 1 + 2 + 6 tiles. */
+const KEEP_LEVEL = 2;
+
+// ---------------------------------------------------------------------------
+// The sheet
+// ---------------------------------------------------------------------------
+
+/** Redraws a second when only the player or a peer moved. The drag is not throttled. */
+const MAX_FPS = 30;
+/** The first open's zoom, as degrees of longitude across the screen. */
+const OPEN_DEGREES = 38;
+/** Pin geometry in pixels. */
+const PIN_RISE = 13;
+const PIN_HEAD = 6;
+/** No two pins closer together than this; the destination is exempt. */
+const PIN_SPACING = 16;
+/** How far the cursor may be from a mark and still be pointing at it. */
+const PICK_RANGE = 16;
+/** A press that moves further than this is a drag, not a click. */
+const CLICK_SLOP = 5;
+/** A town drawn as its footprint rather than a dot once its square is this many pixels. */
+const SQUARE_FROM = 7;
+/** Its streets and blocks drawn once a cell is this many pixels. */
+const CELLS_FROM = 4;
 
 /**
- * What is the map's own. The cards, the key caps and the flag's frame are
- * `ui.ts`'s — `.ui-card`, `.ui-kbd`, `.ui-flag` — so the sheet behind `M` is
- * drawn with the same rim, radius and drop as the HUD it opens over; it had
- * its own 12-pixel card and a flat, rimless key cap until the two were put
- * side by side.
+ * The smallest population named at a zoom, by pixels per degree. A capital is
+ * named from the second row on. The world view is a handful of megacities and
+ * the countries; the street view is everything.
  */
+const TOWN_FLOOR: readonly [number, number][] = [
+  [3, 8_000_000],
+  [6, 2_500_000],
+  [14, 700_000],
+  [32, 150_000],
+  [70, 30_000],
+  [Infinity, 0],
+];
+/** Roads are drawn from this zoom, in pixels per degree; lanes from the second. */
+const ROADS_FROM = 30;
+const LANES_FROM = 55;
+
 const STYLE = `
 .atlas-map {
   position: fixed;
   inset: 0;
   z-index: 7;
-  display: grid;
-  place-items: center;
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  background: rgba(30, 6, 3, 0.68);
-  backdrop-filter: blur(3px);
-  transition: opacity 0.18s ease, visibility 0.18s;
+  background: var(--ui-paper);
+  transition: opacity 0.16s ease, visibility 0.16s;
   font-family: var(--ui-font);
   color: var(--ui-ink);
-  cursor: default;
 }
 .atlas-map.on { opacity: 1; visibility: visible; pointer-events: auto; }
-.atlas-map canvas { display: block; }
-.atlas-map .ui-card {
+.atlas-map-sheet {
   position: absolute;
-  pointer-events: none;
+  inset: 14px;
+  border: 3px solid var(--ui-ink);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 5px 0 var(--ui-ink);
+  background: ${hex(OCEAN_COLOR)};
+  cursor: grab;
+  touch-action: none;
 }
+.atlas-map-sheet.drag { cursor: grabbing; }
+.atlas-map-sheet.point { cursor: pointer; }
+.atlas-map canvas { display: block; width: 100%; height: 100%; }
+.atlas-map .ui-card { position: absolute; }
 .atlas-map-head {
-  top: 22px;
-  left: 24px;
-  padding: 10px 16px 11px;
+  top: 30px;
+  left: 30px;
+  padding: 10px 16px 12px;
+  pointer-events: none;
 }
 .atlas-map-title {
   font-size: 19px;
@@ -282,25 +292,38 @@ const STYLE = `
 }
 .atlas-map-legend i {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   margin-right: 7px;
   border: 1.5px solid var(--ui-ink);
   border-radius: 50%;
-  vertical-align: middle;
+  vertical-align: -1px;
 }
-.atlas-map-note {
-  max-width: 190px;
-  margin-top: 9px;
-  padding-top: 8px;
-  border-top: 2px solid var(--ui-rule);
+.atlas-map-zoom {
+  position: absolute;
+  right: 30px;
+  bottom: 30px;
+  display: grid;
+  gap: 10px;
+}
+.atlas-map-zoom .ui-btn { font-size: 22px; font-weight: 800; }
+.atlas-map-scale {
+  left: 30px;
+  bottom: 30px;
+  padding: 7px 12px 8px;
   font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.35;
-  opacity: 0.72;
+  font-weight: 800;
+  pointer-events: none;
+}
+.atlas-map-scale b {
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border: 2px solid var(--ui-ink);
+  border-top: 0;
 }
 .atlas-map-foot {
-  bottom: 22px;
+  bottom: 30px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -310,17 +333,19 @@ const STYLE = `
   white-space: nowrap;
   font-size: 12.5px;
   font-weight: 600;
+  pointer-events: none;
 }
 .atlas-map-foot span { display: inline-flex; align-items: center; gap: 6px; }
-/* The tooltip's origin is the pin's own tip, so it rises out of the mark it
-   describes rather than floating near it. */
+.atlas-map-foot .quiet { opacity: 0.6; }
 .atlas-map-tip {
   display: none;
   align-items: center;
   gap: 11px;
   padding: 8px 13px 8px 9px;
-  transform: translate(-50%, calc(-100% - 16px));
-  max-width: 280px;
+  transform: translate(-50%, calc(-100% - 12px));
+  max-width: 300px;
+  pointer-events: none;
+  z-index: 1;
 }
 .atlas-map-tip.on { display: flex; }
 .atlas-map-tip-name {
@@ -340,39 +365,103 @@ const STYLE = `
   white-space: nowrap;
 }
 .atlas-map-tip-sub b { font-weight: 800; opacity: 0.85; }
+@media (max-width: 720px) {
+  .atlas-map-foot { display: none; }
+}
 `;
+
+interface Tile {
+  z: number;
+  i: number;
+  j: number;
+  canvas: HTMLCanvasElement | null;
+  job: Generator<undefined, void, unknown> | null;
+  used: number;
+}
+
+/** A ring of the outlines on the sheet, once. */
+interface SheetRing {
+  u: Float32Array;
+  v: Float32Array;
+  /** 0 frontier, 1 coast, 2 not an edge (a pole, the antimeridian). */
+  edge: Uint8Array;
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+  water: boolean;
+}
+
+interface SheetTown {
+  place: Place;
+  /** Index into `places`, which is what the roads' ends are. */
+  index: number;
+  /** Which cells stand, row-major, once asked: 0 gone to the outskirts, 1 block, 2 street. */
+  cells: Uint8Array | null;
+  u: number;
+  v: number;
+  rank: number;
+  /** Built radius in world units. */
+  radius: number;
+}
+
+interface SheetRoad {
+  road: Road;
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+  /** The drawn course, sampled; null until first seen. */
+  u: Float32Array | null;
+  v: Float32Array | null;
+}
+
+interface CountryLabel {
+  text: string;
+  u: number;
+  v: number;
+  /** The largest ring's width on the sheet, in map units. */
+  span: number;
+}
+
+type Hit =
+  | { kind: 'pin'; index: number; x: number; y: number }
+  | { kind: 'peer'; id: string; name: string; x: number; y: number; distance: number }
+  | { kind: 'town'; town: SheetTown; x: number; y: number };
 
 export function createWorldMap(world: World, options: WorldMapOptions): WorldMap {
   const { monuments, isVisited, target, onChoose, onClear } = options;
   const key = options.key === undefined ? 'KeyM' : options.key;
   const lockTarget = options.lockTarget ?? null;
+  const allPlaces = options.places ?? [];
 
   installUi();
   ensureStyle('atlas-map', STYLE);
 
   const ink = hex(PALETTE.ink);
-  const ocean = hex(OCEAN_COLOR);
-  const cream = hex(PALETTE.white);
+  const paper = hex(PALETTE.white);
   const gold = hex(PALETTE.gold);
   const violet = hex(PALETTE.violet);
-  const root = h('div', { class: 'atlas-map' });
+  const pink = hex(PALETTE.pink);
+  const oceanHex = hex(OCEAN_COLOR);
 
+  // --- the DOM --------------------------------------------------------------
+
+  const root = h('div', { class: 'atlas-map' });
+  const sheet = h('div', { class: 'atlas-map-sheet' });
   const canvas = h('canvas');
   const ctx = canvas.getContext('2d')!;
-  // The land is redrawn only when the centre moves; the pins and the names are
-  // redrawn whenever the cursor does. Keeping them in two buffers is what makes
-  // hovering free — see the redraw policy in `update`.
-  const base = document.createElement('canvas');
-  const baseCtx = base.getContext('2d')!;
+  sheet.append(canvas);
 
   const count = h('div', { class: 'atlas-map-count' });
   const legend = h(
     'div',
     { class: 'atlas-map-legend' },
     ...([
-      [cream, 'not found'],
+      [paper, 'not found'],
       [gold, 'found'],
       [violet, 'destination'],
+      ...(options.peers === undefined ? [] : [[pink, 'player'] as const]),
     ] as const).map(([colour, label]) => h('div', {}, h('i', { style: `background: ${colour}` }), label)),
   );
   const head = h(
@@ -381,23 +470,27 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     h('div', { class: 'atlas-map-title', text: 'The world' }),
     count,
     legend,
-    // The words that make an unfamiliar projection readable, and the only
-    // place the sheet explains itself. Without them the outer ring of empty
-    // ocean — which from Europe is most of the Pacific — reads as wasted paper
-    // rather than as the far side of the world. They were painted along the
-    // bottom of the disc, where the rim clipped both ends and the footer card
-    // covered the middle; on the card they are whole at every size.
-    h('div', {
-      class: 'atlas-map-note',
-      text: `Rings every ${km(RANGE_RINGS[0]!)}; the rim is your antipode, ${km(Math.PI * EARTH_KM)} away.`,
-    }),
   );
+
+  const zoomIn = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Zoom in', text: '+' });
+  const zoomOut = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Zoom out', text: '−' });
+  const locate = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Centre on you' }, icon('walk'));
+  const zoomBox = h('div', { class: 'atlas-map-zoom' }, locate, zoomIn, zoomOut);
+
+  const scaleText = h('span');
+  const scaleBar = h('b');
+  const scale = h('div', { class: 'atlas-map-scale ui-card' }, scaleText, scaleBar);
 
   const foot = h(
     'div',
     { class: 'atlas-map-foot ui-card' },
     h('span', {}, kbd('M'), 'close'),
-    h('span', { text: 'click a landmark to set your destination' }),
+    h('span', { class: 'quiet', text: 'drag to move · scroll to zoom' }),
+    h('span', {
+      text: options.peers === undefined
+        ? 'click a landmark to go there'
+        : 'click a landmark to go there, or a player to join them',
+    }),
     h('span', {}, kbd('Tab'), 'cycle'),
   );
 
@@ -406,606 +499,1209 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const tipSub = h('div', { class: 'atlas-map-tip-sub' });
   const tip = h('div', { class: 'atlas-map-tip ui-card' }, tipFlag, h('div', {}, tipName, tipSub));
 
-  root.append(canvas, head, foot, tip);
+  sheet.append(head, zoomBox, scale, foot, tip);
+  root.append(sheet);
 
   const countryName = new Map(world.countries.map((country) => [country.iso, country.name]));
 
-  // The landmarks as unit vectors, once, through the same conversion the
-  // outlines use — so a pin and the coast it stands on cannot drift apart.
-  const pinCount = monuments.length;
-  const pinPoint = new Float32Array(pinCount * 3);
-  monuments.forEach((monument, i) => {
-    toUnit(monument.lat, monument.lon, pinPoint, i * 3);
-  });
-  const pinScreenX = new Float32Array(pinCount);
-  const pinScreenY = new Float32Array(pinCount);
-  const pinDepth = new Float32Array(pinCount);
-  const pinOrder = new Int32Array(pinCount);
-  const keptX = new Float32Array(pinCount);
-  const keptY = new Float32Array(pinCount);
-  const keptPin = new Int32Array(pinCount);
-  const pinIndex = new Map(monuments.map((monument, i) => [monument.id, i]));
+  // --- what is on the sheet, projected once ---------------------------------
 
-  /**
-   * Where each country's name goes, biggest first.
-   *
-   * The anchor is the centroid of a country's largest ring, which the bake
-   * already computes and already calls a label point. It is measured once: the
-   * text width of two hundred names is not something to ask the canvas for on
-   * every mouse move.
-   */
-  interface CountryLabel {
-    text: string;
-    x: number;
-    y: number;
-    z: number;
-    /** Angular radius of the country's biggest ring, for the "is it worth a name" test. */
-    span: number;
-    area: number;
-    width: number;
-  }
+  let rings: SheetRing[] | null = null;
   const countryLabels: CountryLabel[] = [];
 
-  let shapes: Shape[] = [];
-  let discRadius = 0;
-  let centre = 0;
-  let perRadian = 0;
-  let size = 0;
-  let ratio = 0;
-  let borderWidth = 1;
-
-  const frame = createFrame();
-  let ux = 0;
-  let uy = 1;
-  let uz = 0;
-  let fx = 0;
-  let fy = 0;
-  let fz = 1;
-  let rx = 1;
-  let ry = 0;
-  let rz = 0;
-  /**
-   * The point on the far side of the planet, which on this projection is the
-   * whole rim. Kept as lat/lon because the one thing asked of it is a
-   * point-in-polygon against the outlines, and those are lat/lon.
-   */
-  let antipodeLat = 0;
-  let antipodeLon = 0;
-
-  // The zero vector as "nowhere yet": its dot with any unit centre is 0, so the
-  // movement test reads a quarter turn and redraws. A sentinel outside the unit
-  // sphere does not work — the dot is clamped before the `acos`, so a centre in
-  // the same hemisphere as it would come back as "has not moved".
-  let lastUx = 0;
-  let lastUy = 0;
-  let lastUz = 0;
-  let lastHeading = 99;
-  let heading = 0;
-  let drawnAt = 0;
-  let baseStale = true;
-  let overlayStale = true;
-
-  let showing = false;
-  let hover = -1;
-  let cursorX = -1;
-  let cursorY = -1;
-  /** How many pins survived the last thinning, and where they landed. */
-  let kept = 0;
-  /** The destination's pin this draw, or -1. */
-  let chosenPin = -1;
-
-  /**
-   * Builds the outlines at whatever resolution the disc is.
-   *
-   * The map is player-centred, so a resize is the only thing that changes this —
-   * and a resize is already the frame where the renderer reallocates its buffers.
-   * At a 660-pixel disc it is 26,700 points over 743 rings and takes a few tens
-   * of milliseconds, which is why it happens here and never while the map is
-   * open.
-   */
-  function resize(): void {
-    const edge = Math.min(innerWidth, innerHeight) - MARGIN * 2;
-    const next = Math.max(MIN_SIZE, Math.round(edge));
-    if (next === size) return;
-    size = next;
-    centre = size / 2;
-    discRadius = centre - RIM_WIDTH / 2;
-    // Radians per pixel: the whole half-turn to the antipode spans the radius.
-    perRadian = discRadius / Math.PI;
-    borderWidth = Math.max(1, size / 620);
-
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
-    base.width = 0;
-
-    /** Points and rings finer than half a pixel *at the centre* are dropped. */
-    const finest = 0.5 / perRadian;
-    shapes = buildShapes(world, finest, finest);
-
-    // One label per country, anchored on its biggest ring's centroid, ordered
-    // so that a big country wins the space from a small one.
-    countryLabels.length = 0;
-    const biggest = new Map<number, number>();
-    const total = new Map<number, number>();
-    for (const shape of shapes) {
-      biggest.set(shape.country, Math.max(biggest.get(shape.country) ?? 0, shape.radius));
-      total.set(shape.country, (total.get(shape.country) ?? 0) + shape.area);
+  function prepareRings(): SheetRing[] {
+    if (rings !== null) return rings;
+    const coast = coastEdges(world);
+    rings = world.rings.map((ring, r) => {
+      const n = ring.points.length;
+      const u = new Float32Array(n);
+      const v = new Float32Array(n);
+      const edge = new Uint8Array(n);
+      let u0 = Infinity;
+      let u1 = -Infinity;
+      let v0 = Infinity;
+      let v1 = -Infinity;
+      const flags = coast[r];
+      for (let k = 0; k < n; k++) {
+        const [lon, lat] = ring.points[k]!;
+        u[k] = uOf(lon!);
+        v[k] = vOf(Math.max(-89.999, Math.min(89.999, lat!)));
+        if (u[k]! < u0) u0 = u[k]!;
+        if (u[k]! > u1) u1 = u[k]!;
+        if (v[k]! < v0) v0 = v[k]!;
+        if (v[k]! > v1) v1 = v[k]!;
+      }
+      for (let k = 0; k < n; k++) {
+        const [lonA, latA] = ring.points[k]!;
+        const [lonB, latB] = ring.points[(k + 1) % n]!;
+        // Not an edge of anything: a ring's run along a pole, or the seam
+        // where Natural Earth cut a country at the antimeridian. Drawn, both
+        // are a line across the ice or down the Bering Strait.
+        const seam =
+          (Math.abs(latA!) > 89.9 && Math.abs(latB!) > 89.9) ||
+          (Math.abs(lonA!) > 179.99 && Math.abs(lonB!) > 179.99);
+        edge[k] = seam ? 2 : ring.water || (flags?.[k] ?? 0) === 1 ? 1 : 0;
+      }
+      return { u, v, edge, u0, u1, v0, v1, water: ring.water };
+    });
+    // A country's name sits on the label point the bake computed, sized by
+    // its biggest ring; a country of many islands is named by its largest.
+    for (const [c, country] of world.countries.entries()) {
+      let span = 0;
+      for (const [r, ring] of world.rings.entries()) {
+        if (ring.country !== c + 1) continue;
+        const sheetRing = rings[r]!;
+        span = Math.max(span, Math.min(sheetRing.u1 - sheetRing.u0, (sheetRing.v1 - sheetRing.v0) * 1.6));
+      }
+      countryLabels.push({ text: country.name.toUpperCase(), u: uOf(country.lon), v: vOf(country.lat), span });
     }
-    const probe = new Float32Array(3);
-    baseCtx.font = `700 11px ${FONT}`;
-    for (const [id, span] of biggest) {
-      const country = world.countries[id - 1]!;
-      toUnit(country.lat, country.lon, probe, 0);
-      countryLabels.push({
-        text: country.name.toUpperCase(),
-        x: probe[0]!,
-        y: probe[1]!,
-        z: probe[2]!,
-        span,
-        area: total.get(id) ?? 0,
-        width: baseCtx.measureText(country.name.toUpperCase()).width,
-      });
-    }
-    countryLabels.sort((a, b) => b.area - a.area);
-
-    baseStale = true;
-    overlayStale = true;
+    countryLabels.sort((a, b) => b.span - a.span);
+    return rings;
   }
 
+  /** The built towns, biggest first. Rebuilt on each open: `isShown` has a live knob. */
+  let towns: SheetTown[] = [];
+  function prepareTowns(): void {
+    towns = [];
+    for (const [index, place] of allPlaces.entries()) {
+      if (!isShown(place)) continue;
+      towns.push({ place, index, cells: null, u: uOf(place.lon), v: vOf(place.lat), rank: rankOf(place), radius: radiusOf(place) });
+    }
+    towns.sort((a, b) => b.rank - a.rank);
+  }
+
+  /** Which gates each town's roads come in by, from `roads.bin`. */
+  let roadGates: Map<number, number[]> | null = null;
+
   /**
-   * Traces one ring, and closes the one that has the antipode inside it.
-   *
-   * Everything is visible on this projection, so there is no horizon logic at
-   * all — which is the whole of what the minimap's trace is doing. What there is
-   * instead is the singularity: the antipode is a *point* on the sphere and the
-   * *entire rim* on the paper, so a country containing it has an image that
-   * winds right round the disc, and `fill()` would paint the rest of the world
-   * instead of the country.
-   *
-   * The winding tells you which case you are in, and its *sign* tells you which
-   * of the two. The bake winds every ring with the land on the right of `a -> b`,
-   * and the screen frame is right-handed as seen from outside the sphere, so a
-   * ring around the centre comes back at `-2 PI` and a ring around the antipode
-   * at `+2 PI`. Standing in Madrid that second case is New Zealand, and it is the
-   * only ring on the planet that ever takes it.
-   *
-   * Closing it against the rim and filling even-odd paints the annulus between
-   * the coastline and the edge, which is exactly where that country is.
+   * A town's plan as `settlements.ts` cuts it: the square, its streets, and
+   * the outskirts given up from the edge in, keeping every street a road comes
+   * in by. The landmarks' own cells are not kept here — the sheet does not know
+   * them — so a town with a landmark at its edge may lose a cell on the map
+   * that it keeps in the world.
    */
-  function traceRing(target2d: CanvasRenderingContext2D, shape: Shape): void {
-    const p = shape.points;
-    const points = p.length / 3;
-
-    // Two tests, and the cheap one exists only to keep the exact one off the hot
-    // path: the antipode has to be inside the ring's own bounding cap — one dot
-    // product — before `insideRing` is asked about it, which over 531 rings a
-    // redraw is the difference between one point-in-polygon query and 531.
-    const wraps = -(shape.cx * ux + shape.cy * uy + shape.cz * uz) > Math.cos(shape.radius)
-      && insideRing(shape.ring, antipodeLon, antipodeLat);
-
-    target2d.beginPath();
-    let ax = 0;
-    let ay = 1;
-    let previousRadius = 0;
-    let x = centre;
-    let y = centre;
-    // One extra step wraps back to the first point: the rings are open — none of
-    // them repeats its start — so the closing segment has to be walked too.
-    for (let i = 0; i <= points; i++) {
-      const k = (i === points ? 0 : i) * 3;
-      const px = p[k]!;
-      const py = p[k + 1]!;
-      const pz = p[k + 2]!;
-      const height = px * ux + py * uy + pz * uz;
-      const sx = px * rx + py * ry + pz * rz;
-      const sy = px * fx + py * fy + pz * fz;
-      // `Math.hypot` is a guarded, over-careful square root and this loop runs
-      // 26,000 times a redraw; nothing here can overflow.
-      const flat = Math.sqrt(sx * sx + sy * sy);
-      const radius = Math.acos(height > 1 ? 1 : height < -1 ? -1 : height) * perRadian;
-      const lastX = ax;
-      const lastY = ay;
-      // Exactly at the antipode — or exactly under your feet — there is no
-      // azimuth: every direction is equally right. Carry the last one rather
-      // than snapping to a fixed axis.
-      if (flat > 1e-9) {
-        ax = sx / flat;
-        ay = sy / flat;
-      }
-      const nextX = centre + ax * radius;
-      const nextY = centre - ay * radius;
-
-      if (i === 0) {
-        target2d.moveTo(nextX, nextY);
-      } else {
-        const dx = nextX - x;
-        const dy = nextY - y;
-        if (dx * dx + dy * dy > JUMP * JUMP) {
-          // **The one place this projection has to be repaired, and it is the
-          // singularity rather than a bug.** The antipode is a point on the
-          // sphere and the whole rim on the paper, so a ring that crosses it has
-          // two *neighbouring* vertices landing on opposite sides of the disc.
-          // Antarctica does it from anywhere near the north pole — its ring runs
-          // along the south pole itself — and the straight line between those two
-          // vertices is a black diameter drawn clean across the world.
-          //
-          // The honest image of that segment is the rim, so walk it: interpolate
-          // the azimuth and the radius together, which is `minimap.ts`'s horizon
-          // walk with the radius no longer pinned. Which way round is genuinely
-          // undecidable when the two azimuths are exactly opposite — every route
-          // over the antipode is the same length — so the wrap picks one.
-          const from = Math.atan2(lastY, lastX);
-          let delta = Math.atan2(ay, ax) - from;
-          if (delta > Math.PI) delta -= TAU;
-          else if (delta < -Math.PI) delta += TAU;
-          const steps = Math.max(1, Math.ceil(Math.abs(delta) / RIM_STEP));
-          for (let s = 1; s <= steps; s++) {
-            const t = s / steps;
-            const angle = from + delta * t;
-            const arc = previousRadius + (radius - previousRadius) * t;
-            target2d.lineTo(centre + Math.cos(angle) * arc, centre - Math.sin(angle) * arc);
-          }
-        } else {
-          target2d.lineTo(nextX, nextY);
+  function cellsOf(town: SheetTown): Uint8Array {
+    if (town.cells !== null) return town.cells;
+    if (roadGates === null) {
+      roadGates = new Map();
+      for (const road of options.roads ?? []) {
+        for (const [end, gate] of [[road.a, road.gateA], [road.b, road.gateB]] as const) {
+          const list = roadGates.get(end);
+          if (list === undefined) roadGates.set(end, [gate]);
+          else list.push(gate);
         }
       }
-      x = nextX;
-      y = nextY;
-      previousRadius = radius;
     }
-    target2d.closePath();
-
-    if (wraps) {
-      // The country the player is standing opposite. Its image winds right round
-      // the disc, and what is *inside* it on the sphere is the band between that
-      // winding and the rim — so the path is closed against the rim and filled
-      // even-odd. Plain `fill()` here paints the rest of the world in this
-      // country's colour instead, which from Beijing is the whole sheet in
-      // Argentina's apricot.
-      target2d.moveTo(centre + discRadius, centre);
-      target2d.arc(centre, centre, discRadius, 0, TAU);
-      target2d.closePath();
-      target2d.fill('evenodd');
-    } else {
-      target2d.fill();
+    const grid = townGrid(town.radius);
+    const kept = new Set<number>();
+    const gates = gatesOf(grid);
+    for (const index of roadGates.get(town.index) ?? []) {
+      const gate = gates[index];
+      if (gate === undefined) continue;
+      for (const [col, row] of gate.cells) {
+        for (let c = 0; c < grid.cells; c++) kept.add(gate.outX !== 0 ? cellKey(c, row) : cellKey(col, c));
+      }
     }
-    target2d.stroke();
+    const place = town.place;
+    const outskirts = outskirtsOf(grid, `${place.name}@${place.lat},${place.lon}`, (col, row) => kept.has(cellKey(col, row)));
+    const cells = new Uint8Array(grid.cells * grid.cells);
+    for (let row = 0; row < grid.cells; row++) {
+      for (let col = 0; col < grid.cells; col++) {
+        if (outskirts.has(cellKey(col, row))) continue;
+        cells[row * grid.cells + col] = isAvenue(grid, col, row) ? 2 : 1;
+      }
+    }
+    town.cells = cells;
+    return cells;
   }
 
-  /** The ocean, the land and the range rings. Only the centre moves it. */
-  function drawBase(): void {
-    if (base.width !== canvas.width || base.height !== canvas.height) {
-      base.width = canvas.width;
-      base.height = canvas.height;
-    }
-    baseCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    baseCtx.clearRect(0, 0, size, size);
-
-    baseCtx.beginPath();
-    baseCtx.arc(centre, centre, discRadius, 0, TAU);
-    baseCtx.fillStyle = ocean;
-    baseCtx.fill();
-
-    baseCtx.save();
-    baseCtx.clip();
-    baseCtx.strokeStyle = ink;
-    baseCtx.lineWidth = borderWidth;
-    baseCtx.lineJoin = 'round';
-    for (const shape of shapes) {
-      baseCtx.fillStyle = shape.fill;
-      traceRing(baseCtx, shape);
-    }
-
-    // The rings are what say "the radius is a distance" without a sentence
-    // saying it. They are evenly spaced because the projection is equidistant —
-    // on any other whole-world projection they would not be circles at all.
-    // Their labels are not here: they are words, and words go through the
-    // label space with the pins and the names — see `drawRingLabels`.
-    baseCtx.setLineDash([5, 6]);
-    baseCtx.lineWidth = 1.25;
-    baseCtx.strokeStyle = 'rgba(30, 6, 3, 0.3)';
-    for (const distance of RANGE_RINGS) {
-      const radius = ringRadius(distance);
-      if (radius > discRadius - 6) continue;
-      baseCtx.beginPath();
-      baseCtx.arc(centre, centre, radius, 0, TAU);
-      baseCtx.stroke();
-    }
-    baseCtx.setLineDash([]);
-    baseCtx.restore();
-
-    baseCtx.beginPath();
-    baseCtx.arc(centre, centre, discRadius, 0, TAU);
-    baseCtx.lineWidth = RIM_WIDTH;
-    baseCtx.strokeStyle = ink;
-    baseCtx.stroke();
+  let sheetRoads: SheetRoad[] | null = null;
+  function prepareRoads(): SheetRoad[] {
+    if (sheetRoads !== null) return sheetRoads;
+    sheetRoads = (options.roads ?? []).flatMap((road) => {
+      const a = allPlaces[road.a];
+      const b = allPlaces[road.b];
+      if (a === undefined || b === undefined) return [];
+      const ua = uOf(a.lon);
+      let ub = uOf(b.lon);
+      if (ub - ua > 0.5) ub -= 1;
+      else if (ua - ub > 0.5) ub += 1;
+      const va = vOf(a.lat);
+      const vb = vOf(b.lat);
+      // The bow takes a road off the straight line by a fraction of its length;
+      // a quarter of the length round both ends is more than any bake wrote.
+      const pad = 0.25 * Math.hypot(ub - ua, vb - va);
+      return [{
+        road,
+        u0: Math.min(ua, ub) - pad,
+        u1: Math.max(ua, ub) + pad,
+        v0: Math.min(va, vb) - pad,
+        v1: Math.max(va, vb) + pad,
+        u: null,
+        v: null,
+      }];
+    });
+    return sheetRoads;
   }
 
-  /** The player's own mark, at the centre, turned to the heading. */
-  function drawPlayer(): void {
+  const course = emptyCourse();
+  const onCourse = new THREE.Vector3();
+  const courseLatLon = { lat: 0, lon: 0 };
+  const ROAD_SAMPLES = 14;
+  function traceRoad(road: SheetRoad): void {
+    courseOf(road.road, allPlaces, course);
+    const u = new Float32Array(ROAD_SAMPLES);
+    const v = new Float32Array(ROAD_SAMPLES);
+    for (let k = 0; k < ROAD_SAMPLES; k++) {
+      coursePoint(course, k / (ROAD_SAMPLES - 1), onCourse);
+      latLonOf(onCourse, courseLatLon);
+      let uk = uOf(courseLatLon.lon);
+      if (k > 0) {
+        const du = uk - u[k - 1]!;
+        uk -= Math.round(du);
+      }
+      u[k] = uk;
+      v[k] = vOf(courseLatLon.lat);
+    }
+    road.u = u;
+    road.v = v;
+  }
+
+  // --- tiles -----------------------------------------------------------------
+
+  const tiles = new Map<number, Tile>();
+  const tileKey = (z: number, i: number, j: number): number => z * 4_194_304 + i * 2048 + j;
+  const rowsAt = (z: number): number => Math.ceil(SHEET_HEIGHT * 2 ** z);
+  let useClock = 0;
+  /** The tiles the last draw wanted and did not have, nearest the middle first. */
+  const wanted: Tile[] = [];
+
+  const maskSize = TILE + 2 * PAD;
+  const mask = document.createElement('canvas');
+  mask.width = mask.height = maskSize;
+  const maskCtx = mask.getContext('2d', { willReadFrequently: true })!;
+
+  const colourScratch = new THREE.Color();
+  const pointScratch = new THREE.Vector3();
+  const oceanDeep = new THREE.Color(OCEAN_COLOR);
+  const oceanShallow = new THREE.Color(OCEAN_COLOR).lerp(new THREE.Color(PALETTE.skyBlue), 0.62);
+  const fallbackLand = new THREE.Color(PALETTE.green);
+
+  function tileOf(z: number, i: number, j: number): Tile {
+    const k = tileKey(z, i, j);
+    let tile = tiles.get(k);
+    if (tile === undefined) {
+      tile = { z, i, j, canvas: null, job: null, used: 0 };
+      tile.job = paintTile(tile);
+      tiles.set(k, tile);
+    }
+    tile.used = ++useClock;
+    return tile;
+  }
+
+  /**
+   * One tile, a few rows at a time. The mask and the shallows are one step
+   * each; the colour lattice and the relief yield by the row.
+   */
+  function* paintTile(tile: Tile): Generator<undefined, void, unknown> {
+    const sheetRings = prepareRings();
+    const { z, i, j } = tile;
+    const scaleZ = TILE * 2 ** z;
+    const u0 = i / 2 ** z;
+    const v0 = j / 2 ** z;
+    const M = maskSize;
+
+    // The land, filled from the outlines, and the lakes cut back out of it.
+    maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    maskCtx.clearRect(0, 0, M, M);
+    const uMin = u0 - PAD / scaleZ;
+    const uMax = u0 + (TILE + PAD) / scaleZ;
+    const vMin = v0 - PAD / scaleZ;
+    const vMax = v0 + (TILE + PAD) / scaleZ;
+    for (const pass of [false, true]) {
+      maskCtx.globalCompositeOperation = pass ? 'destination-out' : 'source-over';
+      maskCtx.fillStyle = '#fff';
+      for (const ring of sheetRings) {
+        if (ring.water !== pass) continue;
+        if (ring.v1 < vMin || ring.v0 > vMax) continue;
+        for (let wrap = -1; wrap <= 1; wrap++) {
+          if (ring.u1 + wrap < uMin || ring.u0 + wrap > uMax) continue;
+          maskCtx.beginPath();
+          const n = ring.u.length;
+          for (let k = 0; k < n; k++) {
+            const x = (ring.u[k]! + wrap - u0) * scaleZ + PAD;
+            const y = (ring.v[k]! - v0) * scaleZ + PAD;
+            if (k === 0) maskCtx.moveTo(x, y);
+            else maskCtx.lineTo(x, y);
+          }
+          maskCtx.closePath();
+          maskCtx.fill();
+        }
+      }
+    }
+    maskCtx.globalCompositeOperation = 'source-over';
+    const maskData = maskCtx.getImageData(0, 0, M, M).data;
+    const land = new Float32Array(M * M);
+    let anyLand = false;
+    for (let k = 0; k < M * M; k++) {
+      land[k] = maskData[k * 4 + 3]! / 255;
+      if (land[k]! > 0) anyLand = true;
+    }
+    yield;
+
+    // The shallows: the land blurred twice, horizontally then vertically,
+    // read only on the water.
+    const near = new Float32Array(M * M);
+    if (anyLand) {
+      const row = new Float32Array(M * M);
+      const R = SHALLOW_RADIUS;
+      for (let pass = 0; pass < 2; pass++) {
+        const from = pass === 0 ? land : near;
+        for (let y = 0; y < M; y++) {
+          let sum = 0;
+          for (let x = -R; x <= R; x++) sum += from[y * M + Math.min(M - 1, Math.max(0, x))]!;
+          for (let x = 0; x < M; x++) {
+            row[y * M + x] = sum / (2 * R + 1);
+            sum += from[y * M + Math.min(M - 1, x + R + 1)]! - from[y * M + Math.max(0, x - R)]!;
+          }
+        }
+        for (let x = 0; x < M; x++) {
+          let sum = 0;
+          for (let y = -R; y <= R; y++) sum += row[Math.min(M - 1, Math.max(0, y)) * M + x]!;
+          for (let y = 0; y < M; y++) {
+            near[y * M + x] = sum / (2 * R + 1);
+            sum += row[Math.min(M - 1, y + R + 1) * M + x]! - row[Math.max(0, y - R) * M + x]!;
+          }
+        }
+      }
+    }
+    yield;
+
+    // The colour, on a lattice, wherever there is land within reach of a
+    // lattice point. `groundColorAt` answers over the sea too — a colour for
+    // the ground that is not there — which is what a blend across a coast
+    // wants.
+    const GN = TILE / COLOUR_STEP + 1;
+    const lattice = new Float32Array(GN * GN * 3);
+    const known = new Uint8Array(GN * GN);
+    if (anyLand) {
+      for (let gy = 0; gy < GN; gy++) {
+        for (let gx = 0; gx < GN; gx++) {
+          const mx = Math.min(M - 1, gx * COLOUR_STEP + PAD);
+          const my = Math.min(M - 1, gy * COLOUR_STEP + PAD);
+          if (near[my * M + mx]! <= 0 && land[my * M + mx]! <= 0) continue;
+          const lat = latOfV(v0 + (gy * COLOUR_STEP) / scaleZ);
+          const lon = lonOfU(u0 + (gx * COLOUR_STEP) / scaleZ);
+          unitAt(lat, lon, pointScratch).multiplyScalar(PLANET_RADIUS);
+          groundColorAt(world, pointScratch, colourScratch);
+          const g = gy * GN + gx;
+          lattice[g * 3] = colourScratch.r;
+          lattice[g * 3 + 1] = colourScratch.g;
+          lattice[g * 3 + 2] = colourScratch.b;
+          known[g] = 1;
+        }
+        yield;
+      }
+    }
+
+    // The relief, on a lattice of its own a step round the tile so every
+    // point inside has neighbours, and the light worked out on that lattice.
+    // Where the lattice is over water the ground is taken as flat.
+    const RS = RELIEF_STEP;
+    const RN = TILE / RS + 3;
+    const relief = new Float32Array(RN * RN);
+    const light = new Float32Array(RN * RN).fill(1);
+    if (anyLand) {
+      for (let ry = 0; ry < RN; ry++) {
+        const py = (ry - 1) * RS;
+        const lat = latOfV(v0 + py / scaleZ);
+        const my = Math.min(M - 1, Math.max(0, py + PAD));
+        for (let rx = 0; rx < RN; rx++) {
+          const px = (rx - 1) * RS;
+          const mx = Math.min(M - 1, Math.max(0, px + PAD));
+          if (land[my * M + mx]! <= 0 && near[my * M + mx]! < 0.02) continue;
+          unitAt(lat, lonOfU(u0 + px / scaleZ), pointScratch);
+          relief[ry * RN + rx] = Math.max(0, reliefAt(pointScratch.x, pointScratch.y, pointScratch.z));
+        }
+        if ((ry & 7) === 7) yield;
+      }
+      // The light is from the north-west, as every printed relief map has it,
+      // and the exaggeration grows as the pixel does: at the world's scale a
+      // pixel is 400 units and a 680-unit range is a two-pixel bump.
+      for (let ry = 1; ry < RN - 1; ry++) {
+        const lat = latOfV(v0 + ((ry - 1) * RS) / scaleZ);
+        const unitsX = ((360 * RS) / scaleZ) * Math.max(0.05, Math.cos(lat * DEG)) * UNITS_PER_DEGREE;
+        const unitsY = ((TAU * RS * Math.cos(0.8 * lat * DEG)) / scaleZ) * R2D * UNITS_PER_DEGREE;
+        const lift = Math.min(14, Math.max(1.6, Math.sqrt(unitsX / RS / 6)));
+        for (let rx = 1; rx < RN - 1; rx++) {
+          const k = ry * RN + rx;
+          const sx = ((relief[k + 1]! - relief[k - 1]!) / (2 * unitsX)) * lift;
+          const sy = ((relief[k + RN]! - relief[k - RN]!) / (2 * unitsY)) * lift;
+          // n . L over L.z, so flat ground is exactly 1: L = (-1, -1, sqrt 2) / 2.
+          const shade = (0.5 * sx + 0.5 * sy + 0.7071) / Math.sqrt(sx * sx + sy * sy + 1) / 0.7071;
+          light[k] = Math.min(1.22, Math.max(0.58, shade));
+        }
+      }
+    }
+
+    // Composed.
+    const image = new ImageData(TILE, TILE);
+    const out = image.data;
+    for (let y = 0; y < TILE; y++) {
+      const ly = y / RS + 1;
+      const ly0 = Math.floor(ly);
+      const lfy = ly - ly0;
+      const gy = y / COLOUR_STEP;
+      const gy0 = Math.min(GN - 2, Math.floor(gy));
+      const fy = gy - gy0;
+      for (let x = 0; x < TILE; x++) {
+        const m = (y + PAD) * M + (x + PAD);
+        const a = land[m]!;
+        let r = oceanDeep.r;
+        let g = oceanDeep.g;
+        let b = oceanDeep.b;
+        const shallow = Math.min(1, near[m]! * 2.2);
+        if (shallow > 0) {
+          const s = Math.sqrt(shallow);
+          r += (oceanShallow.r - r) * s;
+          g += (oceanShallow.g - g) * s;
+          b += (oceanShallow.b - b) * s;
+        }
+        if (a > 0) {
+          const gx = x / COLOUR_STEP;
+          const gx0 = Math.min(GN - 2, Math.floor(gx));
+          const fx = gx - gx0;
+          let lr = 0;
+          let lg = 0;
+          let lb = 0;
+          let weight = 0;
+          for (let c = 0; c < 4; c++) {
+            const cx = gx0 + (c & 1);
+            const cy = gy0 + (c >> 1);
+            const idx = cy * GN + cx;
+            if (known[idx] === 0) continue;
+            const w = ((c & 1) === 1 ? fx : 1 - fx) * ((c >> 1) === 1 ? fy : 1 - fy) + 1e-4;
+            lr += lattice[idx * 3]! * w;
+            lg += lattice[idx * 3 + 1]! * w;
+            lb += lattice[idx * 3 + 2]! * w;
+            weight += w;
+          }
+          if (weight > 0) {
+            lr /= weight;
+            lg /= weight;
+            lb /= weight;
+          } else {
+            lr = fallbackLand.r;
+            lg = fallbackLand.g;
+            lb = fallbackLand.b;
+          }
+          const lx = x / RS + 1;
+          const lx0 = Math.floor(lx);
+          const lfx = lx - lx0;
+          const k = ly0 * RN + lx0;
+          const shade =
+            (light[k]! * (1 - lfx) + light[k + 1]! * lfx) * (1 - lfy) +
+            (light[k + RN]! * (1 - lfx) + light[k + RN + 1]! * lfx) * lfy;
+          lr *= shade;
+          lg *= shade;
+          lb *= shade;
+          r += (lr - r) * a;
+          g += (lg - g) * a;
+          b += (lb - b) * a;
+        }
+        const o = (y * TILE + x) * 4;
+        // THREE's colours are linear; the canvas is sRGB.
+        out[o] = toByte(r);
+        out[o + 1] = toByte(g);
+        out[o + 2] = toByte(b);
+        out[o + 3] = 255;
+      }
+    }
+    const painted = document.createElement('canvas');
+    painted.width = painted.height = TILE;
+    painted.getContext('2d')!.putImageData(image, 0, 0);
+    tile.canvas = painted;
+    tile.job = null;
+  }
+
+  /** Runs tile jobs, nearest the middle first, until the allowance is spent. */
+  function paintTiles(budgetMs: number): boolean {
+    if (wanted.length === 0) return false;
+    const start = performance.now();
+    let finished = false;
+    while (wanted.length > 0 && performance.now() - start < budgetMs) {
+      const tile = wanted[0]!;
+      if (tile.job === null) {
+        wanted.shift();
+        continue;
+      }
+      if (tile.job.next().done === true) {
+        tile.job = null;
+        wanted.shift();
+        finished = true;
+      }
+    }
+    return finished;
+  }
+
+  function evictTiles(limit: number): void {
+    const loose = [...tiles.values()].filter((tile) => tile.z > KEEP_LEVEL && tile.canvas !== null);
+    if (loose.length <= limit) return;
+    loose.sort((a, b) => a.used - b.used);
+    for (let k = 0; k < loose.length - limit; k++) {
+      const tile = loose[k]!;
+      tiles.delete(tileKey(tile.z, tile.i, tile.j));
+    }
+  }
+
+  /** The first levels, painted in one go the first time the sheet opens. */
+  let primed = false;
+  function prime(): void {
+    if (primed) return;
+    primed = true;
+    const tile = tileOf(0, 0, 0);
+    while (tile.job !== null && tile.job.next().done !== true) {
+      // Painting the whole world's first tile, synchronously.
+    }
+    tile.job = null;
+    for (let z = 1; z <= KEEP_LEVEL; z++) {
+      for (let j = 0; j < rowsAt(z); j++) for (let i = 0; i < 2 ** z; i++) wanted.push(tileOf(z, i, j));
+    }
+  }
+
+  // --- the view --------------------------------------------------------------
+
+  let width = 0;
+  let height = 0;
+  let ratio = 1;
+  /** The middle of the screen, in map units, and pixels per map unit. */
+  let cu = 0.5;
+  let cv = SHEET_HEIGHT / 2;
+  let S = 0;
+  let zoomSet = false;
+
+  const minScale = (): number => Math.max(width, height / SHEET_HEIGHT) * 0.999;
+  const maxScale = (): number => TILE * 2 ** MAX_LEVEL;
+
+  function clampView(): void {
+    S = Math.min(maxScale(), Math.max(minScale(), S));
+    cu -= Math.floor(cu);
+    const halfV = height / 2 / S;
+    if (SHEET_HEIGHT <= 2 * halfV) cv = SHEET_HEIGHT / 2;
+    else cv = Math.min(SHEET_HEIGHT - halfV, Math.max(halfV, cv));
+  }
+
+  function resize(): void {
+    const box = sheet.getBoundingClientRect();
+    width = Math.max(1, Math.round(box.width - 6));
+    height = Math.max(1, Math.round(box.height - 6));
+    ratio = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    if (!zoomSet) {
+      S = (width * 360) / OPEN_DEGREES;
+      zoomSet = true;
+    }
+    clampView();
+    dirty = true;
+  }
+
+  /** Screen position of a map point, taking the copy of the sheet nearest the middle. */
+  const screenX = (u: number): number => {
+    let du = u - cu;
+    du -= Math.round(du);
+    return width / 2 + du * S;
+  };
+  const screenY = (v: number): number => height / 2 + (v - cv) * S;
+
+  function zoomAt(factor: number, x: number, y: number): void {
+    const u = cu + (x - width / 2) / S;
+    const v = cv + (y - height / 2) / S;
+    S *= factor;
+    S = Math.min(maxScale(), Math.max(minScale(), S));
+    cu = u - (x - width / 2) / S;
+    cv = v - (y - height / 2) / S;
+    clampView();
+    dirty = true;
+  }
+
+  // --- the player ------------------------------------------------------------
+
+  const me = { u: 0.5, v: SHEET_HEIGHT / 2, lat: 0, lon: 0, heading: 0, known: false };
+  const meLatLon = { lat: 0, lon: 0 };
+
+  function centreOnMe(): void {
+    if (!me.known) return;
+    cu = me.u;
+    cv = me.v;
+    clampView();
+    dirty = true;
+  }
+
+  // --- drawing ----------------------------------------------------------------
+
+  let dirty = true;
+  let drawnAt = 0;
+  let drawMs = 0;
+  let level = 0;
+  const hits: Hit[] = [];
+
+  function drawTiles(): void {
+    level = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((S * Math.min(ratio, 1.5)) / TILE))));
+    const n = 2 ** level;
+    const tilePx = S / n;
+    const rows = rowsAt(level);
+    const uLeft = cu - width / 2 / S;
+    const iFirst = Math.floor(uLeft * n);
+    const iLast = Math.floor((cu + width / 2 / S) * n);
+    const jFirst = Math.max(0, Math.floor((cv - height / 2 / S) * n));
+    const jLast = Math.min(rows - 1, Math.floor((cv + height / 2 / S) * n));
+    const want: { tile: Tile; d: number }[] = [];
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    for (let j = jFirst; j <= jLast; j++) {
+      for (let i = iFirst; i <= iLast; i++) {
+        const wrapI = ((i % n) + n) % n;
+        const x = width / 2 + (i / n - cu) * S;
+        const y = height / 2 + (j / n - cv) * S;
+        const tile = tileOf(level, wrapI, j);
+        // A hair over a pixel each way, so the seams between scaled tiles
+        // never show the sea underneath.
+        if (tile.canvas !== null) {
+          ctx.drawImage(tile.canvas, x, y, tilePx + 0.6, tilePx + 0.6);
+          continue;
+        }
+        want.push({ tile, d: Math.hypot(x + tilePx / 2 - width / 2, y + tilePx / 2 - height / 2) });
+        // The nearest painted ancestor, cut down to this tile's corner of it.
+        for (let up = 1; up <= level; up++) {
+          const parent = tiles.get(tileKey(level - up, wrapI >> up, j >> up));
+          if (parent?.canvas == null) continue;
+          parent.used = ++useClock;
+          const part = TILE / 2 ** up;
+          ctx.drawImage(
+            parent.canvas,
+            (wrapI - ((wrapI >> up) << up)) * part,
+            (j - ((j >> up) << up)) * part,
+            part,
+            part,
+            x,
+            y,
+            tilePx + 0.6,
+            tilePx + 0.6,
+          );
+          break;
+        }
+      }
+    }
+    // What this view wants comes first, nearest the middle; the first levels'
+    // backlog stays behind it.
+    want.sort((a, b) => a.d - b.d);
+    const behind = wanted.filter((tile) => tile.z <= KEEP_LEVEL && tile.job !== null);
+    wanted.length = 0;
+    for (const { tile } of want) wanted.push(tile);
+    for (const tile of behind) if (!wanted.includes(tile)) wanted.push(tile);
+  }
+
+  function drawGraticule(): void {
+    const pxPerDegree = S / 360;
+    if (pxPerDegree > 40) return;
+    const step = pxPerDegree < 6 ? 30 : pxPerDegree < 16 ? 15 : 5;
     ctx.save();
-    ctx.translate(centre, centre);
-    ctx.rotate(heading);
+    ctx.strokeStyle = 'rgba(255, 242, 232, 0.14)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, -13);
-    ctx.lineTo(8.5, 9.5);
-    ctx.lineTo(0, 4);
-    ctx.lineTo(-8.5, 9.5);
-    ctx.closePath();
-    ctx.fillStyle = cream;
-    ctx.fill();
-    ctx.lineWidth = 2.4;
+    for (let lon = -180; lon < 180; lon += step) {
+      const x = screenX(uOf(lon));
+      if (x < 0 || x > width) continue;
+      ctx.moveTo(x, Math.max(0, screenY(0)));
+      ctx.lineTo(x, Math.min(height, screenY(SHEET_HEIGHT)));
+    }
+    for (let lat = -90 + step; lat < 90; lat += step) {
+      const y = screenY(vOf(lat));
+      if (y < 0 || y > height) continue;
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawOutlines(): void {
+    const sheetRings = prepareRings();
+    const coast = new Path2D();
+    const frontier = new Path2D();
+    const uLeft = cu - width / 2 / S;
+    const uRight = cu + width / 2 / S;
+    const vTop = cv - height / 2 / S;
+    const vBottom = cv + height / 2 / S;
+    const minStep = 0.8;
+    for (const ring of sheetRings) {
+      if (ring.v1 < vTop || ring.v0 > vBottom) continue;
+      for (let wrap = -1; wrap <= 1; wrap++) {
+        if (ring.u1 + wrap < uLeft || ring.u0 + wrap > uRight) continue;
+        const originX = width / 2 + (wrap - cu) * S;
+        const originY = height / 2 - cv * S;
+        const n = ring.u.length;
+        let current = -1;
+        let lastX = 0;
+        let lastY = 0;
+        for (let k = 0; k < n; k++) {
+          const cls = ring.edge[k]!;
+          const x = originX + ring.u[k]! * S;
+          const y = originY + ring.v[k]! * S;
+          if (cls !== current) {
+            if (cls !== 2) (cls === 1 ? coast : frontier).moveTo(x, y);
+            current = cls;
+            lastX = x;
+            lastY = y;
+          }
+          if (cls === 2) continue;
+          const next = (k + 1) % n;
+          const nx = originX + ring.u[next]! * S;
+          const ny = originY + ring.v[next]! * S;
+          const last = k === n - 1 || ring.edge[next] !== cls;
+          if (last || Math.abs(nx - lastX) + Math.abs(ny - lastY) >= minStep) {
+            (cls === 1 ? coast : frontier).lineTo(nx, ny);
+            lastX = nx;
+            lastY = ny;
+          }
+        }
+      }
+    }
+    const pxPerDegree = S / 360;
+    ctx.save();
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(30, 6, 3, 0.42)';
+    ctx.lineWidth = pxPerDegree < 8 ? 0.8 : 1.3;
+    ctx.setLineDash(pxPerDegree < 8 ? [] : [5, 4]);
+    ctx.stroke(frontier);
+    ctx.setLineDash([]);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = pxPerDegree < 4 ? 1 : pxPerDegree < 30 ? 1.5 : 2.2;
+    ctx.stroke(coast);
+    ctx.restore();
+  }
+
+  function drawRoads(): void {
+    const pxPerDegree = S / 360;
+    if (pxPerDegree < ROADS_FROM || options.roads === undefined) return;
+    const all = prepareRoads();
+    const uLeft = cu - width / 2 / S;
+    const uRight = cu + width / 2 / S;
+    const vTop = cv - height / 2 / S;
+    const vBottom = cv + height / 2 / S;
+    const lanes = pxPerDegree >= LANES_FROM;
+    const widthOf = [lanes ? 1.6 : 0, 2.4, 3.4];
+    const zoomGain = Math.min(1.8, Math.max(1, Math.log2(pxPerDegree / ROADS_FROM) * 0.35 + 1));
+    const paths = [new Path2D(), new Path2D(), new Path2D()];
+    for (const road of all) {
+      if (widthOf[road.road.cls] === 0) continue;
+      if (road.v1 < vTop || road.v0 > vBottom) continue;
+      let wrap = 0;
+      if (road.u1 < uLeft) wrap = 1;
+      else if (road.u0 > uRight) wrap = -1;
+      if (road.u1 + wrap < uLeft || road.u0 + wrap > uRight) continue;
+      if (road.u === null) traceRoad(road);
+      const path = paths[road.road.cls] ?? paths[0]!;
+      const originX = width / 2 + (wrap - cu) * S;
+      const originY = height / 2 - cv * S;
+      for (let k = 0; k < ROAD_SAMPLES; k++) {
+        const x = originX + road.u![k]! * S;
+        const y = originY + road.v![k]! * S;
+        if (k === 0) path.moveTo(x, y);
+        else path.lineTo(x, y);
+      }
+    }
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // Casing first under all three classes, so a junction is one piece of
+    // road rather than three lines crossing.
+    ctx.strokeStyle = 'rgba(30, 6, 3, 0.55)';
+    for (let c = 0; c < 3; c++) {
+      if (widthOf[c] === 0) continue;
+      ctx.lineWidth = widthOf[c]! * zoomGain + 2;
+      ctx.stroke(paths[c]!);
+    }
+    const fills = [hex(PALETTE.cream), hex(PALETTE.white), hex(PALETTE.apricot)];
+    for (let c = 0; c < 3; c++) {
+      if (widthOf[c] === 0) continue;
+      ctx.strokeStyle = fills[c]!;
+      ctx.lineWidth = widthOf[c]! * zoomGain;
+      ctx.stroke(paths[c]!);
+    }
+    ctx.restore();
+  }
+
+  /** The landmarks surviving the thinning this draw, as indices into `monuments`. */
+  const keptPins: { index: number; x: number; y: number }[] = [];
+
+  function layoutAndDraw(space: LabelSpace): void {
+    const pxPerDegree = S / 360;
+    const chosen = target();
+    hits.length = 0;
+
+    // You, first: nothing is allowed to sit on the arrow.
+    let meX = -1e9;
+    let meY = -1e9;
+    if (me.known) {
+      meX = screenX(me.u);
+      meY = screenY(me.v);
+      space.claim(meX - 14, meY - 14, 28, 28);
+    }
+
+    // The landmarks: which pins stand, the destination always.
+    keptPins.length = 0;
+    const order = monuments.map((_, index) => index);
+    order.sort((a, b) => {
+      const ca = monuments[a]!.id === chosen ? 0 : 1;
+      const cb = monuments[b]!.id === chosen ? 0 : 1;
+      return ca - cb;
+    });
+    for (const index of order) {
+      const monument = monuments[index]!;
+      const x = screenX(uOf(monument.lon));
+      const y = screenY(vOf(monument.lat));
+      if (x < -30 || x > width + 30 || y < -30 || y > height + 40) continue;
+      if (monument.id !== chosen) {
+        let crowded = false;
+        for (const pin of keptPins) {
+          if (Math.abs(pin.x - x) < PIN_SPACING && Math.abs(pin.y - y) < PIN_SPACING) {
+            crowded = true;
+            break;
+          }
+        }
+        if (crowded) continue;
+      }
+      keptPins.push({ index, x, y });
+      space.claim(x - PIN_HEAD - 2, y - PIN_RISE - PIN_HEAD - 2, PIN_HEAD * 2 + 4, PIN_RISE + PIN_HEAD + 4);
+    }
+
+    // Names, most important first: the pins', then the countries', then the towns'.
+    const labels: { text: string; x: number; y: number; font: string; fill: string; halo: string; weight: number; align: CanvasTextAlign }[] = [];
+    const tryLabel = (
+      text: string,
+      x: number,
+      y: number,
+      font: string,
+      size: number,
+      fill: string,
+      halo: string,
+      align: CanvasTextAlign,
+      spacing = 0,
+    ): boolean => {
+      ctx.font = font;
+      const w = ctx.measureText(text).width + spacing * text.length;
+      const left = align === 'center' ? x - w / 2 : align === 'left' ? x : x - w;
+      if (left < 4 || left + w > width - 4 || y - size < 4 || y + 4 > height) return false;
+      if (!space.fits(left - 3, y - size * 0.62 - 3, w + 6, size * 1.24 + 6)) return false;
+      space.claim(left - 3, y - size * 0.62 - 3, w + 6, size * 1.24 + 6);
+      labels.push({ text, x, y, font, fill, halo, weight: 4, align });
+      return true;
+    };
+
+    const pinFont = `800 12.5px ${FONT}`;
+    for (const pin of keptPins) {
+      const monument = monuments[pin.index]!;
+      const showName = pxPerDegree >= 5 || monument.id === chosen;
+      if (!showName) continue;
+      tryLabel(monument.name, pin.x + PIN_HEAD + 5, pin.y - PIN_RISE, pinFont, 12.5, ink, paper, 'left');
+    }
+
+    // Countries: while a country is on the sheet at a size a name fits in, and
+    // not once it is bigger than the screen, where its name is only in the way.
+    const countryAlpha = pxPerDegree < 60 ? 1 : 0;
+    if (countryAlpha > 0) {
+      for (const label of countryLabels) {
+        const px = label.span * S;
+        if (px < 70 || px > width * 2.2) continue;
+        const size = Math.round(Math.min(17, Math.max(10.5, 9 + px / 60)));
+        const x = screenX(label.u);
+        const y = screenY(label.v);
+        if (x < 0 || x > width || y < 0 || y > height) continue;
+        tryLabel(label.text, x, y, `800 ${size}px ${FONT}`, size, 'rgba(30, 6, 3, 0.62)', 'rgba(255, 242, 232, 0.55)', 'center', 1.6);
+      }
+    }
+
+    // The towns: by rank, as many as there is room for above the zoom's floor.
+    let floor = 0;
+    for (const [upTo, pop] of TOWN_FLOOR) {
+      if (pxPerDegree < upTo) {
+        floor = pop;
+        break;
+      }
+    }
+    const unitsPerPx = (360 / S) * UNITS_PER_DEGREE;
+    const townMarks: { town: SheetTown; x: number; y: number; side: number }[] = [];
+    let named = 0;
+    for (const town of towns) {
+      const capitalNamed = town.place.capital === true && pxPerDegree >= TOWN_FLOOR[0]![0];
+      if (town.place.pop < floor && !capitalNamed) {
+        // Below the floor it is not named, but at a street zoom it is still
+        // drawn: a square on the sheet where a town stands.
+        if (pxPerDegree < 70) continue;
+      }
+      const x = screenX(town.u);
+      const y = screenY(town.v);
+      if (x < -60 || x > width + 60 || y < -60 || y > height + 60) continue;
+      const cosLat = Math.max(0.05, Math.cos(town.place.lat * DEG));
+      const side = (town.radius * Math.SQRT2) / (unitsPerPx * cosLat) * 1;
+      const canName = town.place.pop >= floor || capitalNamed;
+      let labelled = false;
+      if (canName && named < 260) {
+        const big = town.place.capital === true || town.place.pop >= 1_000_000;
+        const size = big ? 13.5 : 12;
+        const font = `${big ? 800 : 700} ${size}px ${FONT}`;
+        const offset = Math.max(side / 2, 4) + 5;
+        labelled = tryLabel(town.place.name, x + offset, y + 4, font, size, ink, paper, 'left');
+        if (!labelled && side > 40) labelled = tryLabel(town.place.name, x, y + 4, font, size, ink, paper, 'center');
+        if (labelled) named++;
+      }
+      if (labelled || (side >= SQUARE_FROM && pxPerDegree >= 70)) {
+        townMarks.push({ town, x, y, side });
+        if (side < SQUARE_FROM) space.claim(x - 5, y - 5, 10, 10);
+      }
+    }
+
+    // --- and now paint it, back to front --------------------------------------
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const mark of townMarks) {
+      const { x, y, side, town } = mark;
+      if (side >= SQUARE_FROM) {
+        drawTown(town, x, y, side);
+      } else {
+        const capital = town.place.capital === true;
+        ctx.beginPath();
+        ctx.arc(x, y, capital ? 4.5 : 3.4, 0, TAU);
+        ctx.fillStyle = paper;
+        ctx.fill();
+        ctx.lineWidth = 1.8;
+        ctx.strokeStyle = ink;
+        ctx.stroke();
+        if (capital) {
+          ctx.beginPath();
+          ctx.arc(x, y, 1.8, 0, TAU);
+          ctx.fillStyle = ink;
+          ctx.fill();
+        }
+      }
+      hits.push({ kind: 'town', town, x, y });
+    }
+
+    // The route to the destination: the great circle, dashed.
+    const chosenIndex = chosen === null ? -1 : monuments.findIndex((monument) => monument.id === chosen);
+    if (chosenIndex >= 0 && me.known) {
+      drawRoute(monuments[chosenIndex]!);
+    }
+
+    for (const label of labels) {
+      ctx.font = label.font;
+      ctx.textAlign = label.align;
+      ctx.textBaseline = 'middle';
+      if ('letterSpacing' in ctx && label.fill.startsWith('rgba')) (ctx as { letterSpacing: string }).letterSpacing = '1.6px';
+      inkedText(ctx, label.text, label.x, label.y, label.halo, label.fill, label.weight);
+      if ('letterSpacing' in ctx) (ctx as { letterSpacing: string }).letterSpacing = '0px';
+    }
+
+    for (const pin of keptPins) {
+      const monument = monuments[pin.index]!;
+      const fill = monument.id === chosen ? violet : isVisited(monument.id) ? gold : paper;
+      const grow = hover?.kind === 'pin' && hover.index === pin.index ? 1.3 : monument.id === chosen ? 1.2 : 1;
+      drawPin(pin.x, pin.y, fill, grow);
+      hits.push({ kind: 'pin', index: pin.index, x: pin.x, y: pin.y - PIN_RISE * grow });
+    }
+
+    drawPeers();
+    if (me.known) drawMe(meX, meY);
+    ctx.restore();
+  }
+
+  const blockFill = hex(PALETTE.blush);
+  const streetFill = hex(PALETTE.white);
+  /**
+   * A town as it is built: its blocks, its streets and the ragged edge the
+   * outskirts leave, inked round the outside only. Below `CELLS_FROM` a cell
+   * is too small to read and the town is one colour with the same outline.
+   */
+  function drawTown(town: SheetTown, x: number, y: number, side: number): void {
+    const grid = townGrid(town.radius);
+    const cells = cellsOf(town);
+    const n = grid.cells;
+    const cell = side / n;
+    const left = x - side / 2;
+    const top = y - side / 2;
+    const detailed = cell >= CELLS_FROM;
+    // Rows run north, the sheet runs south: row `r` is drawn at `n - 1 - r`.
+    ctx.fillStyle = blockFill;
+    ctx.beginPath();
+    for (let row = 0; row < n; row++) {
+      for (let col = 0; col < n; col++) {
+        if (cells[row * n + col] === 0) continue;
+        ctx.rect(left + col * cell, top + (n - 1 - row) * cell, cell + 0.4, cell + 0.4);
+      }
+    }
+    ctx.fill();
+    if (detailed) {
+      // The streets: whole avenue cells, and the bands `townGrid` lays along a
+      // boundary between two cells — the square is symmetric, so one list of
+      // boundaries is both the north-south and the east-west streets. Clipped
+      // to the cells that stand, so a street stops where the outskirts begin.
+      ctx.save();
+      ctx.beginPath();
+      for (let row = 0; row < n; row++) {
+        for (let col = 0; col < n; col++) {
+          if (cells[row * n + col] !== 0) ctx.rect(left + col * cell, top + (n - 1 - row) * cell, cell + 0.4, cell + 0.4);
+        }
+      }
+      ctx.clip();
+      ctx.fillStyle = streetFill;
+      ctx.beginPath();
+      const band = cell * 0.2;
+      for (let c = 0; c < n; c++) {
+        if (grid.avenue[c] === 1) {
+          ctx.rect(left + c * cell, top, cell, side);
+          ctx.rect(left, top + (n - 1 - c) * cell, side, cell);
+        }
+        if (c + 1 < n && (grid.high[c] === 1 || grid.low[c + 1] === 1)) {
+          ctx.rect(left + (c + 1) * cell - band, top, 2 * band, side);
+          ctx.rect(left, top + (n - 1 - c) * cell - band, side, 2 * band);
+        }
+      }
+      ctx.fill();
+      ctx.restore();
+    }
+    // The outline: every side of a standing cell whose neighbour is not.
+    const standing = (col: number, row: number): boolean =>
+      col >= 0 && row >= 0 && col < n && row < n && cells[row * n + col] !== 0;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = detailed ? 2 : 1.4;
+    ctx.lineCap = 'square';
+    ctx.beginPath();
+    for (let row = 0; row < n; row++) {
+      for (let col = 0; col < n; col++) {
+        if (!standing(col, row)) continue;
+        const x0 = left + col * cell;
+        const y0 = top + (n - 1 - row) * cell;
+        if (!standing(col, row + 1)) { ctx.moveTo(x0, y0); ctx.lineTo(x0 + cell, y0); }
+        if (!standing(col, row - 1)) { ctx.moveTo(x0, y0 + cell); ctx.lineTo(x0 + cell, y0 + cell); }
+        if (!standing(col - 1, row)) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + cell); }
+        if (!standing(col + 1, row)) { ctx.moveTo(x0 + cell, y0); ctx.lineTo(x0 + cell, y0 + cell); }
+      }
+    }
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  function drawPin(x: number, y: number, fill: string, grow: number): void {
+    const rise = PIN_RISE * grow;
+    const head = PIN_HEAD * grow;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - head * 0.72, y - rise + head * 0.35);
+    ctx.arc(x, y - rise, head, Math.PI * 0.78, Math.PI * 0.22, false);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = ink;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y - rise, head * 0.36, 0, TAU);
+    ctx.fillStyle = ink;
+    ctx.fill();
+  }
+
+  const routeA = new THREE.Vector3();
+  const routeB = new THREE.Vector3();
+  const routeP = new THREE.Vector3();
+  const routeLatLon = { lat: 0, lon: 0 };
+  function drawRoute(to: Placement): void {
+    unitAt(me.lat, me.lon, routeA);
+    unitAt(to.lat, to.lon, routeB);
+    const angle = routeA.angleTo(routeB);
+    if (angle < 1e-5) return;
+    const steps = Math.max(8, Math.ceil(angle * R2D));
+    const sinA = Math.sin(angle);
+    ctx.beginPath();
+    let lastU = 0;
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      const a = Math.sin((1 - t) * angle) / sinA;
+      const b = Math.sin(t * angle) / sinA;
+      routeP.set(routeA.x * a + routeB.x * b, routeA.y * a + routeB.y * b, routeA.z * a + routeB.z * b);
+      latLonOf(routeP, routeLatLon);
+      let u = uOf(routeLatLon.lon);
+      if (k === 0) u = cu + (screenX(u) - width / 2) / S;
+      else u -= Math.round(u - lastU);
+      lastU = u;
+      const x = width / 2 + (u - cu) * S;
+      const y = screenY(vOf(routeLatLon.lat));
+      if (k === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineCap = 'round';
+    ctx.setLineDash([]);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.setLineDash([7, 7]);
+    ctx.strokeStyle = violet;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawPeers(): void {
+    const list = options.peers?.() ?? [];
+    const peerLatLon = { lat: 0, lon: 0 };
+    ctx.font = `800 12px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const peer of list) {
+      latLonOf(peer, peerLatLon);
+      const x = screenX(uOf(peerLatLon.lon));
+      const y = screenY(vOf(peerLatLon.lat));
+      if (x < -20 || x > width + 20 || y < -20 || y > height + 20) continue;
+      const grow = hover?.kind === 'peer' && hover.id === peer.id ? 1.35 : 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 6 * grow, 0, TAU);
+      ctx.fillStyle = pink;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+      inkedText(ctx, peer.name, x, y - 15, paper, ink, 4);
+      unitAt(me.lat, me.lon, routeA);
+      const distance = routeA.angleTo(routeB.set(peer.x, peer.y, peer.z).normalize()) * EARTH_KM;
+      hits.push({ kind: 'peer', id: peer.id, name: peer.name, x, y, distance });
+    }
+  }
+
+  function drawMe(x: number, y: number): void {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, 0, 13, 0, TAU);
+    ctx.fillStyle = 'rgba(255, 242, 232, 0.35)';
+    ctx.fill();
+    ctx.rotate(me.heading);
+    ctx.beginPath();
+    ctx.moveTo(0, -11);
+    ctx.lineTo(8, 8);
+    ctx.lineTo(0, 4);
+    ctx.lineTo(-8, 8);
+    ctx.closePath();
+    ctx.fillStyle = hex(PALETTE.crimson);
+    ctx.fill();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2.5;
     ctx.strokeStyle = ink;
     ctx.stroke();
     ctx.restore();
   }
 
-  /** Names for as many countries as have room, biggest first. */
-  function drawCountries(space: LabelSpace): void {
-    ctx.font = `700 11px ${FONT}`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    for (const label of countryLabels) {
-      // A country narrower than its own name is a dot with a word on it.
-      if (label.span * perRadian * 2 < MIN_COUNTRY_LABEL) continue;
-      const height = label.x * ux + label.y * uy + label.z * uz;
-      const sx = label.x * rx + label.y * ry + label.z * rz;
-      const sy = label.x * fx + label.y * fy + label.z * fz;
-      const flat = Math.sqrt(sx * sx + sy * sy);
-      const radius = Math.acos(height > 1 ? 1 : height < -1 ? -1 : height) * perRadian;
-      const x = centre + (flat > 1e-9 ? sx / flat : 0) * radius;
-      const y = centre - (flat > 1e-9 ? sy / flat : 1) * radius;
-      const left = x - label.width / 2;
-      const top = y - 7;
-      // Inside the disc, whole. A name half under the rim is worse than none.
-      if (Math.hypot(left - centre, top - centre) > discRadius - 8) continue;
-      if (Math.hypot(left + label.width - centre, top + 14 - centre) > discRadius - 8) continue;
-      if (!space.fits(left, top, label.width, 14)) continue;
-      space.claim(left, top, label.width, 14);
-      inkedText(ctx, label.text, left, y, cream, 'rgba(30, 6, 3, 0.62)', 3);
-    }
+  function drawScale(): void {
+    const lat = latOfV(cv);
+    const kmPerPx = ((TAU * EARTH_KM) / S) * Math.max(0.05, Math.cos(lat * DEG));
+    const raw = kmPerPx * 110;
+    const power = 10 ** Math.floor(Math.log10(raw));
+    const nice = [1, 2, 5, 10].map((m) => m * power).filter((value) => value <= raw).pop() ?? power;
+    scaleText.textContent = nice >= 1 ? km(nice) : `${Math.round(nice * 1000)} m`;
+    scaleBar.style.width = `${Math.round(nice / kmPerPx)}px`;
   }
 
-  /** How far out a ring of `distance` real kilometres is drawn, in pixels. */
-  const ringRadius = (distance: number): number => (distance / EARTH_KM) * perRadian;
-
-  /**
-   * Projects the landmarks, thins them, and claims the room their pins stand in.
-   *
-   * Nothing is culled: on this projection every pin on the planet is on the
-   * sheet. Order is nearest-first, so the names that get dropped in a crowd are
-   * the far ones — and the chosen destination is seeded ahead of the thinning,
-   * exactly as on the minimap.
-   *
-   * Every pin's own box is claimed *before* any word is placed, and getting
-   * that order wrong is visible rather than theoretical: the pins are painted
-   * last so they sit on top of the haloes, so a name allowed to start under a
-   * neighbour's pin is a name with a hole bitten out of it. The first version
-   * claimed them afterwards and the Eiffel Tower rendered as "ffel Tower".
-   */
-  function placePins(space: LabelSpace): void {
-    kept = 0;
-    if (pinCount === 0) return;
-
-    const chosen = target();
-    chosenPin = chosen === null ? -1 : pinIndex.get(chosen) ?? -1;
-
-    for (let i = 0; i < pinCount; i++) {
-      const k = i * 3;
-      const mx = pinPoint[k]!;
-      const my = pinPoint[k + 1]!;
-      const mz = pinPoint[k + 2]!;
-      const height = mx * ux + my * uy + mz * uz;
-      const sx = mx * rx + my * ry + mz * rz;
-      const sy = mx * fx + my * fy + mz * fz;
-      const flat = Math.sqrt(sx * sx + sy * sy);
-      const radius = Math.acos(height > 1 ? 1 : height < -1 ? -1 : height) * perRadian;
-      pinScreenX[i] = centre + (flat > 1e-9 ? sx / flat : 0) * radius;
-      pinScreenY[i] = centre - (flat > 1e-9 ? sy / flat : 1) * radius;
-      pinDepth[i] = height;
-      pinOrder[i] = i;
-    }
-    sortByDepth(pinOrder, pinDepth, pinCount);
-    kept = thinMarks(
-      pinOrder, pinCount, pinScreenX, pinScreenY, PIN_SPACING, keptPin, keptX, keptY, chosenPin,
-    );
-
-    for (let n = 0; n < kept; n++) {
-      space.claim(
-        keptX[n]! - PIN_HEAD - 2,
-        keptY[n]! - PIN_RISE - PIN_HEAD - 2,
-        PIN_HEAD * 2 + 4,
-        PIN_RISE + PIN_HEAD + 4,
-      );
-    }
-  }
-
-  /**
-   * One label per range ring, at the first angle round it that has room.
-   *
-   * Placed after the pins have claimed their boxes and before any name has, so
-   * a ring's distance is never under a pin and never loses to a landmark three
-   * continents away — there are three of them, and they are what makes the
-   * sheet a chart. Ink on the paper halo, the landmarks' own pen, rather than
-   * the faded ink they had when they were painted into the land.
-   */
-  function drawRingLabels(space: LabelSpace): void {
-    ctx.font = `800 10.5px ${FONT}`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    const height = 13;
-    for (const distance of RANGE_RINGS) {
-      const radius = ringRadius(distance);
-      if (radius > discRadius - 6) continue;
-      const text = km(distance);
-      const width = ctx.measureText(text).width;
-      for (const angle of RING_LABEL_ANGLES) {
-        const x = centre + Math.cos(angle) * radius;
-        const y = centre + Math.sin(angle) * radius;
-        const left = x - width / 2;
-        const top = y - height / 2;
-        if (!space.fits(left, top, width, height)) continue;
-        space.claim(left, top, width, height);
-        inkedText(ctx, text, left, y, cream, ink, 3.5);
-        break;
-      }
-    }
-  }
-
-  /** The landmarks' names, nearest first, so a crowd drops the far ones. */
-  function drawPinNames(space: LabelSpace): void {
-    ctx.font = `800 12.5px ${FONT}`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    for (let n = 0; n < kept; n++) {
-      const i = keptPin[n]!;
-      const x = keptX[n]!;
-      const y = keptY[n]!;
-      const name = monuments[i]!.name;
-      const width = ctx.measureText(name).width;
-      // Pin, then a gap, then the name — flipped to the left near the right rim.
-      const right = x + PIN_HEAD + 6;
-      const flip = right + width > centre + discRadius - 10;
-      const left = flip ? x - PIN_HEAD - 6 - width : right;
-      const top = y - PIN_RISE - 7;
-      if (Math.hypot(left - centre, top + 7 - centre) > discRadius - 4) continue;
-      if (Math.hypot(left + width - centre, top + 7 - centre) > discRadius - 4) continue;
-      if (i !== hover && i !== chosenPin && !space.fits(left, top, width, 14)) continue;
-      space.claim(left, top, width, 14);
-      inkedText(ctx, name, left, y - PIN_RISE, cream, ink, 3.5);
-    }
-  }
-
-  /** The pins themselves, last, so nothing is drawn over one. */
-  function paintPins(): void {
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    // Backwards, so the nearest is painted last and nothing lands on top of it.
-    for (let n = kept - 1; n >= 0; n--) {
-      const i = keptPin[n]!;
-      const scale = i === hover ? 1.35 : i === chosenPin ? 1.25 : 1;
-      const fill = i === chosenPin ? violet : isVisited(monuments[i]!.id) ? gold : cream;
-      tracePin(ctx, keptX[n]!, keptY[n]!, PIN_RISE, PIN_HEAD, fill, scale);
-    }
-  }
-
-  /**
-   * Where the head card and the footer card cover the disc, in the canvas's own
-   * pixels, so nothing is written underneath them.
-   *
-   * Measured when the sheet opens and when the window changes, never per draw:
-   * a card moves only then, and a bounding box asked for in the draw would be a
-   * layout every redraw.
-   */
-  const covered: { x: number; y: number; width: number; height: number }[] = [];
-  function measureCards(): void {
-    covered.length = 0;
-    const box = canvas.getBoundingClientRect();
-    for (const card of [head, foot]) {
-      const rect = card.getBoundingClientRect();
-      // The drop under a card is ink too, and a halo against it reads as a
-      // word touching the card.
-      covered.push({ x: rect.left - box.left - 4, y: rect.top - box.top - 4, width: rect.width + 8, height: rect.height + 12 });
-    }
-  }
-
-  function drawOverlay(): void {
-    const dpr = Math.min(devicePixelRatio || 1, 3);
-    if (dpr !== ratio) {
-      ratio = dpr;
-      canvas.width = Math.round(size * dpr);
-      canvas.height = Math.round(size * dpr);
-      baseStale = true;
-    }
-    if (baseStale) {
-      drawBase();
-      baseStale = false;
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(base, 0, 0);
+  function draw(): void {
+    const started = performance.now();
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-    const space = new LabelSpace();
-    // The centre is the player's own mark, and a name under it is unreadable;
-    // the compass mark on the rim is drawn last, so it is claimed first; and
-    // the cards are over the canvas, so what they cover is not paper.
-    space.claim(centre - 16, centre - 16, 32, 32);
-    space.claim(centre - 9, 0, 18, RIM_WIDTH + 18);
-    for (const card of covered) space.claim(card.x, card.y, card.width, card.height);
-    placePins(space);
-    drawRingLabels(space);
-    drawPinNames(space);
-    drawCountries(space);
-    paintPins();
-    drawPlayer();
-
-    // North, on the rim, because the sheet is north-up and the arrow in the
-    // middle is not: without this the two would be one ambiguous mark.
-    ctx.font = `800 12px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    inkedText(ctx, 'N', centre, RIM_WIDTH + 9, cream, ink, 4);
+    ctx.fillStyle = oceanHex;
+    ctx.fillRect(0, 0, width, height);
+    drawTiles();
+    drawGraticule();
+    drawOutlines();
+    drawRoads();
+    layoutAndDraw(new LabelSpace());
+    drawScale();
+    drawMs = performance.now() - started;
+    dirty = false;
+    drawnAt = started;
   }
 
-  /** The card over the pin under the cursor. */
-  function renderTip(): void {
-    if (hover < 0) {
-      tip.classList.remove('on');
-      return;
-    }
-    const monument = monuments[hover]!;
-    const k = hover * 3;
-    const dot = pinPoint[k]! * ux + pinPoint[k + 1]! * uy + pinPoint[k + 2]! * uz;
-    const distance = Math.acos(dot > 1 ? 1 : dot < -1 ? -1 : dot) * EARTH_KM;
-    const found = isVisited(monument.id);
-    tipName.textContent = monument.name;
-    tipSub.replaceChildren(
-      `${countryName.get(monument.iso) ?? monument.iso} · `,
-      h('b', { text: km(distance) }),
-      found ? ' · found' : '',
-    );
-    const flag = createFlagCanvas(monument.iso, 34, 23);
-    flag.className = 'ui-flag';
-    tipFlag.replaceChildren(flag);
-    // The canvas is centred in the overlay, so the pin's page position is its
-    // disc position plus the disc's own offset.
+  // --- pointing ----------------------------------------------------------------
+
+  let hover: Hit | null = null;
+
+  function pickAt(clientX: number, clientY: number): Hit | null {
     const box = canvas.getBoundingClientRect();
-    const at = keptIndexOf(hover);
-    if (at < 0) {
-      tip.classList.remove('on');
-      return;
-    }
-    tip.style.left = `${box.left + keptX[at]!}px`;
-    tip.style.top = `${box.top + keptY[at]! - PIN_RISE}px`;
-    tip.classList.add('on');
-  }
-
-  function keptIndexOf(pin: number): number {
-    for (let n = 0; n < kept; n++) if (keptPin[n] === pin) return n;
-    return -1;
-  }
-
-  /** The pin under the cursor, or -1. Only the pins actually drawn can be hit. */
-  function pick(pageX: number, pageY: number): number {
-    const box = canvas.getBoundingClientRect();
-    const x = pageX - box.left;
-    const y = pageY - box.top;
-    let best = -1;
-    let bestDistance = PICK_RANGE * PICK_RANGE;
-    for (let n = 0; n < kept; n++) {
-      const dx = x - keptX[n]!;
-      // Aim at the head rather than the tip: the head is what you can see.
-      const dy = y - (keptY[n]! - PIN_RISE);
-      const distance = dx * dx + dy * dy;
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = keptPin[n]!;
+    const x = clientX - box.left;
+    const y = clientY - box.top;
+    let best: Hit | null = null;
+    let bestScore = Infinity;
+    for (const hit of hits) {
+      const d = Math.hypot(hit.x - x, hit.y - y);
+      // Players first, then pins, then towns: a town under a pin is the pin.
+      const bias = hit.kind === 'peer' ? 0 : hit.kind === 'pin' ? 4 : 8;
+      if (d > PICK_RANGE) continue;
+      if (d + bias < bestScore) {
+        bestScore = d + bias;
+        best = hit;
       }
     }
     return best;
+  }
+
+  function sameHit(a: Hit | null, b: Hit | null): boolean {
+    if (a === null || b === null) return a === b;
+    if (a.kind === 'pin' && b.kind === 'pin') return a.index === b.index;
+    if (a.kind === 'peer' && b.kind === 'peer') return a.id === b.id;
+    if (a.kind === 'town' && b.kind === 'town') return a.town === b.town;
+    return false;
+  }
+
+  const tipPoint = new THREE.Vector3();
+  function renderTip(): void {
+    if (hover === null) {
+      tip.classList.remove('on');
+      return;
+    }
+    const box = canvas.getBoundingClientRect();
+    const sheetBox = sheet.getBoundingClientRect();
+    unitAt(me.lat, me.lon, routeA);
+    if (hover.kind === 'peer') {
+      tipName.textContent = hover.name;
+      tipSub.replaceChildren(h('b', { text: km(hover.distance) }), options.onJoin ? ' · click to join' : '');
+      tipFlag.replaceChildren();
+    } else if (hover.kind === 'pin') {
+      const monument = monuments[hover.index]!;
+      unitAt(monument.lat, monument.lon, tipPoint);
+      const distance = routeA.angleTo(tipPoint) * EARTH_KM;
+      tipName.textContent = monument.name;
+      tipSub.replaceChildren(
+        `${countryName.get(monument.iso) ?? monument.iso} · `,
+        h('b', { text: km(distance) }),
+        isVisited(monument.id) ? ' · found' : '',
+      );
+      const flag = createFlagCanvas(monument.iso, 34, 23);
+      flag.className = 'ui-flag';
+      tipFlag.replaceChildren(flag);
+    } else {
+      const place = hover.town.place;
+      unitAt(place.lat, place.lon, tipPoint);
+      const distance = routeA.angleTo(tipPoint) * EARTH_KM;
+      tipName.textContent = place.name;
+      tipSub.replaceChildren(
+        `${countryName.get(place.iso) ?? place.iso} · ${people(place.pop)} · `,
+        h('b', { text: km(distance) }),
+      );
+      const flag = createFlagCanvas(place.iso, 34, 23);
+      flag.className = 'ui-flag';
+      tipFlag.replaceChildren(flag);
+    }
+    tip.style.left = `${box.left - sheetBox.left + hover.x}px`;
+    tip.style.top = `${box.top - sheetBox.top + hover.y - (hover.kind === 'pin' ? 4 : 8)}px`;
+    tip.classList.add('on');
   }
 
   function refreshCount(): void {
@@ -1017,51 +1713,107 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const events = new AbortController();
   const { signal } = events;
 
-  root.addEventListener('mousemove', (event) => {
-    cursorX = event.clientX;
-    cursorY = event.clientY;
-    const next = pick(cursorX, cursorY);
-    root.style.cursor = next >= 0 ? 'pointer' : 'default';
-    if (next === hover) return;
-    hover = next;
-    overlayStale = true;
+  let press: { id: number; x: number; y: number; cu: number; cv: number; moved: boolean } | null = null;
+
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    press = { id: event.pointerId, x: event.clientX, y: event.clientY, cu, cv, moved: false };
+    canvas.setPointerCapture(event.pointerId);
+  }, { signal });
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (press !== null && event.pointerId === press.id) {
+      const dx = event.clientX - press.x;
+      const dy = event.clientY - press.y;
+      if (!press.moved && Math.hypot(dx, dy) > CLICK_SLOP) {
+        press.moved = true;
+        sheet.classList.add('drag');
+        hover = null;
+        renderTip();
+      }
+      if (press.moved) {
+        cu = press.cu - dx / S;
+        cv = press.cv - dy / S;
+        clampView();
+        dirty = true;
+        return;
+      }
+    }
+    const next = pickAt(event.clientX, event.clientY);
+    sheet.classList.toggle('point', next !== null && next.kind !== 'town');
+    if (!sameHit(next, hover)) {
+      hover = next;
+      dirty = true;
+    }
     renderTip();
   }, { signal });
 
-  root.addEventListener('click', (event) => {
-    const hit = pick(event.clientX, event.clientY);
-    if (hit < 0) return;
-    // Clicking the one you already chose is how you put it away, which is the
-    // only way to clear a destination that does not need a second key.
-    if (monuments[hit]!.id === target()) onClear();
-    else onChoose(monuments[hit]!.id);
-    overlayStale = true;
+  const release = (event: PointerEvent): void => {
+    if (press === null || event.pointerId !== press.id) return;
+    const wasDrag = press.moved;
+    press = null;
+    sheet.classList.remove('drag');
+    if (wasDrag || event.type === 'pointercancel') return;
+    const hit = pickAt(event.clientX, event.clientY);
+    if (hit === null) return;
+    if (hit.kind === 'peer') {
+      if (options.onJoin === undefined) return;
+      hide();
+      options.onJoin(hit.id);
+    } else if (hit.kind === 'pin') {
+      // Clicking the one you already chose is how you put it away.
+      const id = monuments[hit.index]!.id;
+      if (id === target()) onClear();
+      else onChoose(id);
+      dirty = true;
+    }
+  };
+  canvas.addEventListener('pointerup', release, { signal });
+  canvas.addEventListener('pointercancel', release, { signal });
+
+  canvas.addEventListener('pointerleave', () => {
+    if (press !== null) return;
+    hover = null;
+    renderTip();
+    dirty = true;
   }, { signal });
 
-  root.addEventListener('mouseleave', () => {
-    hover = -1;
+  canvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const box = canvas.getBoundingClientRect();
+    // Lines and pages are a mouse; pixels are a trackpad and come in many small steps.
+    const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * 400 : event.deltaY;
+    zoomAt(Math.exp(-delta * 0.0022), event.clientX - box.left, event.clientY - box.top);
+    hover = null;
     renderTip();
-    overlayStale = true;
+  }, { signal, passive: false });
+
+  canvas.addEventListener('dblclick', (event) => {
+    const box = canvas.getBoundingClientRect();
+    zoomAt(2, event.clientX - box.left, event.clientY - box.top);
   }, { signal });
+
+  zoomIn.addEventListener('click', () => zoomAt(2, width / 2, height / 2), { signal });
+  zoomOut.addEventListener('click', () => zoomAt(0.5, width / 2, height / 2), { signal });
+  locate.addEventListener('click', () => centreOnMe(), { signal });
 
   function show(): void {
     if (showing) return;
     showing = true;
-    resize();
-    // The cursor is the whole point of this screen, and pointer lock is holding
-    // it. `input.ts` already stops the mouse look the moment the lock goes, so
-    // nothing else has to be told.
+    // The cursor is the whole point of this screen, and pointer lock is
+    // holding it. `input.ts` already stops the mouse look the moment the lock
+    // goes, so nothing else has to be told.
     if (document.pointerLockElement) document.exitPointerLock();
-    refreshCount();
-    hover = -1;
-    renderTip();
-    baseStale = true;
-    overlayStale = true;
-    lastUx = 0;
-    lastUy = 0;
-    lastUz = 0;
     root.classList.add('on');
-    measureCards();
+    resize();
+    prepareRings();
+    prepareTowns();
+    prime();
+    refreshCount();
+    hover = null;
+    renderTip();
+    centreOnMe();
+    dirty = true;
   }
 
   function hide(): void {
@@ -1069,11 +1821,12 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     showing = false;
     root.classList.remove('on');
     tip.classList.remove('on');
-    hover = -1;
-    // Hand the mouse back rather than leaving the player on "click to look
-    // around". Chrome rejects the request if the lock was released too recently;
-    // an unhandled rejection there is noise, not news — the same rule
-    // `input.ts` uses.
+    hover = null;
+    press = null;
+    sheet.classList.remove('drag');
+    // A closed sheet holds the first levels and a screenful, not a trail of
+    // every place you zoomed into.
+    evictTiles(40);
     if (lockTarget !== null && typeof lockTarget.requestPointerLock === 'function') {
       try {
         const request: unknown = lockTarget.requestPointerLock();
@@ -1084,9 +1837,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     }
   }
 
+  let showing = false;
+
   if (key !== null) {
     addEventListener('keydown', (event) => {
-      // Leave the browser's own shortcuts alone, the same rule `input.ts` uses.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (inputBlocked(event)) return;
       if (event.code === key) {
@@ -1097,8 +1851,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         }
         return;
       }
-      // Escape already means "give me the cursor back" everywhere else in a
-      // browser, so it means it here too.
       if (event.code === 'Escape' && showing) hide();
     }, { signal });
   }
@@ -1106,18 +1858,14 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   addEventListener('resize', () => {
     if (showing) {
       resize();
-      measureCards();
       renderTip();
-    } else {
-      // Only the size is remembered; the outlines are rebuilt on the next open,
-      // so a window being dragged about does not rebuild 26,000 points a frame.
-      size = 0;
     }
   }, { signal });
 
   const interval = 1000 / MAX_FPS;
-  /** Reused so the north probe allocates nothing per frame. */
-  const north = { x: 0, y: 0, z: 0 };
+  let lastMeX = -1;
+  let lastMeY = -1;
+  let lastHeading = 99;
 
   return {
     root,
@@ -1130,72 +1878,71 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     },
     show,
     hide,
+    focus(lat, lon, degreesAcross) {
+      if (width === 0) resize();
+      cu = uOf(lon);
+      cv = vOf(lat);
+      if (degreesAcross !== undefined) S = (width * 360) / degreesAcross;
+      zoomSet = true;
+      clampView();
+      dirty = true;
+    },
+    get stats() {
+      let painted = 0;
+      for (const tile of tiles.values()) if (tile.canvas !== null) painted++;
+      return {
+        tiles: painted,
+        pending: wanted.length,
+        pixelsPerDegree: S / 360,
+        level,
+        drawMs,
+      };
+    },
     update(position, forward) {
+      // Where you are is tracked while the sheet is closed too, so it opens on you.
+      latLonOf(position, meLatLon);
+      me.lat = meLatLon.lat;
+      me.lon = meLatLon.lon;
+      me.u = uOf(me.lon);
+      me.v = vOf(Math.max(-89.999, Math.min(89.999, me.lat)));
+      me.known = true;
       if (!showing) return;
-      if (size === 0) resize();
 
-      // North is the world's own pole, flattened onto the tangent plane. At a
-      // pole there is no such direction and `setFrame` says so, and the only
-      // orientation left is the one the minimap always uses — which is why the
-      // fallback is the heading rather than an arbitrary axis.
-      const length = Math.hypot(position.x, position.y, position.z) || 1;
-      const along = position.y / length;
-      north.x = -along * (position.x / length);
-      north.y = 1 - along * along;
-      north.z = -along * (position.z / length);
-      if (!setFrame(frame, position, north) && !setFrame(frame, position, forward)) return;
-      ux = frame.ux;
-      uy = frame.uy;
-      uz = frame.uz;
-      fx = frame.fx;
-      fy = frame.fy;
-      fz = frame.fz;
-      rx = frame.rx;
-      ry = frame.ry;
-      rz = frame.rz;
-      // Clamped the way `geo.ts`'s own `resolve` clamps, and for the same
-      // reason: the polar edge of the Antarctic ring lies exactly on +/-90, so
-      // no segment ever straddles a ray cast along it.
-      antipodeLat = Math.max(-89.999, Math.min(89.999, latOf(-uy)));
-      antipodeLon = lonOf(-ux, -uz);
+      // The heading as a screen angle, clockwise from up: north and east at
+      // this point, from the one conversion in `sphere.ts`, differentiated.
+      const lon = me.lon * DEG;
+      const lat = me.lat * DEG;
+      const east = forward.x * -Math.sin(lon) + forward.z * -Math.cos(lon);
+      const north =
+        forward.x * -Math.sin(lat) * Math.cos(lon) + forward.y * Math.cos(lat) + forward.z * Math.sin(lat) * Math.sin(lon);
+      if (Math.abs(east) + Math.abs(north) > 1e-6) me.heading = Math.atan2(east, north);
 
-      // Where the avatar is facing, as a screen angle: zero is up the sheet.
-      heading = Math.atan2(
-        forward.x * rx + forward.y * ry + forward.z * rz,
-        forward.x * fx + forward.y * fy + forward.z * fz,
-      );
+      if (paintTiles(TILE_BUDGET_MS)) dirty = true;
 
-      const moved = Math.acos(Math.max(-1, Math.min(1, ux * lastUx + uy * lastUy + uz * lastUz)));
-      if (moved * perRadian > MIN_SHIFT || Math.abs(heading - lastHeading) > MIN_TURN) {
-        overlayStale = true;
-        // The land is redrawn with the pins, never separately: they are
-        // projected in the same frame, and a base that lagged the marks by two
-        // pixels would stand every pin off its own coast.
-        if (moved * perRadian > MIN_SHIFT) baseStale = true;
-      }
-      if (!overlayStale) return;
-
+      const meX = screenX(me.u);
+      const meY = screenY(me.v);
       const now = performance.now();
-      if (now - drawnAt < interval) return;
-      drawnAt = now;
-      overlayStale = false;
-      lastUx = ux;
-      lastUy = uy;
-      lastUz = uz;
-      lastHeading = heading;
-      drawOverlay();
-      if (hover >= 0) renderTip();
-      else if (cursorX >= 0) {
-        const next = pick(cursorX, cursorY);
-        if (next !== hover) {
-          hover = next;
-          renderTip();
-        }
-      }
+      const moving =
+        Math.abs(meX - lastMeX) > 0.5 || Math.abs(meY - lastMeY) > 0.5 || Math.abs(me.heading - lastHeading) > 0.02;
+      const peersMoving = (options.peers?.().length ?? 0) > 0;
+      if (!dirty && !((moving || peersMoving) && now - drawnAt >= interval)) return;
+      lastMeX = meX;
+      lastMeY = meY;
+      lastHeading = me.heading;
+      draw();
+      if (tiles.size > MAX_TILES + 40) evictTiles(MAX_TILES);
+      if (hover !== null) renderTip();
     },
     dispose() {
       events.abort();
       root.remove();
     },
   };
+}
+
+/** A linear channel to an sRGB byte. */
+function toByte(linear: number): number {
+  const c = linear <= 0 ? 0 : linear >= 1 ? 1 : linear;
+  const s = c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
+  return Math.round(s * 255);
 }

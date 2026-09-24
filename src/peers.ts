@@ -72,6 +72,8 @@ interface Peer {
 }
 
 export interface PeerMark {
+  id: string;
+  name: string;
   /** A point on the unit sphere. */
   x: number;
   y: number;
@@ -96,8 +98,17 @@ export interface Peers {
   /** The nearest drawn peer that is moving, in world units, for the shadow's cadence. */
   readonly nearestMoving: number;
   readonly stats: PeersStats;
-  /** Change our name; it is sent on the next connection, which this makes now. */
-  rename(name: string): void;
+  /** How many others are connected, or `null` while we are not. */
+  readonly online: number | null;
+  /** Where a peer is drawn, in world units, or `null` if it has gone. */
+  positionOf(id: string): THREE.Vector3 | null;
+  /** Our name as we chose it, `''` for none. */
+  readonly name: string;
+  /**
+   * Change our name; it is sent on the next connection, which this makes now.
+   * Returns the name as it was kept.
+   */
+  rename(name: string): string;
 }
 
 function storedName(): string {
@@ -183,7 +194,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       stats.id = null;
       for (const id of [...peers.keys()]) drop(id);
       setTimeout(connect, retry);
-      retry = Math.min(RETRY_MS[1], retry * 2);
+      retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
     };
   }
 
@@ -355,7 +366,7 @@ export function createPeers(url: string, folk: Folk): Peers {
         const state = sample(peer, now);
         if (state === null) continue;
         peer.shown.copy(state.position);
-        marks.push({ x: 0, y: 0, z: 0 });
+        marks.push({ id: peer.id, name: peer.name || 'Traveller', x: 0, y: 0, z: 0 });
         const mark = marks[marks.length - 1]!;
         up.copy(state.position).normalize();
         mark.x = up.x;
@@ -397,14 +408,30 @@ export function createPeers(url: string, folk: Folk): Peers {
     get stats() {
       return { ...stats };
     },
+    get online() {
+      return stats.state === 'open' ? peers.size : null;
+    },
+    positionOf(id) {
+      const peer = peers.get(id);
+      return peer === undefined || peer.snapshots.length === 0 ? null : peer.shown;
+    },
+    get name() {
+      return stats.name;
+    },
     rename(name) {
-      stats.name = name.trim().slice(0, 20);
+      const kept = name.replace(/[\p{C}<>]/gu, '').trim().slice(0, 20);
+      if (kept === stats.name) return kept;
+      stats.name = kept;
       try {
-        localStorage.setItem(NAME_KEY, stats.name);
+        localStorage.setItem(NAME_KEY, kept);
       } catch {
         // Private mode; the name lasts this visit.
       }
+      // The relay learns a name only as a socket opens, so a rename is a
+      // reconnection, straight away rather than after the backoff.
+      retry = 0;
       socket?.close();
+      return kept;
     },
   };
   return peersApi;

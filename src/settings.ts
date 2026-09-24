@@ -82,6 +82,12 @@ export interface SettingsOptions {
   time?: TimeOfDay;
   /** The soundscape's level and whether it is on. Omit it and the section is not built. */
   sound?: { volume: Knob; on: Toggle };
+  /**
+   * The other players: the name they see over you, and how many of them are
+   * connected, `null` while there is no connection. Omit it and the section is
+   * not built, which is a world with no relay.
+   */
+  players?: { name: { get(): string; set(name: string): string }; online(): number | null };
   /** Where to hand the pointer back to, if it was locked when the panel opened. */
   lockTarget: HTMLElement | null;
   /** Called on open, so whatever else holds the screen — the map — can let go. */
@@ -184,6 +190,18 @@ const STYLE = `
   font-variant-numeric: tabular-nums;
 }
 .atlas-settings-value small { display: block; font-size: 11px; font-weight: 700; opacity: 0.55; }
+.atlas-settings-name {
+  width: 190px;
+  height: 38px;
+  padding: 0 12px;
+  border: 2.5px solid var(--ui-ink);
+  border-radius: 10px;
+  background: var(--ui-paper);
+  font: 700 14px var(--ui-font);
+  color: var(--ui-ink);
+}
+.atlas-settings-name::placeholder { color: rgba(30, 6, 3, 0.45); }
+.atlas-settings-name:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
 .atlas-settings-slider { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 4px 0 2px; }
 .atlas-settings-slider span { font-size: 11px; font-weight: 800; opacity: 0.5; white-space: nowrap; }
 .atlas-settings-keys {
@@ -407,6 +425,38 @@ export function createSettings(options: SettingsOptions): Settings {
       ? null
       : makeSlider(sound.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
   const soundOn = sound === undefined ? null : makeSwitch(sound.on, 'Sound');
+  /**
+   * The name over you, kept as it is typed and handed over on `change` — Enter
+   * or leaving the field — because every rename is a reconnection.
+   */
+  const players = options.players;
+  const nameInput = h('input', {
+    class: 'atlas-settings-name',
+    type: 'text',
+    maxlength: 20,
+    placeholder: 'Traveller',
+    autocomplete: 'nickname',
+    spellcheck: 'false',
+    'aria-label': 'Your name',
+  });
+  const onlineValue = h('div', { class: 'atlas-settings-value' });
+  const showPlayers = (): void => {
+    if (players === undefined) return;
+    if (document.activeElement !== nameInput) nameInput.value = players.name.get();
+    const online = players.online();
+    onlineValue.replaceChildren(
+      document.createTextNode(online === null ? '–' : String(online)),
+      h('small', { text: online === null ? 'offline' : online === 1 ? 'other player' : 'other players' }),
+    );
+  };
+  if (players !== undefined) {
+    nameInput.addEventListener('change', () => {
+      nameInput.value = players.name.set(nameInput.value);
+    });
+    nameInput.addEventListener('keydown', (event) => {
+      if (event.code === 'Enter') nameInput.blur();
+    });
+  }
   const sensitivity = makeSlider(
     options.sensitivity,
     (v) => [`${Math.round(v * 100)}%`, v < 0.8 ? 'steady' : v > 1.3 ? 'quick' : 'default'],
@@ -469,6 +519,15 @@ export function createSettings(options: SettingsOptions): Settings {
           row('Sound', 'The wind, the sea, the engines, footsteps, and a jingle when you find a landmark.', soundOn!.element),
           row('Volume', 'How loud all of it is.', volume!.value, volume!.slider),
         ),
+    players === undefined
+      ? null
+      : h(
+          'section',
+          { class: 'atlas-settings-section' },
+          h('div', { class: 'ui-eyebrow', text: 'Players' }),
+          row('Your name', 'What the other players see over your head. Leave it empty for a traveller with a number.', nameInput),
+          row('Online now', 'Everyone else in the world at this moment. They are pink on both maps.', onlineValue),
+        ),
     h(
       'section',
       { class: 'atlas-settings-section' },
@@ -528,6 +587,7 @@ export function createSettings(options: SettingsOptions): Settings {
     volume?.refresh();
     soundOn?.refresh();
     showTime();
+    showPlayers();
   }
 
   registerModal(() => showing);
@@ -545,7 +605,10 @@ export function createSettings(options: SettingsOptions): Settings {
     refresh();
     root.classList.add('on');
     close.focus({ preventScroll: true });
-    clockTimer = window.setInterval(() => showTime(), 1000);
+    clockTimer = window.setInterval(() => {
+      showTime();
+      showPlayers();
+    }, 1000);
   }
 
   // **The panel holds the mouse while it is up.** Something closed as it

@@ -9,7 +9,7 @@ import type { PlayerEvent } from './player.ts';
 import { actionOf, codeOf, inputBlocked, labelOf } from './controls.ts';
 import { notice } from './notice.ts';
 import type { NoticeAction } from './notice.ts';
-import { prepareAvatar } from './avatar.ts';
+import { AVATAR_HEIGHT, prepareAvatar } from './avatar.ts';
 import { createMonuments, loadPlacements } from './placement.ts';
 import { loadPlaces, terrainSiteOf, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
@@ -329,6 +329,11 @@ const IDLE_AFTER_MS = 60_000;
 const IDLE_FRAME_MS = 30;
 /** How many frame intervals the worst and the 95th percentile are taken over: two seconds at 60 Hz. */
 const FRAME_WINDOW = 120;
+/**
+ * How far from a player the map's *join* puts you: two bodies to their north,
+ * near enough to see them and far enough not to stand in them.
+ */
+const JOIN_OFFSET = AVATAR_HEIGHT * 2;
 
 function readSetting(key: string): string | null {
   try {
@@ -1020,8 +1025,26 @@ async function start(): Promise<void> {
   // `navigation.ts` binds `Tab`, and it drives `nav` rather than owning a
   // second idea of what a destination is.
   const { createWorldMap } = await deferred.map;
+  /**
+   * A jump to anywhere, which the console and the map's players both make.
+   * Never inside a building: `player.goTo` steps clear of any town already
+   * standing there, and one raised after the jump pushes you out on its first
+   * frame. See the player's options above.
+   */
+  function jumpTo(lat: number, lon: number): void {
+    player.goTo(lat, lon);
+    rig.snap(player, groundAt);
+    // The chip is debounced against a coastline crossed on foot, and a jump
+    // across the planet is the one thing that filter gets wrong: without this
+    // it names the country and the town you left for a second, which reads as
+    // `countryAt` being broken. See `Hud.jump`.
+    hud.jump();
+  }
+
   const map = createWorldMap(world, {
     monuments: placements,
+    places: places.all,
+    roads: baked.roads,
     isVisited: (id) => monuments.isVisited(id),
     target: () => nav.target?.id ?? null,
     onChoose: (id) => nav.select(id),
@@ -1031,6 +1054,19 @@ async function start(): Promise<void> {
     // A card holding the keyboard — Settings, the welcome, a notice — keeps
     // `M` from opening the map underneath it. Closing is never blocked.
     blocked: () => inputBlocked(),
+    ...(peers === null
+      ? {}
+      : {
+          peers: () => peers.marks,
+          // Beside them rather than on them: `JOIN_OFFSET` to their north,
+          // on the ground under wherever they are, the sea or the sky included.
+          onJoin: (id: string) => {
+            const at = peers.positionOf(id);
+            if (at === null) return;
+            const { lat, lon } = toLatLon(at);
+            jumpTo(Math.min(89.9, lat + JOIN_OFFSET / UNITS_PER_DEGREE), lon);
+          },
+        }),
   });
   document.body.appendChild(map.root);
 
@@ -1249,6 +1285,14 @@ async function start(): Promise<void> {
         },
       },
     },
+    ...(peers === null
+      ? {}
+      : {
+          players: {
+            name: { get: () => peers.name, set: (name: string) => peers.rename(name) },
+            online: () => peers.online,
+          },
+        }),
     lockTarget: renderer.domElement,
     // One card at a time: the settings over the world map would be two
     // overlays holding the mouse, and the map's keys under a modal card.
@@ -1733,8 +1777,11 @@ async function start(): Promise<void> {
       shadowStanding = standing;
     }
 
+    // The sheet behind `M` is opaque and covers the window, so the world under
+    // it is not drawn: that frame goes to painting the map's tiles instead.
+    const underMap = map.open;
     const drawStart = performance.now();
-    outline.render(scene, rig.camera);
+    if (!underMap) outline.render(scene, rig.camera);
     const drawEnd = performance.now();
     // In the same task as the draw, before the browser composites and clears
     // the drawing buffer: `toBlob` copies the canvas as it stands when it is
@@ -1747,7 +1794,8 @@ async function start(): Promise<void> {
     drawSum += drawEnd - drawStart;
     // The automatic detail knob: the interval and the work of this frame
     // (`sampleFrame` in `view.ts`). Not before the curtain is up.
-    if (curtain === null) sampleFrame(interval, drawEnd - frameStart);
+    // Nor while the map is up: a frame with no draw would read as headroom.
+    if (curtain === null && !underMap) sampleFrame(interval, drawEnd - frameStart);
 
     frames++;
     if (now - sampledAt > 500) {
@@ -1904,16 +1952,7 @@ async function start(): Promise<void> {
       placements,
       places,
       goTo(lat: number, lon: number) {
-        // Never inside a building: `player.goTo` steps clear of any town already
-        // standing there, and one raised after the jump pushes you out on its
-        // first frame. See the player's options above.
-        player.goTo(lat, lon);
-        rig.snap(player, groundAt);
-        // The chip is debounced against a coastline crossed on foot, and a jump
-        // across the planet is the one thing that filter gets wrong: without
-        // this it names the country and the town you left for a second, which
-        // reads as `countryAt` being broken. See `Hud.jump`.
-        hud.jump();
+        jumpTo(lat, lon);
         const id = world.countryAtPoint(player.position);
         return id > 0 ? world.countries[id - 1]!.name : 'Open ocean';
       },
