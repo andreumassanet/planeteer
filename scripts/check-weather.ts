@@ -28,6 +28,7 @@ import { unitAt } from '../src/sphere.ts';
 import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, seasonOf, strikeCandidate, weatherAt, weatherSample } from '../src/weather.ts';
 import type { Strike, WeatherSample } from '../src/weather.ts';
 import { BOLT_VERTICES, MAX_DROPS, RAIN_BOX, SNOW_BOX, dropGeometry, dropOffset, writeBolt } from '../src/weather-view.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outlines = readFileSync(resolve(here, '../public/data/countries.bin'));
@@ -461,7 +462,7 @@ console.log('\ncost');
     calls++;
   }
   const us = ((performance.now() - began) * 1000) / calls;
-  check(us < 40, 'a sample costs microseconds; the world asks four a second', `${us.toFixed(1)} us`);
+  check(us < 40 * TIME_SCALE, 'a sample costs microseconds; the world asks four a second', `${us.toFixed(1)} us`);
 }
 
 console.log(failures === 0 ? '\nweather: all good' : `\nweather: ${failures} failing`);

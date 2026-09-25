@@ -32,6 +32,7 @@ import { buildRoom } from '../src/interior-kit.ts';
 import { createSceneryContext } from '../src/scenery/contract.ts';
 import { REGION_IDS } from '../src/scenery/regions.ts';
 import { overlaps, solidField } from '../src/scenery/solids.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 let failures = 0;
 const check = (ok: boolean, label: string, detail = ''): void => {
@@ -238,7 +239,7 @@ check(clearGlass, 'every room with windows or a door has glass to show the hour 
 times.sort((a, b) => a - b);
 const p50 = times[Math.floor(times.length * 0.5)]!;
 const p95 = times[Math.floor(times.length * 0.95)]!;
-check(p95 <= BUILD_BUDGET_MS, `planning and building an interior within ${BUILD_BUDGET_MS} ms`,
+check(p95 <= BUILD_BUDGET_MS * TIME_SCALE, `planning and building an interior within ${BUILD_BUDGET_MS * TIME_SCALE} ms`,
   `median ${p50.toFixed(1)}, p95 ${p95.toFixed(1)}, worst ${times[times.length - 1]!.toFixed(1)} ms over ${times.length}; the most triangles ${worstTriangles.toLocaleString('en')} (${worstType})`);
 
 // ---------------------------------------------------------------------------

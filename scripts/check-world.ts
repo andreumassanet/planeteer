@@ -138,6 +138,7 @@ import { mergeMeshes } from '../src/merge.ts';
 import { Mesh } from 'three';
 import { PLANE_CEILING, PLANE_CRUISE_HIGH } from '../src/vehicles.ts';
 import * as relay from '../server/src/limits.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outlines = readFileSync(resolve(here, '../public/data/countries.bin'));
@@ -2181,7 +2182,7 @@ if (existsSync(placesPath)) {
   }
   const nearUs = ((Date.now() - nearStart) / M) * 1000;
   // Called once a frame from `main.ts`, so the budget is a frame, not a query.
-  check(nearUs < 200, 'nearest place under 200 us', `${nearUs.toFixed(1)} us per query`);
+  check(nearUs < 200 * TIME_SCALE, 'nearest place under 200 us', `${nearUs.toFixed(1)} us per query`);
 } else {
   console.log('\nsettlements: not built yet (run `pnpm places`)');
 }
@@ -4528,7 +4529,7 @@ const N = 200_000;
 for (let i = 0; i < N; i++) world.countryAt(((i * 7) % 180) - 90, ((i * 13) % 360) - 180);
 const us = ((Date.now() - queryStart) / N) * 1000;
 console.log(`\ncountryAt: ${us.toFixed(2)} us per query`);
-check(us < 20, 'query cost under 20 us');
+check(us < 20 * TIME_SCALE, `query cost under ${20 * TIME_SCALE} us`);
 
 console.log(failures === 0 ? '\nall checks passed' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

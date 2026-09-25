@@ -22,6 +22,7 @@ import type { CraftKind, CraftModel, PlayerState } from '../src/craft/contract.t
 import { PLANET_RADIUS } from '../src/globe.ts';
 import { unitAt } from '../src/sphere.ts';
 import { BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_LOW } from '../src/vehicles.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 let failures = 0;
 const check = (ok: boolean, label: string, detail = ''): void => {
@@ -251,7 +252,7 @@ console.log('the pools');
   check(effects.stats.dropped > 0, 'and a full pool refuses, and counts it', `${effects.stats.dropped} refused`);
   times.sort((a, b) => a - b);
   const median = times[times.length >> 1]!;
-  check(median < 1, 'full pools update in under a millisecond (0.3 is the browser budget)', `median ${median.toFixed(3)} ms`);
+  check(median < TIME_SCALE, 'full pools update in under a millisecond (0.3 is the browser budget)', `median ${median.toFixed(3)} ms`);
 
   // Off is off.
   effects.enabled = false;

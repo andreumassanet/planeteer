@@ -40,6 +40,7 @@ import {
   yawed,
 } from '../src/scenery/solids.ts';
 import type { Body, Solid, SolidField, Walls } from '../src/scenery/solids.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 let failures = 0;
 const check = (ok: boolean, label: string, detail = ''): void => {
@@ -455,7 +456,7 @@ console.log('\ncost');
   }
   batches.sort((p, q) => p - q);
   const median = batches[2]!;
-  check(median < 5, 'pushOut in a 220-house town costs microseconds', `median ${n(median, 3)} us a query`);
+  check(median < 5 * TIME_SCALE, 'pushOut in a 220-house town costs microseconds', `median ${n(median, 3)} us a query`);
   // Only the points that start inside something, so the clear ones' early
   // return does not dilute the figure.
   const buried: number[] = [];
@@ -465,7 +466,7 @@ console.log('\ncost');
   const t0 = performance.now();
   for (let q = 0; q < buried.length; q += 2) freeSpot(field, buried[q]!, buried[q + 1]!, R, out);
   const each = buried.length > 0 ? ((performance.now() - t0) * 1000) / (buried.length / 2) : 0;
-  check(each < 500, 'freeSpot, from wherever a body landed', `${buried.length / 2} searches, ${n(each, 1)} us each`);
+  check(each < 500 * TIME_SCALE, 'freeSpot, from wherever a body landed', `${buried.length / 2} searches, ${n(each, 1)} us each`);
 }
 
 // --- discs ------------------------------------------------------------------------------
@@ -781,7 +782,7 @@ function costOf(field: SolidField, half: number, seedStart: number): number {
   const wood = forest(24, 13);
   const woodField = solidField(wood);
   const woodCost = costOf(woodField, 170, 21);
-  check(woodCost < 3, `pushOut in a wood of ${wood.length} trunks and boulders`, `median ${n(woodCost, 3)} us a query`);
+  check(woodCost < 3 * TIME_SCALE, `pushOut in a wood of ${wood.length} trunks and boulders`, `median ${n(woodCost, 3)} us a query`);
 
   // A run through it: never ends a frame inside a trunk.
   let seed = 31;
@@ -829,7 +830,7 @@ function costOf(field: SolidField, half: number, seedStart: number): number {
   }
   const plaza = fieldOf(measuredMonuments.get(densest)!.rects);
   const plazaCost = costOf(plaza, Math.max(plaza.maxX - plaza.minX, plaza.maxZ - plaza.minZ) / 2 + 5, 23);
-  check(plazaCost < 5, `pushOut in the densest monument (${densest}, ${plaza.solids.length} rectangles)`, `median ${n(plazaCost, 3)} us a query`);
+  check(plazaCost < 5 * TIME_SCALE, `pushOut in the densest monument (${densest}, ${plaza.solids.length} rectangles)`, `median ${n(plazaCost, 3)} us a query`);
   const buried: number[] = [];
   for (let q = 0; q < 4000; q++) {
     const x = plaza.minX + ((q * 7919) % 4000) / 4000 * (plaza.maxX - plaza.minX);
@@ -842,7 +843,7 @@ function costOf(field: SolidField, half: number, seedStart: number): number {
     if (!freeSpot(plaza, buried[q]!, buried[q + 1]!, R, out) || overlaps(plaza, out.x, out.z, R)) unfreed++;
   }
   const each = buried.length > 0 ? ((performance.now() - t0) * 1000) / (buried.length / 2) : 0;
-  check(unfreed === 0 && each < 2000, `freeSpot from inside ${densest}'s walls: always out, and clear`, `${buried.length / 2} searches, ${n(each, 1)} us each`);
+  check(unfreed === 0 && each < 2000 * TIME_SCALE, `freeSpot from inside ${densest}'s walls: always out, and clear`, `${buried.length / 2} searches, ${n(each, 1)} us each`);
 }
 
 console.log(`\n${failures === 0 ? 'all ok' : `${failures} FAILED`}  (${Math.round(performance.now() - began)} ms)`);

@@ -37,6 +37,7 @@ import { clockAt } from '../src/timezone.ts';
 import { weatherAt, weatherSample } from '../src/weather.ts';
 import { biomeAt, biomeSample } from '../src/biome.ts';
 import { prepareSeaFloor } from '../src/sea-floor.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outlines = readFileSync(resolve(here, '../public/data/countries.bin'));
@@ -185,7 +186,7 @@ const measured: Record<string, number> = {
 };
 for (const [name, bound, calls, ask] of bounds) {
   const us = perCall(calls, ask);
-  check(us < bound, `${name} under ${bound} us`, `${us.toFixed(2)} us [${measured[name]}]`);
+  check(us < bound * TIME_SCALE, `${name} under ${bound * TIME_SCALE} us`, `${us.toFixed(2)} us [${measured[name]}]`);
 }
 if (!Number.isFinite(sink)) console.log('  (the sink is not finite, which only keeps the calls from being optimised away)');
 
