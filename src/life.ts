@@ -72,7 +72,7 @@ import type { RegionId } from './fauna/regions.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 import { THROUGH_HALF_WIDTH, mainStreetHalf, offsetDirection } from './scenery/grid.ts';
-import { groundStyleFor } from './scenery/ground.ts';
+import { STREET_GRADE, groundStyleFor } from './scenery/ground.ts';
 import { driveThrough, streetCost, streetPose, turnInTown } from './through.ts';
 import type { StreetLeg, StreetPose } from './through.ts';
 
@@ -837,6 +837,8 @@ export interface Frame {
   forward: THREE.Vector3;
   /** Roll about `forward`: a boat leaning into its turn. */
   roll: number;
+  /** Pitch, nose up positive: a car climbing a town street's ramp. */
+  pitch: number;
   /** False when it has ended up somewhere it may not be — over water, say. */
   live: boolean;
 }
@@ -847,6 +849,7 @@ export function emptyFrame(): Frame {
     height: PLANET_RADIUS,
     forward: new THREE.Vector3(0, 0, 1),
     roll: 0,
+    pitch: 0,
     live: true,
   };
 }
@@ -1354,6 +1357,7 @@ export function roadFrameOf(
   out.dir.copy(frameHere).addScaledVector(frameSide, lateral / PLANET_RADIUS).normalize();
   out.height = PLANET_RADIUS;
   out.roll = 0;
+  out.pitch = 0;
   out.live = true;
   return out;
 }
@@ -1929,6 +1933,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     out.forward.copy(motion).multiplyScalar(radius * cos).addScaledVector(turnLeft, -offset * sin).normalize();
     out.height = turnFrame.height;
     out.roll = 0;
+    out.pitch = 0;
     out.live = turnFrame.live;
   }
 
@@ -1937,12 +1942,17 @@ export function createLife(world: World, places: readonly Place[], options: Life
    *
    * **Drawn only where that floor is there to drive on**: the town has to be
    * standing, and the drive has to have been found clear the first time it
-   * was — every few units of it on paving, outside every wall and off every
-   * landmark's pad (`paved`). A town on a hill can lose a cell of its main
+   * was — every few units of it on paving, outside every wall, off every
+   * landmark's pad and with no rise between two of them that a ramp does not
+   * make, which a street keeping a flight of steps has (`paved`). A town on a hill can lose a cell of its main
    * street to the slope, and a landmark can stand across one; a car on such a
    * drive is hidden for as long as it takes, which is what every drive was
    * before.
    */
+  /** Half the wheelbase a car on a town street is pitched over, in world units. */
+  const STREET_PITCH_REACH = 1.6;
+  const pitchDir = new THREE.Vector3();
+
   function streetFrame(
     town: number, legs: readonly StreetLeg[], q: number, back: boolean, key: string, out: Frame, ground: boolean,
   ): void {
@@ -1951,6 +1961,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     offsetDirection(square.up, square.across, square.north, streetScratch.x, streetScratch.z, out.dir);
     out.forward.copy(square.across).multiplyScalar(streetScratch.fx).addScaledVector(square.north, streetScratch.fz);
     out.roll = 0;
+    out.pitch = 0;
     if (!ground) {
       out.height = PLANET_RADIUS + 20;
       out.live = true;
@@ -1959,6 +1970,16 @@ export function createLife(world: World, places: readonly Place[], options: Life
     const floor = options.streets?.floorAt(out.dir) ?? 0;
     out.live = floor > 0 && paved(town, legs, key);
     out.height = floor > 0 ? floor : PLANET_RADIUS + Math.max(0, world.elevationAt(out.dir));
+    // Up a ramp nose first: the floor a wheelbase ahead against one behind.
+    if (floor > 0 && out.live) {
+      const sx = streetScratch.fx * STREET_PITCH_REACH;
+      const sz = streetScratch.fz * STREET_PITCH_REACH;
+      offsetDirection(square.up, square.across, square.north, streetScratch.x + sx, streetScratch.z + sz, pitchDir);
+      const ahead = options.streets!.floorAt(pitchDir);
+      offsetDirection(square.up, square.across, square.north, streetScratch.x - sx, streetScratch.z - sz, pitchDir);
+      const behind = options.streets!.floorAt(pitchDir);
+      if (ahead > 0 && behind > 0) out.pitch = Math.atan2(ahead - behind, 2 * STREET_PITCH_REACH);
+    }
   }
 
   /**
@@ -1975,6 +1996,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const PAVED_AHEAD = 160;
   /** How often along a drive `paved` asks, in world units. */
   const PAVED_STEP = 2.5;
+  /** How far one sample may stand over the last past what a ramp climbs between them: a lane change's lean. */
+  const PAVED_RISE = 0.5;
   const pavedPose: StreetPose = { x: 0, z: 0, fx: 0, fz: 1, mx: 0, mz: 1 };
   const pavedDir = new THREE.Vector3();
   const pavedPoint = new THREE.Vector3();
@@ -1992,6 +2015,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     for (const leg of legs) length += leg.length;
     const steps = Math.max(2, Math.ceil(length / PAVED_STEP));
     let clear = true;
+    const last = [NaN, NaN];
     for (let i = 0; i <= steps && clear; i++) {
       // Both ways: out on one lane and back on the other.
       for (const back of [false, true]) {
@@ -1999,6 +2023,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
         offsetDirection(square.up, square.across, square.north, pavedPose.x, pavedPose.z, pavedDir);
         const floor = streets.floorAt(pavedDir);
         if (floor <= 0 || flattenWeightAt(pavedDir.x, pavedDir.y, pavedDir.z) > 0) { clear = false; break; }
+        // A rise no ramp makes between two samples is a flight of steps, or a
+        // riser no street crosses: a street to walk, not to drive.
+        const lane = back ? 1 : 0;
+        if (Math.abs(floor - last[lane]!) > (length / steps) * STREET_GRADE + PAVED_RISE) { clear = false; break; }
+        last[lane] = floor;
         pavedPoint.copy(pavedDir).multiplyScalar(floor + 1);
         if (streets.blocked(pavedPoint, THROUGH_HALF_WIDTH)) { clear = false; break; }
       }
@@ -2679,6 +2708,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       .normalize();
     out.height = height;
     out.roll = 0;
+    out.pitch = 0;
     out.live = true;
   }
 
@@ -3316,6 +3346,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
             .addScaledVector(eastward, Math.sin(bearing))
             .normalize();
           out.roll = 0;
+          out.pitch = 0;
           out.live = true;
         };
 
@@ -4658,6 +4689,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
       basis.makeBasis(right, frame.dir, forward);
       mesh.position.copy(mover.at);
       mesh.quaternion.setFromRotationMatrix(basis);
+      // Nose up is a turn about the body's own x that lifts its +Z.
+      if (frame.pitch !== 0) mesh.rotateX(-frame.pitch);
       if (frame.roll !== 0) mesh.rotateZ(frame.roll);
 
       const away = mover.at.distanceTo(viewer);

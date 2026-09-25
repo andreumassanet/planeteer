@@ -577,8 +577,8 @@ export function createAudio(): Audio {
       const flying = state.mode === 'plane';
       const sailing = state.mode === 'boat' || state.mode === 'jetski' || state.mode === 'sail';
       const drifting = state.mode === 'balloon' || state.mode === 'helicopter';
-      // Open to the air and quiet: birds and crickets are heard on a bicycle,
-      // a horse or under sail as they are on foot.
+      // Open to the air and quiet: birds and crickets are heard on a bicycle
+      // or a horse as they are on foot; under sail it is the sea that is heard.
       const walking = state.mode === 'foot' || state.mode === 'bicycle' || state.mode === 'horse';
       const menu = state.mode === 'menu';
       const throttle = clamp01(state.throttle);

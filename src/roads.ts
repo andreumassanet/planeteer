@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { createToonRamp } from './theme.ts';
-import { lightWindows, poolAt } from './lights.ts';
+import { LAMP_POOL, lightWindows, poolAt } from './lights.ts';
+import { layRoadside } from './roadside.ts';
+import type { Roadside, RoadsideSite } from './roadside.ts';
+import { keepsLeft } from './traffic/regions.ts';
 import { proxyOf } from './warm.ts';
 import { FADES, dissolveGLSL } from './fade.ts';
 import { isShown, prominenceVersion, radiusOf } from './places.ts';
@@ -24,10 +27,10 @@ import { MAX_SLOPE, gradeAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
-import { GROUND_LIFT, LINE_HALF, groundStyleFor, trodden } from './scenery/ground.ts';
+import { GROUND_LIFT, LINE_HALF, RAMP_GRADE, SIDEWALK, cellKey, groundStyleFor, trodden } from './scenery/ground.ts';
 import { PALETTE } from './theme.ts';
-import { assignGates, gateGlow, gateLevel, gatesOf, offsetDirection, streetBand, townFrame, townGrid } from './scenery/grid.ts';
-import type { Gate, TownGrid } from './scenery/grid.ts';
+import { CARRIAGEWAY_HALF, assignGates, gateGlow, gateMouth, gateUsable, gatesOf, groundOf, offsetDirection, streetBand, townFrame, townGrid, townTerraces } from './scenery/grid.ts';
+import type { Gate, TownGrid, TownGround } from './scenery/grid.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 
 /**
@@ -191,8 +194,9 @@ export interface RoadClass {
  * runs on into a town's street at its gate, and a road wider than that street
  * narrowed into it over its last `APPROACH` — a trunk lost 60% of its width in
  * eighteen units, which read as a funnel at every town. 7.2 is a street at the
- * cell pitch of 12 (`streetBand`), so the ribbon now meets the street it
- * continues at the width it had all the way. It is 5.7 m, a two-lane country
+ * cell pitch of 12 (`streetBand`), and since 2026-09-25 a road does not narrow
+ * at all: the town's street widens to it at the gate (`gateMouth` in
+ * `scenery/grid.ts`, where `CARRIAGEWAY_HALF` is). It is 5.7 m, a two-lane country
  * road: two placed hatchbacks (3.00 wide at `PLACED_SECTION`) pass on it with
  * 0.3 either side, and a placed bus (4.46) does not pass a car.
  *
@@ -202,9 +206,9 @@ export interface RoadClass {
  * `reach`: a trunk is on the screen from much further off.
  */
 export const ROAD_CLASSES: readonly RoadClass[] = [
-  { name: 'lane', width: 7.2, reach: 1300 },
-  { name: 'road', width: 7.2, reach: 5000 },
-  { name: 'trunk', width: 7.2, reach: 34000 },
+  { name: 'lane', width: CARRIAGEWAY_HALF * 2, reach: 1300 },
+  { name: 'road', width: CARRIAGEWAY_HALF * 2, reach: 5000 },
+  { name: 'trunk', width: CARRIAGEWAY_HALF * 2, reach: 34000 },
 ];
 
 /**
@@ -343,20 +347,185 @@ const gateOffset = { x: 0, z: 0 };
  * `gateLevel`, asked the question `settlements.ts` asks about the same cells:
  * the ground through `offsetDirection` in the town's own frame, and a base of
  * the place's own elevation floored at the sea. The paving a road has to climb
- * to is this plus `GROUND_LIFT`. It is a handful of `elevationAt` calls, so
- * every caller caches it per road end rather than per frame.
+ * to is this plus `GROUND_LIFT`. It is the whole town's terraces, a few
+ * hundred `elevationAt` calls for a city, so it is kept per place and gate,
+ * and every caller caches it per road end rather than per frame.
  */
+let gateHeights = new WeakMap<Place, Map<number, number | null>>();
 function gateHeight(place: Place, gate: number, world: World): number | null {
+  const held = heldGates(place);
+  let known = gateHeights.get(place);
+  if (known === undefined) {
+    known = new Map();
+    gateHeights.set(place, known);
+  }
+  const cached = known.get(gate);
+  if (cached !== undefined) return cached;
+  const level = levelAt(place, gate, world, held);
+  known.set(gate, level);
+  return level;
+}
+
+/**
+ * The whole town's terraces for `levelAt`, kept per place for the held map it
+ * was worked out with: a gate's level is its town's, and a town has up to a
+ * dozen gates and a few hundred corners to ask the ground about.
+ */
+const terraceCache = new WeakMap<Place, { world: World; held: ReadonlyMap<number, number> | undefined; ground: TownGround; levels: Map<number, number | null> }>();
+
+function levelAt(place: Place, gate: number, world: World, held?: ReadonlyMap<number, number>): number | null {
   const town = townOf(place);
   const which = town.gates[gate];
   if (which === undefined) return null;
-  const base = Math.max(0, world.elevationAt(town.up));
-  return gateLevel(
-    town.grid,
-    which,
-    (x, z) => world.elevationAt(offsetDirection(town.up, town.across, town.north, x, z, gateProbe)),
-    base,
-  );
+  let known = terraceCache.get(place);
+  if (known === undefined || known.world !== world || known.held !== held) {
+    const base = Math.max(0, world.elevationAt(town.up));
+    const ground = groundOf(
+      town.grid,
+      (x, z) => world.elevationAt(offsetDirection(town.up, town.across, town.north, x, z, gateProbe)),
+      base,
+    );
+    known = { world, held, ground, levels: townTerraces(town.grid, ground, held) };
+    if (held === undefined || held.size === 0 || [...held.values()].every(Number.isFinite)) terraceCache.set(place, known);
+  }
+  return gateUsable(known.ground, which) ? known.levels.get(cellKey(which.cells[0]![0], which.cells[0]![1])) ?? null : null;
+}
+
+/**
+ * The gates a town may raise only so far, as the highest level for each of
+ * their cells by `cellKey`.
+ *
+ * **Making a town's streets climbable raises cells, and a gate's cells are
+ * where a road arrives** (`climbable` in `scenery/grid.ts`): a gate raised is a
+ * road that has further to climb to its kerb. `roads.bin` was baked against
+ * the gates as the hill cut them, and the bake refused any road whose two
+ * ramps would meet; raised, twelve of its 17,404 roads would have had ramps
+ * that met (2026-09-25). So a road whose ramps would meet with both its towns
+ * raised has its two gates held, each at most to the level the bake knew and
+ * its share of what the road has to spare (`gateCaps`), and every other gate
+ * is raised with its street. A pure function of the network, found lazily
+ * per town and its roads, and the same for the town that is drawn
+ * (`settlements.ts`) and the road that arrives at it, which both ask here.
+ *
+ * Empty until a network is registered (`holdGates`): the bake and the grid's
+ * own checks, which know no network, raise every gate.
+ */
+interface HeldNetwork {
+  roads: readonly Road[];
+  places: readonly Place[];
+  world: World;
+  version: number;
+  index: Map<Place, number>;
+  ends: Map<number, number[]>;
+  caps: Map<number, readonly [number, number]>;
+  held: WeakMap<Place, Map<number, number>>;
+}
+let network: HeldNetwork | null = null;
+
+/** Registers the network the gates are held against; idempotent for the same one. */
+export function holdGates(roads: readonly Road[], places: readonly Place[], world: World): void {
+  if (network !== null && network.roads === roads && network.places === places && network.world === world) return;
+  const index = new Map<Place, number>();
+  places.forEach((place, i) => index.set(place, i));
+  const ends = new Map<number, number[]>();
+  roads.forEach((road, r) => {
+    for (const end of [road.a, road.b]) {
+      const list = ends.get(end) ?? [];
+      list.push(r);
+      ends.set(end, list);
+    }
+  });
+  network = {
+    roads, places, world, version: prominenceVersion(), index, ends,
+    caps: new Map(), held: new WeakMap(),
+  };
+  gateHeights = new WeakMap();
+}
+
+const heldCourse = emptyCourse();
+
+/** A gate's level with its own cells held where the hill cut them: the level the bake knew. */
+function bakedLevel(place: Place, gate: number, world: World): number | null {
+  const cells = townOf(place).gates[gate]?.cells ?? [];
+  return levelAt(place, gate, world, new Map(cells.map(([col, row]) => [cellKey(col, row), -Infinity])));
+}
+
+/**
+ * How high each end's gate of a road may be raised, as a level — Infinity for
+ * no limit — so that its two ramps do not meet: none where they would not with
+ * both its towns raised as their streets ask; otherwise each end is given the
+ * level the bake knew and half of what the road's length has to spare over the
+ * two ramps it baked, and the other end's half where that end needs less.
+ */
+function gateCaps(net: HeldNetwork, r: number): readonly [number, number] {
+  const known = net.caps.get(r);
+  if (known !== undefined) return known;
+  const road = net.roads[r]!;
+  courseOf(road, net.places, heldCourse);
+  const length = coursePath(heldCourse).length;
+  const raw: (number | null)[] = [null, null];
+  const baked: (number | null)[] = [null, null];
+  const ground = [0, 0];
+  let reach = 0;
+  for (const end of [0, 1] as const) {
+    const place = net.places[end === 0 ? road.a : road.b]!;
+    const gate = end === 0 ? road.gateA : road.gateB;
+    if (!isShown(place)) continue;
+    ground[end] = net.world.elevationAt(end === 0 ? heldCourse.gateA : heldCourse.gateB) + RIBBON_LIFT - GROUND_LIFT;
+    raw[end] = levelAt(place, gate, net.world);
+    if (raw[end] !== null) reach += rampReach(raw[end]! - ground[end]!);
+  }
+  let caps: readonly [number, number] = [Infinity, Infinity];
+  if (reach > length) {
+    // A hair short of the whole length, so the two ramps do not meet at its middle by a rounding.
+    let spare = (length - 0.5) * RAMP_GRADE;
+    for (const end of [0, 1] as const) {
+      const place = net.places[end === 0 ? road.a : road.b]!;
+      baked[end] = isShown(place) ? bakedLevel(place, end === 0 ? road.gateA : road.gateB, net.world) : null;
+      if (baked[end] !== null) spare -= Math.abs(baked[end]! - ground[end]!);
+    }
+    spare = Math.max(0, spare);
+    const want = [0, 1].map((end) => (raw[end] !== null && baked[end] !== null ? Math.max(0, raw[end]! - baked[end]!) : 0));
+    const give = [0, 1].map((end) => Math.min(want[end]!, spare * 0.5 + Math.max(0, spare * 0.5 - want[1 - end]!)));
+    caps = [
+      baked[0] === null ? Infinity : baked[0]! + give[0]!,
+      baked[1] === null ? Infinity : baked[1]! + give[1]!,
+    ];
+  }
+  net.caps.set(r, caps);
+  return caps;
+}
+
+/** The highest each held gate cell of `place` may be raised to, by `cellKey`, or undefined where none is held or no network is registered. */
+export function heldGates(place: Place): ReadonlyMap<number, number> | undefined {
+  const net = network;
+  if (net === null) return undefined;
+  if (net.version !== prominenceVersion()) {
+    net.version = prominenceVersion();
+    net.caps.clear();
+    net.held = new WeakMap();
+    gateHeights = new WeakMap();
+  }
+  const known = net.held.get(place);
+  if (known !== undefined) return known.size > 0 ? known : undefined;
+  const held = new Map<number, number>();
+  const i = net.index.get(place);
+  if (i !== undefined) {
+    const town = townOf(place);
+    for (const r of net.ends.get(i) ?? []) {
+      const caps = gateCaps(net, r);
+      const road = net.roads[r]!;
+      for (const [end, gate, cap] of [[road.a, road.gateA, caps[0]], [road.b, road.gateB, caps[1]]] as const) {
+        if (end !== i || cap === Infinity) continue;
+        for (const [col, row] of town.gates[gate]?.cells ?? []) {
+          const key = cellKey(col, row);
+          held.set(key, Math.min(held.get(key) ?? Infinity, cap));
+        }
+      }
+    }
+  }
+  net.held.set(place, held);
+  return held.size > 0 ? held : undefined;
 }
 
 /**
@@ -881,8 +1050,9 @@ export function roadGeometryFor(roads: readonly Road[], places: readonly Place[]
 // ---------------------------------------------------------------------------
 
 /**
- * The steepest the ribbon's own climb to a gate may be: rise over run, on top
- * of whatever the relief under it is doing.
+ * The ribbon's own climb to a gate, rise over run, on top of whatever the
+ * relief under it is doing: `RAMP_GRADE`, which is `scenery/ground.ts`'s,
+ * because a town street's ramp across a riser climbs at the same grade.
  *
  * **The crown is the relief plus `RIBBON_LIFT` everywhere but the last run
  * before a gate, and there it has to meet a level paving at an absolute
@@ -891,38 +1061,22 @@ export function roadGeometryFor(roads: readonly Road[], places: readonly Place[]
  * between the two decays from its whole value at the kerb to nothing at this
  * rate: a road meeting a gate four units over its natural crown ramps down to
  * it over 13 units, and one meeting a gate cut twelve units into a hillside
- * over 40. 0.3 is the number the town's own ramps already used, 17 degrees,
- * about the steepest street a car is driven up — and it is *added* to the
- * relief rather than absolute, because the relief under a road is allowed up
- * to `MAX_SLOPE` and a ramp that promised an absolute grade would have to
- * refuse every gate on a hill.
+ * over 40. It is *added* to the relief rather than absolute, because the relief
+ * under a road is allowed up to `MAX_SLOPE` and a ramp that promised an
+ * absolute grade would have to refuse every gate on a hill.
  */
-export const RAMP_GRADE = 0.3;
-
-/**
- * How much narrower than a one-cell gate's cell a crown arrives, in world
- * units: half a unit inside it, so its corners do not stand on the line where a
- * neighbouring cell's riser can start.
- */
-const GATE_MARGIN = 0.5;
+export { RAMP_GRADE };
 
 const continents = new WeakMap<World, Map<string, string>>();
 
 /**
- * Half the street a gate opens onto, which is what a crown narrows to at its
- * kerb: a road continues the street it enters, at the street's own width.
- *
- * - **A gate on one cell** — the main street of a town an odd number of cells
- *   wide, which is the whole middle cell, or the one cell of a hamlet — opens
- *   onto that cell: half a pitch, less `GATE_MARGIN`.
- * - **A gate on a boundary** opens onto the two street bands either side of
- *   it, each `streetBand` of the region's own carriageway (`GroundStyle.street`)
- *   — the band the town paves in the road's colour, flush to the kerb. The
- *   region is the place's own, found the way `settlements.ts` finds it: the
- *   continent by the country's code in `world.countries`, then `regionFor`.
+ * The street band of a town's region, `streetBand` of its carriageway
+ * (`GroundStyle.street`): what the town paves either side of a boundary street,
+ * and what its gate's mouth is worked out from (`gateMouth`). The region is the
+ * place's own, found the way `settlements.ts` finds it: the continent by the
+ * country's code in `world.countries`, then `regionFor`.
  */
-function streetHalf(place: Place, town: Town, gate: Gate, world: World): number {
-  if (gate.cells.length < 2) return town.grid.pitch * 0.5 - GATE_MARGIN;
+function bandOf(place: Place, town: Town, world: World): number {
   let continent = continents.get(world);
   if (continent === undefined) {
     continent = new Map(world.countries.map((country) => [country.iso, country.continent]));
@@ -938,25 +1092,26 @@ function streetHalf(place: Place, town: Town, gate: Gate, world: World): number 
  * `rise` is how far the gate's paving stands over the crown the relief would
  * give the road at the kerb: `gateLevel + GROUND_LIFT - (ground + RIBBON_LIFT)`,
  * the ground taken at the gate itself. `level` is how far out the section is
- * still levelling itself — the approach — and `narrow` is the crown half-width
- * the gate lets in. An end whose town is not built (the prominence knob, turned
- * away from the value the network was baked at) asks for nothing: no rise, no
- * levelling, no narrowing, and the ribbon ends at a gate of a square nobody
- * raised. `kerb` is the paving's own radius, for `pnpm check`.
+ * still levelling itself — the approach — and `walk` is the pavement the road
+ * carries out of the gate, the town's own (`gateMouth`). An end whose town is
+ * not built (the prominence knob, turned away from the value the network was
+ * baked at) asks for nothing: no rise, no levelling, no pavement, and the
+ * ribbon ends at a gate of a square nobody raised. `kerb` is the paving's own
+ * radius, for `pnpm check`.
  */
 export interface RoadRamp {
   riseA: number;
   riseB: number;
   levelA: number;
   levelB: number;
-  narrowA: number;
-  narrowB: number;
+  walkA: number;
+  walkB: number;
   kerbA: number;
   kerbB: number;
 }
 
 export function emptyRamp(): RoadRamp {
-  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, narrowA: Infinity, narrowB: Infinity, kerbA: 0, kerbB: 0 };
+  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, walkA: 0, walkB: 0, kerbA: 0, kerbB: 0 };
 }
 
 export function rampOf(
@@ -972,24 +1127,25 @@ export function rampOf(
     const level = isShown(place) ? gateHeight(place, gate, world) : null;
     let rise = 0;
     let run = 0;
-    let narrow = Infinity;
+    let walk = 0;
     let kerb = 0;
     if (level !== null) {
       const town = townOf(place);
       kerb = PLANET_RADIUS + level + GROUND_LIFT;
       rise = level + GROUND_LIFT - (world.elevationAt(end === 0 ? course.gateA : course.gateB) + RIBBON_LIFT);
       run = course.approach;
-      narrow = streetHalf(place, town, town.gates[gate]!, world);
+      const mouth = gateMouth(town.grid, town.gates[gate]!, bandOf(place, town, world));
+      walk = mouth.edge - mouth.carriage;
     }
     if (end === 0) {
       into.riseA = rise;
       into.levelA = run;
-      into.narrowA = narrow;
+      into.walkA = walk;
       into.kerbA = kerb;
     } else {
       into.riseB = rise;
       into.levelB = run;
-      into.narrowB = narrow;
+      into.walkB = walk;
       into.kerbB = kerb;
     }
   }
@@ -1698,6 +1854,10 @@ const DASH_PIECE = 6;
  */
 const DASH_LIFT = 0.04;
 
+/** How far in from the carriageway's edge its edge line is painted, in world units, and how wide as a share of the centre line's. */
+const EDGE_LINE_IN = 0.25;
+const EDGE_LINE_SHARE = 0.7;
+
 /**
  * Longest piece of road drawn as one quad, by how far away it is.
  *
@@ -1776,8 +1936,45 @@ function classReaches(into: number[]): number[] {
  * and 4.5 against 3.0, which is the same 1.5 of burial every time.
  */
 const SHOULDER_DROP = RIBBON_LIFT + 1.5;
-/** And how far out, as a multiple of the carriageway's own half-width. */
-const SHOULDER_SPREAD = 1.8;
+
+/**
+ * How far out from the top's edge the embankment reaches its buried foot, in
+ * world units.
+ *
+ * **It was 1.8 times the carriageway's half-width from the centre line, which
+ * was 2.88 units of side for a 4.5 fall, 57 degrees**, and a road read as a
+ * strip of tarmac lifted onto a plinth. 4.8 is 43 degrees and meets level
+ * ground 3.2 units out from the top's edge (`crownFall`), a bank rather than a
+ * wall, and the burial is `SHOULDER_DROP`'s as it always was. A road that
+ * curls round its own town now reaches in under its square's edge by up to
+ * two units, as the bank's buried foot, under the paving (`pnpm check`).
+ */
+const EMBANKMENT_RUN = 4.8;
+
+/**
+ * The shoulder: a strip of gravel either side of the carriageway, at its
+ * height, before the embankment falls away, in world units. It is what a
+ * country road has between its edge line and the verge, and the top a post
+ * or a rail stands on.
+ */
+export const SHOULDER_STRIP = 0.6;
+
+/**
+ * How far out from a built town's kerb a road carries the town's pavement in
+ * place of its shoulder, in world units, and how long it takes after that to
+ * narrow back to it: the approach a town's street lamps stand along.
+ */
+export const PAVEMENT_RUN = 36;
+const PAVEMENT_TAPER = 6;
+
+/**
+ * The drawn verge a network was baked against, as a multiple of the
+ * carriageway's half-width: 1.8, where the embankment's foot was before it
+ * was laid out from the top's edge (`EMBANKMENT_RUN`). `roadClearance` is it,
+ * and the bake refused a road whose tightest turn is under it, so it stays
+ * what the shipped `roads.bin` was baked at until a re-bake moves both.
+ */
+const VERGE_SPREAD = 1.8;
 
 /**
  * How far from a road's own centre line the ribbon reaches, in world units.
@@ -1787,6 +1984,9 @@ const SHOULDER_SPREAD = 1.8;
  * would push up through is the crown plus however much of the shoulder the
  * relief lets show. 6.48 for every class since they all became 7.2 wide
  * (2026-09-24); 7.4 for a lane, 11.5 for a road and 16.2 for a trunk before.
+ * Since the embankment was laid gentler (2026-09-25) the drawn bank meets level
+ * ground at `crownFall`, 7.4, which a plant's own footprint covers; a post or
+ * a pole beside a road stands inside this (`propsOf`).
  *
  * Exported because `vegetation.ts` is the one file that has to keep something
  * off a road, and half a road's width is a fact about the road. What it adds to
@@ -1796,7 +1996,7 @@ const SHOULDER_SPREAD = 1.8;
  */
 export function roadClearance(cls: number): number {
   const style = ROAD_CLASSES[cls] ?? ROAD_CLASSES[0]!;
-  return style.width * 0.5 * SHOULDER_SPREAD;
+  return style.width * 0.5 * VERGE_SPREAD;
 }
 
 /** Which roads pass near a patch of ground; see `createRoadIndex`. */
@@ -1928,6 +2128,9 @@ const TILE = 4;
 const TILE_COLS = Math.round(360 / TILE);
 const TILE_ROWS = Math.round(180 / TILE);
 
+/** Triangles a piece of ribbon costs in the near band: two banks, two shoulders, the carriageway, two edge lines and a dash. */
+const TRIANGLES_NEAR = 16;
+
 /** Triangles of resident road. `OutlineEffect` draws them twice. */
 const TRIANGLE_BUDGET = 260_000;
 const triangleBudget = (): number => detailArea(TRIANGLE_BUDGET);
@@ -1938,6 +2141,22 @@ const triangleBudget = (): number => detailArea(TRIANGLE_BUDGET);
  * roads of a region several times over.
  */
 const RIBBON_CACHE_BYTES = 24 * 1048576;
+/** And of laid roadside (`roadside.ts`), which only the near band draws. */
+const ROADSIDE_CACHE_BYTES = 12 * 1048576;
+
+/**
+ * The smallest town whose approach has street lamps, by its built radius: a
+ * town big enough to be the end of a `road` rather than a `lane`
+ * (`classOf`), about 22,000 people.
+ */
+const LAMP_TOWN = 17.1;
+
+/**
+ * How far from each end a road drawn behind another it overlaps (`layer`)
+ * keeps its roadside back, in world units: past its own pavement, which is
+ * where two roads out of one gate have parted.
+ */
+const LAYERED_CLEAR = PAVEMENT_RUN + 24;
 /** The share of a class's reach a road dissolves over, at its far end; see the material. */
 const REACH_FADE = 0.15;
 /** Milliseconds of building allowed in one frame. Same law as the settlements. */
@@ -1975,7 +2194,11 @@ export interface RoadStats {
   pending: number;
   /** Roads drawn, across every resident tile. */
   roads: number;
+  /** Every triangle standing, the roadside's included, and the roadside's alone. */
   triangles: number;
+  roadside: number;
+  /** Street lamps standing down the towns' approaches. */
+  lamps: number;
   megabytes: number;
   built: number;
   lastBuildMs: number;
@@ -2002,38 +2225,43 @@ export interface Roads {
    * or 0 if this point is not on one. See `ribbonHeightAt` inside.
    */
   ribbonHeightAt(point: THREE.Vector3): number;
+  /**
+   * The street lamps down the approaches to the towns, merged into a list of
+   * near lamp heads that already holds `count` — `settlements.lampsNear`'s,
+   * `x, y, z, distance` nearest first — keeping it sorted and within
+   * `radius` and the list's length. Returns the new count. See `setNearLamps`
+   * in `lights.ts`.
+   */
+  lampsNear(viewer: THREE.Vector3, radius: number, out: Float32Array, count: number): number;
   /** Call each frame. The camera is optional; without one, admission is a radius. */
   update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera): void;
 }
 
 /**
- * How far out the ribbon's crown holds its full lift, and where the shoulder
- * has carried it back down to the ground, as multiples of the carriageway's own
- * half-width.
+ * Where the embankment of a road whose top is `top` wide either side meets
+ * level ground, from its centre line, in world units, wherever the top has its
+ * ordinary lift: the top's edge — the carriageway and its shoulder or
+ * pavement, `ribbonHalf` — plus the stretch of bank that uses the lift up. 7.4
+ * for every class in the country, with a 0.6 shoulder.
  *
  * **Read off the drawn geometry rather than chosen.** A cross-section is four
- * points: the crown at `±half` sits at `RIBBON_LIFT` and the shoulder at
- * `±half * SHOULDER_SPREAD` sits at `RIBBON_LIFT - SHOULDER_DROP`, which is 1.5
- * *below* the relief. The straight line between them crosses the ground where
- * the lift has been used up, which is `RIBBON_LIFT / SHOULDER_DROP` of the way
- * out — so the surface a foot stands on runs from full lift at 1.0 of the
- * half-width to nothing at 1.533 of it, and the ramp is a fact about the road
+ * points: the top's edges at `±top` sit at `RIBBON_LIFT`,
+ * and the bank's feet `EMBANKMENT_RUN` further out at `RIBBON_LIFT -
+ * SHOULDER_DROP`, 1.5 *below* the relief. The straight line between them
+ * crosses the ground where the lift has been used up, `RIBBON_LIFT /
+ * SHOULDER_DROP` of the way out, so the surface a foot stands on runs from full
+ * lift at the top's edge to nothing here, and the ramp is a fact about the road
  * rather than a courtesy to the player. A town's edge is the same kind of fact
  * since 2026-09-13 — a drawn slope a foot stands on (`buildFloor` in
  * `scenery/floor.ts`) — and neither needs a ramp that is not drawn.
  *
- * **The ratio is not a half any more and the arithmetic never was one.** At a
- * lift of 1.5 the drop was 3.0 and the crossing landed exactly half way, at
- * 1.400; at 3.0 against 4.5 it is two thirds of the way, at 1.533. The formula
- * is unchanged — it was already written as the ratio — and this is the sentence
- * that used to say "half" and would have been wrong.
- *
- * **Exported, because `pnpm check` had this arithmetic written out longhand**:
- * `half * (1 + 0.8 * (RIBBON_LIFT / (RIBBON_LIFT + 1.5)))`, which is two files
- * answering "where does the drawn shoulder cross the ground?" and therefore two
- * chances to disagree the next time either constant moves.
+ * **Exported, because `pnpm check` had this arithmetic written out longhand**,
+ * which is two files answering "where does the drawn bank cross the ground?"
+ * and therefore two chances to disagree the next time either constant moves.
  */
-export const CROWN_FALL = 1 + (SHOULDER_SPREAD - 1) * (RIBBON_LIFT / SHOULDER_DROP);
+export function crownFall(top: number): number {
+  return top + EMBANKMENT_RUN * (RIBBON_LIFT / SHOULDER_DROP);
+}
 
 /**
  * How far the crown stands over the relief at one point of a road, `sA` and
@@ -2071,16 +2299,32 @@ export function needsCentre(ramp: RoadRamp, sA: number, sB: number): boolean {
   return levelling(ramp.levelA, sA) + levelling(ramp.levelB, sB) > 0;
 }
 
+/** A built town's pavement, `walk` wide at its kerb, `s` units out along the road from it. */
+function pavementAt(walk: number, s: number): number {
+  if (walk <= 0 || s >= PAVEMENT_RUN + PAVEMENT_TAPER) return 0;
+  if (s <= PAVEMENT_RUN) return walk;
+  return walk * (1 - (s - PAVEMENT_RUN) / PAVEMENT_TAPER);
+}
+
+/** Whether a point `sA` and `sB` along a road is on a town's pavement rather than the country's shoulder. */
+export function onPavement(ramp: RoadRamp, sA: number, sB: number): boolean {
+  return (ramp.walkA > 0 && sA < PAVEMENT_RUN) || (ramp.walkB > 0 && sB < PAVEMENT_RUN);
+}
+
 /**
- * The crown's half-width at a point: the class's own `half`, narrowed over
- * each approach to the street its gate opens onto (`streetHalf`), from nothing
- * at the end of the approach to all of it at the kerb. A road narrower than its
- * street keeps its own width.
+ * The half-width of the top of a road at a point: the carriageway's `half`,
+ * which it keeps from gate to gate, and beside it the shoulder — or, over the
+ * last `PAVEMENT_RUN` into a built town, that town's pavement, as wide as it is
+ * at the gate's mouth (`gateMouth`), so the kerb the road arrives with is the
+ * kerb the street carries on.
  */
 export function ribbonHalf(ramp: RoadRamp, half: number, sA: number, sB: number): number {
-  const a = ramp.narrowA < half ? half - (half - ramp.narrowA) * levelling(ramp.levelA, sA) : half;
-  const b = ramp.narrowB < half ? half - (half - ramp.narrowB) * levelling(ramp.levelB, sB) : half;
-  return Math.min(a, b);
+  return half + Math.max(SHOULDER_STRIP, pavementAt(ramp.walkA, sA), pavementAt(ramp.walkB, sB));
+}
+
+/** The widest a road's drawn section can be from its centre line: a whole pavement and the bank past it. */
+export function ribbonReach(half: number): number {
+  return half + SIDEWALK + EMBANKMENT_RUN;
 }
 
 /**
@@ -2088,10 +2332,10 @@ export function ribbonHalf(ramp: RoadRamp, half: number, sA: number, sB: number)
  * as a lift over `ground`: zero or less means off the road.
  *
  * The drawn section read back — see `ribbonSection` — so there is nothing to
- * tune: the crown at `crownLift` out to `ribbonHalf`, then the shoulder's
- * straight line down to `RIBBON_LIFT - SHOULDER_DROP` at `SHOULDER_SPREAD`
- * times the half-width. Where the crown has its ordinary lift that line crosses
- * the ground at `CROWN_FALL` of the half-width, as it always did; where a ramp
+ * tune: the top at `crownLift` out to `ribbonHalf`, then the bank's
+ * straight line down to `RIBBON_LIFT - SHOULDER_DROP` `EMBANKMENT_RUN` further
+ * out. Where the top has its ordinary lift that line crosses the ground at
+ * `crownFall`; where a ramp
  * has lifted it onto an embankment it crosses further out, which is the
  * embankment's own side.
  */
@@ -2108,7 +2352,7 @@ export function surfaceLift(
   const edge = crownLift(ramp, sA, sB, ground, centre);
   const away = Math.abs(lateral);
   if (away <= crown) return edge;
-  const shoulder = crown * SHOULDER_SPREAD;
+  const shoulder = crown + EMBANKMENT_RUN;
   const foot = RIBBON_LIFT - SHOULDER_DROP;
   if (away >= shoulder) return foot;
   return edge + ((away - crown) / (shoulder - crown)) * (foot - edge);
@@ -2131,12 +2375,15 @@ export function ribbonStations(
   span: number,
   out: number[],
 ): number[] {
-  const marks = [0, length, approach, length - approach, rampReach(ramp.riseA), length - rampReach(ramp.riseB)]
-    .filter((s) => s >= 0 && s <= length)
-    .sort((x, y) => x - y);
+  const marks = [0, length, approach, length - approach, rampReach(ramp.riseA), length - rampReach(ramp.riseB)];
+  // Where a pavement ends and where its taper does, so the colour changes on a
+  // section and the width's corner is drawn rather than cut across.
+  if (ramp.walkA > 0) marks.push(PAVEMENT_RUN, PAVEMENT_RUN + PAVEMENT_TAPER);
+  if (ramp.walkB > 0) marks.push(length - PAVEMENT_RUN, length - PAVEMENT_RUN - PAVEMENT_TAPER);
+  const sorted = marks.filter((s) => s >= 0 && s <= length).sort((x, y) => x - y);
   out.length = 0;
   let last = 0;
-  for (const mark of marks) {
+  for (const mark of sorted) {
     if (out.length > 0 && mark - last < 1e-6) continue;
     if (out.length > 0) {
       const pieces = Math.max(1, Math.ceil((mark - last) / span));
@@ -2184,7 +2431,7 @@ export function ribbonSection(
   sectionSide.crossVectors(sectionAt, sectionAhead).normalize();
   const sB = path.length - s;
   const crown = ribbonHalf(ramp, half, s, sB);
-  const shoulder = crown * SHOULDER_SPREAD;
+  const shoulder = crown + EMBANKMENT_RUN;
   const centre = needsCentre(ramp, s, sB) ? world.elevationAt(sectionAt) : 0;
   for (let k = 0; k < 4; k++) {
     const offset = k === 0 ? -shoulder : k === 1 ? -crown : k === 2 ? crown : shoulder;
@@ -2194,6 +2441,58 @@ export function ribbonSection(
     const lift = k === 0 || k === 3 ? RIBBON_LIFT - SHOULDER_DROP : crownLift(ramp, s, sB, ground, centre);
     target.multiplyScalar(PLANET_RADIUS + ground + lift);
   }
+}
+
+const siteAt = new THREE.Vector3();
+const siteCentre = new THREE.Vector3();
+
+/**
+ * One road as `roadside.ts` sees it: where its drawn surface is — the course,
+ * `ribbonHalf` and `surfaceLift`, the ribbon's own — which of its ends are
+ * built towns and big enough for lamps, where the country starts at each, and
+ * the side its traffic keeps to. Exported for `pnpm check`, which lays the
+ * roadside of the network through it.
+ */
+export function roadsideSite(
+  road: Road, course: RoadCourse, path: CoursePath, ramp: RoadRamp, places: readonly Place[], world: World,
+): RoadsideSite {
+  const half = (ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!).width * 0.5;
+  const a = places[road.a]!;
+  const b = places[road.b]!;
+  /**
+   * A road drawn behind another it overlaps (`layer`) shares a gate with it
+   * more often than not, and the two lay their first stretch on one line:
+   * so it leaves that stretch, lamps and all, to the road in front.
+   */
+  const shared = road.layer > 0 ? LAYERED_CLEAR : 0;
+  const countryOf = (walk: number, kerb: number): number =>
+    kerb === 0 ? shared : Math.max(course.approach, walk > 0 ? PAVEMENT_RUN + PAVEMENT_TAPER : 0, shared);
+  const site: RoadsideSite = {
+    length: path.length,
+    half,
+    top: (s) => ribbonHalf(ramp, half, s, path.length - s),
+    surface(s, lateral, point, ahead, side) {
+      const t = parameterAt(path, s);
+      coursePoint(course, t, siteAt);
+      courseTangent(course, t, ahead);
+      side.crossVectors(siteAt, ahead).normalize();
+      point.copy(siteAt).addScaledVector(side, lateral / PLANET_RADIUS).normalize();
+      const sB = path.length - s;
+      const ground = world.elevationAt(point);
+      const centre = needsCentre(ramp, s, sB) ? world.elevationAt(siteCentre.copy(siteAt)) : ground;
+      point.multiplyScalar(PLANET_RADIUS + ground + surfaceLift(ramp, half, s, sB, lateral, ground, centre));
+    },
+    groundRadius: (point) => PLANET_RADIUS + Math.max(0, world.elevationAt(siteCentre.copy(point).normalize())),
+    townA: ramp.kerbA > 0,
+    townB: ramp.kerbB > 0,
+    lampsA: ramp.kerbA > 0 && shared === 0 && radiusOf(a) >= LAMP_TOWN,
+    lampsB: ramp.kerbB > 0 && shared === 0 && radiusOf(b) >= LAMP_TOWN,
+    keep: keepsLeft(a.iso ?? '') ? 1 : -1,
+    countryA: countryOf(ramp.walkA, ramp.kerbA),
+    countryB: countryOf(ramp.walkB, ramp.kerbB),
+    seed: `${a.name}@${a.lat},${a.lon}|${b.name}@${b.lat},${b.lon}`,
+  };
+  return site;
 }
 
 interface Tile {
@@ -2223,6 +2522,9 @@ interface Tile {
   drawn: number;
   triangles: number;
   bytes: number;
+  /** What stands beside its roads, in the near band only (`roadside.ts`), and the heads of its lamps in world units. */
+  props: THREE.Mesh | null;
+  heads: Float32Array | null;
 }
 
 export function createRoads(world: World, places: readonly Place[], data: RoadData): Roads {
@@ -2238,7 +2540,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     throw new Error(
       `roads.bin was baked against ${data.places} places and there are ${places.length}. Run \`pnpm roads\`.`,
     );
-  }
+  }  // The gates a town may not raise for its roads' sake: see `heldGates`.
+  holdGates(data.roads, places, world);
+
 
   const material = new THREE.MeshToonMaterial({
     vertexColors: true,
@@ -2300,6 +2604,19 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       );
   };
   material.customProgramCacheKey = () => 'roads:layers:lit:fade';
+
+  /**
+   * What stands beside the roads (`roadside.ts`): a thing standing on the
+   * ground, so unlike the ribbon it takes the world's ink, and its lamp heads
+   * are windows that burn till dawn (`lightWindows`). It receives the ground's
+   * shadows and casts none: a tile's worth of poles is a thousand units of
+   * shadow pass for a stroke a pixel wide.
+   */
+  const propsMaterial = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: createToonRamp(4),
+  });
+  lightWindows(propsMaterial);
 
   const scratch = new THREE.Vector3();
   const roads = data.roads;
@@ -2405,7 +2722,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         const town = townOf(place);
         const gate = town.gates[which];
         if (gate === undefined) continue;
-        const glow = gateGlow(town.grid, gate, streetHalf(place, town, gate, world));
+        const glow = gateGlow(town.grid, gate, bandOf(place, town, world));
         const at = offsetDirection(town.up, town.across, town.north, glow.x, glow.z, new THREE.Vector3())
           .multiplyScalar(kerb);
         list.push({ at, across: town.across, north: town.north, inner: glow.inner, reach: glow.reach });
@@ -2428,6 +2745,58 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       glowOffset.subVectors(point, light.at);
       const distance = Math.hypot(glowOffset.dot(light.across), glowOffset.dot(light.north));
       best = Math.max(best, poolAt(1, distance, light.inner, light.reach));
+    }
+    return best;
+  };
+
+  /**
+   * What stands beside a road, laid once and kept (`roadside.ts`): a pure
+   * function of the road and the prominence version, as its ribbon is, and
+   * the same in every band — only the near band draws it. Least recently used
+   * first out past `ROADSIDE_CACHE_BYTES`.
+   */
+  const roadsides = new Map<number, Roadside & { bytes: number }>();
+  let roadsideBytes = 0;
+  function roadsideOf(index: number): Roadside & { bytes: number } {
+    const known = roadsides.get(index);
+    if (known !== undefined) {
+      roadsides.delete(index);
+      roadsides.set(index, known);
+      return known;
+    }
+    const site = roadsideSite(roads[index]!, geometry.course(index), geometry.path(index), rampFor(index), places, world);
+    const laid = layRoadside(site);
+    const made = {
+      ...laid,
+      bytes: (laid.position.length + laid.normal.length + laid.color.length + laid.heads.length) * 8 + laid.lit.length,
+    };
+    roadsides.set(index, made);
+    roadsideBytes += made.bytes;
+    for (const [oldest, side] of roadsides) {
+      if (roadsideBytes <= ROADSIDE_CACHE_BYTES) break;
+      roadsides.delete(oldest);
+      roadsideBytes -= side.bytes;
+    }
+    return made;
+  }
+
+  /**
+   * The light the near band's ribbon takes from a road's own lamps, as the
+   * byte a town's floor would carry under one: `poolAt` over the distance
+   * along the ground from the lamp's foot, `LAMP_POOL` out, as the town's
+   * street lamps lay theirs.
+   */
+  const lampOffset = new THREE.Vector3();
+  const lampUp = new THREE.Vector3();
+  const lampGlow = (heads: readonly number[], point: THREE.Vector3): number => {
+    let best = 0;
+    for (let i = 0; i + 2 < heads.length; i += 3) {
+      lampOffset.set(heads[i]! - point.x, heads[i + 1]! - point.y, heads[i + 2]! - point.z);
+      const far = lampOffset.lengthSq();
+      if (far > (LAMP_POOL + 8) * (LAMP_POOL + 8)) continue;
+      lampUp.set(heads[i]!, heads[i + 1]!, heads[i + 2]!).normalize();
+      const rise = lampOffset.dot(lampUp);
+      best = Math.max(best, poolAt(1, Math.sqrt(Math.max(0, far - rise * rise)), 0, LAMP_POOL));
     }
     return best;
   };
@@ -2459,6 +2828,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         drawn: 0,
         triangles: 0,
         bytes: 0,
+        props: null,
+        heads: null,
       };
       tiles.set(key, tile);
     }
@@ -2526,8 +2897,10 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   /** And what each class was worth at that scan; see `classReaches`. */
   const reaches = [0, 0, 0];
   const crown = new THREE.Color();
-  /** The carriageway's own edge, a tone of the crown; see where it is set. */
-  const kerb = new THREE.Color();
+  /** The shoulder's gravel, and each end's town's pavement. */
+  const gravel = new THREE.Color();
+  const walkA = new THREE.Color();
+  const walkB = new THREE.Color();
   const verge = new THREE.Color();
   const ground = new THREE.Color();
   const ink = new THREE.Color(0x2a1410);
@@ -2610,10 +2983,11 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const glow: number[] = [];
     let lights: readonly GateLight[] = NO_LIGHTS;
 
+    let heads: readonly number[] = [];
     const push = (p: THREE.Vector3, c: THREE.Color): void => {
       positions.push(p.x, p.y, p.z);
       colors.push(c.r, c.g, c.b);
-      glow.push(ribbonGlow(lights, p));
+      glow.push(heads.length > 0 ? Math.max(ribbonGlow(lights, p), lampGlow(heads, p)) : ribbonGlow(lights, p));
     };
     const quad = (
       p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3,
@@ -2652,6 +3026,31 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       quad(p0, p1, p2, p3, line, line);
     };
 
+    /**
+     * A solid white line down each edge of the carriageway, `EDGE_LINE_IN`
+     * in from it, lifted `DASH_LIFT` off the triangle of the carriageway's
+     * quad it lies in — the left one in `(n1, f1, f2)`, the right one in
+     * `(n1, f2, n2)`, each by that triangle's own formula, for the reason
+     * `dash` gives.
+     */
+    const edgeUp = new THREE.Vector3();
+    const edgeLines = (n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, n2: THREE.Vector3, half: number): void => {
+      const w0 = EDGE_LINE_IN / (2 * half);
+      const w1 = (EDGE_LINE_IN + 2 * LINE_HALF * EDGE_LINE_SHARE) / (2 * half);
+      edgeUp.subVectors(f1, n1).cross(dashEdge.subVectors(f2, n1)).normalize();
+      if (edgeUp.dot(n1) < 0) edgeUp.negate();
+      const left = (along: number, across: number, into: THREE.Vector3) =>
+        into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across)
+          .addScaledVector(edgeUp, DASH_LIFT);
+      quad(left(0, w0, dashCorners[0]!), left(1, w0, dashCorners[1]!), left(1, w1, dashCorners[2]!), left(0, w1, dashCorners[3]!), line, line);
+      edgeUp.subVectors(f2, n1).cross(dashEdge.subVectors(n2, n1)).normalize();
+      if (edgeUp.dot(n1) < 0) edgeUp.negate();
+      const right = (along: number, across: number, into: THREE.Vector3) =>
+        into.copy(n1).addScaledVector(n2, across).addScaledVector(n1, -across).addScaledVector(f2, along).addScaledVector(n2, -along)
+          .addScaledVector(edgeUp, DASH_LIFT);
+      quad(right(0, 1 - w1, dashCorners[0]!), right(1, 1 - w1, dashCorners[1]!), right(1, 1 - w0, dashCorners[2]!), right(0, 1 - w0, dashCorners[3]!), line, line);
+    };
+
     // One cross-section is four points; the piece between two of them is three
     // quads. `near` is rolled into `far` each step, so every point is placed on
     // the ground exactly once however many pieces share it.
@@ -2667,6 +3066,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const path = geometry.path(index);
     const ramp = rampFor(index);
     lights = gateLightsFor(index);
+    if (band === 0) heads = roadsideOf(index).heads;
     const half = style.width * 0.5 * (BAND_WIDTH[band] ?? 1);
 
     /**
@@ -2697,44 +3097,71 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     if (road.cls === 2) crown.lerp(ink, 0.12);
     trodden(ground, verge);
     /**
-     * The edge of the carriageway, and it costs **no triangle at all**.
+     * **The section, near the eye: a carriageway, a shoulder each side and a
+     * bank down to the field** (2026-09-25). It used to be a crown and two
+     * banks — six triangles a piece, the carriageway's edge a `kerb` tone of
+     * the crown where the bank began — and the road read as a strip of tarmac
+     * lifted onto a plinth. In the near band the top is split where the
+     * carriageway ends, so the shoulder is a strip of gravel of its own, or
+     * over a town's approach that town's pavement, and a marked road has a
+     * white line down each edge of its carriageway as well as its dashed
+     * centre: ten triangles a piece and four for the edge lines, where the
+     * old section was six and the old note put two more points at +67% of the
+     * whole network. It is +67% of the near band's only, which is the one
+     * within `SPANS`' first 2,600 units of the eye, and it is what the
+     * triangle budget is priced on (`estimate`). Further out the top is one
+     * quad in the carriageway's colour, as the whole road used to be.
      *
-     * A road has to read as more than one flat band, and the obvious way to do
-     * it — a narrower crown strip inside the carriageway, or a dashed line down
-     * the middle — needs two more points in every cross-section, which is ten
-     * triangles a section against six: **+67% of the whole network's
-     * geometry**, against a 260,000 triangle budget that already binds at
-     * altitude, for a mark 1.2 units wide that stops resolving at about sixty
-     * units. So the two tones are put where the section already has a vertex:
-     * the shoulder quads carry `kerb` at the carriageway's edge instead of the
-     * crown's own colour, and the crown quad keeps it.
-     *
-     * The buffers are non-indexed, so the two quads meeting at ±half do not
-     * share vertices and the step is a **hard line** rather than a gradient —
-     * which is the whole point, and is why this reads at the distance a
-     * Gouraud ramp across half a carriageway would not. Geometrically that
-     * line is where the shoulder starts dropping, so the tone is drawing an
-     * edge that is really there.
-     *
-     * A tone of the crown and not a neutral, for `GROUND_STYLES`' own reason:
-     * a dark neutral band on the ground is what a *shadow* looks like in this
-     * scene. `ink` is a warm brown and the mix is small.
+     * The bank is the land's own colour at its foot and a trodden tone of it
+     * at the top, so it goes into the field rather than standing on it.
      */
-    kerb.copy(crown).lerp(ink, 0.26);
+    const near0 = band === 0;
+    gravel.setHex(PALETTE.bone).lerp(crown, 0.28).lerp(verge, 0.2);
+    walkA.setHex(groundStyleFor(regionOf(road.a).id).walk);
+    walkB.setHex(groundStyleFor(regionOf(road.b).id).walk);
+    const nearL = new THREE.Vector3();
+    const nearR = new THREE.Vector3();
+    const farL = new THREE.Vector3();
+    const farR = new THREE.Vector3();
+    /** The carriageway's two edges on the section's top, as points along it: the top is a straight line from edge to edge. */
+    const carriageOn = (section: readonly THREE.Vector3[], top: number, left: THREE.Vector3, right: THREE.Vector3): void => {
+      const u = (top - half) / (2 * top);
+      left.copy(section[1]!).lerp(section[2]!, u);
+      right.copy(section[1]!).lerp(section[2]!, 1 - u);
+    };
 
     // The stations are measured along the path, so a section is still at
     // most `span` units long, both ends land exactly on the two kerbs, and
     // every break in the height law — the end of an approach, the end of a
-    // ramp — is a section rather than a chord across it. See
-    // `ribbonStations` and `ribbonSection`, which `pnpm check` walks too.
+    // ramp, the end of a town's pavement — is a section rather than a chord
+    // across it. See `ribbonStations` and `ribbonSection`, which `pnpm check`
+    // walks too.
     ribbonStations(path.length, course.approach, ramp, span, stations);
     ribbonSection(world, course, path, ramp, half, stations[0]!, near);
+    carriageOn(near, ribbonHalf(ramp, half, stations[0]!, path.length - stations[0]!), nearL, nearR);
     for (let k = 1; k < stations.length; k++) {
-      ribbonSection(world, course, path, ramp, half, stations[k]!, far);
-      quad(near[0]!, far[0]!, far[1]!, near[1]!, verge, kerb);
-      quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
-      quad(near[2]!, far[2]!, far[3]!, near[3]!, kerb, verge);
-      if (marked) dash(near[1]!, far[1]!, far[2]!, stations[k]! - stations[k - 1]!, half);
+      const sFar = stations[k]!;
+      ribbonSection(world, course, path, ramp, half, sFar, far);
+      quad(near[0]!, far[0]!, far[1]!, near[1]!, ground, verge);
+      quad(near[2]!, far[2]!, far[3]!, near[3]!, verge, ground);
+      if (near0) {
+        carriageOn(far, ribbonHalf(ramp, half, sFar, path.length - sFar), farL, farR);
+        const middle = (stations[k - 1]! + sFar) * 0.5;
+        const shoulder = onPavement(ramp, middle, path.length - middle)
+          ? (middle < path.length * 0.5 ? walkA : walkB)
+          : gravel;
+        quad(near[1]!, far[1]!, farL, nearL, shoulder, shoulder);
+        quad(nearL, farL, farR, nearR, crown, crown);
+        quad(nearR, farR, far[2]!, near[2]!, shoulder, shoulder);
+        if (marked) {
+          dash(nearL, farL, farR, sFar - stations[k - 1]!, half);
+          edgeLines(nearL, farL, farR, nearR, half);
+        }
+        nearL.copy(farL);
+        nearR.copy(farR);
+      } else {
+        quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
+      }
       for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
     }
 
@@ -2755,7 +3182,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   }
 
   function raise(tile: Tile, band: number, sign: number): void {
-    const parts: { ribbon: Ribbon; road: Road }[] = [];
+    const parts: { ribbon: Ribbon; road: Road; index: number }[] = [];
     let vertices = 0;
     let drawn = 0;
     for (const index of tile.members) {
@@ -2770,7 +3197,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       if (roadDrawn[index] === 0) continue;
       drawn++;
       const ribbon = ribbonOf(index, band);
-      parts.push({ ribbon, road: roads[index]! });
+      parts.push({ ribbon, road: roads[index]!, index });
       vertices += ribbon.glow.length;
     }
 
@@ -2838,9 +3265,68 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     tile.triangles = vertices / 3;
     tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length + classes.length;
     tile.drawn = drawn;
+    if (band === 0) raiseProps(tile, parts.map((part) => part.index), ox, oy, oz);
+  }
+
+  /**
+   * The near band's roadside, merged: every drawn road's in the tile, one
+   * buffer, relative to the ribbon's own origin for the same reason the
+   * ribbon is, and the lamp heads kept for `lampsNear`.
+   */
+  function raiseProps(tile: Tile, members: readonly number[], ox: number, oy: number, oz: number): void {
+    const sides = members.map((index) => roadsideOf(index));
+    let count = 0;
+    let heads = 0;
+    for (const side of sides) {
+      count += side.position.length / 3;
+      heads += side.heads.length;
+    }
+    if (count === 0) return;
+    const position = new Float32Array(count * 3);
+    const normal = new Float32Array(count * 3);
+    const color = new Float32Array(count * 3);
+    const lit = new Uint8Array(count * 2);
+    const lamps = new Float32Array(heads);
+    let v = 0;
+    let h = 0;
+    for (const side of sides) {
+      const n = side.position.length / 3;
+      for (let i = 0; i < n; i++) {
+        position[(v + i) * 3] = side.position[i * 3]! - ox;
+        position[(v + i) * 3 + 1] = side.position[i * 3 + 1]! - oy;
+        position[(v + i) * 3 + 2] = side.position[i * 3 + 2]! - oz;
+      }
+      normal.set(side.normal, v * 3);
+      color.set(side.color, v * 3);
+      lit.set(side.lit, v * 2);
+      lamps.set(side.heads, h);
+      v += n;
+      h += side.heads.length;
+    }
+    const buffer = new THREE.BufferGeometry();
+    buffer.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    buffer.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+    buffer.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    buffer.setAttribute('atlasLit', new THREE.BufferAttribute(lit, 2, true));
+    buffer.computeBoundingSphere();
+    const props = new THREE.Mesh(buffer, propsMaterial);
+    props.name = `roadside:${members.length}`;
+    props.position.set(ox, oy, oz);
+    props.receiveShadow = true;
+    group.add(props);
+    tile.props = props;
+    tile.heads = lamps.length > 0 ? lamps : null;
+    tile.triangles += count / 3;
+    tile.bytes += (position.length + normal.length + color.length) * 4 + lit.length;
   }
 
   function drop(tile: Tile): void {
+    if (tile.props !== null) {
+      group.remove(tile.props);
+      tile.props.geometry.dispose();
+      tile.props = null;
+      tile.heads = null;
+    }
     if (tile.mesh === null) return;
     group.remove(tile.mesh);
     // The geometry is this tile's; the material is shared by every road on the
@@ -2863,6 +3349,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     pending: 0,
     roads: 0,
     triangles: 0,
+    roadside: 0,
+    lamps: 0,
     megabytes: 0,
     built: 0,
     lastBuildMs: 0,
@@ -2966,7 +3454,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   }
 
   /**
-   * Roughly what a tile costs before it is built. Six triangles a span.
+   * Roughly what a tile costs before it is built. Six triangles a span, and
+   * `TRIANGLES_NEAR` in the near band, whose section has a shoulder and edge
+   * lines.
    *
    * The course's own estimated length, worked out at load: a path is a few
    * dozen `coursePoint`s a road and this runs over every member of every
@@ -2980,7 +3470,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     let total = 0;
     for (const index of tile.members) {
       if (roadDrawn[index] === 0) continue;
-      total += Math.max(2, Math.ceil(lengths[index]! / span)) * 6;
+      total += Math.max(2, Math.ceil(lengths[index]! / span)) * (band === 0 ? TRIANGLES_NEAR : 6);
     }
     return total;
   }
@@ -3040,7 +3530,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    * always had its ordinary lift; a ramp onto an embankment carries the
    * surface out along the shoulder further than that.
    */
-  const WIDEST_HALF = Math.max(...ROAD_CLASSES.map((style) => style.width)) * 0.5 * SHOULDER_SPREAD;
+  const WIDEST_HALF = ribbonReach(Math.max(...ROAD_CLASSES.map((style) => style.width)) * 0.5);
 
   function ribbonHeightAt(point: THREE.Vector3): number {
     if (roads.length === 0 || places.length === 0) return 0;
@@ -3092,7 +3582,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         }
         heightLast.copy(heightHere);
       }
-      if (pastCap || nearest >= style.width * 0.5 * SHOULDER_SPREAD) continue;
+      if (pastCap || nearest >= ribbonReach(style.width * 0.5)) continue;
       const ramp = rampFor(hit);
       if (Number.isNaN(ground)) ground = world.elevationAt(heightDir);
       const centre = needsCentre(ramp, along, path.length - along) ? world.elevationAt(heightNearest) : ground;
@@ -3111,7 +3601,37 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     stats,
     all: roads,
     ribbonHeightAt,
-    proxies: () => [proxyOf(material)],
+    proxies: () => [proxyOf(material), proxyOf(propsMaterial)],
+
+    lampsNear(viewer, radius, out, count) {
+      const max = Math.floor(out.length / 4);
+      if (max === 0) return count;
+      let n = Math.min(count, max);
+      for (const tile of wanted) {
+        const heads = tile.heads;
+        if (heads === null || tile.anchor.distanceTo(viewer) - tile.bound > radius) continue;
+        for (let i = 0; i + 2 < heads.length; i += 3) {
+          const dx = heads[i]! - viewer.x;
+          const dy = heads[i + 1]! - viewer.y;
+          const dz = heads[i + 2]! - viewer.z;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (d > radius) continue;
+          // An insertion into the list, which is sorted by distance and capped.
+          let at = n < max ? n : max - 1;
+          if (n === max && d >= out[at * 4 + 3]!) continue;
+          while (at > 0 && out[(at - 1) * 4 + 3]! > d) {
+            out.copyWithin(at * 4, (at - 1) * 4, at * 4);
+            at--;
+          }
+          out[at * 4] = heads[i]!;
+          out[at * 4 + 1] = heads[i + 1]!;
+          out[at * 4 + 2] = heads[i + 2]!;
+          out[at * 4 + 3] = d;
+          if (n < max) n++;
+        }
+      }
+      return n;
+    },
 
     degrees() {
       const count = new Int32Array(places.length);
@@ -3189,13 +3709,19 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       let drawn = 0;
       let triangles = 0;
       let bytes = 0;
+      let roadside = 0;
+      let lamps = 0;
       for (const tile of wanted) {
         if (tile.mesh === null) continue;
         resident++;
         drawn += tile.drawn;
         triangles += tile.triangles;
         bytes += tile.bytes;
+        roadside += tile.props === null ? 0 : tile.props.geometry.getAttribute('position').count / 3;
+        lamps += tile.heads === null ? 0 : tile.heads.length / 3;
       }
+      stats.roadside = roadside;
+      stats.lamps = lamps;
       stats.resident = resident;
       stats.pending = queue.length;
       stats.roads = drawn;

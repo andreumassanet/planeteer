@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
-import { MAX_CUT, TERRACE_STEP, cellKey } from './ground.ts';
+import { MAX_CUT, SIDEWALK, TERRACE_STEP, cellKey, pavementOf } from './ground.ts';
 
 /**
  * A town's square: how big it is, the cells it is cut into, where its streets
@@ -77,6 +77,75 @@ export const GATE_CUT = MAX_CUT + 2 * TERRACE_STEP;
  */
 export function streetBand(grid: TownGrid, street: number): number {
   return Math.min(0.3 * grid.pitch, street * 0.5);
+}
+
+/**
+ * How far into a gate's cells its mouth runs, in world units: the stretch of a
+ * street that a road comes in by over which the town's own section widens or
+ * narrows to the road's (`gateMouth`). Two units, a quick flare of the kerb
+ * rather than a funnel, and short because a ramp (`floor.ts`) keeps off it: in
+ * a town three cells a side the whole of an avenue's arm between its middle
+ * crossing and its gate is what a riser there has to ramp in, and at Tarbes'
+ * pitch of 10.9 a flare of three left it 7.9 units for a terrace of 4, steeper
+ * than `STREET_GRADE`. Never more than half a cell.
+ */
+export function gateFlare(pitch: number): number {
+  return Math.min(pitch * 0.5, 2);
+}
+
+/**
+ * Half the carriageway of every road between the towns, in world units:
+ * `ROAD_CLASSES` in `roads.ts` are all twice this wide. Here because a town's
+ * gate is where the road's section and the street's meet, and both sides of
+ * that seam read it.
+ */
+export const CARRIAGEWAY_HALF = 3.6;
+
+/**
+ * Where a road meets a town's street: the street's own section at the gate, and
+ * the road's, which the mouth flares between.
+ */
+export interface GateMouth {
+  /** The street's half-width at the gate — half the cell on an avenue, the band on a boundary — and its pavement. */
+  street: number;
+  walk: number;
+  /** The road's carriageway half-width, which it keeps to the kerb. */
+  carriage: number;
+  /** Where the road's pavement ends, from the street's centre line, at the kerb. */
+  edge: number;
+  /** How far in from the kerb the town's street takes to become its own again. 0 where there is no street. */
+  flare: number;
+}
+
+/**
+ * The mouth of a gate: **the road keeps its width to the kerb, and the town's
+ * street meets it there** (2026-09-25).
+ *
+ * Until then a road narrowed over its last `APPROACH` to the street it entered
+ * — a band street of a small town is 5.4 across, and a 7.2 road lost a quarter
+ * of its width in eighteen units, which read as a funnel at every village. Now
+ * the road arrives whole with a pavement either side, the town's own, and the
+ * town widens its street to take it: over `gateFlare` of the gate's cells its
+ * carriageway runs from the road's `CARRIAGEWAY_HALF` at the kerb to its own,
+ * and its pavement's outer edge from `edge` to the street's. On a band that
+ * widens the street into the plots either side, which give up that much
+ * (`rectOf` in `settlements.ts`); an avenue is a whole cell of street already,
+ * and its mouth narrows the carriageway and widens the pavement instead.
+ *
+ * `band` is `streetBand` for the town's region. A square of one cell has no
+ * street, and its mouth is the road's carriageway and nothing else.
+ */
+export function gateMouth(grid: TownGrid, gate: Gate, band: number): GateMouth {
+  if (grid.cells < 2) {
+    return { street: 0, walk: 0, carriage: CARRIAGEWAY_HALF, edge: CARRIAGEWAY_HALF, flare: 0 };
+  }
+  const avenue = gate.cells.length < 2;
+  const street = avenue ? grid.pitch * 0.5 : band;
+  const walk = pavementOf(street);
+  const edge = avenue
+    ? Math.min(street, CARRIAGEWAY_HALF + SIDEWALK)
+    : Math.max(street, CARRIAGEWAY_HALF + walk);
+  return { street, walk, carriage: CARRIAGEWAY_HALF, edge, flare: gateFlare(grid.pitch) };
 }
 
 export interface TownGrid {
@@ -533,6 +602,10 @@ function spanOf(ground: TownGround, col: number, row: number): { high: number; l
  * of the sea and can be cut, to `GATE_CUT` rather than `MAX_CUT` — see there
  * for what each limit cost.
  */
+export function gateUsable(ground: TownGround, gate: Gate): boolean {
+  return usable(ground, gate);
+}
+
 function usable(ground: TownGround, gate: Gate): boolean {
   return gate.cells.length > 0 && gate.cells.every(([col, row]) => {
     const span = spanOf(ground, col, row);
@@ -556,9 +629,11 @@ function ownLevel(grid: TownGrid, ground: TownGround, col: number, row: number):
 }
 
 /**
- * The level a cell's terrace is cut to, or null where the town does not pave
- * it. **The one definition**: `settlements.ts` paves by it, `gateLevel` is it
- * at a gate, and the road climbs to what it says.
+ * The level a cell's street group asks for, or null where the town does not
+ * pave it: the first half of the one definition, which `townTerraces` finishes
+ * for the whole town by making every street's risers climbable (`climbable`).
+ * `settlements.ts` paves by `townTerraces`, `gateLevel` is it at a gate, and
+ * the road climbs to what it says.
  *
  * **A street is one level across its width, so the cells that share one share a
  * level.** A band street is paved half by the cell on each side of it, and
@@ -621,9 +696,10 @@ export function cellLevel(grid: TownGrid, ground: TownGround, col: number, row: 
 /**
  * Every cell of the square and the level it is cut to, null where it is not
  * paved, by `cellKey`: `cellLevel` for the whole town, each cell's own level
- * worked out once rather than once per member of each group.
+ * worked out once rather than once per member of each group, and then every
+ * street made climbable (`climbable`). **The one definition** of a terrace.
  */
-export function townTerraces(grid: TownGrid, ground: TownGround): Map<number, number | null> {
+export function townTerraces(grid: TownGrid, ground: TownGround, held?: ReadonlyMap<number, number>): Map<number, number | null> {
   const own = new Map<number, number | null>();
   for (let col = 0; col < grid.cells; col++) {
     for (let row = 0; row < grid.cells; row++) own.set(cellKey(col, row), ownLevel(grid, ground, col, row));
@@ -641,7 +717,78 @@ export function townTerraces(grid: TownGrid, ground: TownGround): Map<number, nu
       levels.set(cellKey(col, row), level);
     }
   }
+  climbable(grid, levels, held);
   return levels;
+}
+
+/**
+ * **Every riser a street crosses is one a ramp can climb** (2026-09-25).
+ *
+ * The terraces are cut cell by cell off the hill, and a street crossing from
+ * one to the next met whatever the hill left: two or three terraces at once,
+ * or a riser into the side of an avenue, where a ramp along the street would
+ * cut across the through road. Those kept flights of steps — 2,102 over the
+ * built world, 659 of them on the main streets — and a street a road comes up
+ * ending in a staircase was the thing that looked wrong. So after the groups
+ * have their levels, along every street two neighbouring cells stand at most
+ * one `TERRACE_STEP` apart, and a street entering an avenue stands level with
+ * it: the lower side is raised, with the rest of its group, until both hold.
+ *
+ * **Only ever raised**, for `cellLevel`'s reason: a cell cut below its own
+ * level has the hill through its paving, one raised above it is fill. With no
+ * gate held it raises 10,274 of the built world's paved cells, the tallest
+ * face a floor shows goes from 44 to 48 units, and every street riser left is
+ * one terrace, which `buildFloor` ramps.
+ *
+ * **`held` caps a gate's cells**, and their groups with them: a gate is where
+ * a road arrives, and raising one lengthens the road's climb to its kerb, which
+ * a road baked against the old level may not have room for (`heldGates` in
+ * `roads.ts`). A riser against a held gate can stay taller than a terrace.
+ * With the shipped network's 22 towns held (2026-09-25, measured with a 9.75
+ * street and the four main gates as mouths): 19,467 ramps and 11 flights of
+ * steps, one of them on a main street, at Nagano.
+ */
+function climbable(grid: TownGrid, levels: Map<number, number | null>, held?: ReadonlyMap<number, number>): void {
+  const carries = (index: number): boolean => grid.avenue[index] === 1 || grid.low[index] === 1 || grid.high[index] === 1;
+  const raise = (col: number, row: number, wanted: number): boolean => {
+    const group = groupOf(grid, col, row);
+    // A held cell's group goes no higher than the cell may.
+    let to = wanted;
+    for (const [c, r] of group) to = Math.min(to, held?.get(cellKey(c, r)) ?? Infinity);
+    const now = levels.get(cellKey(col, row));
+    if (now === null || now === undefined || to <= now + 1e-9) return false;
+    for (const [c, r] of group) {
+      const key = cellKey(c, r);
+      const level = levels.get(key);
+      if (level !== null && level !== undefined && level < to) levels.set(key, to);
+    }
+    return true;
+  };
+  for (let pass = 0; pass < 4 * grid.cells; pass++) {
+    let changed = false;
+    for (let col = 0; col < grid.cells; col++) {
+      for (let row = 0; row < grid.cells; row++) {
+        const here = levels.get(cellKey(col, row));
+        if (here === null || here === undefined) continue;
+        for (const [dc, dr] of [[1, 0], [0, 1]] as const) {
+          if (!carries(dc !== 0 ? row : col)) continue;
+          const c = col + dc;
+          const r = row + dr;
+          const there = levels.get(cellKey(c, r));
+          if (there === null || there === undefined) continue;
+          // A cell that is an avenue the other way has no room for a ramp
+          // along this one, so it and the street entering it are one level.
+          const flat = dc !== 0
+            ? grid.avenue[col] === 1 || grid.avenue[c] === 1
+            : grid.avenue[row] === 1 || grid.avenue[r] === 1;
+          const most = flat ? 0 : TERRACE_STEP;
+          if (there - here > most + 1e-9) changed = raise(col, row, there - most) || changed;
+          else if (here - there > most + 1e-9) changed = raise(c, r, here - most) || changed;
+        }
+      }
+    }
+    if (!changed) break;
+  }
 }
 
 /**
@@ -650,19 +797,21 @@ export function townTerraces(grid: TownGrid, ground: TownGround): Map<number, nu
  *
  * `elevationAt(x, z)` is the ground's height above sea level at an offset in
  * the town's frame, 0 or less over water; `base` is the same at the town's
- * centre. It is `cellLevel` at the gate, and all of a gate's cells are one
- * group, so it does not matter which of them is asked.
+ * centre. It is `townTerraces` at the gate — the whole town's, because
+ * making the streets climbable can raise a gate's cells — and all of a gate's
+ * cells are one group, so it does not matter which of them is asked.
  */
 export function gateLevel(
   grid: TownGrid,
   gate: Gate,
   elevationAt: (x: number, z: number) => number,
   base: number,
+  held?: ReadonlyMap<number, number>,
 ): number | null {
   const ground = groundOf(grid, elevationAt, base);
   if (!usable(ground, gate)) return null;
   const [col, row] = gate.cells[0]!;
-  return cellLevel(grid, ground, col, row);
+  return townTerraces(grid, ground, held).get(cellKey(col, row)) ?? null;
 }
 
 /**
@@ -684,8 +833,9 @@ const GATE_GLOW_RUN = 24;
  * dawn like a street lamp.
  *
  * **Full across the whole mouth of the street**, `inner` being the street's
- * half-width — half the cell on an avenue, the band on a boundary — and a unit
- * over it. That is what makes the kerb invisible at night. The town's floor
+ * half-width — half the cell on an avenue, the band on a boundary, or the
+ * road's pavement where that reaches further (`gateMouth`) — and a unit over
+ * it. That is what makes the kerb invisible at night. The town's floor
  * takes the brightest light over each vertex and the road's ribbon takes only
  * this one, and a pool's peak is the most any light can be: so where the two
  * meet, both are at the peak, and nothing else on the floor can outshine it
@@ -695,7 +845,8 @@ const GATE_GLOW_RUN = 24;
  * it.
  */
 export function gateGlow(grid: TownGrid, gate: Gate, band: number): { x: number; z: number; inner: number; reach: number } {
-  const inner = (gate.cells.length < 2 ? grid.pitch * 0.5 : band) + 1;
+  const mouth = gateMouth(grid, gate, band);
+  const inner = Math.max(gate.cells.length < 2 ? grid.pitch * 0.5 : band, mouth.edge) + 1;
   return { x: gate.x, z: gate.z, inner, reach: inner + GATE_GLOW_RUN };
 }
 

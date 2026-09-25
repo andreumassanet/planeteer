@@ -281,7 +281,33 @@ export const NEAR_LAMPS = 24;
 /** Where the per-pixel lamps hand back to the vertex pools, in units from the camera. */
 export const LAMP_FIELD = 170;
 
-/** How far one lamp reaches, in world units. `LAMP_POOL` in `settlements.ts` is the vertex pools' 14. */
+/**
+ * How far a lamp's light reaches along the ground, in world units, as a pool
+ * written on the vertices of the ground it falls on.
+ *
+ * **The reach is the lamp's own height and not a number**: `street-lamp.ts`
+ * builds a column 4.8 to 5.8 units tall, and a road's approach lamp
+ * (`roadside.ts`) is 5.4, and light from a head at that height
+ * grazing the ground at about 20 degrees stops at roughly two and a half times
+ * it. 14 is that, and it is bounded on both sides by the floor it falls on —
+ * a town's cell is 8 to 18 units across (`TOWN_PITCH` in `scenery/grid.ts`),
+ * and the carriageway it crosses is 6.0 to 15.0. A reach
+ * inside that range is a pool that is smaller than the block it stands in and
+ * wider than the street, and **a pool wider than its own cell has no ground
+ * left to be dark.** At 14 the floor of 140 resident towns comes out 58.8% lit,
+ * spread from a tenth of peak to full; there is no reach that lights a street
+ * and leaves this floor mostly dark, because there are only four to nine
+ * vertices in a cell to say it with.
+ *
+ * `LAMP_STRENGTH` in `settlements.ts` is 1 rather than the lamp's own instance
+ * draw. A lamp's head is dimmed 0.82 to 1 by its `raise` so a street of them is not a row of identical
+ * bulbs, and carrying that into the pool would be the same lottery twice on two
+ * surfaces a metre apart — the head and the ground under it visibly disagreeing
+ * about how bright the lamp is.
+ */
+export const LAMP_POOL = 14;
+
+/** How far one lamp reaches, in world units, per pixel; `LAMP_POOL` is the vertex pools' 14. */
 const LAMP_REACH = 17;
 
 /**

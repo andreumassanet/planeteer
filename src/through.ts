@@ -17,10 +17,12 @@ import type { Gate, TownGrid } from './scenery/grid.ts';
  * instead.
  *
  * **Nothing here knows how high anything is.** A town on a hill is a
- * staircase of terraces that only `settlements.ts` can see, so the heights are
- * the standing town's own floor, asked by `life.ts` where it draws the car;
- * this file is the plan, which is also what `scripts/check-life.ts` holds to
- * the paving.
+ * staircase of terraces that only `settlements.ts` can see, its streets
+ * climbing them by ramps, so the heights are the standing town's own floor,
+ * asked by `life.ts` where it draws the car and pitches it up a ramp; a drive
+ * whose street keeps a flight of steps is not driven (`paved` there). This
+ * file is the plan, which is also what `scripts/check-life.ts` holds to the
+ * paving.
  */
 
 /**

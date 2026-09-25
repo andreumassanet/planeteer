@@ -1494,11 +1494,8 @@ async function start(): Promise<void> {
     onPassport: () => passportCard.show(),
     // Inside the welcome card's click, so the lock is still the player's gesture.
     onStart: () => input.lock(),
-    // The clock's icon, where the world has weather: `atlas.weather.here()`.
-    weather: () => {
-      const here = (globalThis as { atlas?: { weather?: { here?: () => { kind?: string } | null } } }).atlas?.weather?.here;
-      return typeof here === 'function' ? here()?.kind ?? null : null;
-    },
+    // The clock's icon: the weather where you stand, as it is drawn.
+    weather: () => weather.here().kind,
   });
   document.body.appendChild(hud.root);
 
@@ -1953,10 +1950,10 @@ async function start(): Promise<void> {
     home: () => ({ lat: spawn.lat, lon: spawn.lon, name: places.nearest(unitAt(spawn.lat, spawn.lon, chatPoint)).place.name }),
     joinPlayer: joinPeer,
     time,
-    // The weather is set by `atlas.weather.force` where the world has one.
+    // Held where you stand until `auto` hands it back to the model.
     weather: (wanted) => {
-      const force = (globalThis as { atlas?: { weather?: { force?: (kind: string | null) => unknown } } }).atlas?.weather?.force;
-      return typeof force === 'function' ? force(wanted === 'auto' ? null : wanted) !== false : null;
+      weather.force(wanted === 'auto' ? null : wanted);
+      return true;
     },
     emote: gesture,
     photo: () => {
@@ -2404,7 +2401,7 @@ async function start(): Promise<void> {
     ambientFrame.cameraHeight = eyeOverGround;
     ambientFrame.time = sky.state.time;
     ambientFrame.daylight = sky.state.daylight;
-    ambientFrame.afloat = player.state === 'swim' || player.ride?.model.kind === 'boat';
+    ambientFrame.afloat = player.state === 'swim' || player.ride?.model.medium === 'water';
     guard('ambient', () => ambient.update(dt, ambientFrame, ambientWeather));
 
     // The weather turns with the same clock the sun does, so scrubbing the time
@@ -2612,7 +2609,8 @@ async function start(): Promise<void> {
         }
       }
       setHeadlights(rig.camera, headlights, headlightCount);
-      setNearLamps(rig.camera, nearLamps, settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps));
+      const townLamps = settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps);
+      setNearLamps(rig.camera, nearLamps, roads.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, townLamps));
     });
 
     // The sheet behind `M` is opaque and covers the window, so the world under

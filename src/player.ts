@@ -130,12 +130,12 @@ const STEP_DOWN = AVATAR_HEIGHT * 1.2;
  * man stepping straight up a wall his own height. So a
  * rise of more than `STEP_UP` plus `CLIMB_SLOPE` times the ground covered is
  * a wall and stops him, in the air as on the ground — a jump does not clear it
- * either — and he takes the stairs, which `floor.ts` lays wherever a street
- * crosses a riser. `STEP_UP` passes a stair's riser with room to spare, and
+ * either — and he takes the street, which `floor.ts` ramps, or where it has no
+ * room for a ramp lays a flight of steps, wherever it crosses a riser. `STEP_UP` passes a stair's riser with room to spare, and
  * `CLIMB_SLOPE` is 70 degrees, so every hillside the relief makes is still
  * walked up and only a made face is a wall.
  */
-const STEP_UP = 0.6;
+export const STEP_UP = 0.6;
 const CLIMB_SLOPE = 2.75;
 
 /**

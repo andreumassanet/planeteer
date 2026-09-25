@@ -218,7 +218,7 @@ export interface GroundStyle {
  * ramp's gradient (`EDGE_RUN`), and the 3.0 stays: the slope is what the side
  * of the plinth became, not a reason for it to be lower. The risers *between*
  * terraces inside a town are still walls, and a street that crosses one gets a
- * flight of steps (`floor.ts`).
+ * ramp, or a flight of steps where it has no room for one (`floor.ts`).
  *
  * The two costs it does have are both paid elsewhere and worth naming. A body
  * *outside* the town climbs it up the edge slope, which is drawn and which
@@ -262,10 +262,46 @@ export const GROUND_LIFT = 3.0;
  * riser inside the town reads as the same kind of wall the town's edge used to
  * be. Smaller and a hillside town is a flight of shallow stairs with a wall
  * every cell; larger and the cut at each riser is deeper than the buildings
- * standing on it. A street that crosses one gets a flight of steps of
- * `STEP_RISE` (`floor.ts`), thirteen of them to a `TERRACE_STEP`.
+ * standing on it. A street that crosses one gets a ramp at `STREET_GRADE` over
+ * the level street either side, or where that is too short a flight of steps
+ * of `STEP_RISE` (`floor.ts`), thirteen of them to a `TERRACE_STEP`.
  */
 export const TERRACE_STEP = 4;
+
+/**
+ * The steepest the ribbon climbs to a gate, as rise over run, over whatever
+ * the relief under it is doing (`rampOf` in `roads.ts`): 0.3, 17 degrees,
+ * about the steepest road a car is driven up. Here beside `STREET_GRADE`,
+ * the town street's, because the two are one road seen either side of a kerb.
+ */
+export const RAMP_GRADE = 0.3;
+
+/**
+ * The steepest a town street's ramp across a riser may be (`floor.ts`), as rise
+ * over run.
+ *
+ * **Steeper than the ribbon's `RAMP_GRADE`, because a street has no room and a
+ * road has the whole country.** A riser is a `TERRACE_STEP` of 4 or more, and
+ * a street crossing one has the level run of street either side of it to ramp
+ * in: in a town three cells a side on a hill, the arm of an avenue between its
+ * middle crossing and its gate, a cell less the gate's mouth, 9 units at the
+ * common pitch. At 0.3 that ramps nothing and every such town kept its main
+ * street on stairs; at 0.45, 24 degrees — a steep hill-town street, and a car
+ * still climbs it — it ramps. Every ramp is then spread over all the level run
+ * it has (`buildFloor`), so most come out far gentler: measured over the 9,796
+ * built towns (2026-09-25), 89% of the risers a street crosses are one terrace,
+ * 8% two and 2% three or more, and a riser the run is too short for keeps a
+ * flight of steps, which a car does not drive.
+ */
+export const STREET_GRADE = 0.45;
+
+/**
+ * The steepest a town street's ramp may be where its level run is too short
+ * for `STREET_GRADE`: 0.6, 31 degrees, a short steep pitch a car takes in
+ * first gear, and still a ramp rather than a flight of steps. Only a riser the
+ * run cannot take even at this keeps its stairs.
+ */
+export const STREET_STEEPEST = 0.6;
 
 /**
  * How deep a town may cut one cell of its lattice into the hill, in world units.
@@ -399,6 +435,16 @@ export const EDGE_RUN = 9;
  * the 2.22 he was earlier that day, two walked abreast.
  */
 export const SIDEWALK = 2.2;
+
+/**
+ * The pavement of a street `half` wide either side of its line: `SIDEWALK`,
+ * or 0.3 of the half where that is less. One definition, because the town
+ * draws it and the road arriving at a gate carries it out along its approach
+ * (`gateMouth` in `grid.ts`).
+ */
+export function pavementOf(half: number): number {
+  return Math.min(SIDEWALK, half * 0.3);
+}
 
 /** Half the width of a painted line, in world units: 0.6 across, about 2 pixels at 60 units. */
 export const LINE_HALF = 0.3;

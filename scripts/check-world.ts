@@ -39,7 +39,10 @@ import {
 import type { Place } from '../src/places.ts';
 import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import {
-  CROWN_FALL,
+  crownFall,
+  PAVEMENT_RUN,
+  roadsideSite,
+  holdGates,
   MAX_ROAD_LENGTH,
   RAMP_GRADE,
   RIBBON_LIFT,
@@ -80,9 +83,11 @@ import {
 } from '../src/roads.ts';
 import type { CoursePath, RoadRamp } from '../src/roads.ts';
 import { poolAt, poolByte } from '../src/lights.ts';
+import { layRoadside } from '../src/roadside.ts';
 import {
   cornerOffset,
   gateGlow,
+  gateMouth,
   gateLevel,
   gatesOf,
   groundOf,
@@ -100,8 +105,9 @@ import { biomeAt, biomeSample } from '../src/biome.ts';
 // to measure the mesh against the number `settlements.ts` uses and not against
 // a copy of it. `scenery/ground.ts` is Node-safe; `settlements.ts` is not,
 // because it reaches the kit through an `import.meta.glob` registry.
-import { EDGE_RUN, GROUND_LIFT, KERB_DROP, TERRACE_STEP, cellKey } from '../src/scenery/ground.ts';
-import { EDGE_FOOT, STEP_RISE, buildFloor, edgeSink, floorLiftAt } from '../src/scenery/floor.ts';
+import { EDGE_RUN, GROUND_LIFT, KERB_DROP, STREET_GRADE, TERRACE_STEP, cellKey, pavementOf } from '../src/scenery/ground.ts';
+import { EDGE_FOOT, STEP_RISE, buildFloor, edgeSink, flightHeight, flightRect, floorLiftAt, rampGrade } from '../src/scenery/floor.ts';
+import { STEP_UP } from '../src/player.ts';
 import { allZoneNames, clockAt, zoneFor } from '../src/timezone.ts';
 import { createBorders } from '../src/borders.ts';
 import { verifyFlagLayer } from '../src/land-flags.ts';
@@ -2099,6 +2105,8 @@ console.log('\nroads');
     const settled = placesRaw;
     const baked = decodeRoads(await inflate(readFileSync(roadsPath)));
     const roads = baked.roads;
+    // The gates a town may not raise, against the whole network, as the game has them.
+    holdGates(roads, settled, world);
 
     // Indices into `places.bin`, so the two files are one artefact. Re-baking
     // the places without re-baking the roads joins arbitrary pairs of towns,
@@ -2364,7 +2372,11 @@ console.log('\nroads');
           const s = stations[k]!;
           ribbonSection(world, course, path, ramp, half, s, far);
           vertices += 4;
-          for (const vertex of far) {
+          // The top's two edges. The bank's feet are laid `SHOULDER_DROP` under
+          // the relief, which inside a square is under its paving as well, and
+          // since the bank was laid gentler (2026-09-25) a road that curls round
+          // its own town reaches in under it by a unit or two.
+          for (const vertex of [far[1]!, far[2]!]) {
             unitAt.copy(vertex).normalize();
             for (const town of towns) {
               townOffset(town, unitAt, offset);
@@ -2423,7 +2435,7 @@ console.log('\nroads');
       }
       check(
         inside === 0,
-        'no ribbon vertex stands inside either of its own towns’ squares',
+        'no ribbon top stands inside either of its own towns’ squares',
         inside === 0
           ? `${vertices.toLocaleString()} section vertices on ${roads.length.toLocaleString()} roads ` +
             `in ${Date.now() - roadsBegan} ms`
@@ -3418,7 +3430,36 @@ console.log('\nmade ground');
     let orphans = 0;
     let gateCells = 0;
     let gateWrong = 0;
+    let rampsSeen = 0;
+    let stairsSeen = 0;
+    let rampSteepest = 0;
+    let rampSlope = 0;
+    let rampLongest = 0;
+    let rampWrong = 0;
+    let streetStep = 0;
+    let inMouth = 0;
+    let mouthsSeen = 0;
+    let mouthsWrong = 0;
     for (const grid of sizes.values()) {
+      /**
+       * The gate's mouth: the road's carriageway to the kerb, which is every
+       * class's, and a pavement out to where the street's own reaches, or
+       * past it on a band street, never inside it.
+       */
+      for (const gate of gatesOf(grid)) {
+        for (const street of [6, 9.75, 15]) {
+          const band = streetBand(grid, street);
+          const mouth = gateMouth(grid, gate, band);
+          mouthsSeen++;
+          const carriageOk = ROAD_CLASSES.every((entry) => Math.abs(entry.width * 0.5 - mouth.carriage) < 1e-9);
+          const edgeOk = grid.cells < 2
+            ? mouth.edge === mouth.carriage && mouth.flare === 0
+            : gate.cells.length < 2
+              ? mouth.edge <= mouth.street + 1e-9 && mouth.edge > mouth.carriage
+              : mouth.edge >= Math.max(mouth.street, mouth.carriage + pavementOf(band)) - 1e-9;
+          if (!carriageOk || !edgeOk || mouth.flare > grid.pitch * 0.5 + 1e-9) mouthsWrong++;
+        }
+      }
       for (let c = 0; c < grid.cells; c++) {
         if (grid.high[c] === 1 && grid.low[c] === 1) doubleBanded++;
         if (partnerOf(grid, partnerOf(grid, c)) !== c) doubleBanded++;
@@ -3440,8 +3481,12 @@ console.log('\nmade ground');
           }
         }
       }
+      // A road in at every gate, so the ramps keep off every mouth.
+      const mouths = new Set<number>();
+      for (const gate of gatesOf(grid)) for (const [col, row] of gate.cells) mouths.add(cellKey(col, row) * 4 + gate.side);
       const field = buildFloor({
         grid,
+        mouths,
         band: streetBand(grid, 9.75),
         terraces: paved,
         cornerGround: (i, j) => hillside(cornerOffset(grid, i), cornerOffset(grid, j)),
@@ -3459,8 +3504,61 @@ console.log('\nmade ground');
           const other = flight.axis === 0 ? cellKey(col, twin) : cellKey(twin, row);
           const matched = (field.flights?.get(other) ?? []).some((f) =>
             f.axis === flight.axis && Math.abs(f.at - flight.at) < 1e-9 && f.into === flight.into &&
-            f.high === flight.high && f.low === flight.low);
+            f.high === flight.high && f.low === flight.low && f.ramp === flight.ramp &&
+            Math.abs(f.back - flight.back) < 1e-9 && Math.abs(f.run - flight.run) < 1e-9);
           if (!matched) orphans++;
+        }
+      }
+      // Every crossing walked down the middle of what it carries, from the
+      // level paving before it to the level paving after it: the steepest
+      // stretch of a ramp, and the tallest single rise anywhere on it.
+      for (const list of field.flights?.values() ?? []) {
+        for (const flight of list) {
+          const t = (flight.from + flight.to) * 0.5;
+          const pointAt = (s: number): [number, number] => {
+            const along = flight.at + flight.into * s;
+            return flight.axis === 0 ? [along, t] : [t, along];
+          };
+          if (flight.ramp) {
+            rampsSeen++;
+            rampSteepest = Math.max(rampSteepest, rampGrade(flight));
+            rampLongest = Math.max(rampLongest, flight.back + flight.run);
+          } else {
+            stairsSeen++;
+          }
+          let last = NaN;
+          const d = 0.02;
+          for (let s = -flight.back - 0.5; s <= flight.run + 0.5; s += d) {
+            const [x, z] = pointAt(s);
+            const h = floorLiftAt(field, x, z, 0);
+            if (!Number.isNaN(last)) {
+              const rise = Math.abs(h - last);
+              streetStep = Math.max(streetStep, rise);
+              if (flight.ramp) rampSlope = Math.max(rampSlope, rise / d);
+            }
+            last = h;
+          }
+          // And nothing climbs in a gate's mouth, where the town's street
+          // flares to the road's section on level paving.
+          const [fx0, fx1, fz0, fz1] = flightRect(flight);
+          for (const gate of gatesOf(grid)) {
+            const mouth = gateMouth(grid, gate, streetBand(grid, 9.75));
+            if (mouth.flare <= 0) continue;
+            const outer = Math.max(mouth.edge, mouth.street);
+            const k0 = gate.outX !== 0 ? gate.x - gate.outX * mouth.flare : gate.z - gate.outZ * mouth.flare;
+            const k1 = gate.outX !== 0 ? gate.x : gate.z;
+            const [mx0, mx1, mz0, mz1] = gate.outX !== 0
+              ? [Math.min(k0, k1), Math.max(k0, k1), gate.z - outer, gate.z + outer]
+              : [gate.x - outer, gate.x + outer, Math.min(k0, k1), Math.max(k0, k1)];
+            if (fx0 < mx1 - 1e-6 && mx0 < fx1 - 1e-6 && fz0 < mz1 - 1e-6 && mz0 < fz1 - 1e-6) inMouth++;
+          }
+          // And the drawn surface is the one described: the field at the
+          // ramp's own middle is `flightHeight` there.
+          if (flight.ramp) {
+            const mid = (flight.run - flight.back) * 0.5;
+            const [x, z] = pointAt(mid);
+            if (Math.abs(floorLiftAt(field, x, z, 0) - flightHeight(flight, mid)) > 1e-9) rampWrong++;
+          }
         }
       }
       for (const gate of gatesOf(grid)) {
@@ -3486,6 +3584,22 @@ console.log('\nmade ground');
       orphans === 0 && bandFlights > 0,
       'and every flight on a band street has its twin on the other half, at the same line',
       `${bandFlights} half-flights, ${orphans} without a twin`,
+    );
+    check(
+      rampsSeen > 0 && stairsSeen === 0 && rampSteepest <= STREET_GRADE + 1e-9 && rampSlope <= STREET_GRADE + 1e-6 && rampWrong === 0,
+      'and every street crosses its risers by ramps, none steeper than STREET_GRADE, with no flight of steps',
+      `${rampsSeen} ramps and ${stairsSeen} flights, steepest ${rampSteepest.toFixed(3)} by its ends and ` +
+        `${rampSlope.toFixed(3)} walked, longest ${rampLongest.toFixed(1)} units, against ${STREET_GRADE}`,
+    );
+    check(
+      inMouth === 0 && mouthsWrong === 0 && mouthsSeen > 0,
+      'and at a gate the road keeps its carriageway to the kerb, and the town’s street flares to it on level paving',
+      `${mouthsSeen} mouths over three street widths, ${mouthsWrong} wrong, ${inMouth} ramps or flights reaching into one`,
+    );
+    check(
+      streetStep <= STEP_UP,
+      'and no street that crosses a riser has a step a foot or a wheel cannot take',
+      `tallest single rise ${streetStep.toFixed(3)} across every ramp and flight, against STEP_UP ${STEP_UP}`,
     );
     check(
       gateWrong === 0 && gateCells > 0,
@@ -3684,14 +3798,11 @@ console.log('\nmade ground');
       const road = pruned[i]!;
       courseOf(road, placesRaw, course);
       const path = coursePath(course);
-      rampOf(road, course, placesRaw, world, ramp);
+      // A network of one road holds its gates against itself: its ramp is asked after.
       const alone = createRoads(world, placesRaw, { ...bakedNetwork, roads: [road] });
+      rampOf(road, course, placesRaw, world, ramp);
       tested++;
       const half = ROAD_CLASSES[road.cls]!.width * 0.5;
-      // Where the drawn shoulder crosses the ground, wherever the crown has its
-      // ordinary lift. `roads.ts` exports the ratio — this used to write the
-      // arithmetic out longhand, which is two files answering one question.
-      const fall = half * CROWN_FALL;
 
       // The middle, clear of both approaches and both ramps: the crown at
       // exactly `RIBBON_LIFT` over the relief, a shoulder that only falls, and
@@ -3700,7 +3811,13 @@ console.log('\nmade ground');
       const to = path.length - Math.max(course.approach, rampReach(ramp.riseB));
       if (to > from) {
         for (let k = 1; k < 6; k++) {
-          const t = parameterAt(path, from + ((to - from) * k) / 6);
+          const along = from + ((to - from) * k) / 6;
+          // Where the drawn bank crosses the ground, wherever the top has its
+          // ordinary lift: past a town's pavement, or past the shoulder.
+          // `roads.ts` exports the arithmetic — this used to write it out
+          // longhand, which is two files answering one question.
+          const fall = crownFall(ribbonHalf(ramp, half, along, path.length - along));
+          const t = parameterAt(path, along);
           coursePoint(course, t, at);
           const ground = groundRadius(world, at);
           crownSamples++;
@@ -3819,6 +3936,92 @@ console.log('\nmade ground');
       gradeWorst <= RAMP_GRADE + 1e-3,
       'and a foot climbs from the road to the gate at no more than RAMP_GRADE over the relief',
       `${gradeSamples} half-unit steps along ${tested * 2} approaches, steepest ${gradeWorst.toFixed(3)} against ${RAMP_GRADE}`,
+    );
+
+    /**
+     * What stands beside the roads (`roadside.ts`), laid for every twentieth
+     * road of the network through the site the streamer lays it through:
+     * every face wound the way its normal says, which is the merged buffer's
+     * form of `determinant() > 0`; nothing further from its road than the verge
+     * the wood keeps (`roadClearance`), so no tree grows through a pole; nothing
+     * over the carriageway lower than a lamp's arm; every lamp down a built
+     * town's approach and none anywhere else; and the same road laid twice
+     * laying the same thing.
+     */
+    let sideRoads = 0;
+    let sideTriangles = 0;
+    let sideLength = 0;
+    let inverted = 0;
+    let beyondVerge = 0;
+    let beyondWorst = 0;
+    let lowOverRoad = 0;
+    let lampsSeen = 0;
+    let lampsAstray = 0;
+    let unstable = 0;
+    const faceAB = new Vector3();
+    const faceAC = new Vector3();
+    const faceN = new Vector3();
+    const vertexAt = new Vector3();
+    const gateDir = new Vector3();
+    holdGates(pruned, placesRaw, world);
+    for (let i = 0; i < pruned.length; i += 20) {
+      const road = pruned[i]!;
+      courseOf(road, placesRaw, course);
+      const path = coursePath(course);
+      rampOf(road, course, placesRaw, world, ramp);
+      const site = roadsideSite(road, course, path, ramp, placesRaw, world);
+      const laid = layRoadside(site);
+      const again = layRoadside(roadsideSite(road, course, path, ramp, placesRaw, world));
+      if (laid.position.length !== again.position.length || laid.position.some((value, k) => value !== again.position[k])) unstable++;
+      sideRoads++;
+      sideLength += path.length;
+      const p = laid.position;
+      const n = laid.normal;
+      sideTriangles += p.length / 9;
+      for (let t = 0; t + 8 < p.length; t += 9) {
+        faceAB.set(p[t + 3]! - p[t]!, p[t + 4]! - p[t + 1]!, p[t + 5]! - p[t + 2]!);
+        faceAC.set(p[t + 6]! - p[t]!, p[t + 7]! - p[t + 1]!, p[t + 8]! - p[t + 2]!);
+        faceN.crossVectors(faceAB, faceAC);
+        if (faceN.x * n[t]! + faceN.y * n[t + 1]! + faceN.z * n[t + 2]! <= 0) inverted++;
+      }
+      const clearance = roadClearance(road.cls);
+      const half = ROAD_CLASSES[road.cls]!.width * 0.5;
+      for (let v = 0; v + 2 < p.length; v += 3) {
+        vertexAt.set(p[v]!, p[v + 1]!, p[v + 2]!);
+        const radius = vertexAt.length();
+        vertexAt.normalize();
+        const away = pathDistance(path, vertexAt);
+        if (away > clearance + 1e-3) {
+          beyondVerge++;
+          beyondWorst = Math.max(beyondWorst, away - clearance);
+        }
+        if (away < half - 0.05 && radius - groundRadius(world, vertexAt) < 4.5) lowOverRoad++;
+      }
+      for (let h = 0; h + 2 < laid.heads.length; h += 3) {
+        lampsSeen++;
+        vertexAt.set(laid.heads[h]!, laid.heads[h + 1]!, laid.heads[h + 2]!).normalize();
+        const kerbA = gateDir.copy(course.gateA).normalize().angleTo(vertexAt) * PLANET_RADIUS;
+        const kerbB = gateDir.copy(course.gateB).normalize().angleTo(vertexAt) * PLANET_RADIUS;
+        const nearA = ramp.kerbA > 0 && kerbA <= PAVEMENT_RUN + 4;
+        const nearB = ramp.kerbB > 0 && kerbB <= PAVEMENT_RUN + 4;
+        if (!nearA && !nearB) lampsAstray++;
+      }
+    }
+    check(
+      inverted === 0 && unstable === 0 && sideTriangles > 0,
+      'what stands beside a road is wound outward on every face, and laid the same twice',
+      `${sideRoads} roads, ${sideTriangles.toLocaleString()} triangles, ` +
+        `${((sideTriangles / sideLength) * 1000).toFixed(0)} per 1,000 units of road; ${inverted} faces inward, ${unstable} unstable`,
+    );
+    check(
+      beyondVerge === 0 && lowOverRoad === 0,
+      'and it stands inside the verge the wood keeps, and nothing hangs low over the carriageway',
+      `${beyondVerge} vertices past roadClearance (worst ${beyondWorst.toFixed(2)}), ${lowOverRoad} over the carriageway under 4.5`,
+    );
+    check(
+      lampsSeen > 0 && lampsAstray === 0,
+      'and its street lamps stand down a built town’s approach and nowhere else',
+      `${lampsSeen} lamps, ${lampsAstray} further than PAVEMENT_RUN from a built kerb`,
     );
   }
 }

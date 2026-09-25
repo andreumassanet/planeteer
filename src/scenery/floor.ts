@@ -1,9 +1,11 @@
-import { EDGE_RUN, GROUND_LIFT, KERB_DROP, cellKey } from './ground.ts';
+import { EDGE_RUN, GROUND_LIFT, KERB_DROP, STREET_GRADE, STREET_STEEPEST, cellKey } from './ground.ts';
+import { gateFlare } from './grid.ts';
 import type { TownGrid } from './grid.ts';
 
 /**
  * A town's floor as one surface: the terraces, the slope round its outer edge,
- * and the flights of steps where a street crosses a riser.
+ * and the ramps — or, where a riser is too tall to ramp, the flights of steps —
+ * where a street crosses a riser.
  *
  * **This file is the one definition of that surface, and both halves of the
  * world read it**: `settlements.ts` draws the floor out of the field
@@ -88,10 +90,10 @@ export const STEP_RISE = 0.32;
 export const STEP_TREAD = 1.5;
 
 /**
- * How far into its cell a flight may run, as a share of the pitch.
+ * How far into its cell a flight of steps may run, as a share of the pitch.
  *
  * **Under a half, so two flights descending into one cell from its two ends
- * cannot meet.** A cell lower than both its neighbours along a street is a
+ * cannot meet**, and a ramp from the far end leaves it what `buildFloor` says. A cell lower than both its neighbours along a street is a
  * valley the street dips through, and it takes a flight from each side; at 0.45
  * each leaves a landing of a tenth of a cell between them. At the median pitch
  * the four treads of a `TERRACE_STEP` flight are 1.35 deep, a gradient of 0.59
@@ -100,7 +102,7 @@ export const STEP_TREAD = 1.5;
 const FLIGHT_RUN = 0.45;
 
 /**
- * How far a flight's side stands in from the edge of its street, in world units.
+ * How far a ramp's or a flight's side stands in from the edge of its street, in world units.
  *
  * **A building's front is flush with its street** — `fitIn` puts it on the
  * street side of its rectangle, and next to an avenue that is the cell's own
@@ -112,15 +114,38 @@ const FLIGHT_RUN = 0.45;
 export const FLIGHT_INSET = 0.5;
 
 /**
- * One flight of steps: where a street crosses a riser between two terraces,
- * standing in the lower cell against the higher one's edge.
+ * How much level paving a ramp leaves between its foot and the next thing along
+ * its street — the end of the paving, or another riser — in world units. A
+ * crossing street, an avenue and a gate's mouth are level paving already and
+ * need none.
+ */
+export const RAMP_LANDING = 1;
+
+/** The gentlest a ramp is spread to, as rise over run, however long its run: a riser should read as one. */
+export const RAMP_GENTLEST = 0.2;
+
+/**
+ * Where a street crosses a riser between two terraces: a ramp, or a flight of
+ * steps.
  *
- * **On a band street a flight is always one of a pair.** A band is paved half
- * by the cell on each side of it, and since 2026-09-13 those two are cut to one
- * level (`cellLevel` in `grid.ts`), and so are the two they climb to — so each
- * half gets the same flight and the pair meet at the band's midline as one
- * stair the width of the street, less `FLIGHT_INSET` at each kerb. Until then
- * each half climbed its own riser, and the two halves of one street took their
+ * **A ramp is the rule and a flight the exception since 2026-09-25.** Until
+ * then every street crossing a riser climbed it by stairs, a carriageway
+ * included, so a car driving a hill town's main street met a staircase at the
+ * back of every block. A ramp is the carriageway and its pavements tilted
+ * together, at no more than `STREET_GRADE`, over as much of the level street
+ * either side of the riser as it has to give (`buildFloor`): a fill standing on
+ * the lower terrace's paving and a cut sunk into the higher one's, so its grade
+ * is its whole rise over both runs. Where that room is too short for the rise —
+ * mostly two terraces or more at once — the street keeps a flight of
+ * `STEP_RISE` steps standing in the lower cell, and it is a street for walking:
+ * `life.ts` does not drive a town through one.
+ *
+ * **On a band street it is always one of a pair.** A band is paved half by the
+ * cell on each side of it, and since 2026-09-13 those two are cut to one level
+ * (`cellLevel` in `grid.ts`), and so are the two they climb to — so each half
+ * gets the same ramp or flight and the pair meet at the band's midline as one,
+ * the width of the street less `FLIGHT_INSET` at each kerb. Until then each
+ * half climbed its own riser, and the two halves of one street took their
  * flights in two different places.
  *
  * All positions are in the town's own plane, the frame `floorLiftAt` is asked
@@ -131,38 +156,60 @@ export const FLIGHT_INSET = 0.5;
 export interface Flight {
   /** The cell it stands in, which is the lower of the two. */
   cell: number;
+  /** The higher cell, which a ramp's cut runs back into. */
+  above: number;
   /** 0 when the street, and the climb, run along x; 1 along z. */
   axis: 0 | 1;
-  /** Where the flight meets the higher cell: the boundary's coordinate on `axis`. */
+  /** Where the lower cell meets the higher one: the boundary's coordinate on `axis`. */
   at: number;
-  /** Which way from `at` the flight descends, into its own cell. */
+  /** Which way from `at` the surface descends, into the lower cell. */
   into: 1 | -1;
   /** Its extent across the street, on the other axis. */
   from: number;
   to: number;
-  /** The higher terrace's surface, which the top step meets, and the lower one's. */
+  /** The street it carries: its centre line on the other axis, and its half-width. */
+  centre: number;
+  half: number;
+  /** The higher terrace's surface, which the top meets, and the lower one's. */
   high: number;
   low: number;
-  /** Risers; the treads between them are one fewer. */
+  /** A ramp, rather than a flight of steps. */
+  ramp: boolean;
+  /** How far a ramp's cut runs back into the higher cell from `at`. 0 for steps. */
+  back: number;
+  /** How far it runs into the lower cell from `at`. */
+  run: number;
+  /** A flight's risers — the treads between them are one fewer — and how deep a tread is. 0 for a ramp. */
   steps: number;
   tread: number;
 }
 
-/** How far a flight runs into its cell: its treads end to end. */
+/** How far a flight runs into its cell: its treads end to end, or a ramp's fill. */
 export function flightRun(flight: Flight): number {
-  return (flight.steps - 1) * flight.tread;
+  return flight.run;
+}
+
+/** A ramp's grade, rise over its whole run; 0 for a flight of steps. */
+export function rampGrade(flight: Flight): number {
+  return flight.ramp ? (flight.high - flight.low) / (flight.back + flight.run) : 0;
 }
 
 /**
- * The flight's surface `s` units into its cell from the top, as an elevation.
+ * The surface `s` units into the lower cell from `at`, as an elevation.
  *
- * The first riser is at `s = 0`, in the plane of the higher terrace's edge, and
- * the last at `flightRun`, where the lowest tread drops to the cell's own
- * paving: `steps` risers and `steps - 1` treads, so a foot coming down steps
- * off the high terrace onto the first tread and off the last tread onto the
- * street.
+ * A ramp is one plane from `high` at `s = -back`, in the higher cell, to `low`
+ * at `s = run`. A flight's first riser is at `s = 0`, in the plane of the
+ * higher terrace's edge, and its last at `flightRun`, where the lowest tread
+ * drops to the cell's own paving: `steps` risers and `steps - 1` treads, so a
+ * foot coming down steps off the high terrace onto the first tread and off the
+ * last tread onto the street.
  */
 export function flightHeight(flight: Flight, s: number): number {
+  if (flight.ramp) {
+    if (s <= -flight.back) return flight.high;
+    if (s >= flight.run) return flight.low;
+    return flight.high - ((flight.high - flight.low) * (s + flight.back)) / (flight.back + flight.run);
+  }
   if (s < 0) return flight.high;
   const k = Math.floor(s / flight.tread) + 1;
   if (k >= flight.steps) return flight.low;
@@ -198,10 +245,13 @@ export interface FloorStats {
   slopes: number;
   /** Paved edges on the outside that keep a vertical face: over the sea, or under a landmark. */
   quays: number;
-  /** Flights of steps, and the risers in them. */
+  /** Ramps, and the steepest of them as rise over run. */
+  ramps: number;
+  steepest: number;
+  /** Flights of steps — the risers a ramp could not take — and the risers in them. */
   flights: number;
   steps: number;
-  /** Street crossings of a riser that got no flight, because another flight already filled the cell's corner. */
+  /** Street crossings of a riser that got neither, because another already filled the cell's corner. */
   crowded: number;
   /** The tallest vertical face the floor draws anywhere, in world units. */
   wall: number;
@@ -240,8 +290,10 @@ export interface FloorField {
   aprons?: ReadonlyMap<number, EdgeApron>;
   /** The slope's foot at every corner of it that touches no paving, by corner key, as an elevation. */
   feet?: ReadonlyMap<number, number>;
-  /** The flights, by the cell each stands in. */
+  /** The ramps and flights, by the cell each stands in: the lower of its two. */
   flights?: ReadonlyMap<number, readonly Flight[]>;
+  /** The same, by every cell each covers: a ramp's higher cell as well as its lower one. */
+  touching?: ReadonlyMap<number, readonly Flight[]>;
   stats?: FloorStats;
 }
 
@@ -274,6 +326,12 @@ export interface FloorPlan {
   cornerGround(i: number, j: number): number | null;
   /** Whether the slope may be laid on a cell at all: false under a landmark. Absent is everywhere. */
   open?(col: number, row: number): boolean;
+  /**
+   * The mouths of the streets a road comes in by, as `cellKey * 4 + side` of
+   * each gate cell's side on the square's edge, sides counted as `Gate.side`
+   * counts them: a ramp keeps `gateFlare` off each. Absent is none.
+   */
+  mouths?: ReadonlySet<number>;
 }
 
 const EDGES: readonly (readonly [number, number])[] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
@@ -294,7 +352,7 @@ export function buildFloor(plan: FloorPlan): FloorField {
   const aprons = new Map<number, EdgeApron>();
   const feet = new Map<number, number>();
   const flights = new Map<number, Flight[]>();
-  const stats: FloorStats = { slopes: 0, quays: 0, flights: 0, steps: 0, crowded: 0, wall: 0, embankment: 0 };
+  const stats: FloorStats = { slopes: 0, quays: 0, ramps: 0, steepest: 0, flights: 0, steps: 0, crowded: 0, wall: 0, embankment: 0 };
   const colOf = (key: number): number => Math.floor(key / 1024) - 512;
   const rowOf = (key: number): number => (key % 1024) - 512;
 
@@ -408,14 +466,37 @@ export function buildFloor(plan: FloorPlan): FloorField {
     }
   }
 
-  // --- the flights ---
+  // --- where a street crosses a riser ---
+  //
+  // Found first, all of them, because how long a ramp may be depends on what
+  // is at the far end of each of its two cells, which may be another crossing.
+  interface Crossing {
+    lower: number;
+    higher: number;
+    col: number;
+    row: number;
+    axis: 0 | 1;
+    /** From the lower cell towards the higher one, along `axis`. */
+    sign: 1 | -1;
+    from: number;
+    to: number;
+    centre: number;
+    half: number;
+    low: number;
+    high: number;
+  }
+  const crossings: Crossing[] = [];
+  /** Every cell side a crossing is on, as `cellKey * 4 + side`, sides counted as `Gate.side` counts them. */
+  const crossed = new Set<number>();
+  const sideOf = (axis: 0 | 1, sign: number): number => (axis === 0 ? (sign > 0 ? 0 : 2) : sign > 0 ? 1 : 3);
   for (const [key, level] of terraces) {
     const col = colOf(key);
     const row = rowOf(key);
     const x0 = (col - shift - 0.5) * pitch;
     const z0 = (row - shift - 0.5) * pitch;
     for (const [dc, dr] of EDGES) {
-      const higher = terraces.get(cellKey(col + dc, row + dr));
+      const near = cellKey(col + dc, row + dr);
+      const higher = terraces.get(near);
       if (higher === undefined || higher <= level) continue;
       const axis: 0 | 1 = dc !== 0 ? 0 : 1;
       // A street that crosses this boundary runs along `axis`, so it is a
@@ -426,54 +507,234 @@ export function buildFloor(plan: FloorPlan): FloorField {
       const hi = lo + pitch;
       let from: number;
       let to: number;
+      let centre: number;
+      let half: number;
       if (grid.avenue[other] === 1) {
         from = lo + FLIGHT_INSET;
         to = hi - FLIGHT_INSET;
+        centre = lo + pitch * 0.5;
+        half = pitch * 0.5;
       } else if (grid.low[other] === 1) {
         from = lo;
         to = lo + band - FLIGHT_INSET;
+        centre = lo;
+        half = band;
       } else if (grid.high[other] === 1) {
         from = hi - band + FLIGHT_INSET;
         to = hi;
+        centre = hi;
+        half = band;
       } else {
         continue;
       }
       if (to - from < 1) continue;
-      const sign = axis === 0 ? dc : dr;
-      const start = axis === 0 ? x0 : z0;
-      const high = higher + GROUND_LIFT;
-      const low = level + GROUND_LIFT;
-      const steps = Math.max(2, Math.round((high - low) / STEP_RISE));
-      const flight: Flight = {
-        cell: key,
-        axis,
-        at: sign > 0 ? start + pitch : start,
-        into: sign > 0 ? -1 : 1,
-        from,
-        to,
-        high,
-        low,
-        steps,
-        tread: Math.min(STEP_TREAD, (FLIGHT_RUN * pitch) / (steps - 1)),
-      };
-      const here = flights.get(key) ?? [];
-      if (here.some((known) => overlap(known, flight))) {
-        stats.crowded++;
-        continue;
+      const sign = (axis === 0 ? dc : dr) as 1 | -1;
+      crossings.push({
+        lower: key, higher: near, col, row, axis, sign, from, to, centre, half,
+        low: level + GROUND_LIFT, high: higher + GROUND_LIFT,
+      });
+      crossed.add(key * 4 + sideOf(axis, sign));
+      crossed.add(near * 4 + sideOf(axis, -sign));
+    }
+  }
+
+  /**
+   * The level run of street a ramp can lie along, starting at cell `(col,
+   * row)` and heading `dir` along `axis`: cell after cell on the same terrace,
+   * across the backs of lots, until something stops it — a crossing street
+   * (level paving, and a landing of its own), the mouth of a street a road
+   * comes in by (`FloorPlan.mouths`, less `gateFlare`), another riser (whose
+   * crossing shares the run from its end), the end of the paving, or an avenue
+   * the other way, which a ramp does not cross: it would put a bank across the
+   * through road. `far` is the run's far end as `cellKey * 4 + side`, which is
+   * how a crossing there finds it; `cells` every cell it passes.
+   */
+  interface Run {
+    length: number;
+    far: number;
+    cells: number[];
+  }
+  const runOf = (col: number, row: number, axis: 0 | 1, dir: number): Run => {
+    const level = terraces.get(cellKey(col, row));
+    const cells: number[] = [];
+    let length = 0;
+    let c = col;
+    let r = row;
+    const side = sideOf(axis, dir);
+    for (let guard = 0; guard < 64; guard++) {
+      const index = axis === 0 ? c : r;
+      const key = cellKey(c, r);
+      if (grid.avenue[index] === 1) break;
+      cells.push(key);
+      if (dir > 0 ? grid.high[index] === 1 : grid.low[index] === 1) {
+        return { length: length + pitch - band, far: key * 4 + side, cells };
       }
-      here.push(flight);
-      flights.set(key, here);
+      if (plan.mouths?.has(key * 4 + side) === true) {
+        return { length: length + pitch - gateFlare(pitch), far: key * 4 + side, cells };
+      }
+      const nc = axis === 0 ? c + dir : c;
+      const nr = axis === 0 ? r : r + dir;
+      const next = terraces.get(cellKey(nc, nr));
+      if (next === undefined || next !== level) {
+        return { length: length + pitch - RAMP_LANDING, far: key * 4 + side, cells };
+      }
+      length += pitch;
+      c = nc;
+      r = nr;
+    }
+    // Stopped short of an avenue: its kerb is the far end, and the avenue's
+    // own level paving the landing.
+    const last = cells.at(-1);
+    return { length, far: last === undefined ? -1 : last * 4 + side, cells };
+  };
+  /** How far into each run something already reaches, by the `cellKey * 4 + side` of the end it starts from. */
+  const used = new Map<number, number>();
+  const usedAt = (end: number): number => used.get(end) ?? 0;
+
+  /**
+   * **Who gets a run is decided by need, smallest first**, because a run
+   * between two risers is shared by the crossings at its two ends. So each
+   * crossing in turn takes the room its rise needs at `STREET_GRADE` out of what
+   * the runs either side have left, split between them in proportion; one that
+   * cannot get it keeps a flight of steps in its lower cell. Then every ramp is
+   * spread over the room still free — half of it where another crossing starts
+   * from the far end — down to `RAMP_GENTLEST` and no gentler, so a
+   * riser with a long level street either side is a slope and not a whole
+   * block of cutting. Stable in the order the crossings were found, so the two
+   * halves of a band street, which mirror each other cell for cell, come out
+   * the same.
+   */
+  const order = crossings.map((crossing, index) => ({ crossing, index, need: (crossing.high - crossing.low) / STREET_GRADE }));
+  order.sort((m, n) => m.need - n.need || m.index - n.index);
+  interface Plan {
+    crossing: Crossing;
+    ramp: boolean;
+    run: number;
+    back: number;
+    lower: Run;
+    upper: Run;
+  }
+  const plans: Plan[] = [];
+  for (const { crossing, need } of order) {
+    const { axis, sign, col, row } = crossing;
+    const lower = runOf(col, row, axis, -sign);
+    const upper = runOf(axis === 0 ? col + sign : col, axis === 0 ? row : row + sign, axis, sign);
+    const low = Math.max(0, lower.length - usedAt(lower.far));
+    const high = Math.max(0, upper.length - usedAt(upper.far));
+    const nearLow = crossing.lower * 4 + sideOf(axis, sign);
+    const nearHigh = crossing.higher * 4 + sideOf(axis, -sign);
+    // Short of room at `STREET_GRADE`, a short steep ramp over all there is,
+    // up to `STREET_STEEPEST`, before stairs.
+    const rise = crossing.high - crossing.low;
+    const take = low + high >= need - 1e-9 ? need : low + high >= rise / STREET_STEEPEST - 1e-9 ? low + high : NaN;
+    if (!Number.isNaN(take) && low + high > 0) {
+      const run = (take * low) / (low + high);
+      const back = take - run;
+      used.set(nearLow, run);
+      used.set(nearHigh, back);
+      plans.push({ crossing, ramp: true, run, back, lower, upper });
+    } else {
+      // Stairs stand in the lower cell whatever it is, as they always did, in
+      // what the far end leaves.
+      const room = lower.cells.length !== 1 ? pitch : lower.length + RAMP_LANDING;
+      const run = Math.max(0, Math.min(FLIGHT_RUN * pitch, room - RAMP_LANDING - usedAt(lower.far)));
+      used.set(nearLow, run);
+      plans.push({ crossing, ramp: false, run, back: 0, lower, upper });
+    }
+  }
+  // The spread, worked out from the room as it stood before any of it, so two
+  // ramps sharing a run take the same half of what is free.
+  const spread = plans.map((plan) => {
+    if (!plan.ramp) return [0, 0] as const;
+    const { axis, sign } = plan.crossing;
+    const free = (run: Run, near: number): number => {
+      const room = run.length - usedAt(near) - usedAt(run.far);
+      return room <= 0 ? 0 : usedAt(run.far) > 0 ? room * 0.5 : room;
+    };
+    const lowFree = free(plan.lower, plan.crossing.lower * 4 + sideOf(axis, sign));
+    const highFree = free(plan.upper, plan.crossing.higher * 4 + sideOf(axis, -sign));
+    const rise = plan.crossing.high - plan.crossing.low;
+    const most = Math.max(0, rise / RAMP_GENTLEST - plan.run - plan.back);
+    const share = lowFree + highFree > most ? most / (lowFree + highFree) : 1;
+    return [lowFree * share, highFree * share] as const;
+  });
+
+  const touching = new Map<number, Flight[]>();
+  const touches = (key: number): Flight[] => {
+    let list = touching.get(key);
+    if (list === undefined) {
+      list = [];
+      touching.set(key, list);
+    }
+    return list;
+  };
+  // Back in the order the crossings were found, so the flights' order in a
+  // cell, and what the drawing does with it, does not depend on the plan.
+  const planned = plans.map((plan, k) => ({ plan, extra: spread[k]! }));
+  planned.sort((m, n) => crossings.indexOf(m.plan.crossing) - crossings.indexOf(n.plan.crossing));
+  for (const { plan, extra } of planned) {
+    const { crossing, ramp } = plan;
+    const { axis, sign, col, row } = crossing;
+    const x0 = (col - shift - 0.5) * pitch;
+    const z0 = (row - shift - 0.5) * pitch;
+    const start = axis === 0 ? x0 : z0;
+    const rise = crossing.high - crossing.low;
+    const steps = ramp ? 0 : Math.max(2, Math.round(rise / STEP_RISE));
+    const tread = ramp ? 0 : Math.min(STEP_TREAD, plan.run / (steps - 1));
+    const back = ramp ? plan.back + extra[1] : 0;
+    const flight: Flight = {
+      cell: crossing.lower,
+      above: crossing.higher,
+      axis,
+      at: sign > 0 ? start + pitch : start,
+      into: sign > 0 ? -1 : 1,
+      from: crossing.from,
+      to: crossing.to,
+      centre: crossing.centre,
+      half: crossing.half,
+      high: crossing.high,
+      low: crossing.low,
+      ramp,
+      back,
+      run: ramp ? plan.run + extra[0] : (steps - 1) * tread,
+      steps,
+      tread,
+    };
+    // Every cell its footprint reaches, along each run as far as it goes.
+    const covers = [crossing.lower];
+    if (ramp) {
+      const reach = (run: Run, length: number): void => {
+        for (let k = 1; k < run.cells.length && k * pitch < length - 1e-6; k++) covers.push(run.cells[k]!);
+      };
+      reach(plan.lower, flight.run);
+      if (back > 0) {
+        covers.push(crossing.higher);
+        reach(plan.upper, back);
+      }
+    }
+    if (flight.run + flight.back < 1e-6 || covers.some((key) => (touching.get(key) ?? []).some((known) => overlap(known, flight)))) {
+      stats.crowded++;
+      continue;
+    }
+    for (const key of covers) touches(key).push(flight);
+    const here = flights.get(crossing.lower) ?? [];
+    here.push(flight);
+    flights.set(crossing.lower, here);
+    if (ramp) {
+      stats.ramps++;
+      stats.steepest = Math.max(stats.steepest, rampGrade(flight));
+    } else {
       stats.flights++;
       stats.steps += steps;
     }
   }
 
-  return { pitch, shift, terraces, aprons, feet, flights, stats };
+  return { pitch, shift, terraces, aprons, feet, flights, touching, stats };
 }
 
 /** A flight's footprint in the plane, as `[x0, x1, z0, z1]`. */
 export function flightRect(flight: Flight, margin = 0): [number, number, number, number] {
-  const a = flight.at;
+  const a = flight.at - flight.into * flight.back;
   const b = flight.at + flight.into * flightRun(flight);
   const along0 = Math.min(a, b) - margin;
   const along1 = Math.max(a, b) + margin;
@@ -496,14 +757,15 @@ function overlap(a: Flight, b: Flight): boolean {
  * hair would still have its bonnet in them.
  */
 export function flightAt(field: FloorField, x: number, z: number, margin = 0): Flight | null {
-  if (field.flights === undefined || field.flights.size === 0) return null;
+  const byCell = field.touching ?? field.flights;
+  if (byCell === undefined || byCell.size === 0) return null;
   const shift = field.shift ?? 0;
   const col = Math.round(x / field.pitch + shift);
   const row = Math.round(z / field.pitch + shift);
   const reach = margin > 0 ? Math.ceil(margin / field.pitch) : 0;
   for (let dc = -reach; dc <= reach; dc++) {
     for (let dr = -reach; dr <= reach; dr++) {
-      for (const flight of field.flights.get(cellKey(col + dc, row + dr)) ?? []) {
+      for (const flight of byCell.get(cellKey(col + dc, row + dr)) ?? []) {
         const [x0, x1, z0, z1] = flightRect(flight, margin);
         if (x >= x0 && x <= x1 && z >= z0 && z <= z1) return flight;
       }
@@ -550,11 +812,11 @@ export function floorLiftAt(floor: FloorField, x: number, z: number, elevation: 
   const key = cellKey(col, row);
   const here = terraces.get(key);
   if (here !== undefined) {
-    for (const flight of floor.flights?.get(key) ?? []) {
+    for (const flight of (floor.touching ?? floor.flights)?.get(key) ?? []) {
       const across = flight.axis === 0 ? z : x;
       if (across < flight.from || across > flight.to) continue;
       const s = flightDepth(flight, x, z);
-      if (s >= 0 && s < flightRun(flight)) return flightHeight(flight, s) - elevation;
+      if (s >= -flight.back && s < flightRun(flight)) return flightHeight(flight, s) - elevation;
     }
     return here + GROUND_LIFT - elevation;
   }

@@ -4,7 +4,7 @@ import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, bindGroundWeather, groundColorAt, groundPatchesChunk, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { BODY_SCALE } from './stature.ts';
-import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
+import { LAMP_POOL, bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import { mergeMeshes, sourceVertex } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
@@ -16,12 +16,12 @@ import {
   LINE_HALF,
   MARKED_STREET,
   MAX_CUT,
-  SIDEWALK,
   ZEBRA,
   ZEBRA_STRIPE,
   cellKey,
   cellTone,
   groundStyleFor,
+  pavementOf,
   trodden,
 } from './scenery/ground.ts';
 import {
@@ -30,11 +30,13 @@ import {
   flightAt,
   flightDepth,
   flightHeight,
+  flightRect,
   flightRun,
   floorLiftAt,
   floorReach,
 } from './scenery/floor.ts';
 import type { Road } from './roads.ts';
+import { heldGates, holdGates } from './roads.ts';
 import type { GroundStyle } from './scenery/ground.ts';
 import type { FloorField, Flight } from './scenery/floor.ts';
 import {
@@ -44,6 +46,7 @@ import {
   COUNTRY_RING,
   countryReach,
   gateGlow,
+  gateMouth,
   gatesOf,
   hasThroughStreets,
   inGrid,
@@ -61,7 +64,7 @@ import {
   townGrid,
   townTerraces,
 } from './scenery/grid.ts';
-import type { TownGrid, TownGround } from './scenery/grid.ts';
+import type { Gate, GateMouth, TownGrid, TownGround } from './scenery/grid.ts';
 import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scenery/solids.ts';
 import type { Solid, SolidField } from './scenery/solids.ts';
 import type { MonumentContext } from './monuments/contract.ts';
@@ -578,30 +581,6 @@ const LAMP_MAX_CHANCE = 0.55;
  */
 const LAMP_CAP = 30;
 
-/**
- * How far a lamp's light reaches along the ground, in world units, and how
- * bright it is at the foot of the column.
- *
- * **The reach is the lamp's own height and not a number**: `street-lamp.ts`
- * builds a column 4.8 to 5.8 units tall, and light from a head at that height
- * grazing the ground at about 20 degrees stops at roughly two and a half times
- * it. 14 is that, and it is bounded on both sides by the floor it falls on —
- * a town's cell is 8 to 18 units across (`TOWN_PITCH` in `scenery/grid.ts`),
- * and the carriageway it crosses is 6.0 to 15.0. A reach
- * inside that range is a pool that is smaller than the block it stands in and
- * wider than the street, and **a pool wider than its own cell has no ground
- * left to be dark.** At 14 the floor of 140 resident towns comes out 58.8% lit,
- * spread from a tenth of peak to full; there is no reach that lights a street
- * and leaves this floor mostly dark, because there are only four to nine
- * vertices in a cell to say it with.
- *
- * `LAMP_STRENGTH` is 1 rather than the lamp's own instance draw. A lamp's head
- * is dimmed 0.82 to 1 by `raise` so a street of them is not a row of identical
- * bulbs, and carrying that into the pool would be the same lottery twice on two
- * surfaces a metre apart — the head and the ground under it visibly disagreeing
- * about how bright the lamp is.
- */
-const LAMP_POOL = 14;
 
 /**
  * How far over its foot a lamp's light hangs, for the per-pixel pools
@@ -1207,6 +1186,8 @@ interface Slot {
     band: number;
     /** `Ground.lawn`, kept with the floor it was cut from. */
     lawn: Uint8Array | null;
+    /** `Ground.mouths`, likewise. */
+    mouths: readonly (readonly [number, number, number, number])[];
   } | null;
   failed: boolean;
   /**
@@ -1302,6 +1283,9 @@ export function createSettlements(
   const group = new THREE.Group();
   group.name = 'settlements';
 
+  // The gates a town may not raise to make its streets climbable, because a
+  // road's ramps would meet: `heldGates`, which the roads ask too.
+  holdGates(options.roads ?? [], places, world);
   /** The gates each town's roads come in by, as indices into `gatesOf` for its square. */
   const roadGates = new Map<Place, number[]>();
   for (const road of options.roads ?? []) {
@@ -1722,6 +1706,8 @@ export function createSettlements(
      * stone. What grows on it is `vegetation.ts`'s sward; see `swardAt`.
      */
     lawn: Uint8Array | null;
+    /** The gate mouths' rectangles in the town's plane, `[x0, x1, z0, z1]`, which are street wherever they fall. */
+    mouths: [number, number, number, number][];
     /**
      * How many cells came out as floor.
      *
@@ -2102,8 +2088,10 @@ export function createSettlements(
    *    square's edge is still a straight line — it is where a road arrives, and
    *    a ragged one is a road ending against a zigzag — and so are the risers
    *    between terraces inside it, which are walls.
-   * 4. **And where a street crosses one of those risers, a flight of steps.**
-   *    See `Flight` in `floor.ts`.
+   * 4. **And where a street crosses one of those risers, a ramp**, or where
+   *    the street has no room for one a flight of steps. See `Flight` in
+   *    `floor.ts`. And where a road comes in, the street flares to meet it
+   *    (`gateMouth`).
    *
    * All of it is drawn out of the field `buildFloor` makes, and that field is
    * what `floorLiftAt` reads, so the surface a foot finds is this one.
@@ -2117,7 +2105,7 @@ export function createSettlements(
     pavedCells: ReadonlySet<number>,
   ): Ground {
     const out: Ground = {
-      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], folk: [], kerbs: [], paved: 0, lawn: null,
+      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], folk: [], kerbs: [], paved: 0, lawn: null, mouths: [],
       terraces: new Map(),
       field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
     };
@@ -2169,7 +2157,7 @@ export function createSettlements(
     kerbFoot.copy(walkColor).lerp(KERB_INK, 0.42);
     const marked = style.marked;
     /** A street's pavement, for a street `half` wide either side of its line: never more than 0.3 of it. */
-    const walkOf = (half: number): number => Math.min(SIDEWALK, half * 0.3);
+    const walkOf = pavementOf;
 
     const levels = new Map<number, number>();
     for (let col = 0; col < cells; col++) {
@@ -2196,10 +2184,22 @@ export function createSettlements(
      * corner in the sea — that edge is a quay — nor on one under a landmark,
      * exactly as the apron it replaced was not.
      */
+    const gates = gatesOf(grid);
+    /**
+     * Every edge a road comes in over, as `cellKey * 4 + side`: the streets
+     * that do not end there, and the mouths a ramp keeps off.
+     */
+    const roadEnds = new Set<number>();
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gates[index];
+      if (gate === undefined) continue;
+      for (const [col, row] of gate.cells) roadEnds.add(cellKey(col, row) * 4 + gate.side);
+    }
     const field = buildFloor({
       grid,
       band,
       terraces: levels,
+      mouths: roadEnds,
       cornerGround: (i, j) => {
         const corner = cornerAt(i, j);
         return corner.sea ? null : corner.elevation;
@@ -2207,6 +2207,47 @@ export function createSettlements(
       open: (col, row) => !blocked(cellCentre(grid, col), cellCentre(grid, row)),
     });
     out.field = field;
+
+    /**
+     * The mouths of the streets the roads come in by, by the gate cell each
+     * reaches into, with the rectangle it takes there: `gateFlare` in from the
+     * kerb and out to the wider of the road's pavement and the street, on the
+     * cell's own side of the street's line. See `gateMouth`.
+     */
+    interface Mouth {
+      gate: Gate;
+      mouth: GateMouth;
+      /** Which side of the street's line this cell is on, across it: -1, 1, or 0 for both (an avenue). */
+      side: number;
+      rect: [number, number, number, number];
+    }
+    const mouthsIn = new Map<number, Mouth[]>();
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gates[index];
+      if (gate === undefined) continue;
+      const mouth = gateMouth(grid, gate, band);
+      if (mouth.flare <= 0) continue;
+      const outer = Math.max(mouth.edge, mouth.street);
+      for (const [col, row] of gate.cells) {
+        const key = cellKey(col, row);
+        if (!levels.has(key) || blocked(cellCentre(grid, col), cellCentre(grid, row))) continue;
+        const across = gate.outX !== 0 ? cellCentre(grid, row) - gate.z : cellCentre(grid, col) - gate.x;
+        const side = gate.cells.length < 2 ? 0 : Math.sign(across);
+        const t0 = side > 0 ? 0 : -outer;
+        const t1 = side < 0 ? 0 : outer;
+        const s0 = gate.outX !== 0 ? gate.x - gate.outX * mouth.flare : gate.z - gate.outZ * mouth.flare;
+        const along = gate.outX !== 0 ? gate.x : gate.z;
+        const a0 = Math.min(along, s0);
+        const a1 = Math.max(along, s0);
+        const rect: [number, number, number, number] = gate.outX !== 0
+          ? [a0, a1, gate.z + t0, gate.z + t1]
+          : [gate.x + t0, gate.x + t1, a0, a1];
+        const list = mouthsIn.get(key) ?? [];
+        list.push({ gate, mouth, side, rect });
+        mouthsIn.set(key, list);
+        out.mouths.push(rect);
+      }
+    }
 
     /**
      * One point on the paving, at the paving's own lift, or nothing.
@@ -2305,7 +2346,7 @@ export function createSettlements(
     /** Where the street along a lattice line sits, as an offset from that line to its kerb, or null. */
     const kerbOff = (line: number, sign: number): number | null => {
       if (line <= 0 || line >= cells) return null;
-      if (grid.high[line - 1] === 1) return sign * (band - Math.min(SIDEWALK, band * 0.3) * 0.5);
+      if (grid.high[line - 1] === 1) return sign * (band - pavementOf(band) * 0.5);
       if (grid.avenue[line - 1] === 1) return 0.8;
       if (grid.avenue[line] === 1) return -0.8;
       return null;
@@ -2335,7 +2376,7 @@ export function createSettlements(
     // crossing turns a quarter.
     if (plazaKey >= 0 && slot.style.assets !== undefined && urbanity >= TOWER_URBANITY) {
       const middle = cellCentre(grid, grid.shift);
-      const inset = pitch * 0.5 - Math.min(SIDEWALK, pitch * 0.15) * 0.5;
+      const inset = pitch * 0.5 - pavementOf(pitch * 0.5) * 0.5;
       const corners: [number, number, number, number][] = [
         [1, 1, 0, 1], [-1, 1, -1, 0], [-1, -1, 0, -1], [1, -1, 1, 0],
       ];
@@ -2352,14 +2393,6 @@ export function createSettlements(
     // till dawn, and so does the ribbon it shares the kerb with. It is placed
     // at the paving's own height, where `roads.ts` places it (`kerbA`), because
     // a point's offset in this frame moves with its radius.
-    const gates = gatesOf(grid);
-    /** Every edge a road comes in over, as `cellKey * 4 + side`: the streets that do not end there. */
-    const roadEnds = new Set<number>();
-    for (const index of roadGates.get(slot.place) ?? []) {
-      const gate = gates[index];
-      if (gate === undefined) continue;
-      for (const [col, row] of gate.cells) roadEnds.add(cellKey(col, row) * 4 + gate.side);
-    }
     const gateAt: number[] = [0, 0, 0];
     for (const index of roadGates.get(slot.place) ?? []) {
       const gate = gates[index];
@@ -2401,6 +2434,67 @@ export function createSettlements(
     const tb: number[] = [0, 0, 0];
     const tc: number[] = [0, 0, 0];
     const td: number[] = [0, 0, 0];
+
+    /**
+     * One cell's half of a gate's mouth, or the whole of an avenue's: over
+     * `flare` in from the kerb, the carriageway runs from the road's half-width
+     * to the street's own and the pavement's outer edge from the road's to the
+     * street's, each a straight line, so the kerb line the road arrives with
+     * turns into the street's at a slant rather than a step. Past the pavement,
+     * out to the wider of the two, is the plot's own ground. The centre line is
+     * dashed on the same phase as the street it opens, where the street is
+     * marked. All of it level at the cell's paving: a ramp keeps off it.
+     */
+    const mp0: number[] = [0, 0, 0];
+    const mp1: number[] = [0, 0, 0];
+    const mp2: number[] = [0, 0, 0];
+    const mp3: number[] = [0, 0, 0];
+    function drawMouth({ gate, mouth, side }: Mouth, surface: number, yard: THREE.Color): void {
+      const flare = mouth.flare;
+      const inner = mouth.street - mouth.walk;
+      const outer = Math.max(mouth.edge, mouth.street);
+      const carriage = (s: number): number => mouth.carriage + (inner - mouth.carriage) * (s / flare);
+      const edge = (s: number): number => mouth.edge + (Math.max(mouth.street, inner) - mouth.edge) * (s / flare);
+      const pavement = (s: number): number => (gate.cells.length < 2 ? mouth.street : edge(s));
+      const lined = marked && mouth.carriage * 2 >= MARKED_STREET;
+      const point = (s: number, t: number, into: number[]): number[] =>
+        gate.outX !== 0
+          ? pointIn(gate.x - gate.outX * s, gate.z + t, surface, into)
+          : pointIn(gate.x + t, gate.z - gate.outZ * s, surface, into);
+      const cuts = new Set<number>([0, flare]);
+      if (lined) {
+        const along = gate.outX !== 0 ? gate.x : gate.z;
+        const out = gate.outX !== 0 ? gate.outX : gate.outZ;
+        for (let k = Math.ceil(Math.min(along, along - out * flare) / DASH); k * DASH < Math.max(along, along - out * flare); k++) {
+          const s = (along - k * DASH) * out;
+          if (s > 1e-6 && s < flare - 1e-6) cuts.add(s);
+        }
+      }
+      const ss = [...cuts].sort((m, n) => m - n);
+      for (const sign of side === 0 ? [-1, 1] : [side]) {
+        for (let i = 0; i + 1 < ss.length; i++) {
+          const sa = ss[i]!;
+          const sb = ss[i + 1]!;
+          const coordinate = gate.outX !== 0 ? gate.x - gate.outX * (sa + sb) * 0.5 : gate.z - gate.outZ * (sa + sb) * 0.5;
+          const dashed = lined && Math.floor(coordinate / DASH + 1e-6) % 2 === 0;
+          const bands: [number, number, number, number, THREE.Color][] = [
+            [dashed ? LINE_HALF : 0, dashed ? LINE_HALF : 0, carriage(sa), carriage(sb), roadColor],
+            [carriage(sa), carriage(sb), pavement(sa), pavement(sb), walkColor],
+            [pavement(sa), pavement(sb), outer, outer, yard],
+          ];
+          if (dashed) bands.unshift([0, 0, LINE_HALF, LINE_HALF, lineColor]);
+          for (const [a0, a1, b0, b1, tint] of bands) {
+            if (b0 - a0 < 1e-6 && b1 - a1 < 1e-6) continue;
+            pushQuad(
+              out,
+              point(sa, sign * a0, mp0), point(sb, sign * a1, mp1),
+              point(sb, sign * b1, mp2), point(sa, sign * b0, mp3),
+              tint, tint, tint, tint,
+            );
+          }
+        }
+      }
+    }
 
     for (const [key, level] of levels) {
       const col = Math.floor(key / 1024) - 512;
@@ -2533,6 +2627,36 @@ export function createSettlements(
       };
       const usCapped = capCut([...us], ends[2]!, ends[0]!);
       const vsCapped = capCut([...vs], ends[3]!, ends[1]!);
+      /**
+       * **A ramp is the only surface over its own footprint**, in both of the
+       * cells it covers: the fill it stands in the lower one and the cut it
+       * sinks into the higher one are drawn by the ramp (below), and the
+       * paving leaves them a hole. Laid over the paving instead, the fill's foot
+       * meets it at a grade of 0.3 and the two fight for the last metre, and a
+       * cut would be a ramp drawn under the street it is cut into.
+       */
+      const mouths = mouthsIn.get(key) ?? [];
+      const holes = (field.touching?.get(key) ?? []).filter((flight) => flight.ramp).map((flight) => flightRect(flight));
+      for (const mouth of mouths) holes.push(mouth.rect);
+      for (const [hx0, hx1, hz0, hz1] of holes) {
+        for (const x of [hx0, hx1]) {
+          const u = (x - x0) / pitch;
+          if (u > 1e-6 && u < 1 - 1e-6) usCapped.push(u);
+        }
+        for (const z of [hz0, hz1]) {
+          const v = (z - z0) / pitch;
+          if (v > 1e-6 && v < 1 - 1e-6) vsCapped.push(v);
+        }
+      }
+      if (holes.length > 0) {
+        usCapped.sort((m, n) => m - n);
+        vsCapped.sort((m, n) => m - n);
+      }
+      const inHole = (u: number, v: number): boolean => {
+        const x = x0 + u * pitch;
+        const z = z0 + v * pitch;
+        return holes.some(([hx0, hx1, hz0, hz1]) => x > hx0 && x < hx1 && z > hz0 && z < hz1);
+      };
 
       /** Where a point of the cell falls across the streets on one axis: 'yard', 'walk', 'road' or 'line'. */
       const across = (streets: { centre: number; half: number }[], t: number): 'yard' | 'walk' | 'road' | 'line' => {
@@ -2550,12 +2674,15 @@ export function createSettlements(
       for (let iu = 0; iu < usCapped.length - 1; iu++) {
         const u0 = usCapped[iu]!;
         const u1 = usCapped[iu + 1]!;
+        if (u1 - u0 < 1e-6) continue;
         const uc = (u0 + u1) * 0.5;
         const roleU = across(alongZ, uc);
         for (let iv = 0; iv < vsCapped.length - 1; iv++) {
           const v0 = vsCapped[iv]!;
           const v1 = vsCapped[iv + 1]!;
+          if (v1 - v0 < 1e-6) continue;
           const vc = (v0 + v1) * 0.5;
+          if (holes.length > 0 && inHole(uc, vc)) continue;
           const roleV = across(alongX, vc);
           // Inside a dead end's kerb, across the street it closes.
           const cappedZ = roleU !== 'yard' && ((ends[3]! > 0 && vc < ends[3]!) || (ends[1]! > 0 && vc > 1 - ends[1]!));
@@ -2596,6 +2723,7 @@ export function createSettlements(
           pushQuad(out, q0, q1, q2, q3, tint, tint, tint, tint);
         }
       }
+      for (const mouth of mouths) drawMouth(mouth, level + GROUND_LIFT, cellFloor);
     }
 
     /**
@@ -2785,6 +2913,103 @@ export function createSettlements(
     const fp1: number[] = [0, 0, 0];
     const fp2: number[] = [0, 0, 0];
     const fp3: number[] = [0, 0, 0];
+
+    /**
+     * A ramp: the street's own section — carriageway, its dashed line, a
+     * pavement on each hand — tilted as one plane from the higher terrace to
+     * the lower, and a side on each hand down to whatever is beside it or up to
+     * it, which is a retaining wall along the cut and the side of the fill.
+     *
+     * Every face is in a plane nothing else uses — the surface is tilted, and
+     * each side stands where a flight's did, `FLIGHT_INSET` in from a house front
+     * — except the side on a band's midline, which is its twin's side as well;
+     * there the two surfaces are one height and nothing is drawn.
+     */
+    function drawRamp(flight: Flight): void {
+      const at = (s: number, t: number, elevation: number, into: number[]): number[] =>
+        flight.axis === 0
+          ? pointIn(flight.at + flight.into * s, t, elevation, into)
+          : pointIn(t, flight.at + flight.into * s, elevation, into);
+      const height = (s: number): number => flightHeight(flight, s);
+      const walk = walkOf(flight.half);
+      const lined = marked && flight.half * 2 >= MARKED_STREET;
+      const across = new Set<number>([flight.from, flight.to]);
+      for (const t of [
+        flight.centre - (flight.half - walk), flight.centre + (flight.half - walk),
+        ...(lined ? [flight.centre - LINE_HALF, flight.centre + LINE_HALF] : []),
+      ]) {
+        if (t > flight.from + 1e-6 && t < flight.to - 1e-6) across.add(t);
+      }
+      const ts = [...across].sort((m, n) => m - n);
+      // Along: its two ends, and where the dashes start and stop, taken from
+      // the town's own plane coordinate as a flat street's are.
+      const s0 = -flight.back;
+      const s1 = flight.run;
+      const along = new Set<number>([s0, s1]);
+      if (lined) {
+        const c0 = Math.min(flight.at + flight.into * s0, flight.at + flight.into * s1);
+        const c1 = Math.max(flight.at + flight.into * s0, flight.at + flight.into * s1);
+        for (let k = Math.ceil(c0 / DASH); k * DASH < c1; k++) along.add((k * DASH - flight.at) * flight.into);
+      }
+      const ss = [...along].filter((s) => s >= s0 - 1e-9 && s <= s1 + 1e-9).sort((m, n) => m - n);
+      for (let i = 0; i + 1 < ss.length; i++) {
+        const sa = ss[i]!;
+        const sb = ss[i + 1]!;
+        if (sb - sa < 1e-6) continue;
+        const coordinate = flight.at + flight.into * (sa + sb) * 0.5;
+        for (let j = 0; j + 1 < ts.length; j++) {
+          const ta = ts[j]!;
+          const tb = ts[j + 1]!;
+          if (tb - ta < 1e-6) continue;
+          const lateral = Math.abs((ta + tb) * 0.5 - flight.centre);
+          const tint = lateral > flight.half - walk
+            ? walkColor
+            : lined && lateral < LINE_HALF && Math.floor(coordinate / DASH + 1e-6) % 2 === 0 ? lineColor : roadColor;
+          pushQuad(
+            out,
+            at(sa, ta, height(sa), fp0), at(sb, ta, height(sb), fp1),
+            at(sb, tb, height(sb), fp2), at(sa, tb, height(sa), fp3),
+            tint, tint, tint, tint,
+          );
+        }
+      }
+      // The sides: from the surface down to what is beyond it, or from what is
+      // beyond it down to the surface, whichever is higher, broken where the
+      // ramp crosses from the cut into the fill.
+      for (const [t, sign] of [[flight.from, -1], [flight.to, 1]] as const) {
+        const probe = t + sign * 1e-3;
+        const beyond = (s: number): number => {
+          const x = flight.axis === 0 ? flight.at + flight.into * s : probe;
+          const z = flight.axis === 0 ? probe : flight.at + flight.into * s;
+          if (!levels.has(cellKey(cellIndex(grid, x), cellIndex(grid, z)))) return s < 0 ? flight.high : flight.low;
+          return floorLiftAt(field, x, z, 0);
+        };
+        // Broken at every cell edge it passes, where what is beside it can change.
+        const marks = [s0, s1];
+        for (let k = Math.ceil((s0 + 1e-6) / pitch); k * pitch < s1 - 1e-6; k++) marks.push(k * pitch);
+        marks.sort((m, n) => m - n);
+        for (let m = 0; m + 1 < marks.length; m++) {
+          const sa = marks[m]!;
+          const sb = marks[m + 1]!;
+          if (sb - sa < 1e-6) continue;
+          const other = beyond((sa + sb) * 0.5);
+          const ha = height(sa);
+          const hb = height(sb);
+          if (Math.abs(ha - other) < 1e-6 && Math.abs(hb - other) < 1e-6) continue;
+          // The fill stands over what is beside it and faces out; the cut is
+          // under it and its wall faces in, across the ramp.
+          const fill = ha + hb >= other * 2;
+          const face = fill ? sign : -sign;
+          pushWall(
+            out,
+            at(sa, t, fill ? ha : other, fp0), at(sa, t, fill ? other : ha, fp1),
+            at(sb, t, fill ? other : hb, fp2), at(sb, t, fill ? hb : other, fp3),
+            kerbTop, kerbFoot, kerbFoot, kerbTop,
+            flight.axis === 0 ? 0 : face, flight.axis === 0 ? face : 0,
+          );
+        }
+      }
+    }
     for (const list of field.flights?.values() ?? []) {
       for (const flight of list) {
         const col = Math.floor(flight.cell / 1024) - 512;
@@ -2792,6 +3017,10 @@ export function createSettlements(
         const a = cornerAt(col, row);
         const c = cornerAt(col + 1, row + 1);
         litHere = litAround(emitters, (a.lx + c.lx) * 0.5, (a.lz + c.lz) * 0.5, pitch * 0.8);
+        if (flight.ramp) {
+          drawRamp(flight);
+          continue;
+        }
         // Steps are stone, the pavement's, whatever street they carry.
         const tint = blocked(cellCentre(grid, col), cellCentre(grid, row)) ? plazaColor : walkColor;
         stepFace.copy(tint).lerp(KERB_INK, 0.3);
@@ -3021,14 +3250,26 @@ export function createSettlements(
    * neighbour in the same block — gives nothing up, so two houses back to back
    * share a party wall, which is what a terrace row is.
    */
-  function rectOf(grid: TownGrid, band: number, c0: number, c1: number, r0: number, r1: number): Rect {
+  function rectOf(
+    grid: TownGrid, band: number, c0: number, c1: number, r0: number, r1: number,
+    widened?: ReadonlyMap<number, number>,
+  ): Rect {
     const half = grid.pitch * 0.5;
     const last = grid.cells - 1;
+    /** How much further a gate's mouth takes the street into the block on `side`, along one edge of it. */
+    const mouth = (side: number, cols: [number, number], rows: [number, number]): number => {
+      if (widened === undefined || widened.size === 0) return 0;
+      let most = 0;
+      for (let c = cols[0]; c <= cols[1]; c++) {
+        for (let r = rows[0]; r <= rows[1]; r++) most = Math.max(most, widened.get(cellKey(c, r) * 4 + side) ?? 0);
+      }
+      return most;
+    };
     return {
-      x0: cellCentre(grid, c0) - half + (grid.low[c0] === 1 ? band : 0) + (c0 === 0 ? EDGE_SETBACK : 0),
-      x1: cellCentre(grid, c1) + half - (grid.high[c1] === 1 ? band : 0) - (c1 === last ? EDGE_SETBACK : 0),
-      z0: cellCentre(grid, r0) - half + (grid.low[r0] === 1 ? band : 0) + (r0 === 0 ? EDGE_SETBACK : 0),
-      z1: cellCentre(grid, r1) + half - (grid.high[r1] === 1 ? band : 0) - (r1 === last ? EDGE_SETBACK : 0),
+      x0: cellCentre(grid, c0) - half + (grid.low[c0] === 1 ? band + mouth(2, [c0, c0], [r0, r1]) : 0) + (c0 === 0 ? EDGE_SETBACK : 0),
+      x1: cellCentre(grid, c1) + half - (grid.high[c1] === 1 ? band + mouth(0, [c1, c1], [r0, r1]) : 0) - (c1 === last ? EDGE_SETBACK : 0),
+      z0: cellCentre(grid, r0) - half + (grid.low[r0] === 1 ? band + mouth(3, [c0, c1], [r0, r0]) : 0) + (r0 === 0 ? EDGE_SETBACK : 0),
+      z1: cellCentre(grid, r1) + half - (grid.high[r1] === 1 ? band + mouth(1, [c0, c1], [r1, r1]) : 0) - (r1 === last ? EDGE_SETBACK : 0),
     };
   }
 
@@ -3309,6 +3550,25 @@ export function createSettlements(
     const cells = grid.cells;
     const placed: Placed[] = [];
     const taken = new Set<number>();
+    /**
+     * How much further than its band each street a road comes in by reaches
+     * into the plots of its gate cells, by `cellKey * 4 + side` of the band's
+     * side: the road's pavement at the mouth (`gateMouth`), which the plot
+     * gives up over the whole cell.
+     */
+    const widened = new Map<number, number>();
+    for (const index of roadGates.get(slot.place) ?? []) {
+      const gate = gatesOf(grid)[index];
+      if (gate === undefined || gate.cells.length < 2) continue;
+      const extra = gateMouth(grid, gate, band).edge - band;
+      if (extra <= 0) continue;
+      for (const [col, row] of gate.cells) {
+        const side = gate.outX !== 0
+          ? (cellCentre(grid, row) < gate.z ? 1 : 3)
+          : (cellCentre(grid, col) < gate.x ? 0 : 2);
+        widened.set(cellKey(col, row) * 4 + side, extra);
+      }
+    }
     const fill = cells === 1 ? 1 : 0.83 + 0.12 * urbanity;
 
     const blocked = (rect: Rect): boolean => keepouts.some((keepout) => {
@@ -3449,7 +3709,7 @@ export function createSettlements(
         const pick = rng.unit();
         for (const option of options) {
           const [c0, c1, r0, r1] = option;
-          const rect = rectOf(grid, band, c0, c1, r0, r1);
+          const rect = rectOf(grid, band, c0, c1, r0, r1, widened);
           if (blocked(rect)) continue;
           const sides = facingSides(grid, c0, c1, r0, r1);
           const side = sides[Math.floor(pick * sides.length)]!;
@@ -3493,7 +3753,7 @@ export function createSettlements(
       if (cells >= 4) {
         const c0 = sx > 0 ? up1 : down1 - 1;
         const r0 = sz > 0 ? up1 : down1 - 1;
-        const rect = rectOf(grid, band, c0, c0 + 1, r0, r0 + 1);
+        const rect = rectOf(grid, band, c0, c0 + 1, r0, r0 + 1, widened);
         if (!blocked(rect) && level(c0, c0 + 1, r0, r0 + 1)) {
           // Facing the main street, which is on the side of the block nearest
           // the centre.
@@ -3507,7 +3767,7 @@ export function createSettlements(
       if (!done) {
         const c = cells === 1 ? 0 : sx > 0 ? up1 : down1;
         const r = cells === 1 ? 0 : sz > 0 ? up1 : down1;
-        const rect = rectOf(grid, band, c, c, r, r);
+        const rect = rectOf(grid, band, c, c, r, r, widened);
         if (!blocked(rect) && level(c, c, r, r) && place(candidates(style.civic, civicRng), rect, facingSides(grid, c, c, r, r), civicRng, c, r)) {
           taken.add(cellKey(c, r));
         }
@@ -3524,7 +3784,7 @@ export function createSettlements(
       if (isAvenue(grid, col, row) || taken.has(cellKey(col, row))) continue;
       // A cell the ground refuses is not paved, so nothing stands on it.
       if (terraceAt(col, row) === null) continue;
-      const rect = rectOf(grid, band, col, col, row, row);
+      const rect = rectOf(grid, band, col, col, row, row, widened);
       if (rect.x1 - rect.x0 < 1 || rect.z1 - rect.z0 < 1 || blocked(rect)) continue;
       const rng = rngFrom(slot.seed, 'cell', col, row);
       /**
@@ -3631,7 +3891,7 @@ export function createSettlements(
     // to the level the road arriving there climbs to, and every street one level
     // across its width. `cellLevel` is the one definition, and `roads.ts` asks
     // it the same question about the gate cells through `gateLevel`.
-    for (const [key, level] of townTerraces(grid, townGround)) terraces.set(key, level);
+    for (const [key, level] of townTerraces(grid, townGround, heldGates(slot.place))) terraces.set(key, level);
     // And the cells the town stops short of its square in, which are not paved
     // either: taken out after the levels, so a street's cells keep the level
     // their whole group was cut to. The streets the roads come in by and the
@@ -3969,6 +4229,7 @@ export function createSettlements(
         grid,
         band,
         lawn: ground.lawn,
+        mouths: ground.mouths,
       };
       floors.add(slot);
       noteFloor(slot);
@@ -4514,6 +4775,11 @@ export function createSettlements(
         (grid.high[index] === 1 && t > grid.pitch - band - margin && across(1));
       if (street(col, u, (step) => field.terraces.has(cellKey(col + step, row))) ||
         street(row, v, (step) => field.terraces.has(cellKey(col, row + step)))) return null;
+      // A ramp is street, and so is a gate's mouth where it widens into a yard.
+      if (flightAt(field, x, z, margin) !== null) return null;
+      for (const [x0, x1, z0, z1] of floor.mouths) {
+        if (x > x0 - margin && x < x1 + margin && z > z0 - margin && z < z1 + margin) return null;
+      }
       if (floor.solids !== null && solidAt(floor.solids, x, z, margin) !== null) return null;
       return PLANET_RADIUS + level + GROUND_LIFT;
     }
@@ -5013,7 +5279,7 @@ export function createSettlements(
        * away furthest and the slope, still one course wide, becomes an
        * embankment. All of it is `FloorStats`, counted where it was built.
        */
-      const edges = { slopes: 0, quays: 0, flights: 0, steps: 0, crowded: 0, steepest: 0, steepestAt: '' };
+      const edges = { slopes: 0, quays: 0, ramps: 0, rampSteepest: 0, flights: 0, steps: 0, crowded: 0, steepest: 0, steepestAt: '' };
       const standDir = new THREE.Vector3();
       const began = performance.now();
       for (let i = 0; i < slots.length; i += step) {
@@ -5066,6 +5332,8 @@ export function createSettlements(
             }
             edges.slopes += built.slopes;
             edges.quays += built.quays;
+            edges.ramps += built.ramps;
+            edges.rampSteepest = Math.max(edges.rampSteepest, built.steepest);
             edges.flights += built.flights;
             edges.steps += built.steps;
             edges.crowded += built.crowded;
@@ -5186,6 +5454,8 @@ export function createSettlements(
         // What ends the floor and what climbs it; see `edges`.
         edgesSloped: edges.slopes,
         edgesQuay: edges.quays,
+        ramps: edges.ramps,
+        steepestRamp: Number(edges.rampSteepest.toFixed(3)),
         flights: edges.flights,
         flightSteps: edges.steps,
         flightsCrowdedOut: edges.crowded,
