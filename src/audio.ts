@@ -41,10 +41,27 @@ export type Cue =
 export interface Soundscape {
   /**
    * What the player is doing, which is what decides the engine: a car's is the
-   * launch's outboard loop pitched up and opened out, a balloon has none, and a
-   * swimmer hears the sea and the wind and nothing else.
+   * launch's outboard loop pitched up and opened out, a bus's and a tractor's
+   * the same loop low and closed, a motorbike's and a jet ski's high and open;
+   * a helicopter's is its rotor's chop; a balloon, a sail and a bicycle have
+   * none — a bicycle's freewheel ticks as it coasts — a horse is its hooves,
+   * and a swimmer hears the sea and the wind and nothing else.
    */
-  mode: 'menu' | 'foot' | 'swim' | 'car' | 'boat' | 'plane' | 'balloon';
+  mode:
+    | 'menu'
+    | 'foot'
+    | 'swim'
+    | 'car'
+    | 'heavy'
+    | 'motorbike'
+    | 'bicycle'
+    | 'horse'
+    | 'boat'
+    | 'jetski'
+    | 'sail'
+    | 'plane'
+    | 'helicopter'
+    | 'balloon';
   /** Units a second over the ground or the water. */
   speed: number;
   /** The craft's speed as a fraction of its range, 0 idle to 1 flat out. */
@@ -59,6 +76,10 @@ export interface Soundscape {
   wild: number;
   /** Ice and tundra: no insects, no birdsong. */
   cold: boolean;
+  /** Rain on and round you, 0 to 1 (`weather-view.ts`). Snow falls silent and is not counted. */
+  rain?: number;
+  /** How much of a gale the weather adds to the wind, 0 to 1. */
+  gale?: number;
 }
 
 export interface Audio {
@@ -75,6 +96,14 @@ export interface Audio {
    * apart, like every two-tone horn — so it costs no recording.
    */
   horn(near: number): void;
+  /**
+   * Thunder, once, `delay` seconds from now — the flash's distance over the
+   * speed of sound, which the caller knows — at `loudness` 1 overhead to 0 far
+   * off. Synthesised: a crack of white noise when it is close, then brown
+   * noise under a falling low-pass in three or four swells, which is what a
+   * roll is.
+   */
+  thunder(delay: number, loudness: number): void;
   /** 0 to 1, a linear gain on the master; the slider that sets it is logarithmic. */
   volume: number;
   muted: boolean;
@@ -84,6 +113,12 @@ export interface Audio {
    * the effects' master, so its volume and theirs are separate.
    */
   readonly output: { context: AudioContext; node: AudioNode } | null;
+  /**
+   * The effects' master, once `unlock` has opened it: where a sound made
+   * elsewhere joins the world's — the townsfolk's voices, the chat's blip —
+   * so the volume and the switch hold it as they hold a footstep.
+   */
+  readonly bus: GainNode | null;
   /** Told of every cue as it plays: the music ducks under the jingles. */
   onCue: ((name: Cue) => void) | null;
   readonly stats: {
@@ -128,9 +163,28 @@ const SEA_LEVEL = 0.3;
 const BOAT_LEVEL = 0.14;
 const PLANE_LEVEL = 0.13;
 const CAR_LEVEL = 0.11;
+const ROTOR_LEVEL = 0.16;
+const TICK_LEVEL = 0.05;
+const HOOF_LEVEL = 0.22;
+
+/**
+ * The motor loop's voice for each mode that has one: its level, the putt's
+ * pitch at idle and what the throttle adds to it, and the filter's likewise.
+ * The launch's outboard is the loop as built; a car opens it out, a diesel
+ * closes it down, a small single revs it high.
+ */
+const MOTORS: Partial<Record<Soundscape['mode'], { level: number; putt: number; rise: number; filter: number; open: number }>> = {
+  boat: { level: BOAT_LEVEL, putt: 30, rise: 26, filter: 220, open: 480 },
+  car: { level: CAR_LEVEL, putt: 42, rise: 70, filter: 320, open: 900 },
+  heavy: { level: CAR_LEVEL * 1.2, putt: 24, rise: 36, filter: 190, open: 420 },
+  motorbike: { level: CAR_LEVEL * 0.9, putt: 58, rise: 130, filter: 480, open: 1700 },
+  jetski: { level: BOAT_LEVEL * 0.9, putt: 52, rise: 110, filter: 400, open: 1500 },
+};
 const BIRD_LEVEL = 0.05;
 const CRICKET_LEVEL = 0.025;
 const HORN_LEVEL = 0.06;
+const RAIN_LEVEL = 0.2;
+const THUNDER_LEVEL = 0.55;
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const between = (a: number, b: number): number => a + Math.random() * (b - a);
@@ -150,7 +204,15 @@ export function createAudio(): Audio {
   let sea: { gain: GainNode; foam: GainNode } | null = null;
   let boat: { gain: GainNode; low: OscillatorNode; high: OscillatorNode; filter: BiquadFilterNode } | null = null;
   let plane: { gain: GainNode; a: OscillatorNode; b: OscillatorNode; filter: BiquadFilterNode; buzz: GainNode } | null = null;
+  let rotor: { gain: GainNode; chop: OscillatorNode; whine: GainNode } | null = null;
+  /** Seconds to a bicycle's next freewheel tick, and a horse's next hoof. */
+  let nextTick = 0;
+  let nextHoof = 0;
+  let hoof = 0;
   let nature: GainNode | null = null;
+  let rain: { hiss: GainNode; drum: GainNode } | null = null;
+  let rumbleNoise: AudioBuffer | null = null;
+  let crackNoise: AudioBuffer | null = null;
 
   // Slow random walks that keep the loops from sounding like a test tone.
   let gust = 0.5;
@@ -302,9 +364,77 @@ export function createAudio(): Audio {
       plane = { gain, a, b, filter, buzz };
     }
 
+    // The helicopter: brown noise under a low-pass, chopped by a slow
+    // oscillator on its gain — the blades passing, a dozen times a second —
+    // and a turbine's thin whine over it.
+    {
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowpass';
+      low.frequency.value = 420;
+      const chopped = ctx.createGain();
+      chopped.gain.value = 0.55;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      loop(ctx, brown).connect(low).connect(chopped).connect(gain).connect(out);
+      const chop = ctx.createOscillator();
+      chop.frequency.value = 11;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.45;
+      chop.connect(depth).connect(chopped.gain);
+      const turbine = ctx.createOscillator();
+      turbine.type = 'sine';
+      turbine.frequency.value = 880;
+      const whine = ctx.createGain();
+      whine.gain.value = 0.04;
+      turbine.connect(whine).connect(gain);
+      chop.start();
+      turbine.start();
+      rotor = { gain, chop, whine };
+    }
+
     nature = ctx.createGain();
     nature.gain.value = 1;
     nature.connect(out);
+
+    // The rain: a hiss of white noise with its lows cut, the drops, and a
+    // softer band of pink under it that only a downpour opens.
+    {
+      const high = ctx.createBiquadFilter();
+      high.type = 'highpass';
+      high.frequency.value = 1400;
+      const top = ctx.createBiquadFilter();
+      top.type = 'lowpass';
+      top.frequency.value = 8000;
+      const hiss = ctx.createGain();
+      hiss.gain.value = 0;
+      loop(ctx, white).connect(high).connect(top).connect(hiss).connect(out);
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 700;
+      band.Q.value = 0.7;
+      const drum = ctx.createGain();
+      drum.gain.value = 0;
+      loop(ctx, pink).connect(band).connect(drum).connect(out);
+      rain = { hiss, drum };
+    }
+    rumbleNoise = brown;
+    crackNoise = white;
+  }
+
+  /** One tick of a freewheel's pawl: a click of filtered noise a few milliseconds long. */
+  function tick(ctx: AudioContext, out: AudioNode, at: number, level: number): void {
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = between(2600, 3200);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, at);
+    env.gain.linearRampToValueAtTime(level, at + 0.002);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.012);
+    osc.connect(env).connect(out);
+    osc.start(at);
+    osc.stop(at + 0.02);
+    voices++;
+    osc.onended = () => voices--;
   }
 
   /** A phrase of two to six chirps, somewhere to one side. */
@@ -441,14 +571,15 @@ export function createAudio(): Audio {
 
     update(dt, state) {
       const ctx = context;
-      if (ctx === null || wind === null || sea === null || boat === null || plane === null || nature === null) return;
+      if (ctx === null || wind === null || sea === null || boat === null || plane === null || rotor === null || nature === null || rain === null) return;
       if (ctx.state !== 'running') return;
       const now = ctx.currentTime;
       const flying = state.mode === 'plane';
-      const sailing = state.mode === 'boat';
-      const driving = state.mode === 'car';
-      const drifting = state.mode === 'balloon';
-      const walking = state.mode === 'foot';
+      const sailing = state.mode === 'boat' || state.mode === 'jetski' || state.mode === 'sail';
+      const drifting = state.mode === 'balloon' || state.mode === 'helicopter';
+      // Open to the air and quiet: birds and crickets are heard on a bicycle,
+      // a horse or under sail as they are on foot.
+      const walking = state.mode === 'foot' || state.mode === 'bicycle' || state.mode === 'horse';
       const menu = state.mode === 'menu';
       const throttle = clamp01(state.throttle);
 
@@ -459,6 +590,8 @@ export function createAudio(): Audio {
         gustClock = between(2.5, 6);
       }
       gust += (gustTarget - gust) * clamp01(dt * 0.6);
+      const gale = menu ? 0 : clamp01(state.gale ?? 0);
+      const wet = menu ? 0 : clamp01(state.rain ?? 0);
 
       const high = clamp01(state.height / 400);
       const windLevel = menu
@@ -468,7 +601,7 @@ export function createAudio(): Audio {
           : sailing || drifting
             ? WIND_LEVEL * (0.8 + 0.6 * throttle + 0.6 * (drifting ? high : 0))
             : WIND_LEVEL * (0.45 + 0.9 * clamp01(state.height / 60));
-      follow(wind.gain.gain, windLevel * (0.55 + 0.45 * gust), now);
+      follow(wind.gain.gain, windLevel * (0.55 + 0.45 * gust) * (1 + 1.6 * gale), now);
       follow(wind.band.frequency, (flying ? 600 + 900 * throttle : 320) * (0.75 + 0.5 * gust), now, 0.8);
 
       // The swell: a slow rise and a slower fall, one every six to nine seconds.
@@ -481,21 +614,52 @@ export function createAudio(): Audio {
       const shaped = crest * crest * (3 - 2 * crest);
       const seaNear = menu ? 0 : clamp01(state.sea) * (flying ? 0.25 * (1 - high) : 1);
       follow(sea.gain.gain, SEA_LEVEL * seaNear * (0.4 + 0.6 * shaped), now, 0.2);
+      // Heard less in the plane, whose engine and wind are most of the ear.
+      const rainHeard = wet * (flying ? 0.35 : 1);
+      follow(rain.hiss.gain, RAIN_LEVEL * rainHeard * (0.6 + 0.4 * gust), now, 0.6);
+      follow(rain.drum.gain, RAIN_LEVEL * 0.8 * rainHeard * rainHeard, now, 0.6);
       follow(sea.foam.gain, SEA_LEVEL * 0.18 * seaNear * shaped * shaped, now, 0.15);
 
-      // One loop for both motors on the ground and the water: the launch's
+      // One loop for every motor on the ground and the water: the launch's
       // outboard, and a car's engine, which is the same square an octave under
-      // a sawtooth pitched up and let through a wider filter.
-      const motor = sailing
-        ? BOAT_LEVEL * (0.35 + 0.65 * throttle)
-        : driving
-          ? CAR_LEVEL * (0.3 + 0.7 * throttle)
-          : 0;
+      // a sawtooth pitched up and let through a wider filter; a diesel and a
+      // single are the same again, lower and closed or higher and open.
+      const voice = MOTORS[state.mode];
+      const motor = voice === undefined ? 0 : voice.level * (0.32 + 0.68 * throttle);
       follow(boat.gain.gain, motor, now);
-      const putt = driving ? 42 + 70 * throttle : 30 + 26 * throttle;
+      const putt = voice === undefined ? 30 : voice.putt + voice.rise * throttle;
       follow(boat.low.frequency, putt, now);
       follow(boat.high.frequency, putt * 2, now);
-      follow(boat.filter.frequency, driving ? 320 + 900 * throttle : 220 + 480 * throttle, now);
+      follow(boat.filter.frequency, voice === undefined ? 220 : voice.filter + voice.open * throttle, now);
+
+      // The rotor, whenever somebody is at a helicopter's controls or in it.
+      const chopping = state.mode === 'helicopter';
+      follow(rotor.gain.gain, chopping ? ROTOR_LEVEL * (0.6 + 0.4 * throttle) : 0, now);
+      follow(rotor.chop.frequency, 10 + 3 * throttle, now, 0.8);
+
+      // A bicycle's freewheel ticks as it coasts, faster the faster it goes;
+      // pedalled, the pawl is carried round and says nothing.
+      if (state.mode === 'bicycle' && state.speed > 2 && throttle < 0.05) {
+        nextTick -= dt;
+        if (nextTick <= 0) {
+          tick(ctx, nature, now + 0.01, TICK_LEVEL);
+          nextTick = 1 / Math.min(30, state.speed * 0.9);
+        }
+      }
+      // A horse's hooves: the walk's four-beat, the gallop's three and a
+      // pause, on the recorded footfalls played low and slow.
+      if (state.mode === 'horse' && state.speed > 0.5) {
+        nextHoof -= dt;
+        if (nextHoof <= 0) {
+          const galloping = state.speed > 10;
+          const beat = galloping ? hoof % 4 : 0;
+          const count = VARIANTS.dirt;
+          play(`step-dirt-${Math.floor(Math.random() * count)}`, HOOF_LEVEL * (beat === 3 ? 0 : 1), between(0.62, 0.72));
+          hoof++;
+          const cycle = galloping ? Math.max(0.36, 9 / state.speed) : Math.max(0.5, 4.5 / state.speed);
+          nextHoof = cycle / 4;
+        }
+      }
 
       const engine = flying ? PLANE_LEVEL * (0.45 + 0.55 * throttle) : 0;
       follow(plane.gain.gain, engine, now);
@@ -506,7 +670,8 @@ export function createAudio(): Audio {
 
       // Birds by day and crickets by night, on foot in open country only: from
       // the plane or on a town's paving they would be a decoration.
-      const alive = walking && !state.cold ? clamp01(state.wild) : 0;
+      // And not in the rain, which is when birds shelter.
+      const alive = walking && !state.cold ? clamp01(state.wild) * (1 - wet) : 0;
       follow(nature.gain, alive, now, 0.8);
       if (alive > 0.05) {
         nextBirds -= dt;
@@ -556,6 +721,62 @@ export function createAudio(): Audio {
       }
     },
 
+    thunder(delay, loudness) {
+      const ctx = context;
+      if (ctx === null || master === null || rumbleNoise === null || crackNoise === null) return;
+      const loud = clamp01(loudness);
+      if (loud < 0.02) return;
+      const at = ctx.currentTime + Math.max(0, delay);
+      // The crack, only near: a strike under a kilometre off tears; further
+      // off the air has taken the highs and only the roll arrives.
+      if (loud > 0.45) {
+        const crack = ctx.createBufferSource();
+        crack.buffer = crackNoise;
+        const high = ctx.createBiquadFilter();
+        high.type = 'highpass';
+        high.frequency.value = 900;
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, at);
+        env.gain.linearRampToValueAtTime(THUNDER_LEVEL * 0.7 * loud, at + 0.01);
+        env.gain.exponentialRampToValueAtTime(0.0001, at + 0.35);
+        crack.connect(high).connect(env).connect(master);
+        crack.start(at, Math.random() * 2);
+        crack.stop(at + 0.4);
+        voices++;
+        crack.onended = () => voices--;
+      }
+      const roll = ctx.createBufferSource();
+      roll.buffer = rumbleNoise;
+      roll.loop = true;
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowpass';
+      const top = 140 + 520 * loud;
+      low.frequency.setValueAtTime(top, at);
+      const length = between(3.5, 6.5);
+      low.frequency.exponentialRampToValueAtTime(70, at + length);
+      const env = ctx.createGain();
+      const peak = THUNDER_LEVEL * (0.25 + 0.75 * loud);
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(peak, at + between(0.06, 0.25));
+      // Three or four swells, each softer than the last: the roll is the
+      // same flash heard off a length of channel that is kilometres long.
+      let t = at + 0.3;
+      const swells = 3 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < swells; i++) {
+        const fall = (1 - i / swells) * peak;
+        t += between(0.5, 1.3);
+        env.gain.linearRampToValueAtTime(fall * between(0.35, 0.6), t);
+        t += between(0.3, 0.8);
+        env.gain.linearRampToValueAtTime(fall * between(0.7, 1), t);
+      }
+      env.gain.exponentialRampToValueAtTime(0.0001, Math.max(t, at + length) + 1.2);
+      roll.connect(low).connect(env).connect(master);
+      roll.start(at, Math.random() * 3);
+      roll.stop(Math.max(t, at + length) + 1.3);
+      voices++;
+      roll.onended = () => voices--;
+    },
+
     cue(name) {
       audio.onCue?.(name);
       if (name === 'land') {
@@ -582,6 +803,9 @@ export function createAudio(): Audio {
 
     get output() {
       return output;
+    },
+    get bus() {
+      return master;
     },
     onCue: null,
 

@@ -31,8 +31,9 @@ import { latOf, lonOf } from './sphere.ts';
  *   the resolution the outlines have, carrying the shelf, the shoals and the
  *   surf. Everything that has to line up with a coast is here, because the
  *   sphere cannot resolve a coast at all.
- * - **The glitter** is the sun's own path on the water, rebuilt every frame from
- *   where the camera and the light actually are.
+ * - **The glitter** is the sun's own path on the water, a term in both
+ *   materials' shaders from where the camera and the light actually are
+ *   (`addGlint`).
  */
 
 const DEG = Math.PI / 180;
@@ -652,7 +653,7 @@ function buildWater(world: World): {
   // this. A multiplier on all three channels, so the hue holds and only the
   // lightness moves; see `MOSAIC_WATER`. Only the sphere: the shallows are a
   // colour *step* along a coast and a jitter on a band four cells wide reads
-  // as dirt in the surf, and the glitter is rebuilt every frame. The mean
+  // as dirt in the surf, and the glitter is drawn by the shader. The mean
   // above is taken before this, so `atlas.ocean.stats` reports the sea's
   // colour and not the jitter's.
   const [waterLow, waterHigh] = MOSAIC_WATER;
@@ -669,6 +670,7 @@ function buildWater(world: World): {
 
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
   material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: [0.11, 0.02, 0.01] };
+  addGlint(material);
   const mesh = new THREE.Mesh(geometry, material);
   // `atlas.scene.getObjectByName('ocean')` is in the debugging notes and is
   // still the sphere: it is what "sea level" means.
@@ -744,6 +746,7 @@ uniform vec3 uFoam;`,
   // Two materials that compile to different programs must not share a cache
   // key, and Three keys on the source plus this.
   material.customProgramCacheKey = () => 'atlas-shallows';
+  addGlint(material);
   return material;
 }
 
@@ -1051,61 +1054,6 @@ function buildShallows(
 }
 
 /**
- * The sun's path on the water.
- *
- * **A sea that does not change between noon, dusk and moonlight is missing the
- * best thing this project already built**, and the thing that makes water read
- * as wet rather than as blue plastic is the mirror: the reflection of the light
- * stretched into a path by a surface that is not quite flat. `MeshToonMaterial`
- * has no specular term and would be the wrong place for one anyway — a cel ramp
- * has four steps and a highlight is not one of them — so the path is *geometry*,
- * a chain of pale dashes rebuilt every frame from where the camera and the light
- * actually are.
- *
- * Two things about it are worth knowing.
- *
- * **It is not clipped to the water and does not need to be.** The dashes sit
- * just above the sphere and the land stands `SHORE_LIP` above that at its very
- * lowest, so any land between the camera and a dash — or under it — occludes it.
- * The depth buffer does the clipping and there is not one point-in-polygon in
- * the whole of this.
- *
- * **It is marched rather than solved.** The specular point of a distant light on
- * a sphere is Alhazen's problem; walking the great circle from under the camera
- * out towards the light's bearing and asking each step how well it reflects is
- * two dot products a step, is exact wherever it lands, and gives the *shape* of
- * the path for free — compact and round overhead, a long streak at dusk, because
- * that is what the alignment does as the light comes down.
- */
-const GLITTER_STEPS = 150;
-/**
- * And how many of them the detail knob buys, because this is the one part of the
- * sea that gets *better* past detail 1 rather than merely not worse.
- *
- * A sparkle is two triangles, so the whole path at detail 6 is under two
- * thousand — free against a ribbon of three hundred thousand — and what it buys
- * is density: at detail 0.25 a path of 38 flecks is a dotted line and at 6 it is
- * a field. It goes as the square root because the path is a *band* on the water
- * and its area is what is being filled, so a linear count would thin out as the
- * knob opened the fog and the path grew with it.
- */
-const sparklesFor = (d: number): number => Math.round(GLITTER_STEPS * Math.sqrt(d));
-/**
- * Where the march starts and ends, in world units along the ground.
- *
- * **Geometric, not linear, and not quadratic either.** The path is a chain of
- * dashes laid on a surface the camera sees almost edge-on, so what decides
- * whether they are spread evenly on the *screen* is the ratio between
- * consecutive distances, not the difference. The first version stepped
- * `reach = 2600 * t^2` and put three quarters of its dashes inside 600 units,
- * which from a boat is the strip immediately under the bow: measured, of five
- * dashes built with the sun at 65 degrees, **one was on the screen** and the
- * rest had normalised device coordinates from -0.82 down to -4.75 — under the
- * frame, not in it.
- */
-const GLITTER_NEAR = 7;
-const GLITTER_FAR = 3000;
-/**
  * How tightly the path clings to the mirror direction.
  *
  * This is the one number in the file that is a **physical** quantity rather
@@ -1128,25 +1076,6 @@ const GLITTER_FAR = 3000;
  * straight down, off the bottom of the frame.
  */
 const GLITTER_SLOPE = 0.20;
-/**
- * Dash size as a fraction of its own distance, so it holds its angular size.
- *
- * A fixed width is a bar under the bow and a speck at the horizon. Ten percent
- * of the distance is about 5.7 degrees, which at the near end is a dash a
- * finger wide and at 3,000 units is a 300-unit smear — clamped, because past a
- * point it stops being glitter and becomes a painted lane.
- */
-const GLITTER_SIZE = 0.030;
-const GLITTER_MAX_WIDTH = 70;
-/**
- * How wide the sparkle field is thrown, as a fraction of its own distance.
- *
- * Not a taper: the scatter is uniform across this band at every distance and the
- * alignment throws away whatever is off the mirror direction, so the shape of
- * the path — a compact patch at noon, a long narrow streak at dusk — falls out
- * of `GLITTER_LOBE` rather than out of a curve written here.
- */
-const GLITTER_WIDEN = 0.26;
 
 /** A stable hash per sparkle, so a dash keeps its size and place across frames. */
 function hash(i: number, salt: number): number {
@@ -1154,132 +1083,100 @@ function hash(i: number, salt: number): number {
   return x - Math.floor(x);
 }
 
-interface Glitter {
-  mesh: THREE.Mesh;
-  update(camera: THREE.Vector3, direction: THREE.Vector3, tint: THREE.Color, strength: number): void;
+/**
+ * The light's path on the water, drawn by the water itself.
+ *
+ * **It used to be geometry and it was the ugliest thing in the world.** A few
+ * hundred additive quads were scattered round the camera every frame, from a
+ * hash of their index, along the light's bearing: anchored to the eye rather
+ * than to the sea, so every one of them slid as the camera moved, and each was
+ * a flat rectangle in the tint of the light — squares of colour skating over
+ * the water, visible even from the menu's globe. Now it is a term in the
+ * water's own shader: the same physics (a Gaussian lobe on the angle between
+ * the surface normal and the half vector, `GLITTER_SLOPE` wide) multiplied by
+ * a sparkle field **fixed in world space** and drifting slowly, so a glint
+ * stays where the sea put it, and thresholded into specks the way the ramp
+ * steps the sun. Far off, where a speck would be under a pixel and would only
+ * shimmer, the specks give way to the lobe itself as a soft band.
+ */
+const glintUniforms = {
+  uGlintDir: { value: new THREE.Vector3(0, 1, 0) },
+  uGlintTint: { value: new THREE.Color() },
+  uGlintStrength: { value: 0 },
+  uGlintTime: { value: 0 },
+};
+
+/** How big one sparkle cell is, in world units, near the camera. */
+const GLINT_CELL = 1.6;
+/** Where the specks have handed over to the soft band, in units from the eye. */
+const GLINT_BAND_FROM = 250;
+const GLINT_BAND_TO = 900;
+
+function addGlint(material: THREE.MeshToonMaterial): void {
+  const previous = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    Object.assign(shader.uniforms, glintUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGlintWorld;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vGlintWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vGlintWorld;
+uniform vec3 uGlintDir;
+uniform vec3 uGlintTint;
+uniform float uGlintStrength;
+uniform float uGlintTime;
+vec3 atlasGlintHash3(vec3 p) {
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 33.33);
+  return fract((p.xxy + p.yxx) * p.zyx);
 }
-
-function buildGlitter(d: number): Glitter {
-  const sparkles = sparklesFor(d);
-  const geometry = new THREE.BufferGeometry();
-  const position = new Float32Array(sparkles * 6 * 3);
-  const color = new Float32Array(sparkles * 6 * 3);
-  geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
-  geometry.setDrawRange(0, 0);
-
-  const material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 1,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    fog: false,
-  });
-  material.userData.outlineParameters = { visible: false };
-
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'glitter';
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 1;
-
-  const up = new THREE.Vector3();
-  const bearing = new THREE.Vector3();
-  const across = new THREE.Vector3();
-  const at = new THREE.Vector3();
-  const view = new THREE.Vector3();
-  const half = new THREE.Vector3();
-  const corner = new THREE.Vector3();
-  const scratch = new THREE.Vector3();
-  const tone = new THREE.Color();
-
-  const update = (
-    camera: THREE.Vector3,
-    direction: THREE.Vector3,
-    tint: THREE.Color,
-    strength: number,
-  ): void => {
-    up.copy(camera).normalize();
-    // The light's bearing on the ground under the camera: the component of the
-    // light direction that lies in the local horizontal plane. Straight overhead
-    // there is none and the path is a disc, which the march gives on its own.
-    bearing.copy(direction).addScaledVector(up, -direction.dot(up));
-    if (strength <= 0.001 || bearing.lengthSq() < 1e-8) {
-      geometry.setDrawRange(0, 0);
-      return;
+// One speck a cell: a disc at a random spot, kept only where the lobe is
+// strong enough for this cell's draw.
+float atlasGlintSpeck(vec3 world, float octave, vec3 drift, float lobe) {
+  float size = ${GLINT_CELL.toFixed(2)} * octave;
+  vec3 p = world / size + drift;
+  vec3 cell = floor(p);
+  vec3 h = atlasGlintHash3(cell);
+  if (h.x > lobe * 0.85) return 0.0;
+  vec3 centre = cell + 0.25 + 0.5 * atlasGlintHash3(cell + 17.0);
+  float r = 0.12 + 0.16 * h.y;
+  return 1.0 - smoothstep(r * 0.7, r, length(p - centre));
+}`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+  if (uGlintStrength > 0.001) {
+    vec3 gUp = normalize(vGlintWorld);
+    vec3 gView = normalize(cameraPosition - vGlintWorld);
+    vec3 gHalf = normalize(gView + uGlintDir);
+    float gTheta = acos(clamp(dot(gHalf, gUp), 0.0, 1.0));
+    float gLobe = exp(-gTheta * gTheta / ${(2 * GLITTER_SLOPE * GLITTER_SLOPE).toFixed(5)});
+    if (gLobe > 0.01) {
+      float gDist = length(cameraPosition - vGlintWorld);
+      // Round specks, one at a random place in each cell of a lattice fixed
+      // to the sea, the cells growing with distance in octaves so a speck
+      // keeps its size on screen; two octaves cross-fade so no band shows
+      // where one hands to the next. The drift is the swell moving.
+      float gLevel = log2(max(1.0, gDist / 40.0));
+      float gOctave = exp2(floor(gLevel));
+      float gBlend = fract(gLevel);
+      vec3 gDrift = vec3(uGlintTime * 0.35, 0.0, uGlintTime * 0.21);
+      float gSpecks = mix(atlasGlintSpeck(vGlintWorld, gOctave, gDrift, gLobe),
+        atlasGlintSpeck(vGlintWorld, gOctave * 2.0, gDrift, gLobe), gBlend);
+      float gFar = smoothstep(${GLINT_BAND_FROM.toFixed(1)}, ${GLINT_BAND_TO.toFixed(1)}, gDist);
+      float gGlint = mix(gSpecks, gLobe * gLobe * 0.4, gFar);
+      totalEmissiveRadiance += mix(uGlintTint, vec3(1.0), 0.5) * (gGlint * uGlintStrength * 1.4);
     }
-    bearing.normalize();
-    across.crossVectors(up, bearing).normalize();
-
-    let cursor = 0;
-    let vertices = 0;
-    for (let step = 0; step < sparkles; step++) {
-      // **A scatter, not a chain**, and the first version was a chain. Marching
-      // one dash per distance along the light's bearing draws a ladder of
-      // equally spaced bars from the bow to the horizon, which is the Space
-      // Needle's finding on a flat surface: regular joints read as *made*, and
-      // 52 of them in a straight line read as a **zebra crossing**. Light on
-      // water is a cloud of specks whose density falls away from the mirror
-      // direction, so both coordinates are drawn from a hash and the physics
-      // below decides which of them survive.
-      const h1 = hash(step, 0);
-      const h2 = hash(step, 1);
-      const h3 = hash(step, 2);
-      const reach = GLITTER_NEAR * Math.pow(GLITTER_FAR / GLITTER_NEAR, h1);
-      const angle = reach / PLANET_RADIUS;
-      at.copy(up).multiplyScalar(Math.cos(angle)).addScaledVector(bearing, Math.sin(angle));
-      // Off the axis by up to the path's own half-width at this distance. The
-      // taper is not drawn: sparkles land across the whole band and only the
-      // ones the alignment keeps are built, so the path narrows on its own.
-      at.addScaledVector(across, ((h2 * 2 - 1) * reach * GLITTER_WIDEN) / PLANET_RADIUS).normalize();
-      view.subVectors(camera, scratch.copy(at).multiplyScalar(PLANET_RADIUS)).normalize();
-      // A flat sea reflects the light into the eye only where the surface normal
-      // bisects the two. The sea is not flat, so the falloff is generous: what
-      // decides the *length* of a glitter path in life is the spread of the
-      // wave slopes, and `GLITTER_LOBE` is that spread.
-      half.copy(view).add(direction).normalize();
-      const theta = Math.acos(Math.min(1, Math.max(0, half.dot(at))));
-      const glint = Math.exp((-theta * theta) / (2 * GLITTER_SLOPE * GLITTER_SLOPE)) * strength;
-      if (glint < 0.03) continue;
-
-      const width = Math.min(GLITTER_MAX_WIDTH, reach * GLITTER_SIZE) * (0.45 + h3);
-      const length = width * 0.55;
-      tone.copy(tint).multiplyScalar(glint);
-
-      const quad = (dx: number, dy: number): void => {
-        corner
-          .copy(at)
-          .addScaledVector(bearing, (dy * length) / PLANET_RADIUS)
-          .addScaledVector(across, (dx * width) / PLANET_RADIUS)
-          .normalize()
-          .multiplyScalar(PLANET_RADIUS + LIFT_COAST + 0.2);
-        position[cursor] = corner.x;
-        position[cursor + 1] = corner.y;
-        position[cursor + 2] = corner.z;
-        color[cursor] = tone.r;
-        color[cursor + 1] = tone.g;
-        color[cursor + 2] = tone.b;
-        cursor += 3;
-        vertices++;
-      };
-      // **Wound the other way round than it reads.** `across` is
-      // `cross(up, bearing)`, so a quad laid out in the obvious order — round
-      // the corners anticlockwise in (across, bearing) — has a normal of
-      // `across x bearing`, which is **minus up**: every dash faces the centre
-      // of the planet and `FrontSide` culls the lot. What it looks like is not
-      // "no glitter": the path renders as a **single thin line on the horizon**,
-      // because past the limb the sphere has curved far enough that you are
-      // looking at the undersides. 42 of 52 dashes were measured inside the
-      // frame with vertex colours up to 0.997, and none of them drew.
-      quad(-1, -1); quad(1, 1); quad(1, -1);
-      quad(-1, -1); quad(-1, 1); quad(1, 1);
-    }
-    geometry.setDrawRange(0, vertices);
-    geometry.getAttribute('position').needsUpdate = true;
-    geometry.getAttribute('color').needsUpdate = true;
+  }`,
+      );
   };
-
-  return { mesh, update };
+  const key = material.customProgramCacheKey.bind(material);
+  material.customProgramCacheKey = () => `${key()}+glint`;
 }
 
 /**
@@ -1347,7 +1244,7 @@ export interface Ocean {
     buildMs: number;
   };
   /**
-   * The surf's clock and the glitter's geometry.
+   * The surf's clock and the glitter's light.
    *
    * The clock is `performance.now()` and deliberately *not* the sky's: a swell
    * is a fact about water and `atlas.sky.setRate(600)` is for watching a dawn,
@@ -1371,8 +1268,6 @@ export function createOcean(world: World): Ocean {
   const shallows = buildShallows(world, knob);
   for (const mesh of shallows.meshes) group.add(mesh);
 
-  const glitter = buildGlitter(knob);
-  group.add(glitter.mesh);
 
   const sphereFaces = water.mesh.geometry.getAttribute('position').count / 3;
   const sphereEdge = (63.4349 / Math.sqrt(sphereFaces / 20)) * DEG;
@@ -1414,9 +1309,9 @@ export function createOcean(world: World): Ocean {
     | { uTime: { value: number } }
     | undefined;
 
-  const tint = new THREE.Color();
-  const update = (camera: THREE.Vector3, lights: readonly OceanLight[]): void => {
-    if (uniforms !== undefined) uniforms.uTime.value = (performance.now() / 1000) % FOAM_CYCLE;
+  const update = (_camera: THREE.Vector3, lights: readonly OceanLight[]): void => {
+    const seconds = performance.now() / 1000;
+    if (uniforms !== undefined) uniforms.uTime.value = seconds % FOAM_CYCLE;
     // One path, from whichever body is doing the lighting. Two would be two
     // suns: the moon's path is only ever worth drawing when the sun's is not.
     let best: OceanLight | null = null;
@@ -1424,12 +1319,15 @@ export function createOcean(world: World): Ocean {
       if (light.intensity <= 0.01) continue;
       if (best === null || light.intensity > best.intensity) best = light;
     }
+    // The drift wraps where the hash repeats, so the clock never loses precision.
+    glintUniforms.uGlintTime.value = seconds % 1000;
     if (best === null) {
-      glitter.update(camera, camera, tint, 0);
+      glintUniforms.uGlintStrength.value = 0;
       return;
     }
-    tint.copy(best.color);
-    glitter.update(camera, best.direction, tint, Math.min(1, best.intensity * 0.55));
+    glintUniforms.uGlintDir.value.copy(best.direction);
+    glintUniforms.uGlintTint.value.copy(best.color);
+    glintUniforms.uGlintStrength.value = Math.min(1, best.intensity * 0.55);
   };
 
   return { group, stats, update };

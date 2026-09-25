@@ -572,7 +572,8 @@ interface RigEntry {
 const FAUNA: RigEntry[] = [
   { id: 'cow', source: `${UAA}Cow.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'bull', source: `${UAA}Bull.gltf`, clips: /^(Eating|Idle|Walk)$/ },
-  { id: 'horse', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk)$/ },
+  // The horse keeps its gallop too: a herd only walks, but a horse is ridden (`craft/horse.ts`).
+  { id: 'horse', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk|Gallop)$/ },
   { id: 'donkey', source: `${UAA}Donkey.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'alpaca', source: `${UAA}Alpaca.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'stag', source: `${UAA}Stag.gltf`, clips: /^(Eating|Idle|Walk)$/ },

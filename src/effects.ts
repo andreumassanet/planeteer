@@ -4,7 +4,7 @@ import { AVATAR_HEIGHT } from './stature.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import type { BiomeId } from './biome.ts';
 import type { CraftKind, CraftModel, PlayerState } from './craft/contract.ts';
-import { BALLOON_CLIMB, BALLOON_SPEED, BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, PLANE_ROTATE } from './vehicles.ts';
+import { BALLOON_CLIMB, BALLOON_SPEED, BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_LOW, PLANE_ROTATE, topSpeedOf } from './vehicles.ts';
 
 /**
  * What the world leaves behind it as it moves: a launch's wake, the rings
@@ -101,20 +101,21 @@ const FOOT_TOP = 40;
 
 /** The fastest a kind of vehicle goes, with room: a move faster than this in a frame is a jump. */
 function topSpeed(kind: CraftKind | null): number {
-  switch (kind) {
-    case 'boat':
-      return BOAT_BOOST * 1.3;
-    case 'car':
-    case 'van':
-      return CAR_BOOST * 1.3;
-    case 'plane':
-      return PLANE_CRUISE_HIGH * 1.3;
-    case 'balloon':
-      return (BALLOON_SPEED + BALLOON_CLIMB) * 2;
-    default:
-      return FOOT_TOP;
-  }
+  if (kind === null) return FOOT_TOP;
+  if (kind === 'balloon') return (BALLOON_SPEED + BALLOON_CLIMB) * 2;
+  return topSpeedOf(kind) * 1.3;
 }
+
+/**
+ * What a kind leaves behind it, by how it goes: a hull's wake on the water;
+ * an engine's exhaust and its wheels' dust on the ground; only the dust off a
+ * bicycle's tyres and a horse's hooves.
+ */
+const HULLS: ReadonlySet<CraftKind> = new Set<CraftKind>(['boat', 'jetski', 'sailboat']);
+const ENGINES: ReadonlySet<CraftKind> = new Set<CraftKind>(['car', 'van', 'bus', 'tractor', 'jeep', 'tuktuk', 'motorbike']);
+const QUIET: ReadonlySet<CraftKind> = new Set<CraftKind>(['bicycle', 'horse']);
+/** A helicopter's downwash reaches the ground from this high, in units, and is strongest on it. */
+const WASH_REACH = 30;
 
 /** Whether a move of `run` units in `dt` seconds is a jump rather than travel. */
 const isJump = (run: number, dt: number, kind: CraftKind | null): boolean => run > topSpeed(kind) * dt + 1;
@@ -157,6 +158,9 @@ export interface EffectsSubject {
   readonly airborne: boolean;
   readonly grounded: boolean;
   readonly ride: { readonly model: CraftModel } | null;
+  /** In a helicopter: how high over the surface under it, water or ground, and whether it is water. */
+  readonly clearance?: number;
+  readonly overWater?: boolean;
 }
 
 /** Somebody else's vehicle, or a boat of the traffic: its object (posed in the world), what it is, and its model if known. */
@@ -305,7 +309,9 @@ const E_FLAME = 6;
 const E_RING = 7;
 const E_SWIM = 8;
 const E_TAXI = 9;
-const E_SLOTS = 10;
+const E_ROOSTER = 10;
+const E_WASH = 11;
+const E_SLOTS = 12;
 
 // A followed vehicle: last position, frame last seen, speed and climb eased,
 // and its emitter slots.
@@ -825,6 +831,50 @@ export function createEffects(): Effects {
     }
   }
 
+  /**
+   * A jet ski's rooster tail: the jet's water thrown up and back off the
+   * stern, a plume taller and thicker the faster it goes, falling back as
+   * spray; and a skid of foam at the waterline under it.
+   */
+  function rooster(slots: Float64Array, origin: THREE.Vector3, fwd: THREE.Vector3, up: THREE.Vector3, side: THREE.Vector3, speed: number, length: number, dt: number): void {
+    const k = clamp(speed / 40, 0, 1.6);
+    if (k < 0.15) return;
+    for (let j = 0, n = owed(slots, E_ROOSTER, 40 * k, dt); j < n; j++) {
+      local(origin, fwd, up, side, rand(-0.1, 0.1), 0.15, -length * 0.5, at, (j + 0.5) / n);
+      vel.copy(fwd).multiplyScalar(speed * 0.35).addScaledVector(fwd, -rand(4, 8) * k).addScaledVector(up, rand(6, 10) * k);
+      addAcross(up, rand(0.3, 1.2), vel);
+      spawnPuff(at, vel, up, rand(0.6, 0.9), H * 0.05, H * (0.1 + 0.08 * k), 0.4, FOAM_COLOR, 0, 1.2, -FALL);
+    }
+  }
+
+  /**
+   * A helicopter's downwash, low over the ground: rings racing out over water
+   * and spray blown off it, or dust and grass blown out along the ground,
+   * stronger the lower it is.
+   */
+  function downwash(slots: Float64Array, origin: THREE.Vector3, up: THREE.Vector3, over: number, water: boolean, reach: number, dt: number): void {
+    const k = clamp(1 - over / WASH_REACH, 0, 1);
+    if (k <= 0) return;
+    const ground = at;
+    for (let j = 0, n = owed(slots, E_WASH, (water ? 10 : 16) * k, dt); j < n; j++) {
+      ground.copy(origin).addScaledVector(up, -over);
+      if (water) {
+        vel.set(0, 0, 0);
+        spawnDisc(ground, vel, 0.9, reach * 0.3, reach * (0.8 + 0.4 * k), 0.8, 0);
+        addAcross(up, rand(reach * 0.4, reach * 0.8), ground);
+        vel.copy(up).multiplyScalar(rand(2, 4));
+        addAcross(up, rand(6, 12) * k, vel);
+        spawnPuff(ground, vel, up, rand(0.4, 0.6), H * 0.05, H * 0.1, 0.4, FOAM_COLOR, 0, 1.5, -FALL);
+      } else {
+        const hex = paved ? PALETTE.bone : dust ?? PALETTE.bone;
+        addAcross(up, rand(reach * 0.3, reach * 0.7), ground);
+        vel.copy(up).multiplyScalar(rand(0.5, 1.5));
+        addAcross(up, rand(5, 10) * k, vel);
+        spawnPuff(ground, vel, up, rand(0.6, 1), H * 0.08, H * rand(0.25, 0.4), 0.35, hex, 0, 2.5, 0.4);
+      }
+    }
+  }
+
   /** A splash: spray thrown up and falling back, and a ring opening on the water. */
   function splash(point: THREE.Vector3, up: THREE.Vector3, reach: number, count: number): void {
     centre.copy(point);
@@ -940,8 +990,11 @@ export function createEffects(): Effects {
     const [length, width, height] = model.size;
     const speed = Math.abs(along);
 
-    if (kind === 'boat') {
+    if (kind !== null && HULLS.has(kind)) {
       wake(mine, MINE, s.position, fwd, up, right, along, run, length, width, dt);
+      if (kind === 'jetski') rooster(mine, s.position, fwd, up, right, speed, length, dt);
+    } else if (kind === 'helicopter') {
+      if (s.airborne) downwash(mine, s.position, up, s.clearance ?? Infinity, s.overWater === true, Math.max(length, width) * 0.5, dt);
     } else if (kind === 'plane') {
       if (s.airborne) contrail(mine, s.position, fwd, up, right, speed, run, length, height, accel);
       else if (speed > 12) {
@@ -953,7 +1006,12 @@ export function createEffects(): Effects {
           wheels(mine, E_TAXI, s.position, fwd, up, right, motion, length * 0.4, width * 0.3, rate, hex, H * (dust === null ? 0.18 : 0.3), dt);
         }
       }
-    } else if (kind === 'car' || kind === 'van') {
+    } else if (kind !== null && QUIET.has(kind)) {
+      // Dust off the tyres or the hooves, on bare ground, at a canter or a sprint.
+      if (!s.airborne && !paved && dust !== null && speed > 8) {
+        wheels(mine, E_DUST, s.position, fwd, up, right, motion, length, width * 0.5, 22 * clamp(speed / 30, 0, 1), dust, H * 0.3, dt);
+      }
+    } else if (kind !== null && ENGINES.has(kind)) {
       exhaust(mine, s.position, fwd, up, right, along, accel, motion, length, width, height, dt);
       if (!s.airborne) {
         if (!paved && dust !== null && speed > 10) {
@@ -1015,12 +1073,13 @@ export function createEffects(): Effects {
     const width = model?.size[1] ?? H * 0.8;
     const height = model?.size[2] ?? H;
     motion.copy(delta).multiplyScalar(1 / frameDt);
-    if (kind === 'boat') {
+    if (kind !== null && HULLS.has(kind)) {
       for (let i = 0; i < 3; i++) if (entry.ribbons[i]! < 0) entry.ribbons[i] = takeRibbon();
       wake(entry.slots, entry.ribbons, now, fwdAt, upAt, rightAt, speed, run, length, width, frameDt);
+      if (kind === 'jetski') rooster(entry.slots, now, fwdAt, upAt, rightAt, speed, length, frameDt);
     } else if (kind === 'plane') {
       if (speed > PLANE_ROTATE * 1.05) contrail(entry.slots, now, fwdAt, upAt, rightAt, speed, run, length, height, 0);
-    } else if (kind === 'car' || kind === 'van') {
+    } else if (kind !== null && ENGINES.has(kind)) {
       if (speed > 0.5) exhaust(entry.slots, now, fwdAt, upAt, rightAt, speed, 0, motion, length, width, height, frameDt);
     } else if (kind === 'balloon' && model?.burner !== undefined && track[T_CLIMB]! > 0.3) {
       flame(entry.slots, now, upAt, model.burner, frameDt);
@@ -1348,8 +1407,9 @@ export function createEffects(): Effects {
       splash(at, s.up, Math.max(size[0], size[1]) * 0.6, 14);
     } else if ((name === 'landed' || name === 'took-off') && size !== undefined) {
       const hex = paved ? PALETTE.bone : dust ?? PALETTE.bone;
-      const count = kind === 'plane' ? (name === 'landed' ? 14 : 8) : 6;
-      dustBurst(s.position, s.up, Math.max(size[0], size[1]) * 0.35, count, hex, H * (kind === 'plane' ? 0.35 : 0.25));
+      const big = kind === 'plane' || kind === 'helicopter';
+      const count = big ? (name === 'landed' ? 14 : 8) : 6;
+      dustBurst(s.position, s.up, Math.max(size[0], size[1]) * 0.35, count, hex, H * (big ? 0.35 : 0.25));
     }
   }
 

@@ -5,10 +5,11 @@ import { BODY_SCALE } from './stature.ts';
 import type { World } from './geo.ts';
 import { LAND_HEIGHT, PLANET_RADIUS, groundRadius } from './globe.ts';
 import { unitAt } from './sphere.ts';
-import { MAX_SLOPE } from './terrain.ts';
 import { slide } from './scenery/solids.ts';
 import type { Body, Walls } from './scenery/solids.ts';
 import type { TravelMode } from './controls.ts';
+import type { Emote } from '../server/src/limits.ts';
+import { isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
@@ -26,18 +27,23 @@ import {
   BOAT_SPEED,
   BOAT_TURN,
   CAR_ACCELERATION_TIME,
-  CAR_BOOST,
-  CAR_BOUNCE,
   CAR_BRAKE_TIME,
   CAR_COAST_TIME,
-  CAR_FAST_LOCK,
-  CAR_GRIP_SPEED,
   CAR_REVERSE,
-  CAR_SPEED,
-  CAR_STEER_TIME,
-  CAR_STEP,
-  CAR_TURN,
   CRASH_SPEED,
+  HELI_ACCELERATION_TIME,
+  HELI_BANK,
+  HELI_CEILING,
+  HELI_CLIMB,
+  HELI_LANDING_GRADE,
+  HELI_NOSE,
+  HELI_REVERSE,
+  HELI_SINK,
+  HELI_SPEED,
+  HELI_SPOOL,
+  HELI_TOUCHDOWN,
+  HELI_TURN,
+  HELI_VERTICAL_TIME,
   PLANE_ACCELERATION_TIME,
   PLANE_CEILING,
   PLANE_CLIMB_MIN,
@@ -55,11 +61,14 @@ import {
   PLANE_TOUCHDOWN,
   PLANE_TURN,
   PLANE_VERTICAL_TIME,
+  ROAD_HANDLING,
   SHORE_REACH,
   WATERLINE,
+  WATER_HANDLING,
   buildSplash,
   isWater,
 } from './vehicles.ts';
+import type { RoadHandling, WaterHandling } from './vehicles.ts';
 
 /**
  * Time constant of the speed ramp. Speed approaches its target exponentially,
@@ -342,6 +351,25 @@ const PLANE_WALL = 0.3;
 const BALLOON_TURN_TIME = 0.8;
 /** And a launch's rudder, over to its stop. */
 const RUDDER_TIME = 0.25;
+/**
+ * The launch as `sail` drives any hull (`WaterHandling` in `vehicles.ts`): its
+ * speeds, turn and throttle from the boat constants there, and the rudder, the
+ * heel and the bow's rise from this file's. The other hulls' rows are in
+ * `WATER_HANDLING`.
+ */
+const LAUNCH: WaterHandling = {
+  speed: BOAT_SPEED,
+  boost: BOAT_BOOST,
+  turn: BOAT_TURN,
+  accelerationTime: BOAT_ACCELERATION_TIME,
+  rudderTime: RUDDER_TIME,
+  astern: 0.35,
+  heel: BOAT_HEEL,
+  bow: BOW_LIFT,
+  hop: 0,
+  list: 0,
+};
+const waterOf = (kind: CraftKind): WaterHandling => (kind === 'boat' ? LAUNCH : WATER_HANDLING[kind] ?? LAUNCH);
 
 /**
  * What the player just did, or was refused, for whoever tells the player so.
@@ -411,6 +439,13 @@ export interface Player {
   /** Units above sea level. The camera reads it to open the view out. */
   altitude: number;
   /**
+   * In a helicopter, units over whatever is under it — the ground, a roof, the
+   * sea — and whether that is water: what its downwash blows on. Infinity
+   * otherwise.
+   */
+  clearance: number;
+  overWater: boolean;
+  /**
    * Held intent in the air, written by whoever reads the keyboard: +1 climb,
    * -1 descend.
    *
@@ -446,6 +481,14 @@ export interface Player {
   leave(): WirePose | null;
   /** Where the vehicle is while seated, or the body on foot: nine numbers, see `WirePose`. */
   pose(out: WirePose): WirePose;
+  /**
+   * A gesture where others can see it (`Motion.emote`): standing on the
+   * ground only, and false anywhere else or where the body has no clip for it.
+   * Walking off ends it.
+   */
+  emote(name: Emote | null): boolean;
+  /** The gesture being made, or null. */
+  readonly emoting: Emote | null;
   /** A passenger is carried: stand the vehicle, and him in it, at a pose somebody else drives. */
   carry(pose: WirePose): void;
 }
@@ -479,8 +522,45 @@ function levers(move: { x: number; y: number }, out: { x: number; y: number }): 
   return out;
 }
 
-const isAir = (kind: CraftKind): boolean => kind === 'plane' || kind === 'balloon';
-const isRoad = (kind: CraftKind): boolean => kind === 'car' || kind === 'van';
+const isAir = isAirKind;
+/** The handling a vehicle on wheels or hooves is driven by, or undefined for anything else. */
+const roadOf = (kind: CraftKind): RoadHandling | undefined => ROAD_HANDLING[kind];
+/** The keys and the HUD's name for driving each kind: every four-wheeler is driven as a car is. */
+const MODE_OF: Readonly<Record<CraftKind, TravelMode>> = {
+  car: 'car',
+  van: 'car',
+  bus: 'car',
+  tractor: 'car',
+  jeep: 'car',
+  tuktuk: 'car',
+  boat: 'boat',
+  plane: 'plane',
+  balloon: 'balloon',
+  bicycle: 'bicycle',
+  motorbike: 'motorbike',
+  horse: 'horse',
+  jetski: 'jetski',
+  sailboat: 'sailboat',
+  helicopter: 'helicopter',
+};
+/** The car's, which a plane taxis by. */
+const TAXI = ROAD_HANDLING.car!;
+
+/**
+ * How far a two-wheeler's or a rider's lean goes at full lateral pull: the
+ * pull, speed times turn, in units a second squared, that leans it the whole
+ * of its handling's `lean`.
+ */
+const LEAN_PULL = 40;
+/** How fast the lean and a wheelie follow the pull and the throttle, per second. */
+const LEAN_EASE = 7;
+/** A wheelie's most, radians, and how much of the length behind the middle the rear axle is. */
+const WHEELIE_MAX = 0.3;
+const REAR_AXLE = 0.34;
+/** A helicopter's floor over water, in units: its skids are kept this clear of the waves. */
+const HELI_WATER_FLOOR = 2;
+/** How fast a helicopter's nose and bank follow its speed and turn, per second. */
+const HELI_ATTITUDE_EASE = 2.5;
 
 export interface PlayerOptions {
   /**
@@ -663,6 +743,15 @@ export function createPlayer(
   let roll = 0;
   let climbRate = 0;
   let swell = 0;
+  /** How hard a vehicle on wheels is pulling away, units a second squared, eased; and a motorbike's front wheel off the road for it. */
+  let surge = 0;
+  let wheelie = 0;
+  /** A helicopter's rotor winding up on the ground, seconds of it, and its nose down into its speed. */
+  let spool = 0;
+  let nose = 0;
+  /** A helicopter's height over what is under it, and whether that is water, for `Player.clearance`. */
+  let clearance = Infinity;
+  let overWater = false;
   /** Seconds since a landing was last refused out loud; see `REFUSAL_QUIET`. */
   let sinceRefusal = REFUSAL_QUIET;
   /** The movement keys as a vehicle reads them; see `levers`. */
@@ -1047,7 +1136,7 @@ export function createPlayer(
    * event. The water's edge and a riser are not walls anybody hits: the car
    * simply stops at them, as it always did.
    */
-  function rollOn(dt: number, model: CraftModel, width: number): void {
+  function rollOn(dt: number, model: CraftModel, width: number, handling: RoadHandling): void {
     const half = model.size[0] / 2;
     const hitAt = speed;
     motion.copy(forward).multiplyScalar(speed);
@@ -1068,10 +1157,10 @@ export function createPlayer(
     if (!blocked && collide !== undefined && collide(probe, width * 0.8, pushed)) blocked = struck = true;
     let ground = standingRadius(position);
     if (!blocked) blocked = isWater(ground);
-    if (!blocked && !airborne && distance > 1e-9) blocked = ground - height > CAR_STEP + distance * MAX_SLOPE;
+    if (!blocked && !airborne && distance > 1e-9) blocked = ground - height > handling.step + distance * handling.slope;
     if (blocked) {
       undo();
-      speed = struck ? -hitAt * CAR_BOUNCE : 0;
+      speed = struck ? -hitAt * handling.bounce : 0;
       ground = standingRadius(position);
     }
     const lost = Math.abs(hitAt) - Math.abs(speed);
@@ -1094,54 +1183,63 @@ export function createPlayer(
   }
 
   /**
-   * Steering on wheels: the wheel goes over in `CAR_STEER_TIME`, there is no
-   * turn standing still, full lock from `CAR_GRIP_SPEED` easing to
-   * `CAR_FAST_LOCK` of it flat out, and reversed going backwards.
+   * Steering on wheels: the wheel goes over in the handling's `steerTime`,
+   * full lock from its `gripSpeed` easing to its `fastLock` of it flat out,
+   * and reversed going backwards. A car has no turn standing still; a horse
+   * keeps its `pivot` of it.
    */
-  function steerWheels(dt: number): void {
-    steering += (stick.x - steering) * approach(1 / CAR_STEER_TIME, dt);
+  function steerWheels(dt: number, handling: RoadHandling): void {
+    steering += (stick.x - steering) * approach(1 / handling.steerTime, dt);
     if (stick.x === 0 && Math.abs(steering) < 1e-3) steering = 0;
-    const grip = clamp(Math.abs(speed) / CAR_GRIP_SPEED, 0, 1);
-    const lock = mix(1, CAR_FAST_LOCK, clamp(Math.abs(speed) / CAR_BOOST, 0, 1));
-    const turn = airborne ? 0 : -steering * CAR_TURN * grip * lock * (speed < 0 ? -1 : 1) * dt;
+    const grip = Math.max(handling.pivot, clamp(Math.abs(speed) / handling.gripSpeed, 0, 1));
+    const lock = mix(1, handling.fastLock, clamp(Math.abs(speed) / handling.boost, 0, 1));
+    const turn = airborne ? 0 : -steering * handling.turn * grip * lock * (speed < 0 ? -1 : 1) * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
   }
 
-  function drive(dt: number, input: PlayerInput, model: CraftModel): void {
+  function drive(dt: number, input: PlayerInput, model: CraftModel, handling: RoadHandling): void {
     levers(input.move, stick);
-    steerWheels(dt);
-    const top = input.run ? CAR_BOOST : CAR_SPEED;
+    steerWheels(dt, handling);
+    // Off anything made — a road, a town's paving — only a vehicle built for
+    // it keeps its pace (`rough`); without the made ground to ask, it does.
+    const made = options.madeHeightAt === undefined || handling.rough >= 1 || options.madeHeightAt(position) > 0;
+    const top = (input.run ? handling.boost : handling.speed) * (made ? 1 : handling.rough);
     let wanted = 0;
-    let time = CAR_COAST_TIME;
+    let time = handling.coastTime;
     if (stick.y > 0) {
       wanted = top * stick.y;
-      time = speed < -0.5 ? CAR_BRAKE_TIME : CAR_ACCELERATION_TIME;
+      time = speed < -0.5 ? handling.brakeTime : handling.accelerationTime;
     } else if (stick.y < 0) {
       // `S` is the brake while the car is going forward, and reverse once it
       // has stopped, which is every arcade car's rule.
-      wanted = speed > 0.5 ? 0 : CAR_REVERSE * stick.y;
-      time = speed > 0.5 ? CAR_BRAKE_TIME : CAR_ACCELERATION_TIME;
+      wanted = speed > 0.5 ? 0 : handling.reverse * stick.y;
+      time = speed > 0.5 ? handling.brakeTime : handling.accelerationTime;
     }
+    const before = speed;
     if (!airborne) speed += (wanted - speed) * approach(1 / time, dt);
     if (stick.y === 0 && Math.abs(speed) < 0.05) speed = 0;
-    rollOn(dt, model, model.size[1] / 2);
+    rollOn(dt, model, model.size[1] / 2, handling);
+    // How hard it is pulling away, for a motorbike's front wheel.
+    const pulling = dt > 0 ? (speed - before) / dt : 0;
+    surge += (pulling - surge) * approach(LEAN_EASE, dt);
   }
 
   function sail(dt: number, input: PlayerInput, model: CraftModel): void {
+    const handling = waterOf(model.kind);
     // Rudder and throttle are two levers, not a direction: see `levers`.
     levers(input.move, stick);
-    steering += (stick.x - steering) * approach(1 / RUDDER_TIME, dt);
+    steering += (stick.x - steering) * approach(1 / handling.rudderTime, dt);
     if (stick.x === 0 && Math.abs(steering) < 1e-3) steering = 0;
-    const turn = -steering * BOAT_TURN * dt;
+    const turn = -steering * handling.turn * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     turnRate = dt > 0 ? turn / dt : 0;
 
-    const top = input.run ? BOAT_BOOST : BOAT_SPEED;
+    const top = input.run ? handling.boost : handling.speed;
     // Astern is deliberately weak: it is for getting off a rock, not for
     // sailing backwards across an ocean.
-    const wanted = stick.y >= 0 ? top * stick.y : BOAT_SPEED * stick.y * 0.35;
-    speed += (wanted - speed) * approach(1 / BOAT_ACCELERATION_TIME, dt);
+    const wanted = stick.y >= 0 ? top * stick.y : handling.speed * stick.y * handling.astern;
+    speed += (wanted - speed) * approach(1 / handling.accelerationTime, dt);
     if (Math.abs(speed) < 0.05) speed = 0;
 
     // Half the hull and a margin: how far ahead land stops the boat. The margin
@@ -1199,7 +1297,7 @@ export function createPlayer(
   /** A plane on the ground: taxi on `W`, and a take-off run with the climb key held. */
   function taxi(dt: number, input: PlayerInput, model: CraftModel): void {
     levers(input.move, stick);
-    steerWheels(dt);
+    steerWheels(dt, TAXI);
     const run = liftOf(input) > 0;
     let wanted = 0;
     let time = CAR_COAST_TIME;
@@ -1217,7 +1315,7 @@ export function createPlayer(
     if (!run && stick.y === 0 && Math.abs(speed) < 0.05) speed = 0;
     // A fuselage's width against the buildings, not the span: a wingtip over
     // a garden wall is how a light aircraft is parked.
-    rollOn(dt, model, Math.min(model.size[0], model.size[1]) * 0.25);
+    rollOn(dt, model, Math.min(model.size[0], model.size[1]) * 0.25, TAXI);
     if (airborne) {
       // Rolled off an edge: it is flying now, whatever speed it had, and it is
       // not standing anywhere it could be left.
@@ -1485,6 +1583,123 @@ export function createPlayer(
   }
 
   /**
+   * The helicopter: it goes straight up on the climb key once its rotor has
+   * wound up (`HELI_SPOOL`), hovers where it is let go, flies forward and back
+   * on `W` and `S` and turns on its tail rotor with `A` and `D`, and comes
+   * down on the descend key — setting down on any land flatter than
+   * `HELI_LANDING_GRADE`, and holding its skids clear of water, where it
+   * cannot. Buildings are walls at its skids' height and at its rotor's,
+   * which is as wide as it is.
+   */
+  function hover(dt: number, input: PlayerInput, model: CraftModel): void {
+    sinceRefusal += dt;
+    levers(input.move, stick);
+    const lift = liftOf(input);
+    if (grounded) {
+      speed = 0;
+      velocity = 0;
+      turnRate = 0;
+      steering = 0;
+      spool = lift > 0 ? spool + dt : Math.max(0, spool - dt);
+      height = standingRadius(position);
+      position.setLength(height);
+      altitude = height - PLANET_RADIUS;
+      if (spool < HELI_SPOOL) return;
+      grounded = false;
+      airborne = true;
+      climbing = 0;
+      spray(height, craftSplash());
+      options.onEvent?.('took-off', 0);
+    }
+    spool = HELI_SPOOL;
+    // The pedals: the tail rotor yaws it, eased like a rudder.
+    steering += (stick.x - steering) * approach(1 / RUDDER_TIME, dt);
+    if (stick.x === 0 && Math.abs(steering) < 1e-3) steering = 0;
+    const turn = -steering * HELI_TURN * dt;
+    if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
+    turnRate = dt > 0 ? turn / dt : 0;
+    // The cyclic: forward and back, and let go it slows to a hover.
+    const wanted = stick.y >= 0 ? HELI_SPEED * stick.y : HELI_REVERSE * stick.y;
+    speed += (wanted - speed) * approach(1 / HELI_ACCELERATION_TIME, dt);
+    if (stick.y === 0 && Math.abs(speed) < 0.05) speed = 0;
+
+    // The collective: a climb and a sink it eases into, the sink slowing near the ground.
+    let ground = standingRadius(position);
+    let water = isWater(ground);
+    let floor = water ? PLANET_RADIUS + WATERLINE + HELI_WATER_FLOOR : ground;
+    const over = Math.max(0, height - floor);
+    let asked = 0;
+    if (lift > 0) asked = Math.min(HELI_CLIMB, Math.max(0, PLANET_RADIUS + HELI_CEILING - height) * 0.5);
+    else if (lift < 0) asked = -Math.min(HELI_SINK, Math.max(HELI_TOUCHDOWN, over * 0.8));
+    climbing += (asked - climbing) * approach(1 / HELI_VERTICAL_TIME, dt);
+
+    if (airWalls !== null) {
+      // The skids and the rotor's disc, as a balloon's basket and envelope.
+      airHeight = height;
+      airLow = height - ground < AIR_LOW;
+      airEnvelope = model.size[1] * 0.4;
+      airEnvelopeHeight = height + model.size[2] * 0.85;
+      motion.copy(forward).multiplyScalar(speed);
+      moved.copy(motion).multiplyScalar(dt);
+      if (throughWalls(dt, airWalls, Math.min(model.size[0], model.size[1]) * 0.2)) speed = motion.dot(forward);
+      travel();
+    } else advance(forward, (speed * dt) / position.length());
+
+    ground = standingRadius(position);
+    water = isWater(ground);
+    floor = water ? PLANET_RADIUS + WATERLINE + HELI_WATER_FLOOR : ground;
+    const before = height;
+    let next = Math.min(PLANET_RADIUS + HELI_CEILING, height + climbing * dt);
+    // A roof under it holds it up, as it does a balloon's basket.
+    if (next < height && collideAloft !== undefined) {
+      query.copy(position).setLength(next);
+      if (collideAloft(query, model.size[0] * 0.2, airPushed)) {
+        query.setLength(height);
+        if (!collideAloft(query, model.size[0] * 0.2, airPushed)) {
+          next = height;
+          climbing = 0;
+        }
+      }
+    }
+    height = next;
+    if (height <= floor) {
+      height = floor;
+      climbing = Math.max(0, climbing);
+      if (lift < 0) {
+        const half = model.size[0] * 0.3;
+        pointAhead(forward, half / height, probe);
+        const front = standingRadius(probe);
+        pointAhead(forward, -half / height, probe);
+        const back = standingRadius(probe);
+        if (water || isWater(front) || isWater(back)) refuse('water-refused');
+        else if (Math.abs(front - back) / (2 * half) > HELI_LANDING_GRADE) refuse('steep-refused');
+        else {
+          grounded = true;
+          airborne = false;
+          speed = 0;
+          climbing = 0;
+          spool = 0;
+          goAround = 0;
+          height = ground;
+          spray(height, craftSplash());
+          options.onEvent?.('landed', 0);
+        }
+      }
+    }
+    // A refused landing lifts off again a little, as a plane goes round.
+    if (goAround > 0) {
+      goAround -= dt;
+      climbing = Math.max(climbing, HELI_TOUCHDOWN);
+    }
+    climbRate = dt > 0 ? (height - before) / dt : 0;
+    position.setLength(height);
+    altitude = height - PLANET_RADIUS;
+    velocity = Math.abs(speed);
+    clearance = height - floor + (water ? HELI_WATER_FLOOR : 0);
+    overWater = water;
+  }
+
+  /**
    * The launch's heel, eased after its rudder.
    *
    * A left turn is a positive `turnRate`, and a positive roll in `pose`'s
@@ -1550,9 +1765,11 @@ export function createPlayer(
     motionInput.speed = driving ? speed : speed_;
     motionInput.turnRate = driving ? turnRate : 0;
     motionInput.steering = driving ? steering : 0;
-    motionInput.grounded = isAir(kind) ? grounded : !airborne;
+    // A helicopter's rotor winds up to its flying speed while it spools.
+    motionInput.grounded = kind === 'helicopter' ? grounded && spool < HELI_SPOOL * 0.25 : isAir(kind) ? grounded : !airborne;
     motionInput.engine = true;
     motionInput.moored = false;
+    motionInput.throttle = driving ? stick.y : speed_ > 0.5 ? 1 : 0;
     held.motion.update(dt, motionInput);
   }
 
@@ -1560,28 +1777,43 @@ export function createPlayer(
     const where = seatOf(held);
     const kind = held.model.kind;
     swell += dt;
+    spin(held, dt, speed_);
     if (where.pose === 'sit') avatar.sit(dt);
-    else if (kind === 'boat') avatar.steer(dt, lean);
+    else if (where.pose === 'ride') avatar.ride(dt, where, held.motion.phase);
+    else if (held.model.medium === 'water') avatar.steer(dt, lean);
     else avatar.stride(dt, 0, false);
     seatOn(where);
-    spin(held, dt, speed_);
+    // A horse's back rises and falls under the saddle, and the rider with it.
+    seat.position.y += held.motion.lift;
 
-    if (kind === 'boat') {
-      // How far onto the plane the launch is: 0 standing, 1 at its cruise.
-      const pace = clamp(Math.abs(speed_) / BOAT_SPEED, 0, 1);
-      bank(dt, BOAT_HEEL, BOAT_TURN, pace);
+    if (held.model.medium === 'water') {
+      const handling = waterOf(kind);
+      // How far onto the plane the hull is: 0 standing, 1 at its cruise.
+      const pace = clamp(Math.abs(speed_) / handling.speed, 0, 1);
+      bank(dt, handling.heel, handling.turn, pace);
       // The bow comes up as the hull climbs onto the plane and settles a
       // little once it is over the hump, eased like the hull's own weight.
-      const wanted = BOW_LIFT * pace - BOW_SETTLE * clamp((speed_ - BOAT_SPEED) / (BOAT_BOOST - BOAT_SPEED), 0, 1);
+      const wanted = handling.bow * pace - BOW_SETTLE * (handling.bow / BOW_LIFT) * clamp((speed_ - handling.speed) / (handling.boost - handling.speed), 0, 1);
       bowLift += (wanted - bowLift) * approach(BOW_SMOOTHING, dt);
       // A swell, so a moored boat is not a parked box: two frequencies that
       // do not divide, or the roll and the pitch beat together and it reads
       // as a loop. Under way the long swell gives way to a quick chop, and
-      // the hull rides higher on the plane.
+      // the hull rides higher on the plane; a jet ski skips off the chop, and
+      // a sail heels the hull over as it gathers way.
       const calm = 1 - 0.5 * pace;
-      const heel = lean + Math.sin(swell * 0.9) * 0.05 * calm;
-      craft.position.y = Math.sin(swell * 1.3) * 0.18 * calm + BOW_RISE * pace;
-      craft.rotation.set(Math.sin(swell * 0.7) * 0.035 * calm + Math.sin(swell * 3.1) * CHOP * pace - bowLift, 0, heel);
+      const heel = lean + Math.sin(swell * 0.9) * 0.05 * calm + handling.list * pace;
+      const skip = handling.hop * pace * pace * Math.max(0, Math.sin(swell * 5.3) * Math.sin(swell * 2.1 + 1));
+      craft.position.y = Math.sin(swell * 1.3) * 0.18 * calm + BOW_RISE * pace + skip;
+      craft.rotation.set(Math.sin(swell * 0.7) * 0.035 * calm + Math.sin(swell * 3.1) * CHOP * pace - bowLift - skip * 0.1, 0, heel);
+      return;
+    }
+    if (kind === 'helicopter') {
+      // Nose down into its speed and banked into its turn, both eased like
+      // the machine's own weight; square on its skids.
+      const flying = grounded ? 0 : 1;
+      nose += (HELI_NOSE * clamp(speed_ / HELI_SPEED, -0.5, 1) * flying - nose) * approach(HELI_ATTITUDE_EASE, dt);
+      lean += (-clamp(turnRate / HELI_TURN, -1, 1) * HELI_BANK * flying - lean) * approach(HELI_ATTITUDE_EASE, dt);
+      craft.rotation.set(nose, 0, lean);
       return;
     }
     if (kind === 'plane' && !grounded) {
@@ -1612,9 +1844,17 @@ export function createPlayer(
     }
     // On wheels: the nose on the ground's slope. How the body sits on its
     // springs — the roll out of a turn, the squat and the dive — is the
-    // model's own motion (`spin`), under the pose rather than in it.
-    lean = 0;
-    craft.rotation.set(tilt, 0, 0);
+    // model's own motion (`spin`), under the pose rather than in it. A
+    // two-wheeler and a horse lean into the turn instead, rider and all, and
+    // a motorbike's front wheel comes up under a hard throttle, about the
+    // rear axle.
+    const handling = roadOf(kind);
+    const pull = held.seat === 0 ? speed * turnRate : 0;
+    lean += (-clamp(pull / LEAN_PULL, -1, 1) * (handling?.lean ?? 0) - lean) * approach(LEAN_EASE, dt);
+    const lifting = handling === undefined || airborne ? 0 : clamp(surge * handling.wheelie, 0, WHEELIE_MAX);
+    wheelie += (lifting - wheelie) * approach(LEAN_EASE, dt);
+    craft.rotation.set(tilt - wheelie, 0, lean);
+    craft.position.y = Math.sin(wheelie) * held.model.size[0] * REAR_AXLE;
   }
 
   function pose(dt: number, speed_: number): void {
@@ -1681,6 +1921,10 @@ export function createPlayer(
     lean = 0;
     tilt = 0;
     bowLift = 0;
+    surge = 0;
+    wheelie = 0;
+    spool = 0;
+    nose = 0;
     swing = 0;
     aloft = 0;
     turnRate = 0;
@@ -1706,8 +1950,7 @@ export function createPlayer(
   function modeOf(): TravelMode {
     if (ride === null) return state === 'swim' ? 'swim' : 'foot';
     if (ride.seat !== 0) return 'passenger';
-    const kind = ride.model.kind;
-    return kind === 'van' ? 'car' : kind;
+    return MODE_OF[ride.model.kind];
   }
 
   /** The fields the rest of the game reads, after anything that changes them. */
@@ -1721,6 +1964,8 @@ export function createPlayer(
     player.grounded = grounded;
     player.sink = sink;
     player.altitude = position.length() - PLANET_RADIUS;
+    player.clearance = ride !== null && ride.model.kind === 'helicopter' && !grounded ? clearance : Infinity;
+    player.overWater = overWater;
   }
 
   const player: Player = {
@@ -1736,6 +1981,8 @@ export function createPlayer(
     grounded: false,
     sink: 0,
     altitude: 0,
+    clearance: Infinity,
+    overWater: false,
     controls,
     update(dt, input) {
       sinceCrash += dt;
@@ -1756,10 +2003,12 @@ export function createPlayer(
         carriedFrom = true;
       } else if (ride !== null) {
         const model = ride.model;
-        if (model.kind === 'boat') sail(dt, input, model);
+        const handling = roadOf(model.kind);
+        if (model.medium === 'water') sail(dt, input, model);
         else if (model.kind === 'plane') fly(dt, input, model);
         else if (model.kind === 'balloon') drift(dt, input, model);
-        else if (isRoad(model.kind)) drive(dt, input, model);
+        else if (model.kind === 'helicopter') hover(dt, input, model);
+        else if (handling !== undefined) drive(dt, input, model, handling);
       } else walk(dt, input);
 
       publish();
@@ -1781,7 +2030,7 @@ export function createPlayer(
       if (forward.lengthSq() < 1e-8) forward.set(0, 1, 0).projectOnPlane(up);
       forward.normalize();
       const kind = next.model.kind;
-      if (kind === 'boat') position.setLength(PLANET_RADIUS + WATERLINE);
+      if (next.model.medium === 'water') position.setLength(PLANET_RADIUS + WATERLINE);
       height = position.length();
       altitude = height - PLANET_RADIUS;
       // A plane or a balloon is taken standing on the ground, which is the
@@ -1812,7 +2061,7 @@ export function createPlayer(
       const where = seatOf(held);
       const first = where.x >= 0 ? Math.PI / 2 : -Math.PI / 2;
       const beside = held.model.size[1] / 2 + BODY_RADIUS + 0.8;
-      const reaches = kind === 'boat' ? [beside, SHORE_REACH] : [beside, held.model.size[0] / 2 + BODY_RADIUS + 0.8];
+      const reaches = held.model.medium === 'water' ? [beside, SHORE_REACH] : [beside, held.model.size[0] / 2 + BODY_RADIUS + 0.8];
       let landed = false;
       let wet = false;
       for (const reach of reaches) {
@@ -1870,6 +2119,13 @@ export function createPlayer(
       side.copy(LOCAL_Y).applyQuaternion(worldQuaternion);
       target.copy(craft.position).applyQuaternion(object.quaternion).add(position);
       return writePose(target, direction, side, out);
+    },
+    emote(name) {
+      if (name !== null && (state !== 'foot' || airborne)) return false;
+      return avatar.emote(name);
+    },
+    get emoting() {
+      return avatar.emoting;
     },
     carry(at) {
       position.set(at[0]!, at[1]!, at[2]!);

@@ -6,6 +6,8 @@ import { rngFrom } from './scenery/random.ts';
 import { ENGLISH_COMPASS, FACTS, fill, languageOf, loadLanguage, meantOf, saidOf } from './phrases.ts';
 import type { Language, LineKey, Placeholder } from './phrases.ts';
 import type { BiomeId } from './biome.ts';
+import { planSpeech, revealed, speak, SPEECH_LEAD, voiceOf } from './voice.ts';
+import type { Speech, Utterance, Voice } from './voice.ts';
 
 /**
  * Talking to the townsfolk: `E` beside somebody standing in a town, and they
@@ -53,6 +55,13 @@ import type { BiomeId } from './biome.ts';
  * their crown, so it stays with them as the camera turns; it hides while they
  * are behind the camera. `E` again goes to the next line, and after the
  * goodbye closes it; walking off closes it too.
+ *
+ * ## And a voice
+ *
+ * With the voices on, each line is said as it appears — a babble in the
+ * speaker's own voice, a child's, a woman's, an old man's (`voice.ts`) — and
+ * the bubble types it out in step with the syllables. `E` during a line
+ * finishes it at once; the next `E` goes on.
  */
 
 /** What a conversation needs to know about where it is, asked when it starts. */
@@ -83,6 +92,17 @@ export interface Where {
   craft: readonly { kind: 'plane' | 'balloon' | 'boat'; bearing: number }[];
   /** Whether the speaker is one of the town's children (`isYoung` in `folk.ts`). */
   young: boolean;
+  /** Whether the crowd dressed the speaker as a woman (`isWoman` in `folk.ts`): the voice's range. */
+  woman?: boolean;
+}
+
+/** Where a line is said, when it is said aloud at all. */
+export interface TalkOptions {
+  /**
+   * The context and the node a voice joins (`Audio.bus`), or null while the
+   * voices are off or the sound is not open yet: then a line appears whole.
+   */
+  voice?: () => { context: BaseAudioContext; node: AudioNode } | null;
 }
 
 /** One line of a conversation: what is said, and what it means. */
@@ -143,6 +163,8 @@ const STYLE = `
   transform: translateX(-50%) rotate(45deg);
 }
 .atlas-bubble .said { font-size: 17px; font-weight: 800; line-height: 1.3; }
+/* The part of a line not yet said keeps its room, so the bubble does not grow as it types. */
+.atlas-bubble .said .unsaid { visibility: hidden; }
 .atlas-bubble .meant { margin-top: 4px; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--ui-muted); }
 .atlas-bubble .foot {
   display: flex;
@@ -437,10 +459,19 @@ export function compose(
   return { language: language.name, locale, rtl: language.rtl === true, persona, topics: chosen.map((t) => t.key), lines: out };
 }
 
-export function createTalk(): Talk {
+/** The voice a persona speaks in: its age, and a grump's or a chatterbox's manner. */
+function voiceFor(key: string, persona: Persona, woman: boolean): Voice {
+  const age = persona === 'child' ? 'child' : persona === 'elder' ? 'elder' : 'adult';
+  const mood = persona === 'grumpy' ? 'grumpy' : persona === 'chatty' ? 'chatty' : 'plain';
+  return voiceOf(key, age, woman, mood);
+}
+
+export function createTalk(options: TalkOptions = {}): Talk {
   installUi();
   ensureStyle('atlas-talk', STYLE);
-  const said = h('div', { class: 'said' });
+  const saidText = h('span');
+  const unsaid = h('span', { class: 'unsaid', 'aria-hidden': 'true' });
+  const said = h('div', { class: 'said' }, saidText, unsaid);
   const meant = h('div', { class: 'meant' });
   const speaks = h('span');
   const action = h('span');
@@ -453,13 +484,46 @@ export function createTalk(): Talk {
   let lines: Line[] = [];
   let at = 0;
   let who: string | null = null;
+  /** The speaker's voice, the line being said, and when it began, from `performance.now()`. */
+  let voice: Voice | null = null;
+  let speech: Speech | null = null;
+  let utterance: Utterance | null = null;
+  let spokenAt = 0;
+  /** The line's characters, and how many of them are showing. */
+  let characters: string[] = [];
+  let shown = 0;
   /** Bumped by every start and close, so a script that arrives late for a conversation already over is dropped. */
   let generation = 0;
   const projected = new THREE.Vector3();
 
+  /** Shows the first `count` characters of the line and keeps the room of the rest. */
+  function reveal(count: number): void {
+    if (count === shown) return;
+    shown = count;
+    saidText.textContent = characters.slice(0, count).join('');
+    unsaid.textContent = characters.slice(count).join('');
+  }
+
+  function hush(): void {
+    utterance?.stop();
+    utterance = null;
+    speech = null;
+  }
+
   function show(): void {
     const line = lines[at]!;
-    said.textContent = line.said;
+    hush();
+    characters = Array.from(line.said);
+    shown = -1;
+    const out = voice === null ? null : options.voice?.() ?? null;
+    if (out !== null && voice !== null) {
+      speech = planSpeech(line.said, voice, `${who ?? ''}:${at}`);
+      utterance = speak(out.context, out.node, speech, voice);
+      spokenAt = performance.now() + SPEECH_LEAD * 1000;
+      reveal(0);
+    } else reveal(characters.length);
+    // The whole line for a screen reader at once; the typing is for the eye.
+    said.setAttribute('aria-label', line.said);
     meant.textContent = line.meant === line.said ? '' : line.meant;
     meant.hidden = line.meant === line.said;
     const last = at === lines.length - 1;
@@ -489,6 +553,7 @@ export function createTalk(): Talk {
 
   function close(): void {
     generation++;
+    hush();
     who = null;
     lines = [];
     bubble.classList.remove('on');
@@ -511,6 +576,7 @@ export function createTalk(): Talk {
           if (result === null || mine !== generation) return;
           lines = result.lines;
           at = 0;
+          voice = voiceFor(key, result.persona, where.woman === true);
           speaks.textContent = result.language;
           said.lang = result.locale;
           said.dir = result.rtl ? 'rtl' : 'ltr';
@@ -524,6 +590,12 @@ export function createTalk(): Talk {
     next() {
       // Still on its way: the key is not lost, it simply waits for the words.
       if (lines.length === 0) return;
+      // Mid-line: the rest of it at once, and the next `E` goes on.
+      if (shown < characters.length) {
+        hush();
+        reveal(characters.length);
+        return;
+      }
       if (at >= lines.length - 1) {
         close();
         return;
@@ -534,6 +606,10 @@ export function createTalk(): Talk {
     close,
     place(crown, camera, width, height) {
       if (who === null || lines.length === 0) return;
+      if (speech !== null) {
+        reveal(revealed(speech, (performance.now() - spokenAt) / 1000));
+        if (shown >= characters.length) speech = null;
+      }
       projected.copy(crown).project(camera);
       const behind = projected.z > 1 || projected.z < -1;
       bubble.style.visibility = behind ? 'hidden' : '';

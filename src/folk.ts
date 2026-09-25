@@ -117,6 +117,12 @@ const YOUNG_SHARE = 0.14;
  */
 export const isYoung = (key: string): boolean => rngFrom(key, 'age').chance(YOUNG_SHARE);
 
+/** The outfit `dress` puts the person `key` in: one draw, shared with `isWoman`. */
+const outfitOf = (key: string): (typeof OUTFITS)[number] => OUTFITS[rngFrom(key, 'outfit').int(OUTFITS.length)]!;
+
+/** Whether the townsperson `key` is dressed as a woman, which is the range their voice is drawn from. */
+export const isWoman = (key: string): boolean => outfitOf(key).startsWith('woman');
+
 export function createFolk(ctx: MonumentContext): Folk {
   let cast: Cast | null = null;
   const source = ctx.toon(ctx.palette.ink);
@@ -170,8 +176,7 @@ export function createFolk(ctx: MonumentContext): Folk {
         ...(warmth === undefined ? {} : { warmth }),
         ...(young ? { age: 'child' as const } : {}),
       });
-      const pick = rngFrom(key, 'outfit');
-      const outfit = OUTFITS[pick.int(OUTFITS.length)]!;
+      const outfit = outfitOf(key);
       const skin = castSkin(look.skin);
       // A top the colour of the skin under it reads as a bare body at forty
       // units; the wardrobe tables were written for bodies where it did not.

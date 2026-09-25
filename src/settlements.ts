@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { FolkAnchor } from './folk.ts';
 import type { World } from './geo.ts';
-import { GROUND_MARKS_GLSL, PLANET_RADIUS, groundColorAt, groundPatchesChunk, groundRadius } from './globe.ts';
+import { GROUND_MARKS_GLSL, PLANET_RADIUS, bindGroundWeather, groundColorAt, groundPatchesChunk, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { BODY_SCALE } from './stature.ts';
 import { bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
@@ -1127,12 +1127,17 @@ function townMaterial(): THREE.MeshToonMaterial {
   const windows = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     windows.call(material, shader, renderer);
+    bindGroundWeather(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vAtlasPos;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vAtlasPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vAtlasPos;\n${GROUND_MARKS_GLSL}`)
-      .replace('#include <color_fragment>', `#include <color_fragment>\n  ${groundPatchesChunk('vAtlasPos')}`);
+      .replace('#include <common>', `#include <common>\nvarying vec3 vAtlasPos;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
+      // The weather first, so a lawn under snow takes the patches' tone on white.
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>\n  ${groundWeatherChunk('vAtlasPos')}\n  ${groundPatchesChunk('vAtlasPos')}`,
+      );
   };
   return material;
 }

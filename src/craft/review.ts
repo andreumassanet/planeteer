@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { AVATAR_HIP, HERO, envelopeOf } from './body.ts';
+import { RIDE_LEAN } from '../cast.ts';
 
 const H = AVATAR_HEIGHT;
 
@@ -57,9 +58,12 @@ function soupsOf(group: THREE.Object3D): Float32Array[] {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
     const p = mesh.geometry.getAttribute('position');
-    const soup = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+    // A skinned body — the horse — is indexed; everything else is a soup already.
+    const index = mesh.geometry.index;
+    const corners = index === null ? p.count : index.count;
+    const soup = new Float32Array(corners * 3);
+    for (let i = 0; i < corners; i++) {
+      v.fromBufferAttribute(p, index === null ? i : index.getX(i)).applyMatrix4(mesh.matrixWorld);
       soup[i * 3] = v.x;
       soup[i * 3 + 1] = v.y;
       soup[i * 3 + 2] = v.z;
@@ -139,7 +143,7 @@ export function reviewCraft(model: CraftModel, variant = 0, group: THREE.Group =
       if (attribute === undefined) problems.push(`'${mesh.name}' has no ${name}`);
       else if (attribute.count !== count) problems.push(`'${mesh.name}' ${name} has ${attribute.count} of ${count}`);
     }
-    triangles += count / 3;
+    triangles += (g.index === null ? count : g.index.count) / 3;
   });
 
   const soups = soupsOf(group);
@@ -150,19 +154,36 @@ export function reviewCraft(model: CraftModel, variant = 0, group: THREE.Group =
     }
     // Headroom: the first surface down from high over the seat is under the
     // crown, or not over the body at all.
-    const crown = seat.y + (seat.pose === 'sit' ? HERO.crown : HERO.standing - AVATAR_HIP);
+    const crown = seat.y + (seat.pose === 'stand' ? HERO.standing - AVATAR_HIP : HERO.crown);
     const roof = box.max.y + H - dropFrom(group, seat.x, box.max.y + H, seat.z);
     const covered = roof > crown - 0.3 * H;
     if (covered && roof < crown + 0.01 * H) own.push(`the roof is at ${f(roof)} and the crown at ${f(crown)}`);
     // A seated hip on its pan, standing soles on their floor.
     let under: number | null = null;
     if (seat.shown) {
-      const want = seat.pose === 'sit' ? 0.005 * H : AVATAR_HIP + 0.005 * H;
+      const standing = seat.pose === 'stand';
+      const want = standing ? AVATAR_HIP + 0.005 * H : 0.005 * H;
       under = dropFrom(group, seat.x, seat.y + 0.005 * H, seat.z) - want;
-      if (Math.abs(under) > 0.05 * H) own.push(`the first surface under the ${seat.pose === 'sit' ? 'hip' : 'soles'} is ${f(under)} off`);
+      if (Math.abs(under) > 0.05 * H) own.push(`the first surface under the ${standing ? 'soles' : 'hip'} is ${f(under)} off`);
       if (seat.pose === 'sit') {
         const feet = dropFrom(group, seat.x, seat.y - HERO.sole + 0.02 * H, seat.z + HERO.toe * 0.8);
         if (feet > 0.12 * H) own.push(`nothing under the feet for ${f(feet)}`);
+      }
+      if (seat.pose === 'ride') {
+        // Astride, the hands reach the grip and the feet their rest: no
+        // further from the hip than an arm and a leg go.
+        if (seat.grip === undefined || seat.feet === undefined) own.push('astride with no grip or no footrest');
+        else {
+          // The rider leans forward from the hips as far as `RIDE_LEAN` to reach it.
+          const grip = seat.grip;
+          let reach = Infinity;
+          for (let lean = 0; lean <= RIDE_LEAN + 1e-9; lean += 0.05) {
+            reach = Math.min(reach, Math.hypot(grip[1] - HERO.shoulder * Math.cos(lean), grip[2] - HERO.shoulder * Math.sin(lean)));
+          }
+          if (reach > HERO.arm) own.push(`the grip is ${f(reach)} from the shoulders, out of an arm's ${f(HERO.arm)} leaning as far as a rider does`);
+          const leg = Math.hypot(seat.feet[0], seat.feet[1], seat.feet[2]) + (seat.crank ?? 0);
+          if (leg > HERO.legs) own.push(`the footrest is ${f(leg)} from the hip, past the leg's ${f(HERO.legs)}`);
+        }
       }
     }
     const inside: Record<string, number> = {};

@@ -1,0 +1,703 @@
+/**
+ * The chat: one line of text to everyone on the planet, with the flag of the
+ * country each sender stands in, and the commands typed with a `/`.
+ *
+ * ## One room, like everything else
+ *
+ * The relay is one room for the planet (`server/src/index.ts`), so the chat is
+ * too: a line goes to everybody, however far, which is what a world this big
+ * and this empty needs — the player in Lima is worth hearing from in Palma.
+ * The flag is where the sender was standing when they said it, as a postcard
+ * is stamped where it was posted, and the sea's plate at sea. The relay
+ * stamps the name it knows the sender by, and keeps the last lines for
+ * whoever joins next.
+ *
+ * ## What a line is, once
+ *
+ * How long, which characters, how often: `cleanChat` and `spendChat` in
+ * `server/src/limits.ts`, which the relay reads too, so a line this panel
+ * lets through is a line the relay passes on, and one it would drop is
+ * refused here with a reason. A line is only ever written with `textContent`
+ * — nothing a player types is markup, however it looks.
+ *
+ * ## Without a relay
+ *
+ * The chat still opens, the commands still work and a line is shown to the
+ * one person who can read it; with a relay that has dropped, the panel says
+ * so beside the line.
+ *
+ * ## The keyboard
+ *
+ * `Enter` or `T` opens the field, and `/` opens it with the slash typed;
+ * `Enter` sends and closes, `Esc` closes, `Tab` completes a command or a
+ * player's name, and the arrows walk back through what was sent. While the
+ * field has the focus every key is its own (`inputBlocked` in `controls.ts`),
+ * and the mouse is let go, the way the settings let it go.
+ *
+ * Closed, the last few lines stand over the bottom left for a while and fade;
+ * open, the whole history is there to scroll.
+ */
+import { actionOf, inputBlocked } from './controls.ts';
+import { createFlagCanvas } from './flags.ts';
+import { ensureStyle, fold, h, icon, installUi, kbd } from './ui.ts';
+import { cleanName } from './peers.ts';
+import type { Peers, RelayMessage } from './peers.ts';
+import { blip } from './voice.ts';
+import {
+  CHAT_MAX,
+  chatWait,
+  cleanChat,
+  cleanCountry,
+  freshBucket,
+  spendChat,
+} from '../server/src/limits.ts';
+import type { Emote } from '../server/src/limits.ts';
+import {
+  COMMANDS,
+  actionOf as actionIn,
+  complete,
+  findPlace,
+  matchPlayer,
+  parseClock,
+  parseCommand,
+  parseLatLon,
+  parseWeather,
+  unescapeSlash,
+} from './chat-core.ts';
+import type { Gazetteer, ParsedCommand, WeatherWanted } from './chat-core.ts';
+
+/** What the chat needs of the world, handed in by `main.ts`. */
+export interface ChatHost {
+  /** The relay's socket, or null for a world with none. */
+  peers: Peers | null;
+  /** Our name as the others see it; offline, as we would be seen. */
+  name(): string;
+  /** Where we stand: the country's code and name (`''` at sea), the nearest built town, and the point. */
+  here(): { iso: string; country: string; town: string; near: boolean; lat: number; lon: number };
+  /** Where a point on the unit sphere is, for `/who`. */
+  whereIs(point: { x: number; y: number; z: number }): { country: string; town: string; near: boolean };
+  /** A country's name by its outline code. */
+  countryName(iso: string): string;
+  /** What `/goto` searches. Asked on the first `/goto`. */
+  gazetteer(): Gazetteer;
+  jumpTo(lat: number, lon: number): void;
+  /** Where this visit began. */
+  home(): { lat: number; lon: number; name: string };
+  /** Beside a player, as the map's *join* puts you: false where they have gone. */
+  joinPlayer(id: string): boolean;
+  time: { setHour(hour: number): number; setLive(): void };
+  /**
+   * Sets the weather, or hands it back with `auto`: true if it took, false if
+   * it was refused, null where this build cannot set the weather at all.
+   */
+  weather(wanted: WeatherWanted): boolean | null;
+  /**
+   * A gesture on the hero, and to the others at most once each
+   * `EMOTE_INTERVAL_MS`; false where the hero cannot make it (`Player.emote`).
+   */
+  emote(name: Emote): boolean;
+  /** A photo of the world on the next frame. */
+  photo(): void;
+  /** Points the navigation at the nearest landmark not yet found, and says which, or null when all are. */
+  landmark(): { name: string; km: number } | null;
+  /** Where a line's blip is heard, or null while the chat's sound is off or the sound is not open. */
+  sound(): { context: BaseAudioContext; node: AudioNode } | null;
+  /** Where to hand the pointer back to, if it was locked when the field opened. */
+  lockTarget: HTMLElement;
+  onOpen?(): void;
+  onClose?(): void;
+}
+
+export interface Chat {
+  root: HTMLElement;
+  readonly open: boolean;
+  /** Opens the field, with `text` already typed. */
+  show(text?: string): void;
+  hide(): void;
+  /** A line from the game rather than a player. */
+  system(text: string): void;
+  /** `atlas.chat.stats`: lines held, received and sent, and who is muted. */
+  readonly stats: { lines: number; received: number; sent: number; muted: string[] };
+}
+
+/** How long a line stands on the screen with the field closed, and how long it takes to go. */
+const LINE_MS = 12_000;
+const FADE_MS = 900;
+/** How many lines the panel keeps; the oldest go first. */
+const KEEP_LINES = 120;
+/** How many lines typed, for the arrows to walk back through. */
+const KEEP_SENT = 30;
+/** How many lines' keys are remembered against a reconnection's history showing them twice. */
+const SEEN_LINES = 500;
+/** The most players `/who` lists by name. */
+const WHO_LIST = 12;
+
+const STYLE = `
+.atlas-chat {
+  position: fixed;
+  left: 24px;
+  bottom: 84px;
+  z-index: 6;
+  width: min(380px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+  pointer-events: none;
+}
+@media (max-width: 1080px) {
+  .atlas-chat { bottom: 118px; }
+}
+.atlas-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(34vh, 260px);
+  overflow: hidden;
+  scrollbar-width: thin;
+}
+.atlas-chat-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  align-self: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 5px 10px 5px 7px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  background: var(--ui-paper);
+  border: 2px solid var(--ui-ink);
+  border-radius: 10px;
+  box-shadow: 0 3px 0 var(--ui-ink);
+  transition: opacity ${FADE_MS}ms ease;
+  animation: ui-pop 0.25s var(--ui-spring) both;
+}
+.atlas-chat-line .who { flex: none; font-weight: 800; white-space: nowrap; }
+.atlas-chat-line .flag { flex: none; align-self: center; display: block; width: 18px; height: 12px; border: 1.5px solid var(--ui-ink); border-radius: 3px; }
+.atlas-chat-line .flag.sea { background: var(--ui-sky); }
+.atlas-chat-line.self .who { color: var(--ui-violet); }
+.atlas-chat-line.me .text { font-style: italic; }
+.atlas-chat-line.system { background: var(--ui-cream); font-weight: 700; color: var(--ui-muted); }
+.atlas-chat-line.system svg { flex: none; align-self: center; width: 14px; height: 14px; }
+.atlas-chat-line.error { background: var(--ui-apricot); color: var(--ui-ink); }
+.atlas-chat-line.fading { opacity: 0; }
+.atlas-chat:not(.open) .atlas-chat-line.gone { display: none; }
+.atlas-chat.open { pointer-events: auto; }
+.atlas-chat.open .atlas-chat-log {
+  max-height: min(46vh, 380px);
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--ui-paper);
+  border: 3px solid var(--ui-ink);
+  border-radius: var(--ui-radius);
+  box-shadow: var(--ui-drop);
+}
+.atlas-chat.open .atlas-chat-line { opacity: 1; border-color: transparent; box-shadow: none; padding: 2px 4px; background: transparent; animation: none; }
+.atlas-chat.open .atlas-chat-line.system { color: var(--ui-muted); }
+.atlas-chat.open .atlas-chat-line.error { background: var(--ui-apricot); border-radius: 8px; padding: 2px 6px; }
+.atlas-chat-form {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 12px;
+}
+.atlas-chat.open .atlas-chat-form { display: flex; }
+.atlas-chat-form input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  font: 700 14px var(--ui-font);
+  color: var(--ui-ink);
+  outline: none;
+}
+.atlas-chat-form input::placeholder { color: rgba(30, 6, 3, 0.45); }
+.atlas-chat-form:focus-within { outline: var(--ui-ring); outline-offset: 3px; }
+.atlas-chat-head { display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 0 4px; }
+.atlas-chat.open .atlas-chat-head { display: flex; }
+.atlas-chat-head .ui-eyebrow { opacity: 0.8; }
+.atlas-chat-count { font-size: 11px; font-weight: 800; color: var(--ui-muted); }
+.atlas-chat-hint { display: none; padding: 0 6px; font-size: 11.5px; font-weight: 700; color: var(--ui-muted); }
+.atlas-chat.open .atlas-chat-hint:not(:empty) { display: block; }
+@media (prefers-reduced-motion: reduce) {
+  .atlas-chat-line { animation: none; transition: none; }
+}
+`;
+
+/** A line as the panel keeps it. */
+interface Entry {
+  element: HTMLElement;
+  /** The sender's name, folded, for `/mute`; `''` for a line from the game. */
+  from: string;
+}
+
+export function createChat(host: ChatHost): Chat {
+  installUi();
+  ensureStyle('atlas-chat', STYLE);
+
+  const log = h('div', { class: 'atlas-chat-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Chat' });
+  const count = h('span', { class: 'atlas-chat-count' });
+  const head = h('div', { class: 'atlas-chat-head' }, h('span', { class: 'ui-eyebrow', text: 'Chat' }), count);
+  const field = h('input', {
+    type: 'text',
+    maxlength: CHAT_MAX * 2,
+    placeholder: 'Say something, or / for commands',
+    autocomplete: 'off',
+    enterkeyhint: 'send',
+    spellcheck: 'true',
+    'aria-label': 'Chat message',
+  });
+  const form = h('form', { class: 'atlas-chat-form ui-card' }, field, kbd('Enter', true));
+  const hint = h('div', { class: 'atlas-chat-hint' });
+  const root = h('div', { class: 'atlas-chat' }, head, log, form, hint);
+
+  const entries: Entry[] = [];
+  /** Names by id, from the relay's `hi` and every `in`, for the leaving line. */
+  const names = new Map<string, string>();
+  /** Lines already shown, so a reconnection's history does not show them twice. */
+  const seen = new Set<string>();
+  /** Folded names whose lines are hidden. */
+  const muted = new Set<string>();
+  const sent: string[] = [];
+  let recall = -1;
+  let draft = '';
+  const bucket = freshBucket();
+  let showing = false;
+  let relock = false;
+  let received = 0;
+  let sentCount = 0;
+  /** Flags as images, one render a country. */
+  const flags = new Map<string, string>();
+
+  /* --- lines -------------------------------------------------------------- */
+
+  function flagOf(iso: string): HTMLElement {
+    if (iso === '') return h('span', { class: 'flag sea', title: 'At sea' });
+    let url = flags.get(iso);
+    if (url === undefined) {
+      try {
+        url = createFlagCanvas(iso, 18, 12).toDataURL();
+      } catch {
+        url = '';
+      }
+      flags.set(iso, url);
+    }
+    const image = h('img', { class: 'flag', alt: host.countryName(iso), title: host.countryName(iso) });
+    if (url !== '') image.src = url;
+    return image;
+  }
+
+  function add(element: HTMLElement, from = ''): void {
+    const stuck = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+    log.append(element);
+    entries.push({ element, from });
+    while (entries.length > KEEP_LINES) entries.shift()!.element.remove();
+    // Open and scrolled up to read: left where it is. Otherwise the newest.
+    if (!showing || stuck) log.scrollTop = log.scrollHeight;
+    window.setTimeout(() => element.classList.add('fading'), LINE_MS);
+    window.setTimeout(() => element.classList.add('gone'), LINE_MS + FADE_MS);
+  }
+
+  function system(text: string, kind: 'system' | 'error' = 'system'): void {
+    add(h('div', { class: `atlas-chat-line ${kind}` }, icon(kind === 'error' ? 'help' : 'sparkle', 14), h('span', { class: 'text', text })));
+  }
+
+  /** A player's line, from the relay or from ourselves offline. */
+  function line(name: string, iso: string, message: string, self: boolean): void {
+    if (!self && muted.has(fold(name))) return;
+    const action = actionIn(message);
+    const element = h(
+      'div',
+      { class: `atlas-chat-line${self ? ' self' : ''}${action !== null ? ' me' : ''}` },
+      flagOf(iso),
+      h('span', { class: 'who', text: action !== null ? name : `${name}:` }),
+      h('span', { class: 'text', text: action ?? message }),
+    );
+    add(element, fold(name));
+  }
+
+  /* --- the relay ------------------------------------------------------------ */
+
+  function heard(message: RelayMessage, fresh: boolean): void {
+    const m = cleanChat(message.m);
+    const id = typeof message.id === 'string' ? message.id : '';
+    const at = typeof message.at === 'number' ? message.at : 0;
+    if (m === '' || id === '') return;
+    const key = `${at}:${id}:${m}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    // A room's history is fifty lines: remembering a few times that is plenty.
+    if (seen.size > SEEN_LINES) seen.delete(seen.values().next().value!);
+    const name = cleanName(typeof message.name === 'string' ? message.name : '') || 'Traveller';
+    const self = id === host.peers?.id;
+    line(name, cleanCountry(message.c), m, self);
+    received++;
+    if (fresh && !self && !muted.has(fold(name))) {
+      const out = host.sound();
+      if (out !== null) blip(out.context, out.node);
+    }
+  }
+
+  const peers = host.peers;
+  let wasOpen = false;
+  if (peers !== null) {
+    peers.onMessage((message) => {
+      if (message.t === 'hi') {
+        names.clear();
+        for (const row of Array.isArray(message.peers) ? (message.peers as unknown[][]) : []) {
+          if (typeof row[0] === 'string' && typeof row[1] === 'string') names.set(row[0], row[1]);
+        }
+        for (const old of Array.isArray(message.chat) ? (message.chat as RelayMessage[]) : []) {
+          if (typeof old === 'object' && old !== null) heard(old, false);
+        }
+        const others = peers.online ?? 0;
+        system(others === 0 ? 'Online · nobody else is here right now' : `Online · ${others} other ${others === 1 ? 'traveller' : 'travellers'} here`);
+      } else if (message.t === 'chat') {
+        heard(message, true);
+      } else if (message.t === 'in' && typeof message.id === 'string') {
+        const name = cleanName(typeof message.name === 'string' ? message.name : '') || 'A traveller';
+        names.set(message.id, name);
+        system(`${name} arrived`);
+      } else if (message.t === 'bye' && typeof message.id === 'string') {
+        const name = names.get(message.id);
+        names.delete(message.id);
+        if (name !== undefined) system(`${name} left`);
+      }
+      showCount();
+    });
+    peers.onState((state) => {
+      if (state === 'open') wasOpen = true;
+      else if (state === 'closed' && wasOpen) {
+        wasOpen = false;
+        system('Lost the connection · trying again');
+      }
+      showCount();
+    });
+  }
+
+  function showCount(): void {
+    const online = peers?.online ?? null;
+    count.textContent =
+      peers === null ? 'Only you · no server' : online === null ? 'Offline' : online === 0 ? 'Only you online' : `${online + 1} online`;
+  }
+
+  /* --- saying -------------------------------------------------------------- */
+
+  function say(text: string): void {
+    const m = cleanChat(text);
+    if (m === '') return;
+    const now = Date.now();
+    const wait = chatWait(bucket, now);
+    if (wait > 0 || !spendChat(bucket, now)) {
+      system(`Not so fast · you can say something again in ${Math.max(1, Math.ceil(wait / 1000))} s`, 'error');
+      return;
+    }
+    const iso = host.here().iso;
+    sentCount++;
+    // The relay's copy comes back to us too, and that is the line shown.
+    if (peers !== null && peers.send({ t: 'chat', m, c: iso })) return;
+    line(host.name() || 'You', iso, m, true);
+    if (peers !== null) system('Not connected · only you can see that', 'error');
+  }
+
+  function gesture(name: Emote): void {
+    if (!host.emote(name)) system('Only standing on the ground', 'error');
+  }
+
+  /* --- commands ------------------------------------------------------------ */
+
+  const usage = (name: string): string => {
+    const spec = COMMANDS.find((command) => command.name === name)!;
+    return `/${spec.name}${spec.usage === '' ? '' : ` ${spec.usage}`}`;
+  };
+
+  /** Everyone online but us, as the minimap marks them. */
+  const players = (): { id: string; name: string; x: number; y: number; z: number }[] =>
+    peers === null ? [] : peers.marks.filter((mark) => mark.id !== peers.id).map((mark) => ({ ...mark }));
+
+  /** Runs a command; true to leave the field open, for an answer worth reading or a line to fix. */
+  function run(parsed: ParsedCommand): boolean {
+    const { command, args } = parsed;
+    if (command === null) {
+      system(`There is no /${parsed.typed} · /help lists what there is`, 'error');
+      return true;
+    }
+    switch (command.name) {
+      case 'help': {
+        system('Tab completes a command or a name · // sends a line that starts with /');
+        for (const spec of COMMANDS) system(`/${spec.name}${spec.usage === '' ? '' : ` ${spec.usage}`} · ${spec.help}`);
+        return true;
+      }
+      case 'goto': {
+        if (args === '') {
+          system(`Where to? ${usage('goto')}`, 'error');
+          return true;
+        }
+        const point = parseLatLon(args);
+        if (point !== null) {
+          host.jumpTo(point.lat, point.lon);
+          system(`Off to ${point.lat.toFixed(2)}, ${point.lon.toFixed(2)}`);
+          return false;
+        }
+        const found = findPlace(args, host.gazetteer());
+        if (found === null) {
+          system(`Nothing called “${args}” is built · try a bigger town nearby`, 'error');
+          return true;
+        }
+        host.jumpTo(found.lat, found.lon);
+        system(`Off to ${found.name}, ${host.countryName(found.iso)}${found.via === undefined ? '' : ` · for ${found.via}`}`);
+        return false;
+      }
+      case 'home': {
+        const home = host.home();
+        host.jumpTo(home.lat, home.lon);
+        system(`Back to ${home.name}`);
+        return false;
+      }
+      case 'where': {
+        const here = host.here();
+        const place = here.country === '' ? `At sea off ${here.town}` : `${here.near ? 'In' : 'Near'} ${here.town}, ${here.country}`;
+        system(`${place} · ${here.lat.toFixed(4)}, ${here.lon.toFixed(4)}`);
+        return true;
+      }
+      case 'landmark': {
+        const next = host.landmark();
+        system(next === null ? 'Every landmark is found · well travelled' : `${next.name}, ${Math.round(next.km).toLocaleString('en')} km · the arrow points at it`);
+        return false;
+      }
+      case 'time': {
+        const wanted = parseClock(args);
+        if (wanted === null) {
+          system(`Which time? ${usage('time')}`, 'error');
+          return true;
+        }
+        if (wanted === 'real') {
+          host.time.setLive();
+          system('The sun is the real one again');
+        } else {
+          host.time.setHour(wanted.hour);
+          const minutes = Math.round(wanted.hour * 60) % 1440;
+          system(`The sun is at ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')} here`);
+        }
+        return false;
+      }
+      case 'weather': {
+        const wanted = parseWeather(args);
+        if (wanted === null) {
+          system(`Which weather? ${usage('weather')}`, 'error');
+          return true;
+        }
+        const done = host.weather(wanted);
+        if (done === null) system('The weather cannot be set in this world yet', 'error');
+        else if (!done) system(`The ${wanted} would not come`, 'error');
+        else system(wanted === 'auto' ? 'The weather is the world’s again' : `Weather · ${wanted}`);
+        return done !== true;
+      }
+      case 'who': {
+        if (peers === null) system('You are exploring alone · this world has no server to meet anyone on');
+        else if (peers.online === null) system('Not connected right now', 'error');
+        else {
+          const others = players();
+          if (others.length === 0) system('Nobody else is online right now');
+          else {
+            system(`${others.length} other ${others.length === 1 ? 'traveller' : 'travellers'} online`);
+            for (const other of others.slice(0, WHO_LIST)) {
+              const where = host.whereIs(other);
+              system(`${other.name} · ${where.country === '' ? `at sea off ${where.town}` : `${where.near ? 'in' : 'near'} ${where.town}, ${where.country}`}`);
+            }
+            if (others.length > WHO_LIST) system(`and ${others.length - WHO_LIST} more`);
+          }
+        }
+        return true;
+      }
+      case 'tp': {
+        const others = players();
+        const found = matchPlayer(args, others);
+        if (found === null) {
+          system(args === '' ? `Who? ${usage('tp')}` : `No one online is called “${args}” · /who lists them`, 'error');
+          return true;
+        }
+        if (!host.joinPlayer(found.id)) {
+          system(`${found.name} has gone`, 'error');
+          return true;
+        }
+        system(`Off to ${found.name}`);
+        return false;
+      }
+      case 'me': {
+        if (args === '') {
+          system(`Doing what? ${usage('me')}`, 'error');
+          return true;
+        }
+        say(`/me ${args}`);
+        return false;
+      }
+      case 'wave':
+      case 'dance':
+      case 'sit':
+        gesture(command.name);
+        return false;
+      case 'photo':
+        host.photo();
+        return false;
+      case 'mute':
+      case 'unmute': {
+        const known = [...new Set([...players().map((player) => player.name), ...names.values(), ...muted])].map((name) => ({ name }));
+        const found = matchPlayer(args, known);
+        if (found === null) {
+          system(args === '' ? `Who? ${usage(command.name)}` : `No one called “${args}”`, 'error');
+          return true;
+        }
+        const folded = fold(found.name);
+        if (command.name === 'mute') {
+          muted.add(folded);
+          // What they said already goes as well.
+          for (const entry of entries) if (entry.from === folded) entry.element.remove();
+          system(`${found.name} is muted until you reload`);
+        } else {
+          muted.delete(folded);
+          system(`${found.name} is heard again`);
+        }
+        return true;
+      }
+      case 'clear':
+        entries.length = 0;
+        log.replaceChildren();
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  /* --- the field ------------------------------------------------------------- */
+
+  function show(text = ''): void {
+    if (showing) return;
+    showing = true;
+    relock = document.pointerLockElement === host.lockTarget;
+    host.onOpen?.();
+    if (document.pointerLockElement !== null) document.exitPointerLock();
+    root.classList.add('open');
+    showCount();
+    field.value = text;
+    hint.textContent = '';
+    recall = -1;
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(text.length, text.length);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function hide(): void {
+    if (!showing) return;
+    showing = false;
+    root.classList.remove('open');
+    field.blur();
+    host.onClose?.();
+    if (relock && typeof host.lockTarget.requestPointerLock === 'function') {
+      // Refused after `Esc`, which is not a gesture the browser counts, and
+      // for a moment after any release: the pause card is then the way back.
+      try {
+        const request: unknown = host.lockTarget.requestPointerLock();
+        if (request instanceof Promise) request.catch(() => {});
+      } catch {
+        // As above.
+      }
+    }
+    relock = false;
+  }
+
+  function submit(): void {
+    const text = field.value;
+    field.value = '';
+    hint.textContent = '';
+    if (text.trim() === '') {
+      hide();
+      return;
+    }
+    if (sent[sent.length - 1] !== text) sent.push(text);
+    if (sent.length > KEEP_SENT) sent.shift();
+    recall = -1;
+    const parsed = parseCommand(text);
+    const stay = parsed === null ? (say(unescapeSlash(text)), false) : run(parsed);
+    if (!stay) hide();
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    submit();
+  });
+  field.addEventListener('keydown', (event) => {
+    if (event.isComposing) return;
+    if (event.code === 'Escape') {
+      event.preventDefault();
+      hide();
+    } else if (event.code === 'Tab') {
+      // The focus stays in the field whatever `Tab` finds.
+      event.preventDefault();
+      const done = complete(field.value, players().map((player) => player.name));
+      if (done === null) return;
+      field.value = done.line;
+      hint.textContent = done.choices.length > 1 ? done.choices.map((choice) => (field.value.startsWith('/') && !field.value.includes(' ') ? `/${choice}` : choice)).join('  ·  ') : '';
+    } else if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
+      if (sent.length === 0) return;
+      event.preventDefault();
+      if (recall < 0) draft = field.value;
+      recall = event.code === 'ArrowUp' ? (recall < 0 ? sent.length - 1 : Math.max(0, recall - 1)) : recall < 0 ? -1 : recall + 1;
+      if (recall >= sent.length) recall = -1;
+      field.value = recall < 0 ? draft : sent[recall]!;
+    }
+  });
+  field.addEventListener('input', () => {
+    if (hint.textContent !== '') hint.textContent = '';
+  });
+  // A press on the panel's own lines keeps the field's focus, so the history
+  // can be scrolled without closing it…
+  root.addEventListener('mousedown', (event) => {
+    if (event.target !== field) event.preventDefault();
+  });
+  // …and a click anywhere else is a close, as a click on the world would be.
+  field.addEventListener('blur', () => {
+    window.setTimeout(() => {
+      if (showing && !root.contains(document.activeElement)) hide();
+    }, 0);
+  });
+
+  /**
+   * The keys that open it, whenever the keys are the world's: `Enter` and
+   * `T` (`controls.ts`), and `/` with the slash typed. `Enter` on a button
+   * that has the focus is that button's.
+   */
+  addEventListener('keydown', (event) => {
+    if (showing || event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+    const slash = event.key === '/';
+    if (!slash && actionOf(event.code) !== 'chat') return;
+    if (inputBlocked(event)) return;
+    const target = event.target;
+    if (event.code.endsWith('Enter') && target instanceof Element && target.closest('button, a[href], [role="button"], [role="switch"], [tabindex]') !== null) return;
+    // The key is typed into nothing: the field opens empty, or with its slash.
+    event.preventDefault();
+    show(slash ? '/' : '');
+  });
+
+  showCount();
+  document.body.append(root);
+  if (peers === null) system('Enter to chat · / for commands · this world is yours alone');
+
+  return {
+    root,
+    get open() {
+      return showing;
+    },
+    show,
+    hide,
+    system: (text) => system(text),
+    get stats() {
+      return { lines: entries.length, received, sent: sentCount, muted: [...muted] };
+    },
+  };
+}

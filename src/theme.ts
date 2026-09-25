@@ -220,6 +220,12 @@ export const TWILIGHT_MOOD: Mood = {
  * reads as sunlit when you are standing in the dark and looking at it from the
  * plane's ceiling. Tinting the whole ramp turned the day side of the planet
  * blue, which is a strange thing to see from a night flight.
+ *
+ * **Darker since 2026-09-25**: the moon from 0.9 to 0.6, the fill and the sky
+ * light to about two thirds and the ramp's floor from 0.08 to 0.05. A street
+ * at midnight read as dusk; the moon still gives the ramp a direction to step
+ * across, and the lamps, the windows and a car's headlights are now what you
+ * see by.
  */
 export const NIGHT_MOOD: Mood = {
   skyTop: 0x0d1430,
@@ -227,17 +233,17 @@ export const NIGHT_MOOD: Mood = {
   skyGlow: 0x3c4a7a,
   glow: 0,
   stars: 1,
-  fog: 0x161d3c,
+  fog: 0x10152e,
   ambient: 0x8ea6de,
-  ambientIntensity: 0.15,
+  ambientIntensity: 0.09,
   hemisphereSky: 0x35538f,
   hemisphereGround: 0x13161f,
-  hemisphereIntensity: 0.3,
+  hemisphereIntensity: 0.18,
   sun: 0xfff0d8,
-  sunIntensity: 0.25,
+  sunIntensity: 0.15,
   moon: 0xbdd2ff,
-  moonIntensity: 0.9,
-  rampShadow: 0.08,
+  moonIntensity: 0.6,
+  rampShadow: 0.05,
   rampShadowTint: [0.72, 0.84, 1],
   rampLightTint: [0.94, 0.97, 1],
   rampGamma: 1,
@@ -261,7 +267,7 @@ export const NIGHT_MOOD: Mood = {
  * out in turn against that 89.2:
  *
  * ```
- *   the moon           -36.3    NIGHT_MOOD.moonIntensity 0.9
+ *   the moon           -36.3    NIGHT_MOOD.moonIntensity 0.9 (0.6 since 2026-09-25)
  *   the sun's ramp floor -12.4  rampShadow 0.08 x sunIntensity 2.6 = 0.21
  *   ambient              -3.2
  *   hemisphere           -1.4

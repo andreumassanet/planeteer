@@ -37,24 +37,42 @@ const f = (value: number, digits = 2): string => value.toFixed(digits);
 // kit-node supplies the globals GLTFLoader reaches for in Node, so everything
 // that reaches the loader is imported after it.
 await registerModelsFromDisk();
-const { modelsFrom } = await import('../src/kit.ts');
+const { modelsFrom, rigFrom } = await import('../src/kit.ts');
 const { CRAFT_IDS, craftFrom } = await import('../src/craft/index.ts');
+const { horseMaterial } = await import('../src/craft/horse.ts');
 const { AVATAR_HIP, HERO } = await import('../src/craft/body.ts');
 const { reviewCraft } = await import('../src/craft/review.ts');
 type CraftReview = import('../src/craft/review.ts').CraftReview;
 const kit = await modelsFrom(readFileSync(resolve(PUBLIC, 'models/traffic/kit.bin')));
-const craft = craftFrom(kit);
+const horseRig = await rigFrom(readFileSync(resolve(PUBLIC, 'models/fauna/horse.bin')), 'horse', horseMaterial());
+if (!horseRig.clips.some((clip) => clip.name === 'Gallop')) fail("the horse's rig has no Gallop: re-bake it (`pnpm kit`)");
+const craft = craftFrom(kit, horseRig);
 
 /** Triangles a craft may spend, all its parts together. */
 const BUDGET: Record<string, number> = {
   hatchback: 3000,
   van: 3000,
+  jeep: 3000,
+  pickup: 3000,
+  tractor: 3000,
+  bus: 3000,
+  scooter: 1500,
+  'tuk-tuk': 1500,
+  bicycle: 2000,
+  motorbike: 2000,
   launch: 3000,
+  'jet-ski': 2000,
+  sailboat: 2000,
   'light-plane': 6000,
+  helicopter: 3000,
   balloon: 5000,
+  horse: 3000,
 };
 /** Seats a craft must have at least. */
-const SEATS_AT_LEAST: Record<string, number> = { hatchback: 4, van: 2, launch: 4, 'light-plane': 4, balloon: 4 };
+const SEATS_AT_LEAST: Record<string, number> = {
+  hatchback: 4, van: 2, launch: 4, 'light-plane': 4, balloon: 4,
+  bus: 8, helicopter: 4, 'tuk-tuk': 3, motorbike: 2, 'jet-ski': 2, sailboat: 2, jeep: 2, pickup: 2,
+};
 
 // --- the ids -------------------------------------------------------------
 
@@ -141,7 +159,7 @@ function checkCraft(model: CraftModel): void {
     console.log(
       `    seat ${row.index}  ${seat.pose.padEnd(5)} ${seat.shown ? 'shown ' : 'hidden'} at ${f(seat.x).padStart(6)} ${f(seat.y).padStart(6)} ${f(seat.z).padStart(6)}` +
         `   ${row.headroom === null ? 'open over the head' : `roof ${f(row.headroom)} over the crown`}` +
-        `${row.under === null ? '' : `   under the ${seat.pose === 'sit' ? 'hip' : 'soles'} ${f(row.under)}`}` +
+        `${row.under === null ? '' : `   under the ${seat.pose === 'stand' ? 'soles' : 'hip'} ${f(row.under)}`}` +
         `   inside the body: ${Object.entries(row.inside).map(([name, area]) => `${name} ${area.toFixed(3)}`).join(', ')}`,
     );
   }
@@ -180,7 +198,7 @@ console.log('\nthe motion:');
     });
     const sprung = group.getObjectByName('sprung');
     if (sprung === undefined) fail(`${model.id}: no sprung group`);
-    const air = model.kind === 'plane' || model.kind === 'balloon';
+    const air = model.medium === 'air';
     let leaned = 0;
     let pitched = 0;
     const input = { ...AT_REST, engine: true, grounded: true };
@@ -197,7 +215,7 @@ console.log('\nthe motion:');
       }
       if (Math.round(t * 60) % 30 === 0) proper(group, model.id);
     }
-    if ((model.kind === 'car' || model.kind === 'van') && (leaned < 0.01 || pitched < 0.01)) {
+    if (['car', 'van', 'bus', 'tractor', 'jeep', 'tuktuk'].includes(model.kind) && (leaned < 0.01 || pitched < 0.01)) {
       fail(`${model.id}: the body did not lean out of a hard turn or pitch on the brake (roll ${f(leaned, 3)}, pitch ${f(pitched, 3)})`);
     }
     for (const [wheel, at] of wheels) if (wheel.position.distanceTo(at) > 1e-9) fail(`${model.id}: a wheel moved off its axle`);
@@ -213,7 +231,7 @@ console.log('\nthe motion:');
       if (mesh.geometry.getAttribute('outlineNormal') === undefined) fail(`${model.id}: '${mesh.name}' is inked and has no outlineNormal`);
     });
     // A moored launch rides the swell, and only a launch does.
-    if (model.kind === 'boat' && sprung !== undefined) {
+    if (model.medium === 'water' && sprung !== undefined) {
       let heave = 0;
       for (let t = 0; t < 4; t += 1 / 60) {
         motion.update(1 / 60, { ...AT_REST, moored: true });
@@ -222,7 +240,48 @@ console.log('\nthe motion:');
       if (heave < 0.05) fail(`${model.id}: a moored launch does not ride the swell (${f(heave, 3)})`);
       proper(group, model.id);
     }
-    console.log(`  ${model.id.padEnd(12)} lean ${f(leaned, 3)}  pitch ${f(pitched, 3)}  wheels ${wheels.length}  at rest after it was let go`);
+    // What turns besides the wheels: a bicycle's crank while it is pedalled,
+    // a helicopter's rotors while its engine runs, a horse's legs and back.
+    let extra = '';
+    if (model.gearing !== undefined) {
+      const crank = group.getObjectByName('crank');
+      const fresh = motionOf(model.build(0), model);
+      for (let t = 0; t < 1; t += 1 / 60) fresh.update(1 / 60, { ...AT_REST, engine: true, speed: 20, throttle: 1 });
+      const pedalled = fresh.phase;
+      for (let t = 0; t < 1; t += 1 / 60) fresh.update(1 / 60, { ...AT_REST, engine: true, speed: 20, throttle: 0 });
+      if (crank === undefined) fail(`${model.id}: geared, with no 'crank'`);
+      if (!(pedalled > 0.5)) fail(`${model.id}: the crank did not turn under the pedals (${f(pedalled, 3)})`);
+      if (Math.abs(fresh.phase - pedalled) > 1e-9) fail(`${model.id}: the crank turned while it coasted`);
+      extra += `  crank ${f(pedalled, 2)} rad in a second at 20`;
+    }
+    if (model.kind === 'helicopter') {
+      const fresh = model.build(0);
+      const motion2 = motionOf(fresh, model);
+      const rotor = fresh.getObjectByName('rotor');
+      const tail = fresh.getObjectByName('tail');
+      for (let t = 0; t < 3; t += 1 / 60) motion2.update(1 / 60, { ...AT_REST, engine: true, grounded: false });
+      if (rotor === undefined || tail === undefined) fail(`${model.id}: no 'rotor' or no 'tail'`);
+      else if (rotor.rotation.y === 0 || tail.rotation.x === 0) fail(`${model.id}: the rotors did not turn with the engine running`);
+      proper(fresh, model.id);
+      extra += '  rotors turn';
+    }
+    if (model.kind === 'horse') {
+      const fresh = model.build(0);
+      const motion2 = motionOf(fresh, model);
+      const rig = fresh.getObjectByName('rig');
+      let rose = 0;
+      let fell = 0;
+      for (let t = 0; t < 3; t += 1 / 60) {
+        motion2.update(1 / 60, { ...AT_REST, engine: true, speed: 30, throttle: 1 });
+        rose = Math.max(rose, motion2.lift);
+        fell = Math.min(fell, motion2.lift);
+      }
+      if (rig === undefined) fail(`${model.id}: no 'rig'`);
+      if (rose - fell < 0.02) fail(`${model.id}: the saddle does not ride the gallop (${f(rose - fell, 3)})`);
+      proper(fresh, model.id);
+      extra += `  saddle rides ${f(rose - fell, 2)} at a gallop`;
+    }
+    console.log(`  ${model.id.padEnd(12)} lean ${f(leaned, 3)}  pitch ${f(pitched, 3)}  wheels ${wheels.length}  at rest after it was let go${extra}`);
   }
 
   const { buildStrip, buildWindsock, STRIP_LENGTH } = await import('../src/craft/airstrip.ts');

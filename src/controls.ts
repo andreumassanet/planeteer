@@ -26,11 +26,25 @@
  */
 /**
  * How the player is getting about, as far as the keys are concerned: on foot,
- * swimming, at the wheel of one of the four kinds of vehicle, or in somebody
+ * swimming, at the controls of a kind of vehicle — every four-wheeler is a
+ * car here, from the hatchback to the bus — or in somebody
  * else's as a passenger, where the only key that does anything is the one that
  * gets you out. `player.ts` says which (`Player.mode`).
  */
-export type TravelMode = 'foot' | 'swim' | 'car' | 'boat' | 'plane' | 'balloon' | 'passenger';
+export type TravelMode =
+  | 'foot'
+  | 'swim'
+  | 'car'
+  | 'boat'
+  | 'plane'
+  | 'balloon'
+  | 'bicycle'
+  | 'motorbike'
+  | 'horse'
+  | 'jetski'
+  | 'sailboat'
+  | 'helicopter'
+  | 'passenger';
 
 /** What a key does in the world, as opposed to which key it is. */
 export type Action =
@@ -51,6 +65,8 @@ export type Action =
   | 'farther'
   | 'hints'
   | 'photo'
+  | 'chat'
+  | 'wave'
   | 'mapIn'
   | 'mapOut'
   | 'release';
@@ -94,6 +110,12 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   hints: ['KeyH'],
   // The one letter left near the right hand that nothing else wanted.
   photo: ['KeyP'],
+  // The chat's field (`chat.ts`), which `/` also opens with the slash typed.
+  // `Enter` opens it only when nothing on the page has the focus, so a
+  // button a keyboard has reached still presses on `Enter`.
+  chat: ['Enter', 'KeyT', 'NumpadEnter'],
+  // A wave where the others can see it: the gesture every player makes first.
+  wave: ['KeyG'],
   // The world map's zoom, while it is up: its buttons as keys, since `Tab` on
   // the map is the landmarks' and not a walk to its controls.
   mapIn: ['Equal', 'NumpadAdd'],
@@ -228,9 +250,9 @@ export const KEY_LIST: readonly KeyHint[] = [
   { keys: MOVE, label: 'Move, or steer' },
   { keys: ['mouse'], label: 'Look around' },
   { keys: ['wheel'], label: 'Camera nearer or further, on foot' },
-  { keys: ['run'], label: 'Run · swim faster · boost a car or a boat' },
+  { keys: ['run'], label: 'Run · swim faster · boost a car or a boat · gallop' },
   { keys: ['jump'], label: 'Jump' },
-  { keys: ['jump', 'run'], label: 'Take off and climb · rise in a balloon' },
+  { keys: ['jump', 'run'], label: 'Take off and climb · rise in a balloon or a helicopter' },
   { keys: ['descend', 'dive'], label: 'Descend and land · sink a balloon' },
   { keys: ['use'], label: 'Get in a vehicle you are next to · get out · talk to somebody' },
   { keys: ['view'], label: 'First person, on foot' },
@@ -240,6 +262,8 @@ export const KEY_LIST: readonly KeyHint[] = [
   { keys: ['flags'], label: 'Flags and borders' },
   { keys: ['nearer', 'farther'], label: 'Render distance' },
   { keys: ['photo'], label: 'Save a photo' },
+  { keys: ['chat'], label: 'Chat · type / for commands' },
+  { keys: ['wave'], label: 'Wave' },
   { keys: ['hints'], label: 'Key hints on screen' },
   { keys: ['release'], label: 'Free the mouse' },
 ];
@@ -276,6 +300,7 @@ export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false
         { keys: ['photo'], label: 'Photo' },
       ];
     case 'boat':
+    case 'jetski':
       return [
         { keys: MOVE, label: 'Steer' },
         { keys: ['run'], label: 'Boost' },
@@ -283,6 +308,56 @@ export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false
         { keys: ['map'], label: 'Map' },
         { keys: ['photo'], label: 'Photo' },
       ];
+    case 'sailboat':
+      return [
+        { keys: MOVE, label: 'Steer' },
+        { keys: ['run'], label: 'Haul the sheet in' },
+        out,
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'bicycle':
+      return [
+        { keys: MOVE, label: 'Pedal and steer' },
+        { keys: ['run'], label: 'Out of the saddle' },
+        out,
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'motorbike':
+      return [
+        { keys: MOVE, label: 'Ride' },
+        { keys: ['run'], label: 'Full throttle' },
+        out,
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'horse':
+      return [
+        { keys: MOVE, label: 'Ride' },
+        { keys: ['run'], label: 'Gallop' },
+        { ...out, label: 'Dismount' },
+        { keys: ['map'], label: 'Map' },
+        { keys: ['photo'], label: 'Photo' },
+      ];
+    case 'helicopter':
+      return airborne
+        ? [
+            { keys: ['forward', 'back'], label: 'Fly forward · back' },
+            { keys: ['left', 'right'], label: 'Turn' },
+            up,
+            { ...down, label: 'Descend · land on flat ground' },
+            { keys: ['flags'], label: 'Flags' },
+            { keys: ['map'], label: 'Map' },
+            { keys: ['photo'], label: 'Photo' },
+          ]
+        : [
+            { ...up, label: 'Hold to lift off' },
+            { keys: ['left', 'right'], label: 'Turn' },
+            out,
+            { keys: ['map'], label: 'Map' },
+            { keys: ['photo'], label: 'Photo' },
+          ];
     case 'plane':
       return airborne
         ? [

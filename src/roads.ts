@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
+import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { lightWindows, poolAt } from './lights.ts';
 import { proxyOf } from './warm.ts';
@@ -2276,6 +2276,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   material.onBeforeCompile = (shader, renderer) => {
     lit(shader, renderer);
     shader.uniforms['roadReach'] = reachUniform;
+    bindGroundWeather(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -2288,7 +2289,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
           '\n\tvRoadReach = roadClass < 0.5 ? roadReach.x : roadClass < 1.5 ? roadReach.y : roadReach.z;',
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;')
+      .replace('#include <common>', `#include <common>\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
+      // The weather on the carriageway, as on the verge beside it.
+      .replace('#include <color_fragment>', `#include <color_fragment>\n  ${groundWeatherChunk('vRoadWorld')}`)
       .replace(
         '#include <clipping_planes_fragment>',
         '#include <clipping_planes_fragment>\n' +

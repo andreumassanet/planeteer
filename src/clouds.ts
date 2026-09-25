@@ -5,6 +5,7 @@ import { createToonRamp } from './theme.ts';
 import { sunUniform } from './sun.ts';
 import type { OutlineTransform } from './outline.ts';
 import { latOf } from './sphere.ts';
+import { weatherHazeAt } from './view.ts';
 
 /**
  * The weather, as a solid.
@@ -34,7 +35,8 @@ import { latOf } from './sphere.ts';
  * colour. Weather cannot do that — from the ceiling the cloud field *is* the
  * thing you climbed up to look at, so it has to exist over the whole planet at
  * once. So it is built like the land: from angles rather than distances, at one
- * resolution everywhere. 90,514 cells of 327,680, 238,736 triangles, 16.4 MB,
+ * resolution everywhere. 90,514 cells of 327,680, 238,736 triangles, 17.1 MB
+ * (0.7 of it the byte a vertex of `deep` the weather greys; 2026-09-25),
  * 0.4 s headless and up to 0.75 s cold in the browser, and it costs +47,620
  * drawn triangles standing on the ground and +226,888 from the plane's ceiling
  * — see `DETAIL` for why one resolution is enough at both ends.
@@ -69,7 +71,7 @@ import { latOf } from './sphere.ts';
  * reads at all because the coverage is a third: a solid shell at this height
  * would be a rind.
  */
-const CLOUD_BASE = 1000;
+export const CLOUD_BASE = 1000;
 /** How far the base wanders. Cumulus bases are flat, so this is gentle. */
 const BASE_SWING = 260;
 /** The thinnest a cloud gets at its own edge: enough wall to carry an ink line. */
@@ -146,7 +148,14 @@ const WARP_STRENGTH = 0.55;
  * `CLIMATE_BIAS` the noise still decides, so the belts are where the weather is
  * likelier rather than where it is drawn.
  */
-const THRESHOLD = 0.575;
+export const THRESHOLD = 0.575;
+/**
+ * How far past the cut a bank reaches its full depth, in the field's units.
+ * A bank's thickness, its lensed underside and — in `weather.ts` — how hard it
+ * rains all ride `(coverage - THRESHOLD) / DEPTH_SPAN`, so the tallest cloud
+ * in the sky is the one raining on you.
+ */
+export const DEPTH_SPAN = 0.16;
 const CLIMATE_BIAS = 0.042;
 const CLIMATE_PERIOD = 27.5;
 
@@ -161,6 +170,21 @@ const CLIMATE_PERIOD = 27.5;
  */
 const WIND_PERIOD_HOURS = 19;
 const WIND_TILT = 17 * (Math.PI / 180);
+/** The axis the deck turns about, in world space. */
+export const DECK_AXIS = new THREE.Vector3(Math.sin(WIND_TILT), Math.cos(WIND_TILT), 0).normalize();
+const DECK_PERIOD_MS = WIND_PERIOD_HOURS * 3600000;
+
+/**
+ * The deck's turn at an instant: an absolute angle, so the deck — and the
+ * weather `weather.ts` reads off it — is a pure function of the clock.
+ */
+export function deckTurn(timeMs: number, target: THREE.Quaternion): THREE.Quaternion {
+  const phase = ((timeMs % DECK_PERIOD_MS) + DECK_PERIOD_MS) % DECK_PERIOD_MS;
+  return target.setFromAxisAngle(DECK_AXIS, (phase / DECK_PERIOD_MS) * Math.PI * 2);
+}
+
+/** Radians a second the deck turns: the drift `weather.ts` takes its wind from. */
+export const DECK_RATE = (Math.PI * 2) / (DECK_PERIOD_MS / 1000);
 
 /**
  * The pen, and **how far away it stops being a pen.**
@@ -344,6 +368,9 @@ function squashAt(altitude: number): number {
 
 const NIGHT_FLOOR = 0.34;
 
+/** How much of its light the heart of a bank loses under a storm (`setGrey` at 1). */
+const GREY_DEPTH = 0.58;
+
 const FLAT_FULL_RANGE = 4000;
 const FLAT_GONE_RANGE = 16000;
 const FLAT_MAX = 0.9;
@@ -414,6 +441,12 @@ export interface Clouds {
    * takes the fill's opacity.
    */
   setVeil(opacity: number): void;
+  /**
+   * How much a bank's deep middle darkens, 0 to 1: the weather's say in how
+   * the deck looks (`weather-view.ts`). 0 is the white deck this file always
+   * drew; 1 is a storm's, `GREY_DEPTH` darker at a bank's heart.
+   */
+  setGrey(value: number): void;
   stats: CloudStats;
 }
 
@@ -436,6 +469,9 @@ export interface Clouds {
  * enough by the plane's ceiling that the weather is still weather from up
  * there.
  *
+ * It closes with the weather's own haze (`weatherHazeAt` in `view.ts`), so in
+ * a fog or a downpour the deck overhead goes into the murk with the hills.
+ *
  * The one thing it does not carry is the ink: `OutlineEffect` copies `fog` off
  * the source material and knows nothing about this, so the outline stays black
  * at any distance. That is the right way round — a pale shape with its line
@@ -450,7 +486,7 @@ function hazeAt(
 ): void {
   const above = Math.max(1, altitude);
   const horizon = Math.sqrt(2 * PLANET_RADIUS * (above + CLOUD_BASE));
-  const far = horizon * (1.05 + (above / PLANET_RADIUS) * 6);
+  const far = horizon * (1.05 + (above / PLANET_RADIUS) * 6) * weatherHazeAt(altitude);
   haze.far.value = far;
   haze.near.value = far * 0.2;
   haze.color.value.copy(fog.color);
@@ -555,7 +591,7 @@ function icosphere(detail: number): {
  * is what weather looks like from orbit and is one extra `fbm` at build time.
  * The climate term is the three-cell bias described at `CLIMATE_BIAS`.
  */
-function coverageAt(x: number, y: number, z: number): number {
+export function coverageAt(x: number, y: number, z: number): number {
   const warpX = fbm(x * WARP_FREQUENCY + 19.7, y * WARP_FREQUENCY - 4.3, z * WARP_FREQUENCY + 31.1, 2);
   const warpY = fbm(x * WARP_FREQUENCY - 12.9, y * WARP_FREQUENCY + 27.5, z * WARP_FREQUENCY - 8.7, 2);
   const warpZ = fbm(x * WARP_FREQUENCY + 5.1, y * WARP_FREQUENCY + 14.2, z * WARP_FREQUENCY + 23.9, 2);
@@ -588,6 +624,8 @@ export function createClouds(): Clouds {
   const cover = new Float32Array(vertexCount);
   const floor = new Float32Array(vertexCount);
   const ceiling = new Float32Array(vertexCount);
+  /** Each vertex's depth into its bank, a byte: what `grey` darkens. */
+  const deep = new Uint8Array(vertexCount);
   for (let i = 0; i < vertexCount; i++) {
     const x = vertices[i * 3]!;
     const y = vertices[i * 3 + 1]!;
@@ -600,7 +638,8 @@ export function createClouds(): Clouds {
         BASE_SWING;
     // Depth of the bank drives how tall it stands, so an edge is a wisp and the
     // middle is a tower, with no second field saying so.
-    const depth = Math.max(0, Math.min(1, (c - THRESHOLD) / 0.16));
+    const depth = Math.max(0, Math.min(1, (c - THRESHOLD) / DEPTH_SPAN));
+    deep[i] = Math.round(depth * 255);
     const lump = fbm(x * LUMP_FREQUENCY + 7.7, y * LUMP_FREQUENCY - 19.4, z * LUMP_FREQUENCY + 3.3, 3);
     const bottom = base + RIM_LIFT * (1 - depth);
     floor[i] = PLANET_RADIUS + bottom;
@@ -673,6 +712,7 @@ export function createClouds(): Clouds {
   const flatten = { value: 0 };
   const orbitDim = { value: 0 };
   const squash = { value: 0 };
+  const grey = { value: 0 };
   const material = new THREE.MeshToonMaterial({
     color: 0xfbf3ec,
     gradientMap: ramp,
@@ -710,10 +750,11 @@ export function createClouds(): Clouds {
     shader.uniforms.orbitDim = orbitDim;
     shader.uniforms.atlasSun = sunUniform;
     shader.uniforms.squash = squash;
+    shader.uniforms.cloudGrey = grey;
     shader.vertexShader = shader.vertexShader
       .replace(
         'void main() {',
-        SQUASH_GLSL + '\nvarying float vHaze;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {',
+        SQUASH_GLSL + '\nattribute float deep;\nvarying float vDeep;\nvarying float vHaze;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {\n  vDeep = deep;',
       )
       // See `squashAt` and `SQUASH_GLSL`. Radial, in object space, which for this
       // mesh is the planet's own frame turned by the wind — so it is radial in
@@ -730,7 +771,7 @@ export function createClouds(): Clouds {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
-        'uniform vec3 hazeColor;\nuniform float hazeNear;\nuniform float hazeFar;\nuniform float flatten;\nuniform float orbitDim;\nuniform vec3 atlasSun;\nvarying float vHaze;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {',
+        'uniform vec3 hazeColor;\nuniform float hazeNear;\nuniform float hazeFar;\nuniform float flatten;\nuniform float orbitDim;\nuniform float cloudGrey;\nuniform vec3 atlasSun;\nvarying float vDeep;\nvarying float vHaze;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {',
       )
       // See `flattenAt`. The sign keeps a floor a floor: blending every normal
       // to +up would light the underside of the deck as though it faced the sky,
@@ -745,7 +786,11 @@ export function createClouds(): Clouds {
         '#include <opaque_fragment>',
         '#include <opaque_fragment>\n\tfloat atlasNightSide = 1.0 - smoothstep(-0.104528, 0.034899, dot(vUp, atlasSun));\n\tgl_FragColor.rgb *= mix(1.0, ' +
           NIGHT_FLOOR.toFixed(3) +
-          ', atlasNightSide * orbitDim);',
+          ', atlasNightSide * orbitDim);' +
+          // See `setGrey`: the deep middle of a bank goes the grey of a rain
+          // cloud, and its rim stays white, so a storm is a dark heart in a
+          // pale bank rather than a grey sky.
+          `\n\tgl_FragColor.rgb *= 1.0 - cloudGrey * ${GREY_DEPTH.toFixed(2)} * smoothstep(0.2, 0.85, vDeep);`,
       )
       // Before tone mapping, so the blend happens in the same linear space the
       // light was accumulated in — which is one step earlier than three puts
@@ -771,8 +816,12 @@ export function createClouds(): Clouds {
   }
 
   const positions: Float32Array[] = [];
+  const depths: Uint8Array[] = [];
   const cursors = new Int32Array(20);
-  for (let chunk = 0; chunk < 20; chunk++) positions.push(new Float32Array(chunkTriangles[chunk]! * 9));
+  for (let chunk = 0; chunk < 20; chunk++) {
+    positions.push(new Float32Array(chunkTriangles[chunk]! * 9));
+    depths.push(new Uint8Array(chunkTriangles[chunk]! * 3));
+  }
 
   const push = (chunk: number, x: number, y: number, z: number): void => {
     const array = positions[chunk]!;
@@ -784,6 +833,7 @@ export function createClouds(): Clouds {
   };
   const pushAt = (chunk: number, v: number, radius: Float32Array): void => {
     const r = radius[v]!;
+    depths[chunk]![cursors[chunk]! / 3] = deep[v]!;
     push(chunk, vertices[v * 3]! * r, vertices[v * 3 + 1]! * r, vertices[v * 3 + 2]! * r);
   };
 
@@ -866,6 +916,7 @@ export function createClouds(): Clouds {
     if (array.length === 0) continue;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(array, 3));
+    geometry.setAttribute('deep', new THREE.BufferAttribute(depths[chunk]!, 1, true));
     // Non-indexed on purpose, exactly as the land is: one normal per face, so
     // a lump has facets to step the cel bands across instead of a smooth
     // gradient that has nothing to band.
@@ -875,7 +926,7 @@ export function createClouds(): Clouds {
     mesh.name = `clouds-${chunk}`;
     mesh.renderOrder = CLOUD_ORDER;
     group.add(mesh);
-    bytes += array.byteLength * 2;
+    bytes += array.byteLength * 2 + depths[chunk]!.byteLength;
   }
 
   if (inward > 0) {
@@ -892,12 +943,12 @@ export function createClouds(): Clouds {
     inward,
   };
 
-  const axis = new THREE.Vector3(Math.sin(WIND_TILT), Math.cos(WIND_TILT), 0).normalize();
-  const period = WIND_PERIOD_HOURS * 3600000;
-
   return {
     group,
     stats,
+    setGrey(value: number): void {
+      grey.value = Math.max(0, Math.min(1, value));
+    },
     setVeil(opacity: number): void {
       // Not drawn at all rather than drawn at nothing: 226,888 triangles and two
       // passes of them to paint no pixel.
@@ -924,7 +975,7 @@ export function createClouds(): Clouds {
       // An absolute angle, not an increment: the deck is then a pure function
       // of the clock, so `atlas.sky.setTime` scrubs the weather with the sun
       // and `setRate(600)` runs a front past you in seconds.
-      group.quaternion.setFromAxisAngle(axis, ((time.getTime() % period) / period) * Math.PI * 2);
+      deckTurn(time.getTime(), group.quaternion);
       const altitude = cameraPosition.length() - PLANET_RADIUS;
       hazeAt(altitude, fog, haze);
       penAt(altitude, pen);

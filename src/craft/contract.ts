@@ -3,7 +3,9 @@
  *
  * **Nobody owns a vehicle any more.** They stand about the world — cars at the
  * ends of a town's roads, boats off a coastal town, light aircraft beside the
- * big cities, the odd balloon — and you walk up to one and take it. Where you
+ * big cities, the odd balloon, and bicycles, motorbikes, tuk-tuks, jeeps,
+ * buses, jet skis, sailboats, horses, tractors and helicopters where each
+ * makes sense — and you walk up to one and take it. Where you
  * leave it is where it stays, for everyone. Three files meet here and each
  * reads only this one of the others:
  *
@@ -30,7 +32,36 @@ import type * as THREE from 'three';
 /** What a vehicle moves over, which is what decides how it is driven. */
 export type Medium = 'road' | 'water' | 'air';
 
-export type CraftKind = 'car' | 'van' | 'boat' | 'plane' | 'balloon';
+/**
+ * How a vehicle is driven, which is what its model says it is. Every kind has
+ * its own handling (`craft/handling.ts`), its own sound and its own marks on
+ * the world; a model is one look of a kind — the scooter and the motorbike are
+ * both `motorbike`, the jeep and the pickup both `jeep`.
+ */
+export type CraftKind =
+  | 'car'
+  | 'van'
+  | 'boat'
+  | 'plane'
+  | 'balloon'
+  | 'bicycle'
+  | 'motorbike'
+  | 'tuktuk'
+  | 'bus'
+  | 'tractor'
+  | 'jeep'
+  | 'horse'
+  | 'jetski'
+  | 'sailboat'
+  | 'helicopter';
+
+/** Every kind, in the order the checks and the console list them. */
+export const CRAFT_KINDS: readonly CraftKind[] = [
+  'car', 'van', 'boat', 'plane', 'balloon', 'bicycle', 'motorbike', 'tuktuk', 'bus', 'tractor', 'jeep', 'horse', 'jetski', 'sailboat', 'helicopter',
+];
+
+/** The kinds that fly, and so are left only on the ground. */
+export const isAirKind = (kind: CraftKind): boolean => kind === 'plane' || kind === 'balloon' || kind === 'helicopter';
 
 export interface Seat {
   /** The hip, in the model's frame. The seat surface is at `y`. */
@@ -39,9 +70,27 @@ export interface Seat {
   z: number;
   /** Which way the body faces, radians about +Y from +Z. Almost always 0. */
   yaw: number;
-  pose: 'sit' | 'stand';
+  /**
+   * `sit` on a seat with the feet on a floor, `stand` at a helm or in a
+   * basket, `ride` astride — a saddle, a bicycle, a jet ski — with the legs
+   * down either side to `feet` and the hands on `grip`.
+   */
+  pose: 'sit' | 'stand' | 'ride';
   /** False inside a closed cab, where a body would be drawn through the roof. */
   shown: boolean;
+  /**
+   * Astride: where the hands hold — the bars, the reins — about the hip, in
+   * the seat's own frame (+X the rider's left, +Z ahead).
+   */
+  grip?: readonly [number, number, number];
+  /**
+   * Astride: where the soles rest about the hip, the left foot's; the right is
+   * the same mirrored across the seat. For a seat that pedals it is the
+   * crank's axle, on the centreline.
+   */
+  feet?: readonly [number, number, number];
+  /** A seat that pedals: the crank's radius, and the feet go round it. */
+  crank?: number;
 }
 
 export interface CraftModel {
@@ -61,12 +110,21 @@ export interface CraftModel {
    * `effects.ts` draws the flame between while it climbs.
    */
   burner?: readonly [number, number];
+  /**
+   * A bicycle's crank: how far the bicycle goes for one turn of the pedals, in
+   * units. The motion turns the crank by it and the rider's feet follow the
+   * motion's phase (`CraftMotion.phase`).
+   */
+  gearing?: number;
   /** How many looks the model has; `build` takes one of `0 .. variants - 1`. */
   variants: number;
   /**
    * A fresh copy, drawn with the world's own toon materials and ink, every
    * mesh carrying `outlineNormal`. Parts that turn are named children:
-   * `'prop'` (spins about +Z), `'rotor'` (about +Y), `'wheel'` (about +X).
+   * `'prop'` (spins about +Z), `'rotor'` (about +Y), `'wheel'` (about +X),
+   * `'tail'` (a tail rotor, about +X), `'crank'` (a bicycle's, about +X).
+   * An animal's body is a child named `'rig'` carrying its skinned mesh
+   * (`craft/horse.ts`), which the motion plays.
    */
   build(variant: number): THREE.Group;
 }
@@ -131,20 +189,29 @@ export const PLAYER_STATES = ['foot', 'swim', 'seated'] as const;
 export type PlayerState = (typeof PLAYER_STATES)[number];
 
 /**
- * The cars parked in a town that can be taken, by the traffic kit's vehicle,
- * and the craft that stands in for each once taken: the kit's hatchback,
- * saloon and SUV become the hatchback, its panel van and minibus the van. The
- * rest — a bus, a lorry, a tractor, a bicycle — stay parked, and stay solid.
+ * The vehicles parked in a town that can be taken, by the traffic kit's
+ * vehicle, and the craft that stands in for each once taken: the kit's
+ * hatchback and saloon become the hatchback, its SUV the jeep, its panel van
+ * and minibus the van, its pickups the pickup, and the bus, the tractor, the
+ * bicycle, the scooter and the rickshaw their own. What is left — a lorry, a
+ * hand-cart — stays parked, and stays solid.
  *
- * The craft is a third larger than the car it replaces, because the kit's cars
- * are fitted to a lane and a craft to the person inside it (`cars.ts`).
+ * The craft is larger than the vehicle it replaces, a car by a third, because
+ * the kit's are fitted to a lane and a craft to the person inside it
+ * (`cars.ts`); the bus is the one drawn at the traffic's own size.
  */
 export const PARKED_CRAFT: Readonly<Record<string, string>> = {
   hatchback: 'hatchback',
   'saloon-car': 'hatchback',
-  'boxy-suv': 'hatchback',
+  'boxy-suv': 'jeep',
   'panel-van': 'van',
   minibus: 'van',
+  'pickup-truck': 'pickup',
+  'city-bus': 'bus',
+  'farm-tractor': 'tractor',
+  bicycle: 'bicycle',
+  scooter: 'scooter',
+  'auto-rickshaw': 'tuk-tuk',
 };
 
 /**

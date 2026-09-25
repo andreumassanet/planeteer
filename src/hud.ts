@@ -236,6 +236,12 @@ const MODE: Record<TravelMode, [IconName, string]> = {
   boat: ['boat', 'At sea'],
   plane: ['plane', 'Flying'],
   balloon: ['balloon', 'Ballooning'],
+  bicycle: ['bike', 'Cycling'],
+  motorbike: ['moto', 'Riding'],
+  horse: ['horse', 'On horseback'],
+  jetski: ['jetski', 'Jet ski'],
+  sailboat: ['boat', 'Sailing'],
+  helicopter: ['heli', 'Flying'],
   passenger: ['seat', 'Passenger'],
 };
 
@@ -1227,7 +1233,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     if (mode === null) return;
     const [iconName, label] = MODE[mode];
     keysBadge.replaceChildren(icon(iconName));
-    keysMode.textContent = mode === 'plane' && !flying ? 'On the ground' : label;
+    keysMode.textContent = (mode === 'plane' || mode === 'helicopter') && !flying ? 'On the ground' : label;
     keysList.replaceChildren(
       ...hintsFor(mode, flying, firstPerson, stranded).map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
       h('span', {}, kbd(labelOf('hints')), 'Hide'),
@@ -1430,7 +1436,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     },
     setMode(next, nextAirborne = false, nextFirstPerson = false, nextStranded = false) {
       const view = (next === 'foot' || next === 'swim') && nextFirstPerson;
-      const aloft = (next === 'plane' || next === 'balloon' || next === 'passenger') && nextAirborne;
+      const aloft = (next === 'plane' || next === 'balloon' || next === 'helicopter' || next === 'passenger') && nextAirborne;
       const alone = next === 'passenger' && aloft && nextStranded;
       if (next === mode && aloft === flying && view === firstPerson && alone === stranded) return;
       stranded = alone;

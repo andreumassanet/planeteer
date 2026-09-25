@@ -1,7 +1,7 @@
 /**
  * What a vehicle does between its pose and its paint: the body on its
- * springs, the wheels turning and steering, the propeller, a moored launch on
- * the swell.
+ * springs, the wheels turning and steering, the propeller and the rotors, a
+ * bicycle's crank, a horse's legs and back, a moored hull on the swell.
  *
  * **None of it is the pose.** Where a vehicle is and which way it faces is the
  * player's (`player.ts`) or the wire's (`fleet.ts`, `fleet-sync.ts`), and
@@ -26,6 +26,7 @@
  */
 import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
+import type { Rigged } from '../models.ts';
 import type { CraftModel } from './contract.ts';
 
 /** What the vehicle is doing this frame, as the motion reads it. */
@@ -40,8 +41,16 @@ export interface MotionInput {
   grounded: boolean;
   /** Somebody at the controls, so the engine is running. */
   engine: boolean;
-  /** Afloat with nobody driving: the swell is this file's to draw. When driven it is the pose's. */
+  /**
+   * Afloat with nobody driving: the swell is this file's to draw. When driven
+   * it is the pose's. A horse nobody is riding is `moored` too, and idles.
+   */
   moored: boolean;
+  /**
+   * The throttle, -1 to 1: `W` forward, `S` back. A bicycle's pedals turn
+   * only while it is pushed; coasting, they stop and the wheels run on.
+   */
+  throttle: number;
 }
 
 export interface CraftMotion {
@@ -50,10 +59,23 @@ export interface CraftMotion {
   rest(): void;
   /** Still easing back to rest, or turning: worth another `update` with nothing asked of it. */
   readonly settling: boolean;
+  /**
+   * A bicycle's crank, radians: 0 with the left pedal at the bottom, rising as
+   * it is pedalled forward. The rider's feet are put round it
+   * (`poseAstride` in `cast.ts`), so they and the pedals cannot part. 0 for
+   * anything without a crank.
+   */
+  readonly phase: number;
+  /**
+   * How far the seats are lifted off where the model publishes them, in
+   * units: a horse's back rising and falling under the saddle. The rider's
+   * own body is not under the model (`player.ts`) and adds it itself.
+   */
+  readonly lift: number;
 }
 
 /** A motion input with nothing asked of it: parked, engine off. */
-export const AT_REST: Readonly<MotionInput> = { speed: 0, turnRate: 0, steering: 0, grounded: true, engine: false, moored: false };
+export const AT_REST: Readonly<MotionInput> = { speed: 0, turnRate: 0, steering: 0, grounded: true, engine: false, moored: false, throttle: 0 };
 
 /**
  * A car's body on its springs: radians of pitch per unit a second squared of
@@ -93,6 +115,9 @@ const STANDING = 0.3;
  * up in the arc they sweep, which is what a propeller at speed looks like.
  */
 const PROP_IDLE = 14;
+/** A helicopter's rotor at full power, radians a second: slower than a propeller, and the tail's faster. */
+const ROTOR_FULL = 40;
+const TAIL_RATE = 2.5;
 const PROP_FULL = 60;
 const PROP_EASE = 1.5;
 const PROP_DRAWN = 28;
@@ -113,9 +138,29 @@ const ROLL_SCALE = 84;
 const MOOR_HEAVE = 0.12;
 const MOOR_PITCH = 0.025;
 const MOOR_ROLL = 0.04;
+/**
+ * A horse's gaits: under `WALK_FROM` units a second it stands, over
+ * `GALLOP_FROM` it gallops, and walks between; the walk clip plays at a
+ * third of the horse's length a second, as the herds' does (`pace` in
+ * `life.ts`), and the gallop at `GALLOP_STRIDE` lengths a cycle of its clip.
+ * `GAIT_EASE` is how fast one gait gives way to the next, per second.
+ */
+const WALK_FROM = 0.4;
+const GALLOP_FROM = 10;
+const WALK_PACE = 0.3;
+const GALLOP_STRIDE = 1.6;
+const GAIT_EASE = 5;
 
 interface Parts {
   sprung: THREE.Group;
+  /** A bicycle's crank. */
+  cranks: THREE.Object3D[];
+  /** A helicopter's rotor, about +Y, and its tail rotor, about +X; each with its disc. */
+  rotors: THREE.Object3D[];
+  tails: THREE.Object3D[];
+  /** An animal's rig: its body and mixer, and the bone the saddle rides. */
+  rig: Rigged | null;
+  back: THREE.Bone | null;
   /** The wheels and their radii, and which are steered (ahead of the middle). */
   wheels: THREE.Object3D[];
   radii: number[];
@@ -144,9 +189,22 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   sprung.name = 'sprung';
   const wheels: THREE.Object3D[] = [];
   const props: THREE.Object3D[] = [];
+  const cranks: THREE.Object3D[] = [];
+  const rotors: THREE.Object3D[] = [];
+  const tails: THREE.Object3D[] = [];
+  let rig: Rigged | null = null;
+  let back: THREE.Bone | null = null;
   for (const child of [...group.children]) {
     if (child.name === 'wheel') {
       wheels.push(child);
+      continue;
+    }
+    if (child.name === 'rig') {
+      // An animal walks on its own legs: its body stays where the model put
+      // it, and the saddle and the seats ride its back (`lift`).
+      rig = (child.userData.rigged as Rigged | undefined) ?? null;
+      const named = child.userData.back as string | undefined;
+      if (rig !== null && named !== undefined) back = rig.body.skeleton.bones.find((bone) => bone.name === named) ?? null;
       continue;
     }
     // The body, the propeller, the seat frames: everything the springs carry.
@@ -155,6 +213,9 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   group.add(sprung);
   group.traverse((part) => {
     if (part.name === 'prop') props.push(part);
+    else if (part.name === 'crank') cranks.push(part);
+    else if (part.name === 'rotor') rotors.push(part);
+    else if (part.name === 'tail') tails.push(part);
   });
   // A wheel's mesh is built about its own axle (`Turning` in `build.ts`), so
   // its geometry's box is the wheel's, whatever the vehicle is doing.
@@ -166,18 +227,29 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   const pivotY = radii.length > 0 ? radii.reduce((a, b) => a + b, 0) / radii.length : 0;
   const blades: THREE.Object3D[] = [];
   const discs: THREE.Mesh[] = [];
-  for (const prop of props) {
+  for (const prop of [...props, ...rotors, ...tails]) {
     const bladeMesh = prop.children[0] ?? prop;
     const extent = boxOf(prop);
-    const radius = extent === null ? 1 : Math.max(extent.max.x - extent.min.x, extent.max.y - extent.min.y) / 2;
     const disc = new THREE.Mesh(discGeometry(), discMaterial());
     disc.name = 'prop-disc';
-    disc.scale.setScalar(radius);
-    // Just ahead of the blades, square to the axle; a scale and no rotation.
-    disc.position.set(0, 0, 0.05);
     disc.visible = false;
     disc.castShadow = false;
     disc.receiveShadow = false;
+    if (prop.name === 'rotor') {
+      // Flat, in the plane the blades sweep: the circle's +Z turned up to +Y.
+      disc.scale.setScalar(extent === null ? 1 : Math.max(extent.max.x - extent.min.x, extent.max.z - extent.min.z) / 2);
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(0, 0.05, 0);
+    } else if (prop.name === 'tail') {
+      // Square to the X axle, just outboard of the blades.
+      disc.scale.setScalar(extent === null ? 1 : Math.max(extent.max.y - extent.min.y, extent.max.z - extent.min.z) / 2);
+      disc.rotation.y = Math.PI / 2;
+      disc.position.set(0.05, 0, 0);
+    } else {
+      disc.scale.setScalar(extent === null ? 1 : Math.max(extent.max.x - extent.min.x, extent.max.y - extent.min.y) / 2);
+      // Just ahead of the blades, square to the axle; a scale and no rotation.
+      disc.position.set(0, 0, 0.05);
+    }
     prop.add(disc);
     blades.push(bladeMesh);
     discs.push(disc);
@@ -188,7 +260,7 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
       throw new Error(`craft ${model.id}: '${part.name}' has a reflected matrix under its motion`);
     }
   });
-  return { sprung, wheels, radii, steered, props, blades, discs, pivotY };
+  return { sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, rig, back };
 }
 
 let disc: THREE.CircleGeometry | null = null;
@@ -228,9 +300,44 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   const known = group.userData.motion as CraftMotion | undefined;
   if (known !== undefined) return known;
   const parts = partsOf(group, model);
-  const road = model.kind === 'car' || model.kind === 'van';
-  const plane = model.kind === 'plane';
-  const boat = model.kind === 'boat';
+  const kind = model.kind;
+  // On four wheels and springs: the body squats, dives and rolls. A
+  // two-wheeler leans instead, and the lean is the pose's (`player.ts`).
+  const road = kind === 'car' || kind === 'van' || kind === 'bus' || kind === 'tractor' || kind === 'jeep' || kind === 'tuktuk';
+  const plane = kind === 'plane';
+  const boat = model.medium === 'water';
+  const motorbike = kind === 'motorbike';
+  /** How far the bicycle goes for one turn of its crank. */
+  const gearing = model.gearing ?? 0;
+  let crank = 0;
+  let lift = 0;
+  // The horse's clips, their weights and their rates.
+  const rigged = parts.rig;
+  const idle = rigged?.actions.get('Idle') ?? null;
+  const walk = rigged?.actions.get('Walk') ?? null;
+  const gallop = rigged?.actions.get('Gallop') ?? walk;
+  const gaits = [idle, walk, gallop];
+  const weights = [1, 0, 0];
+  const length = model.size[0];
+  const gallopPace = gallop !== null ? (GALLOP_STRIDE * length) / Math.max(0.1, gallop.getClip().duration) : length;
+  const backAt = new THREE.Vector3();
+  let backRest = 0;
+  const backY = (): number => {
+    if (parts.back === null || rigged === null) return 0;
+    rigged.root.updateMatrixWorld(true);
+    parts.back.getWorldPosition(backAt);
+    return group.worldToLocal(backAt).y;
+  };
+  if (rigged !== null) {
+    for (const [i, action] of gaits.entries()) {
+      if (action === null) continue;
+      action.reset().play();
+      action.setEffectiveWeight(weights[i]!);
+    }
+    rigged.mixer.update(0);
+    group.updateMatrixWorld(true);
+    backRest = backY();
+  }
 
   let lastSpeed = 0;
   let accel = 0;
@@ -247,6 +354,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
 
   function rest(): void {
     lastSpeed = accel = pitch = pitchRate = roll = rollRate = spin = 0;
+    lift = 0;
     parts.sprung.position.set(0, 0, 0);
     parts.sprung.rotation.set(0, 0, 0);
     for (const wheel of parts.wheels) wheel.rotation.y = 0;
@@ -258,6 +366,12 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   const motion: CraftMotion = {
     get settling() {
       return settling;
+    },
+    get phase() {
+      return crank;
+    },
+    get lift() {
+      return lift;
     },
     rest,
     update(dt, input) {
@@ -273,7 +387,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
 
       let pitchTarget = 0;
       let rollTarget = 0;
-      let lift = 0;
+      let heave = 0;
       let shakeRoll = 0;
       let shakePitch = 0;
       if (road && input.grounded) {
@@ -283,17 +397,20 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         pitchTarget = clamp(-accel * PITCH_PER_ACCEL, -MAX_PITCH, MAX_PITCH);
         rollTarget = clamp(speed * input.turnRate * ROLL_PER_PULL, -MAX_ROLL, MAX_ROLL);
         if (input.engine && Math.abs(speed) < STANDING) {
-          lift = IDLE_SHAKE * (0.6 * Math.sin(time * 43 + phase) + 0.4 * Math.sin(time * 61));
+          heave = IDLE_SHAKE * (0.6 * Math.sin(time * 43 + phase) + 0.4 * Math.sin(time * 61));
           shakeRoll = IDLE_ROLL * Math.sin(time * 37 + phase);
         }
+      } else if (motorbike && input.grounded && input.engine && Math.abs(speed) < STANDING) {
+        // A single ticking over under its rider: a shiver, no roll.
+        heave = IDLE_SHAKE * 0.6 * Math.sin(time * 53 + phase);
       } else if (plane && input.grounded && Math.abs(speed) > STANDING) {
         // A light aircraft on grass: it rocks on its gear, more as it goes faster.
         const k = clamp(Math.abs(speed) / ROLL_SCALE, 0, 1);
         shakeRoll = ROLL_WOBBLE * k * (Math.sin(time * 11.3 + phase) + 0.6 * Math.sin(time * 17.9));
         shakePitch = PITCH_WOBBLE * k * Math.sin(time * 13.7 + phase);
-        lift = BOUNCE * k * Math.abs(Math.sin(time * 7.9 + phase));
+        heave = BOUNCE * k * Math.abs(Math.sin(time * 7.9 + phase));
       } else if (boat && input.moored) {
-        lift = MOOR_HEAVE * Math.sin(time * 1.1 + phase);
+        heave = MOOR_HEAVE * Math.sin(time * 1.1 + phase);
         shakePitch = MOOR_PITCH * Math.sin(time * 0.63 + phase * 1.7);
         shakeRoll = MOOR_ROLL * Math.sin(time * 0.81 + phase * 0.6);
       }
@@ -307,7 +424,27 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       euler.set(pitch + shakePitch, 0, roll + shakeRoll);
       parts.sprung.rotation.copy(euler);
       offset.set(0, parts.pivotY, 0).applyEuler(euler);
-      parts.sprung.position.set(-offset.x, parts.pivotY - offset.y + lift, -offset.z);
+      parts.sprung.position.set(-offset.x, parts.pivotY - offset.y + heave, -offset.z);
+
+      // A horse: its gaits blended by its speed, each at the rate its legs
+      // cover the ground at, and the saddle on its back as it rises and falls.
+      if (rigged !== null) {
+        const pace = Math.abs(speed);
+        const want = pace < WALK_FROM ? 0 : pace < GALLOP_FROM ? 1 : 2;
+        const ease = approach(GAIT_EASE, dt);
+        for (let i = 0; i < 3; i++) {
+          weights[i]! += ((i === want ? 1 : 0) - weights[i]!) * ease;
+          gaits[i]?.setEffectiveWeight(weights[i]!);
+        }
+        if (walk !== null) walk.timeScale = clamp(pace / (WALK_PACE * length), 0.5, 2.2);
+        if (gallop !== null && gallop !== walk) gallop.timeScale = clamp(pace / gallopPace, 0.6, 1.8);
+        const moving = pace > 0.01 || input.moored || weights[0]! < 0.999;
+        if (moving) {
+          rigged.mixer.update(dt);
+          lift = backY() - backRest;
+          parts.sprung.position.y += lift;
+        }
+      }
 
       // The wheels roll on the ground at the speed it passes under them, and
       // the front pair turns with the wheel; off the ground they keep still.
@@ -321,17 +458,36 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         }
       }
 
+      // A bicycle's crank goes round while it is pedalled, by the gearing;
+      // coasting, the pedals stop where they are.
+      if (parts.cranks.length > 0 && gearing > 0 && input.grounded && input.throttle > 0 && speed > 0) {
+        crank = (crank + (speed * dt * Math.PI * 2) / gearing) % (Math.PI * 2);
+        for (const part of parts.cranks) part.rotation.x = crank;
+      }
+
       // The propeller: ticking over on the ground, flat out in the air, and
-      // winding down when the engine stops.
-      if (parts.props.length > 0) {
-        const wanted = !input.engine ? 0 : input.grounded ? PROP_IDLE + (PROP_FULL - PROP_IDLE) * clamp(Math.abs(speed) / ROLL_SCALE, 0, 1) : PROP_FULL;
+      // winding down when the engine stops. A rotor spins the same way, at its
+      // own full rate, and a tail rotor faster than the rotor it answers.
+      const spinning = parts.props.length + parts.rotors.length + parts.tails.length;
+      if (spinning > 0) {
+        const full = parts.rotors.length > 0 ? ROTOR_FULL : PROP_FULL;
+        const wanted = !input.engine ? 0 : input.grounded ? PROP_IDLE + (full - PROP_IDLE) * clamp(Math.abs(speed) / ROLL_SCALE, 0, 1) : full;
         spin += (wanted - spin) * approach(PROP_EASE, dt);
         if (!input.engine && spin < 0.05) spin = 0;
         propAngle = (propAngle + Math.min(spin, PROP_DRAWN) * dt) % (Math.PI * 2);
         const sweep = clamp((spin - DISC_FROM) / (DISC_FULL - DISC_FROM), 0, 1);
-        for (let i = 0; i < parts.props.length; i++) {
-          parts.props[i]!.rotation.z = propAngle;
-          parts.discs[i]!.visible = sweep > 0;
+        let d = 0;
+        for (const prop of parts.props) {
+          prop.rotation.z = propAngle;
+          parts.discs[d++]!.visible = sweep > 0;
+        }
+        for (const rotor of parts.rotors) {
+          rotor.rotation.y = propAngle;
+          parts.discs[d++]!.visible = sweep > 0;
+        }
+        for (const tail of parts.tails) {
+          tail.rotation.x = (propAngle * TAIL_RATE) % (Math.PI * 2);
+          parts.discs[d++]!.visible = sweep > 0;
         }
         if (sweep > 0) discMaterial().opacity = DISC_OPACITY * sweep;
       }
@@ -341,6 +497,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       settling =
         input.engine ||
         input.moored ||
+        (rigged !== null && weights[0]! < 0.999) ||
         steered ||
         spin > 0 ||
         Math.abs(speed) > 0.01 ||

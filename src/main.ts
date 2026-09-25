@@ -21,19 +21,20 @@ import { createRoads, loadRoads } from './roads.ts';
 // one function that has nothing to do with them.
 import { createContext } from './monuments/contract.ts';
 import { setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
-import { biomeAt } from './biome.ts';
+import { biomeAt, biomeSample } from './biome.ts';
 import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
 import type { OtherVisitor } from './effects.ts';
 import type { FeatureKind } from './countryside.ts';
-import type { Surface } from './audio.ts';
+import type { Soundscape, Surface } from './audio.ts';
 import type { Music, MusicMoment } from './music.ts';
-import { BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW } from './vehicles.ts';
+import { PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, topSpeedOf } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
+import { createWeatherView } from './weather-view.ts';
 import { createOcean } from './ocean.ts';
 import { proxyOf, warmShaders } from './warm.ts';
-import { LAMP_FIELD, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setNearLamps, setSunDirection } from './lights.ts';
+import { LAMP_FIELD, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
@@ -43,6 +44,8 @@ import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { Where } from './talk.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
+import { EMOTE_INTERVAL_MS } from '../server/src/limits.ts';
+import type { Emote } from '../server/src/limits.ts';
 import type { CraftKind, CraftModel } from './craft/contract.ts';
 
 /**
@@ -286,8 +289,12 @@ const SOUND_KEY = 'atlas.sound.v1';
 const EFFECTS_KEY = 'atlas.effects.v1';
 /** Whether a crash shakes the lens: `'1'` or `'0'`; unset follows the system's reduced-motion preference. */
 const SHAKE_KEY = 'atlas.shake.v1';
+/** `'0'` when the weather is off: clear skies. */
+const WEATHER_KEY = 'atlas.weather.v1';
 /** `{ volume, on }`: the music's, apart from the sound's. */
 const MUSIC_KEY = 'atlas.music.v1';
+/** `{ voices, chat }`: whether the townsfolk's lines are said aloud, and whether a chat line blips. */
+const VOICES_KEY = 'atlas.voices.v1';
 /**
  * How far off the water the sea is still heard, in degrees of `shoreDistance`:
  * 0.4 is 110 units, a few streets back from a harbour.
@@ -309,6 +316,28 @@ const TALK_COAST = 0.12;
  * far enough to reach a big city's plane field from its middle.
  */
 const TALK_CRAFT = ['plane', 'balloon', 'boat'] as const;
+
+/** The HUD's icon for each kind of vehicle. */
+const KIND_ICON: Readonly<Record<CraftKind, IconName>> = {
+  car: 'car', van: 'car', bus: 'car', tractor: 'car', jeep: 'car', tuktuk: 'car',
+  boat: 'boat', sailboat: 'boat', jetski: 'jetski',
+  plane: 'plane', balloon: 'balloon', helicopter: 'heli',
+  bicycle: 'bike', motorbike: 'moto', horse: 'horse',
+};
+/** What each kind sounds like (`Soundscape.mode` in `audio.ts`): a tuk-tuk is a motorbike's engine in a box. */
+const SOUND_OF: Readonly<Record<CraftKind, Soundscape['mode']>> = {
+  car: 'car', van: 'car', jeep: 'car', bus: 'heavy', tractor: 'heavy', tuktuk: 'motorbike',
+  bicycle: 'bicycle', motorbike: 'motorbike', horse: 'horse',
+  boat: 'boat', jetski: 'jetski', sailboat: 'sail',
+  plane: 'plane', balloon: 'balloon', helicopter: 'helicopter',
+};
+/** And what the music takes it for: on the road, at sea, or in the sky. */
+const MUSIC_OF: Readonly<Record<CraftKind, MusicMoment['mode']>> = {
+  car: 'car', van: 'car', jeep: 'car', bus: 'car', tractor: 'car', tuktuk: 'car',
+  bicycle: 'car', motorbike: 'car', horse: 'car',
+  boat: 'boat', jetski: 'boat', sailboat: 'boat',
+  plane: 'plane', balloon: 'balloon', helicopter: 'plane',
+};
 const TALK_CRAFT_REACH = 800;
 /** Whether the welcome card has been shown on this device. */
 const WELCOME_KEY = 'atlas.welcomed.v1';
@@ -486,6 +515,7 @@ async function start(): Promise<void> {
     folk: import('./folk.ts'),
     /** What they say when spoken to; the words themselves arrive on the first conversation. */
     talk: import('./talk.ts'),
+    chat: import('./chat.ts'),
     traffic: import('./traffic/index.ts'),
     /** The scenery contract, for the kit's model registry; it rides with the settlements. */
     scenery: import('./scenery/contract.ts'),
@@ -659,6 +689,11 @@ async function start(): Promise<void> {
   // given up long before.
   const clouds = createClouds();
   scene.add(clouds.group);
+  // And the weather the deck carries: the rain, the snow and the lightning
+  // round the camera, the wet and the white on the ground. A pure function of
+  // place and time (`weather.ts`), so it needs nothing from the relay.
+  const weather = createWeatherView(sky, clouds);
+  scene.add(weather.group);
 
   // Reused per frame so the sea's update allocates nothing. Declared here
   // rather than beside the loop because the menu draws the same world before
@@ -766,6 +801,9 @@ async function start(): Promise<void> {
     sky.update(camera.position.clone().setLength(PLANET_RADIUS), camera.position, altitude);
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     clouds.update(sky.state.time, camera.position, fog);
+    // No weather over the menu's globe: its sky is the whole planet's.
+    sky.weather.overcast = sky.weather.flash = sky.weather.mist = 0;
+    clouds.setGrey(0);
     // **The weather is there from space and gone while you choose.** The
     // country and town stages are a map you click on, and the deck over it is
     // in the way: a solid cell of stratus over eastern Spain hid which coast
@@ -859,6 +897,37 @@ async function start(): Promise<void> {
   // the altitude a night hemisphere is worth looking at from.
   const cityLights = createCityLights(places.all, settlements.anchors);
   const nearLamps = new Float32Array(NEAR_LAMPS * 4);
+  // Headlights, seven floats each (see `setHeadlights`), and the scratch that
+  // fills them without allocating.
+  const headlights = new Float32Array(NEAR_HEADLIGHTS * 7);
+  let headlightCount = 0;
+  const headAt = new THREE.Vector3();
+  const headAhead = new THREE.Vector3();
+  const headSide = new THREE.Vector3();
+  const headUp = new THREE.Vector3();
+  const headDown = new THREE.Vector3();
+  /** What drives on wheels and so carries headlights; the rest of `player.mode` swims, sails or flies. */
+  const WHEELED = new Set<string>(['car', 'van', 'motorbike', 'tuktuk', 'bus', 'tractor', 'jeep', 'bicycle']);
+  const headPool = Array.from({ length: 64 }, () => ({ mesh: null as unknown as THREE.Object3D, halfLength: 0, halfWidth: 0, distance: 0 }));
+  const headTraffic: (typeof headPool)[number][] = [];
+  const pushHeadlight = (at: THREE.Vector3, dir: THREE.Vector3, strength: number): void => {
+    if (headlightCount >= NEAR_HEADLIGHTS) return;
+    const o = headlightCount * 7;
+    headlights[o] = at.x; headlights[o + 1] = at.y; headlights[o + 2] = at.z;
+    headlights[o + 3] = dir.x; headlights[o + 4] = dir.y; headlights[o + 5] = dir.z;
+    headlights[o + 6] = strength;
+    headlightCount++;
+  };
+  const visitTraffic = (mesh: THREE.Object3D, halfLength: number, halfWidth: number): void => {
+    const distance = mesh.position.distanceTo(rig.camera.position);
+    if (distance > LAMP_FIELD || headTraffic.length >= headPool.length) return;
+    const slot = headPool[headTraffic.length]!;
+    slot.mesh = mesh;
+    slot.halfLength = halfLength;
+    slot.halfWidth = halfWidth;
+    slot.distance = distance;
+    headTraffic.push(slot);
+  };
   scene.add(cityLights.points);
   scene.add(lampHalos);
   if (settlements.broken.length > 0) console.warn('scenery parts that broke the contract:', settlements.broken);
@@ -883,12 +952,16 @@ async function start(): Promise<void> {
   // The people are authored characters (`cast.ts`), dressed by `folk.ts`: the
   // townsfolk stand on the spots each town publishes and the walkers are handed
   // to `life.ts`, which draws a verge walker from the cast when it has one.
-  const { createFolk, createTownsfolk, isYoung, PERSON_RADIUS } = await deferred.folk;
+  const { createFolk, createTownsfolk, isWoman, isYoung, PERSON_RADIUS } = await deferred.folk;
   const folk = createFolk(ctx);
   const townsfolk = createTownsfolk(folk, settlements);
   scene.add(townsfolk.group);
   const { createTalk } = await deferred.talk;
-  const talk = createTalk();
+  // Said aloud while the voices are on and the sound is open; `audio` and the
+  // setting are declared below, and asked only when a line is shown.
+  const talk = createTalk({
+    voice: () => (voices.voices && audio.output !== null && audio.bus !== null ? { context: audio.output.context, node: audio.bus } : null),
+  });
   // The other players, on the relay chosen above, wearing what the card chose.
   const peers = peersUrl === '' ? null : peersModule.createPeers(peersUrl, folk);
   if (peers !== null) {
@@ -988,7 +1061,7 @@ async function start(): Promise<void> {
     renderer,
     outline,
     scene,
-    [settlements, monuments, roads, vegetation, life, effects, countryMotion, { proxies: () => [proxyOf(inkSource), ...fleetMaterials().map((material) => proxyOf(material))] }],
+    [settlements, monuments, roads, vegetation, life, effects, countryMotion, weather, { proxies: () => [proxyOf(inkSource), ...fleetMaterials().map((material) => proxyOf(material))] }],
     modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
@@ -1055,6 +1128,15 @@ async function start(): Promise<void> {
     // A mangled setting is the default one.
   }
   const saveSound = (): void => writeSetting(SOUND_KEY, JSON.stringify({ volume: audio.volume, on: !audio.muted }));
+  const voices = { voices: true, chat: true };
+  try {
+    const saved = JSON.parse(readSetting(VOICES_KEY) ?? 'null') as { voices?: unknown; chat?: unknown } | null;
+    if (saved !== null && typeof saved.voices === 'boolean') voices.voices = saved.voices;
+    if (saved !== null && typeof saved.chat === 'boolean') voices.chat = saved.chat;
+  } catch {
+    // As the sound's.
+  }
+  const saveVoices = (): void => writeSetting(VOICES_KEY, JSON.stringify(voices));
   // The music: `music.ts` and its synthesis are fetched on the gesture that
   // opens the sound, and only if the music is on, so none of it is in the
   // first load. Its settings live here until it arrives.
@@ -1089,6 +1171,8 @@ async function start(): Promise<void> {
       });
   }
   audio.onCue = (name) => music?.cue(name);
+  weather.onThunder = (delay, loudness) => audio.thunder(delay, loudness);
+  weather.enabled = readSetting(WEATHER_KEY) !== '0';
   const unlockAudio = (): void => {
     audio.unlock();
     loadMusic();
@@ -1177,11 +1261,12 @@ async function start(): Promise<void> {
     // the bottom does not already say: a landing refused, and why.
     onEvent: (event: PlayerEvent, strength: number) => {
       effects.event(event, strength);
+      const rotor = player.ride?.model.kind === 'helicopter';
       if (event === 'water-refused') {
-        announce('A plane cannot land on water — find a field', 'plane');
+        announce(rotor ? 'A helicopter cannot set down on water — find land' : 'A plane cannot land on water — find a field', rotor ? 'heli' : 'plane');
         audio.cue('ui-error');
       } else if (event === 'steep-refused') {
-        announce('Too steep to land here — find flatter ground', 'plane');
+        announce('Too steep to land here — find flatter ground', rotor ? 'heli' : 'plane');
         audio.cue('ui-error');
       } else if (event === 'landed') audio.cue('land');
       // A car into a wall: the landing's thud, which is the one knock the
@@ -1358,6 +1443,7 @@ async function start(): Promise<void> {
       landmark,
       craft,
       young: isYoung(key),
+      woman: isWoman(key),
     });
     engaged = townsfolk.engage(key, player.position);
     // And the traveller turns to them, as they turn to the traveller: a
@@ -1433,6 +1519,27 @@ async function start(): Promise<void> {
     hud.jump();
   }
 
+  /** Beside another player, `JOIN_OFFSET` to their north: the map's *join* and the chat's `/tp`. */
+  function joinPeer(id: string): boolean {
+    const at = peers?.positionOf(id) ?? null;
+    if (at === null) return false;
+    const { lat, lon } = toLatLon(at);
+    jumpTo(Math.min(89.9, lat + JOIN_OFFSET / UNITS_PER_DEGREE), lon);
+    return true;
+  }
+
+  /**
+   * A wave, a dance, sitting down: on the hero at once, and to the others at
+   * most once a second, the relay's own pace (`EMOTE_INTERVAL_MS`).
+   */
+  let gesturedAt = -Infinity;
+  function gesture(name: Emote): boolean {
+    if (!player.emote(name)) return false;
+    const now = performance.now();
+    if (now - gesturedAt >= EMOTE_INTERVAL_MS && peers?.send({ t: 'emote', e: name }) === true) gesturedAt = now;
+    return true;
+  }
+
   const map = createWorldMap(world, {
     monuments: placements,
     places: places.all,
@@ -1452,12 +1559,7 @@ async function start(): Promise<void> {
           peers: () => peers.marks,
           // Beside them rather than on them: `JOIN_OFFSET` to their north,
           // on the ground under wherever they are, the sea or the sky included.
-          onJoin: (id: string) => {
-            const at = peers.positionOf(id);
-            if (at === null) return;
-            const { lat, lon } = toLatLon(at);
-            jumpTo(Math.min(89.9, lat + JOIN_OFFSET / UNITS_PER_DEGREE), lon);
-          },
+          onJoin: (id: string) => void joinPeer(id),
         }),
   });
   document.body.appendChild(map.root);
@@ -1473,8 +1575,7 @@ async function start(): Promise<void> {
 
   /** The HUD's icon for a kind of vehicle, and a neutral one for none. */
   function modeIcon(kind: CraftKind | null): IconName {
-    if (kind === 'car' || kind === 'van') return 'car';
-    return kind === 'boat' || kind === 'plane' || kind === 'balloon' ? kind : 'sparkle';
+    return kind === null ? 'sparkle' : KIND_ICON[kind];
   }
   function announce(text: string, iconName: IconName = 'sparkle'): void {
     hud.toast(text, iconName);
@@ -1566,6 +1667,7 @@ async function start(): Promise<void> {
     // is remembered the way the settings' switch remembers it.
     else if (action === 'hints') writeSetting(HINTS_KEY, hud.toggleHints() ? '1' : '0');
     else if (action === 'photo') photoWanted = true;
+    else if (action === 'wave' && !gesture('wave')) announce('Only standing on the ground', 'walk');
   });
 
   /**
@@ -1643,6 +1745,14 @@ async function start(): Promise<void> {
         return on;
       },
     },
+    weather: {
+      get: () => weather.enabled,
+      set: (on) => {
+        weather.enabled = on;
+        writeSetting(WEATHER_KEY, on ? '1' : '0');
+        return on;
+      },
+    },
     shake: {
       get: () => rig.shakes,
       set: (on) => {
@@ -1697,6 +1807,22 @@ async function start(): Promise<void> {
           return on;
         },
       },
+      voices: {
+        get: () => voices.voices,
+        set: (on) => {
+          voices.voices = on;
+          saveVoices();
+          return on;
+        },
+      },
+      chat: {
+        get: () => voices.chat,
+        set: (on) => {
+          voices.chat = on;
+          saveVoices();
+          return on;
+        },
+      },
     },
     music: {
       volume: {
@@ -1740,6 +1866,63 @@ async function start(): Promise<void> {
     onClose: () => audio.cue('ui-close'),
   });
   document.body.appendChild(settings.root);
+
+  // The chat, and the commands typed into it: the world's own verbs, handed
+  // over as closures so that `chat.ts` and its words stay out of the first load.
+  const { createChat } = await deferred.chat;
+  const chatPoint = new THREE.Vector3();
+  let gazetteer: import('./chat-core.ts').Gazetteer | null = null;
+  const countryOf = (point: THREE.Vector3) => {
+    const id = world.countryAtPoint(point);
+    return id > 0 ? world.countries[id - 1]! : null;
+  };
+  const chat = createChat({
+    peers,
+    name: () => peers?.name || peersModule.storedName(),
+    here: () => {
+      const { lat, lon } = toLatLon(player.position);
+      const country = countryOf(player.position);
+      const nearby = places.nearest(player.position);
+      return { iso: country?.iso ?? '', country: country?.name ?? '', town: nearby.place.name, near: nearby.near, lat, lon };
+    },
+    whereIs: ({ x, y, z }) => {
+      chatPoint.set(x, y, z);
+      const nearby = places.nearest(chatPoint);
+      return { country: countryOf(chatPoint)?.name ?? '', town: nearby.place.name, near: nearby.near };
+    },
+    countryName: (iso) => world.countries.find((country) => country.iso === iso)?.name ?? iso,
+    gazetteer: () => (gazetteer ??= { places: places.all, aliases: places.aliases(), countries: world.countries }),
+    jumpTo,
+    home: () => ({ lat: spawn.lat, lon: spawn.lon, name: places.nearest(unitAt(spawn.lat, spawn.lon, chatPoint)).place.name }),
+    joinPlayer: joinPeer,
+    time,
+    // The weather is set by `atlas.weather.force` where the world has one.
+    weather: (wanted) => {
+      const force = (globalThis as { atlas?: { weather?: { force?: (kind: string | null) => unknown } } }).atlas?.weather?.force;
+      return typeof force === 'function' ? force(wanted === 'auto' ? null : wanted) !== false : null;
+    },
+    emote: gesture,
+    photo: () => {
+      photoWanted = true;
+    },
+    landmark: () => {
+      let best: (typeof placements)[number] | null = null;
+      let bestAngle = Infinity;
+      for (const placement of placements) {
+        if (monuments.isVisited(placement.id)) continue;
+        const angle = unitAt(placement.lat, placement.lon, chatPoint).angleTo(player.position);
+        if (angle < bestAngle) [best, bestAngle] = [placement, angle];
+      }
+      if (best === null) return null;
+      nav.select(best.id);
+      return { name: best.name, km: bestAngle * EARTH_KM };
+    },
+    sound: () => (voices.chat && audio.output !== null && audio.bus !== null ? { context: audio.output.context, node: audio.bus } : null),
+    lockTarget: renderer.domElement,
+    onOpen: () => {
+      if (map.open) map.hide();
+    },
+  });
 
   /**
    * The flag attribute, which is 11 MB and is therefore not built until the
@@ -1888,7 +2071,7 @@ async function start(): Promise<void> {
   /** The slow questions have been asked again, and the music has not heard them. */
   let musicDue = false;
   const soundPoint = new THREE.Vector3();
-  const soundBiome: BiomeSample = { id: 'temperate', warmth: 0, moisture: 0, elevation: 0 };
+  const soundBiome: BiomeSample = biomeSample();
   let soundCold = false;
   let soundSea = 0;
   let soundWild = 1;
@@ -1958,6 +2141,10 @@ async function start(): Promise<void> {
     // vertex in the shaders. See `src/lights.ts`.
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     guard('city lights', () => cityLights.update(renderer));
+    // After the sky, whose clock and daylight it reads, and before the haze
+    // below, which it closes in rain and fog (`setWeatherHaze` in `view.ts`).
+    // What it does to the light is applied by the sky's next `update`.
+    guard('weather', () => weather.update(dt, sky.state.time, player.position, ground, rig.camera, sky.state.daylight));
 
     // The ear, after the sky: it wants the hour, the height over the ground and
     // what the foot is on. The slow questions — the biome, the coast, whether
@@ -1969,9 +2156,10 @@ async function start(): Promise<void> {
       const inTown = settlements.madeHeightAt(player.position) > 0;
       const unit = soundPoint.copy(player.position).normalize();
       biomeAt(unit.x, unit.y, unit.z, at.lat, at.lon, ground - PLANET_RADIUS, soundBiome);
-      soundCold = soundBiome.id === 'ice' || soundBiome.id === 'tundra';
+      // Snow on the ground is snow underfoot, the season's or a fall's.
+      soundCold = soundBiome.id === 'ice' || soundBiome.id === 'tundra' || weather.here().lying > 0.5;
       footing = inTown ? 'paving' : soundCold ? 'snow' : soundBiome.id === 'desert' || soundBiome.id === 'rock' ? 'dirt' : 'grass';
-      soundSea = player.state === 'swim' || player.ride?.model.kind === 'boat'
+      soundSea = player.state === 'swim' || player.ride?.model.medium === 'water'
         ? 1
         : Math.max(0, 1 - shoreDistance(at.lat, at.lon) / SEA_EARSHOT);
       soundWildTarget = inTown ? 0 : 1;
@@ -1998,12 +2186,12 @@ async function start(): Promise<void> {
     // What is heard is the vehicle, whoever drives it: a passenger hears the
     // engine too.
     const soundKind = player.ride?.model.kind ?? null;
-    const soundMode = soundKind === null ? (player.state === 'swim' ? 'swim' : 'foot') : soundKind === 'van' ? 'car' : soundKind;
+    const soundMode = soundKind === null ? (player.state === 'swim' ? 'swim' : 'foot') : SOUND_OF[soundKind];
     if (music !== null) {
       const tune = music;
       if (musicDue) {
         musicDue = false;
-        musicMoment.mode = soundMode;
+        musicMoment.mode = soundKind === null ? (player.state === 'swim' ? 'swim' : 'foot') : MUSIC_OF[soundKind];
         musicMoment.height = eyeOverGround;
         musicMoment.daylight = sky.state.daylight;
         guard('music', () => tune.observe(musicMoment));
@@ -2018,16 +2206,16 @@ async function start(): Promise<void> {
           ? player.airborne
             ? (speedNow - PLANE_CRUISE_LOW * 0.55) / (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW * 0.55)
             : speedNow / PLANE_CRUISE_LOW
-          : soundMode === 'boat'
-            ? speedNow / BOAT_BOOST
-            : soundMode === 'car'
-              ? speedNow / CAR_BOOST
-              : 0,
+          : soundKind !== null
+            ? speedNow / topSpeedOf(soundKind)
+            : 0,
       height: eyeOverGround,
       sea: soundSea,
       daylight: sky.state.daylight,
       wild: soundWild,
       cold: soundCold,
+      rain: weather.sound.rain,
+      gale: weather.sound.gale,
     }));
     if (map.open !== mapWasOpen) {
       mapWasOpen = map.open;
@@ -2061,12 +2249,14 @@ async function start(): Promise<void> {
     // the haze and every streamer's reach were tuned against.
     const altitude = Math.max(STREAM_FLOOR, eyeOverGround + HAZE_ELEVATION * elevation);
     const horizon = Math.sqrt(2 * PLANET_RADIUS * altitude);
-    fog.near = horizon * 0.2;
     // `fogFar` rather than the expression it used to be, because the streamers
     // cap their own reach against the same number and two copies of it is how a
     // forest ends at a distance the haze has already hidden — or, worse, how a
     // forest stops short of it.
     fog.far = fogFar(altitude, PLANET_RADIUS);
+    // The near edge follows the far one in when the weather closes it: a fog
+    // that kept the clear day's near edge would be a wall, not a fog.
+    fog.near = Math.min(horizon * 0.2, fog.far * 0.3);
 
     // The near plane rides the camera's distance to the player, for the same
     // reason the fog rides altitude. The far plane sits at ten planet radii, so
@@ -2211,7 +2401,7 @@ async function start(): Promise<void> {
     if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
-    hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open, input.dragging);
+    hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open && !chat.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
     // had its build — the towns, the roads, and the wood and grass near you
     // with nothing pending — or after a second and a half whatever they say,
@@ -2282,8 +2472,9 @@ async function start(): Promise<void> {
 
     // The shadow map is redrawn every frame while anything the box holds is
     // moving — the player, who is also the box, a vehicle, a walker, an
-    // animated herd, a townsman mid-gesture — and every 180 ms while nothing
-    // is, which is a slow crawl of the sun nobody sees. It was 45 ms while the
+    // animated herd, a townsman mid-gesture, a player waving or dancing — and
+    // every 180 ms while nothing is, which is a slow crawl of the sun nobody
+    // sees. It was 45 ms while the
     // player moved and 180 otherwise, the reference's numbers: at the run of
     // the time (90 units a second) the hero's shadow fell four units behind his feet before
     // it snapped back, and a car passing a player who stood still jumped at
@@ -2300,6 +2491,7 @@ async function start(): Promise<void> {
       life.group.children.length;
     const moving =
       player.velocity > 0 ||
+      player.emoting !== null ||
       life.stats.nearestMoving < SHADOW_COVER ||
       townsfolk.stats.nearestMoving < SHADOW_COVER ||
       (peers !== null && peers.nearestMoving < SHADOW_COVER);
@@ -2318,6 +2510,41 @@ async function start(): Promise<void> {
     // camera has settled for the frame. See `NEAR_LAMPS` in `src/lights.ts`.
     guard('near lamps', () => {
       rig.camera.updateMatrixWorld();
+      headlightCount = 0;
+      if (sky.state.daylight < 0.6) {
+        // Your own first, then the traffic nearest the camera.
+        if (WHEELED.has(player.mode) && !player.airborne) {
+          headAhead.copy(player.forward);
+          headSide.crossVectors(player.up, player.forward).normalize();
+          for (let side = -1; side <= 1; side += 2) {
+            headAt.copy(player.position)
+              .addScaledVector(player.forward, AVATAR_HEIGHT * 0.75)
+              .addScaledVector(player.up, AVATAR_HEIGHT * 0.3)
+              .addScaledVector(headSide, side * AVATAR_HEIGHT * 0.2);
+            headDown.copy(headAhead).addScaledVector(player.up, -0.12).normalize();
+            pushHeadlight(headAt, headDown, 1);
+          }
+        }
+        headTraffic.length = 0;
+        life.eachRoadVehicle(visitTraffic);
+        headTraffic.sort((a, b) => a.distance - b.distance);
+        for (const car of headTraffic) {
+          if (headlightCount + 2 > NEAR_HEADLIGHTS) break;
+          const e = car.mesh.matrixWorld.elements;
+          headSide.set(e[0]!, e[1]!, e[2]!).normalize();
+          const up = headUp.set(e[4]!, e[5]!, e[6]!).normalize();
+          headAhead.set(e[8]!, e[9]!, e[10]!).normalize();
+          headDown.copy(headAhead).addScaledVector(up, -0.12).normalize();
+          for (let side = -1; side <= 1; side += 2) {
+            headAt.setFromMatrixPosition(car.mesh.matrixWorld)
+              .addScaledVector(headAhead, car.halfLength)
+              .addScaledVector(up, AVATAR_HEIGHT * 0.25)
+              .addScaledVector(headSide, side * car.halfWidth * 0.6);
+            pushHeadlight(headAt, headDown, 0.8);
+          }
+        }
+      }
+      setHeadlights(rig.camera, headlights, headlightCount);
       setNearLamps(rig.camera, nearLamps, settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps));
     });
 
@@ -2414,6 +2641,9 @@ async function start(): Promise<void> {
       world,
       // `atlas.peers.stats`: the relay's state, our id, who is connected.
       peers,
+      // `atlas.chat.show('/help')` opens it with that typed; `atlas.chat.stats`
+      // counts the lines held, heard and said, and who is muted.
+      chat,
       player,
       /**
        * How you look: `atlas.traveller.show()` opens the card,
@@ -2567,6 +2797,12 @@ async function start(): Promise<void> {
       // triangles, chunks and the build. `atlas.clouds.group.visible = false`
       // is the A/B.
       clouds,
+      // `atlas.weather.here()`: what the weather is where you stand — its kind,
+      // how strong, the temperature, the wind. `force('storm' | 'rain' |
+      // 'snow' | 'fog' | 'drizzle' | 'cloudy' | 'clear')` holds it there and
+      // `force(null)` hands it back to the model; `at(lat, lon, when?)` asks
+      // the model anywhere; `.enabled = false` is clear skies; `.stats`.
+      weather,
       // `atlas.ocean.stats` is the sea's cost: the sphere's detail and its sag,
       // how many coastal spans the shallows are built from, triangles and MB.
       // `atlas.ocean.group.visible = false` is the A/B.

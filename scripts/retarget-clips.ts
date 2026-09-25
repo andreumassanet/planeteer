@@ -96,9 +96,11 @@ const FEET: readonly [string, string, string][] = [
  * What the cast is given, under the names the world asks for: the jump, its
  * landing, a stroke and treading water (both authored with the waterline at
  * the origin, so a swimmer's frame is the surface), talking with the hands,
- * and a second idle whose weight sits on one leg. The library has 45 clips;
- * these are the few the world plays, and the rest are fights, weapons and
- * props nobody here holds.
+ * a second idle whose weight sits on one leg, and the two gestures a player
+ * can make for the others to see that the pack has no clip for: a dance, and
+ * sitting down (the library's is sat on a chair, so its seat is thin air at
+ * the height of one). The library has 45 clips; these are the few the world
+ * plays, and the rest are fights, weapons and props nobody here holds.
  */
 export const RETARGETED: readonly [string, string][] = [
   ['Jump_Start', 'Jump_Start'],
@@ -108,17 +110,19 @@ export const RETARGETED: readonly [string, string][] = [
   ['Swim_Idle', 'Swim_Idle_Loop'],
   ['Talk', 'Idle_Talking_Loop'],
   ['Idle_Shift', 'Idle_Loop'],
+  ['Dance', 'Dance_Loop'],
+  ['Sit', 'Sitting_Idle_Loop'],
 ];
 
 /**
- * Samples a second: the jump, the landing and the stroke at 30, and the three
- * slow loops at 15, which halves what they cost and moves nothing a frame
+ * Samples a second: the jump, the landing, the stroke and the dance at 30,
+ * and the four slow loops at 15, which halves what they cost and moves nothing a frame
  * between two samples can show — a breath or a gesture is interpolated
  * across a fifteenth of a second.
  */
 const FPS = 30;
 const SLOW_FPS = 15;
-const SLOW: ReadonlySet<string> = new Set(['Swim_Idle', 'Talk', 'Idle_Shift']);
+const SLOW: ReadonlySet<string> = new Set(['Swim_Idle', 'Talk', 'Idle_Shift', 'Sit']);
 
 async function parse(data: ArrayBuffer | string, path = ''): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
   return new GLTFLoader().parseAsync(data, path) as never;

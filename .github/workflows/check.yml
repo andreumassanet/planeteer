@@ -44,6 +44,8 @@ jobs:
 
       - name: input
         run: pnpm input
+      - name: chat
+        run: pnpm chat
 
       - name: world
         run: pnpm check
@@ -69,6 +71,8 @@ jobs:
         run: pnpm craft
       - name: effects
         run: pnpm effects
+      - name: weather
+        run: pnpm weather
       - name: music
         run: pnpm music
 

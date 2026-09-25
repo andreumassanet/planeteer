@@ -295,6 +295,23 @@ const LAMP_LIGHT = new THREE.Color(PALETTE.gold).lerp(new THREE.Color(PALETTE.wh
 /** Lamp heads in view space (xyz) and how lit each one is (w), refreshed each frame. */
 const atlasLamps = { value: Array.from({ length: NEAR_LAMPS }, () => new THREE.Vector4()) };
 const atlasLampCount = { value: 0 };
+
+/**
+ * Headlights: the car you drive and the nearest few of the traffic's, lit
+ * through the same per-pixel pools as the street lamps but as cones — a lamp
+ * with a direction. `setHeadlights` hands them over each frame, before
+ * `setNearLamps`.
+ */
+export const NEAR_HEADLIGHTS = 8;
+/** How far a headlight reaches, in world units, and how wide its cone is. */
+const HEAD_REACH = 48;
+const HEAD_INNER = Math.cos(14 * DEG);
+const HEAD_OUTER = Math.cos(30 * DEG);
+const atlasHeads = { value: Array.from({ length: NEAR_HEADLIGHTS }, () => new THREE.Vector4()) };
+const atlasHeadDirs = { value: Array.from({ length: NEAR_HEADLIGHTS }, () => new THREE.Vector3()) };
+const atlasHeadCount = { value: 0 };
+/** The headlights in world space, for the halos. */
+const headWorld = new Float32Array(NEAR_HEADLIGHTS * 4);
 const atlasLampTint = { value: LAMP_LIGHT.clone() };
 /** How much a lamp lifts the surface it lands on, over its own colour. */
 const LAMP_LIGHT_GAIN = 1.15;
@@ -313,6 +330,9 @@ const LAMP_LIGHT_GAIN = 1.15;
 const LAMP_CHUNK = /* glsl */ `
   uniform vec4 atlasLamps[${NEAR_LAMPS}];
   uniform int atlasLampCount;
+  uniform vec4 atlasHeads[${NEAR_HEADLIGHTS}];
+  uniform vec3 atlasHeadDirs[${NEAR_HEADLIGHTS}];
+  uniform int atlasHeadCount;
 
   float atlasLampLight(vec3 pos, vec3 n, float flatness) {
     float sum = 0.0;
@@ -325,9 +345,61 @@ const LAMP_CHUNK = /* glsl */ `
       float facing = max(dot(n, d / max(dist, 1e-3)), 0.0);
       sum += fall * fall * (0.34 + 0.66 * facing) * atlasLamps[i].w * mix(0.55, 1.0, flatness);
     }
+    for (int i = 0; i < ${NEAR_HEADLIGHTS}; i++) {
+      if (i >= atlasHeadCount) break;
+      vec3 d = pos - atlasHeads[i].xyz;
+      float dist = length(d);
+      if (dist >= ${HEAD_REACH.toFixed(1)} || dist < 1e-3) continue;
+      vec3 ray = d / dist;
+      float cone = smoothstep(${HEAD_OUTER.toFixed(4)}, ${HEAD_INNER.toFixed(4)}, dot(ray, atlasHeadDirs[i]));
+      float fall = 1.0 - dist / ${HEAD_REACH.toFixed(1)};
+      float facing = max(dot(n, -ray), 0.0);
+      sum += cone * fall * (0.3 + 0.7 * facing) * atlasHeads[i].w * 0.9;
+    }
     return 0.55 * smoothstep(0.07, 0.1, sum) + 0.45 * smoothstep(0.26, 0.31, sum);
   }
 `;
+
+/**
+ * The near lamps and the headlights for a surface that carries no `atlasLit`
+ * bytes of its own — the land, round a town's edge and along every road — so a
+ * pool that spills off the paving and a headlight that leaves the carriageway
+ * keep lighting what they land on. Three pieces, for the material's own
+ * `onBeforeCompile`: the uniforms, the declarations, and the statement that
+ * adds the light, which wants `normal`, `vViewPosition` and `diffuseColor` in
+ * scope (after `<emissivemap_fragment>` in a `MeshToonMaterial`) and a world
+ * position whose direction is the local up.
+ */
+export function bindNearLights(uniforms: Record<string, THREE.IUniform>): void {
+  uniforms.atlasSun = atlasSun;
+  uniforms.atlasGain = atlasGain;
+  uniforms.atlasLamps = atlasLamps;
+  uniforms.atlasLampCount = atlasLampCount;
+  uniforms.atlasHeads = atlasHeads;
+  uniforms.atlasHeadDirs = atlasHeadDirs;
+  uniforms.atlasHeadCount = atlasHeadCount;
+  uniforms.atlasLampTint = atlasLampTint;
+}
+
+export function nearLightsGLSL(): string {
+  return /* glsl */ `
+  uniform vec3 atlasSun;
+  uniform float atlasGain;
+  uniform vec3 atlasLampTint;
+  ${NIGHT_CHUNK}
+  ${LAMP_CHUNK}`;
+}
+
+export function nearLightsChunk(worldPosition: string): string {
+  return /* glsl */ `
+  if (atlasLampCount > 0 || atlasHeadCount > 0) {
+    float atlasNearDark = atlasGain * atlasNight(normalize(${worldPosition}), atlasSun);
+    if (atlasNearDark > 0.0) {
+      totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint
+        * atlasLampLight(-vViewPosition, normal, 1.0) * atlasNearDark * 0.75;
+    }
+  }`;
+}
 
 const lampView = new THREE.Vector3();
 
@@ -348,7 +420,30 @@ export function setNearLamps(camera: THREE.Camera, heads: Float32Array, count: n
     atlasLamps.value[i]!.set(lampView.x, lampView.y, lampView.z, fade);
   }
   atlasLampCount.value = n;
-  halos.update(heads, n);
+  halos.update(heads, n, headWorld, atlasHeadCount.value);
+}
+
+const headDir = new THREE.Vector3();
+
+/**
+ * Hands the shaders this frame's headlights: `lights` is `x, y, z, dx, dy,
+ * dz, strength` in world space, seven floats each, `count` of them. Call
+ * before `setNearLamps`, which draws their halos with the lamps'.
+ */
+export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count: number): void {
+  const n = Math.min(count, NEAR_HEADLIGHTS);
+  const view = camera.matrixWorldInverse;
+  for (let i = 0; i < n; i++) {
+    const o = i * 7;
+    lampView.set(lights[o]!, lights[o + 1]!, lights[o + 2]!).applyMatrix4(view);
+    atlasHeads.value[i]!.set(lampView.x, lampView.y, lampView.z, lights[o + 6]!);
+    headDir.set(lights[o + 3]!, lights[o + 4]!, lights[o + 5]!).transformDirection(view);
+    atlasHeadDirs.value[i]!.copy(headDir);
+    headWorld[i * 4] = lights[o]!;
+    headWorld[i * 4 + 1] = lights[o + 1]!;
+    headWorld[i * 4 + 2] = lights[o + 2]!;
+  }
+  atlasHeadCount.value = n;
 }
 
 /**
@@ -357,14 +452,16 @@ export function setNearLamps(camera: THREE.Camera, heads: Float32Array, count: n
  * rewritten each frame from `setNearLamps`; it is gated by the terminator in
  * its own shader like everything else here, so by day it draws nothing.
  */
-function createHalos(): { points: THREE.Points; update(heads: Float32Array, count: number): void } {
-  const position = new Float32Array(NEAR_LAMPS * 3);
+function createHalos(): { points: THREE.Points; update(heads: Float32Array, count: number, more: Float32Array, extra: number): void } {
+  const position = new Float32Array((NEAR_LAMPS + NEAR_HEADLIGHTS) * 3);
   const geometry = new THREE.BufferGeometry();
   const attribute = new THREE.BufferAttribute(position, 3);
   attribute.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('position', attribute);
   geometry.setDrawRange(0, 0);
-  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), PLANET_RADIUS * 1.1);
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
+  // Not the planet's radius: this runs as the module loads, which can be before
+  // `globe.ts` (which imports this file) has one. The halos are never culled.
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib['fog']!),
@@ -422,14 +519,20 @@ function createHalos(): { points: THREE.Points; update(heads: Float32Array, coun
   points.frustumCulled = false;
   return {
     points,
-    update(heads, count) {
+    update(heads, count, more, extra) {
       for (let i = 0; i < count; i++) {
         position[i * 3] = heads[i * 4]!;
         position[i * 3 + 1] = heads[i * 4 + 1]!;
         position[i * 3 + 2] = heads[i * 4 + 2]!;
       }
+      for (let j = 0; j < extra; j++) {
+        const i = count + j;
+        position[i * 3] = more[j * 4]!;
+        position[i * 3 + 1] = more[j * 4 + 1]!;
+        position[i * 3 + 2] = more[j * 4 + 2]!;
+      }
       attribute.needsUpdate = true;
-      geometry.setDrawRange(0, count);
+      geometry.setDrawRange(0, count + extra);
       material.uniforms.screenScale!.value = (typeof innerHeight === 'number' ? innerHeight : 900) * 0.5;
     },
   };
@@ -569,6 +672,9 @@ export function lightWindows(material: THREE.Material): void {
     shader.uniforms.atlasGain = atlasGain;
     shader.uniforms.atlasLamps = atlasLamps;
     shader.uniforms.atlasLampCount = atlasLampCount;
+    shader.uniforms.atlasHeads = atlasHeads;
+    shader.uniforms.atlasHeadDirs = atlasHeadDirs;
+    shader.uniforms.atlasHeadCount = atlasHeadCount;
     shader.uniforms.atlasLampTint = atlasLampTint;
 
     shader.vertexShader = shader.vertexShader
@@ -626,7 +732,7 @@ export function lightWindows(material: THREE.Material): void {
         vec3 atlasPool = mix(atlasLight, diffuseColor.rgb * atlasLight * 0.9, atlasFlat)
           * (1.0 - atlasFlat * atlasNearField * 0.75);
         totalEmissiveRadiance += atlasPool * (${WINDOW_GAIN.toFixed(2)} * vAtlasLit.x * atlasAwake * atlasDark);
-        if (atlasLampCount > 0 && atlasDark > 0.0) {
+        if ((atlasLampCount > 0 || atlasHeadCount > 0) && atlasDark > 0.0) {
           float atlasLamp = atlasLampLight(-vViewPosition, normal, atlasFlat);
           totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint * atlasLamp * atlasDark;
         }`,

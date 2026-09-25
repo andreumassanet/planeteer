@@ -1,7 +1,7 @@
 /**
  * The relay's protocol, against a running relay: the seats, the driven poses,
- * the parks that outlive a socket, the old player poses beside them, and how
- * each player looks.
+ * the parks that outlive a socket, the old player poses beside them, how
+ * each player looks, the chat and its history, and the gestures.
  *
  * It starts nothing. Run the relay first (`pnpm peers`, which is
  * `wrangler dev` on port 8787, or any port given to it) and point this at it:
@@ -11,6 +11,8 @@
  * Every vehicle id is new each run, so what a previous run parked in the
  * room's storage never answers for this one. Not in CI: it wants a relay.
  */
+
+import { CHAT_BURST, CHAT_HISTORY, CHAT_INTERVAL_MS, CHAT_MAX, EMOTE_INTERVAL_MS } from '../server/src/limits.ts';
 
 const URL_ = process.env.RELAY_URL ?? 'ws://localhost:8791/ws';
 const WAIT_MS = 2_000;
@@ -307,7 +309,62 @@ async function main(): Promise<void> {
   const bare = await got('in without a look', a.next((m) => m.t === 'in' && m.id === plain.id));
   check(bare !== null && !('look' in bare), 'a join whose ?look= is not a code carries none', bare);
 
-  await Promise.all([a.close(), b.close(), d.close(), back.close(), stranger.close(), dressed.close(), late.close(), plain.close()]);
+  // --- The chat -------------------------------------------------------------
+  // Lines this run says carry its number, so a room's history from an
+  // earlier run never answers for this one.
+  const said = (text: string) => `${text} ${run}`;
+  const talker = await Client.join('Jo');
+  const listener = await Client.join('Ki');
+  talker.send({ t: 'chat', m: `  ${said('hello')}\u202E  there  `, c: 'ESP' });
+  const line = await got('chat relayed', listener.next((m) => m.t === 'chat' && m.id === talker.id));
+  check(
+    line?.m === `${said('hello')} there` && line?.name === 'Jo' && line?.c === 'ESP' && typeof line?.at === 'number',
+    'a chat line is cleaned, stamped with its sender and passed on',
+    line,
+  );
+  const echo = await got('chat echoed', talker.next((m) => m.t === 'chat' && m.id === talker.id));
+  check(echo?.m === line?.m, 'and its sender gets the same line back', echo);
+  talker.send({ t: 'chat', m: 'x'.repeat(CHAT_MAX + 100), c: '<b>' });
+  const long = await got('long line', listener.next((m) => m.t === 'chat' && m.id === talker.id));
+  check(typeof long?.m === 'string' && long.m.length === CHAT_MAX && long.c === '', `a long line is cut to ${CHAT_MAX}, and a country that is not a code is none`, long);
+  talker.send({ t: 'chat', m: said('look at https://example.com/x') });
+  const linked = await got('link', listener.next((m) => m.t === 'chat' && m.id === talker.id));
+  check(linked?.m === `look at [link] ${run}`, 'an address is carried as [link]', linked);
+  // Three lines in a moment is the burst; the fourth is dropped.
+  check(CHAT_BURST === 3, 'the burst is three lines, as these checks assume');
+  talker.send({ t: 'chat', m: said('one too many') });
+  check(await listener.none((m) => m.t === 'chat' && m.id === talker.id, 500), 'a line past the burst is dropped');
+  talker.send({ t: 'chat', m: '   ' });
+  talker.send({ t: 'chat', m: 42 });
+  talker.send({ t: 'chat' });
+  await sleep(CHAT_INTERVAL_MS + 100);
+  talker.send({ t: 'chat', m: said('patient') });
+  const patient = await got('after the interval', listener.next((m) => m.t === 'chat' && m.id === talker.id));
+  check(patient?.m === said('patient'), 'a line after the interval goes, and the empty ones before it did not', patient);
+  const newcomer = await Client.join('Lu');
+  const history = (newcomer.hi?.chat as Message[] | undefined) ?? [];
+  check(
+    history.length <= CHAT_HISTORY && history[history.length - 1]?.m === said('patient') && history.some((m) => m.m === line?.m),
+    `hi carries the room's last lines, at most ${CHAT_HISTORY}, oldest first`,
+    history.slice(-4),
+  );
+  check(!history.some((m) => m.m === said('one too many')), 'and never a dropped one');
+
+  // --- Gestures ---------------------------------------------------------------
+  talker.send({ t: 'emote', e: 'wave' });
+  const waved = await got('emote', listener.next((m) => m.t === 'emote' && m.id === talker.id));
+  check(waved?.e === 'wave', 'a gesture is passed on', waved);
+  check(await talker.none((m) => m.t === 'emote'), 'and not echoed to its maker');
+  talker.send({ t: 'emote', e: 'dance' });
+  check(await listener.none((m) => m.t === 'emote' && m.id === talker.id, 300), `a gesture under ${EMOTE_INTERVAL_MS} ms after the last is dropped`);
+  await sleep(EMOTE_INTERVAL_MS);
+  talker.send({ t: 'emote', e: 'moonwalk' });
+  check(await listener.none((m) => m.t === 'emote' && m.id === talker.id, 300), 'a gesture nobody can make is dropped');
+  talker.send({ t: 'emote', e: 'sit' });
+  const sat = await got('sit', listener.next((m) => m.t === 'emote' && m.id === talker.id));
+  check(sat?.e === 'sit', 'and the next one goes', sat);
+
+  await Promise.all([a.close(), b.close(), d.close(), back.close(), stranger.close(), dressed.close(), late.close(), plain.close(), talker.close(), listener.close(), newcomer.close()]);
   console.log(failures === 0 ? '\nall relay checks pass' : `\n${failures} relay check(s) failed`);
   process.exit(failures === 0 ? 0 : 1);
 }

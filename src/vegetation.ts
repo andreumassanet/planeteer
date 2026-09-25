@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
+import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { createLandProbe } from './land-probe.ts';
 import { mergeMeshes } from './merge.ts';
 import { proxyOf } from './warm.ts';
@@ -740,6 +740,7 @@ function swardMaterial(): THREE.MeshToonMaterial {
     .join(' + ');
   material.onBeforeCompile = (shader) => {
     shader.uniforms['swardReach'] = uniforms.swardReach;
+    bindGroundWeather(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -757,10 +758,11 @@ function swardMaterial(): THREE.MeshToonMaterial {
   }`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vSwardRoot;\n${GROUND_MARKS_GLSL}`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vSwardRoot;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
+  ${groundWeatherChunk('vSwardRoot')}
   vec2 swardCell;
   diffuseColor.rgb *= atlasCellTone(atlasPlaneOf(vSwardRoot), swardCell);
   diffuseColor.rgb = atlasPatches(diffuseColor.rgb, vSwardRoot);`,

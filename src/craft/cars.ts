@@ -1,7 +1,9 @@
 /**
- * The two road craft: Kenney's `hatchback-sports` and `van` (Car Kit, CC0), the
- * same baked models the traffic kit parks and drives, drawn at the size of the
- * person who takes them.
+ * The road craft off the traffic kit's baked models: Kenney's
+ * `hatchback-sports`, `van`, `suv` (the jeep), `truck` (the pickup) and
+ * `tractor` (Car Kit, CC0) and Quaternius's `Bus` (Public Transport, CC0), the
+ * same models the traffic parks and drives, drawn at the size of the person
+ * who takes them.
  *
  * **The traffic's cars are the wrong size for this, and by design.** The kit
  * fits them to a lane (`PLACED_SECTION` in `traffic/contract.ts`): a hatchback
@@ -39,6 +41,7 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { bodyPaint, isGlass, paintColors } from '../models.ts';
 import type { Model } from '../models.ts';
 import { PALETTE } from '../theme.ts';
+import { PLACED_SECTION } from '../traffic/contract.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { ABREAST, HERO } from './body.ts';
 import { assemble, finish } from './build.ts';
@@ -85,8 +88,8 @@ const WHEEL_SLOTS = /^(Tyre|Hub)$/;
  * `(p - centre) * k` with the base on y = 0, a uniform positive scale, so the
  * normals carry over as they are.
  */
-function carSoups(model: Model, k: number, body: number): { still: Soup; wheels: Turning[] } {
-  const colours = paintColors(model, bodyPaint(model, body, isGlass));
+function carSoups(model: Model, k: number, body: number, slots?: RegExp): { still: Soup; wheels: Turning[] } {
+  const colours = paintColors(model, bodyPaint(model, body, isGlass, slots));
   const position = model.geometry.getAttribute('position');
   const normal = model.geometry.getAttribute('normal');
   const outline = model.geometry.getAttribute('outlineNormal');
@@ -167,10 +170,21 @@ interface CarSpec {
   id: string;
   kind: CraftModel['kind'];
   model: string;
-  hip: number;
+  /**
+   * The seated hip over the road, or `'roof'` to hang it under the model's own
+   * roof — a tractor's cab and a bus's floor stand higher than a car's, and
+   * whatever the floor, the head has to clear the roof.
+   */
+  hip: number | 'roof';
   /** Seated rows behind the front one. */
   rows: number;
   paints: readonly number[];
+  /**
+   * World units a unit of the pack's, if not the hatchback's own (`carScale`):
+   * the bus is Quaternius's and not Kenney's, and is drawn at the traffic's own
+   * size, whose roof already clears a seated head by a body's height.
+   */
+  scale?: (model: Model) => number;
 }
 
 const SPECS: readonly CarSpec[] = [
@@ -190,7 +204,51 @@ const SPECS: readonly CarSpec[] = [
     rows: 2,
     paints: [PALETTE.white, PALETTE.skyBlue, PALETTE.gold, PALETTE.red, PALETTE.green],
   },
+  // Kenney's `suv`, with its spare wheel on the tailgate, is the jeep: the
+  // same pack at the same scale as the hatchback, a little taller.
+  {
+    id: 'jeep',
+    kind: 'jeep',
+    model: 'suv',
+    hip: VAN_HIP,
+    rows: 1,
+    paints: [PALETTE.darkOlive, PALETTE.sand, PALETTE.white, PALETTE.red, PALETTE.tan],
+  },
+  // Kenney's `truck`, a cab and an open bed, and the same off-road handling.
+  {
+    id: 'pickup',
+    kind: 'jeep',
+    model: 'truck',
+    hip: VAN_HIP,
+    rows: 0,
+    paints: [PALETTE.red, PALETTE.white, PALETTE.skyBlue, PALETTE.gold, PALETTE.brown],
+  },
+  // Kenney's `tractor`: one seat, high in its glazed cab.
+  {
+    id: 'tractor',
+    kind: 'tractor',
+    model: 'tractor',
+    hip: 'roof',
+    rows: 0,
+    paints: [PALETTE.red, PALETTE.green, PALETTE.gold, PALETTE.skyBlue],
+  },
+  // Quaternius's `Bus` at the traffic's own width, four rows of two: the
+  // driver and seven more, which is every seat the relay keeps.
+  {
+    id: 'bus',
+    kind: 'bus',
+    model: 'bus',
+    hip: 'roof',
+    rows: 3,
+    paints: [PALETTE.gold, PALETTE.red, PALETTE.skyBlue, PALETTE.white, PALETTE.green],
+    scale: (model) => BUS_WIDTH / (model.box.max.x - model.box.min.x),
+  },
 ];
+
+/** The bus's width: the traffic's own, 3.3 at `PLACED_SECTION`, so the one a town parks is the one taken. */
+const BUS_WIDTH = 3.3 * PLACED_SECTION;
+/** The slots of the bus's bodywork, the ones the paint names: the pack's bus is grey and white. */
+const BUS_BODY = /^(Top|Bottom|Material)$/;
 
 /**
  * How far one row of seats is behind the one ahead: the pack behind the hip, a
@@ -198,29 +256,36 @@ const SPECS: readonly CarSpec[] = [
  */
 const ROW_PITCH = HERO.back + HERO.knee + 0.08 * H;
 
-function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>, k: number): CraftModel {
+function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>, carK: number): CraftModel {
   const model = models.get(spec.model);
   if (model === undefined) throw new Error(`craft: the traffic kit has no '${spec.model}'`);
+  const k = spec.scale?.(model) ?? carK;
   const cz = (model.box.min.z + model.box.max.z) / 2;
   const [, roofFore] = roofOf(model);
   // Under the roof where it meets the windscreen, a tenth of a body back.
   const front = (roofFore - cz) * k - 0.1 * H;
+  // Under the roof, a crown and a twentieth of a body of air under it.
+  const underRoof = (model.box.max.y - model.box.min.y) * k - HERO.crown - 0.05 * H;
+  const hip = spec.hip === 'roof' ? underRoof : Math.min(spec.hip, underRoof);
   const seats: Seat[] = [];
   for (let row = 0; row <= spec.rows; row++) {
     const z = front - row * ROW_PITCH;
     // Driver on the left, +X; then the right; each row after, left then right.
-    for (const side of [1, -1]) seats.push({ x: (side * ABREAST) / 2, y: spec.hip, z, yaw: 0, pose: 'sit', shown: false });
+    for (const side of [1, -1]) seats.push({ x: (side * ABREAST) / 2, y: hip, z, yaw: 0, pose: 'sit', shown: false });
   }
+  // A tractor's cab holds one.
+  if (spec.kind === 'tractor') seats.length = 1;
 
+  const body = spec.model === 'bus' ? BUS_BODY : undefined;
   const build = (variant: number): THREE.Group => {
     const paint = spec.paints[((variant % spec.paints.length) + spec.paints.length) % spec.paints.length]!;
-    const { still, wheels } = carSoups(model, k, paint);
+    const { still, wheels } = carSoups(model, k, paint, body);
     return assemble(spec.id, [still], wheels);
   };
   return finish({ id: spec.id, kind: spec.kind, medium: 'road', seats, draft: 0, variants: spec.paints.length, build });
 }
 
-/** The hatchback and the van, from the traffic kit's models by name. */
+/** The road craft built off the traffic kit's own models, by name. */
 export function buildCars(models: ReadonlyMap<string, Model>): CraftModel[] {
   const k = carScale(models);
   return SPECS.map((spec) => carModel(spec, models, k));

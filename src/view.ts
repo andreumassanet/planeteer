@@ -727,5 +727,41 @@ export const detailFog = (spread: number): number => spread * Math.sqrt(current)
  */
 export function fogFar(altitude: number, planetRadius: number): number {
   const horizon = horizonAt(altitude, planetRadius);
-  return horizon * detailFog(1.35 + (altitude / planetRadius) * 6);
+  return horizon * detailFog(1.35 + (altitude / planetRadius) * 6) * weatherHazeAt(altitude);
 }
+
+/**
+ * The weather's share of the haze at an altitude: `weatherHaze` on the
+ * ground, let go on the way up — the camera climbs out of a fog bank, or
+ * through the rain to the cloud base. The cloud deck's own haze
+ * (`clouds.ts`) takes the same factor, so a fog hides the deck as it hides
+ * the hills.
+ */
+export function weatherHazeAt(altitude: number): number {
+  const lift =
+    altitude <= HAZE_LIFT[0] ? 0 : altitude >= HAZE_LIFT[1] ? 1 : (altitude - HAZE_LIFT[0]) / (HAZE_LIFT[1] - HAZE_LIFT[0]);
+  return weatherHaze + (1 - weatherHaze) * lift;
+}
+
+/**
+ * **How much of the clear-air haze the weather leaves, and it is the only
+ * thing besides the knob that moves `fogFar`.** 1 is clear air; fog, rain and
+ * snow take it down to `WEATHER_HAZE_MIN`, set by `weather-view.ts` a few times a
+ * second and eased there over seconds. Here and not in `main.ts` because the
+ * streamers cap their reach on `fogFar`: a fog that closed the haze without
+ * telling them would leave them building a town nobody can see, and one that
+ * does tell them is the cheapest frame the world draws.
+ *
+ * It lets go between `HAZE_LIFT`'s two altitudes — the handed-over altitude
+ * `main.ts` gives every streamer — so a plane climbs out of the murk into
+ * the clear, and the planet from orbit is never fogged by the weather at the
+ * player's feet.
+ */
+let weatherHaze = 1;
+export const WEATHER_HAZE_MIN = 0.28;
+const HAZE_LIFT: [number, number] = [350, 1300];
+
+export function setWeatherHaze(value: number): void {
+  weatherHaze = Math.max(WEATHER_HAZE_MIN, Math.min(1, Number.isFinite(value) ? value : 1));
+}
+

@@ -1215,6 +1215,12 @@ export interface Life {
    */
   eachBoat(visit: (mesh: THREE.Object3D) => void): void;
   /**
+   * Every road vehicle drawn, with its half length and half width along its
+   * own +Z and X: for the headlights `lights.ts` lays on the road ahead of
+   * it. Nothing is allocated.
+   */
+  eachRoadVehicle(visit: (mesh: THREE.Object3D, halfLength: number, halfWidth: number) => void): void;
+  /**
    * The animals of the near herds, where each is in its herd's plane and
    * where the far herd has it, with the ground the herd was admitted on: for
    * `pnpm fauna` and the console. Allocates.
@@ -4773,6 +4779,14 @@ export function createLife(world: World, places: readonly Place[], options: Life
     eachBoat(visit) {
       for (const mover of movers.values()) {
         if (mover.family === 'water' && mover.mesh !== null && mover.mesh.visible) visit(mover.mesh);
+      }
+    },
+
+    eachRoadVehicle(visit) {
+      for (const mover of movers.values()) {
+        if (mover.family !== 'road' || mover.mesh === null || !mover.mesh.visible) continue;
+        const box = mover.mesh.geometry.boundingBox;
+        visit(mover.mesh, box === null ? 2.5 : Math.max(-box.min.z, box.max.z), box === null ? 1 : Math.max(-box.min.x, box.max.x));
       }
     },
 

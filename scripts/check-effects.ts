@@ -48,6 +48,9 @@ const LAUNCH = model('boat', [8, 3, 3]);
 const CAR = model('car', [5, 2.4, 2]);
 const PLANE = model('plane', [11, 14, 4]);
 const BALLOON = model('balloon', [8, 8, 20], [5, 6]);
+const JETSKI = model('jetski', [6.8, 2.6, 2.7]);
+const BICYCLE = model('bicycle', [3.9, 1.3, 2.3]);
+const HELICOPTER = model('helicopter', [14, 17, 5.7]);
 
 interface Stand extends EffectsSubject {
   position: Vector3;
@@ -186,6 +189,38 @@ console.log('the pools');
   let lit = 0;
   for (let i = 0; i < puffs.count; i++) if (glow.getX(i) === 1) lit++;
   check(lit > 0, 'a balloon climbing lights its burner', `${lit} flames`);
+
+  // The rest of the fleet, each on a fresh set of pools: a jet ski's rooster
+  // tail, a bicycle's silence on grass, a helicopter's downwash low over the
+  // sea and none high over it.
+  {
+    const own = createEffects();
+    const t = stand(39.5, 2.6, 0.5);
+    t.state = 'seated';
+    t.ride = { model: JETSKI };
+    frames(own, t, 3, () => move(t, 70, DT, 0, 0.4));
+    const tail = own.stats.puffs;
+    check(own.stats.ribbons === 3 && tail > 40, 'a jet ski flat out leaves a wake and throws a rooster tail', `${own.stats.ribbons} ribbons, ${tail} puffs`);
+    own.enabled = false;
+    own.enabled = true;
+    t.ride = { model: BICYCLE };
+    own.setGround(false, 'temperate');
+    t.position.setLength(PLANET_RADIUS + 20);
+    frames(own, t, 3, () => move(t, 30, DT));
+    check(own.stats.puffs === 0, 'a bicycle on grass leaves nothing: no exhaust, no dust', `${own.stats.puffs} puffs`);
+    own.enabled = false;
+    own.enabled = true;
+    t.ride = { model: HELICOPTER };
+    t.airborne = true;
+    t.position.setLength(PLANET_RADIUS + 6);
+    frames(own, { ...t, clearance: 5.5, overWater: true }, 2);
+    check(own.stats.discs > 5, 'a helicopter low over the sea rings it with its downwash', `${own.stats.discs} discs`);
+    own.enabled = false;
+    own.enabled = true;
+    t.position.setLength(PLANET_RADIUS + 200);
+    frames(own, { ...t, clearance: 199.5, overWater: true }, 2);
+    check(own.stats.discs === 0 && own.stats.puffs === 0, 'and high over it, nothing', `${own.stats.discs} discs, ${own.stats.puffs} puffs`);
+  }
 
   // A swimmer, and a jump into the water.
   s.ride = null;

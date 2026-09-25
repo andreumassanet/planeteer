@@ -19,7 +19,8 @@
  * client or through an older relay, is dressed as the crowd is — played by
  * the hero's own motion (`createMotion` in `avatar.ts`) from the speed and the
  * state on the wire: the walk and the run, the jump and its landing, the
- * crawl and treading water, or held in its seat when it sits in a vehicle —
+ * crawl and treading water, a wave, a dance or sitting down when they make
+ * one (`emote` on the wire), or held in its seat when it sits in a vehicle —
  * the vehicle itself is the fleet's, drawn once for everybody; past
  * `DRAW_REACH` it is only a mark on the minimap. A peer is a moving mesh and
  * therefore its own, never merged.
@@ -27,13 +28,16 @@
 import * as THREE from 'three';
 import type { Folk } from './folk.ts';
 import { decodeAppearance } from './appearance.ts';
-import { foldLegs, limbsOf } from './cast.ts';
+import { foldLegs, limbsOf, poseAstride } from './cast.ts';
+import type { AstrideSeat } from './cast.ts';
 import type { Limbs, Person } from './cast.ts';
 import { AVATAR_HEIGHT, SEAT_SHIN, SEAT_THIGH, createMotion } from './avatar.ts';
 import type { Motion } from './avatar.ts';
 import type { Player } from './player.ts';
 import { PLAYER_STATES } from './craft/contract.ts';
 import type { FleetSeats, PlayerState } from './craft/contract.ts';
+import { cleanEmote } from '../server/src/limits.ts';
+import type { Emote } from '../server/src/limits.ts';
 
 /** `[x, y, z, fx, fy, fz, state, speed, airborne]`; see `server/src/index.ts`. */
 type State = [number, number, number, number, number, number, number, number, number];
@@ -49,6 +53,8 @@ const DRAW_REACH = 2_500;
 /** Reconnection backoff, doubling from the first to the last. */
 const RETRY_MS = [1_000, 30_000] as const;
 const NAME_KEY = 'atlas.peers.name';
+/** A gesture not yet made this long after it was heard is not made at all: a wave is a moment. */
+const GESTURE_STALE_MS = 3_000;
 /**
  * The least time between two looks sent, a little over the relay's own
  * (`LOOK_INTERVAL_MS` in `server/src/index.ts`), which drops one sooner: a
@@ -99,6 +105,12 @@ interface Peer {
   label: THREE.Sprite;
   /** Where it is drawn this frame, for the minimap. */
   shown: THREE.Vector3;
+  /**
+   * A gesture heard and not yet made, for a body not dressed or not near
+   * when it came, and when it came: one older than `GESTURE_STALE_MS` is let go.
+   */
+  gesture: Emote | null;
+  gestureAt: number;
 }
 
 export interface PeerMark {
@@ -136,12 +148,15 @@ export interface PeerSeat {
  * How a seat frame from `FleetSeats.seatFrame` says what a body in it looks
  * like, by the frame's `userData`: `shown: false` inside a closed cab, where
  * the body is not drawn, and `pose: 'stand'` at a helm or in a basket, where
- * the body stands with its hip at the frame. Both optional; a frame without
- * them is a visible seat, sat in.
+ * the body stands with its hip at the frame, `pose: 'ride'` astride, to the
+ * `seat`'s grip and footrests and round its crank at the `motion`'s phase.
+ * All optional; a frame without them is a visible seat, sat in.
  */
 export interface SeatFrameData {
   shown?: boolean;
-  pose?: 'sit' | 'stand';
+  pose?: 'sit' | 'stand' | 'ride';
+  seat?: AstrideSeat;
+  motion?: { readonly phase: number };
 }
 
 export interface Peers {
@@ -347,7 +362,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   }
 
   function receive(text: string): void {
-    let message: { t?: unknown; id?: string; name?: string; s?: State; peers?: unknown[][]; looks?: unknown; look?: unknown; l?: unknown };
+    let message: { t?: unknown; id?: string; name?: string; s?: State; peers?: unknown[][]; looks?: unknown; look?: unknown; l?: unknown; e?: unknown };
     try {
       message = JSON.parse(text);
     } catch {
@@ -387,6 +402,13 @@ export function createPeers(url: string, folk: Folk): Peers {
       // Undressed, and dressed again in the new clothes on the next frame it is drawn.
       const peer = peers.get(message.id);
       if (peer !== undefined) undress(peer);
+    } else if (message.t === 'emote' && typeof message.id === 'string') {
+      const gesture = cleanEmote(message.e);
+      const peer = peers.get(message.id);
+      if (gesture !== '' && peer !== undefined) {
+        peer.gesture = gesture;
+        peer.gestureAt = now;
+      }
     } else if (message.t === 'bye' && typeof message.id === 'string') {
       drop(message.id);
       names.delete(message.id);
@@ -411,7 +433,7 @@ export function createPeers(url: string, folk: Folk): Peers {
     label.position.y = AVATAR_HEIGHT * 1.15;
     holder.add(label);
     group.add(holder);
-    peer = { id, name, snapshots: [], heard: performance.now(), holder, body: null, label, shown: new THREE.Vector3() };
+    peer = { id, name, snapshots: [], heard: performance.now(), holder, body: null, label, shown: new THREE.Vector3(), gesture: null, gestureAt: 0 };
     peers.set(id, peer);
     return peer;
   }
@@ -530,12 +552,19 @@ export function createPeers(url: string, folk: Folk): Peers {
   /**
    * In a seat, whose frame the holder has just been put on: the idle above the
    * waist, the legs folded as the hero's are (`avatar.ts`'s `sit`) unless the
-   * seat is stood at, and the character's own hips moved onto the frame.
+   * seat is stood at, or astride to its grip and footrests as the hero rides
+   * (`poseAstride`), and the character's own hips moved onto the frame.
    */
-  function seat(peer: Peer, body: Body, dt: number, pose: 'sit' | 'stand'): void {
+  function seat(peer: Peer, body: Body, dt: number, data: SeatFrameData): void {
     const root = body.person.root;
+    const pose = data.pose ?? 'sit';
     body.motion.still(dt);
     if (pose === 'sit') foldLegs(body.limbs, peer.holder, SEAT_THIGH, SEAT_SHIN);
+    else if (pose === 'ride' && data.seat !== undefined) {
+      peer.holder.updateMatrixWorld(true);
+      hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));
+      poseAstride(body.limbs, peer.holder, hipAt, data.seat, data.motion?.phase ?? 0);
+    }
     peer.holder.updateMatrixWorld(true);
     hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));
     root.position.sub(hipAt);
@@ -603,7 +632,7 @@ export function createPeers(url: string, folk: Folk): Peers {
           peer.label.position.y = AVATAR_HEIGHT * 0.75;
           if (body !== null) {
             body.person.root.visible = data.shown !== false;
-            if (data.shown !== false) seat(peer, body, dt, data.pose ?? 'sit');
+            if (data.shown !== false) seat(peer, body, dt, data);
           }
           continue;
         }
@@ -624,6 +653,12 @@ export function createPeers(url: string, folk: Folk): Peers {
         body.person.root.visible = state.state !== 'seated';
         // A swimmer's position is the water's surface, which is where the
         // swimming clips are drawn from.
+        if (peer.gesture !== null && state.state === 'foot') {
+          if (now - peer.gestureAt < GESTURE_STALE_MS) body.motion.emote(peer.gesture);
+          peer.gesture = null;
+        }
+        // A dance moves the shadow as much as a walk does.
+        if (body.motion.emoting !== null) nearestMoving = Math.min(nearestMoving, away);
         if (state.state === 'foot') stride(body, dt, state.speed, state.airborne);
         else if (state.state === 'swim') body.motion.swim(dt, state.speed);
       }

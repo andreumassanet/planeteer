@@ -57,6 +57,16 @@ export const HERO = {
   half: 0.146 * H,
   standing: 0.995 * H,
   depth: 0.154 * H,
+  /**
+   * Astride: how far a hand and a foot reach, which only bounds where a grip
+   * and a footrest may be put (`review.ts`) and is not measured off the cast
+   * the way the rows above are — the shoulders over the hip, an arm from
+   * them, and a leg from the hip to the sole, each a little short of the
+   * cast's own so a pose that meets them is not locked straight.
+   */
+  shoulder: 0.33 * H,
+  arm: 0.4 * H,
+  legs: 0.46 * H,
 } as const;
 
 /**
@@ -80,7 +90,8 @@ export function bodyFrame(seat: Seat): { x: number; y: number; z: number; yaw: n
 /**
  * The boxes a body on this seat fills, in the model's frame, for the checks:
  * a seated body is a trunk (hip to crown, pack to chest), a lap (hip to knee),
- * shins under the knee and feet on to the toe; a standing one is a single column. A seat facing anywhere but
+ * shins under the knee and feet on to the toe; a standing one is a single
+ * column; a body astride is its trunk alone. A seat facing anywhere but
  * +Z is rotated by its yaw's quarter turns, which is all any craft here uses.
  */
 export interface Envelope {
@@ -91,7 +102,15 @@ export interface Envelope {
 
 export function envelopeOf(seat: Seat): Envelope[] {
   const local: Envelope[] =
-    seat.pose === 'sit'
+    seat.pose === 'ride'
+      ? [
+          // Astride, the legs go down either side of whatever is ridden — a
+          // frame, a tank, a horse's barrel — which is the point of the pose,
+          // so only the trunk is held clear: from a tenth of a body over the
+          // saddle, where the thighs have parted, to the crown.
+          { name: 'trunk', min: [-HERO.half, 0.1 * H, -HERO.back], max: [HERO.half, HERO.crown, 0.1 * H] },
+        ]
+      : seat.pose === 'sit'
       ? [
           // The trunk, stopped short of the hip so the seat pan it rests on is
           // not counted as inside it.

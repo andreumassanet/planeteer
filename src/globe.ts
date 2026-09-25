@@ -5,8 +5,9 @@ import { LAND_HEIGHT, insideRing } from './geo.ts';
 import { RELIEF_DETAIL, detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt, shoreAt, shoreSample } from './terrain.ts';
 import { CONTINENT_COLORS, DEFAULT_LAND, MOSAIC_LAND, PALETTE, createToonRamp } from './theme.ts';
 import type { FlagLayer, LandFlagData, RingSpan } from './land-flags.ts';
-import { BIOMES, biomeAt, biomeSample } from './biome.ts';
+import { BIOMES, LAPSE_PER_UNIT, SWING, TEMPERATURE_KNOTS, biomeAt, biomeSample, meanTemperature, seasonalSwing } from './biome.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
+import { bindNearLights, nearLightsChunk, nearLightsGLSL } from './lights.ts';
 
 /**
  * Planet radius.
@@ -951,6 +952,8 @@ function paletteFor(world: World): THREE.Color[] {
  */
 const shadeSample = biomeSample();
 const shadeHsl = { h: 0, s: 0, l: 0 };
+/** Lying snow: the `ice` biome's own white, so the snowline and the ice cap are one colour. */
+const snowGround = new THREE.Color(BIOMES.ice.color);
 
 /**
  * The shore, once the ramp under it has decided where one is.
@@ -1028,6 +1031,10 @@ function groundShade(
     shadeHsl.l * (1.05 - 0.13 * shadeSample.moisture) * (1 - 0.2 * biome.cover),
   );
   target.lerp(tint, COUNTRY_TINT);
+  // The snowline's margin, over the tint: snow is white whoever's it is. Past
+  // a half the biome is already `ice`, so this finishes the job the table
+  // started; under it the rock or the tundra goes white by the same factor.
+  if (shadeSample.snow > 0) target.lerp(snowGround, Math.min(1, shadeSample.snow * 1.6));
 
   // And the shore on top of the country, not under it: a beach is the same sand
   // whoever it belongs to, and a tint on it would be the political map coming
@@ -1313,6 +1320,149 @@ export function groundPatchesChunk(pos: string): string {
   }`;
 }
 
+/**
+ * The weather on the ground: rain darkening it, snow lying on it.
+ *
+ * **One uniform set, one GLSL chunk, and every material that draws ground
+ * reads both** — the land, the sward, a town's floor and roofs, a road's
+ * ribbon — so a wet street and the wet verge beside it are one shade, and the
+ * grass under a snowfall goes white with the field it grows in. The land's
+ * vertex colour (`groundShade`) is the climate and never moves; this is a
+ * factor over it, the way the mosaic is, so `groundColorAt`'s readers need not
+ * know it exists.
+ *
+ * Two kinds of snow, and they answer different questions:
+ *
+ * - **Lying snow** is the season: `lyingSnowAt`, a pure function of where and
+ *   when, cold enough for long enough that the ground stays white — Canada and
+ *   Russia in January, the high Alps into spring, nothing in London. The
+ *   shader computes it per fragment from the same numbers (`GROUND_WEATHER_GLSL`
+ *   is generated from `biome.ts`'s table), with the biome's continentality
+ *   read off a 1-degree texture `weather-view.ts` bakes once; so from the plane
+ *   the whole winter hemisphere is white where it should be.
+ * - **Fresh snow and wet ground** are the weather where you are: `atlasFresh`
+ *   and `atlasWet`, eased by `weather-view.ts`, reaching `WEATHER_REACH` round
+ *   `atlasWeatherAt` and fading out past it — a weather cell is about that big,
+ *   and the haze has closed before the edge.
+ *
+ * Snow settles only on ground that faces up (`SNOW_FLAT`), so a wall stays a
+ * wall and a roof goes white; and it goes on in blots rather than as a wash,
+ * so a first dusting is patches.
+ */
+export const groundWeather = {
+  atlasWet: { value: 0 },
+  atlasFresh: { value: 0 },
+  /** `seasonOf`'s northern phase: +1 at the height of the northern summer. */
+  atlasSeason: { value: 0 },
+  atlasWeatherAt: { value: new THREE.Vector3() },
+  /** The biome's continentality, one texel a degree; see `weather-view.ts`. */
+  atlasContinental: { value: blankContinental() },
+};
+
+function blankContinental(): THREE.DataTexture {
+  const texture = new THREE.DataTexture(new Uint8Array([64, 0, 0, 255]), 1, 1);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** How far round the player the weather's own wet and fresh snow reach. */
+export const WEATHER_REACH = 3200;
+/** How much darker wet ground is. Paving goes darkest in life; one number here. */
+const WET_DARK = 0.3;
+/** The seasonal snow's band: none at `LIE_WARM` degrees, complete at `LIE_COLD`. */
+export const LIE_WARM = 1.5;
+export const LIE_COLD = -3.5;
+/** How much a surface has to face the sky to hold snow: the cosine band. */
+const SNOW_FLAT: [number, number] = [0.55, 0.85];
+
+/**
+ * The season's temperature where you stand, less the day: the mean, the
+ * height and the swing of the year, the swing turned round in the south and
+ * damped to nothing across the equator so the two halves meet.
+ */
+export function seasonalTemperature(lat: number, elevation: number, continental: number, season: number): number {
+  const hemisphere = Math.max(-1, Math.min(1, lat / 5));
+  return meanTemperature(lat, elevation) + seasonalSwing(lat, continental) * season * hemisphere;
+}
+
+/** Lying snow, 0 to 1: the JavaScript twin of `atlasLyingSnow`. */
+export function lyingSnowAt(lat: number, elevation: number, continental: number, season: number): number {
+  const t = seasonalTemperature(lat, elevation, continental, season);
+  const k = Math.max(0, Math.min(1, (t - LIE_WARM) / (LIE_COLD - LIE_WARM)));
+  return k * k * (3 - 2 * k);
+}
+
+function knotsGLSL(name: string, knots: readonly (readonly [number, number])[]): string {
+  const lines = [`float ${name}(float a) {`];
+  for (let i = 1; i < knots.length; i++) {
+    const [x0, y0] = knots[i - 1]!;
+    const [x1, y1] = knots[i]!;
+    lines.push(`  if (a <= ${x1.toFixed(1)}) return mix(${y0.toFixed(2)}, ${y1.toFixed(2)}, (a - ${x0.toFixed(1)}) / ${(x1 - x0).toFixed(1)});`);
+  }
+  lines.push(`  return ${knots[knots.length - 1]![1].toFixed(2)};`, '}');
+  return lines.join('\n');
+}
+
+const snowLinear = new THREE.Color(BIOMES.ice.color);
+
+/**
+ * The chunk's declarations; needs `GROUND_MARKS_GLSL` before it for
+ * `atlasNoise`. Built on first use rather than at load, because it reads
+ * `PLANET_RADIUS` and `LAND_HEIGHT` and this module is imported by files it
+ * imports.
+ */
+export function groundWeatherGLSL(): string {
+  return /* glsl */ `
+uniform float atlasWet;
+uniform float atlasFresh;
+uniform float atlasSeason;
+uniform vec3 atlasWeatherAt;
+uniform sampler2D atlasContinental;
+${knotsGLSL('atlasMeanNorth', TEMPERATURE_KNOTS.north)}
+${knotsGLSL('atlasMeanSouth', TEMPERATURE_KNOTS.south)}
+float atlasLyingSnow(vec3 pos) {
+  vec3 up = normalize(pos);
+  float lat = degrees(asin(clamp(up.y, -1.0, 1.0)));
+  float a = abs(lat);
+  // The same longitude \`sphere.ts\` takes, atan(-z, x), for the texture only.
+  vec2 uv = vec2(atan(-up.z, up.x) / 6.2831853 + 0.5, lat / 180.0 + 0.5);
+  float continental = texture2D(atlasContinental, uv).r;
+  float height = max(0.0, length(pos) - ${(PLANET_RADIUS + LAND_HEIGHT).toFixed(1)});
+  float swing = ${SWING.tropics.toFixed(2)} + ${SWING.range.toFixed(2)} * smoothstep(${SWING.from.toFixed(1)}, ${SWING.to.toFixed(1)}, a)
+    * (${SWING.coast.toFixed(3)} + ${(1 - SWING.coast).toFixed(3)} * continental);
+  float t = (lat >= 0.0 ? atlasMeanNorth(a) : atlasMeanSouth(a)) - ${LAPSE_PER_UNIT.toFixed(6)} * height
+    + swing * atlasSeason * clamp(lat / 5.0, -1.0, 1.0);
+  // Reversed as one minus the rising step: GLSL leaves smoothstep undefined
+  // for a falling pair of edges.
+  return 1.0 - smoothstep(${LIE_COLD.toFixed(2)}, ${LIE_WARM.toFixed(2)}, t);
+}
+vec3 atlasWeathered(vec3 colour, vec3 pos, vec3 viewNormal) {
+  vec3 up = normalize(pos);
+  vec3 worldNormal = normalize((vec4(viewNormal, 0.0) * viewMatrix).xyz);
+  float facing = smoothstep(${SNOW_FLAT[0].toFixed(2)}, ${SNOW_FLAT[1].toFixed(2)}, abs(dot(worldNormal, up)));
+  float near = 1.0 - smoothstep(${(WEATHER_REACH * 0.55).toFixed(1)}, ${WEATHER_REACH.toFixed(1)}, distance(pos, atlasWeatherAt));
+  float snow = max(atlasLyingSnow(pos), atlasFresh * near);
+  // In blots: a thin cover is patches and a deep one is whole.
+  snow = clamp(snow * 1.6 - atlasNoise(pos * 0.035) * 0.6, 0.0, 1.0) * facing;
+  colour *= 1.0 - ${WET_DARK.toFixed(2)} * atlasWet * near * (1.0 - snow);
+  return mix(colour, vec3(${snowLinear.r.toFixed(4)}, ${snowLinear.g.toFixed(4)}, ${snowLinear.b.toFixed(4)}), snow);
+}`;
+}
+
+/** Hands a program the shared uniforms; call it in the material's `onBeforeCompile`. */
+export function bindGroundWeather(uniforms: Record<string, THREE.IUniform>): void {
+  Object.assign(uniforms, groundWeather);
+}
+
+/**
+ * The weathering itself, on `diffuseColor`, at a world position `pos` (a GLSL
+ * expression). After `color_fragment`; reads `vNormal`, which every toon
+ * material that draws ground has.
+ */
+export function groundWeatherChunk(pos: string): string {
+  return `diffuseColor.rgb = atlasWeathered(diffuseColor.rgb, ${pos}, vNormal);`;
+}
+
 const MOSAIC_GLSL = /* glsl */ `
 varying vec3 vAtlasPos;
 uniform float atlasMosaic;
@@ -1374,6 +1524,8 @@ function mosaic(material: THREE.MeshToonMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms['atlasMosaic'] = uniforms.atlasMosaic;
     shader.uniforms['atlasFlag'] = uniforms.atlasFlag;
+    bindGroundWeather(shader.uniforms);
+    bindNearLights(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -1392,11 +1544,15 @@ function mosaic(material: THREE.MeshToonMaterial): void {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        `#include <common>\n${MOSAIC_GLSL}${flagged ? '\nvarying vec3 vAtlasFlag;' : ''}`,
+        `#include <common>\n${MOSAIC_GLSL}\n${groundWeatherGLSL()}\n${nearLightsGLSL()}${flagged ? '\nvarying vec3 vAtlasFlag;' : ''}`,
       )
+      // The street lamps' pools past the paving's edge, and the headlights off
+      // the carriageway, on the land itself: see `nearLightsChunk`.
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${nearLightsChunk('vAtlasPos')}`)
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
+  ${groundWeatherChunk('vAtlasPos')}
   vec2 atlasPlane = atlasPlaneOf(vAtlasPos);
   // A cell smaller than a pixel is noise, especially when its normal changes
   // the cel band. Fade both tone and tilt before that happens, even with B off.

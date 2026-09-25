@@ -43,6 +43,7 @@ import {
 } from '../src/fleet.ts';
 import type { FleetSite } from '../src/fleet.ts';
 import { isWater } from '../src/vehicles.ts';
+import { CRAFT_KINDS } from '../src/craft/contract.ts';
 import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -99,7 +100,7 @@ for (const site of sites) {
 }
 const shownCount = places.filter(isShown).length;
 console.log('sites:');
-for (const kind of ['car', 'van', 'boat', 'plane', 'balloon']) console.log(`  ${kind.padEnd(8)} ${byKind.get(kind)?.length ?? 0}`);
+for (const kind of CRAFT_KINDS) console.log(`  ${kind.padEnd(10)} ${byKind.get(kind)?.length ?? 0}`);
 console.log(`  ${'total'.padEnd(8)} ${sites.length} over ${shownCount} built towns, ${Math.round(firstMs)} ms (again ${Math.round(secondMs)} ms)\n`);
 
 console.log('determinism:');
@@ -239,7 +240,7 @@ check(farOut === 0, 'every launch is off its own town', `${farOut} further out t
 // --- fields -------------------------------------------------------------------------
 
 const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
-function fieldCheck(kind: 'plane' | 'balloon', reach: number, grade: number): void {
+function fieldCheck(kind: 'plane' | 'balloon' | 'horse' | 'tractor' | 'helicopter', reach: number, grade: number): void {
   const list = byKind.get(kind) ?? [];
   let wet = 0;
   let steep = 0;
@@ -382,6 +383,95 @@ console.log('\nairstrips:');
 
 console.log('\nballoons:');
 fieldCheck('balloon', SITE_ROOM.balloon, Math.tan((14 * Math.PI) / 180));
+console.log('\nhorses, tractors and helicopters:');
+fieldCheck('horse', SITE_ROOM.horse, Math.tan((20 * Math.PI) / 180));
+fieldCheck('tractor', SITE_ROOM.tractor, Math.tan((14 * Math.PI) / 180));
+fieldCheck('helicopter', SITE_ROOM.helicopter, Math.tan((8 * Math.PI) / 180));
+{
+  // A town's fields keep off each other: no horse, tractor or helicopter in
+  // another field of its town, or on its airstrip.
+  const fielded = sites.filter((site) => site.kind === 'horse' || site.kind === 'tractor' || site.kind === 'helicopter');
+  let overlapping = 0;
+  for (const site of fielded) {
+    for (const other of sites) {
+      if (other === site || other.place !== site.place) continue;
+      if (other.kind === 'plane') {
+        if (stripKeepouts(other).some((disc) => units(disc.at, site.at) < disc.radius + SITE_ROOM[site.kind])) overlapping++;
+      } else if ((other.kind === 'balloon' || fielded.includes(other)) && units(other.at, site.at) < SITE_ROOM[other.kind] + SITE_ROOM[site.kind]) overlapping++;
+    }
+  }
+  check(overlapping === 0, "no horse, tractor or helicopter stands in another of its town's fields", `${overlapping}`);
+  const million = shown.filter((t) => t.place.pop >= 1_000_000).length;
+  console.log(`       ${byKind.get('helicopter')?.length ?? 0} of the ${million} cities of a million found a pad`);
+}
+
+// --- at the gates, and off the shore ------------------------------------------------
+//
+// The rest of the fleet: a rack of bicycles and a motorbike on the verge of a
+// road out of town, a tuk-tuk, a jeep and a bus on its carriageway; a jet ski
+// and a sailboat on open water near the town's launch. Each asked what its
+// place asks of it: on its road or beside it, never in a square or the water
+// — or on the water with room round it, never in a square.
+
+console.log('\nat the gates:');
+{
+  for (const kind of ['bicycle', 'motorbike', 'tuktuk', 'jeep', 'bus'] as const) {
+    const list = byKind.get(kind) ?? [];
+    const verge = kind === 'bicycle' || kind === 'motorbike';
+    let astray = 0;
+    let onIt = 0;
+    let squared = 0;
+    let soaked = 0;
+    let worst = 0;
+    for (const site of list) {
+      const half = ROAD_CLASSES[roads[site.road]!.cls]!.width / 2;
+      const d = site.road < 0 ? Infinity : distanceToPath(pathOf(site.road), site.at);
+      worst = Math.max(worst, d);
+      if (verge) {
+        if (d > half + 1.6 + SITE_ROOM[kind] + 1) astray++;
+        if (d < half) onIt++;
+      } else if (d > half) astray++;
+      if (insideSquare(site.at, 0) !== null) squared++;
+      if (isWater(ground(site.at))) soaked++;
+    }
+    check(astray === 0, verge ? `every ${kind} stands on the verge of its road` : `every ${kind} stands on its own carriageway`, `${astray} of ${list.length}; the furthest ${worst.toFixed(1)} units off the centre line`);
+    if (verge) check(onIt === 0, `no ${kind} stands on the carriageway`, `${onIt}`);
+    check(squared === 0 && soaked === 0, `no ${kind} stands in a town square or in the water`, `${squared} in a square, ${soaked} wet`);
+  }
+  const cycling = shown.filter((t) => ['NLD', 'DNK'].includes(t.place.iso) && roads.some((road) => road.a === t.i || road.b === t.i));
+  const racked = cycling.filter((t) => (byKind.get('bicycle') ?? []).some((site) => site.place === t.i)).length;
+  check(racked >= cycling.length * 0.9, 'nearly every Dutch and Danish town with a road keeps bicycles at its gate', `${racked} of ${cycling.length}`);
+}
+
+console.log('\noff the shore:');
+{
+  for (const kind of ['jetski', 'sailboat'] as const) {
+    const list = byKind.get(kind) ?? [];
+    let dryHere = 0;
+    let crampedHere = 0;
+    let squared = 0;
+    for (const site of list) {
+      const lat = latOf(site.at.y);
+      const lon = lonOf(site.at.x, site.at.z);
+      if (!isWater(ground(site.at)) || world.countryAt(lat, lon) !== 0) dryHere++;
+      north.set(0, 1, 0).projectOnPlane(site.at).normalize();
+      across.crossVectors(site.at, north).normalize();
+      const room = SITE_ROOM[kind] * 0.8;
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        corner.copy(site.at).addScaledVector(across, (Math.sin(a) * room) / PLANET_RADIUS).addScaledVector(north, (Math.cos(a) * room) / PLANET_RADIUS).normalize();
+        if (!isWater(ground(corner))) {
+          crampedHere++;
+          break;
+        }
+      }
+      if (insideSquare(site.at, 0) !== null) squared++;
+    }
+    check(dryHere === 0, `every ${kind} is on water`, `${dryHere} of ${list.length} are not`);
+    check(crampedHere <= list.length * 0.01, `a ${kind} has water round it`, `${crampedHere} of ${list.length} touch land on one of sixteen bearings`);
+    check(squared === 0, `no ${kind} is inside a town square`, `${squared}`);
+  }
+}
 
 // --- the wood keeps off the fields ------------------------------------------------------
 //
@@ -414,10 +504,17 @@ console.log('\nthe wood keeps off the fields:');
   const wood = createVegetation(world, { places, monuments: monuments as never, roads, fields });
   const planes = byKind.get('plane') ?? [];
   const balloons = byKind.get('balloon') ?? [];
+  const every = (kind: string, count: number): FleetSite[] => {
+    const list = byKind.get(kind) ?? [];
+    return list.filter((_, i) => i % Math.max(1, Math.floor(list.length / count)) === 0);
+  };
   const probes = [
     sites.find((site) => site.id === 'light-plane:232:0'),
     ...planes.filter((_, i) => i % Math.max(1, Math.floor(planes.length / 8)) === 0),
     ...balloons.filter((_, i) => i % Math.max(1, Math.floor(balloons.length / 4)) === 0),
+    ...every('horse', 3),
+    ...every('tractor', 2),
+    ...every('helicopter', 3),
   ].filter((site): site is FleetSite => site !== undefined);
   const vertex = new Vector3();
   let tiles = 0;
@@ -431,7 +528,7 @@ console.log('\nthe wood keeps off the fields:');
    * Positive is inside.
    */
   const inside = (site: FleetSite, at: Vector3): number => {
-    if (site.kind !== 'plane') return SITE_ROOM.balloon - units(at, site.at);
+    if (site.kind !== 'plane') return SITE_ROOM[site.kind] - units(at, site.at);
     side.crossVectors(site.forward, site.at).normalize();
     const d = at.clone().sub(site.at);
     const along = d.dot(site.forward) * PLANET_RADIUS;
@@ -552,11 +649,14 @@ console.log('\nthe ride, headless:');
     return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
   };
   await import('./kit-node.ts');
-  const { modelsFrom } = await import('../src/kit.ts');
+  const { modelsFrom, rigFrom } = await import('../src/kit.ts');
   const { craftFrom } = await import('../src/craft/index.ts');
+  const { horseMaterial } = await import('../src/craft/horse.ts');
   const { prepareAvatar, WALK_SPEED } = await import('../src/avatar.ts');
   const { createPlayer } = await import('../src/player.ts');
-  const craft = craftFrom(await modelsFrom(readFileSync(resolve(PUBLIC, 'models/traffic/kit.bin'))));
+  const { ROAD_HANDLING, WATER_HANDLING, HELI_SPEED, HELI_SPOOL } = await import('../src/vehicles.ts');
+  const horseRig = await rigFrom(readFileSync(resolve(PUBLIC, 'models/fauna/horse.bin')), 'horse', horseMaterial());
+  const craft = craftFrom(await modelsFrom(readFileSync(resolve(PUBLIC, 'models/traffic/kit.bin'))), horseRig);
   await prepareAvatar();
 
   // The sites keep room for the models without reading them (`SITE_ROOM`), so
@@ -567,6 +667,18 @@ console.log('\nthe ride, headless:');
   check(SITE_ROOM.boat >= size('launch')[0] / 2 + 2, 'a launch fits its ring of water with room to spare', `${SITE_ROOM.boat} against half of ${size('launch')[0].toFixed(2)}`);
   check(SITE_ROOM.plane >= Math.max(size('light-plane')[0], size('light-plane')[1]) / 2, 'a plane fits its field', `${SITE_ROOM.plane} against half of ${Math.max(size('light-plane')[0], size('light-plane')[1]).toFixed(2)}`);
   check(SITE_ROOM.balloon >= size('balloon')[1] / 2, 'a balloon fits its field', `${SITE_ROOM.balloon} against half of ${size('balloon')[1].toFixed(2)}`);
+  {
+    // Every other model against its kind's room: the longer of its length and
+    // width for a field or a mooring, and half its length along a road.
+    const short: string[] = [];
+    for (const model of craft.values()) {
+      if (['hatchback', 'van', 'launch', 'light-plane', 'balloon'].includes(model.id)) continue;
+      const along = model.kind === 'bicycle' ? model.size[1] / 2 : model.size[0] / 2;
+      const need = model.medium === 'water' || model.kind === 'horse' || model.kind === 'tractor' || model.kind === 'helicopter' ? Math.max(model.size[0], model.size[1]) / 2 : along;
+      if (SITE_ROOM[model.kind] < need) short.push(`${model.id} ${SITE_ROOM[model.kind]} < ${need.toFixed(2)}`);
+    }
+    check(short.length === 0, 'every other model fits the room its kind keeps', short.join(', '));
+  }
   const events: string[] = [];
   const player = createPlayer(world, 41.39, 2.17, { onEvent: (event) => events.push(event) });
   const heading = new Vector3();
@@ -675,6 +787,88 @@ console.log('\nthe ride, headless:');
   for (seconds = 0; seconds < 60 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
   check(player.grounded, 'sinks until it sets down', `after ${seconds} s`);
   check(player.leave() !== null && player.state !== 'seated', 'and is left where it landed');
+
+  // The rest: each taken where the fleet stands it, driven on `W` a few
+  // seconds, and left. The speeds are on the relief with no made ground, so a
+  // kind that keeps less of its pace off a road keeps all of it here.
+  const faster = (id: string, want: number, run = false, settle = 1.3): void => {
+    const site = sites.find((entry) => entry.model === id && !isWater(ground(entry.at)));
+    if (site === undefined) {
+      check(false, `a ${id} stands somewhere`);
+      return;
+    }
+    board(site);
+    const start = player.position.clone();
+    // Long enough for the throttle's ease to all but close: three of its time constants.
+    const seconds = Math.max(4, 3 * settle);
+    step(seconds, { y: 1, run });
+    const went = units(start.clone().normalize(), player.position.clone().normalize());
+    const off = Math.abs(player.position.length() - ground(player.position.clone().normalize()));
+    check(player.state === 'seated' && (Math.abs(player.velocity - want) < want * 0.12 || went < 20), `a ${id} is driven at its own pace`, `${player.velocity.toFixed(1)} units/s against ${want}, ${went.toFixed(0)} units in ${seconds.toFixed(1)} s, ${off.toFixed(2)} off the ground`);
+    step(4, { y: -1 });
+    check(player.leave() !== null && player.state !== 'seated', `and the ${id} is left`, player.mode);
+  };
+  faster('bicycle', ROAD_HANDLING.bicycle!.speed);
+  check(player.mode === 'foot', 'off the bicycle, on foot again', player.mode);
+  faster('bicycle', ROAD_HANDLING.bicycle!.boost, true);
+  faster('motorbike', ROAD_HANDLING.motorbike!.speed);
+  faster('scooter', ROAD_HANDLING.motorbike!.speed);
+  faster('tuk-tuk', ROAD_HANDLING.tuktuk!.speed);
+  faster('bus', ROAD_HANDLING.bus!.speed, false, ROAD_HANDLING.bus!.accelerationTime);
+  faster('jeep', ROAD_HANDLING.jeep!.speed);
+  faster('tractor', ROAD_HANDLING.tractor!.speed);
+  faster('horse', ROAD_HANDLING.horse!.speed);
+  faster('horse', ROAD_HANDLING.horse!.boost, true);
+  {
+    // A horse turns on the spot, which nothing on wheels does.
+    const horse = sites.find((entry) => entry.model === 'horse')!;
+    board(horse);
+    const facing = player.forward.clone();
+    step(1, { x: 1 });
+    check(facing.angleTo(player.forward) > 0.3, 'a horse turns standing still', `${facing.angleTo(player.forward).toFixed(2)} rad in a second`);
+    player.leave();
+  }
+  for (const id of ['jet-ski', 'sailboat']) {
+    const hull = sites.find((entry) => entry.model === id)!;
+    board(hull);
+    step(3, { y: 1 });
+    const want = WATER_HANDLING[craft.get(id)!.kind]!;
+    check(player.mode === (id === 'jet-ski' ? 'jetski' : 'sailboat') && Math.abs(player.position.length() - PLANET_RADIUS - 0.5) < 1e-6 && player.velocity > 0,
+      `a ${id} sails on the waterline`, `${player.velocity.toFixed(1)} units/s of ${want.speed}`);
+    const off = player.leave();
+    check(off !== null && player.state !== 'seated', `and the ${id} is left for the shore or the water`, player.state);
+  }
+  {
+    // The helicopter: straight up once the rotor has wound up, a hover, a
+    // run forward, not out in the air, and down again.
+    // One far inland, so the flight comes down on land.
+    const pad =
+      sites.find((site) => site.kind === 'helicopter' && shoreDistance(latOf(site.at.y), lonOf(site.at.x, site.at.z)) > 4) ?? byKind.get('helicopter')![0]!;
+    board(pad);
+    check(player.mode === 'helicopter' && player.grounded, 'a helicopter is taken on its pad', `${pad.id}, ${places[pad.place]!.name}`);
+    events.length = 0;
+    const floor = player.altitude;
+    step(HELI_SPOOL * 0.5, { climb: true });
+    check(player.grounded, 'it does not lift before its rotor has wound up');
+    step(HELI_SPOOL + 2, { climb: true });
+    const lifted = player.altitude - floor;
+    check(events.includes('took-off') && player.airborne && lifted > 10, 'holding the climb key lifts it straight up', `${lifted.toFixed(1)} units up`);
+    check(units(pad.at, player.position.clone().normalize()) < 3, 'and straight up means where it stood', `${units(pad.at, player.position.clone().normalize()).toFixed(2)} units off its pad`);
+    step(2, {});
+    const hovering = player.altitude;
+    step(2, {});
+    check(Math.abs(player.altitude - hovering) < 1 && player.velocity < 1, 'let go, it hovers', `${(player.altitude - hovering).toFixed(2)} units and ${player.velocity.toFixed(2)} units/s`);
+    step(4, { y: 1 });
+    check(Math.abs(player.velocity - HELI_SPEED) < HELI_SPEED * 0.1, 'W flies it forward at its cruise', `${player.velocity.toFixed(1)} units/s`);
+    check(player.leave() === null, 'nobody steps out of a helicopter aloft');
+    step(3, { y: -1 });
+    let seconds = 0;
+    for (; seconds < 60 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
+    const wet = isWater(ground(player.position.clone().normalize()));
+    check(player.grounded || wet, 'holding descend sets it down', `after ${seconds} s${wet ? ', over water' : ''}; ${events.join(', ')}`);
+    if (player.grounded) check(player.leave() !== null && player.state !== 'seated', 'and it is left on the ground');
+    else player.goTo(latOf(pad.at.y), lonOf(pad.at.x, pad.at.z));
+  }
 
   // A car into a wall: it stops at it, comes back off it, and says so.
   {

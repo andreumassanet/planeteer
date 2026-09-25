@@ -132,6 +132,133 @@ export interface BiomeSample {
   moisture: number;
   /** How far above the shelf this point is, in world units. Passed straight through. */
   elevation: number;
+  /**
+   * How continental the place is, 0 on the coast to 1 deep inland: the ocean
+   * distance through `INTERIOR`, which the moisture already spends. Published
+   * so the weather's seasons read the same continent the biome does.
+   */
+  continental: number;
+  /**
+   * Permanent snow, 0 to 1: how far the warmest month here is under the
+   * snowline (`snowlineAt`). Past a half the ground *is* snow and the id is
+   * `ice`; under it `groundShade` whitens the ground by this much, so a
+   * snowline is a margin and not a contour.
+   */
+  snow: number;
+}
+
+/**
+ * How cold a place is, in degrees Celsius: the climate the weather is drawn
+ * from and the snowline is cut by.
+ *
+ * **A second temperature beside `warmth`, and on purpose.** `warmth` is a
+ * classifier's axis, fitted so that the taiga and the tundra land where they
+ * should, and read as degrees it puts France at zero. The weather needs a
+ * number a thermometer would agree with — whether a cloud rains or snows is a
+ * question about zero Celsius — so this is the mean annual temperature at sea
+ * level off a table of knots (the real zonal means, rounded), less the lapse
+ * rate for the height.
+ *
+ * The south is colder than the north at the same latitude in the table because
+ * it is on the Earth: the Southern Ocean and the Antarctic ice keep it so.
+ */
+const TEMPERATURE_KNOTS_NORTH: readonly [number, number][] = [
+  [0, 27], [10, 26.5], [20, 24.5], [30, 19], [40, 13.5], [50, 9], [60, 3], [70, -7], [80, -15], [90, -20],
+];
+const TEMPERATURE_KNOTS_SOUTH: readonly [number, number][] = [
+  [0, 27], [10, 26], [20, 23], [30, 18], [40, 13], [50, 6], [60, -2], [70, -12], [80, -24], [90, -30],
+];
+export const TEMPERATURE_KNOTS = { north: TEMPERATURE_KNOTS_NORTH, south: TEMPERATURE_KNOTS_SOUTH };
+
+/**
+ * Degrees Celsius lost per world unit of height.
+ *
+ * The relief's full `MAX_RELIEF` stands for about 8 km of real mountain (see
+ * `LAPSE`), so a unit of height is 11.8 m of air, and the standard lapse rate
+ * of 6.5 degrees a kilometre makes it 0.076 degrees a unit.
+ */
+export const LAPSE_PER_UNIT = (6.5 * 8) / MAX_RELIEF;
+
+/**
+ * Half the swing between the warmest month and the coldest, in degrees.
+ *
+ * A degree in the tropics, where the sun is overhead twice a year and the
+ * seasons are the rains, rising to about seventeen past sixty degrees; and the
+ * middle of a continent swings more than its coast, because the sea is a heat
+ * store and the land is not. `continental` is `BiomeSample.continental`.
+ */
+export function seasonalSwing(lat: number, continental: number): number {
+  return (
+    SWING.tropics +
+    SWING.range * smoothstep(SWING.from, SWING.to, Math.abs(lat)) * (SWING.coast + (1 - SWING.coast) * continental)
+  );
+}
+
+/**
+ * `seasonalSwing`'s numbers, exported because the ground shader restates the
+ * function in GLSL (`GROUND_WEATHER_GLSL` in `globe.ts`) and has to be built
+ * from the same ones.
+ */
+export const SWING = { tropics: 1, range: 16, from: 15, to: 65, coast: 0.45 } as const;
+
+function knotAt(knots: readonly [number, number][], a: number): number {
+  for (let i = 1; i < knots.length; i++) {
+    const [x1, y1] = knots[i]!;
+    if (a <= x1) {
+      const [x0, y0] = knots[i - 1]!;
+      return y0 + ((y1 - y0) * (a - x0)) / (x1 - x0);
+    }
+  }
+  return knots[knots.length - 1]![1];
+}
+
+/** Mean annual temperature at `lat`, `elevation` world units over the shelf. */
+export function meanTemperature(lat: number, elevation: number): number {
+  const knots = lat >= 0 ? TEMPERATURE_KNOTS_NORTH : TEMPERATURE_KNOTS_SOUTH;
+  return knotAt(knots, Math.abs(lat)) - LAPSE_PER_UNIT * Math.max(0, elevation);
+}
+
+/**
+ * Where the snow never goes, and it is the **warmest month** that says so.
+ *
+ * A glacier survives where the summer cannot melt what the winter laid, so the
+ * line is the summer isotherm near freezing rather than a mean: the mean alone
+ * put northern Siberia, at minus fourteen, under permanent ice, where it is
+ * tundra that thaws every July. `SNOWLINE_SUMMER` is that isotherm, three
+ * degrees under zero, with a margin of `SNOWLINE_MARGIN` either side over which
+ * the ground goes from speckled to white. Where it lands on `terrain.ts`'s
+ * ranges with `ARID_SNOWLINE` below (2026-09-25, `pnpm weather`): about
+ * 2,850 m in the Alps, 3,650 m in the Rockies, 4,700 m on the wet equator in
+ * the Andes, 5,050 m in the Himalaya and 1,600 m in the Scandes — each within
+ * a few hundred metres of the real line. It turns 4.3% of the land to `ice`
+ * that `warmth` had left bare, most of it Antarctica's coast and the Arctic
+ * islands.
+ */
+export const SNOWLINE_SUMMER = -3;
+export const SNOWLINE_MARGIN = 1.5;
+
+/**
+ * **And a dry range holds no ice however cold it is**, because a glacier is fed
+ * by snowfall and the desert sends none: the real line stands near 6,000 m in
+ * the Atacama against 4,800 on the wet equator. So dryness raises the line by
+ * this many degrees for every unit of moisture under `ARID_FROM`; without it
+ * the Atacama came out an ice cap (2026-09-25).
+ */
+const ARID_SNOWLINE = 30;
+const ARID_FROM = 0.45;
+
+/**
+ * The snowline's factor for a place, 0 to 1. `ragged` is a noise in [0, 1]
+ * that moves the line by two degrees either way, so it follows the relief's
+ * shoulders rather than a contour; `moisture` is the biome's.
+ */
+export function snowlineAt(lat: number, elevation: number, continental: number, ragged: number, moisture: number): number {
+  const summer =
+    meanTemperature(lat, elevation) +
+    seasonalSwing(lat, continental) +
+    (ragged - 0.5) * 4 +
+    ARID_SNOWLINE * Math.max(0, ARID_FROM - moisture);
+  return smoothstep(SNOWLINE_SUMMER + SNOWLINE_MARGIN, SNOWLINE_SUMMER - SNOWLINE_MARGIN, summer);
 }
 
 /**
@@ -149,7 +276,7 @@ export interface BiomeSample {
  * either side of it is broad and shallow, and a cosine fitted to the trough
  * puts the Sahel in Ireland's rainfall.
  */
-const MOISTURE_KNOTS: readonly [number, number][] = [
+export const MOISTURE_KNOTS: readonly [number, number][] = [
   [0, 0.95],
   [8, 0.80],
   [16, 0.34],
@@ -161,7 +288,7 @@ const MOISTURE_KNOTS: readonly [number, number][] = [
   [90, 0.40],
 ];
 
-function zonalMoisture(lat: number): number {
+export function zonalMoisture(lat: number): number {
   const a = Math.abs(lat);
   for (let i = 1; i < MOISTURE_KNOTS.length; i++) {
     const [x1, y1] = MOISTURE_KNOTS[i]!;
@@ -185,6 +312,15 @@ function zonalMoisture(lat: number): number {
  * did.
  */
 const WARMTH_PER_DEGREE = 1 / 86.7;
+
+/**
+ * How continental a place is, 0 on the coast to 1 at `INTERIOR` degrees from
+ * the sea: the one reading of `oceanDistance` this file makes, exported so the
+ * weather's seasons and the ground shader's snow read the same continent.
+ */
+export function continentalityAt(lat: number, lon: number): number {
+  return smoothstep(1.5, INTERIOR, oceanDistance(lat, lon));
+}
 
 /**
  * The classifier.
@@ -237,22 +373,30 @@ export function biomeAt(
   // out temperate rather than grassland and the Sahel temperate rather than
   // savanna, because Lake Michigan and Lake Volta are inside `INTERIOR` of
   // both. Continentality is distance from the sea; see `oceanField`.
-  const continental = smoothstep(1.5, INTERIOR, oceanDistance(lat, lon));
+  const continental = continentalityAt(lat, lon);
+  const ragged = fbm(x * 3.1, y * 3.1, z * 3.1, 2);
   const moisture = clamp(
     zonalMoisture(lat) -
       continental * 0.55 * tropicness * thirst +
-      fbm(x * 3.1, y * 3.1, z * 3.1, 2) * 0.16,
+      ragged * 0.16,
     0,
     1,
   );
+  // The same noise that frays the biome edges frays the snowline: one more
+  // `fbm` here is 770,000 of them in a land build.
+  const snow = snowlineAt(lat, elevation, continental, ragged, moisture);
 
   target.warmth = warmth;
   target.moisture = moisture;
   target.elevation = elevation;
+  target.continental = continental;
+  target.snow = snow;
 
   // Order matters and it is the order the real world decides in: cold beats
   // everything, then bare rock, then dryness, then how warm what is left is.
-  if (warmth < 0.08) target.id = 'ice';
+  // The snowline is cold too, and it is what puts a white top on the Alps,
+  // the Rockies and the Andes, where `warmth` alone never reached `ice`.
+  if (warmth < 0.08 || snow > 0.5) target.id = 'ice';
   else if (elevation > MAX_RELIEF * 0.62) target.id = 'rock';
   else if (warmth < 0.17) target.id = 'tundra';
   else if (moisture < 0.22) target.id = warmth > 0.55 ? 'desert' : 'steppe';
@@ -301,5 +445,5 @@ export function biomeAt(
 
 /** A sample to hand to `biomeAt`, so callers do not each invent one. */
 export function biomeSample(): BiomeSample {
-  return { id: 'temperate', warmth: 0.5, moisture: 0.5, elevation: 0 };
+  return { id: 'temperate', warmth: 0.5, moisture: 0.5, elevation: 0, continental: 0, snow: 0 };
 }

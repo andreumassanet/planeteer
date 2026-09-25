@@ -5,7 +5,13 @@
  * **Where they stand is a pure function of the world.** Cars wait on the road
  * a few lengths out of a town's gates, launches lie off the shore nearest a
  * coastal town, light aircraft stand at the end of an airstrip beside the big
- * cities and the capitals, and a few towns have a balloon. Every one of those is decided
+ * cities and the capitals, and a few towns have a balloon. The rest of the
+ * fleet stands where it makes sense (`GATE_SHARES` and what follows it): a
+ * rack of bicycles and a motorbike on a gate's verge, a tuk-tuk, a jeep or a
+ * bus further out on its road, a jet ski and a sailboat near the launch, and a
+ * horse, a tractor or a helicopter in a field of its own. And every bicycle,
+ * scooter, rickshaw, pickup, bus and tractor a town parks can be taken
+ * (`PARKED_CRAFT`). Every one of those is decided
  * from `places.bin`, `roads.bin`, the outlines and the relief, seeded by the
  * place's index and never by `Math.random`, so every client puts the same car
  * on the same kerb without a word on the wire — and a vehicle's id,
@@ -26,9 +32,10 @@
  * allowance (`view.ts`), and put back in a pool when the player leaves.
  *
  * **The sites are worked out a town at a time, on first need.** The whole
- * planet's are about nineteen thousand vehicles and the launches' search for
- * open water is most of their cost, so the world pays for the towns near the
- * player and `SiteIndex.all()` is there for the check and the console.
+ * planet's are about forty thousand vehicles (39,786 on 2026-09-25) and the
+ * launches' search for open water is most of their cost, so the world pays
+ * for the towns near the player and `SiteIndex.all()` is there for the check
+ * and the console.
  */
 import * as THREE from 'three';
 import type { World } from './geo.ts';
@@ -55,14 +62,15 @@ import type { CoursePath, Road, RoadIndex } from './roads.ts';
 import { gradeAt, shoreDistance } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { rngFrom } from './scenery/random.ts';
-import { keepsLeft } from './traffic/regions.ts';
+import { keepsLeft, trafficFor } from './traffic/regions.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { MAX_FOOTPRINT } from './monuments/contract.ts';
 import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
-import { CAR_BOOST, CAR_FAST_LOCK, CAR_GRIP_SPEED, CAR_TURN, WATERLINE, isWater } from './vehicles.ts';
+import { ROAD_HANDLING, WATERLINE, isWater } from './vehicles.ts';
 import { AT_REST, discMaterial, motionOf } from './craft/motion.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
+import { CRAFT_KINDS, isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, FleetLink, FleetSeats, MovedVehicle, WirePose } from './craft/contract.ts';
 import { writePose } from './player.ts';
 import type { Player } from './player.ts';
@@ -96,18 +104,38 @@ const DEG = Math.PI / 180;
 // Which model stands where
 // ---------------------------------------------------------------------------
 
-/** The model ids the sites name; `craft/index.ts` builds them. */
+/** The model ids the sites name, a kind's first; `craft/index.ts` builds them. */
 export const FLEET_MODELS = {
   car: 'hatchback',
   van: 'van',
   boat: 'launch',
   plane: 'light-plane',
   balloon: 'balloon',
+  bicycle: 'bicycle',
+  motorbike: 'motorbike',
+  tuktuk: 'tuk-tuk',
+  bus: 'bus',
+  tractor: 'tractor',
+  jeep: 'jeep',
+  horse: 'horse',
+  jetski: 'jet-ski',
+  sailboat: 'sailboat',
+  helicopter: 'helicopter',
 } as const satisfies Record<CraftKind, string>;
 
-const KIND_OF: Readonly<Record<string, CraftKind>> = Object.fromEntries(
-  (Object.entries(FLEET_MODELS) as [CraftKind, string][]).map(([kind, id]) => [id, kind]),
-);
+/**
+ * Every model's kind, the second looks of a kind among them: a scooter is
+ * driven as a motorbike, a pickup as a jeep. A kind can be told from a vehicle
+ * id alone this way, which is how the relay's vehicles and a town's parked
+ * ones are known.
+ */
+const KIND_OF: Readonly<Record<string, CraftKind>> = {
+  ...Object.fromEntries((Object.entries(FLEET_MODELS) as [CraftKind, string][]).map(([kind, id]) => [id, kind])),
+  scooter: 'motorbike',
+  pickup: 'jeep',
+};
+/** The kinds that stand in the water rather than on the ground. */
+const AFLOAT: ReadonlySet<CraftKind> = new Set<CraftKind>(['boat', 'jetski', 'sailboat']);
 
 /** The kind of a model id, or null for one no site ever names. */
 export const kindOfModel = (model: string): CraftKind | null => KIND_OF[model] ?? null;
@@ -165,6 +193,71 @@ const BALLOON_GRADE = Math.tan(14 * DEG);
 const BALLOON_SHARE = 0.04;
 /** Margin between a field and whatever it keeps clear of, in units. */
 const FIELD_CLEAR = 6;
+
+/**
+ * **The rest of the fleet, by where it makes sense.** At a town's gates, on
+ * the verge across the road from its car: a rack of bicycles where people
+ * cycle — every town in the countries that do (`CYCLING`) and a share of the
+ * rest by region — and a motorbike or a scooter where the street is full of
+ * them. Further out on the carriageway: a tuk-tuk in South and Southeast
+ * Asia, a jeep where the town stands in desert, rock, steppe, savanna or
+ * tundra, and a bus at a city's. Off the shore: a jet ski at a warm coast's
+ * towns and a sailboat at a harbour's. In a field of its own: a horse by a
+ * town in open grass country, a tractor by a farming village, and a
+ * helicopter by a city of a million. Every share is seeded by the town.
+ */
+const GATE_SHARES = {
+  bicycle: { 'east-asia': 0.8, nordic: 0.6, 'atlantic-europe': 0.5, 'southeast-asia': 0.5, 'south-asia': 0.4, 'east-europe': 0.3, mediterranean: 0.25 } as Record<string, number>,
+  motorbike: {
+    'southeast-asia': 0.9, 'south-asia': 0.7, mediterranean: 0.6, 'east-asia': 0.5, 'latin-america': 0.45, maghreb: 0.35, 'sub-saharan': 0.35, 'middle-east': 0.3,
+  } as Record<string, number>,
+  tuktuk: { 'south-asia': 0.7, 'southeast-asia': 0.5, 'sub-saharan': 0.12 } as Record<string, number>,
+};
+/** Where nothing above names a region, the share of towns that have one all the same. */
+const GATE_ELSEWHERE = { bicycle: 0.15, motorbike: 0.12, tuktuk: 0 };
+/** The countries that cycle, whose every town keeps a rack of two or three. */
+const CYCLING: ReadonlySet<string> = new Set(['NLD', 'DNK', 'BEL', 'DEU', 'SWE', 'FIN', 'JPN', 'CHN', 'TWN']);
+/** Where a scooter rather than a motorbike stands, by region, as a share. */
+const SCOOTERS: Readonly<Record<string, number>> = { 'southeast-asia': 0.8, 'south-asia': 0.6, 'east-asia': 0.7, mediterranean: 0.6 };
+/** The biomes a jeep is kept in, and the share of their towns that keep one. */
+const JEEP_BIOMES: ReadonlySet<string> = new Set(['desert', 'rock', 'steppe', 'savanna', 'tundra']);
+const JEEP_SHARE = 0.6;
+/** Towns this big keep a bus. */
+const BUS_POP = 150_000;
+/**
+ * How far out of the gate each stands along its road, in units, and off the
+ * carriageway's centre line: the bicycles and the motorbike on the far verge,
+ * a body's width past the drawn edge; the rest on the lane the car parks on,
+ * beyond it.
+ */
+const RACK_ALONG = 5;
+const RACK_PITCH = 1.8;
+const VERGE = 1.6;
+const MOTORBIKE_ALONG = 12;
+const TUKTUK_ALONG = 24;
+const JEEP_ALONG = 32;
+const BUS_ALONG = 44;
+/** A jet ski where the sea is warm, a sailboat at a harbour: the latitude, the population and the shares. */
+const JETSKI_LAT = 40;
+const JETSKI_SHARE = 0.5;
+const SAILBOAT_POP = 30_000;
+const SAILBOAT_SHARE = 0.6;
+/** Two moorings of one town nearer than this, on top of their rooms, are one. */
+const MOORING_GAP = 6;
+/** How far from the town's launch a jet ski or a sailboat is looked for, and on how many bearings. */
+const MOORING_REACH = 90;
+const MOORING_BEARINGS = 12;
+/** A horse's paddock, a tractor's field and a helicopter's pad: how steep, and who keeps one. */
+const HORSE_GRADE = Math.tan(20 * DEG);
+const HORSE_BIOMES: Readonly<Record<string, number>> = { steppe: 0.5, grassland: 0.4, savanna: 0.2, temperate: 0.2 };
+const HORSE_POP = 200_000;
+/** The share of horse towns with a second horse in the same paddock country. */
+const HORSE_SECOND = 0.4;
+const TRACTOR_GRADE = Math.tan(14 * DEG);
+const TRACTOR_BIOMES: Readonly<Record<string, number>> = { temperate: 0.2, grassland: 0.25, steppe: 0.15 };
+const TRACTOR_POP = 100_000;
+const HELI_GRADE = Math.tan(8 * DEG);
+const HELI_POP = 1_000_000;
 /**
  * Past this many degrees of the coast field's own distance to water, plus the
  * whole reach of a town's field search, the search does not ask the outlines
@@ -210,12 +303,24 @@ const PLANE_RINGS = 20;
  * check, and the relay all have to agree on them — so `pnpm fleet` holds each
  * against the built model instead: a model that outgrows its room fails there.
  */
-export const SITE_ROOM: Readonly<Record<'car' | 'boat' | 'plane' | 'balloon', number>> = {
+export const SITE_ROOM: Readonly<Record<CraftKind, number>> = {
   car: CAR_HALF,
+  van: CAR_HALF,
   boat: BOAT_ROOM,
   plane: PLANE_FIELD,
   balloon: BALLOON_FIELD,
+  bicycle: 1.6,
+  motorbike: 2.4,
+  tuktuk: 3,
+  jeep: 4.8,
+  bus: 6.6,
+  jetski: 6,
+  sailboat: 10,
+  horse: 5,
+  tractor: 5,
+  helicopter: 10,
 };
+
 
 /** One vehicle's default place in the world. */
 export interface FleetSite {
@@ -456,7 +561,11 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
 
   /** The point `distance` units from a town's centre on a bearing, in its own frame. */
   function around(place: number, bearing: number, distance: number, out: THREE.Vector3): THREE.Vector3 {
-    const up = centres[place]!;
+    return aroundPoint(centres[place]!, bearing, distance, out);
+  }
+
+  /** The point `distance` units from `up` on a bearing from its north. */
+  function aroundPoint(up: THREE.Vector3, bearing: number, distance: number, out: THREE.Vector3): THREE.Vector3 {
     north.set(0, 1, 0).projectOnPlane(up);
     if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(up);
     north.normalize();
@@ -534,11 +643,11 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
    * full room and eight at half of it, because a spit of land narrower than
    * the gap between two bearings is exactly what a hull gets drawn through.
    */
-  function roomy(direction: THREE.Vector3): boolean {
+  function roomy(direction: THREE.Vector3, need = BOAT_ROOM): boolean {
     if (!wet(direction)) return false;
     for (let k = 0; k < 24; k++) {
       const bearing = k < 16 ? (k / 16) * Math.PI * 2 : ((k - 16) / 8) * Math.PI * 2 + Math.PI / 8;
-      const room = k < 16 ? BOAT_ROOM : BOAT_ROOM / 2;
+      const room = k < 16 ? need : need / 2;
       north.set(0, 1, 0).projectOnPlane(direction);
       if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(direction);
       north.normalize();
@@ -573,6 +682,131 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
         outward(p, at, forward);
         out.push(site(FLEET_MODELS.boat, p, moored.length, at, forward));
         moored.push(at.clone());
+      }
+    }
+  }
+
+  // ---- the rest of the fleet ------------------------------------------------
+
+  const continentOf = new Map<string, string>(world.countries.map((country) => [country.iso, country.continent]));
+  const regions: (string | undefined)[] = new Array(places.length);
+  /** A town's traffic region: `trafficFor`, the same answer its streets are parked by. */
+  const regionOf = (p: number): string => {
+    const place = places[p]!;
+    return (regions[p] ??= trafficFor(place.iso, continentOf.get(place.iso) ?? '', place.lat).id);
+  };
+  const townBiome = biomeSample();
+  /** The biome at a town's centre. */
+  const biomeOf = (p: number): string => {
+    const at = centres[p]!;
+    const place = places[p]!;
+    biomeAt(at.x, at.y, at.z, place.lat, place.lon, world.elevationAt(probe.copy(at).multiplyScalar(PLANET_RADIUS)), townBiome);
+    return townBiome.id;
+  };
+  /** Whether a spot is within its room and another's of anything this town already keeps. */
+  const crowded = (p: number, spot: THREE.Vector3, room: number, out: readonly FleetSite[]): boolean =>
+    out.some((other) => other.place === p && other.at.angleTo(spot) * PLANET_RADIUS < room + SITE_ROOM[other.kind]);
+
+  /**
+   * A spot on road `r` out of town `p`: `along` units from the gate and
+   * `lateral` off the centre line, to the right of the way out; `at` and
+   * `forward` written, and false where the road is too short for it — past
+   * half its length it is the next town's — or the spot is wet, in a square
+   * or on a landmark.
+   */
+  function roadSpot(p: number, r: number, along: number, lateral: number, room: number): boolean {
+    const road = roads[r]!;
+    const leaving = road.a === p;
+    const path = pathOf(r);
+    if (along + room > path.length * 0.45) return false;
+    const t = parameterAt(path, leaving ? along : path.length - along);
+    courseOf(road, places, course);
+    coursePoint(course, t, at);
+    courseTangent(course, t, forward);
+    if (!leaving) forward.negate();
+    side.crossVectors(forward, at).normalize();
+    at.addScaledVector(side, lateral / PLANET_RADIUS).normalize();
+    forward.projectOnPlane(at).normalize();
+    return !wet(at) && !inSquare(at, room) && !nearMonument(at, 0);
+  }
+
+  /** The bicycles, the motorbike, the tuk-tuk, the jeep and the bus at a town's gates. */
+  function gates(p: number, out: FleetSite[]): void {
+    const own = byPlace.get(p);
+    if (own === undefined) return;
+    const place = places[p]!;
+    const region = regionOf(p);
+    const rng = rngFrom('fleet-gates', p);
+    const order = [...own];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = rng.int(i + 1);
+      [order[i], order[j]] = [order[j]!, order[i]!];
+    }
+    const cycling = CYCLING.has(place.iso);
+    const bikes = cycling ? 2 + rng.int(2) : rng.chance(GATE_SHARES.bicycle[region] ?? GATE_ELSEWHERE.bicycle) ? 1 + rng.int(2) : 0;
+    const motorbike = rng.chance(GATE_SHARES.motorbike[region] ?? GATE_ELSEWHERE.motorbike);
+    const scooter = rng.chance(SCOOTERS[region] ?? 0);
+    const tuktuk = rng.chance(GATE_SHARES.tuktuk[region] ?? GATE_ELSEWHERE.tuktuk);
+    const jeep = rng.chance(JEEP_SHARE) && JEEP_BIOMES.has(biomeOf(p));
+    const bus = place.pop >= BUS_POP;
+    // The far verge from the lane the town's car is parked on.
+    const keep = keepsLeft(place.iso) ? -1 : 1;
+    let next = 0;
+    const put = (model: string, along: number, verge: boolean, count = 1): void => {
+      const kind = KIND_OF[model]!;
+      const room = SITE_ROOM[kind];
+      for (let tries = 0; tries < order.length; tries++) {
+        const r = order[(next + tries) % order.length]!;
+        const width = ROAD_CLASSES[roads[r]!.cls]!.width;
+        const lateral = verge ? -keep * (width / 2 + VERGE + room / 2) : (keep * width) / 4;
+        const spots: [THREE.Vector3, THREE.Vector3][] = [];
+        for (let i = 0; i < count; i++) {
+          if (!roadSpot(p, r, along + i * RACK_PITCH, lateral, room)) break;
+          // A rack's bicycles stand square to the road, their fronts to the verge.
+          if (verge && kind === 'bicycle') forward.copy(side).multiplyScalar(-keep);
+          if (crowded(p, at, room, out)) break;
+          spots.push([at.clone(), forward.clone()]);
+        }
+        if (spots.length === 0) continue;
+        spots.forEach(([spot, facing], i) => out.push(site(model, p, i, spot, facing, r)));
+        next += tries + 1;
+        return;
+      }
+    };
+    if (bikes > 0) put(FLEET_MODELS.bicycle, RACK_ALONG, true, bikes);
+    if (motorbike) put(scooter ? 'scooter' : FLEET_MODELS.motorbike, MOTORBIKE_ALONG, true);
+    if (tuktuk) put(FLEET_MODELS.tuktuk, TUKTUK_ALONG, false);
+    if (jeep) put(FLEET_MODELS.jeep, JEEP_ALONG, false);
+    if (bus) put(FLEET_MODELS.bus, BUS_ALONG, false);
+  }
+
+  /**
+   * A jet ski off a warm coast's town and a sailboat off a harbour's, moored
+   * near the town's launch: the launch's search has already found the nearest
+   * open water, so each looks for room of its own in rings round it rather
+   * than searching the coast again. A town with no launch has no water near
+   * enough to moor in.
+   */
+  function moorings(p: number, out: FleetSite[]): void {
+    const place = places[p]!;
+    const launch = out.find((entry) => entry.place === p && entry.kind === 'boat');
+    if (launch === undefined) return;
+    const rng = rngFrom('fleet-moorings', p);
+    const wants: string[] = [];
+    if (Math.abs(place.lat) < JETSKI_LAT && rng.chance(JETSKI_SHARE)) wants.push(FLEET_MODELS.jetski);
+    if (place.pop >= SAILBOAT_POP && rng.chance(SAILBOAT_SHARE)) wants.push(FLEET_MODELS.sailboat);
+    const start = rng.unit() * Math.PI * 2;
+    for (const model of wants) {
+      const room = SITE_ROOM[KIND_OF[model]!];
+      let found = false;
+      for (let d = BOAT_ROOM + room + MOORING_GAP; d <= MOORING_REACH && !found; d += BOAT_STEP) {
+        for (let k = 0; k < MOORING_BEARINGS && !found; k++) {
+          aroundPoint(launch.at, start + (k / MOORING_BEARINGS) * Math.PI * 2, d, at);
+          if (crowded(p, at, room + MOORING_GAP, out) || !roomy(at, room) || inSquare(at, room)) continue;
+          outward(p, at, forward);
+          out.push(site(model, p, 0, at, forward));
+          found = true;
+        }
       }
     }
   }
@@ -646,7 +880,17 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     return true;
   }
 
-  function fieldSite(p: number, model: string, reach: number, grade: number, salt: string, out: FleetSite[]): void {
+  /** Whether a field at `spot` of `reach` crosses one this town already has: a strip's discs, or another field's room. */
+  function fieldTaken(spot: THREE.Vector3, reach: number, taken: readonly FleetSite[]): boolean {
+    for (const other of taken) {
+      if (other.kind === 'plane') {
+        for (const disc of discsOf(other)) if (disc.at.angleTo(spot) * PLANET_RADIUS < disc.radius + reach) return true;
+      } else if (other.at.angleTo(spot) * PLANET_RADIUS < SITE_ROOM[other.kind] + reach + FIELD_CLEAR) return true;
+    }
+    return false;
+  }
+
+  function fieldSite(p: number, model: string, reach: number, grade: number, salt: string, out: FleetSite[], n = 0): void {
     const radius = radiusOf(places[p]!);
     const start = rngFrom(salt, p).unit() * Math.PI * 2;
     const plane = model === FLEET_MODELS.plane;
@@ -656,11 +900,13 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
       const d = radius + reach + FIELD_CLEAR + 4 + j * FIELD_STEP;
       for (let k = 0; k < FIELD_BEARINGS; k++) {
         around(p, start + (k / FIELD_BEARINGS) * Math.PI * 2, d, at);
+        // The kinds that came after the plane and the balloon keep off their ground.
+        if (!plane && model !== FLEET_MODELS.balloon && fieldTaken(at, reach, out)) continue;
         if (!field(at, reach, grade, inland)) continue;
         // Facing away from the town, which is the way a take-off goes.
         outward(p, at, forward);
         if (!plane) {
-          out.push(site(model, p, 0, at, forward));
+          out.push(site(model, p, n, at, forward));
           return;
         }
         // A plane's stand is only as good as the strip it can take off down:
@@ -680,7 +926,7 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
 
   const perPlace: (readonly FleetSite[] | undefined)[] = new Array(places.length);
   const fieldsPer: (readonly FleetSite[] | undefined)[] = new Array(places.length);
-  const counts = { car: 0, van: 0, boat: 0, plane: 0, balloon: 0, towns: 0 };
+  const counts = { ...(Object.fromEntries(CRAFT_KINDS.map((kind) => [kind, 0])) as Record<CraftKind, number>), towns: 0 };
   const NONE: readonly FleetSite[] = [];
 
   /**
@@ -697,6 +943,17 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     const place = places[p]!;
     if (place.pop >= PLANE_POP || place.capital === true) fieldSite(p, FLEET_MODELS.plane, PLANE_FIELD, PLANE_GRADE, 'fleet-plane', out);
     if (rngFrom('fleet-balloon', p).chance(BALLOON_SHARE)) fieldSite(p, FLEET_MODELS.balloon, BALLOON_FIELD, BALLOON_GRADE, 'fleet-balloon-site', out);
+    // The rest of the fields, after those two so neither moves for them.
+    if (place.pop >= HELI_POP) fieldSite(p, FLEET_MODELS.helicopter, SITE_ROOM.helicopter, HELI_GRADE, 'fleet-heli-site', out);
+    if (place.pop < HORSE_POP || place.pop < TRACTOR_POP) {
+      const biome = biomeOf(p);
+      const rng = rngFrom('fleet-farm', p);
+      if (place.pop < HORSE_POP && rng.chance(HORSE_BIOMES[biome] ?? 0)) {
+        fieldSite(p, FLEET_MODELS.horse, SITE_ROOM.horse, HORSE_GRADE, 'fleet-horse-site', out);
+        if (rng.chance(HORSE_SECOND)) fieldSite(p, FLEET_MODELS.horse, SITE_ROOM.horse, HORSE_GRADE, 'fleet-horse-second', out, 1);
+      }
+      if (place.pop < TRACTOR_POP && rng.chance(TRACTOR_BIOMES[biome] ?? 0)) fieldSite(p, FLEET_MODELS.tractor, SITE_ROOM.tractor, TRACTOR_GRADE, 'fleet-tractor-site', out);
+    }
     fieldsPer[p] = out.length === 0 ? NONE : out;
     return fieldsPer[p]!;
   }
@@ -709,6 +966,8 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     cars(p, out);
     boats(p, out);
     out.push(...fieldsOf(p));
+    gates(p, out);
+    moorings(p, out);
     for (const entry of out) counts[entry.kind]++;
     counts.towns++;
     perPlace[p] = out;
@@ -738,7 +997,7 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
             }
             continue;
           }
-          const room = SITE_ROOM.balloon;
+          const room = SITE_ROOM[entry.kind];
           if (entry.at.angleTo(direction) * PLANET_RADIUS < radius + room) out.push({ at: entry.at, radius: room });
         }
       }
@@ -1013,9 +1272,27 @@ const PARKED_SEARCH = BOARD_REACH + 12;
 /**
  * A standing balloon's footprint as a wall, as a share of its width: the
  * basket, not the envelope, which hangs a body's height and more over the
- * ground and is walked under.
+ * ground and is walked under. A helicopter's is its cabin and boom, a share of
+ * its width and its length: the rotor over them is walked under too.
  */
 const BALLOON_WALL = 0.2;
+const HELI_WALL: readonly [number, number] = [0.08, 0.36];
+
+/** A vehicle standing as a wall: the half-width and half-length of the box a body is pushed out of. */
+function wallOf(model: CraftModel): [number, number] {
+  const [length, width] = model.size;
+  if (model.kind === 'balloon') return [width * BALLOON_WALL, length * BALLOON_WALL];
+  if (model.kind === 'helicopter') return [width * HELI_WALL[0], length * HELI_WALL[1]];
+  return [width / 2, length / 2];
+}
+
+/** What `E` is offered as at the driver's seat of each kind. */
+function takeLabel(kind: CraftKind): Prompt['label'] {
+  if (kind === 'bicycle' || kind === 'motorbike' || kind === 'horse' || kind === 'jetski') return 'Ride';
+  if (kind === 'plane' || kind === 'helicopter' || kind === 'balloon') return 'Fly';
+  if (kind === 'sailboat') return 'Sail';
+  return 'Drive';
+}
 /**
  * How near an airstrip's middle has to be to be drawn, and how far it may go
  * before it is put away, in units from the player: further than a vehicle,
@@ -1086,8 +1363,8 @@ export interface Prompt {
   vehicle: string;
   seat: number;
   model: CraftModel;
-  /** What `E` does: drive it, or take a passenger's seat. */
-  label: 'Drive' | 'Get in';
+  /** What `E` does: drive it, ride it, fly it, sail it, or take a passenger's seat. */
+  label: 'Drive' | 'Ride' | 'Fly' | 'Sail' | 'Get in';
   /** How far the player stands from its nearest side, for whoever else `E` might be meant for. */
   gap: number;
 }
@@ -1344,10 +1621,10 @@ export function createFleet(options: FleetOptions): Fleet {
   function sitePose(site: FleetSite, out: WirePose): WirePose {
     let radius: number;
     point.copy(site.at).multiplyScalar(PLANET_RADIUS);
-    if (site.kind === 'boat') radius = PLANET_RADIUS + WATERLINE;
+    if (AFLOAT.has(site.kind)) radius = PLANET_RADIUS + WATERLINE;
     else {
       radius = groundRadius(world, point);
-      if (site.kind === 'car' || site.kind === 'van') {
+      if (!isAirKind(site.kind)) {
         point.setLength(radius);
         radius = Math.max(radius, madeHeightAt?.(point) ?? 0);
       }
@@ -1407,6 +1684,8 @@ export function createFleet(options: FleetOptions): Fleet {
       // standing.
       frame.userData.shown = seat.shown;
       frame.userData.pose = seat.pose;
+      // Astride, the grip and the footrests too, and the crank a body's feet go round.
+      frame.userData.seat = seat;
       built.add(frame);
       return frame;
     });
@@ -1418,6 +1697,7 @@ export function createFleet(options: FleetOptions): Fleet {
     });
     // After the seats, so the springs carry them too.
     const motion = motionOf(built, model);
+    for (const frame of seats) frame.userData.motion = motion;
     return {
       id,
       model,
@@ -1462,23 +1742,29 @@ export function createFleet(options: FleetOptions): Fleet {
     remote.speed = entry.speed;
     remote.turnRate = entry.turn;
     remote.steering = 0;
-    if (kind === 'car' || kind === 'van') {
-      const grip = Math.min(1, pace / CAR_GRIP_SPEED);
-      const lock = 1 + (CAR_FAST_LOCK - 1) * Math.min(1, pace / CAR_BOOST);
-      const reach = CAR_TURN * grip * lock;
+    const handling = ROAD_HANDLING[kind];
+    if (handling !== undefined) {
+      const grip = Math.max(handling.pivot, Math.min(1, pace / handling.gripSpeed));
+      const lock = 1 + (handling.fastLock - 1) * Math.min(1, pace / handling.boost);
+      const reach = handling.turn * grip * lock;
       if (reach > 1e-3) remote.steering = Math.max(-1, Math.min(1, (-entry.turn / reach) * (entry.speed < 0 ? -1 : 1)));
     }
-    remote.grounded = kind === 'plane' || kind === 'balloon' ? point.length() - groundRadius(world, point) < 1.5 : true;
+    remote.grounded = isAirKind(kind) ? point.length() - groundRadius(world, point) < 1.5 : true;
     remote.engine = true;
     remote.moored = false;
+    remote.throttle = entry.speed > 0.5 ? 1 : 0;
     entry.motion.update(dt, remote);
   }
 
-  /** A vehicle nobody is driving: a launch near enough to see rides its mooring, anything else eases to rest. */
+  /**
+   * A vehicle nobody is driving: a hull near enough to see rides its mooring
+   * and a horse idles, anything else eases to rest.
+   */
   function settle(entry: Drawn, dt: number): void {
     entry.tracked = false;
     entry.speed = entry.turn = 0;
-    if (entry.model.kind === 'boat' && entry.group.position.distanceTo(player.position) < MOOR_REACH) entry.motion.update(dt, MOORED);
+    const alive = entry.model.medium === 'water' || entry.model.kind === 'horse';
+    if (alive && entry.group.position.distanceTo(player.position) < MOOR_REACH) entry.motion.update(dt, MOORED);
     else if (entry.motion.settling) entry.motion.update(dt, AT_REST);
   }
 
@@ -1496,9 +1782,10 @@ export function createFleet(options: FleetOptions): Fleet {
     // copy) and goes now, or every take-off from a city leaks what did not
     // fit in the pool. The materials are the world's shared ones and stay,
     // and so does a propeller's swept disc, whose one circle every plane
-    // shares (`craft/motion.ts`).
+    // shares (`craft/motion.ts`), and a horse's body, whose buffers are its
+    // rig's and every other horse's (`makeRigged`).
     entry.group.traverse((part) => {
-      if ((part as THREE.Mesh).isMesh && part.name !== 'prop-disc') (part as THREE.Mesh).geometry.dispose();
+      if ((part as THREE.Mesh).isMesh && part.name !== 'prop-disc' && !(part as THREE.SkinnedMesh).isSkinnedMesh) (part as THREE.Mesh).geometry.dispose();
     });
   }
 
@@ -1564,7 +1851,7 @@ export function createFleet(options: FleetOptions): Fleet {
       const free = entry.model.seats.findIndex((_, i) => (seats[i] ?? null) === null);
       if (free < 0) continue;
       bestGap = gap;
-      best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? 'Drive' : 'Get in', gap };
+      best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? takeLabel(entry.model.kind) : 'Get in', gap };
     }
     // And the cars parked in the towns, which are nobody's until one is taken.
     if (parked !== undefined) {
@@ -1577,7 +1864,7 @@ export function createFleet(options: FleetOptions): Fleet {
         const gap = bay.position.distanceTo(player.position) - Math.max(model.size[0], model.size[1]) / 2;
         if (gap > BOARD_REACH || gap >= bestGap) continue;
         bestGap = gap;
-        best = { vehicle: bay.id, seat: 0, model, label: 'Drive', gap };
+        best = { vehicle: bay.id, seat: 0, model, label: takeLabel(model.kind), gap };
         promptBay = bay;
       }
     }
@@ -1770,9 +2057,7 @@ export function createFleet(options: FleetOptions): Fleet {
         localPoint.applyQuaternion(inverse);
         // Only at the vehicle's own height: a plane overhead is not a wall.
         if (localPoint.y < -AVATAR_HEIGHT || localPoint.y > size[2]) continue;
-        const share = entry.model.kind === 'balloon' ? BALLOON_WALL : 0.5;
-        const hx = size[1] * share;
-        const hz = size[0] * share;
+        const [hx, hz] = wallOf(entry.model);
         const cx = Math.max(-hx, Math.min(hx, localPoint.x));
         const cz = Math.max(-hz, Math.min(hz, localPoint.z));
         let dx = localPoint.x - cx;
@@ -1805,9 +2090,8 @@ export function createFleet(options: FleetOptions): Fleet {
 
     eachStanding(visit) {
       for (const entry of drawn.values()) {
-        const size = entry.model.size;
-        const radius = entry.model.kind === 'balloon' ? size[1] * BALLOON_WALL : (size[0] + size[1]) / 4;
-        visit(entry.group.position, radius, false);
+        const [hx, hz] = wallOf(entry.model);
+        visit(entry.group.position, (hx + hz) / 2, false);
       }
     },
 
@@ -1818,8 +2102,8 @@ export function createFleet(options: FleetOptions): Fleet {
         if (!isPose(pose)) continue;
         const model = models.get(modelOfVehicle(id));
         if (model === undefined) continue;
-        const size = model.size;
-        const reach = radius + (model.kind === 'balloon' ? size[1] * BALLOON_WALL : Math.max(size[0], size[1]) / 2);
+        const [hx, hz] = wallOf(model);
+        const reach = radius + Math.max(hx, hz);
         const length = Math.hypot(pose[0]!, pose[1]!, pose[2]!);
         const dot = (localPoint.x * pose[0]! + localPoint.y * pose[1]! + localPoint.z * pose[2]!) / length;
         if (Math.acos(Math.min(1, dot)) * PLANET_RADIUS < reach) return true;

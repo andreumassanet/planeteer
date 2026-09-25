@@ -64,7 +64,9 @@ import * as THREE from 'three';
 import { FIGURE } from './avatar.ts';
 import { BODY_SCALE } from './stature.ts';
 import { PLANET_RADIUS } from './globe.ts';
+import { MAX_SLOPE } from './terrain.ts';
 import { createContext } from './monuments/contract.ts';
+import type { CraftKind } from './craft/contract.ts';
 
 /**
  * One context, made at import, exactly as `avatar.ts` does it. `createContext`
@@ -169,6 +171,236 @@ export const BALLOON_SETTLE = 0.5;
 export const BALLOON_TOUCHDOWN = 1.5;
 export const BALLOON_TURN = 0.45;
 export const BALLOON_CEILING = 2400;
+
+// ---------------------------------------------------------------------------
+// Handling, a kind at a time
+// ---------------------------------------------------------------------------
+
+const DEG_ = Math.PI / 180;
+
+/**
+ * How a vehicle on wheels — or hooves — is driven: `player.ts`'s `drive`
+ * reads one of these for whatever it is in, so a bus and a bicycle are the
+ * same code with different numbers, and the car's row is the car constants
+ * above, unchanged.
+ *
+ * - `speed`, `boost`, `reverse`: units a second at `W`, with `Shift`, and
+ *   backwards.
+ * - `accelerationTime`, `brakeTime`, `coastTime`: the ease's time constants.
+ * - `turn`, `gripSpeed`, `fastLock`, `steerTime`: the steering law of
+ *   `steerWheels` — full lock in radians a second from `gripSpeed` up, what
+ *   is left of it at `boost`, and how long the bars go over in.
+ * - `pivot`: the share of the turn left standing still. A car has none; a
+ *   horse turns on its haunches.
+ * - `step`, `slope`: the most it climbs in one go without it being a wall, and
+ *   the steepest ground it climbs, as a gradient.
+ * - `rough`: the share of its speed it keeps off anything made — off the
+ *   carriageway and the paving, on grass, sand or scree.
+ * - `lean`: how far a two-wheeler or a rider banks into a turn at full
+ *   lateral pull, radians; 0 for a car, whose body rolls out of the turn on
+ *   its springs instead (`craft/motion.ts`).
+ * - `wheelie`: radians of nose-up a unit a second squared of acceleration
+ *   gives a motorbike, and the most of it; 0 for anything else.
+ * - `bounce`: the share of its speed it comes back off a wall at.
+ */
+export interface RoadHandling {
+  speed: number;
+  boost: number;
+  reverse: number;
+  accelerationTime: number;
+  brakeTime: number;
+  coastTime: number;
+  turn: number;
+  gripSpeed: number;
+  fastLock: number;
+  steerTime: number;
+  pivot: number;
+  step: number;
+  slope: number;
+  rough: number;
+  lean: number;
+  wheelie: number;
+  bounce: number;
+}
+
+const CAR: RoadHandling = {
+  speed: CAR_SPEED,
+  boost: CAR_BOOST,
+  reverse: CAR_REVERSE,
+  accelerationTime: CAR_ACCELERATION_TIME,
+  brakeTime: CAR_BRAKE_TIME,
+  coastTime: CAR_COAST_TIME,
+  turn: CAR_TURN,
+  gripSpeed: CAR_GRIP_SPEED,
+  fastLock: CAR_FAST_LOCK,
+  steerTime: CAR_STEER_TIME,
+  pivot: 0,
+  step: CAR_STEP,
+  slope: MAX_SLOPE,
+  rough: 1,
+  lean: 0,
+  wheelie: 0,
+  bounce: CAR_BOUNCE,
+};
+
+/**
+ * Every road kind's handling. Speeds against the body's own: a walk is 6.5
+ * units a second and a run 20 (`avatar.ts`), a car 45.
+ *
+ * - **Bicycle**: between a run and a car, 26 pedalled and 36 out of the
+ *   saddle, slow to wind up and long to coast; it keeps three quarters of it
+ *   on grass and a track, climbs a little less than a car, turns tighter and
+ *   leans hard into it.
+ * - **Motorbike**: as fast as a car and quicker off the mark, leaning further
+ *   than anything, the front coming up under a hard throttle.
+ * - **Tuk-tuk**: a three-wheeler's thirty, quick to turn, nervous off the road.
+ * - **Bus**: slow to go and slower to stop, a wide turn and a long wheelbase's
+ *   reluctance to follow it, and a road vehicle off one.
+ * - **Tractor**: a walking pace and a half, all of it anywhere, and up a
+ *   bank no car takes.
+ * - **Jeep**: short of a car on the road and as fast off it, over a kerb and
+ *   up a hillside of forty-two degrees.
+ * - **Horse**: a canter at `W` and a gallop with `Shift`; it turns standing
+ *   still, keeps its pace anywhere and climbs what a hill path climbs.
+ */
+export const ROAD_HANDLING: Partial<Record<CraftKind, RoadHandling>> = {
+  car: CAR,
+  van: CAR,
+  bicycle: {
+    ...CAR,
+    speed: 26, boost: 36, reverse: 3,
+    accelerationTime: 1.6, brakeTime: 0.6, coastTime: 5,
+    turn: 1.9, gripSpeed: 4, fastLock: 0.55, steerTime: 0.18,
+    step: 0.9, slope: Math.tan(26 * DEG_), rough: 0.75, lean: 0.5, bounce: 0.2,
+  },
+  motorbike: {
+    ...CAR,
+    speed: 48, boost: 82, reverse: 4,
+    accelerationTime: 0.9, brakeTime: 0.4, coastTime: 2.6,
+    turn: 1.7, gripSpeed: 6, fastLock: 0.5, steerTime: 0.14,
+    rough: 0.8, lean: 0.62, wheelie: 0.006, bounce: 0.2,
+  },
+  tuktuk: {
+    ...CAR,
+    speed: 30, boost: 40, reverse: 8,
+    accelerationTime: 1.5, brakeTime: 0.5, coastTime: 2,
+    turn: 1.6, gripSpeed: 6, fastLock: 0.7, steerTime: 0.15,
+    step: 1, rough: 0.7,
+  },
+  bus: {
+    ...CAR,
+    speed: 32, boost: 44, reverse: 8,
+    accelerationTime: 2.6, brakeTime: 0.8, coastTime: 3.5,
+    turn: 0.8, gripSpeed: 10, steerTime: 0.3,
+    slope: Math.tan(24 * DEG_), rough: 0.6,
+  },
+  tractor: {
+    ...CAR,
+    speed: 16, boost: 22, reverse: 8,
+    accelerationTime: 1.2, brakeTime: 0.5, coastTime: 1.5,
+    turn: 1, gripSpeed: 4, fastLock: 0.8, steerTime: 0.25,
+    step: 1.6, slope: Math.tan(40 * DEG_), rough: 1, bounce: 0.1,
+  },
+  jeep: {
+    ...CAR,
+    speed: 40, boost: 62, reverse: 12,
+    accelerationTime: 1.4, brakeTime: 0.5, coastTime: 2.4,
+    turn: 1.2, gripSpeed: 8, steerTime: 0.16,
+    step: 1.6, slope: Math.tan(42 * DEG_), rough: 1,
+  },
+  horse: {
+    ...CAR,
+    speed: 15, boost: 34, reverse: 3,
+    accelerationTime: 1, brakeTime: 0.6, coastTime: 0.9,
+    turn: 2.2, gripSpeed: 3, fastLock: 0.55, steerTime: 0.2, pivot: 0.5,
+    step: 1.4, slope: Math.tan(38 * DEG_), rough: 1, lean: 0.12, bounce: 0.3,
+  },
+};
+
+/**
+ * How a hull is driven: `sail` in `player.ts`. The launch's row is the boat
+ * constants below; the rest, besides their speeds and their turn:
+ *
+ * - `accelerationTime`, `rudderTime`: the throttle's and the helm's eases.
+ * - `astern`: the share of `speed` it backs at.
+ * - `heel`: how far it rolls in a turn, radians; `bank` in `player.ts` heels a
+ *   displacement hull out of a turn and a planing one into it.
+ * - `bow`: how far the bow comes up onto the plane, radians.
+ * - `hop`: how far it leaps off the chop at speed, units — a jet ski's; 0
+ *   for a hull that sits in the water.
+ * - `list`: a constant heel, radians, the wind's in a sail.
+ */
+export interface WaterHandling {
+  speed: number;
+  boost: number;
+  turn: number;
+  accelerationTime: number;
+  rudderTime: number;
+  astern: number;
+  heel: number;
+  bow: number;
+  hop: number;
+  list: number;
+}
+
+/**
+ * - **Jet ski**: nearly the launch's speed, twice its turn, a quarter of its
+ *   wind-up, banked hard into every turn and skipping off the chop.
+ * - **Sailboat**: the wind's pace, eighteen and twenty-four with the sheet
+ *   hauled in (`Shift`); slow to come round and slow to gather way, heeled
+ *   over whatever it does. The wind is constant here: a sail that trims to a
+ *   wind needs a wind the world does not have yet.
+ */
+export const WATER_HANDLING: Partial<Record<CraftKind, WaterHandling>> = {
+  jetski: { speed: 40, boost: 76, turn: 2.3, accelerationTime: 0.55, rudderTime: 0.1, astern: 0.3, heel: 0.45, bow: 0.1, hop: 0.35, list: 0 },
+  sailboat: { speed: 18, boost: 24, turn: 0.75, accelerationTime: 3.5, rudderTime: 0.45, astern: 0.15, heel: 0.12, bow: 0.02, hop: 0, list: 0.16 },
+};
+
+/**
+ * The helicopter: its cruise and how far backwards, units a second; its climb
+ * and descent; its yaw on the pedals, radians a second; the eases of the
+ * cyclic (the speed) and the collective (the climb); how far the nose goes
+ * down at full cruise and the bank at a full-rate turn; and the highest it
+ * goes over the sea. It comes down anywhere flatter than `HELI_LANDING_GRADE`
+ * and hovers over water.
+ */
+export const HELI_SPEED = 70;
+export const HELI_REVERSE = 14;
+export const HELI_CLIMB = 22;
+export const HELI_SINK = 16;
+export const HELI_TOUCHDOWN = 3;
+export const HELI_TURN = 1.3;
+export const HELI_ACCELERATION_TIME = 1.4;
+export const HELI_VERTICAL_TIME = 0.6;
+export const HELI_NOSE = 0.2;
+export const HELI_BANK = 0.3;
+export const HELI_CEILING = 2600;
+export const HELI_LANDING_GRADE = Math.tan(16 * DEG_);
+/** How long the rotor takes to wind up before it lifts, in seconds. */
+export const HELI_SPOOL = 1.2;
+
+/**
+ * The fastest a kind goes, units a second, with room: what `effects.ts` takes
+ * a move for travel rather than a jump by, and the audio's throttle's top.
+ */
+export function topSpeedOf(kind: CraftKind): number {
+  const road = ROAD_HANDLING[kind];
+  if (road !== undefined) return road.boost;
+  const water = WATER_HANDLING[kind];
+  if (water !== undefined) return water.boost;
+  switch (kind) {
+    case 'boat':
+      return BOAT_BOOST;
+    case 'plane':
+      return PLANE_CRUISE_HIGH;
+    case 'balloon':
+      return BALLOON_SPEED + BALLOON_CLIMB;
+    case 'helicopter':
+      return HELI_SPEED + HELI_CLIMB;
+    default:
+      return CAR_BOOST;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // A lofted shell

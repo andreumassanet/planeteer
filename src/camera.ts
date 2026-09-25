@@ -592,7 +592,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       if (kind === 'boat') {
         framing.distance = Math.max(framing.distance, BOAT_FRAMING.distance);
         framing.height = Math.max(framing.height, BOAT_FRAMING.height);
-      } else if ((kind === 'plane' || kind === 'balloon') && player.airborne) {
+      } else if ((kind === 'plane' || kind === 'balloon' || kind === 'helicopter') && player.airborne) {
         const t = clamp(player.altitude / PLANE_CEILING, 0, 1);
         // Two different eases: the angle has to open early, or the first thousand
         // units of a climb look like nothing is happening.

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { castMaterial, foldLegs, limbsOf, loadCast, paintWith } from './cast.ts';
-import type { Cast, ClipName, Limbs, Person } from './cast.ts';
+import { castMaterial, foldLegs, limbsOf, loadCast, paintWith, poseAstride } from './cast.ts';
+import type { AstrideSeat, Cast, ClipName, Limbs, Person } from './cast.ts';
 import {
   DEFAULT_APPEARANCE,
   WARDROBE_OUTFITS,
@@ -14,6 +14,7 @@ import {
 import type { Appearance } from './appearance.ts';
 import { createContext } from './monuments/contract.ts';
 import { AVATAR_HEIGHT, BODY_SCALE } from './stature.ts';
+import type { Emote } from '../server/src/limits.ts';
 
 /**
  * The player's body: the character, the clips it plays and every pose it takes.
@@ -474,7 +475,31 @@ export interface Motion {
   unlay(): void;
   /** A standing start, the cycle at zero. */
   reset(): void;
+  /**
+   * A gesture over the standing pose, for the others to see: a wave plays
+   * once, a dance and sitting down go on until the body moves off, swims or
+   * is seated, or another gesture or `null` is asked. False where this body
+   * has no clip for it.
+   */
+  emote(name: Emote | null): boolean;
+  /** The gesture being made, or null. */
+  readonly emoting: Emote | null;
 }
+
+/**
+ * Which clip each gesture plays, and whether it goes on until the body moves.
+ * The sitting clip is sat on a chair (`retarget-clips.ts`), and nothing here
+ * brings one.
+ */
+const GESTURES: Readonly<Record<Emote, { clip: ClipName; loop: boolean }>> = {
+  wave: { clip: 'Wave', loop: false },
+  dance: { clip: 'Dance', loop: true },
+  sit: { clip: 'Sit', loop: true },
+};
+/** How fast a gesture comes in and goes out, per second: a fifth of a second either way. */
+const GESTURE_RATE = 10;
+/** A body moving at more than this share of `WALK_SPEED`, or leaving the ground, ends its gesture. */
+const GESTURE_MOVES = 0.15;
 
 interface Clips {
   idle: THREE.AnimationAction;
@@ -575,6 +600,12 @@ export function createMotion(first: Person): Motion {
   let pitch = 0;
   let lastSpeed = 0;
   let accel = 0;
+  /** The gesture asked for, its action on this person, how far in and how much of the pose it is. */
+  let gesture: Emote | null = null;
+  let gestureAction: THREE.AnimationAction | null = null;
+  let gestureLoop = false;
+  let gestureTime = 0;
+  let gestureWeight = 0;
 
   function blend(dt: number, rate: number, target: Weights): void {
     const k = approach(rate, dt);
@@ -607,17 +638,69 @@ export function createMotion(first: Person): Motion {
     return landPeak * landDamp * smoothstep(u, 0, 0.05) * (1 - smoothstep(u, 0.45, 0.9));
   }
 
+  /** The gesture's share of the pose this frame, its clip played by hand on its own clock. */
+  function gesturing(dt: number): number {
+    const action = gestureAction;
+    if (action === null) return 0;
+    const duration = action.getClip().duration;
+    gestureTime += dt;
+    // A one-off starts going out a fifth of a second before its end.
+    if (gesture !== null && !gestureLoop && gestureTime >= duration - 0.2) gesture = null;
+    gestureWeight += ((gesture !== null ? 1 : 0) - gestureWeight) * approach(GESTURE_RATE, dt);
+    if (gesture === null && gestureWeight < 0.01) {
+      dropGesture();
+      return 0;
+    }
+    action.time = gestureLoop ? gestureTime % duration : Math.min(gestureTime, duration);
+    action.setEffectiveWeight(gestureWeight);
+    return gestureWeight;
+  }
+
+  function dropGesture(): void {
+    gestureAction?.setEffectiveWeight(0);
+    gestureAction?.stop();
+    gestureAction = null;
+    gesture = null;
+    gestureWeight = 0;
+  }
+
+  function emote(name: Emote | null): boolean {
+    if (name === null) {
+      gesture = null;
+      return true;
+    }
+    const wanted = GESTURES[name];
+    const action = person.actions.get(wanted.clip);
+    if (action === undefined) return false;
+    if (gestureAction !== action) {
+      // Another gesture's clip gives way at once; the weight it had carries on.
+      if (gestureAction !== null) {
+        gestureAction.setEffectiveWeight(0);
+        gestureAction.stop();
+      }
+      action.reset().play();
+      action.timeScale = 0;
+      action.setEffectiveWeight(gestureWeight);
+      gestureAction = action;
+    }
+    gesture = name;
+    gestureLoop = wanted.loop;
+    gestureTime = 0;
+    return true;
+  }
+
   function apply(dt: number): void {
     if (landAt !== Infinity) landAt += dt;
     const landed = landing();
-    const keep = 1 - landed;
+    const gestured = gesturing(dt);
+    const keep = (1 - landed) * (1 - gestured);
     clips.idle.setEffectiveWeight(weights.idle * (1 - shift) * keep);
     clips.shift.setEffectiveWeight(weights.idle * shift * keep);
     clips.walk.setEffectiveWeight(weights.walk * keep);
     clips.run.setEffectiveWeight(weights.run * keep);
     clips.air.setEffectiveWeight(weights.air * keep);
-    clips.swim.setEffectiveWeight(weights.swim);
-    clips.tread.setEffectiveWeight(weights.tread);
+    clips.swim.setEffectiveWeight(weights.swim * (1 - gestured));
+    clips.tread.setEffectiveWeight(weights.tread * (1 - gestured));
     clips.land.setEffectiveWeight(landed);
     if (landed > 0) clips.land.time = landAt * landRate;
     clips.walk.time = phase * clips.walk.getClip().duration;
@@ -684,6 +767,7 @@ export function createMotion(first: Person): Motion {
     const moving = clamp(speed / (WALK_SPEED * 0.5), 0, 1);
     const turning = Math.abs(cues?.turn ?? 0);
     const stepping = airborne ? 0 : (1 - moving) * clamp(turning / TURN_STEP_RATE, 0, 1) * TURN_STEP_SHARE;
+    if (gesture !== null && (airborne || speed > WALK_SPEED * GESTURE_MOVES)) gesture = null;
     const length = mix(WALK_STRIDE, RUN_STRIDE, running);
     phase = (phase + (speed * dt) / length + stepping * TURN_CADENCE * dt) % 1;
     const up = airborne ? 1 : 0;
@@ -735,6 +819,7 @@ export function createMotion(first: Person): Motion {
 
   /** Everything the foot's extras carry, let go at once: afloat and seated they mean nothing. */
   function settle(): void {
+    gesture = null;
     airTime = 0;
     stillTime = 0;
     fall = 0;
@@ -785,6 +870,19 @@ export function createMotion(first: Person): Motion {
     head = bone(next, 'Head');
     chest = bone(next, 'Chest');
     arms = [bone(next, 'UpperArm.L'), bone(next, 'UpperArm.R')] as const;
+    // A gesture goes on in the new clothes where it was.
+    if (gestureAction !== null) {
+      const clip = gestureAction.getClip().name as ClipName;
+      gestureAction.setEffectiveWeight(0);
+      gestureAction.stop();
+      gestureAction = null;
+      const action = next.actions.get(clip);
+      if (action !== undefined) {
+        action.reset().play();
+        action.timeScale = 0;
+        gestureAction = action;
+      } else gesture = null;
+    }
     person.root.rotation.set(pitch, 0, 0);
     apply(0);
   }
@@ -798,6 +896,7 @@ export function createMotion(first: Person): Motion {
     Object.assign(weights, target);
     person.mixer.setTime(0);
     settle();
+    dropGesture();
     foot(0, 0, false);
   }
 
@@ -814,8 +913,16 @@ export function createMotion(first: Person): Motion {
     still,
     land,
     rebind,
-    unlay,
+    // A person going back to the pool takes no gesture with it.
+    unlay: () => {
+      unlay();
+      dropGesture();
+    },
     reset,
+    emote,
+    get emoting() {
+      return gesture;
+    },
   };
 }
 
@@ -841,8 +948,18 @@ export interface Avatar {
   steer(dt: number, heel: number): void;
   /** Seated at the controls of the floatplane, hips at `FIGURE.hipY`. */
   sit(dt: number): void;
+  /**
+   * Astride — a saddle, a bicycle, a jet ski — hips at `FIGURE.hipY` as
+   * seated, the legs to the seat's footrests or round its crank at `phase`,
+   * the hands on its grip (`poseAstride` in `cast.ts`).
+   */
+  ride(dt: number, seat: AstrideSeat, phase: number): void;
   /** Back to a clean standing pose with the cycle at zero. For `goTo`. */
   reset(): void;
+  /** A gesture, standing: see `Motion.emote`. */
+  emote(name: Emote | null): boolean;
+  /** The gesture being made, or null. */
+  readonly emoting: Emote | null;
   /**
    * Where the gait is in its cycle, 0 to 1. The walk clip is played at this
    * phase and the run a fixed share ahead of it (`RUN_PHASE`), so a foot
@@ -933,6 +1050,20 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     body.position.z -= hipAt.z;
   }
 
+  function ride(dt: number, seat: AstrideSeat, phase: number): void {
+    body.position.set(0, 0, 0);
+    body.rotation.set(0, 0, 0);
+    motion.still(dt, 4);
+    group.updateMatrixWorld(true);
+    hipAt.copy(group.worldToLocal(rig.limbs.hips.getWorldPosition(to)));
+    poseAstride(rig.limbs, group, hipAt, seat, phase);
+    // The hips where `FIGURE` says a seated hip is, as `sit` puts them.
+    hipAt.copy(group.worldToLocal(rig.limbs.hips.getWorldPosition(to)));
+    body.position.x -= hipAt.x;
+    body.position.y += FIGURE.hipY - hipAt.y;
+    body.position.z -= hipAt.z;
+  }
+
   /**
    * At the helm: standing in the relaxed idle, giving back two thirds of the
    * deck's roll so the sea reads as moving under him.
@@ -972,8 +1103,13 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     land: (hardness) => motion.land(hardness),
     steer,
     sit,
+    ride,
     reset,
     wear,
+    emote: (name) => motion.emote(name),
+    get emoting() {
+      return motion.emoting;
+    },
     get phase() {
       return motion.phase;
     },

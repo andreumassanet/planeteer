@@ -78,14 +78,20 @@ export interface SettingsOptions {
   effects?: Toggle;
   /** Whether a crash shakes the camera. Omit it and the row is not built. */
   shake?: Toggle;
+  /** Rain, snow, storms and fog; off is clear skies. Omit it and the row is not built. */
+  weather?: Toggle;
   /** The key hints along the bottom of the screen. */
   hints: Toggle;
   /** How many pixels the world is drawn at, against the screen's own. */
   resolution: Choice;
   /** The sun's hour, live or chosen. Omit it and the row is not built. */
   time?: TimeOfDay;
-  /** The soundscape's level and whether it is on. Omit it and the section is not built. */
-  sound?: { volume: Knob; on: Toggle };
+  /**
+   * The soundscape's level and whether it is on, and optionally whether the
+   * townsfolk's lines are said aloud and a chat line blips. Omit it and the
+   * section is not built.
+   */
+  sound?: { volume: Knob; on: Toggle; voices?: Toggle; chat?: Toggle };
   /** The music, with its own level and switch, separate from the sound's. Omit it and the rows are not built. */
   music?: { volume: Knob; on: Toggle };
   /**
@@ -372,6 +378,7 @@ export function createSettings(options: SettingsOptions): Settings {
   const performance = makeSwitch(options.performance, 'Performance overlay');
   const effects = options.effects === undefined ? null : makeSwitch(options.effects, 'Effects');
   const shake = options.shake === undefined ? null : makeSwitch(options.shake, 'Camera shake');
+  const weather = options.weather === undefined ? null : makeSwitch(options.weather, 'Weather');
   const flags = makeSwitch(options.flags, 'Flags and borders');
   const hints = makeSwitch(options.hints, 'Key hints');
   const resolution = makeChoice(options.resolution, 'Resolution');
@@ -441,6 +448,8 @@ export function createSettings(options: SettingsOptions): Settings {
       ? null
       : makeSlider(sound.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
   const soundOn = sound === undefined ? null : makeSwitch(sound.on, 'Sound');
+  const voicesOn = sound?.voices === undefined ? null : makeSwitch(sound.voices, 'Voices');
+  const chatSound = sound?.chat === undefined ? null : makeSwitch(sound.chat, 'Chat sound');
   const music = options.music;
   const musicVolume =
     music === undefined
@@ -523,6 +532,13 @@ export function createSettings(options: SettingsOptions): Settings {
             'The wake behind a boat, the smoke of an engine and a plane, the dust off wheels and feet, the splash and the debris of a crash.',
             effects.element,
           ),
+      weather === null
+        ? null
+        : row(
+            'Weather',
+            'Rain, snow, storms with their thunder, and fog, where and when the climate brings them. Off is clear skies; the winter snow on the ground stays.',
+            weather.element,
+          ),
       shake === null
         ? null
         : row('Camera shake', 'A knock felt through the camera when you crash. Off by default if your system asks for less motion.', shake.element),
@@ -558,6 +574,10 @@ export function createSettings(options: SettingsOptions): Settings {
           h('div', { class: 'ui-eyebrow', text: 'Sound' }),
           row('Sound', 'The wind, the sea, the engines, footsteps, and a jingle when you find a landmark.', soundOn!.element),
           row('Volume', 'How loud all of it is.', volume!.value, volume!.slider),
+          voicesOn === null
+            ? null
+            : row('Voices', 'The townsfolk say their lines aloud as they talk to you, each in a voice of their own.', voicesOn.element),
+          chatSound === null ? null : row('Chat sound', 'A soft blip when somebody says something in the chat.', chatSound.element),
           ...(music === undefined
             ? []
             : [
@@ -641,11 +661,14 @@ export function createSettings(options: SettingsOptions): Settings {
     performance.refresh();
     effects?.refresh();
     shake?.refresh();
+    weather?.refresh();
     flags.refresh();
     hints.refresh();
     resolution.refresh();
     volume?.refresh();
     soundOn?.refresh();
+    voicesOn?.refresh();
+    chatSound?.refresh();
     musicVolume?.refresh();
     musicOn?.refresh();
     showTime();

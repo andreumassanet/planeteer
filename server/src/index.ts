@@ -29,12 +29,17 @@
  *     and no further from the vehicle's last pose than it could have gone
  *     (`driveReach` in `limits.ts`); a vehicle does not teleport, its driver
  *     does, and leaves it where it was;
- *   `{ t: 'look', l }` how the player now looks (`LOOK_PATTERN`).
+ *   `{ t: 'look', l }` how the player now looks (`LOOK_PATTERN`);
+ *   `{ t: 'chat', m, c }` a line for everyone, and the country it was sent
+ *     from; cleaned by `cleanChat` and paced by `spendChat` in `limits.ts`,
+ *     the same two the game sends by;
+ *   `{ t: 'emote', e }` a gesture (`EMOTES`), at most one a second.
  * - server -> client:
- *   `{ t: 'hi', id, peers: [[id, name, ...state]], vehicles: [[v, pose | null, seats]], looks }`
+ *   `{ t: 'hi', id, peers: [[id, name, ...state]], vehicles: [[v, pose | null, seats]], looks, chat }`
  *     once, on joining; `vehicles` is every vehicle moved off its site or
  *     with anybody in it, and `seats` is by player id, `null` for empty;
- *     `looks` is how each player who said so looks, by id;
+ *     `looks` is how each player who said so looks, by id; `chat` is the
+ *     room's last `CHAT_HISTORY` lines, oldest first, as `chat` sends them;
  *   `{ t: 'in', id, name, look? }` when someone joins;
  *   `{ t: 'look', id, l }` when someone changes how they look;
  *   `{ t: 'at', id, s: state }` whenever someone moves;
@@ -45,7 +50,15 @@
  *     refusal is a copy for the claimer alone, the seats unchanged;
  *   `{ t: 'vp', v, p, sp }` a driver's pose, to everyone but the driver;
  *   `{ t: 'park', v, p }` when a vehicle comes to rest at `p`, or goes back
- *     to its site with `p: null`.
+ *     to its site with `p: null`;
+ *   `{ t: 'chat', id, name, c, m, at }` a line, to everyone and its sender
+ *     too, stamped with who sent it under the name the room knows them by and
+ *     when; the sender's copy is how it knows the line went;
+ *   `{ t: 'emote', id, e }` a gesture, to everyone but its maker.
+ *
+ * The chat is one room for the planet, like everything else here, and it is
+ * kept in memory only: a room that sleeps with nobody in it wakes with no
+ * history, which is the right amount of history for an empty room.
  *
  * A socket opens with `?name=`, `?look=` and `?key=`. The look is how the
  * player chose to look, which the relay checks the shape of and passes on
@@ -68,7 +81,21 @@
  * hibernation rebuilds the map from `getWebSockets()`.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_RADIUS, MAX_SPEED, MIN_RADIUS, cleanLook, driveReach } from './limits.ts';
+import {
+  CHAT_HISTORY,
+  EMOTE_INTERVAL_MS,
+  MAX_RADIUS,
+  MAX_SPEED,
+  MIN_RADIUS,
+  cleanChat,
+  cleanCountry,
+  cleanEmote,
+  cleanLook,
+  driveReach,
+  freshBucket,
+  spendChat,
+} from './limits.ts';
+import type { ChatBucket } from './limits.ts';
 
 /** How many sockets one room accepts; the next is refused with 1013. */
 const MAX_PLAYERS = 100;
@@ -85,8 +112,12 @@ const SEAT_INTERVAL_MS = 250;
  * sends the first of a run of clicks at once and the last one after this.
  */
 const LOOK_INTERVAL_MS = 1000;
-/** Longer than any valid message: a pose with a vehicle id is under 200 characters. */
-const MAX_MESSAGE = 512;
+/**
+ * Longer than any valid message: a pose with a vehicle id is under 200
+ * characters, and a chat line of `CHAT_MAX` code points is at most 400 UTF-16
+ * units before its quotes are escaped.
+ */
+const MAX_MESSAGE = 1_024;
 // Where a player or a vehicle can be and how fast it can go — `MIN_RADIUS`,
 // `MAX_RADIUS` and `MAX_SPEED`, each a loose bound over the game's own
 // numbers — and `driveReach`, how far a driven vehicle may go between two
@@ -135,7 +166,19 @@ interface Attachment {
   /** The last pose it sent as a driver, so a wake knows where the vehicle is. */
   drive: { v: string; p: Pose; at: number } | null;
   /** When each kind of message was last accepted; kept here so a hibernation forgives nothing. */
-  rate: { s: number; vp: number; sit: number; up: number; look: number };
+  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number };
+  /** What this socket may still say in the chat (`spendChat`). */
+  chat: ChatBucket;
+}
+
+/** A chat line as the room keeps it and sends it. */
+interface ChatLine {
+  t: 'chat';
+  id: string;
+  name: string;
+  c: string;
+  m: string;
+  at: number;
 }
 
 /** What storage keeps of a vehicle at rest. */
@@ -228,7 +271,8 @@ function attachmentOf(socket: WebSocket): Attachment | null {
     state: raw.state ?? null,
     seat: raw.seat ?? null,
     drive: raw.drive ?? null,
-    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, ...raw.rate },
+    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, ...raw.rate },
+    chat: raw.chat ?? freshBucket(),
   };
 }
 
@@ -248,6 +292,8 @@ export class Room extends DurableObject<Env> {
   /** The vehicles with a driver sending poses; the only ones the silence check walks. */
   private readonly driving = new Set<string>();
   private storedCount = 0;
+  /** The last `CHAT_HISTORY` lines, oldest first, for whoever joins next. */
+  private readonly history: ChatLine[] = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -300,7 +346,8 @@ export class Room extends DurableObject<Env> {
     const key = query.get('key') ?? '';
     server.serializeAttachment({
       id, name, look, key: KEY.test(key) ? key : '', state: null, seat: null, drive: null,
-      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0 },
+      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0 },
+      chat: freshBucket(),
     } satisfies Attachment);
 
     // The lazy half of the silence and the expiry: whatever a newcomer is
@@ -319,7 +366,7 @@ export class Room extends DurableObject<Env> {
     }
     const vehicles: unknown[] = [];
     for (const [v, craft] of this.crafts) vehicles.push([v, craft.pose, trimmed(craft.seats)]);
-    server.send(JSON.stringify({ t: 'hi', id, peers, vehicles, looks }));
+    server.send(JSON.stringify({ t: 'hi', id, peers, vehicles, looks, chat: this.history }));
     this.broadcast(JSON.stringify(look === '' ? { t: 'in', id, name } : { t: 'in', id, name, look }), server);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -341,11 +388,13 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (typeof value !== 'object' || value === null) return;
-    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown };
+    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown };
     if (typed.t === 'vp') this.drive(socket, self, typed, now);
     else if (typed.t === 'sit') this.sit(socket, self, typed, now);
     else if (typed.t === 'up') this.up(socket, self, typed, now);
     else if (typed.t === 'look') this.restyle(socket, self, typed.l, now);
+    else if (typed.t === 'chat') this.say(socket, self, typed.m, typed.c, now);
+    else if (typed.t === 'emote') this.gesture(socket, self, typed.e, now);
   }
 
   override async webSocketClose(socket: WebSocket, code: number): Promise<void> {
@@ -390,6 +439,33 @@ export class Room extends DurableObject<Env> {
     self.look = look;
     socket.serializeAttachment(self);
     this.broadcast(JSON.stringify({ t: 'look', id: self.id, l: look }), socket);
+  }
+
+  /**
+   * A line for everyone, the sender included, and kept for whoever joins
+   * next. Cleaned and paced by the same two functions the game sends by, so
+   * a line the relay drops is one a changed client sent.
+   */
+  private say(socket: WebSocket, self: Attachment, raw: unknown, country: unknown, now: number): void {
+    const m = cleanChat(raw);
+    if (m === '') return;
+    const allowed = spendChat(self.chat, now);
+    socket.serializeAttachment(self);
+    if (!allowed) return;
+    const line: ChatLine = { t: 'chat', id: self.id, name: self.name, c: cleanCountry(country), m, at: now };
+    this.history.push(line);
+    if (this.history.length > CHAT_HISTORY) this.history.shift();
+    this.broadcast(JSON.stringify(line), null);
+  }
+
+  /** A wave, a dance, sitting down: passed on, never kept. */
+  private gesture(socket: WebSocket, self: Attachment, raw: unknown, now: number): void {
+    if (now - self.rate.emote < EMOTE_INTERVAL_MS) return;
+    const e = cleanEmote(raw);
+    if (e === '') return;
+    self.rate.emote = now;
+    socket.serializeAttachment(self);
+    this.broadcast(JSON.stringify({ t: 'emote', id: self.id, e }), socket);
   }
 
   private leave(socket: WebSocket): void {

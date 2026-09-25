@@ -74,7 +74,7 @@ export function soupOf(group: THREE.Object3D): Soup {
 
 /** A turning part: its soup, built about its own axle at the origin, and where that axle is. */
 export interface Turning {
-  name: 'prop' | 'rotor' | 'wheel';
+  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank';
   at: THREE.Vector3;
   soup: Soup;
 }
