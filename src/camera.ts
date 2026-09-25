@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, WALK_SPEED } from './avatar.ts';
 import { PLANET_RADIUS } from './globe.ts';
+import { SIT_EYE } from './bench.ts';
 import { BODY_RADIUS } from './player.ts';
 import type { Player } from './player.ts';
 import type { InputState } from './input.ts';
@@ -364,6 +365,8 @@ const LOOK_DEADZONE = 0.002;
  * to watch from behind and a bad thing to be inside.
  */
 const EYE_HEIGHT = AVATAR_HEIGHT * 0.93;
+/** On a bench the eye comes down with the head, to the `Sit` clip's (`SIT_EYE` in `bench.ts`). */
+const SEATED_EYE_HEIGHT = AVATAR_HEIGHT * SIT_EYE;
 /**
  * How far the eye tips, measured the way `place` measures — positive is looking
  * down — but from level rather than from the framing's own elevation. Short of
@@ -834,7 +837,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     pitch = clamp(pitch, EYE_MIN_ELEVATION, EYE_MAX_ELEVATION);
     const elevation = pitch;
 
-    camera.position.copy(player.position).addScaledVector(player.up, EYE_HEIGHT - player.sink);
+    camera.position.copy(player.position).addScaledVector(player.up, (player.sitting ? SEATED_EYE_HEIGHT : EYE_HEIGHT) - player.sink);
     offset.copy(heading).multiplyScalar(Math.cos(elevation))
       .addScaledVector(player.up, -Math.sin(elevation));
     // `aimAt` takes its target in `pivot`, and going through it rather than

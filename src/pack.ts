@@ -34,6 +34,7 @@
 import type { Country } from './geo.ts';
 import type { Place } from './places.ts';
 import type { Road, RoadData } from './roads.ts';
+import type { RailLine } from './rails.ts';
 
 /**
  * Where the baked files are served from, for every loader that fetches one.
@@ -56,16 +57,18 @@ const MAGIC_COUNTRIES = 0x434c5441; // 'ATLC'
  */
 const MAGIC_PLACES = 0x414c5441; // 'ATLA'
 /**
- * 'ATLG', and it was 'ATLR' until the roads grew two gate columns and a depth
- * layer (2026-09-13).
+ * 'ATLB', and it was 'ATLG' until the roads grew their bridges (2026-09-25),
+ * and 'ATLR' until they grew two gate columns and a depth layer (2026-09-13).
  * A new magic rather than a new `VERSION`, because `VERSION` is shared by every
  * file here and bumping it would invalidate `places.bin` and `countries.bin` for
  * a change neither of them made — the same argument `encodeLakes` makes. A
  * stale `roads.bin` then fails on its first four bytes with "re-bake it" rather
  * than being read a column short.
  */
-const MAGIC_ROADS = 0x474c5441; // 'ATLG'
+const MAGIC_ROADS = 0x424c5441; // 'ATLB'
 const MAGIC_LAKES = 0x4b4c5441; // 'ATLK'
+/** 'ATLT': the railway's lines (`rails.ts`). */
+const MAGIC_RAILS = 0x544c5441; // 'ATLT'
 
 /**
  * A road's bow is stored as ten-thousandths, and **the bake has to test the
@@ -829,7 +832,24 @@ export function encodeRoads(placeCount: number, graph: string, roads: readonly R
   }
   out.raw(layers);
 
+  // Where a road crosses water on a bridge, as eighths of a unit along its
+  // path from gate A: two planes of a `Uint16` each, and almost all 0.
+  for (const column of ['bridgeFrom', 'bridgeTo'] as const) {
+    const eighths = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      eighths[i] = Math.round(roads[i]![column] * BRIDGE_EIGHTHS);
+      if (eighths[i]! < 0 || eighths[i]! > 0xffff) throw new Error(`${column} ${roads[i]![column]} will not fit a Uint16 of eighths`);
+    }
+    writePlanes(out, eighths, 2);
+  }
+
   return out.done();
+}
+
+/** A bridge's ends are stored in eighths of a unit, and the bake tests the rounded ones: `packedSpan`. */
+const BRIDGE_EIGHTHS = 8;
+export function packedSpan(s: number): number {
+  return Math.round(s * BRIDGE_EIGHTHS) / BRIDGE_EIGHTHS;
 }
 
 export function decodeRoads(bytes: Uint8Array): RoadData {
@@ -851,6 +871,8 @@ export function decodeRoads(bytes: Uint8Array): RoadData {
   const gatesA = reader.raw(n);
   const gatesB = reader.raw(n);
   const layers = reader.raw(n);
+  const bridgesFrom = readPlanes(reader, n, 2);
+  const bridgesTo = readPlanes(reader, n, 2);
 
   const roads: Road[] = new Array(n);
   for (let i = 0; i < n; i++) {
@@ -862,8 +884,116 @@ export function decodeRoads(bytes: Uint8Array): RoadData {
       gateA: gatesA[i]!,
       gateB: gatesB[i]!,
       layer: layers[i]!,
+      bridgeFrom: bridgesFrom[i]! / BRIDGE_EIGHTHS,
+      bridgeTo: bridgesTo[i]! / BRIDGE_EIGHTHS,
     };
   }
   reader.finish();
   return { places, graph, roads };
+}
+
+// ---------------------------------------------------------------------------
+// The railway
+// ---------------------------------------------------------------------------
+
+/** What `rails.bin` holds: the lines, and the two files it was baked against. */
+export interface RailData {
+  /** How many places `places.bin` had, and roads `roads.bin`, when this was baked. */
+  places: number;
+  roads: number;
+  lines: RailLine[];
+}
+
+/**
+ * The lines, `a` ascending: `a` as deltas, `b` as two planes of a `Uint16`,
+ * the two stations' bearings, sides and reaches a byte each, and the bow as `roads.bin`
+ * stores a road's, rounded by `packedBend` before the bake walks it.
+ */
+export function encodeRails(placeCount: number, roadCount: number, lines: readonly RailLine[]): Uint8Array {
+  const out = new Writer();
+  const n = lines.length;
+  magic(out, MAGIC_RAILS);
+  out.varint(placeCount);
+  out.varint(roadCount);
+  out.varint(n);
+  let previous = 0;
+  for (const line of lines) {
+    if (line.a < previous) throw new Error('rails.bin wants its lines in order of `a`');
+    out.zigzag(line.a - previous);
+    previous = line.a;
+  }
+  const ends = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    ends[i] = lines[i]!.b;
+    if (ends[i]! < 0 || ends[i]! > 0xffff) throw new Error(`place index ${ends[i]} will not fit a Uint16`);
+  }
+  writePlanes(out, ends, 2);
+  for (const column of ['bearingA', 'bearingB'] as const) {
+    const bytes = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const bearing = lines[i]![column];
+      if (!Number.isInteger(bearing) || bearing < 0 || bearing > 255) throw new Error(`${column} ${bearing} will not fit a byte`);
+      bytes[i] = bearing;
+    }
+    out.raw(bytes);
+  }
+  for (const column of ['sideA', 'sideB'] as const) {
+    const bytes = new Uint8Array(n);
+    for (let i = 0; i < n; i++) bytes[i] = lines[i]![column] > 0 ? 1 : 0;
+    out.raw(bytes);
+  }
+  for (const column of ['outA', 'outB'] as const) {
+    const bytes = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const reach = lines[i]![column];
+      if (!Number.isInteger(reach) || reach < 0 || reach > 255) throw new Error(`${column} ${reach} will not fit a byte`);
+      bytes[i] = reach;
+    }
+    out.raw(bytes);
+  }
+  const bends = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    bends[i] = Math.round(lines[i]!.bend * BEND_SCALE);
+    if (bends[i]! < -32768 || bends[i]! > 32767) throw new Error(`bend ${lines[i]!.bend} will not fit an Int16`);
+  }
+  writePlanes(out, bends, 2, 32768);
+  return out.done();
+}
+
+export function decodeRails(bytes: Uint8Array): RailData {
+  const reader = new Reader(bytes, 'rails.bin');
+  expect(reader, MAGIC_RAILS, 'rails.bin');
+  const places = reader.varint();
+  const roads = reader.varint();
+  const n = reader.varint();
+  const starts = new Int32Array(n);
+  let previous = 0;
+  for (let i = 0; i < n; i++) {
+    previous += reader.zigzag();
+    starts[i] = previous;
+  }
+  const ends = readPlanes(reader, n, 2);
+  const bearingsA = reader.raw(n);
+  const bearingsB = reader.raw(n);
+  const sidesA = reader.raw(n);
+  const sidesB = reader.raw(n);
+  const outsA = reader.raw(n);
+  const outsB = reader.raw(n);
+  const bends = readPlanes(reader, n, 2, 32768);
+  const lines: RailLine[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    lines[i] = {
+      a: starts[i]!,
+      b: ends[i]!,
+      bearingA: bearingsA[i]!,
+      bearingB: bearingsB[i]!,
+      sideA: sidesA[i]! > 0 ? 1 : -1,
+      sideB: sidesB[i]! > 0 ? 1 : -1,
+      outA: outsA[i]!,
+      outB: outsB[i]!,
+      bend: bends[i]! / BEND_SCALE,
+    };
+  }
+  reader.finish();
+  return { places, roads, lines };
 }

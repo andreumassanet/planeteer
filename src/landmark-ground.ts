@@ -154,6 +154,43 @@ export function landmarkFrame(up: XYZ, across: XYZ, north: XYZ): void {
   across.z /= a;
 }
 
+/**
+ * A landmark made ready to be asked about: its direction, its frame and its
+ * plan, and how far the plan reaches from its point. What every caller that
+ * measures from a point on the sphere rather than in a frame of its own
+ * holds a landmark as — the road bake's index below, the fleet's sites, the
+ * checks.
+ */
+export interface PlannedSite {
+  up: XYZ;
+  across: XYZ;
+  north: XYZ;
+  shape: PlanShape;
+  /** `planReach`: nothing of the plan is further than this from `up`, world units. */
+  reach: number;
+}
+
+export function plannedSite(site: LandmarkSite): PlannedSite {
+  const up = unitAt(site.lat, site.lon, { x: 0, y: 0, z: 0 });
+  const across = { x: 0, y: 0, z: 0 };
+  const north = { x: 0, y: 0, z: 0 };
+  landmarkFrame(up, across, north);
+  const shape = planShape(site);
+  return { up, across, north, shape, reach: planReach(shape) };
+}
+
+/**
+ * How far a point on the unit sphere is outside a landmark's plan, in world
+ * units on a planet of `planetRadius`: `planGap` in the landmark's own frame.
+ * Only true near it — the tangent plane is the sphere to a tenth of a unit
+ * out to a thousand — so a caller rejects far points by `reach` first.
+ */
+export function siteGap(site: PlannedSite, p: XYZ, planetRadius: number): number {
+  const x = (p.x * site.across.x + p.y * site.across.y + p.z * site.across.z) * planetRadius;
+  const z = (p.x * site.north.x + p.y * site.north.y + p.z * site.north.z) * planetRadius;
+  return planGap(site.shape, x, z);
+}
+
 // ---------------------------------------------------------------------------
 // Every landmark, for the questions the road bake and its check ask
 // ---------------------------------------------------------------------------
@@ -163,12 +200,8 @@ const CELL = 2;
 const COLS = Math.round(360 / CELL);
 const ROWS = Math.round(180 / CELL);
 
-interface Indexed {
-  up: XYZ;
-  across: XYZ;
-  north: XYZ;
-  shape: PlanShape;
-  /** The cosine of the angle past which nothing of it is within `reach` of a point. */
+interface Indexed extends PlannedSite {
+  /** The cosine of the angle past which nothing of it is within `4 * LANDMARK_KEEP` of a point. */
   cosReach: number;
 }
 
@@ -184,12 +217,8 @@ let radius = 1;
 export function setLandmarks(sites: readonly LandmarkSite[], planetRadius: number): void {
   radius = planetRadius;
   indexed = sites.map((site) => {
-    const up = unitAt(site.lat, site.lon, { x: 0, y: 0, z: 0 });
-    const across = { x: 0, y: 0, z: 0 };
-    const north = { x: 0, y: 0, z: 0 };
-    landmarkFrame(up, across, north);
-    const shape = planShape(site);
-    return { up, across, north, shape, cosReach: Math.cos((planReach(shape) + 4 * LANDMARK_KEEP) / planetRadius) };
+    const planned = plannedSite(site);
+    return { ...planned, cosReach: Math.cos((planned.reach + 4 * LANDMARK_KEEP) / planetRadius) };
   });
   cells = Array.from({ length: COLS * ROWS }, () => []);
   const reachDegrees = Math.max(0, ...indexed.map((site) => Math.acos(site.cosReach) * (180 / Math.PI)));
@@ -221,9 +250,7 @@ export function landmarkGap(p: XYZ, limit = 4 * LANDMARK_KEEP): number {
   for (const site of cells[row * COLS + col]!) {
     const dot = p.x * site.up.x + p.y * site.up.y + p.z * site.up.z;
     if (dot < site.cosReach) continue;
-    const x = (p.x * site.across.x + p.y * site.across.y + p.z * site.across.z) * radius;
-    const z = (p.x * site.north.x + p.y * site.north.y + p.z * site.north.z) * radius;
-    const gap = planGap(site.shape, x, z);
+    const gap = siteGap(site, p, radius);
     if (gap < best) best = gap;
   }
   return best <= limit ? best : Infinity;
@@ -238,7 +265,7 @@ export function landmarkGap(p: XYZ, limit = 4 * LANDMARK_KEEP): number {
 export function eachLandmarkNear(p: XYZ, reach: number, visit: (up: XYZ, shape: PlanShape) => void): void {
   for (const site of indexed) {
     const dot = p.x * site.up.x + p.y * site.up.y + p.z * site.up.z;
-    if (dot < Math.cos((planReach(site.shape) + reach) / radius)) continue;
+    if (dot < Math.cos((site.reach + reach) / radius)) continue;
     visit(site.up, site.shape);
   }
 }

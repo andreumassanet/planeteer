@@ -1,8 +1,9 @@
 /**
- * The kit: CC0 vehicles, plants, buildings and animals -> public/models/{traffic,nature,buildings,fauna}/*.bin
+ * The kit: CC0 vehicles, plants, buildings, animals and trains -> public/models/{traffic,nature,buildings,fauna,rail}/*.bin
  *
- *   node scripts/build-kit.ts          # write every file
- *   node scripts/build-kit.ts --dry    # report and write nothing
+ *   node scripts/build-kit.ts              # write every file
+ *   node scripts/build-kit.ts --dry        # report and write nothing
+ *   node scripts/build-kit.ts --only=rail  # one directory, the rest left as shipped
  *
  * Sources, all CC0 1.0, downloaded to ../.cache/assets/ (see the LICENSE.txt
  * this writes beside the files, which names each one):
@@ -511,6 +512,31 @@ const TRAFFIC: StaticEntry[] = [
   { id: 'boat-tug-a', source: `${KENNEY_BOATS}boat-tug-a.glb` },
 ];
 
+/**
+ * The railway's rolling stock: Kenney's Train Kit, a front car and middle
+ * cars for each consist, the locomotives and the goods wagons. Faced on +Z
+ * like every vehicle; `railway.ts` builds its trains from these by id.
+ */
+const KENNEY_TRAINS = 'kenney/train-kit/Models/GLB format/';
+const RAIL: StaticEntry[] = [
+  { id: 'bullet-front', source: `${KENNEY_TRAINS}train-electric-bullet-a.glb` },
+  { id: 'bullet-car', source: `${KENNEY_TRAINS}train-electric-bullet-b.glb` },
+  { id: 'city-front', source: `${KENNEY_TRAINS}train-electric-city-a.glb` },
+  { id: 'city-car', source: `${KENNEY_TRAINS}train-electric-city-b.glb` },
+  { id: 'diesel', source: `${KENNEY_TRAINS}train-diesel-a.glb` },
+  { id: 'diesel-hood', source: `${KENNEY_TRAINS}train-diesel-b.glb` },
+  { id: 'steam', source: `${KENNEY_TRAINS}train-locomotive-a.glb` },
+  { id: 'coach', source: `${KENNEY_TRAINS}train-locomotive-passenger-a.glb` },
+  { id: 'coach-b', source: `${KENNEY_TRAINS}train-locomotive-passenger-b.glb` },
+  { id: 'wagon-box', source: `${KENNEY_TRAINS}train-carriage-box.glb` },
+  { id: 'wagon-container-red', source: `${KENNEY_TRAINS}train-carriage-container-red.glb` },
+  { id: 'wagon-container-blue', source: `${KENNEY_TRAINS}train-carriage-container-blue.glb` },
+  { id: 'wagon-container-green', source: `${KENNEY_TRAINS}train-carriage-container-green.glb` },
+  { id: 'wagon-tank', source: `${KENNEY_TRAINS}train-carriage-tank.glb` },
+  { id: 'wagon-lumber', source: `${KENNEY_TRAINS}train-carriage-lumber.glb` },
+  { id: 'wagon-coal', source: `${KENNEY_TRAINS}train-carriage-coal.glb` },
+];
+
 const KENNEY_NATURE = 'kenney/nature-kit/Models/GLTF format/';
 const KAYKIT_FOREST = 'kaykit/forest-nature-pack/KayKit_Forest_Nature_Pack_1.0_FREE/Assets/gltf/';
 
@@ -846,7 +872,7 @@ Geometry, colours and animation clips are unchanged except where the script
 says: wheels rebuilt, materials merged into colour slots, normals creased.
 
 Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit, City Kit (Suburban),
-City Kit (Commercial), City Kit (Roads). License: CC0 1.0 Universal.
+City Kit (Commercial), City Kit (Roads), Train Kit. License: CC0 1.0 Universal.
 Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
 Public Transport. License: CC0 1.0 Universal.
 Kay Lousberg (https://www.kaylousberg.com) — KayKit Forest Nature Pack 1.0.
@@ -854,12 +880,27 @@ License: CC0 1.0 Universal.
 CreativeTrio — Church (https://poly.pizza/m/GHzPfvoyzX). License: CC0 1.0 Universal.
 `;
 
-const trafficBytes = await bakeStatic(TRAFFIC, 'traffic/kit.bin');
-const natureBytes = await bakeStatic(NATURE, 'nature/kit.bin');
-const buildingBytes = await bakeStatic(BUILDINGS, 'buildings/kit.bin');
-const faunaBytes = await bakeFauna();
+/**
+ * `--only=<directory>` bakes one directory and leaves the others' files as
+ * they are: a new kit is added without re-writing the ones already shipped.
+ */
+const ONLY = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length) ?? null;
+const bakes: [string, () => Promise<number>][] = [
+  ['traffic', () => bakeStatic(TRAFFIC, 'traffic/kit.bin')],
+  ['nature', () => bakeStatic(NATURE, 'nature/kit.bin')],
+  ['buildings', () => bakeStatic(BUILDINGS, 'buildings/kit.bin')],
+  ['fauna', () => bakeFauna()],
+  ['rail', () => bakeStatic(RAIL, 'rail/kit.bin')],
+];
+let totalBytes = 0;
+const baked: string[] = [];
+for (const [directory, bake] of bakes) {
+  if (ONLY !== null && ONLY !== directory) continue;
+  totalBytes += await bake();
+  baked.push(directory);
+}
 console.log(report.join('\n'));
-console.log(`total ${kb(trafficBytes + natureBytes + buildingBytes + faunaBytes)} gzipped`);
+console.log(`total ${kb(totalBytes)} gzipped`);
 if (!DRY) {
-  for (const directory of ['traffic', 'nature', 'buildings', 'fauna']) writeFileSync(join(OUT, directory, 'LICENSE.txt'), LICENSE);
+  for (const directory of baked) writeFileSync(join(OUT, directory, 'LICENSE.txt'), LICENSE);
 }

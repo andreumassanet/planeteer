@@ -84,7 +84,7 @@ export const llama: Animal = {
   // Quaternius's alpaca (Ultimate Animated Animals, CC0), which is the llama's
   // smaller cousin and the only camelid in the pack.
   rigs: [
-    { id: 'alpaca', weight: 1, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hooves: 'point', Muzzle: 'face', Eyes_Black: P.ink, Eyes_White: P.white } },
+    { id: 'alpaca', weight: 1, back: 1.1, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hooves: 'point', Muzzle: 'face', Eyes_Black: P.ink, Eyes_White: P.white } },
   ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>

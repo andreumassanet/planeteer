@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OutlineEffect } from './outline.ts';
 import { loadLakes, loadWorld, toLatLon } from './geo.ts';
-import { landFlagProxy, landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
+import { groundRadius, landFlagProxy, landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
 import { drawnRadius, landProbeOf } from './land-probe.ts';
 import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
@@ -16,12 +16,13 @@ import { createMonuments, loadPlacements } from './placement.ts';
 import { loadPlaces, terrainSiteOf, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
 import { createRoads, loadRoads } from './roads.ts';
+import { createRailNetwork, joinFields, loadRails, railFields } from './rails.ts';
 // From the contract rather than from `./monuments/index.ts`, which is the whole
 // registry: see `deferred` in `start()`. `index.ts` re-exports this, and taking
 // it from there would drag all eighty-five model files into the first load for
 // one function that has nothing to do with them.
 import { createContext } from './monuments/contract.ts';
-import { setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
+import { reliefAt, setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
 import { biomeAt, biomeSample } from './biome.ts';
 import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
@@ -35,6 +36,7 @@ import { PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, topSpeedOf } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
 import { createClouds } from './clouds.ts';
 import { createWeatherView } from './weather-view.ts';
+import { weatherAt, weatherSample } from './weather.ts';
 import { createOcean } from './ocean.ts';
 import { proxyOf, warmShaders } from './warm.ts';
 import { LAMPS_OFF_ABOVE, LAMP_FIELD, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
@@ -479,6 +481,12 @@ async function start(): Promise<void> {
   // connection that needs it. The road network is baked against `places.bin` and
   // stores its ends as indices into it, so `createRoads` still refuses to start
   // if the two disagree about how many places there are.
+  // The railway, which nothing waits on: a world whose `rails.bin` did not
+  // come, or came from another bake, has no trains and is otherwise whole.
+  const railsLoad = loadRails().catch((error: unknown) => {
+    console.warn('the railway did not load', error);
+    return null;
+  });
   const [placements, places, baked, lakes] = await Promise.all([
     loadPlacements(),
     loadPlaces(PLANET_RADIUS),
@@ -588,6 +596,11 @@ async function start(): Promise<void> {
      * relay's half of who has moved which. Built once the player is.
      */
     craft: import('./craft/index.ts'),
+    /** What flies that nobody flies: airliners, circuits, helicopters, balloons, an airship. */
+    airTraffic: import('./air-traffic.ts'),
+    /** The railway drawn and run: the track near the eye, the stations, the trains. */
+    railway: import('./railway.ts'),
+    passingSound: import('./passing-sound.ts'),
     fleet: import('./fleet.ts'),
     fleetSync: import('./fleet-sync.ts'),
   };
@@ -1087,6 +1100,26 @@ async function start(): Promise<void> {
   // fleet itself, which needs the player, takes the same index further down.
   const { createSiteIndex, fleetMaterials } = await deferred.fleet;
   const fleetSites = createSiteIndex({ world, places: places.all, roads: baked.roads, monuments: placements });
+  // The railway's lines, baked against these places and these roads or not
+  // at all; and the ground they take, which everything that keeps off a
+  // field keeps off too: the wood, the countryside's plans and the herds.
+  const railData = await railsLoad;
+  const railNetwork =
+    railData !== null && railData.places === places.all.length && railData.roads === baked.roads.length
+      ? createRailNetwork(railData.lines, places.all, world)
+      : null;
+  if (railData !== null && railNetwork === null) console.warn('rails.bin was baked against other places or roads: run `pnpm rails`');
+  const railGround = railNetwork === null ? null : railFields(railNetwork);
+  const takenGround = joinFields(fleetSites, railGround);
+  // Nothing beside a road stands on the track where a line crosses it.
+  if (railGround !== null) {
+    const taken: { at: THREE.Vector3; radius: number }[] = [];
+    const takenAt = new THREE.Vector3();
+    roads.setTaken((point, footprint) => {
+      taken.length = 0;
+      return railGround.fieldsNear(takenAt.copy(point).normalize(), footprint, taken).length > 0;
+    });
+  }
   const { createLife } = await deferred.life;
   const { VEHICLES } = await deferred.traffic;
   const { ANIMALS } = await deferred.fauna;
@@ -1106,7 +1139,7 @@ async function start(): Promise<void> {
     rigs: createRigLibrary(
       modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
     ),
-    fields: fleetSites,
+    fields: takenGround,
     // A vehicle driving through a town rides its floor and keeps out of its
     // walls; the answers are the standing towns', the ones the player gets.
     streets: {
@@ -1115,6 +1148,26 @@ async function start(): Promise<void> {
     },
   });
   scene.add(life.group);
+
+  // The railway: the track and the stations stand at once, the trains once
+  // the Train Kit's models have come.
+  const { createRailway } = await deferred.railway;
+  const railway = railNetwork === null
+    ? null
+    : createRailway({
+        world,
+        places: places.all,
+        roads: baked.roads,
+        network: railNetwork,
+        material: modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
+      });
+  if (railway !== null) {
+    scene.add(railway.group);
+    deferred.kit
+      .then(({ loadModels }) => loadModels('rail/kit.bin'))
+      .then((models) => railway.setKit(new Map(models.map((model) => [model.name, model]))))
+      .catch((error: unknown) => console.warn('the trains did not load', error));
+  }
 
   await stage('planting the country');
   // Between the towns, which is 99% of the land. It builds nothing here — the
@@ -1130,8 +1183,9 @@ async function start(): Promise<void> {
     // The drawn land and the towns' lawns, which the grass under your feet stands on.
     land,
     lawns: settlements,
-    // And the fields the light planes and balloons stand in, so no tree grows through a wing.
-    fields: fleetSites,
+    // And the fields the light planes and balloons stand in, so no tree grows
+    // through a wing, and the railway's ballast and stations.
+    fields: takenGround,
   });
   scene.add(vegetation.group);
   // The herds keep off the farms, mills and fields the vegetation plans, as they keep off a road.
@@ -1241,6 +1295,31 @@ async function start(): Promise<void> {
       console.warn('the vehicles did not load', error);
       return new Map();
     });
+  // The sky's traffic, a timetable read round the player; the takeable craft
+  // lend it their light plane, helicopter and balloon.
+  const { createAirTraffic } = await deferred.airTraffic;
+  const { keepsBalloon } = await deferred.fleet;
+  const airWeather = weatherSample();
+  const airProbe = new THREE.Vector3();
+  const airTraffic = createAirTraffic({
+    craft: craftModels,
+    source: {
+      places: places.all,
+      ground: (direction) => groundRadius(world, airProbe.copy(direction).multiplyScalar(PLANET_RADIUS)),
+      strips: fleetSites,
+      keepsBalloon,
+      wind(lat, lon, timeMs) {
+        unitAt(lat, lon, airProbe);
+        weatherAt(lat, lon, Math.max(0, reliefAt(airProbe.x, airProbe.y, airProbe.z)), timeMs, airWeather);
+        const calm = (airWeather.kind === 'clear' || airWeather.kind === 'cloudy') && airWeather.windSpeed < 8;
+        return { east: airWeather.windEast, north: airWeather.windNorth, speed: airWeather.windSpeed, calm };
+      },
+    },
+  });
+  scene.add(airTraffic.group);
+  const passingSound = (await deferred.passingSound).createPassingSound();
+  const passingVoices: Parameters<typeof passingSound.update>[1] = {};
+  if (railway !== null) railway.onHorn = (near) => passingSound.horn(audio.bus, near);
   const at = query.get('at')?.split(',').map(Number);
   // A latitude past a pole is a point on the far side of it, not a typo worth
   // landing on: such a link gets the menu.
@@ -1268,7 +1347,7 @@ async function start(): Promise<void> {
    * is three cheap rejections and no terrain query at all.
    */
   const madeHeightAt = (point: THREE.Vector3): number =>
-    Math.max(settlements.madeHeightAt(point), roads.ribbonHeightAt(point), monuments.madeHeightAt(point));
+    Math.max(settlements.madeHeightAt(point), roads.ribbonHeightAt(point), monuments.madeHeightAt(point), railway?.bedHeightAt(point) ?? 0);
   /**
    * And the walls on it. A building is solid to a foot and opaque to the lens,
    * and both answers belong to the settlements for the reason the floor does:
@@ -1366,6 +1445,12 @@ async function start(): Promise<void> {
         else push.copy(vehiclePush);
         hit = true;
       }
+      // A train's cars and a station's hall.
+      if (railway !== null && railway.collide(point, radius, vehiclePush)) {
+        if (hit) push.add(vehiclePush);
+        else push.copy(vehiclePush);
+        hit = true;
+      }
       const folkHit = townsfolk.collide(point, radius, push);
       const walkerHit = life.collide(point, radius, PERSON_RADIUS, push);
       return hit || folkHit || walkerHit;
@@ -1441,7 +1526,9 @@ async function start(): Promise<void> {
         if (at !== undefined) effects.crashAt(at, rig.heading, 0.8);
         if (at !== undefined && at.distanceTo(player.position) < 400) audio.cue('land');
       } else if (event === 'leave-refused') {
-        announce(model?.kind === 'balloon' ? 'Set the balloon down before getting out' : 'Nobody gets out in the air — land first', iconName);
+        // Aloft is a jump now (`bailed`); the one refusal left is a
+        // submarine under the surface.
+        announce(model?.kind === 'submarine' ? 'Surface before getting out' : 'Nobody gets out here', iconName);
         audio.cue('ui-error');
       } else if (event === 'taken') {
         announce('Somebody else just took that seat', iconName);
@@ -1463,6 +1550,8 @@ async function start(): Promise<void> {
         const model = player.ride?.model;
         visit(player.position, model === undefined ? PERSON_RADIUS : (model.size[0] + model.size[1]) / 4, true);
         fleet.eachStanding(visit);
+        // A train over a level crossing: the traffic waits for it to pass.
+        railway?.eachCar(visit);
       },
       people: (point, radius) => townsfolk.collide(point, radius, folkPush.set(0, 0, 0)),
       parked: (point, radius) => fleet.movedNear(point, radius),
@@ -1480,6 +1569,7 @@ async function start(): Promise<void> {
       visitOther = visit;
       fleet.eachDriven(driven);
       life.eachBoat(boat);
+      airTraffic.eachFlyer(visitOther);
     });
   }
   // A town built from here on leaves out a parked car the fleet has, and one
@@ -1710,7 +1800,8 @@ async function start(): Promise<void> {
     engaged = engageAny(key, player.position);
     // And the traveller turns to them, as they turn to the traveller: a
     // conversation held over a shoulder reads as nobody talking to anybody.
-    if (crownOfAny(key, talkCrown)) {
+    // Not from a bench, whose seat faces one way.
+    if (!player.sitting && crownOfAny(key, talkCrown)) {
       talkCrown.sub(player.position).projectOnPlane(player.up);
       if (talkCrown.lengthSq() > 1e-4) player.forward.copy(talkCrown.normalize());
     }
@@ -2033,7 +2124,8 @@ async function start(): Promise<void> {
     const voice = cleanHonk(message.k);
     const from = peers.positionOf(message.id);
     if (voice === '' || from === null) return;
-    audio.horn(Math.max(0, 1 - from.distanceTo(player.position) / HORN_REACH), voice);
+    const level = 1 - from.distanceTo(player.position) / HORN_REACH;
+    if (level > 0) audio.horn(level, voice);
   });
 
   /**
@@ -2711,6 +2803,27 @@ async function start(): Promise<void> {
     // `atlas.sky.setRate(600)` runs the traffic with the sun and `setTime`
     // scrubs it. Seconds, because that is what a speed is in.
     guard('life', () => life.update(player.position, altitude, rig.camera, sky.state.time.getTime() / 1000));
+    guard('air', () =>
+      airTraffic.update({
+        dt,
+        seconds: sky.state.time.getTime() / 1000,
+        camera: rig.camera,
+        player: player.position,
+        altitude,
+        fogFar: fog.far,
+        daylight: sky.state.daylight,
+      }),
+    );
+    if (railway !== null) {
+      guard('railway', () =>
+        railway.update({ dt, seconds: sky.state.time.getTime() / 1000, camera: rig.camera, player: player.position, fogFar: fog.far }),
+      );
+    }
+    passingVoices.prop = airTraffic.passing.prop;
+    passingVoices.rotor = airTraffic.passing.rotor;
+    passingVoices.jet = airTraffic.passing.jet;
+    passingVoices.rail = railway?.passing ?? null;
+    guard('passing', () => passingSound.update(audio.bus, passingVoices));
     // The people standing in the towns: their own clock rather than the sky's,
     // because breathing does not speed up when `setRate` runs the sun at 600x.
     townsfolkClock += dt;
@@ -2867,9 +2980,12 @@ async function start(): Promise<void> {
     if (doorOffer !== null && offer !== null && offer.gap < doorGap) doorOffer = null;
     const talkGap = talker === null ? Infinity : talker.distance - PERSON_RADIUS;
     talkOffer = talker !== null && (offer === null || talkGap < offer.gap) && (doorOffer === null || talkGap < doorGap) ? talker.key : null;
-    // A bench nearer than any seat, nobody to talk to and no door.
-    const bench = talk.open || talkOffer !== null || doorOffer !== null || interiors.inside || player.sitting || player.mode !== 'foot' || player.airborne ? null : nearestBench();
-    benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) ? bench.bench : null;
+    // A bench nearer than any seat and any door, with nobody to talk to: a
+    // town's stands on the pavement a stride off the house fronts, inside a
+    // door's reach, and the nearer of the two is the one `E` means.
+    const bench = talk.open || talkOffer !== null || interiors.inside || player.sitting || player.mode !== 'foot' || player.airborne ? null : nearestBench();
+    benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) && (doorOffer === null || bench.distance < doorGap) ? bench.bench : null;
+    if (benchOffer !== null) doorOffer = null;
     if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else if (player.sitting) hud.setPrompt('Stand up', 'walk');
@@ -2963,12 +3079,14 @@ async function start(): Promise<void> {
       monuments.group.children.length +
       settlements.group.children.length +
       vegetation.group.children.length +
-      life.group.children.length;
+      life.group.children.length +
+      (railway?.group.children.length ?? 0);
     const moving =
       player.velocity > 0 ||
       player.emoting !== null ||
       life.stats.nearestMoving < SHADOW_COVER ||
       townsfolk.stats.nearestMoving < SHADOW_COVER ||
+      (railway !== null && railway.stats.nearestMoving < SHADOW_COVER) ||
       (peers !== null && peers.nearestMoving < SHADOW_COVER);
     const cadence = moving ? 0 : SHADOW_STILL_MS;
     if (sky.state.shadow > 0 && (now - shadowDrawnAt >= cadence || standing !== shadowStanding)) {
@@ -3227,6 +3345,8 @@ async function start(): Promise<void> {
       // the worst distance a foot ends up below the floor, which is the check
       // that pays for the one line copied out of `avatar.ts`.
       life,
+      air: airTraffic,
+      railway,
       // `atlas.townsfolk.stats`: the people standing in the near towns, how
       // many are animated this frame and how many are strolling.
       townsfolk,

@@ -58,3 +58,17 @@ export function buildParachute(): THREE.Group {
   }
   return assemble('parachute', [soupOf(draft)]);
 }
+
+/** Seconds the canopy takes to open out. */
+export const CANOPY_OPENING = 0.6;
+
+/**
+ * A canopy `seconds` after it began to open, swung `lean` radians: width
+ * first, as a canopy fills from the middle out. The player's own and a
+ * peer's are opened by this one law.
+ */
+export function openCanopy(canopy: THREE.Object3D, seconds: number, lean: number): void {
+  const opened = Math.min(1, Math.max(0.15, seconds / CANOPY_OPENING));
+  canopy.scale.set(opened, Math.sqrt(opened), opened);
+  canopy.rotation.set(0, 0, lean);
+}

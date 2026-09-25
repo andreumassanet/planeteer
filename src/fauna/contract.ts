@@ -26,8 +26,8 @@ import {
 import { NOMINAL_HEIGHT, PERSON_METRES } from '../stature.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
-import { onPalette, toned } from '../models.ts';
-import type { Paint } from '../models.ts';
+import { makeRigged, onPalette, toned } from '../models.ts';
+import type { Paint, Rig } from '../models.ts';
 import type { Rng, Weighted } from '../scenery/random.ts';
 import { swingLift } from '../avatar.ts';
 
@@ -543,7 +543,7 @@ export interface Animal {
    * `scripts/build-kit.ts`), by weight, each with the role every colour slot of
    * the pack plays in this animal's coat. `shape` still draws the variant — its
    * coat, belly, points and face come out of the same `rng` — and a rig is
-   * fitted to `size[0]` along its length.
+   * fitted by its back, `RigChoice.back` (see `rigScale`), not by `size`.
    *
    * Absent means the code-built body; the camel is the one left, because no
    * CC0 camel exists in the style.
@@ -562,8 +562,63 @@ export interface RigChoice {
   /** A rig id in `public/models/fauna/`. */
   id: string;
   weight: number;
+  /**
+   * How high the top of this rig's back stands, in metres: the one number a
+   * rig is fitted by (`rigScale`). See there for why not the length.
+   */
+  back: number;
   /** Slot name -> role. A slot not named keeps its nearest palette colour. */
   slots: Readonly<Record<string, CoatRole>>;
+}
+
+/**
+ * How much a baked rig is scaled by to stand in the world: the top of its
+ * back, a tenth of its length ahead of the middle (behind the withers, on the
+ * highest of the barrel, where a saddle goes), at `m(choice.back)`.
+ *
+ * **By the back and not by the length**, which is what the rigs were fitted
+ * by until 2026-09-25, to `size[0]`: the declared box is the code-built
+ * body's, and the CC0 rigs are shorter for their height than it, so fitted
+ * end to end every one of them stood 1.2 to 1.5 times too tall — a horse's
+ * back 1.28 bodies up, a cow's 1.03, an alpaca's head over a person's. The
+ * back is what reads beside a person, and it is a measurement with a ground
+ * truth anyone has seen: a cow is 1.4 m there. The ridden horse is fitted by
+ * the same number (`craft/horse.ts`), so a horse in a field and a horse with
+ * a saddle on are one size.
+ *
+ * Measured once a rig, on its skinned vertices at the pose the pack left it
+ * in (an FBX rig's bind matrices do not always describe it; see `rigFrom`).
+ */
+export function rigScale(choice: RigChoice, rig: Rig): number {
+  return m(choice.back) / rigBack(rig);
+}
+
+/** The top of a rig's back over its feet, in the pack's units, measured once. */
+const rigBacks = new WeakMap<Rig, number>();
+export function rigBack(rig: Rig): number {
+  const known = rigBacks.get(rig);
+  if (known !== undefined) return known;
+  const rigged = makeRigged(rig);
+  rigged.root.updateMatrixWorld(true);
+  const body = rigged.body;
+  body.skeleton.update();
+  const box = rig.box;
+  const length = box.max.z - box.min.z;
+  const centreX = (box.min.x + box.max.x) / 2;
+  const at = (box.min.z + box.max.z) / 2 + length * 0.1;
+  const band = length * 0.05;
+  const point = new THREE.Vector3();
+  let top = -Infinity;
+  const count = body.geometry.getAttribute('position').count;
+  for (let i = 0; i < count; i++) {
+    body.getVertexPosition(i, point);
+    point.applyMatrix4(body.matrixWorld);
+    if (Math.abs(point.z - at) > band || Math.abs(point.x - centreX) > length * 0.05) continue;
+    top = Math.max(top, point.y);
+  }
+  const back = Number.isFinite(top) ? top - box.min.y : box.max.y - box.min.y;
+  rigBacks.set(rig, back);
+  return back;
 }
 
 /** The paint for one variant of a rigged animal, from the colours its `shape` drew. */

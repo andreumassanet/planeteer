@@ -64,7 +64,8 @@ import { rngFrom } from './scenery/random.ts';
 import { keepsLeft, trafficFor } from './traffic/regions.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
-import { MAX_FOOTPRINT } from './monuments/contract.ts';
+import { plannedSite, siteGap } from './landmark-ground.ts';
+import type { LandmarkSite } from './landmark-ground.ts';
 import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
 import { ROAD_HANDLING, WATERLINE, isWater } from './vehicles.ts';
 import { SEA_REACH, coastAt, coastSample, prepareSeaFloor, seaDepthAt, seaZoneAt } from './sea-floor.ts';
@@ -192,6 +193,12 @@ const BALLOON_FIELD = 8;
 const BALLOON_GRADE = Math.tan(14 * DEG);
 /** The share of built towns that keep a balloon. */
 const BALLOON_SHARE = 0.04;
+/**
+ * Whether a town keeps a balloon: the one answer, which the fleet's field
+ * search and the balloons that fly from those towns (`air-traffic.ts`) both
+ * ask. Seeded by the place's index, so every client agrees.
+ */
+export const keepsBalloon = (place: number): boolean => rngFrom('fleet-balloon', place).chance(BALLOON_SHARE);
 /** Margin between a field and whatever it keeps clear of, in units. */
 const FIELD_CLEAR = 6;
 
@@ -361,8 +368,8 @@ export interface FleetSource {
   world: World;
   places: readonly Place[];
   roads: readonly Road[];
-  /** The landmarks, which a field keeps clear of by their footprint. */
-  monuments?: readonly { lat: number; lon: number; footprint?: number }[];
+  /** The landmarks, which a field keeps clear of by their plan (`landmark-ground.ts`). */
+  monuments?: readonly LandmarkSite[];
 }
 
 /**
@@ -473,10 +480,9 @@ const ROWS = 180 / CELL;
 
 export function createSiteIndex(source: FleetSource): SiteIndex {
   const { world, places, roads } = source;
-  const monuments = (source.monuments ?? []).map((m) => ({
-    at: unitAt(m.lat, m.lon, new THREE.Vector3()),
-    reach: (m.footprint ?? MAX_FOOTPRINT) + FIELD_CLEAR,
-  }));
+  // By the ground each one's model takes, the plan, as the towns and the wood
+  // keep off it: the footprint's disc walled off a whole circle round a bridge.
+  const monuments = (source.monuments ?? []).map(plannedSite);
   const roadIndex: RoadIndex = roadIndexFor(roads, places);
 
   // The built towns, bucketed. Hidden places stand for nothing — no square,
@@ -572,8 +578,15 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     return false;
   }
 
+  const monumentProbe = new THREE.Vector3();
   function nearMonument(direction: THREE.Vector3, clear: number): boolean {
-    for (const m of monuments) if (m.at.angleTo(direction) * PLANET_RADIUS < m.reach + clear) return true;
+    const keep = FIELD_CLEAR + clear;
+    const p = monumentProbe.copy(direction).normalize();
+    for (const m of monuments) {
+      const dot = p.x * m.up.x + p.y * m.up.y + p.z * m.up.z;
+      if (dot < Math.cos((m.reach + keep) / PLANET_RADIUS)) continue;
+      if (siteGap(m, p, PLANET_RADIUS) < keep) return true;
+    }
     return false;
   }
 
@@ -659,10 +672,13 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
   /**
    * Open water for `BOAT_ROOM` all round a point: sixteen bearings at the
    * full room and eight at half of it, because a spit of land narrower than
-   * the gap between two bearings is exactly what a hull gets drawn through.
+   * the gap between two bearings is exactly what a hull gets drawn through;
+   * and no road's bridge within the room either.
    */
   function roomy(direction: THREE.Vector3, need = BOAT_ROOM): boolean {
     if (!wet(direction)) return false;
+    // And out from under a bridge: a hull moored under a deck is a hull through it.
+    if (nearRoad(direction, need)) return false;
     for (let k = 0; k < 24; k++) {
       const bearing = k < 16 ? (k / 16) * Math.PI * 2 : ((k - 16) / 8) * Math.PI * 2 + Math.PI / 8;
       const room = k < 16 ? need : need / 2;
@@ -967,7 +983,7 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     const out: FleetSite[] = [];
     const place = places[p]!;
     if (place.pop >= PLANE_POP || place.capital === true) fieldSite(p, FLEET_MODELS.plane, PLANE_FIELD, PLANE_GRADE, 'fleet-plane', out);
-    if (rngFrom('fleet-balloon', p).chance(BALLOON_SHARE)) fieldSite(p, FLEET_MODELS.balloon, BALLOON_FIELD, BALLOON_GRADE, 'fleet-balloon-site', out);
+    if (keepsBalloon(p)) fieldSite(p, FLEET_MODELS.balloon, BALLOON_FIELD, BALLOON_GRADE, 'fleet-balloon-site', out);
     // The rest of the fields, after those two so neither moves for them.
     if (place.pop >= HELI_POP) fieldSite(p, FLEET_MODELS.helicopter, SITE_ROOM.helicopter, HELI_GRADE, 'fleet-heli-site', out);
     if (place.pop < HORSE_POP || place.pop < TRACTOR_POP) {
@@ -1979,7 +1995,10 @@ export function createFleet(options: FleetOptions): Fleet {
       const reach = handling.turn * grip * lock;
       if (reach > 1e-3) remote.steering = Math.max(-1, Math.min(1, (-entry.turn / reach) * (entry.speed < 0 ? -1 : 1)));
     }
-    remote.grounded = isAirKind(kind) ? point.length() - landAt(point) < 1.5 : true;
+    // On the ground unless it flies, or its rider's own state is off it: a
+    // horse's leap is the driver's jump, which the pose alone cannot tell
+    // from a step off a terrace.
+    remote.grounded = isAirKind(kind) ? point.length() - landAt(point) < 1.5 : !(link.leaping?.(entry.id) ?? false);
     remote.engine = true;
     remote.moored = false;
     remote.throttle = entry.speed > 0.5 ? 1 : 0;

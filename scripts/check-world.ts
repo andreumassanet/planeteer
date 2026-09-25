@@ -62,7 +62,11 @@ import {
   candidateGates,
   chordGap,
   classOf,
+  BRIDGE_LAND,
+  BRIDGE_SPAN,
+  bridgeDeck,
   courseOf,
+  distanceAt,
   coursePath,
   coursePoint,
   courseTangent,
@@ -2347,29 +2351,69 @@ console.log('\nroads');
     const walk = emptyCourse();
     let wet = 0;
     let probes = 0;
+    let bridges = 0;
+    let widest = 0;
+    let badBridges = 0;
     const wetNames: string[] = [];
+    const bridgeNames: string[] = [];
     const began = Date.now();
     for (const road of roads) {
       const course = courseOf(road, settled, walk);
       const steps = waterProbeSteps(course);
       probes += steps + 1;
+      const bridged = road.bridgeTo > road.bridgeFrom;
+      const path = bridged ? coursePath(course) : null;
+      let wetHere = false;
       for (let step = 0; step <= steps; step++) {
         coursePoint(course, step / steps, point);
         const { lat, lon } = toLatLon(point);
         if (world.countryAt(lat, lon) === 0) {
+          // Water is allowed on its bridge's span and nowhere else.
+          if (path !== null) {
+            const s = distanceAt(path, step / steps);
+            if (s > road.bridgeFrom && s < road.bridgeTo) {
+              wetHere = true;
+              continue;
+            }
+          }
           wet++;
           if (wetNames.length < 5) wetNames.push(`${settled[road.a]!.name}-${settled[road.b]!.name}`);
           break;
         }
       }
+      if (bridged) {
+        bridges++;
+        widest = Math.max(widest, road.bridgeTo - road.bridgeFrom);
+        // A bridge crosses water, is no wider than the rule, and leaves room on land for its ramps.
+        if (!wetHere || road.bridgeTo - road.bridgeFrom > BRIDGE_SPAN + 1e-6 || road.bridgeFrom < BRIDGE_LAND || road.bridgeTo + BRIDGE_LAND > path!.length) {
+          badBridges++;
+        }
+        if (bridgeNames.length < 6) bridgeNames.push(`${settled[road.a]!.name}-${settled[road.b]!.name} ${(road.bridgeTo - road.bridgeFrom).toFixed(0)}`);
+      }
     }
     check(
       wet === 0,
-      `no road crosses water`,
+      `no road crosses water except on its bridge`,
       wet === 0
         ? `${probes.toLocaleString()} probes along the courses, gate to gate, in ${Date.now() - began} ms`
         : `${wet} do: ${wetNames.join(', ')}`,
     );
+    check(
+      badBridges === 0,
+      `every bridge spans water, no wider than ${BRIDGE_SPAN} units, with land for its ramps`,
+      `${bridges} bridges, the widest ${widest.toFixed(0)} units: ${bridgeNames.join(', ')}`,
+    );
+    // And a boat passes under: the deck over the middle of the water stands at `DECK_HEIGHT` or near it.
+    {
+      const ramp = emptyRamp();
+      let lowest = Infinity;
+      for (const road of roads) {
+        if (road.bridgeTo <= road.bridgeFrom) continue;
+        rampOf(road, courseOf(road, settled, walk), settled, world, ramp);
+        lowest = Math.min(lowest, bridgeDeck(ramp, (road.bridgeFrom + road.bridgeTo) / 2));
+      }
+      check(bridges === 0 || lowest >= 14, 'every deck stands high over the middle of its water', `lowest ${lowest.toFixed(1)} units over the sea`);
+    }
 
     /**
      * Every road starts and stops on a gate its two towns can use.
@@ -3117,7 +3161,7 @@ console.log('\nroads');
       const offset = { x: 0, z: 0 };
       const at = new Vector3();
       const townAt = new Vector3();
-      const bowProbe = { a: 0, b: 0, cls: 0, bend: 0, gateA: 0, gateB: 0, layer: 0 };
+      const bowProbe = { a: 0, b: 0, cls: 0, bend: 0, gateA: 0, gateB: 0, layer: 0, bridgeFrom: 0, bridgeTo: 0 };
       /** The bake's refusals, re-asked on the candidate's own gates and seeded bow. */
       const refusedOnItsOwn = (edge: { a: number; b: number }, gateA: number, gateB: number): boolean => {
         if (gateA < 0 || gateB < 0) return true;
@@ -4162,6 +4206,8 @@ console.log('\nmade ground');
       if (to > from) {
         for (let k = 1; k < 6; k++) {
           const along = from + ((to - from) * k) / 6;
+          // A bridge and its ramps are the deck's height, not the ground's lift: see the bridges' own checks.
+          if (road.bridgeTo > road.bridgeFrom && along > road.bridgeFrom - BRIDGE_LAND - 6 && along < road.bridgeTo + BRIDGE_LAND + 6) continue;
           // Where the drawn bank crosses the ground, wherever the top has its
           // ordinary lift: past a town's pavement, or past the shoulder.
           // `roads.ts` exports the arithmetic — this used to write it out
@@ -4395,7 +4441,8 @@ console.log('\nmade ground');
           const lateral = vertexAt.dot(surfaceSide) * PLANET_RADIUS;
           site.surface(sOwn, lateral, surfaceAt, surfaceAhead, surfaceSide);
           const over = radius - surfaceAt.length();
-          if (over < 4.5) {
+          // Under the surface is under a bridge's deck: its piers, not a thing in the way.
+          if (over < 4.5 && over > -0.5) {
             lowOverRoad++;
             lowWorst = Math.min(lowWorst, over);
             if (lowNames.length < 3) lowNames.push(`${placesRaw[road.a]!.name}-${placesRaw[road.b]!.name}`);
@@ -4406,7 +4453,8 @@ console.log('\nmade ground');
         if (others.length > 0) {
           for (const other of others) {
             nearestOnPath(other.path, vertexAt, sideNearest);
-            if (sideNearest.distance < other.half - 0.05 && radius - othersRoofline([other], vertexAt, world) < 4.5) {
+            const overOther = radius - othersRoofline([other], vertexAt, world);
+            if (sideNearest.distance < other.half - 0.05 && overOther < 4.5 && overOther > -0.5) {
               inOther++;
               break;
             }

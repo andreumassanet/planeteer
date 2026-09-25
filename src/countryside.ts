@@ -17,7 +17,9 @@ import type { RegionStyle } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import type { Rng, Weighted } from './scenery/random.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
-import { FIELD_CLEARANCE, MONUMENT_CLEARANCE, WIDEST_FOOTPRINT, cellAt, cellBounds, rowsOf, stepOf } from './tile-grid.ts';
+import { planGap, planGapToBox, planReach, planShape } from './landmark-ground.ts';
+import type { LandmarkSite, PlanShape } from './landmark-ground.ts';
+import { FIELD_CLEARANCE, MONUMENT_CLEARANCE, cellAt, cellBounds, rowsOf, stepOf } from './tile-grid.ts';
 import type { CellBounds } from './tile-grid.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, ROTOR_RADIUS } from './countryside-kit.ts';
 import { WATERLINE } from './vehicles.ts';
@@ -43,7 +45,7 @@ import type { Bench } from './bench.ts';
  *
  * **It yields to everything built and the wood yields to it.** Towns keep
  * their whole country (`countryReach`, the ring of orchards a town grows past
- * its square), a landmark its footprint, a road its drawn width, a plane or a
+ * its square), a landmark its plan (`landmark-ground.ts`), a road its drawn width, a plane or a
  * balloon its field; and `vegetation.ts` keeps its plants off every piece and
  * every field a plan holds, whatever level it is drawing.
  *
@@ -164,7 +166,7 @@ export interface CountrysideStats {
 
 export interface CountrysideOptions {
   places?: readonly Place[];
-  monuments?: readonly { lat: number; lon: number; footprint?: number }[];
+  monuments?: readonly LandmarkSite[];
   roads?: readonly Road[];
   fields?: FieldIndex;
   /**
@@ -391,6 +393,13 @@ interface Disc {
   radius: number;
 }
 
+/** A landmark's plan in the cell's frame: its point there, and the plan kept `MONUMENT_CLEARANCE` off. */
+interface PlanAt {
+  x: number;
+  z: number;
+  shape: PlanShape;
+}
+
 /** Ground a plan has taken: a disc, or with `halfX` a rectangle turned by `yaw`. */
 interface Claim extends Disc {
   yaw: number;
@@ -432,10 +441,12 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
   };
   indexTowns();
 
-  const monuments = (options.monuments ?? []).map((site) => ({
-    unit: unitAt(site.lat, site.lon, new THREE.Vector3()),
-    radius: (site.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE,
-  }));
+  // By the ground each model takes, its plan, as the towns and the wood keep
+  // off it; a site with none is its footprint's disc, as it always was.
+  const monuments = (options.monuments ?? []).map((site) => {
+    const shape = planShape(site);
+    return { unit: unitAt(site.lat, site.lon, new THREE.Vector3()), shape, reach: planReach(shape) + MONUMENT_CLEARANCE };
+  });
 
   const roads = options.roads;
   const roadIndex = roads !== undefined && options.places !== undefined && roads.length > 0 ? roadIndexFor(roads, options.places) : null;
@@ -450,6 +461,7 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
   const bounds: CellBounds = { south: 0, west: 0, dLat: 0, dLon: 0 };
   const townDiscs: Disc[] = [];
   const builtDiscs: Disc[] = [];
+  const builtPlans: PlanAt[] = [];
   const roadSegments: Segment[] = [];
   const claimed: Claim[] = [];
   /**
@@ -472,6 +484,7 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
   function gather(radius: number): void {
     townDiscs.length = 0;
     builtDiscs.length = 0;
+    builtPlans.length = 0;
     roadSegments.length = 0;
     claimed.length = 0;
     const lat = latOf(up.y);
@@ -496,10 +509,9 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
         }
       }
     }
-    const near = Math.cos((radius + WIDEST_FOOTPRINT + 60) / PLANET_RADIUS);
     for (const site of monuments) {
-      if (site.unit.dot(up) < near) continue;
-      builtDiscs.push({ x: localX(site.unit), z: localZ(site.unit), radius: site.radius });
+      if (site.unit.dot(up) < Math.cos((radius + site.reach + 60) / PLANET_RADIUS)) continue;
+      builtPlans.push({ x: localX(site.unit), z: localZ(site.unit), shape: site.shape });
     }
     if (options.fields !== undefined) {
       fieldHits.length = 0;
@@ -591,6 +603,7 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
       const r = disc.radius + radius;
       if ((x - disc.x) ** 2 + (z - disc.z) ** 2 < r * r) return false;
     }
+    for (const plan of builtPlans) if (planGap(plan.shape, x - plan.x, z - plan.z) < radius + MONUMENT_CLEARANCE) return false;
     for (const claim of claimed) if (claimDistance(claim, x, z) < radius) return false;
     if (roadGap(x, z).gap < radius + ROAD_MARGIN) return false;
     if (water) return true;
@@ -640,6 +653,16 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
     Object.assign(probeClaim, { x, z, yaw, halfX, halfZ, radius: Math.hypot(halfX, halfZ) });
     for (const town of townDiscs) if (claimDistance(probeClaim, town.x, town.z) < town.radius + TOWN_MARGIN) return false;
     for (const disc of builtDiscs) if (claimDistance(probeClaim, disc.x, disc.z) < disc.radius) return false;
+    if (builtPlans.length > 0) {
+      // The field's own box in the cell's frame, which holds the turned field.
+      const ex = Math.abs(halfX * Math.cos(yaw)) + Math.abs(halfZ * Math.sin(yaw));
+      const ez = Math.abs(halfX * Math.sin(yaw)) + Math.abs(halfZ * Math.cos(yaw));
+      for (const plan of builtPlans) {
+        const dx = x - plan.x;
+        const dz = z - plan.z;
+        if (planGapToBox(plan.shape, dx - ex, dx + ex, dz - ez, dz + ez) < MONUMENT_CLEARANCE) return false;
+      }
+    }
     for (const claim of claimed) {
       if (claim.halfX > 0 ? rectsOverlap(claim, probeClaim) : claimDistance(probeClaim, claim.x, claim.z) < claim.radius) return false;
     }

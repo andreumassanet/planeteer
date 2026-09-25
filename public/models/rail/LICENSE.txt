@@ -1,0 +1,11 @@
+The models in this directory, rebuilt by scripts/build-kit.ts.
+Geometry, colours and animation clips are unchanged except where the script
+says: wheels rebuilt, materials merged into colour slots, normals creased.
+
+Kenney (https://kenney.nl) — Car Kit, Watercraft Kit, Nature Kit, City Kit (Suburban),
+City Kit (Commercial), City Kit (Roads), Train Kit. License: CC0 1.0 Universal.
+Quaternius (https://quaternius.com) — Ultimate Animated Animals, Farm Animal Pack,
+Public Transport. License: CC0 1.0 Universal.
+Kay Lousberg (https://www.kaylousberg.com) — KayKit Forest Nature Pack 1.0.
+License: CC0 1.0 Universal.
+CreativeTrio — Church (https://poly.pizza/m/GHzPfvoyzX). License: CC0 1.0 Universal.

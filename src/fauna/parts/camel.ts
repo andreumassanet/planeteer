@@ -90,7 +90,7 @@ export const camel: Animal = {
   // Animated Animals, CC0) with a hump grown on its back at bake time
   // (`scripts/build-kit.ts`). The mane goes the colour of the hide.
   rigs: [
-    { id: 'camel', weight: 1, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'under', Hair: 'coat', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
+    { id: 'camel', weight: 1, back: 2.05, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'under', Hair: 'coat', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
   ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>

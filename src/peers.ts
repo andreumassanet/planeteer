@@ -20,7 +20,10 @@
  * the hero's own motion (`createMotion` in `avatar.ts`) from the speed and the
  * state on the wire: the walk and the run, the jump and its landing, the
  * crawl and treading water, a wave, a dance or sitting down when they make
- * one (`emote` on the wire), or held in its seat when it sits in a vehicle —
+ * one (`emote` on the wire), sitting on a bench or under an open canopy
+ * (`flags` on the wire, kept by the relay for whoever joins later), diving
+ * when their state is under the water's surface, or held in its seat when it
+ * sits in a vehicle —
  * the vehicle itself is the fleet's, drawn once for everybody; past
  * `DRAW_REACH` it is only a mark on the minimap. A peer is a moving mesh and
  * therefore its own, never merged.
@@ -36,8 +39,11 @@ import type { Motion } from './avatar.ts';
 import type { Player } from './player.ts';
 import { PLAYER_STATES } from './craft/contract.ts';
 import type { FleetSeats, PlayerState } from './craft/contract.ts';
-import { cleanEmote } from '../server/src/limits.ts';
+import { FLAGS, cleanEmote, cleanFlags, hasFlag } from '../server/src/limits.ts';
 import type { Emote } from '../server/src/limits.ts';
+import { buildParachute, openCanopy } from './craft/parachute.ts';
+import { PLANET_RADIUS } from './globe.ts';
+import { WATERLINE } from './vehicles.ts';
 
 /** `[x, y, z, fx, fy, fz, state, speed, airborne]`; see `server/src/index.ts`. */
 type State = [number, number, number, number, number, number, number, number, number];
@@ -61,6 +67,14 @@ const GESTURE_STALE_MS = 3_000;
  * run of clicks on the card sends the first at once and the last after this.
  */
 const LOOK_SEND_MS = 1100;
+/** The least time between two changes of flags sent, a little over the relay's `FLAGS_INTERVAL_MS`. */
+const FLAGS_SEND_MS = 250;
+/**
+ * How far under the water's surface a swimmer's state has to be for the
+ * body to dive: `UNDER_FROM` in `player.ts`, which says when the player's
+ * own body does.
+ */
+const DIVING_FROM = 0.6;
 
 /**
  * This page's secret on the relay, the same across every reconnection and
@@ -93,6 +107,8 @@ interface Body {
   /** Last frame's facing and whether it was off the ground, for a turn and a landing. */
   facing: THREE.Vector3;
   airborne: boolean;
+  /** How far under the surface the stroke is, 0 to 1, eased as the player's own is. */
+  under: number;
 }
 
 interface Peer {
@@ -111,6 +127,15 @@ interface Peer {
    */
   gesture: Emote | null;
   gestureAt: number;
+  /** What the relay says they are doing that a state does not (`FLAGS`). */
+  flags: number;
+  /** The canopy over them, made the first time it opens, and how long it has been open. */
+  canopy: THREE.Object3D | null;
+  canopyAge: number;
+  /** Whether the flags said they were on a bench last frame. */
+  sat: boolean;
+  /** Whether the state drawn this frame is off the ground. */
+  aloft: boolean;
 }
 
 export interface PeerMark {
@@ -171,6 +196,11 @@ export interface Peers {
   readonly online: number | null;
   /** Where a peer is drawn, in world units, or `null` if it has gone. */
   positionOf(id: string): THREE.Vector3 | null;
+  /**
+   * Whether a peer's drawn state is off the ground: a jump, a fall, a
+   * flight, and a horse's leap under its rider (`FleetLink.leaping`).
+   */
+  airborneOf(id: string): boolean;
   /** Our name as we chose it, `''` for none. */
   readonly name: string;
   /**
@@ -279,6 +309,11 @@ export function createPeers(url: string, folk: Folk): Peers {
   const names = new Map<string, string>();
   /** Every look the relay has told us, by id, kept past a drop for silence like the names. */
   const looks = new Map<string, string>();
+  /** Every player's flags the relay has told us, by id, kept like the looks. */
+  const flagsById = new Map<string, number>();
+  /** Ours as the relay last heard them, and when they went. */
+  let flagsSent = 0;
+  let flagsSentAt = 0;
   /** Ours, and when it last went out on the open socket. */
   let look = '';
   let lookSentAt = 0;
@@ -355,6 +390,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       for (const id of [...peers.keys()]) drop(id);
       names.clear();
       looks.clear();
+      flagsById.clear();
       setState('closed');
       setTimeout(connect, retry);
       retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
@@ -362,7 +398,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   }
 
   function receive(text: string): void {
-    let message: { t?: unknown; id?: string; name?: string; s?: State; peers?: unknown[][]; looks?: unknown; look?: unknown; l?: unknown; e?: unknown };
+    let message: { t?: unknown; id?: string; name?: string; s?: State; peers?: unknown[][]; looks?: unknown; look?: unknown; l?: unknown; e?: unknown; f?: unknown; flags?: unknown };
     try {
       message = JSON.parse(text);
     } catch {
@@ -384,6 +420,15 @@ export function createPeers(url: string, folk: Folk): Peers {
       if (typeof message.looks === 'object' && message.looks !== null) {
         for (const [id, code] of Object.entries(message.looks as Record<string, unknown>)) {
           if (typeof code === 'string') looks.set(id, code);
+        }
+      }
+      // A new socket is a new attachment on the relay, which holds no flags
+      // for us: the next frame sends ours again if there are any.
+      flagsSent = 0;
+      if (typeof message.flags === 'object' && message.flags !== null) {
+        for (const [id, raw] of Object.entries(message.flags as Record<string, unknown>)) {
+          const f = cleanFlags(raw);
+          if (f > 0) flagsById.set(id, f);
         }
       }
       for (const row of message.peers ?? []) {
@@ -409,10 +454,14 @@ export function createPeers(url: string, folk: Folk): Peers {
         peer.gesture = gesture;
         peer.gestureAt = now;
       }
+    } else if (message.t === 'flags' && typeof message.id === 'string') {
+      const f = cleanFlags(message.f);
+      if (f >= 0) flagsById.set(message.id, f);
     } else if (message.t === 'bye' && typeof message.id === 'string') {
       drop(message.id);
       names.delete(message.id);
       looks.delete(message.id);
+      flagsById.delete(message.id);
     }
     for (const listener of messageListeners) {
       try {
@@ -433,7 +482,10 @@ export function createPeers(url: string, folk: Folk): Peers {
     label.position.y = AVATAR_HEIGHT * 1.15;
     holder.add(label);
     group.add(holder);
-    peer = { id, name, snapshots: [], heard: performance.now(), holder, body: null, label, shown: new THREE.Vector3(), gesture: null, gestureAt: 0 };
+    peer = {
+      id, name, snapshots: [], heard: performance.now(), holder, body: null, label, shown: new THREE.Vector3(),
+      gesture: null, gestureAt: 0, flags: 0, canopy: null, canopyAge: 0, sat: false, aloft: false,
+    };
     peers.set(id, peer);
     return peer;
   }
@@ -468,9 +520,45 @@ export function createPeers(url: string, folk: Folk): Peers {
     if (peer === undefined) return;
     group.remove(peer.holder);
     undress(peer);
+    // The canopy's geometry and material are the shared one's (`canopyFor`).
+    peer.canopy?.removeFromParent();
     peer.label.material.map?.dispose();
     peer.label.material.dispose();
     peers.delete(id);
+  }
+
+  /** Our flags, sent when they change, no sooner than `FLAGS_SEND_MS` after the last. */
+  function sendFlags(player: Player, now: number): void {
+    if (socket === null || socket.readyState !== WebSocket.OPEN || stats.id === null) return;
+    const flags = (player.canopy ? 1 << FLAGS.indexOf('chute') : 0) | (player.sitting ? 1 << FLAGS.indexOf('sitting') : 0);
+    if (flags === flagsSent || now - flagsSentAt < FLAGS_SEND_MS) return;
+    flagsSent = flags;
+    flagsSentAt = now;
+    socket.send(JSON.stringify({ t: 'flags', f: flags }));
+    stats.sent++;
+  }
+
+  /** One canopy built once and cloned for every peer under one: the clones share its buffers. */
+  let canopyShape: THREE.Object3D | null = null;
+  function canopyFor(peer: Peer): THREE.Object3D {
+    if (peer.canopy !== null) return peer.canopy;
+    canopyShape ??= buildParachute();
+    peer.canopy = canopyShape.clone();
+    peer.holder.add(peer.canopy);
+    return peer.canopy;
+  }
+
+  /** The canopy over a peer while their flags say it is open, opening out as the player's own does. */
+  function drawCanopy(peer: Peer, dt: number, open: boolean): void {
+    if (!open) {
+      if (peer.canopy !== null) peer.canopy.visible = false;
+      peer.canopyAge = 0;
+      return;
+    }
+    const canopy = canopyFor(peer);
+    canopy.visible = true;
+    peer.canopyAge += dt;
+    openCanopy(canopy, peer.canopyAge, 0);
   }
 
   function send(player: Player): void {
@@ -527,7 +615,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       if ((object as THREE.Mesh).isMesh) object.castShadow = true;
     });
     peer.holder.add(person.root);
-    peer.body = { person, motion: createMotion(person), limbs, facing: new THREE.Vector3(), airborne: false };
+    peer.body = { person, motion: createMotion(person), limbs, facing: new THREE.Vector3(), airborne: false, under: 0 };
     return peer.body;
   }
 
@@ -592,6 +680,7 @@ export function createPeers(url: string, folk: Folk): Peers {
         sentAt = now;
         send(player);
       }
+      sendFlags(player, now);
 
       marks.length = 0;
       nearestMoving = Infinity;
@@ -605,6 +694,7 @@ export function createPeers(url: string, folk: Folk): Peers {
         const state = sample(peer, now);
         if (state === null) continue;
         peer.shown.copy(state.position);
+        peer.aloft = state.airborne;
         let mark = markPool[marks.length];
         if (mark === undefined) {
           mark = { id: '', name: '', x: 0, y: 0, z: 0 };
@@ -622,6 +712,8 @@ export function createPeers(url: string, folk: Folk): Peers {
         const near = away < DRAW_REACH;
         peer.holder.visible = near;
         if (!near) continue;
+        peer.flags = flagsById.get(peer.id) ?? 0;
+        drawCanopy(peer, dt, state.state === 'foot' && hasFlag(peer.flags, 'chute'));
         stats.drawn++;
         if (state.speed > 0) nearestMoving = Math.min(nearestMoving, away);
 
@@ -657,10 +749,24 @@ export function createPeers(url: string, folk: Folk): Peers {
           if (now - peer.gestureAt < GESTURE_STALE_MS) body.motion.emote(peer.gesture);
           peer.gesture = null;
         }
+        // On a bench, held there for as long as the relay says, which is what
+        // a player who joined after they sat down has to go by; and up again
+        // when it says they have stood.
+        const sitting = state.state === 'foot' && hasFlag(peer.flags, 'sitting');
+        if (sitting && body.motion.emoting !== 'sit' && state.speed < 0.5) body.motion.emote('sit');
+        // Only as the flag goes: an older client says it sat down by the
+        // gesture alone, and that sitting is let be.
+        else if (!sitting && peer.sat && body.motion.emoting === 'sit') body.motion.emote(null);
+        peer.sat = sitting;
         // A dance moves the shadow as much as a walk does.
         if (body.motion.emoting !== null) nearestMoving = Math.min(nearestMoving, away);
         if (state.state === 'foot') stride(body, dt, state.speed, state.airborne);
-        else if (state.state === 'swim') body.motion.swim(dt, state.speed);
+        else if (state.state === 'swim') {
+          // A state under the water's surface is a diver's: the long pull and glide.
+          const depth = PLANET_RADIUS + WATERLINE - state.position.length();
+          body.under += ((depth > DIVING_FROM ? 1 : 0) - body.under) * (1 - Math.exp(-3 * dt));
+          body.motion.swim(dt, state.speed, body.under);
+        }
       }
       stats.peers = peers.size;
     },
@@ -675,6 +781,9 @@ export function createPeers(url: string, folk: Folk): Peers {
     },
     get online() {
       return stats.state === 'open' ? peers.size : null;
+    },
+    airborneOf(id) {
+      return peers.get(id)?.aloft ?? false;
     },
     positionOf(id) {
       const peer = peers.get(id);

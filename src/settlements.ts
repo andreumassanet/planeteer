@@ -106,7 +106,7 @@ import { unitAt } from './sphere.ts';
 import { LANDMARK_KEEP, planGap, planGapToBox, planShape } from './landmark-ground.ts';
 import type { PlanShape } from './landmark-ground.ts';
 import { PARKED_AT_RIDE_SCALE, PARKED_CRAFT, PARKED_SLOT, RIDE_SCALE } from './craft/contract.ts';
-import { BENCH_DEPTH, BENCH_SIT_AHEAD } from './bench.ts';
+import { BENCH_DEPTH, BENCH_LONGEST, BENCH_SIT_AHEAD } from './bench.ts';
 import type { Bench } from './bench.ts';
 
 /**
@@ -2174,6 +2174,8 @@ export function createSettlements(
   const PAIR_GAP = 3 * BODY_SCALE;
   /** How many of the first people on a street are one of a pair. */
   const PAIR_SHARE = 0.3;
+  /** How far a stroller keeps from a bench's middle: half the longest bench, and a person's own clearance. */
+  const CLEAR_BENCH = BENCH_LONGEST / 2 + CLEAR_FOLK;
   /** The pace a stroll's stretch is sampled at, and the shortest stretch worth walking. */
   const STROLL_STEP = 0.8;
   const STROLL_MIN = 3;
@@ -3401,15 +3403,16 @@ export function createSettlements(
             }
             // The stretch of street this person may stroll: out from the spot
             // both ways, a pace at a time, while it stays on this cell's level,
-            // off the steps and the landmarks and clear of the parked car.
+            // off the steps and the landmarks, clear of the parked car and
+            // short of every bench, which is a wall.
             let lo = along;
             let hi = along;
-            while (lo - STROLL_STEP > 0.08 * pitch && clearOfCar(lo - STROLL_STEP) &&
-              standable(...pointOf(lo - STROLL_STEP, off), level) &&
-              !inThrough(...pointOf(lo - STROLL_STEP, off))) lo -= STROLL_STEP;
-            while (hi + STROLL_STEP < 0.92 * pitch && clearOfCar(hi + STROLL_STEP) &&
-              standable(...pointOf(hi + STROLL_STEP, off), level) &&
-              !inThrough(...pointOf(hi + STROLL_STEP, off))) hi += STROLL_STEP;
+            const strollable = (at: number): boolean => {
+              const [sx, sz] = pointOf(at, off);
+              return standable(sx, sz, level) && !inThrough(sx, sz) && !nearBench(sx, sz, CLEAR_BENCH);
+            };
+            while (lo - STROLL_STEP > 0.08 * pitch && clearOfCar(lo - STROLL_STEP) && strollable(lo - STROLL_STEP)) lo -= STROLL_STEP;
+            while (hi + STROLL_STEP < 0.92 * pitch && clearOfCar(hi + STROLL_STEP) && strollable(hi + STROLL_STEP)) hi += STROLL_STEP;
             if (hi - lo < STROLL_MIN) lo = hi = along;
             out.folk.push(...spot);
             pavingAt(...pointOf(lo, off), level, out.folk);
@@ -4477,6 +4480,10 @@ export function createSettlements(
       transform.compose(lampAt, quaternion, scaleVector);
       standing.push({ flat, matrix: transform.clone(), glow: 0 });
       vertices += flat.position.length / 3;
+      // **A bench is a wall**, as the countryside's are: its plan box, from
+      // the paving it stands on. A sitter is not asked (`player.ts`), and
+      // getting up steps clear of it.
+      solids.push(solidOf(flat, lampAt.x, lampAt.z, yaw, 1, origin.length() - PLANET_RADIUS + lampAt.y - GROUND_LIFT));
       // Resolved into the world's frame with the people, below.
       slot.benches.push({
         position: new THREE.Vector3(Math.sin(yaw) * BENCH_SIT_AHEAD, 0, Math.cos(yaw) * BENCH_SIT_AHEAD).add(lampAt),

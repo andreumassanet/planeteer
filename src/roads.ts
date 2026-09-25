@@ -3,7 +3,7 @@ import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { LAMP_POOL, lightWindows, poolAt } from './lights.ts';
-import { OTHER_EDGE, layRoadside } from './roadside.ts';
+import { GIRDER, OTHER_EDGE, layRoadside } from './roadside.ts';
 import type { Roadside, RoadsideSite } from './roadside.ts';
 import { keepsLeft } from './traffic/regions.ts';
 import { proxyOf } from './warm.ts';
@@ -122,6 +122,15 @@ export interface Road {
    */
   gateA: number;
   gateB: number;
+  /**
+   * Where the road crosses water on a bridge, as distances along its path
+   * from gate A, in world units: the first and the last wet point the bake's
+   * walk found (`WATER_PROBE_STEP` apart), or both 0 for a road that never
+   * leaves the land. **Baked, for the bow's reason**: the span the bake
+   * tested is the span that is drawn, driven and checked. See `BRIDGE_SPAN`.
+   */
+  bridgeFrom: number;
+  bridgeTo: number;
   /**
    * How far back the road is drawn, in depth layers: 0 in front, and one
    * behind the deepest road it overlaps that outranks it. See `layersOf`, which
@@ -824,11 +833,11 @@ const HANDLE_MAX = 80;
  * and a long one only swings the road further out before it comes back — and
  * at `HANDLE_MAX` in world units, for the same reason on a long road.
  */
-function handleFor(chord: number, out: THREE.Vector3, toward: THREE.Vector3): number {
+function handleFor(chord: number, out: THREE.Vector3, toward: THREE.Vector3, most = HANDLE_MAX): number {
   const length = toward.length();
   const cos = length > 0 ? Math.min(1, Math.max(-1, out.dot(toward) / length)) : 1;
   const halfCos = (1 + cos) * 0.5;
-  return Math.min(HANDLE_CAP * chord, HANDLE_MAX / PLANET_RADIUS, chord / (3 * Math.max(halfCos, 1e-6)));
+  return Math.min(HANDLE_CAP * chord, most / PLANET_RADIUS, chord / (3 * Math.max(halfCos, 1e-6)));
 }
 
 /**
@@ -873,13 +882,27 @@ export function courseOf(road: Road, places: readonly Place[], into: RoadCourse 
   // stub's own tangent plane, which is the approach's own direction exactly.
   courseOutA.copy(townA.across).multiplyScalar(gateA.outX).addScaledVector(townA.north, gateA.outZ);
   courseOutB.copy(townB.across).multiplyScalar(gateB.outX).addScaledVector(townB.north, gateB.outZ);
+  return joinCourse(into, courseOutA, courseOutB, road.bend, approach);
+}
+
+/**
+ * The middle of a course between two stubs already laid, and its measure:
+ * the handles out along each end's own outward direction, the bow along the
+ * chord's pole, and the length and share. `handleMost` is the longest a
+ * handle may be in world units: a road's `HANDLE_MAX`, and longer for a
+ * railway, which has to turn wide. `courseOf` lays a road's two gates
+ * and stubs and ends here; a railway's line lays its two stations' and ends
+ * here too (`rails.ts`), so the curve a train runs on is the curve a road
+ * does, made the one way.
+ */
+export function joinCourse(into: RoadCourse, outA: THREE.Vector3, outB: THREE.Vector3, bend: number, approach: number, handleMost = HANDLE_MAX): RoadCourse {
   const chord = into.stubA.distanceTo(into.stubB);
   courseChord.subVectors(into.stubB, into.stubA);
-  into.handleA.copy(into.stubA).addScaledVector(courseOutA, handleFor(chord, courseOutA, courseChord));
+  into.handleA.copy(into.stubA).addScaledVector(outA, handleFor(chord, outA, courseChord, handleMost));
   courseChord.negate();
-  into.handleB.copy(into.stubB).addScaledVector(courseOutB, handleFor(chord, courseOutB, courseChord));
+  into.handleB.copy(into.stubB).addScaledVector(outB, handleFor(chord, outB, courseChord, handleMost));
   roadPole(into.stubA, into.stubB, into.pole);
-  into.bow = road.bend * into.stubA.angleTo(into.stubB);
+  into.bow = bend * into.stubA.angleTo(into.stubB);
   into.approach = approach;
   let middle = 0;
   courseLast.copy(into.stubA);
@@ -1076,6 +1099,22 @@ export function tightestTurn(path: CoursePath): number {
   return tightest;
 }
 
+/** The distance along a path from gate A at `t`: `parameterAt` run backwards. */
+export function distanceAt(path: CoursePath, t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return path.length;
+  let low = 0;
+  let high = path.count - 1;
+  while (high - low > 1) {
+    const middle = (low + high) >> 1;
+    if (path.t[middle]! <= t) low = middle;
+    else high = middle;
+  }
+  const span = path.t[high]! - path.t[low]!;
+  const along = span > 0 ? (t - path.t[low]!) / span : 0;
+  return path.s[low]! + (path.s[high]! - path.s[low]!) * along;
+}
+
 /** The `t` at a distance `s` along a path from gate A: 0 and 1 at the two gates, exactly. */
 export function parameterAt(path: CoursePath, s: number): number {
   if (s <= 0) return 0;
@@ -1202,10 +1241,70 @@ export interface RoadRamp {
   walkB: number;
   kerbA: number;
   kerbB: number;
+  /**
+   * A bridge: the wet span, `bridgeFrom` to `bridgeTo` along the path (both
+   * 0 for none), and the crown's elevation where each of its two ramps
+   * leaves the land's lift, `BRIDGE_LAND` short of each shore. See
+   * `bridgeDeck`.
+   */
+  bridgeFrom: number;
+  bridgeTo: number;
+  deckA: number;
+  deckB: number;
 }
 
 export function emptyRamp(): RoadRamp {
-  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, walkA: 0, walkB: 0, kerbA: 0, kerbB: 0 };
+  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, walkA: 0, walkB: 0, kerbA: 0, kerbB: 0, bridgeFrom: 0, bridgeTo: 0, deckA: 0, deckB: 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Bridges
+// ---------------------------------------------------------------------------
+
+/**
+ * **A road may cross narrow water on a bridge** (2026-09-25): a strait, a
+ * lake's neck or a sea inlet no wider than `BRIDGE_SPAN`, once, clear of both
+ * its gates' approaches and ramps by `BRIDGE_LAND` of dry road either side.
+ * Before, the bake refused every road that got its feet wet, and a town
+ * across a narrow sound from its neighbours had no road at all.
+ *
+ * **The deck is part of the road's height law**, not a thing laid over it:
+ * `crownLift` takes the higher of the road's own crown and `bridgeDeck`, so
+ * the ribbon, a foot (`ribbonHeightAt`), the traffic's wheels and `pnpm
+ * check` all read the one number. It climbs from the land's lift at
+ * `BRIDGE_GRADE`, `BRIDGE_LAND` short of each shore, to `DECK_HEIGHT` over the
+ * water, so a narrow crossing is an arch and a wide one is level in the middle
+ * with its boats passing under; over the span the ribbon's shoulders are a
+ * girder `GIRDER` deep rather than a bank to the ground, and the roadside
+ * draws the railings and the piers (`roadside.ts`).
+ *
+ * 120 units is about 48 km of the Earth at this world's scale, which admits
+ * the Bosporus, Messina, the Øresund and most of the world's sounds and
+ * lakes' necks, and not Mallorca from the mainland (170 km).
+ */
+export const BRIDGE_SPAN = 120;
+export const BRIDGE_LAND = 40;
+export const BRIDGE_GRADE = 0.18;
+/** The deck's highest, as an elevation over the sea: a launch, a jet ski and a sailboat's mast pass under the middle. */
+export const DECK_HEIGHT = 24;
+/** How deep the deck's edge girder is under the crown: `roadside.ts`'s, whose piers stand under it. */
+export { GIRDER };
+
+/** The crown's elevation a bridge asks for `sA` along the road, or -Infinity off its ramps. */
+export function bridgeDeck(ramp: RoadRamp, sA: number): number {
+  if (ramp.bridgeTo <= ramp.bridgeFrom) return -Infinity;
+  const start = ramp.bridgeFrom - BRIDGE_LAND;
+  const end = ramp.bridgeTo + BRIDGE_LAND;
+  if (sA <= start || sA >= end) return -Infinity;
+  // Level at `DECK_HEIGHT`, or at the higher shore's own crown where a shore
+  // stands higher than that, so the deck never steps down off a cliff.
+  const top = Math.max(DECK_HEIGHT, ramp.deckA, ramp.deckB);
+  return Math.min(top, ramp.deckA + BRIDGE_GRADE * (sA - start), ramp.deckB + BRIDGE_GRADE * (end - sA));
+}
+
+/** Whether `sA` is over a bridge's water: where the ribbon's shoulders are its girders. */
+export function onBridge(ramp: RoadRamp, sA: number): boolean {
+  return ramp.bridgeTo > ramp.bridgeFrom && sA > ramp.bridgeFrom && sA < ramp.bridgeTo;
 }
 
 export function rampOf(
@@ -1243,8 +1342,22 @@ export function rampOf(
       into.kerbB = kerb;
     }
   }
+  into.bridgeFrom = road.bridgeFrom;
+  into.bridgeTo = road.bridgeTo;
+  into.deckA = 0;
+  into.deckB = 0;
+  if (road.bridgeTo > road.bridgeFrom) {
+    // Where each ramp leaves the land's lift: its crown there, the ground's
+    // elevation plus `RIBBON_LIFT`. The path is walked for a bridged road only.
+    const path = coursePath(course);
+    coursePoint(course, parameterAt(path, road.bridgeFrom - BRIDGE_LAND), rampProbe);
+    into.deckA = world.elevationAt(rampProbe) + RIBBON_LIFT;
+    coursePoint(course, parameterAt(path, road.bridgeTo + BRIDGE_LAND), rampProbe);
+    into.deckB = world.elevationAt(rampProbe) + RIBBON_LIFT;
+  }
   return into;
 }
+const rampProbe = new THREE.Vector3();
 
 /** How far a ramp of `rise` reaches out from its kerb, in world units. */
 export function rampReach(rise: number): number {
@@ -1629,8 +1742,15 @@ export function screeAt(road: Road, places: readonly Place[]): number {
   const course = courseOf(road, places, slopeCourse);
   const steps = Math.max(2, Math.ceil(course.length / SLOPE_STEP));
   const reach = roadClearance(road.cls);
+  // A bridge's water, and its shores, are the deck's: nothing stands on the ground there.
+  const bridged = road.bridgeTo > road.bridgeFrom;
+  const path = bridged ? coursePath(course) : null;
   for (let step = 1; step < steps; step++) {
     const t = step / steps;
+    if (path !== null) {
+      const s = distanceAt(path, t);
+      if (s > road.bridgeFrom - SLOPE_STEP && s < road.bridgeTo + SLOPE_STEP) continue;
+    }
     coursePoint(course, t, slopeAt);
     // The road's own frame, so `gradeAt`'s four probes straddle the carriageway
     // rather than an arbitrary square: across it, and along it.
@@ -2311,6 +2431,8 @@ const SHOULDER_DROP = RIBBON_LIFT + 1.5;
  * two units, as the bank's buried foot, under the paving (`pnpm check`).
  */
 const EMBANKMENT_RUN = 4.8;
+/** How far out from the deck's edge its girder's foot is drawn: nearly straight down. */
+const GIRDER_RUN = 0.35;
 
 /**
  * The shoulder: a strip of gravel either side of the carriageway, at its
@@ -2571,6 +2693,12 @@ export interface RoadStats {
 export interface Roads {
   group: THREE.Group;
   stats: RoadStats;
+  /**
+   * Ground something else has taken, which nothing beside a road may stand
+   * on: the railway's track and stations, where a line crosses a road. Laid
+   * roadsides are laid again.
+   */
+  setTaken(taken: ((point: THREE.Vector3, footprint: number) => boolean) | null): void;
   /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
   proxies(): THREE.Object3D[];
   /**
@@ -2635,7 +2763,7 @@ export function crownFall(top: number): number {
  * `centre` the relief under the centre line at the same distance along; only
  * their difference is read, so they may be radii or elevations alike.
  *
- * Three terms:
+ * Three terms, and a bridge's deck over them:
  *
  * - `RIBBON_LIFT`, which is the whole of it away from the gates.
  * - Each gate's `rise` (`rampOf`), decaying at `RAMP_GRADE` from its whole
@@ -2652,7 +2780,10 @@ export function crownFall(top: number): number {
  */
 export function crownLift(ramp: RoadRamp, sA: number, sB: number, ground: number, centre: number): number {
   const lift = RIBBON_LIFT + riseLeft(ramp.riseA, sA) + riseLeft(ramp.riseB, sB);
-  return lift - (levelling(ramp.levelA, sA) + levelling(ramp.levelB, sB)) * (ground - centre);
+  const road = lift - (levelling(ramp.levelA, sA) + levelling(ramp.levelB, sB)) * (ground - centre);
+  // A bridge's deck, where it stands higher than the road would.
+  const deck = bridgeDeck(ramp, sA);
+  return deck > ground + road ? deck - ground : road;
 }
 
 /** Whether `crownLift` reads `centre` here at all: only over an approach into a built town. */
@@ -2713,6 +2844,8 @@ export function surfaceLift(
   const edge = crownLift(ramp, sA, sB, ground, centre);
   const away = Math.abs(lateral);
   if (away <= crown) return edge;
+  // Over a bridge's water the edge is a girder, not a bank: past it is the drop.
+  if (onBridge(ramp, sA)) return away <= crown + GIRDER_RUN ? edge - GIRDER : -Infinity;
   const shoulder = crown + EMBANKMENT_RUN;
   const foot = RIBBON_LIFT - SHOULDER_DROP;
   if (away >= shoulder) return foot;
@@ -2737,6 +2870,10 @@ export function ribbonStations(
   out: number[],
 ): number[] {
   const marks = [0, length, approach, length - approach, rampReach(ramp.riseA), length - rampReach(ramp.riseB)];
+  // A bridge's shores, where the girder begins, and where its ramps leave the land.
+  if (ramp.bridgeTo > ramp.bridgeFrom) {
+    marks.push(ramp.bridgeFrom, ramp.bridgeTo, ramp.bridgeFrom - BRIDGE_LAND, ramp.bridgeTo + BRIDGE_LAND);
+  }
   // Where a pavement ends and where its taper does, so the colour changes on a
   // section and the width's corner is drawn rather than cut across.
   if (ramp.walkA > 0) marks.push(PAVEMENT_RUN, PAVEMENT_RUN + PAVEMENT_TAPER);
@@ -2792,14 +2929,19 @@ export function ribbonSection(
   sectionSide.crossVectors(sectionAt, sectionAhead).normalize();
   const sB = path.length - s;
   const crown = ribbonHalf(ramp, half, s, sB);
-  const shoulder = crown + EMBANKMENT_RUN;
+  const bridged = onBridge(ramp, s);
+  const shoulder = crown + (bridged ? GIRDER_RUN : EMBANKMENT_RUN);
   const centre = needsCentre(ramp, s, sB) ? world.elevationAt(sectionAt) : 0;
   for (let k = 0; k < 4; k++) {
     const offset = k === 0 ? -shoulder : k === 1 ? -crown : k === 2 ? crown : shoulder;
     const target = into[k]!;
     target.copy(sectionAt).addScaledVector(sectionSide, offset / PLANET_RADIUS).normalize();
     const ground = world.elevationAt(target);
-    const lift = k === 0 || k === 3 ? RIBBON_LIFT - SHOULDER_DROP : crownLift(ramp, s, sB, ground, centre);
+    // Over the water the shoulder is the deck's girder, a drop under its edge;
+    // everywhere else a bank buried in the ground.
+    const lift = k === 0 || k === 3
+      ? bridged ? crownLift(ramp, s, sB, ground, centre) - GIRDER : RIBBON_LIFT - SHOULDER_DROP
+      : crownLift(ramp, s, sB, ground, centre);
     target.multiplyScalar(PLANET_RADIUS + ground + lift);
   }
 }
@@ -2825,6 +2967,7 @@ const ownClearOf = (other: OtherRoad, s: number): number => otherTop(other, s) -
 export function roadsideSite(
   road: Road, course: RoadCourse, path: CoursePath, ramp: RoadRamp, places: readonly Place[], world: World,
   others: readonly OtherRoad[] = [],
+  taken: ((point: THREE.Vector3, footprint: number) => boolean) | null = null,
 ): RoadsideSite {
   const half = (ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!).width * 0.5;
   const a = places[road.a]!;
@@ -2861,8 +3004,11 @@ export function roadsideSite(
     },
     groundRadius: (point) => PLANET_RADIUS + Math.max(0, world.elevationAt(siteCentre.copy(point).normalize())),
     clear: (point, footprint) =>
-      insideOthers(others, point, clearOf) + footprint <= 0 && insideOthers(own, point, ownClearOf) + footprint <= 0,
+      insideOthers(others, point, clearOf) + footprint <= 0 &&
+      insideOthers(own, point, ownClearOf) + footprint <= 0 &&
+      (taken === null || !taken(point, footprint)),
     roofline: (point) => othersRoofline(others, point, world),
+    bridge: ramp.bridgeTo > ramp.bridgeFrom ? [ramp.bridgeFrom, ramp.bridgeTo, BRIDGE_LAND] : null,
     nameA: a.name,
     nameB: b.name,
     townA: ramp.kerbA > 0,
@@ -3159,6 +3305,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    */
   const roadsides = new Map<number, Roadside & { bytes: number }>();
   let roadsideBytes = 0;
+  let takenGround: ((point: THREE.Vector3, footprint: number) => boolean) | null = null;
   function roadsideOf(index: number): Roadside & { bytes: number } {
     const known = roadsides.get(index);
     if (known !== undefined) {
@@ -3167,7 +3314,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       return known;
     }
     const site = roadsideSite(
-      roads[index]!, geometry.course(index), geometry.path(index), rampFor(index), places, world, othersFor(index),
+      roads[index]!, geometry.course(index), geometry.path(index), rampFor(index), places, world, othersFor(index), takenGround,
     );
     const laid = layRoadside(site);
     const made = {
@@ -3307,6 +3454,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const walkB = new THREE.Color();
   const verge = new THREE.Color();
   const ground = new THREE.Color();
+  /** A bridge's girder, where the bank would be: the piers' weathered concrete. */
+  const girder = new THREE.Color(PALETTE.bone).lerp(new THREE.Color(PALETTE.tan), 0.35).multiplyScalar(0.85);
   const ink = new THREE.Color(0x2a1410);
   const line = new THREE.Color(PALETTE.white);
 
@@ -3603,8 +3752,16 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     for (let k = 1; k < stations.length; k++) {
       const sFar = stations[k]!;
       ribbonSection(world, course, path, ramp, half, sFar, far);
-      quad(near[0]!, far[0]!, far[1]!, near[1]!, ground, verge);
-      quad(near[2]!, far[2]!, far[3]!, near[3]!, verge, ground);
+      if (onBridge(ramp, (stations[k - 1]! + sFar) * 0.5)) {
+        quad(near[0]!, far[0]!, far[1]!, near[1]!, girder, girder);
+        quad(near[2]!, far[2]!, far[3]!, near[3]!, girder, girder);
+        // And the deck's soffit, from girder to girder, facing the water: a
+        // boat under the bridge sees its underside, not the sky through it.
+        quad(near[3]!, far[3]!, far[0]!, near[0]!, girder, girder);
+      } else {
+        quad(near[0]!, far[0]!, far[1]!, near[1]!, ground, verge);
+        quad(near[2]!, far[2]!, far[3]!, near[3]!, verge, ground);
+      }
       if (near0) {
         carriageOn(far, ribbonHalf(ramp, half, sFar, path.length - sFar), farL, farR);
         const middle = (stations[k - 1]! + sFar) * 0.5;
@@ -4072,6 +4229,14 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       if (Number.isNaN(ground)) ground = world.elevationAt(heightDir);
       const centre = needsCentre(ramp, along, path.length - along) ? world.elevationAt(heightNearest) : ground;
       const lift = surfaceLift(ramp, style.width * 0.5, along, path.length - along, nearest, ground, centre);
+      // A bridge's deck is a floor from above and a roof from below: a
+      // swimmer or a boat under it (any point off the sea's surface and
+      // under the girder) passes, and one that falls off it falls. A query
+      // made at the sea's own radius, or as a bare direction, is from above.
+      if (onBridge(ramp, along)) {
+        const radius = point.length();
+        if (radius > PLANET_RADIUS + 0.25 && radius < PLANET_RADIUS + ground + lift - 2 * GIRDER) continue;
+      }
       if (lift > best) best = lift;
     }
     if (best <= 0) return 0;
@@ -4086,6 +4251,13 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     stats,
     all: roads,
     ribbonHeightAt,
+    setTaken(taken) {
+      // Called once, as the railway arrives and before a tile is laid: what
+      // was laid beside the roads is laid again, keeping off it.
+      takenGround = taken;
+      roadsides.clear();
+      roadsideBytes = 0;
+    },
     proxies: () => [proxyOf(material), proxyOf(propsMaterial)],
 
     lampsNear(viewer, radius, out, count) {

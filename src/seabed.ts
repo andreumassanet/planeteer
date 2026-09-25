@@ -1242,7 +1242,13 @@ export function createSea(world: World): Sea {
       for (const tile of tiles.values()) if (tile.state === 'ready' && tile.lived !== null) visit(tile.lived);
     },
     proxies() {
-      return [proxyOf(floorMesh.material as THREE.Material), proxyOf(decorMesh.material as THREE.Material), proxyOf(waterMesh.material as THREE.Material)];
+      return [
+        proxyOf(floorMesh.material as THREE.Material),
+        proxyOf(decorMesh.material as THREE.Material),
+        proxyOf(waterMesh.material as THREE.Material),
+        // The haze's backdrop, drawn only under the surface: the first dive's.
+        proxyOf(backdrop.material),
+      ];
     },
   };
 

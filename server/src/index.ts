@@ -36,13 +36,17 @@
  *   `{ t: 'emote', e }` a gesture (`EMOTES`), at most one a second;
  *   `{ t: 'honk', k }` a horn (`HONKS`), from a driver's seat, at most one
  *     each `HONK_INTERVAL_MS`. An older relay drops it, as it drops anything
- *     it does not know.
+ *     it does not know;
+ *   `{ t: 'flags', f }` what the player is doing that a state does not say
+ *     (`FLAGS`: a canopy, a bench), on each change, at most one each
+ *     `FLAGS_INTERVAL_MS`; kept, unlike a gesture.
  * - server -> client:
  *   `{ t: 'hi', id, peers: [[id, name, ...state]], vehicles: [[v, pose | null, seats]], looks, chat }`
  *     once, on joining; `vehicles` is every vehicle moved off its site or
  *     with anybody in it, and `seats` is by player id, `null` for empty;
  *     `looks` is how each player who said so looks, by id; `chat` is the
  *     room's last `CHAT_HISTORY` lines, oldest first, as `chat` sends them;
+ *     `flags` is each player's flags that are not 0, by id;
  *   `{ t: 'in', id, name, look? }` when someone joins;
  *   `{ t: 'look', id, l }` when someone changes how they look;
  *   `{ t: 'at', id, s: state }` whenever someone moves;
@@ -58,7 +62,8 @@
  *     too, stamped with who sent it under the name the room knows them by and
  *     when; the sender's copy is how it knows the line went;
  *   `{ t: 'emote', id, e }` a gesture, to everyone but its maker;
- *   `{ t: 'honk', id, k }` a horn, to everyone but its driver.
+ *   `{ t: 'honk', id, k }` a horn, to everyone but its driver;
+ *   `{ t: 'flags', id, f }` a player's new flags, to everyone but them.
  *
  * The chat is one room for the planet, like everything else here, and it is
  * kept in memory only: a room that sleeps with nobody in it wakes with no
@@ -88,6 +93,7 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   CHAT_HISTORY,
   EMOTE_INTERVAL_MS,
+  FLAGS_INTERVAL_MS,
   HONK_INTERVAL_MS,
   MAX_RADIUS,
   MAX_SPEED,
@@ -95,6 +101,7 @@ import {
   cleanChat,
   cleanCountry,
   cleanEmote,
+  cleanFlags,
   cleanHonk,
   cleanLook,
   driveReach,
@@ -167,12 +174,14 @@ interface Attachment {
   /** The page's secret across its reconnections, `''` for a client that sent none. */
   key: string;
   state: State | null;
+  /** What the player is doing that `state` does not say (`FLAGS`), 0 for nothing. */
+  flags: number;
   /** The seat this socket holds, `[vehicle, seat]`. */
   seat: [string, number] | null;
   /** The last pose it sent as a driver, so a wake knows where the vehicle is. */
   drive: { v: string; p: Pose; at: number } | null;
   /** When each kind of message was last accepted; kept here so a hibernation forgives nothing. */
-  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number; honk: number };
+  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number; honk: number; flags: number };
   /** What this socket may still say in the chat (`spendChat`). */
   chat: ChatBucket;
 }
@@ -275,9 +284,10 @@ function attachmentOf(socket: WebSocket): Attachment | null {
     look: raw.look ?? '',
     key: raw.key ?? '',
     state: raw.state ?? null,
+    flags: raw.flags ?? 0,
     seat: raw.seat ?? null,
     drive: raw.drive ?? null,
-    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0, ...raw.rate },
+    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0, flags: 0, ...raw.rate },
     chat: raw.chat ?? freshBucket(),
   };
 }
@@ -351,8 +361,8 @@ export class Room extends DurableObject<Env> {
     const look = cleanLook(query.get('look'));
     const key = query.get('key') ?? '';
     server.serializeAttachment({
-      id, name, look, key: KEY.test(key) ? key : '', state: null, seat: null, drive: null,
-      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0 },
+      id, name, look, key: KEY.test(key) ? key : '', state: null, flags: 0, seat: null, drive: null,
+      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0, flags: 0 },
       chat: freshBucket(),
     } satisfies Attachment);
 
@@ -365,14 +375,16 @@ export class Room extends DurableObject<Env> {
     // Beside the rows rather than in them: a row's length is what an older
     // client checks a state by, and a tenth field would drop every peer.
     const looks: Record<string, string> = {};
+    const flags: Record<string, number> = {};
     for (const socket of sockets) {
       const other = attachmentOf(socket);
       if (other?.state) peers.push([other.id, other.name, ...other.state]);
       if (other !== null && other.look !== '') looks[other.id] = other.look;
+      if (other !== null && other.flags !== 0) flags[other.id] = other.flags;
     }
     const vehicles: unknown[] = [];
     for (const [v, craft] of this.crafts) vehicles.push([v, craft.pose, trimmed(craft.seats)]);
-    server.send(JSON.stringify({ t: 'hi', id, peers, vehicles, looks, chat: this.history }));
+    server.send(JSON.stringify({ t: 'hi', id, peers, vehicles, looks, flags, chat: this.history }));
     this.broadcast(JSON.stringify(look === '' ? { t: 'in', id, name } : { t: 'in', id, name, look }), server);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -394,7 +406,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (typeof value !== 'object' || value === null) return;
-    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown };
+    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown; f?: unknown };
     if (typed.t === 'vp') this.drive(socket, self, typed, now);
     else if (typed.t === 'sit') this.sit(socket, self, typed, now);
     else if (typed.t === 'up') this.up(socket, self, typed, now);
@@ -402,6 +414,7 @@ export class Room extends DurableObject<Env> {
     else if (typed.t === 'chat') this.say(socket, self, typed.m, typed.c, now);
     else if (typed.t === 'emote') this.gesture(socket, self, typed.e, now);
     else if (typed.t === 'honk') this.honk(socket, self, typed.k, now);
+    else if (typed.t === 'flags') this.flag(socket, self, typed.f, now);
   }
 
   override async webSocketClose(socket: WebSocket, code: number): Promise<void> {
@@ -473,6 +486,17 @@ export class Room extends DurableObject<Env> {
     self.rate.emote = now;
     socket.serializeAttachment(self);
     this.broadcast(JSON.stringify({ t: 'emote', id: self.id, e }), socket);
+  }
+
+  /** A canopy opened, a bench sat on: kept for whoever joins next, and passed on. */
+  private flag(socket: WebSocket, self: Attachment, raw: unknown, now: number): void {
+    if (now - self.rate.flags < FLAGS_INTERVAL_MS) return;
+    const f = cleanFlags(raw);
+    if (f < 0 || f === self.flags) return;
+    self.rate.flags = now;
+    self.flags = f;
+    socket.serializeAttachment(self);
+    this.broadcast(JSON.stringify({ t: 'flags', id: self.id, f }), socket);
   }
 
   /** A horn, from the driver's seat only: passed on, never kept. */

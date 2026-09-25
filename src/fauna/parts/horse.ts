@@ -12,8 +12,18 @@ import { buildAnimal } from '../body.ts';
 import { coatFor, atFaunaScale } from '../contract.ts';
 import type { Animal, AnimalShape, Coat, FaunaContext, FaunaStyle, Rng } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
+import { PERSON_METRES } from '../../stature.ts';
 
 const P = PALETTE;
+
+/**
+ * The top of a horse's back under the saddle, over the ground, as a share of
+ * `AVATAR_HEIGHT`. A horse's withers are 1.6 m against a 1.75 m person, 0.91
+ * of him, and this is a little over life, since a rider's legs have to reach
+ * down its sides. The herds' horse and the ridden one (`craft/horse.ts`) are
+ * both fitted to it, so they are one size.
+ */
+export const WITHERS = 0.95;
 
 const COATS: Coat[] = [
   { color: P.bark, weight: 5 },
@@ -84,9 +94,10 @@ export const horse: Animal = {
   note: 'Steppe and grassland everywhere. The crest and the tail are what read.',
   // Quaternius's horse, and its donkey one in five (Ultimate Animated Animals,
   // CC0). The mane is the shape's point colour, which is what makes a bay a bay.
+  // The donkey's back is 1.2 m, a head under the horse's.
   rigs: [
-    { id: 'horse', weight: 4, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'light', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
-    { id: 'donkey', weight: 1, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_Dark: P.ink, Eye_White: P.white } },
+    { id: 'horse', weight: 4, back: WITHERS * PERSON_METRES, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'light', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
+    { id: 'donkey', weight: 1, back: 1.2, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_Dark: P.ink, Eye_White: P.white } },
   ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>

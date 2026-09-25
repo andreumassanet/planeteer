@@ -28,6 +28,15 @@ const SIT_SEAT = 0.262;
 /** And the back of its hips behind the root: 0.33 of 1.87. */
 const SIT_BACK = 0.1765;
 
+/**
+ * The eyes of a body in the `Sit` clip over its root, as a share of its
+ * height: the standing eye (0.93, `camera.ts`) less how far the head comes
+ * down. Measured off the skinned cast at `AVATAR_HEIGHT` (2026-09-25): the head
+ * bone 0.18 of the body lower than in the idle on the man, 0.24 on the woman,
+ * 0.21 between them. What first person on a bench looks from.
+ */
+export const SIT_EYE = 0.72;
+
 /** The top of a bench's seat over the ground it stands on: where the sitting clip's thighs rest. */
 export const BENCH_SEAT = AVATAR_HEIGHT * SIT_SEAT;
 /** Front to back, deep enough to carry the thighs to just short of the knee. */
@@ -44,6 +53,11 @@ export const BENCH_BACK = BENCH_DEPTH / 2 - POST - RAIL;
  * front plus the hips behind the root, so the back of the hips meets the rail.
  */
 export const BENCH_SIT_AHEAD = -BENCH_BACK + AVATAR_HEIGHT * SIT_BACK;
+/**
+ * The longest a town's bench is (`street-bench.ts`), which the people
+ * strolling past one keep clear of by half and their own width.
+ */
+export const BENCH_LONGEST = AVATAR_HEIGHT * 0.84;
 /** How near a sitter's spot has to be for `E` to offer the bench. */
 export const BENCH_REACH = AVATAR_HEIGHT * 0.7;
 

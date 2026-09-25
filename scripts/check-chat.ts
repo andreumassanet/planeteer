@@ -19,11 +19,14 @@ import {
   CHAT_INTERVAL_MS,
   CHAT_MAX,
   EMOTES,
+  FLAGS,
   chatWait,
   cleanChat,
   cleanCountry,
   cleanEmote,
+  cleanFlags,
   freshBucket,
+  hasFlag,
   spendChat,
 } from '../server/src/limits.ts';
 import {
@@ -100,6 +103,15 @@ test('a country is an outline code or nothing, a gesture one of the list', () =>
   assert.equal(cleanEmote('sit'), 'sit');
   assert.equal(cleanEmote('moonwalk'), '');
   assert.equal(cleanEmote(undefined), '');
+});
+
+test('flags are an integer of the known bits, or refused', () => {
+  const all = (1 << FLAGS.length) - 1;
+  for (let f = 0; f <= all; f++) assert.equal(cleanFlags(f), f);
+  for (const bad of [all + 1, -1, 0.5, '1', null, undefined, NaN, Infinity]) assert.equal(cleanFlags(bad), -1, String(bad));
+  assert.ok(hasFlag(1 << FLAGS.indexOf('chute'), 'chute'));
+  assert.ok(!hasFlag(1 << FLAGS.indexOf('chute'), 'sitting'));
+  assert.ok(hasFlag(all, 'sitting'));
 });
 
 test('every gesture has a clip on the cast', () => {

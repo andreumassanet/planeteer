@@ -45,7 +45,9 @@ import { unitAt } from '../src/sphere.ts';
 import { createSiteIndex } from '../src/fleet.ts';
 import type { FieldKeepout } from '../src/fleet.ts';
 import { countryReach } from '../src/scenery/grid.ts';
-import { MONUMENT_CLEARANCE, WIDEST_FOOTPRINT, cellAt } from '../src/tile-grid.ts';
+import { MONUMENT_CLEARANCE, cellAt } from '../src/tile-grid.ts';
+import { plannedSite, siteGap } from '../src/landmark-ground.ts';
+import type { LandmarkSite } from '../src/landmark-ground.ts';
 import { REGIONS, REGION_IDS } from '../src/scenery/regions.ts';
 import { createSceneryContext, measure } from '../src/scenery/contract.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, PIECE_TRIANGLES, buildRotor, pieceRng } from '../src/countryside-kit.ts';
@@ -74,7 +76,7 @@ globalThis.fetch = (async (url: string) => ({
 })) as unknown as typeof fetch;
 
 const monumentsPath = resolve(here, '../public/data/monuments.json');
-const monuments: { lat: number; lon: number; footprint?: number }[] = existsSync(monumentsPath)
+const monuments: LandmarkSite[] = existsSync(monumentsPath)
   ? (JSON.parse(readFileSync(monumentsPath, 'utf8')) as { monuments: typeof monuments }).monuments
   : [];
 setFlattenSites(monuments as never);
@@ -145,7 +147,8 @@ const paths: { path: CoursePath; clearance: number; mid: Vector3; half: number }
   for (let i = 0; i < n; i++) half = Math.max(half, p.set(path.xyz[i * 3]!, path.xyz[i * 3 + 1]!, path.xyz[i * 3 + 2]!).distanceTo(mid) * PLANET_RADIUS);
   return { path, clearance: roadClearance(road.cls), mid, half };
 });
-const monumentUnits = monuments.map((site) => ({ at: unitAt(site.lat, site.lon, new Vector3()), radius: (site.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE }));
+// Each landmark's plan, which the countryside keeps `MONUMENT_CLEARANCE` off.
+const monumentPlans = monuments.map(plannedSite);
 
 const units = (a: Vector3, b: Vector3): number => Math.acos(Math.min(1, Math.max(-1, a.dot(b)))) * PLANET_RADIUS;
 
@@ -159,7 +162,11 @@ function intrusion(at: Vector3, radius: number): { what: string; depth: number }
     if (town.at.dot(at) < 0.99) continue;
     note('town', town.reach + radius - units(town.at, at));
   }
-  for (const site of monumentUnits) note('landmark', site.radius + radius - units(site.at, at));
+  const unit = at.clone().normalize();
+  for (const site of monumentPlans) {
+    if (unit.x * site.up.x + unit.y * site.up.y + unit.z * site.up.z < Math.cos((site.reach + radius + MONUMENT_CLEARANCE + 1) / PLANET_RADIUS)) continue;
+    note('landmark', MONUMENT_CLEARANCE + radius - siteGap(site, unit, PLANET_RADIUS));
+  }
   const hits: FieldKeepout[] = [];
   for (const field of fields.fieldsNear(at, radius + 60, hits)) note('plane field', field.radius + radius - units(field.at, at));
   const p = new Vector3();

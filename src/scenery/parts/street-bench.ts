@@ -1,6 +1,6 @@
 import type { ScenicPart } from '../contract.ts';
 import { PALETTE } from '../../theme.ts';
-import { buildBench } from '../../bench.ts';
+import { BENCH_LONGEST, buildBench } from '../../bench.ts';
 import { AVATAR_HEIGHT } from '../../stature.ts';
 
 /**
@@ -28,7 +28,7 @@ export const streetBench: ScenicPart = {
   build(ctx, rng) {
     const wood = rng.pick([PALETTE.brown, PALETTE.bark, PALETTE.green, PALETTE.clay]);
     const iron = rng.pick([PALETTE.steel, PALETTE.bark, PALETTE.slate]);
-    const length = AVATAR_HEIGHT * rng.range(0.62, 0.84);
+    const length = rng.range(AVATAR_HEIGHT * 0.62, BENCH_LONGEST);
     const back = AVATAR_HEIGHT * rng.range(0.2, 0.32);
     return buildBench(ctx, wood, iron === wood ? PALETTE.steel : iron, length, back);
   },

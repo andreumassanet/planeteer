@@ -13,7 +13,7 @@ import { isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
 import { HERO } from './craft/body.ts';
-import { buildParachute } from './craft/parachute.ts';
+import { buildParachute, openCanopy } from './craft/parachute.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import {
   AVATAR_HIP,
@@ -156,8 +156,7 @@ const CHUTE_SINK = 6;
 const CHUTE_GLIDE = 12;
 const CHUTE_PACE = 0.5;
 const CHUTE_TURN = 1.2;
-/** Seconds the canopy takes to open out, and how far it swings with a turn, radians. */
-const CHUTE_OPENING = 0.6;
+/** How far the canopy swings with a turn, radians; how fast it opens is `CANOPY_OPENING`. */
 const CHUTE_SWING = 0.35;
 
 /**
@@ -536,6 +535,8 @@ export interface Player {
    * canopy (`CHUTE_OPEN`), steered by the movement keys. On foot, and in the air.
    */
   parachute: boolean;
+  /** Under the canopy, once it has opened: what the others see (`FLAGS` on the wire). */
+  canopy: boolean;
   /** True while off the ground: a jump, a fall, and the whole of a flight. */
   airborne: boolean;
   /** On foot, swimming, or in a seat: `PLAYER_STATES`, which is what the wire carries. */
@@ -2308,10 +2309,7 @@ export function createPlayer(
       object.add(parachute);
     }
     parachute.visible = true;
-    const opened = clamp(canopy / CHUTE_OPENING, 0.15, 1);
-    // Width first, as a canopy fills from the middle out.
-    parachute.scale.set(opened, Math.sqrt(opened), opened);
-    parachute.rotation.set(0, 0, lean);
+    openCanopy(parachute, canopy, lean);
   }
 
   /**
@@ -2383,6 +2381,7 @@ export function createPlayer(
     player.speed = ride !== null && ride.seat === 0 ? speed : velocity;
     player.climb = climb;
     player.parachute = chute;
+    player.canopy = chute && canopy > 0;
     player.airborne = kind !== null && isAir(kind) ? !grounded : airborne;
     player.state = state;
     player.mode = modeOf();
@@ -2404,6 +2403,7 @@ export function createPlayer(
     speed: 0,
     climb: 0,
     parachute: false,
+    canopy: false,
     airborne: false,
     state,
     mode: 'foot',

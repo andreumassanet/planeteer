@@ -90,7 +90,7 @@ export const reindeer: Animal = {
   // slots are unnamed in the pack: the main hide, the pale belly, the dark
   // hooves, the antlers and the eyes, read off their colours.
   rigs: [
-    { id: 'stag', weight: 1, slots: { Material: 'coat', 'Material.003': 'under', 'Material.001': 'dark', 'Material.010': 'point', 'Material.011': P.ink } },
+    { id: 'stag', weight: 1, back: 1.15, slots: { Material: 'coat', 'Material.003': 'under', 'Material.001': 'dark', 'Material.010': 'point', 'Material.011': P.ink } },
   ],
   shape,
   build: (ctx: FaunaContext, rng: Rng, style: FaunaStyle) =>

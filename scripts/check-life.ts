@@ -308,7 +308,8 @@ for (let i = 0; i < roads.length; i += 137) {
     roadFrameOf(course, path, along, lateral, probe);
     const measured = probe.dir.angleTo(onCurve) * PLANET_RADIUS;
     worstLateral = Math.max(worstLateral, Math.abs(measured - lateral));
-    if (world.elevationAt(probe.dir) <= 0) worstWet++;
+    // Over water only on its bridge, where it drives the deck.
+    if (world.elevationAt(probe.dir) <= 0 && !(along > road.bridgeFrom && along < road.bridgeTo)) worstWet++;
     sampled++;
   }
 }
@@ -316,7 +317,7 @@ check(worstLateral < 0.01, 'a lane offset lands where it was asked to', `worst e
 console.log(`  ${worstWet} of ${sampled} sampled road positions are over water (${((worstWet / sampled) * 100).toFixed(2)}%)`);
 // A road is baked never to cross the sea, but a vehicle sits a quarter of a
 // carriageway off the centreline and the check is what says that still holds.
-check(worstWet / sampled < 0.01, 'a vehicle on the verge is on land, over the whole network');
+check(worstWet / sampled < 0.01, 'a vehicle on the verge is on land or a bridge, over the whole network');
 
 /**
  * The ground under a walker, sampled along a coastal road at the rate the clock

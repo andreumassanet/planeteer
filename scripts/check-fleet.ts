@@ -44,7 +44,8 @@ import {
 import type { FleetSite } from '../src/fleet.ts';
 import { isWater } from '../src/vehicles.ts';
 import { CRAFT_KINDS } from '../src/craft/contract.ts';
-import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
+import { plannedSite, siteGap } from '../src/landmark-ground.ts';
+import type { LandmarkSite } from '../src/landmark-ground.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -65,7 +66,7 @@ globalThis.fetch = (async (url: string) => ({
 })) as unknown as typeof fetch;
 
 const monumentsPath = resolve(here, '../public/data/monuments.json');
-const monuments: { lat: number; lon: number; footprint?: number }[] = existsSync(monumentsPath)
+const monuments: LandmarkSite[] = existsSync(monumentsPath)
   ? (JSON.parse(readFileSync(monumentsPath, 'utf8')) as { monuments: typeof monuments }).monuments
   : [];
 setFlattenSites(monuments as never);
@@ -85,6 +86,7 @@ console.log(`world: ${places.length} places, ${roads.length} roads, ${monuments.
 // --- the sites, twice ----------------------------------------------------------
 
 const source = { world, places, roads, monuments };
+const monumentPlans = monuments.map(plannedSite);
 let began = performance.now();
 const sites = createSiteIndex(source).all();
 const firstMs = performance.now() - began;
@@ -275,8 +277,10 @@ function fieldCheck(kind: 'plane' | 'balloon' | 'horse' | 'tractor' | 'helicopte
       }
     }
     if (roadIndexNear(site.at) < reach) nearRoad++;
-    for (const m of monuments) {
-      if (units(unitAt(m.lat, m.lon, point), site.at) < (m.footprint ?? MAX_FOOTPRINT) + reach) {
+    // Off each landmark's plan, which is what the sites keep clear of.
+    for (const m of monumentPlans) {
+      if (m.up.x * site.at.x + m.up.y * site.at.y + m.up.z * site.at.z < Math.cos((m.reach + reach + 1) / PLANET_RADIUS)) continue;
+      if (siteGap(m, point.copy(site.at).normalize(), PLANET_RADIUS) < reach) {
         nearMonument++;
         break;
       }
@@ -349,8 +353,9 @@ console.log('\nairstrips:');
       if (grade > landing) steepHere = true;
       for (const town of towns) if (units(town.at, centre) < radiusOf(town.place) + STRIP_HALF) townHere = true;
       if (!roadHere && nearRoads(centre, STRIP_HALF)) roadHere = true;
-      for (const m of monuments) {
-        if (units(unitAt(m.lat, m.lon, point), centre) < (m.footprint ?? MAX_FOOTPRINT) + STRIP_HALF) monumentHere = true;
+      for (const m of monumentPlans) {
+        if (m.up.x * centre.x + m.up.y * centre.y + m.up.z * centre.z < Math.cos((m.reach + STRIP_HALF + 1) / PLANET_RADIUS)) continue;
+        if (siteGap(m, point.copy(centre).normalize(), PLANET_RADIUS) < STRIP_HALF) monumentHere = true;
       }
     }
     if (wetHere) wetStrips++;

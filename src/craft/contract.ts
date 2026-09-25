@@ -200,6 +200,12 @@ export interface FleetLink {
   drive(vehicle: string, pose: WirePose, speed: number): void;
   /** Called with a vehicle's id whenever its entry in `moved` changes. */
   onChange(listener: (vehicle: string) => void): () => void;
+  /**
+   * Whether whoever else drives a vehicle is off the ground, by their own
+   * state: a horse under a rider who jumped leaps. Absent, or false, for a
+   * link that cannot say.
+   */
+  leaping?(vehicle: string): boolean;
 }
 
 /**

@@ -36,6 +36,8 @@ import {
   legAt,
   m,
   measure,
+  rigBack,
+  rigScale,
   validateAnimal,
   variantRng,
 } from '../src/fauna/contract.ts';
@@ -49,6 +51,7 @@ import { AVATAR_HEIGHT } from '../src/scenery/contract.ts';
 import { SCENERY_SCALE } from '../src/traffic/contract.ts';
 import { MeshBasicMaterial } from 'three';
 import { rigFromDisk } from './kit-node.ts';
+import { WITHERS } from '../src/fauna/parts/horse.ts';
 
 // The herds are drawn from baked CC0 rigs (scripts/build-kit.ts), read off disk
 // the way the world fetches them. Every rig an animal names is loaded up front,
@@ -140,6 +143,36 @@ const cowMetres = 1.4;
 check(m(cowMetres) / AVATAR_HEIGHT > 0.7 && m(cowMetres) / AVATAR_HEIGHT < 0.85,
   'a 1.4 m cow stands at four fifths of the person beside her',
   `${n(m(cowMetres), 2)} of ${AVATAR_HEIGHT} = ${n((100 * m(cowMetres)) / AVATAR_HEIGHT, 1)}%, against ${n((100 * cowMetres * SCENERY_SCALE) / AVATAR_HEIGHT, 1)}% at scenery scale`);
+
+
+// A baked rig is fitted by its back (`rigScale`), not by the declared box,
+// which is the code-built body's: fitted end to end, as they were until
+// 2026-09-25, the rigs stood 1.2 to 1.5 times too tall, a horse's back at
+// 1.28 bodies. Every rig's back lands where its choice says, and the herds'
+// horse is the ridden one's size.
+{
+  const rows: string[] = [];
+  let off = 0;
+  let tall = 0;
+  let horseBack = NaN;
+  for (const animal of ANIMALS) {
+    for (const choice of animal.rigs ?? []) {
+      const rig = rigs.get(choice.id);
+      if (rig === null) continue;
+      const k = rigScale(choice, rig);
+      const back = rigBack(rig) * k;
+      const size = rig.box.getSize(new THREE.Vector3()).multiplyScalar(k);
+      if (Math.abs(back / m(choice.back) - 1) > 0.01) off++;
+      if (back > 1.2 * AVATAR_HEIGHT || back < 0.45 * AVATAR_HEIGHT) tall++;
+      if (choice.id === 'horse') horseBack = back / AVATAR_HEIGHT;
+      rows.push(`${choice.id} ${n(back / AVATAR_HEIGHT, 2)}/${n(size.y / AVATAR_HEIGHT, 2)}`);
+    }
+  }
+  console.log(`  back/top, in bodies: ${rows.join(', ')}`);
+  check(off === 0, 'every rig stands with its back at its declared height', `${off} off by more than 1%`);
+  check(tall === 0, 'and every back is between a person\'s knee and a head over him', `${tall} outside 0.45-1.2 bodies`);
+  check(Math.abs(horseBack - WITHERS) < 0.01, 'the herds\' horse is the ridden horse\'s size', `${n(horseBack, 3)} against WITHERS ${WITHERS}`);
+}
 
 // ---------------------------------------------------------------------------
 console.log('\nthe contract — every animal, every region, every variant');

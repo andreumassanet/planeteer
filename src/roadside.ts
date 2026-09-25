@@ -149,6 +149,13 @@ export interface RoadsideSite {
   countryB: number;
   /** A seed of the road's own. */
   seed: string;
+  /**
+   * The road's bridge, if it has one: where its water starts and stops along
+   * the road, and how far each ramp runs onto the land before it — railings
+   * the whole of that, piers under the water, and nothing else of the roadside
+   * on it. Absent or null is a road that never leaves the land.
+   */
+  bridge?: readonly [number, number, number] | null;
 }
 
 /** A road's roadside as buffers, in world units at double precision, and its lamp heads. */
@@ -179,6 +186,8 @@ const colours = {
   border: new THREE.Color(PALETTE.slate).multiplyScalar(0.62),
   /** A lamp's head housing. */
   housing: new THREE.Color(PALETTE.steel).multiplyScalar(0.8),
+  /** A bridge's piers: weathered concrete. */
+  pier: new THREE.Color(PALETTE.bone).lerp(new THREE.Color(PALETTE.tan), 0.35),
 };
 
 /**
@@ -467,6 +476,9 @@ const scratchB = new THREE.Vector3();
  * stands on so a bank's slope does not show under its downhill side.
  */
 function stand(site: RoadsideSite, s: number, lateral: number, facing: number, sink: number): void {
+  // On a bridge and its ramps nothing stands but the bridge's own railings.
+  const bridge = site.bridge;
+  onDeck = bridge !== undefined && bridge !== null && s > bridge[0] - bridge[2] - 6 && s < bridge[1] + bridge[2] + 6;
   site.surface(s, lateral, at, ahead, side);
   up.copy(at).normalize();
   forward.copy(ahead).multiplyScalar(facing).projectOnPlane(up).normalize();
@@ -601,10 +613,78 @@ function chevrons(out: Roadside, into: number): void {
   }
 }
 
-/** Whether what `stand` just stood is clear of the other roads' tops: see `RoadsideSite.clear`. */
+/** Whether what `stand` just stood is clear of the other roads' tops (`RoadsideSite.clear`), and off a bridge. */
 function clearAt(site: RoadsideSite, footprint: number): boolean {
+  if (onDeck) return false;
   return site.clear === undefined || site.clear(at, footprint);
 }
+/** Whether the last `stand` was on a bridge or its ramps. */
+let onDeck = false;
+
+/** A bridge's railing posts, apart along the deck, and the rail's height. */
+const BRIDGE_POST_SPACING = 3;
+const BRIDGE_RAIL_HEIGHT = 1.1 * M;
+/** A bridge's piers: how far apart at most, and how far their feet stand under the water. */
+const PIER_SPACING = 28;
+const PIER_FOOT = 4;
+const PIER_ALONG = 1.6;
+
+/**
+ * A bridge (`RoadsideSite.bridge`): a railing along each edge of the deck the
+ * whole length of the span and its ramps — posts and two rails — and piers
+ * from under the girder down into the water, no further apart than
+ * `PIER_SPACING`, each with a cap beam under the deck.
+ */
+function bridgeParts(out: Roadside, site: RoadsideSite, bridge: readonly [number, number, number]): void {
+  const [from, to, land] = bridge;
+  const s0 = Math.max(0, from - land);
+  const s1 = Math.min(site.length, to + land);
+  for (const sign of [1, -1]) {
+    let last: THREE.Vector3 | null = null;
+    for (let s = s0; s <= s1 + 1e-6; s += BRIDGE_POST_SPACING) {
+      const top = site.top(s);
+      stand(site, s, sign * (top - 0.18), 1, 0.05);
+      // Where another road shares the deck's approach, its carriageway breaks the railing.
+      if (site.clear !== undefined && !site.clear(at, 0.1)) {
+        last = null;
+        continue;
+      }
+      centre.copy(at).addScaledVector(up, BRIDGE_RAIL_HEIGHT * 0.5);
+      box(out, centre, right, up, forward, 0.08, BRIDGE_RAIL_HEIGHT * 0.5, 0.08, colours.cap);
+      const post = at.clone();
+      if (last !== null) {
+        for (const height of [BRIDGE_RAIL_HEIGHT * 0.95, BRIDGE_RAIL_HEIGHT * 0.5]) {
+          scratch.copy(last).addScaledVector(scratchB.copy(last).normalize(), height);
+          wireA.copy(post).addScaledVector(up, height);
+          bar(out, scratch, wireA, up, height > BRIDGE_RAIL_HEIGHT * 0.7 ? 0.18 : 0.1, colours.rail);
+        }
+      }
+      last = post;
+    }
+  }
+  // The piers, evenly over the water.
+  const count = Math.max(1, Math.ceil((to - from) / PIER_SPACING));
+  for (let k = 1; k < count || (count === 1 && k === 1); k++) {
+    const s = count === 1 ? (from + to) / 2 : from + ((to - from) * k) / count;
+    const top = site.top(s);
+    stand(site, s, 0, 1, 0);
+    const deck = at.length();
+    const bottom = deck - GIRDER;
+    const foot = Math.min(site.groundRadius(at), deck) - PIER_FOOT;
+    if (bottom - foot < 1) continue;
+    const half = (bottom - foot) * 0.5;
+    centre.copy(up).multiplyScalar(foot + half);
+    box(out, centre, right, up, forward, Math.max(1.2, top * 0.45), half, PIER_ALONG * 0.5, colours.pier, DARK, true);
+    centre.copy(up).multiplyScalar(bottom - 0.5);
+    box(out, centre, right, up, forward, top, 0.5, PIER_ALONG * 0.65, colours.pier, DARK, true);
+  }
+}
+/**
+ * How deep a bridge deck's edge girder is under its crown: `roads.ts` draws
+ * the ribbon's shoulders this far down over the water, and the piers stand
+ * under it.
+ */
+export const GIRDER = 2.4;
 
 /**
  * Everything beside one road, laid from end to end. Deterministic in the site:
@@ -772,6 +852,9 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
       if (clearAt(site, 0.55)) speedSign(out, rngFrom('roadside-limit', seed, end).pick(LIMITS));
     }
   }
+
+  // --- a bridge's railings and piers ---
+  if (site.bridge !== undefined && site.bridge !== null) bridgeParts(out, site, site.bridge);
 
   // --- a board of chevrons on the outside of every hard bend ---
   if (rural) {

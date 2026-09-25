@@ -166,6 +166,29 @@ export function cleanHonk(raw: unknown): Honk | '' {
 /** Between two horns by one player: a tap and a second tap, not a stuck key. */
 export const HONK_INTERVAL_MS = 350;
 
+/**
+ * What a player is doing that the nine numbers of a state do not say, as
+ * bits of one small integer, by their index here: under an open canopy after
+ * jumping out of an aircraft, and sitting on a bench. Kept by the relay, so a
+ * player who joins later sees them too, which a gesture (`EMOTES`) is not.
+ * Anything else a peer is drawn doing is read off the state itself: a
+ * rider's horse leaps when its driver's state is off the ground, and a
+ * swimmer under the water's surface is diving.
+ */
+export const FLAGS = ['chute', 'sitting'] as const;
+export type Flag = (typeof FLAGS)[number];
+
+/** The flags as sent, or -1 for anything that is not an integer of those bits. */
+export function cleanFlags(raw: unknown): number {
+  return Number.isInteger(raw) && (raw as number) >= 0 && (raw as number) < 1 << FLAGS.length ? (raw as number) : -1;
+}
+
+/** Whether `flags` has `flag` set. */
+export const hasFlag = (flags: number, flag: Flag): boolean => (flags & (1 << FLAGS.indexOf(flag))) !== 0;
+
+/** Between two changes of flags by one player: a canopy opening and a landing are seconds apart. */
+export const FLAGS_INTERVAL_MS = 200;
+
 /** A sender's allowance: lines in hand, and when it was last topped up. */
 export interface ChatBucket {
   tokens: number;

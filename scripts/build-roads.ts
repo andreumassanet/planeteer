@@ -48,7 +48,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
-import { decodePlaces, decodeRoads, encodeRoads, inflate, packedBend } from '../src/pack.ts';
+import { decodePlaces, decodeRoads, encodeRoads, inflate, packedBend, packedSpan } from '../src/pack.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { isShown, radiusOf, terrainSiteOf } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
@@ -58,6 +58,8 @@ import { setLandmarks } from '../src/landmark-ground.ts';
 import type { LandmarkSite } from '../src/landmark-ground.ts';
 import {
   APPROACH,
+  BRIDGE_LAND,
+  BRIDGE_SPAN,
   MAX_ROAD_LENGTH,
   ROAD_CLASSES,
   bendFor,
@@ -67,6 +69,7 @@ import {
   courseOf,
   coursePath,
   coursePoint,
+  distanceAt,
   emptyCourse,
   emptyRamp,
   gateOpen,
@@ -442,10 +445,14 @@ let trials = 0;
  */
 function trial(road: Road): Verdict {
   trials++;
+  // Whatever bridge an earlier trial of this road found is its own: this one looks again.
+  road.bridgeFrom = 0;
+  road.bridgeTo = 0;
   const course = courseOf(road, places, trialCourse);
   const ramp = rampOf(road, course, places, world, trialRamp);
   if (rampReach(ramp.riseA) + rampReach(ramp.riseB) > course.length) return { refusal: 'ramp', near: 0 };
-  if (tightestTurn(coursePath(course)) < roadClearance(road.cls)) return { refusal: 'fold', near: 0 };
+  const path = coursePath(course);
+  if (tightestTurn(path) < roadClearance(road.cls)) return { refusal: 'fold', near: 0 };
   const townA = townOf(places[road.a]!);
   const townB = townOf(places[road.b]!);
   const margin = Math.min(roadClearance(road.cls), course.approach);
@@ -453,13 +460,22 @@ function trial(road: Road): Verdict {
   const reachB = townB.grid.half + margin;
   const steps = waterProbeSteps(course);
   probes += steps + 1;
+  // The water it crosses, as probe indices: one run of it, at most.
+  let wetFirst = -1;
+  let wetLast = -1;
   for (let step = 0; step <= steps; step++) {
     const t = step / steps;
     const near = Math.min(t, 1 - t) * course.length;
     coursePoint(course, t, point);
     const lat = latOf(point.y);
     const lon = lonOf(point.x, point.z);
-    if (world.countryAt(lat, lon) === 0) return { refusal: 'wet', near };
+    // Water is a bridge's, once; the squares are tested over it all the
+    // same, because a town's square reaches out over its own quay.
+    if (world.countryAt(lat, lon) === 0) {
+      if (wetFirst >= 0 && wetLast < step - 1) return { refusal: 'wet', near };
+      if (wetFirst < 0) wetFirst = step;
+      wetLast = step;
+    }
     if (t > course.share && t < 1 - course.share) {
       townOffset(townA, point, offset);
       if (Math.abs(offset.x) < reachA && Math.abs(offset.z) < reachA) return { refusal: 'own', near: 0 };
@@ -479,12 +495,35 @@ function trial(road: Road): Verdict {
       }
     }
   }
+  if (wetFirst >= 0) {
+    // A bridge, from the last dry probe before the water to the first after
+    // it: no wider than `BRIDGE_SPAN`, and with `BRIDGE_LAND` of dry road
+    // before each shore that is clear of its gate's approach and ramp.
+    const from = packedSpan(distanceAt(path, Math.max(0, wetFirst - 1) / steps));
+    const to = packedSpan(distanceAt(path, Math.min(steps, wetLast + 1) / steps));
+    const near = Math.min(from, path.length - to);
+    if (wetFirst === 0 || wetLast === steps || to - from > BRIDGE_SPAN) return { refusal: 'wet', near };
+    const clearA = course.approach + rampReach(ramp.riseA) + BRIDGE_CLEAR;
+    const clearB = course.approach + rampReach(ramp.riseB) + BRIDGE_CLEAR;
+    if (from - BRIDGE_LAND < clearA || to + BRIDGE_LAND > path.length - clearB) return { refusal: 'wet', near };
+    road.bridgeFrom = from;
+    road.bridgeTo = to;
+  }
   const landmark = landmarkAt(road, places);
-  if (landmark >= 0) return { refusal: 'landmark', near: Math.min(landmark, 1 - landmark) * course.length };
+  if (landmark >= 0) {
+    road.bridgeFrom = road.bridgeTo = 0;
+    return { refusal: 'landmark', near: Math.min(landmark, 1 - landmark) * course.length };
+  }
   const steep = screeAt(road, places);
-  if (steep >= 0) return { refusal: 'steep', near: Math.min(steep, 1 - steep) * course.length };
+  if (steep >= 0) {
+    road.bridgeFrom = road.bridgeTo = 0;
+    return { refusal: 'steep', near: Math.min(steep, 1 - steep) * course.length };
+  }
   return { refusal: null, near: Infinity };
 }
+
+/** Dry road a bridge's ramp keeps between itself and a gate's approach and ramp. */
+const BRIDGE_CLEAR = 10;
 
 /**
  * A bow that gets the road through, on the gates it already has, or null.
@@ -622,6 +661,8 @@ interface Row {
   gateA: number;
   gateB: number;
   layer: number;
+  bridgeFrom: number;
+  bridgeTo: number;
 }
 
 const kept: Row[] = [];
@@ -662,7 +703,7 @@ candidates.forEach((edge, i) => {
   const cls = classOf(places[edge.a]!, places[edge.b]!);
   // Rounded to what the wire will carry before it is tested; see `packedBend`.
   const natural = packedBend(bendFor(places[edge.a]!, places[edge.b]!));
-  const road: Road = { a: edge.a, b: edge.b, cls, bend: natural, gateA, gateB, layer: 0 };
+  const road: Road = { a: edge.a, b: edge.b, cls, bend: natural, gateA, gateB, layer: 0, bridgeFrom: 0, bridgeTo: 0 };
   // Why the given gates and the seeded bow failed, before the search runs, so
   // the report can say what the search rescued from each.
   const first = trial({ ...road }).refusal;
@@ -775,6 +816,8 @@ function rescueOrphans(rows: readonly Row[]): { put: Row[]; joined: number; trie
             gateA: a === orphan ? gm : gt,
             gateB: a === orphan ? gt : gm,
             layer: 0,
+            bridgeFrom: 0,
+            bridgeTo: 0,
           };
           const bend = bendThatWorks(road, chord(a, b), natural);
           if (bend === null) continue;

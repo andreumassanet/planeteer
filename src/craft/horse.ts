@@ -2,14 +2,15 @@
  * The horse you can ride: Quaternius's horse (Ultimate Animated Animals, CC0),
  * the herds' own rig, saddled, with a seat on its back.
  *
- * **It is the herds' horse, fitted to its rider.** The rig and the coats are
- * the herds' (`fauna/parts/horse.ts`), but not their size: fitted by the
- * herds' length a horse's back stood 1.28 bodies up, a saddle at a person's
- * crown, which is a draught horse under a child. A horse's withers are 1.6 m
- * against a 1.75 m person, 0.91 of him, and a horse somebody sits on reads by
- * that ratio before it reads by anything else; so the rig is scaled until the
- * top of its back is `WITHERS` of `AVATAR_HEIGHT`, a little over life, since
- * the rider's legs have to reach down its sides. What makes it a craft is a
+ * **It is the herds' horse, at the herds' size.** The rig and the coats are
+ * the herds' (`fauna/parts/horse.ts`), and so is the scale (`rigScale`):
+ * fitted by its length, as the herds once were, a horse's back stood 1.28
+ * bodies up, a saddle at a person's crown, which is a draught horse under a
+ * child. A horse's withers are 1.6 m against a 1.75 m person, 0.91 of him,
+ * and a horse somebody sits on reads by that ratio before it reads by
+ * anything else; so the rig is scaled until the top of its back is `WITHERS`
+ * of `AVATAR_HEIGHT`, a little over life, since the rider's legs have to reach
+ * down its sides, and the herds' horses stand at the same number. What makes it a craft is a
  * saddle and a seat: the seat is found on the rig itself — the top of the
  * back, a little ahead of the middle, where the barrel is highest behind the
  * withers — and the saddle is laid there with its top on the hip.
@@ -32,10 +33,10 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import { makeRigged, modelMaterial } from '../models.ts';
 import type { Rig } from '../models.ts';
-import { rigPaint } from '../fauna/contract.ts';
+import { rigPaint, rigScale } from '../fauna/contract.ts';
 import type { AnimalShape } from '../fauna/contract.ts';
 import { FAUNA_STYLES } from '../fauna/regions.ts';
-import { horse as horseAnimal } from '../fauna/parts/horse.ts';
+import { horse as horseAnimal, WITHERS } from '../fauna/parts/horse.ts';
 import { rngFrom } from '../scenery/random.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { JUMP_CLIPS } from './motion.ts';
@@ -44,8 +45,8 @@ import { assemble, craftContext, finish, soupOf } from './build.ts';
 
 const H = AVATAR_HEIGHT;
 
-/** The top of the back under the saddle, over the ground, as a share of `AVATAR_HEIGHT`: see above. */
-export const WITHERS = 0.95;
+/** The top of the back under the saddle, as a share of `AVATAR_HEIGHT`: the herds' horse's, see above. */
+export { WITHERS };
 
 /** Coat, the belly's and the mane's, tail's and hooves': the six a riding stable has. */
 const COATS: readonly [number, number, number][] = [
@@ -74,9 +75,10 @@ function shapeOf(variant: number): AnimalShape {
   return { ...base, coat, under, point, face: coat };
 }
 
-/** The herds' own scale for the rig: fitted by its length, as `life.ts` fits one. */
+/** The herds' own scale for the rig, which puts its back at `WITHERS`. */
 function herdScale(rig: Rig): number {
-  return horseAnimal.size[0] / rig.box.getSize(new THREE.Vector3()).z;
+  const choice = horseAnimal.rigs!.find((entry) => entry.id === rig.name) ?? horseAnimal.rigs![0]!;
+  return rigScale(choice, rig);
 }
 
 /**
@@ -200,10 +202,8 @@ function measureJumps(rig: Rig, k: number): Record<string, JumpCurve> {
 export function horseModel(rig: Rig | null): CraftModel | null {
   if (rig === null) return null;
   if (!rig.clips.some((clip) => clip.name === 'Walk')) return null;
-  // Measured once at the herds' scale for how high its back is, and again
-  // at the scale that puts that back at `WITHERS`.
-  const herd = herdScale(rig);
-  const k = (herd * WITHERS * H) / measureBack(rig, herd).top.y;
+  // The herds' scale, which is the one that puts the back at `WITHERS`.
+  const k = herdScale(rig);
   const back = measureBack(rig, k);
   const jumps = measureJumps(rig, k);
   // The saddle a twenty-fifth of a body thick on the back, its top the hip.

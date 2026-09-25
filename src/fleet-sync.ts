@@ -410,6 +410,11 @@ export function createFleetSync(peers: Peers): FleetSync {
       post({ t: 'vp', v: vehicle, p: wire(pose), sp: +speed.toFixed(1) });
     },
 
+    leaping(vehicle) {
+      const driver = moved.get(vehicle)?.seats[0] ?? null;
+      return driver !== null && driver !== self() && peers.airborneOf(driver);
+    },
+
     onChange(listener) {
       listeners.add(listener);
       return () => {

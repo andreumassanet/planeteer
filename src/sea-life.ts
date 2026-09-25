@@ -526,7 +526,16 @@ export function createSeaLife(options: SeaLifeOptions = {}): SeaLife {
         .sort();
     },
     proxies() {
-      return [proxyOf(fish.material as THREE.Material), proxyOf(bubbleMaterial)];
+      // Programs are keyed on the instancing and the instance colour, and a
+      // point sprite is not a mesh, so each proxy is drawn the way its
+      // swimmers are; the geometry is the proxy's own, since the warm-up
+      // disposes what it is handed.
+      const fishProxy = new THREE.InstancedMesh(proxyOf(fish.material as THREE.Material).geometry, fish.material, 1);
+      fishProxy.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(3).fill(1), 3);
+      const bigProxy = new THREE.InstancedMesh(proxyOf(dolphins.material as THREE.Material).geometry, dolphins.material, 1);
+      const bubbleProxy = new THREE.BufferGeometry();
+      bubbleProxy.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+      return [fishProxy, bigProxy, new THREE.Points(bubbleProxy, bubbleMaterial)];
     },
   };
 

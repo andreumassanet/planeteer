@@ -17,11 +17,13 @@ import {
   courseTangent,
   emptyCourse,
   needsCentre,
+  onBridge,
   parameterAt,
   placeDirection,
   rampOf,
   roadClearance,
   roadGeometryFor,
+  ribbonHalf,
   roadIndexFor,
   surfaceLift,
   townOf,
@@ -60,7 +62,7 @@ import {
 import type { Mount, TrafficContext, TrafficStyle, Vehicle } from './traffic/contract.ts';
 import { keepsLeft, trafficFor } from './traffic/regions.ts';
 import { KINDS as FAUNA_KINDS, VARIANTS as FAUNA_VARIANTS, createFaunaContext } from './fauna/contract.ts';
-import { FAUNA_RESCALE, rigPaint } from './fauna/contract.ts';
+import { FAUNA_RESCALE, rigPaint, rigScale } from './fauna/contract.ts';
 import { BODY_SCALE } from './stature.ts';
 import type { Animal, AnimalShape, FaunaContext, RigChoice } from './fauna/contract.ts';
 import { makeRigged, paintColors, paintModel, posedGeometry } from './models.ts';
@@ -135,7 +137,7 @@ import type { StreetLeg, StreetPose } from './through.ts';
  * above read the other way: from any distance a grazing herd is motionless,
  * so five animals cost one draw call. Near, it stands up as its animals and
  * lives (`herdStep`). The kit it is built from is `src/fauna/`, whose sizes
- * this file reads through `Animal.size` and whose baked rigs' clips it plays:
+ * this file reads through `Animal.size` (the rigs through `rigScale`) and whose baked rigs' clips it plays:
  * `Eating`, `Idle` and `Walk`, which is every clip the kit bakes — a trot is
  * the walk played faster, and the sheep, whose pack has no walk, bob.
  *
@@ -229,11 +231,12 @@ const BIRD_REACH = 620;
  * A herd is a cluster about thirteen units across, so pricing the cluster would
  * keep it legible to a thousand units — at which point it is a smudge of six
  * animals four pixels each, which is the outer-ring trap word for word. The mark
- * that has to read is the animal: a cattle beast is 6.8 units long since the
- * animals came down to the person's stature (2026-09-24, `FAUNA_SCALE`), so
- * `937 * 6.8 / 380` is **17 pixels at the reach**, against the 8-pixel floor
- * `settlements.ts` admits a whole town at. (It was 11.97 units long and 950 of
- * reach before, 12 px; and 4.0 long, 10 px, at the world's scale earlier on
+ * that has to read is the animal: a cow's rig is 5.3 units long since the
+ * rigs were fitted by their backs (2026-09-25, `rigScale`: 1.4 m there), so
+ * `937 * 5.3 / 380` is **13 pixels at the reach**, against the 8-pixel floor
+ * `settlements.ts` admits a whole town at. (It was 6.8 long, 17 px, fitted by
+ * the declared length from 2026-09-24; 11.97 units long and 950 of reach
+ * before that, 12 px; and 4.0 long, 10 px, at the world's scale earlier on
  * 2026-09-24.)
  */
 const HERD_REACH = 380;
@@ -2352,7 +2355,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       const choice = rngFrom(entry.id, style.id, variant, 'rig').weighted(entry.rigs.map((rig) => ({ item: rig, weight: rig.weight })));
       const rig = options.rigs.get(choice.id);
       if (rig === null) return 'pending';
-      found = mergeGroup(rigAnimal(entry, shape, choice, rig, farFrameOf(rig, pose.kind, key)));
+      found = mergeGroup(rigAnimal(shape, choice, rig, farFrameOf(rig, pose.kind, key)));
     } else {
       const built = buildAnimal(fauna, shape, pose);
       found = mergeGroup(built.group);
@@ -2367,10 +2370,10 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * One head of a merged herd from its baked rig: one of the rig's far frames
    * (`Rig.far` — a still of the pack's `Eating` for a grazer, of its `Idle` for
    * one standing or alert, coarsened at bake time), painted with the coat
-   * `shape` drew and fitted to the animal's declared length, feet on y = 0,
+   * `shape` drew and fitted by its back (`rigScale`), feet on y = 0,
    * facing +Z. A rig baked without far frames is skinned here at full detail.
    */
-  function rigAnimal(entry: Animal, shape: AnimalShape, choice: RigChoice, rig: ModelRig, frame: number): THREE.Group {
+  function rigAnimal(shape: AnimalShape, choice: RigChoice, rig: ModelRig, frame: number): THREE.Group {
     const still = rig.far[frame];
     const paint = rigPaint(shape, choice);
     let geometry: THREE.BufferGeometry;
@@ -2380,8 +2383,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       geometry = posedGeometry(rig, clipFor(rig, 'stand'), 0);
       geometry.setAttribute('color', new THREE.BufferAttribute(paintColors(rig as unknown as Model, paint), 3));
     }
-    const size = rig.box.getSize(herdScratch);
-    const k = entry.size[0] / size.z;
+    const k = rigScale(choice, rig);
     const mesh = new THREE.Mesh(geometry, PAINTED_MERGE);
     mesh.scale.setScalar(k);
     mesh.position.set(-((rig.box.min.x + rig.box.max.x) / 2) * k, -rig.box.min.y * k, -((rig.box.min.z + rig.box.max.z) / 2) * k);
@@ -2400,7 +2402,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
     if (frames.length === 0) return -1;
     return frames[Math.floor(rngFrom(key, 'frame').unit() * frames.length)]!.index;
   }
-  const herdScratch = new THREE.Vector3();
 
   /**
    * The clip a pose is a frame of: `Eating` for a grazer where the rig has one,
@@ -2659,6 +2660,14 @@ export function createLife(world: World, places: readonly Place[], options: Life
   function roadFrame(index: number, s: number, lateral: number, out: Frame, ground: boolean): void {
     const course = geometry.course(index);
     const path = geometry.path(index);
+    const ramp = rampFor(index);
+    const sB = path.length - s;
+    // Over a bridge's water a walker keeps to the deck, inside its railing.
+    const bridged = onBridge(ramp, s);
+    if (bridged) {
+      const top = ribbonHalf(ramp, (ROAD_CLASSES[roads[index]!.cls] ?? ROAD_CLASSES[0]!).width * 0.5, s, sB) - 0.4;
+      lateral = Math.max(-top, Math.min(top, lateral));
+    }
     roadFrameOf(course, path, s, lateral, out);
     if (!ground) {
       out.height = PLANET_RADIUS + 20;
@@ -2666,13 +2675,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
       return;
     }
     const elevation = world.elevationAt(out.dir);
-    const ramp = rampFor(index);
-    const sB = path.length - s;
     const centre = needsCentre(ramp, s, sB)
       ? world.elevationAt(coursePoint(course, parameterAt(path, s), onCentre))
       : elevation;
     const half = (ROAD_CLASSES[roads[index]!.cls] ?? ROAD_CLASSES[0]!).width * 0.5;
-    out.live = elevation > 0;
+    // Live on land, and on a bridge's deck over the water.
+    out.live = elevation > 0 || bridged;
     out.height = PLANET_RADIUS + elevation + Math.max(0, surfaceLift(ramp, half, s, sB, lateral, elevation, centre));
   }
 
@@ -3737,7 +3745,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
           rigged = makeRigged(rig, paint);
         }
         const size = rig.box.getSize(fitScratch);
-        const k = entry.size[0] / size.z;
+        const k = rigScale(choice, rig);
         rigged.root.position.set(-(rig.box.min.x + rig.box.max.x) / 2, -rig.box.min.y, -(rig.box.min.z + rig.box.max.z) / 2);
         const fit = new THREE.Group();
         fit.scale.setScalar(k);
@@ -3761,7 +3769,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
         head.matrix.decompose(herdPoint, homeQuat, homeScale);
         const scale = homeScale.x;
         const yaw = 2 * Math.atan2(homeQuat.y, homeQuat.w);
-        const halfLength = (entry.size[0] * scale) / 2;
+        // The rig's own box at the scale it stands at, not the declared one:
+        // the declared box is the code-built body's (`rigScale`).
+        const halfLength = (size.z * k * scale) / 2;
         heads.push({
           rigged, rig: choice.id, place,
           rest,
@@ -3770,11 +3780,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
           walk: rigged.actions.get('Walk'),
           current: rest,
           halfLength,
-          halfWidth: (entry.size[1] * scale) / 2,
-          height: entry.size[2] * scale,
-          stance: Math.max(1.2 * FAUNA_RESCALE, Math.hypot(entry.size[0], entry.size[1]) * 0.5),
-          // A cow walks about a metre a second, which at the animals' scale is
-          // a third of its own length.
+          halfWidth: (size.x * k * scale) / 2,
+          height: size.y * k * scale,
+          stance: Math.max(1.2 * FAUNA_RESCALE, Math.hypot(size.z * k, size.x * k) * 0.5),
+          // A third of its own length a second, which scales with the rig as
+          // its walk clip's stride does: a cow's is 0.75 m/s at 1.4 m.
           pace: halfLength * 2 * 0.3,
           homeX: herdPoint.x, homeZ: herdPoint.z, homeY: herdPoint.y, homeYaw: yaw,
           x: herdPoint.x, z: herdPoint.z, y: herdPoint.y, yaw,
@@ -3997,11 +4007,12 @@ export function createLife(world: World, places: readonly Place[], options: Life
           if (head.mode !== 'home') setOff(head, head.homeX, head.homeZ, head.homeY, 'home', head.pace);
           // Fast enough to be there before you are `HERD_HOLD_REACH` off at
           // the pace you are leaving, and never slower than a walk: a herd
-          // walked away from strolls home, one driven away from trots.
+          // walked away from strolls home, one driven away from trots, and
+          // at worst canters at six times its walk.
           const left = Math.hypot(head.homeX - head.x, head.homeZ - head.z);
           // Less the time it takes to turn its own way round once there.
           const time = Math.max(0.3, ((HERD_HOLD_REACH - away) / Math.max(1, viewerPace)) * 0.7 - 0.8);
-          head.speed = Math.max(head.pace, Math.min(head.pace * 4, left / time));
+          head.speed = Math.max(head.pace, Math.min(head.pace * 6, left / time));
           if (head.walk !== undefined && head.current === head.walk) head.walk.timeScale = head.speed / head.pace;
         }
       } else {
