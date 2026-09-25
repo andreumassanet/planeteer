@@ -496,7 +496,10 @@ const TRAFFIC: StaticEntry[] = [
   { id: 'truck', source: `${KENNEY_CARS}truck.glb`, wheels: /^wheel/ },
   { id: 'truck-flat', source: `${KENNEY_CARS}truck-flat.glb`, wheels: /^wheel/ },
   { id: 'tractor', source: `${KENNEY_CARS}tractor.glb`, wheels: /^wheel/ },
-  { id: 'bus', source: `${Q_TRANSPORT}FBX/Bus.fbx`, yaw: -Math.PI / 2 },
+  // Quaternius draws both buses nose to -X, the bonnet and the grille there:
+  // a quarter turn to the left puts it on +Z. The bus had the other quarter
+  // until 2026-09-25 and drove backwards, the traffic's and the craft's both.
+  { id: 'bus', source: `${Q_TRANSPORT}FBX/Bus.fbx`, yaw: Math.PI / 2 },
   { id: 'school-bus', source: `${Q_TRANSPORT}FBX/SchoolBus.fbx`, yaw: Math.PI / 2 },
   { id: 'ambulance', source: `${Q_TRANSPORT}FBX/Ambulance.fbx` },
   { id: 'bicycle', source: `${Q_TRANSPORT}OBJ/SquareFrameBicycle.obj`, yaw: Math.PI },
@@ -572,8 +575,9 @@ interface RigEntry {
 const FAUNA: RigEntry[] = [
   { id: 'cow', source: `${UAA}Cow.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'bull', source: `${UAA}Bull.gltf`, clips: /^(Eating|Idle|Walk)$/ },
-  // The horse keeps its gallop too: a herd only walks, but a horse is ridden (`craft/horse.ts`).
-  { id: 'horse', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk|Gallop)$/ },
+  // The horse keeps its gallop and its two jumps too: a herd only walks, but
+  // a horse is ridden, and jumped (`craft/horse.ts`).
+  { id: 'horse', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk|Gallop|Gallop_Jump|Jump_toIdle)$/ },
   { id: 'donkey', source: `${UAA}Donkey.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'alpaca', source: `${UAA}Alpaca.gltf`, clips: /^(Eating|Idle|Walk)$/ },
   { id: 'stag', source: `${UAA}Stag.gltf`, clips: /^(Eating|Idle|Walk)$/ },

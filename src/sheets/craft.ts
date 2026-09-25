@@ -56,6 +56,9 @@ const EXTRA: Record<string, ViewSpec[]> = {
   'light-plane': [{ label: 'overhead', note: 'the map camera: four heads from above', azimuth: 25, elevation: 72, frame: 'whole' }],
   balloon: [{ label: 'the basket', note: 'four standing, the rim at the chest', azimuth: 150, elevation: 20, frame: 'seats' }],
   launch: [{ label: 'the cockpit', note: 'hips on the pans, feet on the sole', azimuth: 200, elevation: 38, frame: 'seats' }],
+  motorbike: [{ label: 'the far side', note: 'the exhaust, the fins, the disc', azimuth: 270, elevation: 8, frame: 'whole' }],
+  scooter: [{ label: 'the legshield', note: 'floorboard, shield, headset, mirrors', azimuth: 200, elevation: 24, frame: 'whole' }],
+  'tuk-tuk': [{ label: 'the cab', note: 'astride at the bars, two on the bench under the hood', azimuth: 120, elevation: 30, frame: 'seats' }],
 };
 
 interface Rider {

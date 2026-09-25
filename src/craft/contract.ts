@@ -5,7 +5,8 @@
  * ends of a town's roads, boats off a coastal town, light aircraft beside the
  * big cities, the odd balloon, and bicycles, motorbikes, tuk-tuks, jeeps,
  * buses, jet skis, sailboats, horses, tractors and helicopters where each
- * makes sense — and you walk up to one and take it. Where you
+ * makes sense, and a yellow submarine off a few big harbours — and you walk
+ * up to one and take it. Where you
  * leave it is where it stays, for everyone. Three files meet here and each
  * reads only this one of the others:
  *
@@ -28,6 +29,9 @@
  * boat rolls; everything else can take it as the planet's normal.
  */
 import type * as THREE from 'three';
+import type { Honk } from '../../server/src/limits.ts';
+import { AVATAR_HEIGHT } from '../stature.ts';
+import { RIDER_HEIGHT } from '../traffic/contract.ts';
 
 /** What a vehicle moves over, which is what decides how it is driven. */
 export type Medium = 'road' | 'water' | 'air';
@@ -53,15 +57,43 @@ export type CraftKind =
   | 'horse'
   | 'jetski'
   | 'sailboat'
-  | 'helicopter';
+  | 'helicopter'
+  | 'submarine';
 
 /** Every kind, in the order the checks and the console list them. */
 export const CRAFT_KINDS: readonly CraftKind[] = [
   'car', 'van', 'boat', 'plane', 'balloon', 'bicycle', 'motorbike', 'tuktuk', 'bus', 'tractor', 'jeep', 'horse', 'jetski', 'sailboat', 'helicopter',
+  'submarine',
 ];
 
-/** The kinds that fly, and so are left only on the ground. */
+/** The kinds that fly. */
 export const isAirKind = (kind: CraftKind): boolean => kind === 'plane' || kind === 'balloon' || kind === 'helicopter';
+
+/**
+ * The horn each kind sounds when its driver presses the horn key (`horn` in
+ * `controls.ts`), as `audio.ts` synthesises it and the relay passes it on
+ * (`HONKS`); null where there is none, which is everything that flies. A
+ * bicycle rings a bell and a horse whinnies, and a hull of any size has the
+ * one horn a boat has.
+ */
+export const HORN_OF: Readonly<Record<CraftKind, Honk | null>> = {
+  car: 'car',
+  van: 'car',
+  jeep: 'car',
+  tractor: 'car',
+  bus: 'bus',
+  motorbike: 'beep',
+  bicycle: 'bell',
+  tuktuk: 'squeak',
+  boat: 'ship',
+  sailboat: 'ship',
+  jetski: 'ship',
+  submarine: 'ship',
+  horse: 'whinny',
+  plane: null,
+  helicopter: null,
+  balloon: null,
+};
 
 export interface Seat {
   /** The hip, in the model's frame. The seat surface is at `y`. */
@@ -125,8 +157,12 @@ export interface CraftModel {
    * `'tail'` (a tail rotor, about +X), `'crank'` (a bicycle's, about +X).
    * An animal's body is a child named `'rig'` carrying its skinned mesh
    * (`craft/horse.ts`), which the motion plays.
+   *
+   * `paint`, where a model has a body to paint, is that body's colour in
+   * place of the variant's: a town's parked car taken over keeps the colour
+   * it was parked in (`ParkedCar.paint`). Every other colour is the variant's.
    */
-  build(variant: number): THREE.Group;
+  build(variant: number, paint?: number): THREE.Group;
 }
 
 /** Nine numbers: position from the planet's centre, forward (+Z), up (+Y). */
@@ -213,6 +249,23 @@ export const PARKED_CRAFT: Readonly<Record<string, string>> = {
   scooter: 'scooter',
   'auto-rickshaw': 'tuk-tuk',
 };
+
+/**
+ * How much larger the hero is than the rider the traffic's parts are built
+ * round (`RIDER_HEIGHT`): the scale the scooter and the tuk-tuk are taken at
+ * (`craft/traffic-craft.ts`).
+ */
+export const RIDE_SCALE = AVATAR_HEIGHT / RIDER_HEIGHT;
+
+/**
+ * The traffic kit's vehicles a town parks at `RIDE_SCALE` rather than at the
+ * traffic's own section, so the one somebody gets on is the size it stood at:
+ * the scooter and the auto-rickshaw, whose craft are those same parts at that
+ * scale. A car is not grown to its craft, which is a third larger by design
+ * (`cars.ts`): at that size two would not pass in a town's street, and it
+ * stands at a kerb among the traffic's cars.
+ */
+export const PARKED_AT_RIDE_SCALE: ReadonlySet<string> = new Set(['scooter', 'auto-rickshaw']);
 
 /**
  * Where a town's parked cars start counting in a vehicle id: the fleet's own

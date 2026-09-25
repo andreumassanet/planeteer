@@ -40,6 +40,15 @@ import type { Place } from '../src/places.ts';
 import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import {
   crownFall,
+  carriageEdges,
+  dashGives,
+  EDGE_KEEP,
+  edgeGives,
+  edgeLineAcross,
+  markingRuns,
+  nearestOnPath,
+  otherRoadsOf,
+  othersRoofline,
   PAVEMENT_RUN,
   roadsideSite,
   holdGates,
@@ -80,6 +89,9 @@ import {
   townOf,
   townOffset,
   waterProbeSteps,
+  APPROACH,
+  landmarkAt,
+  landmarkTakes,
 } from '../src/roads.ts';
 import type { CoursePath, RoadRamp } from '../src/roads.ts';
 import { poolAt, poolByte } from '../src/lights.ts';
@@ -93,6 +105,7 @@ import {
   groundOf,
   offsetDirection,
   OUTSKIRT_MIN_CELLS,
+  townFrame,
   outskirtsOf,
   partnerOf,
   streetBand,
@@ -112,7 +125,12 @@ import { allZoneNames, clockAt, zoneFor } from '../src/timezone.ts';
 import { createBorders } from '../src/borders.ts';
 import { verifyFlagLayer } from '../src/land-flags.ts';
 import { FLAGS, FLAG_ALIAS, NO_FLAG } from '../src/flag-data.ts';
-import { MAX_FOOTPRINT } from '../src/monuments/contract.ts';
+import { MAX_FOOTPRINT, createContext } from '../src/monuments/contract.ts';
+import type { Monument } from '../src/monuments/contract.ts';
+import { LANDMARK_KEEP, planReach, planShape, setLandmarks } from '../src/landmark-ground.ts';
+import type { Plan, PlanShape } from '../src/landmark-ground.ts';
+import { SHORE_CLEAR } from '../src/terrain.ts';
+import { mergeMeshes } from '../src/merge.ts';
 import { Mesh } from 'three';
 import { PLANE_CEILING, PLANE_CRUISE_HIGH } from '../src/vehicles.ts';
 import * as relay from '../server/src/limits.ts';
@@ -159,12 +177,19 @@ const placed: {
   year?: number;
   snappedKm?: number;
   clearance?: number;
+  plan?: Plan;
+  shore?: true;
+  setting?: 'plaza';
+  toward?: number;
 }[] = existsSync(monumentsPath)
   ? (JSON.parse(readFileSync(monumentsPath, 'utf8')) as { monuments: typeof placed }).monuments
   : [];
 // The mesh here has to be the mesh the game builds, and the flat pads under the
 // monuments are part of the relief. They go in before the world exists.
 setFlattenSites(placed);
+// And the ground they take, which the road bake shut gates by and kept its
+// carriageways off: the questions below about gates and roads are the bake's.
+setLandmarks(placed, PLANET_RADIUS);
 
 // The settlements ask the mesh for resolution, not for level ground; see
 // `setDetailSites`. Same one-shot contract, and it has to run before the world.
@@ -1262,6 +1287,8 @@ for (const [name, lat, lon] of [
 if (placed.length > 0) {
   console.log('\nmonuments');
   const monuments = placed;
+  /** How far `build-monuments.ts`'s seat pass may walk a landmark: its `SEAT_REACH`. */
+  const SEAT_REACH = 160;
   let wrong = 0;
   const offenders: string[] = [];
   for (const m of monuments) {
@@ -1289,16 +1316,21 @@ if (placed.length > 0) {
    * height and year, and each placed coordinate must be explained by the bake:
    * no further from the source than its recorded snap plus the most the
    * separation can ask of it — its own footprint and the widest a neighbour
-   * may declare, the bake's 12-unit clearance between them, and its 20-unit
-   * seat budget (`CLEARANCE` and `SEAT_BUDGET` in `build-monuments.ts`).
-   * Measured 2026-09-21: the furthest unsnapped move is the Colosseum's,
-   * 41.2 km, off St Peter's.
+   * may declare, the bake's 12-unit clearance between them, and the 160 units
+   * its seat pass may walk a landmark off the coast or off a town
+   * (`CLEARANCE` and `SEAT_REACH` in `build-monuments.ts`). The furthest
+   * unsnapped move is printed; the Colosseum's 41.2 km, off St Peter's, was
+   * the furthest on 2026-09-21.
    */
   {
     const sourceFile = JSON.parse(readFileSync(resolve(here, 'monuments.source.json'), 'utf8')) as {
       monuments: { id: string; name: string; iso: string; lat: number; lon: number; height?: number; year?: number }[];
       notes?: Record<string, string>;
+      shore?: string[];
+      plazas?: string[];
     };
+    const shoreList = new Set(sourceFile.shore ?? []);
+    const plazaList = new Set(sourceFile.plazas ?? []);
     const sourceList = sourceFile.monuments;
     const stale: string[] = [];
     if (sourceList.length !== monuments.length) stale.push(`${sourceList.length} in the source, ${monuments.length} placed`);
@@ -1316,12 +1348,14 @@ if (placed.length > 0) {
       }
       // The card's sentence rides the same bake: a note edited in the source
       // and never re-baked is the old sentence on the player's screen.
+      if ((got.shore === true) !== shoreList.has(want.id)) stale.push(`${want.id} shore ${String(got.shore)} vs the source's list`);
+      if ((got.setting === 'plaza') !== plazaList.has(want.id)) stale.push(`${want.id} setting ${String(got.setting)} vs the source's plazas`);
       const note = sourceFile.notes?.[want.id];
       if ((got as { note?: string }).note !== note) stale.push(`${want.id} note differs from the source`);
       if (note === undefined) stale.push(`${want.id} has no note in the source`);
       const km = (at(want.lat, want.lon).angleTo(at(got.lat, got.lon)) * PLANET_RADIUS) * KM_PER_UNIT;
       const spread = km - (got.snappedKm ?? 0);
-      const reach = ((got.footprint ?? MAX_FOOTPRINT) + MAX_FOOTPRINT + 12 + 20) * KM_PER_UNIT;
+      const reach = ((got.footprint ?? MAX_FOOTPRINT) + MAX_FOOTPRINT + 12 + SEAT_REACH) * KM_PER_UNIT;
       if (spread > reach) stale.push(`${want.id} is ${km.toFixed(1)} km from its source, ${(got.snappedKm ?? 0).toFixed(1)} of it snapped`);
       if (spread > furthest) {
         furthest = spread;
@@ -1389,6 +1423,47 @@ if (placed.length > 0) {
   );
 
   /**
+   * And the plan its model stands in, which is what the pad is cut to, the
+   * towns leave unbuilt and the roads keep off (`landmark-ground.ts`). Built
+   * here from the model files, the box of every vertex rounded out to half a
+   * unit, and held to the bake's: a model that grew after the last bake is a
+   * landmark reaching past the ground made for it.
+   */
+  {
+    const ctx = createContext();
+    const wrongPlan: string[] = [];
+    let measured = 0;
+    for (const file of readdirSync(modelDir).sort()) {
+      if (!file.endsWith('.ts') || file === 'contract.ts' || file === 'index.ts') continue;
+      const module = (await import(`../src/monuments/${file}`)) as Record<string, unknown>;
+      const model = Object.values(module).find(
+        (value): value is Monument => typeof (value as Monument | undefined)?.build === 'function' && typeof (value as Monument).id === 'string',
+      );
+      if (model === undefined) continue;
+      const position = mergeMeshes(model.build(ctx)).position;
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let z0 = Infinity;
+      let z1 = -Infinity;
+      for (let i = 0; i < position.length; i += 3) {
+        x0 = Math.min(x0, position[i]!);
+        x1 = Math.max(x1, position[i]!);
+        z0 = Math.min(z0, position[i + 2]!);
+        z1 = Math.max(z1, position[i + 2]!);
+      }
+      const want = [Math.floor(x0 * 2) / 2, Math.ceil(x1 * 2) / 2, Math.floor(z0 * 2) / 2, Math.ceil(z1 * 2) / 2];
+      const got = monuments.find((m) => m.id === model.id)?.plan;
+      measured++;
+      if (got === undefined || got.some((v, i) => v !== want[i])) wrongPlan.push(`${model.id} ${JSON.stringify(got)} vs ${JSON.stringify(want)}`);
+    }
+    check(
+      wrongPlan.length === 0 && measured > 0,
+      `every placement carries its model's plan`,
+      wrongPlan.length > 0 ? `${wrongPlan.slice(0, 3).join('; ')} — run \`pnpm monuments\`` : `${measured} models built and measured`,
+    );
+  }
+
+  /**
    * The ground under a monument has to be level, and level at its anchor.
    *
    * `placement.ts` asks `groundRadius` once, at the centre, and stands the whole
@@ -1406,12 +1481,6 @@ if (placed.length > 0) {
    * Samples over a different shelf are skipped: that is the coastline, which is
    * the assertion below and not something a pad can fix.
    */
-  const stepFrom = (lat: number, lon: number, distance: number, bearing: number): [number, number] => {
-    const degrees = distance / UNITS_PER_DEGREE;
-    const y = Math.max(-89.99, Math.min(89.99, lat + degrees * Math.cos(bearing)));
-    const x = ((lon + (degrees * Math.sin(bearing)) / Math.max(0.02, Math.cos(lat * DEG)) + 540) % 360) - 180;
-    return [y, x];
-  };
   // `elevationAt` is the shelf plus the relief and will not hand back either
   // half, so the relief comes off again — normalised exactly the way `geo.ts`
   // normalises it, or the two evaluations differ in their last bits.
@@ -1426,24 +1495,96 @@ if (placed.length > 0) {
    * units tall; a person is 3.77 since 2026-09-24, and a stair's riser 0.32.
    */
   const SHELF_TOLERANCE = 0.5;
-  const PROBE_BEARINGS = 24;
+
+  /**
+   * The plan grown by `d`, shrunk for a negative `d`, as points at most
+   * `SEAT_STEP` apart in the landmark's frame: the part of the box's outline
+   * inside the disc and of the disc's inside the box (`PlanShape`). Written
+   * again rather than imported from the bake, which is a script.
+   */
+  const SEAT_STEP = 4;
+  const ringOf = (shape: PlanShape, d: number): [number, number][] => {
+    const inside = (x: number, z: number): boolean => {
+      if (Math.hypot(x, z) > shape.radius + d + 1e-6) return false;
+      if (d >= 0) return Math.hypot(Math.max(Math.abs(x - shape.cx) - shape.hx, 0), Math.max(Math.abs(z - shape.cz) - shape.hz, 0)) <= d + 1e-6;
+      return Math.abs(x - shape.cx) <= shape.hx + d + 1e-6 && Math.abs(z - shape.cz) <= shape.hz + d + 1e-6;
+    };
+    const points: [number, number][] = [];
+    const around = Math.max(0, shape.radius + d);
+    const n = Math.max(24, Math.ceil((2 * Math.PI * around) / SEAT_STEP));
+    for (let k = 0; k < n; k++) {
+      const x = Math.cos((k / n) * Math.PI * 2) * around;
+      const z = Math.sin((k / n) * Math.PI * 2) * around;
+      if (inside(x, z)) points.push([x, z]);
+    }
+    if (Number.isFinite(shape.hx)) {
+      const hx = Math.max(0, shape.hx + Math.min(d, 0));
+      const hz = Math.max(0, shape.hz + Math.min(d, 0));
+      const bend = Math.max(0, d);
+      const corners: [number, number][] = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+      for (const [x0, z0, x1, z1] of [
+        [hx + bend, -hz, hx + bend, hz], [hx, hz + bend, -hx, hz + bend],
+        [-hx - bend, hz, -hx - bend, -hz], [-hx, -hz - bend, hx, -hz - bend],
+      ] as const) {
+        const count = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / SEAT_STEP));
+        for (let i = 0; i < count; i++) {
+          const x = shape.cx + x0 + ((x1 - x0) * i) / count;
+          const z = shape.cz + z0 + ((z1 - z0) * i) / count;
+          if (inside(x, z)) points.push([x, z]);
+        }
+      }
+      if (bend > 0) {
+        const arc = Math.max(2, Math.ceil((bend * Math.PI) / 2 / SEAT_STEP));
+        corners.forEach(([sx, sz], c) => {
+          for (let i = 1; i < arc; i++) {
+            const angle = (c * Math.PI) / 2 + ((Math.PI / 2) * i) / arc;
+            const x = shape.cx + sx * hx + Math.cos(angle) * bend;
+            const z = shape.cz + sz * hz + Math.sin(angle) * bend;
+            if (inside(x, z)) points.push([x, z]);
+          }
+        });
+      }
+    }
+    return points;
+  };
+  const frameUp = new Vector3();
+  const frameAcross = new Vector3();
+  const frameNorth = new Vector3();
+  const ringPoint = new Vector3();
+  /** Each point of a landmark's ring at `d`, as a direction on the unit sphere. */
+  const eachOnRing = (m: { lat: number; lon: number }, shape: PlanShape, d: number, visit: (p: Vector3) => void): void => {
+    unitAt(m.lat, m.lon, frameUp);
+    townFrame(frameUp, frameAcross, frameNorth);
+    for (const [x, z] of ringOf(shape, d)) {
+      offsetDirection(frameUp, frameAcross, frameNorth, x, z, ringPoint);
+      // The rings are cut along the antimeridian and the seam belongs to
+      // neither side; the South Pole's rings all cross it.
+      if (Math.abs(lonOf(ringPoint.x, ringPoint.z)) === 180) unitAt(latOf(ringPoint.y), 179.9999999, ringPoint);
+      visit(ringPoint);
+    }
+  };
+  const shelfAtPoint = (p: Vector3): number => {
+    if (world.countryAtPoint(p) === 0) return 0;
+    const length = p.length() || 1;
+    return world.elevationAt(p) - reliefAt(p.x / length, p.y / length, p.z / length);
+  };
 
   let worstTilt = 0;
   let tiltedAt = '';
   for (const m of monuments) {
-    const footprint = m.footprint ?? MAX_FOOTPRINT;
+    const shape = planShape(m);
     const level = world.elevationAt(at(m.lat, m.lon));
     const shelf = shelfAt(m.lat, m.lon);
-    for (const radius of [footprint * 0.5, footprint]) {
-      for (let k = 0; k < PROBE_BEARINGS; k++) {
-        const [y, x] = stepFrom(m.lat, m.lon, radius, (k / PROBE_BEARINGS) * Math.PI * 2);
-        if (Math.abs(shelfAt(y, x) - shelf) > SHELF_TOLERANCE) continue;
-        const tilt = Math.abs(world.elevationAt(at(y, x)) - level);
+    // The plan's own edge and a ring halfway in: the ground the model stands on.
+    for (const d of [-Math.min(shape.hx, shape.hz, shape.radius) / 2, 0]) {
+      eachOnRing(m, shape, d, (p) => {
+        if (Math.abs(shelfAtPoint(p) - shelf) > SHELF_TOLERANCE) return;
+        const tilt = Math.abs(world.elevationAt(p) - level);
         if (tilt > worstTilt) {
           worstTilt = tilt;
           tiltedAt = m.id;
         }
-      }
+      });
     }
   }
   check(
@@ -1475,48 +1616,64 @@ if (placed.length > 0) {
    * shows — measured, over the twelve, 4.1 to **21.0** units before
    * `SHORE_CEILING` and 4.0 for every one of them after.
    */
-  const SEAT_STEP = 4;
-  const clearanceAt = (lat: number, lon: number, limit: number): number => {
-    const shelf = shelfAt(lat, lon);
-    for (let radius = SEAT_STEP; radius <= limit; radius += SEAT_STEP) {
-      for (let k = 0; k < PROBE_BEARINGS; k++) {
-        const [y, x] = stepFrom(lat, lon, radius, (k / PROBE_BEARINGS) * Math.PI * 2);
-        if (Math.abs(shelfAt(y, x) - shelf) > SHELF_TOLERANCE) return radius - SEAT_STEP;
-      }
+  /** The bake's `clearance`: the last ring out from the plan's spine wholly on the centre's shelf. */
+  const clearanceAt = (m: { lat: number; lon: number }, shape: PlanShape, limit: number): number => {
+    const shelf = shelfAt(m.lat, m.lon);
+    for (let d = -Math.floor(Math.min(shape.radius, shape.hx, shape.hz) / SEAT_STEP) * SEAT_STEP; d <= limit; d += SEAT_STEP) {
+      let dry = true;
+      eachOnRing(m, shape, d, (p) => {
+        if (dry && Math.abs(shelfAtPoint(p) - shelf) > SHELF_TOLERANCE) dry = false;
+      });
+      if (!dry) return d - SEAT_STEP;
     }
     return limit;
   };
-  /** Share of a footprint disc with water under it, and its ground height. */
-  const overWater = (lat: number, lon: number, footprint: number): { wet: number; over: number } => {
+  /** Share of a plan with water under it, and its ground height. */
+  const overWater = (m: { lat: number; lon: number }, shape: PlanShape): { wet: number; over: number } => {
     let wet = 0;
     let total = 0;
-    for (let r = 1; r <= 8; r++) {
-      for (let k = 0; k < PROBE_BEARINGS * 2; k++) {
-        const [y, x] = stepFrom(lat, lon, (r / 8) * footprint, (k / (PROBE_BEARINGS * 2)) * Math.PI * 2);
+    for (let d = -Math.min(shape.radius, shape.hx, shape.hz); d <= 0; d += SEAT_STEP) {
+      eachOnRing(m, shape, d, (p) => {
         total++;
-        if (world.countryAt(y, x) === 0) wet++;
-      }
+        if (world.countryAtPoint(p) === 0) wet++;
+      });
     }
-    return { wet: (wet / total) * 100, over: world.elevationAt(at(lat, lon)) };
+    return { wet: (wet / Math.max(1, total)) * 100, over: world.elevationAt(at(m.lat, m.lon)) };
   };
   const stale: string[] = [];
   const overhanging: string[] = [];
   let worstDrop = 0;
+  const ashore: string[] = [];
   for (const m of monuments) {
-    const footprint = m.footprint ?? MAX_FOOTPRINT;
-    const got = clearanceAt(m.lat, m.lon, footprint);
-    if (Math.abs(got - (m.clearance ?? -1)) > 1e-6) {
+    const shape = planShape(m);
+    const got = clearanceAt(m, shape, SHORE_CLEAR);
+    if (Math.abs(got - (m.clearance ?? -Infinity)) > 1e-6) {
       stale.push(`${m.id} ${got} vs ${m.clearance ?? 'absent'}`);
     }
-    if (got >= footprint) continue;
-    const { wet, over } = overWater(m.lat, m.lon, footprint);
+    if (got >= 0) continue;
+    if (m.shore !== true) ashore.push(`${m.id} ${-got}u`);
+    const { wet, over } = overWater(m, shape);
     worstDrop = Math.max(worstDrop, over);
-    overhanging.push(`${m.id} ${(footprint - got).toFixed(0)}u ${wet.toFixed(0)}% ${over.toFixed(1)}`);
+    overhanging.push(`${m.id} ${-got}u ${wet.toFixed(0)}% ${over.toFixed(1)}`);
   }
   check(
     stale.length === 0,
     'every monument stands on the ground the bake seated it on',
     stale.length > 0 ? `${stale.slice(0, 4).join('; ')} — run \`pnpm monuments\`` : '',
+  );
+  /**
+   * **No landmark stands over the water but the ones that are made of it.**
+   * The Sagrada Familia stood 30 units of its 38 over the Mediterranean,
+   * because a short move could not seat it and the bake left it where it was;
+   * every landmark on dry land is seated now, however far it takes, and only
+   * the source's `shore` list — a tidal island, a strait, a mosque built over
+   * the sea — may reach past the coast. Its plan, measured from the model; not
+   * the disc of its footprint, whose corners are ground the model never uses.
+   */
+  check(
+    ashore.length === 0,
+    'no landmark but a shore one has water under its plan',
+    ashore.length > 0 ? `${ashore.slice(0, 5).join('; ')} — list it as shore or run \`pnpm monuments\`` : '',
   );
   // The count is a table, not an assertion. It cannot go to zero — the Golden
   // Gate spans a strait and Easter Island is narrower than its own moai — but
@@ -1527,7 +1684,7 @@ if (placed.length > 0) {
   // pad that stands over water down to the lip, and anything above it is a
   // monument hanging in the air.
   console.log(
-    `  --   ${overhanging.length} of ${monuments.length} stand over water — id, footprint short by, ` +
+    `  --   ${overhanging.length} of ${monuments.length} stand over water, all of them shore — id, water this far into the plan, ` +
     `share of it wet, units above the sea:\n       ${overhanging.join(' · ')}`,
   );
   check(
@@ -1535,6 +1692,40 @@ if (placed.length > 0) {
     'nothing standing over water stands more than the shore lip above it',
     `worst ${worstDrop.toFixed(1)} against lip ${SHORE_LIP}`,
   );
+
+  /**
+   * **No landmark takes a town's roads.** A gate a landmark stands on is shut
+   * (`gateUnderLandmark`), so a landmark on top of a small town left it with
+   * none: Granada's, Bilbao's and Djenné's roads ended in the walls of the
+   * Alhambra, the Guggenheim and the mosque. The bake moves a landmark that
+   * would take more than half a town's gates off it (`landmarkTakes`), and
+   * this asks every built town near every landmark again. A landmark in the
+   * middle of a city with its gates free — the Forbidden City — is the town
+   * wrapping round it, and passes.
+   */
+  {
+    const takers: string[] = [];
+    let asked = 0;
+    let partly = 0;
+    for (const m of monuments) {
+      const shape = planShape(m);
+      const up = at(m.lat, m.lon).normalize();
+      for (const place of placesRaw) {
+        if (!isShown(place)) continue;
+        const reach = radiusOf(place) + planReach(shape) + APPROACH + LANDMARK_KEEP;
+        if (placeDirection(place, new Vector3()).angleTo(up) * PLANET_RADIUS > reach) continue;
+        asked++;
+        const taken = landmarkTakes(place, up, shape);
+        if (taken.gates.length > 0) partly++;
+        if (taken.gates.length * 2 > taken.of) takers.push(`${m.id} takes ${taken.gates.length} of ${place.name}'s ${taken.of} gates`);
+      }
+    }
+    check(
+      takers.length === 0,
+      'no landmark takes more than half a town\'s gates',
+      takers.length > 0 ? `${takers.slice(0, 4).join('; ')} — run \`pnpm monuments\`` : `${asked} towns near a landmark, ${partly} with a gate under one`,
+    );
+  }
 } else {
   console.log('\nmonuments: not built yet (run `pnpm monuments`)');
 }
@@ -2631,6 +2822,100 @@ console.log('\nroads');
           `${wrongOrder} with the lower road in front, in ${Date.now() - began} ms` +
           (sameNames.length > 0 ? `: ${sameNames.join('; ')}` : ''),
       );
+
+      /**
+       * And where two ribbons overlap, one set of markings: every road's
+       * edge lines and centre dash walked along its near band's own pieces,
+       * through the runs the ribbon paints them in (`markingRuns`), and each
+       * painted point measured against every other road's centre line on
+       * its own. No edge line is further into another road's carriageway than
+       * that road's own edge line (`EDGE_KEEP`), and none of it at all inside
+       * one drawn in front; no dash is inside a carriageway drawn in front.
+       */
+      {
+        const markBegan = Date.now();
+        const stationsM: number[] = [];
+        const nearM = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+        const farM = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+        const nL = new Vector3();
+        const nR = new Vector3();
+        const fL = new Vector3();
+        const fR = new Vector3();
+        const centreAt = new Vector3();
+        const painted = new Vector3();
+        const runsM: number[] = [];
+        const nearestM = { distance: 0, s: 0 };
+        let roadsMarked = 0;
+        let pointsM = 0;
+        let edgeInside = 0;
+        let dashInside = 0;
+        let edgeWorst = 0;
+        const edgeNames: string[] = [];
+        for (let r = 0; r < roads.length; r++) {
+          coursePoint(courseOf(roads[r]!, settled, scratchCourse), 0.5, middle);
+          const others = otherRoadsOf(roads, r, index, pathOf, rampFor, middle);
+          if (others.length === 0) continue;
+          roadsMarked++;
+          const course = courseOf(roads[r]!, settled, emptyCourse());
+          const path = pathOf(r);
+          const ramp = rampFor(r);
+          const half = ROAD_CLASSES[roads[r]!.cls]!.width * 0.5;
+          ribbonStations(path.length, course.approach, ramp, 18, stationsM);
+          for (let k = 1; k < stationsM.length; k++) {
+            const s0 = stationsM[k - 1]!;
+            const s1 = stationsM[k]!;
+            const sm = (s0 + s1) * 0.5;
+            coursePoint(course, parameterAt(path, sm), centreAt);
+            let close = false;
+            for (const other of others) {
+              nearestOnPath(other.path, centreAt, nearestM);
+              if (nearestM.distance < other.half + 30 + (s1 - s0)) close = true;
+            }
+            if (!close) continue;
+            ribbonSection(world, course, path, ramp, half, s0, nearM);
+            ribbonSection(world, course, path, ramp, half, s1, farM);
+            carriageEdges(nearM, ribbonHalf(ramp, half, s0, path.length - s0), half, nL, nR);
+            carriageEdges(farM, ribbonHalf(ramp, half, s1, path.length - s1), half, fL, fR);
+            const length = s1 - s0;
+            for (const [across, gives, dash] of [
+              [0.5, dashGives, true], [edgeLineAcross(half, false), edgeGives, false], [edgeLineAcross(half, true), edgeGives, false],
+            ] as const) {
+              const runs = markingRuns(others, nL, nR, fL, fR, across, gives, runsM);
+              for (let q = 0; q < runs.length; q += 2) {
+                const a0 = runs[q]! + 0.1 / length;
+                const a1 = runs[q + 1]! - 0.1 / length;
+                if (a1 <= a0) continue;
+                for (let j = 0; j <= 8; j++) {
+                  const along = a0 + ((a1 - a0) * j) / 8;
+                  painted.copy(nL).lerp(nR, across).lerp(centreAt.copy(fL).lerp(fR, across), along).normalize();
+                  pointsM++;
+                  for (const other of others) {
+                    const on = nearestOn(other.path, painted);
+                    if (on.pastCap) continue;
+                    const deep = other.half - on.distance;
+                    if (dash) {
+                      if (other.front && deep > 0.05 + 0.02) dashInside++;
+                    } else if (deep > (other.front ? 0.05 : EDGE_KEEP) + 0.02) {
+                      edgeInside++;
+                      edgeWorst = Math.max(edgeWorst, deep);
+                      if (edgeNames.length < 3) {
+                        edgeNames.push(`${settled[roads[r]!.a]!.name}-${settled[roads[r]!.b]!.name}`);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        check(
+          edgeInside === 0 && dashInside === 0 && pointsM > 0,
+          'where two ribbons overlap one set of markings shows: no edge line or dash inside the other road’s carriageway',
+          `${roadsMarked.toLocaleString()} roads beside another, ${pointsM.toLocaleString()} painted points walked; ` +
+            `${edgeInside} edge-line points inside (worst ${edgeWorst.toFixed(2)}), ${dashInside} dash points inside a road in front, ` +
+            `in ${Date.now() - markBegan} ms` + (edgeNames.length > 0 ? `: ${edgeNames.join('; ')}` : ''),
+        );
+      }
     }
 
     /**
@@ -2806,6 +3091,19 @@ console.log('\nroads');
         'and none of them crosses ground steeper than MAX_SLOPE',
         steep === 0 ? `re-walked in ${Date.now() - began} ms` : `${steep} do: ${steepNames.join(', ')}`,
       );
+      // Nor through a landmark: the course keeps `LANDMARK_KEEP` off every
+      // model's plan, so the Alhambra's roads come to Granada's free gates and
+      // not through the palace.
+      const throughLandmark: string[] = [];
+      for (const road of roads) {
+        if (landmarkAt(road, settled) < 0) continue;
+        throughLandmark.push(`${settled[road.a]!.name}-${settled[road.b]!.name}`);
+      }
+      check(
+        throughLandmark.length === 0,
+        'and none of them runs through a landmark',
+        throughLandmark.length > 0 ? `${throughLandmark.length} do: ${throughLandmark.slice(0, 5).join(', ')}` : '',
+      );
 
       const shipped = new Set<number>();
       for (const road of roads) shipped.add(pairKey(settled.length, road.a, road.b));
@@ -2861,6 +3159,7 @@ console.log('\nroads');
             if (at.angleTo(townAt) * PLANET_RADIUS < limit) return true;
           }
         }
+        if (landmarkAt(bowProbe, settled) >= 0) return true;
         return crossesScree(bowProbe, settled);
       };
 
@@ -3428,6 +3727,9 @@ console.log('\nmade ground');
     let levelsSeen = 0;
     let bandFlights = 0;
     let orphans = 0;
+    let rampSides = 0;
+    let rampWalls = 0;
+    let rampWallWorst = 0;
     let gateCells = 0;
     let gateWrong = 0;
     let rampsSeen = 0;
@@ -3491,22 +3793,64 @@ console.log('\nmade ground');
         terraces: paved,
         cornerGround: (i, j) => hillside(cornerOffset(grid, i), cornerOffset(grid, j)),
       });
-      for (const list of field.flights?.values() ?? []) {
-        for (const flight of list) {
-          const col = Math.floor(flight.cell / 1024) - 512;
-          const row = (flight.cell % 1024) - 512;
-          // The street it climbs runs along `axis`, so its band is on the cell's
-          // index on the other axis; an avenue's flight is a whole cell wide.
-          const across = flight.axis === 0 ? row : col;
-          const twin = partnerOf(grid, across);
-          if (twin === across) continue;
-          bandFlights++;
-          const other = flight.axis === 0 ? cellKey(col, twin) : cellKey(twin, row);
-          const matched = (field.flights?.get(other) ?? []).some((f) =>
-            f.axis === flight.axis && Math.abs(f.at - flight.at) < 1e-9 && f.into === flight.into &&
-            f.high === flight.high && f.low === flight.low && f.ramp === flight.ramp &&
-            Math.abs(f.back - flight.back) < 1e-9 && Math.abs(f.run - flight.run) < 1e-9);
-          if (!matched) orphans++;
+      // And the same town with a ragged edge (`outskirtsOf`), where the two
+      // rows either side of a band street stop in different places: the twin
+      // of a half is planned with it, not found by it.
+      const ragged = new Map(paved);
+      for (const key of outskirtsOf(grid, `ramps-${grid.cells}`, () => false)) ragged.delete(key);
+      const raggedField = buildFloor({
+        grid,
+        mouths,
+        band: streetBand(grid, 9.75),
+        terraces: ragged,
+        cornerGround: (i, j) => hillside(cornerOffset(grid, i), cornerOffset(grid, j)),
+      });
+      for (const floor of [field, raggedField]) {
+        for (const list of floor.flights?.values() ?? []) {
+          for (const flight of list) {
+            const col = Math.floor(flight.cell / 1024) - 512;
+            const row = (flight.cell % 1024) - 512;
+            // The street it climbs runs along `axis`, so its band is on the cell's
+            // index on the other axis; an avenue's flight is a whole cell wide.
+            const across = flight.axis === 0 ? row : col;
+            const twin = partnerOf(grid, across);
+            const other = flight.axis === 0 ? cellKey(col, twin) : cellKey(twin, row);
+            // A half whose twin row is not paved on both sides of the riser —
+            // given up to the outskirts — is a street's last half, and its
+            // midline is the town's edge, not a carriageway.
+            const twinAbove = flight.axis === 0
+              ? cellKey(col + (flight.into > 0 ? -1 : 1), twin)
+              : cellKey(twin, row + (flight.into > 0 ? -1 : 1));
+            const paired = twin !== across && floor.terraces.has(other) && floor.terraces.has(twinAbove);
+            if (paired) {
+              bandFlights++;
+              const matched = (floor.flights?.get(other) ?? []).some((f) =>
+                f.axis === flight.axis && Math.abs(f.at - flight.at) < 1e-9 && f.into === flight.into &&
+                f.high === flight.high && f.low === flight.low && f.ramp === flight.ramp &&
+                Math.abs(f.back - flight.back) < 1e-9 && Math.abs(f.run - flight.run) < 1e-9);
+              if (!matched) orphans++;
+            }
+            // Nothing stands up out of the carriageway beside a ramp: at each
+            // of its sides inside the carriageway — a band half's midline —
+            // what is just beyond is the ramp's own surface all the way along,
+            // so the drawing's side there has no height anywhere.
+            if (!flight.ramp || !paired) continue;
+            const carriage = flight.half - pavementOf(flight.half);
+            for (const [t, sign] of [[flight.from, -1], [flight.to, 1]] as const) {
+              if (Math.abs(t - flight.centre) >= carriage) continue;
+              rampSides++;
+              const probe = t + sign * 1e-3;
+              for (let s = -flight.back; s <= flight.run; s += 0.25) {
+                const along = flight.at + flight.into * s;
+                const [x, z] = flight.axis === 0 ? [along, probe] : [probe, along];
+                const drop = Math.abs(floorLiftAt(floor, x, z, 0) - flightHeight(flight, s));
+                if (drop > 1e-3) {
+                  rampWalls++;
+                  rampWallWorst = Math.max(rampWallWorst, drop);
+                }
+              }
+            }
+          }
         }
       }
       // Every crossing walked down the middle of what it carries, from the
@@ -3582,8 +3926,14 @@ console.log('\nmade ground');
     );
     check(
       orphans === 0 && bandFlights > 0,
-      'and every flight on a band street has its twin on the other half, at the same line',
+      'and every flight on a band street has its twin on the other half, at the same line, ragged edge or not',
       `${bandFlights} half-flights, ${orphans} without a twin`,
+    );
+    check(
+      rampSides > 0 && rampWalls === 0,
+      'and no ramp stands a wall inside the carriageway: its side on a band’s midline meets its twin',
+      `${rampSides} ramp sides inside a carriageway, ${rampWalls} quarter-unit samples off what is beside them` +
+        (rampWalls > 0 ? `, worst ${rampWallWorst.toFixed(3)}` : ''),
     );
     check(
       rampsSeen > 0 && stairsSeen === 0 && rampSteepest <= STREET_GRADE + 1e-9 && rampSlope <= STREET_GRADE + 1e-6 && rampWrong === 0,
@@ -3963,15 +4313,54 @@ console.log('\nmade ground');
     const faceN = new Vector3();
     const vertexAt = new Vector3();
     const gateDir = new Vector3();
+    /**
+     * Every fourth road of the network, where it was every twentieth: a road
+     * that curls past its own gate or runs into a cutting is a few in
+     * seventeen thousand. The whole network is `SIDE_STEP=1` in the
+     * environment, about 70 s against 18.
+     */
+    const SIDE_STEP = Number(process.env.SIDE_STEP ?? 4);
     holdGates(pruned, placesRaw, world);
-    for (let i = 0; i < pruned.length; i += 20) {
+    const sideBegan = Date.now();
+    const sideIndex = roadIndexFor(pruned, placesRaw);
+    const sidePaths = new Map<number, CoursePath>();
+    const sidePathOf = (q: number): CoursePath => {
+      let found = sidePaths.get(q);
+      if (found === undefined) {
+        found = coursePath(courseOf(pruned[q]!, placesRaw, emptyCourse()));
+        sidePaths.set(q, found);
+      }
+      return found;
+    };
+    const sideRamps = new Map<number, RoadRamp>();
+    const sideRampOf = (q: number): RoadRamp => {
+      let found = sideRamps.get(q);
+      if (found === undefined) {
+        found = rampOf(pruned[q]!, courseOf(pruned[q]!, placesRaw, emptyCourse()), placesRaw, world);
+        sideRamps.set(q, found);
+      }
+      return found;
+    };
+    const sideMiddle = new Vector3();
+    const sideNearest = { distance: 0, s: 0 };
+    const ownNearest = { distance: 0, s: 0 };
+    const surfaceAt = new Vector3();
+    const surfaceAhead = new Vector3();
+    const surfaceSide = new Vector3();
+    let lowWorst = Infinity;
+    const lowNames: string[] = [];
+    let besideOthers = 0;
+    let inOther = 0;
+    for (let i = 0; i < pruned.length; i += SIDE_STEP) {
       const road = pruned[i]!;
       courseOf(road, placesRaw, course);
       const path = coursePath(course);
       rampOf(road, course, placesRaw, world, ramp);
-      const site = roadsideSite(road, course, path, ramp, placesRaw, world);
+      const others = otherRoadsOf(pruned, i, sideIndex, sidePathOf, sideRampOf, coursePoint(course, 0.5, sideMiddle));
+      if (others.length > 0) besideOthers++;
+      const site = roadsideSite(road, course, path, ramp, placesRaw, world, others);
       const laid = layRoadside(site);
-      const again = layRoadside(roadsideSite(road, course, path, ramp, placesRaw, world));
+      const again = layRoadside(roadsideSite(road, course, path, ramp, placesRaw, world, others));
       if (laid.position.length !== again.position.length || laid.position.some((value, k) => value !== again.position[k])) unstable++;
       sideRoads++;
       sideLength += path.length;
@@ -3995,7 +4384,34 @@ console.log('\nmade ground');
           beyondVerge++;
           beyondWorst = Math.max(beyondWorst, away - clearance);
         }
-        if (away < half - 0.05 && radius - groundRadius(world, vertexAt) < 4.5) lowOverRoad++;
+        // Measured over the carriageway's own surface under it, which is not
+        // the relief's: into a gate cut down a hillside the road runs in a
+        // cutting, and a lamp's arm five units over the tarmac is under the
+        // ground either side.
+        if (away < half - 0.05) {
+          nearestOnPath(path, vertexAt, ownNearest);
+          const sOwn = ownNearest.s;
+          site.surface(sOwn, 0, surfaceAt, surfaceAhead, surfaceSide);
+          const lateral = vertexAt.dot(surfaceSide) * PLANET_RADIUS;
+          site.surface(sOwn, lateral, surfaceAt, surfaceAhead, surfaceSide);
+          const over = radius - surfaceAt.length();
+          if (over < 4.5) {
+            lowOverRoad++;
+            lowWorst = Math.min(lowWorst, over);
+            if (lowNames.length < 3) lowNames.push(`${placesRaw[road.a]!.name}-${placesRaw[road.b]!.name}`);
+          }
+        }
+        // And nothing under a lamp's arm stands in another road's carriageway:
+        // under 4.5 over that road's own crown there.
+        if (others.length > 0) {
+          for (const other of others) {
+            nearestOnPath(other.path, vertexAt, sideNearest);
+            if (sideNearest.distance < other.half - 0.05 && radius - othersRoofline([other], vertexAt, world) < 4.5) {
+              inOther++;
+              break;
+            }
+          }
+        }
       }
       for (let h = 0; h + 2 < laid.heads.length; h += 3) {
         lampsSeen++;
@@ -4016,7 +4432,13 @@ console.log('\nmade ground');
     check(
       beyondVerge === 0 && lowOverRoad === 0,
       'and it stands inside the verge the wood keeps, and nothing hangs low over the carriageway',
-      `${beyondVerge} vertices past roadClearance (worst ${beyondWorst.toFixed(2)}), ${lowOverRoad} over the carriageway under 4.5`,
+      `${sideRoads.toLocaleString()} roads in ${Date.now() - sideBegan} ms; ${beyondVerge} vertices past roadClearance (worst ${beyondWorst.toFixed(2)}), ${lowOverRoad} over the carriageway under 4.5 over its surface` +
+        (lowOverRoad > 0 ? ` (lowest ${lowWorst.toFixed(2)}: ${lowNames.join('; ')})` : ''),
+    );
+    check(
+      inOther === 0 && besideOthers > 0,
+      'and none of it stands in another road’s carriageway where two roads meet, fork or share an approach',
+      `${besideOthers} of ${sideRoads} roads beside another, ${inOther} vertices under 4.5 inside another’s carriageway`,
     );
     check(
       lampsSeen > 0 && lampsAstray === 0,

@@ -49,6 +49,7 @@ export type TravelMode =
   | 'jetski'
   | 'sailboat'
   | 'helicopter'
+  | 'submarine'
   | 'passenger';
 
 /** What a key does in the world, as opposed to which key it is. */
@@ -62,6 +63,7 @@ export type Action =
   | 'descend'
   | 'dive'
   | 'use'
+  | 'horn'
   | 'view'
   | 'map'
   | 'settings'
@@ -106,6 +108,10 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // the plane everybody owned. It also talks to whoever is nearer than any
   // seat, and moves a conversation on.
   use: ['KeyE'],
+  // `Q` for the horn, the one key left under the movement hand's fingers:
+  // `H`, the letter a horn would want, puts the overlay away. At the controls
+  // of anything that has one (`HORN_OF` in `craft/contract.ts`).
+  horn: ['KeyQ'],
   // `V` for view, which is where three decades of third-person games put it.
   // Every other letter within reach of the movement hand is already spoken
   // for: C descends, E gets in and out.
@@ -463,7 +469,8 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
       { action: 'jump', label: 'Jump · take off and climb · rise in a balloon or a helicopter' },
       { action: 'descend', label: 'Descend and land · sink' },
       { action: 'dive', label: 'Descend, a second key' },
-      { action: 'use', label: 'Get in or out · take the wheel · talk' },
+      { action: 'use', label: 'Get in or out · jump out under way · take the wheel · talk' },
+      { action: 'horn', label: 'Horn · bell · whinny, at the controls' },
     ],
   },
   {
@@ -471,7 +478,7 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
     rows: [
       { fixed: 'mouse', label: 'Look around' },
       { fixed: 'wheel', label: 'Nearer or further, on foot' },
-      { action: 'view', label: 'First person, on foot' },
+      { action: 'view', label: 'First person, on foot or in any seat' },
       { action: 'photo', label: 'Save a photo' },
       { action: 'hud', label: 'Hide or show everything on screen' },
     ],
@@ -526,24 +533,44 @@ export interface HintSet {
 
 export function boardingHints(mode: TravelMode, airborne = false, stranded = false): HintSet | null {
   const out: KeyHint = { keys: ['use'], label: 'Get out' };
+  const horn: KeyHint = { keys: ['horn'], label: 'Horn' };
+  const bail: KeyHint = { keys: ['use'], label: 'Jump out' };
   const set = (id: string, hints: KeyHint[], once = false, sticky = false): HintSet => ({ id, once, sticky, hints });
   switch (mode) {
     case 'swim':
-      return set('swim', [{ keys: MOVE, label: 'Swim' }, { keys: ['run'], label: 'Faster' }], true);
+      return set('swim', [
+        { keys: MOVE, label: 'Swim' },
+        { keys: ['run'], label: 'Faster' },
+        { keys: ['descend', 'dive'], label: 'Dive' },
+        { keys: ['jump'], label: 'Up to the surface' },
+      ], true);
+    case 'submarine':
+      return set('submarine', [
+        { keys: MOVE, label: 'Steer' },
+        { keys: ['descend', 'dive'], label: 'Dive' },
+        { keys: ['jump'], label: 'Rise · surface to get out' },
+        out,
+      ], true);
     case 'car':
-      return set('car', [{ keys: MOVE, label: 'Drive' }, { keys: ['run'], label: 'Boost' }, out]);
+      return set('car', [{ keys: MOVE, label: 'Drive' }, { keys: ['run'], label: 'Boost' }, horn, out]);
     case 'boat':
-      return set('boat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, out]);
+      return set('boat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, horn, out]);
     case 'jetski':
-      return set('jetski', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, out]);
+      return set('jetski', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, horn, out]);
     case 'sailboat':
-      return set('sailboat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Haul the sheet in' }, out]);
+      return set('sailboat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Haul the sheet in' }, horn, out]);
     case 'bicycle':
-      return set('bicycle', [{ keys: MOVE, label: 'Pedal and steer' }, { keys: ['run'], label: 'Out of the saddle' }, out]);
+      return set('bicycle', [{ keys: MOVE, label: 'Pedal and steer' }, { keys: ['run'], label: 'Out of the saddle' }, { ...horn, label: 'Bell' }, out]);
     case 'motorbike':
-      return set('motorbike', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Full throttle' }, out]);
+      return set('motorbike', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Full throttle' }, horn, out]);
     case 'horse':
-      return set('horse', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Gallop' }, { ...out, label: 'Dismount' }]);
+      return set('horse', [
+        { keys: MOVE, label: 'Ride' },
+        { keys: ['run'], label: 'Gallop' },
+        { keys: ['jump'], label: 'Jump' },
+        { ...horn, label: 'Whinny' },
+        { ...out, label: 'Dismount' },
+      ]);
     case 'helicopter':
       // Aloft, the rise and the fall are the keys nobody guesses, as in the
       // plane: said until used. On the ground, how to lift off, every time.
@@ -555,6 +582,7 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
               { keys: ['descend', 'dive'], label: 'Descend · land on flat ground' },
               { keys: ['forward', 'back'], label: 'Fly forward · back' },
               { keys: ['left', 'right'], label: 'Turn' },
+              { ...bail, label: 'Jump out, with a parachute' },
             ],
             true,
           )
@@ -567,6 +595,7 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
               { keys: ['jump', 'run'], label: 'Climb' },
               { keys: ['descend', 'dive'], label: 'Descend · land on flat ground' },
               { keys: ['left', 'right'], label: 'Bank' },
+              { ...bail, label: 'Jump out, with a parachute' },
             ],
             true,
           )
@@ -576,11 +605,11 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
         { keys: MOVE, label: 'Steer' },
         { keys: ['jump', 'run'], label: 'Rise' },
         { keys: ['descend', 'dive'], label: 'Sink' },
-        ...(airborne ? [] : [out]),
+        airborne ? { ...bail, label: 'Jump out, with a parachute' } : out,
       ]);
     case 'passenger':
       if (airborne && stranded) return set('stranded', [{ keys: ['use'], label: 'Take the controls' }], false, true);
-      return airborne ? null : set('passenger', [out]);
+      return airborne ? set('passenger-air', [{ ...bail, label: 'Jump out, with a parachute' }], true) : set('passenger', [out]);
     default:
       return null;
   }

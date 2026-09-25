@@ -1,6 +1,8 @@
 import type { LandRing } from './geo.ts';
 import { MAX_FOOTPRINT } from './monuments/contract.ts';
 import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
+import { landmarkFrame, planExtent, planGap, planReach, planShape } from './landmark-ground.ts';
+import type { Plan, PlanShape } from './landmark-ground.ts';
 
 /**
  * The shape of the land, as one pure function of a point on the unit sphere.
@@ -1003,7 +1005,7 @@ function shoreFall(
  * and a half untightened `MIN_EDGE` — for 1.03, and that margin is where a
  * 90-unit pad under a 55-unit model came from.
  */
-const PAD_MARGIN = 20;
+export const PAD_MARGIN = 20;
 
 /**
  * Radius of the level ground under a monument that declares no footprint.
@@ -1033,6 +1035,16 @@ export const FLATTEN_RADIUS = MAX_FOOTPRINT + PAD_MARGIN;
  * opening rather than average it away.
  */
 const SKIRT_LIP = 30;
+
+/**
+ * How much dry ground past its plan a landmark's pad needs to meet the shore
+ * as a slope, in world units: its level core, `PAD_MARGIN`, and the skirt's
+ * first `SKIRT_LIP`, over which the pad hands the ground back to the shore
+ * ramp (`reliefAt`). With less, the core stands at the landmark's own level
+ * nearer the water than the ramp can come down in, and the coast there is a
+ * bank. `build-monuments.ts` looks this far when it has to move a landmark.
+ */
+export const SHORE_CLEAR = PAD_MARGIN + SKIRT_LIP;
 
 /**
  * Where the skirt is built to land, as a multiple of the pad's own radius.
@@ -1107,10 +1119,21 @@ export interface FlattenSite {
   /** Radius of the model's own footprint. Defaults to the contract's widest. */
   footprint?: number;
   /**
-   * How much same-shelf ground the bake found around it, capped at `footprint`.
+   * The box the model stands in, in its own north-up frame, as the bake
+   * measured it (`landmark-ground.ts`). **The pad is cut to it**: level to
+   * `PAD_MARGIN` past the ground the box and the footprint's disc both hold,
+   * where it used to be level to that margin past the disc alone — so the
+   * Alhambra, 94 units by 18, stands on a terrace its own shape rather than in
+   * the middle of a level disc 136 across. Without one, the disc, as before.
+   */
+  plan?: Plan;
+  /**
+   * How much same-shelf ground the bake found around it: past the plan's
+   * edge where there is a plan, and negative where the plan itself reaches
+   * the water; the radius of it, capped at `footprint`, where there is not.
    *
-   * Short of the footprint means the model stands over water, and a pad that
-   * does may not stand higher than the shore — see `SHORE_CEILING`.
+   * Either way short of the model means the model stands over water, and a
+   * pad that does may not stand higher than the shore — see `SHORE_CEILING`.
    *
    * **It is read rather than measured here, and that is deliberate for the same
    * reason `footprint` is.** Whether a footprint reaches water is a question
@@ -1130,7 +1153,14 @@ export interface FlattenSite {
 
 /** Unit vectors of the sites, set once, before anything asks about the ground. */
 let siteDirection: Float64Array | null = null;
-/** Radius of the level ground at each site, and where its skirt has to end. */
+/** Each site's tangent frame, `across = up x north` then north, six to a site. */
+let siteFrame: Float64Array | null = null;
+/** Each site's plan, as `landmark-ground.ts` shapes it. */
+let siteShape: PlanShape[] | null = null;
+/**
+ * How far past its plan each site's level ground runs — `PAD_MARGIN`, the
+ * same for all of them — and how far past it its skirt has to end.
+ */
 let siteCore: Float64Array | null = null;
 let siteReach: Float64Array | null = null;
 /** Highest each pad may stand, `SHORE_CEILING` where the model is over water. */
@@ -1173,8 +1203,13 @@ export function setFlattenSites(sites: readonly FlattenSite[]): void {
   // Copied out now, so nothing the caller does to its list later can change the
   // shape of a planet that has already been built.
   const directions = new Float64Array(sites.length * 3);
+  const frames = new Float64Array(sites.length * 6);
+  const shapes: PlanShape[] = [];
   const cores = new Float64Array(sites.length);
   const ceilings = new Float64Array(sites.length);
+  const up = { x: 0, y: 0, z: 0 };
+  const across = { x: 0, y: 0, z: 0 };
+  const north = { x: 0, y: 0, z: 0 };
   sites.forEach((site, i) => {
     // Through `sphere.ts`, like every other conversion in the repo. Written out
     // here with `+sin`, this frame would be the mirror image of the world's and
@@ -1182,18 +1217,25 @@ export function setFlattenSites(sites: readonly FlattenSite[]): void {
     // ever compared with each other, nothing downstream could tell. See the
     // assertion in `check-world.ts`.
     toUnit(site.lat, site.lon, directions, i * 3);
+    up.x = directions[i * 3]!;
+    up.y = directions[i * 3 + 1]!;
+    up.z = directions[i * 3 + 2]!;
+    // The frame the model is stood in (`placement.ts`) and its plan measured in.
+    landmarkFrame(up, across, north);
+    frames.set([across.x, across.y, across.z, north.x, north.y, north.z], i * 6);
     // A footprint the contract could not have issued is a bug upstream, and
-    // clamping it is cheaper than a pad the size of a country.
-    const footprint = site.footprint;
-    const declared = footprint === undefined || !(footprint > 0) ? MAX_FOOTPRINT : footprint;
-    cores[i] = Math.min(declared, MAX_FOOTPRINT) + PAD_MARGIN;
+    // `planShape` clamps it: cheaper than a pad the size of a country.
+    shapes.push(planShape(site));
+    cores[i] = PAD_MARGIN;
     // A site that does not say is a site that stands on land, which is what a
     // bake older than this field means and what a hand-written one means too.
-    ceilings[i] = site.clearance !== undefined && site.clearance < declared
-      ? SHORE_CEILING
-      : Infinity;
+    const wet = site.clearance !== undefined &&
+      (site.plan !== undefined ? site.clearance < 0 : site.clearance < shapes[i]!.radius);
+    ceilings[i] = wet ? SHORE_CEILING : Infinity;
   });
   siteDirection = directions;
+  siteFrame = frames;
+  siteShape = shapes;
   siteCore = cores;
   siteCeiling = ceilings;
 }
@@ -1536,7 +1578,9 @@ function beginQueries(): void {
   buildValleys();
   const directions = siteDirection;
   const cores = siteCore;
-  if (directions === null || cores === null || directions.length === 0) return;
+  const shapes = siteShape;
+  const frames = siteFrame;
+  if (directions === null || cores === null || shapes === null || frames === null || directions.length === 0) return;
 
   const ceilings = siteCeiling;
   const count = directions.length / 3;
@@ -1547,8 +1591,12 @@ function beginQueries(): void {
 
   for (let i = 0; i < count; i++) {
     heights[i] = openReliefAt(directions[i * 3]!, directions[i * 3 + 1]!, directions[i * 3 + 2]!);
-    reaches[i] = cores[i]! * SKIRT_REACH;
-    if (reaches[i]! > furthest) furthest = reaches[i]!;
+    // The skirt is as long as it was when every pad was a disc — three times
+    // the disc's level radius — with the disc's radius the plan's reach, so a
+    // pad cut to a smaller plan gives its correction back no more steeply.
+    const bound = planReach(shapes[i]!);
+    reaches[i] = (bound + cores[i]!) * SKIRT_REACH - bound;
+    if (bound + reaches[i]! > furthest) furthest = bound + reaches[i]!;
   }
 
   // Pads that overlap take the mean of their levels. Union-find over the pairs
@@ -1570,7 +1618,7 @@ function beginQueries(): void {
       const dot = directions[i * 3]! * directions[j * 3]! +
         directions[i * 3 + 1]! * directions[j * 3 + 1]! +
         directions[i * 3 + 2]! * directions[j * 3 + 2]!;
-      if (Math.acos(clamp(dot, -1, 1)) * unitsPerRadian >= cores[i]! + cores[j]!) continue;
+      if (Math.acos(clamp(dot, -1, 1)) * unitsPerRadian >= planReach(shapes[i]!) + cores[i]! + planReach(shapes[j]!) + cores[j]!) continue;
       const a = root(i);
       const b = root(j);
       if (a !== b) parent[a] = b;
@@ -1606,40 +1654,25 @@ function beginQueries(): void {
     const y = directions[i * 3 + 1]!;
     const z = directions[i * 3 + 2]!;
 
-    // A tangent frame at the site, so the probes can walk out along a bearing.
-    // North projected onto the tangent plane, and the other axis from the cross
-    // product. Deliberately not named east or west: which one it is depends on
-    // the handedness of the lat/lon-to-xyz mapping, and nothing here cares —
-    // the loop below sweeps the whole circle, so the frame only decides which
-    // probe index points where. At a pole north degenerates and the fallback is
-    // any direction at all, for the same reason.
-    let nx = -x * y;
-    let ny = 1 - y * y;
-    let nz = -z * y;
-    let length = Math.hypot(nx, ny, nz);
-    if (length < 1e-9) {
-      nx = 1 - x * x;
-      ny = -x * y;
-      nz = -x * z;
-      length = Math.hypot(nx, ny, nz) || 1;
-    }
-    nx /= length;
-    ny /= length;
-    nz /= length;
-    const ax = ny * z - nz * y;
-    const ay = nz * x - nx * z;
-    const az = nx * y - ny * x;
+    // Out along a bearing in the site's own frame, to where the skirt should
+    // land: past the plan's edge on that bearing by the skirt's reach.
+    const ax = frames[i * 6]!;
+    const ay = frames[i * 6 + 1]!;
+    const az = frames[i * 6 + 2]!;
+    const nx = frames[i * 6 + 3]!;
+    const ny = frames[i * 6 + 4]!;
+    const nz = frames[i * 6 + 5]!;
 
     const level = heights[i]!;
-    const angle = reaches[i]! / unitsPerRadian;
-    const cosine = Math.cos(angle);
-    const sine = Math.sin(angle);
     const budget = spent(reaches[i]! - cores[i]!);
     let steepest = SKIRT_FLOOR;
     for (let p = 0; p < SKIRT_PROBES; p++) {
       const bearing = (p / SKIRT_PROBES) * 2 * Math.PI;
       const cb = Math.cos(bearing);
       const sb = Math.sin(bearing);
+      const angle = (planExtent(shapes[i]!, sb, cb) + reaches[i]!) / unitsPerRadian;
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
       const px = x * cosine + (nx * cb + ax * sb) * sine;
       const py = y * cosine + (ny * cb + ay * sb) * sine;
       const pz = z * cosine + (nz * cb + az * sb) * sine;
@@ -1673,9 +1706,30 @@ function beginQueries(): void {
   siteGrid = grid;
 }
 
+/**
+ * How far a point on the unit sphere is past site `i`'s plan, in world units:
+ * `planGap` in the site's own frame, and Infinity on the far side of the
+ * planet. What was the distance from the site's centre when every pad was a
+ * disc, and still is for a site with no plan.
+ */
+function gapOf(i: number, x: number, y: number, z: number): number {
+  const directions = siteDirection!;
+  const frames = siteFrame!;
+  if (x * directions[i * 3]! + y * directions[i * 3 + 1]! + z * directions[i * 3 + 2]! <= 0) return Infinity;
+  const across = (x * frames[i * 6]! + y * frames[i * 6 + 1]! + z * frames[i * 6 + 2]!) * unitsPerRadian;
+  const north = (x * frames[i * 6 + 3]! + y * frames[i * 6 + 4]! + z * frames[i * 6 + 5]!) * unitsPerRadian;
+  return planGap(siteShape![i]!, across, north);
+}
+
 /** Strength of the flattening at the point last looked up, and its height. */
 let padWeight = 0;
 let padLevel = 0;
+/**
+ * How far inside a pad's level core the point last looked up is, from 0 on
+ * the skirt a `SKIRT_LIP` out to 1 at the core's rim and in: what says the
+ * pad may hold the ground level here rather than let the shore take it.
+ */
+let padCore = 0;
 
 /**
  * Reads the pads at a point into `padWeight` and `padLevel`, given the height
@@ -1702,6 +1756,7 @@ let padLevel = 0;
 function lookUpPads(x: number, y: number, z: number, lat: number, lon: number, land: number): void {
   padWeight = 0;
   padLevel = 0;
+  padCore = 0;
   const grid = siteGrid;
   const directions = siteDirection;
   const heights = siteHeight;
@@ -1721,11 +1776,12 @@ function lookUpPads(x: number, y: number, z: number, lat: number, lon: number, l
   let oddsSum = 0;
   let oddsLevel = 0;
   for (const i of cell) {
-    const dot = x * directions[i * 3]! + y * directions[i * 3 + 1]! + z * directions[i * 3 + 2]!;
-    const distance = Math.acos(clamp(dot, -1, 1)) * unitsPerRadian;
+    const distance = gapOf(i, x, y, z);
     const core = cores[i]!;
     const reach = reaches[i]!;
     if (distance >= reach) continue;
+    const inCore = smoothstep(core + SKIRT_LIP, core, distance);
+    if (inCore > padCore) padCore = inCore;
     const rise = Math.abs(heights[i]! - land);
     const budget = slopes[i]! * spent(distance - core);
     // Inside the pad the skirt has spent nothing, so the pad holds outright —
@@ -1806,8 +1862,7 @@ function padClaim(x: number, y: number, z: number, lat: number, lon: number): nu
 
   let best = 0;
   for (const i of cell) {
-    const dot = x * directions[i * 3]! + y * directions[i * 3 + 1]! + z * directions[i * 3 + 2]!;
-    const distance = Math.acos(clamp(dot, -1, 1)) * unitsPerRadian;
+    const distance = gapOf(i, x, y, z);
     const core = cores[i]!;
     const claim = smoothstep(core + CLAIM_LIPS * SKIRT_LIP, core, distance);
     if (claim > best) best = claim;
@@ -1839,7 +1894,25 @@ export function reliefAt(x: number, y: number, z: number): number {
   const relief = valleyed(x, y, z, lat, lon, rawRelief(x, y, z, lat, lon));
   if (siteGrid === null) return relief;
   lookUpPads(x, y, z, lat, lon, relief);
-  return relief + (padLevel - relief) * padWeight;
+  if (padWeight <= 0) return relief;
+  // **Past its level core a pad follows the shore down, rather than holding
+  // the coast up.** The skirt gives the pad's correction back at its own
+  // gradient, and a pad a few hundred units from the sea still held most of
+  // it at the water's edge: the Sagrada Familia, moved inland off Barcelona's
+  // beach, stood its skirt's 18 units on the coast where the ramp comes down
+  // to 4, which is the cliff the shore ramp was written to delete — and one no
+  // swimmer can climb out onto. So outside the core the level the skirt aims
+  // at comes down with the shore ramp itself, the `rawRelief` term, fading in
+  // over the skirt's first `SKIRT_LIP`; the core stays level, and a pad a
+  // hundred units inland changes nothing, because the ramp there is nothing.
+  let target = padLevel;
+  if (padCore < 1) {
+    const fall = shoreFall(x, y, z, lat, lon, shoreDistance(lat, lon) - COAST_CELL * 0.5);
+    // Never under the lip, which is the lowest ground on the planet: a pad
+    // already held down to it has nothing left to come down.
+    if (fall > 0) target = Math.max(SHORE_CEILING, target - (LAND_SHELF - SHORE_LIP) * fall * (1 - padCore));
+  }
+  return relief + (target - relief) * padWeight;
 }
 
 /**

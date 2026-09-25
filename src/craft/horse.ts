@@ -2,12 +2,21 @@
  * The horse you can ride: Quaternius's horse (Ultimate Animated Animals, CC0),
  * the herds' own rig, saddled, with a seat on its back.
  *
- * **It is the herds' horse, at the herds' size** (`fauna/parts/horse.ts`,
- * fitted by its length as `life.ts` fits one), so a horse you ride away from
- * a farm is the horse that grazes beside it. What makes it a craft is a
+ * **It is the herds' horse, fitted to its rider.** The rig and the coats are
+ * the herds' (`fauna/parts/horse.ts`), but not their size: fitted by the
+ * herds' length a horse's back stood 1.28 bodies up, a saddle at a person's
+ * crown, which is a draught horse under a child. A horse's withers are 1.6 m
+ * against a 1.75 m person, 0.91 of him, and a horse somebody sits on reads by
+ * that ratio before it reads by anything else; so the rig is scaled until the
+ * top of its back is `WITHERS` of `AVATAR_HEIGHT`, a little over life, since
+ * the rider's legs have to reach down its sides. What makes it a craft is a
  * saddle and a seat: the seat is found on the rig itself — the top of the
  * back, a little ahead of the middle, where the barrel is highest behind the
  * withers — and the saddle is laid there with its top on the hip.
+ *
+ * **It jumps.** `Space` sends it up (`player.ts`), and the motion plays the
+ * pack's `Gallop_Jump` for a leap at speed and `Jump_toIdle` from a standstill
+ * (`craft/motion.ts`), both baked for it (`pnpm kit`).
  *
  * **It walks and gallops.** The rig is a child named `'rig'` carrying its
  * skinned body and its mixer, and the motion plays it (`craft/motion.ts`):
@@ -29,9 +38,14 @@ import { FAUNA_STYLES } from '../fauna/regions.ts';
 import { horse as horseAnimal } from '../fauna/parts/horse.ts';
 import { rngFrom } from '../scenery/random.ts';
 import type { CraftModel, Seat } from './contract.ts';
+import { JUMP_CLIPS } from './motion.ts';
+import type { JumpCurve } from './motion.ts';
 import { assemble, craftContext, finish, soupOf } from './build.ts';
 
 const H = AVATAR_HEIGHT;
+
+/** The top of the back under the saddle, over the ground, as a share of `AVATAR_HEIGHT`: see above. */
+export const WITHERS = 0.95;
 
 /** Coat, the belly's and the mane's, tail's and hooves': the six a riding stable has. */
 const COATS: readonly [number, number, number][] = [
@@ -60,15 +74,18 @@ function shapeOf(variant: number): AnimalShape {
   return { ...base, coat, under, point, face: coat };
 }
 
+/** The herds' own scale for the rig: fitted by its length, as `life.ts` fits one. */
+function herdScale(rig: Rig): number {
+  return horseAnimal.size[0] / rig.box.getSize(new THREE.Vector3()).z;
+}
+
 /**
- * The rig fitted to the herds' length, its feet on y = 0 and its middle on
- * the axis, as `life.ts` stands one.
+ * The rig at scale `k`, its feet on y = 0 and its middle on the axis, as
+ * `life.ts` stands one.
  */
-function fitted(rig: Rig, variant: number): { holder: THREE.Group; scale: number } {
+function fitted(rig: Rig, variant: number, k: number): { holder: THREE.Group; scale: number } {
   const choice = horseAnimal.rigs!.find((entry) => entry.id === rig.name) ?? horseAnimal.rigs![0]!;
   const rigged = makeRigged(rig, rigPaint(shapeOf(variant), choice));
-  const size = rig.box.getSize(new THREE.Vector3());
-  const k = horseAnimal.size[0] / size.z;
   rigged.root.position.set(-(rig.box.min.x + rig.box.max.x) / 2, -rig.box.min.y, -(rig.box.min.z + rig.box.max.z) / 2);
   const holder = new THREE.Group();
   holder.name = 'rig';
@@ -90,8 +107,8 @@ interface Back {
   bone: string;
 }
 
-function measureBack(rig: Rig): Back {
-  const { holder } = fitted(rig, 0);
+function measureBack(rig: Rig, k: number): Back {
+  const { holder } = fitted(rig, 0, k);
   holder.updateMatrixWorld(true);
   const rigged = holder.userData.rigged as ReturnType<typeof makeRigged>;
   const body = rigged.body;
@@ -126,11 +143,69 @@ function measureBack(rig: Rig): Back {
   return { top: seat, half, bone };
 }
 
+/** Samples a jump clip is measured at. */
+const JUMP_SAMPLES = 32;
+/** How high the lowest hoof has to be, in units, for the horse to count as off the ground in a clip. */
+const OFF_THE_GROUND = 0.15;
+
+/**
+ * The pack's jumps lift the whole horse, which a ridden one must not do: the
+ * player's own jump already lifts it (`player.ts`), and the two together are
+ * twice the leap. So each jump clip is measured once, here, for how high its
+ * lowest hoof is through it, and the motion lowers the rig by that as it plays
+ * (`craft/motion.ts`): the legs gather and stretch as the pack drew them, and
+ * the height is the player's.
+ */
+function measureJumps(rig: Rig, k: number): Record<string, JumpCurve> {
+  const { holder } = fitted(rig, 0, k);
+  const rigged = holder.userData.rigged as ReturnType<typeof makeRigged>;
+  const body = rigged.body;
+  const point = new THREE.Vector3();
+  const count = body.geometry.getAttribute('position').count;
+  const curves: Record<string, JumpCurve> = {};
+  for (const name of JUMP_CLIPS) {
+    const action = rigged.actions.get(name);
+    if (action === undefined) continue;
+    for (const other of rigged.actions.values()) other.stop();
+    action.reset().play();
+    const duration = action.getClip().duration;
+    const feet = new Float32Array(JUMP_SAMPLES + 1);
+    for (let i = 0; i <= JUMP_SAMPLES; i++) {
+      rigged.mixer.setTime((duration * i) / JUMP_SAMPLES);
+      holder.updateMatrixWorld(true);
+      body.skeleton.update();
+      let lowest = Infinity;
+      // Every third vertex: a hoof is dozens of them.
+      for (let v = 0; v < count; v += 3) {
+        body.getVertexPosition(v, point);
+        point.applyMatrix4(body.matrixWorld);
+        lowest = Math.min(lowest, point.y);
+      }
+      feet[i] = Math.max(0, lowest);
+    }
+    let off = -1;
+    let on = -1;
+    for (let i = 0; i <= JUMP_SAMPLES; i++) {
+      if (feet[i]! <= OFF_THE_GROUND) continue;
+      if (off < 0) off = i;
+      on = i;
+    }
+    if (off < 0) continue;
+    curves[name] = { feet, duration, off: (duration * (off - 1)) / JUMP_SAMPLES, on: (duration * (on + 1)) / JUMP_SAMPLES };
+  }
+  return curves;
+}
+
 /** The ridden horse, off its rig; null without one. */
 export function horseModel(rig: Rig | null): CraftModel | null {
   if (rig === null) return null;
   if (!rig.clips.some((clip) => clip.name === 'Walk')) return null;
-  const back = measureBack(rig);
+  // Measured once at the herds' scale for how high its back is, and again
+  // at the scale that puts that back at `WITHERS`.
+  const herd = herdScale(rig);
+  const k = (herd * WITHERS * H) / measureBack(rig, herd).top.y;
+  const back = measureBack(rig, k);
+  const jumps = measureJumps(rig, k);
   // The saddle a twenty-fifth of a body thick on the back, its top the hip.
   const hip = back.top.y + 0.04 * H;
   const seats: Seat[] = [
@@ -159,8 +234,9 @@ export function horseModel(rig: Rig | null): CraftModel | null {
     pommel.position.set(0, hip - 0.02 * H, back.top.z + 0.12 * H);
     saddle.add(pommel);
     const group = assemble('horse', [soupOf(saddle)]);
-    const { holder } = fitted(rig, variant);
+    const { holder } = fitted(rig, variant, k);
     holder.userData.back = back.bone;
+    holder.userData.jumps = jumps;
     group.add(holder);
     group.updateMatrixWorld(true);
     return group;

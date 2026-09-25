@@ -41,8 +41,7 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundColorAt, groundRadius } from './globe.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
-import { createLandProbe } from './land-probe.ts';
-import type { LandProbe } from './land-probe.ts';
+import { drawnRadius, landProbeOf } from './land-probe.ts';
 import { isShown, radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 import {
@@ -68,9 +67,10 @@ import { AVATAR_HEIGHT } from './stature.ts';
 import { MAX_FOOTPRINT } from './monuments/contract.ts';
 import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
 import { ROAD_HANDLING, WATERLINE, isWater } from './vehicles.ts';
+import { SEA_REACH, coastAt, coastSample, prepareSeaFloor, seaDepthAt, seaZoneAt } from './sea-floor.ts';
 import { AT_REST, discMaterial, motionOf } from './craft/motion.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
-import { CRAFT_KINDS, isAirKind } from './craft/contract.ts';
+import { CRAFT_KINDS, PARKED_SLOT, isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, FleetLink, FleetSeats, MovedVehicle, WirePose } from './craft/contract.ts';
 import { writePose } from './player.ts';
 import type { Player } from './player.ts';
@@ -121,6 +121,7 @@ export const FLEET_MODELS = {
   jetski: 'jet-ski',
   sailboat: 'sailboat',
   helicopter: 'helicopter',
+  submarine: 'submarine',
 } as const satisfies Record<CraftKind, string>;
 
 /**
@@ -135,7 +136,7 @@ const KIND_OF: Readonly<Record<string, CraftKind>> = {
   pickup: 'jeep',
 };
 /** The kinds that stand in the water rather than on the ground. */
-const AFLOAT: ReadonlySet<CraftKind> = new Set<CraftKind>(['boat', 'jetski', 'sailboat']);
+const AFLOAT: ReadonlySet<CraftKind> = new Set<CraftKind>(['boat', 'jetski', 'sailboat', 'submarine']);
 
 /** The kind of a model id, or null for one no site ever names. */
 export const kindOfModel = (model: string): CraftKind | null => KIND_OF[model] ?? null;
@@ -242,6 +243,22 @@ const JETSKI_LAT = 40;
 const JETSKI_SHARE = 0.5;
 const SAILBOAT_POP = 30_000;
 const SAILBOAT_SHARE = 0.6;
+/**
+ * A submarine off a big harbour, a tourist boat's kind: the cities of a
+ * million and more on a sea with a reef or a kelp forest to see
+ * (`seaZoneAt`), a share of them, and its own stream of the town's numbers,
+ * so the jet skis and the sailboats stand where they always stood.
+ */
+const SUBMARINE_POP = 1_000_000;
+const SUBMARINE_SHARE = 0.35;
+/**
+ * The least water a submarine is moored over, units of the floor under the
+ * sea's radius (`seaDepthAt`): past the sandy shelf, so the first dive goes
+ * somewhere; and how far from the town's launch that water is looked for.
+ */
+export const SUBMARINE_SITE_DEPTH = 9;
+const SUBMARINE_REACH = 320;
+const coastNear = coastSample();
 /** Two moorings of one town nearer than this, on top of their rooms, are one. */
 const MOORING_GAP = 6;
 /** How far from the town's launch a jet ski or a sailboat is looked for, and on how many bearings. */
@@ -319,6 +336,7 @@ export const SITE_ROOM: Readonly<Record<CraftKind, number>> = {
   horse: 5,
   tractor: 5,
   helicopter: 10,
+  submarine: 11,
 };
 
 
@@ -796,13 +814,20 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     if (Math.abs(place.lat) < JETSKI_LAT && rng.chance(JETSKI_SHARE)) wants.push(FLEET_MODELS.jetski);
     if (place.pop >= SAILBOAT_POP && rng.chance(SAILBOAT_SHARE)) wants.push(FLEET_MODELS.sailboat);
     const start = rng.unit() * Math.PI * 2;
+    if (place.pop >= SUBMARINE_POP && rngFrom('fleet-submarine', p).chance(SUBMARINE_SHARE)) {
+      prepareSeaFloor(world);
+      const zone = seaZoneAt(latOf(launch.at.y), coastAt(launch.at.x, launch.at.y, launch.at.z, SEA_REACH, coastNear).lake);
+      if (zone === 'reef' || zone === 'kelp') wants.push(FLEET_MODELS.submarine);
+    }
     for (const model of wants) {
       const room = SITE_ROOM[KIND_OF[model]!];
       let found = false;
-      for (let d = BOAT_ROOM + room + MOORING_GAP; d <= MOORING_REACH && !found; d += BOAT_STEP) {
+      const reach = model === FLEET_MODELS.submarine ? SUBMARINE_REACH : MOORING_REACH;
+      for (let d = BOAT_ROOM + room + MOORING_GAP; d <= reach && !found; d += BOAT_STEP) {
         for (let k = 0; k < MOORING_BEARINGS && !found; k++) {
           aroundPoint(launch.at, start + (k / MOORING_BEARINGS) * Math.PI * 2, d, at);
           if (crowded(p, at, room + MOORING_GAP, out) || !roomy(at, room) || inSquare(at, room)) continue;
+          if (model === FLEET_MODELS.submarine && seaDepthAt(at) < SUBMARINE_SITE_DEPTH) continue;
           outward(p, at, forward);
           out.push(site(model, p, 0, at, forward));
           found = true;
@@ -1103,6 +1128,109 @@ export function applyPose(pose: WirePose, object: THREE.Object3D): void {
   object.quaternion.setFromRotationMatrix(poseBasis);
 }
 
+/**
+ * Where a vehicle's wheels are, as a fraction of its half length and half
+ * width: a model's size is its bumpers and mirrors, and its tyres stand a
+ * little inside them.
+ */
+const WHEEL_INSET = 0.8;
+/** The steepest a vehicle is set down at, as rise over run: past it, it sits at this and a corner floats. */
+const SEAT_GRADE = 0.6;
+/** What stands on two points along its length, and so takes the ground's pitch and never its roll. */
+const IN_LINE: ReadonlySet<CraftKind> = new Set<CraftKind>(['bicycle', 'motorbike', 'horse']);
+
+const seatDir = new THREE.Vector3();
+const seatForward = new THREE.Vector3();
+const seatSide = new THREE.Vector3();
+const seatUp = new THREE.Vector3();
+const seatCorner = new THREE.Vector3();
+const seatHeights = [0, 0, 0, 0];
+
+/**
+ * **A vehicle set down on the ground under its wheels**, not on the ground
+ * under its middle: `pose`'s point and forward in, its seated pose into `out`
+ * (which may be `pose`).
+ *
+ * The ground is asked under four wheels — `WHEEL_INSET` of the half length and
+ * half width out — and the plane through them tilts the vehicle: its pitch
+ * from the axles, its roll from the sides. The four do not have to be one
+ * plane, and the one they are fitted to is raised by the most any wheel is
+ * under it, so every wheel is on the ground or over it and one is on it. Set
+ * down level on its middle, a car on a hillside had its uphill wheels buried
+ * and its downhill ones in the air, and on a crest all four.
+ *
+ * A two-wheeler and a horse take the pitch only, on two points; a balloon's
+ * basket stands upright on the highest of the four; a hull is left on the water.
+ * `groundAt` is the surface the kind stands on, as a radius. The basis is
+ * `X = Y x Z` as `applyPose` builds it, whatever the slope, so it is never
+ * a reflection.
+ */
+export function seatPose(
+  pose: WirePose,
+  size: readonly [number, number, number],
+  kind: CraftKind,
+  groundAt: (point: THREE.Vector3) => number,
+  out: WirePose,
+): WirePose {
+  for (let i = 0; i < 9; i++) out[i] = pose[i]!;
+  if (AFLOAT.has(kind)) return out;
+  seatDir.set(pose[0]!, pose[1]!, pose[2]!).normalize();
+  seatForward.set(pose[3]!, pose[4]!, pose[5]!).projectOnPlane(seatDir);
+  if (seatForward.lengthSq() < 1e-12) return out;
+  seatForward.normalize();
+  // Screen right: forward x up.
+  seatSide.crossVectors(seatForward, seatDir).normalize();
+  const length = (size[0] / 2) * WHEEL_INSET;
+  const width = IN_LINE.has(kind) ? 0 : (size[1] / 2) * WHEEL_INSET;
+  let radius = 0;
+  let pitch = 0;
+  let roll = 0;
+  // Twice: a wheel `length` out along a pitched body stands nearer than that
+  // over the ground, so the second pass asks the ground where the first
+  // pass's wheels are.
+  for (let pass = 0; pass < 2; pass++) {
+    const along = length / Math.sqrt(1 + pitch * pitch);
+    const across = width / Math.sqrt(1 + roll * roll);
+    // Front right, front left, back right, back left.
+    let k = 0;
+    for (const f of [1, -1]) {
+      for (const r of [1, -1]) {
+        seatCorner
+          .copy(seatDir)
+          .addScaledVector(seatForward, (f * along) / PLANET_RADIUS)
+          .addScaledVector(seatSide, (r * across) / PLANET_RADIUS)
+          .normalize()
+          .multiplyScalar(PLANET_RADIUS);
+        seatHeights[k++] = groundAt(seatCorner);
+      }
+    }
+    const [fr, fl, br, bl] = seatHeights as [number, number, number, number];
+    if (kind === 'balloon') {
+      radius = Math.max(fr, fl, br, bl);
+      break;
+    }
+    const mean = (fr + fl + br + bl) / 4;
+    pitch = along > 0 ? Math.max(-SEAT_GRADE, Math.min(SEAT_GRADE, (fr + fl - br - bl) / (4 * along))) : 0;
+    roll = across > 0 ? Math.max(-SEAT_GRADE, Math.min(SEAT_GRADE, (fr + br - fl - bl) / (4 * across))) : 0;
+    // The plane through the middle, raised until no wheel is under the ground.
+    let lift = -Infinity;
+    k = 0;
+    for (const f of [1, -1]) {
+      for (const r of [1, -1]) {
+        const plane = mean + pitch * f * along + roll * r * across;
+        lift = Math.max(lift, seatHeights[k++]! - plane);
+      }
+    }
+    radius = mean + lift;
+  }
+  // The ground's plane rises `pitch` a unit forward and `roll` a unit right,
+  // so its normal leans back and left of the radius by as much.
+  seatUp.copy(seatDir).addScaledVector(seatForward, -pitch).addScaledVector(seatSide, -roll).normalize();
+  seatForward.addScaledVector(seatDir, pitch).projectOnPlane(seatUp).normalize();
+  seatDir.multiplyScalar(radius);
+  return writePose(seatDir, seatForward, seatUp, out);
+}
+
 // ---------------------------------------------------------------------------
 // The link with nobody else on it
 // ---------------------------------------------------------------------------
@@ -1311,7 +1439,39 @@ const MOORED: Readonly<MotionInput> = { ...AT_REST, moored: true };
 const SOCK_ALONG = 24;
 const SOCK_OFF = STRIP_DRAWN + 5;
 
-export type FleetEvent = 'boarded' | 'left' | 'taken' | 'leave-refused';
+/**
+ * What happened, for whoever tells the player: `bailed` is getting out of a
+ * vehicle under way or aloft, which goes on without him; `wrecked` is one of
+ * those coming down hard, or into a wall, with where it happened.
+ */
+export type FleetEvent = 'boarded' | 'left' | 'taken' | 'leave-refused' | 'bailed' | 'wrecked';
+
+/**
+ * A vehicle somebody jumped out of, going on without anybody. A car, a boat
+ * or a horse runs on and slows — its handling's own coast, and `COAST_DRAG`
+ * units a second squared of friction under it, so it stops rather than
+ * creeping for ever — until under `COAST_STOP` it parks where it is; a road
+ * vehicle stops at the water's edge and a hull at the land's, and a wall turns
+ * it back at `COAST_BOUNCE` of its speed. An aircraft glides on: a plane down
+ * at a slope of one in `GLIDE_RATIO`, a helicopter at `HELI_FALL` and a
+ * balloon at `BALLOON_FALL`, slowing; down, it rolls to a stop, and down
+ * faster than `WRECK_SPEED` it comes down in a puff (`wrecked`). The one
+ * who got out keeps its driver's seat on the link until it parks, and tells
+ * the link where it is every frame, so every client sees it go on.
+ */
+const COAST_DRAG = 3;
+const COAST_STOP = 0.4;
+const COAST_BOUNCE = 0.3;
+/** Seconds a vehicle may go on alone before it is parked where it has got to. */
+const COAST_MAX = 60;
+/** The pull on a vehicle off the ground, units a second squared. */
+const COAST_GRAVITY = 30;
+const GLIDE_RATIO = 7;
+const HELI_FALL = 14;
+const BALLOON_FALL = 3;
+const WRECK_SPEED = 12;
+/** A wall met faster than this is a knock worth a puff. */
+const KNOCK_SPEED = 15;
 
 export interface FleetOptions extends FleetSource {
   models: ReadonlyMap<string, CraftModel>;
@@ -1337,8 +1497,19 @@ export interface FleetOptions extends FleetSource {
   parked?: {
     near(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
     hide(id: string): void;
+    /**
+     * The colour a parked car was parked in, while its town stands: the
+     * vehicle that takes its place, here or on another client, is painted
+     * the same rather than in a colour of its own.
+     */
+    paintOf?(id: string): number | null;
   };
-  onEvent?: (event: FleetEvent, model: CraftModel | null) => void;
+  onEvent?: (event: FleetEvent, model: CraftModel | null, at?: THREE.Vector3) => void;
+  /**
+   * The walls a vehicle nobody is driving meets as it goes on (`settlements.collide`'s
+   * contract, as the player's own). Omit it and nothing stops one but the water.
+   */
+  collide?: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean;
   /**
    * The land mesh, for laying an airstrip on what is drawn rather than on the
    * relief under it (`land-probe.ts`). Without it a strip lies on the relief.
@@ -1430,6 +1601,8 @@ interface Drawn {
   id: string;
   model: CraftModel;
   variant: number;
+  /** Its model, variant and paint, which is what a spare is kept and found by. */
+  key: string;
   group: THREE.Group;
   seats: THREE.Object3D[];
   site: FleetSite | null;
@@ -1497,6 +1670,21 @@ export function createFleet(options: FleetOptions): Fleet {
    * stood: its site, for as long as this session lasts. See `adopt`.
    */
   const bayPose = new Map<string, WirePose>();
+  /**
+   * The colour each town's parked car the fleet has taken over was parked in,
+   * by id, once known: from the bay on taking it, or from its town the first
+   * time it is drawn anywhere else. See `ParkedCar.paint`.
+   */
+  const paints = new Map<string, number>();
+  function paintOf(id: string): number | undefined {
+    const known = paints.get(id);
+    if (known !== undefined) return known;
+    if (!(Number(id.split(':')[2]) >= PARKED_SLOT)) return undefined;
+    const found = parked?.paintOf?.(id) ?? null;
+    if (found === null) return undefined;
+    paints.set(id, found);
+    return found;
+  }
   /** What `eachDriven` walks: rewritten by every `update`, never reallocated. */
   const drivenNow: Drawn[] = [];
   const bays: ParkedCar[] = [];
@@ -1507,23 +1695,52 @@ export function createFleet(options: FleetOptions): Fleet {
   /** What another player's vehicle's motion is handed, rewritten every frame. */
   const remote: MotionInput = { ...AT_REST };
 
+  /** The vehicle going on without anybody, if one is: see `COAST_DRAG`. */
+  interface Coast {
+    entry: Drawn;
+    position: THREE.Vector3;
+    forward: THREE.Vector3;
+    speed: number;
+    /** Units a second away from the planet's centre. */
+    vertical: number;
+    age: number;
+    /** Aloft when it was let go of, and not yet down. */
+    flying: boolean;
+  }
+  let coast: Coast | null = null;
+  const coasting: MotionInput = { ...AT_REST };
+  const coastFrom = new THREE.Vector3();
+  const coastAxis = new THREE.Vector3();
+  const coastPush = new THREE.Vector3();
+  const coastPose: WirePose = new Array(9).fill(0);
+
   // ---- the airstrips -------------------------------------------------------
 
   const strips = new Map<string, DrawnStrip>();
   /** The plane sites near enough to have their strip drawn, nearest first; rewritten by every scan. */
   let stripsWanted: { site: FleetSite; distance: number }[] = [];
   const planeSites: FleetSite[] = [];
-  /** The drawn land, indexed round the player on the first strip that needs it. */
-  let probe: LandProbe | null = null;
+  /**
+   * The drawn land round the player: the one probe of the mesh, which the loop
+   * keeps gathered while the player is near the ground (`land-probe.ts`).
+   */
+  const probe = options.land === undefined ? null : landProbeOf(options.land);
   const stripColour = new THREE.Color();
   const stripGround = new THREE.Color();
   const stripBiome = biomeSample();
   const stripPose: WirePose = new Array(9).fill(0);
   let clock = 0;
 
-  /** The drawn land's radius along a direction, or the relief's where the index has no answer. */
-  const surface = (direction: THREE.Vector3): number =>
-    probe?.radiusAt(direction) ?? groundRadius(world, point.copy(direction).multiplyScalar(PLANET_RADIUS));
+  /** The drawn land's radius under a point, or the relief's where the index does not reach. */
+  const landAt = (at: THREE.Vector3): number => drawnRadius(world, probe, at);
+  /** The same along a direction. */
+  const surface = (direction: THREE.Vector3): number => landAt(point.copy(direction).multiplyScalar(PLANET_RADIUS));
+  /** What a wheel stands on: the land, or a road or a town's floor over it. */
+  const standingAt = (at: THREE.Vector3): number => {
+    const land = landAt(at);
+    const made = madeHeightAt?.(at) ?? 0;
+    return made > land ? made : land;
+  };
 
   function middleOf(site: FleetSite, out: THREE.Vector3): THREE.Vector3 {
     stripPoint(site, STRIP_LENGTH / 2, 0, out);
@@ -1592,11 +1809,8 @@ export function createFleet(options: FleetOptions): Fleet {
     for (const want of stripsWanted) {
       if (strips.has(want.site.id)) continue;
       if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD)) break;
-      if (options.land !== undefined) {
-        probe ??= createLandProbe(options.land);
-        // Gathered a slice a frame; the strips wait for it rather than lie on the relief.
-        if (!probe.prepare(player.position)) break;
-      }
+      // Gathered a slice a frame; the strips wait for it rather than lie on the relief.
+      if (probe !== null && !probe.prepare(player.position)) break;
       strips.set(want.site.id, buildStripFor(want.site));
     }
     for (const drawnStrip of strips.values()) {
@@ -1617,20 +1831,34 @@ export function createFleet(options: FleetOptions): Fleet {
     if (link.moved.has(vehicle)) parked?.hide(vehicle);
   });
 
-  /** Where a site's vehicle stands: its origin on the surface its kind stands on. */
-  function sitePose(site: FleetSite, out: WirePose): WirePose {
+  /**
+   * A vehicle set down where it stands (`seatPose`): on the land for a craft
+   * that flies, on whatever is made over it for anything on wheels or legs.
+   */
+  function seat(model: CraftModel, from: WirePose, out: WirePose): WirePose {
+    return seatPose(from, model.size, model.kind, isAirKind(model.kind) ? landAt : standingAt, out);
+  }
+
+  /**
+   * Where a site's vehicle stands: its origin on the surface its kind stands
+   * on, seated on it by its wheels unless `level` — for `nearest`, which wants
+   * only where it is and asks it of every site for thousands of units round.
+   */
+  function sitePose(site: FleetSite, out: WirePose, level = false): WirePose {
     let radius: number;
     point.copy(site.at).multiplyScalar(PLANET_RADIUS);
     if (AFLOAT.has(site.kind)) radius = PLANET_RADIUS + WATERLINE;
     else {
-      radius = groundRadius(world, point);
+      radius = landAt(point);
       if (!isAirKind(site.kind)) {
         point.setLength(radius);
         radius = Math.max(radius, madeHeightAt?.(point) ?? 0);
       }
     }
     point.copy(site.at).multiplyScalar(radius);
-    return writePose(point, site.forward, up.copy(site.at), out);
+    writePose(point, site.forward, up.copy(site.at), out);
+    const model = level || AFLOAT.has(site.kind) ? undefined : models.get(site.model);
+    return model === undefined ? out : seat(model, out, out);
   }
 
   function poseOf(vehicle: string, out: WirePose): boolean {
@@ -1659,7 +1887,8 @@ export function createFleet(options: FleetOptions): Fleet {
     const model = models.get(site?.model ?? modelOfVehicle(id));
     if (model === undefined) return null;
     const variant = model.variants > 1 ? rngFrom('fleet-variant', id).int(model.variants) : 0;
-    const key = `${model.id}#${variant}`;
+    const paint = site === null ? paintOf(id) : undefined;
+    const key = paint === undefined ? `${model.id}#${variant}` : `${model.id}#${variant}@${paint}`;
     const spare = pool.get(key)?.pop();
     if (spare !== undefined) {
       spare.id = id;
@@ -1670,7 +1899,7 @@ export function createFleet(options: FleetOptions): Fleet {
       spare.motion.rest();
       return spare;
     }
-    const built = model.build(variant);
+    const built = model.build(variant, paint);
     built.name = `vehicle:${model.id}`;
     // The seats as frames of the model, so a body can be put in one without
     // knowing whose model it is: `FleetSeats.seatFrame`.
@@ -1702,6 +1931,7 @@ export function createFleet(options: FleetOptions): Fleet {
       id,
       model,
       variant,
+      key,
       group: built,
       seats,
       site,
@@ -1749,7 +1979,7 @@ export function createFleet(options: FleetOptions): Fleet {
       const reach = handling.turn * grip * lock;
       if (reach > 1e-3) remote.steering = Math.max(-1, Math.min(1, (-entry.turn / reach) * (entry.speed < 0 ? -1 : 1)));
     }
-    remote.grounded = isAirKind(kind) ? point.length() - groundRadius(world, point) < 1.5 : true;
+    remote.grounded = isAirKind(kind) ? point.length() - landAt(point) < 1.5 : true;
     remote.engine = true;
     remote.moored = false;
     remote.throttle = entry.speed > 0.5 ? 1 : 0;
@@ -1771,7 +2001,7 @@ export function createFleet(options: FleetOptions): Fleet {
   function putAway(entry: Drawn): void {
     group.remove(entry.group);
     drawn.delete(entry.id);
-    const key = `${entry.model.id}#${entry.variant}`;
+    const key = entry.key;
     let spares = pool.get(key);
     if (spares === undefined) pool.set(key, (spares = []));
     if (spares.length < POOL_EACH) {
@@ -1844,6 +2074,7 @@ export function createFleet(options: FleetOptions): Fleet {
     let best: Prompt | null = null;
     let bestGap = Infinity;
     for (const entry of drawn.values()) {
+      if (coast !== null && coast.entry === entry) continue;
       const size = entry.model.size;
       const gap = entry.group.position.distanceTo(player.position) - Math.max(size[0], size[1]) / 2;
       if (gap > BOARD_REACH || gap >= bestGap) continue;
@@ -1879,6 +2110,7 @@ export function createFleet(options: FleetOptions): Fleet {
    */
   function adopt(bay: ParkedCar): Drawn | null {
     const kerb = writePose(bay.position, bay.forward, up.copy(bay.position).normalize(), new Array<number>(9));
+    if (bay.paint !== null) paints.set(bay.id, bay.paint);
     const entry = build(bay.id, null);
     if (entry === null) return null;
     bayPose.set(bay.id, kerb);
@@ -1903,6 +2135,7 @@ export function createFleet(options: FleetOptions): Fleet {
   }
 
   function claim(entry: Drawn, seat: number): Promise<boolean> {
+    finishCoast();
     pending = true;
     prompt = null;
     // The pose goes with the claim: a relay that has never seen this vehicle
@@ -1933,6 +2166,10 @@ export function createFleet(options: FleetOptions): Fleet {
 
   function leave(): void {
     if (held === null) return;
+    // How it was going, read before the player lets go of it.
+    const speed = player.speed;
+    const climb = player.climb;
+    const flying = isAirKind(held.model.kind) && player.airborne;
     const out = player.leave();
     if (out === null) {
       onEvent?.('leave-refused', held.model);
@@ -1940,13 +2177,123 @@ export function createFleet(options: FleetOptions): Fleet {
     }
     const entry = held;
     held = null;
-    link.release(entry.id, heldSeat === 0 ? out : null);
     group.add(entry.group);
     applyPose(out, entry.group);
     drawn.set(entry.id, entry);
     entry.site = null;
+    entry.reseat = 0;
     scanAge = Infinity;
-    onEvent?.('left', entry.model);
+    const under = flying || Math.abs(speed) > COAST_STOP * 4;
+    // A passenger leaves the driver to it; the driver of a vehicle under way
+    // leaves it going.
+    if (heldSeat === 0 && under) {
+      finishCoast();
+      coast = {
+        entry,
+        position: new THREE.Vector3(out[0]!, out[1]!, out[2]!),
+        forward: new THREE.Vector3(out[3]!, out[4]!, out[5]!),
+        speed,
+        vertical: flying ? climb : 0,
+        age: 0,
+        flying,
+      };
+    } else link.release(entry.id, heldSeat === 0 ? out : null);
+    onEvent?.(under || flying ? 'bailed' : 'left', entry.model);
+  }
+
+  /** The vehicle going on alone, parked where it is now. */
+  function finishCoast(): void {
+    const c = coast;
+    if (c === null) return;
+    coast = null;
+    up.copy(c.position).normalize();
+    c.forward.projectOnPlane(up).normalize();
+    writePose(c.position, c.forward, up, coastPose);
+    link.release(c.entry.id, coastPose.slice(0, 9));
+    if (drawn.get(c.entry.id) === c.entry) applyPose(coastPose, c.entry.group);
+    scanAge = Infinity;
+  }
+
+  /** One frame of the vehicle going on alone: see `COAST_DRAG`. */
+  function coastOn(dt: number): void {
+    const c = coast;
+    if (c === null || dt <= 0) return;
+    const model = c.entry.model;
+    const kind = model.kind;
+    c.age += dt;
+    const ease = (rate: number): number => 1 - Math.exp(-rate * dt);
+    if (c.flying) {
+      if (kind === 'plane') c.vertical += (-Math.max(4, Math.abs(c.speed) / GLIDE_RATIO) - c.vertical) * ease(1.5);
+      else {
+        c.speed *= Math.exp(-dt / 3);
+        c.vertical += (-(kind === 'balloon' ? BALLOON_FALL : HELI_FALL) - c.vertical) * ease(1);
+      }
+    } else {
+      // On the ground an aircraft brakes hard; everything else runs on its own coast.
+      const tau = isAirKind(kind) ? 1.5 : ROAD_HANDLING[kind]?.coastTime ?? 3;
+      const sign = Math.sign(c.speed);
+      c.speed = c.speed * Math.exp(-dt / tau) - sign * COAST_DRAG * dt;
+      if (Math.sign(c.speed) !== sign) c.speed = 0;
+    }
+    // Along its bow, round the planet.
+    coastFrom.copy(c.position);
+    up.copy(c.position).normalize();
+    const arc = (c.speed * dt) / c.position.length();
+    if (Math.abs(arc) > 1e-12) {
+      coastAxis.crossVectors(up, c.forward).normalize();
+      c.position.applyAxisAngle(coastAxis, arc);
+      c.forward.applyAxisAngle(coastAxis, arc);
+      up.copy(c.position).normalize();
+    }
+    c.forward.projectOnPlane(up).normalize();
+    // What is under it: a road vehicle stops at the water and a hull at the land.
+    point.copy(up).multiplyScalar(PLANET_RADIUS);
+    const relief = groundRadius(world, point);
+    const wet = isWater(relief);
+    const afloat = model.medium === 'water';
+    if (!c.flying && (afloat ? !wet : wet && model.medium === 'road')) {
+      c.position.copy(coastFrom);
+      c.speed = 0;
+      up.copy(c.position).normalize();
+    }
+    // A wall turns it back.
+    if (!c.flying && options.collide !== undefined && Math.abs(c.speed) > 0) {
+      point.copy(c.position).addScaledVector(c.forward, (Math.sign(c.speed) * model.size[0]) / 2);
+      if (options.collide(point, model.size[1] / 2, coastPush)) {
+        c.position.copy(coastFrom);
+        up.copy(c.position).normalize();
+        if (Math.abs(c.speed) > KNOCK_SPEED) onEvent?.('wrecked', model, c.position);
+        c.speed = -c.speed * COAST_BOUNCE;
+      }
+    }
+    // Its floor: the sea's line, the made ground or the relief.
+    let floor: number;
+    if (afloat || isWater(groundRadius(world, point.copy(up).multiplyScalar(PLANET_RADIUS)))) floor = PLANET_RADIUS + WATERLINE;
+    else {
+      floor = groundRadius(world, point);
+      point.setLength(floor);
+      floor = Math.max(floor, madeHeightAt?.(point) ?? 0);
+    }
+    let radius = c.position.length();
+    if (!c.flying && radius > floor + 0.05) c.vertical -= COAST_GRAVITY * dt;
+    radius += c.vertical * dt;
+    if (radius <= floor) {
+      if (c.flying || c.vertical < -WRECK_SPEED) {
+        if (-c.vertical > WRECK_SPEED || kind === 'plane') onEvent?.('wrecked', model, c.position);
+        c.speed *= kind === 'balloon' ? 0.2 : 0.5;
+        c.flying = false;
+      }
+      radius = floor;
+      c.vertical = 0;
+    }
+    c.position.setLength(radius);
+    writePose(c.position, c.forward, up.copy(c.position).normalize(), coastPose);
+    applyPose(coastPose, c.entry.group);
+    link.drive(c.entry.id, coastPose, c.speed);
+    coasting.speed = c.speed;
+    coasting.grounded = !c.flying;
+    c.entry.motion.update(dt, coasting);
+    if ((!c.flying && Math.abs(c.speed) < COAST_STOP && c.vertical === 0) || c.age > COAST_MAX) finishCoast();
   }
 
   /**
@@ -2146,8 +2493,11 @@ export function createFleet(options: FleetOptions): Fleet {
         if (poseOf(entry.id, pose)) applyPose(pose, entry.group);
         drawn.set(entry.id, entry);
         entry.site = null;
+        entry.reseat = 0;
         scanAge = Infinity;
       }
+
+      coastOn(dt);
 
       scanAge += dt;
       if (scanAge > RESCAN_SECONDS || lastScan.distanceTo(player.position) > RESCAN_MOVE) {
@@ -2156,6 +2506,7 @@ export function createFleet(options: FleetOptions): Fleet {
         lastScan.copy(player.position);
         cone.aim(camera);
         const keep = new Set(wanted.map((entry) => entry.id));
+        if (coast !== null) keep.add(coast.entry.id);
         for (const entry of [...drawn.values()]) if (!keep.has(entry.id)) putAway(entry);
       }
 
@@ -2183,15 +2534,30 @@ export function createFleet(options: FleetOptions): Fleet {
       // is set down again now and then, on whatever made ground has arrived.
       drivenNow.length = 0;
       for (const entry of drawn.values()) {
+        if (coast !== null && coast.entry === entry) {
+          drivenNow.push(entry);
+          continue;
+        }
         const moved = link.moved.get(entry.id);
         if (moved !== undefined) {
           const driven = link.sample(entry.id, pose);
           if (driven || isPose(moved.pose)) {
-            applyPose(driven ? pose : moved.pose, entry.group);
             if (driven) {
+              applyPose(pose, entry.group);
               drivenNow.push(entry);
               animate(entry, dt, pose);
-            } else settle(entry, dt);
+              entry.reseat = 0;
+            } else {
+              // Where it was left, set down on its wheels there — on the
+              // ground as it is drawn here, which every client agrees on —
+              // and again now and then as the ground under it arrives.
+              entry.reseat -= dt;
+              if (entry.reseat <= 0) {
+                entry.reseat = RESEAT_SECONDS;
+                applyPose(seat(entry.model, moved.pose, pose), entry.group);
+              }
+              settle(entry, dt);
+            }
             entry.site = null;
             continue;
           }
@@ -2259,7 +2625,7 @@ export function createFleet(options: FleetOptions): Fleet {
         found.length = 0;
         for (const site of sites.near(from, radius, found)) {
           if ((kind !== undefined && site.kind !== kind) || isPose(link.moved.get(site.id)?.pose)) continue;
-          sitePose(site, pose);
+          sitePose(site, pose, true);
           consider(site.id, centre.set(pose[0]!, pose[1]!, pose[2]!));
         }
       }

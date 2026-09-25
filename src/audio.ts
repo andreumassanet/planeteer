@@ -13,9 +13,10 @@
  * 26, fetched only after the first click and never in the first load).
  *
  * **Nothing makes a sound until a gesture unlocks it**, which is the browser's
- * rule and also this project's: the menu is silent, and the first click that
- * starts the world is the one that opens the context. Before that `update`
- * returns at once, so the loop pays nothing for a player who never clicks.
+ * rule and also this project's: the menu's first click is the one that opens
+ * the context, and the menu is heard from then on (`menu-sound.ts`). Before
+ * that `update` returns at once, so the loop pays nothing for a player who
+ * never clicks.
  *
  * **The mix is one number per voice, here, and never in the bake.** Every
  * recording is levelled to the same peak by the bake so that re-baking cannot
@@ -23,6 +24,8 @@
  * They were set by reading the synthesis rather than by ear, and a player's ear
  * is the review they still need.
  */
+
+import type { Honk } from '../server/src/limits.ts';
 
 export type Surface = 'grass' | 'paving' | 'snow' | 'dirt';
 
@@ -80,7 +83,17 @@ export interface Soundscape {
   rain?: number;
   /** How much of a gale the weather adds to the wind, 0 to 1. */
   gale?: number;
+  /**
+   * Whether the ear is under the water, 0 to 1: every sound, the music with
+   * it, through a low-pass that closes to `MUFFLED` hertz — the world heard
+   * through water — and opens again on surfacing.
+   */
+  underwater?: number;
 }
+
+/** The low-pass under the water, hertz, and above it, where it lets everything by. */
+const MUFFLED = 650;
+const OPEN_AIR = 20000;
 
 export interface Audio {
   /** Call from a user gesture: opens the context and starts fetching the recordings. */
@@ -91,11 +104,16 @@ export interface Audio {
   step(surface: Surface, weight?: number): void;
   cue(name: Cue): void;
   /**
-   * A car's horn, once: the traffic kept waiting. `near` is 1 beside you and
-   * 0 out of earshot, and it is synthesised — two squares a major third
-   * apart, like every two-tone horn — so it costs no recording.
+   * A horn, once: the traffic kept waiting, a driver's own, another player's.
+   * `near` is 1 beside you and 0 out of earshot, and every voice is
+   * synthesised, so none costs a recording: a car's two squares a major third
+   * apart, like every two-tone horn; a bus's the same an octave down and
+   * longer; a motorbike's two short beeps; a bicycle's bell, two strikes of
+   * three inharmonic partials; a tuk-tuk's rubber bulb, a squeak that rises
+   * and falls; a boat's low horn; and a horse's whinny, a buzz through two
+   * formants falling in pitch with a fast shake in it.
    */
-  horn(near: number): void;
+  horn(near: number, voice?: Honk): void;
   /**
    * Thunder, once, `delay` seconds from now — the flash's distance over the
    * speed of sound, which the caller knows — at `loudness` 1 overhead to 0 far
@@ -192,6 +210,8 @@ const between = (a: number, b: number): number => a + Math.random() * (b - a);
 export function createAudio(): Audio {
   let context: AudioContext | null = null;
   let master: GainNode | null = null;
+  /** The low-pass between the limiter and the speakers; see `Soundscape.underwater`. */
+  let muffle: BiquadFilterNode | null = null;
   let output: { context: AudioContext; node: AudioNode } | null = null;
   let volume = 0.8;
   let muted = false;
@@ -421,6 +441,113 @@ export function createAudio(): Audio {
     crackNoise = white;
   }
 
+  /** An oscillator into `into` from `from` to `to`, counted as a voice while it sounds. */
+  function tone(ctx: AudioContext, into: AudioNode, type: OscillatorType, frequency: number, from: number, to: number): OscillatorNode {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = frequency;
+    osc.connect(into);
+    osc.start(from);
+    osc.stop(to);
+    voices++;
+    osc.onended = () => voices--;
+    return osc;
+  }
+
+  /** A gain that opens to `peak` over `attack`, holds, and closes over `release` by `end`. */
+  function envelope(ctx: AudioContext, at: number, peak: number, attack: number, end: number, release: number): GainNode {
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, at);
+    env.gain.linearRampToValueAtTime(peak, at + attack);
+    env.gain.setValueAtTime(peak, Math.max(at + attack, end - release));
+    env.gain.linearRampToValueAtTime(0, end);
+    return env;
+  }
+
+  /** Every horn but the car's: see `Audio.horn`. */
+  function honk(ctx: AudioContext, out: AudioNode, voice: Honk, peak: number): void {
+    const at = ctx.currentTime + 0.01;
+    const pitch = between(0.96, 1.04);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    if (voice === 'bus' || voice === 'ship') {
+      // Two saws a fifth or a third apart, low and long, a slow swell.
+      const length = voice === 'ship' ? 1.1 : 0.6;
+      filter.frequency.value = voice === 'ship' ? 600 : 900;
+      const env = envelope(ctx, at, peak * 1.2, voice === 'ship' ? 0.12 : 0.04, at + length, 0.12);
+      filter.connect(env).connect(out);
+      const base = voice === 'ship' ? 110 : 185;
+      tone(ctx, filter, 'sawtooth', base * pitch, at, at + length + 0.02);
+      tone(ctx, filter, 'sawtooth', base * (voice === 'ship' ? 1.5 : 1.26) * pitch, at, at + length + 0.02);
+      return;
+    }
+    if (voice === 'beep') {
+      // Two short beeps of one square.
+      filter.frequency.value = 2400;
+      filter.connect(out);
+      for (const start of [0, 0.19]) {
+        const env = envelope(ctx, at + start, peak * 0.8, 0.01, at + start + 0.13, 0.02);
+        env.connect(filter);
+        tone(ctx, env, 'square', 620 * pitch, at + start, at + start + 0.15);
+      }
+      return;
+    }
+    if (voice === 'bell') {
+      // Ring-ring: three partials each strike, struck twice and left to ring.
+      filter.frequency.value = 9000;
+      filter.connect(out);
+      for (const start of [0, 0.16]) {
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, at + start);
+        env.gain.linearRampToValueAtTime(peak * 0.7, at + start + 0.004);
+        env.gain.exponentialRampToValueAtTime(0.0001, at + start + 0.55);
+        env.connect(filter);
+        for (const partial of [1, 1.51, 2.74]) tone(ctx, env, 'sine', 2300 * partial * pitch, at + start, at + start + 0.6);
+      }
+      return;
+    }
+    if (voice === 'squeak') {
+      // A rubber bulb: a nasal square squeezed up and let go, twice.
+      filter.type = 'bandpass';
+      filter.frequency.value = 1100;
+      filter.Q.value = 2;
+      filter.connect(out);
+      for (const start of [0, 0.3]) {
+        const env = envelope(ctx, at + start, peak * 1.3, 0.02, at + start + 0.22, 0.05);
+        env.connect(filter);
+        const osc = tone(ctx, env, 'square', 520 * pitch, at + start, at + start + 0.24);
+        osc.frequency.setValueAtTime(520 * pitch, at + start);
+        osc.frequency.linearRampToValueAtTime(760 * pitch, at + start + 0.08);
+        osc.frequency.linearRampToValueAtTime(600 * pitch, at + start + 0.22);
+      }
+      return;
+    }
+    // The whinny: a buzz through two formants, falling, shaken.
+    const length = 1.0;
+    const formants = ctx.createGain();
+    const env = envelope(ctx, at, peak * 1.4, 0.05, at + length, 0.3);
+    formants.connect(env).connect(out);
+    for (const [centre, q] of [[1300, 4], [2600, 5]] as const) {
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = centre;
+      band.Q.value = q;
+      filter.connect(band).connect(formants);
+    }
+    filter.frequency.value = 5000;
+    const buzz = tone(ctx, filter, 'sawtooth', 900 * pitch, at, at + length + 0.02);
+    buzz.frequency.setValueAtTime(900 * pitch, at);
+    buzz.frequency.linearRampToValueAtTime(1150 * pitch, at + 0.15);
+    buzz.frequency.exponentialRampToValueAtTime(420 * pitch, at + length);
+    const shake = ctx.createOscillator();
+    shake.frequency.value = 11;
+    const depth = ctx.createGain();
+    depth.gain.value = 70;
+    shake.connect(depth).connect(buzz.frequency);
+    shake.start(at);
+    shake.stop(at + length + 0.02);
+  }
+
   /** One tick of a freewheel's pawl: a click of filtered noise a few milliseconds long. */
   function tick(ctx: AudioContext, out: AudioNode, at: number, level: number): void {
     const osc = ctx.createOscillator();
@@ -554,7 +681,11 @@ export function createAudio(): Audio {
       squeeze.ratio.value = 3;
       squeeze.attack.value = 0.01;
       squeeze.release.value = 0.25;
-      squeeze.connect(ctx.destination);
+      muffle = ctx.createBiquadFilter();
+      muffle.type = 'lowpass';
+      muffle.frequency.value = OPEN_AIR;
+      muffle.Q.value = 0.8;
+      squeeze.connect(muffle).connect(ctx.destination);
       output = { context: ctx, node: squeeze };
       master = ctx.createGain();
       master.gain.value = level();
@@ -574,6 +705,10 @@ export function createAudio(): Audio {
       if (ctx === null || wind === null || sea === null || boat === null || plane === null || rotor === null || nature === null || rain === null) return;
       if (ctx.state !== 'running') return;
       const now = ctx.currentTime;
+      if (muffle !== null) {
+        const under = clamp01(state.underwater ?? 0);
+        follow(muffle.frequency, OPEN_AIR * Math.pow(MUFFLED / OPEN_AIR, under), now, 0.12);
+      }
       const flying = state.mode === 'plane';
       const sailing = state.mode === 'boat' || state.mode === 'jetski' || state.mode === 'sail';
       const drifting = state.mode === 'balloon' || state.mode === 'helicopter';
@@ -693,9 +828,13 @@ export function createAudio(): Audio {
       play(`step-${surface}-${pick}`, STEP_LEVEL[surface] * Math.min(1.6, weight), between(0.93, 1.07));
     },
 
-    horn(near) {
+    horn(near, voice = 'car') {
       const ctx = context;
       if (ctx === null || master === null || near <= 0.02) return;
+      if (voice !== 'car') {
+        honk(ctx, master, voice, HORN_LEVEL * clamp01(near));
+        return;
+      }
       const at = ctx.currentTime + 0.01;
       const length = between(0.28, 0.42);
       const peak = HORN_LEVEL * clamp01(near);

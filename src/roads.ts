@@ -3,7 +3,7 @@ import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { LAMP_POOL, lightWindows, poolAt } from './lights.ts';
-import { layRoadside } from './roadside.ts';
+import { OTHER_EDGE, layRoadside } from './roadside.ts';
 import type { Roadside, RoadsideSite } from './roadside.ts';
 import { keepsLeft } from './traffic/regions.ts';
 import { proxyOf } from './warm.ts';
@@ -32,6 +32,9 @@ import { PALETTE } from './theme.ts';
 import { CARRIAGEWAY_HALF, assignGates, gateGlow, gateMouth, gateUsable, gatesOf, groundOf, offsetDirection, streetBand, townFrame, townGrid, townTerraces } from './scenery/grid.ts';
 import type { Gate, TownGrid, TownGround } from './scenery/grid.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
+import { LANDMARK_KEEP, eachLandmarkNear, landmarkGap, planGap, planGapToBox } from './landmark-ground.ts';
+import type { PlanShape } from './landmark-ground.ts';
+import type { XYZ } from './sphere.ts';
 
 /**
  * The road network: which settlements are joined, and what that looks like.
@@ -553,6 +556,7 @@ export function heldGates(place: Place): ReadonlyMap<number, number> | undefined
  */
 export function gateOpen(place: Place, gate: number, world: World): boolean {
   if (gateHeight(place, gate, world) === null) return false;
+  if (gateUnderLandmark(place, gate)) return false;
   const town = townOf(place);
   const which = town.gates[gate]!;
   for (let s = 0; s <= APPROACH + 1e-9; s += WATER_PROBE_STEP) {
@@ -560,6 +564,96 @@ export function gateOpen(place: Place, gate: number, world: World): boolean {
     if (world.countryAtPoint(gateProbe) === 0) return false;
   }
   return true;
+}
+
+const landmarkOffset = { x: 0, z: 0 };
+const landmarkUp = new THREE.Vector3();
+
+/**
+ * Whether a landmark stands on a gate or on the road's straight way out of it.
+ *
+ * **A landmark in a town used to take its gates with it, and the roads came
+ * in anyway.** The town paves the cells under a landmark and builds nothing on
+ * them (`settlements.ts`), and the roads, which knew nothing of landmarks, went
+ * on arriving at gates those cells held: Granada's four roads ended in the
+ * Alhambra's walls, and the Guggenheim stood across one of Bilbao's two. So a
+ * gate is shut where one of its cells is a landmark's — the town's own test,
+ * `LANDMARK_KEEP` past the plan over the cell's box — or where the approach
+ * out of it passes within `LANDMARK_KEEP` of a plan, and the road goes to the
+ * next gate round. The landmarks are the ones registered with
+ * `setLandmarks`, which the road bake and `pnpm check` do and the game, whose
+ * roads are baked, does not.
+ */
+export function gateUnderLandmark(place: Place, gate: number): boolean {
+  const town = townOf(place);
+  const which = town.gates[gate]!;
+  let under = false;
+  eachLandmarkNear(town.up, town.grid.half * Math.SQRT2 + APPROACH + LANDMARK_KEEP, (up, shape) => {
+    if (!under && gateTaken(town, which, landmarkAt3(town, up), shape)) under = true;
+  });
+  return under;
+}
+
+/** A landmark's point in a town's frame, into `landmarkOffset`. */
+function landmarkAt3(town: Town, up: XYZ): { x: number; z: number } {
+  landmarkUp.set(up.x, up.y, up.z);
+  return townOffset(town, landmarkUp, landmarkOffset);
+}
+
+/** Whether a landmark at `at` in a town's frame takes one of its gates: see `gateUnderLandmark`. */
+function gateTaken(town: Town, which: Gate, at: { x: number; z: number }, shape: PlanShape): boolean {
+  const grid = town.grid;
+  const half = grid.pitch / 2;
+  for (const [col, row] of which.cells) {
+    const cx = (col - grid.shift) * grid.pitch;
+    const cz = (row - grid.shift) * grid.pitch;
+    if (planGapToBox(shape, cx - half - at.x, cx + half - at.x, cz - half - at.z, cz + half - at.z) < LANDMARK_KEEP) return true;
+  }
+  for (let s = 0; s <= APPROACH + 1e-9; s += WATER_PROBE_STEP) {
+    if (planGap(shape, which.x + which.outX * s - at.x, which.z + which.outZ * s - at.z) < LANDMARK_KEEP) return true;
+  }
+  return false;
+}
+
+/**
+ * What a landmark standing at `up` would take of a town: whether it would
+ * stand on the town's middle — the cell its main streets cross in, a cell
+ * either side — and which of its gates `gateUnderLandmark` would shut.
+ *
+ * **The one question `build-monuments.ts` asks of every town a landmark comes
+ * near**, and it is the gate test itself rather than a copy of it, so the
+ * landmark the bake leaves in a town leaves the gates the road bake finds open.
+ */
+export function landmarkTakes(place: Place, up: XYZ, shape: PlanShape): { middle: boolean; gates: number[]; of: number } {
+  const town = townOf(place);
+  const at = { ...landmarkAt3(town, up) };
+  const half = town.grid.pitch / 2;
+  const middle = planGapToBox(shape, -half - at.x, half - at.x, -half - at.z, half - at.z) < LANDMARK_KEEP;
+  const gates: number[] = [];
+  town.gates.forEach((which, index) => {
+    if (gateTaken(town, which, at, shape)) gates.push(index);
+  });
+  return { middle, gates, of: town.gates.length };
+}
+
+/**
+ * Where a road's course first comes within `LANDMARK_KEEP` of a registered
+ * landmark's plan, as the course's `t`, or -1 if it never does: the drawn
+ * carriageway is `roadClearance` either side of the line, 6.48, so its edge
+ * keeps a unit and a half off the model's box and the landmark keeps its
+ * square. Walked at the water test's stride over the whole course, gates
+ * included, by the bake and again by `pnpm check`.
+ */
+export function landmarkAt(road: Road, places: readonly Place[]): number {
+  const course = courseOf(road, places, landmarkCourse);
+  const steps = waterProbeSteps(course);
+  for (let step = 0; step <= steps; step++) {
+    const t = step / steps;
+    coursePoint(course, t, landmarkProbe);
+    landmarkProbe.normalize();
+    if (landmarkGap(landmarkProbe) < LANDMARK_KEEP) return t;
+  }
+  return -1;
 }
 
 /**
@@ -1518,6 +1612,9 @@ const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
  * drift every road in the world would still be a road between two real towns and
  * some of them would climb a scree face.
  */
+const landmarkCourse = emptyCourse();
+const landmarkProbe = new THREE.Vector3();
+
 export function crossesScree(road: Road, places: readonly Place[]): boolean {
   return screeAt(road, places) >= 0;
 }
@@ -1714,6 +1811,273 @@ export function pathsOverlap(a: CoursePath, b: CoursePath, reach: number): boole
 }
 
 /**
+ * Another road whose drawn top comes near this one's, as this one's markings
+ * and roadside see it: where it runs, half its carriageway, its ramp (which
+ * says how wide its top is where), and whether it is drawn in front of this
+ * one where the two overlap (`outranks`).
+ *
+ * **Two ribbons that overlap each drew their whole section**, which the depth
+ * layers sort out for the tarmac and nothing sorted out for what is painted on
+ * it or stands beside it: on a shared approach, a fork or a crossing both
+ * roads laid their edge lines, their shoulders and their dashes through each
+ * other, since the paint rides `DASH_LIFT` over every crown, and a sign or a
+ * post of one stood in the other's carriageway. So a road's ribbon and its
+ * roadside ask these for where the other surfaces are.
+ */
+export interface OtherRoad {
+  path: CoursePath;
+  half: number;
+  ramp: RoadRamp;
+  front: boolean;
+}
+
+/**
+ * The roads whose drawn top comes within reach of road `index`'s roadside —
+ * `roadClearance` of it, the other's widest top and a unit of slack — each with
+ * what `OtherRoad` says. A pure function of the network, so the ribbon, the
+ * roadside and `pnpm check` all find the same ones.
+ */
+export function otherRoadsOf(
+  roads: readonly Road[],
+  index: number,
+  near: RoadIndex,
+  pathOf: (i: number) => CoursePath,
+  rampFor: (i: number) => RoadRamp,
+  middle: THREE.Vector3,
+): OtherRoad[] {
+  const path = pathOf(index);
+  const road = roads[index]!;
+  const found: OtherRoad[] = [];
+  const widest = (ROAD_CLASSES[ROAD_CLASSES.length - 1]!.width) * 0.5 + SIDEWALK;
+  const hits: number[] = [];
+  for (const q of near.near(middle, path.length * 0.5 + roadClearance(road.cls) + widest + 1, hits)) {
+    if (q === index) continue;
+    const other = roads[q]!;
+    const half = (ROAD_CLASSES[other.cls] ?? ROAD_CLASSES[0]!).width * 0.5;
+    const pathQ = pathOf(q);
+    if (!pathsOverlap(path, pathQ, roadClearance(road.cls) + half + SIDEWALK + 1)) continue;
+    found.push({ path: pathQ, half, ramp: rampFor(q), front: outranks(roads, q, index) });
+  }
+  return found;
+}
+
+const nearestStart = new THREE.Vector3();
+const nearestLeg = new THREE.Vector3();
+const nearestFoot = new THREE.Vector3();
+
+/**
+ * Where a path comes nearest a direction: how far off in world units and how
+ * far along, written into `into`; `distance` is Infinity when the nearest
+ * point is past either of its ends, because past a gate's kerb a road has no
+ * surface, and a point there is in the town.
+ */
+export function nearestOnPath(path: CoursePath, direction: THREE.Vector3, into: { distance: number; s: number }): { distance: number; s: number } {
+  let best = Infinity;
+  let bestS = 0;
+  let capped = false;
+  for (let k = 1; k < path.count; k++) {
+    nearestStart.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!);
+    nearestLeg.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).sub(nearestStart);
+    const lengthSq = nearestLeg.lengthSq();
+    const raw = lengthSq > 0 ? nearestFoot.copy(direction).sub(nearestStart).dot(nearestLeg) / lengthSq : 0;
+    const along = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+    nearestFoot.copy(nearestStart).addScaledVector(nearestLeg, along).normalize();
+    const distance = nearestFoot.distanceTo(direction) * PLANET_RADIUS;
+    if (distance < best) {
+      best = distance;
+      bestS = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * along;
+      capped = (k === 1 && raw < 0) || (k === path.count - 1 && raw > 1);
+    }
+  }
+  into.distance = capped ? Infinity : best;
+  into.s = bestS;
+  return into;
+}
+
+const roofDirection = new THREE.Vector3();
+const roofCentre = new THREE.Vector3();
+const roofNearest = { distance: 0, s: 0 };
+
+/**
+ * The highest any of `others` stands under `point`, as a radius: each one's
+ * crown (`crownLift`) wherever the point is on its top, and 0 where it is on
+ * none.
+ */
+export function othersRoofline(
+  others: readonly OtherRoad[],
+  point: THREE.Vector3,
+  world: World,
+): number {
+  if (others.length === 0) return 0;
+  roofDirection.copy(point).normalize();
+  let highest = 0;
+  let ground = NaN;
+  for (const other of others) {
+    nearestOnPath(other.path, roofDirection, roofNearest);
+    if (roofNearest.distance === Infinity || roofNearest.distance > otherTop(other, roofNearest.s)) continue;
+    if (Number.isNaN(ground)) ground = world.elevationAt(roofDirection);
+    const sB = other.path.length - roofNearest.s;
+    let centre = ground;
+    if (needsCentre(other.ramp, roofNearest.s, sB)) {
+      pathPointAt(other.path, roofNearest.s, roofCentre);
+      centre = world.elevationAt(roofCentre);
+    }
+    highest = Math.max(highest, PLANET_RADIUS + ground + crownLift(other.ramp, roofNearest.s, sB, ground, centre));
+  }
+  return highest;
+}
+
+/** The point `s` along a path, on its chords, as a unit vector. */
+function pathPointAt(path: CoursePath, s: number, into: THREE.Vector3): THREE.Vector3 {
+  let k = 1;
+  while (k < path.count - 1 && path.s[k]! < s) k++;
+  const s0 = path.s[k - 1]!;
+  const s1 = path.s[k]!;
+  const u = s1 > s0 ? Math.min(1, Math.max(0, (s - s0) / (s1 - s0))) : 0;
+  into.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!);
+  nearestLeg.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!);
+  return into.lerp(nearestLeg, u).normalize();
+}
+
+const insideDirection = new THREE.Vector3();
+const insideNearest = { distance: 0, s: 0 };
+
+/**
+ * How far inside the other roads a point is, in world units: the most any of
+ * them reaches past it, where `width(other, s)` is how far from its centre
+ * line that one counts at `s` along it — its carriageway, its top — and a
+ * negative width leaves it out. Negative means outside all of them. `point`
+ * may be at any radius.
+ */
+export function insideOthers(
+  others: readonly OtherRoad[],
+  point: THREE.Vector3,
+  width: (other: OtherRoad, s: number) => number,
+): number {
+  if (others.length === 0) return -Infinity;
+  insideDirection.copy(point).normalize();
+  let most = -Infinity;
+  for (const other of others) {
+    nearestOnPath(other.path, insideDirection, insideNearest);
+    if (insideNearest.distance === Infinity) continue;
+    const reach = width(other, insideNearest.s);
+    if (reach < 0) continue;
+    most = Math.max(most, reach - insideNearest.distance);
+  }
+  return most;
+}
+
+/** The top of another road at `s` along it: its carriageway and its shoulder or pavement. */
+export function otherTop(other: OtherRoad, s: number): number {
+  return ribbonHalf(other.ramp, other.half, s, other.path.length - s);
+}
+
+/** How far in from the carriageway's edge its edge line is painted, in world units, and how wide as a share of the centre line's. */
+const EDGE_LINE_IN = 0.25;
+const EDGE_LINE_SHARE = 0.7;
+
+/**
+ * How far in from its carriageway's edge a road's edge line is painted, and
+ * how wide: the line's middle, as a share of the carriageway across from its
+ * left edge. `right` is the other edge.
+ */
+export function edgeLineAcross(half: number, right: boolean): number {
+  const inset = (EDGE_LINE_IN + LINE_HALF * EDGE_LINE_SHARE) / (2 * half);
+  return right ? 1 - inset : inset;
+}
+
+/**
+ * How far into another road's carriageway this one's edge line may run
+ * before it gives way: an edge line inside a road drawn behind it holds until
+ * it is further in than that road's own edge line, and a little, so where two
+ * roads share an approach on one line the front road's edge lines are kept.
+ */
+export const EDGE_KEEP = EDGE_LINE_IN + 2 * LINE_HALF * EDGE_LINE_SHARE + 0.3;
+
+/** Where this road's edge line gives way to another road: see `EDGE_KEEP`. */
+export const edgeGives = (other: OtherRoad): number => (other.front ? other.half - 0.05 : other.half - EDGE_KEEP);
+/** Where its dash gives way: inside the carriageway of a road drawn in front, and nowhere else. */
+export const dashGives = (other: OtherRoad): number => (other.front ? other.half - 0.05 : -1);
+
+const markProbe = new THREE.Vector3();
+const markProbeFar = new THREE.Vector3();
+
+/**
+ * A point on a piece of carriageway, `across` of the way from its left edge
+ * to its right and `along` of the way from its near section to its far one.
+ * Shared, and overwritten by the next call.
+ */
+export function pieceAt(
+  nearL: THREE.Vector3, nearR: THREE.Vector3, farL: THREE.Vector3, farR: THREE.Vector3, across: number, along: number,
+): THREE.Vector3 {
+  markProbe.copy(nearL).lerp(nearR, across);
+  markProbeFar.copy(farL).lerp(farR, across);
+  return markProbe.lerp(markProbeFar, along);
+}
+
+const RUN_SAMPLES = 6;
+
+/**
+ * The stretches of a piece, as pairs of shares along it, where `hidden` is
+ * false: tested at `RUN_SAMPLES` points and cut where the answer changes by
+ * six halvings, a hundredth of a piece's worth or so. Written into `into`.
+ */
+export function visibleRuns(hidden: (along: number) => boolean, into: number[]): number[] {
+  into.length = 0;
+  let lastAt = 0;
+  let last = hidden(0);
+  let start = last ? -1 : 0;
+  for (let k = 1; k <= RUN_SAMPLES; k++) {
+    const at = k / RUN_SAMPLES;
+    const now = hidden(at);
+    if (now !== last) {
+      let lo = lastAt;
+      let hi = at;
+      for (let b = 0; b < 6; b++) {
+        const mid = (lo + hi) * 0.5;
+        if (hidden(mid) === last) lo = mid;
+        else hi = mid;
+      }
+      const edge = (lo + hi) * 0.5;
+      if (last) start = edge;
+      else into.push(start, edge);
+    }
+    lastAt = at;
+    last = now;
+  }
+  if (!last) into.push(start, 1);
+  return into;
+}
+
+/**
+ * Where a line painted `across` of the way over a piece of carriageway is
+ * drawn, given the other roads near it and how far into each it may run
+ * (`edgeGives`, `dashGives`): the ribbon paints these runs and `pnpm check`
+ * walks them.
+ */
+export function markingRuns(
+  others: readonly OtherRoad[],
+  nearL: THREE.Vector3, nearR: THREE.Vector3, farL: THREE.Vector3, farR: THREE.Vector3,
+  across: number, gives: (other: OtherRoad, s: number) => number, into: number[],
+): number[] {
+  if (others.length === 0) {
+    into.length = 0;
+    into.push(0, 1);
+    return into;
+  }
+  return visibleRuns((along) => insideOthers(others, pieceAt(nearL, nearR, farL, farR, across, along), gives) > 0, into);
+}
+
+/** The carriageway's two edges on a ribbon section's top, which is a straight line from edge to edge, `top` either side. */
+export function carriageEdges(
+  section: readonly THREE.Vector3[], top: number, half: number, left: THREE.Vector3, right: THREE.Vector3,
+): void {
+  const u = (top - half) / (2 * top);
+  left.copy(section[1]!).lerp(section[2]!, u);
+  right.copy(section[1]!).lerp(section[2]!, 1 - u);
+}
+
+/**
  * Every road's depth layer: 0 for a road no higher-ranking road overlaps, and
  * one behind the deepest of those that do.
  *
@@ -1854,9 +2218,6 @@ const DASH_PIECE = 6;
  */
 const DASH_LIFT = 0.04;
 
-/** How far in from the carriageway's edge its edge line is painted, in world units, and how wide as a share of the centre line's. */
-const EDGE_LINE_IN = 0.25;
-const EDGE_LINE_SHARE = 0.7;
 
 /**
  * Longest piece of road drawn as one quad, by how far away it is.
@@ -2445,6 +2806,14 @@ export function ribbonSection(
 
 const siteAt = new THREE.Vector3();
 const siteCentre = new THREE.Vector3();
+/** How far from another road's centre line a roadside thing may not stand: its top, less `OTHER_EDGE`. */
+const clearOf = (other: OtherRoad, s: number): number => otherTop(other, s) - OTHER_EDGE;
+/**
+ * And from its own centre line, anywhere along it: its top less `OTHER_EDGE`
+ * and a margin more, since a lamp's foot stands 0.35 in from its own top's
+ * edge and a post's 0.2, and neither may be refused beside its own stretch.
+ */
+const ownClearOf = (other: OtherRoad, s: number): number => otherTop(other, s) - OTHER_EDGE - 0.3;
 
 /**
  * One road as `roadside.ts` sees it: where its drawn surface is — the course,
@@ -2455,6 +2824,7 @@ const siteCentre = new THREE.Vector3();
  */
 export function roadsideSite(
   road: Road, course: RoadCourse, path: CoursePath, ramp: RoadRamp, places: readonly Place[], world: World,
+  others: readonly OtherRoad[] = [],
 ): RoadsideSite {
   const half = (ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!).width * 0.5;
   const a = places[road.a]!;
@@ -2465,6 +2835,13 @@ export function roadsideSite(
    * so it leaves that stretch, lamps and all, to the road in front.
    */
   const shared = road.layer > 0 ? LAYERED_CLEAR : 0;
+  /**
+   * And the road itself, as another: a course that curls back past its own
+   * gate runs one stretch beside another, and a rail or a post of the one
+   * stood on the other's carriageway. Measured by the nearest point of the
+   * whole path, so a thing beside its own stretch is where it always was.
+   */
+  const own: readonly OtherRoad[] = [{ path, half, ramp, front: false }];
   const countryOf = (walk: number, kerb: number): number =>
     kerb === 0 ? shared : Math.max(course.approach, walk > 0 ? PAVEMENT_RUN + PAVEMENT_TAPER : 0, shared);
   const site: RoadsideSite = {
@@ -2483,6 +2860,11 @@ export function roadsideSite(
       point.multiplyScalar(PLANET_RADIUS + ground + surfaceLift(ramp, half, s, sB, lateral, ground, centre));
     },
     groundRadius: (point) => PLANET_RADIUS + Math.max(0, world.elevationAt(siteCentre.copy(point).normalize())),
+    clear: (point, footprint) =>
+      insideOthers(others, point, clearOf) + footprint <= 0 && insideOthers(own, point, ownClearOf) + footprint <= 0,
+    roofline: (point) => othersRoofline(others, point, world),
+    nameA: a.name,
+    nameB: b.name,
     townA: ramp.kerbA > 0,
     townB: ramp.kerbB > 0,
     lampsA: ramp.kerbA > 0 && shared === 0 && radiusOf(a) >= LAMP_TOWN,
@@ -2694,6 +3076,26 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   };
 
   /**
+   * The other roads whose tops come near each road's (`otherRoadsOf`), cached
+   * per road: what its markings give way to and its roadside keeps off.
+   */
+  const NO_OTHERS: readonly OtherRoad[] = [];
+  const othersCache = new Map<number, readonly OtherRoad[]>();
+  const othersMiddle = new THREE.Vector3();
+  const othersFor = (index: number): readonly OtherRoad[] => {
+    let found = othersCache.get(index);
+    if (found === undefined) {
+      const list = otherRoadsOf(
+        roads, index, roadIndexFor(roads, places), (i) => geometry.path(i), rampFor, readMiddle(index, othersMiddle),
+      );
+      found = list.length > 0 ? list : NO_OTHERS;
+      if (othersCache.size >= GEOMETRY_CAP) othersCache.clear();
+      othersCache.set(index, found);
+    }
+    return found;
+  };
+
+  /**
    * The lights at a road's two gates (`gateGlow`), cached per road: each as the
    * point it hangs at — the gate on the paving, at `kerbA` or `kerbB`, where the
    * town puts it — and the town's frame its distances are measured in, which
@@ -2764,7 +3166,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       roadsides.set(index, known);
       return known;
     }
-    const site = roadsideSite(roads[index]!, geometry.course(index), geometry.path(index), rampFor(index), places, world);
+    const site = roadsideSite(
+      roads[index]!, geometry.course(index), geometry.path(index), rampFor(index), places, world, othersFor(index),
+    );
     const laid = layRoadside(site);
     const made = {
       ...laid,
@@ -3010,8 +3414,11 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const dashCorners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     const dashUp = new THREE.Vector3();
     const dashEdge = new THREE.Vector3();
-    const dash = (n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, length: number, half: number): void => {
+    const dash = (n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, length: number, half: number, a0 = 0, a1 = 1): void => {
       if (length < DASH_PIECE) return;
+      const from = Math.max(DASH_FROM, a0);
+      const to = Math.min(DASH_TO, a1);
+      if ((to - from) * length < LINE_HALF) return;
       const w = Math.min(0.1, LINE_HALF / (2 * half));
       // The crown triangle's own up, turned away from the planet's centre.
       dashUp.subVectors(f1, n1).cross(dashEdge.subVectors(f2, n1)).normalize();
@@ -3019,10 +3426,10 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       const at = (along: number, across: number, into: THREE.Vector3) =>
         into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across)
           .addScaledVector(dashUp, DASH_LIFT);
-      const p0 = at(DASH_FROM, 0.5 - w, dashCorners[0]!);
-      const p1 = at(DASH_TO, 0.5 - w, dashCorners[1]!);
-      const p2 = at(DASH_TO, 0.5 + w, dashCorners[2]!);
-      const p3 = at(DASH_FROM, 0.5 + w, dashCorners[3]!);
+      const p0 = at(from, 0.5 - w, dashCorners[0]!);
+      const p1 = at(to, 0.5 - w, dashCorners[1]!);
+      const p2 = at(to, 0.5 + w, dashCorners[2]!);
+      const p3 = at(from, 0.5 + w, dashCorners[3]!);
       quad(p0, p1, p2, p3, line, line);
     };
 
@@ -3034,21 +3441,79 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
      * `dash` gives.
      */
     const edgeUp = new THREE.Vector3();
-    const edgeLines = (n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, n2: THREE.Vector3, half: number): void => {
+    const edgeLine = (
+      n1: THREE.Vector3, f1: THREE.Vector3, f2: THREE.Vector3, n2: THREE.Vector3, half: number,
+      right: boolean, a0: number, a1: number,
+    ): void => {
       const w0 = EDGE_LINE_IN / (2 * half);
       const w1 = (EDGE_LINE_IN + 2 * LINE_HALF * EDGE_LINE_SHARE) / (2 * half);
-      edgeUp.subVectors(f1, n1).cross(dashEdge.subVectors(f2, n1)).normalize();
-      if (edgeUp.dot(n1) < 0) edgeUp.negate();
-      const left = (along: number, across: number, into: THREE.Vector3) =>
-        into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across)
-          .addScaledVector(edgeUp, DASH_LIFT);
-      quad(left(0, w0, dashCorners[0]!), left(1, w0, dashCorners[1]!), left(1, w1, dashCorners[2]!), left(0, w1, dashCorners[3]!), line, line);
+      if (!right) {
+        edgeUp.subVectors(f1, n1).cross(dashEdge.subVectors(f2, n1)).normalize();
+        if (edgeUp.dot(n1) < 0) edgeUp.negate();
+        const left = (along: number, across: number, into: THREE.Vector3) =>
+          into.copy(n1).addScaledVector(f1, along).addScaledVector(n1, -along).addScaledVector(f2, across).addScaledVector(f1, -across)
+            .addScaledVector(edgeUp, DASH_LIFT);
+        quad(left(a0, w0, dashCorners[0]!), left(a1, w0, dashCorners[1]!), left(a1, w1, dashCorners[2]!), left(a0, w1, dashCorners[3]!), line, line);
+        return;
+      }
       edgeUp.subVectors(f2, n1).cross(dashEdge.subVectors(n2, n1)).normalize();
       if (edgeUp.dot(n1) < 0) edgeUp.negate();
-      const right = (along: number, across: number, into: THREE.Vector3) =>
+      const rightAt = (along: number, across: number, into: THREE.Vector3) =>
         into.copy(n1).addScaledVector(n2, across).addScaledVector(n1, -across).addScaledVector(f2, along).addScaledVector(n2, -along)
           .addScaledVector(edgeUp, DASH_LIFT);
-      quad(right(0, 1 - w1, dashCorners[0]!), right(1, 1 - w1, dashCorners[1]!), right(1, 1 - w0, dashCorners[2]!), right(0, 1 - w0, dashCorners[3]!), line, line);
+      quad(rightAt(a0, 1 - w1, dashCorners[0]!), rightAt(a1, 1 - w1, dashCorners[1]!), rightAt(a1, 1 - w0, dashCorners[2]!), rightAt(a0, 1 - w0, dashCorners[3]!), line, line);
+    };
+
+    /**
+     * **Where another road's surface is, this one's paint and shoulder give
+     * way** (see `OtherRoad`). A piece is tested along its length and cut
+     * where the answer changes, to a tenth of a unit or so: `runsOf` hands back
+     * the stretches, as shares of the piece, where `hidden` is false.
+     *
+     * - An **edge line** is left out inside another road's carriageway: all of
+     *   it inside one drawn in front, and inside one drawn behind only once it
+     *   is further in than that road's own edge line, so where two roads share
+     *   an approach on one line the front road's edge lines are the only ones.
+     * - The **dash** is left out inside the carriageway of a road drawn in
+     *   front: one centre line, the front road's, where two run as one.
+     * - A **shoulder** or a pavement is laid in the carriageway's colour where
+     *   it lies on another road's carriageway, so a fork opens as tarmac and not
+     *   as a strip of gravel across the other road.
+     */
+    const others = band === 0 ? othersFor(index) : NO_OTHERS;
+    const active: OtherRoad[] = [];
+    const one: OtherRoad[] = [];
+    const runs: number[] = [];
+    const probe = markProbe;
+    const runsOf = (hidden: (along: number) => boolean): number[] => visibleRuns(hidden, runs);
+    const carriageOf = (other: OtherRoad): number => other.half;
+    const stripCorner = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    /** The piece of a strip from `nA`-`nB` to `fA`-`fB` between shares `a0` and `a1` of the way along. */
+    const strip = (nA: THREE.Vector3, fA: THREE.Vector3, fB: THREE.Vector3, nB: THREE.Vector3, a0: number, a1: number, colour: THREE.Color): void => {
+      if (a0 <= 0 && a1 >= 1) {
+        quad(nA, fA, fB, nB, colour, colour);
+        return;
+      }
+      quad(
+        stripCorner[0]!.copy(nA).lerp(fA, a0), stripCorner[1]!.copy(nA).lerp(fA, a1),
+        stripCorner[2]!.copy(nB).lerp(fB, a1), stripCorner[3]!.copy(nB).lerp(fB, a0),
+        colour, colour,
+      );
+    };
+    /** A shoulder, in its own colour where it is its own and the carriageway's where it lies on another road's. */
+    const shoulderStrip = (nA: THREE.Vector3, fA: THREE.Vector3, fB: THREE.Vector3, nB: THREE.Vector3, colour: THREE.Color): void => {
+      if (active.length === 0) {
+        quad(nA, fA, fB, nB, colour, colour);
+        return;
+      }
+      const own = runsOf((along) => insideOthers(active, pieceAt(nA, nB, fA, fB, 0.5, along), carriageOf) > 0);
+      let at = 0;
+      for (let k = 0; k < own.length; k += 2) {
+        if (own[k]! > at + 1e-6) strip(nA, fA, fB, nB, at, own[k]!, crown);
+        strip(nA, fA, fB, nB, own[k]!, own[k + 1]!, colour);
+        at = own[k + 1]!;
+      }
+      if (at < 1 - 1e-6) strip(nA, fA, fB, nB, at, 1, crown);
     };
 
     // One cross-section is four points; the piece between two of them is three
@@ -3123,12 +3588,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const nearR = new THREE.Vector3();
     const farL = new THREE.Vector3();
     const farR = new THREE.Vector3();
-    /** The carriageway's two edges on the section's top, as points along it: the top is a straight line from edge to edge. */
-    const carriageOn = (section: readonly THREE.Vector3[], top: number, left: THREE.Vector3, right: THREE.Vector3): void => {
-      const u = (top - half) / (2 * top);
-      left.copy(section[1]!).lerp(section[2]!, u);
-      right.copy(section[1]!).lerp(section[2]!, 1 - u);
-    };
+    const carriageOn = (section: readonly THREE.Vector3[], top: number, left: THREE.Vector3, right: THREE.Vector3): void =>
+      carriageEdges(section, top, half, left, right);
 
     // The stations are measured along the path, so a section is still at
     // most `span` units long, both ends land exactly on the two kerbs, and
@@ -3150,12 +3611,36 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         const shoulder = onPavement(ramp, middle, path.length - middle)
           ? (middle < path.length * 0.5 ? walkA : walkB)
           : gravel;
-        quad(near[1]!, far[1]!, farL, nearL, shoulder, shoulder);
+        // The other roads this piece comes near, if any.
+        active.length = 0;
+        if (others.length > 0) {
+          pieceAt(nearL, nearR, farL, farR, 0.5, 0.5);
+          const reach = (sFar - stations[k - 1]!) * 0.5 + ribbonHalf(ramp, half, middle, path.length - middle) + 1;
+          for (const other of others) {
+            one[0] = other;
+            if (insideOthers(one, probe, (o) => o.half + SIDEWALK + reach) > 0) active.push(other);
+          }
+        }
+        shoulderStrip(near[1]!, far[1]!, farL, nearL, shoulder);
         quad(nearL, farL, farR, nearR, crown, crown);
-        quad(nearR, farR, far[2]!, near[2]!, shoulder, shoulder);
+        shoulderStrip(nearR, farR, far[2]!, near[2]!, shoulder);
         if (marked) {
-          dash(nearL, farL, farR, sFar - stations[k - 1]!, half);
-          edgeLines(nearL, farL, farR, nearR, half);
+          const length = sFar - stations[k - 1]!;
+          if (active.length === 0) {
+            dash(nearL, farL, farR, length, half);
+            edgeLine(nearL, farL, farR, nearR, half, false, 0, 1);
+            edgeLine(nearL, farL, farR, nearR, half, true, 0, 1);
+          } else {
+            const shown = markingRuns(active, nearL, nearR, farL, farR, 0.5, dashGives, runs);
+            for (let r = 0; r < shown.length; r += 2) dash(nearL, farL, farR, length, half, shown[r]!, shown[r + 1]!);
+            for (const right of [false, true]) {
+              const kept = markingRuns(active, nearL, nearR, farL, farR, edgeLineAcross(half, right), edgeGives, runs);
+              for (let r = 0; r < kept.length; r += 2) {
+                if ((kept[r + 1]! - kept[r]!) * length < 0.05) continue;
+                edgeLine(nearL, farL, farR, nearR, half, right, kept[r]!, kept[r + 1]!);
+              }
+            }
+          }
         }
         nearL.copy(farL);
         nearR.copy(farR);
@@ -3664,10 +4149,13 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       if (scannedProminence !== prominenceVersion()) {
         for (const tile of list) drop(tile);
         ramps.clear();
-        // Both were laid on the ramps just cleared.
+        // All of these were laid on the ramps just cleared.
         gateLights.clear();
+        othersCache.clear();
         ribbons.clear();
         ribbonBytes = 0;
+        roadsides.clear();
+        roadsideBytes = 0;
         scannedProminence = prominenceVersion();
         scannedAt.set(Infinity, Infinity, Infinity);
       }

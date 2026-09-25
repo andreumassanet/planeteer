@@ -592,6 +592,40 @@ export function buildFloor(plan: FloorPlan): FloorField {
   const usedAt = (end: number): number => used.get(end) ?? 0;
 
   /**
+   * **The two halves of a band street are planned as one.** Each half is its
+   * own crossing, found in its own cell, and each would find its own runs —
+   * which differ wherever the two rows do beyond the riser: a cell given up
+   * to the outskirts or to a landmark on one side only, a gate's mouth on
+   * one half. Planned apart, the two halves came out with different runs, and
+   * the step between them stood as a wall down the middle of the carriageway.
+   * So a half and its twin — the crossing across the band's midline, on the
+   * same line, climbing the same way between the same levels — take the room
+   * both have, and stand or fall together.
+   */
+  const twinKey = (crossing: Crossing): string => {
+    const line = crossing.axis === 0 ? crossing.col : crossing.row;
+    return `${crossing.axis}:${crossing.sign}:${line}:${Math.round(crossing.centre * 1000)}:${crossing.low}:${crossing.high}`;
+  };
+  const byLine = new Map<string, Crossing[]>();
+  for (const crossing of crossings) {
+    if (crossing.centre === crossing.from || crossing.centre === crossing.to) {
+      const key = twinKey(crossing);
+      const list = byLine.get(key) ?? [];
+      list.push(crossing);
+      byLine.set(key, list);
+    }
+  }
+  const twinOf = new Map<Crossing, Crossing>();
+  for (const list of byLine.values()) {
+    if (list.length !== 2) continue;
+    const [m, n] = list as [Crossing, Crossing];
+    // One on each side of the midline.
+    if ((m.from < m.centre) === (n.from < n.centre)) continue;
+    twinOf.set(m, n);
+    twinOf.set(n, m);
+  }
+
+  /**
    * **Who gets a run is decided by need, smallest first**, because a run
    * between two risers is shared by the crossings at its two ends. So each
    * crossing in turn takes the room its rise needs at `STREET_GRADE` out of what
@@ -600,9 +634,8 @@ export function buildFloor(plan: FloorPlan): FloorField {
    * spread over the room still free — half of it where another crossing starts
    * from the far end — down to `RAMP_GENTLEST` and no gentler, so a
    * riser with a long level street either side is a slope and not a whole
-   * block of cutting. Stable in the order the crossings were found, so the two
-   * halves of a band street, which mirror each other cell for cell, come out
-   * the same.
+   * block of cutting. Stable in the order the crossings were found, and a
+   * half and its twin are one step of it.
    */
   const order = crossings.map((crossing, index) => ({ crossing, index, need: (crossing.high - crossing.low) / STREET_GRADE }));
   order.sort((m, n) => m.need - n.need || m.index - n.index);
@@ -613,38 +646,61 @@ export function buildFloor(plan: FloorPlan): FloorField {
     back: number;
     lower: Run;
     upper: Run;
+    twin: Plan | null;
   }
   const plans: Plan[] = [];
+  const plannedCrossings = new Set<Crossing>();
   for (const { crossing, need } of order) {
-    const { axis, sign, col, row } = crossing;
-    const lower = runOf(col, row, axis, -sign);
-    const upper = runOf(axis === 0 ? col + sign : col, axis === 0 ? row : row + sign, axis, sign);
-    const low = Math.max(0, lower.length - usedAt(lower.far));
-    const high = Math.max(0, upper.length - usedAt(upper.far));
-    const nearLow = crossing.lower * 4 + sideOf(axis, sign);
-    const nearHigh = crossing.higher * 4 + sideOf(axis, -sign);
+    if (plannedCrossings.has(crossing)) continue;
+    const twin = twinOf.get(crossing);
+    const group = twin === undefined ? [crossing] : [crossing, twin];
+    const members = group.map((member) => {
+      const { axis, sign, col, row } = member;
+      const lower = runOf(col, row, axis, -sign);
+      const upper = runOf(axis === 0 ? col + sign : col, axis === 0 ? row : row + sign, axis, sign);
+      return {
+        member,
+        lower,
+        upper,
+        nearLow: member.lower * 4 + sideOf(axis, sign),
+        nearHigh: member.higher * 4 + sideOf(axis, -sign),
+      };
+    });
+    let low = Infinity;
+    let high = Infinity;
+    let room = Infinity;
+    for (const { lower, upper } of members) {
+      low = Math.min(low, Math.max(0, lower.length - usedAt(lower.far)));
+      high = Math.min(high, Math.max(0, upper.length - usedAt(upper.far)));
+      // Stairs stand in the lower cell whatever it is, as they always did, in
+      // what the far end leaves.
+      const cell = lower.cells.length !== 1 ? pitch : lower.length + RAMP_LANDING;
+      room = Math.min(room, cell - RAMP_LANDING - usedAt(lower.far));
+    }
     // Short of room at `STREET_GRADE`, a short steep ramp over all there is,
     // up to `STREET_STEEPEST`, before stairs.
     const rise = crossing.high - crossing.low;
     const take = low + high >= need - 1e-9 ? need : low + high >= rise / STREET_STEEPEST - 1e-9 ? low + high : NaN;
-    if (!Number.isNaN(take) && low + high > 0) {
-      const run = (take * low) / (low + high);
-      const back = take - run;
+    const ramp = !Number.isNaN(take) && low + high > 0;
+    const run = ramp ? (take * low) / (low + high) : Math.max(0, Math.min(FLIGHT_RUN * pitch, room));
+    const back = ramp ? take - run : 0;
+    const made: Plan[] = [];
+    for (const { member, lower, upper, nearLow, nearHigh } of members) {
       used.set(nearLow, run);
-      used.set(nearHigh, back);
-      plans.push({ crossing, ramp: true, run, back, lower, upper });
-    } else {
-      // Stairs stand in the lower cell whatever it is, as they always did, in
-      // what the far end leaves.
-      const room = lower.cells.length !== 1 ? pitch : lower.length + RAMP_LANDING;
-      const run = Math.max(0, Math.min(FLIGHT_RUN * pitch, room - RAMP_LANDING - usedAt(lower.far)));
-      used.set(nearLow, run);
-      plans.push({ crossing, ramp: false, run, back: 0, lower, upper });
+      if (ramp) used.set(nearHigh, back);
+      made.push({ crossing: member, ramp, run, back, lower, upper, twin: null });
+      plannedCrossings.add(member);
     }
+    if (made.length === 2) {
+      made[0]!.twin = made[1]!;
+      made[1]!.twin = made[0]!;
+    }
+    plans.push(...made);
   }
   // The spread, worked out from the room as it stood before any of it, so two
-  // ramps sharing a run take the same half of what is free.
-  const spread = plans.map((plan) => {
+  // ramps sharing a run take the same half of what is free — and a half and
+  // its twin the less of what either has.
+  const spreadOf = (plan: Plan): readonly [number, number] => {
     if (!plan.ramp) return [0, 0] as const;
     const { axis, sign } = plan.crossing;
     const free = (run: Run, near: number): number => {
@@ -657,7 +713,15 @@ export function buildFloor(plan: FloorPlan): FloorField {
     const most = Math.max(0, rise / RAMP_GENTLEST - plan.run - plan.back);
     const share = lowFree + highFree > most ? most / (lowFree + highFree) : 1;
     return [lowFree * share, highFree * share] as const;
-  });
+  };
+  const own = new Map<Plan, readonly [number, number]>();
+  for (const plan of plans) own.set(plan, spreadOf(plan));
+  const spreadFor = (plan: Plan): readonly [number, number] => {
+    const mine = own.get(plan)!;
+    if (plan.twin === null) return mine;
+    const theirs = own.get(plan.twin)!;
+    return [Math.min(mine[0], theirs[0]), Math.min(mine[1], theirs[1])] as const;
+  };
 
   const touching = new Map<number, Flight[]>();
   const touches = (key: number): Flight[] => {
@@ -668,11 +732,9 @@ export function buildFloor(plan: FloorPlan): FloorField {
     }
     return list;
   };
-  // Back in the order the crossings were found, so the flights' order in a
-  // cell, and what the drawing does with it, does not depend on the plan.
-  const planned = plans.map((plan, k) => ({ plan, extra: spread[k]! }));
-  planned.sort((m, n) => crossings.indexOf(m.plan.crossing) - crossings.indexOf(n.plan.crossing));
-  for (const { plan, extra } of planned) {
+  /** A plan as the flight it stands, and every cell its footprint reaches, along each run as far as it goes. */
+  const flightOf = (plan: Plan): { flight: Flight; covers: number[] } => {
+    const extra = spreadFor(plan);
     const { crossing, ramp } = plan;
     const { axis, sign, col, row } = crossing;
     const x0 = (col - shift - 0.5) * pitch;
@@ -700,7 +762,6 @@ export function buildFloor(plan: FloorPlan): FloorField {
       steps,
       tread,
     };
-    // Every cell its footprint reaches, along each run as far as it goes.
     const covers = [crossing.lower];
     if (ramp) {
       const reach = (run: Run, length: number): void => {
@@ -712,20 +773,36 @@ export function buildFloor(plan: FloorPlan): FloorField {
         reach(plan.upper, back);
       }
     }
-    if (flight.run + flight.back < 1e-6 || covers.some((key) => (touching.get(key) ?? []).some((known) => overlap(known, flight)))) {
-      stats.crowded++;
+    return { flight, covers };
+  };
+  // Back in the order the crossings were found, so the flights' order in a
+  // cell, and what the drawing does with it, does not depend on the plan.
+  plans.sort((m, n) => crossings.indexOf(m.crossing) - crossings.indexOf(n.crossing));
+  const settled = new Set<Plan>();
+  for (const plan of plans) {
+    if (settled.has(plan)) continue;
+    const group = plan.twin === null ? [plan] : [plan, plan.twin];
+    const made = group.map(flightOf);
+    for (const member of group) settled.add(member);
+    const fits = made.every(({ flight, covers }) =>
+      flight.run + flight.back >= 1e-6 &&
+      !covers.some((key) => (touching.get(key) ?? []).some((known) => overlap(known, flight))));
+    if (!fits) {
+      stats.crowded += made.length;
       continue;
     }
-    for (const key of covers) touches(key).push(flight);
-    const here = flights.get(crossing.lower) ?? [];
-    here.push(flight);
-    flights.set(crossing.lower, here);
-    if (ramp) {
-      stats.ramps++;
-      stats.steepest = Math.max(stats.steepest, rampGrade(flight));
-    } else {
-      stats.flights++;
-      stats.steps += steps;
+    for (const { flight, covers } of made) {
+      for (const key of covers) touches(key).push(flight);
+      const here = flights.get(flight.cell) ?? [];
+      here.push(flight);
+      flights.set(flight.cell, here);
+      if (flight.ramp) {
+        stats.ramps++;
+        stats.steepest = Math.max(stats.steepest, rampGrade(flight));
+      } else {
+        stats.flights++;
+        stats.steps += flight.steps;
+      }
     }
   }
 

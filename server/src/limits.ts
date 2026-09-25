@@ -150,6 +150,22 @@ export function cleanEmote(raw: unknown): Emote | '' {
 /** Between two gestures by one player. */
 export const EMOTE_INTERVAL_MS = 1_000;
 
+/**
+ * The horns a driver can sound where others hear them, as the wire names
+ * them: a car's two tones, a bus's deep one, a motorbike's beep, a bicycle's
+ * bell, a tuk-tuk's rubber bulb, a boat's horn and a horse's whinny. Which
+ * kind sounds which is `HORN_OF` in `src/craft/contract.ts`.
+ */
+export const HONKS = ['car', 'bus', 'beep', 'bell', 'squeak', 'ship', 'whinny'] as const;
+export type Honk = (typeof HONKS)[number];
+
+export function cleanHonk(raw: unknown): Honk | '' {
+  return typeof raw === 'string' && (HONKS as readonly string[]).includes(raw) ? (raw as Honk) : '';
+}
+
+/** Between two horns by one player: a tap and a second tap, not a stuck key. */
+export const HONK_INTERVAL_MS = 350;
+
 /** A sender's allowance: lines in hand, and when it was last topped up. */
 export interface ChatBucket {
   tokens: number;

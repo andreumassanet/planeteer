@@ -282,6 +282,16 @@ export const NEAR_LAMPS = 24;
 export const LAMP_FIELD = 170;
 
 /**
+ * The sun's elevation where the player stands, in degrees, above which no
+ * near lamp can be lit and none is looked for. `atlasNight` is nothing from
+ * `NIGHT_NONE`'s 2 degrees up, and every lamp handed over stands within
+ * `LAMP_FIELD` of a camera near the player — well under a degree of arc away
+ * — so 5 leaves three degrees of margin and the picture unchanged, while a
+ * frame by day skips both searches and the land skips the loop's test.
+ */
+export const LAMPS_OFF_ABOVE = 5;
+
+/**
  * How far a lamp's light reaches along the ground, in world units, as a pool
  * written on the vertices of the ground it falls on.
  *
@@ -336,6 +346,13 @@ const HEAD_OUTER = Math.cos(30 * DEG);
 const atlasHeads = { value: Array.from({ length: NEAR_HEADLIGHTS }, () => new THREE.Vector4()) };
 const atlasHeadDirs = { value: Array.from({ length: NEAR_HEADLIGHTS }, () => new THREE.Vector3()) };
 const atlasHeadCount = { value: 0 };
+/**
+ * How far from the camera any near lamp or headlight can light a surface:
+ * the farthest of them plus its reach, in view units, refreshed with them.
+ * A fragment further out than this is further than a reach from every one of
+ * them, so the loops would add nothing, and it does not run them.
+ */
+const atlasLightReach = { value: 0 };
 /** The headlights in world space, for the halos. */
 const headWorld = new Float32Array(NEAR_HEADLIGHTS * 4);
 const atlasLampTint = { value: LAMP_LIGHT.clone() };
@@ -359,6 +376,7 @@ const LAMP_CHUNK = /* glsl */ `
   uniform vec4 atlasHeads[${NEAR_HEADLIGHTS}];
   uniform vec3 atlasHeadDirs[${NEAR_HEADLIGHTS}];
   uniform int atlasHeadCount;
+  uniform float atlasLightReach;
 
   float atlasLampLight(vec3 pos, vec3 n, float flatness) {
     float sum = 0.0;
@@ -404,6 +422,7 @@ export function bindNearLights(uniforms: Record<string, THREE.IUniform>): void {
   uniforms.atlasHeads = atlasHeads;
   uniforms.atlasHeadDirs = atlasHeadDirs;
   uniforms.atlasHeadCount = atlasHeadCount;
+  uniforms.atlasLightReach = atlasLightReach;
   uniforms.atlasLampTint = atlasLampTint;
 }
 
@@ -418,7 +437,7 @@ export function nearLightsGLSL(): string {
 
 export function nearLightsChunk(worldPosition: string): string {
   return /* glsl */ `
-  if (atlasLampCount > 0 || atlasHeadCount > 0) {
+  if ((atlasLampCount > 0 || atlasHeadCount > 0) && length(vViewPosition) < atlasLightReach) {
     float atlasNearDark = atlasGain * atlasNight(normalize(${worldPosition}), atlasSun);
     if (atlasNearDark > 0.0) {
       totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint
@@ -439,17 +458,23 @@ const lampView = new THREE.Vector3();
 export function setNearLamps(camera: THREE.Camera, heads: Float32Array, count: number): void {
   const n = Math.min(count, NEAR_LAMPS);
   const view = camera.matrixWorldInverse;
+  let reach = headReach;
   for (let i = 0; i < n; i++) {
     lampView.set(heads[i * 4]!, heads[i * 4 + 1]!, heads[i * 4 + 2]!).applyMatrix4(view);
     const distance = heads[i * 4 + 3]!;
     const fade = 1 - Math.min(1, Math.max(0, (distance - LAMP_FIELD * 0.8) / (LAMP_FIELD * 0.2)));
     atlasLamps.value[i]!.set(lampView.x, lampView.y, lampView.z, fade);
+    reach = Math.max(reach, lampView.length() + LAMP_REACH);
   }
   atlasLampCount.value = n;
+  // A unit of slack over the exact bound, for the view transform's rounding.
+  atlasLightReach.value = reach > 0 ? reach + 1 : 0;
   halos.update(heads, n, headWorld, atlasHeadCount.value);
 }
 
 const headDir = new THREE.Vector3();
+/** The headlights' part of `atlasLightReach`, which `setNearLamps` finishes. */
+let headReach = 0;
 
 /**
  * Hands the shaders this frame's headlights: `lights` is `x, y, z, dx, dy,
@@ -459,9 +484,11 @@ const headDir = new THREE.Vector3();
 export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count: number): void {
   const n = Math.min(count, NEAR_HEADLIGHTS);
   const view = camera.matrixWorldInverse;
+  headReach = 0;
   for (let i = 0; i < n; i++) {
     const o = i * 7;
     lampView.set(lights[o]!, lights[o + 1]!, lights[o + 2]!).applyMatrix4(view);
+    headReach = Math.max(headReach, lampView.length() + HEAD_REACH);
     atlasHeads.value[i]!.set(lampView.x, lampView.y, lampView.z, lights[o + 6]!);
     headDir.set(lights[o + 3]!, lights[o + 4]!, lights[o + 5]!).transformDirection(view);
     atlasHeadDirs.value[i]!.copy(headDir);
@@ -557,7 +584,8 @@ function createHalos(): { points: THREE.Points; update(heads: Float32Array, coun
         position[i * 3 + 1] = more[j * 4 + 1]!;
         position[i * 3 + 2] = more[j * 4 + 2]!;
       }
-      attribute.needsUpdate = true;
+      // By day there are none, and nothing to send.
+      if (count + extra > 0) attribute.needsUpdate = true;
       geometry.setDrawRange(0, count + extra);
       material.uniforms.screenScale!.value = (typeof innerHeight === 'number' ? innerHeight : 900) * 0.5;
     },
@@ -701,6 +729,7 @@ export function lightWindows(material: THREE.Material): void {
     shader.uniforms.atlasHeads = atlasHeads;
     shader.uniforms.atlasHeadDirs = atlasHeadDirs;
     shader.uniforms.atlasHeadCount = atlasHeadCount;
+    shader.uniforms.atlasLightReach = atlasLightReach;
     shader.uniforms.atlasLampTint = atlasLampTint;
 
     shader.vertexShader = shader.vertexShader
@@ -738,29 +767,35 @@ export function lightWindows(material: THREE.Material): void {
       .replace(
         '#include <emissivemap_fragment>',
         /* glsl */ `#include <emissivemap_fragment>
-        // x is how bright this window is, y is the hour it goes out. Half an
-        // hour of ramp either side of the hour, because a room does not switch.
-        float atlasBed = ${BED_BASE.toFixed(1)} + vAtlasLit.y * ${(255 / BED_SPAN).toFixed(6)};
-        float atlasAwake = 1.0 - smoothstep(atlasBed - 0.5, atlasBed + 0.5,
-          atlasSolarHour(vAtlasUp, atlasSubsolar));
+        // The terminator first: by day nothing below is lit at all, and the
+        // bedtime's arctangent and the lamps' loop are skipped with it.
         float atlasDark = atlasGain * atlasNight(vAtlasUp, atlasSun);
-        // A face that looks at the sky is ground (a slope too: the edge of a
-        // town is one, and lit as a window it came out as a yellow rim round
-        // every town seen from the air), and on the ground the byte is
-        // a pool rather than a window: it tints the surface it lies on instead
-        // of being painted over it, and inside the near lamps' field it gives
-        // way to them (see NEAR_LAMPS), keeping a quarter as the spill of the
-        // lit rooms and the gates.
-        float atlasFlat = smoothstep(0.25, 0.5, dot(normal, normalize(mat3(viewMatrix) * vAtlasUp)));
-        float atlasNearField = atlasLampCount > 0
-          ? 1.0 - smoothstep(${(LAMP_FIELD * 0.6).toFixed(1)}, ${(LAMP_FIELD * 0.9).toFixed(1)}, length(vViewPosition))
-          : 0.0;
-        vec3 atlasPool = mix(atlasLight, diffuseColor.rgb * atlasLight * 0.9, atlasFlat)
-          * (1.0 - atlasFlat * atlasNearField * 0.75);
-        totalEmissiveRadiance += atlasPool * (${WINDOW_GAIN.toFixed(2)} * vAtlasLit.x * atlasAwake * atlasDark);
-        if ((atlasLampCount > 0 || atlasHeadCount > 0) && atlasDark > 0.0) {
-          float atlasLamp = atlasLampLight(-vViewPosition, normal, atlasFlat);
-          totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint * atlasLamp * atlasDark;
+        if (atlasDark > 0.0) {
+          // A face that looks at the sky is ground (a slope too: the edge of a
+          // town is one, and lit as a window it came out as a yellow rim round
+          // every town seen from the air), and on the ground the byte is
+          // a pool rather than a window: it tints the surface it lies on instead
+          // of being painted over it, and inside the near lamps' field it gives
+          // way to them (see NEAR_LAMPS), keeping a quarter as the spill of the
+          // lit rooms and the gates.
+          float atlasFlat = smoothstep(0.25, 0.5, dot(normal, normalize(mat3(viewMatrix) * vAtlasUp)));
+          if (vAtlasLit.x > 0.0) {
+            // x is how bright this window is, y is the hour it goes out. Half an
+            // hour of ramp either side of the hour, because a room does not switch.
+            float atlasBed = ${BED_BASE.toFixed(1)} + vAtlasLit.y * ${(255 / BED_SPAN).toFixed(6)};
+            float atlasAwake = 1.0 - smoothstep(atlasBed - 0.5, atlasBed + 0.5,
+              atlasSolarHour(vAtlasUp, atlasSubsolar));
+            float atlasNearField = atlasLampCount > 0
+              ? 1.0 - smoothstep(${(LAMP_FIELD * 0.6).toFixed(1)}, ${(LAMP_FIELD * 0.9).toFixed(1)}, length(vViewPosition))
+              : 0.0;
+            vec3 atlasPool = mix(atlasLight, diffuseColor.rgb * atlasLight * 0.9, atlasFlat)
+              * (1.0 - atlasFlat * atlasNearField * 0.75);
+            totalEmissiveRadiance += atlasPool * (${WINDOW_GAIN.toFixed(2)} * vAtlasLit.x * atlasAwake * atlasDark);
+          }
+          if ((atlasLampCount > 0 || atlasHeadCount > 0) && length(vViewPosition) < atlasLightReach) {
+            float atlasLamp = atlasLampLight(-vViewPosition, normal, atlasFlat);
+            totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint * atlasLamp * atlasDark;
+          }
         }`,
       );
   };

@@ -21,25 +21,30 @@ export interface CommandSpec {
   help: string;
   /** Other names typed for it. */
   aliases?: readonly string[];
-  /** What `Tab` completes the argument from: the players online. */
-  argument?: 'player';
+  /** What the argument is, for the suggestions offered while it is typed. */
+  argument?: ArgumentKind;
 }
+
+/**
+ * What a command's argument is drawn from: the players online, the built
+ * towns and the countries, the words `/time` knows, the weathers.
+ */
+export type ArgumentKind = 'player' | 'place' | 'time' | 'weather';
 
 /** Every command, in the order `/help` lists them. */
 export const COMMANDS: readonly CommandSpec[] = [
   { name: 'help', usage: '', help: 'What you can type here', aliases: ['?', 'commands'] },
-  { name: 'goto', usage: '<town, country or lat,lon>', help: 'Go straight there', aliases: ['go', 'travel'] },
+  { name: 'goto', usage: '<town, country or lat,lon>', help: 'Go straight there', aliases: ['go', 'travel'], argument: 'place' },
   { name: 'home', usage: '', help: 'Back where you started', aliases: ['spawn'] },
   { name: 'where', usage: '', help: 'Where you are standing', aliases: ['here'] },
   { name: 'landmark', usage: '', help: 'Point at the nearest landmark you have not found', aliases: ['next'] },
-  { name: 'time', usage: '<HH:MM · day · night · dawn · dusk · real>', help: 'Set the sun' },
-  { name: 'weather', usage: '<clear · rain · storm · snow · fog · auto>', help: 'Set the weather' },
+  { name: 'time', usage: '<HH:MM · day · night · dawn · dusk · real>', help: 'Set the sun', argument: 'time' },
+  { name: 'weather', usage: '<clear · rain · storm · snow · fog · auto>', help: 'Set the weather', argument: 'weather' },
   { name: 'who', usage: '', help: 'Who is online, and where', aliases: ['online', 'players'] },
   { name: 'tp', usage: '<player>', help: 'Go to another player', aliases: ['join'], argument: 'player' },
   { name: 'me', usage: '<action>', help: 'Say what you are doing: /me waves hello' },
   { name: 'wave', usage: '', help: 'Wave' },
   { name: 'dance', usage: '', help: 'Dance until you move' },
-  { name: 'sit', usage: '', help: 'Sit down until you move' },
   { name: 'photo', usage: '', help: 'Save a photo of the world', aliases: ['screenshot'] },
   { name: 'mute', usage: '<player>', help: 'Hide what a player says, until you reload', argument: 'player' },
   { name: 'unmute', usage: '<player>', help: 'Show what they say again', argument: 'player' },
@@ -84,51 +89,239 @@ export function actionOf(message: string): string | null {
 }
 
 /* ------------------------------------------------------------------------- *
- * Tab
+ * Suggestions
  * ------------------------------------------------------------------------- */
 
-/** The longest start every string in `words` shares, compared folded. */
-function sharedStart(words: readonly string[]): string {
-  if (words.length === 0) return '';
-  let end = words[0]!.length;
-  for (const word of words) {
-    let i = 0;
-    while (i < end && i < word.length && fold(word[i]!) === fold(words[0]![i]!)) i++;
-    end = i;
-  }
-  return words[0]!.slice(0, end);
+/** One row of the list over the field: what accepting it writes, and how it is shown. */
+export interface Suggestion {
+  /** The whole line accepting it leaves in the field. */
+  line: string;
+  /** The command's name with its slash, or the argument as it would be written. */
+  label: string;
+  /** What the command takes, greyed after its name; `''` for an argument. */
+  usage: string;
+  /** One line about it: a command's help, a town's country. */
+  detail: string;
+  /** What the field shows greyed after the typed text while this row is chosen. */
+  ghost: string;
+  /** Accepting it finishes the line, so `Enter` sends it as well. */
+  done: boolean;
 }
 
-/** What `Tab` gives for a line, and the choices it had, which the panel lists when there are several. */
-export interface Completion {
-  line: string;
-  choices: string[];
+/** The list for a line, and the ghost to show when the list is empty. */
+export interface Suggestions {
+  items: Suggestion[];
+  /** The rest of the usage while no row stands for it: `/me ` shows `<action>`. */
+  ghost: string;
+}
+
+/** Where the suggestions draw their arguments from. */
+export interface SuggestSources {
+  /** The names of the players online. */
+  players: readonly string[];
+  /** The towns and countries a `/goto` would find, best first; asked only after `/goto `. */
+  places?(query: string, limit: number): readonly { name: string; detail: string }[];
+}
+
+/** How many rows the list shows at most. */
+export const SUGGEST_LIMIT = 8;
+
+/** The words `/time` offers, in the order of a day, with what each is. */
+const TIME_WORDS: readonly (readonly [string, string])[] = [
+  ['dawn', '06:00'],
+  ['morning', '09:00'],
+  ['noon', '12:00'],
+  ['afternoon', '15:30'],
+  ['dusk', '19:30'],
+  ['night', '23:00'],
+  ['midnight', '00:00'],
+  ['real', 'The real sun again'],
+];
+
+/** What each weather `/weather` takes is, for its row. */
+const WEATHER_WORDS: Readonly<Record<WeatherWanted, string>> = {
+  clear: 'Clear skies',
+  rain: 'Rain where you stand',
+  storm: 'Thunder and lightning',
+  snow: 'Snow, where it is cold enough',
+  fog: 'A close haze',
+  auto: 'The world’s own weather again',
+};
+
+/** `typed` read as the start of `whole`, with the rest of `whole` as the ghost; `''` when it is not. */
+function rest(typed: string, whole: string): string {
+  return fold(whole).startsWith(fold(typed)) ? whole.slice(typed.length) : '';
 }
 
 /**
- * `Tab` in the field: the command's name while the line is `/` and part of
- * one, and a player's name after a command that takes one. One choice is
- * written out whole with a space after it; several give their shared start,
- * and the choices to show. Null where there is nothing to complete.
+ * The list a line offers as it is typed, as a game's console offers it: the
+ * commands that begin with what follows the slash, each with its usage and
+ * help, and once the command is written out, the arguments it takes — the
+ * players online for `/tp` and `/mute`, the towns and countries for `/goto`,
+ * the words for `/time` and `/weather` — that begin with what is typed,
+ * then those with it inside. Empty for a line that is not a command.
  */
-export function complete(line: string, players: readonly string[]): Completion | null {
-  if (!line.startsWith('/')) return null;
-  const space = line.indexOf(' ');
+export function suggest(line: string, sources: SuggestSources): Suggestions {
+  const none: Suggestions = { items: [], ghost: '' };
+  if (!line.startsWith('/') || line.startsWith('//')) return none;
+  const space = line.search(/\s/);
   if (space < 0) {
     const typed = line.slice(1).toLowerCase();
-    const names = COMMANDS.map((command) => command.name).filter((name) => name.startsWith(typed));
-    if (names.length === 0) return null;
-    if (names.length === 1) return { line: `/${names[0]} `, choices: names };
-    return { line: `/${sharedStart(names) || typed}`, choices: names };
+    const starts: CommandSpec[] = [];
+    const aliased: CommandSpec[] = [];
+    for (const command of COMMANDS) {
+      if (command.name.startsWith(typed)) starts.push(command);
+      else if ((command.aliases ?? []).some((alias) => alias.startsWith(typed))) aliased.push(command);
+    }
+    const items = [...starts, ...aliased].map((command): Suggestion => {
+      const usage = command.usage === '' ? '' : ` ${command.usage}`;
+      const tail = command.name.startsWith(typed) ? command.name.slice(typed.length) : '';
+      return {
+        line: `/${command.name}${usage === '' ? '' : ' '}`,
+        label: `/${command.name}`,
+        usage: command.usage,
+        detail: command.help,
+        ghost: tail === '' && typed !== command.name ? '' : `${tail}${usage}`,
+        done: command.usage === '',
+      };
+    });
+    return { items, ghost: '' };
   }
   const parsed = parseCommand(line);
-  if (parsed?.command?.argument !== 'player') return null;
-  const typed = fold(parsed.args);
-  const names = [...new Set(players)].filter((name) => fold(name).startsWith(typed));
-  if (names.length === 0) return null;
-  const head = line.slice(0, space + 1);
-  if (names.length === 1) return { line: `${head}${names[0]} `, choices: names };
-  return { line: `${head}${sharedStart(names) || parsed.args}`, choices: names };
+  const command = parsed?.command ?? null;
+  if (parsed === null || command === null) return none;
+  const args = line.slice(space).trimStart();
+  const typedHead = line.slice(0, line.length - args.length);
+  const usage = args === '' ? command.usage : '';
+  let rows: { value: string; detail: string }[] = [];
+  switch (command.argument) {
+    case 'player': {
+      const names = [...new Set(sources.players)];
+      const query = fold(args);
+      const starts = names.filter((name) => fold(name).startsWith(query));
+      const inside = query === '' ? [] : names.filter((name) => !fold(name).startsWith(query) && fold(name).includes(query));
+      rows = [...starts, ...inside].map((name) => ({ value: name, detail: 'Online' }));
+      break;
+    }
+    case 'place':
+      rows = args === '' || parseLatLon(args) !== null || sources.places === undefined
+        ? []
+        : sources.places(args, SUGGEST_LIMIT).map((found) => ({ value: found.name, detail: found.detail }));
+      break;
+    case 'time': {
+      const query = args.toLowerCase();
+      rows = TIME_WORDS.filter(([word]) => word.startsWith(query)).map(([word, detail]) => ({ value: word, detail }));
+      break;
+    }
+    case 'weather': {
+      const query = args.toLowerCase();
+      rows = WEATHERS.filter((word) => word.startsWith(query)).map((word) => ({ value: word, detail: WEATHER_WORDS[word] }));
+      break;
+    }
+    default:
+      rows = [];
+  }
+  const items = rows.slice(0, SUGGEST_LIMIT).map(
+    (row): Suggestion => ({
+      line: `${typedHead}${row.value}`,
+      label: row.value,
+      usage: '',
+      detail: row.detail,
+      ghost: rest(args, row.value),
+      done: true,
+    }),
+  );
+  // What is typed already is the whole of the one row: nothing to offer.
+  if (items.length === 1 && fold(items[0]!.label) === fold(args)) return { items: [], ghost: '' };
+  return { items, ghost: usage };
+}
+
+/** Folded names, built once a gazetteer: 29,651 folds a keystroke would be felt. */
+interface FoldedEntry {
+  folded: string;
+  words: string[];
+  name: string;
+  place: Place;
+  /** The alias or country it was found by, or undefined for the place's own name. */
+  via?: string;
+  country?: boolean;
+}
+const foldedIndex = new WeakMap<Gazetteer, FoldedEntry[]>();
+
+function indexOf(gazetteer: Gazetteer): FoldedEntry[] {
+  let entries = foldedIndex.get(gazetteer);
+  if (entries !== undefined) return entries;
+  entries = [];
+  const entry = (name: string, place: Place, via?: string, country?: boolean): FoldedEntry => {
+    const folded = fold(name);
+    const made: FoldedEntry = { folded, words: folded.split(/[\s\-']+/), name, place };
+    if (via !== undefined) made.via = via;
+    if (country === true) made.country = true;
+    return made;
+  };
+  for (const place of gazetteer.places) if (isShown(place)) entries.push(entry(place.name, place));
+  for (const [alias, index] of gazetteer.aliases) {
+    const place = gazetteer.places[index];
+    if (place !== undefined) entries.push(entry(alias, place, alias));
+  }
+  const seats = new Map<string, Place>();
+  for (const place of gazetteer.places) {
+    if (!isShown(place)) continue;
+    const seat = seats.get(place.iso);
+    if (seat === undefined || betterSeat(place, seat)) seats.set(place.iso, place);
+  }
+  for (const country of gazetteer.countries) {
+    const seat = seats.get(country.iso);
+    if (seat !== undefined) entries.push(entry(country.name, seat, country.name, true));
+  }
+  foldedIndex.set(gazetteer, entries);
+  return entries;
+}
+
+/**
+ * What `/goto` would offer for a query, best first: the countries, the built
+ * towns and the names folded into them, scored as `findPlace` scores them —
+ * whole name, then its start, then a word's start, then inside it — then
+ * a town's own name before a name folded into a bigger one, then the bigger
+ * place, a country counting as its seat's size (a whole name that is a
+ * country's is the country, as there). One row a name; `countryName`
+ * says whose it is.
+ */
+export function suggestPlaces(
+  query: string,
+  gazetteer: Gazetteer,
+  countryName: (iso: string) => string,
+  limit = SUGGEST_LIMIT,
+): { name: string; detail: string }[] {
+  const folded = fold(query.trim());
+  if (folded === '') return [];
+  const scored: { entry: FoldedEntry; score: number }[] = [];
+  for (const entry of indexOf(gazetteer)) {
+    const s = scoreFolded(entry.folded, entry.words, folded);
+    if (s > 0) scored.push({ entry, score: s });
+  }
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      (a.score === 4 ? Number(b.entry.country === true) - Number(a.entry.country === true) : 0) ||
+      Number(a.entry.via !== undefined && a.entry.country !== true) - Number(b.entry.via !== undefined && b.entry.country !== true) ||
+      b.entry.place.pop - a.entry.place.pop,
+  );
+  const out: { name: string; detail: string }[] = [];
+  const taken = new Set<string>();
+  for (const { entry } of scored) {
+    if (out.length >= limit) break;
+    if (taken.has(entry.folded)) continue;
+    taken.add(entry.folded);
+    const country = countryName(entry.place.iso);
+    const detail = entry.country === true
+      ? `Country · ${entry.place.name}`
+      : entry.via !== undefined && fold(entry.via) !== fold(entry.place.name)
+        ? `${entry.place.name}, ${country}`
+        : country;
+    out.push({ name: entry.name, detail });
+  }
+  return out;
 }
 
 /**
@@ -182,6 +375,30 @@ export interface Gazetteer {
 }
 
 /**
+ * How well a folded query names a folded candidate: 4 for the whole name, 3
+ * for its start, 2 for a word's start, 1 for anywhere inside past two
+ * letters, 0 for not at all.
+ */
+function scoreFolded(candidate: string, words: readonly string[], query: string): number {
+  if (candidate === query) return 4;
+  if (candidate.startsWith(query)) return 3;
+  if (words.some((word) => word.startsWith(query))) return 2;
+  return query.length > 2 && candidate.includes(query) ? 1 : 0;
+}
+
+/** A country is arrived at in its capital, or in its biggest built town where the capital is not built. */
+const betterSeat = (place: Place, seat: Place): boolean =>
+  (place.capital === true && seat.capital !== true) || (place.capital === seat.capital && place.pop > seat.pop);
+
+function seatOf(iso: string, gazetteer: Gazetteer): Place | null {
+  let seat: Place | null = null;
+  for (const place of gazetteer.places) {
+    if (place.iso === iso && isShown(place) && (seat === null || betterSeat(place, seat))) seat = place;
+  }
+  return seat;
+}
+
+/**
  * The best match for a name, scored as the menu's search scores it — a name
  * that starts with the query beats a word in it, which beats a substring —
  * over the built towns and the names folded into them, ties to the bigger
@@ -194,10 +411,7 @@ export function findPlace(query: string, gazetteer: Gazetteer): Found | null {
   if (folded === '') return null;
   const score = (name: string): number => {
     const candidate = fold(name);
-    if (candidate === folded) return 4;
-    if (candidate.startsWith(folded)) return 3;
-    if (candidate.split(/[\s\-']+/).some((word) => word.startsWith(folded))) return 2;
-    return folded.length > 2 && candidate.includes(folded) ? 1 : 0;
+    return scoreFolded(candidate, candidate.split(/[\s\-']+/), folded);
   };
   let best: { place: Place; score: number; via?: string } | null = null;
   const offer = (place: Place, s: number, via?: string): void => {
@@ -219,13 +433,7 @@ export function findPlace(query: string, gazetteer: Gazetteer): Found | null {
     if (s > 0 && (country === null || s > country.score)) country = { ...candidate, score: s };
   }
   if (country !== null && (town === null || country.score >= town.score)) {
-    let seat: Place | null = null;
-    for (const place of gazetteer.places) {
-      if (place.iso !== country.iso || !isShown(place)) continue;
-      if (seat === null || (place.capital === true && seat.capital !== true) || (place.capital === seat.capital && place.pop > seat.pop)) {
-        seat = place;
-      }
-    }
+    const seat = seatOf(country.iso, gazetteer);
     if (seat !== null) return { lat: seat.lat, lon: seat.lon, name: seat.name, iso: seat.iso, via: country.name };
   }
   if (town === null) return null;

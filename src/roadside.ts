@@ -6,8 +6,9 @@ import { rngFrom } from './scenery/random.ts';
 /**
  * What stands beside a road between the towns: telegraph poles with their
  * wires, white posts along the verge, a town's name before its gate, a speed
- * sign after it, rails along a high bank, and street lamps down the last
- * stretch into a town.
+ * sign after it, a board of chevrons at a hard bend, rails along a high bank,
+ * and street lamps down the last stretch into a town — none of it on another
+ * road's top where two meet, fork or share an approach (`RoadsideSite.clear`).
  *
  * **A road was a strip of tarmac on a bank and nothing else**, and from the
  * ground it read as a model's road rather than a road: no post, no pole, no
@@ -65,6 +66,14 @@ export const LAMP_SPACING = 13;
 export const LAMP_FROM = 7;
 /** A lamp's post, the arm over the carriageway and the head: the town's own street lamps are 4.8 to 5.8 tall. */
 const LAMP_HEIGHT = 5.4;
+/**
+ * How far over the highest surface under its arm a lamp's column top stands,
+ * at least: the brace's foot is 0.85 under it, which leaves 4.6 over the
+ * tarmac. A lamp on the downhill kerb of a road laid across a hill, or beside
+ * a ramp, stands taller by what the surface under its arm rises over its
+ * foot; on the flat that is `LAMP_HEIGHT`, less the foot's sink.
+ */
+const LAMP_CLEAR = 5.45;
 const LAMP_ARM = 1.7;
 /** How far under its cap a lamp's light hangs, for the per-pixel pools, as the town's lamps' `LAMP_HEAD` is. */
 export const LAMP_HEAD_DROP = 0.35;
@@ -73,6 +82,19 @@ export const LAMP_HEAD_DROP = 0.35;
 export const RAIL_DROP = 5;
 const RAIL_HEIGHT = 0.75 * M;
 const RAIL_POST_SPACING = 5;
+
+/**
+ * Where a road bends hard enough to be signed: the turn over `CHEVRON_SPAN`
+ * units, in radians — a mean radius of 70 units — and how far apart two such
+ * signs stand at least. A board of chevrons stands on the outside of the bend,
+ * pointing into it, painted on both faces for the traffic either way.
+ */
+const CHEVRON_SPAN = 40;
+const CHEVRON_TURN = CHEVRON_SPAN / 70;
+const CHEVRON_APART = 140;
+
+/** The limits a speed sign leaving a town may show, in km/h. */
+const LIMITS = [50, 60, 70, 80, 90] as const;
 
 /** How far out along the road from a town's kerb its name stands, past its pavement. */
 export const NAME_AT = 44;
@@ -98,6 +120,23 @@ export interface RoadsideSite {
   surface(s: number, lateral: number, point: THREE.Vector3, ahead: THREE.Vector3, side: THREE.Vector3): void;
   /** The ground's elevation under a point, as a radius, for how high the bank's top stands. */
   groundRadius(point: THREE.Vector3): number;
+  /**
+   * Whether a thing standing at `point` (world units, at any radius) with
+   * `footprint` of it either side is clear of every other road's top — its
+   * carriageway and its shoulder or pavement — less `OTHER_EDGE`: where two
+   * roads meet, fork or share an approach, a post or a sign of one must not
+   * stand in the other's way. Absent is a road alone.
+   */
+  clear?(point: THREE.Vector3, footprint: number): boolean;
+  /**
+   * The highest any other road's top stands under `point`, as a radius, or 0
+   * where none is: what a lamp's arm reaching over a shared approach has to
+   * clear as well as its own road. Absent is a road alone.
+   */
+  roofline?(point: THREE.Vector3): number;
+  /** The names of the towns at each end, for the lettering on their name boards. Absent is a board of a middling name. */
+  nameA?: string;
+  nameB?: string;
   /** Whether each end is a built town, whether it is big enough for lamps, and whether its approach is this road's alone. */
   townA: boolean;
   townB: boolean;
@@ -131,9 +170,23 @@ const colours = {
   head: new THREE.Color(PALETTE.cream),
   rail: new THREE.Color(PALETTE.bone),
   board: new THREE.Color(PALETTE.cream),
-  band: new THREE.Color(PALETTE.slate),
   ring: new THREE.Color(PALETTE.red),
+  /** The back of a sign: galvanised, as every sign's back is. */
+  back: new THREE.Color(PALETTE.bone).lerp(new THREE.Color(PALETTE.steel), 0.45),
+  /** Lettering and figures: the ink, lifted a little so the pen still draws round a board. */
+  letter: new THREE.Color(PALETTE.ink).lerp(new THREE.Color(PALETTE.slate), 0.35),
+  /** A name board's border: a deep slate, the colour of a road authority's paint. */
+  border: new THREE.Color(PALETTE.slate).multiplyScalar(0.62),
+  /** A lamp's head housing. */
+  housing: new THREE.Color(PALETTE.steel).multiplyScalar(0.8),
 };
+
+/**
+ * How far in from the edge of another road's top a thing of this one's may
+ * still stand, in world units: a lamp on a pavement two roads share stands on
+ * both of their tops' edges, and it belongs there.
+ */
+export const OTHER_EDGE = 0.6;
 
 const DARK = 0;
 const HEAD = 255;
@@ -160,6 +213,119 @@ function quad(
 ): void {
   vertex(out, a, n, colour, lit); vertex(out, b, n, colour, lit); vertex(out, c, n, colour, lit);
   vertex(out, a, n, colour, lit); vertex(out, c, n, colour, lit); vertex(out, d, n, colour, lit);
+}
+
+const triAB = new THREE.Vector3();
+const triAC = new THREE.Vector3();
+
+/** One triangle facing `n`, wound so it faces it whichever order its corners come in. */
+function triangle(
+  out: Roadside, a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, n: THREE.Vector3, colour: THREE.Color, lit: number,
+): void {
+  triAB.subVectors(b, a);
+  triAC.subVectors(c, a);
+  if (triAB.cross(triAC).dot(n) >= 0) {
+    vertex(out, a, n, colour, lit); vertex(out, b, n, colour, lit); vertex(out, c, n, colour, lit);
+  } else {
+    vertex(out, a, n, colour, lit); vertex(out, c, n, colour, lit); vertex(out, b, n, colour, lit);
+  }
+}
+
+const flatCorners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+
+/**
+ * A flat face in a sign's plane, as the corners `(u, v)` in the board's own
+ * units — `u` along `across`, `v` along `upward`, from `origin` — facing `n`:
+ * a panel of lettering, a chevron, a figure's stroke. Two triangles, no depth:
+ * it lies `lift` proud of the face it is painted on, which is past `PROUD`'s
+ * worth of the pen for anything the size of a sign.
+ */
+function flat(
+  out: Roadside, origin: THREE.Vector3, across: THREE.Vector3, upward: THREE.Vector3, n: THREE.Vector3,
+  corners: readonly (readonly [number, number])[], colour: THREE.Color, lit = DARK,
+): void {
+  for (let k = 0; k < 4; k++) {
+    const [u, v] = corners[k]!;
+    flatCorners[k]!.copy(origin).addScaledVector(across, u).addScaledVector(upward, v);
+  }
+  triangle(out, flatCorners[0]!, flatCorners[1]!, flatCorners[2]!, n, colour, lit);
+  triangle(out, flatCorners[0]!, flatCorners[2]!, flatCorners[3]!, n, colour, lit);
+}
+
+/** A rectangle `flat`, centred on `(u, v)` with half-sizes `hu` and `hv`. */
+function panel(
+  out: Roadside, origin: THREE.Vector3, across: THREE.Vector3, upward: THREE.Vector3, n: THREE.Vector3,
+  u: number, v: number, hu: number, hv: number, colour: THREE.Color,
+): void {
+  flat(out, origin, across, upward, n, [[u - hu, v - hv], [u + hu, v - hv], [u + hu, v + hv], [u - hu, v + hv]], colour);
+}
+
+const discA = new THREE.Vector3();
+const discB = new THREE.Vector3();
+const discFarA = new THREE.Vector3();
+const discFarB = new THREE.Vector3();
+const discFront = new THREE.Vector3();
+const discBack = new THREE.Vector3();
+const discNormal = new THREE.Vector3();
+const DISC_SIDES = 12;
+
+/**
+ * A round plate: `radius` across the plane of `across` and `upward`, `depth`
+ * behind its face along `n`, which the face looks along — the face in
+ * `colour` and, unless `back` is null, a back in `back`. A sign's plate is a
+ * few centimetres thick and the pen draws its edge, so it has no rim. Twelve
+ * sides, which the pen draws as a circle at the size a sign is seen.
+ */
+function disc(
+  out: Roadside, centre: THREE.Vector3, across: THREE.Vector3, upward: THREE.Vector3, n: THREE.Vector3,
+  radius: number, depth: number, colour: THREE.Color, back: THREE.Color | null,
+): void {
+  discFront.copy(centre).addScaledVector(n, depth * 0.5);
+  discBack.copy(centre).addScaledVector(n, -depth * 0.5);
+  discNormal.copy(n).negate();
+  for (let k = 0; k < DISC_SIDES; k++) {
+    const a0 = (k / DISC_SIDES) * Math.PI * 2;
+    const a1 = ((k + 1) / DISC_SIDES) * Math.PI * 2;
+    discA.copy(discFront).addScaledVector(across, Math.cos(a0) * radius).addScaledVector(upward, Math.sin(a0) * radius);
+    discB.copy(discFront).addScaledVector(across, Math.cos(a1) * radius).addScaledVector(upward, Math.sin(a1) * radius);
+    triangle(out, discFront, discA, discB, n, colour, DARK);
+    if (back === null) continue;
+    discFarA.copy(discA).addScaledVector(n, -depth);
+    discFarB.copy(discB).addScaledVector(n, -depth);
+    triangle(out, discBack, discFarA, discFarB, discNormal, back, DARK);
+  }
+}
+
+/**
+ * The seven strokes of a figure, as `[u, v, hu, hv]` in a cell a unit wide and
+ * two tall, centred: top, upper right, lower right, bottom, lower left, upper
+ * left, middle. A speed limit is read at a glance, and a figure of strokes
+ * reads as one at the size it is seen.
+ */
+const STROKES: readonly (readonly [number, number, number, number])[] = [
+  [0, 0.9, 0.5, 0.1], [0.4, 0.45, 0.1, 0.45], [0.4, -0.45, 0.1, 0.45],
+  [0, -0.9, 0.5, 0.1], [-0.4, -0.45, 0.1, 0.45], [-0.4, 0.45, 0.1, 0.45], [0, 0, 0.5, 0.1],
+];
+/** Which strokes each figure lights, as a bit per stroke in `STROKES`' order. */
+const FIGURES = [0b0111111, 0b0000110, 0b1011011, 0b1001111, 0b1100110, 0b1101101, 0b1111101, 0b0000111, 0b1111111, 0b1101111];
+
+/** A number in strokes, `height` tall, centred on `(u, v)` of a face. */
+function figures(
+  out: Roadside, origin: THREE.Vector3, across: THREE.Vector3, upward: THREE.Vector3, n: THREE.Vector3,
+  value: number, u: number, v: number, height: number, colour: THREE.Color,
+): void {
+  const digits = String(value);
+  const scale = height / 2;
+  const pitch = scale * 1.35;
+  const first = u - ((digits.length - 1) * pitch) / 2;
+  for (let d = 0; d < digits.length; d++) {
+    const mask = FIGURES[Number(digits[d])] ?? 0;
+    for (let k = 0; k < STROKES.length; k++) {
+      if ((mask & (1 << k)) === 0) continue;
+      const [su, sv, hu, hv] = STROKES[k]!;
+      panel(out, origin, across, upward, n, first + d * pitch + su * scale, v + sv * scale, hu * scale, hv * scale, colour);
+    }
+  }
 }
 
 const boxAxes: THREE.Vector3[] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
@@ -234,6 +400,21 @@ function bendAt(site: RoadsideSite, s: number): number {
   return bendBehind.angleTo(bendAhead);
 }
 
+const turnUp = new THREE.Vector3();
+
+/**
+ * How far the road turns over `CHEVRON_SPAN` centred on `s`, in radians, and
+ * which way: positive is a bend to the left of the way from A to B.
+ */
+function turnAt(site: RoadsideSite, s: number): number {
+  const half = CHEVRON_SPAN * 0.5;
+  site.surface(Math.max(0, s - half), 0, bendPoint, bendBehind, bendSide);
+  site.surface(Math.min(site.length, s + half), 0, bendPoint, bendAhead, bendSide);
+  turnUp.copy(bendPoint).normalize();
+  const angle = bendBehind.angleTo(bendAhead);
+  return bendSide.crossVectors(bendBehind, bendAhead).dot(turnUp) >= 0 ? angle : -angle;
+}
+
 const prismAlong = new THREE.Vector3();
 const prismU = new THREE.Vector3();
 const prismV = new THREE.Vector3();
@@ -293,6 +474,138 @@ function stand(site: RoadsideSite, s: number, lateral: number, facing: number, s
   at.addScaledVector(up, -sink);
 }
 
+const faceOrigin = new THREE.Vector3();
+const lampProbe = new THREE.Vector3();
+const facing = new THREE.Vector3();
+const across = new THREE.Vector3();
+const armFrom = new THREE.Vector3();
+const armTo = new THREE.Vector3();
+
+/**
+ * A street lamp down a town's approach, at `at` on the frame `stand` left:
+ * a plinth, a column that narrows once, an arm out over the carriageway on a
+ * brace, and a head — a housing with its lit glass underneath, the one part
+ * that burns (`atlasLit`). `sign` is the side of the road it stands on, so the
+ * arm reaches towards `-sign`; `height` is its column's, `LAMP_HEIGHT` or more.
+ */
+function lamp(out: Roadside, sign: number, height: number): void {
+  const reach = -sign;
+  centre.copy(at).addScaledVector(up, 0.25);
+  box(out, centre, right, up, forward, 0.2, 0.25, 0.2, colours.cap);
+  centre.copy(at).addScaledVector(up, height * 0.5);
+  box(out, centre, right, up, forward, 0.1, height * 0.5, 0.1, colours.lamp);
+  // The arm, level from the column's top, and a brace under it.
+  armFrom.copy(at).addScaledVector(up, height - 0.08);
+  armTo.copy(armFrom).addScaledVector(right, reach * LAMP_ARM);
+  bar(out, armFrom, armTo, up, 0.12, colours.lamp);
+  armFrom.copy(at).addScaledVector(up, height - 0.85);
+  armTo.copy(at).addScaledVector(up, height - 0.12).addScaledVector(right, reach * LAMP_ARM * 0.5);
+  bar(out, armFrom, armTo, up, 0.08, colours.lamp);
+  // The head: a housing along the arm's line, and its glass as a pane
+  // under it, the only face that burns.
+  centre.copy(at).addScaledVector(up, height - 0.05).addScaledVector(right, reach * (LAMP_ARM - 0.05));
+  box(out, centre, right, up, forward, 0.5, 0.12, 0.22, colours.housing, DARK, true);
+  centre.addScaledVector(up, -0.15);
+  facing.copy(up).negate();
+  flat(out, centre, right, forward, facing, [[-0.42, -0.17], [0.42, -0.17], [0.42, 0.17], [-0.42, 0.17]], colours.head, HEAD);
+  centre.addScaledVector(up, -LAMP_HEAD_DROP);
+  out.heads.push(centre.x, centre.y, centre.z);
+}
+
+/**
+ * A town's name board: two posts, a board in a slate border, and the name
+ * as lettering — a block a letter, as many as the name has up to fourteen,
+ * a capital to start each word — on the face towards the traffic, the back
+ * the galvanised grey of a sign's back. Wider for a longer name.
+ */
+function nameBoard(out: Roadside, name: string, seed: string): void {
+  const words = name.trim().length > 0 ? name.trim().split(/[\s-]+/).slice(0, 2) : ['Town'];
+  const letters = Math.min(14, words.reduce((sum, word) => sum + word.length, 0) + words.length - 1);
+  const letter = 0.15;
+  const halfWidth = Math.max(0.8, Math.min(1.15, letters * letter * 0.5 + 0.22));
+  const halfHeight = 0.5;
+  const rise = 2.2;
+  for (const offset of [-halfWidth * 0.72, halfWidth * 0.72]) {
+    centre.copy(at).addScaledVector(up, rise * 0.5 + 0.1).addScaledVector(right, offset);
+    box(out, centre, right, up, forward, 0.05, rise * 0.5 + 0.1, 0.05, colours.lamp);
+  }
+  centre.copy(at).addScaledVector(up, rise).addScaledVector(forward, 0.08);
+  box(out, centre, right, up, forward, halfWidth, halfHeight, 0.03, colours.back, DARK, true);
+  // The face, proud of the back by its border's depth.
+  faceOrigin.copy(centre).addScaledVector(forward, 0.04);
+  panel(out, faceOrigin, right, up, forward, 0, 0, halfWidth, halfHeight, colours.border);
+  faceOrigin.addScaledVector(forward, 0.012);
+  panel(out, faceOrigin, right, up, forward, 0, 0, halfWidth - 0.08, halfHeight - 0.08, colours.board);
+  faceOrigin.addScaledVector(forward, 0.012);
+  const rng = rngFrom('roadside-name', seed);
+  let u = -((letters - 1) * letter) / 2;
+  let k = 0;
+  for (const word of words) {
+    for (let i = 0; i < word.length && k < letters; i++, k++) {
+      const capital = i === 0;
+      const tall = capital ? 0.2 : rng.chance(0.25) ? 0.17 : 0.12;
+      const wide = capital ? 0.058 : rng.range(0.035, 0.055);
+      panel(out, faceOrigin, right, up, forward, u, -0.05 + tall * 0.5 - 0.06, wide, tall * 0.5, colours.letter);
+      u += letter;
+    }
+    // The space between two words.
+    k++;
+    u += letter;
+  }
+}
+
+/**
+ * A speed limit, for the traffic leaving a town: a post, a round plate with
+ * a red ring and a white field, and the limit on it in figures.
+ */
+function speedSign(out: Roadside, limit: number): void {
+  const rise = 2.25;
+  centre.copy(at).addScaledVector(up, rise * 0.5);
+  box(out, centre, right, up, forward, 0.05, rise * 0.5, 0.05, colours.lamp);
+  centre.copy(at).addScaledVector(up, rise).addScaledVector(forward, 0.08);
+  disc(out, centre, right, up, forward, 0.5, 0.05, colours.ring, colours.back);
+  faceOrigin.copy(centre).addScaledVector(forward, 0.037);
+  disc(out, faceOrigin, right, up, forward, 0.37, 0, colours.post, null);
+  faceOrigin.addScaledVector(forward, 0.012);
+  figures(out, faceOrigin, right, up, forward, limit, 0, 0, 0.36, colours.letter);
+}
+
+const chevronFaces = [1, -1] as const;
+
+/**
+ * A board of two chevrons on the outside of a bend, pointing `into` it (the
+ * side, as `right` counts it, the bend turns towards), painted on both faces:
+ * the traffic either way sees it in front of them at the bend's sharpest.
+ */
+function chevrons(out: Roadside, into: number): void {
+  const rise = 1.4;
+  centre.copy(at).addScaledVector(up, rise * 0.5);
+  box(out, centre, right, up, forward, 0.05, rise * 0.5, 0.05, colours.lamp);
+  centre.copy(at).addScaledVector(up, rise);
+  box(out, centre, right, up, forward, 0.55, 0.32, 0.03, colours.ring, DARK, true);
+  for (const face of chevronFaces) {
+    facing.copy(forward).multiplyScalar(face);
+    across.copy(right);
+    faceOrigin.copy(centre).addScaledVector(facing, 0.042);
+    panel(out, faceOrigin, across, up, facing, 0, 0, 0.47, 0.24, colours.post);
+    faceOrigin.addScaledVector(facing, 0.012);
+    // Each chevron is 0.38 wide and leans towards its point: two of them
+    // side by side, centred on the board.
+    for (const u of [-0.2 - into * 0.06, 0.2 - into * 0.06]) {
+      // A chevron is two strokes meeting at its point, which is towards `into`.
+      const tip = u + into * 0.13;
+      const tail = u - into * 0.13;
+      flat(out, faceOrigin, across, up, facing, [[tail, 0.2], [tail + into * 0.12, 0.2], [tip + into * 0.12, 0], [tip, 0]], colours.ring);
+      flat(out, faceOrigin, across, up, facing, [[tip, 0], [tip + into * 0.12, 0], [tail + into * 0.12, -0.2], [tail, -0.2]], colours.ring);
+    }
+  }
+}
+
+/** Whether what `stand` just stood is clear of the other roads' tops: see `RoadsideSite.clear`. */
+function clearAt(site: RoadsideSite, footprint: number): boolean {
+  return site.clear === undefined || site.clear(at, footprint);
+}
+
 /**
  * Everything beside one road, laid from end to end. Deterministic in the site:
  * the same road lays the same roadside on every load.
@@ -321,6 +634,10 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
         continue;
       }
       stand(site, s, sign * POLE_LATERAL, 1, 0.4);
+      if (!clearAt(site, POLE_WIDTH)) {
+        last = NaN;
+        continue;
+      }
       centre.copy(at).addScaledVector(up, POLE_HEIGHT * 0.5);
       box(out, centre, right, up, forward, POLE_WIDTH * 0.5, POLE_HEIGHT * 0.5, POLE_WIDTH * 0.5, colours.pole);
       // The arm across the road's line, at the top, and a wire from each end.
@@ -353,6 +670,7 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
       const sign = k % 2 === 0 ? 1 : -1;
       const lateral = sign * (site.top(s) - 0.2);
       stand(site, s, lateral, sign > 0 ? -1 : 1, 0.1);
+      if (!clearAt(site, POST_WIDTH)) continue;
       centre.copy(at).addScaledVector(up, POST_HEIGHT * 0.4);
       box(out, centre, right, up, forward, POST_WIDTH * 0.5, POST_HEIGHT * 0.4, POST_WIDTH * 0.5, colours.post);
       centre.copy(at).addScaledVector(up, POST_HEIGHT * 0.9);
@@ -386,6 +704,10 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
     for (let s = 2; s < length - 2; s += RAIL_POST_SPACING) {
       const top = site.top(s);
       stand(site, s, sign * (top - 0.3), 1, 0);
+      if (!clearAt(site, 0.3)) {
+        flush();
+        continue;
+      }
       const post = at.clone();
       site.surface(s, sign * (top + 4.8), scratchB, ahead, side);
       if (post.length() - site.groundRadius(scratchB) < RAIL_DROP) {
@@ -415,16 +737,22 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
         const s = along(d);
         const top = site.top(s);
         stand(site, s, sign * (top - 0.35), 1, 0.05);
-        // The arm reaches back over the road: `right` is the left of A to B, so
-        // towards the centre line is `-sign`.
-        centre.copy(at).addScaledVector(up, LAMP_HEIGHT * 0.5);
-        box(out, centre, right, up, forward, 0.1, LAMP_HEIGHT * 0.5, 0.1, colours.lamp);
-        centre.copy(at).addScaledVector(up, LAMP_HEIGHT - 0.08).addScaledVector(right, -sign * LAMP_ARM * 0.5);
-        box(out, centre, right, up, forward, LAMP_ARM * 0.5, 0.07, 0.07, colours.lamp);
-        centre.copy(at).addScaledVector(up, LAMP_HEIGHT - 0.2).addScaledVector(right, -sign * LAMP_ARM * 0.95);
-        box(out, centre, right, up, forward, 0.42, 0.12, 0.2, colours.head, HEAD, true);
-        centre.addScaledVector(up, -LAMP_HEAD_DROP);
-        out.heads.push(centre.x, centre.y, centre.z);
+        if (!clearAt(site, 0.25)) continue;
+        // As tall as it has to be to clear every surface under its arm and
+        // head: its own road's, across the width it reaches and the housing's
+        // depth along, and any other road's there.
+        const foot = at.length();
+        const footLateral = sign * (top - 0.35);
+        let highest = foot;
+        for (const ds of [-0.3, 0, 0.3]) {
+          for (let k = 0; k <= 4; k++) {
+            const lateral = footLateral - sign * (LAMP_ARM + 0.5) * (k / 4);
+            site.surface(Math.min(length, Math.max(0, s + ds)), lateral, lampProbe, ahead, side);
+            highest = Math.max(highest, lampProbe.length(), site.roofline?.(lampProbe) ?? 0);
+          }
+        }
+        stand(site, s, footLateral, 1, 0.05);
+        lamp(out, sign, Math.max(LAMP_HEIGHT, highest - foot + LAMP_CLEAR));
       }
     }
     // The town's name, facing the traffic arriving, on its side.
@@ -433,14 +761,7 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
       const sign = site.keep * -toward;
       const lateral = sign * Math.min(site.top(s) + 0.9, SIGN_REACH - 1.15);
       stand(site, s, lateral, -toward, 0.2);
-      for (const offset of [-0.85, 0.85]) {
-        centre.copy(at).addScaledVector(up, 1.3).addScaledVector(right, offset);
-        box(out, centre, right, up, forward, 0.06, 1.3, 0.06, colours.lamp);
-      }
-      centre.copy(at).addScaledVector(up, 2.2);
-      box(out, centre, right, up, forward, 1.15, 0.55, 0.05, colours.board);
-      centre.addScaledVector(up, -0.2).addScaledVector(forward, 0.07);
-      box(out, centre, right, up, forward, 0.95, 0.07, 0.03, colours.band);
+      if (clearAt(site, 1.2)) nameBoard(out, (end === 0 ? site.nameA : site.nameB) ?? '', `${seed}|${end}`);
     }
     // A speed sign for the traffic leaving, on its side.
     if (SPEED_AT <= length - other) {
@@ -448,12 +769,25 @@ export function layRoadside(site: RoadsideSite, out: Roadside = { position: [], 
       const sign = site.keep * toward;
       const lateral = sign * Math.min(site.top(s) + 0.7, SIGN_REACH - 0.5);
       stand(site, s, lateral, toward, 0.2);
-      centre.copy(at).addScaledVector(up, 1.1);
-      box(out, centre, right, up, forward, 0.05, 1.1, 0.05, colours.lamp);
-      centre.copy(at).addScaledVector(up, 2.25);
-      box(out, centre, right, up, forward, 0.5, 0.5, 0.04, colours.ring);
-      centre.addScaledVector(forward, 0.05);
-      box(out, centre, right, up, forward, 0.36, 0.36, 0.02, colours.post);
+      if (clearAt(site, 0.55)) speedSign(out, rngFrom('roadside-limit', seed, end).pick(LIMITS));
+    }
+  }
+
+  // --- a board of chevrons on the outside of every hard bend ---
+  if (rural) {
+    let lastSign = -Infinity;
+    for (let s = country0 + CHEVRON_SPAN; s < country1 - CHEVRON_SPAN; s += 8) {
+      if (s - lastSign < CHEVRON_APART) continue;
+      const turn = turnAt(site, s);
+      if (Math.abs(turn) < CHEVRON_TURN) continue;
+      // Past the sharpest point of this bend? Stand at the sharpest.
+      if (Math.abs(turnAt(site, s + 8)) > Math.abs(turn)) continue;
+      // The outside of a bend to the left of the way from A to B is its right.
+      const outside = turn > 0 ? -1 : 1;
+      stand(site, s, outside * Math.min(site.top(s) + 0.8, SIGN_REACH - 0.6), 1, 0.2);
+      if (!clearAt(site, 0.6)) continue;
+      chevrons(out, -outside);
+      lastSign = s;
     }
   }
   return out;

@@ -33,7 +33,10 @@
  *   `{ t: 'chat', m, c }` a line for everyone, and the country it was sent
  *     from; cleaned by `cleanChat` and paced by `spendChat` in `limits.ts`,
  *     the same two the game sends by;
- *   `{ t: 'emote', e }` a gesture (`EMOTES`), at most one a second.
+ *   `{ t: 'emote', e }` a gesture (`EMOTES`), at most one a second;
+ *   `{ t: 'honk', k }` a horn (`HONKS`), from a driver's seat, at most one
+ *     each `HONK_INTERVAL_MS`. An older relay drops it, as it drops anything
+ *     it does not know.
  * - server -> client:
  *   `{ t: 'hi', id, peers: [[id, name, ...state]], vehicles: [[v, pose | null, seats]], looks, chat }`
  *     once, on joining; `vehicles` is every vehicle moved off its site or
@@ -54,7 +57,8 @@
  *   `{ t: 'chat', id, name, c, m, at }` a line, to everyone and its sender
  *     too, stamped with who sent it under the name the room knows them by and
  *     when; the sender's copy is how it knows the line went;
- *   `{ t: 'emote', id, e }` a gesture, to everyone but its maker.
+ *   `{ t: 'emote', id, e }` a gesture, to everyone but its maker;
+ *   `{ t: 'honk', id, k }` a horn, to everyone but its driver.
  *
  * The chat is one room for the planet, like everything else here, and it is
  * kept in memory only: a room that sleeps with nobody in it wakes with no
@@ -84,12 +88,14 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   CHAT_HISTORY,
   EMOTE_INTERVAL_MS,
+  HONK_INTERVAL_MS,
   MAX_RADIUS,
   MAX_SPEED,
   MIN_RADIUS,
   cleanChat,
   cleanCountry,
   cleanEmote,
+  cleanHonk,
   cleanLook,
   driveReach,
   freshBucket,
@@ -166,7 +172,7 @@ interface Attachment {
   /** The last pose it sent as a driver, so a wake knows where the vehicle is. */
   drive: { v: string; p: Pose; at: number } | null;
   /** When each kind of message was last accepted; kept here so a hibernation forgives nothing. */
-  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number };
+  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number; honk: number };
   /** What this socket may still say in the chat (`spendChat`). */
   chat: ChatBucket;
 }
@@ -271,7 +277,7 @@ function attachmentOf(socket: WebSocket): Attachment | null {
     state: raw.state ?? null,
     seat: raw.seat ?? null,
     drive: raw.drive ?? null,
-    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, ...raw.rate },
+    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0, ...raw.rate },
     chat: raw.chat ?? freshBucket(),
   };
 }
@@ -346,7 +352,7 @@ export class Room extends DurableObject<Env> {
     const key = query.get('key') ?? '';
     server.serializeAttachment({
       id, name, look, key: KEY.test(key) ? key : '', state: null, seat: null, drive: null,
-      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0 },
+      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0 },
       chat: freshBucket(),
     } satisfies Attachment);
 
@@ -388,13 +394,14 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (typeof value !== 'object' || value === null) return;
-    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown };
+    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown };
     if (typed.t === 'vp') this.drive(socket, self, typed, now);
     else if (typed.t === 'sit') this.sit(socket, self, typed, now);
     else if (typed.t === 'up') this.up(socket, self, typed, now);
     else if (typed.t === 'look') this.restyle(socket, self, typed.l, now);
     else if (typed.t === 'chat') this.say(socket, self, typed.m, typed.c, now);
     else if (typed.t === 'emote') this.gesture(socket, self, typed.e, now);
+    else if (typed.t === 'honk') this.honk(socket, self, typed.k, now);
   }
 
   override async webSocketClose(socket: WebSocket, code: number): Promise<void> {
@@ -466,6 +473,16 @@ export class Room extends DurableObject<Env> {
     self.rate.emote = now;
     socket.serializeAttachment(self);
     this.broadcast(JSON.stringify({ t: 'emote', id: self.id, e }), socket);
+  }
+
+  /** A horn, from the driver's seat only: passed on, never kept. */
+  private honk(socket: WebSocket, self: Attachment, raw: unknown, now: number): void {
+    if (now - self.rate.honk < HONK_INTERVAL_MS || self.seat === null || self.seat[1] !== 0) return;
+    const k = cleanHonk(raw);
+    if (k === '') return;
+    self.rate.honk = now;
+    socket.serializeAttachment(self);
+    this.broadcast(JSON.stringify({ t: 'honk', id: self.id, k }), socket);
   }
 
   private leave(socket: WebSocket): void {

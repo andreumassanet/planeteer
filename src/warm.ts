@@ -26,9 +26,9 @@ import type { OutlineEffect } from './outline.ts';
  *
  * What is not covered, and why: the shadow pass's depth programs, which three
  * builds inside `WebGLShadowMap` during a render and exposes no way to compile
- * (they are a handful of tiny programs); and the land's flagged program, which
- * `globe.ts` switches to on the first climb — its switch is a closure there,
- * and compiling it early needs a hook on that side.
+ * (they are a handful of tiny programs). The land's flagged program, which
+ * `globe.ts` switches to on the first climb, is handed over by `main.ts` as
+ * `landFlagProxy`.
  */
 export interface Warmable {
   /** One mesh for each program this module draws with; see `proxyOf`. */

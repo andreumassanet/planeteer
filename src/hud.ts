@@ -13,7 +13,7 @@
  * Around them, the pieces that used to be loose markup in `index.html` and are
  * now built here, so the HUD is one element and one stylesheet:
  *
- * - **The bar, top left**: the gear and the map, each with the key it answers
+ * - **The bar, top left**: the gear, the map and the passport, each with the key it answers
  *   to on its corner, and **the place badge** beside them — the flag and the
  *   one name that says where you are, with the country and the distance under
  *   it for a few seconds after either changes, and the clock, small, at its
@@ -71,7 +71,7 @@ export interface HudOptions {
   onMap?(): void;
   /** "Copy link to here", on the pause card. */
   onShare?(): void;
-  /** The passport, on the pause card (`passport-card.ts`). */
+  /** The passport, on the bar and on the pause card (`passport-card.ts`). */
   onPassport?(): void;
   /** A new country's card has just come in: the arrival, once per country. */
   onArrival?(countryId: number): void;
@@ -267,6 +267,7 @@ const MODE_ICON: Record<TravelMode, IconName> = {
   jetski: 'jetski',
   sailboat: 'boat',
   helicopter: 'heli',
+  submarine: 'sub',
   passenger: 'seat',
 };
 
@@ -908,12 +909,16 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
 
   const settingsCap = kbd('');
   const mapCap = kbd('');
+  const passportCap = kbd('');
   settingsCap.classList.add('atlas-hud-cap');
   mapCap.classList.add('atlas-hud-cap');
+  passportCap.classList.add('atlas-hud-cap');
   const settingsButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('gear'), settingsCap);
   const mapButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('map'), mapCap);
+  const passportButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('passport'), passportCap);
   settingsButton.addEventListener('click', () => options.onSettings?.());
   mapButton.addEventListener('click', () => options.onMap?.());
+  passportButton.addEventListener('click', () => options.onPassport?.());
 
   /* --- the place badge --------------------------------------------------- */
 
@@ -939,7 +944,14 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     h('span', { class: 'atlas-place-text' }, placeName, placeSub),
     clock,
   );
-  const bar = h('div', { class: 'atlas-hud-bar' }, settingsButton, mapButton, place);
+  const bar = h(
+    'div',
+    { class: 'atlas-hud-bar' },
+    settingsButton,
+    mapButton,
+    options.onPassport === undefined ? null : passportButton,
+    place,
+  );
 
   /* --- the two arrival cards ------------------------------------------- */
 
@@ -1363,10 +1375,15 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     mapButton.title = `World map (${mapKey})`;
     mapButton.setAttribute('aria-label', 'World map');
     mapButton.setAttribute('aria-keyshortcuts', mapKey);
+    const passportKey = labelOf('passport');
+    passportCap.textContent = passportKey;
+    passportButton.title = `Passport (${passportKey})`;
+    passportButton.setAttribute('aria-label', 'Passport');
+    passportButton.setAttribute('aria-keyshortcuts', passportKey);
     destinationHint.textContent = `${labelOf('next')} · next`;
     pauseSettings.replaceChildren(icon('gear', 18), 'Settings', kbd(settingsKey));
     pauseMap.replaceChildren(icon('map', 18), 'Map', kbd(mapKey));
-    pausePassport.replaceChildren(icon('flag', 18), 'Passport', kbd(labelOf('passport')));
+    pausePassport.replaceChildren(icon('passport', 18), 'Passport', kbd(passportKey));
     if (promptShown !== null) promptKey.replaceChildren(kbd(labelOf('use')));
     renderPause();
     renderHints();

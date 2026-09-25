@@ -6,7 +6,7 @@
  * Quaternius vehicles at a person's size (`cars.ts`); the scooter and the
  * tuk-tuk are the traffic's own code-built parts, likewise (`traffic-craft.ts`);
  * the bicycle, the motorbike, the launch, the jet ski, the sailboat, the
- * plane, the helicopter and the balloon are built in code round the hero's own
+ * submarine, the plane, the helicopter and the balloon are built in code round the hero's own
  * seated, standing and astride body (`body.ts`), because no CC0 pack has one
  * with room in it for him; and the horse is the herds' own rig, saddled
  * (`horse.ts`).
@@ -34,12 +34,13 @@ import { lightPlaneModel } from './light-plane.ts';
 import { helicopterModel } from './helicopter.ts';
 import { balloonModel } from './balloon.ts';
 import { horseMaterial, horseModel } from './horse.ts';
+import { submarineModel } from './submarine.ts';
 
 /** The ids the fleet places, which must always exist. */
 export const CRAFT_IDS = [
   'hatchback', 'van', 'launch', 'light-plane', 'balloon',
   'bicycle', 'scooter', 'motorbike', 'tuk-tuk', 'bus', 'tractor', 'jeep', 'pickup',
-  'jet-ski', 'sailboat', 'helicopter', 'horse',
+  'jet-ski', 'sailboat', 'helicopter', 'horse', 'submarine',
 ] as const;
 
 /** Every craft, from the traffic kit's baked models and, if it came, the horse's rig. */
@@ -57,6 +58,7 @@ export function craftFrom(kit: Iterable<Model>, horse: Rig | null = null): Reado
     lightPlaneModel(),
     helicopterModel(),
     balloonModel(),
+    submarineModel(),
   ];
   const ridden = horseModel(horse);
   if (ridden !== null) list.push(ridden);

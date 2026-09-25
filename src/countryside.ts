@@ -21,6 +21,9 @@ import { FIELD_CLEARANCE, MONUMENT_CLEARANCE, WIDEST_FOOTPRINT, cellAt, cellBoun
 import type { CellBounds } from './tile-grid.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, ROTOR_RADIUS } from './countryside-kit.ts';
 import { WATERLINE } from './vehicles.ts';
+import { BENCH_SIT_AHEAD } from './bench.ts';
+import { PIECE_BURY } from './countryside-tile.ts';
+import type { Bench } from './bench.ts';
 
 /**
  * What the country between the towns holds besides trees: farmsteads with
@@ -190,6 +193,12 @@ export interface Countryside {
    * off a road.
    */
   occupied(direction: THREE.Vector3, radius: number): boolean;
+  /**
+   * The benches planned within `radius` units of a point — by a road, by a
+   * lighthouse — as somewhere to sit (`bench.ts`), appended to `out`. The
+   * spot's radius is the sea's: whoever sits there stands it on the ground.
+   */
+  benchesNear(direction: THREE.Vector3, radius: number, out: Bench[]): void;
   /** Forget every plan: the prominence knob moved, and which towns stand with it. */
   reset(): void;
   /**
@@ -1299,6 +1308,25 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
 
   const occupiedSeen: number[] = [];
   const occupiedPoint = new THREE.Vector3();
+  /** A bench piece as somewhere to sit, made once a piece: the plans are cached, and so is this. */
+  const benchOf = new WeakMap<CountryPiece, Bench>();
+  const benchNorth = new THREE.Vector3();
+  const benchAcross = new THREE.Vector3();
+  function sittable(piece: CountryPiece, key: string): Bench {
+    let bench = benchOf.get(piece);
+    if (bench !== undefined) return bench;
+    // The frame `countryside-tile.ts` stands a piece in: north, across (up x
+    // north), up, spun by its yaw, which turns its +Z to this.
+    benchNorth.set(0, 1, 0).projectOnPlane(piece.at);
+    if (benchNorth.lengthSq() < 1e-8) benchNorth.set(1, 0, 0).projectOnPlane(piece.at);
+    benchNorth.normalize();
+    benchAcross.crossVectors(piece.at, benchNorth).normalize();
+    const facing = benchAcross.multiplyScalar(Math.sin(piece.yaw)).addScaledVector(benchNorth, Math.cos(piece.yaw)).clone();
+    const position = piece.at.clone().multiplyScalar(PLANET_RADIUS).addScaledVector(facing, BENCH_SIT_AHEAD * piece.scale);
+    bench = { position, facing, sink: PIECE_BURY, key };
+    benchOf.set(piece, bench);
+    return bench;
+  }
 
   return {
     stats,
@@ -1347,6 +1375,28 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
         }
       }
       return false;
+    },
+    benchesNear(direction, radius, out) {
+      const lat = latOf(direction.y);
+      const lon = lonOf(direction.x, direction.z);
+      const dLat = radius / UNITS_PER_DEGREE;
+      const dLon = dLat / Math.max(Math.cos(lat * DEG), 0.05);
+      const seen = occupiedSeen;
+      seen.length = 0;
+      for (let a = -1; a <= 1; a++) {
+        for (let b = -1; b <= 1; b++) {
+          const { row, column } = cellAt(lat + a * dLat, lon + b * dLon, 0);
+          const key = row * 100_000 + column;
+          if (seen.includes(key)) continue;
+          seen.push(key);
+          const found = plan(row, column);
+          found.pieces.forEach((piece, index) => {
+            if (piece.scenic || piece.part !== 'bench') return;
+            if (piece.at.distanceTo(direction) * PLANET_RADIUS > radius + BENCH_SIT_AHEAD) return;
+            out.push(sittable(piece, `bench:${found.key}:${index}`));
+          });
+        }
+      }
     },
     reset() {
       plans.clear();

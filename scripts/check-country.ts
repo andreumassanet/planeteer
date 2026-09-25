@@ -51,6 +51,8 @@ import { createSceneryContext, measure } from '../src/scenery/contract.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, PIECE_TRIANGLES, buildRotor, pieceRng } from '../src/countryside-kit.ts';
 import type { RotorKind } from '../src/countryside-kit.ts';
 import { createCountryside, FEATURE_KINDS } from '../src/countryside.ts';
+import { BENCH_REACH, BENCH_SEAT, BENCH_SIT_AHEAD } from '../src/bench.ts';
+import type { Bench } from '../src/bench.ts';
 import type { CountryPlan, FeatureKind } from '../src/countryside.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -308,6 +310,56 @@ console.log('\nwhat a herd keeps off:');
     if (!planner.occupied(at, 5)) free++;
   }
   check(free > 25, 'and ground well away from what is planned is mostly free for them', `${free} of 50 probes a kilometre off a piece free`);
+}
+
+// --- the benches, which a body sits on -----------------------------------------------
+
+console.log('\nwhere a body sits:');
+{
+  // The seat is the sitting clip's: the plank's top at `BENCH_SEAT`, whatever the variant.
+  const benchCtx = createSceneryContext();
+  let seatOff = 0;
+  for (const style of REGION_IDS.map((id) => REGIONS[id])) {
+    for (let variant = 0; variant < COUNTRY_VARIANTS; variant++) {
+      const group = COUNTRY_PARTS.bench!.build(benchCtx, pieceRng('bench', style.id, variant), style);
+      let top = -Infinity;
+      group.traverse((object) => {
+        const mesh = object as Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.computeBoundingBox();
+        const box = mesh.geometry.boundingBox!;
+        // The plank is the one piece wider than a frame and no taller than a hand.
+        if (box.max.x - box.min.x > 1 && box.max.y - box.min.y < 0.2) top = Math.max(top, mesh.position.y + box.max.y);
+      });
+      seatOff = Math.max(seatOff, Math.abs(top - BENCH_SEAT));
+    }
+  }
+  check(seatOff < 0.01, `every countryside bench's seat is the sitting clip's, ${BENCH_SEAT.toFixed(2)} units up`, `off by ${seatOff.toFixed(3)}`);
+
+  // Every bench planned is found from beside it, a spot in front of it, facing the way it does.
+  let benches = 0;
+  let unfound = 0;
+  let astray = 0;
+  const found: Bench[] = [];
+  for (const plan of allPlans) {
+    for (const piece of plan.pieces) {
+      if (piece.scenic || piece.part !== 'bench') continue;
+      benches++;
+      found.length = 0;
+      planner.benchesNear(piece.at, BENCH_REACH, found);
+      const mine = found.find((bench) => units(bench.position.clone().normalize(), piece.at) < BENCH_SIT_AHEAD + 0.01);
+      if (mine === undefined) {
+        unfound++;
+        continue;
+      }
+      const ahead = units(mine.position.clone().normalize(), piece.at);
+      const tangent = Math.abs(mine.facing.dot(piece.at));
+      if (Math.abs(ahead - BENCH_SIT_AHEAD) > 0.01 || tangent > 1e-3 || Math.abs(mine.facing.length() - 1) > 1e-6) astray++;
+    }
+  }
+  check(benches > 0, 'the countryside plans benches to sit on', `${benches}`);
+  check(unfound === 0, 'every bench planned is found by `benchesNear` from beside it', `${unfound} of ${benches}`);
+  check(astray === 0, "and its sitter's spot is in front of it, along the ground, facing its way", `${astray} of ${benches}`);
 }
 
 // --- determinism ------------------------------------------------------------------------

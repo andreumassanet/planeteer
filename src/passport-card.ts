@@ -1,21 +1,33 @@
 /**
- * The passport, as a book: the holder's page with what the traveller has
- * done — countries, continents, landmarks, towns — and then the stamps, six a
- * page, two pages a spread, turned with the arrows or the keys.
+ * The passport, as a little book you hold: a closed cover first, then
+ * spreads of two pages that turn — the holder's page with a portrait, what
+ * the traveller has done, the landmarks found, a visa page for every
+ * continent, and the stamps, pressed on at whatever angle the hand left them.
  *
  * It is the settings card's kind of object: a modal over the world, holding
  * the keyboard (`registerModal`) and the mouse while it is up, and owning
- * nothing — the book is `passport.ts`'s and the landmarks are the
- * placements'. `J` opens and closes it (`controls.ts`), as does its button on
+ * nothing — the book is `passport.ts`'s, the landmarks are the placements'
+ * and the portrait is the traveller's own look (`appearance.ts`). `J` opens
+ * and closes it (`controls.ts`), as do its button on the HUD's bar and on
  * the pause card.
+ *
+ * **A book, not a panel.** It opens closed, on a cloth cover with its title
+ * pressed in gold; the arrows, a click on either half or the buttons under it
+ * turn a leaf, which swings over the spine in 3D with the next page on its
+ * back (`turn`), and `Home` and `End` go to the cover and the newest stamps.
+ * The pages are paper — a warm ground, a grain and a guilloche of the kind a
+ * real passport is printed with, all CSS and inline SVG — and the book is
+ * designed at one size (`BOOK_W` by `BOOK_H`) and scaled to the window, so a
+ * page never reflows. With less motion asked for, a leaf turns at once.
  *
  * **A stamp is drawn, not painted**: an SVG in one ink, the country's own
  * colour off its flag (`flagColor`, the one the map layer fills it with),
  * with a thin band of the flag's colours as the one thing in a second ink.
  * Its shape — round, a box or an oval — and its tilt come from a hash of the
- * country's code, so Spain's stamp is Spain's in every book; what it says is
- * the country, the in-game day of the first visit, the town you came in by
- * and a mark for how you came.
+ * country's code, so Spain's stamp is Spain's in every book; where it lands
+ * on its page and how hard it was pressed come from the same hash and its
+ * place in the book. What it says is the country, the in-game day of the
+ * first visit, the town you came in by and a mark for how you came.
  *
  * **And a new one lands**: `celebrate` drops the stamp onto the screen, big
  * and turning, with a thump when it hits (`onThud`, which the caller makes a
@@ -23,6 +35,9 @@
  */
 import { flagColor, flagPalette } from './country-colors.ts';
 import { actionOf, holdFocus, inputBlocked, registerModal } from './controls.ts';
+import { CLOTH, HAIR, SKINS, encodeAppearance } from './appearance.ts';
+import type { Appearance } from './appearance.ts';
+import { createFlagCanvas } from './flags.ts';
 import { PALETTE } from './theme.ts';
 import { ensureStyle, h, hex, icon, installUi } from './ui.ts';
 import type { IconName } from './ui.ts';
@@ -35,10 +50,14 @@ export interface PassportCardOptions {
   countries: readonly { iso: string; name: string; continent: string }[];
   /** The landmarks found, and how many there are. */
   landmarks(): { found: readonly { name: string; iso: string }[]; total: number };
+  /** Who holds the book: the name the others see, and the look they see it on. */
+  holder?(): { name: string; appearance: Appearance };
   /** Where to hand the pointer back to, if it was locked when the card opened. */
   lockTarget?: HTMLElement | null;
   onOpen?(): void;
   onClose?(): void;
+  /** A leaf has been turned, or the cover opened or closed. */
+  onTurn?(): void;
   /** A new stamp has just hit the page. */
   onThud?(): void;
 }
@@ -54,13 +73,31 @@ export interface PassportCard {
   celebrate(stamp: Stamp): void;
 }
 
-/** Stamps a page, and the page a spread shows first on its left. */
+/** Stamps a page. */
 const PER_PAGE = 6;
 /** Natural Earth's continent for the open ocean's islands, which is not one anybody counts. */
 const OPEN_OCEAN = 'Seven seas (open ocean)';
+/** The continents in the order the visa pages take them, and the ink each is printed in. */
+const CONTINENTS: readonly (readonly [string, number])[] = [
+  ['Europe', PALETTE.skyBlue],
+  ['Asia', PALETTE.crimson],
+  ['Africa', PALETTE.orange],
+  ['North America', PALETTE.green],
+  ['South America', PALETTE.gold],
+  ['Oceania', PALETTE.violet],
+  ['Antarctica', PALETTE.slate],
+];
 /** How long a dropped stamp stays, in milliseconds, and when in its fall it hits. */
 const DROP_HOLD = 2600;
 const DROP_HIT = 330;
+/** The book as designed, open, in CSS pixels: two pages of 420 by 560. */
+const BOOK_W = 840;
+const BOOK_H = 560;
+/** Room round the book for the buttons under it and the window's edge. */
+const BOOK_MARGIN_X = 32;
+const BOOK_MARGIN_Y = 130;
+/** How long a leaf takes to cross the spine. */
+const TURN_MS = 620;
 
 const MODE_ICON: Record<StampMode, IconName> = {
   foot: 'walk',
@@ -76,7 +113,39 @@ const MODE_ICON: Record<StampMode, IconName> = {
   jetski: 'jetski',
   sailboat: 'boat',
   helicopter: 'heli',
+  submarine: 'sub',
 };
+
+/** A colour a quarter of the way to the pen, for print on paper. */
+function inked(colour: number, towardsInk = 0.25): string {
+  const ink = PALETTE.ink;
+  const mix = (shift: number): number =>
+    Math.round(((colour >> shift) & 255) * (1 - towardsInk) + ((ink >> shift) & 255) * towardsInk);
+  return `rgb(${mix(16)}, ${mix(8)}, ${mix(0)})`;
+}
+
+/** The cover's cloth: the crimson taken most of the way to the ink. */
+const LEATHER = inked(PALETTE.crimson, 0.45);
+const LEATHER_DEEP = inked(PALETTE.crimson, 0.62);
+
+/** A grain for paper: noise whose only colour is a little of the ink, tiled. */
+const GRAIN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E" +
+  "%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E" +
+  "%3CfeColorMatrix values='0 0 0 0 0.12  0 0 0 0 0.03  0 0 0 0 0.01  0.09 0 0 0 0'/%3E%3C/filter%3E" +
+  "%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+/** The cloth's weave: the same noise, stretched, lighter. */
+const WEAVE =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='w'%3E" +
+  "%3CfeTurbulence type='fractalNoise' baseFrequency='0.9 0.35' numOctaves='3' stitchTiles='stitch'/%3E" +
+  "%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 0.9  0 0 0 0 0.85  0.14 0 0 0 0'/%3E%3C/filter%3E" +
+  "%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E\")";
+/** A guilloche: two crossing waves, as a banknote's or a passport's ground is printed. */
+const GUILLOCHE =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='28'%3E" +
+  "%3Cpath d='M0 14 C16 0 16 0 32 14 S48 28 64 14 M0 14 C16 28 16 28 32 14 S48 0 64 14' fill='none' stroke='%23c30e3a' stroke-opacity='0.09' stroke-width='1'/%3E" +
+  "%3Cpath d='M0 4 C16 -10 16 18 32 4 S48 18 64 4 M0 24 C16 38 16 10 32 24 S48 10 64 24' fill='none' stroke='%233dbbe7' stroke-opacity='0.08' stroke-width='1'/%3E" +
+  "%3C/svg%3E\")";
 
 const STYLE = `
 .atlas-passport {
@@ -85,8 +154,8 @@ const STYLE = `
   z-index: 12;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(30, 6, 3, 0.52);
+  padding: 16px;
+  background: rgba(30, 6, 3, 0.58);
   backdrop-filter: blur(4px);
   opacity: 0;
   visibility: hidden;
@@ -95,112 +164,197 @@ const STYLE = `
   color: var(--ui-ink);
 }
 .atlas-passport.on { opacity: 1; visibility: visible; transition-delay: 0s; }
-.atlas-passport.on .p-panel { animation: ui-pop 0.32s var(--ui-spring) both; }
-.p-panel {
-  width: min(900px, 100%);
-  max-height: min(720px, calc(100vh - 48px));
-  overflow: auto;
-  padding: 20px 22px 18px;
+.p-panel { display: flex; flex-direction: column; align-items: center; gap: 14px; outline: none; }
+.atlas-passport.on .p-panel { animation: ui-pop 0.36s var(--ui-spring) both; }
+.p-fit { position: relative; }
+.p-scaler { position: absolute; left: 0; top: 0; width: ${BOOK_W}px; height: ${BOOK_H}px; transform-origin: 0 0; }
+.p-book {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  perspective: 2400px;
+  transition: transform 0.55s var(--ui-ease);
+  cursor: pointer;
+}
+.p-book.closed { transform: translateX(-25%); }
+.p-side, .p-leaf { position: absolute; top: 0; width: 50%; height: 100%; }
+.p-side.left, .p-leaf.back { left: 0; }
+.p-side.right, .p-leaf.forward { left: 50%; }
+.p-leaf { transform-style: preserve-3d; z-index: 3; pointer-events: none; }
+.p-leaf.forward { transform-origin: left center; }
+.p-leaf.back { transform-origin: right center; }
+.p-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.p-face.under { transform: rotateY(180deg); }
+.p-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; border-radius: inherit; }
+.p-leaf.forward .p-face:not(.under) .p-shade, .p-leaf.back .p-face.under .p-shade { background: linear-gradient(90deg, rgba(30, 6, 3, 0.5), rgba(30, 6, 3, 0.05)); }
+.p-leaf.forward .p-face.under .p-shade, .p-leaf.back .p-face:not(.under) .p-shade { background: linear-gradient(270deg, rgba(30, 6, 3, 0.5), rgba(30, 6, 3, 0.05)); }
+
+/* --- paper ------------------------------------------------------------------- */
+.p-page {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 30px 30px 40px;
+  overflow: hidden;
+  background-color: ${hex(PALETTE.white)};
+  background-image: ${GRAIN}, radial-gradient(ellipse at 50% 35%, rgba(255, 250, 244, 0.9), rgba(247, 226, 210, 0.9));
+  border: 3px solid var(--ui-ink);
+}
+.p-side.left .p-page, .p-face .p-page.verso { border-radius: 12px 3px 3px 12px; border-right-width: 1.5px; }
+.p-side.right .p-page, .p-face .p-page.recto { border-radius: 3px 12px 12px 3px; border-left-width: 1.5px; }
+/* The gutter: each page darkens into the spine. */
+.p-page::after { content: ''; position: absolute; top: 0; bottom: 0; width: 46px; pointer-events: none; }
+.p-page.verso::after { right: 0; background: linear-gradient(270deg, rgba(30, 6, 3, 0.16), transparent); }
+.p-page.recto::after { left: 0; background: linear-gradient(90deg, rgba(30, 6, 3, 0.16), transparent); }
+.p-page.guilloche { background-image: ${GRAIN}, ${GUILLOCHE}, radial-gradient(ellipse at 50% 35%, rgba(255, 250, 244, 0.9), rgba(247, 226, 210, 0.9)); }
+.p-side.blank { visibility: hidden; }
+.p-folio { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; opacity: 0.42; }
+.p-running { position: absolute; top: 12px; left: 30px; right: 30px; display: flex; justify-content: space-between; font-size: 9.5px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.35; }
+.p-h { margin: 6px 0 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.58; }
+.p-rule { height: 0; border-top: 1.5px dashed var(--ui-rule); margin: 12px 0; }
+
+/* --- the cover ----------------------------------------------------------------- */
+.p-page.cover {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  scrollbar-width: thin;
+  align-items: center;
+  justify-content: space-between;
+  padding: 44px 30px 40px;
+  color: var(--ui-gold);
+  background-color: ${LEATHER};
+  background-image: ${WEAVE}, radial-gradient(ellipse at 40% 30%, rgba(255, 255, 255, 0.1), transparent 60%), linear-gradient(90deg, ${LEATHER_DEEP}, transparent 14%);
+  border-radius: 4px 16px 16px 4px;
+  box-shadow: inset 0 0 0 9px ${LEATHER}, inset 0 0 0 10.5px rgba(228, 169, 12, 0.45), 6px 8px 0 rgba(30, 6, 3, 0.35);
 }
-.p-head { display: flex; align-items: center; gap: 14px; }
-.p-badge {
+.p-page.cover::after { display: none; }
+.p-emboss { text-shadow: 0 1.5px 0 rgba(30, 6, 3, 0.55), 0 -1px 0 rgba(255, 235, 180, 0.25); }
+.p-cover-top { font-size: 15px; font-weight: 800; letter-spacing: 0.5em; margin-right: -0.5em; }
+.p-cover-emblem { width: 168px; height: 168px; filter: drop-shadow(0 1.5px 0 rgba(30, 6, 3, 0.55)); }
+.p-cover-title { font-size: 44px; font-weight: 800; letter-spacing: 0.2em; margin-right: -0.2em; line-height: 1; }
+.p-cover-sub { margin-top: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.24em; opacity: 0.8; text-align: center; }
+.p-cover-chip { width: 44px; height: 30px; }
+.p-page.endpaper {
+  background-color: ${LEATHER};
+  background-image: ${WEAVE}, repeating-linear-gradient(45deg, rgba(228, 169, 12, 0.1) 0 2px, transparent 2px 14px), repeating-linear-gradient(-45deg, rgba(228, 169, 12, 0.1) 0 2px, transparent 2px 14px);
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border: 3px solid var(--ui-ink);
-  border-radius: 12px;
-  background: ${hex(PALETTE.crimson)};
-  color: var(--ui-gold);
-  box-shadow: 0 3px 0 var(--ui-ink);
 }
-.p-badge svg { width: 24px; height: 24px; }
-.p-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-.p-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
-.p-close { margin-left: auto; }
-.p-book {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border: 3px solid var(--ui-ink);
-  border-radius: 12px;
-  overflow: hidden;
-  background: ${hex(PALETTE.cream)};
-  box-shadow: inset 0 0 0 5px ${hex(PALETTE.white)};
-  perspective: 1400px;
+.p-label {
+  width: 78%;
+  padding: 18px 20px;
+  background-color: ${hex(PALETTE.white)};
+  background-image: ${GRAIN};
+  border: 2.5px solid var(--ui-ink);
+  border-radius: 10px;
+  box-shadow: 0 4px 0 rgba(30, 6, 3, 0.4);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
-.p-page {
-  position: relative;
-  min-height: 390px;
-  padding: 18px 18px 30px;
-  background:
-    repeating-linear-gradient(0deg, transparent 0 23px, rgba(30, 6, 3, 0.045) 23px 24px),
-    radial-gradient(circle at 50% 40%, rgba(255, 242, 232, 0.9), rgba(253, 230, 225, 0.6));
-  transform-origin: left center;
-}
-.p-page + .p-page { border-left: 2px dashed var(--ui-rule); transform-origin: right center; }
-.p-book.next .p-page { animation: p-turn-next 0.42s var(--ui-ease) both; }
-.p-book.prev .p-page { animation: p-turn-prev 0.42s var(--ui-ease) both; }
-@keyframes p-turn-next { from { transform: rotateY(-24deg); opacity: 0.2; } to { transform: none; opacity: 1; } }
-@keyframes p-turn-prev { from { transform: rotateY(24deg); opacity: 0.2; } to { transform: none; opacity: 1; } }
-.p-folio {
+.p-label b { display: block; margin-bottom: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: ${inked(PALETTE.crimson)}; }
+.p-label p { margin: 0 0 8px; }
+.p-label small { display: block; font-size: 11px; opacity: 0.6; }
+
+/* --- the holder ---------------------------------------------------------------- */
+.p-id-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+.p-id-head b { font-size: 20px; font-weight: 800; letter-spacing: 0.12em; color: ${inked(PALETTE.crimson)}; }
+.p-id-head span { font-size: 10.5px; font-weight: 800; letter-spacing: 0.18em; opacity: 0.55; }
+.p-id { display: grid; grid-template-columns: 124px 1fr; gap: 16px; }
+.p-photo { width: 124px; height: 156px; border: 2.5px solid var(--ui-ink); border-radius: 6px; overflow: hidden; background: ${hex(PALETTE.skyBlue)}; }
+.p-photo svg { display: block; width: 100%; height: 100%; }
+.p-fields { display: grid; gap: 7px; align-content: start; }
+.p-field small { display: block; font-size: 9.5px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.5; }
+.p-field span { display: block; font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-field .code { font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 13px; letter-spacing: 0.04em; }
+.p-sign { margin-top: 16px; padding-top: 4px; border-top: 1.5px solid rgba(30, 6, 3, 0.35); display: flex; justify-content: space-between; align-items: baseline; }
+.p-sign span { font-family: 'Segoe Script', 'Bradley Hand', 'Brush Script MT', cursive; font-size: 24px; color: ${inked(PALETTE.slate, 0.5)}; transform: rotate(-3deg); transform-origin: left; white-space: nowrap; overflow: hidden; max-width: 70%; }
+.p-sign small { font-size: 9.5px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.5; }
+.p-mrz {
   position: absolute;
-  bottom: 8px;
-  left: 0;
-  right: 0;
+  left: 22px;
+  right: 22px;
+  bottom: 34px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 6px;
+  font-family: ui-monospace, 'OCR B', 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: hidden;
+  opacity: 0.8;
+}
+
+/* --- the record ---------------------------------------------------------------- */
+.p-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.p-count { padding: 10px 12px; border: 2px solid rgba(30, 6, 3, 0.7); border-radius: 10px; background: rgba(255, 255, 255, 0.5); }
+.p-count b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.p-count b small { font-size: 13px; opacity: 0.5; }
+.p-count span { font-size: 11.5px; font-weight: 700; opacity: 0.62; }
+.p-bar { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--ui-rule); overflow: hidden; }
+.p-bar i { display: block; height: 100%; background: var(--ui-gold); }
+.p-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; font-weight: 700; }
+.p-list li { display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-list li canvas { flex: none; width: 21px; height: 14px; border: 1.5px solid var(--ui-ink); border-radius: 3px; }
+.p-list li em { margin-left: auto; font-style: normal; font-size: 11px; font-weight: 700; opacity: 0.5; }
+.p-found { display: flex; flex-wrap: wrap; gap: 6px; }
+.p-found span { padding: 3px 9px; border: 2px solid var(--ui-ink); border-radius: 999px; background: rgba(255, 255, 255, 0.6); font-size: 12px; font-weight: 700; }
+.p-none { font-size: 12.5px; font-weight: 600; opacity: 0.55; }
+
+/* --- a visa -------------------------------------------------------------------- */
+.p-visa-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.p-visa-head svg { flex: none; width: 46px; height: 46px; }
+.p-visa-head b { display: block; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; line-height: 1.05; }
+.p-visa-head small { display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.55; }
+.p-visa-grant {
+  position: absolute;
+  right: 30px;
+  bottom: 50px;
+  padding: 8px 14px;
+  border: 3px double currentColor;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   text-align: center;
+  line-height: 1.3;
+  transform: rotate(-8deg);
+  opacity: 0.85;
+  mix-blend-mode: multiply;
+}
+.p-visa-grant small { display: block; font-size: 10px; letter-spacing: 0.08em; }
+.p-visa-empty {
+  position: absolute;
+  right: 30px;
+  bottom: 50px;
+  width: 150px;
+  height: 78px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--ui-rule);
+  border-radius: 10px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.12em;
-  opacity: 0.4;
-}
-.p-stamps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 8px; }
-.p-slot { display: grid; place-items: center; height: 116px; }
-.p-slot.empty::before {
-  content: '';
-  width: 88px;
-  height: 88px;
-  border: 2px dashed var(--ui-rule);
-  border-radius: 50%;
-}
-.p-stamp { width: 150px; height: 112px; transform: rotate(var(--tilt, 0deg)); }
-.p-stamp svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.p-holder h3 {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
   text-transform: uppercase;
-  opacity: 0.55;
+  opacity: 0.6;
 }
-.p-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
-.p-count {
-  padding: 10px 12px;
-  border: 2.5px solid var(--ui-ink);
-  border-radius: 11px;
-  background: var(--ui-paper);
-  box-shadow: 0 3px 0 var(--ui-ink);
-}
-.p-count b { display: block; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.p-count b small { font-size: 13px; opacity: 0.5; }
-.p-count span { font-size: 12px; font-weight: 700; opacity: 0.6; }
-.p-bar { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--ui-rule); overflow: hidden; }
-.p-bar i { display: block; height: 100%; background: var(--ui-gold); }
-.p-found { display: flex; flex-wrap: wrap; gap: 6px; }
-.p-found span {
-  padding: 3px 9px;
-  border: 2px solid var(--ui-ink);
-  border-radius: 999px;
-  background: var(--ui-paper);
-  font-size: 12px;
-  font-weight: 700;
-}
-.p-found em { font-style: normal; font-size: 12.5px; font-weight: 600; opacity: 0.55; }
-.p-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.p-nav output { font-size: 13px; font-weight: 800; opacity: 0.6; font-variant-numeric: tabular-nums; }
+
+/* --- the stamps ---------------------------------------------------------------- */
+.p-stamps { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); height: 100%; }
+.p-slot { display: grid; place-items: center; }
+.p-stamp { width: 150px; height: 112px; transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--tilt, 0deg)) scale(var(--press, 1)); }
+.p-stamp svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.p-slots-empty { position: absolute; inset: 40% 10% auto; text-align: center; font-size: 12.5px; font-weight: 700; opacity: 0.45; }
+
+/* --- under the book ---------------------------------------------------------------- */
+.p-nav { display: flex; align-items: center; gap: 10px; }
+.p-nav output { min-width: 150px; text-align: center; font-size: 13px; font-weight: 800; color: var(--ui-paper); opacity: 0.85; font-variant-numeric: tabular-nums; }
+.p-close { margin-left: 14px; }
+
+/* --- the stamp that drops --------------------------------------------------------- */
 .atlas-stamp-drop {
   position: fixed;
   z-index: 11;
@@ -234,12 +388,9 @@ const STYLE = `
   100% { opacity: 1; transform: none; }
 }
 @keyframes p-lift { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(26px) scale(0.9); } }
-@media (max-width: 760px) {
-  .p-book { grid-template-columns: 1fr; }
-  .p-page + .p-page { border-left: 0; border-top: 2px dashed var(--ui-rule); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .atlas-passport.on .p-panel, .p-book.next .p-page, .p-book.prev .p-page { animation: none; }
+  .atlas-passport.on .p-panel { animation: none; }
+  .p-book { transition: none; }
   .atlas-stamp-drop.in { animation: ui-fade 0.2s ease both; }
 }
 `;
@@ -375,54 +526,123 @@ export function stampSvg(stamp: Stamp): { svg: string; tilt: number } {
   return { svg, tilt };
 }
 
-function stampElement(stamp: Stamp): HTMLElement {
+/**
+ * A stamp as it sits in the book: its country's own tilt, and where on its
+ * spot it landed, how much further it turned and how hard it was pressed,
+ * from its place in the book — the same every time the page is turned to.
+ * `place` below zero is the stamp that drops, square on its spot.
+ */
+function stampElement(stamp: Stamp, place: number): HTMLElement {
   const { svg, tilt } = stampSvg(stamp);
   const element = h('div', { class: 'p-stamp', html: svg });
-  element.style.setProperty('--tilt', `${tilt}deg`);
+  let turn = tilt;
+  if (place >= 0) {
+    const a = hashOf(`${stamp.iso}#${place}`);
+    const b = hashOf(`${place}@${stamp.iso}`);
+    const c = hashOf(`${stamp.date}/${place}`);
+    element.style.setProperty('--dx', `${((a - 0.5) * 26).toFixed(1)}px`);
+    element.style.setProperty('--dy', `${((b - 0.5) * 20).toFixed(1)}px`);
+    element.style.setProperty('--press', (0.92 + c * 0.12).toFixed(3));
+    element.style.opacity = (0.8 + a * 0.2).toFixed(2);
+    turn += Math.round((c - 0.5) * 12);
+  }
+  element.style.setProperty('--tilt', `${turn}deg`);
   element.title = `${stamp.name} · ${stampDateText(stamp.date)}${stamp.town === '' ? '' : ` · entered near ${stamp.town}`}`;
   return element;
 }
 
-/* --- the card ------------------------------------------------------------ */
+/* --- the pages ------------------------------------------------------------ */
 
-const PASSPORT_ICON =
-  '<rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="10.5" r="3.4"/>' +
-  '<path d="M8.6 10.5h6.8M12 7.1c1 1 1.4 2.1 1.4 3.4s-.4 2.4-1.4 3.4c-1-1-1.4-2.1-1.4-3.4s.4-2.4 1.4-3.4z"/><path d="M9 17h6"/>';
+/** The globe on the cover, stroked: the same globe as the UI's, drawn large. */
+const EMBLEM =
+  '<svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true">' +
+  '<circle cx="60" cy="60" r="44" stroke-width="3.2"/>' +
+  '<circle cx="60" cy="60" r="52" stroke-width="1.2" stroke-dasharray="2 5"/>' +
+  '<ellipse cx="60" cy="60" rx="19" ry="44" stroke-width="2.2"/>' +
+  '<path d="M16 60h88M22 38h76M22 82h76" stroke-width="2.2"/>' +
+  '<path d="M60 4v8M60 108v8M4 60h8M108 60h8" stroke-width="2.4"/></svg>';
+/** The chip mark every e-passport's cover carries. */
+const CHIP =
+  '<svg viewBox="0 0 44 30" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+  '<rect x="1.5" y="1.5" width="41" height="27" rx="4"/><circle cx="22" cy="15" r="6"/>' +
+  '<path d="M1.5 15h14M28 15h14.5"/></svg>';
 
-function passportIcon(): SVGSVGElement {
-  const holder = document.createElement('span');
-  holder.innerHTML =
-    `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" ` +
-    `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PASSPORT_ICON}</svg>`;
-  return holder.firstElementChild as SVGSVGElement;
+/** One continent's seal on its visa page: a rose of the winds in its ink. */
+function seal(colour: string): string {
+  return (
+    `<svg viewBox="0 0 48 48" fill="none" stroke="${colour}" stroke-width="2" stroke-linejoin="round" aria-hidden="true">` +
+    '<circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="16" stroke-width="1" stroke-dasharray="1.5 2.5"/>' +
+    `<path d="M24 7 28 20 41 24 28 28 24 41 20 28 7 24 20 20z" fill="${colour}" fill-opacity="0.25"/></svg>`
+  );
 }
+
+/**
+ * The traveller's photograph: the shoulders in their top's colour, the head
+ * and neck in their skin, the hair over it, against a studio blue. A sketch
+ * of the colours they chose rather than a render, which a passport photo
+ * never flattered anyone with either.
+ */
+function portrait(appearance: Appearance | null): string {
+  const colour = (table: readonly number[], index: number, fallback: number): string => hex(table[index] ?? fallback);
+  const skin = appearance === null ? hex(PALETTE.blush) : colour(SKINS, appearance.skin, PALETTE.blush);
+  const hair = appearance === null ? hex(PALETTE.bark) : colour(HAIR, appearance.hair, PALETTE.bark);
+  const top = appearance === null ? hex(PALETTE.crimson) : colour(CLOTH, appearance.topColour, PALETTE.crimson);
+  const long = appearance?.body === 'woman';
+  const ink = hex(PALETTE.ink);
+  return (
+    `<svg viewBox="0 0 124 156" aria-hidden="true"><rect width="124" height="156" fill="${hex(PALETTE.skyBlue)}" opacity="0.55"/>` +
+    '<path d="M0 118h124" stroke="#fff" stroke-opacity="0.35" stroke-width="30"/>' +
+    (long ? `<path d="M34 70c-4 26-2 44 6 56h44c8-12 10-30 6-56z" fill="${hair}" stroke="${ink}" stroke-width="2.5"/>` : '') +
+    `<path d="M10 160c2-26 18-38 52-38s50 12 52 38z" fill="${top}" stroke="${ink}" stroke-width="2.5"/>` +
+    `<path d="M52 104h20v20c-3 6-17 6-20 0z" fill="${skin}" stroke="${ink}" stroke-width="2.5"/>` +
+    `<ellipse cx="62" cy="74" rx="24" ry="29" fill="${skin}" stroke="${ink}" stroke-width="2.5"/>` +
+    `<path d="M37 72c-2-22 10-34 25-34s28 11 25 34c-5-9-12-14-25-15-12 1-20 6-25 15z" fill="${hair}" stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"/>` +
+    `<circle cx="53" cy="77" r="2.4" fill="${ink}"/><circle cx="71" cy="77" r="2.4" fill="${ink}"/>` +
+    `<path d="M55 91c4 3 10 3 14 0" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linecap="round"/></svg>`
+  );
+}
+
+/** A name as the machine-readable zone writes it: capitals, and `<` for anything else. */
+function mrzName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '<')
+    .replace(/^<+|<+$/g, '');
+}
+
+const pad = (text: string, width: number): string => (text.length >= width ? text.slice(0, width) : text + '<'.repeat(width - text.length));
 
 export function createPassportCard(options: PassportCardOptions): PassportCard {
   installUi();
   ensureStyle('atlas-passport', STYLE);
   const { passport } = options;
 
-  const continents = new Set(options.countries.map((country) => country.continent).filter((name) => name !== OPEN_OCEAN));
-  const continentOf = new Map(options.countries.map((country) => [country.iso, country.continent]));
+  const countryOf = new Map(options.countries.map((country) => [country.iso, country]));
+  const perContinent = new Map<string, number>();
+  for (const country of options.countries) perContinent.set(country.continent, (perContinent.get(country.continent) ?? 0) + 1);
+  const continentOrder = [
+    ...CONTINENTS.filter(([name]) => perContinent.has(name)),
+    ...[...perContinent.keys()]
+      .filter((name) => name !== OPEN_OCEAN && !CONTINENTS.some(([known]) => known === name))
+      .map((name) => [name, PALETTE.brown] as const),
+  ];
 
-  const close = h('button', { class: 'ui-btn icon p-close', title: 'Close', 'aria-label': 'Close' }, icon('close'));
-  const sub = h('div', { class: 'p-sub' });
-  const book = h('div', { class: 'p-book' });
-  const back = h('button', { class: 'ui-btn small quiet', 'aria-label': 'Previous pages' }, icon('back', 16), 'Back');
-  const forward = h('button', { class: 'ui-btn small quiet', 'aria-label': 'Next pages' }, 'Next', icon('next', 16));
-  const folio = h('output');
+  const close = h('button', { class: 'ui-btn small p-close', type: 'button', 'aria-label': 'Close the passport' }, icon('close', 16), 'Close');
+  const back = h('button', { class: 'ui-btn small', type: 'button', 'aria-label': 'Previous pages' }, icon('back', 16), 'Back');
+  const forward = h('button', { class: 'ui-btn small', type: 'button', 'aria-label': 'Next pages' }, 'Next', icon('next', 16));
+  const folio = h('output', { 'aria-live': 'polite' });
+  const left = h('div', { class: 'p-side left', role: 'group', 'aria-roledescription': 'page' });
+  const right = h('div', { class: 'p-side right', role: 'group', 'aria-roledescription': 'page' });
+  const book = h('div', { class: 'p-book closed' }, left, right);
+  const scaler = h('div', { class: 'p-scaler' }, book);
+  const fit = h('div', { class: 'p-fit' }, scaler);
   const panel = h(
     'div',
-    { class: 'p-panel ui-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport' },
-    h(
-      'div',
-      { class: 'p-head' },
-      h('span', { class: 'p-badge' }, passportIcon()),
-      h('div', {}, h('div', { class: 'p-title', text: 'Passport' }), sub),
-      close,
-    ),
-    book,
-    h('div', { class: 'p-nav' }, back, folio, forward),
+    { class: 'p-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport', tabindex: '-1' },
+    fit,
+    h('div', { class: 'p-nav' }, back, folio, forward, close),
   );
   const overlay = h('div', { class: 'atlas-passport' }, panel);
 
@@ -431,14 +651,83 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   const drop = h('div', { class: 'atlas-stamp-drop', 'aria-live': 'polite' }, dropStamp, dropCaption);
   const root = h('div', {}, overlay, drop);
 
-  /** The first page of the spread on show: 0 is the holder's page and the first stamps. */
-  let spread = 0;
+  /* --- what the pages say ------------------------------------------------ */
 
-  const pageCount = (): number => {
-    const stampPages = Math.max(1, Math.ceil(passport.data.stamps.length / PER_PAGE));
-    const pages = 1 + stampPages;
-    return pages + (pages % 2);
-  };
+  type PageMaker = (side: 'verso' | 'recto') => HTMLElement;
+
+  function page(side: 'verso' | 'recto', number: number | null, running: string, ...children: (HTMLElement | null)[]): HTMLElement {
+    return h(
+      'div',
+      { class: `p-page ${side}` },
+      h('div', { class: 'p-running' }, h('span', { text: side === 'verso' ? 'Atlas' : running }), h('span', { text: side === 'verso' ? running : 'Earth' })),
+      ...children,
+      number === null ? null : h('div', { class: 'p-folio', text: String(number) }),
+    );
+  }
+
+  function cover(): HTMLElement {
+    return h(
+      'div',
+      { class: 'p-page cover recto' },
+      h('div', { class: 'p-cover-top p-emboss', text: 'ATLAS' }),
+      h('div', { class: 'p-cover-emblem', html: EMBLEM }),
+      h('div', {}, h('div', { class: 'p-cover-title p-emboss', text: 'PASSPORT' }), h('div', { class: 'p-cover-sub p-emboss', text: 'PASSEPORT · PASAPORTE · REISEPASS' })),
+      h('div', { class: 'p-cover-chip', html: CHIP }),
+    );
+  }
+
+  function endpaper(): HTMLElement {
+    const stamps = passport.data.stamps;
+    return h(
+      'div',
+      { class: 'p-page endpaper verso' },
+      h(
+        'div',
+        { class: 'p-label' },
+        h('b', { text: 'Notice to the holder' }),
+        h('p', { text: 'Every country you come down in is stamped in this book: walking in, swimming ashore, driving, sailing or landing. Flying over does not count.' }),
+        h('p', { text: 'Each continent has its visa page, and every landmark you find is written in.' }),
+        h('small', { text: stamps.length === 0 ? 'Not yet stamped.' : `First stamp: ${stamps[0]!.name}, ${stampDateText(stamps[0]!.date)}.` }),
+      ),
+    );
+  }
+
+  function holderPage(side: 'verso' | 'recto', number: number): HTMLElement {
+    const who = options.holder?.() ?? null;
+    const name = who?.name.trim() || 'Traveller';
+    const code = who === null ? '' : encodeAppearance(who.appearance);
+    const stamps = passport.data.stamps;
+    const field = (label: string, value: string, mono = false): HTMLElement =>
+      h('div', { class: 'p-field' }, h('small', { text: label }), h('span', { class: mono ? 'code' : '', text: value }));
+    const surname = mrzName(name) || 'TRAVELLER';
+    const mrz =
+      `${pad(`P<ATL${surname}`, 32)}\n` +
+      `${pad(`${code.toUpperCase().replace(/[^A-Z0-9]/g, '<')}<${String(stamps.length).padStart(3, '0')}<EARTH`, 32)}`;
+    const holder = page(
+      side,
+      number,
+      'Holder',
+      h('div', { class: 'p-id-head' }, h('b', { text: 'PASSPORT' }), h('span', { text: 'TYPE P · ATL' })),
+      h(
+        'div',
+        { class: 'p-id' },
+        h('div', { class: 'p-photo', html: portrait(who?.appearance ?? null) }),
+        h(
+          'div',
+          { class: 'p-fields' },
+          field('Name', name),
+          field('Nationality', 'Of the Earth'),
+          field('Look', code === '' ? '—' : code, true),
+          field('Date of issue', stamps.length === 0 ? 'On the first stamp' : stampDateText(stamps[0]!.date)),
+          field('Place of issue', stamps.length === 0 ? '—' : stamps[0]!.town || stamps[0]!.name),
+        ),
+      ),
+      h('div', { class: 'p-sign' }, h('span', { text: name }), h('small', { text: 'Signature' })),
+      h('div', { class: 'p-mrz', text: mrz, 'aria-hidden': 'true' }),
+    );
+    holder.classList.add('guilloche');
+    return holder;
+  }
 
   function count(value: number, total: number | null, label: string): HTMLElement {
     const figure = h('b', {}, String(value), total === null ? null : h('small', { text: ` / ${total}` }));
@@ -447,76 +736,253 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     return h('div', { class: 'p-count' }, figure, h('span', { text: label }), bar);
   }
 
-  function holderPage(): HTMLElement {
+  function flagOf(iso: string): HTMLCanvasElement | null {
+    try {
+      return createFlagCanvas(iso, 42, 28);
+    } catch {
+      return null;
+    }
+  }
+
+  function recordPage(side: 'verso' | 'recto', number: number): HTMLElement {
     const stamps = passport.data.stamps;
-    const visited = new Set<string>();
+    const continents = new Set<string>();
     for (const stamp of stamps) {
-      const continent = continentOf.get(stamp.iso);
-      if (continent !== undefined && continent !== OPEN_OCEAN) visited.add(continent);
+      const continent = countryOf.get(stamp.iso)?.continent;
+      if (continent !== undefined && continent !== OPEN_OCEAN) continents.add(continent);
     }
     const { found, total } = options.landmarks();
-    const list = h('div', { class: 'p-found' });
-    if (found.length === 0) list.append(h('em', { text: 'None yet. Tab points you at the nearest.' }));
-    const shown = found.slice(0, 18);
-    for (const landmark of shown) list.append(h('span', { text: landmark.name }));
-    if (found.length > shown.length) list.append(h('em', { text: `and ${found.length - shown.length} more` }));
-    return h(
-      'div',
-      { class: 'p-holder' },
-      h('h3', { text: 'The holder has visited' }),
+    const towns = passport.data.towns;
+    const recent = h('ul', { class: 'p-list' });
+    for (const key of towns.slice(-7).reverse()) {
+      const colon = key.indexOf(':');
+      const iso = key.slice(0, colon);
+      recent.append(h('li', {}, flagOf(iso), key.slice(colon + 1), h('em', { text: countryOf.get(iso)?.name ?? '' })));
+    }
+    return page(
+      side,
+      number,
+      'Record',
+      h('div', { class: 'p-h', text: 'The holder has visited' }),
       h(
         'div',
         { class: 'p-counts' },
         count(stamps.length, options.countries.length, 'countries'),
-        count(visited.size, continents.size, 'continents'),
+        count(continents.size, continentOrder.length, 'continents'),
         count(found.length, total, 'landmarks found'),
-        count(passport.data.towns.length, null, 'towns walked into'),
+        count(towns.length, null, 'towns walked into'),
       ),
-      h('h3', { text: 'Landmarks found' }),
-      list,
+      h('div', { class: 'p-rule' }),
+      h('div', { class: 'p-h', text: 'Towns walked into, lately' }),
+      towns.length === 0 ? h('div', { class: 'p-none', text: 'Walk into a town and it is written here.' }) : recent,
     );
   }
 
-  function stampPage(index: number): HTMLElement {
-    const stamps = passport.data.stamps.slice((index - 1) * PER_PAGE, index * PER_PAGE);
+  function landmarksPage(side: 'verso' | 'recto', number: number): HTMLElement {
+    const { found, total } = options.landmarks();
+    const list = h('div', { class: 'p-found' });
+    const shown = found.slice(0, 30);
+    for (const landmark of shown) list.append(h('span', { text: landmark.name }));
+    if (found.length > shown.length) list.append(h('span', { class: 'p-none', text: `and ${found.length - shown.length} more` }));
+    return page(
+      side,
+      number,
+      'Landmarks',
+      h('div', { class: 'p-h', text: `Landmarks found · ${found.length} of ${total}` }),
+      found.length === 0 ? h('div', { class: 'p-none', text: 'None yet. The minimap’s wedge points at the nearest.' }) : list,
+    );
+  }
+
+  function visaPage(side: 'verso' | 'recto', number: number, continent: string, tint: number): HTMLElement {
+    const ink = inked(tint, 0.35);
+    const stamps = passport.data.stamps.filter((stamp) => countryOf.get(stamp.iso)?.continent === continent);
+    const of = perContinent.get(continent) ?? 0;
+    const list = h('ul', { class: 'p-list' });
+    const shown = stamps.slice(0, 10);
+    for (const stamp of shown) list.append(h('li', {}, flagOf(stamp.iso), stamp.name, h('em', { text: stampDateText(stamp.date) })));
+    if (stamps.length > shown.length) list.append(h('li', { class: 'p-none', text: `and ${stamps.length - shown.length} more` }));
+    const first = stamps[0];
+    const mark =
+      first === undefined
+        ? h('div', { class: 'p-visa-empty', text: 'No entry yet' })
+        : h('div', { class: 'p-visa-grant' }, 'ENTRY GRANTED', h('small', { text: `${stampDateText(first.date)}${first.town === '' ? '' : ` · ${first.town.toUpperCase()}`}` }));
+    if (first !== undefined) mark.style.color = ink;
+    const visa = page(
+      side,
+      number,
+      'Visas',
+      h(
+        'div',
+        { class: 'p-visa-head' },
+        h('span', { html: seal(ink) }),
+        h('div', {}, h('small', { text: 'Visa' }), h('b', { text: continent })),
+      ),
+      h('div', { class: 'p-h', text: `${stamps.length} of ${of} ${of === 1 ? 'country' : 'countries'}` }),
+      stamps.length === 0 ? h('div', { class: 'p-none', text: `Set foot anywhere in ${continent} and the visa is granted.` }) : list,
+      mark,
+    );
+    visa.classList.add('guilloche');
+    return visa;
+  }
+
+  function stampsPage(side: 'verso' | 'recto', number: number, from: number): HTMLElement {
+    const stamps = passport.data.stamps.slice(from, from + PER_PAGE);
     const grid = h('div', { class: 'p-stamps' });
-    for (let i = 0; i < PER_PAGE; i++) {
-      const stamp = stamps[i];
-      grid.append(stamp === undefined ? h('div', { class: 'p-slot empty' }) : h('div', { class: 'p-slot' }, stampElement(stamp)));
-    }
-    return grid;
+    stamps.forEach((stamp, i) => grid.append(h('div', { class: 'p-slot' }, stampElement(stamp, from + i))));
+    if (from === 0 && stamps.length === 0) grid.append(h('div', { class: 'p-slots-empty', text: 'Your stamps go here.' }));
+    return page(side, number, 'Stamps', grid);
   }
 
-  function page(index: number): HTMLElement {
-    return h('div', { class: 'p-page' }, index === 0 ? holderPage() : stampPage(index), h('div', { class: 'p-folio', text: String(index + 1) }));
+  function blankPage(side: 'verso' | 'recto', number: number): HTMLElement {
+    return page(side, number, 'Notes');
   }
 
-  function render(turn: 'next' | 'prev' | null): void {
-    const pages = pageCount();
-    spread = Math.max(0, Math.min(spread, pages - 2));
-    book.replaceChildren(page(spread), page(spread + 1));
-    book.classList.remove('next', 'prev');
-    if (turn !== null) {
-      void book.offsetWidth;
-      book.classList.add(turn);
-    }
-    folio.textContent = `Pages ${spread + 1}–${spread + 2} of ${pages}`;
+  /**
+   * The book as it stands: the cover, the endpaper, the holder, the record,
+   * the landmarks, a visa a continent, and the stamps — at least two pages,
+   * and enough to hold every stamp — with a blank to close the last spread.
+   */
+  function pagesOf(): PageMaker[] {
+    const pages: PageMaker[] = [() => cover(), () => endpaper()];
+    const add = (make: (side: 'verso' | 'recto', number: number) => HTMLElement): void => {
+      const number = pages.length;
+      pages.push((side) => make(side, number));
+    };
+    add(holderPage);
+    add(recordPage);
+    add(landmarksPage);
+    for (const [continent, tint] of continentOrder) add((side, number) => visaPage(side, number, continent, tint));
+    firstStampPage = pages.length;
+    const stampPages = Math.max(2, Math.ceil(passport.data.stamps.length / PER_PAGE));
+    for (let i = 0; i < stampPages; i++) add((side, number) => stampsPage(side, number, i * PER_PAGE));
+    // Every spread two pages: page 0 is the cover, alone on the right.
+    if (pages.length % 2 === 0) add(blankPage);
+    return pages;
+  }
+
+  /* --- turning ------------------------------------------------------------ */
+
+  /** Where the stamps begin, as `pagesOf` last laid the book out. */
+  let firstStampPage = 0;
+  let pages = pagesOf();
+  /** The spread on show: 0 is the closed cover, `n` shows pages `2n - 1` and `2n`. */
+  let spread = 0;
+  const spreads = (): number => Math.floor(pages.length / 2) + 1;
+  /** The first spread with the newest stamp on it. */
+  function newestSpread(): number {
+    const at = firstStampPage + Math.max(0, Math.ceil(passport.data.stamps.length / PER_PAGE) - 1);
+    return Math.min(spreads() - 1, Math.floor((at + 1) / 2));
+  }
+
+  function sideOf(index: number, side: 'verso' | 'recto'): HTMLElement | null {
+    const make = pages[index];
+    return index < 0 || make === undefined ? null : make(side);
+  }
+
+  function fill(slot: HTMLElement, content: HTMLElement | null, label: string): void {
+    slot.replaceChildren(...(content === null ? [] : [content]));
+    slot.classList.toggle('blank', content === null);
+    slot.setAttribute('aria-label', label);
+  }
+
+  function labelFor(index: number): string {
+    return index === 0 ? 'Cover' : index < 0 || index >= pages.length ? '' : `Page ${index}`;
+  }
+
+  function showSpread(): void {
+    fill(left, sideOf(2 * spread - 1, 'verso'), labelFor(2 * spread - 1));
+    fill(right, sideOf(2 * spread, 'recto'), labelFor(2 * spread));
+    book.classList.toggle('closed', spread === 0);
+    chrome();
+  }
+
+  function chrome(): void {
+    const last = spreads() - 1;
+    folio.textContent = spread === 0 ? 'Cover' : `Pages ${2 * spread - 1}–${Math.min(2 * spread, pages.length - 1)} of ${pages.length - 1}`;
     back.disabled = spread === 0;
-    forward.disabled = spread + 2 >= pages;
-    const stamped = passport.data.stamps.length;
-    sub.textContent =
-      stamped === 0
-        ? 'Walk, sail or drive into a country and it is stamped here. Flying over does not count.'
-        : `${stamped} ${stamped === 1 ? 'country' : 'countries'} stamped, the first on ${stampDateText(passport.data.stamps[0]!.date)}.`;
+    forward.disabled = spread >= last;
+    forward.replaceChildren(spread === 0 ? 'Open' : 'Next', icon('next', 16));
   }
 
-  function turn(step: number): void {
-    const before = spread;
-    spread = Math.max(0, Math.min(spread + step * 2, pageCount() - 2));
-    if (spread !== before) render(step > 0 ? 'next' : 'prev');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+  /** The leaf in the air, and what finishes its turn. */
+  let turning: { animation: Animation; shade: Animation[]; done: () => void } | null = null;
+
+  function settle(): void {
+    if (turning === null) return;
+    const { animation, shade, done } = turning;
+    turning = null;
+    animation.cancel();
+    for (const each of shade) each.cancel();
+    done();
   }
-  back.addEventListener('click', () => turn(-1));
-  forward.addEventListener('click', () => turn(1));
+
+  function turn(to: number): void {
+    settle();
+    const target = Math.max(0, Math.min(spreads() - 1, to));
+    if (target === spread) return;
+    const step = target > spread ? 1 : -1;
+    const from = spread;
+    spread = target;
+    options.onTurn?.();
+    if (calm.matches || Math.abs(target - from) > 1) {
+      // A jump of several spreads, or less motion asked for: straight there.
+      showSpread();
+      return;
+    }
+    // Forward: the leaf is the right page lifting, with the next left page on
+    // its back; the next right page is already underneath. Backward is the
+    // mirror of it over the spine.
+    const leaf = h('div', { class: `p-leaf ${step > 0 ? 'forward' : 'back'}` });
+    const front = step > 0 ? sideOf(2 * from, 'recto') : sideOf(2 * from - 1, 'verso');
+    const behind = step > 0 ? sideOf(2 * target - 1, 'verso') : sideOf(2 * target, 'recto');
+    const frontShade = h('div', { class: 'p-shade' });
+    const behindShade = h('div', { class: 'p-shade' });
+    leaf.append(
+      h('div', { class: 'p-face' }, front, frontShade),
+      h('div', { class: 'p-face under' }, behind, behindShade),
+    );
+    if (step > 0) fill(right, sideOf(2 * target, 'recto'), labelFor(2 * target));
+    else fill(left, sideOf(2 * target - 1, 'verso'), labelFor(2 * target - 1));
+    book.append(leaf);
+    book.classList.toggle('closed', target === 0);
+    chrome();
+    const animation = leaf.animate(
+      [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${step > 0 ? -180 : 180}deg)` }],
+      { duration: TURN_MS, easing: 'cubic-bezier(0.35, 0.05, 0.25, 1)', fill: 'forwards' },
+    );
+    const shade = [
+      frontShade.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: TURN_MS / 2, easing: 'ease-in', fill: 'forwards' }),
+      behindShade.animate([{ opacity: 0.9 }, { opacity: 0 }], { duration: TURN_MS / 2, delay: TURN_MS / 2, easing: 'ease-out', fill: 'both' }),
+    ];
+    const done = (): void => {
+      leaf.remove();
+      if (step > 0) fill(left, sideOf(2 * target - 1, 'verso'), labelFor(2 * target - 1));
+      else fill(right, sideOf(2 * target, 'recto'), labelFor(2 * target));
+    };
+    turning = { animation, shade, done };
+    animation.onfinish = () => {
+      if (turning?.animation === animation) settle();
+    };
+  }
+
+  back.addEventListener('click', () => turn(spread - 1));
+  forward.addEventListener('click', () => turn(spread + 1));
+  // A click on a half of the book turns that half's way, as a hand would;
+  // on the closed cover it opens it.
+  book.addEventListener('click', (event) => {
+    const box = book.getBoundingClientRect();
+    const middle = spread === 0 ? box.left + box.width * 0.5 : box.left + box.width / 2;
+    turn(spread === 0 || event.clientX >= middle ? spread + 1 : spread - 1);
+  });
+
+  /** The book at the largest size up to its own that the window holds. */
+  function resize(): void {
+    const scale = Math.max(0.3, Math.min(1, (innerWidth - BOOK_MARGIN_X) / BOOK_W, (innerHeight - BOOK_MARGIN_Y) / BOOK_H));
+    scaler.style.transform = `scale(${scale.toFixed(4)})`;
+    fit.style.width = `${Math.round(BOOK_W * scale)}px`;
+    fit.style.height = `${Math.round(BOOK_H * scale)}px`;
+  }
 
   /* --- opening and closing ---------------------------------------------- */
 
@@ -533,12 +999,15 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     relock = opening.relock ?? (target !== null && document.pointerLockElement === target);
     options.onOpen?.();
     if (document.pointerLockElement) document.exitPointerLock();
-    // Open on the newest stamp's spread, where the last arrival is.
-    spread = Math.floor(Math.ceil(passport.data.stamps.length / PER_PAGE) / 2) * 2;
-    render(null);
+    // Closed, on its cover: the book is opened by the one who holds it.
+    pages = pagesOf();
+    spread = 0;
+    showSpread();
+    resize();
+    addEventListener('resize', resize);
     if (!root.isConnected) document.body.append(root);
     overlay.classList.add('on');
-    close.focus({ preventScroll: true });
+    forward.focus({ preventScroll: true });
   }
 
   // A lock granted while the card is up is handed straight back, as the settings card does.
@@ -549,6 +1018,8 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   function hide(): void {
     if (!showing) return;
     showing = false;
+    settle();
+    removeEventListener('resize', resize);
     overlay.classList.remove('on');
     options.onClose?.();
     const target = options.lockTarget ?? null;
@@ -581,10 +1052,16 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
         hide();
       } else if (event.code === 'ArrowRight' || event.code === 'PageDown') {
         event.preventDefault();
-        turn(1);
+        turn(spread + 1);
       } else if (event.code === 'ArrowLeft' || event.code === 'PageUp') {
         event.preventDefault();
-        turn(-1);
+        turn(spread - 1);
+      } else if (event.code === 'Home') {
+        event.preventDefault();
+        turn(0);
+      } else if (event.code === 'End') {
+        event.preventDefault();
+        turn(newestSpread());
       } else {
         holdFocus(event, panel);
       }
@@ -603,7 +1080,7 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     clearTimeout(dropTimer);
     clearTimeout(thudTimer);
     if (!root.isConnected) document.body.append(root);
-    dropStamp.replaceChildren(stampElement(stamp));
+    dropStamp.replaceChildren(stampElement(stamp, -1));
     dropCaption.textContent = `Passport stamped · ${stamp.name}`;
     drop.classList.remove('in', 'out');
     void drop.offsetWidth;
@@ -614,7 +1091,12 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
       drop.classList.add('out');
       dropTimer = window.setTimeout(() => drop.classList.remove('out'), 520);
     }, DROP_HOLD);
-    if (showing) render(null);
+    if (showing) {
+      settle();
+      pages = pagesOf();
+      spread = Math.min(spread, spreads() - 1);
+      showSpread();
+    }
   }
 
   return {

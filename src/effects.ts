@@ -111,7 +111,9 @@ function topSpeed(kind: CraftKind | null): number {
  * an engine's exhaust and its wheels' dust on the ground; only the dust off a
  * bicycle's tyres and a horse's hooves.
  */
-const HULLS: ReadonlySet<CraftKind> = new Set<CraftKind>(['boat', 'jetski', 'sailboat']);
+const HULLS: ReadonlySet<CraftKind> = new Set<CraftKind>(['boat', 'jetski', 'sailboat', 'submarine']);
+/** Deeper than this under the surface a hull or a swimmer leaves no mark on it, units. */
+const SUBMERGED = 1.2;
 const ENGINES: ReadonlySet<CraftKind> = new Set<CraftKind>(['car', 'van', 'bus', 'tractor', 'jeep', 'tuktuk', 'motorbike']);
 const QUIET: ReadonlySet<CraftKind> = new Set<CraftKind>(['bicycle', 'horse']);
 /** A helicopter's downwash reaches the ground from this high, in units, and is strongest on it. */
@@ -161,6 +163,8 @@ export interface EffectsSubject {
   /** In a helicopter: how high over the surface under it, water or ground, and whether it is water. */
   readonly clearance?: number;
   readonly overWater?: boolean;
+  /** How far under the surface a diver or a submarine is, units (`Player.depth`). */
+  readonly depth?: number;
 }
 
 /** Somebody else's vehicle, or a boat of the traffic: its object (posed in the world), what it is, and its model if known. */
@@ -233,6 +237,12 @@ export interface Effects {
    * or coming out (`ambient.ts`). Nothing while the effects are off.
    */
   splashAt(point: THREE.Vector3, reach: number): void;
+  /**
+   * A crash's burst and debris at `point`, the wreck facing `facing`: a
+   * vehicle nobody is in coming down, or into a wall (`fleet.ts`). Nothing
+   * while the effects are off.
+   */
+  crashAt(point: THREE.Vector3, facing: THREE.Vector3, strength: number): void;
   /** The wakes' points and their longest joined segment. */
   probe(): WakeProbe;
   /** One mesh per program, for `warm.ts`. */
@@ -977,6 +987,8 @@ export function createEffects(): Effects {
     // The velocity the particles inherit a share of, in units a second.
     motion.copy(delta).multiplyScalar(1 / dt);
 
+    // Under the surface, nothing marks it: the bubbles are `sea-life.ts`'s.
+    if ((s.depth ?? 0) > SUBMERGED) return;
     if (s.state === 'swim' && kind === null) {
       // Rings round a swimmer, closer together moving, and a little trail of discs.
       const moving = Math.abs(along) > 1;
@@ -1079,7 +1091,7 @@ export function createEffects(): Effects {
     const width = model?.size[1] ?? H * 0.8;
     const height = model?.size[2] ?? H;
     motion.copy(delta).multiplyScalar(1 / frameDt);
-    if (kind !== null && HULLS.has(kind)) {
+    if (kind !== null && HULLS.has(kind) && now.length() > PLANET_RADIUS - SUBMERGED) {
       for (let i = 0; i < 3; i++) if (entry.ribbons[i]! < 0) entry.ribbons[i] = takeRibbon();
       wake(entry.slots, entry.ribbons, now, fwdAt, upAt, rightAt, speed, run, length, width, frameDt);
       if (kind === 'jetski') rooster(entry.slots, now, fwdAt, upAt, rightAt, speed, length, frameDt);
@@ -1509,6 +1521,12 @@ export function createEffects(): Effects {
       if (!enabled) return;
       splashUp.copy(point).normalize();
       splash(point, splashUp, reach, Math.max(2, Math.round(reach * 3)));
+    },
+    crashAt(point, facing, strength) {
+      if (!enabled) return;
+      splashUp.copy(point).normalize();
+      fwdAt.copy(facing).projectOnPlane(splashUp).normalize();
+      crash(point, splashUp, fwdAt, point.length(), Math.max(0, Math.min(1, strength)));
     },
     probe() {
       let points = 0;

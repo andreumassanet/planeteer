@@ -26,11 +26,11 @@
 /** How you were travelling when the stamp was taken: `controls.ts`'s `TravelMode`. */
 export type StampMode =
   | 'foot' | 'swim' | 'car' | 'boat' | 'plane' | 'balloon' | 'passenger'
-  | 'bicycle' | 'motorbike' | 'horse' | 'jetski' | 'sailboat' | 'helicopter';
+  | 'bicycle' | 'motorbike' | 'horse' | 'jetski' | 'sailboat' | 'helicopter' | 'submarine';
 
 const MODES: readonly StampMode[] = [
   'foot', 'swim', 'car', 'boat', 'plane', 'balloon', 'passenger',
-  'bicycle', 'motorbike', 'horse', 'jetski', 'sailboat', 'helicopter',
+  'bicycle', 'motorbike', 'horse', 'jetski', 'sailboat', 'helicopter', 'submarine',
 ];
 
 export interface Stamp {

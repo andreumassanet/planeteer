@@ -29,13 +29,15 @@ import {
 import {
   COMMANDS,
   actionOf,
-  complete,
   findPlace,
   matchPlayer,
   parseClock,
   parseCommand,
   parseLatLon,
   parseWeather,
+  SUGGEST_LIMIT,
+  suggest,
+  suggestPlaces,
   unescapeSlash,
 } from '../src/chat-core.ts';
 import { decodeCountries, decodePlaces, inflate } from '../src/pack.ts';
@@ -94,6 +96,8 @@ test('a country is an outline code or nothing, a gesture one of the list', () =>
   assert.equal(cleanCountry('<b>'), '');
   assert.equal(cleanCountry(12), '');
   for (const emote of EMOTES) assert.equal(cleanEmote(emote), emote);
+  // Sitting is a bench now, and still says so on the wire, old clients too.
+  assert.equal(cleanEmote('sit'), 'sit');
   assert.equal(cleanEmote('moonwalk'), '');
   assert.equal(cleanEmote(undefined), '');
 });
@@ -157,20 +161,50 @@ test('every command and alias has one meaning', () => {
   for (const command of COMMANDS) assert.equal(parseCommand(`/${command.name}`)?.command, command);
 });
 
-test('Tab completes a command, then a player', () => {
-  assert.deepEqual(complete('/go', []), { line: '/goto ', choices: ['goto'] });
-  const w = complete('/w', []);
-  assert.equal(w?.line, '/w');
-  assert.deepEqual(w?.choices.sort(), ['wave', 'weather', 'where', 'who']);
-  assert.equal(complete('/wh', [])?.line, '/wh');
-  assert.equal(complete('/zz', []), null);
-  assert.equal(complete('hello', ['Ada']), null);
-  const players = ['Ada', 'Adam', 'Bo', 'Álvaro'];
-  assert.deepEqual(complete('/tp a', players), { line: '/tp A', choices: ['Ada', 'Adam', 'Álvaro'] });
-  assert.deepEqual(complete('/tp ad', players), { line: '/tp Ada', choices: ['Ada', 'Adam'] });
-  assert.deepEqual(complete('/tp b', players), { line: '/tp Bo ', choices: ['Bo'] });
-  assert.deepEqual(complete('/mute alv', players), { line: '/mute Álvaro ', choices: ['Álvaro'] });
-  assert.equal(complete('/goto par', players), null, '/goto takes a place, not a player');
+test('a slash lists every command, and typing narrows it', () => {
+  const none = { players: [] };
+  assert.equal(suggest('/', none).items.length, COMMANDS.length);
+  assert.deepEqual(suggest('/w', none).items.map((item) => item.label).sort(), ['/wave', '/weather', '/where', '/who']);
+  const go = suggest('/go', none).items;
+  assert.equal(go[0]!.label, '/goto', 'the name before an alias');
+  assert.equal(go[0]!.line, '/goto ');
+  assert.equal(go[0]!.usage, '<town, country or lat,lon>');
+  assert.equal(go[0]!.ghost, 'to <town, country or lat,lon>');
+  assert.equal(go[0]!.done, false, '/goto wants a place yet');
+  assert.ok(go[0]!.detail.length > 0);
+  // An alias finds its command.
+  assert.deepEqual(suggest('/spa', none).items.map((item) => item.label), ['/home']);
+  const home = suggest('/home', none).items[0]!;
+  assert.equal(home.line, '/home');
+  assert.equal(home.done, true, 'nothing to add: Enter sends it');
+  assert.equal(suggest('/zz', none).items.length, 0);
+  assert.equal(suggest('hello', none).items.length, 0);
+  assert.equal(suggest('//shrug', none).items.length, 0);
+  assert.equal(suggest('/sit', none).items.length, 0, '/sit is gone: benches are sat on');
+});
+
+test('after the command, its arguments', () => {
+  const players = { players: ['Ada', 'Adam', 'Bo', 'Álvaro', 'Ada'] };
+  assert.deepEqual(suggest('/tp ', players).items.map((item) => item.label), ['Ada', 'Adam', 'Bo', 'Álvaro']);
+  const ad = suggest('/tp ad', players).items;
+  assert.deepEqual(ad.map((item) => item.label), ['Ada', 'Adam']);
+  assert.equal(ad[0]!.line, '/tp Ada');
+  assert.equal(ad[1]!.ghost, 'am');
+  assert.deepEqual(suggest('/mute alv', players).items.map((item) => item.line), ['/mute Álvaro']);
+  // A name inside another comes after the ones it begins.
+  assert.deepEqual(suggest('/tp o', players).items.map((item) => item.label), ['Bo', 'Álvaro']);
+  // What is typed whole is not offered back.
+  assert.equal(suggest('/tp Bo', players).items.length, 0);
+  assert.deepEqual(suggest('/weather ', players).items.map((item) => item.label), ['clear', 'rain', 'storm', 'snow', 'fog', 'auto']);
+  assert.deepEqual(suggest('/weather s', players).items.map((item) => item.label), ['storm', 'snow']);
+  assert.ok(suggest('/time ', players).items.some((item) => item.label === 'dusk'));
+  assert.deepEqual(suggest('/time mi', players).items.map((item) => item.line), ['/time midnight']);
+  for (const item of suggest('/time ', players).items) assert.notEqual(parseClock(item.label), null, item.label);
+  for (const item of suggest('/weather ', players).items) assert.equal(parseWeather(item.label), item.label);
+  // A command that takes nothing offered shows what it takes, greyed.
+  assert.deepEqual(suggest('/me ', players), { items: [], ghost: '<action>' });
+  assert.equal(suggest('/me waves', players).ghost, '');
+  assert.equal(suggest('/goto ', players).ghost, '<town, country or lat,lon>');
 });
 
 test('a player is found by name, whole or begun, never by guess', () => {
@@ -232,6 +266,24 @@ test('/goto finds a built town, a name folded into one, and a country', async ()
   assert.equal(go('Japan')?.name, 'Tokyo');
   assert.equal(go('qqqqzz'), null);
   assert.equal(go('  '), null);
+
+  const name = (iso: string) => countries.find((country) => country.iso === iso)?.name ?? iso;
+  const offer = (query: string) => suggestPlaces(query, gazetteer, name);
+  const par = offer('par');
+  assert.equal(par[0]?.name, 'Paris', 'the biggest town that begins with it');
+  assert.ok(par.length <= SUGGEST_LIMIT);
+  assert.equal(new Set(par.map((row) => row.name.toLowerCase())).size, par.length, 'one row a name');
+  assert.equal(offer('spain')[0]?.detail, 'Country · Madrid');
+  assert.equal(offer('sao pa')[0]?.name, 'São Paulo');
+  assert.equal(offer('kobe')[0]?.detail, 'Osaka, Japan', 'a folded name says where it stands');
+  assert.equal(offer('qqqqzz').length, 0);
+  // Every row it offers is somewhere /goto goes.
+  for (const row of offer('san')) assert.notEqual(go(row.name), null, row.name);
+  // And the line reads it, once past the command.
+  const lines = suggest('/goto lond', { players: [], places: (query, limit) => suggestPlaces(query, gazetteer, name, limit) }).items;
+  assert.equal(lines[0]?.line, '/goto London');
+  assert.equal(lines[0]?.done, true);
+  assert.equal(suggest('/goto 48.8, 2.3', { players: [], places: () => [{ name: 'x', detail: '' }] }).items.length, 0, 'a point is not a name');
 });
 
 /* ------------------------------------------------------------------------- *

@@ -176,6 +176,8 @@ const ZOOM_PIXELS = 650;
 const ZOOM_RATE = 12;
 /** In the boat: wider, because the hull is longer than the avatar is tall. */
 const BOAT_FRAMING = { distance: 16, height: 6 };
+/** How deep a submarine is before the camera follows it under, units. */
+const SUB_FRAMED_UNDER = 3;
 /**
  * In any vehicle, framed on its own size: this many of its longest dimension
  * behind it, and this share of it over it, plus a body of each, so a car sits
@@ -372,6 +374,19 @@ const EYE_MIN_ELEVATION = -78 * DEG;
 const EYE_MAX_ELEVATION = 78 * DEG;
 /** Where the first-person aim point is put. Only its direction is used. */
 const EYE_FOCUS = 200;
+/**
+ * First person in a seat: how far the head turns off the seat's own ahead,
+ * either way and up or down, in radians — a driver looks over a shoulder and
+ * no further — and, once the mouse has rested `COCKPIT_RETURN_DELAY` seconds
+ * with the vehicle under way, how fast the gaze comes back to the road, per
+ * second.
+ */
+const COCKPIT_YAW = 110 * DEG;
+const COCKPIT_PITCH = 70 * DEG;
+const COCKPIT_RETURN_DELAY = 1;
+const COCKPIT_RETURN = 1.5;
+/** A vehicle's +Z is ahead and a camera looks down its own -Z: a half turn between them. */
+const ABOUT_FACE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
 export interface CameraRig {
   camera: THREE.PerspectiveCamera;
@@ -393,14 +408,14 @@ export interface CameraRig {
    * True while the eye is in the avatar's head. `V` toggles it, the rig owns
    * the state, and it is settable: `atlas.rig.firstPerson = true`.
    *
-   * It applies **on foot only**, and that is a decision rather than a gap. The
-   * boat and the plane are framed from their own geometry, and the plane's
+   * **On foot and in every seat.** It was on foot only, because the plane's
    * whole design is that climbing swings the camera overhead and turns the
-   * flight into the map — a cockpit view is the one framing that would take
-   * that away. Boarding suspends first person and stepping back ashore returns
-   * it, with no second key to remember. **`V` in a craft is refused**, and
-   * says so through `onViewRefused`: it used to flip the state silently, show
-   * nothing, and then drop you into your own eyes on landing.
+   * flight into the map; but a player at the wheel wants the road, and `V`
+   * is the one key for it. In a seat the eye is the seated body's
+   * (`Player.seatEye`): through the windscreen, over the bars, between a
+   * horse's ears, out of the cockpit, rolling with the vehicle, the mouse
+   * turning the head within `COCKPIT_YAW` and `COCKPIT_PITCH`. The map from
+   * the air is still there: `V` again.
    */
   firstPerson: boolean;
   /** Update yaw/pitch from mouse look. Call BEFORE player.update. */
@@ -430,8 +445,6 @@ export interface CameraOptions {
    * ground stops the camera, as it always did.
    */
   blocks?: (point: THREE.Vector3) => boolean;
-  /** `V` pressed in a craft, where first person does not apply: for the HUD to say so. */
-  onViewRefused?: () => void;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -457,7 +470,7 @@ function ramp(value: number, from: number, to: number): number {
 
 export function createCameraRig(options: CameraOptions = {}): CameraRig {
   const camera = new THREE.PerspectiveCamera(FOV_FOOT, 1, NEAR, FAR);
-  const { blocks, onViewRefused } = options;
+  const { blocks } = options;
   const view = { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height };
   /** The walking framing at a zoom of the wheel's: see `ZOOM_RISE`. */
   const walkFraming = (at: number, into: { distance: number; height: number }): void => {
@@ -517,8 +530,19 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
 
   /** True while the rig owns `view`; see the interface. */
   let driving = false;
-  /** See the interface. `V` toggles it; the eye is only ever used on foot. */
+  /** See the interface. `V` toggles it, on foot and in a seat. */
   let firstPerson = false;
+  /**
+   * First person in a seat: the head's turn off the seat's ahead, left
+   * positive, and its tilt, down positive; whether the player has been told
+   * the eye is in the seat; and the seat's own frame, read each frame.
+   */
+  let lookYaw = 0;
+  let lookPitch = 0;
+  let inCockpit = false;
+  const seatTurn = new THREE.Quaternion();
+  const headTurn = new THREE.Quaternion();
+  const headEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   /**
    * Seconds since the mouse last turned the view. Starts past the whole ramp so
    * the first step you take is followed, rather than waiting out a look nobody
@@ -592,6 +616,10 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       if (kind === 'boat') {
         framing.distance = Math.max(framing.distance, BOAT_FRAMING.distance);
         framing.height = Math.max(framing.height, BOAT_FRAMING.height);
+      } else if (kind === 'submarine' && player.depth > SUB_FRAMED_UNDER) {
+        // Under the surface the camera goes down with it, level with the
+        // tower, rather than hanging over the water looking down through it.
+        framing.height = Math.min(framing.height, AVATAR_HEIGHT * 0.6);
       } else if ((kind === 'plane' || kind === 'balloon' || kind === 'helicopter') && player.airborne) {
         const t = clamp(player.altitude / PLANE_CEILING, 0, 1);
         // Two different eases: the angle has to open early, or the first thousand
@@ -730,16 +758,38 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
 
   /** Eases the lens towards the one for what you are doing; see `FOV_FOOT`. */
   function lens(player: Player, rate: number): void {
-    const wanted = seated(player) ? FOV_CRAFT
-      : firstPerson ? FOV_EYE
+    const wanted = firstPerson ? FOV_EYE
+      : seated(player) ? FOV_CRAFT
       : FOV_FOOT + FOV_RUN * ramp(player.velocity, WALK_SPEED, RUN_SPEED);
     if (Math.abs(wanted - camera.fov) < 0.01) return;
     camera.fov += (wanted - camera.fov) * rate;
     camera.updateProjectionMatrix();
   }
 
-  /** True when the eye is actually in the head: first person is a foot mode, and swimming is one. */
+  /** True when the eye is actually in the head on foot, swimming, or falling under a canopy. */
   const inTheHead = (player: Player): boolean => firstPerson && !seated(player);
+
+  /** Tells the player whether the eye is in his seat, when that changes. */
+  function cockpitOn(player: Player, on: boolean): void {
+    if (on === inCockpit) return;
+    inCockpit = on;
+    player.setCockpit(on);
+  }
+
+  /**
+   * First person in a seat: the lens at the seated eye, turned with the
+   * vehicle and then by the head. Like the eye on foot, no chase and no lag;
+   * the pivot is kept on the body for `V` off.
+   */
+  function cockpit(player: Player): boolean {
+    if (!player.seatEye(camera.position, seatTurn)) return false;
+    headTurn.setFromEuler(headEuler.set(lookPitch, lookYaw, 0, 'YXZ'));
+    camera.quaternion.copy(seatTurn).multiply(headTurn).multiply(ABOUT_FACE);
+    orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
+    held = Infinity;
+    cockpitOn(player, true);
+    return true;
+  }
 
   /**
    * Shows or hides the avatar.
@@ -819,10 +869,29 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       player.controls.lift = (input.climb ? 1 : 0) - (input.dive ? 1 : 0);
       // `V` is read here for the same reason the vehicle keys are: this is the
       // one call that sees the keyboard, and the mode is the rig's own state.
-      if (input.view) {
-        if (!seated(player)) firstPerson = !firstPerson;
-        else onViewRefused?.();
+      if (input.view) firstPerson = !firstPerson;
+
+      // In a seat, through the seated eyes: the mouse turns the head within
+      // the seat's reach and the view is the vehicle's, so nothing else here
+      // applies. The heading is kept on the bow for `V` off.
+      if (firstPerson && seated(player)) {
+        lookYaw = clamp(lookYaw - input.look.x, -COCKPIT_YAW, COCKPIT_YAW);
+        lookPitch = clamp(lookPitch + input.look.y, -COCKPIT_PITCH, COCKPIT_PITCH);
+        if (Math.abs(input.look.x) + Math.abs(input.look.y) > LOOK_DEADZONE) sinceLook = 0;
+        else sinceLook += dt;
+        if (sinceLook > COCKPIT_RETURN_DELAY && player.velocity > 2) {
+          const back = Math.exp(-COCKPIT_RETURN * dt);
+          lookYaw *= back;
+          lookPitch *= back;
+        }
+        align(player);
+        heading.copy(player.forward);
+        pitch = 0;
+        riding = false;
+        return;
       }
+      lookYaw = 0;
+      lookPitch = 0;
 
       // The wheel, on foot and outside your own head: nearer or further along
       // the framing's own line. `exp` of the travel rather than its sign, so a
@@ -951,6 +1020,8 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
       const trail = chase > 1e-6 ? (1 - chase) / chase : 0;
 
       align(player);
+      if (firstPerson && seated(player) && cockpit(player)) return;
+      cockpitOn(player, false);
       if (inTheHead(player)) {
         // The pivot kept on the body, so that `V` off pulls back from the
         // head and not from wherever first person began.
@@ -1033,6 +1104,8 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         driving = seated(player);
       }
 
+      if (firstPerson && seated(player) && cockpit(player)) return;
+      cockpitOn(player, false);
       if (inTheHead(player)) {
         // The pivot kept on the body, so that `V` off pulls back from the
         // head and not from wherever first person began.

@@ -354,7 +354,28 @@ export interface WaterHandling {
 export const WATER_HANDLING: Partial<Record<CraftKind, WaterHandling>> = {
   jetski: { speed: 40, boost: 76, turn: 2.3, accelerationTime: 0.55, rudderTime: 0.1, astern: 0.3, heel: 0.45, bow: 0.1, hop: 0.35, list: 0 },
   sailboat: { speed: 18, boost: 24, turn: 0.75, accelerationTime: 3.5, rudderTime: 0.45, astern: 0.15, heel: 0.12, bow: 0.02, hop: 0, list: 0.16 },
+  submarine: { speed: 16, boost: 26, turn: 0.9, accelerationTime: 2.2, rudderTime: 0.35, astern: 0.3, heel: 0.05, bow: 0.02, hop: 0, list: 0 },
 };
+
+/**
+ * The submarine under the surface: how fast it dives and rises on the two
+ * keys, units a second; how its vertical speed eases; the most it ever goes
+ * down, units, which is a tourist boat's and not a warship's; how far it
+ * keeps off the floor, over its draft; and how far down it counts as under,
+ * for the camera, the wake and getting out — a submarine is left only at the
+ * surface.
+ *
+ * - **Surface**: a slow boat, low in the water, the tower out of it.
+ * - **Under**: the climb key (`Space`, or `Shift` with it) brings it up and
+ *   the descend key (`C`, `Ctrl`) takes it down, and it holds its depth with
+ *   neither; it cannot go through the floor and a rising floor lifts it.
+ */
+export const SUB_DIVE = 6;
+export const SUB_RISE = 7;
+export const SUB_VERTICAL_TIME = 0.9;
+export const SUB_MAX_DEPTH = 60;
+export const SUB_FLOOR_CLEAR = 1.5;
+export const SUB_UNDER = 1.2;
 
 /**
  * The helicopter: its cruise and how far backwards, units a second; its climb

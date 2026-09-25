@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
-import { createLandProbe } from './land-probe.ts';
+import { landProbeOf } from './land-probe.ts';
 import { mergeMeshes } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
@@ -54,6 +54,8 @@ import {
 } from './scenery/index.ts';
 import type { RegionId, RegionStyle, SceneryContext, ScenicPart, Weighted } from './scenery/index.ts';
 import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
+import { planGap, planShape } from './landmark-ground.ts';
+import type { PlanShape } from './landmark-ground.ts';
 import { FIELD_CLEARANCE, LEVELS, MONUMENT_CLEARANCE, ROOT_STEP, WIDEST_FOOTPRINT, cellsOf, rootOf, rowsOf, stepOf } from './tile-grid.ts';
 import { createCountryside } from './countryside.ts';
 import { freeSpot, enclosed, pushOut, solidField } from './scenery/solids.ts';
@@ -1098,6 +1100,13 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    * a foot arriving at a town is looking.
    */
   const builtHalf = new Float64Array(builtRadius.length);
+  /**
+   * A monument's plan (`landmark-ground.ts`), null for a town: the trees keep
+   * `MONUMENT_CLEARANCE` off the ground its model stands on rather than off
+   * the disc of its footprint, so the Alhambra, 94 units by 18, is not an
+   * empty circle 110 across in the middle of its wood.
+   */
+  const builtShape: (PlanShape | null)[] = [];
   /** How many of those arrays are in use: only the *shown* places keep the trees out. */
   let builtCount = 0;
   /**
@@ -1107,19 +1116,20 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    */
   const rebuildKeepouts = (): void => {
     let i = 0;
-    const add = (lat: number, lon: number, radius: number, half = 0): void => {
+    const add = (lat: number, lon: number, radius: number, half = 0, shape: PlanShape | null = null): void => {
       // Through `sphere.ts`, like every other conversion in the project: the
       // obvious hand-written one is the mirror image of the planet.
       toUnit(lat, lon, builtUnit, i * 3);
       builtRadius[i] = radius;
       builtHalf[i] = half;
+      builtShape[i] = shape;
       i++;
     };
     for (const place of options.places ?? []) {
       if (isShown(place)) add(place.lat, place.lon, radiusOf(place), townGrid(radiusOf(place)).half);
     }
     for (const site of options.monuments ?? []) {
-      add(site.lat, site.lon, (site.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE);
+      add(site.lat, site.lon, (site.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE, 0, planShape(site));
     }
     builtCount = i;
   };
@@ -1323,7 +1333,17 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     radius: number;
     /** Which entry of `builtUnit` this is, for the sward's town squares. */
     index: number;
+    /** A monument's plan, kept `MONUMENT_CLEARANCE` off; null for a town's disc. */
+    shape: PlanShape | null;
   }
+
+  /** Whether `(x, z)` in the tile's frame is inside a keepout. */
+  const insideKeepout = (keepout: Keepout, x: number, z: number): boolean => {
+    if (keepout.shape !== null) return planGap(keepout.shape, x - keepout.x, z - keepout.z) < MONUMENT_CLEARANCE;
+    const dx = x - keepout.x;
+    const dz = z - keepout.z;
+    return dx * dx + dz * dz < keepout.radius * keepout.radius;
+  };
   const keepouts: Keepout[] = [];
 
   /**
@@ -1485,6 +1505,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
             PLANET_RADIUS,
           radius: builtRadius[i]!,
           index: i,
+          shape: builtShape[i] ?? null,
         });
       }
     }
@@ -1760,9 +1781,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
 
         let blocked = false;
         for (const keepout of keepouts) {
-          const dx = x - keepout.x;
-          const dz = z - keepout.z;
-          if (dx * dx + dz * dz < keepout.radius * keepout.radius) {
+          if (insideKeepout(keepout, x, z)) {
             blocked = true;
             break;
           }
@@ -2377,7 +2396,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   // ------------------------------------------------------------------
 
   // Here rather than in `main.ts`, so the index is in this deferred chunk and not the first load.
-  const land = options.land === undefined ? undefined : createLandProbe(options.land);
+  const land = options.land === undefined ? undefined : landProbeOf(options.land);
   const lawns = options.lawns;
   const swardGroup = new THREE.Group();
   swardGroup.name = 'sward';
@@ -2623,9 +2642,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         let blocked = false;
         for (const keepout of keepouts) {
           if (builtHalf[keepout.index]! > 0) continue;
-          const dx = x - keepout.x;
-          const dz = z - keepout.z;
-          if (dx * dx + dz * dz < keepout.radius * keepout.radius) {
+          if (insideKeepout(keepout, x, z)) {
             blocked = true;
             break;
           }

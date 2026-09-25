@@ -150,6 +150,35 @@ const GALLOP_FROM = 10;
 const WALK_PACE = 0.3;
 const GALLOP_STRIDE = 1.6;
 const GAIT_EASE = 5;
+/**
+ * A ridden horse's jumps, by the pack's clip: a leap at speed, and a jump from
+ * a stand that ends standing. `craft/horse.ts` measures each for how high its
+ * hooves go (`JumpCurve`), and `JUMP_EASE` is how fast a jump takes over from
+ * the gaits and gives way to them again, per second.
+ */
+export const JUMP_CLIPS = ['Gallop_Jump', 'Jump_toIdle'] as const;
+const JUMP_EASE = 14;
+
+/**
+ * A jump clip as measured: the lowest hoof's height over the ground through
+ * it, in the craft's units at `duration / (feet.length - 1)` seconds a
+ * sample, and the clip's times at the last frame on the ground before the
+ * leap and the first after it.
+ */
+export interface JumpCurve {
+  feet: Float32Array;
+  duration: number;
+  off: number;
+  on: number;
+}
+
+/** A jump curve's hoof height at `time`, between its samples. */
+function feetAt(curve: JumpCurve, time: number): number {
+  const last = curve.feet.length - 1;
+  const at = clamp((time / curve.duration) * last, 0, last);
+  const i = Math.min(last - 1, Math.floor(at));
+  return curve.feet[i]! + (curve.feet[i + 1]! - curve.feet[i]!) * (at - i);
+}
 
 interface Parts {
   sprung: THREE.Group;
@@ -161,6 +190,9 @@ interface Parts {
   /** An animal's rig: its body and mixer, and the bone the saddle rides. */
   rig: Rigged | null;
   back: THREE.Bone | null;
+  /** The group the rig hangs in, which a jump lowers, and the jumps it can play. */
+  holder: THREE.Object3D | null;
+  jumps: Readonly<Record<string, JumpCurve>> | null;
   /** The wheels and their radii, and which are steered (ahead of the middle). */
   wheels: THREE.Object3D[];
   radii: number[];
@@ -194,6 +226,8 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   const tails: THREE.Object3D[] = [];
   let rig: Rigged | null = null;
   let back: THREE.Bone | null = null;
+  let holder: THREE.Object3D | null = null;
+  let jumps: Readonly<Record<string, JumpCurve>> | null = null;
   for (const child of [...group.children]) {
     if (child.name === 'wheel') {
       wheels.push(child);
@@ -205,6 +239,8 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
       rig = (child.userData.rigged as Rigged | undefined) ?? null;
       const named = child.userData.back as string | undefined;
       if (rig !== null && named !== undefined) back = rig.body.skeleton.bones.find((bone) => bone.name === named) ?? null;
+      holder = child;
+      jumps = (child.userData.jumps as Record<string, JumpCurve> | undefined) ?? null;
       continue;
     }
     // The body, the propeller, the seat frames: everything the springs carry.
@@ -260,7 +296,7 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
       throw new Error(`craft ${model.id}: '${part.name}' has a reflected matrix under its motion`);
     }
   });
-  return { sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, rig, back };
+  return { sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, rig, back, holder, jumps };
 }
 
 let disc: THREE.CircleGeometry | null = null;
@@ -328,6 +364,11 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
     parts.back.getWorldPosition(backAt);
     return group.worldToLocal(backAt).y;
   };
+  /** The jump playing, its curve, and how much of the body it has. */
+  let jumping: THREE.AnimationAction | null = null;
+  let jumpCurve: JumpCurve | null = null;
+  let jumpWeight = 0;
+  let wasGrounded = true;
   if (rigged !== null) {
     for (const [i, action] of gaits.entries()) {
       if (action === null) continue;
@@ -355,6 +396,11 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   function rest(): void {
     lastSpeed = accel = pitch = pitchRate = roll = rollRate = spin = 0;
     lift = 0;
+    jumping?.stop();
+    jumping = jumpCurve = null;
+    jumpWeight = 0;
+    wasGrounded = true;
+    if (parts.holder !== null) parts.holder.position.y = 0;
     parts.sprung.position.set(0, 0, 0);
     parts.sprung.rotation.set(0, 0, 0);
     for (const wheel of parts.wheels) wheel.rotation.y = 0;
@@ -430,17 +476,53 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       // cover the ground at, and the saddle on its back as it rises and falls.
       if (rigged !== null) {
         const pace = Math.abs(speed);
+        // Off the ground — a jump, or off a terrace — it leaps: the pack's
+        // leap at speed, its standing jump from a stand, from the last frame
+        // before the hooves leave the ground. Down again sooner than the clip
+        // is, it goes straight to the landing; still up when the clip lands,
+        // it holds the stretch until it is down.
+        if (!input.grounded && wasGrounded && parts.jumps !== null) {
+          const name = pace >= WALK_FROM ? JUMP_CLIPS[0] : JUMP_CLIPS[1];
+          const curve = parts.jumps[name] ?? null;
+          const action = rigged.actions.get(name) ?? null;
+          if (curve !== null && action !== null) {
+            if (jumping !== null && jumping !== action) jumping.stop();
+            action.reset();
+            action.setLoop(THREE.LoopOnce, 1);
+            action.clampWhenFinished = true;
+            action.play();
+            action.time = curve.off;
+            jumping = action;
+            jumpCurve = curve;
+          }
+        }
+        wasGrounded = input.grounded;
+        let leaping = false;
+        if (jumping !== null && jumpCurve !== null) {
+          if (input.grounded && jumping.time < jumpCurve.on) jumping.time = jumpCurve.on;
+          else if (!input.grounded && jumping.time > jumpCurve.on) jumping.time = jumpCurve.on - 0.02;
+          leaping = !jumping.paused && jumping.time < jumpCurve.duration - 1e-3;
+        }
+        jumpWeight += ((leaping ? 1 : 0) - jumpWeight) * approach(JUMP_EASE, dt);
+        if (!leaping && jumpWeight < 1e-3) {
+          jumpWeight = 0;
+          jumping?.stop();
+          jumping = jumpCurve = null;
+        }
+        jumping?.setEffectiveWeight(jumpWeight);
         const want = pace < WALK_FROM ? 0 : pace < GALLOP_FROM ? 1 : 2;
         const ease = approach(GAIT_EASE, dt);
         for (let i = 0; i < 3; i++) {
           weights[i]! += ((i === want ? 1 : 0) - weights[i]!) * ease;
-          gaits[i]?.setEffectiveWeight(weights[i]!);
+          gaits[i]?.setEffectiveWeight(weights[i]! * (1 - jumpWeight));
         }
         if (walk !== null) walk.timeScale = clamp(pace / (WALK_PACE * length), 0.5, 2.2);
         if (gallop !== null && gallop !== walk) gallop.timeScale = clamp(pace / gallopPace, 0.6, 1.8);
-        const moving = pace > 0.01 || input.moored || weights[0]! < 0.999;
+        const moving = pace > 0.01 || input.moored || weights[0]! < 0.999 || jumping !== null;
         if (moving) {
           rigged.mixer.update(dt);
+          // The clip's own rise taken back off, so the height is the jump's.
+          if (parts.holder !== null) parts.holder.position.y = jumping !== null && jumpCurve !== null ? -feetAt(jumpCurve, jumping.time) * jumpWeight : 0;
           lift = backY() - backRest;
           parts.sprung.position.y += lift;
         }
@@ -497,7 +579,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       settling =
         input.engine ||
         input.moored ||
-        (rigged !== null && weights[0]! < 0.999) ||
+        (rigged !== null && (weights[0]! < 0.999 || jumping !== null)) ||
         steered ||
         spin > 0 ||
         Math.abs(speed) > 0.01 ||

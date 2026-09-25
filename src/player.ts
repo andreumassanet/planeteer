@@ -12,6 +12,8 @@ import type { Emote } from '../server/src/limits.ts';
 import { isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
+import { HERO } from './craft/body.ts';
+import { buildParachute } from './craft/parachute.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import {
   AVATAR_HIP,
@@ -63,6 +65,12 @@ import {
   PLANE_VERTICAL_TIME,
   ROAD_HANDLING,
   SHORE_REACH,
+  SUB_DIVE,
+  SUB_FLOOR_CLEAR,
+  SUB_MAX_DEPTH,
+  SUB_RISE,
+  SUB_UNDER,
+  SUB_VERTICAL_TIME,
   WATERLINE,
   WATER_HANDLING,
   buildSplash,
@@ -110,6 +118,58 @@ const JUMP_HEIGHT = Math.min(LAND_HEIGHT * 0.45, AVATAR_HEIGHT * 0.6);
 const JUMP_RISE = 0.34;
 const GRAVITY = (2 * JUMP_HEIGHT) / (JUMP_RISE * JUMP_RISE);
 const JUMP_SPEED = (2 * JUMP_HEIGHT) / JUMP_RISE;
+/**
+ * A ridden horse's jump, as the speed it leaves the ground at: whatever keeps
+ * it off the ground as long as the pack's leap does (`Gallop_Jump`, about 0.7
+ * s between the hooves leaving and meeting the ground), under the one gravity.
+ * About 0.6 of a body at the top, which is a horse's fence and not a person's.
+ */
+const HORSE_JUMP_SPEED = GRAVITY * 0.35;
+
+/**
+ * Out of a vehicle under way. Faster than `BAIL_SPEED` along its bow, getting
+ * out is jumping out: the body goes over the side with a share of the
+ * vehicle's speed (`BAIL_CARRY`), pushed clear of it (`BAIL_SHOVE`) and
+ * lifted a hop (`BAIL_HOP` of a jump), and lands in a roll; the vehicle goes
+ * on without anybody (`fleet.ts`).
+ */
+const BAIL_SPEED = 3;
+const BAIL_CARRY = 0.45;
+const BAIL_SHOVE = 5;
+const BAIL_HOP = 0.45;
+/** How hard the landing out of a moving vehicle is read, for the body's roll: past 1 the hardest. */
+const BAIL_LANDING = 1.2;
+
+/**
+ * Out of an aircraft in flight: a fall, then a canopy. Falling, the body comes
+ * down at `FREEFALL_RATE` of its height over the ground a second, never slower
+ * than `FREEFALL_MIN` — a real fall's terminal speed would take a minute from
+ * cruise height, and this takes a quarter of that from the ceiling — and the
+ * canopy opens `CHUTE_OPEN` over the ground. Under it the body sinks at
+ * `CHUTE_SINK` and glides at `CHUTE_GLIDE` ahead, `W` for faster and `S` for
+ * slower by `CHUTE_PACE` of it, and turns at `CHUTE_TURN` on `A` and `D`.
+ */
+const FREEFALL_RATE = 0.35;
+const FREEFALL_MIN = 30;
+const CHUTE_OPEN = 90;
+const CHUTE_SINK = 6;
+const CHUTE_GLIDE = 12;
+const CHUTE_PACE = 0.5;
+const CHUTE_TURN = 1.2;
+/** Seconds the canopy takes to open out, and how far it swings with a turn, radians. */
+const CHUTE_OPENING = 0.6;
+const CHUTE_SWING = 0.35;
+
+/**
+ * The eye in a seat, over the hip: seated, half a head under the crown the
+ * seats are built round (`HERO` in `craft/body.ts`) and a little ahead, the
+ * face being ahead of the spine; astride, further ahead, a rider leaning into
+ * the bars. Standing, the foot's own eye over the soles (`camera.ts`).
+ */
+const SEAT_EYE_UP = HERO.crown - AVATAR_HEIGHT / 14;
+const SEAT_EYE_AHEAD = AVATAR_HEIGHT * 0.05;
+const RIDE_EYE_AHEAD = AVATAR_HEIGHT * 0.12;
+const STAND_EYE = AVATAR_HEIGHT * 0.93;
 
 /**
  * A drop larger than this is a cliff: you come off it and fall, instead of
@@ -139,6 +199,19 @@ export const STEP_UP = 0.6;
 const CLIMB_SLOPE = 2.75;
 
 /**
+ * A fall no steeper than this over the ground covered is the ground going
+ * down, and it is followed exactly, as a rise is; only a steeper one — a kerb,
+ * a riser, the back of a lot — is smoothed by `HEIGHT_SMOOTHING`.
+ *
+ * Smoothing every drop kept a body a speed over eight units above any slope
+ * going down: half a unit walking and a unit and a half running down thirty
+ * degrees, and on the drawn land every facet's edge is a change of slope, so
+ * the lag came and went at each one. It is `CLIMB_SLOPE`, so whatever ground
+ * a foot walks up it walks down on, and only a made face is glided off.
+ */
+const FOLLOW_SLOPE = CLIMB_SLOPE;
+
+/**
  * The body against a wall: a circle this wide, centred under the player.
  *
  * A circle because a body turns on the spot, and a shape that turned with it
@@ -151,6 +224,8 @@ const CLIMB_SLOPE = 2.75;
  * houses. `camera.ts` reads it too, for how near a wall can bring the lens.
  */
 export const BODY_RADIUS = FIGURE.shoulderHalf;
+/** How far forward getting up off a bench steps: the body's own width, off the seat's edge. */
+const STAND_STEP = BODY_RADIUS + 0.35;
 
 /**
  * Radians of roll at a hard turn, and how much lateral acceleration earns it.
@@ -234,14 +309,38 @@ const SPLASH_FLAT = 0.05;
 const TAU = Math.PI * 2;
 
 /**
- * Afloat: how fast a swimmer goes, and how fast with the run key — half a walk
- * and most of one. A person in the water is slow, and the sea is wide; the
- * launches off every coastal town are how it gets crossed.
+ * Afloat: how fast a swimmer goes, and how fast with the run key — a little
+ * over a walk, and most of a run. It was half a walk and most of one, which is
+ * a person's real pace in the water and was no fun at all: a beach's worth of
+ * reef took a minute to cross. The launches off every coastal town are still
+ * how an ocean gets crossed. The arms do not keep up by distance at these
+ * speeds and are not asked to (`swimCadence` in `avatar.ts`).
  */
-const SWIM_SPEED = WALK_SPEED * 0.5;
-const SWIM_SPRINT = WALK_SPEED * 0.8;
+export const SWIM_SPEED = WALK_SPEED * 1.15;
+export const SWIM_SPRINT = RUN_SPEED * 0.72;
 /** The swimmer's time constant, slower than the walk's: water has to be pushed. */
-const SWIM_ACCELERATION_TIME = 0.35;
+const SWIM_ACCELERATION_TIME = 0.45;
+/**
+ * Diving: how fast the descend key takes a swimmer down and the climb key
+ * brings him up, units a second; how fast he drifts back up with neither,
+ * which is a breath of air in the lungs; and how the vertical speed eases.
+ */
+export const DIVE_SPEED = 5.5;
+export const RISE_SPEED = 6.5;
+const DIVE_BUOYANCY = 0.7;
+const DIVE_EASE = 0.35;
+/**
+ * How far over the sea floor a diver's surface point stays, units. `position`
+ * is at the surface a swimmer's chest is at, and the body hangs `SWIM_DEPTH`
+ * under it lying down, so this keeps a hand's breadth between his belly and
+ * the sand.
+ */
+const DIVE_FLOOR_CLEAR = 1.2;
+/** Deeper than this and the swimmer is under the surface, for leaving the water and for the body. */
+const UNDER_FROM = 0.6;
+/** The most a diver's body pitches towards where he is going, radians, and a submarine's bow. */
+const DIVE_PITCH = 0.9;
+const SUB_PITCH = 0.3;
 /**
  * How far the soles hang under the water's surface: the chest is at the
  * surface, so it is the chest's own height. `position` rides the surface while
@@ -256,7 +355,7 @@ const SINK_RATE = 5;
  * lowest shore stands (`SHORE_LIP`), so neither a ripple on the shelf nor the
  * lip itself can leave a swimmer flickering between the two.
  */
-const SWIM_OUT = 1.5;
+export const SWIM_OUT = 1.5;
 /**
  * The highest bank a swimmer climbs out onto, over the water's surface. The
  * shore's lip is four; a town's quay is a wall of twenty, and a swimmer who
@@ -424,6 +523,19 @@ export interface Player {
   up: THREE.Vector3;
   /** Current ground speed in units/s. Used by the HUD and the walk cycle. */
   velocity: number;
+  /**
+   * At the controls, the speed along the bow, negative astern; anywhere else
+   * `velocity`. With `climb`, how the vehicle was going when it was let go of,
+   * which is how it goes on without anybody (`fleet.ts`).
+   */
+  speed: number;
+  /** Units a second away from the planet's centre this frame: a climb, a fall. */
+  climb: number;
+  /**
+   * Out of an aircraft in flight and not yet down: falling, and then under a
+   * canopy (`CHUTE_OPEN`), steered by the movement keys. On foot, and in the air.
+   */
+  parachute: boolean;
   /** True while off the ground: a jump, a fall, and the whole of a flight. */
   airborne: boolean;
   /** On foot, swimming, or in a seat: `PLAYER_STATES`, which is what the wire carries. */
@@ -436,6 +548,12 @@ export interface Player {
   grounded: boolean;
   /** How far the soles are under `position`, along `up`: 0 standing, `SWIM_DEPTH` afloat. */
   sink: number;
+  /**
+   * How far under the surface a swimmer has dived, or a submarine has gone,
+   * units: 0 on the surface and everywhere else. `position` is that far under
+   * the water's surface.
+   */
+  depth: number;
   /** Units above sea level. The camera reads it to open the view out. */
   altitude: number;
   /**
@@ -469,14 +587,29 @@ export interface Player {
    * whatever this says (`Seat.shown`).
    */
   setBodyVisible(visible: boolean): void;
+  /**
+   * Where the eyes are in the seat, into `position`, and the way the seat
+   * faces, into `orientation` — +Z ahead, +Y the seat's up, the vehicle's
+   * roll, nose and swell included. False when not seated.
+   */
+  seatEye(position: THREE.Vector3, orientation: THREE.Quaternion): boolean;
+  /**
+   * First person in a seat: the body hidden, and inside a closed cab the
+   * vehicle drawn without its ink, whose hull seen from within is a screen of
+   * ink. Off, both are as they were.
+   */
+  setCockpit(on: boolean): void;
   /** Teleport. Leaves the player in a fully consistent state in one call, on foot or swimming. */
   goTo(lat: number, lon: number): void;
   /** Into a seat, with the vehicle standing at `pose`. */
   board(ride: Ride, pose: WirePose): void;
   /**
-   * Out of the seat, beside the vehicle: the pose it is left at, or null where
-   * nobody can step out — a plane in flight, a balloon aloft. The vehicle's
-   * group is taken off the player; whoever handed it over puts it back.
+   * Out of the seat, beside the vehicle: the pose it is left at, or null when
+   * not seated. Standing still it is stepping out; under way it is jumping
+   * out, over the side with some of its speed; and in the air it is a fall
+   * with a parachute (`parachute`). The vehicle's group is taken off the
+   * player; whoever handed it over puts it back, and reads `speed` and
+   * `climb` first if it is to go on without him.
    */
   leave(): WirePose | null;
   /** Where the vehicle is while seated, or the body on foot: nine numbers, see `WirePose`. */
@@ -489,6 +622,16 @@ export interface Player {
   emote(name: Emote | null): boolean;
   /** The gesture being made, or null. */
   readonly emoting: Emote | null;
+  /**
+   * Sits down on a bench (`bench.ts`): the root at `at`, on the ground under
+   * it less `sink`, facing `facing`, the sitting clip held. Any movement key,
+   * a jump or `stand` gets up again. False anywhere but on foot on the ground.
+   */
+  sitOn(at: THREE.Vector3, facing: THREE.Vector3, sink: number): boolean;
+  /** Up off the bench and a pace forward, clear of it. */
+  stand(): void;
+  /** Sitting on a bench. */
+  readonly sitting: boolean;
   /** A passenger is carried: stand the vehicle, and him in it, at a pose somebody else drives. */
   carry(pose: WirePose): void;
 }
@@ -542,6 +685,7 @@ const MODE_OF: Readonly<Record<CraftKind, TravelMode>> = {
   jetski: 'jetski',
   sailboat: 'sailboat',
   helicopter: 'helicopter',
+  submarine: 'submarine',
 };
 /** The car's, which a plane taxis by. */
 const TAXI = ROAD_HANDLING.car!;
@@ -563,6 +707,19 @@ const HELI_WATER_FLOOR = 2;
 const HELI_ATTITUDE_EASE = 2.5;
 
 export interface PlayerOptions {
+  /**
+   * The land's radius under `point`, which is what is *drawn* there: the
+   * mesh's own triangles near the player (`drawnRadius` in `land-probe.ts`),
+   * the sea's radius over water, and the relief where nothing nearer knows.
+   * Only the direction of `point` is read.
+   *
+   * The relief and the mesh are not the same surface — the mesh is flat
+   * triangles laid between points of it — so a foot on `groundRadius` walked
+   * up to eight units inside a hill or over a dip, and where a lake's cut and
+   * its outline part it swam in water drawn as land. Omit it and the player
+   * walks the relief, which is what a headless caller without a mesh gets.
+   */
+  groundAt?: (point: THREE.Vector3) => number;
   /**
    * How high the ground *people made* stands here, as a radius, or 0 where
    * there is none: a town's floor and a road's carriageway.
@@ -634,6 +791,12 @@ export interface PlayerOptions {
   onStep?: (weight: number) => void;
   /** Back on the ground after a jump or a fall, with the speed it landed at. */
   onTouchdown?: (speed: number) => void;
+  /**
+   * The radius of the sea floor under a point (`seaDepthAt` in
+   * `sea-floor.ts`), which a diver and a submarine stop on. Without it nobody
+   * goes under the surface.
+   */
+  seaFloorAt?: (point: THREE.Vector3) => number;
 }
 
 export function createPlayer(
@@ -688,6 +851,8 @@ export function createPlayer(
   const forward = new THREE.Vector3(0, 0, 1);
 
   let state: PlayerState = 'foot';
+  /** On a bench: nothing moves the root until a key does (`sitOn`). */
+  let sitting = false;
   interface Held extends Ride {
     /** The model's springs, wheels and propeller: see `craft/motion.ts`. */
     motion: CraftMotion;
@@ -698,6 +863,19 @@ export function createPlayer(
   /** A plane or a balloon standing on the ground. */
   let grounded = false;
   let bodyWanted = true;
+  /** First person in a seat: see `setCockpit`. */
+  let cockpit = false;
+  /**
+   * Out of an aircraft: falling (`chute` true, `canopy` 0) and under the
+   * canopy (`canopy` its age, seconds). The canopy is built on the first jump.
+   */
+  let chute = false;
+  let canopy = 0;
+  let parachute: THREE.Group | null = null;
+  /** The climb, measured over the frame. */
+  let climb = 0;
+  /** Out of a moving vehicle and not yet down: the landing is a roll. */
+  let tumbling = false;
 
   // Tangent velocity on foot. Keeping it as a vector rather than a scalar is
   // what gives movement its weight: a change of direction has to bleed off the
@@ -715,6 +893,11 @@ export function createPlayer(
   let lean = 0;
   /** How far the body hangs under `position`, swimming. */
   let sink = 0;
+  /** How far under the surface, diving, and how fast it is going down (positive) or up. */
+  let dive = 0;
+  let diveRate = 0;
+  /** How much of the body's pose is the diver's, eased, 0 at the surface. */
+  let under = 0;
   /**
    * What the walk tells the body besides its speed: how fast it turned this
    * frame, and how far the camera looks off its facing (`MotionCues`).
@@ -780,6 +963,8 @@ export function createPlayer(
   const worldQuaternion = new THREE.Quaternion();
   const LOCAL_Y = new THREE.Vector3(0, 1, 0);
   const LOCAL_Z = new THREE.Vector3(0, 0, 1);
+  const eyeLocal = new THREE.Vector3();
+  const eyeTurn = new THREE.Quaternion();
 
   /**
    * The walls, laid flat. `slide` works in a plane and the planet is not one, so
@@ -859,19 +1044,22 @@ export function createPlayer(
 
   const controls: Player['controls'] = { lift: 0 };
 
+  /** The land under a point: see `PlayerOptions.groundAt`. */
+  const landAt = options.groundAt ?? ((at: THREE.Vector3): number => groundRadius(world, at));
+
   /**
    * The surface a foot or a wheel stands on: the relief, or whatever was built
    * on it.
    *
    * `terrain.ts`'s `reliefAt` is still the one definition of the relief and
-   * `groundRadius` is still the one way to ask it — this is a *made* surface on
-   * top, and the higher of the two wins because a plinth and a carriageway are
-   * both things you stand on rather than sink into. A made surface only ever
-   * exists over land, so the water test upstream of this is unaffected: the sea
-   * has nothing built on it.
+   * `landAt` is what was drawn of it — this is a *made* surface on top, and
+   * the higher of the two wins because a plinth and a carriageway are both
+   * things you stand on rather than sink into. The one made surface over the
+   * sea is a quay's paving, which is drawn there, so it is stood on and the
+   * water starts at its edge.
    */
   function standingRadius(at: THREE.Vector3): number {
-    const relief = groundRadius(world, at);
+    const relief = landAt(at);
     if (options.madeHeightAt === undefined) return relief;
     const made = options.madeHeightAt(at);
     return made > relief ? made : relief;
@@ -910,7 +1098,7 @@ export function createPlayer(
       bow.copy(along);
       if (spread !== 0) bow.applyAxisAngle(up, spread).normalize();
       pointAhead(bow, arc, probe);
-      if (!isWater(groundRadius(world, probe))) return false;
+      if (!isWater(landAt(probe))) return false;
     }
     return true;
   }
@@ -920,7 +1108,44 @@ export function createPlayer(
 
   /** Whether the body is drawn: wanted by the camera, and not shut in a cab. */
   function applyBody(): void {
-    avatar.group.visible = bodyWanted && (ride === null || seatOf(ride).shown);
+    avatar.group.visible = bodyWanted && !(cockpit && ride !== null) && (ride === null || seatOf(ride).shown);
+    if (ride !== null) inkless(ride.group, cockpit && !seatOf(ride).shown);
+  }
+
+  /**
+   * A closed cab seen from inside it, without its ink. From within, every
+   * face of the body is a back face and is not drawn — the eye sees out
+   * through the roof and the doors, and down onto the bonnet, which faces it
+   * — but the ink hull is drawn from its back faces, and from inside a hull
+   * is a screen of ink. So each of the ride's meshes is given a copy of its
+   * material with the ink off, kept per material, and its own back after.
+   */
+  const noInk = new WeakMap<THREE.Material, THREE.Material>();
+  function inkless(group: THREE.Object3D, on: boolean): void {
+    group.traverse((part) => {
+      const mesh = part as THREE.Mesh;
+      if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+      const own = mesh.userData.inked as THREE.Material | undefined;
+      if (!on) {
+        if (own !== undefined) mesh.material = own;
+        delete mesh.userData.inked;
+        return;
+      }
+      if (own !== undefined) return;
+      const material = mesh.material;
+      let bare = noInk.get(material);
+      if (bare === undefined) {
+        bare = material.clone();
+        // `Material.copy` leaves the shader patches behind, and a car's paint
+        // or a town's lights are in them: the clone keeps the same program.
+        bare.onBeforeCompile = material.onBeforeCompile;
+        bare.customProgramCacheKey = material.customProgramCacheKey;
+        bare.userData.outlineParameters = { ...(material.userData.outlineParameters as object | undefined), visible: false };
+        noInk.set(material, bare);
+      }
+      mesh.userData.inked = material;
+      mesh.material = bare;
+    });
   }
 
   /**
@@ -948,8 +1173,32 @@ export function createPlayer(
     vertical = 0;
     airborne = false;
     motion.clampLength(0, SWIM_SPRINT);
+    dive = 0;
+    diveRate = 0;
     spray(PLANET_RADIUS + WATERLINE, SWIM_SPLASH);
     options.onEvent?.('swim', 0);
+  }
+
+  /**
+   * How deep a swimmer may dive here: down to the sea floor less a clearance,
+   * and not at all where nobody has told him where the floor is.
+   */
+  function diveFloor(at: THREE.Vector3): number {
+    if (options.seaFloorAt === undefined) return 0;
+    return Math.max(0, PLANET_RADIUS + WATERLINE - (options.seaFloorAt(at) + DIVE_FLOOR_CLEAR));
+  }
+
+  /**
+   * The swimmer's depth for the frame: down on the descend key, up on the
+   * climb key, a slow drift up with neither, eased like a body in water; never
+   * through the floor, and pushed up by a floor that rises under him.
+   */
+  function diveOn(dt: number): void {
+    const lift = controls.lift;
+    const wanted = lift < 0 ? DIVE_SPEED : lift > 0 ? -RISE_SPEED : dive > 0 ? -DIVE_BUOYANCY : 0;
+    diveRate += (wanted - diveRate) * approach(1 / DIVE_EASE, dt);
+    dive = clamp(dive + diveRate * dt, 0, diveFloor(position));
+    if (dive === 0 && diveRate < 0) diveRate = 0;
   }
 
   /**
@@ -996,8 +1245,11 @@ export function createPlayer(
     motion.set(0, 0, 0);
   }
 
-  /** Height after a move over the ground: follow a rise, glide down a slope, fall off a cliff. */
-  function settle(dt: number, ground: number, drop: number): void {
+  /**
+   * Height after a move of `distance` over the ground: follow a rise and a
+   * slope down, glide down a step, fall off a cliff.
+   */
+  function settle(dt: number, ground: number, drop: number, distance: number): void {
     if (airborne) {
       vertical -= GRAVITY * dt;
       height += vertical * dt;
@@ -1005,8 +1257,9 @@ export function createPlayer(
         height = ground;
         if (!isWater(ground)) {
           options.onTouchdown?.(-vertical);
-          avatar.land((-vertical - JUMP_SPEED) / (JUMP_SPEED * LANDING_HARD));
+          avatar.land(tumbling ? BAIL_LANDING : (-vertical - JUMP_SPEED) / (JUMP_SPEED * LANDING_HARD));
         }
+        tumbling = false;
         vertical = 0;
         airborne = false;
       }
@@ -1018,6 +1271,9 @@ export function createPlayer(
       // 20-unit coast is not.
       airborne = true;
       vertical = 0;
+    } else if (height - ground <= distance * FOLLOW_SLOPE) {
+      // Downhill: see FOLLOW_SLOPE.
+      height = ground;
     } else {
       height += (ground - height) * approach(HEIGHT_SMOOTHING, dt);
     }
@@ -1091,20 +1347,24 @@ export function createPlayer(
     if (swimming) {
       // Out of the water where the bank is one a person can climb, and against
       // it where it is not: a quay is a wall from the sea as it is from the
-      // street. Well over `isWater`'s line, so the two cannot flicker.
+      // street. Well over `isWater`'s line, so the two cannot flicker. Under
+      // the surface every bank is a wall: a diver comes up before he climbs.
       if (ground > PLANET_RADIUS + SWIM_OUT) {
-        if (ground - (PLANET_RADIUS + WATERLINE) > SWIM_CLIMB_OUT) {
+        if (dive > UNDER_FROM || ground - (PLANET_RADIUS + WATERLINE) > SWIM_CLIMB_OUT) {
           undo();
           velocity = 0;
         } else {
           state = 'foot';
+          dive = 0;
+          diveRate = 0;
           height = ground;
           position.setLength(height);
           options.onEvent?.('ashore', 0);
           return;
         }
       }
-      height = PLANET_RADIUS + WATERLINE;
+      diveOn(dt);
+      height = PLANET_RADIUS + WATERLINE - dive;
       position.setLength(height);
       return;
     }
@@ -1115,7 +1375,7 @@ export function createPlayer(
       velocity = 0;
       ground = standingRadius(position);
     }
-    settle(dt, ground, STEP_DOWN);
+    settle(dt, ground, STEP_DOWN, distance);
 
     // Walk into the sea, or fall into a lake, and you swim. That is the whole
     // entry: no key and no jetty, and no way left to walk on water.
@@ -1168,7 +1428,7 @@ export function createPlayer(
       sinceCrash = 0;
       options.onEvent?.('crashed', lost);
     }
-    settle(dt, ground, AVATAR_HEIGHT);
+    settle(dt, ground, AVATAR_HEIGHT, distance);
     velocity = Math.abs(speed);
 
     // The nose follows the ground under the two axles.
@@ -1219,6 +1479,11 @@ export function createPlayer(
     const before = speed;
     if (!airborne) speed += (wanted - speed) * approach(1 / time, dt);
     if (stick.y === 0 && Math.abs(speed) < 0.05) speed = 0;
+    // A horse jumps: `Space` on the ground sends it up, the way it was going.
+    if (model.kind === 'horse' && input.jump && !airborne) {
+      vertical = HORSE_JUMP_SPEED;
+      airborne = true;
+    }
     rollOn(dt, model, model.size[1] / 2, handling);
     // How hard it is pulling away, for a motorbike's front wheel.
     const pulling = dt > 0 ? (speed - before) / dt : 0;
@@ -1278,10 +1543,30 @@ export function createPlayer(
     }
 
     // The waterline rides at a fixed height, so the water is a floor with no
-    // smoothing to settle: there is nothing under it that varies.
-    height = PLANET_RADIUS + WATERLINE;
+    // smoothing to settle: there is nothing under it that varies. A
+    // submarine's rides under it by its dive.
+    if (model.kind === 'submarine') submerge(dt, model);
+    else dive = 0;
+    height = PLANET_RADIUS + WATERLINE - dive;
     position.setLength(height);
     velocity = Math.abs(speed);
+  }
+
+  /**
+   * A submarine's depth for the frame: down on the descend key and up on the
+   * climb key, holding with neither; never deeper than `SUB_MAX_DEPTH`, and
+   * never with its keel nearer the floor than `SUB_FLOOR_CLEAR` — a floor
+   * rising under it lifts it, which is how it comes up a reef's slope.
+   */
+  function submerge(dt: number, model: CraftModel): void {
+    const lift = controls.lift;
+    const wanted = lift < 0 ? SUB_DIVE : lift > 0 ? -SUB_RISE : 0;
+    diveRate += (wanted - diveRate) * approach(1 / SUB_VERTICAL_TIME, dt);
+    const floor = options.seaFloorAt === undefined
+      ? 0
+      : PLANET_RADIUS + WATERLINE - model.draft - SUB_FLOOR_CLEAR - options.seaFloorAt(position);
+    dive = clamp(dive + diveRate * dt, 0, clamp(floor, 0, SUB_MAX_DEPTH));
+    if ((dive === 0 && diveRate < 0) || (dive >= floor && diveRate > 0)) diveRate = 0;
   }
 
   /**
@@ -1369,7 +1654,7 @@ export function createPlayer(
     const lift = goAround > 0 ? 1 : liftOf(input);
     const descending = lift < 0;
     const before = position.length();
-    const clearance = Math.max(0, before - groundRadius(world, position));
+    const clearance = Math.max(0, before - landAt(position));
     // Speed rides altitude: see `PLANE_CRUISE_LOW` in `vehicles.ts`. Low is
     // scenic, high is how an ocean gets crossed; and coming down low the
     // throttle closes to an approach speed, so a landing is aimable.
@@ -1418,7 +1703,7 @@ export function createPlayer(
       } else advance(forward, way / before);
     } else advance(forward, (speed * dt) / before);
 
-    const under = groundRadius(world, position);
+    const under = landAt(position);
     const floor = under + PLANE_AIR_CLEARANCE;
     // The ground has the last word. That is what makes flying into the planet
     // impossible: a ridge rising under the plane lifts it, and the climb it
@@ -1443,9 +1728,9 @@ export function createPlayer(
       }
       const half = model.size[0] / 2;
       pointAhead(forward, half / radius, probe);
-      const front = groundRadius(world, probe);
+      const front = landAt(probe);
       pointAhead(forward, -half / radius, probe);
-      const back = groundRadius(world, probe);
+      const back = landAt(probe);
       if (Math.abs(front - back) / (2 * half) > PLANE_LANDING_GRADE || isWater(front) || isWater(back)) {
         refuse('steep-refused');
         return;
@@ -1805,6 +2090,14 @@ export function createPlayer(
       const skip = handling.hop * pace * pace * Math.max(0, Math.sin(swell * 5.3) * Math.sin(swell * 2.1 + 1));
       craft.position.y = Math.sin(swell * 1.3) * 0.18 * calm + BOW_RISE * pace + skip;
       craft.rotation.set(Math.sin(swell * 0.7) * 0.035 * calm + Math.sin(swell * 3.1) * CHOP * pace - bowLift - skip * 0.1, 0, heel);
+      if (kind === 'submarine') {
+        // Under the surface the swell lets go of it, and the bow goes down
+        // into a dive and up out of one: the attitude is the path.
+        const submerged = clamp(dive / SUB_UNDER, 0, 1);
+        craft.position.y *= 1 - submerged;
+        const trim = clamp(Math.atan2(diveRate, Math.max(Math.abs(speed_), 3)), -SUB_PITCH, SUB_PITCH);
+        craft.rotation.set(craft.rotation.x * (1 - submerged) + trim, 0, craft.rotation.z * (1 - 0.7 * submerged));
+      }
       return;
     }
     if (kind === 'helicopter') {
@@ -1887,10 +2180,18 @@ export function createPlayer(
       // body's own clips, a crawl and treading water, are drawn with the
       // waterline at their origin, and `swim` gives the depth back to them.
       sink += (SWIM_DEPTH - sink) * approach(SINK_RATE, dt);
-      avatar.swim(dt, speed_, sink);
+      under += ((dive > UNDER_FROM ? 1 : 0) - under) * approach(3, dt);
+      avatar.swim(dt, speed_, sink, under);
       swell += dt;
-      hang.position.y = -sink;
-      craft.position.y = Math.sin(swell * 1.7) * 0.08;
+      // A swell at the surface; under it, nothing lifts him but his own kick.
+      craft.position.y = Math.sin(swell * 1.7) * 0.08 * (1 - under);
+      // Nose down going down and up coming up, from the way he is actually
+      // going: the dive's rate against his speed through the water. Pitched
+      // about the chest, where the body hangs, not about the surface point.
+      const pitch = clamp(Math.atan2(diveRate, Math.max(speed_, 2)), -DIVE_PITCH, DIVE_PITCH) * under;
+      seat.position.set(0, -sink * 0.5, 0);
+      seat.rotation.set(pitch, 0, 0);
+      hang.position.y = -sink * 0.5;
       craft.rotation.z = lean * 0.5;
       return;
     }
@@ -1909,6 +2210,125 @@ export function createPlayer(
     }
     lastStep = stepPhase;
     craft.rotation.z = lean;
+  }
+
+  /**
+   * Out of an aircraft in flight: the body leaves by the side the seat is on,
+   * going the way the aircraft was, and falls; `glide` has it from there.
+   */
+  function bailOut(): void {
+    const held = ride!;
+    const where = seatOf(held);
+    const way = held.seat === 0 ? speed : velocity;
+    bow.copy(forward);
+    // The door: the seat's side, clear of the fuselage or the basket.
+    direction.copy(forward).applyAxisAngle(up, where.x >= 0 ? Math.PI / 2 : -Math.PI / 2).normalize();
+    const reach = held.model.size[1] / 2 + BODY_RADIUS + 0.8;
+    const from = position.length();
+    pointAhead(direction, (held.model.kind === 'plane' ? AVATAR_HEIGHT : reach) / from, probe);
+    dropRide();
+    still();
+    position.copy(probe).setLength(Math.max(from, standingRadius(probe) + 1));
+    up.copy(position).normalize();
+    forward.copy(bow).projectOnPlane(up).normalize();
+    height = position.length();
+    speed = Math.max(0, way) * BAIL_CARRY;
+    velocity = speed;
+    vertical = 0;
+    airborne = true;
+    state = 'foot';
+    chute = true;
+    canopy = 0;
+    publish();
+    pose(0, 0);
+  }
+
+  /**
+   * Falling from an aircraft, and then under a canopy: `FREEFALL_RATE` and
+   * `CHUTE_OPEN` above. The keys steer rather than walk, the body facing where
+   * it is going; down on the ground it stands, and on the water it swims.
+   */
+  function glide(dt: number, input: PlayerInput): void {
+    const over = position.length() - standingRadius(position);
+    if (canopy === 0 && over <= CHUTE_OPEN) canopy = 1e-3;
+    const open = canopy > 0;
+    if (open) canopy += dt;
+    levers(input.move, stick);
+    steering += (stick.x - steering) * approach(3, dt);
+    if (open) forward.applyAxisAngle(up, -steering * CHUTE_TURN * dt).normalize();
+    const pace = open ? CHUTE_GLIDE * (1 + CHUTE_PACE * stick.y) : speed;
+    speed += (pace - speed) * approach(open ? 1.5 : 0.3, dt);
+    const fall = open ? CHUTE_SINK : Math.max(FREEFALL_MIN, over * FREEFALL_RATE);
+    vertical += (-fall - vertical) * approach(open ? 2 : 4, dt);
+    motion.copy(forward).multiplyScalar(speed);
+    moved.copy(motion).multiplyScalar(dt);
+    if (airWalls !== null) {
+      airHeight = position.length();
+      airLow = over < AIR_LOW;
+      airEnvelope = 0;
+      throughWalls(dt, airWalls, BODY_RADIUS);
+    }
+    travel();
+    velocity = speed;
+    cues.turn = 0;
+    cues.look = 0;
+    lean = open ? steering * CHUTE_SWING : 0;
+    height = position.length() + vertical * dt;
+    const ground = standingRadius(position);
+    if (height > ground) {
+      position.setLength(height);
+      return;
+    }
+    // Down.
+    chute = false;
+    canopy = 0;
+    airborne = false;
+    speed = 0;
+    motion.set(0, 0, 0);
+    if (isWater(ground)) {
+      enterWater();
+      sink = SWIM_DEPTH;
+    } else {
+      height = ground;
+      position.setLength(height);
+      options.onTouchdown?.(-vertical);
+      avatar.land(0.4);
+    }
+    vertical = 0;
+  }
+
+  /** The canopy over the body while it is open: opening out, and swinging with a turn. */
+  function drawCanopy(): void {
+    if (!chute || canopy === 0) {
+      if (parachute !== null) parachute.visible = false;
+      return;
+    }
+    if (parachute === null) {
+      parachute = buildParachute();
+      object.add(parachute);
+    }
+    parachute.visible = true;
+    const opened = clamp(canopy / CHUTE_OPENING, 0.15, 1);
+    // Width first, as a canopy fills from the middle out.
+    parachute.scale.set(opened, Math.sqrt(opened), opened);
+    parachute.rotation.set(0, 0, lean);
+  }
+
+  /**
+   * Up off a bench: the clip let go, and a pace forward, off the seat's front
+   * and clear of its frame, which is a wall to a body walking into it.
+   */
+  function stand(): void {
+    if (!sitting) return;
+    sitting = false;
+    avatar.emote(null);
+    const arc = STAND_STEP / Math.max(1, position.length());
+    axis.crossVectors(up, forward).normalize();
+    position.applyAxisAngle(axis, arc);
+    forward.applyAxisAngle(axis, arc).normalize();
+    up.copy(position).normalize();
+    height = standingRadius(position);
+    position.setLength(height);
   }
 
   /** Back to a standing start: no speed, no turn, no flight. */
@@ -1933,6 +2353,8 @@ export function createPlayer(
     climbing = 0;
     goAround = 0;
     steering = 0;
+    dive = 0;
+    diveRate = 0;
     controls.lift = 0;
   }
 
@@ -1940,6 +2362,7 @@ export function createPlayer(
   function dropRide(): void {
     if (ride === null) return;
     craft.remove(ride.group);
+    inkless(ride.group, false);
     ride = null;
     carriedFrom = false;
     grounded = false;
@@ -1957,12 +2380,16 @@ export function createPlayer(
   function publish(): void {
     const kind = ride?.model.kind ?? null;
     player.velocity = velocity;
+    player.speed = ride !== null && ride.seat === 0 ? speed : velocity;
+    player.climb = climb;
+    player.parachute = chute;
     player.airborne = kind !== null && isAir(kind) ? !grounded : airborne;
     player.state = state;
     player.mode = modeOf();
     player.ride = ride;
     player.grounded = grounded;
     player.sink = sink;
+    player.depth = state === 'swim' || ride?.model.kind === 'submarine' ? dive : 0;
     player.altitude = position.length() - PLANET_RADIUS;
     player.clearance = ride !== null && ride.model.kind === 'helicopter' && !grounded ? clearance : Infinity;
     player.overWater = overWater;
@@ -1974,18 +2401,23 @@ export function createPlayer(
     forward,
     up,
     velocity: 0,
+    speed: 0,
+    climb: 0,
+    parachute: false,
     airborne: false,
     state,
     mode: 'foot',
     ride: null,
     grounded: false,
     sink: 0,
+    depth: 0,
     altitude: 0,
     clearance: Infinity,
     overWater: false,
     controls,
     update(dt, input) {
       sinceCrash += dt;
+      const radiusBefore = position.length();
       if (input.climb !== undefined || input.dive !== undefined) {
         controls.lift = (input.climb === true ? 1 : 0) - (input.dive === true ? 1 : 0);
       }
@@ -2009,19 +2441,56 @@ export function createPlayer(
         else if (model.kind === 'balloon') drift(dt, input, model);
         else if (model.kind === 'helicopter') hover(dt, input, model);
         else if (handling !== undefined) drive(dt, input, model, handling);
+      } else if (chute) glide(dt, input);
+      else if (sitting) {
+        // Any key that walks, or a jump, gets up; until then the root stays
+        // on its bench, the clip holds the pose and no wall is asked.
+        if (Math.abs(input.move.x) + Math.abs(input.move.y) > 1e-3 || input.jump) {
+          stand();
+          walk(dt, input);
+        } else {
+          motion.set(0, 0, 0);
+          velocity = 0;
+        }
       } else walk(dt, input);
 
+      climb = dt > 0 ? (position.length() - radiusBefore) / dt : 0;
       publish();
       pose(dt, velocity);
+      drawCanopy();
     },
     setBodyVisible(visible) {
       bodyWanted = visible;
       applyBody();
     },
+    seatEye(at, orientation) {
+      if (ride === null) return false;
+      const where = seatOf(ride);
+      if (where.pose === 'stand') eyeLocal.set(0, STAND_EYE - AVATAR_HIP, 0);
+      else eyeLocal.set(0, SEAT_EYE_UP, where.pose === 'ride' ? RIDE_EYE_AHEAD : SEAT_EYE_AHEAD);
+      eyeLocal.applyAxisAngle(LOCAL_Y, where.yaw);
+      eyeLocal.x += where.x;
+      eyeLocal.y += where.y + ride.motion.lift;
+      eyeLocal.z += where.z;
+      // Through the ride's own roll, nose and swell, then the surface frame.
+      orientation.copy(object.quaternion).multiply(craft.quaternion);
+      at.copy(eyeLocal).applyQuaternion(craft.quaternion).add(craft.position).applyQuaternion(object.quaternion).add(position);
+      eyeTurn.setFromAxisAngle(LOCAL_Y, where.yaw);
+      orientation.multiply(eyeTurn);
+      return true;
+    },
+    setCockpit(on) {
+      cockpit = on;
+      applyBody();
+    },
     board(next, at) {
+      if (sitting) stand();
       dropRide();
       const held: Held = { ...next, motion: motionOf(next.group, next.model) };
       ride = held;
+      chute = false;
+      canopy = 0;
+      tumbling = false;
       state = 'seated';
       still();
       position.set(at[0]!, at[1]!, at[2]!);
@@ -2049,11 +2518,19 @@ export function createPlayer(
       if (ride === null) return null;
       const held = ride;
       const kind = held.model.kind;
-      if (isAir(kind) && !grounded) return null;
-      // A car in the air — off a quay, a terrace, a cliff — lands first: left
-      // mid-fall it would be parked in the air, for everyone, for a day.
-      if (airborne) return null;
+      // A submarine is left at the surface: under it there is nowhere to step.
+      if (kind === 'submarine' && dive > SUB_UNDER) return null;
       const out = player.pose(new Array<number>(9));
+      // In the air: out of the door and falling, a canopy to come.
+      if (isAir(kind) && !grounded) {
+        bailOut();
+        return out;
+      }
+      // Under way, or in the air off a quay, a terrace, a cliff: over the
+      // side with some of its way on. A passenger's speed is what carries him.
+      const way = held.seat === 0 ? speed : velocity;
+      const under = Math.abs(way) > BAIL_SPEED || airborne;
+      bow.copy(forward);
       // Out on the side the seat is on — a model's +X is its left — then
       // round the vehicle, nearest that side first; land if there is any
       // within a step, and for a boat within `SHORE_REACH`, else into the
@@ -2098,9 +2575,24 @@ export function createPlayer(
         position.setLength(standingRadius(position));
       }
       height = position.length();
+      if (under) {
+        // The way the vehicle was going, less what the jump leaves behind,
+        // and a shove off its side: the body flies clear, and rolls.
+        motion.copy(bow).projectOnPlane(up).normalize().multiplyScalar(way * BAIL_CARRY);
+        side.copy(forward).projectOnPlane(up).normalize();
+        motion.addScaledVector(side, BAIL_SHOVE);
+        velocity = motion.length();
+        if (!wet) {
+          vertical = JUMP_SPEED * BAIL_HOP;
+          airborne = true;
+          tumbling = true;
+        }
+      }
       if (wet) {
         state = 'swim';
         sink = SWIM_DEPTH;
+        dive = 0;
+        diveRate = 0;
         spray(PLANET_RADIUS + WATERLINE, SWIM_SPLASH);
       } else state = 'foot';
       publish();
@@ -2121,11 +2613,31 @@ export function createPlayer(
       return writePose(target, direction, side, out);
     },
     emote(name) {
-      if (name !== null && (state !== 'foot' || airborne)) return false;
+      if (name !== null && (state !== 'foot' || airborne || sitting)) return false;
       return avatar.emote(name);
     },
     get emoting() {
       return avatar.emoting;
+    },
+    sitOn(at, facing, sink) {
+      if (ride !== null || state !== 'foot' || airborne) return false;
+      position.copy(at);
+      up.copy(position).normalize();
+      forward.copy(facing).projectOnPlane(up);
+      if (forward.lengthSq() < 1e-8) return false;
+      forward.normalize();
+      still();
+      height = standingRadius(position) - sink;
+      position.setLength(height);
+      if (!avatar.emote('sit')) return false;
+      sitting = true;
+      publish();
+      pose(0, 0);
+      return true;
+    },
+    stand,
+    get sitting() {
+      return sitting;
     },
     carry(at) {
       position.set(at[0]!, at[1]!, at[2]!);
@@ -2137,7 +2649,11 @@ export function createPlayer(
       if (ride !== null && isAir(ride.model.kind)) grounded = height - standingRadius(position) < 1.5;
     },
     goTo(lat, lon) {
+      if (sitting) stand();
       dropRide();
+      chute = false;
+      canopy = 0;
+      tumbling = false;
       unitAt(lat, lon, position);
       up.copy(position).normalize();
       // Never arrive inside a building. The town at the far end is usually not
@@ -2174,6 +2690,8 @@ export function createPlayer(
       if (isWater(height)) {
         state = 'swim';
         sink = SWIM_DEPTH;
+        dive = 0;
+        diveRate = 0;
         height = PLANET_RADIUS + WATERLINE;
         position.setLength(height);
       }

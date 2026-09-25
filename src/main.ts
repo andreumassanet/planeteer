@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OutlineEffect } from './outline.ts';
 import { loadLakes, loadWorld, toLatLon } from './geo.ts';
-import { landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand, groundRadius } from './globe.ts';
+import { landFlagProxy, landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
+import { drawnRadius, landProbeOf } from './land-probe.ts';
 import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
@@ -24,6 +25,8 @@ import { setDetailSites, setFlattenSites, shoreDistance } from './terrain.ts';
 import { biomeAt, biomeSample } from './biome.ts';
 import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
+import { BENCH_REACH } from './bench.ts';
+import type { Bench } from './bench.ts';
 import type { OtherVisitor } from './effects.ts';
 import type { FeatureKind } from './countryside.ts';
 import type { Soundscape, Surface } from './audio.ts';
@@ -34,7 +37,7 @@ import { createClouds } from './clouds.ts';
 import { createWeatherView } from './weather-view.ts';
 import { createOcean } from './ocean.ts';
 import { proxyOf, warmShaders } from './warm.ts';
-import { LAMP_FIELD, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
+import { LAMPS_OFF_ABOVE, LAMP_FIELD, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
@@ -43,9 +46,12 @@ import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { Where } from './talk.ts';
-import { latOf, lonOf, unitAt } from './sphere.ts';
-import { EMOTE_INTERVAL_MS } from '../server/src/limits.ts';
+import type { Door, Interiors } from './interiors.ts';
+import type { BuildingDoor } from './settlements.ts';
+import { latLonOf, latOf, lonOf, unitAt } from './sphere.ts';
+import { EMOTE_INTERVAL_MS, HONK_INTERVAL_MS, cleanHonk } from '../server/src/limits.ts';
 import type { Emote } from '../server/src/limits.ts';
+import { HORN_OF, isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel } from './craft/contract.ts';
 
 /**
@@ -78,6 +84,20 @@ const HAZE_ELEVATION = 0.25;
  * was; only where you see it from has moved.
  */
 const STREAM_FLOOR = 20;
+/**
+ * How far another player's horn carries, in units: past this it is not heard.
+ * Twice the reach of the traffic's, which is a car kept waiting in the next
+ * street; a horn somebody means to be heard is louder.
+ */
+const HORN_REACH = 240;
+
+/**
+ * How high over the ground the player may be and still keep the drawn land
+ * gathered round him (`land-probe.ts`). Under it a plane on its approach finds
+ * the index ready for the landing; over it, at cruise, a gather every 400
+ * units flown would be for nothing, and the ground is asked of the relief.
+ */
+const PROBE_CEILING = 1500;
 
 /**
  * Where the map layer fades in, in units above the ground under the player.
@@ -308,6 +328,12 @@ const SEA_EARSHOT = 0.4;
  * thirteen real km).
  */
 const TALK_REACH = AVATAR_HEIGHT * 1.3;
+/**
+ * How long after sitting down the others are told: the step onto the bench's
+ * spot has to reach them first, or their copy of the body sees it moving and
+ * stands it back up.
+ */
+const SIT_ANNOUNCE_MS = 700;
 const TALK_LEAVE = AVATAR_HEIGHT * 4;
 const TALK_COAST = 0.12;
 /**
@@ -322,20 +348,20 @@ const KIND_ICON: Readonly<Record<CraftKind, IconName>> = {
   car: 'car', van: 'car', bus: 'car', tractor: 'car', jeep: 'car', tuktuk: 'car',
   boat: 'boat', sailboat: 'boat', jetski: 'jetski',
   plane: 'plane', balloon: 'balloon', helicopter: 'heli',
-  bicycle: 'bike', motorbike: 'moto', horse: 'horse',
+  bicycle: 'bike', motorbike: 'moto', horse: 'horse', submarine: 'sub',
 };
 /** What each kind sounds like (`Soundscape.mode` in `audio.ts`): a tuk-tuk is a motorbike's engine in a box. */
 const SOUND_OF: Readonly<Record<CraftKind, Soundscape['mode']>> = {
   car: 'car', van: 'car', jeep: 'car', bus: 'heavy', tractor: 'heavy', tuktuk: 'motorbike',
   bicycle: 'bicycle', motorbike: 'motorbike', horse: 'horse',
-  boat: 'boat', jetski: 'jetski', sailboat: 'sail',
+  boat: 'boat', jetski: 'jetski', sailboat: 'sail', submarine: 'boat',
   plane: 'plane', balloon: 'balloon', helicopter: 'helicopter',
 };
 /** And what the music takes it for: on the road, at sea, or in the sky. */
 const MUSIC_OF: Readonly<Record<CraftKind, MusicMoment['mode']>> = {
   car: 'car', van: 'car', jeep: 'car', bus: 'car', tractor: 'car', tuktuk: 'car',
   bicycle: 'car', motorbike: 'car', horse: 'car',
-  boat: 'boat', jetski: 'boat', sailboat: 'boat',
+  boat: 'boat', jetski: 'boat', sailboat: 'boat', submarine: 'boat',
   plane: 'plane', balloon: 'balloon', helicopter: 'plane',
 };
 const TALK_CRAFT_REACH = 800;
@@ -510,6 +536,9 @@ async function start(): Promise<void> {
     effects: import('./effects.ts'),
     /** Fireflies, butterflies, gulls, a fish, leaves: the small life round the camera. */
     ambient: import('./ambient.ts'),
+    /** The sea floor near the player, the clear water over it, and what swims in it. */
+    sea: import('./seabed.ts'),
+    seaLife: import('./sea-life.ts'),
     /** The book of stamps and the card that shows it. */
     passport: import('./passport.ts'),
     passportCard: import('./passport-card.ts'),
@@ -520,6 +549,8 @@ async function start(): Promise<void> {
     folk: import('./folk.ts'),
     /** What they say when spoken to; the words themselves arrive on the first conversation. */
     talk: import('./talk.ts'),
+    /** The rooms behind the doors: planned, built and walked in only when somebody goes in. */
+    interiors: import('./interiors.ts'),
     chat: import('./chat.ts'),
     traffic: import('./traffic/index.ts'),
     /** The scenery contract, for the kit's model registry; it rides with the settlements. */
@@ -550,6 +581,8 @@ async function start(): Promise<void> {
     peers: import('./peers.ts'),
     /** The traveller's card, which the menu opens before anything else is built. */
     traveller: import('./traveller.ts'),
+    /** What the menu sounds like: its ticks, its dives and the hum of space. */
+    menuSound: import('./menu-sound.ts'),
     /**
      * The vehicles you can take: their models, where they stand, and the
      * relay's half of who has moved which. Built once the player is.
@@ -680,6 +713,14 @@ async function start(): Promise<void> {
   // and not a lookup.
   const land = buildLand(world);
   scene.add(land);
+  /**
+   * The ground under a foot, a wheel and the lens: the drawn land round the
+   * player, the relief past it (`drawnRadius`). One probe for the mesh, which
+   * the sward, the fleet and the foot all read; the loop keeps it gathered
+   * round the player while he is near the ground.
+   */
+  const landProbe = landProbeOf(land);
+  const groundAt = (point: THREE.Vector3): number => drawnRadius(world, landProbe, point);
 
   await stage('drawing the frontiers');
   // On the ground rather than in the data: the bake keeps only outer rings, so
@@ -728,8 +769,69 @@ async function start(): Promise<void> {
   const peersUrl: string =
     import.meta.env.VITE_PEERS_URL ?? (import.meta.env.DEV ? 'ws://localhost:8787/ws' : '');
   const peersModule = await deferred.peers;
-  /** The sound, once there is some, for the card's open and close. */
-  let audioLink: ReturnType<typeof createAudio> | null = null;
+  // The ear. Silent and nearly free until a gesture unlocks it — the browser's
+  // rule — so every pointer press and key press offers it the unlock, which is
+  // idempotent and also resumes a context a hidden tab suspended.
+  const audio = createAudio();
+  try {
+    const saved = JSON.parse(readSetting(SOUND_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
+    if (saved !== null && typeof saved.volume === 'number') audio.volume = saved.volume;
+    if (saved !== null && typeof saved.on === 'boolean') audio.muted = !saved.on;
+  } catch {
+    // A mangled setting is the default one.
+  }
+  const saveSound = (): void => writeSetting(SOUND_KEY, JSON.stringify({ volume: audio.volume, on: !audio.muted }));
+  const voices = { voices: true, chat: true };
+  try {
+    const saved = JSON.parse(readSetting(VOICES_KEY) ?? 'null') as { voices?: unknown; chat?: unknown } | null;
+    if (saved !== null && typeof saved.voices === 'boolean') voices.voices = saved.voices;
+    if (saved !== null && typeof saved.chat === 'boolean') voices.chat = saved.chat;
+  } catch {
+    // As the sound's.
+  }
+  const saveVoices = (): void => writeSetting(VOICES_KEY, JSON.stringify(voices));
+  // The music: `music.ts` and its synthesis are fetched on the gesture that
+  // opens the sound, and only if the music is on, so none of it is in the
+  // first load. Its settings live here until it arrives.
+  const musicSettings = { volume: 0.6, on: true };
+  try {
+    const saved = JSON.parse(readSetting(MUSIC_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
+    if (saved !== null && typeof saved.volume === 'number') musicSettings.volume = Math.min(1, Math.max(0, saved.volume));
+    if (saved !== null && typeof saved.on === 'boolean') musicSettings.on = saved.on;
+  } catch {
+    // A mangled setting is the default one.
+  }
+  const saveMusic = (): void => writeSetting(MUSIC_KEY, JSON.stringify(musicSettings));
+  let music: Music | null = null;
+  let musicLoading = false;
+  /** A style asked for from the console before the music arrived. */
+  let musicAsked: string | null = null;
+  const musicMoment: MusicMoment = {
+    mode: 'foot', height: 0, iso: '', continent: '', lat: 0, lon: 0, daylight: 1, town: false, place: 0, hour: 12,
+  };
+  function loadMusic(): void {
+    const out = audio.output;
+    if (music !== null || musicLoading || !musicSettings.on || out === null) return;
+    musicLoading = true;
+    import('./music.ts')
+      .then(({ createMusic }) => {
+        music = createMusic(out.context, out.node, musicSettings);
+        if (musicAsked !== null) music.play(musicAsked);
+      })
+      .catch(() => {
+        // No music is silence, never an error on the player's screen; the next gesture tries again.
+        musicLoading = false;
+      });
+  }
+  audio.onCue = (name) => music?.cue(name);
+  weather.onThunder = (delay, loudness) => audio.thunder(delay, loudness);
+  weather.enabled = readSetting(WEATHER_KEY) !== '0';
+  const unlockAudio = (): void => {
+    audio.unlock();
+    loadMusic();
+  };
+  addEventListener('pointerdown', unlockAudio, { capture: true });
+  addEventListener('keydown', unlockAudio, { capture: true });
   /** The connection, once there is one: the card below is made long before it. */
   let peersLink: import('./peers.ts').Peers | null = null;
   // **The traveller's card**, opened from the front door and from Settings.
@@ -756,11 +858,12 @@ async function start(): Promise<void> {
           },
         }),
     lockTarget: renderer.domElement,
-    onOpen: () => audioLink?.cue('ui-open'),
-    onClose: () => audioLink?.cue('ui-close'),
+    onOpen: () => audio.cue('ui-open'),
+    onClose: () => audio.cue('ui-close'),
   });
   document.body.appendChild(traveller.root);
   const { createMenu, earthBody } = await deferred.menu;
+  const { createMenuSound } = await deferred.menuSound;
   const menu = createMenu({
     // The aliases are the famous names the bake folded into a neighbour —
     // Kobe into Osaka, Manila into Quezon City — so the search answers them.
@@ -775,6 +878,9 @@ async function start(): Promise<void> {
     traveller,
     time: () => sky.state.time,
     sunDirection: () => sky.state.sun,
+    // Through the effects' master and, for the hum, the music's own switch
+    // and volume, so both settings hold the menu as they hold the world.
+    sound: createMenuSound(audio, musicSettings),
   });
   document.body.appendChild(menu.root);
 
@@ -1067,6 +1173,41 @@ async function start(): Promise<void> {
   ambient.enabled = effects.enabled;
   scene.add(ambient.group);
 
+  // The sea floor round the player, and the water over it as clear as it is
+  // shallow, near a coast and low; and what swims there: schools over the
+  // reef and the kelp, a shark or a turtle, dolphins passing, a whale far
+  // out. See `seabed.ts` and `sea-life.ts`. The swimmers go with the
+  // *Effects* switch, as the small life does; the floor is the sea's.
+  const { createSea } = await deferred.sea;
+  const sea = createSea(world);
+  scene.add(sea.group);
+  const { createSeaLife } = await deferred.seaLife;
+  const seaLife = createSeaLife({ splash: (point, reach) => effects.splashAt(point, reach) });
+  seaLife.enabled = effects.enabled;
+  scene.add(seaLife.group);
+  /** What the swimmers are told each frame, filled in place. */
+  const seaLifeFrame = {
+    camera: new THREE.Vector3(),
+    seconds: 0,
+    diver: null as THREE.Vector3 | null,
+    screw: null as THREE.Vector3 | null,
+    screwSpeed: 0,
+  };
+  let oceanHidden = false;
+  const diverHead = new THREE.Vector3();
+  const subScrew = new THREE.Vector3();
+  const eachSeaLife = (visit: (life: import('./sea-floor.ts').TileLife) => void): void => sea.eachLife(visit);
+  /**
+   * The ground the camera is kept over. Under the surface — a diver's, a
+   * submarine's — the water is not a floor and the sea floor is; everywhere
+   * else it is the land, or the sea's surface over the sea, as it always was.
+   */
+  const cameraGroundAt = (point: THREE.Vector3): number => {
+    const ground = groundAt(point);
+    if (player.depth <= 0.3 || ground > PLANET_RADIUS + 0.5) return ground;
+    return sea.floorAt(point);
+  };
+
   await stage('packing your bag');
   // Everything the world needs is now standing, so the menu stops being a
   // loading screen you cannot leave and becomes a choice. `choose` resolves on
@@ -1083,7 +1224,7 @@ async function start(): Promise<void> {
     renderer,
     outline,
     scene,
-    [settlements, monuments, roads, vegetation, life, effects, ambient, countryMotion, weather, { proxies: () => [proxyOf(inkSource), ...fleetMaterials().map((material) => proxyOf(material))] }],
+    [settlements, monuments, roads, vegetation, life, effects, ambient, sea, seaLife, countryMotion, weather, { proxies: () => [proxyOf(inkSource), landFlagProxy(), ...fleetMaterials().map((material) => proxyOf(material))] }],
     modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
@@ -1137,70 +1278,6 @@ async function start(): Promise<void> {
    * of a jump is raised a few frames later, around wherever you landed, and the
    * first frame it stands puts you on the nearest clear ground outside it.
    */
-  // The ear. Silent and nearly free until a gesture unlocks it — the browser's
-  // rule — so every pointer press and key press offers it the unlock, which is
-  // idempotent and also resumes a context a hidden tab suspended.
-  const audio = createAudio();
-  audioLink = audio;
-  try {
-    const saved = JSON.parse(readSetting(SOUND_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
-    if (saved !== null && typeof saved.volume === 'number') audio.volume = saved.volume;
-    if (saved !== null && typeof saved.on === 'boolean') audio.muted = !saved.on;
-  } catch {
-    // A mangled setting is the default one.
-  }
-  const saveSound = (): void => writeSetting(SOUND_KEY, JSON.stringify({ volume: audio.volume, on: !audio.muted }));
-  const voices = { voices: true, chat: true };
-  try {
-    const saved = JSON.parse(readSetting(VOICES_KEY) ?? 'null') as { voices?: unknown; chat?: unknown } | null;
-    if (saved !== null && typeof saved.voices === 'boolean') voices.voices = saved.voices;
-    if (saved !== null && typeof saved.chat === 'boolean') voices.chat = saved.chat;
-  } catch {
-    // As the sound's.
-  }
-  const saveVoices = (): void => writeSetting(VOICES_KEY, JSON.stringify(voices));
-  // The music: `music.ts` and its synthesis are fetched on the gesture that
-  // opens the sound, and only if the music is on, so none of it is in the
-  // first load. Its settings live here until it arrives.
-  const musicSettings = { volume: 0.6, on: true };
-  try {
-    const saved = JSON.parse(readSetting(MUSIC_KEY) ?? 'null') as { volume?: unknown; on?: unknown } | null;
-    if (saved !== null && typeof saved.volume === 'number') musicSettings.volume = Math.min(1, Math.max(0, saved.volume));
-    if (saved !== null && typeof saved.on === 'boolean') musicSettings.on = saved.on;
-  } catch {
-    // A mangled setting is the default one.
-  }
-  const saveMusic = (): void => writeSetting(MUSIC_KEY, JSON.stringify(musicSettings));
-  let music: Music | null = null;
-  let musicLoading = false;
-  /** A style asked for from the console before the music arrived. */
-  let musicAsked: string | null = null;
-  const musicMoment: MusicMoment = {
-    mode: 'foot', height: 0, iso: '', continent: '', lat: 0, lon: 0, daylight: 1, town: false, place: 0, hour: 12,
-  };
-  function loadMusic(): void {
-    const out = audio.output;
-    if (music !== null || musicLoading || !musicSettings.on || out === null) return;
-    musicLoading = true;
-    import('./music.ts')
-      .then(({ createMusic }) => {
-        music = createMusic(out.context, out.node, musicSettings);
-        if (musicAsked !== null) music.play(musicAsked);
-      })
-      .catch(() => {
-        // No music is silence, never an error on the player's screen; the next gesture tries again.
-        musicLoading = false;
-      });
-  }
-  audio.onCue = (name) => music?.cue(name);
-  weather.onThunder = (delay, loudness) => audio.thunder(delay, loudness);
-  weather.enabled = readSetting(WEATHER_KEY) !== '0';
-  const unlockAudio = (): void => {
-    audio.unlock();
-    loadMusic();
-  };
-  addEventListener('pointerdown', unlockAudio, { capture: true });
-  addEventListener('keydown', unlockAudio, { capture: true });
   /** What the foot is on, refreshed a couple of times a second in the loop. */
   let footing: Surface = 'grass';
 
@@ -1239,11 +1316,27 @@ async function start(): Promise<void> {
     return moved;
   };
 
+  /**
+   * The room the player has gone into, once the interiors have arrived
+   * (`interiors.ts`). While he is in one, its floor, its walls and its camera
+   * test stand in for the world's, which is all it takes to walk a room built
+   * somewhere nobody outside can see.
+   */
+  let interiorsLink: Interiors | null = null;
+  const indoors = (): Interiors | null => (interiorsLink !== null && interiorsLink.inside ? interiorsLink : null);
+  const playerGround = (point: THREE.Vector3): number => indoors()?.floor ?? groundAt(point);
+  /** And the camera's: a room's floor, or `cameraGroundAt`'s sea floor or land. */
+  const cameraGround = (point: THREE.Vector3): number => indoors()?.floor ?? cameraGroundAt(point);
+
   await avatarReady;
+  landProbe.prime(unitAt(spawn.lat, spawn.lon, new THREE.Vector3()));
   const player = createPlayer(world, spawn.lat, spawn.lon, {
-    madeHeightAt,
+    groundAt: playerGround,
+    madeHeightAt: (point) => indoors()?.floor ?? madeHeightAt(point),
+    // The sea floor, which a diver and a submarine stop on.
+    seaFloorAt: (point) => sea.floorAt(point),
     onStep: (weight) => {
-      audio.step(footing, weight);
+      audio.step(indoors() !== null ? 'paving' : footing, weight);
       effects.step(weight);
     },
     // A jump lands at about its take-off speed; stepping off a kerb does not.
@@ -1259,6 +1352,8 @@ async function start(): Promise<void> {
     // the one pushed out. So is an animal of a near herd, by its own length
     // and width, and it bolts (`life.collide`).
     collide: (point, radius, push) => {
+      const room = indoors();
+      if (room !== null) return room.collide(point, radius, push);
       let hit = settlements.collide(point, radius, push);
       for (let i = 1; i < stillWalls.length; i++) {
         if (!stillWalls[i]!.collide(point, radius, stillPush)) continue;
@@ -1277,8 +1372,8 @@ async function start(): Promise<void> {
     },
     // And a balloon or a plane higher than that: only the buildings whose
     // roofs are still over it.
-    collideAloft: (point, radius, push) => settlements.collideAloft(point, radius, push),
-    freeSpotNear: freeOfWalls,
+    collideAloft: (point, radius, push) => indoors() === null && settlements.collideAloft(point, radius, push),
+    freeSpotNear: (point, radius, out) => indoors()?.freeSpotNear(point, radius, out) ?? freeOfWalls(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a landing refused, and why.
     onEvent: (event: PlayerEvent, strength: number) => {
@@ -1321,10 +1416,31 @@ async function start(): Promise<void> {
     parked: {
       near: (viewer, radius, out) => settlements.parkedNear(viewer, radius, out),
       hide: (id) => settlements.hideParked(id),
+      paintOf: (id) => settlements.parkedPaint(id),
     },
-    onEvent: (event, model) => {
+    // What a vehicle nobody is driving any more runs into: the still walls
+    // only, since the fleet's own are asked of it by the fleet.
+    collide: (point, radius, push) => {
+      let hit = false;
+      push.set(0, 0, 0);
+      for (const source of stillWalls) {
+        if (!source.collide(point, radius, stillPush)) continue;
+        push.add(stillPush);
+        hit = true;
+      }
+      return hit;
+    },
+    onEvent: (event, model, at) => {
       const iconName: IconName = modeIcon(model?.kind ?? null);
-      if (event === 'leave-refused') {
+      if (event === 'bailed') {
+        // Out of something under way, and a word on the canopy out of an
+        // aircraft, which nobody guesses is steered.
+        audio.cue('ui-click');
+        if (model !== null && isAirKind(model.kind)) announce('Jumped! The canopy opens near the ground · steer with the movement keys', 'plane');
+      } else if (event === 'wrecked') {
+        if (at !== undefined) effects.crashAt(at, rig.heading, 0.8);
+        if (at !== undefined && at.distanceTo(player.position) < 400) audio.cue('land');
+      } else if (event === 'leave-refused') {
         announce(model?.kind === 'balloon' ? 'Set the balloon down before getting out' : 'Nobody gets out in the air — land first', iconName);
         audio.cue('ui-error');
       } else if (event === 'taken') {
@@ -1373,8 +1489,11 @@ async function start(): Promise<void> {
   if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
-    blocks: (point) => settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point),
-    onViewRefused: () => announce('First person is on foot only', 'eye'),
+    blocks: (point) => {
+      const room = indoors();
+      if (room !== null) return room.blocks(point);
+      return settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point);
+    },
   });
   // A crash shakes the lens unless the player said not to, or the system asks
   // for less motion and the player has not said either way.
@@ -1390,7 +1509,115 @@ async function start(): Promise<void> {
     // `Ctrl` descends, and `Ctrl+W` would close the tab mid-flight.
     guardUnload: () => player.ride !== null && player.airborne,
   });
-  const groundAt = (point: THREE.Vector3): number => groundRadius(world, point);
+
+  // The rooms behind the doors. A door's room is built under the black of
+  // the fade, stood at the doorstep and drawn instead of the world; see
+  // `interiors.ts`. A landmark's museum keeps a miniature of it under glass.
+  const { createInteriors, countryDoorNear, landmarkDoorNear, newDoor, copyDoor, doorLabel, DOOR_REACH } = await deferred.interiors;
+  const teleportTo = new THREE.Vector3();
+  const interiors = createInteriors({
+    ctx,
+    folk,
+    world: scene,
+    body: player.object,
+    teleport(point, forward) {
+      landProbe.prime(teleportTo.copy(point).normalize());
+      const at = toLatLon(point);
+      player.goTo(at.lat, at.lon);
+      player.forward.copy(forward).projectOnPlane(player.up).normalize();
+      rig.snap(player, playerGround);
+    },
+    miniature: (id) => {
+      try {
+        return buildMonument(id, ctx);
+      } catch {
+        return null;
+      }
+    },
+    sound: () => (audio.output === null || audio.bus === null ? null : { context: audio.output.context, node: audio.bus }),
+    compile: (room) => renderer.compile(room, rig.camera),
+  });
+  interiorsLink = interiors;
+  /** The landmarks with a model, as the museum doors are found among them. */
+  const unmodelled = new Set(monuments.missing.map((placement) => placement.id));
+  const landmarks = placements
+    .filter((placement) => !unmodelled.has(placement.id))
+    .map((placement) => ({
+      id: placement.id,
+      name: placement.name,
+      ...(placement.note === undefined ? {} : { note: placement.note }),
+      iso: placement.iso,
+      continent: world.countries.find((country) => country.iso === placement.iso)?.continent ?? '',
+      lat: placement.lat,
+      centre: unitAt(placement.lat, placement.lon, new THREE.Vector3()),
+      footprint: placement.footprint ?? 20,
+    }));
+  /**
+   * The door `E` would go in by, found with the prompt as a seat and a person
+   * are: a town's buildings, then what stands in the country, then a
+   * landmark's walls, the nearest of them.
+   */
+  const doorFound = newDoor();
+  const doorScratch = newDoor();
+  const buildingDoor: BuildingDoor = {
+    key: '', part: '', kind: 'dwelling', region: '', town: '', population: 0, central: 0, width: 0, depth: 0, height: 0,
+    position: new THREE.Vector3(), outward: new THREE.Vector3(), distance: 0,
+  };
+  const doorAt = { lat: 0, lon: 0 };
+  const vegetationWalls = (point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean => vegetation.collide(point, radius, push);
+  const monumentWalls = (point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean => monuments.collide(point, radius, push);
+  function findDoor(): Door | null {
+    doorFound.distance = Infinity;
+    let found = false;
+    if (settlements.doorNear(player.position, DOOR_REACH, buildingDoor)) {
+      doorFound.key = buildingDoor.key;
+      doorFound.building = buildingDoor.part;
+      doorFound.kind = buildingDoor.kind === 'block' || buildingDoor.kind === 'civic' ? buildingDoor.kind : 'dwelling';
+      doorFound.region = buildingDoor.region;
+      doorFound.population = buildingDoor.population;
+      doorFound.central = buildingDoor.central;
+      doorFound.height = buildingDoor.height;
+      delete doorFound.monument;
+      delete doorFound.name;
+      delete doorFound.note;
+      doorFound.position.copy(buildingDoor.position);
+      doorFound.outward.copy(buildingDoor.outward);
+      doorFound.distance = buildingDoor.distance;
+      found = true;
+    }
+    const country = vegetation.countryside;
+    if (country !== null && country !== undefined) {
+      latLonOf(player.position, doorAt);
+      doorScratch.distance = Math.min(doorFound.distance, DOOR_REACH);
+      if (countryDoorNear(player.position, country.planAt(doorAt.lat, doorAt.lon), vegetationWalls, DOOR_REACH, doorScratch)) {
+        copyDoor(doorScratch, doorFound);
+        found = true;
+      }
+    }
+    if (!found && landmarkDoorNear(player.position, landmarks, monumentWalls, doorScratch)) {
+      copyDoor(doorScratch, doorFound);
+      found = true;
+    }
+    return found ? doorFound : null;
+  }
+  /** What `E` does at a door this frame, and the words for it; `interiors.door` on the way out. */
+  let doorOffer: Door | null = null;
+  let doorWords = '';
+  let doorWordsKey = '';
+  /** Whoever is inside is, to the other players, still on the doorstep: see `peers.update`. */
+  const standInAt = new THREE.Vector3();
+  const standInFacing = new THREE.Vector3();
+  const standIn: typeof player = Object.create(player, {
+    position: { value: standInAt },
+    forward: { value: standInFacing },
+    velocity: { value: 0 },
+    airborne: { value: false },
+  }) as typeof player;
+  /** The walking framing indoors, as a share of the street's. */
+  const INDOOR_FRAMING = 0.7;
+  let wasIndoors = false;
+  const streetView = { distance: 0, height: 0 };
+  const STILL = { x: 0, y: 0 };
 
   // The pins are what make the map answer "where is anything", which the
   // coastline alone never did. They cover every placement, including the
@@ -1412,12 +1639,25 @@ async function start(): Promise<void> {
    * the prompt said; and what a conversation is told about where it is.
    */
   let talkOffer: string | null = null;
+  /** The bench `E` would sit you on, this frame. */
+  let benchOffer: Bench | null = null;
   let engaged = false;
   const talkCrown = new THREE.Vector3();
   const talkLandmark = new THREE.Vector3();
   const talkNorth = new THREE.Vector3(0, 1, 0);
   const talkHere = new THREE.Vector3();
   const talkSites: ReturnType<typeof fleetSites.near> = [];
+  /** Whoever is being talked to, in the room the player is in or in the street. */
+  const crownOfAny = (key: string, out: THREE.Vector3): boolean =>
+    interiorsLink?.crownOf(key, out) === true || townsfolk.crownOf(key, out);
+  function engageAny(key: string | null, towards?: THREE.Vector3): boolean {
+    if (key !== null && interiorsLink?.crownOf(key, talkCrown) === true) {
+      townsfolk.engage(null);
+      return interiorsLink.engage(key, towards);
+    }
+    interiorsLink?.engage(null);
+    return townsfolk.engage(key, towards);
+  }
   function startTalk(key: string): void {
     const here = toLatLon(player.position);
     const index = world.countryAtPoint(player.position);
@@ -1467,10 +1707,10 @@ async function start(): Promise<void> {
       young: isYoung(key),
       woman: isWoman(key),
     });
-    engaged = townsfolk.engage(key, player.position);
+    engaged = engageAny(key, player.position);
     // And the traveller turns to them, as they turn to the traveller: a
     // conversation held over a shoulder reads as nobody talking to anybody.
-    if (townsfolk.crownOf(key, talkCrown)) {
+    if (crownOfAny(key, talkCrown)) {
       talkCrown.sub(player.position).projectOnPlane(player.up);
       if (talkCrown.lengthSq() > 1e-4) player.forward.copy(talkCrown.normalize());
     }
@@ -1491,7 +1731,7 @@ async function start(): Promise<void> {
       const country = world.countries[id - 1];
       if (country !== undefined) passport.arrived(country.iso, country.name);
     },
-    onPassport: () => passportCard.show(),
+    onPassport: () => passportCard.toggle(),
     // Inside the welcome card's click, so the lock is still the player's gesture.
     onStart: () => input.lock(),
     // The clock's icon: the weather where you stand, as it is drawn.
@@ -1521,9 +1761,12 @@ async function start(): Promise<void> {
       found: placements.filter((placement) => monuments.isVisited(placement.id)),
       total: placements.length,
     }),
+    // The holder's page: the name the others see, and the look they see.
+    holder: () => ({ name: peersLink?.name ?? peersModule.storedName(), appearance: heroAppearance() }),
     lockTarget: renderer.domElement,
     onOpen: () => audio.cue('ui-open'),
     onClose: () => audio.cue('ui-close'),
+    onTurn: () => audio.cue('ui-toggle'),
     onThud: () => audio.cue('ui-confirm'),
   });
   document.body.appendChild(passportCard.root);
@@ -1563,7 +1806,14 @@ async function start(): Promise<void> {
    * standing there, and one raised after the jump pushes you out on its first
    * frame. See the player's options above.
    */
+  const jumpPoint = new THREE.Vector3();
   function jumpTo(lat: number, lon: number): void {
+    // Sent somewhere from inside a room: out of it first, with no fade.
+    interiorsLink?.abandon();
+    // The land under the far end, gathered now rather than over the next few
+    // frames: a foot that arrives on the relief rises onto the drawn land when
+    // it comes, by up to a few units.
+    landProbe.prime(unitAt(lat, lon, jumpPoint));
     player.goTo(lat, lon);
     rig.snap(player, groundAt);
     // The chip is debounced against a coastline crossed on foot, and a jump
@@ -1583,15 +1833,50 @@ async function start(): Promise<void> {
   }
 
   /**
-   * A wave, a dance, sitting down: on the hero at once, and to the others at
-   * most once a second, the relay's own pace (`EMOTE_INTERVAL_MS`).
+   * A wave or a dance: on the hero at once, and to the others at most once a
+   * second, the relay's own pace (`EMOTE_INTERVAL_MS`).
    */
   let gesturedAt = -Infinity;
-  function gesture(name: Emote): boolean {
-    if (!player.emote(name)) return false;
+  function tellGesture(name: Emote): void {
     const now = performance.now();
     if (now - gesturedAt >= EMOTE_INTERVAL_MS && peers?.send({ t: 'emote', e: name }) === true) gesturedAt = now;
+  }
+  function gesture(name: Emote): boolean {
+    if (!player.emote(name)) return false;
+    tellGesture(name);
     return true;
+  }
+
+  /**
+   * **A bench is somewhere to sit** (`bench.ts`): the towns' beside their
+   * lamps and the countryside's by the roads and the lighthouses, whichever
+   * sitter's spot is nearest inside `BENCH_REACH`. Sitting is the `sit`
+   * gesture on the wire, sent once the body has settled on the seat: sent
+   * with the step onto the spot, the others' copy of it would see a body
+   * moving and stand it straight back up.
+   */
+  const benchesHere: Bench[] = [];
+  const benchUp = new THREE.Vector3();
+  function nearestBench(): { bench: Bench; distance: number } | null {
+    benchesHere.length = 0;
+    settlements.benchesNear(player.position, BENCH_REACH + 2, benchesHere);
+    vegetation.countryside?.benchesNear(benchUp.copy(player.position).normalize(), BENCH_REACH + 2, benchesHere);
+    let best: Bench | null = null;
+    let bestDistance = BENCH_REACH;
+    for (const bench of benchesHere) {
+      const distance = bench.position.angleTo(player.position) * PLANET_RADIUS;
+      if (distance < bestDistance) [best, bestDistance] = [bench, distance];
+    }
+    return best === null ? null : { bench: best, distance: bestDistance };
+  }
+  let sitTimer = 0;
+  function sitDown(bench: Bench): void {
+    if (!player.sitOn(bench.position, bench.facing, bench.sink)) return;
+    audio.cue('ui-toggle');
+    window.clearTimeout(sitTimer);
+    sitTimer = window.setTimeout(() => {
+      if (player.sitting) tellGesture('sit');
+    }, SIT_ANNOUNCE_MS);
   }
 
   const map = createWorldMap(world, {
@@ -1721,6 +2006,34 @@ async function start(): Promise<void> {
     else if (action === 'hud') announce(hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
     else if (action === 'photo') photoWanted = true;
     else if (action === 'wave' && !gesture('wave')) announce('Only standing on the ground', 'walk');
+    else if (action === 'horn') honk();
+  });
+
+  /**
+   * The horn, at the controls of anything that has one (`HORN_OF`): heard
+   * here at once and by the others as it reaches them, at most once each
+   * `HONK_INTERVAL_MS`, the relay's own pace. A passenger has no horn to press.
+   */
+  let honkedAt = -Infinity;
+  function honk(): void {
+    const ride = player.ride;
+    if (ride === null || ride.seat !== 0) return;
+    const voice = HORN_OF[ride.model.kind];
+    if (voice === null) return;
+    const now = performance.now();
+    if (now - honkedAt < HONK_INTERVAL_MS) return;
+    honkedAt = now;
+    audio.horn(1, voice);
+    peers?.send({ t: 'honk', k: voice });
+  }
+  // Another player's horn, quieter the further off, and out of earshot at
+  // `HORN_REACH`.
+  peers?.onMessage((message) => {
+    if (message.t !== 'honk' || typeof message.id !== 'string') return;
+    const voice = cleanHonk(message.k);
+    const from = peers.positionOf(message.id);
+    if (voice === '' || from === null) return;
+    audio.horn(Math.max(0, 1 - from.distanceTo(player.position) / HORN_REACH), voice);
   });
 
   /**
@@ -1795,6 +2108,7 @@ async function start(): Promise<void> {
       set: (on) => {
         effects.enabled = on;
         ambient.enabled = on;
+        seaLife.enabled = on;
         writeSetting(EFFECTS_KEY, on ? '1' : '0');
         return on;
       },
@@ -2166,20 +2480,30 @@ async function start(): Promise<void> {
     // `E`, before the player moves: on with the conversation you are in, or
     // to the person nearer than any seat, or into the vehicle beside you, or
     // out of the one you are in, so this frame already drives or walks.
-    if (input.state.use) {
+    if (input.state.use && !interiors.busy) {
       if (talk.open) {
         talk.next();
         audio.cue(talk.open ? 'ui-click' : 'ui-close');
       } else if (talkOffer !== null) startTalk(talkOffer);
-      else fleet.use();
+      else if (player.sitting) player.stand();
+      else if (benchOffer !== null) sitDown(benchOffer);
+      else if (doorOffer !== null) {
+        if (interiors.inside) interiors.leave();
+        else interiors.enter(doorOffer);
+      } else if (!interiors.inside) fleet.use();
     }
+    // The drawn land round the player, while the ground is near enough to
+    // matter: a slice a frame when he has moved on. Not at cruise, where it
+    // would gather again every 400 units for nothing.
+    if (player.position.length() - groundAt(player.position) < PROBE_CEILING) landProbe.prepare(player.position);
+    // Nobody walks through a fade, and nobody jumps into a ceiling.
     player.update(dt, {
-      move: input.state.move,
+      move: interiors.busy ? STILL : input.state.move,
       run: input.state.run,
-      jump: input.state.jump,
+      jump: input.state.jump && !interiors.inside && !interiors.busy,
       heading: rig.steer,
     });
-    rig.follow(dt, player, groundAt);
+    rig.follow(dt, player, cameraGround);
     input.endFrame();
 
     // After the rig, because the sky needs both where you stand — which decides
@@ -2200,6 +2524,25 @@ async function start(): Promise<void> {
     // vertex in the shaders. See `src/lights.ts`.
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     guard('city lights', () => cityLights.update(renderer));
+    // The fades, the people in the room and the hour through its windows.
+    guard('interiors', () => interiors.update(dt, player.position, sky.state.daylight));
+    if (interiors.inside !== wasIndoors) {
+      // A room is a few bodies across, so the lens comes in closer indoors
+      // and goes back to the street's framing on the way out.
+      wasIndoors = interiors.inside;
+      if (wasIndoors) {
+        // A landmark's museum greets you with its card's sentence.
+        const note = interiors.plan?.note ?? null;
+        if (note !== null) announce(note, 'star');
+        streetView.distance = rig.view.distance;
+        streetView.height = rig.view.height;
+        rig.view.distance *= INDOOR_FRAMING;
+        rig.view.height *= INDOOR_FRAMING;
+      } else {
+        rig.view.distance = streetView.distance;
+        rig.view.height = streetView.height;
+      }
+    }
     // After the sky, whose clock and daylight it reads, and before the haze
     // below, which it closes in rain and fog (`setWeatherHaze` in `view.ts`).
     // What it does to the light is applied by the sky's next `update`.
@@ -2269,12 +2612,15 @@ async function start(): Promise<void> {
             ? speedNow / topSpeedOf(soundKind)
             : 0,
       height: eyeOverGround,
-      sea: soundSea,
+      // Indoors the sea, the birds and the wind are behind a wall, and the
+      // rain is on the roof.
+      sea: interiors.inside ? 0 : soundSea,
       daylight: sky.state.daylight,
-      wild: soundWild,
+      wild: interiors.inside ? 0 : soundWild,
       cold: soundCold,
-      rain: weather.sound.rain,
-      gale: weather.sound.gale,
+      rain: weather.sound.rain * (interiors.inside ? 0.3 : 1),
+      gale: interiors.inside ? 0 : weather.sound.gale,
+      underwater: sea.underwater ? 1 : 0,
     }));
     if (map.open !== mapWasOpen) {
       mapWasOpen = map.open;
@@ -2375,27 +2721,34 @@ async function start(): Promise<void> {
     guard('talk', () => {
       const speaker = talk.with;
       if (speaker === null) {
-        if (engaged) townsfolk.engage(null);
+        if (engaged) engageAny(null);
         engaged = false;
         return;
       }
       if (
         player.mode !== 'foot' ||
-        !townsfolk.crownOf(speaker, talkCrown) ||
+        !crownOfAny(speaker, talkCrown) ||
         talkCrown.distanceTo(player.position) > TALK_LEAVE
       ) {
         talk.close();
-        townsfolk.engage(null);
+        engageAny(null);
         engaged = false;
         return;
       }
-      engaged = townsfolk.engage(speaker, player.position);
+      engaged = engageAny(speaker, player.position);
       talk.place(talkCrown, rig.camera, innerWidth, innerHeight);
     });
     // The vehicles after everything they stand on, and before the other
     // players, who may be sitting in one of them.
     guard('fleet', () => fleet.update(dt, rig.camera));
-    if (peers !== null) guard('peers', () => peers.update(dt, player));
+    if (peers !== null) {
+      const inside = interiors.door;
+      if (inside !== null) {
+        standInAt.copy(inside.position);
+        standInFacing.copy(inside.outward).negate();
+      }
+      guard('peers', () => peers.update(dt, inside !== null ? standIn : player));
+    }
     // After everything that moves, so a wake starts where the boat now is.
     guard('effects', () => effects.update(dt, player, rig.camera));
     ambientFrame.cameraHeight = eyeOverGround;
@@ -2419,6 +2772,32 @@ async function start(): Promise<void> {
     oceanLights[1]!.color = sky.moon.color;
     oceanLights[1]!.intensity = sky.moon.intensity;
     guard('ocean', () => ocean.update(rig.camera.position, oceanLights));
+    // After the fog is set, which under the surface it takes over, and after
+    // the ocean, whose window it opens.
+    guard('sea', () => {
+      sea.update(dt, { player: player.position, camera: rig.camera.position, daylight: sky.state.daylight, fog });
+      // Under the surface the sphere and the ribbon are seen from inside,
+      // where their fills are culled and their ink is not: the pen would
+      // draw the whole underside of the sea as a black ceiling. So they go
+      // while the camera is down, and the water drawn over the floor, which
+      // has no ink, is the surface seen from below.
+      if (sea.underwater !== oceanHidden) {
+        oceanHidden = sea.underwater;
+        ocean.group.visible = !oceanHidden;
+      }
+    });
+    guard('sea life', () => {
+      seaLifeFrame.camera.copy(rig.camera.position);
+      seaLifeFrame.seconds = sky.state.time.getTime() / 1000;
+      const diving = player.state === 'swim' && player.depth > 0.6;
+      seaLifeFrame.diver = diving
+        ? diverHead.copy(player.position).addScaledVector(player.forward, AVATAR_HEIGHT * 0.3).addScaledVector(player.up, -player.sink * 0.5)
+        : null;
+      const sub = player.ride?.model.kind === 'submarine' && player.depth > 1.2 ? player.ride.model : null;
+      seaLifeFrame.screw = sub !== null ? subScrew.copy(player.position).addScaledVector(player.forward, -sub.size[0] * 0.5) : null;
+      seaLifeFrame.screwSpeed = sub !== null ? player.velocity : 0;
+      seaLife.update(dt, seaLifeFrame, eachSeaLife);
+    });
 
     // Arriving is only an arrival out of a vehicle — on foot or swimming up to
     // a lighthouse. `recordVisits` is cheap — a distance test per monument —
@@ -2456,14 +2835,46 @@ async function start(): Promise<void> {
     // travelling, which decides the keys it shows, and whether the mouse is
     // free with nothing else on the screen, which is the pause card.
     hud.setMode(player.mode, player.airborne, rig.firstPerson, fleet.stranded);
-    const offer = fleet.prompt;
-    // Somebody to talk to wins over a seat when they are the nearer of the two.
-    const talker = talk.open || player.mode !== 'foot' || player.airborne
+    const offer = interiors.inside || interiors.busy ? null : fleet.prompt;
+    // Somebody to talk to wins over a seat and a door when they are the
+    // nearest; indoors, only the people in the room are there to talk to.
+    const afoot = !talk.open && player.mode === 'foot' && !player.airborne && !interiors.busy;
+    const talker = !afoot
       ? null
-      : townsfolk.nearest(player.position, TALK_REACH);
-    talkOffer = talker !== null && (offer === null || talker.distance - PERSON_RADIUS < offer.gap) ? talker.key : null;
+      : interiors.inside ? interiors.nearest(player.position, TALK_REACH) : townsfolk.nearest(player.position, TALK_REACH);
+    // The door: out of the room at its own, or into the nearest building's.
+    doorOffer = null;
+    let doorGap = Infinity;
+    if (afoot) {
+      if (interiors.inside) {
+        const words = interiors.exitOffer(player.position);
+        if (words !== null) {
+          doorOffer = interiors.door;
+          doorWords = words;
+          doorGap = 0;
+        }
+      } else {
+        doorOffer = findDoor();
+        if (doorOffer !== null) {
+          doorGap = doorOffer.distance;
+          if (doorOffer.key !== doorWordsKey) {
+            doorWordsKey = doorOffer.key;
+            doorWords = doorLabel(doorOffer);
+          }
+        }
+      }
+    }
+    if (doorOffer !== null && offer !== null && offer.gap < doorGap) doorOffer = null;
+    const talkGap = talker === null ? Infinity : talker.distance - PERSON_RADIUS;
+    talkOffer = talker !== null && (offer === null || talkGap < offer.gap) && (doorOffer === null || talkGap < doorGap) ? talker.key : null;
+    // A bench nearer than any seat, nobody to talk to and no door.
+    const bench = talk.open || talkOffer !== null || doorOffer !== null || interiors.inside || player.sitting || player.mode !== 'foot' || player.airborne ? null : nearestBench();
+    benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) ? bench.bench : null;
     if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
+    else if (player.sitting) hud.setPrompt('Stand up', 'walk');
+    else if (doorOffer !== null) hud.setPrompt(doorWords, 'door');
+    else if (benchOffer !== null) hud.setPrompt('Sit', 'seat');
     else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
     hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open && !chat.open && !passportCard.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
@@ -2609,15 +3020,21 @@ async function start(): Promise<void> {
         }
       }
       setHeadlights(rig.camera, headlights, headlightCount);
-      const townLamps = settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps);
-      setNearLamps(rig.camera, nearLamps, roads.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, townLamps));
+      // By day no lamp is lit, so none is looked for (`LAMPS_OFF_ABOVE`).
+      if (sky.state.elevation > LAMPS_OFF_ABOVE) setNearLamps(rig.camera, nearLamps, 0);
+      else {
+        const townLamps = settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps);
+        setNearLamps(rig.camera, nearLamps, roads.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, townLamps));
+      }
     });
 
     // The sheet behind `M` is opaque and covers the window, so the world under
     // it is not drawn: that frame goes to painting the map's tiles instead.
     const underMap = map.open;
     const drawStart = performance.now();
-    if (!underMap) outline.render(scene, rig.camera);
+    // Indoors the room is drawn instead of the world: a few thousand
+    // triangles and a handful of calls, whatever stands outside.
+    if (!underMap) outline.render(interiors.inside ? interiors.scene : scene, rig.camera);
     const drawEnd = performance.now();
     // In the same task as the draw, before the browser composites and clears
     // the drawing buffer: `toBlob` copies the canvas as it stands when it is
@@ -2816,6 +3233,10 @@ async function start(): Promise<void> {
       // `atlas.talk.script('<key>', where)` is a conversation's lines without
       // the bubble; `atlas.talk.with` is who you are talking to.
       talk,
+      // `atlas.interiors.stats`: rooms built, the last build's milliseconds,
+      // the room's triangles and people; `.plan` is the room you are in and
+      // `.leave()` walks you out.
+      interiors,
       // `atlas.effects.stats`: the puffs, foam discs and debris alive, what a
       // full pool refused, the other vehicles followed, the draw calls and the
       // update's cost. `atlas.effects.burst('crash' | 'splash' | 'dust' |
@@ -2889,6 +3310,14 @@ async function start(): Promise<void> {
       // insects in (`quiet`), the autumn here, and the update's cost;
       // `atlas.ambient.snapshot()` every creature's position, sorted.
       ambient,
+      // `atlas.sea.stats`: the sea floor near you — whether it is drawn, the
+      // window the opaque sea steps aside in, tiles standing and building, the
+      // decor, whether the camera is under the surface; `.enabled = false` is
+      // the sea as it was. `atlas.seaLife.stats` counts the fish, the sharks,
+      // rays and turtles, the dolphins and the whales drawn this frame, and
+      // `atlas.seaLife.snapshot()` lists where each is.
+      sea,
+      seaLife,
       // `atlas.passport.data` is the book; `atlas.passport.show()` opens the
       // card, `atlas.passport.celebrate(atlas.passport.data.stamps[0])` drops
       // a stamp again, `atlas.passport.clear()` empties it on this device.

@@ -1315,8 +1315,9 @@ export function groundPatchesChunk(pos: string): string {
   return /* glsl */ `{
     vec2 atlasPatchPlane = atlasPlaneOf(${pos});
     float atlasPatchFoot = max(length(dFdx(atlasPatchPlane)), length(dFdy(atlasPatchPlane)));
-    diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, ${pos}),
-      1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasPatchFoot));
+    // Two noises a pixel, and none at all where they would be mixed in at nothing.
+    float atlasPatchShare = 1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasPatchFoot);
+    if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, ${pos}), atlasPatchShare);
   }`;
 }
 
@@ -1442,8 +1443,10 @@ vec3 atlasWeathered(vec3 colour, vec3 pos, vec3 viewNormal) {
   float facing = smoothstep(${SNOW_FLAT[0].toFixed(2)}, ${SNOW_FLAT[1].toFixed(2)}, abs(dot(worldNormal, up)));
   float near = 1.0 - smoothstep(${(WEATHER_REACH * 0.55).toFixed(1)}, ${WEATHER_REACH.toFixed(1)}, distance(pos, atlasWeatherAt));
   float snow = max(atlasLyingSnow(pos), atlasFresh * near);
-  // In blots: a thin cover is patches and a deep one is whole.
-  snow = clamp(snow * 1.6 - atlasNoise(pos * 0.035) * 0.6, 0.0, 1.0) * facing;
+  // In blots: a thin cover is patches and a deep one is whole. The blot can
+  // only take snow away, so where there is none the noise is not asked, and
+  // most of the world's ground on most days is that case.
+  if (snow > 0.0) snow = clamp(snow * 1.6 - atlasNoise(pos * 0.035) * 0.6, 0.0, 1.0) * facing;
   colour *= 1.0 - ${WET_DARK.toFixed(2)} * atlasWet * near * (1.0 - snow);
   return mix(colour, vec3(${snowLinear.r.toFixed(4)}, ${snowLinear.g.toFixed(4)}, ${snowLinear.b.toFixed(4)}), snow);
 }`;
@@ -1560,19 +1563,27 @@ function mosaic(material: THREE.MeshToonMaterial): void {
   float atlasYield = 1.0 - min(1.0, atlasFlag * ${MOSAIC_YIELD.toFixed(1)});
   float atlasQuiet = atlasYield
     * (1.0 - smoothstep(${(HEX_CELL * 0.4).toFixed(1)}, ${(HEX_CELL * 1.2).toFixed(1)}, atlasFootprint));
-  vec2 atlasCell;
-  float atlasTone = atlasCellTone(atlasPlane, atlasCell);
+  // Each mark is asked only where it is mixed in at all: from the air, and
+  // past the first few hundred units on foot, a pixel covers several cells
+  // and both weights are zero, which is most of the land on the screen. The
+  // derivatives above stay outside the branches, where they are defined.
+  vec2 atlasCell = vec2(0.0);
+  float atlasMark = atlasMosaic * atlasQuiet;
   // The patches go the same way when a pixel covers a good share of the finer blot.
-  diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, vAtlasPos),
-    atlasMosaic * atlasYield * (1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasFootprint)));
-  diffuseColor.rgb *= mix(1.0, atlasTone, atlasMosaic * atlasQuiet);${
+  float atlasPatchShare = atlasMosaic * atlasYield
+    * (1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasFootprint));
+  float atlasTone = atlasMark > 0.0 ? atlasCellTone(atlasPlane, atlasCell) : 1.0;
+  if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, vAtlasPos), atlasPatchShare);
+  if (atlasMark > 0.0) diffuseColor.rgb *= mix(1.0, atlasTone, atlasMark);${
     flagged
       ? /* glsl */ `
   // The flag, in the square root: a wash is a painting operation. A triangle
   // with no flag of its own carries the land's own colour here, so this is the
   // identity for it at every opacity and needs no mask of its own.
-  diffuseColor.rgb = mix(sqrt(max(diffuseColor.rgb, 0.0)), sqrt(vAtlasFlag), atlasFlag);
-  diffuseColor.rgb *= diffuseColor.rgb;`
+  if (atlasFlag > 0.0) {
+    diffuseColor.rgb = mix(sqrt(max(diffuseColor.rgb, 0.0)), sqrt(vAtlasFlag), atlasFlag);
+    diffuseColor.rgb *= diffuseColor.rgb;
+  }`
       : ''
   }`,
       )
@@ -1584,9 +1595,11 @@ function mosaic(material: THREE.MeshToonMaterial): void {
     // normal gives way to the sphere's own, so a country reads as one sheet of
     // colour and not a mosaic of lit and unlit hillsides in its own colours.
     // Squared, so the relief holds until the flag is well over half way in.
-    vec3 atlasSphere = normalize(mat3(viewMatrix) * normalize(vAtlasPos));
-    normal = normalize(mix(normal, atlasSphere, atlasFlag * atlasFlag));
-    normal = atlasLeanOf(normal, atlasCell, atlasMosaic * atlasQuiet);
+    if (atlasFlag > 0.0) {
+      vec3 atlasSphere = normalize(mat3(viewMatrix) * normalize(vAtlasPos));
+      normal = normalize(mix(normal, atlasSphere, atlasFlag * atlasFlag));
+    }
+    if (atlasMark > 0.0) normal = atlasLeanOf(normal, atlasCell, atlasMark);
   }`,
       );
   };
@@ -1605,6 +1618,27 @@ function toonMaterial(): THREE.MeshToonMaterial {
   material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: [0.11, 0.02, 0.01] };
   mosaic(material);
   return material;
+}
+
+/**
+ * The land's flagged program, on one triangle, for `warm.ts`: the map layer's
+ * first climb switches the land to it (`useFlagAttribute`), and it is the
+ * largest program in the world — compiled inside that frame, it was the one
+ * hitch the warm-up left. A material of its own, flagged from the start, with
+ * the attributes the land carries and the shadow it receives, asks three for
+ * the same program by the same source and key, so the switch finds it built.
+ */
+export function landFlagProxy(): THREE.Mesh {
+  const material = toonMaterial();
+  (material.userData['useFlagAttribute'] as () => void)();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1e-3, 0, 0, 0, 0, 1e-3]), 3));
+  geometry.setAttribute('normal', new THREE.Int8BufferAttribute(new Int8Array([0, 127, 0, 0, 127, 0, 0, 127, 0]), 3, true));
+  geometry.setAttribute('color', new THREE.Uint8BufferAttribute(new Uint8Array(9).fill(255), 3, true));
+  geometry.setAttribute('flag', new THREE.Uint8BufferAttribute(new Uint8Array(9).fill(255), 3, true));
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 /**

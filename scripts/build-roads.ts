@@ -53,6 +53,9 @@ import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { isShown, radiusOf, terrainSiteOf } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
+import type { FlattenSite } from '../src/terrain.ts';
+import { setLandmarks } from '../src/landmark-ground.ts';
+import type { LandmarkSite } from '../src/landmark-ground.ts';
 import {
   APPROACH,
   MAX_ROAD_LENGTH,
@@ -67,6 +70,7 @@ import {
   emptyCourse,
   emptyRamp,
   gateOpen,
+  landmarkAt,
   layersOf,
   placeDirection,
   rampOf,
@@ -116,11 +120,14 @@ const places: Place[] = decodePlaces(
  * relief through `elevationAt`, which is what `settlements.ts` cuts the gates
  * to.
  */
-setFlattenSites(
-  (JSON.parse(readFileSync(resolve(here, '../public/data/monuments.json'), 'utf8')) as {
-    monuments: { id: string; iso: string; lat: number; lon: number }[];
-  }).monuments,
-);
+const landmarks = (JSON.parse(readFileSync(resolve(here, '../public/data/monuments.json'), 'utf8')) as {
+  monuments: (FlattenSite & LandmarkSite & { id: string })[];
+}).monuments;
+setFlattenSites(landmarks);
+// And the ground the landmarks take, which a gate under one is shut by and a
+// road keeps off (`gateUnderLandmark`, `landmarkAt`); `pnpm check` registers
+// the same file before it asks the same questions.
+setLandmarks(landmarks, PLANET_RADIUS);
 setDetailSites(places.map(terrainSiteOf));
 
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
@@ -379,7 +386,7 @@ for (const i of built) {
   builtCells[row * TOWN_COLS + col]!.push(i);
 }
 
-type Refusal = 'ramp' | 'fold' | 'wet' | 'own' | 'through' | 'steep';
+type Refusal = 'ramp' | 'fold' | 'wet' | 'own' | 'through' | 'landmark' | 'steep';
 
 interface Verdict {
   refusal: Refusal | null;
@@ -427,6 +434,9 @@ let trials = 0;
  *   it to Tamworth straight down the middle of Sydney; a pair with no bend that
  *   clears the towns between them is not joined, because the road that would
  *   exist there runs through the town and joins it instead.
+ * - **It keeps off every landmark**: `landmarkAt`, `LANDMARK_KEEP` from the
+ *   ground a model stands on, so a road goes round the Alhambra or to the
+ *   gate of Granada it leaves free rather than through the palace.
  * - **It crosses no scree**: `crossesScree`, through `screeAt`, which says
  *   where.
  */
@@ -469,6 +479,8 @@ function trial(road: Road): Verdict {
       }
     }
   }
+  const landmark = landmarkAt(road, places);
+  if (landmark >= 0) return { refusal: 'landmark', near: Math.min(landmark, 1 - landmark) * course.length };
   const steep = screeAt(road, places);
   if (steep >= 0) return { refusal: 'steep', near: Math.min(steep, 1 - steep) * course.length };
   return { refusal: null, near: Infinity };
@@ -613,8 +625,8 @@ interface Row {
 }
 
 const kept: Row[] = [];
-const refused: Record<Refusal | 'shut', number> = { shut: 0, ramp: 0, fold: 0, wet: 0, own: 0, through: 0, steep: 0 };
-const saved: Record<Refusal, number> = { ramp: 0, fold: 0, wet: 0, own: 0, through: 0, steep: 0 };
+const refused: Record<Refusal | 'shut', number> = { shut: 0, ramp: 0, fold: 0, wet: 0, own: 0, through: 0, landmark: 0, steep: 0 };
+const saved: Record<Refusal, number> = { ramp: 0, fold: 0, wet: 0, own: 0, through: 0, landmark: 0, steep: 0 };
 let savedByGate = 0;
 const testBegan = Date.now();
 /**
@@ -864,11 +876,12 @@ console.log(
   `  of ${candidates.length.toLocaleString()} candidates, ${refused.shut.toLocaleString()} end at a town with no open gate, ` +
     `${refused.ramp.toLocaleString()} cannot climb to both gates, ${refused.fold.toLocaleString()} would fold their ribbon, ` +
     `${refused.wet.toLocaleString()} went to sea, ` +
-    `${refused.own.toLocaleString()} back through their own town, ${refused.through.toLocaleString()} through a third town ` +
-    `and ${refused.steep.toLocaleString()} over a mountain`,
+    `${refused.own.toLocaleString()} back through their own town, ${refused.through.toLocaleString()} through a third town, ` +
+    `${refused.landmark.toLocaleString()} through a landmark and ${refused.steep.toLocaleString()} over a mountain`,
 );
 console.log(
   `  the bow saved ${saved.wet.toLocaleString()} round water, ${saved.through.toLocaleString()} round a town, ` +
+    `${saved.landmark.toLocaleString()} round a landmark, ` +
     `${saved.steep.toLocaleString()} round a mountain, ${saved.own.toLocaleString()} round its own square and ` +
     `${saved.fold.toLocaleString()} out of a hairpin; ` +
     `another gate saved ${savedByGate.toLocaleString()}; the gate search ran out on ` +

@@ -5,6 +5,7 @@ import { biomeAt, biomeSample } from './biome.ts';
 import { MOSAIC_WATER, OCEAN_COLOR, PALETTE, createToonRamp } from './theme.ts';
 import { fbm } from './terrain.ts';
 import { detail } from './view.ts';
+import { DITHER_GLSL } from './fade.ts';
 import { latOf, lonOf } from './sphere.ts';
 
 /**
@@ -266,6 +267,44 @@ const SHORE_BIAS = 32;
 const LIFT_COAST = 0.75;
 const LIFT_SHELF = 0.35;
 
+/** The shallows' reach as built, which the lift is graded over; see `surfaceLift`. */
+let builtReach = SHELF;
+
+/**
+ * How high the drawn water stands over the sphere `distance` units from the
+ * coast: the ribbon's own grade, `LIFT_COAST` falling to `LIFT_SHELF` over
+ * the reach it was built with. The water `seabed.ts` lays over the floor
+ * stands where the ribbon it replaces stood.
+ */
+export function surfaceLift(distance: number): number {
+  return LIFT_COAST + (LIFT_SHELF - LIFT_COAST) * clamp(distance / builtReach, 0, 1);
+}
+
+/** The ribbon's rows as built, for `ribbonColour`. */
+let builtRows: readonly number[] = [];
+const rowLow = new THREE.Color();
+
+/**
+ * The colour the drawn sea has `distance` units from the coast, as the ribbon
+ * draws it: `depthMix` at the two rows either side, mixed linearly across the
+ * band as the GPU interpolates the ribbon's vertex colours — not `depthMix`
+ * at the distance itself, whose curve the ribbon only samples at its rows.
+ * Past the ribbon it is the sphere's `depthMix`. What `seabed.ts` paints its
+ * water with, so where the two hand over the screen door has nothing to show.
+ */
+export function ribbonColour(profile: Float64Array, offset: number, distance: number, target: THREE.Color): THREE.Color {
+  const rows = builtRows;
+  if (rows.length < 2 || distance >= rows[rows.length - 1]!) return depthMix(profile, offset, distance, target);
+  let k = 0;
+  while (k + 2 < rows.length && distance > rows[k + 1]!) k++;
+  const from = rows[k]!;
+  const to = rows[k + 1]!;
+  const t = clamp((distance - from) / (to - from), 0, 1);
+  depthMix(profile, offset, Math.max(0, from), rowLow);
+  depthMix(profile, offset, Math.max(0, to), target);
+  return target.lerp(rowLow, 1 - t);
+}
+
 /**
  * The foam, as a distance from the coast in world units: the shortest it ever
  * pulls back to, and how far it runs up.
@@ -399,7 +438,7 @@ const waterShoal = new THREE.Color();
  * Nine numbers written into `out`, so the loop that fills a buffer allocates
  * nothing.
  */
-function waterProfile(ux: number, uy: number, uz: number, out: Float64Array, offset: number): void {
+export function waterProfile(ux: number, uy: number, uz: number, out: Float64Array, offset: number): void {
   const lat = latOf(uy);
   const lon = lonOf(ux, uz);
   // Zero elevation, so this is the warmth term and nothing else — the sea has
@@ -441,7 +480,7 @@ function waterProfile(ux: number, uy: number, uz: number, out: Float64Array, off
  * and leaves only the middle of an ocean basin at the dark end. That is the
  * structure the real thing has from space, and it costs one term.
  */
-function depthMix(profile: Float64Array, offset: number, distance: number, target: THREE.Color): THREE.Color {
+export function depthMix(profile: Float64Array, offset: number, distance: number, target: THREE.Color): THREE.Color {
   const toShelf = smoothstep(0, SHELF * 0.44, distance);
   const toDeep = smoothstep(SHELF * 0.54, ABYSS, distance);
   const shoalR = profile[offset]!, shoalG = profile[offset + 1]!, shoalB = profile[offset + 2]!;
@@ -671,6 +710,7 @@ function buildWater(world: World): {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
   material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: [0.11, 0.02, 0.01] };
   addGlint(material);
+  addSeaWindow(material, 'hide');
   const mesh = new THREE.Mesh(geometry, material);
   // `atlas.scene.getObjectByName('ocean')` is in the debugging notes and is
   // still the sphere: it is what "sea level" means.
@@ -705,7 +745,7 @@ function shallowsMaterial(): THREE.MeshToonMaterial {
   });
   material.userData.outlineParameters = { visible: false };
   const uniforms = {
-    uTime: { value: 0 },
+    uTime: seaClock,
     uFoam: { value: FOAM_COLOR.clone() },
   };
   material.userData.uniforms = uniforms;
@@ -724,30 +764,118 @@ function shallowsMaterial(): THREE.MeshToonMaterial {
         `#include <common>
 varying vec2 vShore;
 uniform float uTime;
-uniform vec3 uFoam;`,
+uniform vec3 uFoam;
+${FOAM_GLSL}`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-  {
-    // Two swells running along the shoreline at different rates, so the surf
-    // is a phase travelling down a beach rather than the whole coast of a
-    // continent flashing at once.
-    float a = sin(vShore.y * ${(2 * Math.PI / FOAM_WAVELENGTH).toFixed(8)} - uTime * ${(2 * Math.PI / FOAM_PERIOD).toFixed(6)});
-    float b = sin(vShore.y * ${(2 * Math.PI / FOAM_WAVELENGTH_2).toFixed(8)} + uTime * ${(2 * Math.PI / FOAM_PERIOD_2).toFixed(6)} + 1.7);
-    float reach = ${FOAM_REACH.toFixed(1)} + ${FOAM_SWING.toFixed(1)} * clamp(0.5 + 0.34 * a + 0.16 * b, 0.0, 1.0);
-    // The wash is solid to two thirds of its reach and feathers out over the
-    // last third, which is what stops it reading as a painted stripe.
-    float foam = 1.0 - smoothstep(reach * 0.45, reach, vShore.x - ${SHORE_BIAS}.0);
-    diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, foam * ${FOAM_STRENGTH.toFixed(2)});
-  }`,
+  diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, atlasFoam(vShore.x - ${SHORE_BIAS}.0, vShore.y));`,
       );
   };
   // Two materials that compile to different programs must not share a cache
   // key, and Three keys on the source plus this.
   material.customProgramCacheKey = () => 'atlas-shallows';
   addGlint(material);
+  addSeaWindow(material, 'hide');
   return material;
+}
+
+/**
+ * The surf's clock, shared by every surface that draws it: the ribbon and the
+ * water laid over the sea floor near the player (`seabed.ts`), which carries
+ * the surf on where the ribbon hands over to it.
+ */
+export const seaClock: THREE.IUniform<number> = { value: 0 };
+
+/**
+ * The surf as a GLSL function, `atlasFoam(shore, phase)`: how much foam a
+ * point `shore` units from the coast and `phase` units along it wears, 0 to
+ * `FOAM_STRENGTH`. Two swells run along the shoreline at different rates, so
+ * the surf is a phase travelling down a beach rather than the whole coast of
+ * a continent flashing at once; the wash is solid to two thirds of its reach
+ * and feathers out over the last third, which is what stops it reading as a
+ * painted stripe. Reads `uTime`, which must be `seaClock`. Declared once per
+ * shader, after `uTime`.
+ */
+export const FOAM_GLSL = `
+float atlasFoam(float shore, float phase) {
+  float a = sin(phase * ${(2 * Math.PI / FOAM_WAVELENGTH).toFixed(8)} - uTime * ${(2 * Math.PI / FOAM_PERIOD).toFixed(6)});
+  float b = sin(phase * ${(2 * Math.PI / FOAM_WAVELENGTH_2).toFixed(8)} + uTime * ${(2 * Math.PI / FOAM_PERIOD_2).toFixed(6)} + 1.7);
+  float reach = ${FOAM_REACH.toFixed(1)} + ${FOAM_SWING.toFixed(1)} * clamp(0.5 + 0.34 * a + 0.16 * b, 0.0, 1.0);
+  return (1.0 - smoothstep(reach * 0.45, reach, shore)) * ${FOAM_STRENGTH.toFixed(2)};
+}`;
+
+/** The wash's colour, for a surface that draws the surf with `foamGLSL`. */
+export const SURF_COLOR: THREE.Color = FOAM_COLOR;
+
+/**
+ * The window the sea floor is seen through.
+ *
+ * The water sphere and the ribbon are opaque, and nothing under them could
+ * ever be seen. Round the player, `seabed.ts` lays a floor under the sea and
+ * a water surface of its own over it that is as clear as the water is
+ * shallow; inside this disc the sphere and the ribbon step aside for it, and
+ * over its last `band` units the two hand over by the screen door
+ * (`DITHER_GLSL`): each pixel is drawn by one of them and never both, so there
+ * is no seam of double water and no gap. A radius of 0 is no window, which is
+ * the sea as it always was — at altitude, inland, and before the floor near
+ * you is built.
+ *
+ * **Why a window and not a see-through sphere.** The sphere is inked, and a
+ * fill that is see-through shows its hull's far side through itself; and the
+ * ribbon lies over the sphere, so making either of them clear shows the other
+ * rather than the floor. So they stay opaque everywhere else, and inside the
+ * window they are not drawn at all.
+ */
+export const seaWindow = {
+  uSeaCentre: { value: new THREE.Vector3() },
+  uSeaRadius: { value: 0 },
+  uSeaBand: { value: 1 },
+};
+
+/**
+ * The window's cut, as GLSL: 1 inside, 0 outside, the band a ramp between,
+ * compared with the screen door's threshold by whoever draws it. `world` is
+ * the fragment's world position.
+ */
+export function seaWindowGLSL(world: string): string {
+  return `(uSeaRadius > 0.0 ? 1.0 - smoothstep(uSeaRadius - uSeaBand, uSeaRadius, length((${world}) - uSeaCentre)) : 0.0)`;
+}
+
+/**
+ * Adds the window to a material: `hide` for the sphere and the ribbon, which
+ * are not drawn inside it, `show` for the water that is drawn there instead.
+ */
+export function addSeaWindow(material: THREE.Material, mode: 'hide' | 'show'): void {
+  const previous = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    Object.assign(shader.uniforms, seaWindow);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSeaWindow;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vSeaWindow = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vSeaWindow;
+uniform vec3 uSeaCentre;
+uniform float uSeaRadius;
+uniform float uSeaBand;`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+  {
+    float seaCut = ${seaWindowGLSL('vSeaWindow')};
+    float seaDoor = ${DITHER_GLSL};
+    if (${mode === 'hide' ? 'seaDoor < seaCut' : 'seaDoor >= seaCut'}) discard;
+  }`,
+      );
+  };
+  const key = material.customProgramCacheKey.bind(material);
+  material.customProgramCacheKey = () => `${key()}+window-${mode}`;
 }
 
 /**
@@ -767,6 +895,8 @@ function buildShallows(
   const rows = shallowRows(d);
   const tolerance = shelfTolerance(d);
   const reach = shelfReach(d);
+  builtReach = reach;
+  builtRows = rows;
   const bands = rows.length - 1;
 
   /** One bucket per lat/lon cell, so the frustum has something to cull. */
@@ -1112,7 +1242,7 @@ const GLINT_CELL = 1.6;
 const GLINT_BAND_FROM = 250;
 const GLINT_BAND_TO = 900;
 
-function addGlint(material: THREE.MeshToonMaterial): void {
+export function addGlint(material: THREE.MeshToonMaterial): void {
   const previous = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
@@ -1143,7 +1273,7 @@ float atlasGlintSpeck(vec3 world, float octave, vec3 drift, float lobe) {
   vec3 h = atlasGlintHash3(cell);
   if (h.x > lobe * 0.85) return 0.0;
   vec3 centre = cell + 0.25 + 0.5 * atlasGlintHash3(cell + 17.0);
-  float r = 0.12 + 0.16 * h.y;
+  float r = 0.1 + 0.12 * h.y;
   return 1.0 - smoothstep(r * 0.7, r, length(p - centre));
 }`,
       )
@@ -1162,13 +1292,20 @@ float atlasGlintSpeck(vec3 world, float octave, vec3 drift, float lobe) {
       // to the sea, the cells growing with distance in octaves so a speck
       // keeps its size on screen; two octaves cross-fade so no band shows
       // where one hands to the next. The drift is the swell moving.
-      float gLevel = log2(max(1.0, gDist / 40.0));
-      float gOctave = exp2(floor(gLevel));
-      float gBlend = fract(gLevel);
-      vec3 gDrift = vec3(uGlintTime * 0.35, 0.0, uGlintTime * 0.21);
-      float gSpecks = mix(atlasGlintSpeck(vGlintWorld, gOctave, gDrift, gLobe),
-        atlasGlintSpeck(vGlintWorld, gOctave * 2.0, gDrift, gLobe), gBlend);
+      // Octaves go below one near the eye as well as above it far off, so a
+      // speck a few units away is as small on screen as one at forty and not
+      // a disc the width of a hand.
+      // Past the band the specks are mixed in at nothing: not drawn at all.
       float gFar = smoothstep(${GLINT_BAND_FROM.toFixed(1)}, ${GLINT_BAND_TO.toFixed(1)}, gDist);
+      float gSpecks = 0.0;
+      if (gFar < 1.0) {
+        float gLevel = log2(max(0.125, gDist / 40.0));
+        float gOctave = exp2(floor(gLevel));
+        float gBlend = fract(gLevel);
+        vec3 gDrift = vec3(uGlintTime * 0.35, 0.0, uGlintTime * 0.21);
+        gSpecks = mix(atlasGlintSpeck(vGlintWorld, gOctave, gDrift, gLobe),
+          atlasGlintSpeck(vGlintWorld, gOctave * 2.0, gDrift, gLobe), gBlend);
+      }
       float gGlint = mix(gSpecks, gLobe * gLobe * 0.4, gFar);
       totalEmissiveRadiance += mix(uGlintTint, vec3(1.0), 0.5) * (gGlint * uGlintStrength * 1.4);
     }
@@ -1305,13 +1442,9 @@ export function createOcean(world: World): Ocean {
     buildMs: Math.round(performance.now() - began),
   };
 
-  const uniforms = (shallows.meshes[0]?.material as THREE.Material | undefined)?.userData['uniforms'] as
-    | { uTime: { value: number } }
-    | undefined;
-
   const update = (_camera: THREE.Vector3, lights: readonly OceanLight[]): void => {
     const seconds = performance.now() / 1000;
-    if (uniforms !== undefined) uniforms.uTime.value = seconds % FOAM_CYCLE;
+    seaClock.value = seconds % FOAM_CYCLE;
     // One path, from whichever body is doing the lighting. Two would be two
     // suns: the moon's path is only ever worth drawing when the sun's is not.
     let best: OceanLight | null = null;

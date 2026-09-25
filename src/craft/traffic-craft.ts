@@ -18,20 +18,19 @@
  * own axle, so the motion can turn it.
  */
 import * as THREE from 'three';
-import { AVATAR_HEIGHT } from '../stature.ts';
-import { RIDER_HEIGHT, createTrafficContext, rngFrom } from '../traffic/contract.ts';
+import { createTrafficContext, rngFrom } from '../traffic/contract.ts';
 import type { Mount, TrafficContext, TrafficStyle, Vehicle } from '../traffic/contract.ts';
 import { TRAFFIC_STYLES } from '../traffic/regions.ts';
 import { PALETTE } from '../theme.ts';
 import { scooter } from '../traffic/parts/scooter.ts';
 import { autoRickshaw } from '../traffic/parts/auto-rickshaw.ts';
+import { RIDE_SCALE } from './contract.ts';
 import type { CraftKind, CraftModel, Seat } from './contract.ts';
 import { ABREAST } from './body.ts';
 import { assemble, finish, soupOf } from './build.ts';
 import type { Soup, Turning } from './build.ts';
 
-/** How much larger the hero is than the rider the traffic's parts are built round. */
-export const RIDE_SCALE = AVATAR_HEIGHT / RIDER_HEIGHT;
+export { RIDE_SCALE };
 
 let traffic: TrafficContext | null = null;
 /** The traffic's context, with every wheel it makes named so it can be found again. */
@@ -65,7 +64,6 @@ function partSoups(spec: PartSpec, style: TrafficStyle): { still: Soup; wheels: 
   // One shape for every look: the part's own first variant, drawn in each
   // region's paint, so the seats fit every one of them.
   const built = part.build(context(), rngFrom(part.id, 'craft'), style);
-  spec.adjust?.(built);
   const holder = new THREE.Group();
   holder.scale.setScalar(RIDE_SCALE);
   holder.add(built);
@@ -127,8 +125,6 @@ interface PartSpec {
   paints: readonly number[];
   /** The mounts as seats; a bench wide enough for two is two. */
   seats: (part: Vehicle) => Seat[];
-  /** Anything of the part's own that the hero, larger than its rider, needs moved. */
-  adjust?: (built: THREE.Group) => void;
 }
 
 const SPECS: readonly PartSpec[] = [
@@ -157,13 +153,6 @@ const SPECS: readonly PartSpec[] = [
       const half = ABREAST / 2 / RIDE_SCALE;
       return [seatOf(driver), shifted(seatOf(bench, half), 0.15), shifted(seatOf(bench, -half), 0.15)];
     },
-    // The screen, a hand further ahead of the driver's chest than the crowd's
-    // rider needs it: it is the one part at the saddle's height on the axis.
-    adjust: (built) => {
-      for (const child of built.children) {
-        if (Math.abs(child.position.x) < 1e-6 && Math.abs(child.position.y - 1.1) < 1e-6) child.position.z += 0.24;
-      }
-    },
   },
 ];
 
@@ -172,8 +161,8 @@ function partModel(spec: PartSpec): CraftModel {
   if (style === undefined) throw new Error(`craft ${spec.id}: no traffic style '${spec.region}'`);
   // A look a paint: the part's one shape, its body in each.
   const variants = spec.paints.length;
-  const build = (variant: number): THREE.Group => {
-    const paint = spec.paints[((variant % variants) + variants) % variants]!;
+  const build = (variant: number, body?: number): THREE.Group => {
+    const paint = body ?? spec.paints[((variant % variants) + variants) % variants]!;
     const { still, wheels } = partSoups(spec, { ...style, paint: [paint] });
     return assemble(spec.id, [still], wheels);
   };

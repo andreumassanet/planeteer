@@ -276,10 +276,10 @@ function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>, carK: numbe
   // A tractor's cab holds one.
   if (spec.kind === 'tractor') seats.length = 1;
 
-  const body = spec.model === 'bus' ? BUS_BODY : undefined;
-  const build = (variant: number): THREE.Group => {
-    const paint = spec.paints[((variant % spec.paints.length) + spec.paints.length) % spec.paints.length]!;
-    const { still, wheels } = carSoups(model, k, paint, body);
+  const slots = spec.model === 'bus' ? BUS_BODY : undefined;
+  const build = (variant: number, body?: number): THREE.Group => {
+    const paint = body ?? spec.paints[((variant % spec.paints.length) + spec.paints.length) % spec.paints.length]!;
+    const { still, wheels } = carSoups(model, k, paint, slots);
     return assemble(spec.id, [still], wheels);
   };
   return finish({ id: spec.id, kind: spec.kind, medium: 'road', seats, draft: 0, variants: spec.paints.length, build });

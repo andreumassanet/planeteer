@@ -233,6 +233,26 @@ export interface MenuDeps {
    * it where the player has chosen a resolution, so the menu keeps to it.
    */
   pixelRatio?(): number;
+  /**
+   * What the menu sounds like (`menu-sound.ts`), told what happens and left
+   * to decide how it sounds. Omit it and the menu is silent.
+   */
+  sound?: MenuSound;
+}
+
+/** What the menu tells its sound: a pointer over something, a choice, a way back, the start. */
+export type MenuSoundName = 'hover' | 'select' | 'pick' | 'back' | 'open' | 'start';
+
+export interface MenuSound {
+  cue(name: MenuSoundName): void;
+  /** A flight begins that goes nearer the ground (`in`) or away from it, lasting `seconds`. */
+  dive(direction: 'in' | 'out', seconds: number): void;
+  /** The stage on show, on every change; null once the dive into the town has begun. */
+  stage(stage: Stage | null): void;
+  /** Every frame the menu draws. */
+  update(): void;
+  /** The menu is gone: whatever still sounds fades out. */
+  dispose(): void;
 }
 
 /** The cream that covers the cut from the menu's camera to the player's. */
@@ -1620,6 +1640,10 @@ export function createMenu(deps: MenuDeps): Menu {
       dip();
     }
     flight = { from, to: copyPose(to, makePose()), began: performance.now(), duration: duration * 1000, done };
+    // A flight that changes the height by more than about a third is a dive;
+    // a pan across a continent at one height is not.
+    const climb = Math.log(Math.max(1, to.eye.distanceTo(to.target)) / Math.max(1, from.eye.distanceTo(from.target)));
+    if (duration > 0 && Math.abs(climb) > 0.3) deps.sound?.dive(climb < 0 ? 'in' : 'out', duration);
     refreshChrome();
   }
 
@@ -1979,6 +2003,14 @@ export function createMenu(deps: MenuDeps): Menu {
       if (element === button) pickTown(sites[at]!);
     }
   });
+  // The buttons and pins tick under the pointer as the bodies and the countries do.
+  let overControl: Element | null = null;
+  root.addEventListener('pointerover', (event) => {
+    const control = event.target instanceof Element ? event.target.closest('.m-pin, .ui-btn, .m-crumb, .m-result') : null;
+    if (control === overControl) return;
+    overControl = control;
+    if (control !== null && chosen === null) deps.sound?.cue('hover');
+  });
   pinLayer.addEventListener('dblclick', (event) => {
     const button = (event.target as HTMLElement).closest('button');
     if (button === null || picked === null) return;
@@ -2230,6 +2262,7 @@ export function createMenu(deps: MenuDeps): Menu {
   function chooseBody(id: string): void {
     if (flight !== null || chosen !== null) return;
     touch();
+    deps.sound?.cue('select');
     const next = walkable.get(id);
     if (next !== undefined) {
       enterBody(next);
@@ -2337,6 +2370,7 @@ export function createMenu(deps: MenuDeps): Menu {
     if (chosen !== null) return;
     touch();
     if (!setRegion(index)) return;
+    deps.sound?.cue('select');
     closeResults();
     const framing = frameRegion(region!, site, near);
     const target = globePose(framing.lat, framing.lon, framing.dist, makePose());
@@ -2370,6 +2404,7 @@ export function createMenu(deps: MenuDeps): Menu {
   function backToRegions(): void {
     if (flight !== null || chosen !== null) return;
     touch();
+    deps.sound?.cue('back');
     stage = 'region';
     region = null;
     regionIndex = 0;
@@ -2388,6 +2423,7 @@ export function createMenu(deps: MenuDeps): Menu {
   function backToSystem(): void {
     if (flight !== null || chosen !== null) return;
     touch();
+    deps.sound?.cue('back');
     stage = 'system';
     region = null;
     regionIndex = 0;
@@ -2407,6 +2443,7 @@ export function createMenu(deps: MenuDeps): Menu {
 
   function pickTown(site: MenuSite, centre = false): void {
     if (chosen !== null) return;
+    if (picked !== site) deps.sound?.cue('pick');
     picked = site;
     for (const [candidate, row] of rowOf) row.classList.toggle('picked', candidate === site);
     rowOf.get(site)?.scrollIntoView({ block: 'nearest' });
@@ -2428,6 +2465,7 @@ export function createMenu(deps: MenuDeps): Menu {
   function finish(spawn: MenuSpawn): void {
     if (chosen !== null) return;
     chosen = spawn;
+    deps.sound?.cue('start');
     remember(spawn);
     closeResults();
     tip.classList.remove('on');
@@ -2817,6 +2855,9 @@ export function createMenu(deps: MenuDeps): Menu {
   /** One promise for every caller: a second `choose()` used to orphan the first's. */
   let choice: Promise<MenuSpawn> | null = null;
   let running = true;
+  /** What the sound last heard was under the pointer, and which stage it last heard. */
+  let lastHovered: string | null = null;
+  let heardStage: Stage | null = null;
   let previous = performance.now();
 
   function chase(orbit: Orbit, target: Orbit, k: number): void {
@@ -2931,6 +2972,24 @@ export function createMenu(deps: MenuDeps): Menu {
         showRibbon(null);
       }
     }
+
+    // A tick for each new thing under the pointer — a body, a dock item, a
+    // country, a town in the list — and the stage for the hum under it all.
+    const hovered =
+      stage === 'system' || stage === 'planet'
+        ? hoverBody
+        : stage === 'region'
+          ? hoverIndex > 0 ? `region:${hoverIndex}` : null
+          : hotSite !== null ? `site:${hotSite.name}` : null;
+    if (hovered !== lastHovered) {
+      lastHovered = hovered;
+      if (hovered !== null && chosen === null) deps.sound?.cue('hover');
+    }
+    if (stage !== heardStage && chosen === null) {
+      heardStage = stage;
+      deps.sound?.stage(stage);
+    }
+    deps.sound?.update();
 
     // While the globe is dragged at the site stage, say which country letting
     // go will choose.
@@ -3073,6 +3132,7 @@ export function createMenu(deps: MenuDeps): Menu {
       to.up.copy(northward);
       const curtain = h('div', { class: 'atlas-curtain' });
       document.body.append(curtain);
+      deps.sound?.stage(null);
       return new Promise<Curtain>((resolve) => {
         // With less motion asked for there is no dive at all: the curtain
         // closes over wherever the camera already is.
@@ -3100,6 +3160,7 @@ export function createMenu(deps: MenuDeps): Menu {
     dispose() {
       running = false;
       events.abort();
+      deps.sound?.dispose();
       scene.remove(ribbonGroup);
       for (const geometry of ribbons.values()) geometry.dispose();
       ribbons.clear();

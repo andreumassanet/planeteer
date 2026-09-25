@@ -220,6 +220,11 @@ test('a rebinding tells whoever draws key caps', () => {
 });
 
 test('the keys of the moment: none on foot, the climb and the descent in the air, a way out when stranded', () => {
+  assert.equal(actionOf('KeyQ'), 'horn');
+  for (const mode of ['car', 'boat', 'bicycle', 'motorbike', 'horse'] as const) {
+    assert.ok(boardingHints(mode)!.hints.some((hint) => hint.keys.includes('horn')), `${mode} says where its horn is`);
+  }
+  assert.ok(!boardingHints('plane', true)!.hints.some((hint) => hint.keys.includes('horn')), 'a plane has no horn');
   assert.equal(boardingHints('foot'), null);
   const air = boardingHints('plane', true);
   assert.ok(air !== null && air.once && !air.sticky);
@@ -227,7 +232,9 @@ test('the keys of the moment: none on foot, the climb and the descent in the air
   for (const action of ['jump', 'descend'] as const) assert.ok(keys.includes(action), action);
   const stranded = boardingHints('passenger', true, true);
   assert.ok(stranded !== null && stranded.sticky);
-  assert.equal(boardingHints('passenger', true, false), null, 'a passenger aloft with a pilot has nothing to press');
+  const aboard = boardingHints('passenger', true, false);
+  assert.ok(aboard !== null && aboard.once && !aboard.sticky, 'a passenger aloft with a pilot is told once how to jump out');
+  assert.deepEqual(aboard.hints.flatMap((hint) => hint.keys), ['use']);
   for (const mode of ['swim', 'car', 'boat', 'plane', 'balloon', 'bicycle', 'motorbike', 'horse', 'jetski', 'sailboat', 'helicopter', 'passenger'] as const) {
     for (const hint of boardingHints(mode)?.hints ?? []) {
       for (const cap of hint.keys) assert.ok(cap in BINDINGS, `${mode}: ${cap} is a binding`);

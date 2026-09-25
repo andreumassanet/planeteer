@@ -6,6 +6,7 @@ import type { Rng } from './scenery/random.ts';
 import type { BodyKind } from './scenery/occupancy.ts';
 import { bodyPaint, isGlass } from './models.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
+import { buildBench } from './bench.ts';
 import { PLACED_SECTION } from './traffic/contract.ts';
 import { farmTractor } from './traffic/parts/farm-tractor.ts';
 import { PALETTE } from './theme.ts';
@@ -814,25 +815,17 @@ const cairn: CountryPart = {
 // Small things
 // ---------------------------------------------------------------------------
 
-/** A bench, sized to the people who sit on it. */
+/**
+ * A bench, sized to the people who sit on it: `bench.ts`'s, whose seat is the
+ * sitting clip's, so `E` beside it sits you down on the plank rather than on
+ * the air over it.
+ */
 const bench: CountryPart = {
   id: 'bench',
   footprint: 1.6,
   build(ctx, rng) {
-    const { THREE, box, tone } = ctx;
-    const group = new THREE.Group();
     const wood = rng.pick([PALETTE.brown, PALETTE.bark, PALETTE.green]);
-    const iron = PALETTE.steel;
-    const seat = AVATAR_HEIGHT * 0.25;
-    const length = AVATAR_HEIGHT * 0.72;
-    const deep = AVATAR_HEIGHT * 0.12;
-    for (const x of [-length / 2 + 0.2, length / 2 - 0.2]) {
-      group.add(at(box(0.14, seat, deep, iron), x, 0, 0));
-      group.add(at(box(0.14, seat * 0.9, 0.14, iron), x, seat, -deep / 2 + 0.07));
-    }
-    group.add(at(box(length, 0.12, deep + 0.1, wood), 0, seat, 0));
-    group.add(at(box(length, seat * 0.42, 0.1, tone(wood, TONES.light)), 0, seat * 1.35, -deep / 2 + 0.1));
-    return group;
+    return buildBench(ctx, wood, PALETTE.steel, AVATAR_HEIGHT * 0.72, AVATAR_HEIGHT * rng.range(0.24, 0.3));
   },
 };
 

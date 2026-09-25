@@ -103,7 +103,11 @@ import {
 } from './scenery/index.ts';
 import type { PartKind, Placed, RegionStyle, SceneryContext, Weighted } from './scenery/index.ts';
 import { unitAt } from './sphere.ts';
-import { PARKED_CRAFT, PARKED_SLOT } from './craft/contract.ts';
+import { LANDMARK_KEEP, planGap, planGapToBox, planShape } from './landmark-ground.ts';
+import type { PlanShape } from './landmark-ground.ts';
+import { PARKED_AT_RIDE_SCALE, PARKED_CRAFT, PARKED_SLOT, RIDE_SCALE } from './craft/contract.ts';
+import { BENCH_DEPTH, BENCH_SIT_AHEAD } from './bench.ts';
+import type { Bench } from './bench.ts';
 
 /**
  * The join: 29,545 populated places on one side, twenty-two parametric parts on
@@ -348,21 +352,18 @@ const RESCAN_MOVE = 60;
  */
 const BUILD_BUDGET_MS = 3.5;
 
-/**
- * Ground kept clear around a monument, past its own declared footprint.
+/*
+ * Ground kept clear around a monument is `LANDMARK_KEEP` past its plan
+ * (`landmark-ground.ts`).
  *
  * Not "do not build near a landmark" — a landmark with a town around it is
  * exactly what the scenery contract means by *figure and ground*, and Paris's
  * own centre in `places.json` stands 11 units from the Eiffel Tower, which is
- * where it should be. It is only "do not build *inside* one".
- *
- * The footprint is the model's own, out of `monuments.json`, so the Colosseum
- * clears 55 units and Stonehenge clears 4.8 rather than both clearing the
- * contract's widest. A missing one falls back to that widest, because a landmark
- * with no model yet has to reserve the room it might need.
+ * where it should be. It is only "do not build *inside* one". And the plan is
+ * the model's own box, out of `monuments.json`, where it used to be the disc
+ * of its footprint: Granada, whose whole square that disc covered, builds its
+ * north and south round the Alhambra's 94 by 18.
  */
-const MONUMENT_CLEARANCE = 8;
-const WIDEST_FOOTPRINT = 55;
 
 /**
  * **What used to be here was `MAX_BURIAL`, and the history is worth keeping
@@ -448,6 +449,18 @@ const WIDEST_FOOTPRINT = 55;
 const LAMP_PART = 'street-lamp';
 /** The traffic light a kit-built city stands at its middle crossing. */
 const SIGNAL_PART = 'traffic-light';
+/**
+ * The bench a town stands on the pavement beside some of its lamps, its back
+ * to the building line (`bench.ts`, whose seat is the sitting clip's).
+ */
+const BENCH_PART = 'street-bench';
+/** The share of lamps with a bench beside them, and the most benches a town has. */
+const BENCH_CHANCE = 0.4;
+const BENCH_CAP = 8;
+/** How far along the pavement from its lamp a bench stands, centre to post. */
+const BENCH_FROM_LAMP = 2.6;
+/** A bench's back this far off the building line. */
+const BENCH_OFF_LINE = 0.05;
 
 // ---------------------------------------------------------------------------
 // The people standing in it, and the vehicles parked in it
@@ -666,6 +679,12 @@ interface FlatVariant {
   triangles: number;
   height: number;
   /**
+   * A parked vehicle's body colour, as its part picked it off the region's
+   * paints, for the craft that takes its place (`ParkedCar.paint`); null for
+   * anything else, or a part that picked none.
+   */
+  paint?: number | null;
+  /**
    * The variant's plan box, in its own frame before any yaw: how far its
    * vertices reach along X and Z. What `fitIn` fits a building to a cell
    * with, and what its wall is for `solids.ts` — a box and not the part's
@@ -839,10 +858,20 @@ const FOOTPRINT_OF = new Map<string, number>(PARTS.map((entry) => [entry.id, ent
 const footprintOf = (id: string): number => FOOTPRINT_OF.get(id) ?? 0;
 
 /** A circle nothing may be built inside, in the settlement's own local frame. */
+/**
+ * A landmark's ground in a town's frame: its point at `(x, z)`, its plan about
+ * that point (`landmark-ground.ts`), and `radius` kept clear past the plan.
+ */
 interface Keepout {
   x: number;
   z: number;
+  shape: PlanShape;
   radius: number;
+}
+
+/** Whether a keepout reaches the box `[x0, x1] x [z0, z1]` of a town's frame. */
+function keepoutReaches(keepout: Keepout, x0: number, x1: number, z0: number, z1: number): boolean {
+  return planGapToBox(keepout.shape, x0 - keepout.x, x1 - keepout.x, z0 - keepout.z, z1 - keepout.z) < keepout.radius;
 }
 
 
@@ -903,6 +932,43 @@ export interface SettlementStats {
   reach: number;
 }
 
+/**
+ * A building's front door, as `Settlements.doorNear` answers it: which
+ * building, in which town, and where in the world its doorstep is.
+ */
+export interface BuildingDoor {
+  /** The building's identity: the town's seed, its plot and its part. The same door is the same key on every load. */
+  key: string;
+  /** The part standing there (a code part's id, or the kit's asset id a near town builds instead). */
+  part: string;
+  kind: PartKind;
+  /** The town's `RegionStyle.id`. */
+  region: string;
+  town: string;
+  population: number;
+  /** 1 at the town's centre, 0 at the edge of its square. */
+  central: number;
+  /** The building's plan box across its front and back to front, and its height, in world units. */
+  width: number;
+  depth: number;
+  height: number;
+  /** On the floor at the middle of the front wall, in the world. */
+  position: THREE.Vector3;
+  /** Out of the door, along the ground: a unit tangent. */
+  outward: THREE.Vector3;
+  /** From the point asked about to the door, along the ground. */
+  distance: number;
+}
+
+/** A standing building a body can go into: its wall, what it is and which plot; see `doorNear`. */
+interface DoorPlot {
+  solid: Solid;
+  part: string;
+  col: number;
+  row: number;
+  height: number;
+}
+
 export interface Settlements {
   group: THREE.Group;
   stats: SettlementStats;
@@ -948,11 +1014,18 @@ export interface Settlements {
    */
   parkedNear(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
   /**
+   * The benches of every standing town whose sitter's spot is inside `radius`
+   * of `viewer`, in world space. Appends to `out`. See `bench.ts`.
+   */
+  benchesNear(viewer: THREE.Vector3, radius: number, out: Bench[]): void;
+  /**
    * A parked car has been taken: its vertices in the town's buffer are folded
    * away and its wall comes down, so the fleet's vehicle is the only one
    * drawn. Idempotent, and nothing when its town is not standing.
    */
   hideParked(id: string): void;
+  /** The body colour a parked car was parked in (`ParkedCar.paint`), while its town stands; null otherwise. */
+  parkedPaint(id: string): number | null;
   /**
    * Whether a parked car has been taken, asked by every build of a town so a
    * car that is somewhere else is not also at its kerb. Until this is set,
@@ -1008,6 +1081,14 @@ export interface Settlements {
   collideAloft(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
   /** Whether a point is inside a building's walls and under its roof. For the camera. */
   blocksSight(point: THREE.Vector3): boolean;
+  /**
+   * The front door of the standing building nearest `point` within `reach` of
+   * it, written into `out`; false when there is none. A door is the middle of
+   * the side of a building's plan box its part faces (+Z, the kit's
+   * convention), which is the side that faces its street. `interiors.ts` asks
+   * it, and names the room behind it after `out.key`.
+   */
+  doorNear(point: THREE.Vector3, reach: number, out: BuildingDoor): boolean;
   /**
    * The nearest point to `point` where a body of `radius` stands clear of every
    * building, written into `out`; false when `point` already is clear.
@@ -1181,6 +1262,8 @@ interface Slot {
      * nothing. See `collide`.
      */
     solids: SolidField | null;
+    /** The buildings of `solids` that have a front door; see `doorNear`. */
+    doors: readonly DoorPlot[];
     /** The square and its street band, for `swardAt`. */
     grid: TownGrid;
     band: number;
@@ -1226,6 +1309,8 @@ interface Slot {
   lampHeads: Float32Array | null;
   /** The parked cars in the standing mesh that can be taken; see `ParkedCar`. */
   parked: Bay[];
+  /** Its benches, in world space, resolved at `raise` as the lamps' heads are; see `benchesNear`. */
+  benches: Bench[];
 }
 
 /**
@@ -1250,6 +1335,8 @@ export interface ParkedCar {
   position: THREE.Vector3;
   /** The way it faces, along the kerb: a unit tangent. */
   forward: THREE.Vector3;
+  /** Its body colour, for the craft that takes its place to be painted the same; null for the craft's own. */
+  paint: number | null;
 }
 
 /** A `ParkedCar` and where it is in its town's buffer and walls. */
@@ -1341,6 +1428,7 @@ export function createSettlements(
       folk: [],
       lampHeads: null,
       parked: [],
+      benches: [],
     };
   });
 
@@ -1357,7 +1445,8 @@ export function createSettlements(
   const monumentSites = (options.monuments ?? []).map((placement) => {
     return {
       direction: unitAt(placement.lat, placement.lon, new THREE.Vector3()),
-      radius: (placement.footprint ?? WIDEST_FOOTPRINT) + MONUMENT_CLEARANCE,
+      shape: planShape(placement),
+      radius: LANDMARK_KEEP,
     };
   });
 
@@ -1426,10 +1515,24 @@ export function createSettlements(
       if (!missing.includes(id)) missing.push(id);
     } else {
       try {
-        const built = entry.build(traffic, vehicleRng(entry, style, index), style);
-        const scale = placedScale(entry);
-        built.scale.set(scale[0], scale[1], scale[2]);
-        value = { ...flatten(built, key, false), height: placedSize(entry)[2] };
+        // The paint is whatever the part picks off the region's paints: the
+        // pick is watched for it, so the craft that takes this vehicle's
+        // place can be painted the same (`ParkedCar.paint`).
+        const rng = vehicleRng(entry, style, index);
+        let paint: number | null = null;
+        const pick = rng.pick;
+        rng.pick = <T,>(items: readonly T[]): T => {
+          const value = pick(items);
+          if ((items as unknown) === style.paint && paint === null) paint = value as number;
+          return value;
+        };
+        const built = entry.build(traffic, rng, style);
+        // A scooter and an auto-rickshaw are parked at the size their craft
+        // is taken at (`PARKED_AT_RIDE_SCALE`); everything else at the traffic's.
+        const grown = PARKED_AT_RIDE_SCALE.has(entry.id);
+        const scale = grown ? [RIDE_SCALE, RIDE_SCALE, RIDE_SCALE] : placedScale(entry);
+        built.scale.set(scale[0]!, scale[1]!, scale[2]!);
+        value = { ...flatten(built, key, false), height: grown ? entry.size[2] * RIDE_SCALE : placedSize(entry)[2], paint };
       } catch (error) {
         broken.push(`${key}: ${String(error)}`);
       }
@@ -1626,6 +1729,7 @@ export function createSettlements(
       keepouts.push({
         x: monument.direction.dot(across) * PLANET_RADIUS,
         z: monument.direction.dot(north) * PLANET_RADIUS,
+        shape: monument.shape,
         radius: monument.radius,
       });
     }
@@ -1679,6 +1783,12 @@ export function createSettlements(
      * the light's face to the traffic it serves.
      */
     signals: number[];
+    /**
+     * The benches beside the lamps (`BENCH_PART`), as quadruples: a position in
+     * the settlement's frame, on the paving, and the yaw that turns the
+     * bench's face (its +Z) to the street.
+     */
+    benches: number[];
     /**
      * Where a person stands, as runs of `FOLK_STRIDE`, and where a vehicle is
      * parked, as quadruples with a yaw on the end.
@@ -2105,7 +2215,7 @@ export function createSettlements(
     pavedCells: ReadonlySet<number>,
   ): Ground {
     const out: Ground = {
-      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], folk: [], kerbs: [], paved: 0, lawn: null, mouths: [],
+      position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], benches: [], folk: [], kerbs: [], paved: 0, lawn: null, mouths: [],
       terraces: new Map(),
       field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
     };
@@ -2173,7 +2283,7 @@ export function createSettlements(
 
     const blocked = (x: number, z: number): boolean => {
       for (const keepout of keepouts) {
-        if (Math.hypot(x - keepout.x, z - keepout.z) < keepout.radius) return true;
+        if (planGap(keepout.shape, x - keepout.x, z - keepout.z) < keepout.radius) return true;
       }
       return false;
     };
@@ -2351,6 +2461,43 @@ export function createSettlements(
       if (grid.avenue[line] === 1) return -0.8;
       return null;
     };
+    /**
+     * A bench beside the lamp at lattice corner `(i, j)`, `BENCH_FROM_LAMP`
+     * along the pavement away from the crossing, its back to the building line
+     * and its face to the street: along the street on line `i` or the one on
+     * line `j` (`alongI` first), whichever is a street with a pavement there.
+     * Its sitter's spot has to be on the same terrace, off any flight, or
+     * there is no bench.
+     */
+    const benchSpot: number[] = [];
+    let benched = 0;
+    const benchBeside = (i: number, j: number, ox: number, oz: number, alongI: boolean): void => {
+      if (benched >= BENCH_CAP) return;
+      const back = band - BENCH_DEPTH / 2 - BENCH_OFF_LINE;
+      for (const onI of alongI ? [true, false] : [false, true]) {
+        const off = onI ? ox : oz;
+        const run = onI ? oz : ox;
+        // A lamp on an avenue's line stands by its median: no pavement there.
+        if (Math.abs(off) < 1) continue;
+        const across = Math.sign(off) * back;
+        const along = run + Math.sign(run) * BENCH_FROM_LAMP;
+        const x = cornerOffset(grid, i) + (onI ? across : along);
+        const z = cornerOffset(grid, j) + (onI ? along : across);
+        // Facing the street's line: -sign(off) along the axis across it.
+        const fx = onI ? -Math.sign(off) : 0;
+        const fz = onI ? 0 : -Math.sign(off);
+        const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
+        if (level === undefined) continue;
+        const sx = x + fx * BENCH_SIT_AHEAD;
+        const sz = z + fz * BENCH_SIT_AHEAD;
+        if (!standable(sx, sz, level)) continue;
+        benchSpot.length = 0;
+        if (!spotAt(x, z, benchSpot, Math.atan2(fx, fz), CLEAR_LAMP)) continue;
+        out.benches.push(...benchSpot);
+        benched++;
+        return;
+      }
+    };
     let lamps = 0;
     for (let i = 1; i < cells && lamps < LAMP_CAP; i++) {
       for (let j = 1; j < cells && lamps < LAMP_CAP; j++) {
@@ -2364,6 +2511,7 @@ export function createSettlements(
           // The arm over the street along x, towards its line: local -z to
           // world (-sign ox, 0).
           out.lampYaws.push(Math.atan2(Math.sign(ox), 0));
+          if (rng.chance(BENCH_CHANCE)) benchBeside(i, j, ox, oz, rng.chance(0.5));
         }
       }
     }
@@ -2976,6 +3124,18 @@ export function createSettlements(
       // The sides: from the surface down to what is beyond it, or from what is
       // beyond it down to the surface, whichever is higher, broken where the
       // ramp crosses from the cut into the fill.
+      //
+      // **What is beyond is asked at both ends of every piece, and the piece is
+      // broken wherever it can change.** It used to be asked once, at a piece's
+      // middle, as if what stood beside a ramp were level paving; on a band
+      // street what stands beside a half is its twin, sloping exactly as it
+      // does, and a single height taken at the middle stood a twisted wall
+      // down the middle of the carriageway, the height of the ramp's fall over
+      // the piece, on every band street's ramp.
+      const beside: Flight[] = [];
+      for (const list of field.touching?.values() ?? []) {
+        for (const other of list) if (other !== flight && other.axis === flight.axis && !beside.includes(other)) beside.push(other);
+      }
       for (const [t, sign] of [[flight.from, -1], [flight.to, 1]] as const) {
         const probe = t + sign * 1e-3;
         const beyond = (s: number): number => {
@@ -2984,29 +3144,54 @@ export function createSettlements(
           if (!levels.has(cellKey(cellIndex(grid, x), cellIndex(grid, z)))) return s < 0 ? flight.high : flight.low;
           return floorLiftAt(field, x, z, 0);
         };
-        // Broken at every cell edge it passes, where what is beside it can change.
+        // Broken at every cell edge it passes and at both ends of any ramp
+        // beside it, where what is beside it can change.
         const marks = [s0, s1];
         for (let k = Math.ceil((s0 + 1e-6) / pitch); k * pitch < s1 - 1e-6; k++) marks.push(k * pitch);
+        for (const other of beside) {
+          if (probe < other.from || probe > other.to) continue;
+          for (const end of [other.at - other.into * other.back, other.at + other.into * flightRun(other)]) {
+            const s = (end - flight.at) * flight.into;
+            if (s > s0 + 1e-6 && s < s1 - 1e-6) marks.push(s);
+          }
+        }
         marks.sort((m, n) => m - n);
+        const side = (sa: number, sb: number, ha: number, hb: number, oa: number, ob: number): void => {
+          // The fill stands over what is beside it and faces out; the cut is
+          // under it and its wall faces in, across the ramp.
+          const fill = ha + hb >= oa + ob;
+          const face = fill ? sign : -sign;
+          pushWall(
+            out,
+            at(sa, t, Math.max(ha, oa), fp0), at(sa, t, Math.min(ha, oa), fp1),
+            at(sb, t, Math.min(hb, ob), fp2), at(sb, t, Math.max(hb, ob), fp3),
+            kerbTop, kerbFoot, kerbFoot, kerbTop,
+            flight.axis === 0 ? 0 : face, flight.axis === 0 ? face : 0,
+          );
+        };
         for (let m = 0; m + 1 < marks.length; m++) {
           const sa = marks[m]!;
           const sb = marks[m + 1]!;
           if (sb - sa < 1e-6) continue;
-          const other = beyond((sa + sb) * 0.5);
+          const inset = Math.min(1e-4, (sb - sa) * 0.01);
+          const oa = beyond(sa + inset);
+          const ob = beyond(sb - inset);
           const ha = height(sa);
           const hb = height(sb);
-          if (Math.abs(ha - other) < 1e-6 && Math.abs(hb - other) < 1e-6) continue;
-          // The fill stands over what is beside it and faces out; the cut is
-          // under it and its wall faces in, across the ramp.
-          const fill = ha + hb >= other * 2;
-          const face = fill ? sign : -sign;
-          pushWall(
-            out,
-            at(sa, t, fill ? ha : other, fp0), at(sa, t, fill ? other : ha, fp1),
-            at(sb, t, fill ? other : hb, fp2), at(sb, t, fill ? hb : other, fp3),
-            kerbTop, kerbFoot, kerbFoot, kerbTop,
-            flight.axis === 0 ? 0 : face, flight.axis === 0 ? face : 0,
-          );
+          const da = ha - oa;
+          const db = hb - ob;
+          if (Math.abs(da) < 1e-4 && Math.abs(db) < 1e-4) continue;
+          if (da * db < 0) {
+            // The surface passes through what is beside it: two wedges, one
+            // standing over it and one sunk under it, meeting at nothing.
+            const u = da / (da - db);
+            const sm = sa + (sb - sa) * u;
+            const hm = ha + (hb - ha) * u;
+            side(sa, sm, ha, hm, oa, hm);
+            side(sm, sb, hm, hb, hm, ob);
+          } else {
+            side(sa, sb, ha, hb, oa, ob);
+          }
         }
       }
     }
@@ -3131,6 +3316,13 @@ export function createSettlements(
         ? Math.abs(x) < across || Math.abs(z) < along
         : Math.abs(z) < across || Math.abs(x) < along;
     };
+    /** Whether `(x, z)` is within `clear` of a bench, which nothing parks in and nobody stands in. */
+    const nearBench = (x: number, z: number, clear: number): boolean => {
+      for (let b = 0; b + 3 < out.benches.length; b += 4) {
+        if (Math.hypot(out.benches[b]! - x, out.benches[b + 2]! - z) < clear) return true;
+      }
+      return false;
+    };
     const spot: number[] = [];
     const folkChance = Math.min(0.6, 0.2 + urbanity * 0.55);
     for (const key of levels.keys()) {
@@ -3164,7 +3356,7 @@ export function createSettlements(
           const yaw = alongZ ? (rng.chance(0.5) ? 0 : Math.PI) : (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2);
           const px = alongZ ? line : x0 + along;
           const pz = alongZ ? z0 + along : line;
-          if (!parksInThrough(px, pz, alongZ) && spotAt(px, pz, out.kerbs, yaw, CLEAR_CAR)) parked = along;
+          if (!parksInThrough(px, pz, alongZ) && !nearBench(px, pz, CLEAR_CAR) && spotAt(px, pz, out.kerbs, yaw, CLEAR_CAR)) parked = along;
         }
         if (rng.chance(folkChance)) {
           const start = alongZ ? z0 : x0;
@@ -3188,7 +3380,7 @@ export function createSettlements(
               off = kerb - line;
             }
             const [x, z] = pointOf(along, off);
-            if (inThrough(x, z)) continue;
+            if (inThrough(x, z) || nearBench(x, z, CLEAR_FOLK + BENCH_DEPTH)) continue;
             const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
             if (level === undefined) continue;
             spot.length = 0;
@@ -3500,7 +3692,7 @@ export function createSettlements(
         const cz = cellCentre(grid, row);
         if (Math.hypot(Math.abs(cx) + half, Math.abs(cz) + half) > disc) continue;
         if (crowded(cx, cz)) continue;
-        if (keepouts.some((keepout) => Math.hypot(keepout.x - cx, keepout.z - cz) < keepout.radius + half)) continue;
+        if (keepouts.some((keepout) => keepoutReaches(keepout, cx - half, cx + half, cz - half, cz + half))) continue;
         const rng = rngFrom(slot.seed, 'country', col, row);
         const draw = rng.unit();
         if (draw < ORCHARD_SHARE) {
@@ -3571,11 +3763,7 @@ export function createSettlements(
     }
     const fill = cells === 1 ? 1 : 0.83 + 0.12 * urbanity;
 
-    const blocked = (rect: Rect): boolean => keepouts.some((keepout) => {
-      const dx = Math.max(rect.x0 - keepout.x, 0, keepout.x - rect.x1);
-      const dz = Math.max(rect.z0 - keepout.z, 0, keepout.z - rect.z1);
-      return dx * dx + dz * dz < keepout.radius * keepout.radius;
-    });
+    const blocked = (rect: Rect): boolean => keepouts.some((keepout) => keepoutReaches(keepout, rect.x0, rect.x1, rect.z0, rect.z1));
 
     /**
      * The part drawn, then every other part in the mix, largest first.
@@ -3907,9 +4095,9 @@ export function createSettlements(
     }
     const half = grid.pitch * 0.5;
     const outskirts = outskirtsOf(grid, slot.seed, (col, row) => kept.has(cellKey(col, row)) || keepouts.some((keepout) => {
-      const dx = Math.max(Math.abs(keepout.x - cellCentre(grid, col)) - half, 0);
-      const dz = Math.max(Math.abs(keepout.z - cellCentre(grid, row)) - half, 0);
-      return dx * dx + dz * dz < keepout.radius * keepout.radius;
+      const cx = cellCentre(grid, col);
+      const cz = cellCentre(grid, row);
+      return keepoutReaches(keepout, cx - half, cx + half, cz - half, cz + half);
     }));
     for (const key of outskirts) terraces.set(key, null);
     /**
@@ -4000,6 +4188,8 @@ export function createSettlements(
     const litPlots: LitPlot[] = [];
     /** The walls of what stands, for `collide`. See `solidOf`. */
     const solids: Solid[] = [];
+    /** Which of them are buildings with a front door, for `doorNear`. */
+    const doors: DoorPlot[] = [];
 
     for (const entry of placed) {
       const flat = variantOf(entry.partId, slot.style, entry.variant);
@@ -4098,6 +4288,7 @@ export function createSettlements(
         built.add(cellKey(entry.plot.col, entry.plot.row));
         const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level);
         solids.push(solid);
+        doors.push({ solid, part: entry.partId, col: entry.plot.col, row: entry.plot.row, height: flat.height * entry.scale });
         // A block and a civic building stand on paving, a house in its yard.
         if (kind !== 'dwelling') pavedUnder(solid, grid, pavedCells);
       }
@@ -4141,7 +4332,7 @@ export function createSettlements(
     // ...and the one thing that can still refuse it is a landmark standing on
     // the spot, which is a settlement that has to stay empty rather than one
     // that failed.
-    const centreClear = keepouts.every((keepout) => Math.hypot(keepout.x, keepout.z) > keepout.radius);
+    const centreClear = keepouts.every((keepout) => planGap(keepout.shape, -keepout.x, -keepout.z) > keepout.radius);
     if (built.size === 0 && centreClear) {
       // The region's smallest house, which is the one building that cannot
       // fail to fit: this is the case where everything else already did.
@@ -4187,7 +4378,9 @@ export function createSettlements(
           });
         }
         built.add(cellKey(lone, lone));
-        solids.push(solidOf(flat, loneAt, loneAt, loneYaw, 1, baseElevation));
+        const solid = solidOf(flat, loneAt, loneAt, loneYaw, 1, baseElevation);
+        solids.push(solid);
+        doors.push({ solid, part: smallest!, col: lone, row: lone, height: flat.height });
       }
     }
 
@@ -4226,6 +4419,7 @@ export function createSettlements(
         cosBound: Math.cos((span + floorReach(ground.field)) / PLANET_RADIUS),
         // Filled in once the parked cars are placed, which are walls too.
         solids: null,
+        doors,
         grid,
         band,
         lawn: ground.lawn,
@@ -4267,6 +4461,29 @@ export function createSettlements(
       transform.compose(lampAt, quaternion, scaleVector);
       standing.push({ flat, matrix: transform.clone(), glow: 1 });
       vertices += flat.position.length / 3;
+    }
+
+    // The benches, at their own size: the seat is the sitting clip's, and a
+    // scaled bench is one a body floats over or sinks into.
+    slot.benches = [];
+    for (let i = 0; i + 3 < ground.benches.length; i += 4) {
+      const rng = rngFrom(slot.seed, 'bench', i);
+      const flat = variantOf(BENCH_PART, slot.style, rng.int(VARIANTS));
+      if (flat === null) break;
+      lampAt.set(ground.benches[i]!, ground.benches[i + 1]!, ground.benches[i + 2]!);
+      const yaw = ground.benches[i + 3]!;
+      quaternion.setFromAxisAngle(AXIS_Y, yaw);
+      scaleVector.setScalar(1);
+      transform.compose(lampAt, quaternion, scaleVector);
+      standing.push({ flat, matrix: transform.clone(), glow: 0 });
+      vertices += flat.position.length / 3;
+      // Resolved into the world's frame with the people, below.
+      slot.benches.push({
+        position: new THREE.Vector3(Math.sin(yaw) * BENCH_SIT_AHEAD, 0, Math.cos(yaw) * BENCH_SIT_AHEAD).add(lampAt),
+        facing: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
+        sink: 0,
+        key: `bench:${slot.index}:${i / 4}`,
+      });
     }
 
     /**
@@ -4376,6 +4593,7 @@ export function createSettlements(
             model: craft!,
             position: local.clone(),
             forward: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
+            paint: flat.paint ?? null,
             start: 0,
             count: 0,
             solid,
@@ -4526,6 +4744,11 @@ export function createSettlements(
       bay.forward.applyQuaternion(mesh.quaternion);
     }
     if (slot.parked.length > 0) parkedTowns.add(slot);
+    for (const bench of slot.benches) {
+      bench.position.applyQuaternion(mesh.quaternion).add(mesh.position);
+      bench.facing.applyQuaternion(mesh.quaternion);
+    }
+    if (slot.benches.length > 0) benchTowns.add(slot);
 
     slot.mesh = mesh;
     slot.triangles = total / 3;
@@ -4566,6 +4789,8 @@ export function createSettlements(
     slot.lampHeads = null;
     slot.parked = [];
     parkedTowns.delete(slot);
+    slot.benches = [];
+    benchTowns.delete(slot);
     retireMesh(slot.mesh, instant);
     slot.mesh = null;
     slot.triangles = 0;
@@ -4606,6 +4831,8 @@ export function createSettlements(
     slot.folk = [];
     parkedTowns.delete(slot);
     slot.parked = [];
+    slot.benches = [];
+    benchTowns.delete(slot);
     slot.mesh = null;
     raise(slot);
     // Out as the new one comes in, on complementary pixels: a cross-dissolve.
@@ -4669,6 +4896,8 @@ export function createSettlements(
   const lit = new Set<Slot>();
   /** The standing towns with a car in them that can be taken. */
   const parkedTowns = new Set<Slot>();
+  /** The standing towns with a bench, for `benchesNear`. */
+  const benchTowns = new Set<Slot>();
   /** Whether a parked car has been taken, and so is the fleet's to draw; see `parkedTaken`. */
   let parkedTaken: (id: string) => boolean = () => false;
   /** Towns arriving and leaving by dissolving; see `fade.ts`. */
@@ -4702,9 +4931,12 @@ export function createSettlements(
     }
     if (best <= 0 || elevation === null) return 0;
     // A cell whose corners were on land can still cover a scrap of sea, and a
-    // quay is where that happens. Standing on the water is the one failure
-    // this whole surface exists to avoid, so the sea wins.
-    if (elevation <= 0) return 0;
+    // quay is where that happens. **The paving is drawn over it**, level with
+    // the rest of its terrace, so it is stood on and the water starts at its
+    // edge. Answering 0 there — the sea winning — dropped a man walking along
+    // a quay through the paving he could see and into the sea under it. The
+    // answer is absolute either way: `elevation` is 0 over the sea, and the
+    // lift is measured from it.
     return PLANET_RADIUS + elevation + best;
   }
 
@@ -4829,6 +5061,68 @@ export function createSettlements(
       if (enclosed(floor.solids, x, z, height)) return true;
     }
     return false;
+  }
+
+  /**
+   * The front door nearest `point` within `reach`, on the side of the plan box
+   * its part faces: the solid's second axis is the part's +Z, so the door is
+   * `hz` out along it from the box's centre. Only a door the point stands in
+   * front of counts, which is what keeps the back wall of a terrace from
+   * offering the house on the next street.
+   */
+  function doorNear(point: THREE.Vector3, reach: number, out: BuildingDoor): boolean {
+    wallDir.copy(point).normalize();
+    let best = reach;
+    let found: { slot: Slot; door: DoorPlot } | null = null;
+    for (const slot of floors) {
+      const floor = slot.floor;
+      if (floor === null || floor.doors.length === 0) continue;
+      if (wallDir.dot(floor.up) < floor.cosBound) continue;
+      const x = wallDir.dot(floor.across) * PLANET_RADIUS;
+      const z = wallDir.dot(floor.north) * PLANET_RADIUS;
+      for (const door of floor.doors) {
+        const s = door.solid;
+        // The part's front, (-sin, cos) in the record's terms.
+        const fx = -s.sin;
+        const fz = s.cos;
+        const dx = x - (s.x + fx * s.hz);
+        const dz = z - (s.z + fz * s.hz);
+        if (dx * fx + dz * fz < -0.25) continue;
+        // Along the facade, a door is its middle third: a body at the corner is at the side wall.
+        const along = Math.abs(dx * s.cos + dz * s.sin);
+        const distance = Math.hypot(dx, dz);
+        if (along > Math.max(1.5, s.hx * 0.6) || distance >= best) continue;
+        best = distance;
+        found = { slot, door };
+      }
+    }
+    if (found === null) return false;
+    const { slot, door } = found;
+    const floor = slot.floor!;
+    const s = door.solid;
+    const fx = -s.sin;
+    const fz = s.cos;
+    const dx = s.x + fx * s.hz;
+    const dz = s.z + fz * s.hz;
+    out.key = `${slot.seed}:${door.col}:${door.row}:${door.part}`;
+    out.part = door.part;
+    out.kind = KIND_OF.get(door.part) ?? 'dwelling';
+    out.region = slot.style.id;
+    out.town = slot.place.name;
+    out.population = slot.place.pop;
+    out.central = Math.max(0, 1 - Math.hypot(s.x, s.z) / Math.max(1, floor.grid.half));
+    out.width = s.hx * 2;
+    out.depth = s.hz * 2;
+    out.height = door.height;
+    out.position
+      .copy(floor.up)
+      .addScaledVector(floor.across, dx / PLANET_RADIUS)
+      .addScaledVector(floor.north, dz / PLANET_RADIUS)
+      .normalize()
+      .multiplyScalar(point.length());
+    out.outward.copy(floor.across).multiplyScalar(fx).addScaledVector(floor.north, fz).projectOnPlane(wallDir).normalize();
+    out.distance = best;
+    return true;
   }
 
   /** The nearest point clear of every wall, at the same radius; false if `point` already is. */
@@ -5044,6 +5338,22 @@ export function createSettlements(
       }
     },
 
+    parkedPaint(id) {
+      const slot = slots[Number(id.split(':')[1])];
+      return slot?.parked.find((entry) => entry.id === id)?.paint ?? null;
+    },
+
+    benchesNear(viewer, radius, out) {
+      const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
+      const direction = folkDirection.copy(viewer).normalize();
+      for (const slot of benchTowns) {
+        if (slot.direction.dot(direction) < cosReach) continue;
+        for (const bench of slot.benches) {
+          if (bench.position.distanceTo(viewer) <= radius) out.push(bench);
+        }
+      }
+    },
+
     hideParked(id) {
       const parts = id.split(':');
       const slot = slots[Number(parts[1])];
@@ -5157,6 +5467,7 @@ export function createSettlements(
     collideAloft: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => collide(point, radius, push, point.length()),
     blocksSight,
     freeSpotNear,
+    doorNear,
 
     /**
      * Merged against instanced, on a real settlement, in one call.

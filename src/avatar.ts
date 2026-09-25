@@ -360,14 +360,40 @@ const smoothstep = (x: number, a: number, b: number) => {
 export const RUN_PHASE = 0.36;
 
 /**
- * How far one stroke cycle — both arms — carries a swimmer: a body's length.
- * The hands of the library's crawl pull 3.1 units back through the water a
- * cycle between them, and a swimmer glides a little past his pull, so the
- * stroke is driven by distance as the walk is and the arms keep pace with the
- * sea going by. At half a walk, the player's swimming speed, it is 0.86
- * cycles a second against the clip's own 0.75.
+ * How far one stroke cycle — both arms — carries a swimmer at an easy pace: a
+ * body's length. The hands of the library's crawl pull 3.1 units back through
+ * the water a cycle between them, and a swimmer glides a little past his
+ * pull, so at a slow pace the stroke is driven by distance as the walk is and
+ * the arms keep pace with the sea going by.
  */
 export const SWIM_STROKE = AVATAR_HEIGHT;
+/**
+ * The most stroke cycles a second the arms ever make. **A swimmer here is
+ * faster than a person is** — a swim at a jog, a sprint at a run — and at
+ * `SWIM_STROKE` a cycle that would be two and a half cycles a second at the
+ * sprint: arms windmilling, which is what a fast crawl drawn by distance
+ * looked like. So past an easy pace the cadence eases towards this and the
+ * rest of the speed is glide: 1.3 cycles a second at the swim, 1.5 at the
+ * sprint, which is a racing crawl's.
+ */
+export const SWIM_CADENCE = 1.55;
+/**
+ * How far the body rolls with the stroke, radians; rides up on each pull,
+ * units; and how much higher than the clip's own waterline a crawl is carried
+ * at the surface — the library's crawl has the head's root a tenth of a unit
+ * out, which from the chase camera is a swimmer with his face in the sea and
+ * nothing else showing.
+ */
+const SWIM_ROLL = 0.22;
+const SWIM_RIDE = AVATAR_HEIGHT * 0.025;
+const SWIM_LIFT = AVATAR_HEIGHT * 0.04;
+/** Under the surface, the stroke is a long, slow pull and a glide: this share of the cadence. */
+const UNDER_CADENCE = 0.6;
+
+/** Stroke cycles a second at `speed`: by distance when slow, easing to `SWIM_CADENCE`. */
+export function swimCadence(speed: number): number {
+  return SWIM_CADENCE * Math.tanh(Math.max(0, speed) / SWIM_STROKE / SWIM_CADENCE);
+}
 
 /** How quickly the clip weights follow the speed, per second, on foot and afloat. */
 const BLEND_RATE = 10;
@@ -460,8 +486,14 @@ export interface Motion {
   readonly phase: number;
   /** Walking, running, standing, turning on the spot and in the air. */
   foot(dt: number, speed: number, airborne: boolean, cues?: MotionCues): void;
-  /** Afloat, the origin on the surface: a crawl at speed, treading water when still. */
-  swim(dt: number, speed: number): void;
+  /**
+   * Afloat, the origin on the surface: a crawl at speed, treading water when
+   * still. `under` is how far under the surface the body is, 0 to 1: under
+   * it the stroke slows into a long pull and a glide.
+   */
+  swim(dt: number, speed: number, under?: number): void;
+  /** Where the stroke is in its cycle, 0 to 1; what the body's roll keeps time with. */
+  readonly stroke: number;
   /** The relaxed idle and nothing else, the weights blended `rate` times as fast: a seat, a helm. */
   still(dt: number, rate?: number): void;
   /** Back on the ground: `hardness` 0 for an ordinary jump, 1 for a fall that should have hurt. */
@@ -831,13 +863,15 @@ export function createMotion(first: Person): Motion {
     person.root.rotation.set(0, 0, 0);
   }
 
-  function swim(dt: number, speed: number): void {
+  function swim(dt: number, speed: number, under = 0): void {
     settle();
     lastSpeed = speed;
     landAt = Infinity;
-    stroke = (stroke + (speed * dt) / SWIM_STROKE) % 1;
-    // Most of a crawl by a third of the swimming pace, treading water under it.
-    const paddling = smoothstep(speed, 0.2, SWIM_STROKE * 0.25);
+    stroke = (stroke + swimCadence(speed) * (1 - (1 - UNDER_CADENCE) * under) * dt) % 1;
+    // Most of a crawl by a third of an easy pace, treading water under it;
+    // under the surface a little of the treading stays in, which is the legs
+    // kicking under a long pull.
+    const paddling = smoothstep(speed, 0.2, SWIM_STROKE * 0.25) * (1 - 0.2 * under);
     blend(dt, SWIM_BLEND_RATE, aim(0, 0, 0, 0, paddling, 1 - paddling));
     apply(dt);
   }
@@ -908,6 +942,9 @@ export function createMotion(first: Person): Motion {
     get phase() {
       return phase;
     },
+    get stroke() {
+      return stroke;
+    },
     foot,
     swim,
     still,
@@ -939,9 +976,10 @@ export interface Avatar {
   /**
    * Afloat. `sink` is how far the group hangs under the water's surface
    * (`Player.sink`), which the body gives back: the swimming clips are drawn
-   * with the waterline at their origin.
+   * with the waterline at their origin. `under` is how far under the surface
+   * the body has dived, 0 to 1.
    */
-  swim(dt: number, speed: number, sink: number): void;
+  swim(dt: number, speed: number, sink: number, under?: number): void;
   /** Back on the ground after a jump or a fall; see `Motion.land`. */
   land(hardness: number): void;
   /** At the launch's helm. `heel` is the craft's roll. */
@@ -1024,10 +1062,16 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     motion.foot(dt, speed, airborne, cues);
   }
 
-  function swim(dt: number, speed: number, sink: number): void {
-    body.position.set(0, sink, 0);
-    body.rotation.set(0, 0, 0);
-    motion.swim(dt, speed);
+  function swim(dt: number, speed: number, sink: number, under = 0): void {
+    motion.swim(dt, speed, under);
+    // The body rolls with the stroke, towards the arm that is pulling — a
+    // crawl breathes on the roll — and rides a little up on each pull; both
+    // by how much of the crawl is showing, and less under the surface, where
+    // the stroke is a glide.
+    const crawl = smoothstep(speed, 0.2, SWIM_STROKE * 0.25) * (1 - 0.5 * under);
+    const turn = motion.stroke * Math.PI * 2;
+    body.position.set(0, sink + (SWIM_LIFT + Math.abs(Math.sin(turn)) * SWIM_RIDE) * crawl * (1 - under), 0);
+    body.rotation.set(0, 0, Math.sin(turn) * SWIM_ROLL * crawl);
   }
 
   const hipAt = new THREE.Vector3();

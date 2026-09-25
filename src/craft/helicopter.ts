@@ -125,6 +125,22 @@ function buildHelicopter(variant: number): THREE.Group {
   const stabiliser = box(1.1 * M, 0.05 * M, 0.3 * M, stripe);
   stabiliser.position.set(0, HIP + 0.1 * M, TAIL + 0.7 * M);
   group.add(stabiliser);
+  // An end plate on each tip of it, and a skid under the fin that keeps the
+  // tail rotor off the ground on a flare.
+  for (const side of [-1, 1]) {
+    const plate = box(0.04 * M, 0.26 * M, 0.26 * M, paint);
+    plate.position.set(side * 0.57 * M, HIP + 0.02 * M, TAIL + 0.7 * M);
+    group.add(plate);
+  }
+  group.add(strut(new V(0, HIP + 0.08 * M, TAIL + 0.45 * M), new V(0, HIP - 0.3 * M, TAIL + 0.1 * M), 0.04 * M, PALETTE.steel));
+  // The exhaust out of the back of the cowl, and a door line down each flank
+  // between the front seats and the back.
+  group.add(strut(new V(0, ROOF + 0.05 * M, CABIN_AFT - 0.15 * M), new V(0, ROOF + 0.02 * M, CABIN_AFT - 0.45 * M), 0.12 * M, PALETTE.ink));
+  for (const side of [-1, 1]) {
+    const door = box(PROUD, waist - FLOOR, 0.04 * M, tone(paint, 0.7));
+    door.position.set(side * (HALF + PROUD * 0.5), FLOOR, (FRONT + REAR) / 2 - 0.1 * M);
+    group.add(door);
+  }
   // The skids, on the ground, with their cross tubes up to the belly and the toes turned up.
   const skidX = HALF + 0.12 * M;
   const skidAft = CABIN_AFT - 0.1 * M;

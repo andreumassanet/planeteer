@@ -50,7 +50,7 @@ import { proxyOf } from './warm.ts';
  */
 
 export interface AmbientOptions {
-  /** The drawn land's radius under a point (`groundRadius`). */
+  /** The drawn land's radius under a point (`drawnRadius`). */
   groundAt(point: THREE.Vector3): number;
   /** A town's floor or a road's ribbon under a point, as a radius, or 0 (`main.ts`'s `madeHeightAt`). */
   madeHeightAt(point: THREE.Vector3): number;

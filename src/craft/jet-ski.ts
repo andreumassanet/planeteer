@@ -25,11 +25,11 @@ const H = AVATAR_HEIGHT;
 const M = H / 1.75;
 const V = THREE.Vector3;
 
-/** The hull's half-beam, the keel under the waterline, the deck and the wells' floor over it. */
+/** The hull's half-beam, the keel under the waterline, the deck and the wells' floor on it. */
 const HALF = 0.56 * M;
 const KEEL = -0.2 * M;
 const DECK = 0.3 * M;
-const WELL = 0.24 * M;
+const WELL = DECK;
 /** The saddle's top, which is the rider's hip, and where the two hips are along it. */
 const HIP = 0.66 * M;
 const FRONT = 0.05 * M;
@@ -94,12 +94,32 @@ function buildJetSki(variant: number): THREE.Group {
     strake.position.set(side * (HALF + PROUD * 0.4), DECK * 0.3, -0.4 * M);
     group.add(strake);
   }
-  // The wells' floor either side of the saddle, a mat proud of the deck's line.
+  // The wells either side of the saddle: a mat on the deck where the feet
+  // go, and a gunwale along the outside of each, so the deck reads as two
+  // footwells rather than a flat lid.
   for (const side of [-1, 1]) {
-    const mat = box(0.3 * M, PROUD, 1.3 * M, tone(PALETTE.steel, 1.2));
-    mat.position.set(side * 0.32 * M, WELL, -0.35 * M);
+    const mat = box(0.24 * M, PROUD, 1.3 * M, tone(PALETTE.steel, 1.2));
+    mat.position.set(side * 0.29 * M, WELL, -0.35 * M);
     group.add(mat);
+    const gunwale = box(0.08 * M, 0.12 * M, 1.6 * M, tone(hull, 0.85));
+    gunwale.position.set(side * 0.44 * M, DECK - 0.02 * M, -0.4 * M);
+    group.add(gunwale);
+    // A stripe of the trim swept up the flank towards the bow.
+    const stripe = box(PROUD, 0.08 * M, 0.8 * M, trim);
+    stripe.position.set(side * (HALF * 0.96 + PROUD * 0.5), 0.08 * M, 0.05 * M);
+    stripe.rotation.set(-0.1, -side * 0.05, 0);
+    group.add(stripe);
   }
+  // The hood over the bow, a tone off the hull, from the pod forward.
+  group.add(
+    loft(
+      [
+        { z: 0.85 * M, ring: octagon(0.3 * M, DECK + 0.08 * M, 0.6 * M, 0.5) },
+        { z: 1.35 * M, ring: octagon(0.13 * M, DECK + 0.2 * M, DECK + 0.3 * M, 0.5) },
+      ],
+      tone(hull, 0.88),
+    ),
+  );
   // The saddle, whose top is both hips, over a plinth off the deck.
   const plinth = loft(
     [
@@ -146,6 +166,13 @@ function buildJetSki(variant: number): THREE.Group {
   nozzle.rotation.x = -Math.PI / 2;
   nozzle.position.set(0, 0.02 * M, STERN + 0.04 * M);
   group.add(nozzle);
+  // A mirror either side of the pod.
+  for (const side of [-1, 1]) {
+    group.add(strut(new V(side * 0.2 * M, 0.8 * M, 0.72 * M), new V(side * 0.32 * M, 0.9 * M, 0.7 * M), 0.025 * M, PALETTE.ink));
+    const mirror = box(0.1 * M, 0.06 * M, 0.02 * M, PALETTE.ink);
+    mirror.position.set(side * 0.34 * M, 0.88 * M, 0.7 * M);
+    group.add(mirror);
+  }
   // A grab handle behind the saddle.
   group.add(strut(new V(-0.14 * M, HIP - 0.06 * M, BACK - 0.5 * M), new V(0.14 * M, HIP - 0.06 * M, BACK - 0.5 * M), 0.04 * M, PALETTE.steel));
 

@@ -13,6 +13,10 @@ import { enclosed, freeSpot, pushOut, solidField, yawed } from './scenery/solids
 import type { SolidField } from './scenery/solids.ts';
 import { floorAt, occupancyOf } from './scenery/occupancy.ts';
 import type { Occupancy } from './scenery/occupancy.ts';
+import type { Plan } from './landmark-ground.ts';
+import { buildSetting } from './landmark-setting.ts';
+import { regionFor } from './scenery/regions.ts';
+import { groundStyleFor } from './scenery/ground.ts';
 
 /**
  * Where a monument stands, as baked by `scripts/build-monuments.ts`.
@@ -40,16 +44,29 @@ export interface Placement {
    */
   footprint?: number;
   /**
-   * Same-shelf ground the bake found around it, capped at `footprint`.
+   * Same-shelf ground the bake found around it: past the plan's edge, capped
+   * at the pad's margin, and negative where the plan itself reaches water.
    *
    * Here for the same reason `footprint` is, and it goes to the same place: a
-   * placement short of its own footprint is a model standing over water, and
+   * placement short of its own plan is a model standing over water, and
    * `terrain.ts` holds its pad down to the shore lip rather than letting it
    * stand the coast back up under the model. Declared rather than left to ride
    * along untyped, because the row reaches `setFlattenSites` whole and a field
    * nobody names is a field the next edit drops.
    */
   clearance?: number;
+  /**
+   * The box the model stands in, in its own frame, measured by the bake:
+   * the ground the pad is cut to, the towns leave unbuilt and the roads keep
+   * off (`landmark-ground.ts`). Absent, the footprint's disc stands for it.
+   */
+  plan?: Plan;
+  /** Stands in or at the water by what it is, and may overhang it. */
+  shore?: true;
+  /** Stands in a paved square of its own; see `landmark-setting.ts`. */
+  setting?: 'plaza';
+  /** Which way the square's path leaves, as `atan2(x, z)` in degrees in the model's frame. */
+  toward?: number;
   height?: number;
   year?: number;
   /** One sentence for the card that greets you there; `notes` in the source. */
@@ -283,6 +300,8 @@ export function createMonuments(
   group.name = 'monuments';
 
   const known = new Set(kit.monuments.map((entry) => entry.id));
+  /** Each country's continent, for the region a landmark's square is paved in. */
+  const continentOf = new Map<string, string>(world.countries.map((country) => [country.iso, country.continent]));
   const missing = placements.filter((p) => !known.has(p.id));
   const broken: string[] = [];
 
@@ -441,6 +460,14 @@ export function createMonuments(
       slot.failed = true;
       broken.push(`${id}: ${String(error)}`);
       return null;
+    }
+    // Its square, where the source gives it one (`landmark-setting.ts`): after
+    // the contract has passed the model, because the square is the world's
+    // and not the model's, and merged with it so it is no draw call of its own.
+    if (slot.placement.setting === 'plaza') {
+      const region = regionFor(slot.placement.iso, continentOf.get(slot.placement.iso) ?? '', slot.placement.lat).id;
+      const square = buildSetting(ctx, slot.placement, groundStyleFor(region), region);
+      if (square !== null) model.add(square);
     }
     const merged = mergeMeshes(model);
     // The vertices are copied out; the helpers' geometries are this build's.

@@ -49,6 +49,8 @@ jobs:
 
       - name: world
         run: pnpm check
+      - name: perf
+        run: pnpm perf
       - name: traffic
         run: pnpm traffic
       - name: scenery
@@ -63,8 +65,12 @@ jobs:
         run: pnpm system
       - name: solids
         run: pnpm solids
+      - name: interiors
+        run: pnpm interiors
       - name: fleet
         run: pnpm fleet
+      - name: ground
+        run: pnpm ground
       - name: country
         run: pnpm country
       - name: craft
@@ -75,6 +81,8 @@ jobs:
         run: pnpm weather
       - name: ambient
         run: pnpm ambient
+      - name: sea
+        run: pnpm sea
       - name: passport
         run: pnpm passport
       - name: music

@@ -62,7 +62,7 @@ const SEGMENT = [6, 12, 40, 80];
 /** Levels whose tiles hand what turns to the moving mesh, rather than merging it still. */
 export const MOTION_LEVEL = 1;
 /** How far a piece is bedded, as in `vegetation.ts`'s `SEATING`: burying is invisible, floating is not. */
-const BURY = 0.2;
+export const PIECE_BURY = 0.2;
 
 /** A flattened build: what `vegetation.ts` calls a `FlatVariant`. */
 export interface CountryFlat {
@@ -359,10 +359,10 @@ export function createCountryBuilder(
     const elevation = world.elevationAt(piece.at);
     const relief = reliefAt(piece.at.x, piece.at.y, piece.at.z);
     gradeAt(piece.at, pieceAcross, pieceNorth, Math.max(1, piece.footprint * 0.6), slope);
-    let base = PLANET_RADIUS + elevation - relief + Math.min(relief, slope.lowest) - BURY;
+    let base = PLANET_RADIUS + elevation - relief + Math.min(relief, slope.lowest) - PIECE_BURY;
     if (land !== undefined && landReady) {
       const drawn = land.radiusAt(piece.at);
-      if (drawn !== null) base = Math.min(base, drawn - BURY);
+      if (drawn !== null) base = Math.min(base, drawn - PIECE_BURY);
     }
     return base;
   }

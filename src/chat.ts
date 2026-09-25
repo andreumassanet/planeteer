@@ -29,10 +29,21 @@
  * ## The keyboard
  *
  * `Enter` or `T` opens the field, and `/` opens it with the slash typed;
- * `Enter` sends and closes, `Esc` closes, `Tab` completes a command or a
- * player's name, and the arrows walk back through what was sent. While the
+ * `Enter` sends and closes, `Esc` closes, and the arrows walk back through
+ * what was sent. While the
  * field has the focus every key is its own (`inputBlocked` in `controls.ts`),
  * and the mouse is let go, the way the settings let it go.
+ *
+ * ## Suggestions
+ *
+ * A line that starts with `/` lists what it could become over the field, as
+ * a game's console does (`suggest` in `chat-core.ts`): the commands that begin
+ * with what is typed, each with its usage and its help, then the arguments
+ * the command takes — the players online, the towns and countries `/goto`
+ * would find, the words `/time` and `/weather` know. The rest of the chosen
+ * row and of the usage stand greyed after the text. The arrows choose a row
+ * while there are rows, `Tab` writes it in, `Enter` writes it in and sends
+ * it once nothing is left to type, and `Esc` puts the list away first.
  *
  * Closed, the last few lines stand over the bottom left for a while and fade;
  * open, the whole history is there to scroll.
@@ -40,6 +51,7 @@
 import { actionOf, inputBlocked, labelOf } from './controls.ts';
 import { createFlagCanvas } from './flags.ts';
 import { ensureStyle, fold, h, icon, installUi, kbd } from './ui.ts';
+import type { Suggestion } from './chat-core.ts';
 import { cleanName } from './peers.ts';
 import type { Peers, RelayMessage } from './peers.ts';
 import { blip } from './voice.ts';
@@ -55,13 +67,14 @@ import type { Emote } from '../server/src/limits.ts';
 import {
   COMMANDS,
   actionOf as actionIn,
-  complete,
   findPlace,
   matchPlayer,
   parseClock,
   parseCommand,
   parseLatLon,
   parseWeather,
+  suggest,
+  suggestPlaces,
   unescapeSlash,
 } from './chat-core.ts';
 import type { Gazetteer, ParsedCommand, WeatherWanted } from './chat-core.ts';
@@ -224,8 +237,54 @@ const STYLE = `
 .atlas-chat.open .atlas-chat-head { display: flex; }
 .atlas-chat-head .ui-eyebrow { opacity: 0.8; }
 .atlas-chat-count { font-size: 11px; font-weight: 800; color: var(--ui-muted); }
-.atlas-chat-hint { display: none; padding: 0 6px; font-size: 11.5px; font-weight: 700; color: var(--ui-muted); }
-.atlas-chat.open .atlas-chat-hint:not(:empty) { display: block; }
+.atlas-chat-entry { position: relative; }
+.atlas-chat-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.atlas-chat-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: pre;
+  font: 700 14px var(--ui-font);
+  pointer-events: none;
+}
+.atlas-chat-ghost .typed { color: transparent; }
+.atlas-chat-ghost .more { color: rgba(30, 6, 3, 0.38); }
+.atlas-chat-suggest {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: min(40vh, 318px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  background: var(--ui-paper);
+  border: 3px solid var(--ui-ink);
+  border-radius: var(--ui-radius);
+  box-shadow: var(--ui-drop);
+  scrollbar-width: thin;
+}
+.atlas-chat.open .atlas-chat-suggest.shown { display: block; }
+.atlas-chat-suggest li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.atlas-chat-suggest li .name { font-weight: 800; white-space: nowrap; }
+.atlas-chat-suggest li .usage { font-weight: 700; color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-chat-suggest li .detail { grid-column: 1 / -1; font-size: 11.5px; font-weight: 600; color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-chat-suggest li[aria-selected='true'] { background: var(--ui-cream); box-shadow: inset 0 0 0 2px var(--ui-ink); }
+.atlas-chat-suggest-keys { padding: 4px 8px 1px; font-size: 10.5px; font-weight: 800; color: var(--ui-muted); letter-spacing: 0.02em; }
 @media (prefers-reduced-motion: reduce) {
   .atlas-chat-line { animation: none; transition: none; }
 }
@@ -253,10 +312,16 @@ export function createChat(host: ChatHost): Chat {
     enterkeyhint: 'send',
     spellcheck: 'true',
     'aria-label': 'Chat message',
+    'aria-autocomplete': 'list',
+    'aria-controls': 'atlas-chat-suggest',
+    'aria-expanded': 'false',
   });
-  const form = h('form', { class: 'atlas-chat-form ui-card' }, field, kbd('Enter', true));
-  const hint = h('div', { class: 'atlas-chat-hint' });
-  const root = h('div', { class: 'atlas-chat' }, head, log, form, hint);
+  const typedGhost = h('span', { class: 'typed' });
+  const moreGhost = h('span', { class: 'more' });
+  const ghost = h('div', { class: 'atlas-chat-ghost', 'aria-hidden': 'true' }, typedGhost, moreGhost);
+  const form = h('form', { class: 'atlas-chat-form ui-card' }, h('div', { class: 'atlas-chat-field' }, ghost, field), kbd('Enter', true));
+  const list = h('ul', { class: 'atlas-chat-suggest', id: 'atlas-chat-suggest', role: 'listbox', 'aria-label': 'Suggestions' });
+  const root = h('div', { class: 'atlas-chat' }, head, log, h('div', { class: 'atlas-chat-entry' }, list, form));
 
   const entries: Entry[] = [];
   /** Names by id, from the relay's `hi` and every `in`, for the leaving line. */
@@ -431,7 +496,7 @@ export function createChat(host: ChatHost): Chat {
     }
     switch (command.name) {
       case 'help': {
-        system('Tab completes a command or a name · // sends a line that starts with /');
+        system('Type / and a list follows what you type · Tab fills it in · // sends a line that starts with /');
         for (const spec of COMMANDS) system(`/${spec.name}${spec.usage === '' ? '' : ` ${spec.usage}`} · ${spec.help}`);
         return true;
       }
@@ -541,7 +606,6 @@ export function createChat(host: ChatHost): Chat {
       }
       case 'wave':
       case 'dance':
-      case 'sit':
         gesture(command.name);
         return false;
       case 'photo':
@@ -587,10 +651,11 @@ export function createChat(host: ChatHost): Chat {
     root.classList.add('open');
     showCount();
     field.value = text;
-    hint.textContent = '';
     recall = -1;
+    dismissed = false;
     field.focus({ preventScroll: true });
     field.setSelectionRange(text.length, text.length);
+    refresh();
     log.scrollTop = log.scrollHeight;
   }
 
@@ -598,6 +663,8 @@ export function createChat(host: ChatHost): Chat {
     if (!showing) return;
     showing = false;
     root.classList.remove('open');
+    offered = [];
+    list.classList.remove('shown');
     field.blur();
     host.onClose?.();
     if (relock && typeof host.lockTarget.requestPointerLock === 'function') {
@@ -616,7 +683,7 @@ export function createChat(host: ChatHost): Chat {
   function submit(): void {
     const text = field.value;
     field.value = '';
-    hint.textContent = '';
+    refresh();
     if (text.trim() === '') {
       hide();
       return;
@@ -633,18 +700,104 @@ export function createChat(host: ChatHost): Chat {
     event.preventDefault();
     submit();
   });
+  /* --- suggestions ------------------------------------------------------------ */
+
+  /** The rows over the field, the one chosen, and whether `Esc` put them away until the next key. */
+  let offered: Suggestion[] = [];
+  let chosen = 0;
+  let dismissed = false;
+  const sources = {
+    players: [] as readonly string[],
+    places: (query: string, limit: number) => suggestPlaces(query, host.gazetteer(), host.countryName, limit),
+  };
+
+  function showGhost(): void {
+    const value = field.value;
+    const more = offered.length > 0 ? offered[chosen]!.ghost : dismissed ? '' : suggest(value, sources).ghost;
+    typedGhost.textContent = value;
+    // A line wider than the field has scrolled under its ghost.
+    moreGhost.textContent = more === '' || field.scrollWidth > field.clientWidth ? '' : more;
+  }
+
+  function choose(index: number): void {
+    const rows = list.querySelectorAll('li');
+    rows[chosen]?.setAttribute('aria-selected', 'false');
+    chosen = index;
+    const row = rows[chosen];
+    row?.setAttribute('aria-selected', 'true');
+    row?.scrollIntoView({ block: 'nearest' });
+    if (row !== undefined) field.setAttribute('aria-activedescendant', row.id);
+    showGhost();
+  }
+
+  /** Reads the line again, as it is typed. */
+  function refresh(): void {
+    sources.players = players().map((player) => player.name);
+    offered = dismissed || !showing ? [] : suggest(field.value, sources).items;
+    list.replaceChildren(
+      ...offered.map((item, i) => {
+        const row = h(
+          'li',
+          { id: `atlas-chat-suggest-${i}`, role: 'option', 'aria-selected': 'false' },
+          h('span', { class: 'name', text: item.label }),
+          h('span', { class: 'usage', text: item.usage }),
+          h('span', { class: 'detail', text: item.detail }),
+        );
+        row.addEventListener('mousemove', () => {
+          if (chosen !== i) choose(i);
+        });
+        row.addEventListener('click', () => accept(i, false));
+        return row;
+      }),
+    );
+    if (offered.length > 0) list.append(h('li', { class: 'atlas-chat-suggest-keys', role: 'presentation', text: '↑ ↓ to choose · Tab to fill in · Esc to close' }));
+    list.classList.toggle('shown', offered.length > 0);
+    field.setAttribute('aria-expanded', String(offered.length > 0));
+    field.removeAttribute('aria-activedescendant');
+    chosen = 0;
+    if (offered.length > 0) choose(0);
+    else showGhost();
+  }
+
+  /** Writes row `index` into the field; with `send`, a row that finishes the line is sent. */
+  function accept(index: number, send: boolean): void {
+    const item = offered[index];
+    if (item === undefined) return;
+    const same = item.line.trimEnd() === field.value.trimEnd();
+    field.value = item.line;
+    field.setSelectionRange(item.line.length, item.line.length);
+    field.focus({ preventScroll: true });
+    if (send && item.done) {
+      submit();
+      return;
+    }
+    // Accepting what is already written is a request to see the next word's rows.
+    if (same) dismissed = false;
+    refresh();
+  }
+
   field.addEventListener('keydown', (event) => {
     if (event.isComposing) return;
     if (event.code === 'Escape') {
       event.preventDefault();
-      hide();
+      if (offered.length > 0) {
+        dismissed = true;
+        refresh();
+      } else hide();
     } else if (event.code === 'Tab') {
       // The focus stays in the field whatever `Tab` finds.
       event.preventDefault();
-      const done = complete(field.value, players().map((player) => player.name));
-      if (done === null) return;
-      field.value = done.line;
-      hint.textContent = done.choices.length > 1 ? done.choices.map((choice) => (field.value.startsWith('/') && !field.value.includes(' ') ? `/${choice}` : choice)).join('  ·  ') : '';
+      if (offered.length > 0) accept(chosen, false);
+    } else if ((event.code === 'Enter' || event.code === 'NumpadEnter') && offered.length > 0) {
+      const item = offered[chosen]!;
+      // A line already written as the row says is simply sent.
+      if (item.line.trimEnd() === field.value.trimEnd()) return;
+      event.preventDefault();
+      accept(chosen, true);
+    } else if ((event.code === 'ArrowUp' || event.code === 'ArrowDown') && offered.length > 0) {
+      event.preventDefault();
+      const step = event.code === 'ArrowUp' ? -1 : 1;
+      choose((chosen + step + offered.length) % offered.length);
     } else if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
       if (sent.length === 0) return;
       event.preventDefault();
@@ -652,11 +805,16 @@ export function createChat(host: ChatHost): Chat {
       recall = event.code === 'ArrowUp' ? (recall < 0 ? sent.length - 1 : Math.max(0, recall - 1)) : recall < 0 ? -1 : recall + 1;
       if (recall >= sent.length) recall = -1;
       field.value = recall < 0 ? draft : sent[recall]!;
+      // A line walked back to is not asked about until it is typed into.
+      dismissed = true;
+      refresh();
     }
   });
   field.addEventListener('input', () => {
-    if (hint.textContent !== '') hint.textContent = '';
+    dismissed = false;
+    refresh();
   });
+  field.addEventListener('scroll', showGhost);
   // A press on the panel's own lines keeps the field's focus, so the history
   // can be scrolled without closing it…
   root.addEventListener('mousedown', (event) => {
