@@ -32,9 +32,14 @@
  * is at +X: most of the world drives on the right and sits on the left.
  *
  * **The wheels are split out of the bake**, where they are merged into the body:
- * the triangles on the pack's `Tyre` and `Hub` slots, sorted into four by the
- * side and the end they are on, each re-centred on its own axle and handed over
- * as a `'wheel'` that turns about +X.
+ * the triangles on the pack's `Tyre` and `Hub` slots, gathered into one wheel
+ * each (`wheelsOf`), re-centred on its own axle and handed over as a `'wheel'`
+ * that turns about +X. **Only a road wheel turns**: one standing on the road
+ * with its axle across the car. The `suv`'s spare, on its tailgate, is on the
+ * same slots — high off the road, its axle along the car — and when the wheels
+ * were sorted by the corner they were in, its halves went to the two rear
+ * wheels, which then spun about a point between the axle and the tailgate and
+ * swung the spare through the body. It stays in the body now.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -84,7 +89,102 @@ function roofOf(model: Model): [number, number] {
 const WHEEL_SLOTS = /^(Tyre|Hub)$/;
 
 /**
- * The model painted and fitted, as a body soup and four wheels. Every point is
+ * How near the road a wheel's bottom is to count as on it, as a share of the
+ * model's height: the pack's road wheels are at 0.000, and the `suv`'s spare,
+ * the one wheel that is not, is 0.40 of a 1.30 model up.
+ */
+const ON_ROAD = 0.03;
+
+/** One wheel as the pack draws it: its triangles and its box, in the pack's own units. */
+export interface PackWheel {
+  triangles: number[];
+  box: THREE.Box3;
+}
+
+/**
+ * A model's wheels, found by their triangles: the tyre's and the hub's
+ * triangles joined where they share a corner, and pieces whose boxes meet
+ * joined again (a hub is its own cylinder inside its tyre), so each is one
+ * wheel whatever corner of the car it is at, and however many there are.
+ * `road` are those standing on the road — the bottom within `ON_ROAD` of the
+ * model's lowest point — with the axle across the car, the box narrowest in
+ * X; `other` is the rest, a spare on a tailgate, which does not turn.
+ */
+export function wheelsOf(model: Model, isWheel: (triangle: number) => boolean): { road: PackWheel[]; other: PackWheel[] } {
+  const position = model.geometry.getAttribute('position');
+  const index = model.geometry.index;
+  const vertexOf = (corner: number): number => (index !== null ? index.getX(corner) : corner);
+  const triangleCount = (index !== null ? index.count : position.count) / 3;
+  // Union-find over the wheel triangles, by the corners they share (to 1e-4).
+  const parent = new Map<number, number>();
+  const find = (t: number): number => {
+    let r = t;
+    while (parent.get(r)! !== r) r = parent.get(r)!;
+    while (parent.get(t)! !== r) {
+      const next = parent.get(t)!;
+      parent.set(t, r);
+      t = next;
+    }
+    return r;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(Math.max(ra, rb), Math.min(ra, rb));
+  };
+  const byCorner = new Map<string, number>();
+  const q = (v: number): number => Math.round(v * 1e4);
+  for (let t = 0; t < triangleCount; t++) {
+    if (!isWheel(t)) continue;
+    parent.set(t, t);
+    for (let c = 0; c < 3; c++) {
+      const v = vertexOf(t * 3 + c);
+      const key = `${q(position.getX(v))},${q(position.getY(v))},${q(position.getZ(v))}`;
+      const seen = byCorner.get(key);
+      if (seen === undefined) byCorner.set(key, t);
+      else union(seen, t);
+    }
+  }
+  const pieces = new Map<number, PackWheel>();
+  const point = new THREE.Vector3();
+  for (const t of parent.keys()) {
+    const root = find(t);
+    let piece = pieces.get(root);
+    if (piece === undefined) pieces.set(root, (piece = { triangles: [], box: new THREE.Box3() }));
+    piece.triangles.push(t);
+    for (let c = 0; c < 3; c++) piece.box.expandByPoint(point.fromBufferAttribute(position, vertexOf(t * 3 + c)));
+  }
+  // Pieces whose boxes meet are one wheel: the hub inside its tyre.
+  const wheels = [...pieces.values()].sort((a, b) => a.triangles[0]! - b.triangles[0]!);
+  for (let merged = true; merged; ) {
+    merged = false;
+    for (let i = 0; i < wheels.length && !merged; i++) {
+      for (let j = i + 1; j < wheels.length; j++) {
+        if (!wheels[i]!.box.intersectsBox(wheels[j]!.box)) continue;
+        wheels[i]!.triangles.push(...wheels[j]!.triangles);
+        wheels[i]!.box.union(wheels[j]!.box);
+        wheels.splice(j, 1);
+        merged = true;
+        break;
+      }
+    }
+  }
+  for (const wheel of wheels) wheel.triangles.sort((a, b) => a - b);
+  const tolerance = ON_ROAD * (model.box.max.y - model.box.min.y);
+  const size = new THREE.Vector3();
+  const road: PackWheel[] = [];
+  const other: PackWheel[] = [];
+  for (const wheel of wheels) {
+    wheel.box.getSize(size);
+    const grounded = wheel.box.min.y - model.box.min.y <= tolerance;
+    const across = size.x < Math.min(size.y, size.z);
+    (grounded && across ? road : other).push(wheel);
+  }
+  return { road, other };
+}
+
+/**
+ * The model painted and fitted, as a body soup and its road wheels. Every point is
  * `(p - centre) * k` with the base on y = 0, a uniform positive scale, so the
  * normals carry over as they are.
  */
@@ -103,19 +203,13 @@ function carSoups(model: Model, k: number, body: number, slots?: RegExp): { stil
   const cz = (model.box.min.z + model.box.max.z) / 2;
   const base = model.box.min.y;
 
-  // Triangles into five bins: the body, and a wheel at each corner.
-  const bins: number[][] = [[], [], [], [], []];
+  // The body's triangles, and the road wheels' (`wheelsOf`); a spare is body.
   const wheelSlot = model.slots.map((slot) => WHEEL_SLOTS.test(slot));
-  for (let t = 0; t < triangleCount; t++) {
-    const [a, b, c] = [vertexOf(t * 3), vertexOf(t * 3 + 1), vertexOf(t * 3 + 2)];
-    if (!wheelSlot[model.slot[a]!]) {
-      bins[0]!.push(t);
-      continue;
-    }
-    const x = (position.getX(a) + position.getX(b) + position.getX(c)) / 3 - cx;
-    const z = (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3 - cz;
-    bins[1 + (x > 0 ? 1 : 0) + (z > 0 ? 2 : 0)]!.push(t);
-  }
+  const found = wheelsOf(model, (t) => wheelSlot[model.slot[vertexOf(t * 3)]!]!);
+  const onWheel = new Uint8Array(triangleCount);
+  for (const wheel of found.road) for (const t of wheel.triangles) onWheel[t] = 1;
+  const still: number[] = [];
+  for (let t = 0; t < triangleCount; t++) if (onWheel[t] === 0) still.push(t);
 
   const soupFrom = (triangles: readonly number[], centre: THREE.Vector3): Soup => {
     const n = triangles.length * 9;
@@ -148,9 +242,7 @@ function carSoups(model: Model, k: number, body: number, slots?: RegExp): { stil
   };
 
   const wheels: Turning[] = [];
-  for (let w = 1; w < 5; w++) {
-    const triangles = bins[w]!;
-    if (triangles.length === 0) continue;
+  for (const { triangles } of found.road) {
     // The axle is the middle of the wheel's own box.
     const box = new THREE.Box3();
     const point = new THREE.Vector3();
@@ -163,7 +255,7 @@ function carSoups(model: Model, k: number, body: number, slots?: RegExp): { stil
     const at = box.getCenter(new THREE.Vector3());
     wheels.push({ name: 'wheel', at, soup: soupFrom(triangles, at) });
   }
-  return { still: soupFrom(bins[0]!, new THREE.Vector3()), wheels };
+  return { still: soupFrom(still, new THREE.Vector3()), wheels };
 }
 
 interface CarSpec {

@@ -168,6 +168,51 @@ function checkCraft(model: CraftModel): void {
 
 for (const model of craft.values()) checkCraft(model);
 
+// --- the road wheels ---------------------------------------------------------
+//
+// Only a wheel on the road turns. The kit's `suv` (the jeep) carries a spare on
+// its tailgate on the same slots as its road wheels, and sorted into the car's
+// four corners it was split across the two rear wheels, which then spun about
+// a point between the axle and the tailgate and swung the spare through the
+// body. So every craft's turning wheels are counted, each is held on the
+// ground, round, with its axle across the craft, and the kit's own wheels are found
+// again from the pack: every one that is not on the road is the suv's spare.
+{
+  /** The wheels a craft turns: the model's real count, and none for the pack's wheel-less bus. */
+  const WHEELS: Record<string, number> = {
+    hatchback: 4, van: 4, jeep: 4, pickup: 4, tractor: 4, bus: 0,
+    bicycle: 2, motorbike: 2, scooter: 2, 'tuk-tuk': 3, 'light-plane': 3,
+  };
+  const { wheelsOf } = await import('../src/craft/cars.ts');
+  for (const model of craft.values()) {
+    const group = model.build(0);
+    group.updateMatrixWorld(true);
+    const wheels = group.children.filter((child) => child.name === 'wheel');
+    const wants = WHEELS[model.id] ?? 0;
+    if (wheels.length !== wants) fail(`${model.id}: ${wheels.length} turning wheels, wants ${wants}`);
+    for (const wheel of wheels) {
+      const own = new THREE.Box3().setFromObject(wheel);
+      const size = own.getSize(new THREE.Vector3());
+      if (own.min.y > 0.01 * H) fail(`${model.id}: a turning wheel ${f(own.min.y)} off the ground, a spare`);
+      // Round in its own plane: a spare's triangles taken into it make it tall or long.
+      if (Math.abs(size.y - size.z) > 0.1 * Math.max(size.y, size.z)) fail(`${model.id}: a turning wheel is ${f(size.y)} tall and ${f(size.z)} long, not one wheel`);
+      if (!(size.x < Math.min(size.y, size.z))) fail(`${model.id}: a turning wheel's axle is not across the craft (${f(size.x)} x ${f(size.y)} x ${f(size.z)})`);
+    }
+  }
+  let spares = 0;
+  for (const model of kit) {
+    const wheelSlot = model.slots.map((slot) => /^(Tyre|Hub)$/.test(slot));
+    if (!wheelSlot.some(Boolean)) continue;
+    const index = model.geometry.index;
+    const { road, other } = wheelsOf(model, (t) => wheelSlot[model.slot[index !== null ? index.getX(t * 3) : t * 3]!]!);
+    if (road.length !== 4) fail(`kit '${model.name}': ${road.length} road wheels, wants 4`);
+    const wantsSpare = model.name === 'suv' ? 1 : 0;
+    if (other.length !== wantsSpare) fail(`kit '${model.name}': ${other.length} wheels off the road, wants ${wantsSpare}`);
+    spares += other.length;
+  }
+  console.log(`road wheels: every craft's counted, grounded, round and across; ${spares} spare in the kit, left in the body\n`);
+}
+
 // --- which way is ahead ---------------------------------------------------------
 //
 // Every craft is built facing +Z and driven along it, and nothing above can

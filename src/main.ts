@@ -1160,6 +1160,7 @@ async function start(): Promise<void> {
         roads: baked.roads,
         network: railNetwork,
         material: modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
+        drawnGround: groundAt,
       });
   if (railway !== null) {
     scene.add(railway.group);

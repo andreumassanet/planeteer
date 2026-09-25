@@ -60,6 +60,7 @@ import {
   seaZoneAt,
   tileLife,
   tileLifeJob,
+  tileFace,
   tileOf,
   tilePoint,
 } from '../src/sea-floor.ts';
@@ -453,6 +454,124 @@ console.log('\nthe drawn sea');
   const inland = p.clone().multiplyScalar(PLANET_RADIUS + 400);
   for (let i = 0; i < 40; i++) sea.update(1 / 60, { player: inland, camera: inland, daylight: 1, fog });
   check(!sea.stats.active && sea.stats.window === 0, 'inland the sea is the opaque sea it was');
+}
+
+/* --- the decor, everywhere -------------------------------------------------------- */
+
+console.log('\nthe decor, everywhere');
+{
+  // A piece of decor is loose triangles written into its tile's slot of one
+  // buffer drawn as a triangle list, so a slot has to start on a triangle: a
+  // slot a vertex off joins every piece's corners to its neighbour's, and to
+  // the planet's centre past the last, which draws as long slivers everywhere
+  // but in the slots that happen to fall on a multiple of three.
+  const { createSea, decorFrame, DECOR_CAP } = await import('../src/seabed.ts');
+  check(DECOR_CAP % 3 === 0, 'a slot of the decor holds whole triangles', `${DECOR_CAP} vertices a slot`);
+  // Coasts on every face of the cube sphere, the Caribbean the one that looked right.
+  const COASTS: Record<string, readonly [number, number]> = {
+    'Virgin Islands': [18.36, -64.93],
+    Barcelona: [41.38, 2.2],
+    'Malaga': [36.7, -4.4],
+    Mallorca: [39.5, 2.6],
+    'Norway, Bergen': [60.4, 5.1],
+    'Svalbard': [78.2, 15.4],
+    'Japan, Okinawa': [26.2, 127.65],
+    'Australia, Cairns': [-16.9, 145.8],
+    'Brazil, Salvador': [-12.98, -38.5],
+    'Hawaii, Oahu': [21.28, -157.85],
+    'Maldives': [4.17, 73.5],
+    'Chile, Valparaiso': [-33.03, -71.63],
+    'New Zealand, Wellington': [-41.3, 174.8],
+    'South Georgia': [-54.28, -36.5],
+  };
+  // The longest edge a piece may have, units: a kelp stalk 14 tall is five
+  // joints of 2.8, and every other piece is smaller. A torn triangle spans
+  // two pieces, hundreds of units, or reaches the planet's centre.
+  const PIECE_REACH = 4;
+  const sea = createSea(world);
+  const fog = new THREE.Fog(0xffffff, 1, 2);
+  const decor = sea.group.getObjectByName('sea-decor') as THREE.Mesh;
+  const x = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const z = new THREE.Vector3();
+  const foot = new THREE.Vector3();
+  const basis = new THREE.Matrix4();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  let frames = 0;
+  let worstOrtho = 0;
+  let improper = 0;
+  let placesWithDecor = 0;
+  const faces = new Set<number>();
+  for (const [name, [lat, lon]] of Object.entries(COASTS)) {
+    // The nearest water shallow enough for decor, spiralling out from the town.
+    unitAt(lat, lon, p);
+    const north = new THREE.Vector3(0, 1, 0).projectOnPlane(p).normalize();
+    const east = new THREE.Vector3().crossVectors(north, p).normalize();
+    let found = false;
+    search: for (let ring = 0; ring < 400; ring++) {
+      for (let k = 0; k < 24; k++) {
+        const t = (k / 24) * Math.PI * 2;
+        q.copy(p).addScaledVector(north, (Math.cos(t) * ring * 10) / PLANET_RADIUS).addScaledVector(east, (Math.sin(t) * ring * 10) / PLANET_RADIUS).normalize();
+        const depth = seaDepthAt(q);
+        if (isSeaAt(q.x, q.y, q.z) && depth > 3 && depth < 12) {
+          found = true;
+          break search;
+        }
+      }
+    }
+    check(found, `${name}: shallow water within reach`);
+    if (!found) continue;
+    faces.add(tileFace(tileOf(q.x, q.y, q.z)));
+    const player = q.clone().multiplyScalar(PLANET_RADIUS + 0.5);
+    const camera = q.clone().multiplyScalar(PLANET_RADIUS + 8);
+    for (let i = 0; i < 4000 && (sea.stats.window === 0 || sea.stats.building > 0 || i < 2); i++) {
+      sea.update(1 / 60, { player, camera, daylight: 1, fog });
+    }
+    // Every placed item's frame: orthonormal, and a rotation rather than a mirror.
+    sea.eachLife((life) => {
+      for (const item of life.decor) {
+        decorFrame(item, x, up, z, foot);
+        worstOrtho = Math.max(
+          worstOrtho,
+          Math.abs(x.length() - 1), Math.abs(up.length() - 1), Math.abs(z.length() - 1),
+          Math.abs(x.dot(up)), Math.abs(x.dot(z)), Math.abs(up.dot(z)),
+        );
+        basis.makeBasis(x, up, z);
+        if (!(basis.determinant() > 0)) improper++;
+        frames++;
+      }
+    });
+    // Every drawn triangle is one piece's: all three corners written or none,
+    // and no edge longer than a piece is tall.
+    const position = decor.geometry.getAttribute('position');
+    let triangles = 0;
+    let torn = 0;
+    let longest = 0;
+    for (let v = 0; v + 2 < position.count; v += 3) {
+      a.fromBufferAttribute(position, v);
+      b.fromBufferAttribute(position, v + 1);
+      c.fromBufferAttribute(position, v + 2);
+      const written = (a.lengthSq() > 0 ? 1 : 0) + (b.lengthSq() > 0 ? 1 : 0) + (c.lengthSq() > 0 ? 1 : 0);
+      if (written === 0) continue;
+      if (written < 3) {
+        torn++;
+        continue;
+      }
+      triangles++;
+      longest = Math.max(longest, a.distanceTo(b), b.distanceTo(c), c.distanceTo(a));
+    }
+    if (triangles > 0) placesWithDecor++;
+    check(
+      torn === 0 && longest <= PIECE_REACH,
+      `${name}: every decor triangle is whole and a piece's size`,
+      `${sea.stats.tiles} tiles, ${sea.stats.decor} pieces, ${triangles} triangles, ${torn} torn, the longest edge ${longest.toFixed(2)} (<= ${PIECE_REACH})`,
+    );
+  }
+  check(placesWithDecor >= 10, 'decor stands off most of those coasts', `${placesWithDecor} of ${Object.keys(COASTS).length}`);
+  check(faces.size === 6, 'and they cover every face of the cube sphere', `faces ${[...faces].sort().join(', ')}`);
+  check(frames > 0 && worstOrtho < 1e-6 && improper === 0, 'every decor frame is orthonormal and proper', `${frames} frames, worst ${worstOrtho.toExponential(1)} off, ${improper} mirrored`);
 }
 
 /* --- the submarine ------------------------------------------------------------- */

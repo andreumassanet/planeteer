@@ -105,8 +105,14 @@ const BACKDROP_RADIUS = 170;
 /** Vertices a tile's grid has. */
 const SIDE = TILE_QUADS + 1;
 const GRID = SIDE * SIDE;
-/** The decor a slot holds, in vertices; a tile with more keeps what fits. */
-const DECOR_CAP = 16384;
+/**
+ * The decor a slot holds, in vertices; a tile with more keeps what fits. A
+ * multiple of three, because the decor is one triangle list and a slot has to
+ * start on a triangle: 16,384 put every slot but one in three a vertex or two
+ * off, and joined each piece's corners to the next piece's and the last to the
+ * planet's centre, long slivers on every coast whose tiles fell in those slots.
+ */
+export const DECOR_CAP = 16383;
 
 const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 const smoothstep = (a: number, b: number, x: number): number => {
@@ -383,6 +389,28 @@ const floorUniforms = {
   uAbove: { value: 1 },
   uDeepTint: { value: new THREE.Color(OCEAN_COLOR).multiplyScalar(0.7) },
 };
+
+/**
+ * An item's frame: its foot a hair into the sand, +Y up, turned by its yaw.
+ * `x`, `up` and `z` come out orthonormal with `x × up = z`, a proper rotation
+ * (`pnpm sea` holds every placed item to it).
+ */
+export function decorFrame(item: Decor, x: THREE.Vector3, up: THREE.Vector3, z: THREE.Vector3, foot: THREE.Vector3): void {
+  up.set(item.x, item.y, item.z).normalize();
+  frameEast.set(0, 1, 0).cross(up);
+  if (frameEast.lengthSq() < 1e-8) frameEast.set(1, 0, 0);
+  frameEast.normalize();
+  frameNorth.crossVectors(up, frameEast).normalize();
+  const c = Math.cos(item.yaw);
+  const s = Math.sin(item.yaw);
+  // Turned by its yaw in the tangent plane, and Z taken as `X x up` so the
+  // frame is right-handed: a mirrored frame would turn every piece inside out.
+  x.copy(frameEast).multiplyScalar(c).addScaledVector(frameNorth, s);
+  z.crossVectors(x, up);
+  foot.copy(up).multiplyScalar(PLANET_RADIUS - item.depth - 0.12);
+}
+const frameEast = new THREE.Vector3();
+const frameNorth = new THREE.Vector3();
 
 /**
  * The floor's and the decor's material: toon, flat, unlinked from the pen,
@@ -909,8 +937,6 @@ export function createSea(world: World): Sea {
 
   /** Where one decor item stands, as its frame's three axes and its foot. */
   const itemUp = new THREE.Vector3();
-  const itemEast = new THREE.Vector3();
-  const itemNorth = new THREE.Vector3();
   const itemFoot = new THREE.Vector3();
   const itemX = new THREE.Vector3();
   const itemZ = new THREE.Vector3();
@@ -932,7 +958,7 @@ export function createSea(world: World): Sea {
       const shape = variants[Math.floor(item.tone * 997) % variants.length]!;
       const count = shape.position.length / 3;
       if (n + count > DECOR_CAP) break;
-      frameOf(item);
+      decorFrame(item, itemX, itemUp, itemZ, itemFoot);
       const palette = COLOURS[item.kind];
       const pair = palette[Math.floor(item.tone * palette.length) % palette.length]!;
       body.setHex(pair[0]);
@@ -967,22 +993,6 @@ export function createSea(world: World): Sea {
     }
     positions.fill(0, (base + n) * 3, (base + DECOR_CAP) * 3);
     return n;
-  }
-
-  /** An item's frame: its foot a hair into the sand, +Y up, turned by its yaw. */
-  function frameOf(item: Decor): void {
-    itemUp.set(item.x, item.y, item.z);
-    east.set(0, 1, 0).cross(itemUp);
-    if (east.lengthSq() < 1e-8) east.set(1, 0, 0);
-    itemEast.copy(east).normalize();
-    itemNorth.crossVectors(itemUp, itemEast).normalize();
-    const c = Math.cos(item.yaw);
-    const s = Math.sin(item.yaw);
-    // Turned by its yaw in the tangent plane, and Z taken as `X x up` so the
-    // frame is right-handed: a mirrored frame would turn every piece inside out.
-    itemX.copy(itemEast).multiplyScalar(c).addScaledVector(itemNorth, s);
-    itemZ.crossVectors(itemX, itemUp);
-    itemFoot.copy(itemUp).multiplyScalar(PLANET_RADIUS - item.depth - 0.12);
   }
 
   function markRange(attribute: THREE.BufferAttribute, start: number, count: number): void {

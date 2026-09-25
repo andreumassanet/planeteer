@@ -24,6 +24,8 @@ import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import { tightestTurn } from '../src/roads.ts';
 import { createSiteIndex } from '../src/fleet.ts';
 import {
+  BED_FOOT,
+  BED_HALF,
   CAR_PITCH,
   CONSISTS,
   DWELL,
@@ -31,6 +33,7 @@ import {
   RAIL_LIFT,
   RAIL_MIN_RADIUS,
   RAIL_POP,
+  RAIL_TOP,
   STOP_SHORT,
   TRAIN_SPEED,
   consistOf,
@@ -218,7 +221,15 @@ console.log('\ndrawn:');
   const kit = new Map(models.map((model) => [model.name, model]));
   const needed = new Set(Object.values(CONSISTS).flatMap((c) => [c.ends, ...c.middle]));
   check([...needed].every((id) => kit.has(id)), 'the Train Kit has every car a consist names', `${kit.size} models`);
-  const railway = createRailway({ world, places, roads, network, kit, material: new MeshToonMaterial() });
+  // The drawn land, as `main.ts` hands it over: the mesh is up to several units
+  // off the relief, and the bed's feet reach down to whichever is lower.
+  const { buildLand } = await import('../src/globe.ts');
+  const { drawnRadius, landProbeOf } = await import('../src/land-probe.ts');
+  const land = buildLand(world);
+  const probe = landProbeOf(land);
+  const drawnGround = (point: Vector3): number => drawnRadius(world, probe, point);
+  const trainMaterial = new MeshToonMaterial();
+  const railway = createRailway({ world, places, roads, network, kit, material: trainMaterial, drawnGround });
   // Stand at the busiest line's first station, a little up, looking along the line.
   const busiest = [...lines.keys()].sort((x, y) => network.path(y).length - network.path(x).length)[Math.floor(lines.length / 2)]!;
   const eye = new Vector3();
@@ -231,6 +242,7 @@ console.log('\ndrawn:');
   camera.lookAt(look);
   camera.updateMatrixWorld(true);
   const player = eye.clone().multiplyScalar(ground);
+  probe.prime(player);
   const T0 = Date.UTC(2026, 8, 25, 9, 0, 0) / 1000;
   let began = performance.now();
   for (let k = 0; k < 40; k++) railway.update({ dt: 0.1, seconds: T0 + k * 0.1, camera, player, fogFar: 1400 });
@@ -264,6 +276,136 @@ console.log('\ndrawn:');
     }
   });
   check(reflected === 0, 'no part of the railway is drawn mirrored');
+  // In the scene graph, shown, and inside their own bounds, so nothing culls them.
+  {
+    const beds: InstanceType<typeof Mesh>[] = [];
+    railway.group.traverse((part) => {
+      const mesh = part as InstanceType<typeof Mesh>;
+      if (mesh.isMesh && mesh.name.startsWith('rail:')) beds.push(mesh);
+    });
+    let hidden = 0;
+    let unbounded = 0;
+    const v = new Vector3();
+    for (const bed of beds) {
+      let shown = true;
+      for (let o: { visible: boolean; parent: unknown } | null = bed; o !== null; o = o.parent as typeof o) shown &&= o.visible;
+      if (!shown || !(bed.material as InstanceType<typeof MeshToonMaterial>).visible) hidden++;
+      const sphere = bed.geometry.boundingSphere!;
+      const position = bed.geometry.getAttribute('position');
+      for (let k = 0; k < position.count; k++) {
+        if (v.fromBufferAttribute(position, k).distanceTo(sphere.center) > sphere.radius + 1e-3) {
+          unbounded++;
+          break;
+        }
+      }
+    }
+    const { Frustum } = await import('three');
+    const frustum = new Frustum().setFromProjectionMatrix(new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const onScreen = beds.filter((bed) => frustum.intersectsObject(bed)).length;
+    check(beds.length > 0 && hidden === 0 && unbounded === 0 && onScreen > 0, 'the track\'s chunks hang under the railway\'s group, shown, bounded, and in view', `${beds.length} chunks, ${onScreen} in the frustum`);
+  }
+  // The program the browser compiles for the bed: every function the weather
+  // chunk calls is defined in it, every varying it reads is written, every
+  // uniform it declares is bound. A program that fails to link draws nothing,
+  // and nothing headless would say so.
+  {
+    const { ShaderChunk, ShaderLib } = await import('three');
+    let bed: InstanceType<typeof Mesh> | null = null;
+    railway.group.traverse((part) => {
+      const mesh = part as InstanceType<typeof Mesh>;
+      if (bed === null && mesh.isMesh && mesh.name.startsWith('rail:')) bed = mesh;
+    });
+    const material = (bed as InstanceType<typeof Mesh> | null)?.material as InstanceType<typeof MeshToonMaterial> | undefined;
+    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: ShaderLib.toon!.vertexShader, fragmentShader: ShaderLib.toon!.fragmentShader };
+    material?.onBeforeCompile(shader as never, null as never);
+    const expand = (source: string): string =>
+      source.replace(/#include <(\w+)>/g, (_, name: string) => expand((ShaderChunk as unknown as Record<string, string>)[name] ?? ''));
+    const vertex = expand(shader.vertexShader);
+    const fragment = expand(shader.fragmentShader);
+    const defined = (source: string, name: string): boolean => new RegExp(`\\b(?:float|vec2|vec3|vec4|void)\\s+${name}\\s*\\(`).test(source);
+    const called = [...new Set([...fragment.matchAll(/\b(atlas\w+)\s*\(/g)].map((m) => m[1]!))];
+    const undefinedCalls = called.filter((name) => !defined(fragment, name));
+    const varyings = [...fragment.matchAll(/varying\s+\w+\s+(v\w+)\s*;/g)].map((m) => m[1]!).filter((name) => name.startsWith('vRail'));
+    const unwritten = varyings.filter((name) => !new RegExp(`\\b${name}\\s*=`).test(vertex));
+    const uniforms = [...fragment.matchAll(/uniform\s+\w+\s+(atlas\w+)\s*;/g)].map((m) => m[1]!);
+    const unbound = uniforms.filter((name) => !(name in shader.uniforms));
+    check(
+      material !== undefined && fragment.includes('atlasWeathered(diffuseColor') && undefinedCalls.length === 0 && unwritten.length === 0 && unbound.length === 0,
+      'the bed\'s program defines what it calls, writes what it reads and binds what it declares',
+      [undefinedCalls.length > 0 ? `undefined: ${undefinedCalls.join(', ')}` : '', unwritten.length > 0 ? `unwritten: ${unwritten.join(', ')}` : '', unbound.length > 0 ? `unbound: ${unbound.join(', ')}` : ''].filter(Boolean).join('; ') || `${called.length} functions`,
+    );
+  }
+  // On the drawn land: the rail heads never under it, the crown on it or over
+  // it by no more than an embankment, and the shoulders' feet never over it.
+  {
+    const path = network.path(busiest);
+    const crownOf = network.crown(busiest);
+    const point = new Vector3();
+    const tangent = new Vector3();
+    const side = new Vector3();
+    const q = new Vector3();
+    let railUnder = 0;
+    let lowest = Infinity;
+    let highest = -Infinity;
+    let samples = 0;
+    for (let s = 0; s <= Math.min(path.length, 1200); s += 3) {
+      railPointAt(network, busiest, s, point, tangent);
+      side.crossVectors(tangent, point).normalize();
+      const crown = crownAt(crownOf, s);
+      for (const x of [-BED_HALF, 0, BED_HALF]) {
+        q.copy(point).addScaledVector(side, x / PLANET_RADIUS).normalize();
+        if (!probe.covers(q)) continue;
+        const drawn = probe.radiusAt(q);
+        if (drawn === null) continue;
+        samples++;
+        lowest = Math.min(lowest, crown - drawn);
+        highest = Math.max(highest, crown - drawn);
+        if (crown + RAIL_TOP < drawn) railUnder++;
+      }
+    }
+    check(samples > 100 && railUnder === 0 && lowest > -0.6 && highest < 16, 'the track lies on the drawn land: rail heads over it, the crown within an embankment of it', `crown over the drawn land ${lowest.toFixed(2)} to ${highest.toFixed(2)}, ${samples} samples`);
+    // The shoulders' feet, which reach down past the drawn land wherever it is under the relief.
+    let hanging = 0;
+    let feet = 0;
+    const v = new Vector3();
+    railway.group.traverse((part) => {
+      const mesh = part as InstanceType<typeof Mesh>;
+      if (!mesh.isMesh || !mesh.name.startsWith(`rail:${busiest}:`)) return;
+      const position = mesh.geometry.getAttribute('position');
+      for (let k = 0; k < position.count; k++) {
+        v.fromBufferAttribute(position, k).applyMatrix4(mesh.matrixWorld);
+        const radius = v.length();
+        v.normalize();
+        const hit = network.nearest(v, BED_FOOT + 1, { line: 0, s: 0, off: 0 });
+        if (hit === null || hit.off < BED_FOOT - 0.3 || !probe.covers(v)) continue;
+        const drawn = probe.radiusAt(v);
+        if (drawn === null) continue;
+        feet++;
+        if (radius > drawn + 0.05) hanging++;
+      }
+    });
+    check(feet > 0 && hanging === 0, 'the bed\'s shoulders reach into the drawn land, never hang over it', `${hanging} of ${feet} feet over it`);
+  }
+  // A train's wheels stand on the rail head: each car's model starts at its holder's floor, and the holder rides the rail head.
+  {
+    let worstFloor = 0;
+    let worstHead = 0;
+    let cars = 0;
+    const box = new Vector3();
+    railway.group.traverse((part) => {
+      const mesh = part as InstanceType<typeof Mesh>;
+      if (!mesh.isMesh || mesh.material !== trainMaterial || mesh.parent === null || !mesh.parent.visible) return;
+      cars++;
+      const position = mesh.geometry.getAttribute('position');
+      let floor = Infinity;
+      for (let k = 0; k < position.count; k++) floor = Math.min(floor, box.fromBufferAttribute(position, k).applyMatrix4(mesh.matrix).y);
+      worstFloor = Math.max(worstFloor, Math.abs(floor));
+      const at = mesh.parent.position;
+      const hit = network.nearest(at.clone().normalize(), 2, { line: 0, s: 0, off: 0 });
+      worstHead = Math.max(worstHead, hit === null ? Infinity : Math.abs(at.length() - (crownAt(network.crown(hit.line), hit.s) + RAIL_TOP)));
+    });
+    check(cars > 0 && worstFloor < 0.02 && worstHead < 0.1, 'every car\'s wheels touch the rail head', `${cars} cars, floor off by ${worstFloor.toFixed(3)}, rail head by ${worstHead.toFixed(3)}`);
+  }
   check(down === 0, 'the ballast, the sleepers and the rails all face out, none into the ground', `${faces} faces`);
   // The crown is what a foot stands on.
   const on = railPointAt(network, busiest, 300, new Vector3());

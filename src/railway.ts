@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { PLANET_RADIUS, bindGroundWeather, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
+import { GROUND_MARKS_GLSL, PLANET_RADIUS, bindGroundWeather, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import type { Place } from './places.ts';
 import type { Model } from './models.ts';
 import { paintModel } from './models.ts';
@@ -129,6 +129,13 @@ export interface RailwayOptions {
   kit?: ReadonlyMap<string, Model>;
   /** The material the kit's models are drawn with (`modelMaterial`). */
   material: THREE.Material;
+  /**
+   * The drawn land's radius under a point (`drawnRadius`), where the mesh and
+   * the relief part: the bed's shoulders and a station's slabs reach down to
+   * the lower of the two, so neither hangs over a dip the mesh drew. The relief
+   * alone when absent.
+   */
+  drawnGround?: (point: THREE.Vector3) => number;
 }
 
 interface Crossing {
@@ -190,13 +197,17 @@ export function createRailway(options: RailwayOptions): Railway {
   bedMaterial.polygonOffset = true;
   bedMaterial.polygonOffsetFactor = -1;
   bedMaterial.polygonOffsetUnits = -2;
+  // The weather's chunk calls `atlasNoise`, which `GROUND_MARKS_GLSL` defines:
+  // without it the fragment program fails to link and the bed, the sleepers
+  // and the rails — one mesh a chunk, all this material — draw nothing, while
+  // the trains, drawn with the kit's material, run on air.
   bedMaterial.onBeforeCompile = (shader) => {
     bindGroundWeather(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vRailWorld;')
       .replace('#include <project_vertex>', '#include <project_vertex>\n\tvRailWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vRailWorld;\n${groundWeatherGLSL()}`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vRailWorld;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
       .replace('#include <color_fragment>', `#include <color_fragment>\n  ${groundWeatherChunk('vRailWorld')}`);
   };
   bedMaterial.customProgramCacheKey = () => 'railway:bed:weather';
@@ -269,8 +280,15 @@ export function createRailway(options: RailwayOptions): Railway {
   const up = new THREE.Vector3();
   const q = new THREE.Vector3();
 
-  /** The ground's radius at a direction. */
-  const groundAt = (direction: THREE.Vector3): number => PLANET_RADIUS + world.elevationAt(direction);
+  /** The ground's radius at a direction: the lower of the relief and the drawn land. */
+  const drawnGround = options.drawnGround;
+  const groundAt = (direction: THREE.Vector3): number => {
+    const relief = PLANET_RADIUS + world.elevationAt(direction);
+    if (drawnGround === undefined) return relief;
+    // Over the water the probe answers the sea's radius: the relief there.
+    const drawn = drawnGround(direction);
+    return drawn > PLANET_RADIUS + 0.5 ? Math.min(relief, drawn) : relief;
+  };
 
   function buildBed(line: number, index: number, near: boolean): { bed: THREE.Mesh; props: THREE.Group | null } {
     const path = network.path(line);
