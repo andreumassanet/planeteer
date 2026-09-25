@@ -73,6 +73,10 @@ jobs:
         run: pnpm effects
       - name: weather
         run: pnpm weather
+      - name: ambient
+        run: pnpm ambient
+      - name: passport
+        run: pnpm passport
       - name: music
         run: pnpm music
 

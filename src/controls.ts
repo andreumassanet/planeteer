@@ -9,6 +9,11 @@
  * Rebinding one key meant finding all of them, and nothing would have said which
  * one had been missed. This file is the table; the others read it.
  *
+ * **And the player can move any of it.** The settings' controls page rebinds
+ * an action by the next key pressed (`rebind`), kept in `localStorage`; every
+ * cap, prompt and hint in the game asks `labelOf` when it draws, and
+ * `onKeyLabels` tells them when to draw again.
+ *
  * **A binding is a physical key and its label is whatever that key prints.**
  * The bindings are `event.code`, which names a position on the keyboard and not
  * a letter, so `W` is the key above `S` on every layout — on AZERTY it prints
@@ -59,23 +64,26 @@ export type Action =
   | 'use'
   | 'view'
   | 'map'
+  | 'settings'
   | 'next'
   | 'flags'
   | 'nearer'
   | 'farther'
-  | 'hints'
+  | 'hud'
   | 'photo'
   | 'chat'
   | 'wave'
+  | 'passport'
   | 'mapIn'
   | 'mapOut'
   | 'release';
 
 /**
- * The bindings, as `event.code`s. The first code of each is the one its cap
- * shows; the rest are alternatives nobody has to be told about.
+ * The bindings a new player gets, as `event.code`s. The first code of each is
+ * the one its cap shows and the one the settings rebind; the rest are
+ * alternatives nobody has to be told about, which a rebinding leaves alone.
  */
-export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
+export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   forward: ['KeyW', 'ArrowUp'],
   back: ['KeyS', 'ArrowDown'],
   left: ['KeyA', 'ArrowLeft'],
@@ -103,11 +111,15 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // for: C descends, E gets in and out.
   view: ['KeyV'],
   map: ['KeyM'],
+  // `O` for options, beside the photo's `P`. Not `Esc`, which the browser
+  // spends on freeing the mouse and does not always hand the page.
+  settings: ['KeyO'],
   next: ['Tab'],
   flags: ['KeyB'],
   nearer: ['BracketLeft'],
   farther: ['BracketRight'],
-  hints: ['KeyH'],
+  // The whole overlay off and on again, for a clear look at the world.
+  hud: ['KeyH'],
   // The one letter left near the right hand that nothing else wanted.
   photo: ['KeyP'],
   // The chat's field (`chat.ts`), which `/` also opens with the slash typed.
@@ -116,6 +128,8 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   chat: ['Enter', 'KeyT', 'NumpadEnter'],
   // A wave where the others can see it: the gesture every player makes first.
   wave: ['KeyG'],
+  // The passport (`passport-card.ts`): J for journal, free of both hands' other work.
+  passport: ['KeyJ'],
   // The world map's zoom, while it is up: its buttons as keys, since `Tab` on
   // the map is the landmarks' and not a walk to its controls.
   mapIn: ['Equal', 'NumpadAdd'],
@@ -124,16 +138,175 @@ export const BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   release: ['Escape'],
 };
 
+const ACTIONS = Object.keys(DEFAULT_BINDINGS) as Action[];
+
+/**
+ * The bindings in force: the defaults with the player's own choices over
+ * them. One code is bound to at most one action, which `rebind` keeps true
+ * and `loadBindings` refuses to read past.
+ */
+const live = Object.fromEntries(ACTIONS.map((action) => [action, [...DEFAULT_BINDINGS[action]]])) as Record<Action, string[]>;
+
+/** The bindings in force, for reading. `rebind` and `resetBindings` change them. */
+export const BINDINGS: Readonly<Record<Action, readonly string[]>> = live;
+
 const byCode = new Map<string, Action>();
-for (const [action, codes] of Object.entries(BINDINGS) as [Action, readonly string[]][]) {
-  for (const code of codes) byCode.set(code, action);
+function index(): void {
+  byCode.clear();
+  for (const action of ACTIONS) for (const code of live[action]) byCode.set(code, action);
 }
 
 /** The action a physical key is bound to, if any. */
 export const actionOf = (code: string): Action | undefined => byCode.get(code);
 
 /** The key that stands for an action: the first of its bindings. */
-export const codeOf = (action: Action): string => BINDINGS[action][0]!;
+export const codeOf = (action: Action): string => live[action][0]!;
+
+/* ------------------------------------------------------------------------- *
+ * Rebinding
+ * ------------------------------------------------------------------------- */
+
+/** Where the player's own bindings are kept: only the actions they changed. */
+const STORAGE_KEY = 'atlas.keys.v1';
+
+/**
+ * Keys nothing may be bound to. `Esc` is the browser's way out of pointer
+ * lock and every card's way out of itself; `/` opens the chat with the slash
+ * typed, by what it prints (`chat.ts`); the system keys and the three
+ * function keys are the browser's own (reload, full screen, the tools), and a
+ * binding would take them from the player without saying so.
+ */
+const RESERVED = new Set([
+  'Escape',
+  'Slash',
+  'MetaLeft',
+  'MetaRight',
+  'OSLeft',
+  'OSRight',
+  'AltLeft',
+  'AltRight',
+  'ContextMenu',
+  'CapsLock',
+  'F5',
+  'F11',
+  'F12',
+]);
+
+/** Whether a physical key may be given to an action at all. */
+export const keyBindable = (code: string): boolean => code !== '' && code !== 'Unidentified' && !RESERVED.has(code);
+
+/** Whether the player may choose this action's key: all but `release`, which is the browser's. */
+export const actionBindable = (action: Action): boolean => action !== 'release';
+
+/** What a rebinding did besides the one it was asked for. */
+export interface Rebound {
+  /** False when the key or the action cannot be bound; nothing changed. */
+  ok: boolean;
+  /** The action that had this key as its own and now has the old one instead. */
+  swapped: Action | null;
+  /** The action that had this key as a spare, and has lost it. */
+  took: Action | null;
+}
+
+function notify(): void {
+  for (const listener of listeners) listener();
+}
+
+function save(): void {
+  const changed: Partial<Record<Action, string[]>> = {};
+  for (const action of ACTIONS) {
+    const now = live[action];
+    const was = DEFAULT_BINDINGS[action];
+    if (now.length !== was.length || now.some((code, i) => code !== was[i])) changed[action] = [...now];
+  }
+  // A private window throws on the getter, a full disk on the write: the
+  // bindings hold for this visit either way.
+  try {
+    if (Object.keys(changed).length === 0) localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, JSON.stringify(changed));
+  } catch {
+    // Not remembered, and nothing else lost.
+  }
+}
+
+/**
+ * Puts `code` on `action` as its own key. A key another action had as its own
+ * is **swapped**: that action takes this one's old key, so nothing is ever
+ * left without one. A key another action had as a spare is simply taken from
+ * it. The old key of `action` is dropped, not kept as a spare: a player who
+ * moves the jump off `Space` does not expect `Space` to go on jumping.
+ */
+export function rebind(action: Action, code: string): Rebound {
+  if (!actionBindable(action) || !keyBindable(code)) return { ok: false, swapped: null, took: null };
+  const own = live[action];
+  if (own[0] === code) return { ok: true, swapped: null, took: null };
+  const old = own[0]!;
+  let swapped: Action | null = null;
+  let took: Action | null = null;
+  const holder = byCode.get(code);
+  if (holder !== undefined && holder !== action) {
+    const theirs = live[holder];
+    if (theirs[0] === code) {
+      live[holder] = [old, ...theirs.slice(1)];
+      swapped = holder;
+    } else {
+      live[holder] = theirs.filter((other) => other !== code);
+      took = holder;
+    }
+  }
+  live[action] = [code, ...own.slice(1).filter((other) => other !== code)];
+  index();
+  save();
+  notify();
+  return { ok: true, swapped, took };
+}
+
+/** Every action back on the keys a new player gets. */
+export function resetBindings(): void {
+  for (const action of ACTIONS) live[action] = [...DEFAULT_BINDINGS[action]];
+  index();
+  save();
+  notify();
+}
+
+/** Whether any binding differs from the defaults. */
+export function bindingsChanged(): boolean {
+  return ACTIONS.some((action) => live[action].join() !== DEFAULT_BINDINGS[action].join());
+}
+
+/**
+ * The player's bindings, read once as the module loads. **All or nothing**: a
+ * stored table that names an unknown action, a reserved key, or one key for
+ * two actions is from another version or another hand, and the defaults are
+ * safer than any repair of it.
+ */
+function loadBindings(): void {
+  let stored: unknown = null;
+  try {
+    const text = typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY);
+    stored = text === null ? null : JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (stored === null || typeof stored !== 'object') return;
+  const next = Object.fromEntries(ACTIONS.map((action) => [action, [...DEFAULT_BINDINGS[action]]])) as Record<Action, string[]>;
+  for (const [action, codes] of Object.entries(stored as Record<string, unknown>)) {
+    if (!(action in DEFAULT_BINDINGS) || !actionBindable(action as Action)) return;
+    if (!Array.isArray(codes) || codes.length === 0) return;
+    if (!codes.every((code) => typeof code === 'string' && keyBindable(code))) return;
+    next[action as Action] = codes as string[];
+  }
+  const seen = new Set<string>();
+  for (const action of ACTIONS) {
+    for (const code of next[action]) {
+      if (seen.has(code)) return;
+      seen.add(code);
+    }
+  }
+  for (const action of ACTIONS) live[action] = next[action];
+}
+loadBindings();
+index();
 
 /* ------------------------------------------------------------------------- *
  * Labels
@@ -149,6 +322,14 @@ const NAMED: Record<string, string> = {
   Tab: 'Tab',
   Escape: 'Esc',
   Enter: 'Enter',
+  NumpadEnter: 'Enter',
+  Backspace: 'Backspace',
+  Delete: 'Del',
+  Insert: 'Ins',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PgUp',
+  PageDown: 'PgDn',
   ArrowUp: '↑',
   ArrowDown: '↓',
   ArrowLeft: '←',
@@ -161,6 +342,15 @@ const US: Record<string, string> = {
   BracketRight: ']',
   Equal: '+',
   Minus: '−',
+  NumpadAdd: '+',
+  NumpadSubtract: '−',
+  Backquote: '`',
+  Comma: ',',
+  Period: '.',
+  Semicolon: ';',
+  Quote: "'",
+  Backslash: '\\',
+  IntlBackslash: '<',
 };
 
 /** `navigator.keyboard`, which TypeScript's DOM library does not describe yet. */
@@ -198,8 +388,8 @@ function askLayout(): void {
 }
 
 /**
- * Called whenever the labels may have changed — the layout arrived, or the
- * player switched it. Returns the unsubscribe.
+ * Called whenever the labels may have changed — the layout arrived, the
+ * player switched it, or a key was rebound. Returns the unsubscribe.
  */
 export function onKeyLabels(listener: () => void): () => void {
   if (!asked) {
@@ -220,6 +410,7 @@ export function keyLabel(code: string): string {
   if (us !== undefined) return us;
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
   return code;
 }
 
@@ -231,7 +422,7 @@ export const labelOf = (action: Action): string => keyLabel(codeOf(action));
  * ------------------------------------------------------------------------- */
 
 /** A cap that is not a key. */
-type Pointer = 'mouse' | 'wheel';
+export type Pointer = 'mouse' | 'wheel';
 
 /** One line of a key list: the caps, in order, and what they do. */
 export interface KeyHint {
@@ -240,167 +431,158 @@ export interface KeyHint {
 }
 
 /** The four movement keys in the order a player reads them: W A S D. */
-const MOVE: readonly Action[] = ['forward', 'left', 'back', 'right'];
+export const MOVE: readonly Action[] = ['forward', 'left', 'back', 'right'];
 
 /** A cap's text: a key's label, or the pointer's name. */
 export const capOf = (key: Action | Pointer): string => (key === 'mouse' ? 'Mouse' : key === 'wheel' ? 'Wheel' : labelOf(key));
 
-/** Every binding in the world, in the order a player meets them: the settings card. */
-export const KEY_LIST: readonly KeyHint[] = [
-  { keys: MOVE, label: 'Move, or steer' },
-  { keys: ['mouse'], label: 'Look around' },
-  { keys: ['wheel'], label: 'Camera nearer or further, on foot' },
-  { keys: ['run'], label: 'Run · swim faster · boost a car or a boat · gallop' },
-  { keys: ['jump'], label: 'Jump' },
-  { keys: ['jump', 'run'], label: 'Take off and climb · rise in a balloon or a helicopter' },
-  { keys: ['descend', 'dive'], label: 'Descend and land · sink a balloon' },
-  { keys: ['use'], label: 'Get in a vehicle you are next to · get out · talk to somebody' },
-  { keys: ['view'], label: 'First person, on foot' },
-  { keys: ['map'], label: 'World map' },
-  { keys: ['mapIn', 'mapOut'], label: 'Zoom the world map' },
-  { keys: ['next'], label: 'Next landmark to find' },
-  { keys: ['flags'], label: 'Flags and borders' },
-  { keys: ['nearer', 'farther'], label: 'Render distance' },
-  { keys: ['photo'], label: 'Save a photo' },
-  { keys: ['chat'], label: 'Chat · type / for commands' },
-  { keys: ['wave'], label: 'Wave' },
-  { keys: ['hints'], label: 'Key hints on screen' },
-  { keys: ['release'], label: 'Free the mouse' },
+/** One line of the controls page: an action to rebind, or a pointer or key nobody can. */
+export interface ControlRow {
+  /** The action, whose key the row shows and rebinds. */
+  action?: Action;
+  /** Or a cap that is not a binding: the mouse, the wheel, `Esc`. */
+  fixed?: Pointer | 'release';
+  label: string;
+}
+
+/**
+ * Every binding in the world, in the order a player meets them: the settings'
+ * controls page, which is the one place the whole table is shown. Nothing
+ * along the bottom of the screen lists them any more; the world shows a key
+ * only where it is the answer to something (`boardingHints`, the prompt).
+ */
+export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlRow[] }[] = [
+  {
+    title: 'Moving',
+    rows: [
+      { action: 'forward', label: 'Forward · throttle up' },
+      { action: 'back', label: 'Back · throttle down' },
+      { action: 'left', label: 'Left · bank left' },
+      { action: 'right', label: 'Right · bank right' },
+      { action: 'run', label: 'Run · swim faster · boost · gallop · climb' },
+      { action: 'jump', label: 'Jump · take off and climb · rise in a balloon or a helicopter' },
+      { action: 'descend', label: 'Descend and land · sink' },
+      { action: 'dive', label: 'Descend, a second key' },
+      { action: 'use', label: 'Get in or out · take the wheel · talk' },
+    ],
+  },
+  {
+    title: 'Camera',
+    rows: [
+      { fixed: 'mouse', label: 'Look around' },
+      { fixed: 'wheel', label: 'Nearer or further, on foot' },
+      { action: 'view', label: 'First person, on foot' },
+      { action: 'photo', label: 'Save a photo' },
+      { action: 'hud', label: 'Hide or show everything on screen' },
+    ],
+  },
+  {
+    title: 'Finding your way',
+    rows: [
+      { action: 'map', label: 'World map' },
+      { action: 'mapIn', label: 'Zoom the map in' },
+      { action: 'mapOut', label: 'Zoom the map out' },
+      { action: 'next', label: 'Next landmark to find' },
+      { action: 'passport', label: 'Passport: the countries stamped, the landmarks found' },
+      { action: 'flags', label: 'Flags and borders from the air' },
+    ],
+  },
+  {
+    title: 'Everyone else',
+    rows: [
+      { action: 'chat', label: 'Chat · type / for commands' },
+      { action: 'wave', label: 'Wave' },
+    ],
+  },
+  {
+    title: 'The game',
+    rows: [
+      { action: 'settings', label: 'Settings' },
+      { action: 'nearer', label: 'Render distance nearer' },
+      { action: 'farther', label: 'Render distance further' },
+      { fixed: 'release', label: 'Free the mouse · close a card' },
+    ],
+  },
 ];
 
 /**
- * The keys worth showing along the bottom for the way you are travelling right
- * now, in the order they are used. Eight keys you can use on foot are not the
- * four you can use at a wheel, and a plane on the ground is not one in the air:
- * `airborne` says which, and it is what turns the climb key's "Take off" into
- * "Climb" and the way out into nothing, because nobody steps out of a plane in
- * flight. `stranded` is a passenger aloft with nobody at the controls, whose
- * `E` takes them (`fleet.ts`); any other passenger aloft has no way out to be
- * shown.
+ * The few keys a new way of travelling needs, shown for a moment as you take
+ * it up and then put away (`hud.ts`). `id` names the set, so that one which is
+ * `once` — worth saying until it has been used, and never again — can be
+ * remembered as used; one which is `sticky` stays for as long as it is true,
+ * because it is the only way out of where you are.
+ *
+ * On foot there is nothing: the welcome card has said it, and a player walking
+ * is not asking. **A plane aloft is the one that matters**: the climb and the
+ * descent are not keys anyone guesses, and a player who has never found them
+ * cannot land.
  */
-export function hintsFor(mode: TravelMode, airborne = false, firstPerson = false, stranded = false): KeyHint[] {
+export interface HintSet {
+  id: string;
+  once: boolean;
+  sticky: boolean;
+  hints: KeyHint[];
+}
+
+export function boardingHints(mode: TravelMode, airborne = false, stranded = false): HintSet | null {
   const out: KeyHint = { keys: ['use'], label: 'Get out' };
-  const up: KeyHint = { keys: ['jump', 'run'], label: 'Climb' };
-  const down: KeyHint = { keys: ['descend', 'dive'], label: 'Descend' };
+  const set = (id: string, hints: KeyHint[], once = false, sticky = false): HintSet => ({ id, once, sticky, hints });
   switch (mode) {
     case 'swim':
-      return [
-        { keys: MOVE, label: 'Swim' },
-        { keys: ['run'], label: 'Faster' },
-        { keys: ['view'], label: firstPerson ? 'Third person' : 'First person' },
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('swim', [{ keys: MOVE, label: 'Swim' }, { keys: ['run'], label: 'Faster' }], true);
     case 'car':
-      return [
-        { keys: MOVE, label: 'Drive' },
-        { keys: ['run'], label: 'Boost' },
-        out,
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('car', [{ keys: MOVE, label: 'Drive' }, { keys: ['run'], label: 'Boost' }, out]);
     case 'boat':
+      return set('boat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, out]);
     case 'jetski':
-      return [
-        { keys: MOVE, label: 'Steer' },
-        { keys: ['run'], label: 'Boost' },
-        out,
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('jetski', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, out]);
     case 'sailboat':
-      return [
-        { keys: MOVE, label: 'Steer' },
-        { keys: ['run'], label: 'Haul the sheet in' },
-        out,
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('sailboat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Haul the sheet in' }, out]);
     case 'bicycle':
-      return [
-        { keys: MOVE, label: 'Pedal and steer' },
-        { keys: ['run'], label: 'Out of the saddle' },
-        out,
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('bicycle', [{ keys: MOVE, label: 'Pedal and steer' }, { keys: ['run'], label: 'Out of the saddle' }, out]);
     case 'motorbike':
-      return [
-        { keys: MOVE, label: 'Ride' },
-        { keys: ['run'], label: 'Full throttle' },
-        out,
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('motorbike', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Full throttle' }, out]);
     case 'horse':
-      return [
-        { keys: MOVE, label: 'Ride' },
-        { keys: ['run'], label: 'Gallop' },
-        { ...out, label: 'Dismount' },
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return set('horse', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Gallop' }, { ...out, label: 'Dismount' }]);
     case 'helicopter':
+      // Aloft, the rise and the fall are the keys nobody guesses, as in the
+      // plane: said until used. On the ground, how to lift off, every time.
       return airborne
-        ? [
-            { keys: ['forward', 'back'], label: 'Fly forward · back' },
-            { keys: ['left', 'right'], label: 'Turn' },
-            up,
-            { ...down, label: 'Descend · land on flat ground' },
-            { keys: ['flags'], label: 'Flags' },
-            { keys: ['map'], label: 'Map' },
-            { keys: ['photo'], label: 'Photo' },
-          ]
-        : [
-            { ...up, label: 'Hold to lift off' },
-            { keys: ['left', 'right'], label: 'Turn' },
-            out,
-            { keys: ['map'], label: 'Map' },
-            { keys: ['photo'], label: 'Photo' },
-          ];
+        ? set(
+            'helicopter-air',
+            [
+              { keys: ['jump', 'run'], label: 'Rise' },
+              { keys: ['descend', 'dive'], label: 'Descend · land on flat ground' },
+              { keys: ['forward', 'back'], label: 'Fly forward · back' },
+              { keys: ['left', 'right'], label: 'Turn' },
+            ],
+            true,
+          )
+        : set('helicopter', [{ keys: ['jump', 'run'], label: 'Hold to lift off' }, { keys: ['left', 'right'], label: 'Turn' }, out]);
     case 'plane':
       return airborne
-        ? [
-            { keys: ['left', 'right'], label: 'Bank' },
-            { keys: ['forward', 'back'], label: 'Throttle' },
-            up,
-            { ...down, label: 'Descend · land on flat ground' },
-            { keys: ['flags'], label: 'Flags' },
-            { keys: ['map'], label: 'Map' },
-            { keys: ['photo'], label: 'Photo' },
-          ]
-        : [
-            { keys: MOVE, label: 'Taxi' },
-            { ...up, label: 'Hold to take off' },
-            out,
-            { keys: ['map'], label: 'Map' },
-            { keys: ['photo'], label: 'Photo' },
-          ];
+        ? set(
+            'plane-air',
+            [
+              { keys: ['jump', 'run'], label: 'Climb' },
+              { keys: ['descend', 'dive'], label: 'Descend · land on flat ground' },
+              { keys: ['left', 'right'], label: 'Bank' },
+            ],
+            true,
+          )
+        : set('plane', [{ keys: MOVE, label: 'Taxi' }, { keys: ['jump'], label: 'Hold to take off' }, out]);
     case 'balloon':
-      return [
+      return set(airborne ? 'balloon-air' : 'balloon', [
         { keys: MOVE, label: 'Steer' },
-        { ...up, label: 'Rise' },
-        { ...down, label: 'Sink' },
+        { keys: ['jump', 'run'], label: 'Rise' },
+        { keys: ['descend', 'dive'], label: 'Sink' },
         ...(airborne ? [] : [out]),
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      ]);
     case 'passenger':
-      return [
-        ...(!airborne ? [out] : stranded ? [{ keys: ['use'], label: 'Take the controls' } as KeyHint] : []),
-        { keys: ['map'], label: 'Map' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      if (airborne && stranded) return set('stranded', [{ keys: ['use'], label: 'Take the controls' }], false, true);
+      return airborne ? null : set('passenger', [out]);
     default:
-      return [
-        { keys: MOVE, label: 'Move' },
-        { keys: ['run'], label: 'Run' },
-        { keys: ['jump'], label: 'Jump' },
-        { keys: ['view'], label: firstPerson ? 'Third person' : 'First person' },
-        { keys: ['map'], label: 'Map' },
-        { keys: ['next'], label: 'Landmarks' },
-        { keys: ['photo'], label: 'Photo' },
-      ];
+      return null;
   }
 }
 

@@ -53,6 +53,34 @@
  * the roads, the towns as the squares they are built as, the names, the pins,
  * the players and you.
  *
+ * ## What a frame of it costs, and what it no longer does (2026-09-25)
+ *
+ * The sheet was one canvas redrawn whole on every change — a drag step, a
+ * tile finished, and 30 times a second whenever you or another player moved —
+ * and each redraw traced every visible point of the outlines, measured every
+ * name again and rebuilt the tip's flag on every move of the mouse. Now:
+ *
+ * - **Two canvases.** The sheet (tiles, coast, roads, towns, names) is drawn
+ *   when the view, a tile, the destination or the names change; the marks
+ *   over it (the route, the pins, the players, you) on a second canvas, which
+ *   is all a flight with the map open redraws. The names are laid out again
+ *   only once you have moved `RELAYOUT_PX` from where they were laid out.
+ * - **The outlines thinned by zoom and cut into runs** (`map-outline.ts`): a
+ *   Node bench over the 188,507 points gave the whole planet on a 1,600-pixel
+ *   screen 53,384 segments for 95,434, the opening zoom 7,299 for 9,366, and
+ *   a degree of British Columbia 263 for 11,187, where the whole of Canada's
+ *   coast was walked for one bay (2026-09-25). The tile painter fills its land
+ *   mask from the same levels.
+ * - **Painting yields to the frame.** 10 ms a frame while the sheet is still,
+ *   4 while a hand moves it or when the frame came late; a tile composes 32
+ *   rows between yields, where it composed all 256 in one; and the world's
+ *   first levels and the screenful round you are painted before the sheet is
+ *   ever opened, in the frame's far allowance.
+ * - **Painted tiles become `ImageBitmap`s**, and a moving sheet scales them
+ *   with the plain filter, the still one with the fine one.
+ * - Label widths are measured once per font and name; the tip is filled when
+ *   what is under the cursor changes and only moved otherwise.
+ *
  * ## What the world does while it is open
  *
  * **It keeps running.** Pointer lock is released so there is a cursor, which
@@ -75,7 +103,9 @@ import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { ensureStyle, FONT, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 import { EARTH_KM, LabelSpace, R2D, TAU, inkedText } from './cartography.ts';
 import { latLonOf, unitAt } from './sphere.ts';
-import { actionOf, inputBlocked, labelOf } from './controls.ts';
+import { actionOf, inputBlocked, labelOf, onKeyLabels } from './controls.ts';
+import { type SheetRing, ringsForTile, traceOutlines } from './map-outline.ts';
+import { frameOpen } from './view.ts';
 
 export interface WorldMapOptions {
   /** Every placement, the same array the minimap and `navigation.ts` are given. */
@@ -99,7 +129,11 @@ export interface WorldMapOptions {
    * than leaving you looking at "click to look around".
    */
   lockTarget?: HTMLElement | null;
-  /** `event.code` that opens and closes it. `null` to bind it yourself. */
+  /**
+   * `event.code` that opens and closes it: `controls.ts`'s `map` unless given,
+   * asked on every press so a rebinding holds at once. `null` to bind it
+   * yourself.
+   */
   key?: string | null;
   /**
    * Whether something else holds the keyboard, so `M` does not open the map
@@ -131,8 +165,10 @@ export interface WorldMapStats {
   /** The zoom as pixels per degree of longitude, and the tile level drawn. */
   pixelsPerDegree: number;
   level: number;
-  /** The last draw, in milliseconds. */
+  /** The last draw of the sheet — tiles, lines, towns, names — in milliseconds. */
   drawMs: number;
+  /** And of the marks over it — the route, the pins, the players, you — which is most redraws. */
+  marksMs: number;
 }
 
 export interface WorldMap {
@@ -188,8 +224,37 @@ const COLOUR_STEP = 16;
 const RELIEF_STEP = 2;
 /** How far the shallows reach off a coast, in tile pixels, as two box passes. */
 const SHALLOW_RADIUS = 5;
-/** The frame's allowance for painting tiles, in milliseconds. */
-const TILE_BUDGET_MS = 12;
+/**
+ * The frame's allowance for painting tiles, in milliseconds, while the sheet
+ * is still and the frames are keeping time. The world goes on updating under
+ * the sheet (only its draw is skipped), so this is on top of that: a frame
+ * that came late, or one in the middle of a drag or a zoom, paints for
+ * `TILE_BUSY_MS` instead, and the parent tiles stand in a little longer.
+ */
+const TILE_BUDGET_MS = 10;
+const TILE_BUSY_MS = 4;
+/** A frame interval over this is late, in milliseconds: 24 is under 42 frames a second. */
+const LATE_FRAME_MS = 24;
+/** How long after the last drag or wheel step the sheet counts as moving. */
+const SETTLE_MS = 180;
+/** Rows of a tile composed between yields. */
+const COMPOSE_ROWS = 32;
+/**
+ * While the sheet is shut, the tiles it will open on are painted in the
+ * world's spare time: this much a frame, and only while the frame's far build
+ * allowance (`view.ts`) is not spent. The first open painted the world's first
+ * tile in one go and then its screenful at the full allowance, with the
+ * parents scaled up in the meantime.
+ */
+const WARM_BUDGET_MS = 1.5;
+/** And not in the first seconds, which are the streamers' arrival. */
+const WARM_AFTER_MS = 8000;
+/**
+ * How often the screenful round you is asked for again as you travel, at
+ * most: a plane crosses a tile of the opening zoom every second or two, and
+ * chasing it would spend the far allowance on tiles nobody opened.
+ */
+const WARM_EVERY_MS = 15000;
 /** Tiles held; the first three levels are always kept on top of these. */
 const MAX_TILES = 220;
 /** Levels painted up front and never evicted: 1 + 2 + 6 tiles. */
@@ -233,6 +298,17 @@ const TOWN_FLOOR: readonly [number, number][] = [
 /** Roads are drawn from this zoom, in pixels per degree; lanes from the second. */
 const ROADS_FROM = 30;
 const LANES_FROM = 55;
+/**
+ * Under this many pixels a sheet unit — 11 a degree — the coast is traced at a
+ * pixel and a half rather than 0.8: the whole planet on one screen.
+ */
+const PLANET_ZOOM = 4096;
+/**
+ * How far you may move on the screen before the names are laid out round you
+ * again, in pixels. The names keep clear of the arrow; the arrow is drawn over
+ * the sheet every frame and the names only when the sheet is.
+ */
+const RELAYOUT_PX = 18;
 
 const STYLE = `
 .atlas-map {
@@ -263,6 +339,7 @@ const STYLE = `
 .atlas-map-sheet.drag { cursor: grabbing; }
 .atlas-map-sheet.point { cursor: pointer; }
 .atlas-map canvas { display: block; width: 100%; height: 100%; }
+.atlas-map canvas.atlas-map-marks { position: absolute; inset: 0; pointer-events: none; }
 .atlas-map .ui-card { position: absolute; }
 .atlas-map-head {
   top: 30px;
@@ -375,22 +452,15 @@ interface Tile {
   z: number;
   i: number;
   j: number;
-  canvas: HTMLCanvasElement | null;
+  /**
+   * The painted tile: the canvas it was painted on, and then, once the
+   * browser has made one, an `ImageBitmap` of it — a picture that cannot
+   * change, which a GPU canvas keeps as a texture instead of taking a fresh
+   * copy of a canvas every time it is drawn.
+   */
+  canvas: HTMLCanvasElement | ImageBitmap | null;
   job: Generator<undefined, void, unknown> | null;
   used: number;
-}
-
-/** A ring of the outlines on the sheet, once. */
-interface SheetRing {
-  u: Float32Array;
-  v: Float32Array;
-  /** 0 frontier, 1 coast, 2 not an edge (a pole, the antimeridian). */
-  edge: Uint8Array;
-  u0: number;
-  u1: number;
-  v0: number;
-  v1: number;
-  water: boolean;
 }
 
 interface SheetTown {
@@ -432,7 +502,8 @@ type Hit =
 
 export function createWorldMap(world: World, options: WorldMapOptions): WorldMap {
   const { monuments, isVisited, target, onChoose, onClear } = options;
-  const key = options.key === undefined ? 'KeyM' : options.key;
+  const key = options.key;
+  const isKey = (code: string): boolean => (key === undefined ? actionOf(code) === 'map' : code === key);
   const lockTarget = options.lockTarget ?? null;
   const allPlaces = options.places ?? [];
 
@@ -455,7 +526,13 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const sheet = h('div', { class: 'atlas-map-sheet', tabindex: '-1' });
   const canvas = h('canvas');
   const ctx = canvas.getContext('2d')!;
-  sheet.append(canvas);
+  // What moves, on a sheet of its own over the rest: you, the other players,
+  // the route and the pins. In a plane with the map open the arrow moves every
+  // frame and nothing under it does; drawn on one canvas, every one of those
+  // frames painted the tiles, the coast, the roads and the names again.
+  const marksCanvas = h('canvas', { class: 'atlas-map-marks', 'aria-hidden': 'true' });
+  const mctx = marksCanvas.getContext('2d')!;
+  sheet.append(canvas, marksCanvas);
 
   const count = h('div', { class: 'atlas-map-count' });
   const legend = h(
@@ -485,19 +562,23 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const scaleBar = h('b');
   const scale = h('div', { class: 'atlas-map-scale ui-card' }, scaleText, scaleBar);
 
-  const foot = h(
-    'div',
-    { class: 'atlas-map-foot ui-card' },
-    h('span', {}, kbd('M'), 'close'),
-    h('span', {}, kbd(labelOf('mapIn')), kbd(labelOf('mapOut')), 'zoom'),
-    h('span', { class: 'quiet', text: 'drag to move · scroll to zoom' }),
-    h('span', {
-      text: options.peers === undefined
-        ? 'click a landmark to go there'
-        : 'click a landmark to go there, or a player to join them',
-    }),
-    h('span', {}, kbd('Tab'), 'cycle'),
-  );
+  const foot = h('div', { class: 'atlas-map-foot ui-card' });
+  // The caps from the live bindings, drawn again when a key moves.
+  const relabelFoot = (): void => {
+    foot.replaceChildren(
+      h('span', {}, kbd(labelOf('map')), 'close'),
+      h('span', {}, kbd(labelOf('mapIn')), kbd(labelOf('mapOut')), 'zoom'),
+      h('span', { class: 'quiet', text: 'drag to move · scroll to zoom' }),
+      h('span', {
+        text: options.peers === undefined
+          ? 'click a landmark to go there'
+          : 'click a landmark to go there, or a player to join them',
+      }),
+      h('span', {}, kbd(labelOf('next'), labelOf('next').length > 3), 'cycle'),
+    );
+  };
+  relabelFoot();
+  const unlabel = onKeyLabels(relabelFoot);
 
   const tipFlag = h('span');
   const tipName = h('div', { class: 'atlas-map-tip-name' });
@@ -550,7 +631,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
           (Math.abs(lonA!) > 179.99 && Math.abs(lonB!) > 179.99);
         edge[k] = seam ? 2 : ring.water || (flags?.[k] ?? 0) === 1 ? 1 : 0;
       }
-      return { u, v, edge, u0, u1, v0, v1, water: ring.water };
+      return { u, v, edge, u0, u1, v0, v1, water: ring.water, levels: [] };
     });
     // A country's name sits on the label point the bake computed, sized by
     // its biggest ring; a country of many islands is named by its largest.
@@ -726,26 +807,24 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const uMax = u0 + (TILE + PAD) / scaleZ;
     const vMin = v0 - PAD / scaleZ;
     const vMax = v0 + (TILE + PAD) / scaleZ;
+    // Each ring thinned to this tile's own zoom (`map-outline.ts`): the
+    // world's first tile is the whole planet 256 pixels across, and it was
+    // filled from all 188,507 points, most of them inside a pixel of the last.
     for (const pass of [false, true]) {
       maskCtx.globalCompositeOperation = pass ? 'destination-out' : 'source-over';
       maskCtx.fillStyle = '#fff';
-      for (const ring of sheetRings) {
-        if (ring.water !== pass) continue;
-        if (ring.v1 < vMin || ring.v0 > vMax) continue;
-        for (let wrap = -1; wrap <= 1; wrap++) {
-          if (ring.u1 + wrap < uMin || ring.u0 + wrap > uMax) continue;
-          maskCtx.beginPath();
-          const n = ring.u.length;
-          for (let k = 0; k < n; k++) {
-            const x = (ring.u[k]! + wrap - u0) * scaleZ + PAD;
-            const y = (ring.v[k]! - v0) * scaleZ + PAD;
-            if (k === 0) maskCtx.moveTo(x, y);
-            else maskCtx.lineTo(x, y);
-          }
-          maskCtx.closePath();
-          maskCtx.fill();
+      ringsForTile(sheetRings, scaleZ, uMin, uMax, vMin, vMax, pass, (level, wrap) => {
+        maskCtx.beginPath();
+        const n = level.u.length;
+        for (let k = 0; k < n; k++) {
+          const x = (level.u[k]! + wrap - u0) * scaleZ + PAD;
+          const y = (level.v[k]! - v0) * scaleZ + PAD;
+          if (k === 0) maskCtx.moveTo(x, y);
+          else maskCtx.lineTo(x, y);
         }
-      }
+        maskCtx.closePath();
+        maskCtx.fill();
+      });
     }
     maskCtx.globalCompositeOperation = 'source-over';
     const maskData = maskCtx.getImageData(0, 0, M, M).data;
@@ -852,10 +931,12 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       }
     }
 
-    // Composed.
+    // Composed, a band of rows at a time: the whole tile in one step was the
+    // longest stretch the painter held a frame for.
     const image = new ImageData(TILE, TILE);
     const out = image.data;
     for (let y = 0; y < TILE; y++) {
+      if (y > 0 && y % COMPOSE_ROWS === 0) yield;
       const ly = y / RS + 1;
       const ly0 = Math.floor(ly);
       const lfy = ly - ly0;
@@ -930,6 +1011,27 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     painted.getContext('2d')!.putImageData(image, 0, 0);
     tile.canvas = painted;
     tile.job = null;
+    // Swapped for a bitmap when the browser has made one; drawn from the
+    // canvas until then. A tile evicted meanwhile lets its bitmap go.
+    if (typeof createImageBitmap === 'function') {
+      createImageBitmap(painted).then(
+        (bitmap) => {
+          if (tiles.get(tileKey(tile.z, tile.i, tile.j)) === tile && tile.canvas === painted) tile.canvas = bitmap;
+          else bitmap.close();
+        },
+        () => {
+          // The canvas it was painted on serves.
+        },
+      );
+    }
+  }
+
+  /** Drops a tile, and the bitmap it holds with it. */
+  function dropTile(tile: Tile): void {
+    if (typeof ImageBitmap !== 'undefined' && tile.canvas instanceof ImageBitmap) tile.canvas.close();
+    tile.canvas = null;
+    tile.job = null;
+    tiles.delete(tileKey(tile.z, tile.i, tile.j));
   }
 
   /** Runs tile jobs, nearest the middle first, until the allowance is spent. */
@@ -963,10 +1065,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const loose = [...tiles.values()].filter((tile) => tile.z > KEEP_LEVEL && (tile.canvas !== null || !pending.has(tile)));
     if (loose.length <= limit) return;
     loose.sort((a, b) => a.used - b.used);
-    for (let k = 0; k < loose.length - limit; k++) {
-      const tile = loose[k]!;
-      tiles.delete(tileKey(tile.z, tile.i, tile.j));
-    }
+    for (let k = 0; k < loose.length - limit; k++) dropTile(loose[k]!);
   }
 
   /** The first levels, painted in one go the first time the sheet opens. */
@@ -984,6 +1083,56 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     }
   }
 
+  /**
+   * The tiles a view at this middle and zoom draws, nearest the middle first,
+   * without drawing: what `warm` paints before the sheet is opened on it.
+   */
+  function tilesAt(midU: number, midV: number, scale: number): Tile[] {
+    const z = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((scale * Math.min(ratio, 1.5)) / TILE))));
+    const n = 2 ** z;
+    const rows = rowsAt(z);
+    const halfU = width / 2 / scale;
+    const halfV = height / 2 / scale;
+    const out: { tile: Tile; d: number }[] = [];
+    for (let j = Math.max(0, Math.floor((midV - halfV) * n)); j <= Math.min(rows - 1, Math.floor((midV + halfV) * n)); j++) {
+      for (let i = Math.floor((midU - halfU) * n); i <= Math.floor((midU + halfU) * n); i++) {
+        const d = Math.hypot((i + 0.5) / n - midU, (j + 0.5) / n - midV);
+        out.push({ tile: tileOf(z, ((i % n) + n) % n, j), d });
+      }
+    }
+    out.sort((a, b) => a.d - b.d);
+    return out.map((entry) => entry.tile);
+  }
+
+  const createdAt = performance.now();
+  let warmedAt = -Infinity;
+  let warmedKey = '';
+  /**
+   * While the sheet is shut: the first levels, then the screenful it would
+   * open on, painted in what is left of the frame's far allowance.
+   */
+  function warm(now: number): void {
+    if (!me.known || now - createdAt < WARM_AFTER_MS || !frameOpen(false)) return;
+    if (wanted.length === 0) {
+      if (width === 0) resize();
+      if (width <= 1) return;
+      const z = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((S * Math.min(ratio, 1.5)) / TILE))));
+      const n = 2 ** z;
+      const key = `${z}:${Math.floor(me.u * n)}:${Math.floor(me.v * n)}`;
+      if (key === warmedKey || now - warmedAt < WARM_EVERY_MS) return;
+      warmedKey = key;
+      warmedAt = now;
+      const queue = [tileOf(0, 0, 0)];
+      for (let level = 1; level <= KEEP_LEVEL; level++) {
+        for (let j = 0; j < rowsAt(level); j++) for (let i = 0; i < 2 ** level; i++) queue.push(tileOf(level, i, j));
+      }
+      queue.push(...tilesAt(me.u, me.v, S));
+      for (const tile of queue) if (tile.job !== null) wanted.push(tile);
+      if (tiles.size > MAX_TILES + 40) evictTiles(MAX_TILES);
+    }
+    paintTiles(WARM_BUDGET_MS);
+  }
+
   // --- the view --------------------------------------------------------------
 
   let width = 0;
@@ -994,6 +1143,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   let cv = SHEET_HEIGHT / 2;
   let S = 0;
   let zoomSet = false;
+  let canvasLeft = 3;
+  let canvasTop = 3;
+  /** And where it sits in the window, for the pointer: the sheet is fixed, so this moves only on a resize. */
+  let canvasX = 17;
+  let canvasY = 17;
 
   const minScale = (): number => Math.max(width, height / SHEET_HEIGHT) * 0.999;
   const maxScale = (): number => TILE * 2 ** MAX_LEVEL;
@@ -1011,8 +1165,15 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     width = Math.max(1, Math.round(box.width - 6));
     height = Math.max(1, Math.round(box.height - 6));
     ratio = Math.min(devicePixelRatio || 1, 2);
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
+    canvas.width = marksCanvas.width = Math.round(width * ratio);
+    canvas.height = marksCanvas.height = Math.round(height * ratio);
+    // Where the canvas sits in the sheet, for the tip: read here, once, and
+    // not off two layouts on every move of the mouse.
+    const inner = canvas.getBoundingClientRect();
+    canvasLeft = inner.left - box.left;
+    canvasTop = inner.top - box.top;
+    canvasX = inner.left;
+    canvasY = inner.top;
     if (!zoomSet) {
       S = (width * 360) / OPEN_DEGREES;
       zoomSet = true;
@@ -1055,11 +1216,42 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   // --- drawing ----------------------------------------------------------------
 
+  /** The sheet wants drawing again: the view, a tile, the names or the destination changed. */
   let dirty = true;
+  /** Only the marks over it do: you, a player, a pin under the cursor. */
+  let marksDirty = true;
+  /** When the marks were last drawn, for `MAX_FPS`. */
   let drawnAt = 0;
   let drawMs = 0;
+  let marksMs = 0;
   let level = 0;
+  /** What the cursor can point at on the sheet — towns and pins — and over it, the players. */
   const hits: Hit[] = [];
+  const peerHits: Hit[] = [];
+  /** Where you stood on the screen when the names were laid out round you. */
+  let laidMeX = -1e9;
+  let laidMeY = -1e9;
+  /** Until when the sheet is being moved by hand, and whether the last draw was one of those. */
+  let busyUntil = 0;
+  let drawnBusy = false;
+  const busy = (): boolean => performance.now() < busyUntil;
+  /**
+   * Label widths by font and text. The names are laid out again on every
+   * redraw and most of them are the same names at the same size: a drag used
+   * to measure every one of them every frame.
+   */
+  const widths = new Map<string, number>();
+  function textWidth(font: string, text: string): number {
+    const key = `${font}|${text}`;
+    let width = widths.get(key);
+    if (width === undefined) {
+      if (widths.size > 6000) widths.clear();
+      ctx.font = font;
+      width = ctx.measureText(text).width;
+      widths.set(key, width);
+    }
+    return width;
+  }
 
   function drawTiles(): void {
     level = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((S * Math.min(ratio, 1.5)) / TILE))));
@@ -1073,7 +1265,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const jLast = Math.min(rows - 1, Math.floor((cv + height / 2 / S) * n));
     const want: { tile: Tile; d: number }[] = [];
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    // The best filter only once the sheet is still; while it moves, the
+    // plain one, and the still frame after it draws the fine one.
+    drawnBusy = busy();
+    ctx.imageSmoothingQuality = drawnBusy ? 'low' : 'high';
     for (let j = jFirst; j <= jLast; j++) {
       for (let i = iFirst; i <= iLast; i++) {
         const wrapI = ((i % n) + n) % n;
@@ -1145,44 +1340,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const sheetRings = prepareRings();
     const coast = new Path2D();
     const frontier = new Path2D();
-    const uLeft = cu - width / 2 / S;
-    const uRight = cu + width / 2 / S;
-    const vTop = cv - height / 2 / S;
-    const vBottom = cv + height / 2 / S;
-    const minStep = 0.8;
-    for (const ring of sheetRings) {
-      if (ring.v1 < vTop || ring.v0 > vBottom) continue;
-      for (let wrap = -1; wrap <= 1; wrap++) {
-        if (ring.u1 + wrap < uLeft || ring.u0 + wrap > uRight) continue;
-        const originX = width / 2 + (wrap - cu) * S;
-        const originY = height / 2 - cv * S;
-        const n = ring.u.length;
-        let current = -1;
-        let lastX = 0;
-        let lastY = 0;
-        for (let k = 0; k < n; k++) {
-          const cls = ring.edge[k]!;
-          const x = originX + ring.u[k]! * S;
-          const y = originY + ring.v[k]! * S;
-          if (cls !== current) {
-            if (cls !== 2) (cls === 1 ? coast : frontier).moveTo(x, y);
-            current = cls;
-            lastX = x;
-            lastY = y;
-          }
-          if (cls === 2) continue;
-          const next = (k + 1) % n;
-          const nx = originX + ring.u[next]! * S;
-          const ny = originY + ring.v[next]! * S;
-          const last = k === n - 1 || ring.edge[next] !== cls;
-          if (last || Math.abs(nx - lastX) + Math.abs(ny - lastY) >= minStep) {
-            (cls === 1 ? coast : frontier).lineTo(nx, ny);
-            lastX = nx;
-            lastY = ny;
-          }
-        }
-      }
-    }
+    // Thinned to the zoom (`map-outline.ts`), and at the planet's own zoom by
+    // a little more than a pixel: the whole world across one screen is tens of
+    // thousands of segments of coast, and a line a pixel wide shows nothing
+    // of the ones a pixel and a half apart.
+    traceOutlines(sheetRings, { cu, cv, S, width, height }, coast, frontier, S < PLANET_ZOOM ? 1.5 : 0.8);
     const pxPerDegree = S / 360;
     ctx.save();
     ctx.lineJoin = 'round';
@@ -1265,6 +1427,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       meY = screenY(me.v);
       space.claim(meX - 14, meY - 14, 28, 28);
     }
+    laidMeX = meX;
+    laidMeY = meY;
 
     // The landmarks: which pins stand, the destination always.
     keptPins.length = 0;
@@ -1306,8 +1470,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       align: CanvasTextAlign,
       spacing = 0,
     ): boolean => {
-      ctx.font = font;
-      const w = ctx.measureText(text).width + spacing * text.length;
+      const w = textWidth(font, text) + spacing * text.length;
       const left = align === 'center' ? x - w / 2 : align === 'left' ? x : x - w;
       if (left < 4 || left + w > width - 4 || y - size < 4 || y + 4 > height) return false;
       if (!space.fits(left - 3, y - size * 0.62 - 3, w + 6, size * 1.24 + 6)) return false;
@@ -1406,12 +1569,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       hits.push({ kind: 'town', town, x, y });
     }
 
-    // The route to the destination: the great circle, dashed.
-    const chosenIndex = chosen === null ? -1 : monuments.findIndex((monument) => monument.id === chosen);
-    if (chosenIndex >= 0 && me.known) {
-      drawRoute(monuments[chosenIndex]!);
-    }
-
     for (const label of labels) {
       ctx.font = label.font;
       ctx.textAlign = label.align;
@@ -1421,16 +1578,12 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       if ('letterSpacing' in ctx) (ctx as { letterSpacing: string }).letterSpacing = '0px';
     }
 
+    // The pins are drawn over the sheet with the marks; what is pointed at
+    // is known here, where they were laid out.
     for (const pin of keptPins) {
-      const monument = monuments[pin.index]!;
-      const fill = monument.id === chosen ? violet : isVisited(monument.id) ? gold : paper;
-      const grow = hover?.kind === 'pin' && hover.index === pin.index ? 1.3 : monument.id === chosen ? 1.2 : 1;
-      drawPin(pin.x, pin.y, fill, grow);
+      const grow = monuments[pin.index]!.id === chosen ? 1.2 : 1;
       hits.push({ kind: 'pin', index: pin.index, x: pin.x, y: pin.y - PIN_RISE * grow });
     }
-
-    drawPeers();
-    if (me.known) drawMe(meX, meY);
     ctx.restore();
   }
 
@@ -1513,20 +1666,20 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   function drawPin(x: number, y: number, fill: string, grow: number): void {
     const rise = PIN_RISE * grow;
     const head = PIN_HEAD * grow;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - head * 0.72, y - rise + head * 0.35);
-    ctx.arc(x, y - rise, head, Math.PI * 0.78, Math.PI * 0.22, false);
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = ink;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(x, y - rise, head * 0.36, 0, TAU);
-    ctx.fillStyle = ink;
-    ctx.fill();
+    mctx.beginPath();
+    mctx.moveTo(x, y);
+    mctx.lineTo(x - head * 0.72, y - rise + head * 0.35);
+    mctx.arc(x, y - rise, head, Math.PI * 0.78, Math.PI * 0.22, false);
+    mctx.closePath();
+    mctx.fillStyle = fill;
+    mctx.fill();
+    mctx.lineWidth = 2;
+    mctx.strokeStyle = ink;
+    mctx.stroke();
+    mctx.beginPath();
+    mctx.arc(x, y - rise, head * 0.36, 0, TAU);
+    mctx.fillStyle = ink;
+    mctx.fill();
   }
 
   const routeA = new THREE.Vector3();
@@ -1540,7 +1693,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     if (angle < 1e-5) return;
     const steps = Math.max(8, Math.ceil(angle * R2D));
     const sinA = Math.sin(angle);
-    ctx.beginPath();
+    mctx.beginPath();
     let lastU = 0;
     for (let k = 0; k <= steps; k++) {
       const t = k / steps;
@@ -1554,68 +1707,68 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       lastU = u;
       const x = width / 2 + (u - cu) * S;
       const y = screenY(vOf(routeLatLon.lat));
-      if (k === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      if (k === 0) mctx.moveTo(x, y);
+      else mctx.lineTo(x, y);
     }
-    ctx.lineCap = 'round';
-    ctx.setLineDash([]);
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = 5;
-    ctx.stroke();
-    ctx.setLineDash([7, 7]);
-    ctx.strokeStyle = violet;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.setLineDash([]);
+    mctx.lineCap = 'round';
+    mctx.setLineDash([]);
+    mctx.strokeStyle = ink;
+    mctx.lineWidth = 5;
+    mctx.stroke();
+    mctx.setLineDash([7, 7]);
+    mctx.strokeStyle = violet;
+    mctx.lineWidth = 3;
+    mctx.stroke();
+    mctx.setLineDash([]);
   }
 
   function drawPeers(): void {
     const list = options.peers?.() ?? [];
     const peerLatLon = { lat: 0, lon: 0 };
-    ctx.font = `800 12px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    mctx.font = `800 12px ${FONT}`;
+    mctx.textAlign = 'center';
+    mctx.textBaseline = 'middle';
     for (const peer of list) {
       latLonOf(peer, peerLatLon);
       const x = screenX(uOf(peerLatLon.lon));
       const y = screenY(vOf(peerLatLon.lat));
       if (x < -20 || x > width + 20 || y < -20 || y > height + 20) continue;
       const grow = hover?.kind === 'peer' && hover.id === peer.id ? 1.35 : 1;
-      ctx.beginPath();
-      ctx.arc(x, y, 6 * grow, 0, TAU);
-      ctx.fillStyle = pink;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = ink;
-      ctx.stroke();
-      inkedText(ctx, peer.name, x, y - 15, paper, ink, 4);
+      mctx.beginPath();
+      mctx.arc(x, y, 6 * grow, 0, TAU);
+      mctx.fillStyle = pink;
+      mctx.fill();
+      mctx.lineWidth = 2;
+      mctx.strokeStyle = ink;
+      mctx.stroke();
+      inkedText(mctx, peer.name, x, y - 15, paper, ink, 4);
       unitAt(me.lat, me.lon, routeA);
       const distance = routeA.angleTo(routeB.set(peer.x, peer.y, peer.z).normalize()) * EARTH_KM;
-      hits.push({ kind: 'peer', id: peer.id, name: peer.name, x, y, distance });
+      peerHits.push({ kind: 'peer', id: peer.id, name: peer.name, x, y, distance });
     }
   }
 
   function drawMe(x: number, y: number): void {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.beginPath();
-    ctx.arc(0, 0, 13, 0, TAU);
-    ctx.fillStyle = 'rgba(255, 242, 232, 0.35)';
-    ctx.fill();
-    ctx.rotate(me.heading);
-    ctx.beginPath();
-    ctx.moveTo(0, -11);
-    ctx.lineTo(8, 8);
-    ctx.lineTo(0, 4);
-    ctx.lineTo(-8, 8);
-    ctx.closePath();
-    ctx.fillStyle = hex(PALETTE.crimson);
-    ctx.fill();
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = ink;
-    ctx.stroke();
-    ctx.restore();
+    mctx.save();
+    mctx.translate(x, y);
+    mctx.beginPath();
+    mctx.arc(0, 0, 13, 0, TAU);
+    mctx.fillStyle = 'rgba(255, 242, 232, 0.35)';
+    mctx.fill();
+    mctx.rotate(me.heading);
+    mctx.beginPath();
+    mctx.moveTo(0, -11);
+    mctx.lineTo(8, 8);
+    mctx.lineTo(0, 4);
+    mctx.lineTo(-8, 8);
+    mctx.closePath();
+    mctx.fillStyle = hex(PALETTE.crimson);
+    mctx.fill();
+    mctx.lineJoin = 'round';
+    mctx.lineWidth = 2.5;
+    mctx.strokeStyle = ink;
+    mctx.stroke();
+    mctx.restore();
   }
 
   function drawScale(): void {
@@ -1628,6 +1781,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     scaleBar.style.width = `${Math.round(nice / kmPerPx)}px`;
   }
 
+  /** The sheet: the tiles, the lines, the towns and the names. */
   function draw(): void {
     const started = performance.now();
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -1641,6 +1795,32 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     drawScale();
     drawMs = performance.now() - started;
     dirty = false;
+    marksDirty = true;
+  }
+
+  /** What stands over it: the route, the pins, the players and you. */
+  function drawMarks(): void {
+    const started = performance.now();
+    mctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    mctx.clearRect(0, 0, width, height);
+    mctx.lineJoin = 'round';
+    const chosen = target();
+    // The route to the destination: the great circle, dashed.
+    if (chosen !== null && me.known) {
+      const to = monuments.find((monument) => monument.id === chosen);
+      if (to !== undefined) drawRoute(to);
+    }
+    for (const pin of keptPins) {
+      const monument = monuments[pin.index]!;
+      const fill = monument.id === chosen ? violet : isVisited(monument.id) ? gold : paper;
+      const grow = hover?.kind === 'pin' && hover.index === pin.index ? 1.3 : monument.id === chosen ? 1.2 : 1;
+      drawPin(pin.x, pin.y, fill, grow);
+    }
+    peerHits.length = 0;
+    drawPeers();
+    if (me.known) drawMe(screenX(me.u), screenY(me.v));
+    marksMs = performance.now() - started;
+    marksDirty = false;
     drawnAt = started;
   }
 
@@ -1649,12 +1829,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   let hover: Hit | null = null;
 
   function pickAt(clientX: number, clientY: number): Hit | null {
-    const box = canvas.getBoundingClientRect();
-    const x = clientX - box.left;
-    const y = clientY - box.top;
+    const x = clientX - canvasX;
+    const y = clientY - canvasY;
     let best: Hit | null = null;
     let bestScore = Infinity;
-    for (const hit of hits) {
+    for (const hit of hits.length === 0 ? peerHits : peerHits.length === 0 ? hits : [...hits, ...peerHits]) {
       const d = Math.hypot(hit.x - x, hit.y - y);
       // Players first, then pins, then towns: a town under a pin is the pin.
       const bias = hit.kind === 'peer' ? 0 : hit.kind === 'pin' ? 4 : 8;
@@ -1676,20 +1855,37 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   }
 
   const tipPoint = new THREE.Vector3();
+  /** What the tip is showing, so that a move of the mouse over the same mark only moves it. */
+  let tipFor: Hit | null = null;
+  let tipIso = '';
+  function tipFlagFor(iso: string): void {
+    if (iso === tipIso) return;
+    tipIso = iso;
+    const flag = createFlagCanvas(iso, 34, 23);
+    flag.className = 'ui-flag';
+    tipFlag.replaceChildren(flag);
+  }
   function renderTip(): void {
     if (hover === null) {
       tip.classList.remove('on');
+      tipFor = null;
       return;
     }
-    const box = canvas.getBoundingClientRect();
-    const sheetBox = sheet.getBoundingClientRect();
+    if (!sameHit(hover, tipFor)) fillTip(hover);
+    tip.style.left = `${canvasLeft + hover.x}px`;
+    tip.style.top = `${canvasTop + hover.y - (hover.kind === 'pin' ? 4 : 8)}px`;
+    tip.classList.add('on');
+  }
+  function fillTip(hit: Hit): void {
+    tipFor = hit;
     unitAt(me.lat, me.lon, routeA);
-    if (hover.kind === 'peer') {
-      tipName.textContent = hover.name;
-      tipSub.replaceChildren(h('b', { text: km(hover.distance) }), options.onJoin ? ' · click to join' : '');
+    if (hit.kind === 'peer') {
+      tipName.textContent = hit.name;
+      tipSub.replaceChildren(h('b', { text: km(hit.distance) }), options.onJoin ? ' · click to join' : '');
       tipFlag.replaceChildren();
-    } else if (hover.kind === 'pin') {
-      const monument = monuments[hover.index]!;
+      tipIso = '';
+    } else if (hit.kind === 'pin') {
+      const monument = monuments[hit.index]!;
       unitAt(monument.lat, monument.lon, tipPoint);
       const distance = routeA.angleTo(tipPoint) * EARTH_KM;
       tipName.textContent = monument.name;
@@ -1698,11 +1894,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         h('b', { text: km(distance) }),
         isVisited(monument.id) ? ' · found' : '',
       );
-      const flag = createFlagCanvas(monument.iso, 34, 23);
-      flag.className = 'ui-flag';
-      tipFlag.replaceChildren(flag);
+      tipFlagFor(monument.iso);
     } else {
-      const place = hover.town.place;
+      const place = hit.town.place;
       unitAt(place.lat, place.lon, tipPoint);
       const distance = routeA.angleTo(tipPoint) * EARTH_KM;
       tipName.textContent = place.name;
@@ -1710,13 +1904,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         `${countryName.get(place.iso) ?? place.iso} · ${people(place.pop)} · `,
         h('b', { text: km(distance) }),
       );
-      const flag = createFlagCanvas(place.iso, 34, 23);
-      flag.className = 'ui-flag';
-      tipFlag.replaceChildren(flag);
+      tipFlagFor(place.iso);
     }
-    tip.style.left = `${box.left - sheetBox.left + hover.x}px`;
-    tip.style.top = `${box.top - sheetBox.top + hover.y - (hover.kind === 'pin' ? 4 : 8)}px`;
-    tip.classList.add('on');
   }
 
   function refreshCount(): void {
@@ -1747,10 +1936,13 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         renderTip();
       }
       if (press.moved) {
+        // Only the view is written here: the sheet is drawn once, in the
+        // next frame's `update`, however many moves the pointer sent.
         cu = press.cu - dx / S;
         cv = press.cv - dy / S;
         clampView();
         dirty = true;
+        busyUntil = performance.now() + SETTLE_MS;
         return;
       }
     }
@@ -1758,7 +1950,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     sheet.classList.toggle('point', next !== null && next.kind !== 'town');
     if (!sameHit(next, hover)) {
       hover = next;
-      dirty = true;
+      marksDirty = true;
     }
     renderTip();
   }, { signal });
@@ -1790,22 +1982,21 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     if (press !== null) return;
     hover = null;
     renderTip();
-    dirty = true;
+    marksDirty = true;
   }, { signal });
 
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
-    const box = canvas.getBoundingClientRect();
     // Lines and pages are a mouse; pixels are a trackpad and come in many small steps.
     const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * 400 : event.deltaY;
-    zoomAt(Math.exp(-delta * 0.0022), event.clientX - box.left, event.clientY - box.top);
+    zoomAt(Math.exp(-delta * 0.0022), event.clientX - canvasX, event.clientY - canvasY);
+    busyUntil = performance.now() + SETTLE_MS;
     hover = null;
     renderTip();
   }, { signal, passive: false });
 
   canvas.addEventListener('dblclick', (event) => {
-    const box = canvas.getBoundingClientRect();
-    zoomAt(2, event.clientX - box.left, event.clientY - box.top);
+    zoomAt(2, event.clientX - canvasX, event.clientY - canvasY);
   }, { signal });
 
   // A click on a button leaves the focus where it was: a focused button on
@@ -1867,7 +2058,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       // map being a dialog, and is still the map's.
       const own = showing && event.target instanceof Node && root.contains(event.target);
       if (!own && inputBlocked(event)) return;
-      if (event.code === key) {
+      if (isKey(event.code)) {
         event.preventDefault();
         if (!event.repeat) {
           if (showing) hide();
@@ -1898,6 +2089,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   let lastMeX = -1;
   let lastMeY = -1;
   let lastHeading = 99;
+  let lastTarget: string | null = null;
+  let lastUpdateAt = 0;
+  const onScreen = (x: number, y: number): boolean => x > -40 && x < width + 40 && y > -40 && y < height + 40;
 
   return {
     root,
@@ -1928,6 +2122,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         pixelsPerDegree: S / 360,
         level,
         drawMs,
+        marksMs,
       };
     },
     update(position, forward) {
@@ -1938,7 +2133,13 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       me.u = uOf(me.lon);
       me.v = vOf(Math.max(-89.999, Math.min(89.999, me.lat)));
       me.known = true;
-      if (!showing) return;
+      const now = performance.now();
+      const gap = lastUpdateAt === 0 ? 0 : now - lastUpdateAt;
+      lastUpdateAt = now;
+      if (!showing) {
+        warm(now);
+        return;
+      }
 
       // The heading as a screen angle, clockwise from up: north and east at
       // this point, from the one conversion in `sphere.ts`, differentiated.
@@ -1949,24 +2150,44 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         forward.x * -Math.sin(lat) * Math.cos(lon) + forward.y * Math.cos(lat) + forward.z * Math.sin(lat) * Math.sin(lon);
       if (Math.abs(east) + Math.abs(north) > 1e-6) me.heading = Math.atan2(east, north);
 
-      if (paintTiles(TILE_BUDGET_MS)) dirty = true;
+      // Less painting in a frame that came late or while a hand moves the
+      // sheet: the parents stand in, and the drag keeps its pace.
+      if (paintTiles(busy() || gap > LATE_FRAME_MS ? TILE_BUSY_MS : TILE_BUDGET_MS)) dirty = true;
+      // The first still frame after a drag or a zoom, with the fine filter.
+      if (drawnBusy && !busy()) dirty = true;
+      // The destination's name is always on the sheet, so a new one is a redraw.
+      const chosen = target();
+      if (chosen !== lastTarget) {
+        lastTarget = chosen;
+        dirty = true;
+      }
 
       const meX = screenX(me.u);
       const meY = screenY(me.v);
-      const now = performance.now();
+      // The names keep clear of you; once you have moved far enough from
+      // where they were laid out, they are laid out again.
+      if ((onScreen(meX, meY) || onScreen(laidMeX, laidMeY)) && Math.max(Math.abs(meX - laidMeX), Math.abs(meY - laidMeY)) > RELAYOUT_PX) {
+        dirty = true;
+      }
       const moving =
         Math.abs(meX - lastMeX) > 0.5 || Math.abs(meY - lastMeY) > 0.5 || Math.abs(me.heading - lastHeading) > 0.02;
       const peersMoving = (options.peers?.().length ?? 0) > 0;
-      if (!dirty && !((moving || peersMoving) && now - drawnAt >= interval)) return;
+      if ((moving || peersMoving) && now - drawnAt >= interval) marksDirty = true;
+      if (dirty) {
+        draw();
+        if (tiles.size > MAX_TILES + 40) evictTiles(MAX_TILES);
+      }
+      if (!marksDirty) return;
       lastMeX = meX;
       lastMeY = meY;
       lastHeading = me.heading;
-      draw();
-      if (tiles.size > MAX_TILES + 40) evictTiles(MAX_TILES);
+      drawMarks();
       if (hover !== null) renderTip();
     },
     dispose() {
       events.abort();
+      unlabel();
+      for (const tile of [...tiles.values()]) dropTile(tile);
       root.remove();
     },
   };

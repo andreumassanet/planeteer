@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 async function check() {
-  const [{ createInput }, { createSettings }, { createWorldMap }, { inputBlocked }, { createHud }, { notice, noticeOpen }] = await Promise.all([
+  const [{ createInput }, { createSettings }, { createWorldMap }, { inputBlocked, actionOf, resetBindings }, { createHud }, { notice, noticeOpen }] = await Promise.all([
     import('/src/input.ts'), import('/src/settings.ts'), import('/src/map.ts'), import('/src/controls.ts'),
     import('/src/hud.ts'), import('/src/notice.ts'),
   ]);
@@ -74,7 +74,10 @@ async function check() {
       key(window, 'keydown', 'KeyW');
       settings.show();
       ensure(input.state.move.y === 0, 'held W stops on opening settings');
-      const controls = [...settings.root.querySelectorAll('button, input, a[href]')];
+      // What `holdFocus` walks: the page that is showing, one tab of the two.
+      const controls = [...settings.root.querySelectorAll('button, input, a[href]')].filter(
+        (element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0,
+      );
       const first = controls[0];
       const last = controls[controls.length - 1];
       ensure(document.activeElement === first, 'opening focuses the close button immediately');
@@ -87,6 +90,56 @@ async function check() {
       settings.hide();
       ensure(document.activeElement === opener, 'closing restores the opening control');
       key(window, 'keyup', 'KeyW');
+    });
+    test('the settings key opens and closes the card, and is a letter in a field', () => {
+      resetBindings();
+      opener.focus();
+      key(window, 'keydown', 'KeyO');
+      ensure(settings.open, 'O opens the settings');
+      key(window, 'keyup', 'KeyO');
+      key(document.activeElement ?? window, 'keydown', 'KeyO');
+      ensure(!settings.open, 'O closes them again');
+      field.focus();
+      ensure(!key(field, 'keydown', 'KeyO').defaultPrevented && !settings.open, 'typing O into a field is a letter');
+      opener.focus();
+    });
+    test('a key button listens, rebinds, swaps, and the defaults come back', () => {
+      resetBindings();
+      settings.show('controls');
+      try {
+        const buttons = [...settings.root.querySelectorAll('.atlas-settings-keybtn')];
+        const jump = buttons.find((button) => button.getAttribute('aria-label')?.startsWith('Jump'));
+        ensure(jump !== undefined, 'the jump has a key button');
+        jump.focus();
+        jump.click();
+        ensure(jump.classList.contains('listening'), 'pressed, it listens');
+        ensure(key(jump, 'keydown', 'Escape').defaultPrevented && settings.open, 'Escape lets go without closing the card');
+        ensure(actionOf('Space') === 'jump', 'and changes nothing');
+        const again = [...settings.root.querySelectorAll('.atlas-settings-keybtn')].find((button) => button.getAttribute('aria-label')?.startsWith('Jump'));
+        again.click();
+        key(again, 'keydown', 'KeyW');
+        ensure(actionOf('KeyW') === 'jump' && actionOf('Space') === 'forward', 'W is the jump now, and the walk took Space');
+        ensure(settings.root.querySelector('.atlas-settings-status').textContent.includes('Space'), 'the swap is said');
+        const reset = [...settings.root.querySelectorAll('button')].find((button) => button.textContent === 'Reset to defaults');
+        ensure(reset !== undefined && !reset.disabled, 'reset is offered once something moved');
+        reset.click();
+        ensure(actionOf('KeyW') === 'forward' && actionOf('Space') === 'jump', 'reset puts both back');
+      } finally {
+        resetBindings();
+        settings.hide();
+      }
+    });
+    test('H puts the whole overlay away and brings it back', () => {
+      const hud = createHud({ countries: [] });
+      document.body.append(hud.root);
+      try {
+        ensure(hud.toggleHidden() && hud.root.classList.contains('hidden') && document.body.classList.contains('atlas-hud-hidden'), 'hidden');
+        ensure(!hud.toggleHidden() && !hud.root.classList.contains('hidden'), 'and back');
+        ensure(hud.root.querySelector('.atlas-keys') === null, 'no key strip along the bottom');
+      } finally {
+        hud.setHidden(false);
+        hud.root.remove();
+      }
     });
     for (const [name, request] of [
       ['missing', undefined],

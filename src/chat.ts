@@ -37,7 +37,7 @@
  * Closed, the last few lines stand over the bottom left for a while and fade;
  * open, the whole history is there to scroll.
  */
-import { actionOf, inputBlocked } from './controls.ts';
+import { actionOf, inputBlocked, labelOf } from './controls.ts';
 import { createFlagCanvas } from './flags.ts';
 import { ensureStyle, fold, h, icon, installUi, kbd } from './ui.ts';
 import { cleanName } from './peers.ts';
@@ -136,7 +136,7 @@ const STYLE = `
 .atlas-chat {
   position: fixed;
   left: 24px;
-  bottom: 84px;
+  bottom: 24px;
   z-index: 6;
   width: min(380px, calc(100vw - 48px));
   display: flex;
@@ -146,8 +146,10 @@ const STYLE = `
   color: var(--ui-ink);
   pointer-events: none;
 }
-@media (max-width: 1080px) {
-  .atlas-chat { bottom: 118px; }
+/* Over the prompt and a vehicle's keys, which are centred along the bottom,
+   once the window is too narrow for the two to stand side by side. */
+@media (max-width: 1180px) {
+  .atlas-chat { bottom: 140px; }
 }
 .atlas-chat-log {
   display: flex;
@@ -686,7 +688,7 @@ export function createChat(host: ChatHost): Chat {
 
   showCount();
   document.body.append(root);
-  if (peers === null) system('Enter to chat · / for commands · this world is yours alone');
+  if (peers === null) system(`${labelOf('chat')} to chat · / for commands · this world is yours alone`);
 
   return {
     root,

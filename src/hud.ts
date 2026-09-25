@@ -2,7 +2,7 @@
  * Everything drawn over the world while you play: where you are, what you have
  * found, which keys do what, and the way into the settings and the map.
  *
- * **The chip and the arrival card are the heart of it and their rule is
+ * **The place badge and the arrival card are the heart of it and their rule is
  * unchanged**: crossing a border should feel like arriving somewhere rather
  * than like a label being overwritten, and a border is exactly where the answer
  * is least stable — walk the Spain/Portugal line and `countryAtPoint` flips
@@ -13,22 +13,30 @@
  * Around them, the pieces that used to be loose markup in `index.html` and are
  * now built here, so the HUD is one element and one stylesheet:
  *
- * - **The bar, top left**: the gear, the map, and the landmarks found. The map
- *   and the settings are also keys; players who never read the keys found
- *   neither, so they are buttons as well.
- * - **The keys, along the bottom**, for the way you are travelling right now —
- *   eight keys you can use on foot are not the four you can use at a wheel, and
- *   the old card listed all twelve all the time. It says itself once, then
- *   folds down to a badge; `H` opens it again and the settings can put it away.
- *   Which keys, and what their caps print on this keyboard, is `controls.ts`'s.
+ * - **The bar, top left**: the gear and the map, each with the key it answers
+ *   to on its corner, and **the place badge** beside them — the flag and the
+ *   one name that says where you are, with the country and the distance under
+ *   it for a few seconds after either changes, and the clock, small, at its
+ *   end. It is the chip that sat in the middle of the screen until
+ *   2026-09-25, calmed: the same claims settled the same way, but only the
+ *   name stays. At sea, where the distance to the harbour is the point, the
+ *   second line stays too.
+ * - **No keys along the bottom.** A strip of every key for the way you were
+ *   travelling stood there until 2026-09-25, and a game does not keep its
+ *   controls on the screen: they are the settings' controls page now, where
+ *   they can be changed. What is left is a key where it answers a question —
+ *   the prompt, `E  Drive`, while a vehicle is in reach; and, for a moment as
+ *   you take one, the three or four keys it is driven by (`boardingHints`),
+ *   put away after a few seconds or once you have used one. The climb and
+ *   the descent in the air are said until they have been used once, and
+ *   never again on that device. `H` hides the whole overlay.
  * - **The pause card**: pointer lock is lost on every `Esc` and every alt-tab,
  *   and what the player sees then is the one moment the cursor is free — so the
- *   card says how to get back in and offers the two buttons worth offering.
- * - **A toast** for the keys that change a setting and for anything the world
- *   refused, and **a frame counter** for the settings panel's performance
- *   switch.
- * - **The prompt**, over the keys, while a vehicle you could take is within
- *   reach: `E  Drive`, or `E  Get in` when somebody else has the wheel.
+ *   card says how to get back in, offers the buttons worth offering with their
+ *   keys on them, and says how many landmarks are found.
+ * - **A toast** under the bar for the keys that change a setting and for
+ *   anything the world refused, and **a frame counter** for the settings
+ *   panel's performance switch.
  * - **The welcome card**, once per device: what there is to do here, in five
  *   keys, the first time anybody lands.
  *
@@ -42,8 +50,8 @@ import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { createFlagCanvas } from './flags.ts';
 import { countryFacts, loadCountryFacts } from './country-facts.ts';
 import type { CountryFacts } from './country-facts.ts';
-import { capOf, hintsFor, holdFocus, labelOf, onKeyLabels, registerModal, registerTabCard } from './controls.ts';
-import type { KeyHint, TravelMode } from './controls.ts';
+import { MOVE, actionOf, boardingHints, capOf, holdFocus, inputBlocked, labelOf, onKeyLabels, registerModal, registerTabCard } from './controls.ts';
+import type { Action, HintSet, KeyHint, TravelMode } from './controls.ts';
 import { ensureStyle, h, hex, icon, installUi, kbd } from './ui.ts';
 import type { IconName } from './ui.ts';
 
@@ -63,6 +71,8 @@ export interface HudOptions {
   onMap?(): void;
   /** "Copy link to here", on the pause card. */
   onShare?(): void;
+  /** The passport, on the pause card (`passport-card.ts`). */
+  onPassport?(): void;
   /** A new country's card has just come in: the arrival, once per country. */
   onArrival?(countryId: number): void;
   /**
@@ -70,6 +80,12 @@ export interface HudOptions {
    * caller may ask the browser for the mouse without a second click.
    */
   onStart?(): void;
+  /**
+   * What the weather is where you stand, as its kind — `rain`, `snow`,
+   * `storm`, `fog`, `cloudy`, `drizzle`, `clear` — or null where the world
+   * has no weather. Asked about once a second, for the clock's icon.
+   */
+  weather?(): string | null;
 }
 
 /** What the frame counter shows: `main.ts`'s rolling `stats`. */
@@ -110,30 +126,28 @@ export interface Hud {
   arriveAt(name: string, iso: string): void;
   /** You walked up to a landmark for the first time. */
   foundLandmark(landmark: LandmarkArrival): void;
-  /** The counter on the bar. */
+  /** How many landmarks are found, for the pause card. */
   setFound(found: number, total: number): void;
   /**
-   * How you are travelling, which decides the keys along the bottom — and
-   * whether a plane or a balloon is off the ground, and whether the eye is in
-   * the head, which decide what some of them say; and whether a passenger
-   * aloft has nobody at the controls, whose `E` takes them. Cheap to call
-   * every frame.
+   * How you are travelling — and whether a plane or a balloon is off the
+   * ground, whether the eye is in the head, and whether a passenger aloft has
+   * nobody at the controls. A change shows the keys the new way is driven by,
+   * for a moment (`boardingHints`). Cheap to call every frame.
    */
   setMode(mode: TravelMode, airborne?: boolean, firstPerson?: boolean, stranded?: boolean): void;
   /** What `E` would do here — `Drive`, `Get in` — or null for nothing in reach. Cheap to call every frame. */
   setPrompt(label: string | null, iconName?: IconName): void;
-  /** Whether the key strip is wanted at all: the settings switch. */
+  /** Whether the keys are shown on boarding at all: the settings switch. */
   readonly hints: boolean;
   setHints(on: boolean): boolean;
-  /**
-   * `H`: open the key strip if it has folded, fold it if it is open, and turn
-   * it on if the settings had it off. Returns whether it is on, for the caller
-   * to remember.
-   */
-  toggleHints(): boolean;
-  /** The clock the chip is showing, `HH:MM`, local to where you stand. */
+  /** Whether the whole overlay is put away (`H`): the bar, the minimap, the cards. */
+  readonly hidden: boolean;
+  setHidden(hidden: boolean): boolean;
+  /** `H`: hides everything on the screen or brings it back. Returns whether it is now hidden. */
+  toggleHidden(): boolean;
+  /** The clock the place badge is showing, `HH:MM`, local to where you stand. */
   readonly clock: string;
-  /** A short line at the bottom of the screen, for a setting a key just changed. */
+  /** A short line under the bar, for a setting a key just changed. */
   toast(text: string, iconName?: IconName): void;
   /**
    * The mouse is free and nothing else holds the screen. Cheap to call every
@@ -201,24 +215,34 @@ const FOUND_HOLD = 8;
  * characters, five or six seconds of reading on their own.
  */
 const NOTE_HOLD = 4;
-/** The chip's little jolt when the place under it changes. */
+/** The badge's little jolt when the place under it changes. */
 const BUMP = 0.22;
-/** And how long "Arrived" holds before the destination panel puts itself away. */
+/**
+ * How long the badge's second line — the country, the size, the distance —
+ * stays after what it says has changed, before the badge folds to its name.
+ */
+const EXPAND_HOLD = 6;
+/** And "Arrived" holds before the destination panel puts itself away. */
 const ARRIVED_HOLD = 4.5;
 /** How long a toast stays. */
 const TOAST_HOLD = 1.8;
 /**
- * How long the key strip stays open after it last changed. Long enough to read
- * twice at the pace anyone reads a row of keys; then it folds to a badge
- * rather than vanishing, so it can always be found again.
+ * How long a new vehicle's keys stay, counted while the game has the mouse:
+ * long enough to read three keys twice.
  */
-const KEYS_HOLD = 14;
+const HINT_HOLD = 6;
+/** And once one of them has been pressed: the player has found them. */
+const HINT_USED_HOLD = 1.2;
+/** Which `once` hint sets have been used on this device. */
+const HINTED_KEY = 'atlas.hinted.v1';
+/** How often the weather is asked for the clock's icon, in seconds. */
+const WEATHER_EVERY = 1;
 
 const R2D = 180 / Math.PI;
 const TROPIC = 23.4365;
 const POLAR = 66.5635;
 
-/** How far the chip's arrow has to turn before it is rewritten: under a pixel of arrowhead. */
+/** How far the badge's arrow has to turn before it is rewritten: under a pixel of arrowhead. */
 const ARROW_STEP = 4 / R2D;
 /** How near the screen's edge a waypoint label may come, in CSS pixels. */
 const LABEL_MARGIN = 12;
@@ -229,20 +253,31 @@ const LABEL_MARGIN = 12;
  */
 const sizeWord = (radius: number): string => (radius < 13 ? 'village' : radius < 30 ? 'town' : 'city');
 
-const MODE: Record<TravelMode, [IconName, string]> = {
-  foot: ['walk', 'On foot'],
-  swim: ['swim', 'Swimming'],
-  car: ['car', 'Driving'],
-  boat: ['boat', 'At sea'],
-  plane: ['plane', 'Flying'],
-  balloon: ['balloon', 'Ballooning'],
-  bicycle: ['bike', 'Cycling'],
-  motorbike: ['moto', 'Riding'],
-  horse: ['horse', 'On horseback'],
-  jetski: ['jetski', 'Jet ski'],
-  sailboat: ['boat', 'Sailing'],
-  helicopter: ['heli', 'Flying'],
-  passenger: ['seat', 'Passenger'],
+/** The badge a vehicle's keys are shown beside. */
+const MODE_ICON: Record<TravelMode, IconName> = {
+  foot: 'walk',
+  swim: 'swim',
+  car: 'car',
+  boat: 'boat',
+  plane: 'plane',
+  balloon: 'balloon',
+  bicycle: 'bike',
+  motorbike: 'moto',
+  horse: 'horse',
+  jetski: 'jetski',
+  sailboat: 'boat',
+  helicopter: 'heli',
+  passenger: 'seat',
+};
+
+/** The clock's icon for a kind of weather; clear skies are the sun or the moon. */
+const WEATHER_ICON: Record<string, IconName> = {
+  cloudy: 'cloud',
+  fog: 'fog',
+  drizzle: 'rain',
+  rain: 'rain',
+  storm: 'storm',
+  snow: 'snow',
 };
 
 /** A row of caps for one line of a key list: `W A S D`, `Shift`. */
@@ -279,112 +314,95 @@ const STYLE = `
 }
 .atlas-hud .ui-btn { pointer-events: auto; }
 
-/* --- the bar, top left ----------------------------------------------------- */
+/* --- the bar, top left: two buttons and where you are ----------------------- */
+/*
+ * Never wider than the gap it has: the minimap stands 24 px in from the right
+ * and is 200 across, so "Democratic Republic of the Congo" gives way with an
+ * ellipsis before it runs under the disc. The flag and the clock never do.
+ */
 .atlas-hud-bar {
   position: absolute;
   top: 24px;
   left: 24px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
+  max-width: calc(100vw - 290px);
 }
-.atlas-hud-found {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  height: 44px;
-  padding: 0 15px 0 9px;
-  font-size: 17px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.atlas-hud-found small { font-size: 12.5px; font-weight: 700; opacity: 0.55; }
-.atlas-hud-star {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--ui-ink);
-  color: var(--ui-gold);
-}
-.atlas-hud-star svg { width: 17px; height: 17px; }
-.atlas-hud-found.bump { animation: ui-pop 0.5s var(--ui-spring); }
-
-/* --- the chip, top middle --------------------------------------------------- */
-/*
- * Centred, and never wider than the gap between the bar on the left (about 280
- * px) and the minimap on the right (about 200): "Democratic Republic of the
- * Congo" is 330 px at this size and ran under the bar on a 1,050-pixel window.
- * The names give way first, with an ellipsis; the flag, the range and the clock
- * never do.
- */
-.atlas-chip {
+.atlas-hud-bar > .ui-btn { position: relative; flex: none; }
+/* The key a button answers to, on its corner, where a controller game puts it. */
+.atlas-hud-bar .atlas-hud-cap {
   position: absolute;
-  top: 24px;
-  left: 50%;
+  right: -8px;
+  bottom: -9px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  font-size: 10px;
+  box-shadow: 0 2px 0 var(--ui-ink);
+}
+.atlas-place {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 44px;
-  max-width: calc(100vw - 600px);
-  padding: 0 16px 0 9px;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 5px 12px 5px 9px;
   opacity: 0;
-  transform: translateX(-50%);
+  transform-origin: 0 50%;
   transition: opacity 0.35s ease, transform 0.3s var(--ui-spring);
 }
-.atlas-chip > * { flex: none; }
-.atlas-chip > .atlas-chip-name, .atlas-chip > .atlas-chip-country {
-  flex: 0 1 auto;
-  min-width: 0;
+.atlas-place.on { opacity: 1; }
+.atlas-place.bump { transform: scale(1.05); }
+.atlas-place > * { flex: none; }
+.atlas-place-text { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.atlas-place-name {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.atlas-chip > .atlas-chip-country { flex-shrink: 3; }
-.atlas-chip-country { margin-left: -4px; font-weight: 700; opacity: 0.55; }
-.atlas-chip-country:empty { display: none; }
-/* Tabular figures because the number is rewritten every step. */
-.atlas-chip-range {
+/* The second line folds away rather than vanishing, so the badge shrinks back
+   to its name instead of jumping. Tabular figures: the distance is rewritten
+   every step. */
+.atlas-place-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 15px;
+  color: var(--ui-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: max-height 0.3s var(--ui-ease), opacity 0.25s ease;
+}
+.atlas-place.open .atlas-place-sub { max-height: 16px; opacity: 1; }
+.atlas-place-sub > span { overflow: hidden; text-overflow: ellipsis; }
+.atlas-place-sub > span:empty { display: none; }
+/* The glyph points up the screen at rest, so the transform *is* the bearing. */
+.atlas-place-arrow { display: inline-block; font-size: 13px; line-height: 1; color: var(--ui-ink); transition: transform 0.12s ease; }
+.atlas-place-arrow[hidden] { display: none; }
+.atlas-place-clock {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: -4px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.72;
-}
-.atlas-chip-range[hidden] { display: none; }
-/* The glyph points up the screen at rest, so the transform *is* the bearing. */
-.atlas-chip-arrow { display: inline-block; font-size: 15px; line-height: 1; transition: transform 0.12s ease; }
-.atlas-chip-arrow[hidden] { display: none; }
-.atlas-chip-clock {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: 4px;
-  padding-left: 11px;
+  align-self: stretch;
+  padding-left: 10px;
   border-left: 2px solid var(--ui-rule);
+  font-size: 12.5px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
-  opacity: 0.78;
+  color: var(--ui-muted);
 }
-.atlas-chip-clock svg { width: 15px; height: 15px; }
-.atlas-chip.on { opacity: 1; }
-.atlas-chip.bump { transform: translateX(-50%) scale(1.07); }
-/*
- * Under the bar, left-aligned, once the middle of the screen is too narrow for
- * it: below about 980 px the gap left in the middle is under 380, which is the
- * range and the clock with no room for a name.
- */
-@media (max-width: 980px) {
-  .atlas-chip { top: 80px; left: 24px; max-width: calc(100vw - 260px); transform: none; transform-origin: 0 50%; }
-  .atlas-chip.bump { transform: scale(1.07); }
-}
+.atlas-place-clock svg { width: 14px; height: 14px; }
 
 /* --- the country card, from the left ---------------------------------------- */
 .atlas-arrival {
@@ -548,104 +566,72 @@ const STYLE = `
   border-radius: 10px;
 }
 
-/* --- the keys, along the bottom ---------------------------------------------- */
+/* --- a vehicle's keys, for a moment, along the bottom ------------------------- */
 /*
  * Centred by its margins and not by a translate, because it has to be able to
  * wrap: a box placed at left: 50% is offered only half the screen, so a strip
- * allowed to wrap there broke in two at 800 px on a 1,600-pixel window, and
- * held on one line it ran off both edges under 900. Here it is as wide as its
- * keys, never wider than the window, and a second row when it must.
+ * allowed to wrap there broke in two at 800 px on a 1,600-pixel window.
  */
-.atlas-keys {
+.atlas-hints {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 22px;
+  bottom: 24px;
   margin: 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
+  gap: 6px 14px;
   width: max-content;
   max-width: calc(100vw - 48px);
-  min-height: 46px;
   box-sizing: border-box;
-  padding: 6px 14px 6px 8px;
+  padding: 6px 14px 6px 7px;
   font-size: 12.5px;
   font-weight: 700;
+  opacity: 0;
+  transform: translateY(18px);
   transition: opacity 0.3s ease, transform 0.35s var(--ui-ease);
 }
-.atlas-keys.off { opacity: 0; transform: translateY(24px); }
-.atlas-keys-mode {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 800;
-  font-size: 13px;
-}
-.atlas-keys-badge {
+.atlas-hints.on { opacity: 1; transform: none; }
+.atlas-hints > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.atlas-hints > span > span { display: inline-flex; gap: 3px; }
+.atlas-hints-badge {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: 2.5px solid var(--ui-ink);
   border-radius: 50%;
   background: var(--ui-gold);
 }
-.atlas-keys-badge svg { width: 17px; height: 17px; }
-.atlas-keys-mode { flex: none; white-space: nowrap; }
-.atlas-keys-list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  min-width: 0;
-  padding-left: 14px;
-  border-left: 2px solid var(--ui-rule);
-}
-.atlas-keys-list > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.atlas-keys-list > span > span { display: inline-flex; gap: 3px; }
-.atlas-keys-more { opacity: 0.55; display: inline-flex; align-items: center; gap: 6px; }
-.atlas-keys.folded .atlas-keys-list { display: none; }
-.atlas-keys:not(.folded) .atlas-keys-more { display: none; }
-/* Its own keyframes and not ui-pop's, from when the strip was centred by a
-   translate: an animated transform replaces the element's own, and ui-pop
-   threw it half its width to the right. Centred by its margins now, it would
-   survive ui-pop; it keeps its own for the shorter rise. */
-.atlas-keys.swap { animation: atlas-keys-in 0.4s var(--ui-spring); }
-@keyframes atlas-keys-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.96); }
-  to { opacity: 1; transform: none; }
-}
+.atlas-hints-badge svg { width: 16px; height: 16px; }
 
-/* --- a toast ------------------------------------------------------------------ */
+/* --- a toast, under the bar ---------------------------------------------------- */
 .atlas-toast {
   position: absolute;
   left: 50%;
-  bottom: 84px;
+  top: 86px;
   display: flex;
   align-items: center;
   gap: 9px;
+  max-width: min(520px, calc(100vw - 48px));
   padding: 9px 16px 9px 11px;
   font-size: 15px;
   font-weight: 800;
   opacity: 0;
-  transform: translate(-50%, 12px);
+  transform: translate(-50%, -10px);
   transition: opacity 0.2s ease, transform 0.3s var(--ui-spring);
 }
 .atlas-toast.on { opacity: 1; transform: translate(-50%, 0); }
-.atlas-toast svg { width: 19px; height: 19px; }
-/* The strip on foot adds up to about a thousand pixels from the widths of its
-   caps and words (summed, not measured in a browser), and takes a second row
-   below that; a toast at its usual height would sit on the second row. */
-@media (max-width: 1080px) {
-  .atlas-toast { bottom: 118px; }
-}
+.atlas-toast svg { width: 19px; height: 19px; flex: none; }
 
 /* --- the prompt: what E does here ------------------------------------------------- */
+/* Over the keys' row, so the two never share a line when both are up. */
 .atlas-prompt {
   position: absolute;
   left: 50%;
-  bottom: 136px;
+  bottom: 88px;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -659,8 +645,19 @@ const STYLE = `
 }
 .atlas-prompt.on { opacity: 1; transform: translate(-50%, 0); }
 .atlas-prompt svg { width: 19px; height: 19px; }
-@media (max-width: 1080px) {
-  .atlas-prompt { bottom: 170px; }
+
+/* --- everything away: H ------------------------------------------------------- */
+/*
+ * The overlay and the pieces other files own that are part of it — the
+ * minimap, the chat's standing lines — go; the pause card, the welcome and a
+ * toast saying how to get it all back stay, since they are how you do.
+ */
+.atlas-hud.hidden > :not(.atlas-pause):not(.atlas-welcome):not(.atlas-toast),
+body.atlas-hud-hidden #minimap,
+body.atlas-hud-hidden .atlas-chat:not(.open) {
+  opacity: 0 !important;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s 0.25s;
 }
 
 /* --- the pause card ------------------------------------------------------------ */
@@ -692,6 +689,27 @@ const STYLE = `
 .atlas-pause b { display: block; font-size: 18px; font-weight: 800; letter-spacing: -0.015em; }
 .atlas-pause small { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
 .atlas-pause-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.atlas-pause-found {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-pause-found span:last-child { font-weight: 700; color: var(--ui-muted); }
+.atlas-hud-star {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--ui-ink);
+  color: var(--ui-gold);
+}
+.atlas-hud-star svg { width: 15px; height: 15px; }
+.atlas-pause-found[hidden] { display: none; }
 
 /* --- the welcome card, once --------------------------------------------------- */
 .atlas-welcome {
@@ -754,21 +772,20 @@ const STYLE = `
 
 /*
  * Nothing slides for a player who has asked the system for less motion: every
- * card comes and goes where it stands, by its opacity alone. The chip's arrow
- * turns without easing, and the counter and the chip do not jolt.
+ * card comes and goes where it stands, by its opacity alone. The badge's
+ * arrow turns without easing, and the badge does not jolt.
  */
 @media (prefers-reduced-motion: reduce) {
   .atlas-arrival, .atlas-arrival.in, .atlas-found, .atlas-found.in { transform: translate(0, -50%); transition: opacity 0.2s ease; }
   .atlas-toast, .atlas-toast.on { transform: translate(-50%, 0); transition: opacity 0.2s ease; }
-  .atlas-keys, .atlas-keys.off { transform: none; transition: opacity 0.2s ease; }
+  .atlas-hints, .atlas-hints.on { transform: none; transition: opacity 0.2s ease; }
+  .atlas-prompt, .atlas-prompt.on { transform: translate(-50%, 0); }
   .atlas-destination, .atlas-destination.on { transform: none; }
   .atlas-pause, .atlas-pause.on { transform: translate(-50%, -50%); }
-  .atlas-chip, .atlas-chip.bump { transform: translateX(-50%); transition: opacity 0.2s ease; }
-  .atlas-keys.swap, .atlas-hud-found.bump, .atlas-welcome.on .atlas-welcome-card { animation: none; }
-  .atlas-chip-arrow { transition: none; }
-}
-@media (prefers-reduced-motion: reduce) and (max-width: 980px) {
-  .atlas-chip, .atlas-chip.bump { transform: none; }
+  .atlas-place, .atlas-place.bump { transform: none; transition: opacity 0.2s ease; }
+  .atlas-place-sub { transition: none; }
+  .atlas-welcome.on .atlas-welcome-card { animation: none; }
+  .atlas-place-arrow { transition: none; }
 }
 `;
 
@@ -849,7 +866,7 @@ function factFor(world: World, id: number): string {
   return `${km(wide)} from east to west, ${km(tall)} north to south`;
 }
 
-/** The chip's stand-in for a flag when you are at sea. */
+/** The badge's stand-in for a flag when you are at sea. */
 function oceanPlate(width: number, height: number): HTMLCanvasElement {
   const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
   const canvas = document.createElement('canvas');
@@ -889,40 +906,40 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
 
   /* --- the bar ---------------------------------------------------------- */
 
-  const settingsButton = h('button', { class: 'ui-btn icon', title: 'Settings', 'aria-label': 'Settings' }, icon('gear'));
-  const mapButton = h('button', { class: 'ui-btn icon', title: 'World map (M)', 'aria-label': 'World map' }, icon('map'));
+  const settingsCap = kbd('');
+  const mapCap = kbd('');
+  settingsCap.classList.add('atlas-hud-cap');
+  mapCap.classList.add('atlas-hud-cap');
+  const settingsButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('gear'), settingsCap);
+  const mapButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('map'), mapCap);
   settingsButton.addEventListener('click', () => options.onSettings?.());
   mapButton.addEventListener('click', () => options.onMap?.());
-  const foundCount = h('span', { text: '0' });
-  const foundTotal = h('small', { text: '/ 0 found' });
-  const foundPill = h(
-    'div',
-    { class: 'atlas-hud-found ui-card', title: 'Landmarks found' },
-    h('span', { class: 'atlas-hud-star' }, icon('star')),
-    foundCount,
-    foundTotal,
-  );
-  const bar = h('div', { class: 'atlas-hud-bar' }, settingsButton, mapButton, foundPill);
 
-  /* --- the chip --------------------------------------------------------- */
+  /* --- the place badge --------------------------------------------------- */
 
-  const chip = h('div', { class: 'atlas-chip ui-card' });
-  const chipFlag = h('span');
+  const placeFlag = h('span');
   // Two claims: the smallest true thing about where you are, and the context
-  // under it, which is only worth printing when the first is not the country.
-  const chipName = h('span', { class: 'atlas-chip-name' });
-  // How far the named town is and which way: a third claim, on its own clock.
-  const chipRange = h('span', { class: 'atlas-chip-range' });
-  chipRange.hidden = true;
-  const chipRangeText = h('span');
-  const chipArrow = h('span', { class: 'atlas-chip-arrow', text: '↑' });
-  chipRange.append(chipRangeText, chipArrow);
-  const chipCountry = h('span', { class: 'atlas-chip-country' });
+  // under it, which folds away a few seconds after it last changed.
+  const placeName = h('span', { class: 'atlas-place-name' });
+  // What the town is and how far: its own clock, rewritten as you walk.
+  const placeRangeText = h('span');
+  const placeArrow = h('span', { class: 'atlas-place-arrow', text: '↑' });
+  placeArrow.hidden = true;
+  const placeSep = h('span', { text: '·' });
+  const placeCountry = h('span');
+  const placeSub = h('span', { class: 'atlas-place-sub' }, placeRangeText, placeArrow, placeSep, placeCountry);
   // The clock is not debounced: it has no boundary to flap across.
-  const chipClockIcon = h('span');
-  const chipClockText = h('span');
-  const chipClock = h('span', { class: 'atlas-chip-clock' }, chipClockIcon, chipClockText);
-  chip.append(chipFlag, chipName, chipRange, chipCountry, chipClock);
+  const clockIcon = h('span');
+  const clockText = h('span');
+  const clock = h('span', { class: 'atlas-place-clock' }, clockIcon, clockText);
+  const place = h(
+    'div',
+    { class: 'atlas-place ui-card' },
+    placeFlag,
+    h('span', { class: 'atlas-place-text' }, placeName, placeSub),
+    clock,
+  );
+  const bar = h('div', { class: 'atlas-hud-bar' }, settingsButton, mapButton, place);
 
   /* --- the two arrival cards ------------------------------------------- */
 
@@ -981,19 +998,9 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const waypointLabel = h('div', { class: 'atlas-waypoint-label ui-card' });
   const waypoint = h('div', { class: 'atlas-waypoint' }, waypointPin, waypointLabel);
 
-  /* --- the keys, the toast, the pause card, the frames ---------------- */
+  /* --- the keys of the moment, the toast, the pause card, the frames ---- */
 
-  const keysBadge = h('span', { class: 'atlas-keys-badge' });
-  const keysMode = h('span');
-  const keysList = h('span', { class: 'atlas-keys-list' });
-  const keysMore = h('span', { class: 'atlas-keys-more' });
-  const keys = h(
-    'div',
-    { class: 'atlas-keys ui-card off' },
-    h('span', { class: 'atlas-keys-mode' }, keysBadge, keysMode),
-    keysList,
-    keysMore,
-  );
+  const hintsCard = h('div', { class: 'atlas-hints ui-card', role: 'status' });
 
   const toastIcon = h('span');
   const toastText = h('span');
@@ -1004,16 +1011,28 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const prompt = h('div', { class: 'atlas-prompt ui-card', role: 'status' }, promptKey, promptIcon, promptText);
   let promptShown: string | null = null;
 
-  const pauseSettings = h('button', { class: 'ui-btn' }, icon('gear', 18), 'Settings');
-  const pauseMap = h('button', { class: 'ui-btn' });
+  const pauseSettings = h('button', { class: 'ui-btn', type: 'button' });
+  const pauseMap = h('button', { class: 'ui-btn', type: 'button' });
   // A link to exactly where you are standing, which is also what `?at=` in
   // the address has always meant: see `main.ts`.
-  const pauseShare = h('button', { class: 'ui-btn' }, icon('pin', 18), 'Copy link to here');
+  const pauseShare = h('button', { class: 'ui-btn', type: 'button' }, icon('pin', 18), 'Copy link to here');
   pauseSettings.addEventListener('click', () => options.onSettings?.());
   pauseMap.addEventListener('click', () => options.onMap?.());
   pauseShare.addEventListener('click', () => options.onShare?.());
+  const pausePassport = h('button', { class: 'ui-btn', type: 'button' });
+  pausePassport.addEventListener('click', () => options.onPassport?.());
   const pauseTitle = h('b');
   const pauseText = h('small');
+  // The landmarks found: here rather than on the bar, where a number that
+  // changes a few times an evening sat in the corner of every frame.
+  const pauseFoundText = h('span');
+  const pauseFound = h(
+    'div',
+    { class: 'atlas-pause-found ui-card' },
+    h('span', { class: 'atlas-hud-star' }, icon('star')),
+    pauseFoundText,
+  );
+  pauseFound.hidden = true;
   // A dialog to assistive technology and to `inputBlocked`, so that `Enter`
   // and `Space` on one of its buttons press the button rather than jump; not
   // modal, because the world goes on behind it and a click on it plays.
@@ -1026,7 +1045,15 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       h('span', { class: 'atlas-pause-mouse' }, icon('mouse')),
       h('div', {}, pauseTitle, pauseText),
     ),
-    h('div', { class: 'atlas-pause-row' }, pauseSettings, pauseMap, options.onShare === undefined ? null : pauseShare),
+    h(
+      'div',
+      { class: 'atlas-pause-row' },
+      pauseSettings,
+      pauseMap,
+      options.onPassport === undefined ? null : pausePassport,
+      options.onShare === undefined ? null : pauseShare,
+    ),
+    pauseFound,
   );
 
   const perf = h('div', { class: 'atlas-perf ui-card' });
@@ -1055,7 +1082,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     welcomeCard,
   );
 
-  root.append(bar, chip, arrival, found, destination, waypoint, keys, toast, prompt, pause, perf, welcomeRoot);
+  root.append(bar, arrival, found, destination, waypoint, hintsCard, toast, prompt, pause, perf, welcomeRoot);
 
   // The placements carry an ISO code and the panel wants a country.
   const countryNames = new Map(world.countries.map((country) => [country.iso, country.name]));
@@ -1074,8 +1101,8 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   let placeCandidate = '';
   let placeSettled = '';
   let placeHeldFor = 0;
-  /** What the chip's place clause says: in it, near it, off its coast, or nothing. */
-  let chipMode: 'in' | 'near' | 'off' | null = null;
+  /** What the badge's place clause says: in it, near it, off its coast, or nothing. */
+  let placeMode: 'in' | 'near' | 'off' | null = null;
   /** The last country the card actually announced. The ocean is never one. */
   let announced = -1;
   let candidate = -1;
@@ -1083,6 +1110,8 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   let showing = false;
   let showFor = 0;
   let bumpFor = 0;
+  /** Seconds the badge's second line has left before it folds. */
+  let openFor = 0;
   let arrivedFor = 0;
   let foundFor = 0;
   let toastFor = 0;
@@ -1090,10 +1119,14 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   let jumped = false;
   let shownKm = NaN;
   let shownClock = '';
-  let shownNight: boolean | null = null;
+  let shownClockIcon = '';
   let shownRange = '';
+  /** The country beside the range has changed, so the separator between them may have. */
+  let rangeStale = false;
+  let weatherKind: string | null = null;
+  let weatherFor = 0;
   /**
-   * The angle the chip's arrow is drawn at, in radians, **unwrapped**. The
+   * The angle the badge's arrow is drawn at, in radians, **unwrapped**. The
    * bearing comes in folded into (-pi, pi], and the arrow has a CSS transition:
    * written as it came, a town dead behind you and a step to either side took
    * the arrow from +179 degrees to -179 by the long way round, a whole turn in
@@ -1101,36 +1134,61 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
    * is, so the number it is drawn at is allowed to leave the fold.
    */
   let arrowAngle = 0;
-  /** The found counter has been written once: the first write is not a find. */
-  let countPrimed = false;
   /** The waypoint label's width, measured when its text changes, and how far it is slid. */
   let labelWidth = -1;
   let labelShift = 0;
 
   let mode: TravelMode | null = null;
-  /** A plane or a balloon off the ground: the chip names only what it is over, and the keys say so. */
+  /** A plane or a balloon off the ground: the badge names only what it is over. */
   let flying = false;
   let firstPerson = false;
   let stranded = false;
   let hintsOn = true;
-  let keysOpenFor = KEYS_HOLD;
+  let hidden = false;
+  /** The keys on show, and for how much longer; a sticky set has no clock. */
+  let hintSet: HintSet | null = null;
+  let hintFor = 0;
   let paused: boolean | null = null;
   let dragLook = false;
   let welcoming = false;
   let finishWelcome: (() => void) | null = null;
   let welcomeTotal = 0;
+  let foundCount = 0;
+  let foundTotal = 0;
 
   registerModal(() => welcoming);
 
   /**
-   * Which place the chip is naming, as a string that changes exactly when the
-   * chip's sentence would: the place and how it is related to you.
+   * The `once` hint sets used on this device. Every read and write wrapped: a
+   * private window throws on the getter, and a hint that shows again is the
+   * worst that can happen.
+   */
+  const hinted = new Set<string>();
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(HINTED_KEY) ?? '[]');
+    if (Array.isArray(stored)) for (const id of stored) if (typeof id === 'string') hinted.add(id);
+  } catch {
+    // Nothing remembered: every first-time hint is first-time again.
+  }
+  function markHinted(id: string): void {
+    if (hinted.has(id)) return;
+    hinted.add(id);
+    try {
+      localStorage.setItem(HINTED_KEY, JSON.stringify([...hinted]));
+    } catch {
+      // Remembered for this visit only.
+    }
+  }
+
+  /**
+   * Which place the badge is naming, as a string that changes exactly when the
+   * badge's sentence would: the place and how it is related to you.
    *
    * - **From the plane, only the town you are over.** The nearest town changes
    *   every few tenths of a second at cruise, so the place debounce never
-   *   settled and the chip went on naming the town you took off from, hundreds
-   *   of kilometres behind. Over a square is a fact about now; the country is
-   *   the rest of the time.
+   *   settled and the badge went on naming the town you took off from,
+   *   hundreds of kilometres behind. Over a square is a fact about now; the
+   *   country is the rest of the time.
    * - **At sea, the town whose coast you are off**, inside `OFFSHORE_KM`.
    * - **On land, the town whose name reaches here**: `near`, or `inside` it.
    */
@@ -1143,61 +1201,82 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
 
   const kmText = (value: number): string => `${value < 10 ? value.toFixed(1) : Math.round(value)} km`;
 
-  /** Writes the chip from whatever has settled: on a change, never per frame. */
-  function renderChip(): void {
+  /** Opens the second line, or keeps it open, for another `EXPAND_HOLD`. */
+  function expand(): void {
+    openFor = EXPAND_HOLD;
+    refreshOpen();
+  }
+
+  /**
+   * The second line stands while it has time left, while the mouse is free —
+   * a player with the cursor out is reading — and always off a coast, where
+   * the distance to the harbour is the thing the badge is for.
+   */
+  function refreshOpen(): void {
+    const said = shownRange !== '' || placeCountry.textContent !== '';
+    const wanted = said && (openFor > 0 || paused === true || placeMode === 'off');
+    place.classList.toggle('open', wanted);
+  }
+
+  /** Writes the badge from whatever has settled: on a change, never per frame. */
+  function renderPlace(): void {
     // Nothing until the ground has said what it is. The place settles in 0.8 s
     // and the country in 1.0, so on arrival the town came first and, with no
     // country yet, read as the sea: *Off Bourges* over Bourges' own square.
     if (settled < 0) return;
     const country = settled > 0 ? world.countries[settled - 1]! : null;
     const relation = placeSettled.slice(-1);
-    if (country !== null) chipMode = relation === '!' ? 'in' : relation === '~' ? 'near' : null;
-    // At sea the chip says the sea — the ocean is not somewhere you arrived —
+    if (country !== null) placeMode = relation === '!' ? 'in' : relation === '~' ? 'near' : null;
+    // At sea the badge says the sea — the ocean is not somewhere you arrived —
     // unless a town's quay is in sight: *Off Palma* from the bay. "Water" and
     // not "sea", because a lake is country 0 as well and Baikal is not a sea.
-    // (It said "Open ocean", which was wrong on every lake.)
     // And only a place that was settled *at sea* (`@`): walking ashore, the
     // town can settle a moment before the country does.
-    else chipMode = relation === '@' && settledPlace !== null && settledPlace.km <= OFFSHORE_KM && !flying ? 'off' : null;
-    const place = chipMode === null ? null : settledPlace;
-    chipName.textContent =
-      place === null
+    else placeMode = relation === '@' && settledPlace !== null && settledPlace.km <= OFFSHORE_KM && !flying ? 'off' : null;
+    const near = placeMode === null ? null : settledPlace;
+    placeName.textContent =
+      near === null
         ? country ? country.name : 'Open water'
-        : chipMode === 'in' ? place.place.name : chipMode === 'near' ? `near ${place.place.name}` : `Off ${place.place.name}`;
+        : placeMode === 'in' ? near.place.name : placeMode === 'near' ? `Near ${near.place.name}` : `Off ${near.place.name}`;
     // The country you are standing in, which is not always the town's: at
     // 49.75, 6.35 the nearest built place is Trier and the ground is Luxembourg.
-    chipCountry.textContent = place !== null && country !== null ? ` · ${country.name}` : '';
-    chip.title = chipName.textContent + chipCountry.textContent;
-    chipFlag.replaceChildren(country ? createFlagCanvas(country.iso, 26, 17) : oceanPlate(26, 17));
-    chip.classList.add('on', 'bump');
+    placeCountry.textContent = near !== null && country !== null ? country.name : '';
+    place.title = near !== null && country !== null ? `${placeName.textContent} · ${country.name}` : placeName.textContent;
+    placeFlag.replaceChildren(country ? createFlagCanvas(country.iso, 26, 17) : oceanPlate(26, 17));
+    // Rewritten by the next `renderRange`, which is in the same frame.
+    rangeStale = true;
+    place.classList.add('on', 'bump');
     bumpFor = BUMP;
   }
 
   /** What the town is and how far, rewritten on its own clock. */
   function renderRange(bearing: number | null): void {
-    const place = chipMode === null ? null : settledPlace;
-    if (place === null) {
-      chipRange.hidden = true;
-      shownRange = '';
-      return;
+    const near = placeMode === null ? null : settledPlace;
+    let text = '';
+    if (near !== null) {
+      const size = sizeWord(near.radius);
+      const Size = size.charAt(0).toUpperCase() + size.slice(1);
+      // Off a coast the size is noise and the distance is the whole point;
+      // inside a town the distance is nothing.
+      text = placeMode === 'in' ? Size : placeMode === 'off' ? kmText(near.km) : `${Size} ${kmText(near.km)}`;
     }
-    chipRange.hidden = false;
-    const size = `· a ${sizeWord(place.radius)}`;
-    // Off a coast the size is noise and the distance is the whole point.
-    const text = chipMode === 'in' ? size : chipMode === 'off' ? `· ${kmText(place.km)}` : `${size} ${kmText(place.km)}`;
-    if (text !== shownRange) {
+    if (text !== shownRange || rangeStale) {
+      rangeStale = false;
       shownRange = text;
-      chipRangeText.textContent = text;
+      placeRangeText.textContent = text;
+      placeSep.hidden = text === '' || placeCountry.textContent === '';
+      refreshOpen();
     }
-    chipArrow.hidden = chipMode === 'in';
-    if (chipMode === 'in' || bearing === null) return;
+    const arrow = near !== null && placeMode !== 'in' && bearing !== null;
+    placeArrow.hidden = !arrow;
+    if (!arrow) return;
     const turn = Math.atan2(Math.sin(bearing - arrowAngle), Math.cos(bearing - arrowAngle));
     if (Math.abs(turn) < ARROW_STEP) return;
     arrowAngle += turn;
-    chipArrow.style.transform = `rotate(${(arrowAngle * R2D).toFixed(0)}deg)`;
+    placeArrow.style.transform = `rotate(${(arrowAngle * R2D).toFixed(0)}deg)`;
   }
 
-  /** The card, and only the card. The chip is `renderChip`, once, at the end. */
+  /** The card, and only the card. The badge is `renderPlace`, once, at the end. */
   function announce(id: number): void {
     settled = id;
     const country = id > 0 ? world.countries[id - 1]! : null;
@@ -1229,24 +1308,26 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     options.onArrival?.(id);
   }
 
-  function renderKeys(animate: boolean): void {
-    if (mode === null) return;
-    const [iconName, label] = MODE[mode];
-    keysBadge.replaceChildren(icon(iconName));
-    keysMode.textContent = (mode === 'plane' || mode === 'helicopter') && !flying ? 'On the ground' : label;
-    keysList.replaceChildren(
-      ...hintsFor(mode, flying, firstPerson, stranded).map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
-      h('span', {}, kbd(labelOf('hints')), 'Hide'),
+  /** The keys of the moment, drawn from the live bindings. */
+  function renderHints(): void {
+    if (hintSet === null || mode === null) return;
+    hintsCard.replaceChildren(
+      h('span', { class: 'atlas-hints-badge' }, icon(MODE_ICON[mode])),
+      ...hintSet.hints.map((hint) => h('span', {}, h('span', {}, ...capsOf(hint)), hint.label)),
     );
-    if (!animate) return;
-    keys.classList.remove('swap');
-    void keys.offsetWidth;
-    keys.classList.add('swap');
   }
 
-  function refreshKeys(): void {
-    keys.classList.toggle('off', !hintsOn || mode === null);
-    keys.classList.toggle('folded', keysOpenFor <= 0);
+  /** A new set for a new way of travelling, or none. */
+  function showHints(next: HintSet | null): void {
+    const wanted = next !== null && hintsOn && !(next.once && hinted.has(next.id)) ? next : null;
+    hintSet = wanted;
+    hintFor = HINT_HOLD;
+    if (wanted === null) {
+      hintsCard.classList.remove('on');
+      return;
+    }
+    renderHints();
+    hintsCard.classList.add('on');
   }
 
   function renderPause(): void {
@@ -1262,26 +1343,52 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     const row = (caps: HTMLElement[], text: string): HTMLElement =>
       h('div', { class: 'atlas-welcome-row' }, h('span', {}, ...caps), h('span', { text }));
     welcomeList.replaceChildren(
-      row([kbd(labelOf('next'), true)], 'Point at the next landmark to find'),
+      row([kbd(labelOf('next'), labelOf('next').length > 3)], 'Point at the next landmark to find'),
       row([kbd(labelOf('map'))], 'The whole planet on one map: click a pin to head there'),
       row([kbd(labelOf('use'))], 'Walk up to a car, a boat or a plane and take it'),
-      row(capsOf({ keys: ['forward', 'left', 'back', 'right'], label: '' }), 'Walk into the sea and you swim'),
+      row(capsOf({ keys: MOVE, label: '' }), 'Walk into the sea and you swim'),
+      row([kbd(labelOf('settings'))], 'Settings, and every key, which you can change'),
     );
   }
 
-  /** Every label that names a key, rewritten when the keyboard's layout arrives. */
+  /** Every label that names a key, rewritten when the layout or a binding changes. */
   function relabel(): void {
-    mapButton.title = `World map (${labelOf('map')})`;
-    keysMore.replaceChildren(kbd(labelOf('hints')), 'keys');
+    const settingsKey = labelOf('settings');
+    const mapKey = labelOf('map');
+    settingsCap.textContent = settingsKey;
+    mapCap.textContent = mapKey;
+    settingsButton.title = `Settings (${settingsKey})`;
+    settingsButton.setAttribute('aria-label', 'Settings');
+    settingsButton.setAttribute('aria-keyshortcuts', settingsKey);
+    mapButton.title = `World map (${mapKey})`;
+    mapButton.setAttribute('aria-label', 'World map');
+    mapButton.setAttribute('aria-keyshortcuts', mapKey);
     destinationHint.textContent = `${labelOf('next')} · next`;
-    pauseMap.replaceChildren(icon('map', 18), 'Map', kbd(labelOf('map')));
+    pauseSettings.replaceChildren(icon('gear', 18), 'Settings', kbd(settingsKey));
+    pauseMap.replaceChildren(icon('map', 18), 'Map', kbd(mapKey));
+    pausePassport.replaceChildren(icon('flag', 18), 'Passport', kbd(labelOf('passport')));
     if (promptShown !== null) promptKey.replaceChildren(kbd(labelOf('use')));
     renderPause();
-    renderKeys(false);
+    renderHints();
     if (welcoming) renderWelcome();
   }
   relabel();
   onKeyLabels(relabel);
+
+  // A key of the moment pressed is a key found: the set goes shortly after,
+  // and one said `once` is not said again on this device.
+  addEventListener('keydown', (event) => {
+    if (hintSet === null || hintSet.sticky || event.repeat || inputBlocked(event)) return;
+    const action = actionOf(event.code);
+    if (action === undefined || !hintSet.hints.some((hint) => hint.keys.includes(action as Action))) return;
+    if (hintSet.once) markHinted(hintSet.id);
+    hintFor = Math.min(hintFor, HINT_USED_HOLD);
+  });
+
+  function applyHidden(): void {
+    root.classList.toggle('hidden', hidden);
+    document.body.classList.toggle('atlas-hud-hidden', hidden);
+  }
 
   function closeWelcome(): void {
     if (!welcoming) return;
@@ -1420,36 +1527,25 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       arrivedFor = ARRIVED_HOLD;
     },
     setFound(count, total) {
-      const text = String(count);
-      // The first write is the count you arrived with, not a find — and it
-      // used to be spotted by the text still reading '0', which is also what
-      // it reads right before your first landmark, so the first find of all
-      // was the one that never jolted.
-      if (countPrimed && foundCount.textContent !== text) {
-        foundPill.classList.remove('bump');
-        void foundPill.offsetWidth;
-        foundPill.classList.add('bump');
-      }
-      countPrimed = true;
-      foundCount.textContent = text;
-      foundTotal.textContent = `/ ${total} found`;
+      if (count === foundCount && total === foundTotal) return;
+      foundCount = count;
+      foundTotal = total;
+      pauseFoundText.replaceChildren(h('span', { text: `${count} of ${total}` }), h('span', { text: ' landmarks found' }));
+      pauseFound.hidden = total === 0;
     },
     setMode(next, nextAirborne = false, nextFirstPerson = false, nextStranded = false) {
       const view = (next === 'foot' || next === 'swim') && nextFirstPerson;
       const aloft = (next === 'plane' || next === 'balloon' || next === 'helicopter' || next === 'passenger') && nextAirborne;
       const alone = next === 'passenger' && aloft && nextStranded;
       if (next === mode && aloft === flying && view === firstPerson && alone === stranded) return;
-      stranded = alone;
-      // A new way of travelling, or a take-off or a landing, opens the strip
-      // again because what the keys do has changed; looking through your own
-      // eyes changes one word, and only rewrites it.
-      const reopen = next !== mode || aloft !== flying;
+      // A new way of travelling, a take-off or a landing, or being left alone
+      // aloft, changes what the keys do; looking through your own eyes does not.
+      const changed = next !== mode || aloft !== flying || alone !== stranded;
       mode = next;
       flying = aloft;
       firstPerson = view;
-      if (reopen) keysOpenFor = KEYS_HOLD;
-      renderKeys(reopen);
-      refreshKeys();
+      stranded = alone;
+      if (changed) showHints(boardingHints(next, aloft, alone));
     },
     setPrompt(label, iconName = 'sparkle') {
       const key = label === null ? null : `${label}|${iconName}`;
@@ -1466,19 +1562,21 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     },
     setHints(on) {
       hintsOn = on;
-      if (on) keysOpenFor = KEYS_HOLD;
-      refreshKeys();
+      if (!on) showHints(null);
       return hintsOn;
     },
-    toggleHints() {
-      if (!hintsOn) {
-        hintsOn = true;
-        keysOpenFor = KEYS_HOLD;
-      } else {
-        keysOpenFor = keysOpenFor > 0 ? 0 : KEYS_HOLD;
-      }
-      refreshKeys();
-      return hintsOn;
+    get hidden() {
+      return hidden;
+    },
+    setHidden(next) {
+      hidden = next;
+      applyHidden();
+      return hidden;
+    },
+    toggleHidden() {
+      hidden = !hidden;
+      applyHidden();
+      return hidden;
     },
     get clock() {
       return shownClock;
@@ -1499,6 +1597,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       if (next === paused) return;
       paused = next;
       pause.classList.toggle('on', next && !welcoming);
+      refreshOpen();
       // A button left focused on a card that has gone would hold every key
       // the world reads (`inputBlocked` asks the focused element).
       if (!next && pause.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
@@ -1533,18 +1632,31 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
         figure(String(stats.calls), 'calls', 'Draw calls in a frame, both passes'),
       );
     },
-    update(countryId, place, clock, dt, bearing = null) {
-      if (clock !== shownClock) {
-        shownClock = clock;
-        chipClockText.textContent = clock;
-        // Day or night by the clock the chip already shows, not by the sun:
-        // six to eight is what the clock means by day to someone reading it.
-        const hour = Number(clock.slice(0, 2));
-        const night = !(hour >= 6 && hour < 20);
-        if (night !== shownNight) {
-          shownNight = night;
-          chipClockIcon.replaceChildren(icon(night ? 'moon' : 'sun'));
+    update(countryId, nearby, clockNow, dt, bearing = null) {
+      // The weather, for the clock's icon: asked about once a second, and
+      // whatever it says is only ever an icon.
+      weatherFor -= dt;
+      if (weatherFor <= 0 && options.weather !== undefined) {
+        weatherFor = WEATHER_EVERY;
+        try {
+          weatherKind = options.weather();
+        } catch {
+          weatherKind = null;
         }
+      }
+      if (clockNow !== shownClock) {
+        shownClock = clockNow;
+        clockText.textContent = clockNow;
+      }
+      // Day or night by the clock the badge already shows, not by the sun:
+      // six to eight is what the clock means by day to someone reading it.
+      const hour = Number(shownClock.slice(0, 2));
+      const night = !(hour >= 6 && hour < 20);
+      const clockIconName: IconName = (weatherKind !== null ? WEATHER_ICON[weatherKind] : undefined) ?? (night ? 'moon' : 'sun');
+      if (clockIconName !== shownClockIcon) {
+        shownClockIcon = clockIconName;
+        clockIcon.replaceChildren(icon(clockIconName));
+        clock.title = weatherKind === null || weatherKind === 'clear' ? 'Local time' : `Local time · ${weatherKind}`;
       }
 
       if (arrivedFor > 0) {
@@ -1558,7 +1670,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       } else {
         heldFor += dt;
       }
-      // The chip is one sentence about both the country and the place, so it
+      // The badge is one sentence about both the country and the place, so it
       // is written once after both have had their say — drawing it inside
       // either branch is how the first version said "Paris · Japan".
       let redraw = false;
@@ -1566,7 +1678,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
         announce(candidate);
         redraw = true;
       }
-      const key = keyOf(countryId, place);
+      const key = keyOf(countryId, nearby);
       if (key !== placeCandidate) {
         placeCandidate = key;
         placeHeldFor = 0;
@@ -1576,21 +1688,27 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       const settle = flying ? SETTLE_FLIGHT : SETTLE_PLACE;
       if (key !== placeSettled && (jumped || placeHeldFor >= settle)) {
         placeSettled = key;
-        settledPlace = key === '' ? null : place;
+        settledPlace = key === '' ? null : nearby;
         redraw = true;
       } else if (key === placeSettled && key !== '') {
         // Still the same place, a step nearer: see `settledPlace`.
-        settledPlace = place;
+        settledPlace = nearby;
       }
       jumped = false;
-      if (redraw) renderChip();
+      if (redraw) renderPlace();
       // After the settle, always: the name waits for the debounce and the
       // distance to it does not.
       renderRange(bearing);
+      if (redraw && settled >= 0) expand();
 
       if (bumpFor > 0) {
         bumpFor -= dt;
-        if (bumpFor <= 0) chip.classList.remove('bump');
+        if (bumpFor <= 0) place.classList.remove('bump');
+      }
+      // The second line folds only while the game has the mouse, like the keys.
+      if (openFor > 0 && paused === false) {
+        openFor -= dt;
+        if (openFor <= 0) refreshOpen();
       }
       if (showing) {
         showFor += dt;
@@ -1607,11 +1725,14 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
         toastFor -= dt;
         if (toastFor <= 0) toast.classList.remove('on');
       }
-      // The keys fold only while the game has the mouse: a player reading them
-      // with the cursor free is still reading them.
-      if (keysOpenFor > 0 && paused === false) {
-        keysOpenFor -= dt;
-        if (keysOpenFor <= 0) refreshKeys();
+      // The keys of the moment go only while the game has the mouse: a player
+      // reading them with the cursor free is still reading them.
+      if (hintSet !== null && !hintSet.sticky && paused === false) {
+        hintFor -= dt;
+        if (hintFor <= 0) {
+          hintSet = null;
+          hintsCard.classList.remove('on');
+        }
       }
     },
   };

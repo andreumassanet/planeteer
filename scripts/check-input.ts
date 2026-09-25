@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createInput } from '../src/input.ts';
 import type { Input } from '../src/input.ts';
-import { registerModal } from '../src/controls.ts';
+import { BINDINGS, CONTROL_SECTIONS, DEFAULT_BINDINGS, boardingHints, actionOf, bindingsChanged, codeOf, keyBindable, labelOf, onKeyLabels, rebind, registerModal, resetBindings } from '../src/controls.ts';
+import type { Action } from '../src/controls.ts';
 
 function withInput(run: (input: Input, keys: EventTarget, target: EventTarget) => void): void {
   const keys = new EventTarget();
@@ -136,3 +137,109 @@ test('disposing input releases movement and detaches its listeners', () => withI
   key(keys, 'keydown', 'KeyD');
   assert.equal(input.state.move.x, 0);
 }));
+
+test('a rebound key moves the player and the old one no longer does', () => withInput((input, keys) => {
+  try {
+    assert.equal(rebind('forward', 'KeyI').ok, true);
+    key(keys, 'keydown', 'KeyI');
+    assert.equal(input.state.move.y, 1);
+    key(keys, 'keyup', 'KeyI');
+    key(keys, 'keydown', 'KeyW');
+    assert.equal(input.state.move.y, 0, 'W is dropped, not kept as a spare');
+    key(keys, 'keyup', 'KeyW');
+    key(keys, 'keydown', 'ArrowUp');
+    assert.equal(input.state.move.y, 1, 'the spare key still walks');
+    key(keys, 'keyup', 'ArrowUp');
+  } finally {
+    resetBindings();
+  }
+}));
+
+test('taking a key another action holds swaps the two, and nothing is left without one', () => {
+  try {
+    const result = rebind('jump', 'KeyW');
+    assert.deepEqual(result, { ok: true, swapped: 'forward', took: null });
+    assert.equal(actionOf('KeyW'), 'jump');
+    assert.equal(actionOf('Space'), 'forward');
+    assert.equal(codeOf('forward'), 'Space');
+    assert.equal(labelOf('forward'), 'Space');
+    // A spare is taken, not swapped: `ArrowUp` was forward's second key.
+    assert.deepEqual(rebind('view', 'ArrowUp'), { ok: true, swapped: null, took: 'forward' });
+    assert.deepEqual(BINDINGS.forward, ['Space']);
+    const seen = new Map<string, Action>();
+    for (const [action, codes] of Object.entries(BINDINGS) as [Action, readonly string[]][]) {
+      assert.ok(codes.length > 0, `${action} has a key`);
+      for (const code of codes) {
+        assert.equal(seen.get(code), undefined, `${code} is bound once`);
+        seen.set(code, action);
+      }
+    }
+    assert.equal(bindingsChanged(), true);
+  } finally {
+    resetBindings();
+  }
+  assert.equal(bindingsChanged(), false);
+  assert.deepEqual(BINDINGS.forward, DEFAULT_BINDINGS.forward);
+  assert.equal(actionOf('KeyW'), 'forward');
+});
+
+test('the browser\'s keys cannot be bound, and Escape stays the way out', () => {
+  for (const code of ['Escape', 'MetaLeft', 'AltLeft', 'F5', 'F12', 'Slash']) {
+    assert.equal(keyBindable(code), false, code);
+    assert.equal(rebind('jump', code).ok, false, code);
+  }
+  assert.equal(rebind('release', 'KeyQ').ok, false, 'release is the browser\'s');
+  assert.equal(codeOf('jump'), 'Space');
+  assert.equal(actionOf('Escape'), 'release');
+});
+
+test('every default is one key for one action, and the settings have a key of their own', () => {
+  const seen = new Set<string>();
+  for (const codes of Object.values(DEFAULT_BINDINGS)) {
+    for (const code of codes) {
+      assert.ok(!seen.has(code), code);
+      seen.add(code);
+    }
+  }
+  assert.equal(actionOf('KeyO'), 'settings');
+  assert.equal(actionOf('KeyH'), 'hud');
+});
+
+test('a rebinding tells whoever draws key caps', () => {
+  let told = 0;
+  const stop = onKeyLabels(() => told++);
+  try {
+    rebind('wave', 'KeyJ');
+    assert.equal(told, 1);
+    resetBindings();
+    assert.equal(told, 2);
+  } finally {
+    stop();
+    resetBindings();
+  }
+});
+
+test('the keys of the moment: none on foot, the climb and the descent in the air, a way out when stranded', () => {
+  assert.equal(boardingHints('foot'), null);
+  const air = boardingHints('plane', true);
+  assert.ok(air !== null && air.once && !air.sticky);
+  const keys = air.hints.flatMap((hint) => hint.keys);
+  for (const action of ['jump', 'descend'] as const) assert.ok(keys.includes(action), action);
+  const stranded = boardingHints('passenger', true, true);
+  assert.ok(stranded !== null && stranded.sticky);
+  assert.equal(boardingHints('passenger', true, false), null, 'a passenger aloft with a pilot has nothing to press');
+  for (const mode of ['swim', 'car', 'boat', 'plane', 'balloon', 'bicycle', 'motorbike', 'horse', 'jetski', 'sailboat', 'helicopter', 'passenger'] as const) {
+    for (const hint of boardingHints(mode)?.hints ?? []) {
+      for (const cap of hint.keys) assert.ok(cap in BINDINGS, `${mode}: ${cap} is a binding`);
+    }
+  }
+});
+
+test('the controls page lists every action the player can move, once', () => {
+  const listed = CONTROL_SECTIONS.flatMap((section) => section.rows.flatMap((row) => (row.action === undefined ? [] : [row.action])));
+  assert.equal(new Set(listed).size, listed.length);
+  for (const action of Object.keys(BINDINGS) as Action[]) {
+    if (action === 'release') continue;
+    assert.ok(listed.includes(action), action);
+  }
+});

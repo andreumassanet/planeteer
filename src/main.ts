@@ -6,7 +6,7 @@ import { createInput } from './input.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
 import type { PlayerEvent } from './player.ts';
-import { actionOf, codeOf, inputBlocked } from './controls.ts';
+import { actionOf, inputBlocked, labelOf } from './controls.ts';
 import { notice } from './notice.ts';
 import type { NoticeAction } from './notice.ts';
 import { AVATAR_HEIGHT, dressHero, heroAppearance, prepareAvatar, wardrobeCast } from './avatar.ts';
@@ -508,6 +508,11 @@ async function start(): Promise<void> {
     vegetation: import('./vegetation.ts'),
     /** The wakes, the smoke, the dust and a crash's debris; made with the streamers. */
     effects: import('./effects.ts'),
+    /** Fireflies, butterflies, gulls, a fish, leaves: the small life round the camera. */
+    ambient: import('./ambient.ts'),
+    /** The book of stamps and the card that shows it. */
+    passport: import('./passport.ts'),
+    passportCard: import('./passport-card.ts'),
     /** What turns, shines and smokes in the country the vegetation's tiles plan. */
     countryMotion: import('./countryside-motion.ts'),
     life: import('./life.ts'),
@@ -1045,6 +1050,23 @@ async function start(): Promise<void> {
   effects.setSmokers(countryMotion.smokers);
   const countryEye = new THREE.Vector3();
 
+  // The small life round the camera — fireflies at night, butterflies and
+  // pollen by day, gulls over a coast, a fish off the shore, leaves in the
+  // autumn woods — in two draw calls; see `ambient.ts`. The *Effects* switch
+  // carries it. The ground and the made floors are the same two questions the
+  // player's foot asks, and the leaves find their trees by the woods' walls.
+  const { createAmbient } = await deferred.ambient;
+  const ambientPush = new THREE.Vector3();
+  const ambient = createAmbient({
+    groundAt: (point) => groundAt(point),
+    madeHeightAt: (point) => madeHeightAt(point),
+    meadowAt: (direction) => (vegetation.countryside?.meadowAt(direction) ?? null) !== null,
+    treeNear: (point) => vegetation.collide(point, 2.5, ambientPush),
+    splash: (point, reach) => effects.splashAt(point, reach),
+  });
+  ambient.enabled = effects.enabled;
+  scene.add(ambient.group);
+
   await stage('packing your bag');
   // Everything the world needs is now standing, so the menu stops being a
   // loading screen you cannot leave and becomes a choice. `choose` resolves on
@@ -1061,7 +1083,7 @@ async function start(): Promise<void> {
     renderer,
     outline,
     scene,
-    [settlements, monuments, roads, vegetation, life, effects, countryMotion, weather, { proxies: () => [proxyOf(inkSource), ...fleetMaterials().map((material) => proxyOf(material))] }],
+    [settlements, monuments, roads, vegetation, life, effects, ambient, countryMotion, weather, { proxies: () => [proxyOf(inkSource), ...fleetMaterials().map((material) => proxyOf(material))] }],
     modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
@@ -1462,10 +1484,21 @@ async function start(): Promise<void> {
     onSettings: () => settings.toggle(),
     onMap: () => (map.open ? map.hide() : map.show()),
     onShare: shareHere,
-    // The card for a new country, and the frontier's jingle with it.
-    onArrival: () => audio.cue('frontier'),
+    // The card for a new country, and the frontier's jingle with it. The
+    // passport takes it as a candidate and stamps it once you are down in it.
+    onArrival: (id) => {
+      audio.cue('frontier');
+      const country = world.countries[id - 1];
+      if (country !== undefined) passport.arrived(country.iso, country.name);
+    },
+    onPassport: () => passportCard.show(),
     // Inside the welcome card's click, so the lock is still the player's gesture.
     onStart: () => input.lock(),
+    // The clock's icon, where the world has weather: `atlas.weather.here()`.
+    weather: () => {
+      const here = (globalThis as { atlas?: { weather?: { here?: () => { kind?: string } | null } } }).atlas?.weather?.here;
+      return typeof here === 'function' ? here()?.kind ?? null : null;
+    },
   });
   document.body.appendChild(hud.root);
 
@@ -1478,6 +1511,30 @@ async function start(): Promise<void> {
   const foundCount = (): number => placements.reduce((sum, placement) => sum + (monuments.isVisited(placement.id) ? 1 : 0), 0);
   const showCount = (): void => hud.setFound(foundCount(), placements.length);
   showCount();
+
+  // The passport: a stamp for every country you come down in, the towns you
+  // walk into, and the landmarks found, behind `J` and the pause card.
+  const { createPassport } = await deferred.passport;
+  const { createPassportCard } = await deferred.passportCard;
+  const passport = createPassport();
+  const passportCard = createPassportCard({
+    passport,
+    countries: world.countries,
+    landmarks: () => ({
+      found: placements.filter((placement) => monuments.isVisited(placement.id)),
+      total: placements.length,
+    }),
+    lockTarget: renderer.domElement,
+    onOpen: () => audio.cue('ui-open'),
+    onClose: () => audio.cue('ui-close'),
+    onThud: () => audio.cue('ui-confirm'),
+  });
+  document.body.appendChild(passportCard.root);
+  passport.onStamp = (stamp) => passportCard.celebrate(stamp);
+  const passportMoment: import('./passport.ts').PassportMoment = {
+    iso: '', aloft: false, mode: 'foot', time: new Date(0), lat: 0, lon: 0,
+    town: { index: -1, name: '', iso: '', inside: false },
+  };
 
   // Somewhere to go. It picks and it points; it never flies you — the plane's
   // whole design is that speed rides altitude, so crossing an ocean *is* a climb
@@ -1549,7 +1606,6 @@ async function start(): Promise<void> {
     onChoose: (id) => nav.select(id),
     onClear: () => nav.clear(),
     lockTarget: renderer.domElement,
-    key: codeOf('map'),
     // A card holding the keyboard — Settings, the welcome, a notice — keeps
     // `M` from opening the map underneath it. Closing is never blocked.
     blocked: () => inputBlocked(),
@@ -1663,9 +1719,9 @@ async function start(): Promise<void> {
     else if (action === 'farther') showDetail(setDetail(Math.min(DETAIL_MAX, detail() * 1.25)));
     if (event.repeat) return;
     if (action === 'flags') announce(setOverlay(!overlayOn) ? 'Flags and borders on' : 'Flags and borders off', 'flag');
-    // `H` can turn the strip back on as well as fold it, and what it turns on
-    // is remembered the way the settings' switch remembers it.
-    else if (action === 'hints') writeSetting(HINTS_KEY, hud.toggleHints() ? '1' : '0');
+    // `H` puts the whole overlay away for a clear look, and brings it back.
+    // Not remembered: a reload with nothing on the screen looks broken.
+    else if (action === 'hud') announce(hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
     else if (action === 'photo') photoWanted = true;
     else if (action === 'wave' && !gesture('wave')) announce('Only standing on the ground', 'walk');
   });
@@ -1741,6 +1797,7 @@ async function start(): Promise<void> {
       get: () => effects.enabled,
       set: (on) => {
         effects.enabled = on;
+        ambient.enabled = on;
         writeSetting(EFFECTS_KEY, on ? '1' : '0');
         return on;
       },
@@ -2072,6 +2129,11 @@ async function start(): Promise<void> {
   let musicDue = false;
   const soundPoint = new THREE.Vector3();
   const soundBiome: BiomeSample = biomeSample();
+  /** What the small life is told each frame, filled in place (`ambient.ts`). */
+  const ambientFrame = {
+    player: player.position, cameraHeight: 0, time: sky.state.time, daylight: 1, afloat: false,
+  };
+  const ambientWeather = () => weather.here();
   let soundCold = false;
   let soundSea = 0;
   let soundWild = 1;
@@ -2339,6 +2401,11 @@ async function start(): Promise<void> {
     if (peers !== null) guard('peers', () => peers.update(dt, player));
     // After everything that moves, so a wake starts where the boat now is.
     guard('effects', () => effects.update(dt, player, rig.camera));
+    ambientFrame.cameraHeight = eyeOverGround;
+    ambientFrame.time = sky.state.time;
+    ambientFrame.daylight = sky.state.daylight;
+    ambientFrame.afloat = player.state === 'swim' || player.ride?.model.kind === 'boat';
+    guard('ambient', () => ambient.update(dt, ambientFrame, ambientWeather));
 
     // The weather turns with the same clock the sun does, so scrubbing the time
     // scrubs the sky: `atlas.sky.setRate(600)` runs a front past you in seconds.
@@ -2401,7 +2468,7 @@ async function start(): Promise<void> {
     if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
-    hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open && !chat.open, input.dragging);
+    hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open && !chat.open && !passportCard.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
     // had its build — the towns, the roads, and the wood and grass near you
     // with nothing pending — or after a second and a half whatever they say,
@@ -2626,6 +2693,22 @@ async function start(): Promise<void> {
         nearbyPlace.place.lon,
       ),
     ));
+    // The passport, after the chip: a candidate from the arrival card is
+    // stamped once you are down in its country, and a town counts once you
+    // are inside it.
+    guard('passport', () => {
+      passportMoment.iso = standingIn > 0 ? world.countries[standingIn - 1]!.iso : '';
+      passportMoment.aloft = player.airborne;
+      passportMoment.mode = player.mode;
+      passportMoment.time = sky.state.time;
+      passportMoment.lat = here.lat;
+      passportMoment.lon = here.lon;
+      passportMoment.town.index = nearbyPlace.index;
+      passportMoment.town.name = nearbyPlace.place.name;
+      passportMoment.town.iso = nearbyPlace.place.iso;
+      passportMoment.town.inside = nearbyPlace.inside;
+      passport.observe(passportMoment);
+    });
   }
 
   console.log(`atlas ready in ${Math.round(performance.now() - began)} ms`);
@@ -2803,6 +2886,22 @@ async function start(): Promise<void> {
       // `force(null)` hands it back to the model; `at(lat, lon, when?)` asks
       // the model anywhere; `.enabled = false` is clear skies; `.stats`.
       weather,
+      // `atlas.ambient.stats`: the fireflies, motes, butterflies, leaves, fish
+      // and gulls drawn this frame, the cells in range, what has sent the
+      // insects in (`quiet`), the autumn here, and the update's cost;
+      // `atlas.ambient.snapshot()` every creature's position, sorted.
+      ambient,
+      // `atlas.passport.data` is the book; `atlas.passport.show()` opens the
+      // card, `atlas.passport.celebrate(atlas.passport.data.stamps[0])` drops
+      // a stamp again, `atlas.passport.clear()` empties it on this device.
+      passport: {
+        get data() {
+          return passport.data;
+        },
+        show: () => passportCard.show(),
+        celebrate: (stamp: import('./passport.ts').Stamp) => passportCard.celebrate(stamp),
+        clear: () => passport.clear(),
+      },
       // `atlas.ocean.stats` is the sea's cost: the sphere's detail and its sag,
       // how many coastal spans the shallows are built from, triangles and MB.
       // `atlas.ocean.group.visible = false` is the A/B.

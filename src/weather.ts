@@ -103,7 +103,18 @@ const SUMMER_PEAK_DAY = 200;
  * (`seasonalTemperature` in `globe.ts`).
  */
 export function seasonOf(timeMs: number): number {
-  return Math.cos((2 * Math.PI * (timeMs / DAY_MS - SUMMER_PEAK_DAY)) / YEAR_DAYS);
+  return Math.cos(seasonTurn(timeMs));
+}
+
+/**
+ * The same phase as an angle, radians: 0 at the height of the northern
+ * summer, a quarter turn at the height of its autumn (mid-October), a half at
+ * the depth of its winter. `seasonOf` is its cosine; its sine tells autumn
+ * (+) from spring (-), which the cosine alone cannot — the falling leaves in
+ * `ambient.ts` read it.
+ */
+export function seasonTurn(timeMs: number): number {
+  return (2 * Math.PI * (timeMs / DAY_MS - SUMMER_PEAK_DAY)) / YEAR_DAYS;
 }
 
 /** Local solar hour at a longitude, 0 to 24. */

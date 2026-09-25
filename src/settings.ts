@@ -18,9 +18,32 @@
  * pause card rather than thrown back into mouse look. **And it holds the
  * keyboard**: it registers with `controls.ts` as modal, so `Tab` walks its own
  * controls and the arrows move its sliders instead of the player.
+ *
+ * **Two pages.** The general one is everything above; the controls page is
+ * every key in the game, which used to stand along the bottom of the screen,
+ * each one a button: press it and the next key pressed is that action's
+ * (`rebind` in `controls.ts`, which swaps a key another action held rather
+ * than leave that action with none). `O` opens and closes the card, and says
+ * so on the gear.
  */
 
-import { KEY_LIST, capOf, holdFocus, labelOf, onKeyLabels, registerModal } from './controls.ts';
+import {
+  BINDINGS,
+  CONTROL_SECTIONS,
+  actionOf,
+  bindingsChanged,
+  capOf,
+  holdFocus,
+  inputBlocked,
+  keyBindable,
+  keyLabel,
+  labelOf,
+  onKeyLabels,
+  rebind,
+  registerModal,
+  resetBindings,
+} from './controls.ts';
+import type { Action } from './controls.ts';
 import { h, icon, installUi, ensureStyle, kbd } from './ui.ts';
 
 export interface Knob {
@@ -80,7 +103,7 @@ export interface SettingsOptions {
   shake?: Toggle;
   /** Rain, snow, storms and fog; off is clear skies. Omit it and the row is not built. */
   weather?: Toggle;
-  /** The key hints along the bottom of the screen. */
+  /** A vehicle's keys, for a moment as you take it (`boardingHints`). */
   hints: Toggle;
   /** How many pixels the world is drawn at, against the screen's own. */
   resolution: Choice;
@@ -114,10 +137,14 @@ export interface SettingsOptions {
   onClose?(): void;
 }
 
+/** The card's two pages. */
+export type SettingsPage = 'general' | 'controls';
+
 export interface Settings {
   root: HTMLElement;
   readonly open: boolean;
-  show(): void;
+  /** Opens on `page`, or on whichever page was open last. */
+  show(page?: SettingsPage): void;
   hide(): void;
   toggle(): void;
 }
@@ -222,14 +249,62 @@ const STYLE = `
 .atlas-settings-name:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
 .atlas-settings-slider { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 4px 0 2px; }
 .atlas-settings-slider span { font-size: 11px; font-weight: 800; opacity: 0.5; white-space: nowrap; }
-.atlas-settings-keys {
+.atlas-settings-tabs { margin: 14px 0 0; }
+.atlas-settings-tabs button[aria-selected='true'] { background: var(--ui-ink); color: var(--ui-paper); }
+.atlas-settings-page[hidden] { display: none; }
+.atlas-settings-binds {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px 22px;
-  margin-top: 4px;
+  gap: 0 22px;
 }
-.atlas-settings-key { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
-.atlas-settings-key > span:first-child { display: flex; gap: 4px; min-width: 122px; flex-shrink: 0; }
+.atlas-settings-bind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  border-bottom: 1.5px dashed var(--ui-rule);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.atlas-settings-bind > span:first-child { min-width: 0; padding: 5px 0; }
+.atlas-settings-bind-keys { display: flex; align-items: center; gap: 6px; flex: none; }
+.atlas-settings-bind-alt { font-size: 11px; font-weight: 700; color: var(--ui-muted); white-space: nowrap; }
+/* A key cap that is a button: the cap, raised on a cream key, pressed to listen. */
+.atlas-settings-keybtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 58px;
+  height: 30px;
+  padding: 0 7px;
+  border: 2.5px solid var(--ui-ink);
+  border-radius: 9px;
+  background: var(--ui-cream);
+  box-shadow: 0 3px 0 var(--ui-ink);
+  font: 800 12px var(--ui-font);
+  color: var(--ui-ink);
+  cursor: pointer;
+  transition: transform 0.09s ease, box-shadow 0.09s ease, background 0.15s ease;
+}
+.atlas-settings-keybtn:hover { transform: translateY(-1px); box-shadow: 0 4px 0 var(--ui-ink); }
+.atlas-settings-keybtn:active { transform: translateY(3px); box-shadow: 0 0 0 var(--ui-ink); }
+.atlas-settings-keybtn:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
+.atlas-settings-keybtn.listening { background: var(--ui-gold); animation: atlas-settings-listen 1.1s ease-in-out infinite; }
+.atlas-settings-keybtn.moved { animation: ui-pop 0.35s var(--ui-spring); }
+@keyframes atlas-settings-listen { 50% { background: var(--ui-cream); } }
+.atlas-settings-fixed { display: inline-flex; gap: 3px; min-width: 58px; justify-content: center; }
+.atlas-settings-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+}
+.atlas-settings-status { min-height: 17px; font-size: 12.5px; font-weight: 700; line-height: 1.35; color: var(--ui-muted); }
+.atlas-settings-status.warn { color: var(--ui-crimson); }
 .atlas-settings-credit {
   margin-top: 18px;
   padding-top: 12px;
@@ -242,11 +317,12 @@ const STYLE = `
 .atlas-settings-credit a { color: inherit; }
 .atlas-settings-credit p + p { margin-top: 6px; }
 @media (max-width: 560px) {
-  .atlas-settings-keys { grid-template-columns: 1fr; }
+  .atlas-settings-binds { grid-template-columns: 1fr; }
   .atlas-settings-row { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .atlas-settings.on .atlas-settings-panel { animation: none; }
+  .atlas-settings-keybtn, .atlas-settings-keybtn.listening, .atlas-settings-keybtn.moved { animation: none; transition: none; }
 }
 `;
 
@@ -265,7 +341,7 @@ export function createSettings(options: SettingsOptions): Settings {
   const panel = h('div', { class: 'atlas-settings-panel ui-card' });
   root.append(panel);
 
-  const close = h('button', { class: 'ui-btn icon atlas-settings-close', title: 'Close (Esc)' }, icon('close'));
+  const close = h('button', { class: 'ui-btn icon atlas-settings-close', type: 'button', 'aria-label': 'Close' }, icon('close'));
   panel.append(
     h(
       'div',
@@ -280,6 +356,61 @@ export function createSettings(options: SettingsOptions): Settings {
       close,
     ),
   );
+
+  /* --- the two pages ---------------------------------------------------- */
+
+  const tabGeneral = h('button', {
+    type: 'button',
+    role: 'tab',
+    id: 'atlas-settings-tab-general',
+    'aria-controls': 'atlas-settings-general',
+    text: 'General',
+  });
+  const tabControls = h('button', {
+    type: 'button',
+    role: 'tab',
+    id: 'atlas-settings-tab-controls',
+    'aria-controls': 'atlas-settings-controls',
+    text: 'Controls',
+  });
+  const generalPage = h('div', {
+    class: 'atlas-settings-page',
+    id: 'atlas-settings-general',
+    role: 'tabpanel',
+    'aria-labelledby': 'atlas-settings-tab-general',
+  });
+  const controlsPage = h('div', {
+    class: 'atlas-settings-page',
+    id: 'atlas-settings-controls',
+    role: 'tabpanel',
+    'aria-labelledby': 'atlas-settings-tab-controls',
+  });
+  panel.append(h('div', { class: 'ui-seg atlas-settings-tabs', role: 'tablist', 'aria-label': 'Settings pages' }, tabGeneral, tabControls));
+  let page: SettingsPage = 'general';
+  function turnTo(next: SettingsPage): void {
+    page = next;
+    const controls = next === 'controls';
+    tabGeneral.setAttribute('aria-selected', String(!controls));
+    tabControls.setAttribute('aria-selected', String(controls));
+    // One tab stop for the pair, as a tab list has; the arrows move between them.
+    tabGeneral.tabIndex = controls ? -1 : 0;
+    tabControls.tabIndex = controls ? 0 : -1;
+    generalPage.hidden = controls;
+    controlsPage.hidden = !controls;
+    panel.scrollTop = 0;
+  }
+  tabGeneral.addEventListener('click', () => turnTo('general'));
+  tabControls.addEventListener('click', () => turnTo('controls'));
+  for (const tab of [tabGeneral, tabControls]) {
+    tab.addEventListener('keydown', (event) => {
+      if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') return;
+      event.preventDefault();
+      const next = page === 'general' ? tabControls : tabGeneral;
+      turnTo(page === 'general' ? 'controls' : 'general');
+      next.focus({ preventScroll: true });
+    });
+  }
+  turnTo('general');
 
   /* --- building blocks ------------------------------------------------- */
 
@@ -383,28 +514,177 @@ export function createSettings(options: SettingsOptions): Settings {
   const hints = makeSwitch(options.hints, 'Key hints');
   const resolution = makeChoice(options.resolution, 'Resolution');
 
-  // The caps that name keys, rebuilt when `controls.ts` learns the layout.
-  const detailKeys = h('span');
-  const flagsKey = h('span');
-  const hintsKey = h('span');
-  const keyList = h('div', { class: 'atlas-settings-keys' });
-  function relabel(): void {
-    detailKeys.replaceChildren(kbd(labelOf('nearer')), ' ', kbd(labelOf('farther')));
-    flagsKey.replaceChildren(kbd(labelOf('flags')));
-    hintsKey.replaceChildren(kbd(labelOf('hints')));
-    keyList.replaceChildren(
-      ...KEY_LIST.map((hint) =>
+  /**
+   * The controls page: every action a button showing its key. Pressed, the
+   * button listens (`listening`) and the next key is the action's; `Esc`
+   * lets go without changing anything. What moved is said underneath, and a
+   * swap says both halves, because the other action's key moved too.
+   */
+  const labels = new Map<Action, string>();
+  for (const section of CONTROL_SECTIONS) for (const row of section.rows) if (row.action !== undefined) labels.set(row.action, row.label);
+  const bindList = h('div');
+  const bindStatus = h('div', { class: 'atlas-settings-status', role: 'status', 'aria-live': 'polite' });
+  const resetButton = h('button', { class: 'ui-btn small', type: 'button' }, 'Reset to defaults');
+  const keyButtons = new Map<Action, HTMLButtonElement>();
+  /** The action waiting for its key, and the button that is listening for it. */
+  let listening: Action | null = null;
+  /**
+   * Until when a click on a key button is the tail of the key that was just
+   * bound — `Space` and `Enter` press a focused button — and not a new ask.
+   */
+  let settleUntil = 0;
+  /** The key just bound, whose release must not press the button it was bound on (`Space` does). */
+  let captured = '';
+
+  /** A key's cap, named as this keyboard prints it. */
+  const capFor = (code: string): HTMLElement => {
+    const label = keyLabel(code);
+    return kbd(label, label.length > 3);
+  };
+
+  function say(text: string, warn = false): void {
+    bindStatus.textContent = text;
+    bindStatus.classList.toggle('warn', warn);
+  }
+
+  function renderBinds(): void {
+    keyButtons.clear();
+    bindList.replaceChildren(
+      ...CONTROL_SECTIONS.map((section) =>
         h(
-          'div',
-          { class: 'atlas-settings-key' },
-          h('span', {}, ...hint.keys.map((key) => {
-            const cap = capOf(key);
-            return kbd(cap, cap.length > 3);
-          })),
-          h('span', { text: hint.label }),
+          'section',
+          { class: 'atlas-settings-section' },
+          h('div', { class: 'ui-eyebrow', text: section.title }),
+          h(
+            'div',
+            { class: 'atlas-settings-binds' },
+            ...section.rows.map((row) => {
+              const name = h('span', { text: row.label });
+              if (row.action === undefined) {
+                const cap = row.fixed === 'release' ? labelOf('release') : capOf(row.fixed ?? 'mouse');
+                return h('div', { class: 'atlas-settings-bind' }, name, h('span', { class: 'atlas-settings-fixed' }, kbd(cap, cap.length > 3)));
+              }
+              const action = row.action;
+              const codes = BINDINGS[action];
+              const primary = keyLabel(codes[0]!);
+              const spare = [...new Set(codes.slice(1).map(keyLabel))].filter((label) => label !== primary);
+              const button = h(
+                'button',
+                {
+                  class: listening === action ? 'atlas-settings-keybtn listening' : 'atlas-settings-keybtn',
+                  type: 'button',
+                  'aria-label': `${row.label}: ${primary}. Press to change`,
+                },
+                listening === action ? 'Press a key' : capFor(codes[0]!),
+              );
+              button.addEventListener('click', () => {
+                if (Date.now() < settleUntil) return;
+                listen(listening === action ? null : action);
+              });
+              // Leaving the button lets go of the question.
+              button.addEventListener('blur', () => {
+                if (listening === action) listen(null);
+              });
+              keyButtons.set(action, button);
+              return h(
+                'div',
+                { class: 'atlas-settings-bind' },
+                name,
+                h(
+                  'span',
+                  { class: 'atlas-settings-bind-keys' },
+                  spare.length === 0 ? null : h('span', { class: 'atlas-settings-bind-alt', text: `or ${spare.join(', ')}` }),
+                  button,
+                ),
+              );
+            }),
+          ),
         ),
       ),
     );
+    resetButton.disabled = !bindingsChanged();
+  }
+
+  /** Starts listening for `action`'s key, or stops listening with `null`. */
+  function listen(action: Action | null): void {
+    const was = listening;
+    listening = action;
+    if (was !== null) {
+      const button = keyButtons.get(was);
+      if (button !== undefined) {
+        button.classList.remove('listening');
+        button.replaceChildren(capFor(BINDINGS[was][0]!));
+      }
+    }
+    if (action === null) return;
+    const button = keyButtons.get(action);
+    if (button === undefined) return;
+    button.classList.add('listening');
+    button.replaceChildren('Press a key');
+    say(`Press the key for ${labels.get(action) ?? action}. ${labelOf('release')} to keep ${keyLabel(BINDINGS[action][0]!)}.`);
+  }
+
+  /** The key pressed while a button listens: bound, refused, or `Esc` to let go. */
+  function capture(event: KeyboardEvent): void {
+    const action = listening;
+    if (action === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+    if (event.code === 'Escape') {
+      listen(null);
+      say('');
+      return;
+    }
+    if (!keyBindable(event.code)) {
+      say(`${keyLabel(event.code)} is the browser's and cannot be bound. Try another key.`, true);
+      return;
+    }
+    const before = BINDINGS[action][0]!;
+    // Done listening before the list is drawn again, which `rebind` has
+    // `onKeyLabels` do before it returns.
+    listening = null;
+    settleUntil = Date.now() + 400;
+    captured = event.code;
+    const result = rebind(action, event.code);
+    const name = labels.get(action) ?? action;
+    const cap = keyLabel(event.code);
+    if (result.swapped !== null) {
+      say(`${name} is on ${cap} now. ${labels.get(result.swapped) ?? result.swapped} had it, and takes ${keyLabel(before)} instead.`, true);
+    } else if (result.took !== null) {
+      say(`${name} is on ${cap} now, which was a second key for ${labels.get(result.took) ?? result.took}.`);
+    } else {
+      say(`${name} is on ${cap}.`);
+    }
+    const button = keyButtons.get(action);
+    if (button !== undefined) {
+      button.focus({ preventScroll: true });
+      button.classList.add('moved');
+    }
+    if (result.swapped !== null) keyButtons.get(result.swapped)?.classList.add('moved');
+  }
+
+  resetButton.addEventListener('click', () => {
+    listen(null);
+    resetBindings();
+    say('Every key is back where it started.');
+    resetButton.focus({ preventScroll: true });
+  });
+
+  // The caps that name keys, rebuilt when `controls.ts` learns the layout or
+  // a key is rebound.
+  const detailKeys = h('span');
+  const flagsKey = h('span');
+  function relabel(): void {
+    detailKeys.replaceChildren(kbd(labelOf('nearer')), ' ', kbd(labelOf('farther')));
+    flagsKey.replaceChildren(kbd(labelOf('flags')));
+    close.title = `Close (${labelOf('settings')} or ${labelOf('release')})`;
+    close.setAttribute('aria-keyshortcuts', `${labelOf('settings')} Escape`);
+    // Drawing the list again takes the focus off a key button with it, and a
+    // player walking the list with `Tab` would be thrown out of it.
+    const focused = [...keyButtons].find(([, button]) => button === document.activeElement)?.[0] ?? null;
+    renderBinds();
+    if (focused !== null) keyButtons.get(focused)?.focus({ preventScroll: true });
   }
   relabel();
   onKeyLabels(relabel);
@@ -616,18 +896,6 @@ export function createSettings(options: SettingsOptions): Settings {
         h('div', { class: 'atlas-settings-side' }, flagsKey, flags.element),
       ),
     ),
-    h(
-      'section',
-      { class: 'atlas-settings-section' },
-      h('div', { class: 'ui-eyebrow', text: 'Controls' }),
-      row('Mouse sensitivity', 'How far the camera turns for a move of the mouse.', sensitivity.value, sensitivity.slider),
-      row(
-        'Key hints',
-        'The strip of keys along the bottom of the screen, for the way you are travelling.',
-        h('div', { class: 'atlas-settings-side' }, hintsKey, hints.element),
-      ),
-      keyList,
-    ),
     // Who made what, and it is no longer "everything else in code": the people,
     // the vehicles, the animals, the plants and most houses are CC0 models,
     // credited as their LICENSE.txt files in `public/models/` credit them.
@@ -646,7 +914,24 @@ export function createSettings(options: SettingsOptions): Settings {
         'and so are the wind, the sea and the engines you hear.</p>',
     }),
   ];
-  for (const section of sections) if (section !== null) panel.append(section);
+  for (const section of sections) if (section !== null) generalPage.append(section);
+
+  controlsPage.append(
+    h(
+      'section',
+      { class: 'atlas-settings-section' },
+      h('div', { class: 'ui-eyebrow', text: 'Mouse and hints' }),
+      row('Mouse sensitivity', 'How far the camera turns for a move of the mouse.', sensitivity.value, sensitivity.slider),
+      row(
+        'Key hints',
+        "A vehicle's keys for a moment as you take it, and the climb and the descent the first time you fly.",
+        hints.element,
+      ),
+    ),
+    bindList,
+    h('div', { class: 'atlas-settings-foot' }, bindStatus, resetButton),
+  );
+  panel.append(generalPage, controlsPage);
 
   /* --- opening and closing ---------------------------------------------- */
 
@@ -677,7 +962,8 @@ export function createSettings(options: SettingsOptions): Settings {
 
   registerModal(() => showing);
 
-  function show(): void {
+  function show(next?: SettingsPage): void {
+    if (next !== undefined) turnTo(next);
     if (showing) return;
     showing = true;
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -707,6 +993,7 @@ export function createSettings(options: SettingsOptions): Settings {
 
   function hide(): void {
     if (!showing) return;
+    listen(null);
     showing = false;
     window.clearInterval(clockTimer);
     root.classList.remove('on');
@@ -735,14 +1022,45 @@ export function createSettings(options: SettingsOptions): Settings {
   // the brackets used to work over it and the rows followed them, but so did
   // `Tab`, the arrows and `Space`, behind a card the player was reading.
   // Everything a key did here is a control on the card.
+  //
+  // A key button that is listening takes the next key whatever it is, `Tab`
+  // included; and the card's own key closes it, except from the name field,
+  // where it is a letter.
   addEventListener('keydown', (event) => {
     if (!showing) return;
+    if (listening !== null) {
+      capture(event);
+      return;
+    }
     if (event.code === 'Escape') {
       event.preventDefault();
       hide();
-    } else {
-      holdFocus(event, panel);
+      return;
     }
+    const typing = event.target instanceof HTMLInputElement && event.target.type === 'text';
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (plain && !typing && !event.repeat && actionOf(event.code) === 'settings') {
+      event.preventDefault();
+      hide();
+      return;
+    }
+    holdFocus(event, panel);
+  });
+
+  addEventListener('keyup', (event) => {
+    if (event.code !== captured) return;
+    captured = '';
+    event.preventDefault();
+  });
+
+  // And the card's key opens it, whenever the keys are the world's. Added
+  // after the listener above, which has already seen this press and found the
+  // card shut: the other order opened the card and closed it on one key.
+  addEventListener('keydown', (event) => {
+    if (showing || event.repeat || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (actionOf(event.code) !== 'settings' || inputBlocked(event)) return;
+    event.preventDefault();
+    show();
   });
 
   return {

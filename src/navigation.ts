@@ -31,7 +31,7 @@
  */
 import * as THREE from 'three';
 import { EARTH_KM, toUnit } from './cartography.ts';
-import { codeOf, inputBlocked, tabTaken } from './controls.ts';
+import { actionOf, inputBlocked, tabTaken } from './controls.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import type { DestinationEntry, Hud } from './hud.ts';
 import type { Minimap } from './minimap.ts';
@@ -139,7 +139,9 @@ export function createNavigation(options: NavigationOptions): Navigation {
   // the chip anyway, at 2 us, and a copy kept here would be one more thing that
   // can go stale.
   const countryHere = options.countryHere ?? (() => null);
-  const key = options.key === undefined ? codeOf('next') : options.key;
+  // Asked of the live table on every press, so a rebinding holds at once.
+  const key = options.key;
+  const isKey = (code: string): boolean => (key === undefined ? actionOf(code) === 'next' : code === key);
   const count = placements.length;
 
   // Unit vectors once, through the one conversion both maps use for their pins,
@@ -275,9 +277,10 @@ export function createNavigation(options: NavigationOptions): Navigation {
       // Leave the browser's own shortcuts alone, the same rule `input.ts` uses,
       // and a card's keys to the card: `Tab` walks the settings' own controls.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.code !== key || inputBlocked(event)) return;
-      // The pause card's own buttons are what `Tab` walks while it is up.
-      if (event.defaultPrevented || tabTaken()) return;
+      if (!isKey(event.code) || inputBlocked(event)) return;
+      // The pause card's own buttons are what `Tab` walks while it is up,
+      // whether or not `Tab` is still this key.
+      if (event.defaultPrevented || (event.code === 'Tab' && tabTaken())) return;
       event.preventDefault();
       if (!event.repeat) advance();
     }, { signal: events.signal });

@@ -228,6 +228,11 @@ export interface Effects {
   step(weight: number): void;
   /** For the console: a crash, a splash, a landing's dust or a ripple where the player is. */
   burst(kind: 'crash' | 'splash' | 'dust' | 'ripple'): void;
+  /**
+   * A splash on the water at `point`, `reach` units across: a fish going in
+   * or coming out (`ambient.ts`). Nothing while the effects are off.
+   */
+  splashAt(point: THREE.Vector3, reach: number): void;
   /** The wakes' points and their longest joined segment. */
   probe(): WakeProbe;
   /** One mesh per program, for `warm.ts`. */
@@ -471,6 +476,7 @@ export function createEffects(): Effects {
 
   /* --- the player, as the last frame left him ------------------------- */
   let subject: EffectsSubject | null = null;
+  const splashUp = new THREE.Vector3();
   const last = new THREE.Vector3();
   const lastForward = new THREE.Vector3();
   let hasLast = false;
@@ -1498,6 +1504,11 @@ export function createEffects(): Effects {
       } else if (kind === 'splash') splash(s.position, s.up, H * 1.2, 10);
       else if (kind === 'dust') dustBurst(s.position, s.up, H * 0.6, 12, dust ?? PALETTE.bone, H * 0.3);
       else spawnDisc(s.position, fwdAt.set(0, 0, 0), 1.6, H * 0.3, H * 1.4, 0.8, 0);
+    },
+    splashAt(point, reach) {
+      if (!enabled) return;
+      splashUp.copy(point).normalize();
+      splash(point, splashUp, reach, Math.max(2, Math.round(reach * 3)));
     },
     probe() {
       let points = 0;

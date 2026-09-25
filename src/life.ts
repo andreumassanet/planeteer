@@ -753,8 +753,11 @@ export const mergeGroup = mergeMeshes;
  * a wing is two coincident triangles facing opposite ways rather than a solid,
  * because a wing has no thickness worth a triangle and a single-sided one
  * disappears from below — which is the half of the sky it is seen from.
+ *
+ * Exported with its two colours, the back and the belly, because the gulls
+ * over a harbour (`ambient.ts`) are this bird in grey and white.
  */
-interface BirdPart {
+export interface BirdPart {
   position: Float32Array;
   normal: Float32Array;
   /** 0 body, 1 left wing, 2 right wing. */
@@ -762,13 +765,13 @@ interface BirdPart {
   color: Float32Array;
 }
 
-function birdGeometry(): BirdPart {
+export function birdGeometry(back: number = PALETTE.bark, belly: number = PALETTE.bone): BirdPart {
   const position: number[] = [];
   const normal: number[] = [];
   const bone: number[] = [];
   const color: number[] = [];
-  const dark = new THREE.Color(PALETTE.bark);
-  const pale = new THREE.Color(PALETTE.bone);
+  const dark = new THREE.Color(back);
+  const pale = new THREE.Color(belly);
   type P = [number, number, number];
 
   const tri = (a: P, b: P, c: P, id: number, tint: THREE.Color): void => {
