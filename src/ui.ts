@@ -433,7 +433,6 @@ const ICONS: Record<string, string> = {
   expand: '<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>',
   camera: '<path d="M4 8h3.2l1.6-2.5h6.4L16.8 8H20v11H4z"/><circle cx="12" cy="13.2" r="3.4"/>',
   talk: '<path d="M4 5.5h16v10H11l-4.5 4v-4H4z"/><path d="M8 9.5h8M8 12.5h5"/>',
-  door: '<path d="M6 20.5V4h12v16.5"/><path d="M3.5 20.5h17"/><path d="M14.5 12.5h.01"/>',
   sparkle: '<path d="M12 3.5c.8 4.4 2.6 6.4 7 7.5-4.4 1.1-6.2 3.1-7 7.5-.8-4.4-2.6-6.4-7-7.5 4.4-1.1 6.2-3.1 7-7.5z"/>',
 };
 

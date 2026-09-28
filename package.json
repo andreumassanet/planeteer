@@ -44,7 +44,6 @@
     "country": "node scripts/check-country.ts",
     "scenery": "node scripts/check-scenery.ts",
     "solids": "node scripts/check-solids.ts",
-    "interiors": "node scripts/check-interiors.ts",
     "input": "node scripts/check-input.ts",
     "chat": "node scripts/check-chat.ts",
     "music": "node scripts/check-music.ts",

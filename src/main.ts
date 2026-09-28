@@ -48,9 +48,7 @@ import type { Curtain } from './menu.ts';
 import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { Where } from './talk.ts';
-import type { Door, Interiors } from './interiors.ts';
-import type { BuildingDoor } from './settlements.ts';
-import { latLonOf, latOf, lonOf, unitAt } from './sphere.ts';
+import { latOf, lonOf, unitAt } from './sphere.ts';
 import { EMOTE_INTERVAL_MS, HONK_INTERVAL_MS, cleanHonk } from '../server/src/limits.ts';
 import type { Emote } from '../server/src/limits.ts';
 import { HORN_OF, isAirKind } from './craft/contract.ts';
@@ -557,8 +555,6 @@ async function start(): Promise<void> {
     folk: import('./folk.ts'),
     /** What they say when spoken to; the words themselves arrive on the first conversation. */
     talk: import('./talk.ts'),
-    /** The rooms behind the doors: planned, built and walked in only when somebody goes in. */
-    interiors: import('./interiors.ts'),
     chat: import('./chat.ts'),
     traffic: import('./traffic/index.ts'),
     /** The scenery contract, for the kit's model registry; it rides with the settlements. */
@@ -1396,27 +1392,15 @@ async function start(): Promise<void> {
     return moved;
   };
 
-  /**
-   * The room the player has gone into, once the interiors have arrived
-   * (`interiors.ts`). While he is in one, its floor, its walls and its camera
-   * test stand in for the world's, which is all it takes to walk a room built
-   * somewhere nobody outside can see.
-   */
-  let interiorsLink: Interiors | null = null;
-  const indoors = (): Interiors | null => (interiorsLink !== null && interiorsLink.inside ? interiorsLink : null);
-  const playerGround = (point: THREE.Vector3): number => indoors()?.floor ?? groundAt(point);
-  /** And the camera's: a room's floor, or `cameraGroundAt`'s sea floor or land. */
-  const cameraGround = (point: THREE.Vector3): number => indoors()?.floor ?? cameraGroundAt(point);
-
   await avatarReady;
   landProbe.prime(unitAt(spawn.lat, spawn.lon, new THREE.Vector3()));
   const player = createPlayer(world, spawn.lat, spawn.lon, {
-    groundAt: playerGround,
-    madeHeightAt: (point) => indoors()?.floor ?? madeHeightAt(point),
+    groundAt,
+    madeHeightAt: (point) => madeHeightAt(point),
     // The sea floor, which a diver and a submarine stop on.
     seaFloorAt: (point) => sea.floorAt(point),
     onStep: (weight) => {
-      audio.step(indoors() !== null ? 'paving' : footing, weight);
+      audio.step(footing, weight);
       effects.step(weight);
     },
     // A jump lands at about its take-off speed; stepping off a kerb does not.
@@ -1432,8 +1416,6 @@ async function start(): Promise<void> {
     // the one pushed out. So is an animal of a near herd, by its own length
     // and width, and it bolts (`life.collide`).
     collide: (point, radius, push) => {
-      const room = indoors();
-      if (room !== null) return room.collide(point, radius, push);
       let hit = settlements.collide(point, radius, push);
       for (let i = 1; i < stillWalls.length; i++) {
         if (!stillWalls[i]!.collide(point, radius, stillPush)) continue;
@@ -1458,8 +1440,8 @@ async function start(): Promise<void> {
     },
     // And a balloon or a plane higher than that: only the buildings whose
     // roofs are still over it.
-    collideAloft: (point, radius, push) => indoors() === null && settlements.collideAloft(point, radius, push),
-    freeSpotNear: (point, radius, out) => indoors()?.freeSpotNear(point, radius, out) ?? freeOfWalls(point, radius, out),
+    collideAloft: (point, radius, push) => settlements.collideAloft(point, radius, push),
+    freeSpotNear: (point, radius, out) => freeOfWalls(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a landing refused, and why.
     onEvent: (event: PlayerEvent, strength: number) => {
@@ -1580,11 +1562,7 @@ async function start(): Promise<void> {
   if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
-    blocks: (point) => {
-      const room = indoors();
-      if (room !== null) return room.blocks(point);
-      return settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point);
-    },
+    blocks: (point) => settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point),
   });
   // A crash shakes the lens unless the player said not to, or the system asks
   // for less motion and the player has not said either way.
@@ -1600,115 +1578,6 @@ async function start(): Promise<void> {
     // `Ctrl` descends, and `Ctrl+W` would close the tab mid-flight.
     guardUnload: () => player.ride !== null && player.airborne,
   });
-
-  // The rooms behind the doors. A door's room is built under the black of
-  // the fade, stood at the doorstep and drawn instead of the world; see
-  // `interiors.ts`. A landmark's museum keeps a miniature of it under glass.
-  const { createInteriors, countryDoorNear, landmarkDoorNear, newDoor, copyDoor, doorLabel, DOOR_REACH } = await deferred.interiors;
-  const teleportTo = new THREE.Vector3();
-  const interiors = createInteriors({
-    ctx,
-    folk,
-    world: scene,
-    body: player.object,
-    teleport(point, forward) {
-      landProbe.prime(teleportTo.copy(point).normalize());
-      const at = toLatLon(point);
-      player.goTo(at.lat, at.lon);
-      player.forward.copy(forward).projectOnPlane(player.up).normalize();
-      rig.snap(player, playerGround);
-    },
-    miniature: (id) => {
-      try {
-        return buildMonument(id, ctx);
-      } catch {
-        return null;
-      }
-    },
-    sound: () => (audio.output === null || audio.bus === null ? null : { context: audio.output.context, node: audio.bus }),
-    compile: (room) => renderer.compile(room, rig.camera),
-  });
-  interiorsLink = interiors;
-  /** The landmarks with a model, as the museum doors are found among them. */
-  const unmodelled = new Set(monuments.missing.map((placement) => placement.id));
-  const landmarks = placements
-    .filter((placement) => !unmodelled.has(placement.id))
-    .map((placement) => ({
-      id: placement.id,
-      name: placement.name,
-      ...(placement.note === undefined ? {} : { note: placement.note }),
-      iso: placement.iso,
-      continent: world.countries.find((country) => country.iso === placement.iso)?.continent ?? '',
-      lat: placement.lat,
-      centre: unitAt(placement.lat, placement.lon, new THREE.Vector3()),
-      footprint: placement.footprint ?? 20,
-    }));
-  /**
-   * The door `E` would go in by, found with the prompt as a seat and a person
-   * are: a town's buildings, then what stands in the country, then a
-   * landmark's walls, the nearest of them.
-   */
-  const doorFound = newDoor();
-  const doorScratch = newDoor();
-  const buildingDoor: BuildingDoor = {
-    key: '', part: '', kind: 'dwelling', region: '', town: '', population: 0, central: 0, width: 0, depth: 0, height: 0,
-    position: new THREE.Vector3(), outward: new THREE.Vector3(), distance: 0,
-  };
-  const doorAt = { lat: 0, lon: 0 };
-  const vegetationWalls = (point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean => vegetation.collide(point, radius, push);
-  const monumentWalls = (point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean => monuments.collide(point, radius, push);
-  function findDoor(): Door | null {
-    doorFound.distance = Infinity;
-    let found = false;
-    if (settlements.doorNear(player.position, DOOR_REACH, buildingDoor)) {
-      doorFound.key = buildingDoor.key;
-      doorFound.building = buildingDoor.part;
-      doorFound.kind = buildingDoor.kind === 'block' || buildingDoor.kind === 'civic' ? buildingDoor.kind : 'dwelling';
-      doorFound.region = buildingDoor.region;
-      doorFound.population = buildingDoor.population;
-      doorFound.central = buildingDoor.central;
-      doorFound.height = buildingDoor.height;
-      delete doorFound.monument;
-      delete doorFound.name;
-      delete doorFound.note;
-      doorFound.position.copy(buildingDoor.position);
-      doorFound.outward.copy(buildingDoor.outward);
-      doorFound.distance = buildingDoor.distance;
-      found = true;
-    }
-    const country = vegetation.countryside;
-    if (country !== null && country !== undefined) {
-      latLonOf(player.position, doorAt);
-      doorScratch.distance = Math.min(doorFound.distance, DOOR_REACH);
-      if (countryDoorNear(player.position, country.planAt(doorAt.lat, doorAt.lon), vegetationWalls, DOOR_REACH, doorScratch)) {
-        copyDoor(doorScratch, doorFound);
-        found = true;
-      }
-    }
-    if (!found && landmarkDoorNear(player.position, landmarks, monumentWalls, doorScratch)) {
-      copyDoor(doorScratch, doorFound);
-      found = true;
-    }
-    return found ? doorFound : null;
-  }
-  /** What `E` does at a door this frame, and the words for it; `interiors.door` on the way out. */
-  let doorOffer: Door | null = null;
-  let doorWords = '';
-  let doorWordsKey = '';
-  /** Whoever is inside is, to the other players, still on the doorstep: see `peers.update`. */
-  const standInAt = new THREE.Vector3();
-  const standInFacing = new THREE.Vector3();
-  const standIn: typeof player = Object.create(player, {
-    position: { value: standInAt },
-    forward: { value: standInFacing },
-    velocity: { value: 0 },
-    airborne: { value: false },
-  }) as typeof player;
-  /** The walking framing indoors, as a share of the street's. */
-  const INDOOR_FRAMING = 0.7;
-  let wasIndoors = false;
-  const streetView = { distance: 0, height: 0 };
-  const STILL = { x: 0, y: 0 };
 
   // The pins are what make the map answer "where is anything", which the
   // coastline alone never did. They cover every placement, including the
@@ -1738,17 +1607,6 @@ async function start(): Promise<void> {
   const talkNorth = new THREE.Vector3(0, 1, 0);
   const talkHere = new THREE.Vector3();
   const talkSites: ReturnType<typeof fleetSites.near> = [];
-  /** Whoever is being talked to, in the room the player is in or in the street. */
-  const crownOfAny = (key: string, out: THREE.Vector3): boolean =>
-    interiorsLink?.crownOf(key, out) === true || townsfolk.crownOf(key, out);
-  function engageAny(key: string | null, towards?: THREE.Vector3): boolean {
-    if (key !== null && interiorsLink?.crownOf(key, talkCrown) === true) {
-      townsfolk.engage(null);
-      return interiorsLink.engage(key, towards);
-    }
-    interiorsLink?.engage(null);
-    return townsfolk.engage(key, towards);
-  }
   function startTalk(key: string): void {
     const here = toLatLon(player.position);
     const index = world.countryAtPoint(player.position);
@@ -1798,11 +1656,11 @@ async function start(): Promise<void> {
       young: isYoung(key),
       woman: isWoman(key),
     });
-    engaged = engageAny(key, player.position);
+    engaged = townsfolk.engage(key, player.position);
     // And the traveller turns to them, as they turn to the traveller: a
     // conversation held over a shoulder reads as nobody talking to anybody.
     // Not from a bench, whose seat faces one way.
-    if (!player.sitting && crownOfAny(key, talkCrown)) {
+    if (!player.sitting && townsfolk.crownOf(key, talkCrown)) {
       talkCrown.sub(player.position).projectOnPlane(player.up);
       if (talkCrown.lengthSq() > 1e-4) player.forward.copy(talkCrown.normalize());
     }
@@ -1900,8 +1758,6 @@ async function start(): Promise<void> {
    */
   const jumpPoint = new THREE.Vector3();
   function jumpTo(lat: number, lon: number): void {
-    // Sent somewhere from inside a room: out of it first, with no fade.
-    interiorsLink?.abandon();
     // The land under the far end, gathered now rather than over the next few
     // frames: a foot that arrives on the relief rises onto the drawn land when
     // it comes, by up to a few units.
@@ -2573,30 +2429,26 @@ async function start(): Promise<void> {
     // `E`, before the player moves: on with the conversation you are in, or
     // to the person nearer than any seat, or into the vehicle beside you, or
     // out of the one you are in, so this frame already drives or walks.
-    if (input.state.use && !interiors.busy) {
+    if (input.state.use) {
       if (talk.open) {
         talk.next();
         audio.cue(talk.open ? 'ui-click' : 'ui-close');
       } else if (talkOffer !== null) startTalk(talkOffer);
       else if (player.sitting) player.stand();
       else if (benchOffer !== null) sitDown(benchOffer);
-      else if (doorOffer !== null) {
-        if (interiors.inside) interiors.leave();
-        else interiors.enter(doorOffer);
-      } else if (!interiors.inside) fleet.use();
+      else fleet.use();
     }
     // The drawn land round the player, while the ground is near enough to
     // matter: a slice a frame when he has moved on. Not at cruise, where it
     // would gather again every 400 units for nothing.
     if (player.position.length() - groundAt(player.position) < PROBE_CEILING) landProbe.prepare(player.position);
-    // Nobody walks through a fade, and nobody jumps into a ceiling.
     player.update(dt, {
-      move: interiors.busy ? STILL : input.state.move,
+      move: input.state.move,
       run: input.state.run,
-      jump: input.state.jump && !interiors.inside && !interiors.busy,
+      jump: input.state.jump,
       heading: rig.steer,
     });
-    rig.follow(dt, player, cameraGround);
+    rig.follow(dt, player, cameraGroundAt);
     input.endFrame();
 
     // After the rig, because the sky needs both where you stand — which decides
@@ -2617,25 +2469,6 @@ async function start(): Promise<void> {
     // vertex in the shaders. See `src/lights.ts`.
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     guard('city lights', () => cityLights.update(renderer));
-    // The fades, the people in the room and the hour through its windows.
-    guard('interiors', () => interiors.update(dt, player.position, sky.state.daylight));
-    if (interiors.inside !== wasIndoors) {
-      // A room is a few bodies across, so the lens comes in closer indoors
-      // and goes back to the street's framing on the way out.
-      wasIndoors = interiors.inside;
-      if (wasIndoors) {
-        // A landmark's museum greets you with its card's sentence.
-        const note = interiors.plan?.note ?? null;
-        if (note !== null) announce(note, 'star');
-        streetView.distance = rig.view.distance;
-        streetView.height = rig.view.height;
-        rig.view.distance *= INDOOR_FRAMING;
-        rig.view.height *= INDOOR_FRAMING;
-      } else {
-        rig.view.distance = streetView.distance;
-        rig.view.height = streetView.height;
-      }
-    }
     // After the sky, whose clock and daylight it reads, and before the haze
     // below, which it closes in rain and fog (`setWeatherHaze` in `view.ts`).
     // What it does to the light is applied by the sky's next `update`.
@@ -2705,14 +2538,12 @@ async function start(): Promise<void> {
             ? speedNow / topSpeedOf(soundKind)
             : 0,
       height: eyeOverGround,
-      // Indoors the sea, the birds and the wind are behind a wall, and the
-      // rain is on the roof.
-      sea: interiors.inside ? 0 : soundSea,
+      sea: soundSea,
       daylight: sky.state.daylight,
-      wild: interiors.inside ? 0 : soundWild,
+      wild: soundWild,
       cold: soundCold,
-      rain: weather.sound.rain * (interiors.inside ? 0.3 : 1),
-      gale: interiors.inside ? 0 : weather.sound.gale,
+      rain: weather.sound.rain,
+      gale: weather.sound.gale,
       underwater: sea.underwater ? 1 : 0,
     }));
     if (map.open !== mapWasOpen) {
@@ -2835,34 +2666,27 @@ async function start(): Promise<void> {
     guard('talk', () => {
       const speaker = talk.with;
       if (speaker === null) {
-        if (engaged) engageAny(null);
+        if (engaged) townsfolk.engage(null);
         engaged = false;
         return;
       }
       if (
         player.mode !== 'foot' ||
-        !crownOfAny(speaker, talkCrown) ||
+        !townsfolk.crownOf(speaker, talkCrown) ||
         talkCrown.distanceTo(player.position) > TALK_LEAVE
       ) {
         talk.close();
-        engageAny(null);
+        townsfolk.engage(null);
         engaged = false;
         return;
       }
-      engaged = engageAny(speaker, player.position);
+      engaged = townsfolk.engage(speaker, player.position);
       talk.place(talkCrown, rig.camera, innerWidth, innerHeight);
     });
     // The vehicles after everything they stand on, and before the other
     // players, who may be sitting in one of them.
     guard('fleet', () => fleet.update(dt, rig.camera));
-    if (peers !== null) {
-      const inside = interiors.door;
-      if (inside !== null) {
-        standInAt.copy(inside.position);
-        standInFacing.copy(inside.outward).negate();
-      }
-      guard('peers', () => peers.update(dt, inside !== null ? standIn : player));
-    }
+    if (peers !== null) guard('peers', () => peers.update(dt, player));
     // After everything that moves, so a wake starts where the boat now is.
     guard('effects', () => effects.update(dt, player, rig.camera));
     ambientFrame.cameraHeight = eyeOverGround;
@@ -2949,48 +2773,18 @@ async function start(): Promise<void> {
     // travelling, which decides the keys it shows, and whether the mouse is
     // free with nothing else on the screen, which is the pause card.
     hud.setMode(player.mode, player.airborne, rig.firstPerson, fleet.stranded);
-    const offer = interiors.inside || interiors.busy ? null : fleet.prompt;
-    // Somebody to talk to wins over a seat and a door when they are the
-    // nearest; indoors, only the people in the room are there to talk to.
-    const afoot = !talk.open && player.mode === 'foot' && !player.airborne && !interiors.busy;
-    const talker = !afoot
-      ? null
-      : interiors.inside ? interiors.nearest(player.position, TALK_REACH) : townsfolk.nearest(player.position, TALK_REACH);
-    // The door: out of the room at its own, or into the nearest building's.
-    doorOffer = null;
-    let doorGap = Infinity;
-    if (afoot) {
-      if (interiors.inside) {
-        const words = interiors.exitOffer(player.position);
-        if (words !== null) {
-          doorOffer = interiors.door;
-          doorWords = words;
-          doorGap = 0;
-        }
-      } else {
-        doorOffer = findDoor();
-        if (doorOffer !== null) {
-          doorGap = doorOffer.distance;
-          if (doorOffer.key !== doorWordsKey) {
-            doorWordsKey = doorOffer.key;
-            doorWords = doorLabel(doorOffer);
-          }
-        }
-      }
-    }
-    if (doorOffer !== null && offer !== null && offer.gap < doorGap) doorOffer = null;
+    const offer = fleet.prompt;
+    // Somebody to talk to wins over a seat when they are the nearest.
+    const afoot = !talk.open && player.mode === 'foot' && !player.airborne;
+    const talker = afoot ? townsfolk.nearest(player.position, TALK_REACH) : null;
     const talkGap = talker === null ? Infinity : talker.distance - PERSON_RADIUS;
-    talkOffer = talker !== null && (offer === null || talkGap < offer.gap) && (doorOffer === null || talkGap < doorGap) ? talker.key : null;
-    // A bench nearer than any seat and any door, with nobody to talk to: a
-    // town's stands on the pavement a stride off the house fronts, inside a
-    // door's reach, and the nearer of the two is the one `E` means.
-    const bench = talk.open || talkOffer !== null || interiors.inside || player.sitting || player.mode !== 'foot' || player.airborne ? null : nearestBench();
-    benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) && (doorOffer === null || bench.distance < doorGap) ? bench.bench : null;
-    if (benchOffer !== null) doorOffer = null;
+    talkOffer = talker !== null && (offer === null || talkGap < offer.gap) ? talker.key : null;
+    // A bench nearer than any seat, with nobody to talk to.
+    const bench = talk.open || talkOffer !== null || player.sitting || player.mode !== 'foot' || player.airborne ? null : nearestBench();
+    benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) ? bench.bench : null;
     if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else if (player.sitting) hud.setPrompt('Stand up', 'walk');
-    else if (doorOffer !== null) hud.setPrompt(doorWords, 'door');
     else if (benchOffer !== null) hud.setPrompt('Sit', 'seat');
     else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
     hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open && !chat.open && !passportCard.open, input.dragging);
@@ -3151,9 +2945,7 @@ async function start(): Promise<void> {
     // it is not drawn: that frame goes to painting the map's tiles instead.
     const underMap = map.open;
     const drawStart = performance.now();
-    // Indoors the room is drawn instead of the world: a few thousand
-    // triangles and a handful of calls, whatever stands outside.
-    if (!underMap) outline.render(interiors.inside ? interiors.scene : scene, rig.camera);
+    if (!underMap) outline.render(scene, rig.camera);
     const drawEnd = performance.now();
     // In the same task as the draw, before the browser composites and clears
     // the drawing buffer: `toBlob` copies the canvas as it stands when it is
@@ -3354,10 +3146,6 @@ async function start(): Promise<void> {
       // `atlas.talk.script('<key>', where)` is a conversation's lines without
       // the bubble; `atlas.talk.with` is who you are talking to.
       talk,
-      // `atlas.interiors.stats`: rooms built, the last build's milliseconds,
-      // the room's triangles and people; `.plan` is the room you are in and
-      // `.leave()` walks you out.
-      interiors,
       // `atlas.effects.stats`: the puffs, foam discs and debris alive, what a
       // full pool refused, the other vehicles followed, the draw calls and the
       // update's cost. `atlas.effects.burst('crash' | 'splash' | 'dust' |

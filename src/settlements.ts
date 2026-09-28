@@ -932,43 +932,6 @@ export interface SettlementStats {
   reach: number;
 }
 
-/**
- * A building's front door, as `Settlements.doorNear` answers it: which
- * building, in which town, and where in the world its doorstep is.
- */
-export interface BuildingDoor {
-  /** The building's identity: the town's seed, its plot and its part. The same door is the same key on every load. */
-  key: string;
-  /** The part standing there (a code part's id, or the kit's asset id a near town builds instead). */
-  part: string;
-  kind: PartKind;
-  /** The town's `RegionStyle.id`. */
-  region: string;
-  town: string;
-  population: number;
-  /** 1 at the town's centre, 0 at the edge of its square. */
-  central: number;
-  /** The building's plan box across its front and back to front, and its height, in world units. */
-  width: number;
-  depth: number;
-  height: number;
-  /** On the floor at the middle of the front wall, in the world. */
-  position: THREE.Vector3;
-  /** Out of the door, along the ground: a unit tangent. */
-  outward: THREE.Vector3;
-  /** From the point asked about to the door, along the ground. */
-  distance: number;
-}
-
-/** A standing building a body can go into: its wall, what it is and which plot; see `doorNear`. */
-interface DoorPlot {
-  solid: Solid;
-  part: string;
-  col: number;
-  row: number;
-  height: number;
-}
-
 export interface Settlements {
   group: THREE.Group;
   stats: SettlementStats;
@@ -1081,14 +1044,6 @@ export interface Settlements {
   collideAloft(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
   /** Whether a point is inside a building's walls and under its roof. For the camera. */
   blocksSight(point: THREE.Vector3): boolean;
-  /**
-   * The front door of the standing building nearest `point` within `reach` of
-   * it, written into `out`; false when there is none. A door is the middle of
-   * the side of a building's plan box its part faces (+Z, the kit's
-   * convention), which is the side that faces its street. `interiors.ts` asks
-   * it, and names the room behind it after `out.key`.
-   */
-  doorNear(point: THREE.Vector3, reach: number, out: BuildingDoor): boolean;
   /**
    * The nearest point to `point` where a body of `radius` stands clear of every
    * building, written into `out`; false when `point` already is clear.
@@ -1262,8 +1217,6 @@ interface Slot {
      * nothing. See `collide`.
      */
     solids: SolidField | null;
-    /** The buildings of `solids` that have a front door; see `doorNear`. */
-    doors: readonly DoorPlot[];
     /** The square and its street band, for `swardAt`. */
     grid: TownGrid;
     band: number;
@@ -4191,8 +4144,6 @@ export function createSettlements(
     const litPlots: LitPlot[] = [];
     /** The walls of what stands, for `collide`. See `solidOf`. */
     const solids: Solid[] = [];
-    /** Which of them are buildings with a front door, for `doorNear`. */
-    const doors: DoorPlot[] = [];
 
     for (const entry of placed) {
       const flat = variantOf(entry.partId, slot.style, entry.variant);
@@ -4291,7 +4242,6 @@ export function createSettlements(
         built.add(cellKey(entry.plot.col, entry.plot.row));
         const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level);
         solids.push(solid);
-        doors.push({ solid, part: entry.partId, col: entry.plot.col, row: entry.plot.row, height: flat.height * entry.scale });
         // A block and a civic building stand on paving, a house in its yard.
         if (kind !== 'dwelling') pavedUnder(solid, grid, pavedCells);
       }
@@ -4381,9 +4331,7 @@ export function createSettlements(
           });
         }
         built.add(cellKey(lone, lone));
-        const solid = solidOf(flat, loneAt, loneAt, loneYaw, 1, baseElevation);
-        solids.push(solid);
-        doors.push({ solid, part: smallest!, col: lone, row: lone, height: flat.height });
+        solids.push(solidOf(flat, loneAt, loneAt, loneYaw, 1, baseElevation));
       }
     }
 
@@ -4422,7 +4370,6 @@ export function createSettlements(
         cosBound: Math.cos((span + floorReach(ground.field)) / PLANET_RADIUS),
         // Filled in once the parked cars are placed, which are walls too.
         solids: null,
-        doors,
         grid,
         band,
         lawn: ground.lawn,
@@ -5070,68 +5017,6 @@ export function createSettlements(
     return false;
   }
 
-  /**
-   * The front door nearest `point` within `reach`, on the side of the plan box
-   * its part faces: the solid's second axis is the part's +Z, so the door is
-   * `hz` out along it from the box's centre. Only a door the point stands in
-   * front of counts, which is what keeps the back wall of a terrace from
-   * offering the house on the next street.
-   */
-  function doorNear(point: THREE.Vector3, reach: number, out: BuildingDoor): boolean {
-    wallDir.copy(point).normalize();
-    let best = reach;
-    let found: { slot: Slot; door: DoorPlot } | null = null;
-    for (const slot of floors) {
-      const floor = slot.floor;
-      if (floor === null || floor.doors.length === 0) continue;
-      if (wallDir.dot(floor.up) < floor.cosBound) continue;
-      const x = wallDir.dot(floor.across) * PLANET_RADIUS;
-      const z = wallDir.dot(floor.north) * PLANET_RADIUS;
-      for (const door of floor.doors) {
-        const s = door.solid;
-        // The part's front, (-sin, cos) in the record's terms.
-        const fx = -s.sin;
-        const fz = s.cos;
-        const dx = x - (s.x + fx * s.hz);
-        const dz = z - (s.z + fz * s.hz);
-        if (dx * fx + dz * fz < -0.25) continue;
-        // Along the facade, a door is its middle third: a body at the corner is at the side wall.
-        const along = Math.abs(dx * s.cos + dz * s.sin);
-        const distance = Math.hypot(dx, dz);
-        if (along > Math.max(1.5, s.hx * 0.6) || distance >= best) continue;
-        best = distance;
-        found = { slot, door };
-      }
-    }
-    if (found === null) return false;
-    const { slot, door } = found;
-    const floor = slot.floor!;
-    const s = door.solid;
-    const fx = -s.sin;
-    const fz = s.cos;
-    const dx = s.x + fx * s.hz;
-    const dz = s.z + fz * s.hz;
-    out.key = `${slot.seed}:${door.col}:${door.row}:${door.part}`;
-    out.part = door.part;
-    out.kind = KIND_OF.get(door.part) ?? 'dwelling';
-    out.region = slot.style.id;
-    out.town = slot.place.name;
-    out.population = slot.place.pop;
-    out.central = Math.max(0, 1 - Math.hypot(s.x, s.z) / Math.max(1, floor.grid.half));
-    out.width = s.hx * 2;
-    out.depth = s.hz * 2;
-    out.height = door.height;
-    out.position
-      .copy(floor.up)
-      .addScaledVector(floor.across, dx / PLANET_RADIUS)
-      .addScaledVector(floor.north, dz / PLANET_RADIUS)
-      .normalize()
-      .multiplyScalar(point.length());
-    out.outward.copy(floor.across).multiplyScalar(fx).addScaledVector(floor.north, fz).projectOnPlane(wallDir).normalize();
-    out.distance = best;
-    return true;
-  }
-
   /** The nearest point clear of every wall, at the same radius; false if `point` already is. */
   function freeSpotNear(point: THREE.Vector3, radius: number, out: THREE.Vector3): boolean {
     wallDir.copy(point).normalize();
@@ -5474,7 +5359,6 @@ export function createSettlements(
     collideAloft: (point: THREE.Vector3, radius: number, push: THREE.Vector3) => collide(point, radius, push, point.length()),
     blocksSight,
     freeSpotNear,
-    doorNear,
 
     /**
      * Merged against instanced, on a real settlement, in one call.

@@ -3,9 +3,8 @@
  * budgets were measured on.
  *
  * A budget in milliseconds or microseconds is a claim about a machine, and a
- * shared CI runner is a slower and noisier one than a desk: the interiors'
- * build measured a p95 of 13.5 ms here and 28.6 ms on a runner, against a
- * 20 ms budget. What the checks guard against is a cost that grows by an order,
+ * shared CI runner is a slower and noisier one than a desk, where a p95 taken
+ * here has come out more than twice as long (2026-09-25). What the checks guard against is a cost that grows by an order,
  * not one that moves with the hardware, so on CI (`CI` is set) every time budget
  * is three times as loose. `ATLAS_TIME_SCALE` overrides it either way.
  */
