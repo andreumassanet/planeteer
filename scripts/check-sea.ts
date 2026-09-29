@@ -384,6 +384,14 @@ console.log('\nthe drawn sea');
     sea.update(1 / 60, { player, camera, daylight: 1, fog });
     frames++;
   }
+  // The window opens over tiles as they come ready and grows a little each
+  // frame, so the moment the last tile stands is not the moment it is whole:
+  // on a loaded runner that moment came at 200. Let it settle before judging.
+  for (let settle = 0, last = -1; settle < 600 && sea.stats.window !== last; settle++) {
+    last = sea.stats.window;
+    for (let k = 0; k < 10; k++) sea.update(1 / 60, { player, camera, daylight: 1, fog });
+    frames += 10;
+  }
   const ms = performance.now() - began;
   console.log(`  ${frames} frames to build: ${sea.stats.tiles} tiles, ${sea.stats.decor} pieces of decor, window ${sea.stats.window}, ${ms.toFixed(0)} ms, the worst frame's build ${sea.stats.buildMs} ms`);
   check(sea.stats.active && sea.stats.window > 200, 'off a reef the window opens over the floor', `radius ${sea.stats.window}`);
