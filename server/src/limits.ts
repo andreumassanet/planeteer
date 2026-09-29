@@ -163,8 +163,61 @@ export function cleanHonk(raw: unknown): Honk | '' {
   return typeof raw === 'string' && (HONKS as readonly string[]).includes(raw) ? (raw as Honk) : '';
 }
 
-/** Between two horns by one player: a tap and a second tap, not a stuck key. */
+/**
+ * Between two horns by one player: a tap and a second tap, not a stuck key.
+ * A held horn's refresh (`HONK_REFRESH_MS`) is paced by the same interval,
+ * and a stop is never paced.
+ */
 export const HONK_INTERVAL_MS = 350;
+
+/**
+ * A horn is held as long as its key is: `{ t: 'honk', k, on: true }` when
+ * the key goes down, again every `HONK_REFRESH_MS` while it stays down, and
+ * `{ t: 'honk', k, on: false }` when it comes up. A peer that hears nothing
+ * for `HONK_HOLD_MS` lets the horn go by itself, so a stop lost on the way,
+ * or a player who closes the page with the key held, never leaves one stuck.
+ * `HONK_HOLD_MS` is two and a half refreshes: one late refresh is not a gap.
+ */
+export const HONK_REFRESH_MS = 1_000;
+export const HONK_HOLD_MS = 2_500;
+/**
+ * How long a horn with no `on` sounds, the shape an older client sends: a
+ * tap, about what the one-shot it expected lasted.
+ */
+export const HONK_TAP_MS = 350;
+
+/** What `on` a honk carries: held (`true`), let go (`false`), a tap (`undefined`), or `null` for nonsense. */
+export function cleanHonkOn(raw: unknown): boolean | undefined | null {
+  if (raw === undefined) return undefined;
+  return typeof raw === 'boolean' ? raw : null;
+}
+
+/** One player's horn as the pacing sees it: when a start last went, and whether it is held. */
+export interface HonkState {
+  at: number;
+  on: boolean;
+}
+
+export const freshHonk = (): HonkState => ({ at: -Infinity, on: false });
+
+/**
+ * Whether a honk may go now, and the state after it. A start, a refresh or a
+ * tap is paced by `HONK_INTERVAL_MS`; a stop goes whenever a start went
+ * before it and nothing stopped it since, and never otherwise. The relay
+ * passes on what this allows and the game sends only what it would, so the
+ * two agree without a word about it.
+ */
+export function spendHonk(state: HonkState, on: boolean | undefined, now: number): boolean {
+  if (on === false) {
+    if (!state.on) return false;
+    state.on = false;
+    return true;
+  }
+  if (now - state.at < HONK_INTERVAL_MS) return false;
+  state.at = now;
+  state.on = on === true;
+  return true;
+}
 
 /**
  * What a player is doing that the nine numbers of a state do not say, as

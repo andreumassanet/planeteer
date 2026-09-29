@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Mesh, Monument, Vector3 } from './contract.ts';
 
 /**
@@ -182,7 +183,10 @@ export const chichenItza: Monument = {
           const nose = stairZ(k * rise);
           // Deep enough to bury itself behind the moulding above: only the
           // tread and its riser are ever seen.
-          face.add(placed(box(STAIR_HALF * 2, rise, STEP_DEPTH, stair), 0, k * rise, nose - STEP_DEPTH / 2));
+          // The last one stops `PROUD` under the summit: flush, its tread and
+          // the top moulding shared a plane in two tones and flickered.
+          const height = k === steps - 1 ? rise - PROUD : rise;
+          face.add(placed(box(STAIR_HALF * 2, height, STEP_DEPTH, stair), 0, k * rise, nose - STEP_DEPTH / 2));
         }
 
         for (const x of [1, -1]) {

@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Neuschwanstein Castle.
@@ -317,7 +318,9 @@ export const neuschwanstein: Monument = {
     gable(-3, 6.5, 17.2, 3.6, BOWER_EAVES, 5.0, slate); // ridge 18
     // The open arcade: one dark recess with piers standing in front of it.
     put(box(14, 4.5, 0.6, glass), -3, 4.2, 9.35);
-    for (const x of [-8, -3, 2]) put(box(1.1, 4.5, 1.0, stone), x, 4.2, 9.5);
+    // The piers run `PROUD` past the recess at its foot and head: the same
+    // height, their tops and undersides would share its planes and flicker.
+    for (const x of [-8, -3, 2]) put(box(1.1, 4.5 + 2 * PROUD, 1.0, stone), x, 4.2 - PROUD, 9.5);
     slit(-6, 10.0, 9.45, 1.5, 2.2, 'z');
     slit(0, 10.0, 9.45, 1.5, 2.2, 'z');
 
@@ -347,7 +350,9 @@ export const neuschwanstein: Monument = {
     put(box(14.0, 0.8, 11.8, stone), 26.7, 10, 0);
     gable(26.7, 0, 14.4, 6.1, GATE_EAVES, 7.0, slate); // ridge 25
     gable(34.2, 0, 1.4, 6.3, 17.8, 7.4, brick); // the brick gable over the arch, peak 25.2
-    for (const z of [-4.9, 4.9]) put(box(1.3, GATE_EAVES - TERRACE_E, 1.3, stone), 20.3, TERRACE_E, z);
+    // The stair towers stand `PROUD` past the brick's flanks: at 4.9 their
+    // faces sat 0.05 inside it, near enough to share its plane and flicker.
+    for (const z of [-5.03, 5.03]) put(box(1.3, GATE_EAVES - TERRACE_E, 1.3, stone), 20.3, TERRACE_E, z);
     put(box(0.7, 9.0, 5.6, rock), 33.7, TERRACE_E, 0);
     put(box(0.7, 7.2, 3.6, glass), 33.9, TERRACE_E, 0);
     for (const x of [23, 26.7, 30.4]) slit(x, 12, 5.5, 1.5, 4.0, 'z');

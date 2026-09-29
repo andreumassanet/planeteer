@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Mesh, Monument } from './contract.ts';
 
 /**
@@ -386,8 +387,10 @@ export const marinaBaySands: Monument = {
     plinth.position.set((plinthMin + plinthMax) / 2, 0, 0);
     group.add(plinth);
 
+    // Its top stops `PROUD` under the plinth's: flush, the two colours shared
+    // the plinth's whole top as one plane and flickered.
     const cornice = box(plinthWidth + 0.5, 0.28, 10.7, truss);
-    cornice.position.set((plinthMin + plinthMax) / 2, PLINTH_TOP - 0.28, 0);
+    cornice.position.set((plinthMin + plinthMax) / 2, PLINTH_TOP - 0.28 - PROUD, 0);
     group.add(cornice);
 
     // -----------------------------------------------------------------------
@@ -416,16 +419,22 @@ export const marinaBaySands: Monument = {
       );
 
       // The concrete blades up both edges. Slightly proud in z, so each one
-      // takes its own ink line down the face instead of vanishing into it.
+      // takes its own ink line down the face instead of vanishing into it, and
+      // stepped out past the slab's edge in x: level with it, the blade's outer
+      // face lay 0.03 to 0.05 off the glass's and the two flickered. The raking
+      // side steps twice as far, because `leaning` measures a width square to
+      // its own lean and the slab's raking face stands a hair inside
+      // `WAIST_MAX`; each blade clears the glass by 0.11 to 0.13.
       for (const side of [-1, 1] as const) {
         const waistEdge = side < 0 ? WAIST_MIN : WAIST_MAX;
         const topEdge = side * TOWER_HALF;
+        const out = side < 0 ? PROUD : PROUD * 2;
         tower.add(
           leaning(
-            waistEdge - side * FIN_HALF,
+            waistEdge - side * (FIN_HALF - out),
             WAIST_Y,
             FIN_HALF,
-            topEdge - side * FIN_HALF,
+            topEdge - side * (FIN_HALF - out),
             SLAB_TOP,
             FIN_HALF,
             FIN_DEPTH,

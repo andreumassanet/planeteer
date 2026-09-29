@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 
 /**
@@ -208,8 +209,9 @@ export const angelFalls: Monument = {
       block(FALL_X - half, FALL_X + half, bottom, top, previous - 1.2, front, i % 2 === 0 ? water : spray);
       previous = front;
     }
-    // The notch it comes over, cut back into the rim.
-    block(FALL_X - 2.4, FALL_X + 2.4, 104, 112, 0.4, 3.2, water);
+    // The notch it comes over, cut back into the rim. Its top stops `PROUD`
+    // under the plateau's: flush, the water and the scrub shared a plane.
+    block(FALL_X - 2.4, FALL_X + 2.4, 104, 112 - PROUD, 0.4, 3.2, water);
 
     // A second, seasonal cascade off the right-hand rim. Auyán-tepui carries a
     // dozen of these after rain and one of them is what keeps this cliff from

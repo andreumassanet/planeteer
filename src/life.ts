@@ -1,9 +1,12 @@
 import * as THREE from 'three';
+import { varnish } from './gloss.ts';
 import type { Person } from './cast.ts';
 import type { Folk } from './folk.ts';
 import type { FieldIndex, FieldKeepout } from './fleet.ts';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS } from './globe.ts';
+import { drawnFootprint, landProbeOf } from './land-probe.ts';
+import type { DrawnFootprint } from './land-probe.ts';
 import { mergeMeshes } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import type { Merged } from './merge.ts';
@@ -593,6 +596,14 @@ const KEEP_ALL_WITHIN = 340;
 const EMERGE_BEYOND = 0.7;
 /** A viewer who has moved this far since the last scan has jumped, and the whole cast is laid out afresh. */
 const FRESH_JUMP = 1500;
+/**
+ * How near the player a vehicle or a boat may come into being, in units. A
+ * cast laid out afresh put a car wherever the clock had it, the player's own
+ * spot on the road among them, and a car that gives way to a body it is
+ * standing on waits there for ever; and a boat was admitted at any distance
+ * on any scan. Inside this one is left out until it has gone on out of it.
+ */
+const ARRIVE_CLEAR = 40;
 
 // ---------------------------------------------------------------------------
 // The walk, taken from the two files that already own it
@@ -880,6 +891,8 @@ interface Mover {
   animated?: Herding | null;
   /** A road vehicle's giving way. Road movers only. */
   way?: Way;
+  /** Which of the traffic kit's vehicles a road mover is: `hatchback`, `bicycle`. Road movers only. */
+  vehicle?: string;
 }
 
 /** What kind of thing holds a road vehicle up; see `giveWay`. */
@@ -1027,6 +1040,8 @@ interface HerdGround {
   right: THREE.Vector3;
   forward: THREE.Vector3;
   relief: number;
+  /** The origin's distance from the planet's centre. */
+  base: number;
   spread: number;
 }
 
@@ -1185,7 +1200,18 @@ export interface HerdProbe {
   admitted: number;
 }
 
+/** Where an animal of a merged herd was seated, for `pnpm seated`: its direction, its hooves' distance from the planet's centre, and how far round they reach. */
+export interface HerdSeat {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  reach: number;
+}
+
 export interface Life {
+  /** Collects where the animals of every herd built from now stand, into `into`; null stops. */
+  recordSeats(into: HerdSeat[] | null): void;
   group: THREE.Group;
   stats: LifeStats;
   /** See `HerdProbe`. Rewritten by every scan. */
@@ -1225,10 +1251,11 @@ export interface Life {
   eachBoat(visit: (mesh: THREE.Object3D) => void): void;
   /**
    * Every road vehicle drawn, with its half length and half width along its
-   * own +Z and X: for the headlights `lights.ts` lays on the road ahead of
-   * it. Nothing is allocated.
+   * own +Z and X, which of the traffic kit's vehicles it is, and how far its
+   * model's bottom is under its origin: for the headlights `lights.ts` lays on
+   * the road ahead of it. Nothing is allocated.
    */
-  eachRoadVehicle(visit: (mesh: THREE.Object3D, halfLength: number, halfWidth: number) => void): void;
+  eachRoadVehicle(visit: (mesh: THREE.Object3D, halfLength: number, halfWidth: number, vehicle: string, bottom: number) => void): void;
   /**
    * The animals of the near herds, where each is in its herd's plane and
    * where the far herd has it, with the ground the herd was admitted on: for
@@ -1291,6 +1318,12 @@ export interface LifeOptions {
    */
   fields?: FieldIndex;
   /**
+   * The drawn land (`buildLand`), which a herd's animals stand on where the
+   * land probe has it (`drawnFootprint`): the relief is up to seven units off
+   * what is drawn. Without it they stand on the relief.
+   */
+  land?: THREE.Mesh;
+  /**
    * The standing towns, for a vehicle driving through one (`through.ts`):
    * `floorAt` is the height of a town's floor under a direction, a radius from
    * the planet's centre or 0 off every standing floor (`madeHeightAt` in
@@ -1323,7 +1356,9 @@ function moverMaterial(outlineNormal = true): THREE.MeshToonMaterial {
   // birds opt out: their buffer is rewritten every frame and a second normal
   // would be a second array through JavaScript for twenty triangles a bird.
   material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal };
-  return material;
+  // The birds are feathers, not paint; everything else that moves on the
+  // roads and the water is varnished (`gloss.ts`).
+  return outlineNormal ? varnish(material) : material;
 }
 
 /**
@@ -2444,11 +2479,29 @@ export function createLife(world: World, places: readonly Place[], options: Life
     /** The mesh's own local X and Z, as `update` will build them from `route`. */
     right: THREE.Vector3;
     forward: THREE.Vector3;
-    /** `reliefAt` at the centre: every animal's seat is measured against it. */
+    /** `reliefAt` at the centre: every animal's seat on the relief is measured against it. */
     relief: number;
+    /** The origin's distance from the planet's centre: a seat on the drawn land is measured against it. */
+    base: number;
   }
   /** Bounded the way `chains` is, and emptied at the top of a scan for the same reason. */
   const herdSites = new Map<string, HerdSite>();
+  const landProbe = options.land === undefined ? null : landProbeOf(options.land);
+  const herdDrawn: DrawnFootprint = { centre: 0, lowest: 0, highest: 0 };
+  let seatLog: HerdSeat[] | null = null;
+  /**
+   * An animal's seat at `direction` (a unit vector) in its herd's frame, as a
+   * height over the herd's origin: the lowest of the drawn land under its
+   * hooves (`stance` round) where the probe has it, else the relief's, which
+   * `gradeAt` has put in `slope`. Both the merged herd and the living one
+   * stand here, so the swap between them does not move an animal.
+   */
+  function seatOf(site: HerdGround, direction: THREE.Vector3, stance: number, slope: Slope): number {
+    if (landProbe !== null && drawnFootprint(landProbe, direction, site.right, site.forward, stance, herdDrawn) === 'drawn') {
+      return herdDrawn.lowest - site.base;
+    }
+    return Math.min(reliefAt(direction.x, direction.y, direction.z), slope.lowest) - site.relief;
+  }
   /** The countryside's occupancy, once `setCountry` hands it over; see `clearOfMade`. */
   let country: { occupied(direction: THREE.Vector3, radius: number): boolean } | null = null;
 
@@ -2555,7 +2608,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
       // mean over the whole spread, so this is what catches the outcrop inside
       // an otherwise gentle field.
       if (headSlope.grade > MAX_SLOPE) continue;
-      const seat = Math.min(reliefAt(herdSeat.x, herdSeat.y, herdSeat.z), headSlope.lowest) - site.relief;
+      const seat = seatOf(site, herdSeat, stance, headSlope);
+      seatLog?.push({ x: herdSeat.x, y: herdSeat.y, z: herdSeat.z, radius: site.base + seat, reach: stance });
 
       herdPoint.set(Math.cos(angle) * radius, seat, Math.sin(angle) * radius);
       const matrix = new THREE.Matrix4().compose(herdPoint, herdQuat, herdScale);
@@ -2981,6 +3035,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // now one near enough to be seen waits until it is far, or until the
     // whole cast is being laid out afresh — the first scan, or a jump.
     if (mover.family === 'road' && !freshCast && probeFrame.live && distance < range * EMERGE_BEYOND) return;
+    if ((mover.family === 'road' || mover.family === 'water') && distance < ARRIVE_CLEAR) return;
     const { lane, keep, ...rest } = mover;
     candidates.push({
       ...rest, at: point.clone(), mesh: null, distance,
@@ -3068,6 +3123,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
               family: 'road',
               key,
               pool: pooled,
+              vehicle: id,
               speed,
               route: (clock, out, ground) => {
                 driveFrame(drive, driveAt(drive, phase, speed, clock), lateral, out, ground);
@@ -3377,6 +3433,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
           forward: forwardAt,
           right: new THREE.Vector3().crossVectors(centre, forwardAt).normalize(),
           relief: reliefAt(centre.x, centre.y, centre.z),
+          base: height,
         });
         consider({
           family: 'herd',
@@ -3906,7 +3963,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     }
     gradeAt(grazeDir, site.right, site.forward, head.stance, grazeSlope);
     if (grazeSlope.grade > MAX_SLOPE) return NaN;
-    return Math.min(reliefAt(grazeDir.x, grazeDir.y, grazeDir.z), grazeSlope.lowest) - site.relief;
+    return seatOf(site, grazeDir, head.stance, grazeSlope);
   }
 
   /** Whether a spot keeps a body's length from every other animal of the herd, and from where each is going. */
@@ -4779,6 +4836,9 @@ export function createLife(world: World, places: readonly Place[], options: Life
   }
 
   return {
+    recordSeats(into) {
+      seatLog = into;
+    },
     group,
     stats,
     herds,
@@ -4833,7 +4893,13 @@ export function createLife(world: World, places: readonly Place[], options: Life
       for (const mover of movers.values()) {
         if (mover.family !== 'road' || mover.mesh === null || !mover.mesh.visible) continue;
         const box = mover.mesh.geometry.boundingBox;
-        visit(mover.mesh, box === null ? 2.5 : Math.max(-box.min.z, box.max.z), box === null ? 1 : Math.max(-box.min.x, box.max.x));
+        visit(
+          mover.mesh,
+          box === null ? 2.5 : Math.max(-box.min.z, box.max.z),
+          box === null ? 1 : Math.max(-box.min.x, box.max.x),
+          mover.vehicle ?? '',
+          box === null ? 0 : box.min.y,
+        );
       }
     },
 

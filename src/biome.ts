@@ -75,8 +75,8 @@ export interface Biome {
    */
   cover: number;
   /**
-   * How thick the grass under your feet is, 0 to 1: the share of the sward's
-   * sites that grow a clump (`vegetation.ts`). A second number and not `cover`,
+   * How thick the grass under your feet is, 0 to 1: the density the grass's
+   * blades thin by (`vegetation.ts`'s `grass`, drawn by `grass.ts`). A second number and not `cover`,
    * because they are two questions — the taiga is 0.72 of trees on a thin floor
    * of moss, and a grassland is 0.22 of trees in grass to the knee.
    */

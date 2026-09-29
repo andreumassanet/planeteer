@@ -139,6 +139,7 @@ import { Mesh } from 'three';
 import { PLANE_CEILING, PLANE_CRUISE_HIGH } from '../src/vehicles.ts';
 import * as relay from '../server/src/limits.ts';
 import { TIME_SCALE } from './time-scale.ts';
+import { fightsIn } from './z-fight.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outlines = readFileSync(resolve(here, '../public/data/countries.bin'));
@@ -709,9 +710,23 @@ check(
 // its cliff faces inland and is invisible from the sea.
 let inward = 0;
 const n = new Vector3();
+const faceA = new Vector3();
+const faceB = new Vector3();
+const faceC = new Vector3();
+/**
+ * A triangle's own normal, from its corners. The mesh's normal attribute is
+ * smooth — a vertex's is the mean of the faces round it — so which way a face
+ * points, and whether it is a wall, is asked of its geometry.
+ */
+function faceNormalOf(t: number, into: Vector3): Vector3 {
+  faceA.fromBufferAttribute(position, t * 3);
+  faceB.fromBufferAttribute(position, t * 3 + 1).sub(faceA);
+  faceC.fromBufferAttribute(position, t * 3 + 2).sub(faceA);
+  return into.crossVectors(faceB, faceC).normalize();
+}
 for (let t = 0; t < triangles; t++) {
   v.fromBufferAttribute(position, t * 3);
-  n.fromBufferAttribute(normal, t * 3);
+  faceNormalOf(t, n);
   if (n.dot(v.normalize()) < -0.35) inward++;
 }
 check(inward === 0, 'no triangle faces inward', inward ? `${inward} of ${triangles}` : '');
@@ -764,7 +779,7 @@ let walls = 0;
 let seaward = 0;
 let inland = 0;
 for (let t = 0; t < triangles; t++) {
-  n.fromBufferAttribute(normal, t * 3);
+  faceNormalOf(t, n);
   v.fromBufferAttribute(position, t * 3);
   cb.fromBufferAttribute(position, t * 3 + 1);
   cc.fromBufferAttribute(position, t * 3 + 2);
@@ -905,18 +920,19 @@ check(
   let apart = 0;
   let worst = 0;
   for (let t = 0; t < triangles; t += 37) {
-    n.fromBufferAttribute(normal, t * 3);
+    faceNormalOf(t, n);
     v.fromBufferAttribute(position, t * 3);
     cb.fromBufferAttribute(position, t * 3 + 1);
     cc.fromBufferAttribute(position, t * 3 + 2);
     // Tops only: a cliff is the same colour times 0.72 and asking about a point
     // on a vertical wall is asking which side of the coast it is on.
     if (Math.abs(n.dot(centre.copy(v).normalize())) < 0.5) continue;
-    centre.copy(v).add(cb).add(cc).divideScalar(3);
+    // The mesh paints a colour a vertex (its biome at its own point), so the
+    // question is asked at the first corner rather than the centre.
     // Outside the function's domain; see the note above.
-    if (world.countryAtPoint(centre) === 0) continue;
+    if (world.countryAtPoint(v) === 0) continue;
     meshColor.fromBufferAttribute(color, t * 3);
-    groundColorAt(world, centre, askedColor);
+    groundColorAt(world, v, askedColor);
     const off =
       Math.abs(meshColor.r - askedColor.r) +
       Math.abs(meshColor.g - askedColor.g) +
@@ -972,7 +988,7 @@ check(
   let worstError = 0;
   let where = '';
   for (let t = 0; t < triangles; t++) {
-    n.fromBufferAttribute(normal, t * 3);
+    faceNormalOf(t, n);
     v.fromBufferAttribute(position, t * 3);
     tb.fromBufferAttribute(position, t * 3 + 1);
     tc.fromBufferAttribute(position, t * 3 + 2);
@@ -1434,9 +1450,29 @@ if (placed.length > 0) {
    * unit, and held to the bake's: a model that grew after the last bake is a
    * landmark reaching past the ground made for it.
    */
+  /**
+   * **And no two colours in one plane**, the kit's rule (`fightsIn`, which
+   * `pnpm scenery` holds every scenic part to): two faces facing one way in
+   * one plane, of two colours, overlapping where the camera sees them, are
+   * drawn at one depth and flicker as the camera moves. The ink used to draw
+   * over most of it; without it, the Sagrada Familia's cornices and roofs
+   * flickered across the whole nave. A monument is asked it with a wider
+   * `coplanar` than a house, because it is looked at from much further off:
+   * on foot the near plane is about 1.8 units, and a 24-bit depth buffer's
+   * step at 1,250 units is then about 0.05 units, `MONUMENT_COPLANAR`, so a
+   * trim laid a few hundredths off its wall flickers as surely as a flush
+   * one. `PROUD` in `monuments/contract.ts` is the step that clears it. A
+   * monument's tapers and struts are not exactly parallel to what they meet,
+   * so two faces within `MONUMENT_PARALLEL` of parallel count as one plane.
+   * On 2026-09-28, 46 of the 85 models failed it at 0.02 and 9 more between
+   * 0.02 and 0.05.
+   */
+  const MONUMENT_COPLANAR = 0.05;
+  const MONUMENT_PARALLEL = 1e-4;
   {
     const ctx = createContext();
     const wrongPlan: string[] = [];
+    const fighting: string[] = [];
     let measured = 0;
     for (const file of readdirSync(modelDir).sort()) {
       if (!file.endsWith('.ts') || file === 'contract.ts' || file === 'index.ts') continue;
@@ -1460,11 +1496,22 @@ if (placed.length > 0) {
       const got = monuments.find((m) => m.id === model.id)?.plan;
       measured++;
       if (got === undefined || got.some((v, i) => v !== want[i])) wrongPlan.push(`${model.id} ${JSON.stringify(got)} vs ${JSON.stringify(want)}`);
+      const fought = fightsIn(model.build(ctx), { coplanar: MONUMENT_COPLANAR, parallel: MONUMENT_PARALLEL });
+      if (fought.length > 0) {
+        fought.sort((a, b) => b.exposed - a.exposed);
+        const worst = fought[0]!;
+        fighting.push(`${model.id} (${fought.length}: ${worst.exposed.toFixed(2)} u² at y ${worst.y.toFixed(1)}, ${worst.a} against ${worst.b})`);
+      }
     }
     check(
       wrongPlan.length === 0 && measured > 0,
       `every placement carries its model's plan`,
       wrongPlan.length > 0 ? `${wrongPlan.slice(0, 3).join('; ')} — run \`pnpm monuments\`` : `${measured} models built and measured`,
+    );
+    check(
+      fighting.length === 0 && measured > 0,
+      'no monument draws two colours in one plane',
+      fighting.length > 0 ? `${fighting.length} of ${measured}:\n      ${fighting.join('\n      ')}` : `${measured} models`,
     );
   }
 
@@ -2557,8 +2604,8 @@ console.log('\nroads');
       const course = emptyCourse();
       const ramp = emptyRamp();
       const stations: number[] = [];
-      const near = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
-      const far = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+      const near = Array.from({ length: 6 }, () => new Vector3());
+      const far = Array.from({ length: 6 }, () => new Vector3());
       const unitAt = new Vector3();
       const offset = { x: 0, z: 0 };
       let vertices = 0;
@@ -2607,12 +2654,12 @@ console.log('\nroads');
         for (let k = 0; k < stations.length; k++) {
           const s = stations[k]!;
           ribbonSection(world, course, path, ramp, half, s, far);
-          vertices += 4;
+          vertices += 6;
           // The top's two edges. The bank's feet are laid `SHOULDER_DROP` under
           // the relief, which inside a square is under its paving as well, and
           // since the bank was laid gentler (2026-09-25) a road that curls round
           // its own town reaches in under it by a unit or two.
-          for (const vertex of [far[1]!, far[2]!]) {
+          for (const vertex of [far[2]!, far[3]!]) {
             unitAt.copy(vertex).normalize();
             for (const town of towns) {
               townOffset(town, unitAt, offset);
@@ -2629,7 +2676,7 @@ console.log('\nroads');
           // The kerbs: both crown points of the end section at the paving.
           if (k === 0 || k === stations.length - 1) {
             const kerb = k === 0 ? ramp.kerbA : ramp.kerbB;
-            for (const vertex of [far[1]!, far[2]!]) {
+            for (const vertex of [far[2]!, far[3]!]) {
               kerbs++;
               const error = Math.abs(vertex.length() - kerb);
               if (error > 1e-3) kerbWrong++;
@@ -2638,8 +2685,8 @@ console.log('\nroads');
           }
           if (k > 0) {
             if (measureSag) {
-              const middle = world.elevationAt(unitAt.addVectors(near[1]!, far[2]!).normalize());
-              const chordMiddle = (near[1]!.length() + near[2]!.length() + far[1]!.length() + far[2]!.length()) / 4;
+              const middle = world.elevationAt(unitAt.addVectors(near[2]!, far[3]!).normalize());
+              const chordMiddle = (near[2]!.length() + near[3]!.length() + far[2]!.length() + far[3]!.length()) / 4;
               const sag = PLANET_RADIUS + middle - chordMiddle;
               sagSections++;
               if (sag > 0) sagOver++;
@@ -2647,7 +2694,7 @@ console.log('\nroads');
             }
           }
           // And a third town: the centre line against every built disc nearby.
-          unitAt.addVectors(far[1]!, far[2]!).normalize();
+          unitAt.addVectors(far[2]!, far[3]!).normalize();
           const { lat, lon } = toLatLon(unitAt);
           const row = Math.min(ROWS - 1, Math.max(0, Math.floor((90 - lat) / CELL)));
           const lonSpan = Math.ceil(1 / Math.max(0.02, Math.cos(lat * DEG)));
@@ -2666,7 +2713,7 @@ console.log('\nroads');
               }
             }
           }
-          for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
+          for (let j = 0; j < 6; j++) near[j]!.copy(far[j]!);
         }
       }
       check(
@@ -2880,8 +2927,8 @@ console.log('\nroads');
       {
         const markBegan = Date.now();
         const stationsM: number[] = [];
-        const nearM = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
-        const farM = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+        const nearM = Array.from({ length: 6 }, () => new Vector3());
+        const farM = Array.from({ length: 6 }, () => new Vector3());
         const nL = new Vector3();
         const nR = new Vector3();
         const fL = new Vector3();

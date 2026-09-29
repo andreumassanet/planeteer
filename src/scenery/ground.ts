@@ -491,6 +491,25 @@ export function cellKey(col: number, row: number): number {
 const P = PALETTE;
 
 /**
+ * Tarmac, from a street colour: the palette's `slate` (and `steel` in the
+ * polar towns) is a blue-violet grey that on a painted, warm, sunlit land
+ * reads as a purple strip, so asphalt keeps the street's lightness and takes a
+ * warm grey instead — a sandy hue at a tenth of the saturation, a shade
+ * lighter. A street already in an earth colour (`brown`) is left as it is.
+ * The towns' streets (`GROUND_STYLES`) and the roads between them (`roads.ts`)
+ * both read it, so a road carries on into the street it meets.
+ */
+const ASPHALT_HUE = 0.09;
+const asphaltHsl = { h: 0, s: 0, l: 0 };
+export function asphaltOf(street: THREE.Color, into: THREE.Color): THREE.Color {
+  street.getHSL(asphaltHsl);
+  if (asphaltHsl.h < 0.45 || asphaltHsl.h > 0.92) return into.copy(street);
+  return into.setHSL(ASPHALT_HUE, Math.min(0.1, asphaltHsl.s * 0.7), Math.min(0.66, asphaltHsl.l * 1.08));
+}
+const ASPHALT = asphaltOf(new THREE.Color(P.slate), new THREE.Color()).getHex();
+const ASPHALT_POLAR = asphaltOf(new THREE.Color(P.steel), new THREE.Color()).getHex();
+
+/**
  * The table.
  *
  * Read `road` against what it has to be told apart from — which, since it
@@ -510,11 +529,11 @@ const P = PALETTE;
  */
 export const GROUND_STYLES: Record<RegionId, GroundStyle> = {
   // Asphalt and a pale pavement, and the houses stand in their own gardens.
-  nordic: { hardness: 0.35, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 10.5 },
-  'atlantic-europe': { hardness: 0.6, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
-  'east-europe': { hardness: 0.5, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
+  nordic: { hardness: 0.35, road: ASPHALT, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 10.5 },
+  'atlantic-europe': { hardness: 0.6, road: ASPHALT, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
+  'east-europe': { hardness: 0.5, road: ASPHALT, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
   // Pale stone to the doorstep, and the square is lime-washed like the walls around it.
-  mediterranean: { hardness: 0.6, road: P.slate, walk: P.cream, yard: 'paved', marked: true, plaza: P.white, lanes: 2, street: 7.5 },
+  mediterranean: { hardness: 0.6, road: ASPHALT, walk: P.cream, yard: 'paved', marked: true, plaza: P.white, lanes: 2, street: 7.5 },
   // Beaten earth between the walls: a medina is not paved, it is swept — and its
   // lanes are the narrowest and the closest together in the table, which is the
   // whole of what a medina is from above. They read *dark* because an alley
@@ -522,18 +541,18 @@ export const GROUND_STYLES: Record<RegionId, GroundStyle> = {
   maghreb: { hardness: 0.4, road: P.brown, walk: P.sand, yard: 'earth', marked: false, plaza: P.cream, lanes: 2, street: 6 },
   'sub-saharan': { hardness: 0.3, road: P.brown, walk: P.sand, yard: 'earth', marked: false, plaza: P.sand, lanes: 3, street: 8.25 },
   'middle-east': { hardness: 0.45, road: P.brown, walk: P.sand, yard: 'paved', marked: false, plaza: P.cream, lanes: 2, street: 6.9 },
-  'south-asia': { hardness: 0.45, road: P.slate, walk: P.bone, yard: 'earth', marked: true, plaza: P.cream, lanes: 3, street: 8.25 },
-  'east-asia': { hardness: 0.55, road: P.slate, walk: P.bone, yard: 'paved', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
+  'south-asia': { hardness: 0.45, road: ASPHALT, walk: P.bone, yard: 'earth', marked: true, plaza: P.cream, lanes: 3, street: 8.25 },
+  'east-asia': { hardness: 0.55, road: ASPHALT, walk: P.bone, yard: 'paved', marked: true, plaza: P.cream, lanes: 3, street: 9.75 },
   // Wet ground under stilts. What hard standing there is, is a plank and a path.
   'southeast-asia': { hardness: 0.3, road: P.brown, walk: P.sand, yard: 'land', marked: false, plaza: P.sand, lanes: 3, street: 8.25 },
   // Roads between lots, which is what a suburb is: the widest road on the
   // planet, on the widest pitch in the kit, and a lawn in front of every house.
-  'north-america': { hardness: 0.45, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 4, street: 15 },
-  'latin-america': { hardness: 0.5, road: P.slate, walk: P.cream, yard: 'paved', marked: true, plaza: P.white, lanes: 3, street: 9.75 },
-  oceania: { hardness: 0.45, road: P.slate, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 4, street: 14.25 },
+  'north-america': { hardness: 0.45, road: ASPHALT, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 4, street: 15 },
+  'latin-america': { hardness: 0.5, road: ASPHALT, walk: P.cream, yard: 'paved', marked: true, plaza: P.white, lanes: 3, street: 9.75 },
+  oceania: { hardness: 0.45, road: ASPHALT, walk: P.bone, yard: 'land', marked: true, plaza: P.cream, lanes: 4, street: 14.25 },
   // Nothing grows, so there is no lawn to lose: the ground is already bare rock,
   // and it is the one place pale enough for a dark road to read as a road.
-  polar: { hardness: 0.45, road: P.steel, walk: P.bone, yard: 'land', marked: false, plaza: P.white, lanes: 4, street: 12 },
+  polar: { hardness: 0.45, road: ASPHALT_POLAR, walk: P.bone, yard: 'land', marked: false, plaza: P.white, lanes: 4, street: 12 },
 };
 
 const DEFAULT_GROUND: GroundStyle = GROUND_STYLES['atlantic-europe'];

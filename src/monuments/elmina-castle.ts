@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Elmina Castle — São Jorge da Mina, Central Region, Ghana.
@@ -316,7 +317,9 @@ export const elminaCastle: Monument = {
     block(-1.9, 1.9, ROCK, 8.4, 20.2, 20.6, dark);
     // One step down from the sill onto the ledge, and one only: a flight here
     // would stand in front of the door it exists to reach.
-    block(-3.4, 3.4, 2.9, ROCK, 20.6, 22.2, stone);
+    // Its tread stands `PROUD` over the ledge: flush, the tan and the rock
+    // shared one plane and flickered.
+    block(-3.4, 3.4, 2.9, ROCK + PROUD, 20.6, 22.2, stone);
 
     // -----------------------------------------------------------------------
     // 4. The flanks, running back from the sea front, and the landward block —
@@ -383,7 +386,9 @@ export const elminaCastle: Monument = {
       drum.position.set(cx, 5.4, cz);
       group.add(drum);
 
-      const cordon = column(6.7, 0.8, stone, 10);
+      // `PROUD` short of the drum's top: flush, the cordon's top and the
+      // drum's shared a plane under the platform's hole and flickered.
+      const cordon = column(6.7, 0.8 - PROUD, stone, 10);
       cordon.position.set(cx, 18.7, cz);
       group.add(cordon);
 

@@ -34,9 +34,12 @@
  *     from; cleaned by `cleanChat` and paced by `spendChat` in `limits.ts`,
  *     the same two the game sends by;
  *   `{ t: 'emote', e }` a gesture (`EMOTES`), at most one a second;
- *   `{ t: 'honk', k }` a horn (`HONKS`), from a driver's seat, at most one
- *     each `HONK_INTERVAL_MS`. An older relay drops it, as it drops anything
- *     it does not know;
+ *   `{ t: 'honk', k, on? }` a horn (`HONKS`), from a driver's seat: `on`
+ *     true when the key goes down and again each `HONK_REFRESH_MS` while it
+ *     is held, false when it comes up, absent for a tap (an older client);
+ *     a start, a refresh or a tap at most one each `HONK_INTERVAL_MS`, a
+ *     stop whenever a start is sounding (`spendHonk`). An older relay drops
+ *     it, as it drops anything it does not know;
  *   `{ t: 'flags', f }` what the player is doing that a state does not say
  *     (`FLAGS`: a canopy, a bench), on each change, at most one each
  *     `FLAGS_INTERVAL_MS`; kept, unlike a gesture.
@@ -62,7 +65,9 @@
  *     too, stamped with who sent it under the name the room knows them by and
  *     when; the sender's copy is how it knows the line went;
  *   `{ t: 'emote', id, e }` a gesture, to everyone but its maker;
- *   `{ t: 'honk', id, k }` a horn, to everyone but its driver;
+ *   `{ t: 'honk', id, k, on? }` a horn, to everyone but its driver, with
+ *     the `on` it was sent with; a peer lets a held one go by itself after
+ *     `HONK_HOLD_MS` without a refresh, and at the driver's `bye`;
  *   `{ t: 'flags', id, f }` a player's new flags, to everyone but them.
  *
  * The chat is one room for the planet, like everything else here, and it is
@@ -94,7 +99,6 @@ import {
   CHAT_HISTORY,
   EMOTE_INTERVAL_MS,
   FLAGS_INTERVAL_MS,
-  HONK_INTERVAL_MS,
   MAX_RADIUS,
   MAX_SPEED,
   MIN_RADIUS,
@@ -103,12 +107,15 @@ import {
   cleanEmote,
   cleanFlags,
   cleanHonk,
+  cleanHonkOn,
   cleanLook,
   driveReach,
   freshBucket,
+  freshHonk,
   spendChat,
+  spendHonk,
 } from './limits.ts';
-import type { ChatBucket } from './limits.ts';
+import type { ChatBucket, HonkState } from './limits.ts';
 
 /** How many sockets one room accepts; the next is refused with 1013. */
 const MAX_PLAYERS = 100;
@@ -181,7 +188,9 @@ interface Attachment {
   /** The last pose it sent as a driver, so a wake knows where the vehicle is. */
   drive: { v: string; p: Pose; at: number } | null;
   /** When each kind of message was last accepted; kept here so a hibernation forgives nothing. */
-  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number; honk: number; flags: number };
+  rate: { s: number; vp: number; sit: number; up: number; look: number; emote: number; flags: number };
+  /** The horn's pacing and whether it is held (`spendHonk`). */
+  horn: HonkState;
   /** What this socket may still say in the chat (`spendChat`). */
   chat: ChatBucket;
 }
@@ -287,7 +296,8 @@ function attachmentOf(socket: WebSocket): Attachment | null {
     flags: raw.flags ?? 0,
     seat: raw.seat ?? null,
     drive: raw.drive ?? null,
-    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0, flags: 0, ...raw.rate },
+    rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, flags: 0, ...raw.rate },
+    horn: raw.horn ?? freshHonk(),
     chat: raw.chat ?? freshBucket(),
   };
 }
@@ -362,7 +372,8 @@ export class Room extends DurableObject<Env> {
     const key = query.get('key') ?? '';
     server.serializeAttachment({
       id, name, look, key: KEY.test(key) ? key : '', state: null, flags: 0, seat: null, drive: null,
-      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, honk: 0, flags: 0 },
+      rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, flags: 0 },
+      horn: freshHonk(),
       chat: freshBucket(),
     } satisfies Attachment);
 
@@ -406,14 +417,14 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (typeof value !== 'object' || value === null) return;
-    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown; f?: unknown };
+    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown; f?: unknown; on?: unknown };
     if (typed.t === 'vp') this.drive(socket, self, typed, now);
     else if (typed.t === 'sit') this.sit(socket, self, typed, now);
     else if (typed.t === 'up') this.up(socket, self, typed, now);
     else if (typed.t === 'look') this.restyle(socket, self, typed.l, now);
     else if (typed.t === 'chat') this.say(socket, self, typed.m, typed.c, now);
     else if (typed.t === 'emote') this.gesture(socket, self, typed.e, now);
-    else if (typed.t === 'honk') this.honk(socket, self, typed.k, now);
+    else if (typed.t === 'honk') this.honk(socket, self, typed.k, typed.on, now);
     else if (typed.t === 'flags') this.flag(socket, self, typed.f, now);
   }
 
@@ -499,14 +510,19 @@ export class Room extends DurableObject<Env> {
     this.broadcast(JSON.stringify({ t: 'flags', id: self.id, f }), socket);
   }
 
-  /** A horn, from the driver's seat only: passed on, never kept. */
-  private honk(socket: WebSocket, self: Attachment, raw: unknown, now: number): void {
-    if (now - self.rate.honk < HONK_INTERVAL_MS || self.seat === null || self.seat[1] !== 0) return;
+  /**
+   * A horn, passed on and never kept: started, refreshed or tapped from the
+   * driver's seat only, and let go from anywhere, since the seat may be left
+   * before the key comes up.
+   */
+  private honk(socket: WebSocket, self: Attachment, raw: unknown, rawOn: unknown, now: number): void {
     const k = cleanHonk(raw);
-    if (k === '') return;
-    self.rate.honk = now;
+    const on = cleanHonkOn(rawOn);
+    if (k === '' || on === null) return;
+    if (on !== false && (self.seat === null || self.seat[1] !== 0)) return;
+    if (!spendHonk(self.horn, on, now)) return;
     socket.serializeAttachment(self);
-    this.broadcast(JSON.stringify({ t: 'honk', id: self.id, k }), socket);
+    this.broadcast(JSON.stringify(on === undefined ? { t: 'honk', id: self.id, k } : { t: 'honk', id: self.id, k, on }), socket);
   }
 
   private leave(socket: WebSocket): void {

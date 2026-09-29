@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -260,8 +261,10 @@ export const stPetersBasilica: Monument = {
     wall.position.z = facadeZ;
     group.add(wall);
 
-    const pedestal = box(FACADE.half * 2 + 1, PEDESTAL_TOP, facadeDepth + 1, trim);
-    pedestal.position.z = facadeZ + 0.5;
+    // Its back stops `PROUD` inside the wall's: flush, the two colours shared
+    // the plane behind the façade.
+    const pedestal = box(FACADE.half * 2 + 1, PEDESTAL_TOP, facadeDepth + 1 - PROUD, trim);
+    pedestal.position.z = facadeZ + 0.5 + PROUD / 2;
     group.add(pedestal);
 
     // The giant order. Free-standing in front of the wall rather than engaged in
@@ -345,9 +348,10 @@ export const stPetersBasilica: Monument = {
     group.add(drum);
 
     // Sixteen buttress columns round the drum. This ring is the second half of
-    // the dome's read: without it the drum is a chimney.
+    // the dome's read: without it the drum is a chimney. Each stops `PROUD`
+    // inside the cornice it runs up into, whose top it would otherwise share.
     const buttresses = around(DRUM.count, () => {
-      const shaft = column(DRUM.column, DRUM_CORNICE.top - TRANSITION.top - 0.5, travertine, 8);
+      const shaft = column(DRUM.column, DRUM_CORNICE.top - TRANSITION.top - 0.5 - PROUD, travertine, 8);
       shaft.position.set(0, TRANSITION.top + 0.5, DRUM.ring);
       return shaft;
     });

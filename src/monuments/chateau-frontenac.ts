@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 
 /**
@@ -261,7 +262,9 @@ export const chateauFrontenac: Monument = {
     ] as const;
     for (const [x0, x1, eaves, rise] of FRONT) {
       block(x0, x1, BASE, eaves, 7.0, 19.0, brick);
-      block(x0 - 0.4, x1 + 0.4, eaves - 0.8, eaves, 6.6, 19.4, stone);
+      // Each cornice stops `PROUD` under its eaves: flush, its top shared the
+      // brick's plane in another colour.
+      block(x0 - 0.4, x1 + 0.4, eaves - 0.8 - PROUD, eaves - PROUD, 6.6, 19.4, stone);
       gable((x0 + x1) / 2, 13.0, x1 - x0 + 0.8, 6.4, eaves, rise, copper, true);
     }
 
@@ -272,11 +275,13 @@ export const chateauFrontenac: Monument = {
     //    back of it is seen at all.
     // -----------------------------------------------------------------------
     block(-20.0, -9.0, BASE, 16.0, -17.0, 8.0, brick);
-    block(-20.4, -8.6, 15.2, 16.0, -17.4, 8.0, stone);
+    // Its cornice also ends `PROUD` short of the brick's end, both buried in
+    // the riverfront block, rather than sharing that end's plane.
+    block(-20.4, -8.6, 15.2 - PROUD, 16.0 - PROUD, -17.4, 8.0 - PROUD, stone);
     gable(-14.5, -4.5, 25.8, 5.9, 16.0, 6.5, copper); // ridge 22.5, pitch 48 degrees
 
     block(9.0, 20.0, BASE, 15.0, -17.0, 8.0, brick);
-    block(8.6, 20.4, 14.2, 15.0, -17.4, 8.0, stone);
+    block(8.6, 20.4, 14.2 - PROUD, 15.0 - PROUD, -17.4, 8.0 - PROUD, stone);
     gable(14.5, -4.5, 25.8, 5.9, 15.0, 6.0, copper); // ridge 21.0
 
     block(-9.5, 9.5, BASE, 14.0, -17.0, -8.0, brick);

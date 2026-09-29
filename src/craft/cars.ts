@@ -258,6 +258,61 @@ function carSoups(model: Model, k: number, body: number, slots?: RegExp): { stil
   return { still: soupFrom(still, new THREE.Vector3()), wheels };
 }
 
+/**
+ * How far back from the model's nose a lamp may be, as a share of its length:
+ * the pack's headlamps are in its front tenth, and a tail-lamp, or the
+ * tractor's amber beacon on its cab, is well behind this.
+ */
+const LAMP_BAND = 0.2;
+
+/**
+ * Whether a slot is a lamp's glass: named so (Quaternius's bus has a
+ * `Lights` slot), or the Kenney pack's lamp yellow — a saturated, bright
+ * yellow-to-amber that nothing else on its cars is painted in.
+ */
+function isLampSlot(slot: string, color: THREE.Color): boolean {
+  if (/light|lamp/i.test(slot)) return true;
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.clone().convertLinearToSRGB().getHSL(hsl);
+  return hsl.h > 0.07 && hsl.h < 0.18 && hsl.s > 0.75 && hsl.l > 0.45;
+}
+
+/**
+ * The headlamps as the model has them, in the craft's frame (`carSoups`'s
+ * `(p - centre) * k`, the base on y = 0): the lamp-coloured vertices in the
+ * front `LAMP_BAND` of the model, split at the centreline, each side's
+ * middle across and up at the front of its glass. One lamp where they are
+ * all on one side of it. Throws where the model has none, so a pack that
+ * changes its colours fails the check rather than lighting the road from
+ * nowhere.
+ */
+export function lampsOf(model: Model, k: number): [number, number, number][] {
+  const position = model.geometry.getAttribute('position');
+  const lamp = model.slots.map((slot, s) => isLampSlot(slot, model.defaults[s]!));
+  const cx = (model.box.min.x + model.box.max.x) / 2;
+  const cz = (model.box.min.z + model.box.max.z) / 2;
+  const front = model.box.max.z - LAMP_BAND * (model.box.max.z - model.box.min.z);
+  // Per side: the sum of x and y, how many, and the foremost z.
+  const sides = [
+    { x: 0, y: 0, n: 0, z: -Infinity },
+    { x: 0, y: 0, n: 0, z: -Infinity },
+  ];
+  for (let v = 0; v < position.count; v++) {
+    if (!lamp[model.slot[v]!]) continue;
+    const z = position.getZ(v);
+    if (z < front) continue;
+    const x = position.getX(v) - cx;
+    const side = sides[x < 0 ? 0 : 1]!;
+    side.x += x;
+    side.y += position.getY(v) - model.box.min.y;
+    side.n++;
+    side.z = Math.max(side.z, z);
+  }
+  const found = sides.filter((side) => side.n > 0);
+  if (found.length === 0) throw new Error(`craft: '${model.name}' has no headlamps in its front ${LAMP_BAND * 100}%`);
+  return found.map((side) => [(side.x / side.n) * k, (side.y / side.n) * k, (side.z - cz) * k]);
+}
+
 interface CarSpec {
   id: string;
   kind: CraftModel['kind'];
@@ -374,7 +429,7 @@ function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>, carK: numbe
     const { still, wheels } = carSoups(model, k, paint, slots);
     return assemble(spec.id, [still], wheels);
   };
-  return finish({ id: spec.id, kind: spec.kind, medium: 'road', seats, draft: 0, variants: spec.paints.length, build });
+  return finish({ id: spec.id, kind: spec.kind, medium: 'road', seats, draft: 0, variants: spec.paints.length, lamps: lampsOf(model, k), build });
 }
 
 /** The road craft built off the traffic kit's own models, by name. */

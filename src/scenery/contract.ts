@@ -7,6 +7,7 @@ import type { Measurements, MonumentContext } from '../monuments/contract.ts';
 import { rngFrom } from './random.ts';
 import { AVATAR_HEIGHT, BODY_SCALE, SCENERY_SCALE } from '../stature.ts';
 import type { Rng, Weighted } from './random.ts';
+import type { TreeForm } from './tree-forms.ts';
 
 /**
  * The scenery contract: the kit that inhabits the planet.
@@ -248,9 +249,12 @@ export interface KindSpec {
 }
 
 export const KINDS: Record<PartKind, KindSpec> = {
-  // Kenney's Nature Kit since 2026-09-17: the heaviest tree it draws here is the
-  // default pine at 230 triangles and the heaviest scatter the detailed bush at
-  // 104 (`pnpm kit`), against the 150 and 90 the code-built plants were held to.
+  // The caps a tree's and a bush's *solid* build is held to — the trunk and the
+  // crown of lumps a town and a far tile draw (`tree-forms.ts`): 232 at the
+  // worst palm, 208 at the broadleaf, about 140 at the conifer and 80 at the
+  // shrub (`pnpm scenery`, 2026-09-28). A near tile's cards are not a part's build and not under
+  // these; `vegetation.ts` prices them (`CARD_LEVEL`). The cactus is still
+  // Kenney's (Nature Kit, CC0), at 122.
   scatter: { height: 6, minHeight: 0.5, footprint: 3.5, triangles: 110, meshes: 8, colors: 3 },
   tree: { height: 26, minHeight: 4, footprint: 8, triangles: 240, meshes: 14, colors: 3 },
   // The three building kinds are a fifth over what they were (220/380/520 and
@@ -447,6 +451,14 @@ export interface SceneryContext extends MonumentContext {
    * vertex colours and the outline normals rather than the material's stamp.
    */
   painted(model: Model, paint?: Paint): THREE.Mesh;
+
+  /**
+   * Geometry built in code that carries its own linear `color` attribute, as
+   * a mesh drawn with the same vertex-coloured material `painted` uses: a
+   * tree's trunk and crown (`tree-forms.ts`), whose shade is worked out a
+   * vertex at a time and would be a palette entry a vertex otherwise.
+   */
+  coloured(geometry: THREE.BufferGeometry): THREE.Mesh;
 
   /**
    * A baked model (`registerSceneryModels`) as a part: painted, turned by `yaw`,
@@ -915,7 +927,7 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
    * model code (`src/models.ts`) has no reason to be.
    */
   let paintedMaterial: THREE.MeshToonMaterial | null = null;
-  function painted(model: Model, paint?: Paint): THREE.Mesh {
+  function vertexColoured(): THREE.MeshToonMaterial {
     if (paintedMaterial === null) {
       const source = base.toon(PALETTE.ink);
       paintedMaterial = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: source.gradientMap });
@@ -923,9 +935,16 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
       paintedMaterial.userData.atlasToon = PALETTE.white;
       paintedMaterial.userData[PAINTED_MARK] = true;
     }
-    const mesh = new THREE.Mesh(paintModel(model, paint), paintedMaterial);
+    return paintedMaterial;
+  }
+  function painted(model: Model, paint?: Paint): THREE.Mesh {
+    const mesh = new THREE.Mesh(paintModel(model, paint), vertexColoured());
     mesh.name = model.name;
     return mesh;
+  }
+  function coloured(geometry: THREE.BufferGeometry): THREE.Mesh {
+    if (geometry.getAttribute('color') === undefined) throw new Error('coloured() wants geometry with its own colour attribute');
+    return new THREE.Mesh(geometry, vertexColoured());
   }
 
   /**
@@ -1116,6 +1135,7 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
   return {
     ...base,
     painted,
+    coloured,
     fitted,
     glass,
 
@@ -1302,6 +1322,14 @@ export interface ScenicPart {
    * inside `footprint`, identity transform, materials only from `ctx.toon`.
    */
   build(ctx: SceneryContext, rng: Rng, style: RegionStyle): THREE.Group;
+  /**
+   * A tree's whole form (`tree-forms.ts`) from the same `rng` and `style`
+   * `build` is handed: the trunk and limbs and the leaf cards a near tile of
+   * the wood draws, where `build` is the trunk and the solid crown a town and
+   * a far tile draw. The two are one tree only if `build` is `solidTree` of
+   * this, drawing nothing from `rng` first.
+   */
+  form?(rng: Rng, style: RegionStyle): TreeForm;
 }
 
 /** The seed for one variant. Identity, not order: see `random.ts`. */

@@ -95,6 +95,38 @@ export const HORN_OF: Readonly<Record<CraftKind, Honk | null>> = {
   balloon: null,
 };
 
+/**
+ * How each kind lights the road ahead after dark: how many headlamps it
+ * carries and how bright each is, a car's being 1. Where the lamps are is
+ * the model's own (`CraftModel.lamps`, found on the model it is built from),
+ * so a lamp is always on the thing that carries it; this says only whether
+ * they are lit and how much. A car, a van, a jeep, a bus and a tractor have
+ * two at their front corners; a motorbike or a scooter one on its headset, a
+ * tuk-tuk the one on its apron, and a bicycle one small dim lamp on its head
+ * tube. A horse, a boat, anything that flies, and a submarine have none.
+ */
+export const HEADLIGHTS_OF: Readonly<Record<CraftKind, { count: number; strength: number }>> = {
+  car: { count: 2, strength: 1 },
+  van: { count: 2, strength: 1 },
+  jeep: { count: 2, strength: 1 },
+  bus: { count: 2, strength: 1.1 },
+  tractor: { count: 2, strength: 0.9 },
+  tuktuk: { count: 1, strength: 0.8 },
+  motorbike: { count: 1, strength: 0.85 },
+  bicycle: { count: 1, strength: 0.35 },
+  horse: { count: 0, strength: 0 },
+  boat: { count: 0, strength: 0 },
+  sailboat: { count: 0, strength: 0 },
+  jetski: { count: 0, strength: 0 },
+  submarine: { count: 0, strength: 0 },
+  plane: { count: 0, strength: 0 },
+  helicopter: { count: 0, strength: 0 },
+  balloon: { count: 0, strength: 0 },
+};
+
+/** A headlamp's glass, in the model's frame: its middle across and up, and the front of it. */
+export type Lamp = readonly [number, number, number];
+
 export interface Seat {
   /** The hip, in the model's frame. The seat surface is at `y`. */
   x: number;
@@ -148,6 +180,13 @@ export interface CraftModel {
    * motion's phase (`CraftMotion.phase`).
    */
   gearing?: number;
+  /**
+   * The headlamps, in the model's frame, where the model itself has them:
+   * read off its lamp-coloured faces (`cars.ts`), its lit meshes
+   * (`traffic-craft.ts`) or the lamp it is built with (`cycles.ts`). As many
+   * as `HEADLIGHTS_OF` says the kind lights; absent where it has none.
+   */
+  lamps?: readonly Lamp[];
   /** How many looks the model has; `build` takes one of `0 .. variants - 1`. */
   variants: number;
   /**
@@ -262,6 +301,17 @@ export const PARKED_CRAFT: Readonly<Record<string, string>> = {
  * (`craft/traffic-craft.ts`).
  */
 export const RIDE_SCALE = AVATAR_HEIGHT / RIDER_HEIGHT;
+
+/**
+ * The traffic's vehicles that no craft stands in for, and the craft whose
+ * lamps each borrows, scaled to it: a lorry has a van's, a kei truck a
+ * pickup's. A hand-cart has none.
+ */
+export const LAMPS_LIKE: Readonly<Record<string, string>> = {
+  ...PARKED_CRAFT,
+  'box-truck': 'van',
+  'kei-truck': 'pickup',
+};
 
 /**
  * The traffic kit's vehicles a town parks at `RIDE_SCALE` rather than at the

@@ -1,32 +1,32 @@
-import type { ScenicPart } from '../contract.ts';
-import { rolePaint, sceneryModel } from '../contract.ts';
+import type { RegionStyle, ScenicPart } from '../contract.ts';
+import type { Rng } from '../random.ts';
+import { PALETTE } from '../../theme.ts';
+import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
- * Palm: one of Kenney's palms (Nature Kit, CC0), fronds in the region's
- * foliage on a brown or tan trunk.
+ * Palm: a curving ringed trunk and a head of drooping fronds (`tree-forms.ts`),
+ * fronds in the region's foliage on a brown or tan trunk. A Kenney palm until
+ * 2026-09-28.
  */
 
-const MODELS = ['tree-palmTall', 'tree-palm', 'tree-palmBend'] as const;
 const FOOTPRINT = 7.4;
+
+function formOf(rng: Rng, style: RegionStyle) {
+  return treeForm('palm', rng, {
+    height: rng.range(10, 15),
+    reach: FOOTPRINT - 0.05,
+    leaf: rng.pick(style.foliage),
+    leaf2: rng.pick(style.foliage),
+    bark: rng.pick([PALETTE.brown, PALETTE.tan, PALETTE.bark]),
+  });
+}
 
 export const palmTree: ScenicPart = {
   id: 'palm-tree',
   name: 'Palm',
   kind: 'tree',
   footprint: FOOTPRINT,
-  note: "Kenney palm, tall, plain or bent, fronds in the region's greens.",
-
-  build(ctx, rng, style) {
-    const { palette } = ctx;
-    const id = rng.pick([...MODELS]);
-    const paint = rolePaint(sceneryModel(id), [[/leaf/i, rng.pick(style.foliage)], [/wood|bark/i, rng.pick([palette.brown, palette.tan, palette.bark])]]);
-    return ctx.fitted(id, {
-      height: rng.range(10, 15),
-      // A hair inside the footprint, which the contract holds to 0.05.
-      radius: FOOTPRINT - 0.02,
-      yaw: rng.range(0, Math.PI * 2),
-      // Darker under the crown and lit on top: see `ModelFit.shade`.
-      shade: { slots: /leaf|grass/i, bottom: 0.8, top: 1.12 },
-    }, paint);
-  },
+  note: "A curving ringed trunk under drooping fronds in the region's greens.",
+  build: (ctx, rng, style) => solidTree(ctx, formOf(rng, style)),
+  form: formOf,
 };

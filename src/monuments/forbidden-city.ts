@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -450,7 +451,9 @@ export const forbiddenCity: Monument = {
     const storeyBase = y;
     y = course(HALL.storey, y, shade);
 
-    const span = HALL.storey.hx - COLUMNS.radius;
+    // The end posts stand `PROUD` inside the storey's corners: with their outer
+    // flat on its end wall, red and crimson shared a plane and flickered.
+    const span = HALL.storey.hx - COLUMNS.radius - PROUD;
     for (let i = 0; i < COLUMNS.count; i++) {
       const post = column(COLUMNS.radius, HALL.storey.height, timber, 8);
       post.position.set(

@@ -128,6 +128,14 @@ const REBASE = 4000;
 
 /** How far off a strike is still drawn, and how far its flash and its thunder reach. */
 const STRIKE_REACH = 5000;
+/**
+ * How far a strike lights the scene: fully within `FLASH_NEAR`, fading out
+ * by `FLASH_FAR`, about the haze's reach on the ground; past that only
+ * `FLASH_DISTANT` of a flash, and only under a storm of one's own.
+ */
+const FLASH_NEAR = 700;
+const FLASH_FAR = 2200;
+const FLASH_DISTANT = 0.25;
 /** The height the bolt comes out of, over the ground: the deck's base, less its swing. */
 const BOLT_TOP = CLOUD_BASE * 0.85;
 const BOLT_SEGMENTS = 16;
@@ -555,7 +563,12 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
     boltAttribute.needsUpdate = true;
     boltGeometry.computeVertexNormals();
     flashAge = 0;
-    flashStrength = 1 / (1 + (distance / 2200) ** 2);
+    // A strike lights the whole scene only when it is close enough to be
+    // seen: past the haze it is a bolt nobody saw and a white-out from a
+    // clear sky, which reads as a fault. Out there it is a faint flicker, and
+    // only when the storm is over the player too (`state.storm`).
+    const near = 1 - smoothstep(FLASH_NEAR, FLASH_FAR, distance);
+    flashStrength = Math.max(near, FLASH_DISTANT * state.storm * (1 - smoothstep(FLASH_FAR, STRIKE_REACH, distance)));
     const metres = distance / SCENERY_SCALE;
     view.onThunder?.(metres / SOUND_SPEED, 1 / (1 + metres / 1400));
   }

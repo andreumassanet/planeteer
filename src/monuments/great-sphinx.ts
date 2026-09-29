@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * The Great Sphinx of Giza.
@@ -320,7 +321,7 @@ const EAR_Z = 2.4;
 
 /**
  * The nemes. Three pieces a side plus the crown, and the widths are the point:
- * crown 9.2, upper lappet out to 5.1, lower lappet out to 5.4. Read bottom to
+ * crown 9.6, upper lappet out to 5.3, lower lappet out to 6.28. Read bottom to
  * top that is a trapezoid widening downward, which is the shape you would draw
  * from memory. The face inside it is 5.6.
  */
@@ -338,8 +339,13 @@ const UPPER_LAPPET_DEPTH = 5.2;
 const UPPER_LAPPET_Y = 2.4;
 const UPPER_LAPPET_Z = 1.0;
 
-/** Wider and shallower than the upper, so the pair steps outward on the way down. */
-const LOWER_LAPPET_X = 4.6;
+/**
+ * Wider and shallower than the upper, so the pair steps outward on the way down.
+ * Set `PROUD` further out than the 4.6 it was drawn at: there its outer face
+ * lay 0.008 off the flank of the body's front slice, cloth and stone in one
+ * plane, and they flickered.
+ */
+const LOWER_LAPPET_X = 4.6 + PROUD;
 const LOWER_LAPPET_WIDTH = 3.2;
 const LOWER_LAPPET_HEIGHT = 8.6;
 const LOWER_LAPPET_DEPTH = 4.2;

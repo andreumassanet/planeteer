@@ -848,7 +848,9 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     }
     if (weather.flash > 0) {
       const f = weather.flash;
-      mood.ambientIntensity += 2.4 * f;
+      // A blink of fill, not a white-out: through the tone map and the bloom
+      // the old 2.4 took every surface on the screen past white.
+      mood.ambientIntensity += 0.9 * f;
       mood.ambient = colorAt(mood.ambient, FLASH_COLOR.getHex(), f);
       mood.skyTop = colorAt(mood.skyTop, FLASH_COLOR.getHex(), 0.55 * f);
       mood.skyHorizon = colorAt(mood.skyHorizon, FLASH_COLOR.getHex(), 0.65 * f);

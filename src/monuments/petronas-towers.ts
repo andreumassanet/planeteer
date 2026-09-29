@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -165,6 +166,8 @@ const SQUARE = Math.SQRT1_2;
  * every collar oversails upward and none of them flanges outward.
  */
 const COLLAR = 1.03;
+/** How tall each of those collars stands. */
+const COLLAR_HEIGHT = 0.45;
 
 // --- elevation --------------------------------------------------------------
 const APRON_TOP = 0.9;
@@ -251,22 +254,27 @@ export const petronasTowers: Monument = {
       const tower = new THREE.Group();
 
       // --- shaft and setbacks: one core and two crossed squares per band ---
-      for (const level of LEVELS) {
-        const height = level.top - level.base;
-        tower.add(core(level.point * NOTCH, level.base, height, glass));
+      //
+      // A setback's shaft rises out of the top of its collar rather than from
+      // the collar's foot: started at the foot, the glass core, the steel
+      // piers and the collar's underside were three colours in one plane.
+      for (const [index, level] of LEVELS.entries()) {
+        const base = index === 0 ? level.base : level.base + COLLAR_HEIGHT;
+        const height = level.top - base;
+        tower.add(core(level.point * NOTCH, base, height, glass));
         // Turn 0 puts a flat on +Z and corners on the diagonals; turn 45 puts
         // corners on +Z and +X. Between them, eight points at every 45 degrees.
         for (const turn of [0, Math.PI / 4]) {
           const square = column(level.point * SQUARE, height, skin, 4);
           square.rotation.y = turn;
-          square.position.y = level.base;
+          square.position.y = base;
           tower.add(square);
         }
       }
 
       // --- the dark collar under each setback ---
       for (const level of LEVELS.slice(1)) {
-        tower.add(core(level.point * COLLAR, level.base, 0.45, dark));
+        tower.add(core(level.point * COLLAR, level.base, COLLAR_HEIGHT, dark));
       }
 
       // --- the three horizontals on the shaft, all proud of the glass so each
@@ -316,7 +324,9 @@ export const petronasTowers: Monument = {
     // The apron oversails the podium by a full unit on all four sides, which is
     // the least that leaves any green visible: at 0.2 the park was a colour
     // nobody could see, which is the same as not spending the mesh.
-    group.add(box(27.6, APRON_TOP, 11.4, park));
+    // Its ends reach `PROUD` past the towers' outer piers, whose faces they
+    // would otherwise share at x = 13.8 in two colours.
+    group.add(box(27.6 + PROUD * 2, APRON_TOP, 11.4, park));
 
     const podium = box(25, PODIUM_TOP - APRON_TOP, 9.4, mall);
     podium.position.y = APRON_TOP;

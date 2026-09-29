@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Mesh, Monument, Object3D } from './contract.ts';
 
 /**
@@ -355,8 +356,13 @@ export const abuSimbel: Monument = {
     // It is also the rock the doorway and the niche are seen against, and the
     // two front panels leave the seven-unit slot between them that they live in.
     group.add(slab(96, 0, CORNICE_Y, SLAB_BACK, WALL_BACK, rock));
+    // Each panel's inner end stands 0.2 into the doorway slot, at 3.3: at 3.5
+    // it shared the inner throne's side in another colour, and the figure's
+    // carved pieces stand at 3.4 and 3.6, so 3.3 is the nearest plane clear
+    // of all three by `PROUD`.
+    const PANEL_IN = 0.2;
     for (const side of [-1, 1]) {
-      group.add(slab(44.5, 0, 52, WALL_BACK, WALL, wall, side * 25.75));
+      group.add(slab(44.5 + PANEL_IN, 0, 52, WALL_BACK, WALL, wall, side * (25.75 - PANEL_IN / 2)));
     }
 
     // A jamb is one wedge, not a stack of courses: it narrows 5.4 to 3.6 and
@@ -408,7 +414,9 @@ export const abuSimbel: Monument = {
     //    of the cliff and seven units behind the thrones' fronts.
     // -----------------------------------------------------------------------
     group.add(slab(6, TERRACE_TOP, 28, WALL_BACK, WALL_BACK + 1.5, dark));
-    group.add(slab(9, 28, 32.5, WALL_BACK, WALL, carved));
+    // The lintel stands `PROUD` out of the panels' faces, front and back, now
+    // that their ends reach into the slot beside it.
+    group.add(slab(9, 28, 32.5, WALL_BACK - PROUD, WALL + PROUD, carved));
 
     // Three meshes, and they are what stops the strip between the middle two
     // colossi from being blank for forty units.

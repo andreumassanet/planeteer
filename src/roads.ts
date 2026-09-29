@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { GROUND_MARKS_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundColorAt, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
+import {
+  GROUND_MARKS_GLSL, LUSH_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE, bindGroundWeather, groundBrushChunk, groundColorAt, groundPatchesChunk,
+  groundRadius, groundWeatherChunk, groundWeatherGLSL,
+} from './globe.ts';
 import { createToonRamp } from './theme.ts';
 import { LAMP_POOL, lightWindows, poolAt } from './lights.ts';
 import { GIRDER, OTHER_EDGE, layRoadside } from './roadside.ts';
 import type { Roadside, RoadsideSite } from './roadside.ts';
 import { keepsLeft } from './traffic/regions.ts';
+import { prepareSeaFloor, seaDepthAt } from './sea-floor.ts';
 import { proxyOf } from './warm.ts';
 import { FADES, dissolveGLSL } from './fade.ts';
 import { isShown, prominenceVersion, radiusOf } from './places.ts';
@@ -27,7 +31,7 @@ import { MAX_SLOPE, gradeAt } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
-import { GROUND_LIFT, LINE_HALF, RAMP_GRADE, SIDEWALK, cellKey, groundStyleFor, trodden } from './scenery/ground.ts';
+import { GROUND_LIFT, LINE_HALF, RAMP_GRADE, SIDEWALK, asphaltOf, cellKey, groundStyleFor, trodden } from './scenery/ground.ts';
 import { PALETTE } from './theme.ts';
 import { CARRIAGEWAY_HALF, assignGates, gateGlow, gateMouth, gateUsable, gatesOf, groundOf, offsetDirection, streetBand, townFrame, townGrid, townTerraces } from './scenery/grid.ts';
 import type { Gate, TownGrid, TownGround } from './scenery/grid.ts';
@@ -2188,13 +2192,17 @@ export function markingRuns(
   return visibleRuns((along) => insideOthers(others, pieceAt(nearL, nearR, farL, farR, across, along), gives) > 0, into);
 }
 
-/** The carriageway's two edges on a ribbon section's top, which is a straight line from edge to edge, `top` either side. */
+/**
+ * The carriageway's two edges on a ribbon section's top (`ribbonSection`'s
+ * third and fourth points), which is a straight line from edge to edge, `top`
+ * either side.
+ */
 export function carriageEdges(
   section: readonly THREE.Vector3[], top: number, half: number, left: THREE.Vector3, right: THREE.Vector3,
 ): void {
   const u = (top - half) / (2 * top);
-  left.copy(section[1]!).lerp(section[2]!, u);
-  right.copy(section[1]!).lerp(section[2]!, 1 - u);
+  left.copy(section[2]!).lerp(section[3]!, u);
+  right.copy(section[2]!).lerp(section[3]!, 1 - u);
 }
 
 /**
@@ -2296,10 +2304,10 @@ export function layersOf(roads: readonly Road[], places: readonly Place[]): Uint
  * The residue goes from **8.45% of the land to 3.31%** — the knee of the
  * distribution, past which only the coastal shelf is left.
  *
- * `SHOULDER_DROP` is written as `RIBBON_LIFT + 1.5` rather than as a number, so
- * the shoulders bury themselves exactly as far as they always did and this move
- * cannot quietly un-bury them; `life.ts` reads this constant rather than
- * restating it, so the wheels came up with the tarmac.
+ * The bank's toe and foot are laid under the *relief* (`TOE_DEPTH`,
+ * `FOOT_DEPTH`), not under the crown, so a move of this lift cannot quietly
+ * un-bury them; `life.ts` reads this constant rather than restating it, so the
+ * wheels came up with the tarmac.
  *
  * **The sag along the road is a different question and it is measured and
  * small**: `pnpm check` walks the drawn ribbon at the near band's own span and
@@ -2337,6 +2345,118 @@ const DASH_PIECE = 6;
  * nothing stands on the paint.
  */
 const DASH_LIFT = 0.04;
+
+/**
+ * What a vertex of the ribbon is, for the surface's paint (`roadMark`, a
+ * second byte saying where across it the vertex lies): the carriageway,
+ * `across` -1 to 1 edge to edge; the shoulder's gravel and a town's
+ * pavement, 0 at the carriageway and 1 at the top's edge; the bank, 0 at the
+ * top and 1 at the toe, and -1 down the skirt under it; the painted lines; a
+ * bridge's girder.
+ */
+const MARK_ROAD = 0;
+const MARK_SHOULDER = 1;
+const MARK_BANK = 2;
+const MARK_PAINT = 3;
+const MARK_GIRDER = 4;
+const MARK_WALK = 5;
+
+/** A colour as a GLSL `vec3` of its linear components. */
+const vec3Of = (hex: number): string => {
+  const c = new THREE.Color(hex);
+  return `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`;
+};
+
+/**
+ * The ribbon's normals, softened toward the local up by what they are: the
+ * carriageway and its shoulders a quarter of the way, the bank a third. A
+ * merged ribbon is non-indexed and `computeVertexNormals` gives it a face's
+ * own normal, which under the continuous light ramp showed every 18-unit
+ * piece of a climbing road as a facet and every bank as a lit or an unlit
+ * slab; the land beside it is smooth-shaded (2026-09-28). The paint rides the
+ * carriageway's. `modelMatrix` is a translation only, so the object normal is
+ * the world one and the planet's centre is the origin. How far the face leans
+ * off the level before that (`vRoadLean`) is what the paint reads a steep
+ * bank by: from the face and not from the fragment's derivatives, which at
+ * the planet's radius are a float's rounding apart up close.
+ */
+const ROAD_NORMAL_GLSL = /* glsl */ `
+  {
+    vec3 roadUp = normalize((modelMatrix * vec4(position, 1.0)).xyz);
+    float roadKind = floor(roadMark.x + 0.5);
+    float roadSoft = roadKind == ${MARK_BANK}.0 ? 0.33 : roadKind == ${MARK_GIRDER}.0 ? 0.0 : 0.25;
+    vRoadLean = 1.0 - abs(dot(objectNormal, roadUp));
+    objectNormal = normalize(mix(objectNormal, roadUp, roadSoft));
+  }`;
+
+/**
+ * **The road painted, not filled** (2026-09-28): the ribbon's surface, by what
+ * each fragment is (`MARK_ROAD` and the rest), over the vertex colour.
+ *
+ * - Everything takes a broad tone in blots of about twenty units, a stroke
+ *   of about five, and near the eye a grain under a unit, each faded out as a
+ *   pixel covers it, as the land's own brush is (`groundBrushChunk`): a flat
+ *   fill of grey is plastic at any distance where it can be seen as one.
+ * - The carriageway is worn darker in two wheel tracks a lane, a lane being
+ *   half the width either side of the centre line and a track a car's half
+ *   track, 0.85 units, off the lane's middle; and its edge is broken into the
+ *   shoulder's earth by the stroke and the grain, so the tarmac ends in a
+ *   ragged line and not a ruled one.
+ * - The shoulder is packed earth with a speckle of gravel in it.
+ * - The bank is the land: its vertex colour is the ground's own under the toe
+ *   (`groundColorAt`), taken through the land's green (`atlasLush`) and, after
+ *   the weather, its patches and brush; scuffed with the shoulder's earth
+ *   along its top, and bare earth where it is steep — a bank laid at
+ *   `BANK_GRADE` is grass and a ramp's that had to steepen is earth; the
+ *   skirt under a sagging field is the field's green.
+ * - The paint is worn through in places to the tarmac under it, by the same
+ *   noises, near the eye only.
+ */
+const ROAD_PAINT_GLSL = /* glsl */ `
+  float roadKind = floor(vRoadMark.x + 0.5);
+  float roadAcross = vRoadMark.y;
+  float roadBank = roadKind == ${MARK_BANK}.0 ? 1.0 : 0.0;
+  {
+    float roadFoot = max(length(dFdx(vRoadWorld)), length(dFdy(vRoadWorld)));
+    float roadNear = 1.0 - smoothstep(0.08, 0.35, roadFoot);
+    float roadMid = 1.0 - smoothstep(0.7, 2.8, roadFoot);
+    float roadBroad = atlasNoise(vRoadWorld * ${(1 / 23).toFixed(6)});
+    float roadStroke = roadMid > 0.0 ? atlasNoise(vRoadWorld * ${(1 / 5.5).toFixed(6)} + 3.7) : 0.5;
+    float roadGrain = roadNear > 0.0 ? atlasNoise(vRoadWorld * ${(1 / 0.7).toFixed(6)} + 11.3) : 0.5;
+    vec3 roadEarth = ${vec3Of(0xbaa076)};
+    vec3 roadBare = ${vec3Of(0x8c7152)};
+    float roadFar = 1.0 - smoothstep(3.0, 12.0, roadFoot);
+    float roadTone = 1.0 + (roadBroad - 0.5) * 0.2 * roadFar + (roadStroke - 0.5) * 0.12 * roadMid;
+    if (roadKind == ${MARK_ROAD}.0) {
+      float t = abs(roadAcross);
+      float track = 1.0 - smoothstep(0.035, 0.1, abs(abs(t - 0.5) - 0.236));
+      diffuseColor.rgb *= roadTone * (1.0 + (roadGrain - 0.5) * 0.14 * roadNear);
+      // A track is a third of a unit wide: gone before a pixel covers it.
+      diffuseColor.rgb *= 1.0 - 0.11 * track * (0.75 + 0.5 * roadStroke) * (1.0 - smoothstep(0.08, 0.3, roadFoot));
+      float rag = smoothstep(0.93, 1.0, t + (roadStroke - 0.5) * 0.1 * roadMid + (roadGrain - 0.5) * 0.06 * roadNear);
+      diffuseColor.rgb = mix(diffuseColor.rgb, roadEarth * roadTone, rag * 0.8);
+    } else if (roadKind == ${MARK_SHOULDER}.0) {
+      float pebble = smoothstep(0.62, 0.8, roadGrain) * roadNear;
+      diffuseColor.rgb *= roadTone * (1.0 + (roadGrain - 0.5) * 0.24 * roadNear) * (1.0 - 0.18 * pebble);
+    } else if (roadKind == ${MARK_BANK}.0) {
+      // The skirt (across -1) is the field's own ground come up a sag, not a
+      // face anybody cut: the toe's green, never bare.
+      float skirt = roadAcross < -0.5 ? 1.0 : 0.0;
+      float roadOut = max(roadAcross, skirt);
+      diffuseColor.rgb = mix(diffuseColor.rgb, atlasLush(diffuseColor.rgb), smoothstep(0.05, 0.3, roadOut));
+      // Scuffed only along the top, and bare only where a face is steeper
+      // than the graded bank (BANK_GRADE): a bank is a grassed earthwork.
+      float scuff = 1.0 - smoothstep(0.0, 0.14, roadOut + (roadStroke - 0.5) * 0.25 + (roadBroad - 0.5) * 0.15);
+      diffuseColor.rgb = mix(diffuseColor.rgb, roadEarth, scuff * 0.5);
+      diffuseColor.rgb = mix(diffuseColor.rgb, roadBare * roadTone, smoothstep(0.3, 0.55, vRoadLean) * 0.8 * (1.0 - skirt));
+    } else if (roadKind == ${MARK_PAINT}.0) {
+      float wear = roadStroke * 0.55 + roadGrain * 0.45;
+      if (roadNear > 0.5 && wear < 0.3) discard;
+      diffuseColor.rgb *= 0.9 + 0.1 * roadStroke;
+    } else {
+      diffuseColor.rgb *= roadTone * (1.0 + (roadGrain - 0.5) * 0.08 * roadNear);
+    }
+  }`;
 
 
 /**
@@ -2401,36 +2521,77 @@ function classReaches(into: number[]): number[] {
 }
 
 /**
- * How far the verge either side drops below the carriageway.
+ * **The bank: an earthwork graded into the field, not a plinth** (2026-09-28).
  *
- * The same trick the settlement tracks and the paving apron use: the shoulders
- * are laid *below* the ground so they bury themselves, and what you see is the
- * crown plus however much of the shoulder the terrain lets through. That is what
- * gives a road an edge the relief drew rather than a hard rectangle, and it is
- * also what hides the lift — the ribbon is a cut into the ground rather than a
- * strip lying on it.
+ * It was one straight face from the top's edge to a foot `EMBANKMENT_RUN`
+ * (4.8) out and `SHOULDER_DROP` (the lift and 1.5) under the relief: 43
+ * degrees under an ordinary crown, and 70 under a ramp twelve units up, where
+ * the face stayed 4.8 wide however high the top went. Two things were wrong
+ * with it beside the look.
  *
- * **It is written as the lift plus 1.5 and that is the rule rather than the
- * number**: the outer edge is laid a fixed depth *under the relief* whatever the
- * crown is doing, so raising the lift to clear the land mesh cannot quietly
- * un-bury the shoulder. It has been 2.6 against a lift of 1.1, 3.0 against 1.5
- * and 4.5 against 3.0, which is the same 1.5 of burial every time.
+ * **The foot was laid on the relief and the land is drawn off it.** Measured
+ * over every 60th road of the network against the drawn mesh (2026-09-28,
+ * `land-probe.ts`): the foot stood over the drawn land on **6.56%** of
+ * sections, more than a quarter of a unit on 4.56% and more than a unit on
+ * 1.52%, worst 9.6 on a coast (the Caspian shore at 37 N 50.3 E, where the
+ * mesh lies eleven units under the relief). Each one is a gap under the
+ * ribbon's edge a player can see the sky through.
+ *
+ * **And the same sag was a step a wheel could not take.** A made surface is
+ * stood on where it is higher than the land (`player.ts`), and the bank's
+ * surface was cut off where it crossed the relief; where the drawn land lies a
+ * unit under the relief there, driving onto the road met a one-unit wall at
+ * the bank's toe, which is a car's whole `CAR_STEP`. Driven headless onto
+ * every 300th road from the land at 90, 55 and 30 degrees, clear of the towns
+ * (2026-09-28), 262 of 2,744 drives never reached the carriageway, most of
+ * them stopped exactly there.
+ *
+ * So the section has three points a side: the top's edge; the **toe**, reached
+ * at `BANK_GRADE` (24 degrees) and laid `TOE_DEPTH` under the relief, so the
+ * face meets the ground about `RIBBON_LIFT / BANK_GRADE` out; and a **foot**
+ * `FOOT_RUN` past the toe and `FOOT_DEPTH` under it, a steep skirt that is
+ * buried wherever the drawn land is within that of the relief and fills the
+ * gap wherever it is not. A top raised onto a ramp spreads its bank until it
+ * is `BANK_RUN_MAX` wide and only then steepens (`bankRun`), so a twelve-unit
+ * approach stands on a 31-degree bank rather than a wall.
+ *
+ * The foot's skirt is drawn in the near band only; further out the bank ends
+ * at its toe, where a gap under an edge is under a pixel. Measured the same
+ * ways after: a foot over the drawn land on 0.02% of sections (two, both on
+ * that Caspian shore), and every one of the drives that stopped short stopped
+ * inside a town's square, whose floor the headless drive does not build
+ * (`pnpm ground` holds both).
  */
-const SHOULDER_DROP = RIBBON_LIFT + 1.5;
+const BANK_GRADE = 0.45;
+const TOE_DEPTH = 1;
+const BANK_RUN_MAX = 22;
+const FOOT_RUN = 2;
+const FOOT_DEPTH = 8;
 
 /**
- * How far out from the top's edge the embankment reaches its buried foot, in
- * world units.
+ * How far out from the top's edge the bank reaches its toe, for a top `edge`
+ * over the relief, `sA` and `sB` along the road from its gates:
+ * `BANK_GRADE` of fall a unit, spread no wider than `BANK_RUN_MAX`, and at
+ * least a unit where a cutting's top is under the toe.
  *
- * **It was 1.8 times the carriageway's half-width from the centre line, which
- * was 2.88 units of side for a 4.5 fall, 57 degrees**, and a road read as a
- * strip of tarmac lifted onto a plinth. 4.8 is 43 degrees and meets level
- * ground 3.2 units out from the top's edge (`crownFall`), a bank rather than a
- * wall, and the burial is `SHOULDER_DROP`'s as it always was. A road that
- * curls round its own town now reaches in under its square's edge by up to
- * two units, as the bank's buried foot, under the paving (`pnpm check`).
+ * **And no wider than `KERB_BANK` plus the distance from a built town's
+ * kerb.** The ribbon ends on the kerb line, which is the square's edge, and a
+ * bank spread twenty units along that edge ended in the open past a small
+ * town's corner as a cut face with nothing beside it: driven along the town's
+ * edge, a wall of the ramp's whole height. At the kerb the bank is the width
+ * it was before it was graded, beside the square's own edge slope
+ * (`EDGE_RUN`, 9), and it opens out at one to one as the road leaves.
  */
-const EMBANKMENT_RUN = 4.8;
+export function bankRun(edge: number, ramp?: RoadRamp, sA = Infinity, sB = Infinity): number {
+  let most = BANK_RUN_MAX;
+  if (ramp !== undefined) {
+    if (ramp.kerbA > 0) most = Math.min(most, KERB_BANK + sA);
+    if (ramp.kerbB > 0) most = Math.min(most, KERB_BANK + sB);
+  }
+  return Math.min(most, Math.max(1, (edge + TOE_DEPTH) / BANK_GRADE));
+}
+const KERB_BANK = 4.8;
+
 /** How far out from the deck's edge its girder's foot is drawn: nearly straight down. */
 const GIRDER_RUN = 0.35;
 
@@ -2453,7 +2614,8 @@ const PAVEMENT_TAPER = 6;
 /**
  * The drawn verge a network was baked against, as a multiple of the
  * carriageway's half-width: 1.8, where the embankment's foot was before it
- * was laid out from the top's edge (`EMBANKMENT_RUN`). `roadClearance` is it,
+ * was laid out from the top's edge (2026-09-25) and then graded into the field
+ * (`BANK_GRADE`, 2026-09-28). `roadClearance` is it,
  * and the bake refused a road whose tightest turn is under it, so it stays
  * what the shipped `roads.bin` was baked at until a re-bake moves both.
  */
@@ -2468,8 +2630,11 @@ const VERGE_SPREAD = 1.8;
  * relief lets show. 6.48 for every class since they all became 7.2 wide
  * (2026-09-24); 7.4 for a lane, 11.5 for a road and 16.2 for a trunk before.
  * Since the embankment was laid gentler (2026-09-25) the drawn bank meets level
- * ground at `crownFall`, 7.4, which a plant's own footprint covers; a post or
- * a pole beside a road stands inside this (`propsOf`).
+ * ground at `crownFall` — 7.4 then, 10.9 since it was graded (2026-09-28) —
+ * which a plant's own footprint no longer covers: past the clearance a
+ * tree's foot stands up to about two units into the bank's graded
+ * face, in the ground's own colour, and a clump of grass comes up through it.
+ * A post or a pole beside a road stands inside this (`propsOf`).
  *
  * Exported because `vegetation.ts` is the one file that has to keep something
  * off a road, and half a road's width is a fact about the road. What it adds to
@@ -2489,6 +2654,12 @@ export interface RoadIndex {
    * `radius` world units of `direction`. Appended to `out`, which is cleared.
    */
   near(direction: THREE.Vector3, radius: number, out: number[]): number[];
+  /**
+   * Whether road `road` is one `near` would hand back for this `direction`
+   * and `radius`: the same bound, for a caller that asks `near` once over a
+   * wide patch and then many points inside it.
+   */
+  reaches(road: number, direction: THREE.Vector3, radius: number): boolean;
 }
 
 /**
@@ -2564,8 +2735,13 @@ export function createRoadIndex(roads: readonly Road[], places: readonly Place[]
   });
 
   const widestUnits = widest * PLANET_RADIUS;
+  const reaches = (i: number, direction: THREE.Vector3, angle: number): boolean => {
+    const dot = direction.x * middle[i * 3]! + direction.y * middle[i * 3 + 1]! + direction.z * middle[i * 3 + 2]!;
+    return Math.acos(Math.min(1, Math.max(-1, dot))) - half[i]! <= angle;
+  };
 
   return {
+    reaches: (road, direction, radius) => reaches(road, direction, radius / PLANET_RADIUS),
     near(direction, radius, out) {
       out.length = 0;
       const lat = latOf(direction.y);
@@ -2584,11 +2760,7 @@ export function createRoadIndex(roads: readonly Road[], places: readonly Place[]
         for (let c = col - colSpan; c <= col + colSpan; c++) {
           if (colSpan * 2 + 1 >= COLS && c > col - colSpan + COLS - 1) break;
           for (const i of grid[r * COLS + (((c % COLS) + COLS) % COLS)]!) {
-            const dot =
-              direction.x * middle[i * 3]! +
-              direction.y * middle[i * 3 + 1]! +
-              direction.z * middle[i * 3 + 2]!;
-            if (Math.acos(Math.min(1, Math.max(-1, dot))) - half[i]! <= angle) out.push(i);
+            if (reaches(i, direction, angle)) out.push(i);
           }
         }
       }
@@ -2611,8 +2783,8 @@ const TILE = 4;
 const TILE_COLS = Math.round(360 / TILE);
 const TILE_ROWS = Math.round(180 / TILE);
 
-/** Triangles a piece of ribbon costs in the near band: two banks, two shoulders, the carriageway, two edge lines and a dash. */
-const TRIANGLES_NEAR = 16;
+/** Triangles a piece of ribbon costs in the near band: two banks and their skirts, two shoulders, the carriageway, two edge lines and a dash. */
+const TRIANGLES_NEAR = 20;
 
 /** Triangles of resident road. `OutlineEffect` draws them twice. */
 const TRIANGLE_BUDGET = 260_000;
@@ -2710,10 +2882,17 @@ export interface Roads {
   /** Degree of every place in the graph, for the console. */
   degrees(): { mean: number; max: number; isolated: number; histogram: number[] };
   /**
-   * How high the carriageway rides here, as a radius from the planet's centre,
-   * or 0 if this point is not on one. See `ribbonHeightAt` inside.
+   * How high the carriageway — or its bank — rides here, as a radius from the
+   * planet's centre, or 0 where no road is drawn over the land. See
+   * `ribbonHeightAt` inside.
    */
   ribbonHeightAt(point: THREE.Vector3): number;
+  /**
+   * The land a road's bank is measured against for `ribbonHeightAt`: the
+   * drawn land under a point, as a radius (`drawnRadius`), where the game has
+   * a mesh. Unset, it is the relief, which is what a headless check gets.
+   */
+  setGround(ground: ((point: THREE.Vector3) => number) | null): void;
   /**
    * The street lamps down the approaches to the towns, merged into a list of
    * near lamp heads that already holds `count` — `settlements.lampsNear`'s,
@@ -2730,15 +2909,16 @@ export interface Roads {
  * Where the embankment of a road whose top is `top` wide either side meets
  * level ground, from its centre line, in world units, wherever the top has its
  * ordinary lift: the top's edge — the carriageway and its shoulder or
- * pavement, `ribbonHalf` — plus the stretch of bank that uses the lift up. 7.4
- * for every class in the country, with a 0.6 shoulder.
+ * pavement, `ribbonHalf` — plus the stretch of bank that uses the lift up.
+ * 10.9 for every class in the country, with a 0.6 shoulder (7.4 before the
+ * bank was graded, 2026-09-28).
  *
- * **Read off the drawn geometry rather than chosen.** A cross-section is four
- * points: the top's edges at `±top` sit at `RIBBON_LIFT`,
- * and the bank's feet `EMBANKMENT_RUN` further out at `RIBBON_LIFT -
- * SHOULDER_DROP`, 1.5 *below* the relief. The straight line between them
- * crosses the ground where the lift has been used up, `RIBBON_LIFT /
- * SHOULDER_DROP` of the way out, so the surface a foot stands on runs from full
+ * **Read off the drawn geometry rather than chosen.** A cross-section is six
+ * points: the top's edges at `±top` sit at `RIBBON_LIFT`, the bank's toes
+ * `bankRun` further out at `TOE_DEPTH` *below* the relief, and the feet under
+ * those. The straight line from edge to toe crosses the ground where the lift
+ * has been used up, `RIBBON_LIFT / (RIBBON_LIFT + TOE_DEPTH)` of the way out,
+ * so the surface a foot stands on runs from full
  * lift at the top's edge to nothing here, and the ramp is a fact about the road
  * rather than a courtesy to the player. A town's edge is the same kind of fact
  * since 2026-09-13 — a drawn slope a foot stands on (`buildFloor` in
@@ -2749,7 +2929,7 @@ export interface Roads {
  * and therefore two chances to disagree the next time either constant moves.
  */
 export function crownFall(top: number): number {
-  return top + EMBANKMENT_RUN * (RIBBON_LIFT / SHOULDER_DROP);
+  return top + bankRun(RIBBON_LIFT) * (RIBBON_LIFT / (RIBBON_LIFT + TOE_DEPTH));
 }
 
 /**
@@ -2814,22 +2994,27 @@ export function ribbonHalf(ramp: RoadRamp, half: number, sA: number, sB: number)
   return half + Math.max(SHOULDER_STRIP, pavementAt(ramp.walkA, sA), pavementAt(ramp.walkB, sB));
 }
 
-/** The widest a road's drawn section can be from its centre line: a whole pavement and the bank past it. */
+/** The widest a road's drawn section can be from its centre line: a whole pavement, the widest bank past it and its foot. */
 export function ribbonReach(half: number): number {
-  return half + SIDEWALK + EMBANKMENT_RUN;
+  return half + SIDEWALK + BANK_RUN_MAX + FOOT_RUN;
 }
 
 /**
  * The surface a foot or a wheel stands on, `lateral` units off the centre line,
- * as a lift over `ground`: zero or less means off the road.
+ * as a lift over `ground`: zero or less is the bank under the relief, and
+ * `-Infinity` past its foot is off the road.
  *
  * The drawn section read back — see `ribbonSection` — so there is nothing to
- * tune: the top at `crownLift` out to `ribbonHalf`, then the bank's
- * straight line down to `RIBBON_LIFT - SHOULDER_DROP` `EMBANKMENT_RUN` further
- * out. Where the top has its ordinary lift that line crosses the ground at
- * `crownFall`; where a ramp
- * has lifted it onto an embankment it crosses further out, which is the
- * embankment's own side.
+ * tune: the top at `crownLift` out to `ribbonHalf`, then the bank's straight
+ * line down to its toe, `TOE_DEPTH` under the relief `bankRun` further out,
+ * then the skirt to the foot, `FOOT_DEPTH` under that and `FOOT_RUN` past it;
+ * `-Infinity` past the foot. Where the top has its ordinary lift the bank
+ * crosses the ground at `crownFall`; where a ramp has lifted it onto an
+ * embankment it crosses further out, which is the embankment's own side.
+ *
+ * The lift is negative on the buried part of the bank, and the buried part is
+ * what a foot stands on where the drawn land sags under the relief: see
+ * `ribbonHeightAt`.
  */
 export function surfaceLift(
   ramp: RoadRamp,
@@ -2846,10 +3031,11 @@ export function surfaceLift(
   if (away <= crown) return edge;
   // Over a bridge's water the edge is a girder, not a bank: past it is the drop.
   if (onBridge(ramp, sA)) return away <= crown + GIRDER_RUN ? edge - GIRDER : -Infinity;
-  const shoulder = crown + EMBANKMENT_RUN;
-  const foot = RIBBON_LIFT - SHOULDER_DROP;
-  if (away >= shoulder) return foot;
-  return edge + ((away - crown) / (shoulder - crown)) * (foot - edge);
+  const run = bankRun(edge, ramp, sA, sB);
+  const out = away - crown;
+  if (out <= run) return edge + (out / run) * (-TOE_DEPTH - edge);
+  if (out <= run + FOOT_RUN) return -TOE_DEPTH - ((out - run) / FOOT_RUN) * FOOT_DEPTH;
+  return -Infinity;
 }
 
 /**
@@ -2899,9 +3085,10 @@ const sectionAhead = new THREE.Vector3();
 const sectionSide = new THREE.Vector3();
 
 /**
- * One cross-section of a road's ribbon, `s` units along it from gate A, as four
- * points from the left shoulder to the right: shoulder, crown edge, crown edge,
- * shoulder.
+ * One cross-section of a road's ribbon, `s` units along it from gate A, as six
+ * points from the left to the right: foot, toe, the top's edge, the top's
+ * edge, toe, foot (see `BANK_GRADE`). Over a bridge's water the toe is the
+ * girder's underside and the foot the same point.
  *
  * The direction across is taken from the course's own tangent at that point
  * rather than from the pieces either side of it, so the two pieces meeting at a
@@ -2911,8 +3098,9 @@ const sectionSide = new THREE.Vector3();
  * nor stops short of it. The height is asked at each point rather than shared
  * across the section, so a road on a cross-slope follows the hill instead of
  * standing proud of it on the downhill side: four `elevationAt` calls a
- * section, five on an approach, and it is the whole cost of building a road.
- * `half` is the class's half-width with the band's taper already applied.
+ * section (the edges and the toes; a foot stands on its toe's ground), five on
+ * an approach, and it is the whole cost of building a road. `half` is the
+ * class's half-width with the band's taper already applied.
  */
 export function ribbonSection(
   world: World,
@@ -2930,19 +3118,27 @@ export function ribbonSection(
   const sB = path.length - s;
   const crown = ribbonHalf(ramp, half, s, sB);
   const bridged = onBridge(ramp, s);
-  const shoulder = crown + (bridged ? GIRDER_RUN : EMBANKMENT_RUN);
   const centre = needsCentre(ramp, s, sB) ? world.elevationAt(sectionAt) : 0;
-  for (let k = 0; k < 4; k++) {
-    const offset = k === 0 ? -shoulder : k === 1 ? -crown : k === 2 ? crown : shoulder;
-    const target = into[k]!;
-    target.copy(sectionAt).addScaledVector(sectionSide, offset / PLANET_RADIUS).normalize();
-    const ground = world.elevationAt(target);
-    // Over the water the shoulder is the deck's girder, a drop under its edge;
-    // everywhere else a bank buried in the ground.
-    const lift = k === 0 || k === 3
-      ? bridged ? crownLift(ramp, s, sB, ground, centre) - GIRDER : RIBBON_LIFT - SHOULDER_DROP
-      : crownLift(ramp, s, sB, ground, centre);
-    target.multiplyScalar(PLANET_RADIUS + ground + lift);
+  for (const [edge, toe, foot, sign] of [[2, 1, 0, -1], [3, 4, 5, 1]] as const) {
+    const top = into[edge]!;
+    top.copy(sectionAt).addScaledVector(sectionSide, (sign * crown) / PLANET_RADIUS).normalize();
+    const ground = world.elevationAt(top);
+    const lift = crownLift(ramp, s, sB, ground, centre);
+    top.multiplyScalar(PLANET_RADIUS + ground + lift);
+    const under = into[toe]!;
+    if (bridged) {
+      // Over the water the bank is the deck's girder, a drop under its edge.
+      under.copy(sectionAt).addScaledVector(sectionSide, (sign * (crown + GIRDER_RUN)) / PLANET_RADIUS).normalize();
+      under.multiplyScalar(PLANET_RADIUS + ground + lift - GIRDER);
+      into[foot]!.copy(under);
+      continue;
+    }
+    const out = crown + bankRun(lift, ramp, s, sB);
+    under.copy(sectionAt).addScaledVector(sectionSide, (sign * out) / PLANET_RADIUS).normalize();
+    const low = world.elevationAt(under);
+    under.multiplyScalar(PLANET_RADIUS + low - TOE_DEPTH);
+    into[foot]!.copy(sectionAt).addScaledVector(sectionSide, (sign * (out + FOOT_RUN)) / PLANET_RADIUS).normalize()
+      .multiplyScalar(PLANET_RADIUS + low - TOE_DEPTH - FOOT_DEPTH);
   }
 }
 
@@ -3003,6 +3199,14 @@ export function roadsideSite(
       point.multiplyScalar(PLANET_RADIUS + ground + surfaceLift(ramp, half, s, sB, lateral, ground, centre));
     },
     groundRadius: (point) => PLANET_RADIUS + Math.max(0, world.elevationAt(siteCentre.copy(point).normalize())),
+    floorRadius: (point) => {
+      const elevation = world.elevationAt(siteCentre.copy(point).normalize());
+      if (elevation > 0) return PLANET_RADIUS + elevation;
+      // Only a pier asks, and only over a bridge's water: the index is the
+      // one the seabed and the fleet build, once.
+      prepareSeaFloor(world);
+      return PLANET_RADIUS - seaDepthAt(siteCentre);
+    },
     clear: (point, footprint) =>
       insideOthers(others, point, clearOf) + footprint <= 0 &&
       insideOthers(own, point, ownClearOf) + footprint <= 0 &&
@@ -3112,18 +3316,30 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nattribute float roadLayer;\nattribute float roadClass;\nuniform vec3 roadReach;\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;',
+        '#include <common>\nattribute float roadLayer;\nattribute float roadClass;\nattribute vec2 roadMark;\nuniform vec3 roadReach;\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;\nvarying vec2 vRoadMark;\nvarying float vRoadLean;',
       )
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${ROAD_NORMAL_GLSL}`)
       .replace(
         '#include <project_vertex>',
         `#include <project_vertex>\n\tgl_Position.z += roadLayer * ${LAYER_DEPTH.toExponential(3)} * gl_Position.w;` +
           '\n\tvRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;' +
-          '\n\tvRoadReach = roadClass < 0.5 ? roadReach.x : roadClass < 1.5 ? roadReach.y : roadReach.z;',
+          '\n\tvRoadReach = roadClass < 0.5 ? roadReach.x : roadClass < 1.5 ? roadReach.y : roadReach.z;' +
+          '\n\tvRoadMark = vec2(roadMark.x, roadMark.y / 127.0);',
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
-      // The weather on the carriageway, as on the verge beside it.
-      .replace('#include <color_fragment>', `#include <color_fragment>\n  ${groundWeatherChunk('vRoadWorld')}`)
+      .replace(
+        '#include <common>',
+        `#include <common>\nvarying vec3 vRoadWorld;\nvarying float vRoadReach;\nvarying vec2 vRoadMark;\nvarying float vRoadLean;\n${GROUND_MARKS_GLSL}\n${LUSH_GLSL}\n${groundWeatherGLSL()}`,
+      )
+      // The surface painted (`ROAD_PAINT_GLSL`), then the weather on the
+      // carriageway, as on the verge beside it, and on the bank the land's
+      // own patches and brush, so it is the field's ground and not a slab.
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>\n${ROAD_PAINT_GLSL}\n  ${groundWeatherChunk('vRoadWorld')}\n` +
+          `  {\n    vec3 roadUnpainted = diffuseColor.rgb;\n    ${groundPatchesChunk('vRoadWorld')}\n    ${groundBrushChunk('vRoadWorld')}\n` +
+          `    diffuseColor.rgb = mix(roadUnpainted, diffuseColor.rgb, roadBank);\n  }`,
+      )
       .replace(
         '#include <clipping_planes_fragment>',
         '#include <clipping_planes_fragment>\n' +
@@ -3131,7 +3347,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
           dissolveGLSL('roadFade'),
       );
   };
-  material.customProgramCacheKey = () => 'roads:layers:lit:fade';
+  material.customProgramCacheKey = () => 'roads:layers:lit:fade:paint';
 
   /**
    * What stands beside the roads (`roadside.ts`): a thing standing on the
@@ -3306,6 +3522,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const roadsides = new Map<number, Roadside & { bytes: number }>();
   let roadsideBytes = 0;
   let takenGround: ((point: THREE.Vector3, footprint: number) => boolean) | null = null;
+  /** The land `ribbonHeightAt` stands the bank against; see `Roads.setGround`. */
+  let landAt: ((point: THREE.Vector3) => number) | null = null;
   function roadsideOf(index: number): Roadside & { bytes: number } {
     const known = roadsides.get(index);
     if (known !== undefined) {
@@ -3448,6 +3666,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   /** And what each class was worth at that scan; see `classReaches`. */
   const reaches = [0, 0, 0];
   const crown = new THREE.Color();
+  /** The carriageway's colour away from the towns: see `asphaltOf`. */
+  const tarmac = new THREE.Color();
+  const sand = new THREE.Color(PALETTE.sand);
   /** The shoulder's gravel, and each end's town's pavement. */
   const gravel = new THREE.Color();
   const walkA = new THREE.Color();
@@ -3457,7 +3678,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   /** A bridge's girder, where the bank would be: the piers' weathered concrete. */
   const girder = new THREE.Color(PALETTE.bone).lerp(new THREE.Color(PALETTE.tan), 0.35).multiplyScalar(0.85);
   const ink = new THREE.Color(0x2a1410);
-  const line = new THREE.Color(PALETTE.white);
+  /** The paint: the palette's white a fifth of the way to bone, a line that has seen some weather. */
+  const line = new THREE.Color(PALETTE.white).lerp(new THREE.Color(PALETTE.bone), 0.2);
 
   /**
    * Which roads are worth drawing from where the eye is now.
@@ -3514,6 +3736,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   interface Ribbon {
     position: Float64Array;
     color: Float32Array;
+    /** What each vertex is and where across it lies, for the surface's paint: see `roadMark`. */
+    mark: Int8Array;
     /** The first of the two light bytes; the hour is always 255. See `ribbonGlow`. */
     glow: Uint8Array;
     bytes: number;
@@ -3533,22 +3757,42 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const span = SPANS[band]!.span;
     const positions: number[] = [];
     const colors: number[] = [];
+    const marks: number[] = [];
     const glow: number[] = [];
     let lights: readonly GateLight[] = NO_LIGHTS;
 
     let heads: readonly number[] = [];
-    const push = (p: THREE.Vector3, c: THREE.Color): void => {
+    /**
+     * The mark the next vertices carry (`roadMark`): what they are, and where
+     * across it the first pair of a quad (`acrossA`) and the second
+     * (`acrossB`) lie. Set before a run of quads rather than handed to each.
+     */
+    let kind: number = MARK_PAINT;
+    let acrossA = 0;
+    let acrossB = 0;
+    const markAs = (what: number, a = 0, b = a): void => {
+      kind = what;
+      acrossA = a;
+      acrossB = b;
+    };
+    const push = (p: THREE.Vector3, c: THREE.Color, across: number): void => {
       positions.push(p.x, p.y, p.z);
       colors.push(c.r, c.g, c.b);
+      marks.push(kind, Math.round(across * 127));
       glow.push(heads.length > 0 ? Math.max(ribbonGlow(lights, p), lampGlow(heads, p)) : ribbonGlow(lights, p));
+    };
+    /** Two triangles, `p0`-`p1` in `c0`/`c1` and `p2`-`p3` in `c2`/`c3`. */
+    const patch = (
+      p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3,
+      c0: THREE.Color, c1: THREE.Color, c2: THREE.Color, c3: THREE.Color,
+    ): void => {
+      push(p0, c0, acrossA); push(p1, c1, acrossA); push(p2, c2, acrossB);
+      push(p0, c0, acrossA); push(p2, c2, acrossB); push(p3, c3, acrossB);
     };
     const quad = (
       p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3,
       c0: THREE.Color, c1: THREE.Color,
-    ): void => {
-      push(p0, c0); push(p1, c0); push(p2, c1);
-      push(p0, c0); push(p2, c1); push(p3, c1);
-    };
+    ): void => patch(p0, p1, p2, p3, c0, c0, c1, c1);
 
     /**
      * The centre line's dash on one piece of a marked road: a strip
@@ -3649,27 +3893,46 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         colour, colour,
       );
     };
-    /** A shoulder, in its own colour where it is its own and the carriageway's where it lies on another road's. */
-    const shoulderStrip = (nA: THREE.Vector3, fA: THREE.Vector3, fB: THREE.Vector3, nB: THREE.Vector3, colour: THREE.Color): void => {
+    /**
+     * A shoulder, in its own colour where it is its own and the carriageway's
+     * where it lies on another road's. `outerFirst` says which of its two
+     * sides is the top's edge, for the mark's `across`: 1 there, 0 at the
+     * carriageway.
+     */
+    const shoulderStrip = (
+      nA: THREE.Vector3, fA: THREE.Vector3, fB: THREE.Vector3, nB: THREE.Vector3, colour: THREE.Color, outerFirst: boolean,
+    ): void => {
+      const own = colour === gravel ? MARK_SHOULDER : MARK_WALK;
+      const ownMark = (): void => markAs(own, outerFirst ? 1 : 0, outerFirst ? 0 : 1);
       if (active.length === 0) {
+        ownMark();
         quad(nA, fA, fB, nB, colour, colour);
         return;
       }
-      const own = runsOf((along) => insideOthers(active, pieceAt(nA, nB, fA, fB, 0.5, along), carriageOf) > 0);
+      const kept = runsOf((along) => insideOthers(active, pieceAt(nA, nB, fA, fB, 0.5, along), carriageOf) > 0);
       let at = 0;
-      for (let k = 0; k < own.length; k += 2) {
-        if (own[k]! > at + 1e-6) strip(nA, fA, fB, nB, at, own[k]!, crown);
-        strip(nA, fA, fB, nB, own[k]!, own[k + 1]!, colour);
-        at = own[k + 1]!;
+      for (let k = 0; k < kept.length; k += 2) {
+        markAs(MARK_ROAD, 0);
+        if (kept[k]! > at + 1e-6) strip(nA, fA, fB, nB, at, kept[k]!, crown);
+        ownMark();
+        strip(nA, fA, fB, nB, kept[k]!, kept[k + 1]!, colour);
+        at = kept[k + 1]!;
       }
+      markAs(MARK_ROAD, 0);
       if (at < 1 - 1e-6) strip(nA, fA, fB, nB, at, 1, crown);
     };
 
-    // One cross-section is four points; the piece between two of them is three
-    // quads. `near` is rolled into `far` each step, so every point is placed on
-    // the ground exactly once however many pieces share it.
-    const near = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-    const far = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    // One cross-section is six points (`ribbonSection`); the piece between two
+    // of them is five quads, seven with the skirts. `near` is rolled into `far`
+    // each step, so every point is placed on the ground exactly once however
+    // many pieces share it, and so are the colours of the land under its toes.
+    const section = (): THREE.Vector3[] => Array.from({ length: 6 }, () => new THREE.Vector3());
+    const near = section();
+    const far = section();
+    /** The land's colour under each toe, the bank's top, and the carriageway: left toe, left top, right top, right toe, tarmac. */
+    const tones = (): THREE.Color[] => Array.from({ length: 5 }, () => new THREE.Color());
+    let nearTone = tones();
+    let farTone = tones();
     const stations: number[] = [];
 
     const road = roads[index]!;
@@ -3726,19 +3989,42 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
      * triangle budget is priced on (`estimate`). Further out the top is one
      * quad in the carriageway's colour, as the whole road used to be.
      *
-     * The bank is the land's own colour at its foot and a trodden tone of it
-     * at the top, so it goes into the field rather than standing on it.
+     * The bank is the land's own colour under each toe (`groundColorAt` a
+     * section, where it was once a road) and a trodden tone of it at the top,
+     * so it goes into the field rather than standing on it; near the eye its
+     * skirt adds four triangles a piece (`BANK_GRADE`), and the paint over
+     * all of it is the shader's (`ROAD_PAINT_GLSL`). The carriageway is the
+     * region's street colour warmed off the towns (`asphaltOf`).
      */
     const near0 = band === 0;
-    gravel.setHex(PALETTE.bone).lerp(crown, 0.28).lerp(verge, 0.2);
+    // Packed earth and gravel, the reference's paths: tan toward sand, a
+    // fifth of the way to the land it runs through.
+    gravel.setHex(PALETTE.tan).lerp(sand, 0.35).lerp(verge, 0.2);
     walkA.setHex(groundStyleFor(regionOf(road.a).id).walk);
     walkB.setHex(groundStyleFor(regionOf(road.b).id).walk);
+    // The tarmac off the towns, and how far out of each built one it is the
+    // town's own street colour still (`asphaltOf`).
+    asphaltOf(crown, tarmac);
+    const faded = (sAt: number): number => {
+      let share = 1;
+      if (ramp.kerbA > 0) share = Math.min(share, sAt / (PAVEMENT_RUN + PAVEMENT_TAPER));
+      if (ramp.kerbB > 0) share = Math.min(share, (path.length - sAt) / (PAVEMENT_RUN + PAVEMENT_TAPER));
+      return Math.max(0, Math.min(1, share));
+    };
+    /** The colours a section's points carry: the land under each toe, a trodden tone of it at the top, the tarmac. */
+    const toneOf = (points: readonly THREE.Vector3[], sAt: number, into: THREE.Color[]): void => {
+      for (const [toe, top] of [[0, 1], [3, 2]] as const) {
+        groundColorAt(world, points[toe === 0 ? 1 : 4]!, into[toe]!);
+        trodden(into[toe]!, into[top]!).lerp(gravel, 0.35);
+      }
+      into[4]!.copy(crown).lerp(tarmac, faded(sAt));
+    };
     const nearL = new THREE.Vector3();
     const nearR = new THREE.Vector3();
     const farL = new THREE.Vector3();
     const farR = new THREE.Vector3();
-    const carriageOn = (section: readonly THREE.Vector3[], top: number, left: THREE.Vector3, right: THREE.Vector3): void =>
-      carriageEdges(section, top, half, left, right);
+    const carriageOn = (points: readonly THREE.Vector3[], top: number, left: THREE.Vector3, right: THREE.Vector3): void =>
+      carriageEdges(points, top, half, left, right);
 
     // The stations are measured along the path, so a section is still at
     // most `span` units long, both ends land exactly on the two kerbs, and
@@ -3748,19 +4034,34 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     // walks too.
     ribbonStations(path.length, course.approach, ramp, span, stations);
     ribbonSection(world, course, path, ramp, half, stations[0]!, near);
+    toneOf(near, stations[0]!, nearTone);
     carriageOn(near, ribbonHalf(ramp, half, stations[0]!, path.length - stations[0]!), nearL, nearR);
     for (let k = 1; k < stations.length; k++) {
       const sFar = stations[k]!;
       ribbonSection(world, course, path, ramp, half, sFar, far);
+      toneOf(far, sFar, farTone);
+      const n = nearTone;
+      const f = farTone;
       if (onBridge(ramp, (stations[k - 1]! + sFar) * 0.5)) {
-        quad(near[0]!, far[0]!, far[1]!, near[1]!, girder, girder);
-        quad(near[2]!, far[2]!, far[3]!, near[3]!, girder, girder);
+        markAs(MARK_GIRDER);
+        quad(near[1]!, far[1]!, far[2]!, near[2]!, girder, girder);
+        quad(near[3]!, far[3]!, far[4]!, near[4]!, girder, girder);
         // And the deck's soffit, from girder to girder, facing the water: a
         // boat under the bridge sees its underside, not the sky through it.
-        quad(near[3]!, far[3]!, far[0]!, near[0]!, girder, girder);
+        quad(near[4]!, far[4]!, far[1]!, near[1]!, girder, girder);
       } else {
-        quad(near[0]!, far[0]!, far[1]!, near[1]!, ground, verge);
-        quad(near[2]!, far[2]!, far[3]!, near[3]!, verge, ground);
+        // The banks, toe to top and top to toe, in the land's own colour at
+        // the toe; and near the eye the skirts under the toes, which are
+        // buried unless the drawn land sags under the relief.
+        markAs(MARK_BANK, 1, 0);
+        patch(near[1]!, far[1]!, far[2]!, near[2]!, n[0]!, f[0]!, f[1]!, n[1]!);
+        markAs(MARK_BANK, 0, 1);
+        patch(near[3]!, far[3]!, far[4]!, near[4]!, n[2]!, f[2]!, f[3]!, n[3]!);
+        if (near0) {
+          markAs(MARK_BANK, -1);
+          patch(near[0]!, far[0]!, far[1]!, near[1]!, n[0]!, f[0]!, f[0]!, n[0]!);
+          patch(near[4]!, far[4]!, far[5]!, near[5]!, n[3]!, f[3]!, f[3]!, n[3]!);
+        }
       }
       if (near0) {
         carriageOn(far, ribbonHalf(ramp, half, sFar, path.length - sFar), farL, farR);
@@ -3778,9 +4079,11 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
             if (insideOthers(one, probe, (o) => o.half + SIDEWALK + reach) > 0) active.push(other);
           }
         }
-        shoulderStrip(near[1]!, far[1]!, farL, nearL, shoulder);
-        quad(nearL, farL, farR, nearR, crown, crown);
-        shoulderStrip(nearR, farR, far[2]!, near[2]!, shoulder);
+        shoulderStrip(near[2]!, far[2]!, farL, nearL, shoulder, true);
+        markAs(MARK_ROAD, -1, 1);
+        patch(nearL, farL, farR, nearR, n[4]!, f[4]!, f[4]!, n[4]!);
+        shoulderStrip(nearR, farR, far[3]!, near[3]!, shoulder, false);
+        markAs(MARK_PAINT);
         if (marked) {
           const length = sFar - stations[k - 1]!;
           if (active.length === 0) {
@@ -3802,16 +4105,20 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         nearL.copy(farL);
         nearR.copy(farR);
       } else {
-        quad(near[1]!, far[1]!, far[2]!, near[2]!, crown, crown);
+        markAs(MARK_ROAD, -1, 1);
+        patch(near[2]!, far[2]!, far[3]!, near[3]!, n[4]!, f[4]!, f[4]!, n[4]!);
       }
-      for (let j = 0; j < 4; j++) near[j]!.copy(far[j]!);
+      for (let j = 0; j < 6; j++) near[j]!.copy(far[j]!);
+      nearTone = f;
+      farTone = n;
     }
 
     const made: Ribbon = {
       position: Float64Array.from(positions),
       color: Float32Array.from(colors),
+      mark: Int8Array.from(marks),
       glow: Uint8Array.from(glow),
-      bytes: positions.length * 8 + colors.length * 4 + glow.length,
+      bytes: positions.length * 8 + colors.length * 4 + marks.length + glow.length,
     };
     ribbons.set(key, made);
     ribbonBytes += made.bytes;
@@ -3867,6 +4174,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     const layers = new Float32Array(vertices);
     /** And its class, which the dissolve reads its reach by. */
     const classes = new Uint8Array(vertices);
+    /** What it is and where across it, for the surface's paint; see `MARK_ROAD`. */
+    const marks = new Int8Array(vertices * 2);
     /** Each vertex's light and its hour, the two bytes a town's floor carries; see `ribbonGlow`. */
     const glow = new Uint8Array(vertices * 2);
     let v = 0;
@@ -3882,6 +4191,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
         glow[(v + i) * 2 + 1] = 255;
       }
       colors.set(ribbon.color, v * 3);
+      marks.set(ribbon.mark, v * 2);
       layers.fill(road.layer, v, v + count);
       classes.fill(road.cls, v, v + count);
       v += count;
@@ -3892,6 +4202,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     buffer.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     buffer.setAttribute('roadLayer', new THREE.BufferAttribute(layers, 1));
     buffer.setAttribute('roadClass', new THREE.BufferAttribute(classes, 1));
+    buffer.setAttribute('roadMark', new THREE.BufferAttribute(marks, 2));
     // Normalised, so the shader reads 0..1 out of each byte, as it does a town's.
     buffer.setAttribute('atlasLit', new THREE.BufferAttribute(glow, 2, true));
     buffer.computeVertexNormals();
@@ -3905,7 +4216,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     group.add(mesh);
     tile.mesh = mesh;
     tile.triangles = vertices / 3;
-    tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length + classes.length;
+    tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length + classes.length + marks.length;
     tile.drawn = drawn;
     if (band === 0) raiseProps(tile, parts.map((part) => part.index), ox, oy, oz);
   }
@@ -4148,8 +4459,15 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    * - **The route's reach is not either**, for the same reason: whether a road
    *   is worth *drawing* from here has nothing to do with whether it is there.
    * - **The ramp is the geometry.** `surfaceLift` is the drawn section read
-   *   back: the crown out to its half-width, then the shoulder's line down to
-   *   where it crosses the ground. There is no smoothing constant in it.
+   *   back: the crown out to its half-width, then the bank down to its toe and
+   *   the skirt to its foot. There is no smoothing constant in it.
+   * - **The bank is answered wherever it stands over the land, and the land is
+   *   the drawn one** (`setGround`, 2026-09-28). It used to be answered where
+   *   it stood over the *relief*, and the drawn land lies up to several units
+   *   under the relief: there the made surface started a sag's height over the
+   *   ground a wheel was on, which was a wall to it (see `BANK_GRADE`). Now the
+   *   bank's buried part counts too, down to its foot, and the surface starts
+   *   exactly where the drawn bank comes out of the drawn land.
    *
    * The cost is one grid query — `roadIndexFor`'s, shared with the wood and the
    * herd, so the 13 ms of bucketing is paid once for the planet — a
@@ -4167,10 +4485,11 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const heightProbe = new THREE.Vector3();
   const heightNearest = new THREE.Vector3();
   /**
-   * The widest the surface can be from a centre line: a trunk's whole drawn
-   * half-width, shoulder and all. `CROWN_FALL` was enough while the crown
-   * always had its ordinary lift; a ramp onto an embankment carries the
-   * surface out along the shoulder further than that.
+   * The widest the surface can be from a centre line: a whole pavement, the
+   * widest bank and its skirt (`ribbonReach`). `crownFall` was enough while
+   * the crown always had its ordinary lift and nothing under the relief was
+   * stood on; a ramp onto an embankment carries the surface further out, and
+   * the buried bank is stood on where the drawn land sags (`setGround`).
    */
   const WIDEST_HALF = ribbonReach(Math.max(...ROAD_CLASSES.map((style) => style.width)) * 0.5);
 
@@ -4179,7 +4498,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     heightIndex.index ??= roadIndexFor(roads, places);
     heightDir.copy(point).normalize();
     heightProbe.copy(heightDir).multiplyScalar(PLANET_RADIUS);
-    let best = 0;
+    let best = -Infinity;
     let ground = NaN;
     for (const hit of heightIndex.index.near(heightDir, WIDEST_HALF, heightHits)) {
       const road = roads[hit]!;
@@ -4239,11 +4558,12 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       }
       if (lift > best) best = lift;
     }
-    if (best <= 0) return 0;
+    if (best === -Infinity) return 0;
     // A road is baked dry, but the edge of its crown can hang a fraction of a
     // unit over the water where a gate is on a quay: the ribbon is drawn there
     // at the relief plus its lift, so that is where a foot stands.
-    return PLANET_RADIUS + ground + best;
+    const height = PLANET_RADIUS + ground + best;
+    return height > (landAt === null ? PLANET_RADIUS + ground : landAt(heightProbe)) ? height : 0;
   }
 
   return {
@@ -4251,6 +4571,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     stats,
     all: roads,
     ribbonHeightAt,
+    setGround(ground) {
+      landAt = ground;
+    },
     setTaken(taken) {
       // Called once, as the railway arrives and before a tile is laid: what
       // was laid beside the roads is laid again, keeping off it.

@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 
 /**
@@ -152,15 +153,18 @@ export const hallgrimskirkja: Monument = {
         block(x - PIPE, x + PIPE, 1.5, PIPES[i]!, front - PIPE_DEPTH, front, wall);
 
         // The groove on the inner side of this shaft: as deep as the shorter of
-        // the two it separates, and set back so it reads as a gap.
+        // the two it separates, and set back so it reads as a gap. Its foot sinks
+        // `PROUD` into the forecourt and its back stops `PROUD` inside the
+        // shafts either side: flush with theirs, the two colours shared those
+        // planes and flickered.
         const inner = i === 0 ? SHAFT_TOP : PIPES[i - 1]!;
         const gap = side * (PIPE_X + i * PITCH - PITCH / 2);
         block(
           gap - 0.32,
           gap + 0.32,
-          1.5,
+          1.5 - PROUD,
           Math.min(inner, PIPES[i]!) - 0.5,
-          front - PIPE_DEPTH,
+          front - PIPE_DEPTH + PROUD,
           front - 0.5,
           groove,
         );
@@ -173,9 +177,11 @@ export const hallgrimskirkja: Monument = {
     block(-TOWER, TOWER, 1.5, SHAFT_TOP, TOWER_BACK, TOWER_FRONT, wall);
 
     // Three tall slots up the tower face — the stair windows, and the only thing
-    // that keeps an 11-unit slab from reading as a blank pier.
+    // that keeps an 11-unit slab from reading as a blank pier. They, the
+    // louvres and the door stand `PROUD` out of the face: at 0.05 the two
+    // colours were near enough to share its plane and flicker.
     for (const x of [-3.1, 0, 3.1]) {
-      block(x - 0.55, x + 0.55, 12, 29.5, TOWER_FRONT - 1.0, TOWER_FRONT + 0.05, groove);
+      block(x - 0.55, x + 0.55, 12, 29.5, TOWER_FRONT - 1.0, TOWER_FRONT + PROUD, groove);
     }
 
     // The clock, high on the front where the wings have already fallen away.
@@ -194,10 +200,12 @@ export const hallgrimskirkja: Monument = {
     // a solid post.
     block(-TOWER, TOWER, SHAFT_TOP, 45, TOWER_BACK, TOWER_FRONT, wall);
     for (const x of [-3.6, 0, 3.6]) {
-      block(x - 1.25, x + 1.25, 39.2, 44.0, TOWER_FRONT - 0.9, TOWER_FRONT + 0.05, groove);
+      block(x - 1.25, x + 1.25, 39.2, 44.0, TOWER_FRONT - 0.9, TOWER_FRONT + PROUD, groove);
     }
+    // The side louvres stand `PROUD` out of the tower's flank, as the front
+    // ones do: flush with it, the two colours shared its plane.
     for (const side of [-1, 1]) {
-      block(side * TOWER, side * (TOWER - 0.9), 39.2, 44.0, TOWER_BACK + 1.4, TOWER_FRONT - 1.4, groove);
+      block(side * (TOWER + PROUD), side * (TOWER - 0.9), 39.2, 44.0, TOWER_BACK + 1.4, TOWER_FRONT - 1.4, groove);
     }
 
     // Two setbacks, each a course proud of what it carries, then the spire. It
@@ -218,9 +226,9 @@ export const hallgrimskirkja: Monument = {
     // 4. The door. A tall arch-headed opening in the tower's foot, stepped in
     //    three courses the way the arch over it actually is.
     // -----------------------------------------------------------------------
-    block(-2.6, 2.6, 1.5, 9.8, TOWER_FRONT - 1.3, TOWER_FRONT + 0.05, dark);
-    block(-2.1, 2.1, 9.8, 11.0, TOWER_FRONT - 1.3, TOWER_FRONT + 0.05, dark);
-    block(-1.35, 1.35, 11.0, 12.0, TOWER_FRONT - 1.3, TOWER_FRONT + 0.05, dark);
+    block(-2.6, 2.6, 1.5, 9.8, TOWER_FRONT - 1.3, TOWER_FRONT + PROUD, dark);
+    block(-2.1, 2.1, 9.8, 11.0, TOWER_FRONT - 1.3, TOWER_FRONT + PROUD, dark);
+    block(-1.35, 1.35, 11.0, 12.0, TOWER_FRONT - 1.3, TOWER_FRONT + PROUD, dark);
     for (const side of [-1, 1]) {
       block(side * 2.6, side * 3.5, 1.5, 12.6, TOWER_FRONT - 0.55, TOWER_FRONT + 0.4, set);
     }

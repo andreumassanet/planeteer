@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLANET_RADIUS, UNITS_PER_DEGREE } from './globe.ts';
+import { LUSH_GLSL, PLANET_RADIUS, UNITS_PER_DEGREE } from './globe.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
 import type { BiomeId, BiomeSample } from './biome.ts';
 import { shoreDistance } from './terrain.ts';
@@ -10,12 +10,14 @@ import { isWater } from './vehicles.ts';
 import { birdGeometry } from './life.ts';
 import { hash3, seasonTurn } from './weather.ts';
 import { proxyOf } from './warm.ts';
+import { WIND, windGustAt } from './wind.ts';
 
 /**
  * The small life round the camera: fireflies over the grass on a summer
  * night, butterflies over a meadow by day, pollen hanging in the sun, gulls
- * wheeling over a coast, a fish jumping off the shore, and leaves coming down
- * under the trees in autumn.
+ * wheeling over a coast, a fish jumping off the shore, leaves coming down off
+ * the trees — a few all year, many in autumn — and the leaves lying under
+ * them.
  *
  * **Nothing here is stored, streamed or random.** The ground round the player
  * is cut into cells of `CELL` units on a fixed grid of the sphere, and a cell
@@ -27,7 +29,24 @@ import { proxyOf } from './warm.ts';
  * same places; a cell that comes into range fades in over `FADE_IN` rather
  * than appearing, and one at the edge of the range fades with distance.
  *
- * **Two draw calls, and none of either is inked.** The lights — fireflies and
+ * **The leaves come off the trees that are drawn.** The near wood's tiles and
+ * the near towns hand over their crowns (`crownsNear`: where each hangs, how
+ * big, its green, and how much its species sheds, `SHED` in
+ * `tree-forms.ts`), and a crown is keyed by where it stands, so its leaves are
+ * the same whichever tile or town built it. Each crown has `LEAF_SLOTS`
+ * leaves on a clock of their own: one lets go from somewhere in the crown,
+ * flutters down swinging, pushed downwind by the wind and the gust fronts the
+ * grass bends under (`wind.ts`), lies where it landed on the drawn ground, a
+ * town's floor or a road's ribbon, and shrinks away. Where one lands is asked
+ * once, when it lets go, and kept for its fall (`Landing`).
+ *
+ * **And under a tree that sheds, the ground is littered**: `LITTER_MAX`
+ * leaves a crown at the most, laid flat in the disc under it, a quarter of
+ * them all year and all of them in the autumn, gone under lying snow. They
+ * are their own mesh, rewritten only when the crowns in range change, and it
+ * is the third draw call.
+ *
+ * **Two draw calls for what moves, and none of it inked.** The lights — fireflies and
  * pollen — are one `THREE.Points`, additive, the lamp halos' kind of object
  * (`lights.ts`), gated by the same terminator (`nightAt`) so that a firefly
  * comes on at the minute the windows do and `atlas.brightness(0)` puts it out
@@ -40,8 +59,8 @@ import { proxyOf } from './warm.ts';
  * **Everything quiets with the weather and nothing lives where it would not.**
  * Rain, snow, a gale or the cold send the insects in; a storm grounds the
  * gulls; a desert, the ice, the bare rock and a town's paving hold none of the
- * insects at all; the leaves fall only in the temperate and boreal woods, in
- * the autumn of the hemisphere they are in.
+ * insects at all; the leaves fall from what sheds, most in the autumn of the
+ * hemisphere they are in.
  *
  * **Sizes are chosen to be seen, not to be right**, as the birds' are
  * (`life.ts`): a butterfly is seven centimetres, which at `SCENERY_SCALE` and
@@ -56,8 +75,13 @@ export interface AmbientOptions {
   madeHeightAt(point: THREE.Vector3): number;
   /** Whether a unit direction is inside a meadow of the countryside (`countryside.meadowAt`). */
   meadowAt?(direction: THREE.Vector3): boolean;
-  /** Whether a tree stands within a few units of a point: what a falling leaf needs over it. */
-  treeNear?(point: THREE.Vector3): boolean;
+  /**
+   * The crowns within `range` units of a point that shed, as `(list, offset)`
+   * into flat lists of `CROWN_STRIDE` floats (`placeCrown` in
+   * `tree-forms.ts`): `vegetation.crownsNear` and `settlements.crownsNear`
+   * together.
+   */
+  crownsNear?(point: THREE.Vector3, range: number, visit: (list: Float32Array, offset: number) => void): void;
   /** A splash on the water at a point, `reach` units across (`effects.splashAt`). */
   splash?(point: THREE.Vector3, reach: number): void;
   /**
@@ -100,10 +124,17 @@ export interface AmbientStats {
   fireflies: number;
   motes: number;
   butterflies: number;
+  /** Leaves in the air, and fallen ones lying before they go. */
   leaves: number;
+  lying: number;
+  /** The crowns in range that shed, and the leaves lying under them (`LITTER_MAX` a crown at most). */
+  crowns: number;
+  litter: number;
+  /** Ground heights asked for the leaves since the page loaded: a landing each, and one a leaf of litter. */
+  groundAsks: number;
   fish: number;
   gulls: number;
-  /** 0 to 2. */
+  /** 0 to 3. */
   calls: number;
   /** Why the insects are in, if they are: `rain`, `cold`, `wind`, `snow`, or `''`. */
   quiet: string;
@@ -200,11 +231,6 @@ const FIREFLY: Partial<Record<BiomeId, number>> = { tropical: 0.7, temperate: 0.
 const BUTTERFLY: Partial<Record<BiomeId, number>> = { temperate: 0.22, grassland: 0.25, savanna: 0.2, tropical: 0.3 };
 /** And pollen in the sun. */
 const MOTE: Partial<Record<BiomeId, number>> = { temperate: 0.5, grassland: 0.6, savanna: 0.3, steppe: 0.25, tropical: 0.35 };
-/** Woods that shed their leaves, and how likely a cell of one is to be shedding. */
-const LEAF: Partial<Record<BiomeId, number>> = { temperate: 0.9, boreal: 0.45 };
-
-/** Anchors a frame may ask whether a tree stands over them (`treeNear`). */
-const TREE_PROBES = 36;
 /** Ground points per small cell that the creatures in it circle. */
 const ANCHORS = 6;
 /** Units to the water inside which a cell is waterside: wetter for fireflies, and fish off it. */
@@ -221,6 +247,7 @@ const K_FISH = 256;
 const K_GULL = 320;
 const K_CELL = 384;
 const K_ANCHOR = 448;
+const K_LITTER = 512;
 
 /* --- the creatures' own numbers ----------------------------------------- */
 
@@ -228,15 +255,73 @@ const MAX_FIREFLIES = 150;
 const MAX_MOTES = 70;
 const MAX_POINTS = MAX_FIREFLIES + MAX_MOTES;
 const MAX_BUTTERFLIES = 24;
-const MAX_LEAVES = 48;
+/** Leaves in the air and lying, together. */
+const MAX_LEAVES = 360;
 const MAX_FISH = 4;
 const MAX_GULLS = 8;
 
 /** Half a butterfly's span, and its body's half length, in units. */
 const WING = 0.19;
 const WING_BODY = 0.08;
-/** Half a leaf's diagonal. */
-const LEAF_SIZE = 0.15;
+/** Half a leaf's length: eight centimetres at the figure's stature, and drawn a little over. */
+const LEAF_SIZE = 0.19;
+
+/* --- the leaves off the crowns ---------------------------------------------- */
+
+/** How far round the player crowns are asked for: the litter's reach; it fades over the last `LITTER_FADE`. */
+const LITTER_RANGE = 96;
+const LITTER_FADE = 28;
+/** And the falling leaves', inside it, fading from `LEAF_FADE_FROM`. */
+const LEAF_RANGE = 70;
+const LEAF_FADE_FROM = 52;
+/** The crowns kept in range, nearest first. */
+const MAX_CROWNS = 420;
+/** New crowns a scan may take in, each a ground height; the rest wait for the next scan. */
+const CROWN_ADMIT = 90;
+/** Leaves a crown lets go of, each on its own clock. */
+const LEAF_SLOTS = 6;
+/**
+ * Leaves in the air at once under a crown of a species that sheds outright
+ * (`SHED` 1): `AIR_BASE` all year, and `AIR_AUTUMN` more at the height of
+ * the autumn. No slot has more than one leaf, so a slot's clock stretches to
+ * `fall / share` when its share is under one.
+ */
+const AIR_BASE = 0.12;
+const AIR_AUTUMN = 1.8;
+/** Units a second a leaf comes down at: 0.75 m/s at the figure's stature, a leaf's terminal speed. */
+const FALL_SPEED = 1.6;
+/**
+ * Seconds one lies where it fell, and more by its seed; then `SHRINK` to go.
+ * Short: the litter is what lies for good, and a leaf that has come down is
+ * one more of it for a moment.
+ */
+const LIE = 4;
+const LIE_SPREAD = 4;
+const SHRINK = 2;
+/** How far a leaf swings either side as it comes down, in units, and how fast. */
+const SWING = 0.6;
+const SWING_RATE = 2.3;
+/** Units a second of drift downwind at a wind strength of 1 (`WIND.uWindStrength`), and what a gust front adds. */
+const DRIFT = 1.5;
+const GUST_PUSH = 2.2;
+/** Over the surface it lies on: over a depth quantum at any range, under the grass. */
+const LIE_LIFT = 0.05;
+/** The leaves' clock slots in the landing cache: forgotten when unseen this long. */
+const LANDING_KEEP = 4;
+
+/** Leaves of litter under a crown at the most, and the share of them that lies all year. */
+const LITTER_MAX = 20;
+const LITTER_BASE = 0.28;
+/** How far out of its crown's radius litter lies. */
+const LITTER_REACH = 1.15;
+const LITTER_SIZE = 0.2;
+const MAX_LITTER = 3000;
+/** Ground heights the litter may ask a frame. */
+const LITTER_ASKS = 48;
+/** Seconds between rewrites of the litter while anything about it has moved. */
+const LITTER_EVERY = 0.25;
+/** Over the ground: the leaf's own tilt across its length, on a slope of a quarter, and a hair to stack them. */
+const LITTER_LIFT = 0.04;
 /** A fish's half length, and its jump: how high and how far, and how long it is out. */
 const FISH_HALF = 0.32;
 const FISH_HEIGHT = 1.5;
@@ -283,11 +368,6 @@ interface Cell {
   fireflies: number;
   butterflies: number;
   motes: number;
-  /** Leaves per anchor that stands under a tree; 0 for a cell that sheds none. */
-  leaves: number;
-  /** Which anchors stand under a tree, as bits; and when that was last asked. */
-  trees: number;
-  treesAskedAt: number;
   fish: boolean;
   /** The anchors: ground points as unit direction and radius, `[x, y, z, r]` each. */
   anchors: Float32Array;
@@ -387,16 +467,54 @@ function lightMaterial(): THREE.ShaderMaterial {
   return material;
 }
 
-function bodyMaterial(): THREE.MeshToonMaterial {
-  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4), side: THREE.DoubleSide });
+/**
+ * The land's green (`atlasLush`) over the vertex colour, as the leaf cards
+ * take it (`foliage.ts`): a leaf off a crown is the green the crown is drawn
+ * in. Nothing here but a leaf is green enough for it to touch.
+ */
+function lush(material: THREE.MeshToonMaterial, key: string): THREE.MeshToonMaterial {
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${LUSH_GLSL}`)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = atlasLush(diffuseColor.rgb);');
+  };
+  material.customProgramCacheKey = () => key;
   material.userData.outlineParameters = { visible: false };
   return material;
+}
+
+/**
+ * Pulled forward in depth a little, for the leaves lying `LIE_LIFT` over the
+ * ground: a flat quad that close is a z-fight at range without it.
+ */
+function bodyMaterial(): THREE.MeshToonMaterial {
+  return lush(new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: createToonRamp(4),
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+  }), 'atlas-ambient-bodies');
+}
+
+/** The litter: flat on the ground, facing up, and forward in depth as the airstrips are (`craft/airstrip.ts`). */
+function litterMaterial(): THREE.MeshToonMaterial {
+  return lush(new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: createToonRamp(4),
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -4,
+  }), 'atlas-ambient-litter');
 }
 
 /* --- the colours ---------------------------------------------------------- */
 
 const WINGS: readonly number[] = [PALETTE.gold, PALETTE.white, PALETTE.orange, PALETTE.skyBlue, PALETTE.apricot, PALETTE.violet];
 const LEAVES: readonly number[] = [PALETTE.orange, PALETTE.gold, PALETTE.clay, PALETTE.red, PALETTE.apricot];
+/** What a leaf that has lain a while turns toward, out of the autumn. */
+const DRIED: readonly number[] = [PALETTE.clay, PALETTE.brown, PALETTE.tan, PALETTE.gold];
 const colourCache = new Map<number, THREE.Color>();
 function colourOf(hex: number): THREE.Color {
   let colour = colourCache.get(hex);
@@ -464,9 +582,34 @@ export function createAmbient(options: AmbientOptions): Ambient {
   bodies.visible = false;
   group.add(bodies);
 
+  // The litter: flat leaves on the ground, rewritten when the crowns move.
+  const LITTER_VERTICES = MAX_LITTER * 6;
+  const litterPosition = new Float32Array(LITTER_VERTICES * 3);
+  const litterNormal = new Float32Array(LITTER_VERTICES * 3);
+  const litterColor = new Float32Array(LITTER_VERTICES * 3);
+  const litterGeometry = new THREE.BufferGeometry();
+  const litterAttributes = [
+    new THREE.BufferAttribute(litterPosition, 3),
+    new THREE.BufferAttribute(litterNormal, 3),
+    new THREE.BufferAttribute(litterColor, 3),
+  ];
+  for (const attribute of litterAttributes) attribute.setUsage(THREE.DynamicDrawUsage);
+  litterGeometry.setAttribute('position', litterAttributes[0]!);
+  litterGeometry.setAttribute('normal', litterAttributes[1]!);
+  litterGeometry.setAttribute('color', litterAttributes[2]!);
+  litterGeometry.setDrawRange(0, 0);
+  const litterMat = litterMaterial();
+  const litter = new THREE.Mesh(litterGeometry, litterMat);
+  litter.name = 'ambient-litter';
+  litter.frustumCulled = false;
+  // Under the crowns' own shadow, which is most of what makes it lie there.
+  litter.receiveShadow = true;
+  litter.visible = false;
+  group.add(litter);
+
   const stats: AmbientStats = {
     enabled: true, cells: 0, gullCells: 0, admitted: 0, fireflies: 0, motes: 0, butterflies: 0,
-    leaves: 0, fish: 0, gulls: 0, calls: 0, quiet: '', autumn: 0, updateMs: 0,
+    leaves: 0, lying: 0, crowns: 0, litter: 0, groundAsks: 0, fish: 0, gulls: 0, calls: 0, quiet: '', autumn: 0, updateMs: 0,
   };
   let enabled = true;
 
@@ -492,18 +635,11 @@ export function createAmbient(options: AmbientOptions): Ambient {
   const tipB = new THREE.Vector3();
   const axisA = new THREE.Vector3();
   const axisB = new THREE.Vector3();
-  const drift = new THREE.Vector3();
   const eye = new THREE.Vector3();
   const scanUp = new THREE.Vector3();
   const scanCell = new THREE.Vector3();
   const playerUp = new THREE.Vector3();
   let lightCursor = 0;
-  /**
-   * How many anchors a frame may ask the woods about. A walk into an autumn
-   * wood brings sixty cells into range at once, and asking all of them in one
-   * frame is a few hundred wall tests.
-   */
-  let treeProbes = 0;
   let vertexCursor = 0;
 
   /* --- working a cell out ------------------------------------------------ */
@@ -529,7 +665,6 @@ export function createAmbient(options: AmbientOptions): Ambient {
     let fireflies = 0;
     let butterflies = 0;
     let motes = 0;
-    let leaves = 0;
     if (!water && !town) {
       const wet = shore < WATERSIDE ? 1.6 : 1;
       const firefly = (FIREFLY[biome] ?? 0) * wet * (0.4 + 0.6 * BIOMES[biome].sward);
@@ -537,18 +672,17 @@ export function createAmbient(options: AmbientOptions): Ambient {
       if (meadow) butterflies = 2 + Math.floor(roll(2) * 2);
       else if (roll(3) < (BUTTERFLY[biome] ?? 0)) butterflies = 1;
       if (roll(4) < (MOTE[biome] ?? 0) * (meadow ? 1.6 : 1)) motes = 2 + Math.floor(roll(5) * 3);
-      if (roll(6) < (LEAF[biome] ?? 0)) leaves = 2;
     }
     const fish = water && biome !== 'ice' && roll(7) < 0.8;
 
     const cell: Cell = {
       key: cellKey(row, column), row, column, up, east, north, biome, water, shore, town, meadow,
-      fireflies, butterflies, motes, leaves, trees: 0, treesAskedAt: -Infinity, fish,
+      fireflies, butterflies, motes, fish,
       anchors: new Float32Array(ANCHORS * 4), anchorCount: 0, born: clock, fishIn: -1, fishOut: -1, fade: 0,
     };
     // The anchors, only where something will use them: a cell of the desert
     // or of open sea far from anything asks no heights at all.
-    if (fireflies + butterflies + motes + leaves > 0 || fish) {
+    if (fireflies + butterflies + motes > 0 || fish) {
       for (let i = 0; i < ANCHORS; i++) {
         const e = (hash3(row, column, K_ANCHOR + i * 2) - 0.5) * CELL;
         const n = (hash3(row, column, K_ANCHOR + i * 2 + 1) - 0.5) * CELL;
@@ -801,60 +935,6 @@ export function createAmbient(options: AmbientOptions): Ambient {
     }
   }
 
-  function leaves(cell: Cell, autumn: number, now: number): void {
-    if (cell.leaves === 0 || autumn < 0.02) return;
-    // Which anchors stand under a tree is asked of the drawn woods, which may
-    // not be standing yet when the cell is worked out: a cell that found none
-    // asks again every few seconds while it is in range.
-    if (cell.trees === 0 && options.treeNear !== undefined && now - cell.treesAskedAt > 3 && treeProbes >= cell.anchorCount) {
-      cell.treesAskedAt = now;
-      treeProbes -= cell.anchorCount;
-      for (let i = 0; i < cell.anchorCount; i++) {
-        anchorPoint(cell, i, 0, 0, 0.5, point);
-        if (options.treeNear(point)) cell.trees |= 1 << i;
-      }
-    }
-    if (cell.trees === 0) return;
-    const windTo = (weatherNow.wind.from + 180) * DEG;
-    const windSpeed = Math.min(weatherNow.wind.speed, 14) * 0.12;
-    drift.copy(cell.east).multiplyScalar(Math.sin(windTo) * windSpeed).addScaledVector(cell.north, Math.cos(windTo) * windSpeed);
-    for (let anchor = 0; anchor < cell.anchorCount; anchor++) {
-      if ((cell.trees & (1 << anchor)) === 0) continue;
-      for (let j = 0; j < cell.leaves && stats.leaves < MAX_LEAVES; j++) {
-        const s = hash3(cell.row, cell.column, K_LEAF + anchor * 4 + j);
-        // Not every leaf is in the air at once: the thinner the autumn, the
-        // longer each one waits on the branch between falls.
-        const fall = 7 + s * 4;
-        const period = fall / Math.max(0.25, autumn);
-        const phase = fract(clock / period + s * 5.3);
-        const u = (phase * period) / fall;
-        if (u >= 1) continue;
-        const a = s * 71.3;
-        const top = 5 + s * 4;
-        const h = top * (1 - u);
-        const sway = 0.9 * Math.sin(clock * (1.4 + s) + a);
-        const around = 1.5 + 1.5 * fract(s * 17.9);
-        anchorPoint(cell, anchor, Math.cos(a) * around + sway, Math.sin(a) * around, h, point);
-        point.addScaledVector(drift, u * fall);
-        const size = LEAF_SIZE * cell.fade * smooth(u / 0.08) * (1 - smooth((u - 0.94) / 0.06));
-        if (size < 0.01) continue;
-        const spin = clock * (2 + s * 2) + a;
-        const tilt = 0.9 * Math.sin(clock * (1.4 + s) + a + 1.2);
-        axisA.copy(cell.east).multiplyScalar(Math.cos(spin)).addScaledVector(cell.north, Math.sin(spin));
-        axisB.copy(cell.north).multiplyScalar(Math.cos(spin)).addScaledVector(cell.east, -Math.sin(spin))
-          .multiplyScalar(Math.cos(tilt)).addScaledVector(cell.up, Math.sin(tilt));
-        const colour = colourOf(LEAVES[Math.floor(fract(s * 3.7) * LEAVES.length) % LEAVES.length]!);
-        tipA.copy(point).addScaledVector(axisA, size);
-        tipB.copy(point).addScaledVector(axisA, -size);
-        lift.copy(point).addScaledVector(axisB, size * 0.62);
-        other.copy(point).addScaledVector(axisB, -size * 0.62);
-        triangle(tipA, lift, tipB, colour);
-        triangle(tipA, tipB, other, colour);
-        stats.leaves++;
-      }
-    }
-  }
-
   function fish(cell: Cell, player: THREE.Vector3, afloat: boolean, calm: number): void {
     if (!cell.fish || calm < 0.05) return;
     if (!afloat && cell.shore > WATERSIDE) return;
@@ -897,6 +977,348 @@ export function createAmbient(options: AmbientOptions): Ambient {
     other.copy(tipB).addScaledVector(axisA, -FISH_HALF * 0.45).addScaledVector(axisB, -FISH_HALF * 0.3).addScaledVector(right, flick * 0.1);
     triangle(tipB, lift, other, back);
     stats.fish++;
+  }
+
+  /* --- the crowns and their leaves ---------------------------------------- */
+
+  /** A crown that sheds, as the near wood or a near town handed it over, worked out once and kept. */
+  interface Crown {
+    /** Where it stands, hashed: the same crown whoever built it. */
+    key: number;
+    /** Its middle's unit direction and the frame there; its middle's radius, and the ground's under it. */
+    up: THREE.Vector3;
+    east: THREE.Vector3;
+    north: THREE.Vector3;
+    middle: number;
+    foot: number;
+    radius: number;
+    half: number;
+    colour: THREE.Color;
+    shed: number;
+    distance: number;
+    /** The scan that last found it, so two tiles overlapping in a swap hand it in once. */
+    scan: number;
+    born: number;
+    /** Its litter's ground radii, `NaN` until asked and `-1` on water; `asked` of them so far. */
+    litter: Float32Array;
+    asked: number;
+  }
+
+  /** Where a leaf lets go and lands, fixed when it lets go: the drift and the ground there. */
+  interface Landing {
+    cycle: number;
+    /** Where it lets go, across the crown's frame, and how far it drifts by the time it lands. */
+    e: number;
+    n: number;
+    de: number;
+    dn: number;
+    /** The radius of what it lies on. */
+    radius: number;
+    seen: number;
+  }
+
+  const crowns = new Map<number, Crown>();
+  const nearCrowns: Crown[] = [];
+  const landings = new Map<number, Landing>();
+  let scanId = 0;
+  let crownBudget = 0;
+  let litterAsks = 0;
+  let litterDirty = false;
+  let litterAge = Infinity;
+  const crownPoint = new THREE.Vector3();
+  const leafColour = new THREE.Color();
+  const driftTo = new THREE.Vector3();
+
+  /** What a point stands on: a town's floor or a road's ribbon, else the drawn land; -1 on the water. */
+  function surfaceAt(at: THREE.Vector3): number {
+    stats.groundAsks++;
+    const made = options.madeHeightAt(at);
+    if (made > 0) return made;
+    const ground = options.groundAt(at);
+    return isWater(ground) ? -1 : ground;
+  }
+
+  function takeCrown(list: Float32Array, o: number): void {
+    const x = list[o]!;
+    const y = list[o + 1]!;
+    const z = list[o + 2]!;
+    // A quarter of a unit is finer than two trees stand and coarser than a
+    // float's wobble between two builds of the same tile.
+    const key = Math.floor(hash3(Math.round(x * 4), Math.round(y * 4), Math.round(z * 4)) * 4294967296);
+    let crown = crowns.get(key);
+    if (crown === undefined) {
+      if (crownBudget <= 0) {
+        pending = true;
+        return;
+      }
+      crownBudget--;
+      const up = new THREE.Vector3(x, y, z);
+      const middle = up.length();
+      up.divideScalar(middle);
+      const east = new THREE.Vector3();
+      const north = new THREE.Vector3();
+      frameAt(up, east, north);
+      const foot = surfaceAt(crownPoint.copy(up).multiplyScalar(PLANET_RADIUS));
+      crown = {
+        key, up, east, north, middle, foot: foot < 0 ? middle - list[o + 4]! * 2 : foot,
+        radius: list[o + 3]!, half: list[o + 4]!,
+        colour: new THREE.Color(list[o + 5]!, list[o + 6]!, list[o + 7]!),
+        shed: list[o + 8]!, distance: 0, scan: -1, born: clock,
+        litter: new Float32Array(LITTER_MAX).fill(NaN), asked: 0,
+      };
+      crowns.set(key, crown);
+      litterDirty = true;
+    }
+    if (crown.scan === scanId) return;
+    crown.scan = scanId;
+    nearCrowns.push(crown);
+  }
+
+  function scanCrowns(player: THREE.Vector3): void {
+    if (options.crownsNear === undefined) return;
+    scanId++;
+    crownBudget = CROWN_ADMIT * Math.max(1, admitPerFrame / 2);
+    const before = nearCrowns.length;
+    nearCrowns.length = 0;
+    options.crownsNear(player, LITTER_RANGE, takeCrown);
+    scanUp.copy(player).normalize();
+    for (const crown of nearCrowns) crown.distance = crown.up.distanceTo(scanUp) * PLANET_RADIUS;
+    nearCrowns.sort((a, b) => a.distance - b.distance || a.key - b.key);
+    if (nearCrowns.length > MAX_CROWNS) nearCrowns.length = MAX_CROWNS;
+    if (nearCrowns.length !== before) litterDirty = true;
+    if (crowns.size > CACHE_CAP) {
+      const keep = new Set(nearCrowns);
+      for (const [key, crown] of crowns) if (!keep.has(crown)) crowns.delete(key);
+    }
+  }
+
+  /** A crown's fade for the falling leaves: its distance, and its age. */
+  function crownFade(crown: Crown, now: number): number {
+    return smooth((LEAF_RANGE - crown.distance) / (LEAF_RANGE - LEAF_FADE_FROM)) * smooth((now - crown.born) / FADE_IN);
+  }
+
+  /**
+   * A leaf's colour: in the autumn, mostly the autumn's own; out of it, the
+   * crown's green going over (`dry` 0, in the air) or gone brown (`dry` 1,
+   * lying a while).
+   */
+  function leafColourOf(crown: Crown, pick: number, pick2: number, autumn: number, dry: number, out: THREE.Color): THREE.Color {
+    if (pick < 0.06 + 0.88 * autumn) {
+      return out.copy(colourOf(LEAVES[Math.floor(pick2 * LEAVES.length) % LEAVES.length]!)).lerp(crown.colour, 0.12 + 0.1 * dry);
+    }
+    if (dry > 0) return out.copy(crown.colour).lerp(colourOf(DRIED[Math.floor(pick2 * DRIED.length) % DRIED.length]!), 0.5 + 0.35 * pick2);
+    return out.copy(crown.colour).lerp(colourOf(PALETTE.gold), 0.1 + 0.3 * pick2);
+  }
+
+  /**
+   * A quad lying or tumbling at `point`: `size` from its stalk to its tip
+   * along `axisA` and a little over half that across along `axisB`, as two
+   * triangles with a bend down the midrib.
+   */
+  function leafQuad(size: number, colour: THREE.Color): void {
+    tipA.copy(point).addScaledVector(axisA, size);
+    tipB.copy(point).addScaledVector(axisA, -size);
+    lift.copy(point).addScaledVector(axisB, size * 0.55);
+    other.copy(point).addScaledVector(axisB, -size * 0.55);
+    triangle(tipA, lift, tipB, colour);
+    triangle(tipA, tipB, other, colour);
+  }
+
+  /** Where the leaf in `slot` of a crown lets go and lands this cycle, worked out the first time it is asked. */
+  function landingOf(crown: Crown, slot: number, cycle: number, fall: number, now: number): Landing {
+    const id = crown.key * 8 + slot;
+    let landing = landings.get(id);
+    if (landing !== undefined && landing.cycle === cycle) {
+      landing.seen = now;
+      return landing;
+    }
+    const seed = (crown.key | 0) ^ Math.imul(cycle, 0x9e3779b1);
+    const angle = hash3(seed, slot, K_LEAF + 1) * Math.PI * 2;
+    const reach = Math.sqrt(hash3(seed, slot, K_LEAF + 2)) * crown.radius * 0.85;
+    const e = Math.cos(angle) * reach;
+    const n = Math.sin(angle) * reach;
+    // Downwind by the wind of the moment it lets go, for as long as it falls,
+    // and a scatter of its own.
+    driftTo.copy(WIND.uWindWorld.value);
+    const push = DRIFT * WIND.uWindStrength.value * fall;
+    const scatter = 0.8 * crown.radius * (hash3(seed, slot, K_LEAF + 3) - 0.5);
+    const de = driftTo.dot(crown.east) * push + scatter * Math.cos(angle + 1.3);
+    const dn = driftTo.dot(crown.north) * push + scatter * Math.sin(angle + 1.3);
+    crownPoint.copy(crown.up)
+      .addScaledVector(crown.east, (e + de) / PLANET_RADIUS)
+      .addScaledVector(crown.north, (n + dn) / PLANET_RADIUS)
+      .normalize()
+      .multiplyScalar(PLANET_RADIUS);
+    const ground = surfaceAt(crownPoint);
+    const radius = ground < 0 ? WATER_LINE : ground;
+    if (landing === undefined) {
+      landing = { cycle, e, n, de, dn, radius, seen: now };
+      landings.set(id, landing);
+    } else Object.assign(landing, { cycle, e, n, de, dn, radius, seen: now });
+    return landing;
+  }
+
+  /** A crown's falling and fallen leaves, into the bodies. */
+  function crownLeaves(crown: Crown, air: number, autumn: number, high: number, now: number): void {
+    const fade = crownFade(crown, now) * high;
+    if (fade <= 0.01) return;
+    const share = (air * crown.shed) / LEAF_SLOTS;
+    if (share < 0.002) return;
+    const over = Math.max(1.5, crown.middle - crown.foot);
+    for (let slot = 0; slot < LEAF_SLOTS; slot++) {
+      if (stats.leaves + stats.lying >= MAX_LEAVES) return;
+      const s = hash3(crown.key | 0, slot, K_LEAF);
+      // From its own height in the crown, at its own speed.
+      const start = Math.max(1.2, over + (fract(s * 5.1) - 0.55) * crown.half * 1.4);
+      const fall = start / (FALL_SPEED * (0.8 + 0.4 * fract(s * 3.3)));
+      const lie = LIE + LIE_SPREAD * fract(s * 9.7);
+      const life = fall + lie + SHRINK;
+      // The fewer in the air, the longer a slot waits between leaves.
+      const period = Math.max(life, fall / Math.min(1, share));
+      const phase = clock / period + fract(s * 7.3);
+      const cycle = Math.floor(phase);
+      const t = (phase - cycle) * period;
+      if (t >= life) continue;
+      const landing = landingOf(crown, slot, cycle, fall, now);
+      const u = Math.min(1, t / fall);
+      const flutter = s * 41.7;
+      const swing = SWING_RATE * (0.8 + 0.4 * fract(s * 6.1));
+      const tumbles = fract(s * 2.9) > 0.72;
+      const yaw = fract(s * 13.7) * Math.PI * 2 + 0.6 * Math.min(t, fall) * (fract(s * 8.3) - 0.5);
+      let e = landing.e + landing.de * u;
+      let n = landing.n + landing.dn * u;
+      let r: number;
+      let tilt: number;
+      let roll: number;
+      const pick = hash3((crown.key | 0) ^ cycle, slot, K_LEAF + 4);
+      const pick2 = hash3((crown.key | 0) ^ cycle, slot, K_LEAF + 5);
+      let size = LEAF_SIZE * (0.8 + 0.4 * fract(s * 4.1)) * fade;
+      if (u < 1) {
+        // Swinging as it comes down, the swing and the push dying out as it
+        // lands, so it lies where its landing was asked.
+        const settle = smooth((1 - u) / 0.15);
+        const beat = swing * t + flutter;
+        const sideways = SWING * Math.sin(beat) * settle;
+        const across = fract(s * 17.3) * Math.PI * 2;
+        e += Math.cos(across) * sideways;
+        n += Math.sin(across) * sideways;
+        crownPoint.copy(crown.up).multiplyScalar(crown.middle)
+          .addScaledVector(crown.east, landing.e)
+          .addScaledVector(crown.north, landing.n);
+        const gust = windGustAt(crownPoint) * GUST_PUSH * WIND.uWindStrength.value * Math.sin(Math.PI * u);
+        e += WIND.uWindWorld.value.dot(crown.east) * gust;
+        n += WIND.uWindWorld.value.dot(crown.north) * gust;
+        const top = crown.middle + (start - over);
+        r = top + (landing.radius + LIE_LIFT - top) * u + 0.2 * Math.cos(2 * beat) * settle;
+        tilt = tumbles ? t * (2.5 + 2 * s) : 0.85 * Math.cos(beat);
+        roll = 0.5 * Math.sin(beat * 0.5 + s);
+        size *= smooth(t / 0.4);
+        stats.leaves++;
+      } else {
+        r = landing.radius + LIE_LIFT;
+        tilt = 0.1 * (pick - 0.5);
+        roll = 0.1 * (pick2 - 0.5);
+        size *= 1 - smooth((t - fall - lie) / SHRINK);
+        stats.lying++;
+      }
+      if (size < 0.01) continue;
+      point.copy(crown.up)
+        .addScaledVector(crown.east, e / PLANET_RADIUS)
+        .addScaledVector(crown.north, n / PLANET_RADIUS)
+        .normalize();
+      right.copy(point);
+      point.multiplyScalar(r);
+      // The leaf's frame: its length along `yaw` in the ground's plane, tipped
+      // up by `tilt`; its width square to that, rolled by `roll`.
+      forward.copy(crown.east).multiplyScalar(Math.cos(yaw)).addScaledVector(crown.north, Math.sin(yaw));
+      axisA.copy(forward).multiplyScalar(Math.cos(tilt)).addScaledVector(right, Math.sin(tilt));
+      axisB.crossVectors(right, forward).normalize().multiplyScalar(Math.cos(roll)).addScaledVector(right, Math.sin(roll));
+      leafQuad(size, leafColourOf(crown, pick, pick2, autumn, u < 1 ? 0 : 0.3, leafColour));
+    }
+  }
+
+  /** Asks the ground under the nearest crowns' litter, `LITTER_ASKS` a frame at most. */
+  function askLitter(want: (crown: Crown) => number): void {
+    for (const crown of nearCrowns) {
+      if (litterAsks <= 0) return;
+      const count = want(crown);
+      while (crown.asked < count && litterAsks > 0) {
+        const j = crown.asked++;
+        litterAsks--;
+        litterPoint(crown, j);
+        const ground = surfaceAt(crownPoint.copy(point).normalize().multiplyScalar(PLANET_RADIUS));
+        crown.litter[j] = ground;
+        litterDirty = true;
+      }
+    }
+  }
+
+  /** Where the `j`th leaf of a crown's litter lies, across the ground, into `point` (unit length). */
+  function litterPoint(crown: Crown, j: number): THREE.Vector3 {
+    const k = crown.key | 0;
+    const angle = hash3(k, j, K_LITTER) * Math.PI * 2;
+    const reach = Math.sqrt(hash3(k, j, K_LITTER + 1)) * crown.radius * LITTER_REACH;
+    return point.copy(crown.up)
+      .addScaledVector(crown.east, (Math.cos(angle) * reach) / PLANET_RADIUS)
+      .addScaledVector(crown.north, (Math.sin(angle) * reach) / PLANET_RADIUS)
+      .normalize();
+  }
+
+  let litterCount = 0;
+  /** The litter rewritten: every asked leaf under every crown in range, nearest crowns first. */
+  function writeLitter(want: (crown: Crown) => number, autumn: number, high: number): void {
+    let v = 0;
+    litterCount = 0;
+    for (const crown of nearCrowns) {
+      if (litterCount >= MAX_LITTER) break;
+      // By distance, and by age, so a wood arriving is littered as it dissolves in (`fade.ts`).
+      const fade = smooth((LITTER_RANGE - crown.distance) / LITTER_FADE) * smooth((clock - crown.born) / FADE_IN) * high;
+      if (fade <= 0.02) continue;
+      const count = Math.min(want(crown), crown.asked);
+      const k = crown.key | 0;
+      for (let j = 0; j < count && litterCount < MAX_LITTER; j++) {
+        const ground = crown.litter[j]!;
+        if (!(ground > 0)) continue;
+        litterPoint(crown, j);
+        right.copy(point);
+        const size = LITTER_SIZE * (0.75 + 0.5 * hash3(k, j, K_LITTER + 2)) * fade;
+        point.multiplyScalar(ground + LITTER_LIFT + size * 0.25 + 0.004 * (j % 5));
+        const yaw = hash3(k, j, K_LITTER + 3) * Math.PI * 2;
+        forward.copy(crown.east).multiplyScalar(Math.cos(yaw)).addScaledVector(crown.north, Math.sin(yaw));
+        axisB.crossVectors(right, forward).normalize();
+        const colour = leafColourOf(crown, hash3(k, j, K_LITTER + 4), hash3(k, j, K_LITTER + 5), autumn, 1, leafColour);
+        // A leaf a little darker the deeper in the pile: a tone, not a shadow.
+        colour.multiplyScalar(0.82 + 0.18 * hash3(k, j, K_LITTER + 6));
+        tipA.copy(point).addScaledVector(forward, size);
+        tipB.copy(point).addScaledVector(forward, -size);
+        lift.copy(point).addScaledVector(axisB, size * 0.55);
+        other.copy(point).addScaledVector(axisB, -size * 0.55);
+        // Wound to face the sky: `axisB` is `up x forward`, so `forward x axisB` is up.
+        for (const corner of [tipA, tipB, other, tipA, lift, tipB]) {
+          const o = v * 3;
+          litterPosition[o] = corner.x;
+          litterPosition[o + 1] = corner.y;
+          litterPosition[o + 2] = corner.z;
+          litterNormal[o] = right.x;
+          litterNormal[o + 1] = right.y;
+          litterNormal[o + 2] = right.z;
+          litterColor[o] = colour.r;
+          litterColor[o + 1] = colour.g;
+          litterColor[o + 2] = colour.b;
+          v++;
+        }
+        litterCount++;
+      }
+    }
+    litterGeometry.setDrawRange(0, v);
+    litter.visible = v > 0;
+    if (v > 0) {
+      for (const attribute of litterAttributes) {
+        attribute.clearUpdateRanges();
+        attribute.addUpdateRange(0, v * 3);
+        attribute.needsUpdate = true;
+      }
+    }
   }
 
   // The gulls' own scratch: a matrix a gull and one a wing.
@@ -975,9 +1397,14 @@ export function createAmbient(options: AmbientOptions): Ambient {
   function hide(): void {
     lights.visible = false;
     bodies.visible = false;
+    litter.visible = false;
     lightGeometry.setDrawRange(0, 0);
     bodyGeometry.setDrawRange(0, 0);
-    stats.fireflies = stats.motes = stats.butterflies = stats.leaves = stats.fish = stats.gulls = 0;
+    litterGeometry.setDrawRange(0, 0);
+    litterCount = 0;
+    // Written again from the crowns when it shows.
+    litterDirty = true;
+    stats.fireflies = stats.motes = stats.butterflies = stats.leaves = stats.lying = stats.litter = stats.fish = stats.gulls = 0;
     stats.calls = 0;
   }
 
@@ -1012,11 +1439,17 @@ export function createAmbient(options: AmbientOptions): Ambient {
       pending = false;
       sinceScan = 0;
       lastScan.copy(player);
-      if (cameraHeight >= HIGH) active.length = 0;
+      if (cameraHeight >= HIGH) {
+        active.length = 0;
+        nearCrowns.length = 0;
+      } else scanCrowns(player);
+      litterDirty = true;
       scan(player, cameraHeight < HIGH, admitPerFrame);
       forget();
+      for (const [id, landing] of landings) if (clock - landing.seen > LANDING_KEEP) landings.delete(id);
     }
     stats.cells = active.length;
+    stats.crowns = nearCrowns.length;
     stats.gullCells = activeGulls.length;
 
     // What the weather and the hour allow, for everything at once.
@@ -1037,13 +1470,18 @@ export function createAmbient(options: AmbientOptions): Ambient {
     const calm = high * (1 - w.storm) * (1 - smooth((w.wind.speed - 10) / 8));
     const timeMs = frame.time.getTime();
     const up = playerUp.copy(player).normalize();
-    const autumn = w.lying > 0.5 ? 0 : autumnAt(timeMs, latOf(up.y)) * high;
-    stats.autumn = Number(autumn.toFixed(2));
+    // The season, and what it is seen through: the clocks of the leaves run
+    // on the season alone, so a camera climbing moves none of them.
+    const season = w.lying > 0.5 ? 0 : autumnAt(timeMs, latOf(up.y));
+    stats.autumn = Number(season.toFixed(2));
+    // Litter by the season, and none under lying snow; a step of it is a rewrite.
+    const cover = 1 - clamp01(w.lying * 1.5);
+    const litterWant = (crown: Crown): number =>
+      Math.round(LITTER_MAX * crown.shed * (LITTER_BASE + (1 - LITTER_BASE) * season) * cover);
 
-    stats.fireflies = stats.motes = stats.butterflies = stats.leaves = stats.fish = stats.gulls = 0;
+    stats.fireflies = stats.motes = stats.butterflies = stats.leaves = stats.lying = stats.fish = stats.gulls = 0;
     lightCursor = 0;
     vertexCursor = 0;
-    treeProbes = TREE_PROBES;
     const now = clock;
     for (const cell of active) {
       const distance = cell.up.distanceTo(up) * PLANET_RADIUS;
@@ -1052,9 +1490,26 @@ export function createAmbient(options: AmbientOptions): Ambient {
       if (cell.fireflies > 0 && fireflyStrength > 0.01) fireflies(cell, fireflyStrength);
       if (cell.motes > 0 && moteStrength > 0.01) motes(cell, moteStrength);
       if (cell.butterflies > 0 && butterflyStrength > 0.01) butterflies(cell, butterflyStrength);
-      if (cell.leaves > 0 && autumn > 0.02) leaves(cell, autumn, now);
       if (cell.fish) fish(cell, player, frame.afloat, calm);
     }
+    if (nearCrowns.length > 0 && high > 0.01) {
+      const air = AIR_BASE + AIR_AUTUMN * season;
+      for (const crown of nearCrowns) {
+        if (crown.distance > LEAF_RANGE) break;
+        crownLeaves(crown, air, season, high, now);
+      }
+      litterAsks = LITTER_ASKS;
+      askLitter(litterWant);
+      // A crown still arriving is still fading in its litter.
+      if (!litterDirty) for (const crown of nearCrowns) if (now - crown.born < FADE_IN) { litterDirty = true; break; }
+    }
+    litterAge += dt;
+    if (litterDirty && litterAge >= LITTER_EVERY) {
+      litterDirty = false;
+      litterAge = 0;
+      writeLitter(litterWant, season, high);
+    }
+    stats.litter = litterCount;
     if (gullStrength > 0.01) {
       for (const cell of activeGulls) {
         const distance = cell.up.distanceTo(up) * PLANET_RADIUS;
@@ -1082,7 +1537,7 @@ export function createAmbient(options: AmbientOptions): Ambient {
         attribute.needsUpdate = true;
       }
     }
-    stats.calls = (lights.visible ? 1 : 0) + (bodies.visible ? 1 : 0);
+    stats.calls = (lights.visible ? 1 : 0) + (bodies.visible ? 1 : 0) + (litter.visible ? 1 : 0);
     stats.updateMs = performance.now() - began;
   }
 
@@ -1107,6 +1562,9 @@ export function createAmbient(options: AmbientOptions): Ambient {
       for (let v = 0; v < vertexCursor; v++) {
         out.push(`body ${fixed(bodyPosition[v * 3]!)} ${fixed(bodyPosition[v * 3 + 1]!)} ${fixed(bodyPosition[v * 3 + 2]!)}`);
       }
+      for (let v = 0; v < litterCount * 6; v++) {
+        out.push(`litter ${fixed(litterPosition[v * 3]!)} ${fixed(litterPosition[v * 3 + 1]!)} ${fixed(litterPosition[v * 3 + 2]!)}`);
+      }
       return out.sort();
     },
     proxies() {
@@ -1115,7 +1573,7 @@ export function createAmbient(options: AmbientOptions): Ambient {
       geometry.setAttribute('glow', new THREE.BufferAttribute(new Float32Array(1), 1));
       geometry.setAttribute('spot', new THREE.BufferAttribute(new Float32Array(1), 1));
       geometry.setAttribute('kind', new THREE.BufferAttribute(new Float32Array(1), 1));
-      return [new THREE.Points(geometry, lightMat), proxyOf(bodyMat)];
+      return [new THREE.Points(geometry, lightMat), proxyOf(bodyMat), proxyOf(litterMat)];
     },
   };
 }

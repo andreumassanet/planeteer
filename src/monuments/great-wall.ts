@@ -1,4 +1,5 @@
 import type { Group, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Great Wall of China — the Badaling section.
@@ -319,9 +320,14 @@ export const greatWall: Monument = {
       // stacked on the one below, so none of them can float off a step, and the
       // one that meets the pad is the one whose height is nearest to nothing.
       const swell = HILL_TAPER + (1 - HILL_TAPER) * (ground / RIDGE_PEAK);
+      //
+      // Each terrace is also `PROUD` shorter at both ends than the one under
+      // it: laid the same length, the ends of two terraces of different
+      // colours shared a plane and flickered.
       HILL.forEach((step, tier) => {
         const depth = step.half * swell * 2;
-        bay.add(box(chord * HILL_OVERLAP, ground * step.share, depth, terrace[tier]!));
+        const length = chord * HILL_OVERLAP - 2 * PROUD * tier;
+        bay.add(box(length, ground * step.share, depth, terrace[tier]!));
       });
 
       if (covered.has(i)) continue;

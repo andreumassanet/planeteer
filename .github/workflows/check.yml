@@ -75,6 +75,8 @@ jobs:
         run: pnpm ground
       - name: country
         run: pnpm country
+      - name: seated
+        run: pnpm seated
       - name: craft
         run: pnpm craft
       - name: effects

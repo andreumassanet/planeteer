@@ -1,4 +1,5 @@
 import type { Group, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Moeraki Boulders, Koekohe Beach, Otago.
@@ -436,7 +437,9 @@ const BOULDERS: readonly Stone[] = [
 
   // --- in the foam ---
   { x: 8.4, z: 9.8, r: 1.6, buried: 0.45, bands: 3, sides: 8 },
-  { x: -9.0, z: 9.6, r: 1.3, buried: 0.58, bands: 3, sides: 8 },
+  // Half buried: at 0.58 its first band's top came within a hundredth of the
+  // foam's top face beside it, two colours in one plane.
+  { x: -9.0, z: 9.6, r: 1.3, buried: 0.5, bands: 3, sides: 8 },
   { x: 0.0, z: 9.2, r: 0.75, buried: 0.55, bands: 2, sides: 6 },
 
   // --- up the dry beach, smaller and deeper in the sand ---
@@ -544,18 +547,22 @@ export const moerakiBoulders: Monument = {
 
     // --- the four flats -------------------------------------------------------
 
-    const flat = (back: number, front: number, top: number, color: number): void => {
-      const slab = box(HALF_WIDTH * 2, top, front - back, color);
+    // `inset` pulls a flat's two ends in from the crop's sides. Flats that
+    // overlap in z would otherwise share their end planes at x = +-HALF_WIDTH,
+    // and flush faces of two colours in one plane flicker; so the tide flat and
+    // the sea stop `PROUD` short of the sand and the foam that overlap them.
+    const flat = (back: number, front: number, top: number, color: number, inset = 0): void => {
+      const slab = box((HALF_WIDTH - inset) * 2, top, front - back, color);
       slab.position.z = (back + front) / 2;
       group.add(slab);
     };
 
     flat(BANK_EDGE, DRY_FRONT, DRY_TOP, drySand);
-    flat(WET_BACK, WET_FRONT, WET_TOP, wetSand);
+    flat(WET_BACK, WET_FRONT, WET_TOP, wetSand, PROUD);
     // The foam stands 0.3 proud of the tide flat and 0.75 above the sea, and
     // bridges the 0.8-unit seam between them so nothing shows through to y = 0.
     flat(FOAM_BACK, FOAM_FRONT, FOAM_TOP, foam);
-    flat(SEA_BACK, SEA_EDGE, SEA_TOP, sea);
+    flat(SEA_BACK, SEA_EDGE, SEA_TOP, sea, PROUD);
 
     /** The top of whichever flat a thing at this z stands on. */
     const sandTop = (z: number): number => (z < TIDE_LINE ? DRY_TOP : WET_TOP);

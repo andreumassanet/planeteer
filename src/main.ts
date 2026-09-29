@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OutlineEffect } from './outline.ts';
+import { createPost } from './post.ts';
 import { loadLakes, loadWorld, toLatLon } from './geo.ts';
 import { groundRadius, landFlagProxy, landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
 import { drawnRadius, landProbeOf } from './land-probe.ts';
@@ -39,7 +40,7 @@ import { createWeatherView } from './weather-view.ts';
 import { weatherAt, weatherSample } from './weather.ts';
 import { createOcean } from './ocean.ts';
 import { proxyOf, warmShaders } from './warm.ts';
-import { LAMPS_OFF_ABOVE, LAMP_FIELD, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, lampHalos, lightBrightness, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
+import { FIRE_GLOW_REACH, FIRE_STRIDE, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, fireGlows, lightBrightness, setFires, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
@@ -49,10 +50,11 @@ import type { TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { Where } from './talk.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
-import { EMOTE_INTERVAL_MS, HONK_INTERVAL_MS, cleanHonk } from '../server/src/limits.ts';
-import type { Emote } from '../server/src/limits.ts';
-import { HORN_OF, isAirKind } from './craft/contract.ts';
-import type { CraftKind, CraftModel } from './craft/contract.ts';
+import { EMOTE_INTERVAL_MS, cleanHonk, cleanHonkOn } from '../server/src/limits.ts';
+import type { Emote, Honk } from '../server/src/limits.ts';
+import { createHornChorus, createHornKey } from './horn.ts';
+import { HEADLIGHTS_OF, HORN_OF, LAMPS_LIKE, isAirKind } from './craft/contract.ts';
+import type { CraftKind, CraftModel, Lamp } from './craft/contract.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -538,6 +540,8 @@ async function start(): Promise<void> {
     /** With it, the whole scenery kit and the whole traffic kit. */
     settlements: import('./settlements.ts'),
     vegetation: import('./vegetation.ts'),
+    /** The blades under your feet, drawn round the camera from what the vegetation says grows there. */
+    grass: import('./grass.ts'),
     /** The wakes, the smoke, the dust and a crash's debris; made with the streamers. */
     effects: import('./effects.ts'),
     /** Fireflies, butterflies, gulls, a fish, leaves: the small life round the camera. */
@@ -660,6 +664,17 @@ async function start(): Promise<void> {
   // Inverted-hull outline: this is what turns crude geometry into a drawing.
   // Without it a monument made of boxes looks like a mistake.
   const outline = new OutlineEffect(renderer, { defaultThickness: 0.003, defaultColor: [0.11, 0.02, 0.01] });
+  // The frame after the scene: bloom, the tone map and the grade (`post.ts`).
+  // The scene goes into it without ink: the painted look is soft light and
+  // atmosphere, and a black line round everything fights both. The ink's two
+  // passes are still one switch away (`atlas.ink(true)`).
+  const post = createPost(renderer);
+  let inked = false;
+  const setInk = (on: boolean): void => {
+    inked = on;
+    post.draw = on ? (target, camera) => outline.render(target, camera) : (target, camera) => renderer.render(target, camera);
+  };
+  setInk(false);
 
   // Real shadows, from the sun alone, into one map that follows the player —
   // `sun.ts` owns the box, the fades and the bias. `PCFShadowMap`, because r182
@@ -725,7 +740,7 @@ async function start(): Promise<void> {
   /**
    * The ground under a foot, a wheel and the lens: the drawn land round the
    * player, the relief past it (`drawnRadius`). One probe for the mesh, which
-   * the sward, the fleet and the foot all read; the loop keeps it gathered
+   * the grass, the fleet and the foot all read; the loop keeps it gathered
    * round the player while he is near the ground.
    */
   const landProbe = landProbeOf(land);
@@ -880,7 +895,7 @@ async function start(): Promise<void> {
     scene,
     renderer,
     // `outline.render`, not `renderer.render`: a frame here is two passes.
-    draw: (target, camera) => outline.render(target, camera),
+    draw: (target, camera) => post.render(target, camera),
     // The Resolution setting's ratio, so a resize in the menu keeps it.
     pixelRatio: () => pixelRatioFor(resolution),
     fallback: { lat: START.lat, lon: START.lon, name: 'Palma' },
@@ -985,6 +1000,8 @@ async function start(): Promise<void> {
     // And when a floor arrives or goes, so a landmark raised before its town
     // is lifted onto the paving when the paving comes.
     (since, into) => settlements.floorChanges(since, into),
+    // The drawn land, which a landmark stands on under its plan.
+    land,
   );
   scene.add(monuments.group);
   if (monuments.broken.length > 0) console.warn('monuments that broke the contract:', monuments.broken);
@@ -1007,6 +1024,8 @@ async function start(): Promise<void> {
     context: ctx,
     monuments: placements,
     roads: baked.roads,
+    // The drawn land, which the trees round a town's edge stand on.
+    land,
   });
   scene.add(settlements.group);
   // Every place on the planet as one buffer of points, lit where the sun is
@@ -1022,14 +1041,55 @@ async function start(): Promise<void> {
   const headlights = new Float32Array(NEAR_HEADLIGHTS * 7);
   let headlightCount = 0;
   const headAt = new THREE.Vector3();
-  const headAhead = new THREE.Vector3();
-  const headSide = new THREE.Vector3();
-  const headUp = new THREE.Vector3();
   const headDown = new THREE.Vector3();
-  /** What drives on wheels and so carries headlights; the rest of `player.mode` swims, sails or flies. */
-  const WHEELED = new Set<string>(['car', 'van', 'motorbike', 'tuktuk', 'bus', 'tractor', 'jeep', 'bicycle']);
-  const headPool = Array.from({ length: 64 }, () => ({ mesh: null as unknown as THREE.Object3D, halfLength: 0, halfWidth: 0, distance: 0 }));
-  const headTraffic: (typeof headPool)[number][] = [];
+  /**
+   * A vehicle whose headlamps may be lit this frame: where its model's origin
+   * is and its model's +X, +Y and +Z, its lamps (`CraftModel.lamps`, the
+   * kind's count of them, `HEADLIGHTS_OF`), how they are scaled onto it —
+   * `across` in X, `along` up and ahead, 1 for a craft and the traffic's own
+   * size over the craft's for a vehicle of the traffic — how bright, and how
+   * far it is from the camera. Kept in a pool and reused, frame after frame.
+   */
+  interface LampSource {
+    origin: THREE.Vector3;
+    side: THREE.Vector3;
+    up: THREE.Vector3;
+    ahead: THREE.Vector3;
+    lamps: readonly Lamp[];
+    across: number;
+    along: number;
+    strength: number;
+    distance: number;
+  }
+  const lampPool: LampSource[] = Array.from({ length: 64 }, () => ({
+    origin: new THREE.Vector3(),
+    side: new THREE.Vector3(),
+    up: new THREE.Vector3(),
+    ahead: new THREE.Vector3(),
+    lamps: [],
+    across: 1,
+    along: 1,
+    strength: 0,
+    distance: 0,
+  }));
+  /** The pool's sources in use this frame, the player's own first and then by distance. */
+  const lampSources: LampSource[] = [];
+  const lampSource = (distance: number): LampSource | null => {
+    if (distance > LAMP_FIELD || lampSources.length >= lampPool.length) return null;
+    const source = lampPool[lampSources.length]!;
+    source.distance = distance;
+    lampSources.push(source);
+    return source;
+  };
+  /** A source's axes off a posed object's world matrix, its scale taken out. */
+  const lampFrame = (source: LampSource, matrix: THREE.Matrix4): void => {
+    const e = matrix.elements;
+    source.origin.setFromMatrixPosition(matrix);
+    source.side.set(e[0]!, e[1]!, e[2]!).normalize();
+    source.up.set(e[4]!, e[5]!, e[6]!).normalize();
+    source.ahead.set(e[8]!, e[9]!, e[10]!).normalize();
+  };
+  const byLampDistance = (a: LampSource, b: LampSource): number => a.distance - b.distance;
   const pushHeadlight = (at: THREE.Vector3, dir: THREE.Vector3, strength: number): void => {
     if (headlightCount >= NEAR_HEADLIGHTS) return;
     const o = headlightCount * 7;
@@ -1038,18 +1098,60 @@ async function start(): Promise<void> {
     headlights[o + 6] = strength;
     headlightCount++;
   };
-  const visitTraffic = (mesh: THREE.Object3D, halfLength: number, halfWidth: number): void => {
-    const distance = mesh.position.distanceTo(rig.camera.position);
-    if (distance > LAMP_FIELD || headTraffic.length >= headPool.length) return;
-    const slot = headPool[headTraffic.length]!;
-    slot.mesh = mesh;
-    slot.halfLength = halfLength;
-    slot.halfWidth = halfWidth;
-    slot.distance = distance;
-    headTraffic.push(slot);
+  /** Every lamp of one vehicle, on the model where it has them, or none if they do not all fit. */
+  const pushLamps = (source: LampSource): void => {
+    if (headlightCount + source.lamps.length > NEAR_HEADLIGHTS) return;
+    headDown.copy(source.ahead).addScaledVector(source.up, -0.12).normalize();
+    for (const [x, y, z] of source.lamps) {
+      headAt.copy(source.origin)
+        .addScaledVector(source.side, x * source.across)
+        .addScaledVector(source.up, y * source.along)
+        .addScaledVector(source.ahead, z * source.along);
+      pushHeadlight(headAt, headDown, source.strength);
+    }
   };
+  /** How bright a model's headlamps are lit, or 0 where it has none. */
+  const headlampsOf = (model: CraftModel): number =>
+    model.lamps === undefined || model.lamps.length === 0 ? 0 : HEADLIGHTS_OF[model.kind].strength;
+  /**
+   * The traffic's vehicles, with the lamps of the craft that stands in for
+   * each (`LAMPS_LIKE`) scaled onto its own box: across by its width, up and
+   * ahead by its length, from the bottom of its model. A little dimmer than a
+   * player's, as they always were.
+   */
+  const visitTraffic = (mesh: THREE.Object3D, halfLength: number, halfWidth: number, vehicle: string, bottom: number): void => {
+    const like = LAMPS_LIKE[vehicle];
+    const model = like === undefined ? undefined : craftModels.get(like);
+    if (model === undefined) return;
+    const strength = headlampsOf(model);
+    if (strength === 0) return;
+    const source = lampSource(mesh.position.distanceTo(rig.camera.position));
+    if (source === null) return;
+    lampFrame(source, mesh.matrixWorld);
+    source.origin.addScaledVector(source.up, bottom);
+    source.lamps = model.lamps!;
+    source.across = halfWidth / (model.size[1] / 2);
+    source.along = halfLength / (model.size[0] / 2);
+    source.strength = strength * 0.8;
+  };
+  /** The vehicles other players drive, lit as their drivers see them lit. */
+  const visitDriven = (group: THREE.Object3D, model: CraftModel): void => {
+    const strength = headlampsOf(model);
+    if (strength === 0) return;
+    group.updateWorldMatrix(true, false);
+    headAt.setFromMatrixPosition(group.matrixWorld);
+    const source = lampSource(headAt.distanceTo(rig.camera.position));
+    if (source === null) return;
+    lampFrame(source, group.matrixWorld);
+    source.lamps = model.lamps!;
+    source.across = 1;
+    source.along = 1;
+    source.strength = strength;
+  };
+  // The campfires near the camera, as `setFires` reads them, and the glow on their flames.
+  const fires = new Float32Array(MAX_FIRE_GLOWS * FIRE_STRIDE);
+  scene.add(fireGlows);
   scene.add(cityLights.points);
-  scene.add(lampHalos);
   if (settlements.broken.length > 0) console.warn('scenery parts that broke the contract:', settlements.broken);
   if (settlements.missing.length > 0) console.warn('region tables name parts that do not exist:', settlements.missing);
 
@@ -1058,6 +1160,8 @@ async function start(): Promise<void> {
   // geometry than the land mesh — so this costs one material and a bucket per
   // four degrees of the planet.
   const roads = createRoads(world, places.all, baked);
+  // A road's bank is stood on where it comes out of the land that is drawn.
+  roads.setGround(groundAt);
   scene.add(roads.group);
 
   await stage('setting it moving');
@@ -1136,6 +1240,8 @@ async function start(): Promise<void> {
       modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
     ),
     fields: takenGround,
+    // The drawn land, which a herd's animals stand on.
+    land,
     // A vehicle driving through a town rides its floor and keeps out of its
     // walls; the answers are the standing towns', the ones the player gets.
     streets: {
@@ -1189,6 +1295,12 @@ async function start(): Promise<void> {
   life.setCountry(vegetation.countryside);
   if (vegetation.broken.length > 0) console.warn('scenery parts that broke the contract:', vegetation.broken);
   if (vegetation.missing.length > 0) console.warn('biome tables name plants that do not exist:', vegetation.missing);
+  // The grass: the vegetation says where it grows and on what (`grass`); this draws it.
+  const { createGrass, pressOf } = await deferred.grass;
+  const grass = createGrass(vegetation.grass);
+  /** What the player parts the grass with, rewritten a frame (`pressOf`). */
+  const grassPress = { forward: new THREE.Vector3(), length: 0, width: 0 };
+  scene.add(grass.group);
 
   // What moving leaves behind it — wakes, smoke, dust, a crash's debris — in
   // three pools and at most four draw calls; see `effects.ts`. Made here so
@@ -1208,17 +1320,20 @@ async function start(): Promise<void> {
   const countryEye = new THREE.Vector3();
 
   // The small life round the camera — fireflies at night, butterflies and
-  // pollen by day, gulls over a coast, a fish off the shore, leaves in the
-  // autumn woods — in two draw calls; see `ambient.ts`. The *Effects* switch
-  // carries it. The ground and the made floors are the same two questions the
-  // player's foot asks, and the leaves find their trees by the woods' walls.
+  // pollen by day, gulls over a coast, a fish off the shore, leaves coming off
+  // the trees and lying under them — in three draw calls; see `ambient.ts`.
+  // The *Effects* switch carries it. The ground and the made floors are the
+  // same two questions the player's foot asks, and the leaves come off the
+  // crowns the near wood and the near towns draw.
   const { createAmbient } = await deferred.ambient;
-  const ambientPush = new THREE.Vector3();
   const ambient = createAmbient({
     groundAt: (point) => groundAt(point),
     madeHeightAt: (point) => madeHeightAt(point),
     meadowAt: (direction) => (vegetation.countryside?.meadowAt(direction) ?? null) !== null,
-    treeNear: (point) => vegetation.collide(point, 2.5, ambientPush),
+    crownsNear: (point, range, visit) => {
+      vegetation.crownsNear(point, range, visit);
+      settlements.crownsNear(point, range, visit);
+    },
     splash: (point, reach) => effects.splashAt(point, reach),
   });
   ambient.enabled = effects.enabled;
@@ -1275,7 +1390,7 @@ async function start(): Promise<void> {
     renderer,
     outline,
     scene,
-    [settlements, monuments, roads, vegetation, life, effects, ambient, sea, seaLife, countryMotion, weather, { proxies: () => [proxyOf(inkSource), landFlagProxy(), ...fleetMaterials().map((material) => proxyOf(material))] }],
+    [settlements, monuments, roads, vegetation, grass, life, effects, ambient, sea, seaLife, countryMotion, weather, { proxies: () => [proxyOf(inkSource), landFlagProxy(), ...fleetMaterials().map((material) => proxyOf(material))] }],
     modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }),
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
@@ -1359,6 +1474,8 @@ async function start(): Promise<void> {
 
   /** The fleet's vehicles as walls, once the fleet is up; see `Fleet.collide`. */
   let vehicleWalls: ((point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean) | null = null;
+  /** And the nearest spot clear of them; see `Fleet.freeSpotNear`. */
+  let vehicleSpot: ((point: THREE.Vector3, radius: number, out: THREE.Vector3) => boolean) | null = null;
   const vehiclePush = new THREE.Vector3();
   /**
    * Everything still that is a wall: a town's buildings, a monument's own
@@ -1371,10 +1488,11 @@ async function start(): Promise<void> {
   const freeFrom = new THREE.Vector3();
   const freeTo = new THREE.Vector3();
   /**
-   * The nearest spot clear of every still wall. A spot one source finds may
-   * stand in another's — a door freed onto a tree — so each is asked from
-   * where the last one put the body, until a whole round moves it no more;
-   * four rounds, then whatever the last answer was.
+   * The nearest spot clear of every still wall and every vehicle standing. A
+   * spot one source finds may stand in another's — a door freed onto a tree,
+   * or a body put down beside a car that arrived where it stood — so each is
+   * asked from where the last one put the body, until a whole round moves it
+   * no more; four rounds, then whatever the last answer was.
    */
   const freeOfWalls = (point: THREE.Vector3, radius: number, out: THREE.Vector3): boolean => {
     freeFrom.copy(point);
@@ -1383,6 +1501,10 @@ async function start(): Promise<void> {
       let again = false;
       for (const source of stillWalls) {
         if (!source.freeSpotNear(freeFrom, radius, freeTo)) continue;
+        freeFrom.copy(freeTo);
+        again = moved = true;
+      }
+      if (vehicleSpot !== null && vehicleSpot(freeFrom, radius, freeTo)) {
         freeFrom.copy(freeTo);
         again = moved = true;
       }
@@ -1481,9 +1603,17 @@ async function start(): Promise<void> {
     player,
     madeHeightAt,
     land,
+    // What stands still until it is taken: the towns' parked cars and the
+    // bicycles in their racks, and the farms' tractors.
     parked: {
-      near: (viewer, radius, out) => settlements.parkedNear(viewer, radius, out),
-      hide: (id) => settlements.hideParked(id),
+      near: (viewer, radius, out) => {
+        settlements.parkedNear(viewer, radius, out);
+        vegetation.parkedNear(viewer, radius, out);
+      },
+      hide: (id) => {
+        settlements.hideParked(id);
+        vegetation.hideParked(id);
+      },
       paintOf: (id) => settlements.parkedPaint(id),
     },
     // What a vehicle nobody is driving any more runs into: the still walls
@@ -1522,6 +1652,7 @@ async function start(): Promise<void> {
   });
   scene.add(fleet.group);
   vehicleWalls = (point, radius, push) => fleet.collide(point, radius, push);
+  vehicleSpot = (point, radius, out) => fleet.freeSpotNear(point, radius, out);
   // What the traffic stops for and the herds keep off, besides each other: the
   // player, whatever he drives, every vehicle standing about, and the people
   // of a town's streets. A car kept waiting by the player sounds its horn,
@@ -1558,7 +1689,11 @@ async function start(): Promise<void> {
   // A town built from here on leaves out a parked car the fleet has, and one
   // already standing folds it away (`hideParked`, through the fleet).
   settlements.setParkedTaken((id) => fleet.claimsParked(id));
-  for (const id of fleet.claimedParked()) settlements.hideParked(id);
+  vegetation.setParkedTaken((id) => fleet.claimsParked(id));
+  for (const id of fleet.claimedParked()) {
+    settlements.hideParked(id);
+    vegetation.hideParked(id);
+  }
   if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
@@ -1954,35 +2089,56 @@ async function start(): Promise<void> {
     else if (action === 'hud') announce(hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
     else if (action === 'photo') photoWanted = true;
     else if (action === 'wave' && !gesture('wave')) announce('Only standing on the ground', 'walk');
-    else if (action === 'horn') honk();
+    else if (action === 'horn') {
+      const voice = hornInHand();
+      if (voice !== null) hornKey.press(voice, performance.now());
+    }
   });
 
   /**
-   * The horn, at the controls of anything that has one (`HORN_OF`): heard
-   * here at once and by the others as it reaches them, at most once each
-   * `HONK_INTERVAL_MS`, the relay's own pace. A passenger has no horn to press.
+   * The horn, at the controls of anything that has one (`HORN_OF`), held for
+   * as long as its key is (`horn.ts`): heard here at once, and by the others
+   * from the start the relay passes on to the stop. A passenger has no horn
+   * to press, and nor has anybody while a card holds the keyboard.
    */
-  let honkedAt = -Infinity;
-  function honk(): void {
+  const hornInHand = (): Honk | null => {
     const ride = player.ride;
-    if (ride === null || ride.seat !== 0) return;
-    const voice = HORN_OF[ride.model.kind];
-    if (voice === null) return;
-    const now = performance.now();
-    if (now - honkedAt < HONK_INTERVAL_MS) return;
-    honkedAt = now;
-    audio.horn(1, voice);
-    peers?.send({ t: 'honk', k: voice });
-  }
-  // Another player's horn, quieter the further off, and out of earshot at
-  // `HORN_REACH`.
+    if (ride === null || ride.seat !== 0 || inputBlocked()) return null;
+    return HORN_OF[ride.model.kind];
+  };
+  const hornKey = createHornKey((voice, near) => audio.holdHorn(voice, near), (message) => {
+    peers?.send({ ...message });
+  });
+  addEventListener('keyup', (event) => {
+    if (actionOf(event.code) === 'horn') hornKey.release(performance.now());
+  });
+  // A key let go while the window is somewhere else never says so.
+  addEventListener('blur', () => hornKey.release(performance.now()));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      hornKey.release(performance.now());
+      hornChorus.stopAll();
+    }
+  });
+  // Other players' horns, quieter the further off, out of earshot at
+  // `HORN_REACH`, held while their keys are and let go when they leave.
+  const hornChorus = createHornChorus((voice, near) => audio.holdHorn(voice, near));
+  const hornNear = (id: string): number | null => {
+    const from = peers?.positionOf(id) ?? null;
+    return from === null ? null : 1 - from.distanceTo(player.position) / HORN_REACH;
+  };
   peers?.onMessage((message) => {
-    if (message.t !== 'honk' || typeof message.id !== 'string') return;
+    if (typeof message.id !== 'string') return;
+    if (message.t === 'bye') {
+      hornChorus.stop(message.id);
+      return;
+    }
+    if (message.t !== 'honk') return;
     const voice = cleanHonk(message.k);
-    const from = peers.positionOf(message.id);
-    if (voice === '' || from === null) return;
-    const level = 1 - from.distanceTo(player.position) / HORN_REACH;
-    if (level > 0) audio.horn(level, voice);
+    const on = cleanHonkOn(message.on);
+    const near = hornNear(message.id);
+    if (voice === '' || on === null || near === null) return;
+    hornChorus.hear(message.id, voice, on, performance.now(), near);
   });
 
   /**
@@ -2257,6 +2413,7 @@ async function start(): Promise<void> {
   function resize(): void {
     renderer.setPixelRatio(pixelRatioFor(resolution));
     renderer.setSize(innerWidth, innerHeight);
+    post.setSize(innerWidth, innerHeight);
     rig.resize(innerWidth, innerHeight);
   }
   addEventListener('resize', resize);
@@ -2627,6 +2784,18 @@ async function start(): Promise<void> {
     // frame is short: a town that has not arrived is a hole in the world, and
     // a tile of grass that has not arrived is grass that arrives next frame.
     guard('vegetation', () => vegetation.update(player.position, altitude, rig.camera));
+    // Round the camera, after the vegetation, whose keepouts it asks; not
+    // under the sea, and nothing from the air.
+    guard('grass', () =>
+      grass.update({
+        camera: rig.camera,
+        player: player.position,
+        press: pressOf(player, grassPress),
+        height: eyeOverGround,
+        wind: weather.here().wind,
+        hidden: sea.underwater,
+      }),
+    );
     guard('country', () => countryMotion.update(dt, rig.camera.getWorldPosition(countryEye), vegetation));
 
     // After the roads, because a vehicle drives on one and the road under it
@@ -2687,6 +2856,12 @@ async function start(): Promise<void> {
     // players, who may be sitting in one of them.
     guard('fleet', () => fleet.update(dt, rig.camera));
     if (peers !== null) guard('peers', () => peers.update(dt, player));
+    // A horn held is let go with the seat or the keyboard, and others' follow their players.
+    guard('horns', () => {
+      const now = performance.now();
+      hornKey.update(now, hornInHand());
+      hornChorus.update(now, hornNear);
+    });
     // After everything that moves, so a wake starts where the boat now is.
     guard('effects', () => effects.update(dt, player, rig.camera));
     ambientFrame.cameraHeight = eyeOverGround;
@@ -2858,7 +3033,8 @@ async function start(): Promise<void> {
 
     // The shadow map is redrawn every frame while anything the box holds is
     // moving — the player, who is also the box, a vehicle, a walker, an
-    // animated herd, a townsman mid-gesture, a player waving or dancing — and
+    // animated herd, a townsman mid-gesture, a player waving or dancing, the
+    // near wood in the wind — and
     // every 180 ms while nothing is, which is a slow crawl of the sun nobody
     // sees. It was 45 ms while the
     // player moved and 180 otherwise, the reference's numbers: at the run of
@@ -2882,7 +3058,9 @@ async function start(): Promise<void> {
       life.stats.nearestMoving < SHADOW_COVER ||
       townsfolk.stats.nearestMoving < SHADOW_COVER ||
       (railway !== null && railway.stats.nearestMoving < SHADOW_COVER) ||
-      (peers !== null && peers.nearestMoving < SHADOW_COVER);
+      (peers !== null && peers.nearestMoving < SHADOW_COVER) ||
+      // The wood round you, in the wind (`foliage.ts`): its shadows move with it.
+      vegetation.stats.swaying;
     const cadence = moving ? 0 : SHADOW_STILL_MS;
     if (sky.state.shadow > 0 && (now - shadowDrawnAt >= cadence || standing !== shadowStanding)) {
       // The light moves only here, in the frame the map is drawn from it — see
@@ -2900,39 +3078,35 @@ async function start(): Promise<void> {
       rig.camera.updateMatrixWorld();
       headlightCount = 0;
       if (sky.state.daylight < 0.6) {
-        // Your own first, then the traffic nearest the camera.
-        if (WHEELED.has(player.mode) && !player.airborne) {
-          headAhead.copy(player.forward);
-          headSide.crossVectors(player.up, player.forward).normalize();
-          for (let side = -1; side <= 1; side += 2) {
-            headAt.copy(player.position)
-              .addScaledVector(player.forward, AVATAR_HEIGHT * 0.75)
-              .addScaledVector(player.up, AVATAR_HEIGHT * 0.3)
-              .addScaledVector(headSide, side * AVATAR_HEIGHT * 0.2);
-            headDown.copy(headAhead).addScaledVector(player.up, -0.12).normalize();
-            pushHeadlight(headAt, headDown, 1);
-          }
+        // Your own first, then whatever else is nearest the camera: the
+        // traffic, and the vehicles other players drive. The lamps are each
+        // model's own, lit as its kind says (`HEADLIGHTS_OF`).
+        lampSources.length = 0;
+        const ride = player.ride;
+        const own = ride !== null && ride.seat === 0 ? headlampsOf(ride.model) : 0;
+        if (own > 0) {
+          const source = lampSource(-1)!;
+          source.origin.copy(player.position);
+          source.up.copy(player.up);
+          source.ahead.copy(player.forward);
+          source.side.crossVectors(player.up, player.forward).normalize();
+          source.lamps = ride!.model.lamps!;
+          source.across = 1;
+          source.along = 1;
+          source.strength = own;
         }
-        headTraffic.length = 0;
         life.eachRoadVehicle(visitTraffic);
-        headTraffic.sort((a, b) => a.distance - b.distance);
-        for (const car of headTraffic) {
-          if (headlightCount + 2 > NEAR_HEADLIGHTS) break;
-          const e = car.mesh.matrixWorld.elements;
-          headSide.set(e[0]!, e[1]!, e[2]!).normalize();
-          const up = headUp.set(e[4]!, e[5]!, e[6]!).normalize();
-          headAhead.set(e[8]!, e[9]!, e[10]!).normalize();
-          headDown.copy(headAhead).addScaledVector(up, -0.12).normalize();
-          for (let side = -1; side <= 1; side += 2) {
-            headAt.setFromMatrixPosition(car.mesh.matrixWorld)
-              .addScaledVector(headAhead, car.halfLength)
-              .addScaledVector(up, AVATAR_HEIGHT * 0.25)
-              .addScaledVector(headSide, side * car.halfWidth * 0.6);
-            pushHeadlight(headAt, headDown, 0.8);
-          }
-        }
+        fleet.eachDriven(visitDriven);
+        lampSources.sort(byLampDistance);
+        // A vehicle whose lamps do not all fit is passed over, and a
+        // bicycle's one lamp may still fit behind it.
+        for (const source of lampSources) pushLamps(source);
       }
       setHeadlights(rig.camera, headlights, headlightCount);
+      // The campfires near the camera light the ground round them after dark,
+      // and their flames glow (`setFires`).
+      const fireCount = sky.state.elevation > LAMPS_OFF_ABOVE ? 0 : countryMotion.fires(fires, MAX_FIRE_GLOWS, FIRE_GLOW_REACH);
+      setFires(rig.camera, fires, fireCount, now / 1000);
       // By day no lamp is lit, so none is looked for (`LAMPS_OFF_ABOVE`).
       if (sky.state.elevation > LAMPS_OFF_ABOVE) setNearLamps(rig.camera, nearLamps, 0);
       else {
@@ -2945,7 +3119,7 @@ async function start(): Promise<void> {
     // it is not drawn: that frame goes to painting the map's tiles instead.
     const underMap = map.open;
     const drawStart = performance.now();
-    if (!underMap) outline.render(scene, rig.camera);
+    if (!underMap) post.render(scene, rig.camera);
     const drawEnd = performance.now();
     // In the same task as the draw, before the browser composites and clears
     // the drawing buffer: `toBlob` copies the canvas as it stands when it is
@@ -3092,6 +3266,13 @@ async function start(): Promise<void> {
       // plus `gl.finish()` is how the settlement budget was measured, because
       // `stats.frameMs` is a rolling average of frames a hidden tab never ran.
       outline,
+      /** The frame after the scene: `atlas.post.exposure`, `.bloom.strength`, `.uniforms` for the grade. */
+      post,
+      /** The ink's two passes: `atlas.ink(true)` puts the outlines back, `atlas.ink()` reads it. */
+      ink(on?: boolean) {
+        if (on !== undefined) setInk(on);
+        return inked;
+      },
       stats,
       hud,
       minimap,
@@ -3184,6 +3365,9 @@ async function start(): Promise<void> {
       // `atlas.vegetation.sample(lat, lon, level)` builds one tile and reports
       // what it cost, and `.verify(lat, lon)` builds it twice and compares.
       vegetation,
+      // `atlas.grass.stats`: the rings, the fields and what their bake costs;
+      // `atlas.grass.enabled = false` is the A/B, `atlas.grass.height` a multiplier.
+      grass,
       // `atlas.countryside.stats` is what the country between the towns holds
       // standing and what turns in it; `atlas.countryside.find('windmill')`
       // is the nearest one to you (`farm`, `turbines`, `lighthouse`, `shrine`,

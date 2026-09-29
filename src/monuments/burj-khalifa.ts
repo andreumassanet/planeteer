@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -172,26 +173,31 @@ export const burjKhalifa: Monument = {
         let base = 0;
         for (let tier = 0; tier < TIERS; tier++) {
           const top = setback(wing, tier);
-          const height = top - base;
           // The tier keeps the width it had at its own base and gives it up all
           // at once at the ledge. Stepped, never tapered: a tapered wing is a
           // cone with a Y section and loses the shoulders.
           const half = halfAt(base);
           const reach = reachAt(base);
           const depth = reach - half;
+          // Every tier over the first starts `PROUD` up inside the ledge below
+          // it, and its back end runs `PROUD` past the axis: flush, its foot
+          // shared the ledge's underside and its back end the ledge's and the
+          // podium arm's, each in another colour.
+          const foot = tier === 0 ? base : base + PROUD;
+          const rise = top - foot;
 
-          const shaft = box(half * 2, height, depth, glass);
-          shaft.position.set(0, base, depth / 2);
+          const shaft = box(half * 2, rise, depth + PROUD, glass);
+          shaft.position.set(0, foot, (depth - PROUD) / 2);
           arm.add(shaft);
 
-          const nose = column(half, height, glass, NOSE_SIDES);
-          nose.position.set(0, base, depth);
+          const nose = column(half, rise, glass, NOSE_SIDES);
+          nose.position.set(0, foot, depth);
           arm.add(nose);
 
           if (tier < RIBBED_TIERS) {
             for (const side of [-1, 1]) {
-              const rib = box(RIB, height, depth * 0.94, trim);
-              rib.position.set(side * (half + RIB_PROUD - RIB / 2), base, depth / 2);
+              const rib = box(RIB, rise, depth * 0.94, trim);
+              rib.position.set(side * (half + RIB_PROUD - RIB / 2), foot, depth / 2);
               arm.add(rib);
             }
           }

@@ -39,13 +39,13 @@ const M = SCENERY_SCALE;
 export const POLE_SPACING = 60;
 /** How far out from the centre line a pole stands: on the bank, its arm's far tip inside `roadClearance`'s 6.48. */
 export const POLE_LATERAL = 5.1;
-const POLE_HEIGHT = 7.5 * M;
-const POLE_WIDTH = 0.26 * M;
+export const POLE_HEIGHT = 7.5 * M;
+export const POLE_WIDTH = 0.26 * M;
 const ARM_LENGTH = 1.8 * M;
-const ARM_DEPTH = 0.16 * M;
+export const ARM_DEPTH = 0.16 * M;
 /** How far the wires sag at the middle of a span. */
-const WIRE_SAG = 0.9;
-const WIRE_WIDTH = 0.08;
+export const WIRE_SAG = 0.9;
+export const WIRE_WIDTH = 0.08;
 /** The pieces a span of wire is drawn in, each following the road's own curve at the pole's offset. */
 const WIRE_PIECES = 4;
 /**
@@ -121,6 +121,12 @@ export interface RoadsideSite {
   /** The ground's elevation under a point, as a radius, for how high the bank's top stands. */
   groundRadius(point: THREE.Vector3): number;
   /**
+   * What a bridge's pier stands on under a point, as a radius: the sea's floor
+   * (`seaDepthAt`) over the water, the land elsewhere. Absent, `groundRadius`,
+   * whose water is the sea's surface.
+   */
+  floorRadius?(point: THREE.Vector3): number;
+  /**
    * Whether a thing standing at `point` (world units, at any radius) with
    * `footprint` of it either side is clear of every other road's top — its
    * carriageway and its shoulder or pavement — less `OTHER_EDGE`: where two
@@ -189,6 +195,14 @@ const colours = {
   /** A bridge's piers: weathered concrete. */
   pier: new THREE.Color(PALETTE.bone).lerp(new THREE.Color(PALETTE.tan), 0.35),
 };
+
+/**
+ * A pole's and a wire's colour, which a town's own pole lines and wires
+ * (`scenery/overhead.ts`) draw with, so the line that comes in along a road
+ * is the line that carries on down the street.
+ */
+export const POLE_COLOUR: THREE.Color = colours.pole;
+export const WIRE_COLOUR: THREE.Color = colours.wire;
 
 /**
  * How far in from the edge of another road's top a thing of this one's may
@@ -670,7 +684,10 @@ function bridgeParts(out: Roadside, site: RoadsideSite, bridge: readonly [number
     stand(site, s, 0, 1, 0);
     const deck = at.length();
     const bottom = deck - GIRDER;
-    const foot = Math.min(site.groundRadius(at), deck) - PIER_FOOT;
+    // Into the floor under the water, not `PIER_FOOT` under the sea's surface:
+    // since the sea has a floor (2026-09-25) a pier that stopped four units
+    // down stood in the clear water over it, on nothing.
+    const foot = Math.min(site.floorRadius?.(at) ?? site.groundRadius(at), deck) - PIER_FOOT;
     if (bottom - foot < 1) continue;
     const half = (bottom - foot) * 0.5;
     centre.copy(up).multiplyScalar(foot + half);

@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -313,8 +314,10 @@ export const angkorWat: Monument = {
     }
 
     // --- the causeway porch on +Z, and the steps down off the terrace ---
-    const porch = box(13, 6, 6.6, wallStone);
-    porch.position.set(0, OUTER_TOP, 33.3);
+    // Sunk `PROUD` into the terrace, top unmoved: its underside shared the
+    // terrace's plane with the two dark doorways standing on it.
+    const porch = box(13, 6 + PROUD, 6.6, wallStone);
+    porch.position.set(0, OUTER_TOP - PROUD, 33.3);
     group.add(porch);
 
     const porchRoof = box(14.4, 1, 7.6, roofStone);

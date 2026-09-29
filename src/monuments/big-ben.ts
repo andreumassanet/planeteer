@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -197,8 +198,11 @@ export const bigBen: Monument = {
         rim.rotation.x = Math.PI / 2;
         face.add(rim);
 
-        const plate = column(DIAL_PLATE, 0.85, opal, DIAL_SIDES);
+        // Its back starts `PROUD` in front of the rim's: flush, the gilt and
+        // the white shared a plane and flickered.
+        const plate = column(DIAL_PLATE, 0.85 - PROUD, opal, DIAL_SIDES);
         plate.rotation.x = Math.PI / 2;
+        plate.position.z = PROUD;
         face.add(plate);
 
         // Ten past ten. Both hands straight up would collapse into one stroke;

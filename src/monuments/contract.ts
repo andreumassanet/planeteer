@@ -158,6 +158,20 @@ const FOOTPRINT_FILL = 0.55;
  */
 export const MAX_ASPECT = 4;
 
+/**
+ * The least two faces of different colours may stand apart and face the same
+ * way: a trim band's face in front of its wall's, a cornice's top over the
+ * roof it caps. **Flush is a z-fight**: two faces in one plane are drawn at
+ * one depth, and which colour wins a pixel changes as the camera moves — the
+ * Sagrada Familia's whole nave roof flickered between its stone and its
+ * cornice. So a trim piece either stands `PROUD` of the face it is laid on or
+ * stops `PROUD` short of it; it never shares the plane. `pnpm check` holds
+ * every monument to it with the kit's own test (`scripts/z-fight.ts`), which
+ * counts two faces nearer than 0.05 as one plane. The kit's `PROUD` is the
+ * same number.
+ */
+export const PROUD = 0.08;
+
 // ---------------------------------------------------------------------------
 // The context
 // ---------------------------------------------------------------------------

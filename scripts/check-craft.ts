@@ -22,6 +22,7 @@ import { resolve } from 'node:path';
 import * as THREE from 'three';
 import { registerModelsFromDisk } from './kit-node.ts';
 import type { CraftModel } from '../src/craft/contract.ts';
+import { HEADLIGHTS_OF } from '../src/craft/contract.ts';
 import { AVATAR_HEIGHT } from '../src/stature.ts';
 
 const PUBLIC = resolve(import.meta.dirname, '../public');
@@ -69,6 +70,8 @@ const BUDGET: Record<string, number> = {
   horse: 3000,
   submarine: 2000,
 };
+/** How near a headlamp is to the drawn surface, in bodies: on the model, not in the air before it. */
+const LAMP_ON = 0.02;
 /** Seats a craft must have at least. */
 const SEATS_AT_LEAST: Record<string, number> = {
   hatchback: 4, van: 2, launch: 4, 'light-plane': 4, balloon: 4,
@@ -144,6 +147,45 @@ function checkCraft(model: CraftModel): void {
   if (model.seats.length < (SEATS_AT_LEAST[model.id] ?? 1)) fail(`${model.id}: ${model.seats.length} seats, wants ${SEATS_AT_LEAST[model.id]}`);
   if (model.seats[0] === undefined) fail(`${model.id}: no driver's seat`);
 
+  // The headlamps: as many as the kind lights, each on the model itself —
+  // on the surface that is drawn, in the front of it, over the road — and
+  // a pair either side of the middle.
+  const lights = HEADLIGHTS_OF[model.kind];
+  const lamps = model.lamps ?? [];
+  if (lamps.length !== lights.count) fail(`${model.id}: ${lamps.length} headlamps, and a ${model.kind} lights ${lights.count}`);
+  if (lamps.length > 0) {
+    const drawn = model.build(0);
+    drawn.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(drawn);
+    const triangle = new THREE.Triangle();
+    const closest = new THREE.Vector3();
+    const point = new THREE.Vector3();
+    for (const [x, y, z] of lamps) {
+      // How far the lamp is from the drawn surface: the nearest point of any triangle.
+      let nearest = Infinity;
+      point.set(x, y, z);
+      drawn.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const position = mesh.geometry.getAttribute('position');
+        const index = mesh.geometry.index;
+        const corners = index !== null ? index.count : position.count;
+        const at = (c: number): number => (index !== null ? index.getX(c) : c);
+        for (let c = 0; c + 2 < corners; c += 3) {
+          triangle.a.fromBufferAttribute(position, at(c)).applyMatrix4(mesh.matrixWorld);
+          triangle.b.fromBufferAttribute(position, at(c + 1)).applyMatrix4(mesh.matrixWorld);
+          triangle.c.fromBufferAttribute(position, at(c + 2)).applyMatrix4(mesh.matrixWorld);
+          nearest = Math.min(nearest, triangle.closestPointToPoint(point, closest).distanceTo(point));
+        }
+      });
+      if (nearest > LAMP_ON * H) fail(`${model.id}: a headlamp at ${f(x)} ${f(y)} ${f(z)} is ${f(nearest)} off the model`);
+      if (z < box.max.z - model.size[0] * 0.3) fail(`${model.id}: a headlamp at z ${f(z)} is not at the front (${f(box.max.z)})`);
+      if (y <= 0 || y > box.max.y) fail(`${model.id}: a headlamp at y ${f(y)} is not over the road and under the roof`);
+    }
+    if (lamps.length === 2 && Math.sign(lamps[0]![0]) === Math.sign(lamps[1]![0])) fail(`${model.id}: both headlamps on one side`);
+    if (lamps.length === 1 && Math.abs(lamps[0]![0]) > 0.05 * model.size[1]) fail(`${model.id}: its one headlamp is off the middle`);
+  }
+
   // The variants are different looks.
   const looks = new Set<string>();
   for (let variant = 0; variant < model.variants; variant++) looks.add(hashOf(model.build(variant)));
@@ -153,7 +195,8 @@ function checkCraft(model: CraftModel): void {
     `  ${model.id.padEnd(12)} ${model.kind.padEnd(8)} ${model.medium.padEnd(6)} ` +
       `${f(model.size[0])} x ${f(model.size[1])} x ${f(model.size[2])}  (${f(model.size[0] / H)} x ${f(model.size[1] / H)} x ${f(model.size[2] / H)} bodies)` +
       `  draft ${f(model.draft)}  ${worstTriangles} triangles of ${budget}  ${model.variants} variants  ${model.seats.length} seats` +
-      `  turning: ${first!.turning.join(', ') || 'none'}`,
+      `  turning: ${first!.turning.join(', ') || 'none'}` +
+      `  lamps: ${(model.lamps ?? []).map((lamp) => lamp.map(f).join(' ')).join(' | ') || 'none'}`,
   );
   for (const row of first!.seats) {
     const { seat } = row;
@@ -502,6 +545,80 @@ console.log('\nthe motion:');
   }
   console.log(`  airstrip     ${position.count / 3} triangles, ${f(reach, 0)} units end to end; windsock ${sock.children.length} parts`);
   console.log(`  the least determinant under any motion: ${f(worst.det, 4)}`);
+}
+
+// --- what stands still until it is taken ------------------------------------------
+//
+// A town's parked car, a rack's bicycle and a farm's tractor are merged into
+// the buffer they stand in as the craft that takes their place
+// (`craft/parked.ts`), off the scenery kit's registry; the fleet builds the one
+// taken off its own copy of the kit, from the id alone. The two must be one
+// vehicle to the eye: for many ids, in every region's paints, the colours
+// merged still and the colours of the vehicle driven off are the same numbers.
+// And the paint has to reach the build at all, which it did not until
+// 2026-09-28 (`finish` passed the variant alone): two paints, two colourings.
+
+console.log('\nwhat stands still until it is taken:');
+{
+  const { fleetVariant, paintFor, parkedArrays, parkedModel, countryVehicleId } = await import('../src/craft/parked.ts');
+  const { PARKED_CRAFT, PARKED_SLOT } = await import('../src/craft/contract.ts');
+  const { TRAFFIC_STYLES } = await import('../src/traffic/regions.ts');
+  const { tractorScale } = await import('../src/countryside-kit.ts');
+  const { mergeMeshes } = await import('../src/merge.ts');
+  const { PALETTE } = await import('../src/theme.ts');
+  const palettes = Object.values(TRAFFIC_STYLES).map((style) => style.paint);
+  const crafts = [...new Set(Object.values(PARKED_CRAFT))];
+  /** The vehicle as the fleet builds it from an id: its own model, its variant and the paint the id decides. */
+  const taken = (id: string, paint: number | undefined): Float32Array => {
+    const model = craft.get(id.slice(0, id.indexOf(':')))!;
+    return mergeMeshes(model.build(fleetVariant(id, model.variants), paint)).color;
+  };
+  const same = (a: Float32Array, b: Float32Array): boolean => a.length === b.length && a.every((value, i) => value === b[i]);
+  let compared = 0;
+  let differ = 0;
+  let unpainted = 0;
+  for (const name of crafts) {
+    const still = parkedModel(name);
+    if (still === null || !craft.has(name)) {
+      fail(`${name}: no parked model, or no craft, to stand still`);
+      continue;
+    }
+    for (let place = 0; place < 40; place++) {
+      const id = `${name}:${place * 733 + 11}:${PARKED_SLOT + (place % 20)}`;
+      const palette = palettes[place % palettes.length]!;
+      const paint = name === 'bicycle' ? undefined : paintFor(id, palette);
+      const merged = parkedArrays(still, fleetVariant(id, still.variants), paint, 0.8).color;
+      compared++;
+      if (!same(merged, taken(id, paint))) {
+        differ++;
+        if (differ <= 5) fail(`${id}: the one parked and the one taken are not the same colours`);
+      }
+    }
+    // Two paints of the same look must be two colourings, or the paint is lost on the way.
+    if (name !== 'bicycle') {
+      const model = craft.get(name)!;
+      const a = mergeMeshes(model.build(0, PALETTE.crimson)).color;
+      const b = mergeMeshes(model.build(0, PALETTE.skyBlue)).color;
+      if (same(a, b)) {
+        unpainted++;
+        fail(`${name}: built in two paints, the same colours: the paint does not reach the model`);
+      }
+    }
+  }
+  // A farm's tractor, named after its cell.
+  const tractor = parkedModel('tractor')!;
+  for (let n = 0; n < 60; n++) {
+    const id = countryVehicleId('tractor', 17 + n * 4, 3 + n * 9, n % 3)!;
+    const merged = parkedArrays(tractor, fleetVariant(id, tractor.variants), undefined, tractorScale(tractor)).color;
+    compared++;
+    if (!same(merged, taken(id, undefined))) {
+      differ++;
+      if (differ <= 5) fail(`${id}: the farm's tractor and the one driven off are not the same colours`);
+    }
+  }
+  const ids = [countryVehicleId('tractor', 287, 575, 99), countryVehicleId('tractor', 0, 0, 0)];
+  if (ids.some((id) => id === null || !/^[a-z-]{2,20}:\d{1,6}:\d{1,2}$/.test(id))) fail(`a farm's vehicle id the relay would refuse: ${ids.join(', ')}`);
+  console.log(`  ${compared} ids of ${crafts.length + 1} kinds, parked and taken: ${differ} differ; ${unpainted} crafts deaf to their paint; ids ${ids.join(', ')}`);
 }
 
 // --- the hero, measured again -------------------------------------------------

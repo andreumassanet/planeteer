@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import type { FolkAnchor } from './folk.ts';
 import type { World } from './geo.ts';
-import { GROUND_MARKS_GLSL, PLANET_RADIUS, bindGroundWeather, groundColorAt, groundPatchesChunk, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
+import { GROUND_MARKS_GLSL, LUSH_GLSL, PLANET_RADIUS, bindGroundWeather, groundColorAt, groundPatchesChunk, groundRadius, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { BODY_SCALE } from './stature.ts';
 import { LAMP_POOL, bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import { mergeMeshes, sourceVertex } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
+import { leafDepthMaterial, leafMaterial } from './foliage.ts';
+import { CROWN_STRIDE, crownOf, nearArrays, placeCrown } from './scenery/tree-forms.ts';
+import type { LeafArrays } from './scenery/tree-forms.ts';
 import type { MergePiece } from './merge.ts';
 import {
   DASH,
@@ -67,11 +70,17 @@ import {
 import type { Gate, GateMouth, TownGrid, TownGround } from './scenery/grid.ts';
 import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scenery/solids.ts';
 import type { Solid, SolidField } from './scenery/solids.ts';
+import { hangOverhead } from './scenery/overhead.ts';
+import type { OverheadHost } from './scenery/overhead.ts';
+import { dressTown, propModels, streetDressingEnabled } from './scenery/street-dressing.ts';
+import type { DressFront } from './scenery/street-dressing.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import type { Placement } from './placement.ts';
 import { BIGGEST_SETTLEMENT, isShown, prominenceVersion, radiusFor, radiusOf } from './places.ts';
 import { biomeAt, biomeSample } from './biome.ts';
-import { MAX_SLOPE, gradeAt } from './terrain.ts';
+import { MAX_SLOPE, gradeAt, reliefAt } from './terrain.ts';
+import { PLANT_SEATING, drawnFootprint, landProbeOf } from './land-probe.ts';
+import type { DrawnFootprint } from './land-probe.ts';
 import type { Slope } from './terrain.ts';
 import { VEHICLES, createTrafficContext, placedScale, placedSize, trafficFor, variantRng as vehicleRng } from './traffic/index.ts';
 import type { TrafficStyle, Vehicle } from './traffic/index.ts';
@@ -105,7 +114,9 @@ import type { PartKind, Placed, RegionStyle, SceneryContext, Weighted } from './
 import { unitAt } from './sphere.ts';
 import { LANDMARK_KEEP, planGap, planGapToBox, planShape } from './landmark-ground.ts';
 import type { PlanShape } from './landmark-ground.ts';
-import { PARKED_AT_RIDE_SCALE, PARKED_CRAFT, PARKED_SLOT, RIDE_SCALE } from './craft/contract.ts';
+import { PARKED_AT_RIDE_SCALE, PARKED_CRAFT, PARKED_SLOT } from './craft/contract.ts';
+import { MACHINE_BED, fleetVariant, paintFor, parkedArrays, parkedModel } from './craft/parked.ts';
+import { VARNISH_GLSL } from './gloss.ts';
 import { BENCH_DEPTH, BENCH_LONGEST, BENCH_SIT_AHEAD } from './bench.ts';
 import type { Bench } from './bench.ts';
 
@@ -508,6 +519,24 @@ const UNPEOPLE_RANK = 20;
 const NEAR_ALLOWANCE = 240_000;
 
 /**
+ * What a near town's street level may add (`scenery/street-dressing.ts`): a
+ * share of what already stands in it and on its floor, never under the least
+ * (a village's handful of awnings and its crossing's pads) nor over the most.
+ * Charged like the rest of a near town, to the triangles the town reports, so
+ * `NEAR_ALLOWANCE` sees it; what does not fit is left out, nearest the edge
+ * first, and the town is built whole.
+ */
+const DRESS_SHARE = 0.3;
+const DRESS_LEAST = 1_200;
+/**
+ * 12,000 since the pieces were modelled rather than boxed (2026-09-28): a
+ * post box is 110 to 244 triangles where it was 22, and at 7,000 Mexico City
+ * stood 20 awnings where it had stood 50; at 12,000 it stands 34, in 11,000
+ * triangles and 1.35 MB, 6% of the city's 192,000.
+ */
+const DRESS_MOST = 12_000;
+
+/**
  * How urban a town must be (`urbanityOf`) before its region's towers are towers:
  * 0.5 is a place of 200,000. Below it `TOWER_PART` is built as `TOWERLESS_PART`.
  */
@@ -553,6 +582,12 @@ const TOWN_PEOPLE = (urbanity: number): number => Math.round(3 + urbanity * 11);
 const FOLK_STRIDE = 11;
 const TOWN_PARKED = (urbanity: number, density: number): number =>
   Math.round((0.6 + urbanity * 3.4) * Math.min(1.8, density * 2.6));
+/**
+ * The share of a town's rack slots with a bicycle in: half and a bit, so a
+ * rack of three holds one or two most often, as the racks held before their
+ * bicycles could be taken.
+ */
+const RACK_FILL = 0.55;
 
 /**
  * How many of the lattice corners on a street get a lamp.
@@ -679,9 +714,8 @@ interface FlatVariant {
   triangles: number;
   height: number;
   /**
-   * A parked vehicle's body colour, as its part picked it off the region's
-   * paints, for the craft that takes its place (`ParkedCar.paint`); null for
-   * anything else, or a part that picked none.
+   * A parked vehicle's body colour, as its id decides it (`ParkedCar.paint`);
+   * null for the craft's own look, and absent for anything else.
    */
   paint?: number | null;
   /**
@@ -982,12 +1016,20 @@ export interface Settlements {
    */
   benchesNear(viewer: THREE.Vector3, radius: number, out: Bench[]): void;
   /**
+   * The bicycle-rack slots of every standing town inside `radius` of
+   * `viewer`, in world space. Appends to `out`. See `BikeSlot`.
+   */
+  bikeSlotsNear(viewer: THREE.Vector3, radius: number, out: BikeSlot[]): void;
+  /**
    * A parked car has been taken: its vertices in the town's buffer are folded
    * away and its wall comes down, so the fleet's vehicle is the only one
    * drawn. Idempotent, and nothing when its town is not standing.
    */
   hideParked(id: string): void;
-  /** The body colour a parked car was parked in (`ParkedCar.paint`), while its town stands; null otherwise. */
+  /**
+   * The body colour a vehicle a town parks is parked in (`ParkedCar.paint`),
+   * by its id alone, whether its town stands or not; null for the craft's own.
+   */
   parkedPaint(id: string): number | null;
   /**
    * Whether a parked car has been taken, asked by every build of a town so a
@@ -1014,12 +1056,14 @@ export interface Settlements {
    */
   madeHeightAt(point: THREE.Vector3): number;
   /**
-   * Where the sward in `vegetation.ts` may stand at `direction` (a unit
+   * Where the grass (`vegetation.ts`'s `grass`) may stand at `direction` (a unit
    * vector), given the drawn land's radius there: a standing town's lawn, the
    * land wherever no standing floor covers it, or null. A radius from the
    * planet's centre.
    */
   swardAt(direction: THREE.Vector3, landRadius: number, margin: number): number | null;
+  /** Collects where the trees and bushes round the edge of every town built from now go, into `into`; null stops. */
+  recordSeats(into: TownSeat[] | null): void;
   /**
    * The floors raised or dropped since `since` (a version this returned
    * before), each as a town's up and the reach of its floor, written into
@@ -1044,6 +1088,13 @@ export interface Settlements {
   collideAloft(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
   /** Whether a point is inside a building's walls and under its roof. For the camera. */
   blocksSight(point: THREE.Vector3): boolean;
+  /**
+   * The crowns of the near towns' trees within `range` units of `point`, as
+   * `(list, offset)` into a flat list of `CROWN_STRIDE` floats each
+   * (`placeCrown`): `vegetation.crownsNear`'s contract, for the leaves that
+   * fall and lie in the streets (`ambient.ts`).
+   */
+  crownsNear(point: THREE.Vector3, range: number, visit: (list: Float32Array, offset: number) => void): void;
   /**
    * The nearest point to `point` where a body of `radius` stands clear of every
    * building, written into `out`; false when `point` already is clear.
@@ -1125,6 +1176,32 @@ export interface Settlements {
  * second material, and the terminator computed per *vertex* from its own
  * position rather than per frame from the player's. See `src/lights.ts`.
  */
+/**
+ * A town painted rather than printed: its colours as the land's are (`atlasLush`
+ * for a lawn, a shade more colour for plaster and tile so the tone map does not
+ * wash a white town to chalk), and the brush — the lightness broken at two
+ * world-space scales, a couple of bodies and a hand's breadth — so a wall is a
+ * wash of paint with its unevenness in it and not a flat fill. Faded where a
+ * pixel covers a stroke, like the land's. A tone on the vertex colour, so the
+ * lit windows (`lightWindows`, emissive) are untouched.
+ */
+const TOWN_BRUSH_BROAD = 7;
+const TOWN_BRUSH_FINE = 1.8;
+const TOWN_BRUSH_LIGHT = 0.07;
+const TOWN_SATURATION = 1.12;
+const TOWN_PAINT = /* glsl */ `{
+    diffuseColor.rgb = atlasLush(diffuseColor.rgb);
+    float townLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    diffuseColor.rgb = max(vec3(0.0), vec3(townLuma) + (diffuseColor.rgb - vec3(townLuma)) * ${TOWN_SATURATION.toFixed(2)});
+    float townFoot = max(length(dFdx(vAtlasPos)), length(dFdy(vAtlasPos)));
+    float townShare = 1.0 - smoothstep(${(TOWN_BRUSH_FINE * 0.3).toFixed(2)}, ${(TOWN_BRUSH_BROAD * 0.5).toFixed(2)}, townFoot);
+    if (townShare > 0.0) {
+      float townStroke = atlasNoise(vAtlasPos * ${(1 / TOWN_BRUSH_BROAD).toFixed(5)}) * 0.65
+        + atlasNoise(vAtlasPos * ${(1 / TOWN_BRUSH_FINE).toFixed(5)} + 3.1) * 0.35;
+      diffuseColor.rgb *= 1.0 + (townStroke - 0.5) * ${(TOWN_BRUSH_LIGHT * 2).toFixed(3)} * townShare;
+    }
+  }`;
+
 function townMaterial(): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
   // Every town buffer carries `outlineNormal` (see `FlatVariant.outline`).
@@ -1133,7 +1210,7 @@ function townMaterial(): THREE.MeshToonMaterial {
   /**
    * **The ground a town draws is the land's, and it takes the land's marks.**
    * A lawn and the edge slope are the land's own colour, and without the
-   * patches the land and the sward draw with (`GROUND_MARKS_GLSL`) they came
+   * patches the land and the grass draw with (`GROUND_MARKS_GLSL`) they came
    * out a flat shade darker and bluer than the field they meet: (144, 162,
    * 102) against about (155, 172, 97) beside Madrid (2026-09-24), a band
    * round every town. The patches only move a green, so the paving, the
@@ -1147,15 +1224,31 @@ function townMaterial(): THREE.MeshToonMaterial {
       .replace('#include <common>', '#include <common>\nvarying vec3 vAtlasPos;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vAtlasPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vAtlasPos;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vAtlasPos;\n${LUSH_GLSL}\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}`)
       // The weather first, so a lawn under snow takes the patches' tone on white.
+      // A parked vehicle's vertices (`MACHINE_BED`) keep their colour and take
+      // the craft's varnish instead, as the one taken from the kerb is drawn
+      // (`craftMaterial`): the paint is worked out for every pixel and dropped
+      // for those, so the brush's derivatives stay out of a branch.
       .replace(
         '#include <color_fragment>',
-        `#include <color_fragment>\n  ${groundWeatherChunk('vAtlasPos')}\n  ${groundPatchesChunk('vAtlasPos')}`,
-      );
+        `#include <color_fragment>\n  ${MACHINE_TEST}\n  vec3 townMachineColour = diffuseColor.rgb;\n  ${groundWeatherChunk('vAtlasPos')}\n  ${groundPatchesChunk('vAtlasPos')}\n  ${TOWN_PAINT}\n  if (townMachine) diffuseColor.rgb = townMachineColour;`,
+      )
+      // Nor the light the lamps and the headlights lay on the town
+      // (`lightWindows`), which no craft takes either.
+      .replace('#include <emissivemap_fragment>', 'vec3 townMachineGlow = totalEmissiveRadiance;\n  #include <emissivemap_fragment>')
+      .replace('#include <lights_toon_fragment>', 'if (townMachine) totalEmissiveRadiance = townMachineGlow;\n  #include <lights_toon_fragment>')
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n  if (townMachine) ${VARNISH_GLSL}`);
   };
   return material;
 }
+
+/**
+ * Whether the fragment is a still vehicle's: its light bytes are `(0,
+ * MACHINE_BED)`, which no window and no pool carries (`glowBytes`). The three
+ * corners of a triangle are all a vehicle's or none, so the varying is exact.
+ */
+const MACHINE_TEST = /* glsl */ `bool townMachine = vAtlasLit.x < 0.002 && vAtlasLit.y > ${((MACHINE_BED - 0.5) / 255).toFixed(4)};`;
 
 interface Slot {
   place: Place;
@@ -1242,7 +1335,16 @@ interface Slot {
    * in one frame — see `rebuild`.
    */
   builtPeopled: boolean;
+  /** What hangs over its streets, as last built (`scenery/overhead.ts`): what it came to and what it cost. Null for none. */
+  overhead: { triangles: number; spans: number; poles: number; masts: number; wires: number; cells: { main: number; mainHung: number; side: number; sideHung: number }; ms: number } | null;
+  /** What dresses its street level, as last built (`scenery/street-dressing.ts`): triangles, walls, pieces by kind, ms. Null for none. */
+  dressing: { triangles: number; solids: number; counts: Record<string, number>; ms: number } | null;
   stale: boolean;
+  /**
+   * Built with some of the trees round its edge on the relief, because the
+   * land probe had not gathered under them: built again once it has.
+   */
+  onRelief: boolean;
   /**
    * Where this town's people stand, in world space, while it is standing.
    * Nobody is drawn here: `folk.ts` dresses the nearest of them as skinned
@@ -1264,32 +1366,60 @@ interface Slot {
   parked: Bay[];
   /** Its benches, in world space, resolved at `raise` as the lamps' heads are; see `benchesNear`. */
   benches: Bench[];
+  /** Its bicycle racks' slots, in world space, resolved the same way; see `bikeSlotsNear`. */
+  bikeSlots: BikeSlot[];
 }
 
 /**
- * A car parked at a town's kerb that somebody can get into.
+ * A vehicle standing still that somebody can take: a car parked at a town's
+ * kerb, a bicycle in a town's rack, a farm's tractor (`vegetation.ts`).
  *
- * **It is merged into the town like everything else that stands still**, which
- * is what lets a city park a dozen cars for no draw call; and it becomes a
- * vehicle of the fleet (`fleet.ts`) the moment anybody takes it. The two
- * cannot both be drawn, so the town remembers where in its one buffer each
- * such car's vertices are, and `hideParked` folds them to a point — and leaves
- * the car out altogether whenever the town is built again (`parkedTaken`).
+ * **It is merged into the buffer it stands in like everything else that
+ * stands still**, which is what lets a city park a dozen cars for no draw
+ * call; and it becomes a vehicle of the fleet (`fleet.ts`) the moment anybody
+ * takes it. The two cannot both be drawn, so the town remembers where in its
+ * one buffer each such vehicle's vertices are, and `hideParked` folds them to
+ * a point — and leaves it out altogether whenever the town is built again
+ * (`parkedTaken`). **What stands is the craft that takes its place**, in the
+ * look and the paint its id decides (`craft/parked.ts`), so the two are one
+ * vehicle to the eye.
  *
  * `id` names it the way the fleet names a vehicle, `<model>:<placeIndex>:<n>`,
- * with `n` counting from `PARKED_SLOT` along the town's bays: a function of the
- * town's own build, and so the same on every client.
+ * with `n` counting from `PARKED_SLOT` along the town's bays and then its
+ * racks: a function of the town's own build, and so the same on every client.
  */
 export interface ParkedCar {
   id: string;
-  /** The craft that takes its place: `PARKED_CRAFT` of the traffic kit's vehicle. */
+  /** The craft that takes its place: `PARKED_CRAFT` of the traffic kit's vehicle, or `bicycle` in a rack. */
   model: string;
-  /** On the floor at the kerb, in the world. */
+  /** On the floor it stands on, in the world. */
   position: THREE.Vector3;
-  /** The way it faces, along the kerb: a unit tangent. */
+  /** The way it faces: a unit tangent. */
   forward: THREE.Vector3;
-  /** Its body colour, for the craft that takes its place to be painted the same; null for the craft's own. */
+  /**
+   * Its body colour, a function of its id (`Settlements.parkedPaint`), for
+   * the craft that takes its place to be painted the same; null for the
+   * craft's own look.
+   */
   paint: number | null;
+}
+
+/**
+ * A slot in one of a near town's bicycle racks (`scenery/street-dressing.ts`),
+ * where a bicycle that can be taken may stand: a share of them (`RACK_FILL`)
+ * hold the fleet's own, merged into the town as a parked car is (`ParkedCar`).
+ * A pure function of the town, like everything the dressing places, so every
+ * client names the same slots; they exist while the town stands peopled.
+ */
+export interface BikeSlot {
+  /** `rack:<place>:<n>`, `n` counting the town's slots in the order they were placed. */
+  id: string;
+  /** The town: its index in `places`, as a fleet id's `<place>` is. */
+  place: number;
+  /** The middle of where the bicycle stands, between its wheels, on the paving, in the world. */
+  position: THREE.Vector3;
+  /** The way its front points: a unit tangent, into the rack, away from the street it faces. */
+  forward: THREE.Vector3;
 }
 
 /** A `ParkedCar` and where it is in its town's buffer and walls. */
@@ -1298,6 +1428,18 @@ interface Bay extends ParkedCar {
   count: number;
   solid: Solid;
   hidden: boolean;
+}
+
+/** Where a tree or a bush round a town's edge was seated, for `pnpm seated`: its base, the reach it was bedded over, and whether on the drawn land. */
+export interface TownSeat {
+  id: string;
+  /** Its direction from the planet's centre, and its base's distance from it. */
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  reach: number;
+  drawn: boolean;
 }
 
 export interface SettlementOptions {
@@ -1313,6 +1455,14 @@ export interface SettlementOptions {
    * ribbon to the square's gates now, and the town draws nothing of it.
    */
   roads?: readonly Road[];
+  /**
+   * The drawn land (`buildLand`), which the trees and bushes round a town's
+   * edge stand on where the land probe has it: the relief is up to seven
+   * units off what is drawn. Without it, and before the probe arrives, they
+   * stand on the relief, and a town built that way is built again once it
+   * does.
+   */
+  land?: THREE.Mesh;
 }
 
 export function createSettlements(
@@ -1339,7 +1489,21 @@ export function createSettlements(
   }
 
   const ctx: SceneryContext = createSceneryContext(options.context);
+  const landProbe = options.land === undefined ? null : landProbeOf(options.land);
+  /** What `drawnFootprint` fills for the country round a town, reused. */
+  const drawnSeat: DrawnFootprint = { centre: 0, lowest: 0, highest: 0 };
+  /** Where each tree and bush round a town's edge went, while `recordSeats` is asking. */
+  let seatLog: TownSeat[] | null = null;
   const material = townMaterial();
+  /**
+   * A near town's trees' leaves (`foliage.ts`): the nearest towns — the ones
+   * `peopled` builds with the kit's assets and a crowd — draw a tree as its
+   * wood in the town's buffer and its leaf cards in a second merged mesh, as
+   * the near tiles of the wood do (`CARD_LEVEL` in `vegetation.ts`); every
+   * other town draws its lumps. The wood does not move, the town's buffer
+   * being one still material, so the cards flutter and do not bend.
+   */
+  const leaves = leafMaterial();
   const missing: string[] = [];
   const broken: string[] = [];
 
@@ -1377,11 +1541,15 @@ export function createSettlements(
       failed: false,
       peopled: false,
       builtPeopled: false,
+      overhead: null,
+      dressing: null,
       stale: false,
+      onRelief: false,
       folk: [],
       lampHeads: null,
       parked: [],
       benches: [],
+      bikeSlots: [],
     };
   });
 
@@ -1408,6 +1576,8 @@ export function createSettlements(
   // ------------------------------------------------------------------
 
   const variants = new Map<string, FlatVariant | null>();
+  /** A tree variant's wood and cards, for a near town; keyed by its lumps' variant. */
+  const nearTrees = new WeakMap<FlatVariant, { wood: FlatVariant; leaves: LeafArrays }>();
 
   function variantOf(partId: string, style: RegionStyle, index: number): FlatVariant | null {
     const key = `${partId}:${style.id}:${index}`;
@@ -1437,11 +1607,35 @@ export function createSettlements(
     const flat = flatten(built, key, entry.kind !== 'scatter');
     const value: FlatVariant = { ...flat, height: measure(built).height };
     variants.set(key, value);
+    if (entry.form !== undefined) {
+      try {
+        const near = nearArrays(entry.form(variantRng(entry, style, index), style));
+        const count = near.wood.position.length / 3;
+        nearTrees.set(value, {
+          wood: {
+            ...near.wood,
+            outline: near.wood.normal,
+            glow: new Uint8Array(count * 2),
+            emits: false,
+            litBed: 0,
+            triangles: count / 3,
+            height: value.height,
+            box: value.box,
+            pieceVertices: [count],
+          },
+          leaves: near.leaves,
+        });
+      } catch (error) {
+        broken.push(`${key} (near): ${String(error)}`);
+      }
+    }
     return value;
   }
 
   /**
-   * A vehicle, merged at its **placed** scale, cached per region and variant.
+   * A vehicle nobody can take — a lorry, a hand-cart — merged at its
+   * **placed** scale, cached per region and variant. What can be taken is
+   * parked as its craft (`machineVariant`).
    *
    * `placedScale` is baked into the vertices here exactly as it is in
    * `life.ts`, and for the same reason: a non-uniform z scale on a mesh needs
@@ -1456,6 +1650,8 @@ export function createSettlements(
    * stationary bike is the odder of the two.
    */
   const traffic = createTrafficContext(ctx);
+  /** The street dressing's CC0 pieces, fitted and painted once each (`scenery/street-dressing.ts`). */
+  const dressModels = propModels(ctx);
   const parked = new Map<string, FlatVariant | null>();
   const vehicleById = new Map<string, Vehicle>(VEHICLES.map((entry) => [entry.id, entry]));
   function parkedVariant(style: TrafficStyle, id: string, index: number): FlatVariant | null {
@@ -1468,30 +1664,85 @@ export function createSettlements(
       if (!missing.includes(id)) missing.push(id);
     } else {
       try {
-        // The paint is whatever the part picks off the region's paints: the
-        // pick is watched for it, so the craft that takes this vehicle's
-        // place can be painted the same (`ParkedCar.paint`).
-        const rng = vehicleRng(entry, style, index);
-        let paint: number | null = null;
-        const pick = rng.pick;
-        rng.pick = <T,>(items: readonly T[]): T => {
-          const value = pick(items);
-          if ((items as unknown) === style.paint && paint === null) paint = value as number;
-          return value;
-        };
-        const built = entry.build(traffic, rng, style);
-        // A scooter and an auto-rickshaw are parked at the size their craft
-        // is taken at (`PARKED_AT_RIDE_SCALE`); everything else at the traffic's.
-        const grown = PARKED_AT_RIDE_SCALE.has(entry.id);
-        const scale = grown ? [RIDE_SCALE, RIDE_SCALE, RIDE_SCALE] : placedScale(entry);
+        const built = entry.build(traffic, vehicleRng(entry, style, index), style);
+        const scale = placedScale(entry);
         built.scale.set(scale[0]!, scale[1]!, scale[2]!);
-        value = { ...flatten(built, key, false), height: grown ? entry.size[2] * RIDE_SCALE : placedSize(entry)[2], paint };
+        value = { ...flatten(built, key, false), height: placedSize(entry)[2] };
       } catch (error) {
         broken.push(`${key}: ${String(error)}`);
       }
     }
     parked.set(key, value);
     return value;
+  }
+
+  /**
+   * A vehicle that can be taken, as it stands parked: the craft that takes it
+   * (`parkedModel`), in the look and the paint its id decides, merged at the
+   * size it stands at — the craft's own for what a person rides (a bicycle,
+   * a scooter, a tuk-tuk) and a bus, else no wider than the traffic's
+   * `kind`, so two still pass in a town's street. Its light bytes are left
+   * to the merge, which marks it (`MACHINE_BED`). Null while the kit is not
+   * registered, and cached once it is.
+   */
+  const machines = new Map<string, FlatVariant | null>();
+  function machineVariant(id: string, kind: string): FlatVariant | null {
+    const craft = id.slice(0, id.indexOf(':'));
+    const model = parkedModel(craft);
+    if (model === null) return null;
+    const variant = fleetVariant(id, model.variants);
+    const paint = parkedPaintOf(id);
+    const entry = vehicleById.get(kind);
+    const full = entry === undefined || PARKED_AT_RIDE_SCALE.has(kind) || craft === 'bicycle' || craft === 'bus';
+    const scale = full ? 1 : Math.min(1, placedSize(entry)[1] / model.size[1]);
+    const key = `${craft}#${variant}@${paint ?? '-'}x${scale.toFixed(4)}`;
+    const cached = machines.get(key);
+    if (cached !== undefined) return cached;
+    let value: FlatVariant | null = null;
+    try {
+      const arrays = parkedArrays(model, variant, paint ?? undefined, scale);
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (let i = 0; i < arrays.position.length; i += 3) {
+        minX = Math.min(minX, arrays.position[i]!);
+        maxX = Math.max(maxX, arrays.position[i]!);
+        minZ = Math.min(minZ, arrays.position[i + 2]!);
+        maxZ = Math.max(maxZ, arrays.position[i + 2]!);
+      }
+      const vertices = arrays.triangles * 3;
+      value = {
+        ...arrays,
+        glow: new Uint8Array(vertices * 2),
+        emits: false,
+        litBed: 0,
+        height: model.size[2] * scale,
+        paint,
+        box: { minX, maxX, minZ, maxZ },
+        pieceVertices: [vertices],
+      };
+    } catch (error) {
+      broken.push(`${key}: ${String(error)}`);
+    }
+    machines.set(key, value);
+    return value;
+  }
+
+  /**
+   * The body colour of a vehicle a town parks, by its id alone: a pick off
+   * the region's traffic paints (`paintFor`) for a kerb's car, van, bus,
+   * tractor, scooter or tuk-tuk, and null — the craft's own look — for a
+   * bicycle, a vehicle of a field or a site, or a town there is not. The
+   * fleet paints the one it takes by the same answer (`parkedPaint`), for a
+   * town that is not standing too.
+   */
+  function parkedPaintOf(id: string): number | null {
+    const parts = id.split(':');
+    if (parts.length !== 3 || parts[0] === 'bicycle' || !(Number(parts[2]) >= PARKED_SLOT)) return null;
+    const slot = slots[Number(parts[1])];
+    if (slot === undefined) return null;
+    return paintFor(id, trafficFor(slot.place.iso, continentOf.get(slot.place.iso) ?? '', slot.place.lat).paint);
   }
 
   // ------------------------------------------------------------------
@@ -1501,6 +1752,7 @@ export function createSettlements(
   const up = new THREE.Vector3();
   const north = new THREE.Vector3();
   const across = new THREE.Vector3();
+  const parkedAt = new THREE.Vector3();
   /** `gradeAt`'s answer for the country round a town, reused. */
   const slope: Slope = { grade: 0, across: 0, north: 0, lowest: 0, highest: 0 };
   const basis = new THREE.Matrix4();
@@ -1766,7 +2018,7 @@ export function createSettlements(
      * Which cells are lawn, one byte a cell by `col * cells + row`: a yard of the
      * land's own ground (`GroundStyle.yard` is `land`) that is not paved, not the
      * square and not under a landmark. Null in a region whose yards are earth or
-     * stone. What grows on it is `vegetation.ts`'s sward; see `swardAt`.
+     * stone. What grows on it is the grass (`grass.ts`); see `swardAt`.
      */
     lawn: Uint8Array | null;
     /** The gate mouths' rectangles in the town's plane, `[x0, x1, z0, z1]`, which are street wherever they fall. */
@@ -4125,6 +4377,7 @@ export function createSettlements(
     let vertices = 0;
     let drowned = 0;
     let buried = 0;
+    let onRelief = false;
     /**
      * The cells a *building* actually came up on, which is what gets paved.
      *
@@ -4144,6 +4397,11 @@ export function createSettlements(
     const litPlots: LitPlot[] = [];
     /** The walls of what stands, for `collide`. See `solidOf`. */
     const solids: Solid[] = [];
+    /** The square's buildings as triangles, for what hangs between them (`scenery/overhead.ts`). */
+    const overheadHosts: OverheadHost[] = [];
+    /** The square's buildings with their fronts, for what dresses them (`scenery/street-dressing.ts`). */
+    const dressFronts: DressFront[] = [];
+    const bakedParts = new Set(Object.values(styleFor(slot).assets ?? {}));
 
     for (const entry of placed) {
       const flat = variantOf(entry.partId, slot.style, entry.variant);
@@ -4179,14 +4437,34 @@ export function createSettlements(
       // The country round the town stands on the relief, where the wood does,
       // and only where the wood would: out of the sea and off a cliff.
       const country = inTheCountry.has(entry);
+      let level: number | null;
       if (country) {
         gradeAt(scratch, across, north, Math.max(1, footprint), slope);
         if (slope.grade > MAX_SLOPE) {
           buried++;
           continue;
         }
+        // Bedded as the wood is: to the lowest of the drawn land under its
+        // footprint, or of the relief where the probe has not gathered yet.
+        // It stood on the relief at its middle, which on a hill left the
+        // downhill side of every orchard in the air.
+        const reach = Math.max(1, footprint * 0.6);
+        const seat = landProbe === null ? 'unknown' : drawnFootprint(landProbe, scratch, across, north, reach, drawnSeat);
+        if (seat === 'water') {
+          drowned++;
+          continue;
+        }
+        if (seat === 'drawn') level = drawnSeat.lowest - PLANET_RADIUS;
+        else {
+          const relief = reliefAt(scratch.x, scratch.y, scratch.z);
+          level = elevation - relief + Math.min(relief, slope.lowest);
+          if (landProbe !== null) onRelief = true;
+        }
+        level -= flat.height * entry.scale * PLANT_SEATING + GROUND_LIFT;
+        seatLog?.push({ id: entry.partId, x: scratch.x, y: scratch.y, z: scratch.z, radius: PLANET_RADIUS + level + GROUND_LIFT, reach, drawn: seat === 'drawn' });
+      } else {
+        level = terraceAt(entry.plot.col, entry.plot.row);
       }
-      const level = country ? elevation - GROUND_LIFT : terraceAt(entry.plot.col, entry.plot.row);
       if (level === null) {
         buried++;
         continue;
@@ -4242,6 +4520,8 @@ export function createSettlements(
         built.add(cellKey(entry.plot.col, entry.plot.row));
         const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level);
         solids.push(solid);
+        if (!country) overheadHosts.push({ position: flat.position, matrix: standing[standing.length - 1]!.matrix });
+        if (!country) dressFronts.push({ flat, matrix: standing[standing.length - 1]!.matrix, solid, kind: kind ?? 'dwelling', baked: bakedParts.has(entry.partId) });
         // A block and a civic building stand on paving, a house in its yard.
         if (kind !== 'dwelling') pavedUnder(solid, grid, pavedCells);
       }
@@ -4338,6 +4618,7 @@ export function createSettlements(
     slot.planned = placed.length;
     slot.drowned = drowned;
     slot.buried = buried;
+    slot.onRelief = onRelief;
     slot.buildings = built.size;
     if (standing.length === 0) {
       // Nothing would stand here, and the retry above could not put a building
@@ -4451,6 +4732,24 @@ export function createSettlements(
      */
     slot.folk = [];
     slot.parked = [];
+    /**
+     * Every car parked, taken or not, as its spot, its reach and its roof: what
+     * hangs over the streets and what dresses them keep off. A car driven away
+     * leaves its bay as it was, so nothing laid out after it moves.
+     */
+    const parkedLayout: number[] = [];
+    /** The walls of the cars taken, which the dressing still keeps off and nobody walks into. */
+    const parkedGhosts: Solid[] = [];
+    /** And their vertices, which the dressing's budget still counts. */
+    let takenVertices = 0;
+    /** Where a vehicle that can be taken stands, for `pnpm seated`: on the floor a foot finds. */
+    const logParked = (craft: string, at: THREE.Vector3): void => {
+      if (seatLog === null) return;
+      parkedAt.copy(at).applyMatrix4(basis).add(origin);
+      const radius = parkedAt.length();
+      parkedAt.normalize();
+      seatLog.push({ id: `parked:${craft}`, x: parkedAt.x, y: parkedAt.y, z: parkedAt.z, radius, reach: 0, drawn: true });
+    };
     if (slot.peopled) {
       const urbanity = urbanityOf(slot.place.pop);
       const warmth = biomeAt(
@@ -4517,7 +4816,13 @@ export function createSettlements(
       for (let i = 0; i < bays && placedCars < wantParked; i += bayStride) {
         const rng = rngFrom(slot.seed, 'parked', i);
         const kind = rng.weighted(mix);
-        const flat = parkedVariant(style, kind, rng.int(VARIANTS));
+        const look = rng.int(VARIANTS);
+        // What can be taken is parked as the craft that takes it
+        // (`craft/parked.ts`), named before it is built because the id
+        // decides its look; the rest as the traffic's own vehicle.
+        const craft = PARKED_CRAFT[kind];
+        const id = craft === undefined || placedCars + PARKED_SLOT > 99 ? null : `${craft}:${slot.index}:${placedCars + PARKED_SLOT}`;
+        const flat = id === null ? parkedVariant(style, kind, look) : machineVariant(id, kind);
         if (flat === null) break;
         const x = ground.kerbs[i * 4]!;
         const y = ground.kerbs[i * 4 + 1]!;
@@ -4528,11 +4833,17 @@ export function createSettlements(
         // measured from the kerb it stands on.
         const solid = solidOf(flat, x, z, yaw, 1, origin.length() - PLANET_RADIUS + y - GROUND_LIFT);
         // The ordinal counts every car placed, taken or not, so the others keep
-        // their names when one is gone.
-        const ordinal = placedCars++;
-        const craft = PARKED_CRAFT[kind];
-        const id = craft === undefined || ordinal + PARKED_SLOT > 99 ? null : `${craft}:${slot.index}:${ordinal + PARKED_SLOT}`;
-        if (id !== null && parkedTaken(id)) continue;
+        // their names when one is gone. And everything laid out after the
+        // cars keeps off one that is gone as off one that is there
+        // (`parkedLayout`, `parkedGhosts`), so the town is the same town
+        // whoever has driven what away, and so are the names of its racks.
+        placedCars++;
+        parkedLayout.push(x, z, Math.hypot(flat.box.maxX - flat.box.minX, flat.box.maxZ - flat.box.minZ) * 0.5, flat.height);
+        if (id !== null && parkedTaken(id)) {
+          parkedGhosts.push(solid);
+          takenVertices += flat.position.length / 3;
+          continue;
+        }
         solids.push(solid);
         local.set(x, y, z);
         quaternion.setFromAxisAngle(AXIS_Y, yaw);
@@ -4554,13 +4865,248 @@ export function createSettlements(
             hidden: false,
           };
           slot.parked.push(bay);
+          logParked(craft!, local);
         }
         standing.push({ flat, matrix: transform.clone(), glow: 0, bay });
         vertices += flat.position.length / 3;
       }
     }
+    // --- what hangs over the streets: bunting, lanterns, washing, wires (`scenery/overhead.ts`) ---
+    //
+    // A near town's only, like its people and its parked cars, and after them,
+    // because a pole keeps off every lamp, bench, bay and person laid out
+    // above. One run of vertices in the town's frame, as a still part is.
+    slot.overhead = null;
+    /** Where its poles and masts stand, for the street dressing laid after to keep off. */
+    const overheadSpots: number[] = [];
+    if (slot.peopled && slot.floor !== null) {
+      const began = performance.now();
+      const field = slot.floor.field;
+      const overheadDir = new THREE.Vector3();
+      const overheadAt = new THREE.Vector3();
+      const keep: number[] = [];
+      for (let i = 0; i + 2 < ground.lamps.length; i += 3) keep.push(ground.lamps[i]!, ground.lamps[i + 2]!, 1.2);
+      for (let i = 0; i + 3 < ground.signals.length; i += 4) keep.push(ground.signals[i]!, ground.signals[i + 2]!, 1.2);
+      for (let i = 0; i + 3 < ground.benches.length; i += 4) keep.push(ground.benches[i]!, ground.benches[i + 2]!, BENCH_LONGEST * 0.5 + 0.6);
+      // The cars actually parked, and the people actually standing, with the
+      // stretch each strolls, a pace apart, by their shoulders: not every bay
+      // and spot the ground laid out, most of which nobody took.
+      for (let i = 0; i < parkedLayout.length; i += 4) keep.push(parkedLayout[i]!, parkedLayout[i + 1]!, parkedLayout[i + 2]! + 0.4);
+      for (const person of slot.folk) {
+        const paces = Math.max(1, Math.ceil(person.from.distanceTo(person.to)));
+        for (let n = 0; n <= paces; n++) {
+          const t = n / paces;
+          keep.push(person.from.x + (person.to.x - person.from.x) * t, person.from.z + (person.to.z - person.from.z) * t, CLEAR_FOLK * 0.5 + 0.3);
+        }
+        keep.push(person.position.x, person.position.z, CLEAR_FOLK + 0.3);
+      }
+      // Every vehicle parked below, as its spot, its reach and its roof.
+      const parkedUnder = parkedLayout;
+      // The near trees' crowns, which no line is strung through, and their
+      // trunks, which no pole stands in.
+      const crowns: number[] = [];
+      for (const item of standing) {
+        const near = nearTrees.get(item.flat);
+        const crown = near === undefined ? null : crownOf(near.leaves);
+        if (crown === null) continue;
+        const e = item.matrix.elements;
+        const scale = Math.hypot(e[0]!, e[1]!, e[2]!);
+        overheadAt.set(crown.x, crown.y, crown.z).applyMatrix4(item.matrix);
+        crowns.push(overheadAt.x, overheadAt.y, overheadAt.z, crown.radius * scale, crown.half * scale);
+        keep.push(e[12]!, e[14]!, 1.2);
+      }
+      const hung = hangOverhead({
+        region: slot.style.id,
+        seed: slot.seed,
+        urbanity: urbanityOf(slot.place.pop),
+        grid,
+        band,
+        hosts: overheadHosts,
+        keep,
+        parked: parkedUnder,
+        crowns,
+        floorAt(x, z) {
+          directionAt(x, z, overheadDir);
+          const elevation = Math.max(0, world.elevationAt(overheadDir));
+          const lift = floorLiftAt(field, x, z, elevation);
+          if (!(lift > 0)) return null;
+          return overheadAt.copy(overheadDir).multiplyScalar(PLANET_RADIUS + elevation + lift).sub(origin).applyMatrix4(inverse).y;
+        },
+      });
+      if (hung !== null) {
+        const count = hung.position.length / 3;
+        standing.push({
+          flat: {
+            position: hung.position,
+            normal: hung.normal,
+            color: hung.color,
+            // A code-built part's ink is its own normal.
+            outline: hung.normal,
+            glow: hung.glow,
+            emits: hung.emits,
+            litBed: 0,
+            triangles: hung.triangles,
+            height: 0,
+            box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+            pieceVertices: [count],
+          },
+          matrix: new THREE.Matrix4(),
+          glow: 1,
+        });
+        vertices += count;
+        slot.overhead = { triangles: hung.triangles, spans: hung.spans, poles: hung.poles, masts: hung.masts, wires: hung.wires, cells: hung.cells, ms: performance.now() - began };
+        overheadSpots.push(...hung.spots);
+      }
+    }
+
+    // --- the street level: façades, the building line, the paint (`scenery/street-dressing.ts`) ---
+    //
+    // A near town's only, after everything that stands in its streets, whose
+    // walls and spots it keeps off. One run of vertices in the town's frame,
+    // and its walls join the town's.
+    slot.dressing = null;
+    slot.bikeSlots = [];
+    if (slot.peopled && slot.floor !== null && streetDressingEnabled()) {
+      const began = performance.now();
+      const dressDir = new THREE.Vector3();
+      const dressAt = new THREE.Vector3();
+      // The overhead's poles and masts (`scenery/overhead.ts`), which stand first.
+      const discs: number[] = [...overheadSpots];
+      for (let i = 0; i + 2 < ground.lamps.length; i += 3) discs.push(ground.lamps[i]!, ground.lamps[i + 2]!, CLEAR_LAMP);
+      for (let i = 0; i + 3 < ground.signals.length; i += 4) discs.push(ground.signals[i]!, ground.signals[i + 2]!, 1);
+      for (const entry of placed) {
+        const kind = KIND_OF.get(entry.partId);
+        if (inTheCountry.has(entry) || (kind !== 'tree' && kind !== 'scatter')) continue;
+        discs.push(entry.plot.x, entry.plot.z, Math.min(1.5, Math.max(0.6, footprintOf(entry.partId) * entry.scale * 0.35)));
+      }
+      const standingTriangles = (vertices + takenVertices) / 3 + ground.position.length / 9;
+      const dressed = dressTown({
+        seed: slot.seed,
+        region: slot.style.id,
+        iso: slot.place.iso,
+        urbanity: urbanityOf(slot.place.pop),
+        grid,
+        band,
+        levels: ground.terraces,
+        field: ground.field,
+        mouths: ground.mouths,
+        fronts: dressFronts,
+        solids: parkedGhosts.length > 0 ? [...solids, ...parkedGhosts] : solids,
+        discs,
+        blocked: (x, z) => keepouts.some((keepout) => planGap(keepout.shape, x - keepout.x, z - keepout.z) < keepout.radius),
+        plotRect: (col, row) => rectOf(grid, band, col, col, row, row),
+        seat(x, z, level, into) {
+          directionAt(x, z, dressDir);
+          dressAt.copy(dressDir).multiplyScalar(PLANET_RADIUS + level + GROUND_LIFT).sub(origin).applyMatrix4(inverse);
+          into[0] = dressAt.x;
+          into[1] = dressAt.y;
+          into[2] = dressAt.z;
+        },
+        floorRadius: (level) => PLANET_RADIUS + level + GROUND_LIFT,
+        models: dressModels,
+        road: slot.ground.road,
+        budget: Math.round(Math.min(DRESS_MOST, Math.max(DRESS_LEAST, standingTriangles * DRESS_SHARE))),
+      });
+      if (dressed.triangles > 0) {
+        const count = dressed.triangles * 3;
+        standing.push({
+          flat: {
+            position: dressed.position,
+            normal: dressed.normal,
+            color: dressed.color,
+            // A code-built part's ink is its own normal.
+            outline: dressed.normal,
+            glow: dressed.glow,
+            emits: dressed.emits,
+            litBed: 0,
+            triangles: dressed.triangles,
+            height: 0,
+            box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0 },
+            pieceVertices: [count],
+          },
+          matrix: new THREE.Matrix4(),
+          glow: 1,
+        });
+        vertices += count;
+        solids.push(...dressed.solids);
+        // A café chair is a bench (`bench.ts`), and a rack's slot a place for
+        // the fleet's bicycle; both in the town's frame here, into the
+        // world's with the benches once the mesh is placed.
+        let chairs = 0;
+        for (const anchor of dressed.anchors) {
+          const position = new THREE.Vector3(anchor.x, anchor.y, anchor.z);
+          const facing = new THREE.Vector3(anchor.fx, 0, anchor.fz);
+          if (anchor.kind === 'seat') slot.benches.push({ position, facing, sink: 0, key: `chair:${slot.index}:${chairs++}` });
+          else slot.bikeSlots.push({ id: `rack:${slot.index}:${slot.bikeSlots.length}`, place: slot.index, position, forward: facing });
+        }
+        if (seatLog !== null) {
+          for (const seat of dressed.seats) {
+            dressAt.set(seat.x, seat.y + seat.lift, seat.z).applyMatrix4(basis).add(origin);
+            const radius = dressAt.length();
+            dressAt.normalize();
+            seatLog.push({ id: `dress:${seat.kind}`, x: dressAt.x, y: dressAt.y, z: dressAt.z, radius, reach: 0, drawn: true });
+          }
+        }
+      }
+      slot.dressing = { triangles: dressed.triangles, solids: dressed.solids.length, counts: dressed.counts, ms: performance.now() - began };
+    }
+
+    // --- the bicycles in its racks: the fleet's own, merged still until one is taken ---
+    //
+    // A share of the racks' slots (`RACK_FILL`), each drawn off the town's
+    // seed, holds a bicycle that can be taken, named after the kerb's cars
+    // (`PARKED_SLOT` on, counting every car placed and every bicycle stood,
+    // taken or not). Each is a wall, as a parked car is; the rack is not.
+    if (slot.bikeSlots.length > 0) {
+      let stood = 0;
+      const first = PARKED_SLOT + parkedLayout.length / 4;
+      for (let k = 0; k < slot.bikeSlots.length && first + stood <= 99; k++) {
+        if (!rngFrom(slot.seed, 'rack-bike', k).chance(RACK_FILL)) continue;
+        const rack = slot.bikeSlots[k]!;
+        const id = `bicycle:${slot.index}:${first + stood++}`;
+        const flat = machineVariant(id, 'bicycle');
+        if (flat === null) break;
+        if (parkedTaken(id)) continue;
+        const yaw = Math.atan2(rack.forward.x, rack.forward.z);
+        const solid = solidOf(flat, rack.position.x, rack.position.z, yaw, 1, origin.length() - PLANET_RADIUS + rack.position.y - GROUND_LIFT);
+        solids.push(solid);
+        local.copy(rack.position);
+        quaternion.setFromAxisAngle(AXIS_Y, yaw);
+        scaleVector.setScalar(1);
+        transform.compose(local, quaternion, scaleVector);
+        const bay: Bay = {
+          id,
+          model: 'bicycle',
+          position: local.clone(),
+          forward: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
+          paint: null,
+          start: 0,
+          count: 0,
+          solid,
+          hidden: false,
+        };
+        slot.parked.push(bay);
+        standing.push({ flat, matrix: transform.clone(), glow: 0, bay });
+        vertices += flat.position.length / 3;
+        logParked('bicycle', rack.position);
+      }
+    }
+
     if (slot.floor !== null) slot.floor.solids = solids.length > 0 ? solidField(solids) : null;
 
+    // A near town's trees: the wood into the buffer, the cards gathered for their own mesh.
+    const cards: { leaves: LeafArrays; matrix: THREE.Matrix4 }[] = [];
+    let leafVertices = 0;
+    if (slot.builtPeopled) {
+      for (const item of standing) {
+        const near = nearTrees.get(item.flat);
+        if (near === undefined) continue;
+        vertices += (near.wood.position.length - item.flat.position.length) / 3;
+        item.flat = near.wood;
+        cards.push({ leaves: near.leaves, matrix: item.matrix });
+        leafVertices += near.leaves.position.length / 3;
+      }
+    }
     const groundVertices = ground.position.length / 3;
     const total = vertices + groundVertices;
 
@@ -4616,16 +5162,20 @@ export function createSettlements(
       if (item.bay !== undefined) {
         item.bay.start = vertex;
         item.bay.count = written;
-      }
-      if (item.glow > 0) {
+        // A vehicle that can be taken is marked, for the material to paint it
+        // as the craft's is painted (`MACHINE_TEST`).
+        for (let i = 0; i < written; i++) glow[(vertex + i) * 2 + 1] = MACHINE_BED;
+      } else if (item.glow > 0) {
         for (let i = 0; i < written; i++) {
-          glow[(vertex + i) * 2] = Math.round(source.glow[i * 2]! * item.glow);
+          const lit = Math.round(source.glow[i * 2]! * item.glow);
+          glow[(vertex + i) * 2] = lit;
           // The bedtime shifts with the *building*, not with the window: two
           // copies of one variant standing side by side are two households, and
           // a street where every third house goes dark on the same minute is
-          // the repetition the per-instance draw exists to break.
+          // the repetition the per-instance draw exists to break. A window
+          // with no light keeps no hour, so no wall reads as a vehicle.
           const shift = item.bed ?? 0;
-          glow[(vertex + i) * 2 + 1] = Math.max(0, Math.min(255, source.glow[i * 2 + 1]! + shift));
+          glow[(vertex + i) * 2 + 1] = lit > 0 ? Math.max(0, Math.min(255, source.glow[i * 2 + 1]! + shift)) : 0;
         }
       }
       vertex += written;
@@ -4638,6 +5188,8 @@ export function createSettlements(
     // buffer, so the pools land on exactly the vertices `buildGround` wrote
     // them for. This is the whole draw-call cost of the feature: none.
     glow.set(ground.glow, vertex * 2);
+    // A pool with no light keeps no hour either (`MACHINE_TEST`).
+    for (let i = vertex * 2; i < glow.length; i += 2) if (glow[i] === 0) glow[i + 1] = 0;
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
@@ -4660,6 +5212,9 @@ export function createSettlements(
     // it is what the A/B for the pools is taken with: zero the tail's two light
     // bytes and the same frame comes back with the windows and nothing else.
     mesh.userData.groundVertices = groundVertices;
+    // What hangs over its streets came to, for `atlas.settlements` and the checks.
+    mesh.userData.overhead = slot.overhead;
+    mesh.userData.dressing = slot.dressing;
     // The geometry is built in the settlement's own tangent frame and placed by
     // this one transform. Two things fall out of it and both matter: the
     // bounding sphere is the town's own, so frustum culling works per town
@@ -4669,8 +5224,15 @@ export function createSettlements(
     // steps by at the planet's radius.
     mesh.position.copy(origin);
     mesh.quaternion.setFromRotationMatrix(basis);
+    const leafMesh = leafVertices > 0 ? townLeaves(cards, leafVertices, slot.place.name) : null;
+    if (leafMesh !== null) {
+      mesh.add(leafMesh);
+      mesh.userData.leaves = leafMesh;
+      townCrowns(mesh, cards);
+    }
     group.add(mesh);
     fader.in(mesh);
+    if (leafMesh !== null) fader.in(leafMesh);
     // The people into the world's frame, once: the town does not move while
     // it stands, so `folkNear` never has to.
     for (const person of slot.folk) {
@@ -4703,14 +5265,91 @@ export function createSettlements(
       bench.facing.applyQuaternion(mesh.quaternion);
     }
     if (slot.benches.length > 0) benchTowns.add(slot);
+    for (const rack of slot.bikeSlots) {
+      rack.position.applyQuaternion(mesh.quaternion).add(mesh.position);
+      rack.forward.applyQuaternion(mesh.quaternion);
+    }
+    if (slot.bikeSlots.length > 0) rackTowns.add(slot);
 
     slot.mesh = mesh;
-    slot.triangles = total / 3;
+    slot.triangles = (total + leafVertices) / 3;
     slot.parts = standing.length;
     // Three float triples, the two light bytes and the three bytes of the ink's
     // normal: 41 bytes a vertex. It was 36 before the lights and 38 before the
     // painted parts (2026-09-16).
-    slot.bytes = total * (3 * 4 * 3 + 2 + 3);
+    slot.bytes = total * (3 * 4 * 3 + 2 + 3) + leafVertices * 26;
+  }
+
+  /**
+   * The near towns whose trees shed (`crownOf`), each with its crowns in the
+   * world on `userData.crowns`, `CROWN_STRIDE` floats a crown: what the leaves
+   * that fall and lie in its streets are laid from (`ambient.ts`). From the
+   * frame a town is raised to the frame it is retired.
+   */
+  const crowned = new Set<THREE.Mesh>();
+  const crownList: number[] = [];
+  const crownMatrix = new THREE.Matrix4();
+  function townCrowns(mesh: THREE.Mesh, cards: readonly { leaves: LeafArrays; matrix: THREE.Matrix4 }[]): void {
+    mesh.updateMatrix();
+    crownList.length = 0;
+    for (const { leaves: source, matrix } of cards) placeCrown(source, crownMatrix.multiplyMatrices(mesh.matrix, matrix), crownList);
+    if (crownList.length === 0) return;
+    mesh.userData.crowns = Float32Array.from(crownList);
+    crowned.add(mesh);
+  }
+
+  /**
+   * A near town's leaf cards as one mesh in the town's frame: position,
+   * normal, colour, place on the atlas, and the wind's four bytes with no
+   * bend in them (the wood they hang on holds still). 26 bytes a vertex.
+   */
+  function townLeaves(cards: readonly { leaves: LeafArrays; matrix: THREE.Matrix4 }[], count: number, name: string): THREE.Mesh {
+    const position = new Float32Array(count * 3);
+    const normal = new Int8Array(count * 3);
+    const color = new Uint8Array(count * 3);
+    const uv = new Uint16Array(count * 2);
+    const wind = new Uint8Array(count * 4);
+    let v = 0;
+    for (const { leaves: source, matrix } of cards) {
+      const e = matrix.elements;
+      const scale = Math.hypot(e[0]!, e[1]!, e[2]!);
+      const inverse = scale === 0 ? 0 : 1 / scale;
+      const phase = Math.round(((((e[12]! * 0.1373 + e[14]! * 0.3117) % 1) + 1) % 1) * 255);
+      for (let i = 0; i < source.position.length; i += 3, v++) {
+        const x = source.position[i]!;
+        const y = source.position[i + 1]!;
+        const z = source.position[i + 2]!;
+        position[v * 3] = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
+        position[v * 3 + 1] = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
+        position[v * 3 + 2] = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
+        const nx = source.normal[i]!;
+        const ny = source.normal[i + 1]!;
+        const nz = source.normal[i + 2]!;
+        normal[v * 3] = Math.round((e[0]! * nx + e[4]! * ny + e[8]! * nz) * inverse * 127);
+        normal[v * 3 + 1] = Math.round((e[1]! * nx + e[5]! * ny + e[9]! * nz) * inverse * 127);
+        normal[v * 3 + 2] = Math.round((e[2]! * nx + e[6]! * ny + e[10]! * nz) * inverse * 127);
+        for (let c = 0; c < 3; c++) color[v * 3 + c] = Math.round(Math.min(1, Math.max(0, source.color[i + c]!)) * 255);
+        const w = i / 3;
+        uv[v * 2] = Math.round(source.uv[w * 2]! * 65535);
+        uv[v * 2 + 1] = Math.round(source.uv[w * 2 + 1]! * 65535);
+        wind[v * 4 + 1] = phase;
+        wind[v * 4 + 2] = Math.round(Math.min(1, Math.max(0, source.leaf[w * 2]!)) * 255);
+        wind[v * 4 + 3] = Math.round(Math.min(1, Math.max(0, source.leaf[w * 2 + 1]!)) * 255);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3, true));
+    geometry.setAttribute('color', new THREE.BufferAttribute(color, 3, true));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2, true));
+    geometry.setAttribute('aWind', new THREE.BufferAttribute(wind, 4, true));
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, leaves);
+    mesh.name = `town-leaves:${name}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.customDepthMaterial = leafDepthMaterial();
+    return mesh;
   }
 
   /**
@@ -4726,6 +5365,15 @@ export function createSettlements(
       group.remove(mesh);
       mesh.geometry.dispose();
     };
+    crowned.delete(mesh);
+    // Its leaves, a child, go with it on the same clock.
+    const leafMesh = mesh.userData.leaves as THREE.Mesh | undefined;
+    if (leafMesh !== undefined) {
+      if (instant) {
+        fader.cancel(leafMesh);
+        leafMesh.geometry.dispose();
+      } else fader.out(leafMesh, () => leafMesh.geometry.dispose());
+    }
     if (instant) {
       fader.cancel(mesh);
       gone();
@@ -4745,6 +5393,8 @@ export function createSettlements(
     parkedTowns.delete(slot);
     slot.benches = [];
     benchTowns.delete(slot);
+    slot.bikeSlots = [];
+    rackTowns.delete(slot);
     retireMesh(slot.mesh, instant);
     slot.mesh = null;
     slot.triangles = 0;
@@ -4787,6 +5437,8 @@ export function createSettlements(
     slot.parked = [];
     slot.benches = [];
     benchTowns.delete(slot);
+    slot.bikeSlots = [];
+    rackTowns.delete(slot);
     slot.mesh = null;
     raise(slot);
     // Out as the new one comes in, on complementary pixels: a cross-dissolve.
@@ -4832,6 +5484,7 @@ export function createSettlements(
     reach: 0,
   };
 
+  const reliefDir = new THREE.Vector3();
   /** Reused by `madeHeightAt`, which runs once a frame from `player.ts`. */
   const madeDir = new THREE.Vector3();
   /**
@@ -4852,6 +5505,8 @@ export function createSettlements(
   const parkedTowns = new Set<Slot>();
   /** The standing towns with a bench, for `benchesNear`. */
   const benchTowns = new Set<Slot>();
+  /** The standing towns with a bicycle rack, for `bikeSlotsNear`. */
+  const rackTowns = new Set<Slot>();
   /** Whether a parked car has been taken, and so is the fleet's to draw; see `parkedTaken`. */
   let parkedTaken: (id: string) => boolean = () => false;
   /** Towns arriving and leaving by dissolving; see `fade.ts`. */
@@ -4896,7 +5551,7 @@ export function createSettlements(
 
   /**
    * Every floor raised or dropped, as the town's up and how far its floor
-   * reaches, for `floorChanges`: the sward re-sows what it grew round a town
+   * reaches, for `floorChanges`: the grass bakes again what it grew round a town
    * whose lawns have just arrived or gone. A ring, because nothing reads further
    * back than the frame before.
    */
@@ -4917,17 +5572,78 @@ export function createSettlements(
 
   const swardDir = new THREE.Vector3();
   /**
+   * How far apart two surfaces meeting at a cell's side may be and still be
+   * one surface for the grass: a crease between two slopes is, a riser, a
+   * kerb or the face of a quay is not.
+   */
+  const SWARD_STEP = 0.3;
+  /**
+   * A lawn's top at `(x, z)` of terrace cell `(col, row)` — a yard `Ground.lawn`
+   * marks, clear by `margin` of the streets through its cell, a ramp, a gate's
+   * mouth and every wall — or null.
+   */
+  function lawnTop(floor: NonNullable<Slot['floor']>, col: number, row: number, x: number, z: number, margin: number): number | null {
+    const { grid, band, field, lawn } = floor;
+    if (lawn === null || !inGrid(grid, col, row) || lawn[col * grid.cells + row] !== 1) return null;
+    const u = x - (cellCentre(grid, col) - grid.pitch * 0.5);
+    const v = z - (cellCentre(grid, row) - grid.pitch * 0.5);
+    // The streets through the cell, as `buildGround` cuts them: a band only
+    // where the cell across it is town too.
+    const street = (index: number, t: number, across: (step: number) => boolean): boolean =>
+      grid.avenue[index] === 1 ||
+      (grid.low[index] === 1 && t < band + margin && across(-1)) ||
+      (grid.high[index] === 1 && t > grid.pitch - band - margin && across(1));
+    if (street(col, u, (step) => field.terraces.has(cellKey(col + step, row))) ||
+      street(row, v, (step) => field.terraces.has(cellKey(col, row + step)))) return null;
+    // A ramp is street, and so is a gate's mouth where it widens into a yard.
+    if (flightAt(field, x, z, margin) !== null) return null;
+    for (const [x0, x1, z0, z1] of floor.mouths) {
+      if (x > x0 - margin && x < x1 + margin && z > z0 - margin && z < z1 + margin) return null;
+    }
+    if (floor.solids !== null && solidAt(floor.solids, x, z, margin) !== null) return null;
+    return PLANET_RADIUS + floorLiftAt(field, x, z, 0);
+  }
+
+  /**
+   * The ground the grass grows on in cell `(col, row)` of `floor`, at the
+   * point of that cell nearest `(x, z)`: a lawn's top, the edge slope or the
+   * land over it, the land in a cell the town does not cover; or null where
+   * the cell grows none there. For `swardAt`'s sides.
+   */
+  function cellSward(floor: NonNullable<Slot['floor']>, col: number, row: number, x: number, z: number, landRadius: number): number | null {
+    const { grid, field } = floor;
+    const low = (index: number): number => cellCentre(grid, index) - grid.pitch * 0.5 + 1e-3;
+    const high = (index: number): number => cellCentre(grid, index) + grid.pitch * 0.5 - 1e-3;
+    const cx = Math.min(high(col), Math.max(low(col), x));
+    const cz = Math.min(high(row), Math.max(low(row), z));
+    const key = cellKey(col, row);
+    if (field.terraces.has(key)) return lawnTop(floor, col, row, cx, cz, 0);
+    if (field.aprons?.has(key) === true) return Math.max(landRadius, PLANET_RADIUS + floorLiftAt(field, cx, cz, 0));
+    return landRadius;
+  }
+
+  /**
    * Where the grass may stand at `direction` (a unit vector), given the radius
    * of the drawn land there: as a radius from the planet's centre, or null.
    *
-   * A standing town answers for its own ground. A lawn — a yard `Ground.lawn`
-   * marks, clear of the streets through its cell and of every wall by `margin`
-   * — gives the terrace's own top; the rest of its paving gives nothing,
-   * unless the drawn land stands over it and hides it; its edge slope, which
-   * is painted the land's colour, gives whichever of the slope and the land is
-   * on top. Ground no standing floor covers is the land's, and that includes a
-   * town that is shown but not standing yet: `floorChanges` is how the sward
-   * learns it has arrived.
+   * A standing town answers for its own ground. A lawn gives its floor's own
+   * height (`lawnTop`); the rest of its paving gives nothing, **and so does a
+   * terrace the drawn land has come up through**: the land showing through a
+   * plaza is a fault of the floor, and grass on it was a green patch in the
+   * middle of the paving. Its edge slope, which is painted the land's colour,
+   * gives whichever of the slope and the land is on top.
+   *
+   * **And every one of them keeps `margin` off a side of its cell where the
+   * ground across is not the same surface** — paving, a street, a riser, the
+   * face of a quay, the wedge where two slopes from different terraces meet
+   * (`SWARD_STEP`) — because the grass is baked as a field of points and laid
+   * between them (`grass.ts`): a field that grows on both sides of a drop lays
+   * a blade across it at a height between the two, afloat over the lower side,
+   * and one that grows to a kerb lays blades over the street beyond it.
+   *
+   * Ground no standing floor covers is the land's, and that includes a town
+   * that is shown but not standing yet: `floorChanges` is how the grass learns
+   * it has arrived.
    */
   function swardAt(direction: THREE.Vector3, landRadius: number, margin: number): number | null {
     swardDir.copy(direction);
@@ -4935,39 +5651,43 @@ export function createSettlements(
       const floor = slot.floor;
       if (floor === null) continue;
       if (swardDir.dot(floor.up) < floor.cosBound) continue;
-      const { grid, band, field } = floor;
+      const { grid, field } = floor;
       const x = swardDir.dot(floor.across) * PLANET_RADIUS;
       const z = swardDir.dot(floor.north) * PLANET_RADIUS;
       const col = cellIndex(grid, x);
       const row = cellIndex(grid, z);
       const key = cellKey(col, row);
-      const level = field.terraces.get(key);
-      if (level === undefined) {
-        if (field.aprons?.has(key) !== true) continue;
-        // The edge slope is the land's ground laid over the land: whichever of
-        // the two is on top.
-        return Math.max(landRadius, PLANET_RADIUS + floorLiftAt(field, x, z, 0));
-      }
-      // A terrace the drawn land stands over is hidden under it, and what shows is the land.
-      if (PLANET_RADIUS + level + GROUND_LIFT < landRadius - margin) return landRadius;
-      if (floor.lawn === null || !inGrid(grid, col, row) || floor.lawn[col * grid.cells + row] !== 1) return null;
+      const terrace = field.terraces.has(key);
+      const apron = !terrace && field.aprons?.has(key) === true;
+      const here = terrace ? lawnTop(floor, col, row, x, z, margin) : cellSward(floor, col, row, x, z, landRadius);
+      if (here === null) return null;
+      if (terrace && here < landRadius - margin) return null;
       const u = x - (cellCentre(grid, col) - grid.pitch * 0.5);
       const v = z - (cellCentre(grid, row) - grid.pitch * 0.5);
-      // The streets through the cell, as `buildGround` cuts them: a band only
-      // where the cell across it is town too.
-      const street = (index: number, t: number, across: (step: number) => boolean): boolean =>
-        grid.avenue[index] === 1 ||
-        (grid.low[index] === 1 && t < band + margin && across(-1)) ||
-        (grid.high[index] === 1 && t > grid.pitch - band - margin && across(1));
-      if (street(col, u, (step) => field.terraces.has(cellKey(col + step, row))) ||
-        street(row, v, (step) => field.terraces.has(cellKey(col, row + step)))) return null;
-      // A ramp is street, and so is a gate's mouth where it widens into a yard.
-      if (flightAt(field, x, z, margin) !== null) return null;
-      for (const [x0, x1, z0, z1] of floor.mouths) {
-        if (x > x0 - margin && x < x1 + margin && z > z0 - margin && z < z1 + margin) return null;
+      const west = u < margin;
+      const east = u > grid.pitch - margin;
+      const south = v < margin;
+      const northward = v > grid.pitch - margin;
+      if (west || east || south || northward) {
+        // The same surface across a side: the two cells' grounds at the
+        // nearest point of that side agree.
+        const edgeX = west ? x - u : east ? x - u + grid.pitch : x;
+        const edgeZ = south ? z - v : northward ? z - v + grid.pitch : z;
+        const across = (c: number, r: number, px: number, pz: number): boolean => {
+          const mine = cellSward(floor, col, row, px, pz, landRadius);
+          const theirs = cellSward(floor, c, r, px, pz, landRadius);
+          return mine !== null && theirs !== null && Math.abs(mine - theirs) < SWARD_STEP;
+        };
+        if (west && !across(col - 1, row, edgeX, z)) return null;
+        if (east && !across(col + 1, row, edgeX, z)) return null;
+        if (south && !across(col, row - 1, x, edgeZ)) return null;
+        if (northward && !across(col, row + 1, x, edgeZ)) return null;
+        if ((west || east) && (south || northward) && !across(col + (west ? -1 : 1), row + (south ? -1 : 1), edgeX, edgeZ)) return null;
       }
-      if (floor.solids !== null && solidAt(floor.solids, x, z, margin) !== null) return null;
-      return PLANET_RADIUS + level + GROUND_LIFT;
+      // Past the square and its edge slope the land is the land's, and
+      // another town may still answer for it.
+      if (!terrace && !apron) continue;
+      return here;
     }
     return landRadius;
   }
@@ -5165,6 +5885,22 @@ export function createSettlements(
     missing,
     broken,
 
+    crownsNear(point, range, visit) {
+      const rangeSq = range * range;
+      for (const mesh of crowned) {
+        // A town is under 150 units across: its middle first.
+        const reach = range + 220;
+        if (mesh.position.distanceToSquared(point) > reach * reach) continue;
+        const list = mesh.userData.crowns as Float32Array;
+        for (let o = 0; o < list.length; o += CROWN_STRIDE) {
+          const dx = list[o]! - point.x;
+          const dy = list[o + 1]! - point.y;
+          const dz = list[o + 2]! - point.z;
+          if (dx * dx + dy * dy + dz * dz < rangeSq) visit(list, o);
+        }
+      }
+    },
+
     folkNear(viewer, radius, out) {
       const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
       const direction = folkDirection.copy(viewer).normalize();
@@ -5231,8 +5967,7 @@ export function createSettlements(
     },
 
     parkedPaint(id) {
-      const slot = slots[Number(id.split(':')[1])];
-      return slot?.parked.find((entry) => entry.id === id)?.paint ?? null;
+      return parkedPaintOf(id);
     },
 
     benchesNear(viewer, radius, out) {
@@ -5242,6 +5977,17 @@ export function createSettlements(
         if (slot.direction.dot(direction) < cosReach) continue;
         for (const bench of slot.benches) {
           if (bench.position.distanceTo(viewer) <= radius) out.push(bench);
+        }
+      }
+    },
+
+    bikeSlotsNear(viewer, radius, out) {
+      const cosReach = Math.cos((radius + 160) / PLANET_RADIUS);
+      const direction = folkDirection.copy(viewer).normalize();
+      for (const slot of rackTowns) {
+        if (slot.direction.dot(direction) < cosReach) continue;
+        for (const rack of slot.bikeSlots) {
+          if (rack.position.distanceTo(viewer) <= radius) out.push(rack);
         }
       }
     },
@@ -5298,6 +6044,33 @@ export function createSettlements(
         scannedProminence = prominenceVersion();
       }
 
+      // A town whose edge was seated on the relief, now that the land probe
+      // has the ground under it: built again, and drawn as it was meanwhile.
+      // Asked at the four corners of the country round it, so a town the
+      // probe's edge runs through waits rather than being built again and
+      // again with the same trees on the relief.
+      if (landProbe !== null) {
+        for (const index of wanted) {
+          const slot = slots[index]!;
+          const floor = slot.floor;
+          if (!slot.onRelief || slot.mesh === null || slot.stale || floor === null) continue;
+          const reach = countryReach(slot.radius) / PLANET_RADIUS;
+          let covered = true;
+          for (let k = 0; k < 4 && covered; k++) {
+            reliefDir
+              .copy(floor.up)
+              .addScaledVector(floor.across, (k & 1 ? 1 : -1) * reach)
+              .addScaledVector(floor.north, (k & 2 ? 1 : -1) * reach)
+              .normalize();
+            covered = landProbe.covers(reliefDir);
+          }
+          if (!covered) continue;
+          slot.onRelief = false;
+          slot.stale = true;
+          queue.push(index);
+        }
+      }
+
       if (queue.length > 0) {
         const began = performance.now();
         const allowance = detailBuild(BUILD_BUDGET_MS);
@@ -5341,6 +6114,9 @@ export function createSettlements(
 
     madeHeightAt,
     swardAt,
+    recordSeats(into) {
+      seatLog = into;
+    },
     proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
     floorChanges(since, into) {
       into.length = 0;

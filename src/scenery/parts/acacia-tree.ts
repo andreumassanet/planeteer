@@ -1,32 +1,32 @@
-import type { ScenicPart } from '../contract.ts';
-import { rolePaint, sceneryModel } from '../contract.ts';
+import type { RegionStyle, ScenicPart } from '../contract.ts';
+import type { Rng } from '../random.ts';
+import { PALETTE } from '../../theme.ts';
+import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
- * Umbrella acacia: Kenney's plateau tree (Nature Kit, CC0), flat tiers of
- * canopy on a bare trunk, which is the savanna's one shape.
+ * Umbrella acacia: a bole forking into two or three limbs under a flat crown
+ * of fine leaves (`tree-forms.ts`), which is the savanna's one shape. Kenney's
+ * plateau tree until 2026-09-28.
  */
 
-const MODELS = ['tree-plateau'] as const;
 const FOOTPRINT = 6.4;
+
+function formOf(rng: Rng, style: RegionStyle) {
+  return treeForm('acacia', rng, {
+    height: rng.range(8.5, 13),
+    reach: FOOTPRINT - 0.05,
+    leaf: rng.pick(style.foliage),
+    leaf2: rng.pick(style.foliage),
+    bark: rng.pick([PALETTE.bark, PALETTE.brown, PALETTE.darkOlive]),
+  });
+}
 
 export const acaciaTree: ScenicPart = {
   id: 'acacia-tree',
   name: 'Umbrella acacia',
   kind: 'tree',
   footprint: FOOTPRINT,
-  note: 'Kenney plateau tree: tiers of flat canopy on a bare trunk. The savanna in one shape.',
-
-  build(ctx, rng, style) {
-    const { palette } = ctx;
-    const id = rng.pick([...MODELS]);
-    const paint = rolePaint(sceneryModel(id), [[/leaf/i, rng.pick(style.foliage)], [/wood|bark/i, rng.pick([palette.bark, palette.brown, palette.darkOlive])]]);
-    return ctx.fitted(id, {
-      height: rng.range(8.5, 13),
-      // A hair inside the footprint, which the contract holds to 0.05.
-      radius: FOOTPRINT - 0.02,
-      yaw: rng.range(0, Math.PI * 2),
-      // Darker under the crown and lit on top: see `ModelFit.shade`.
-      shade: { slots: /leaf|grass/i, bottom: 0.8, top: 1.12 },
-    }, paint);
-  },
+  note: 'A flat crown of fine leaves on forking limbs. The savanna in one shape.',
+  build: (ctx, rng, style) => solidTree(ctx, formOf(rng, style)),
+  form: formOf,
 };

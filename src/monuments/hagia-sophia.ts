@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -249,8 +250,10 @@ export const hagiaSophia: Monument = {
 
     // --- lead over the aisles, one strip each flank between core and eaves ---
     for (const side of [1, -1]) {
+      // `PROUD` lower than the shoulders' first step and the lowest buttress,
+      // whose tops it shared as one plane of two colours.
       const depth = AISLE_ROOF.outer - AISLE_ROOF.inner;
-      const strip = box(LOWER.halfX * 2, AISLE_ROOF.height, depth, roofing);
+      const strip = box(LOWER.halfX * 2, AISLE_ROOF.height - PROUD, depth, roofing);
       strip.position.set(0, CORNICE_TOP, side * (AISLE_ROOF.inner + depth / 2));
       group.add(strip);
     }
@@ -355,9 +358,11 @@ export const hagiaSophia: Monument = {
       head.position.set(0, TYMPANUM.sill + TYMPANUM.height, z);
       face.add(head);
 
+      // The bars reach `PROUD` below the sill and `PROUD` deeper into the wall
+      // than the window: level with it, their floors and backs shared its planes.
       for (const side of [1, -1]) {
-        const mullion = box(0.55, TYMPANUM.height + 0.6, 0.7, trim);
-        mullion.position.set(side * 4.3, TYMPANUM.sill, CORE.halfZ + 0.35);
+        const mullion = box(0.55, TYMPANUM.height + 0.6 + PROUD, 0.7 + PROUD, trim);
+        mullion.position.set(side * 4.3, TYMPANUM.sill - PROUD, CORE.halfZ + 0.35 - PROUD / 2);
         face.add(mullion);
       }
 

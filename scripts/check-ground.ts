@@ -482,5 +482,228 @@ console.log('\nvehicles on slopes');
   check(buried === 0 && hovering === 0, 'every seated vehicle has its wheels on the ground and none in it', examples.join('; '));
 }
 
+// --- the roads on the drawn land, and wheels driven onto them -----------------
+
+/**
+ * The ribbon's section against the drawn land, and a wheeled vehicle driven
+ * from the field onto the carriageway.
+ *
+ * **The section**: every `ROAD_EVERY`th road, laid at the near band's span
+ * the way the streamer lays it (`ribbonSection`), its bank's feet held under
+ * the drawn land — a foot over it is a gap under the ribbon's edge — and its
+ * crown's edges over it. Until 2026-09-28 the foot was laid 1.5 under the
+ * relief and stood over the drawn land on 6.56% of sections, worst 9.6.
+ *
+ * **The drive**: from 26 units off the road's middle, and off each ramp into
+ * a built town, square to it and at 45 degrees, a car, a bicycle and a bus,
+ * throttle held; each must reach the carriageway. A made surface a wheel
+ * stands on is `ribbonHeightAt` over `drawnRadius`, as `main.ts` hands the
+ * player both (`Roads.setGround`). Until 2026-09-28 the bank was stood on
+ * only where it stood over the relief, and where the drawn land sagged under
+ * the relief that was a step of the sag at the bank's toe: 262 of 2,744 such
+ * drives never reached the carriageway (every 300th road, four vehicles, six
+ * angles, walking and running). A drive whose vehicle stops inside a built
+ * town's disc is left out and counted: the town's floor, which would be
+ * there, is not built here.
+ *
+ * **And a wall is still a wall**: a four-unit terrace riser laid across the
+ * carriageway ahead stops the car, and a kerb's 0.4 does not.
+ */
+console.log('\nthe roads on the drawn land');
+{
+  const { decodeRoads, inflate: unpack } = await import('../src/pack.ts');
+  const {
+    ROAD_CLASSES, courseOf, coursePath, coursePoint, courseTangent, createRoads, emptyCourse, emptyRamp, onBridge, parameterAt,
+    rampOf, rampReach, ribbonSection, ribbonStations,
+  } = await import('../src/roads.ts');
+  const { isShown, radiusOf } = await import('../src/places.ts');
+  const { createPlayer, writePose } = await import('../src/player.ts');
+  const { modelsFrom } = await import('../src/kit.ts');
+  const { craftFrom } = await import('../src/craft/index.ts');
+  const PUBLIC = resolve(here, '../public');
+  const network = decodeRoads(await unpack(readFileSync(resolve(PUBLIC, 'data/roads.bin'))));
+  const roads = createRoads(world, placesRaw, network);
+  const groundAt = (point: Vector3): number => drawnRadius(world, probe, point);
+  roads.setGround(groundAt);
+  const ROAD_EVERY = 120;
+
+  // The section.
+  {
+    const course = emptyCourse();
+    const ramp = emptyRamp();
+    const stations: number[] = [];
+    const section = Array.from({ length: 6 }, () => new Vector3());
+    let feet = 0;
+    let feetOver = 0;
+    let feetWorst = 0;
+    let edges = 0;
+    let edgesUnder = 0;
+    let edgesWorst = 0;
+    let sampled = 0;
+    const where: string[] = [];
+    for (let i = 0; i < network.roads.length; i += ROAD_EVERY) {
+      const road = network.roads[i]!;
+      courseOf(road, placesRaw, course);
+      const path = coursePath(course);
+      rampOf(road, course, placesRaw, world, ramp);
+      probe.prime(course.gateA.clone().lerp(course.gateB, 0.5).normalize().multiplyScalar(PLANET_RADIUS));
+      ribbonStations(path.length, course.approach, ramp, 18, stations);
+      sampled++;
+      for (const s of stations) {
+        ribbonSection(world, course, path, ramp, ROAD_CLASSES[road.cls]!.width * 0.5, s, section);
+        if (!onBridge(ramp, s)) {
+          for (const foot of [section[0]!, section[5]!]) {
+            const drawn = probe.radiusAt(foot.clone().normalize());
+            if (drawn === null) continue;
+            feet++;
+            const over = foot.length() - drawn;
+            if (over > 0) {
+              feetOver++;
+              feetWorst = Math.max(feetWorst, over);
+              if (where.length < 3) where.push(`${latOf(foot.y / foot.length()).toFixed(3)},${lonOf(foot.x, foot.z).toFixed(3)} ${over.toFixed(2)} over`);
+            }
+          }
+        }
+        for (const edge of [section[2]!, section[3]!]) {
+          const drawn = probe.radiusAt(edge.clone().normalize());
+          if (drawn === null) continue;
+          edges++;
+          const under = drawn - edge.length();
+          if (under > 0) {
+            edgesUnder++;
+            edgesWorst = Math.max(edgesWorst, under);
+          }
+        }
+      }
+    }
+    console.log(
+      `  ${sampled} roads, ${feet} bank feet: ${feetOver} over the drawn land (worst ${feetWorst.toFixed(2)}); ` +
+        `${edges} crown edges: ${edgesUnder} under it (worst ${edgesWorst.toFixed(2)})`,
+    );
+    check(feetOver <= feet * 0.001, 'a road’s bank reaches under the drawn land: no gap under the ribbon’s edge', `${feetOver} of ${feet}${where.length > 0 ? `: ${where.join('; ')}` : ''}`);
+    check(edgesUnder <= edges * 0.005, 'and the carriageway’s edge is over it', `${edgesUnder} of ${edges} under, worst ${edgesWorst.toFixed(2)}`);
+  }
+
+  // The drive.
+  const craft = craftFrom(await modelsFrom(readFileSync(resolve(PUBLIC, 'models/traffic/kit.bin'))), null);
+  /** A made surface of the test's own, over the roads: the wall below. */
+  let extra: ((point: Vector3) => number) | null = null;
+  const driver = createPlayer(world, 0, 0, {
+    groundAt,
+    madeHeightAt: (point) => Math.max(roads.ribbonHeightAt(point), extra?.(point) ?? 0),
+  });
+  const shownNear: { at: Vector3; radius: number }[] = placesRaw
+    .filter((place) => isShown(place))
+    .map((place) => ({ at: onSphere(place.lon, place.lat, new Vector3()), radius: radiusOf(place) }));
+  const inTown = (point: Vector3): boolean =>
+    shownNear.some((town) => town.at.angleTo(point) * PLANET_RADIUS < town.radius * 1.5 + 10);
+  const course = emptyCourse();
+  const ramp = emptyRamp();
+  const middle = new Vector3();
+  const tangent = new Vector3();
+  const across = new Vector3();
+  const start = new Vector3();
+  const toward = new Vector3();
+  let drives = 0;
+  let reached = 0;
+  let townLeft = 0;
+  const stuck: string[] = [];
+  let stuckCount = 0;
+  /** Drives `kind` at `from` toward `forward` for up to `seconds`; true when `done` says so first. */
+  const drive = (kind: string, from: Vector3, forward: Vector3, seconds: number, done: (at: Vector3) => boolean): { ok: boolean; at: Vector3 } => {
+    const model = craft.get(kind)!;
+    driver.goTo(latOf(from.y), lonOf(from.x, from.z));
+    driver.board({ vehicle: `${kind}:check`, seat: 0, model, group: model.build(0) }, writePose(from.clone().multiplyScalar(groundAt(from)), forward, from, []));
+    let ok = false;
+    for (let t = 0; t < seconds && !ok; t += 1 / 60) {
+      driver.update(1 / 60, { move: { x: 0, y: 1 }, run: false, jump: false, heading: driver.forward });
+      ok = done(driver.position.clone().normalize());
+    }
+    const at = driver.position.clone().normalize();
+    driver.leave();
+    return { ok, at };
+  };
+  for (let i = 0; i < network.roads.length; i += ROAD_EVERY * 5) {
+    const road = network.roads[i]!;
+    courseOf(road, placesRaw, course);
+    const path = coursePath(course);
+    rampOf(road, course, placesRaw, world, ramp);
+    const half = ROAD_CLASSES[road.cls]!.width * 0.5;
+    const spots: { s: number; what: string }[] = [];
+    const from = Math.max(course.approach, rampReach(ramp.riseA));
+    const to = path.length - Math.max(course.approach, rampReach(ramp.riseB));
+    if (to > from) spots.push({ s: (from + to) / 2, what: 'middle' });
+    if (Math.abs(ramp.riseA) > 2) spots.push({ s: Math.max(14, rampReach(ramp.riseA) * 0.5), what: `ramp of ${ramp.riseA.toFixed(1)}` });
+    if (Math.abs(ramp.riseB) > 2) spots.push({ s: path.length - Math.max(14, rampReach(ramp.riseB) * 0.5), what: `ramp of ${ramp.riseB.toFixed(1)}` });
+    for (const spot of spots) {
+      if (onBridge(ramp, spot.s) || spot.s < 0 || spot.s > path.length) continue;
+      const t = parameterAt(path, spot.s);
+      coursePoint(course, t, middle);
+      courseTangent(course, t, tangent);
+      across.crossVectors(middle, tangent).normalize();
+      probe.prime(middle.clone().multiplyScalar(PLANET_RADIUS));
+      for (const angle of [90, 45]) {
+        for (const side of [1, -1]) {
+          // From the side of the road's middle, never across its end: the
+          // cap at a kerb is a town's floor in the game and nothing here.
+          const back = (26 / Math.tan((angle * Math.PI) / 180)) * (spot.s < path.length / 2 ? 1 : -1);
+          start.copy(middle).addScaledVector(across, (side * 26) / PLANET_RADIUS).addScaledVector(tangent, back / PLANET_RADIUS).normalize();
+          if (isWater(groundAt(start)) || roads.ribbonHeightAt(start) > 0 || inTown(start)) continue;
+          toward.copy(middle).sub(start).projectOnPlane(start).normalize();
+          for (const kind of ['hatchback', 'bicycle', 'bus']) {
+            drives++;
+            const { ok, at } = drive(kind, start, toward, 5, (here) => {
+              const made = roads.ribbonHeightAt(here);
+              return made > 0 && Math.abs(here.clone().sub(middle).dot(across)) * PLANET_RADIUS < half &&
+                Math.abs(driver.position.length() - made) < 0.5;
+            });
+            if (ok) reached++;
+            else if (inTown(at)) townLeft++;
+            else {
+              stuckCount++;
+              if (stuck.length < 4) stuck.push(`${kind} onto ${placesRaw[road.a]!.name}-${placesRaw[road.b]!.name}'s ${spot.what} at ${angle} deg, stopped at ${latOf(at.y).toFixed(4)},${lonOf(at.x, at.z).toFixed(4)}`);
+            }
+          }
+        }
+      }
+    }
+  }
+  console.log(`  ${drives} drives from the field onto a road: ${reached} reached the carriageway, ${stuckCount} stopped short, ${townLeft} left out inside a town`);
+  check(drives >= 200 && stuckCount === 0, 'a car, a bicycle and a bus drive from the field up the bank onto the road', stuck.join('; '));
+
+  // A wall across the carriageway, and a kerb: the first stops the car, the second does not.
+  {
+    let road = network.roads[0]!;
+    for (let i = 0; i < network.roads.length; i += 97) {
+      courseOf(network.roads[i]!, placesRaw, course);
+      rampOf(network.roads[i]!, course, placesRaw, world, ramp);
+      if (course.length > 300 && Math.abs(ramp.riseA) < 1 && Math.abs(ramp.riseB) < 1 && network.roads[i]!.bridgeTo <= network.roads[i]!.bridgeFrom) {
+        road = network.roads[i]!;
+        break;
+      }
+    }
+    courseOf(road, placesRaw, course);
+    const path = coursePath(course);
+    const s0 = path.length * 0.4;
+    coursePoint(course, parameterAt(path, s0), start);
+    courseTangent(course, parameterAt(path, s0), tangent);
+    coursePoint(course, parameterAt(path, s0 + 30), middle);
+    probe.prime(start.clone().multiplyScalar(PLANET_RADIUS));
+    const line = middle.clone();
+    const facing = tangent.clone();
+    const past = (point: Vector3): boolean => point.clone().sub(line).dot(facing) > 0;
+    for (const [rise, stops] of [[4, true], [0.4, false]] as const) {
+      extra = (point) => {
+        const up = point.clone().normalize();
+        return past(up) ? roads.ribbonHeightAt(up) + rise : 0;
+      };
+      const { at } = drive('hatchback', start, tangent, 3, () => false);
+      extra = null;
+      const beyond = past(at);
+      check(beyond !== stops, stops ? `a ${rise}-unit riser across the road stops a car` : `a ${rise}-unit kerb across it does not`, `${(at.clone().sub(line).dot(facing) * PLANET_RADIUS).toFixed(1)} units from the line`);
+    }
+  }
+}
+
 console.log(failures === 0 ? '\nall ground checks passed' : `\n${failures} ground check(s) failed`);
 process.exit(failures === 0 ? 0 : 1);

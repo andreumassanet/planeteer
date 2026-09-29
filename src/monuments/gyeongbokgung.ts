@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Gyeongbokgung — Geunjeongjeon, the Hall of Government by Restraint.
@@ -574,7 +575,9 @@ export const gyeongbokgung: Monument = {
     const storeyBase = y;
     y = course(HALL.storey, y, shade);
 
-    const span = HALL.storey.hz * ASPECT - COLUMNS.radius;
+    // The end columns stand `PROUD` in from the storey's ends: flush, their
+    // outer flats lay in the plane of the dark wall's end and flickered.
+    const span = HALL.storey.hz * ASPECT - COLUMNS.radius - PROUD;
     for (let i = 0; i < COLUMNS.count; i++) {
       const post = column(COLUMNS.radius, HALL.storey.height, timber, 8);
       post.position.set(

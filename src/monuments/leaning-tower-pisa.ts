@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -247,14 +248,18 @@ export const leaningTowerPisa: Monument = {
     // every column has something to be a gap *in front of*. Six separate drums
     // would cost five meshes for a difference nobody can see; the cornices are
     // wider than it and hide it everywhere else.
+    // Its ends stop `PROUD` inside the first and the last cornice: level with
+    // them, its floor and its top shared their planes and flickered.
+    const coreFoot = GROUND_TOP + PROUD;
+    const coreHead = BELFRY_BASE - PROUD;
     const core = taper(
-      shellAt(GROUND_TOP) - VOID,
-      shellAt(BELFRY_BASE) - VOID,
-      BELFRY_BASE - GROUND_TOP,
+      shellAt(coreFoot) - VOID,
+      shellAt(coreHead) - VOID,
+      coreHead - coreFoot,
       shade,
       12,
     );
-    core.position.y = GROUND_TOP;
+    core.position.y = coreFoot;
     tower.add(core);
 
     for (let storey = 0; storey < GALLERIES; storey++) {

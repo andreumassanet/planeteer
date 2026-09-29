@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Sydney Opera House.
@@ -232,10 +233,13 @@ export const sydneyOperaHouse: Monument = {
 
     // --- the monumental steps: each tread a box reaching back to the podium,
     //     so only its riser and tread are seen ---
+    //     The top tread stops `PROUD` under the deck it reaches back under:
+    //     level with it, two tones of granite shared a plane and flickered.
     const rise = DECK_TOP / STEPS;
     for (let k = 0; k < STEPS; k++) {
       const south = PODIUM_SOUTH - (STEPS - k) * STEP_RUN;
-      slab(STAIR_WEST - STAIR_EAST, 0, (k + 1) * rise, south, PODIUM_SOUTH + 0.2, steps, (STAIR_WEST + STAIR_EAST) / 2);
+      const top = Math.min((k + 1) * rise, DECK_TOP - PROUD);
+      slab(STAIR_WEST - STAIR_EAST, 0, top, south, PODIUM_SOUTH + 0.2, steps, (STAIR_WEST + STAIR_EAST) / 2);
     }
 
     // --- one shell, built with its mouth toward local -X ---

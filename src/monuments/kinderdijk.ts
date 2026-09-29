@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Monument } from './contract.ts';
 
 /**
@@ -66,7 +67,7 @@ import type { Group, Monument } from './contract.ts';
  * 4. **Things behave as though it were there.** A barge sits in the near canal
  *    with 1.2 of hull under the surface — pale `brown`, so it reads against the
  *    dark rather than dissolving into it — and a plank footbridge crosses on the
- *    two dike crowns with its deck 0.65 clear of the water.
+ *    two dike crowns with its deck 0.57 clear of the water.
  *
  * ## What is distorted, and by how much
  *
@@ -126,13 +127,20 @@ const WATER_TOP = 4.3;
 const DIKE_TOP = 5.4;
 /** The far row stands on the high boezem's dike, three units over the near one. */
 const HIGH_TOP = 8.6;
-/** Bands start buried in the polder slab, so no two faces are ever coplanar. */
+/**
+ * Bands start buried in the polder slab. The water and the towpaths start
+ * `PROUD` and twice that higher than the grass, because a buried floor still
+ * flickers where two of different colours overlap in one plane.
+ */
 const BAND_BASE = 0.6;
+const WATER_BASE = BAND_BASE + PROUD;
+const PATH_BASE = BAND_BASE + PROUD * 2;
 
 /**
  * `[front, back, top, water?]`, front to back. The water bands overlap their
  * dikes by 0.3 rather than meeting them: a shared plane flickers, and the
- * surface should stop exactly under the ink line, not a hair short of it.
+ * surface should stop exactly under the ink line, not a hair short of it. For
+ * the same reason a canal stops `PROUD` short of the dikes' ends at either side.
  */
 const BANDS: Array<[number, number, number, boolean]> = [
   [21.0, 19.5, DIKE_TOP, false], //     the bank you stand on to look across
@@ -145,7 +153,8 @@ const BANDS: Array<[number, number, number, boolean]> = [
 
 /**
  * A towpath along the far bank of each canal: two units of `tan` laid on the
- * dike's own edge, a tenth of a unit proud so nothing is coplanar.
+ * dike's own edge, a tenth of a unit proud on top, stepped `PROUD` back from
+ * the dike's face and run `PROUD` past its ends so nothing is coplanar.
  *
  * It is the one thing in the ground plan that is not there for the plan's sake.
  * At the sheet's camera a canal is a horizontal surface seen at 14 degrees, so
@@ -156,12 +165,15 @@ const BANDS: Array<[number, number, number, boolean]> = [
  * the canal at 260 pixels. `[front, back, top]`.
  */
 const PATHS: Array<[number, number, number]> = [
-  [3.4, 1.4, DIKE_TOP + 0.1],
-  [-17.4, -19.4, HIGH_TOP + 0.1],
+  [3.4 - PROUD, 1.4, DIKE_TOP + 0.1],
+  [-17.4 - PROUD, -19.4, HIGH_TOP + 0.1],
 ];
 
-/** A drainage ditch, crossing the foreground field into the near canal. */
-const DITCH = { x: -25, width: 1.8, from: 26, to: 20.2, top: 1.45 };
+/**
+ * A drainage ditch, crossing the foreground field into the near canal. It stops
+ * `PROUD` inside the field's front face, which it would otherwise share.
+ */
+const DITCH = { x: -25, width: 1.8, from: Z_FRONT - PROUD, to: 20.2, top: 1.45 };
 
 // ---------------------------------------------------------------------------
 // The two rows
@@ -197,8 +209,12 @@ const FAR_X = [-37.0, -6.6, 23.1];
 // One mill. Local origin is the dike crown it stands on.
 // ---------------------------------------------------------------------------
 
-/** Brick foot. Half-widths are across the flats: 9.2 wide, on a 9.8-deep dike. */
-const FOOT = { bottom: 4.6, top: 4.4, height: 1.4 };
+/**
+ * Brick foot. Half-widths are across the flats: 9.2 wide, on a 9.8-deep dike.
+ * Its top stands 0.1 out from the tower's foot: at 4.4 against the tower's
+ * 4.45 the two flanks lay a hair apart at one lean and flickered.
+ */
+const FOOT = { bottom: 4.6, top: 4.55, height: 1.4 };
 /** The thatched octagon: 8.9 across against 13.8 of height. That ratio is the mill. */
 const TOWER = { bottom: 4.45, top: 2.45, height: 13.8 };
 /** The cap overhangs the tower top by 0.8. That shoulder is what stops the mill being a cone. */
@@ -264,19 +280,21 @@ export const kinderdijk: Monument = {
     group.add(field);
 
     for (const [front, back, top, wet] of BANDS) {
-      const band = box(HALF_X * 2, top - BAND_BASE, front - back, wet ? water : grass);
-      band.position.set(0, BAND_BASE, (front + back) / 2);
+      const base = wet ? WATER_BASE : BAND_BASE;
+      const long = wet ? (HALF_X - PROUD) * 2 : HALF_X * 2;
+      const band = box(long, top - base, front - back, wet ? water : grass);
+      band.position.set(0, base, (front + back) / 2);
       group.add(band);
     }
 
     for (const [front, back, top] of PATHS) {
-      const path = box(HALF_X * 2, top - BAND_BASE, front - back, wood);
-      path.position.set(0, BAND_BASE, (front + back) / 2);
+      const path = box((HALF_X + PROUD) * 2, top - PATH_BASE, front - back, wood);
+      path.position.set(0, PATH_BASE, (front + back) / 2);
       group.add(path);
     }
 
-    const ditch = box(DITCH.width, DITCH.top - BAND_BASE, DITCH.from - DITCH.to, water);
-    ditch.position.set(DITCH.x, BAND_BASE, (DITCH.from + DITCH.to) / 2);
+    const ditch = box(DITCH.width, DITCH.top - WATER_BASE, DITCH.from - DITCH.to, water);
+    ditch.position.set(DITCH.x, WATER_BASE, (DITCH.from + DITCH.to) / 2);
     group.add(ditch);
 
     // --- things that behave as though the canal held water ---------------------
@@ -292,14 +310,18 @@ export const kinderdijk: Monument = {
     cabin.rotation.y = 0.06;
     group.add(cabin);
 
-    // A plank footbridge from one dike crown to the other, its deck 0.65 clear
+    // A plank footbridge from one dike crown to the other, its deck 0.57 clear
     // of the water. It lands in the gap between two mills, never in front of one.
-    const deck = box(2.4, 0.45, 20, oak);
-    deck.position.set(-30, DIKE_TOP - 0.45, 11.0);
+    // It is let `PROUD` down into the dike crowns and stops `PROUD` inside the
+    // bank's face at each end, rail and all: level and flush, its top and its
+    // ends shared their planes with the grass and flickered.
+    const span = 20 - PROUD * 2;
+    const deck = box(2.4, 0.45, span, oak);
+    deck.position.set(-30, DIKE_TOP - 0.45 - PROUD, 11.0);
     group.add(deck);
 
-    const handrail = box(0.3, 1, 20, wood);
-    handrail.position.set(-31, DIKE_TOP, 11.0);
+    const handrail = box(0.3, 1, span, wood);
+    handrail.position.set(-31, DIKE_TOP - PROUD, 11.0);
     group.add(handrail);
 
     // --- one mill --------------------------------------------------------------

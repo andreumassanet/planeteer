@@ -13,7 +13,10 @@ import { enclosed, freeSpot, pushOut, solidField, yawed } from './scenery/solids
 import type { SolidField } from './scenery/solids.ts';
 import { floorAt, occupancyOf } from './scenery/occupancy.ts';
 import type { Occupancy } from './scenery/occupancy.ts';
+import { planShape } from './landmark-ground.ts';
 import type { Plan } from './landmark-ground.ts';
+import { drawnFootprint, landProbeOf } from './land-probe.ts';
+import type { DrawnFootprint } from './land-probe.ts';
 import { buildSetting } from './landmark-setting.ts';
 import { regionFor } from './scenery/regions.ts';
 import { groundStyleFor } from './scenery/ground.ts';
@@ -295,6 +298,16 @@ export function createMonuments(
    * and nothing on any other.
    */
   floorChanges?: (since: number, into: number[]) => number,
+  /**
+   * The drawn land (`buildLand`). A landmark stands on the lowest of it under
+   * its plan where the land probe has it, and on the pad `terrain.ts` levels
+   * in the relief where it does not yet: the mesh is laid between points of
+   * the relief and is up to a few units off the pad, and a landmark on the
+   * relief stood on a sliver of sky on one side of its plan (48 of 85 more
+   * than 0.15 units over the lowest of it, 4 more than one, the worst 2.2 at
+   * Abu Simbel; 2026-09-28, `pnpm seated`).
+   */
+  land?: THREE.Mesh,
 ): Monuments {
   const group = new THREE.Group();
   group.name = 'monuments';
@@ -310,6 +323,8 @@ export function createMonuments(
     /** Unit vector at its position, so the distance test costs no trigonometry. */
     direction: THREE.Vector3;
     anchor: THREE.Vector3;
+    /** Seated on the drawn land, rather than on the relief's pad while the probe had not gathered under it. */
+    onDrawn: boolean;
     /** The monument, merged into one mesh, while it stands. */
     object: THREE.Mesh | null;
     failed: boolean;
@@ -335,7 +350,7 @@ export function createMonuments(
       // The ground is asked once, here: the relief does not move, and asking per
       // frame would put a point-in-polygon query behind every monument.
       const anchor = direction.clone().multiplyScalar(groundRadius(world, direction));
-      return { placement, direction, anchor, object: null, failed: false, walls: null };
+      return { placement, direction, anchor, onDrawn: false, object: null, failed: false, walls: null };
     });
 
   /**
@@ -377,12 +392,59 @@ export function createMonuments(
    * changes (`floorChanges`), never per frame.
    */
   function seat(slot: Slot, model: THREE.Object3D): void {
-    model.position.copy(slot.anchor);
+    const drawn = drawnUnder(slot);
+    slot.onDrawn = drawn !== null;
+    const ground = drawn === null ? slot.anchor.length() : drawn - LANDMARK_BURY;
     const made = madeHeightAt?.(slot.direction) ?? 0;
-    if (made > slot.anchor.length()) model.position.copy(slot.direction).multiplyScalar(made);
+    model.position.copy(slot.direction).multiplyScalar(Math.max(ground, made));
     // The walls carry their roofs as radii, so a monument that moved is measured again.
     unwall(slot);
   }
+
+  const landProbe = land === undefined ? null : landProbeOf(land);
+  /**
+   * How far a landmark on the drawn land is bedded under the lowest of its
+   * plan's nine points: the land between two of them can dip lower still, by
+   * a fifth of a unit under the Sagrada Familia's.
+   */
+  const LANDMARK_BURY = 0.25;
+  const seatFacing = new THREE.Vector3();
+  const seatRight = new THREE.Vector3();
+  const seatPoint = new THREE.Vector3();
+  /**
+   * The lowest of the drawn land under a landmark's plan — its corners, the
+   * middles of its sides and its middle, in the frame `raise` stands it in —
+   * or null where the probe has not gathered all of it. A landmark with no
+   * plan asks a ring at seven tenths of its footprint, as a tree does.
+   */
+  function drawnUnder(slot: Slot): number | null {
+    if (landProbe === null) return null;
+    const up = slot.direction;
+    seatFacing.copy(north).projectOnPlane(up);
+    if (seatFacing.lengthSq() < 1e-8) seatFacing.set(1, 0, 0).projectOnPlane(up);
+    seatFacing.normalize();
+    seatRight.crossVectors(up, seatFacing).normalize();
+    const shape = planShape(slot.placement);
+    if (!Number.isFinite(shape.hx)) {
+      return drawnFootprint(landProbe, up, seatRight, seatFacing, shape.radius * 0.7, seatDrawn) === 'drawn' ? seatDrawn.lowest : null;
+    }
+    let lowest = Infinity;
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        seatPoint
+          .copy(up)
+          .addScaledVector(seatRight, (shape.cx + i * shape.hx) / PLANET_RADIUS)
+          .addScaledVector(seatFacing, (shape.cz + j * shape.hz) / PLANET_RADIUS)
+          .normalize();
+        if (!landProbe.covers(seatPoint)) return null;
+        const radius = landProbe.radiusAt(seatPoint);
+        // Over the water at a shore landmark's edge: the land there has gone under the shelf.
+        if (radius !== null && radius < lowest) lowest = radius;
+      }
+    }
+    return Number.isFinite(lowest) ? lowest : null;
+  }
+  const seatDrawn: DrawnFootprint = { centre: 0, lowest: 0, highest: 0 };
 
   /** What `floorChanges` last answered, and where it writes. */
   let floorsSeen = 0;
@@ -622,6 +684,12 @@ export function createMonuments(
       // First, so a monument raised below stands on whatever the floors are
       // now, and one already standing follows a floor that moved this frame.
       reseat();
+      // And once the land probe has the ground under one seated on the relief.
+      if (landProbe !== null) {
+        for (const slot of slots) {
+          if (slot.object !== null && !slot.onDrawn && landProbe.covers(slot.direction) && drawnUnder(slot) !== null) seat(slot, slot.object);
+        }
+      }
       const range = rangeFor(altitude);
       // Hysteresis: without it a monument at exactly the edge rebuilds every
       // frame, which is the one thing streaming must never do.

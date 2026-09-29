@@ -28,8 +28,9 @@
  * **What is built is the near and the seen.** A site costs a few numbers until
  * the player is within `REACH` of it; then its model is built as one group of
  * its own — a vehicle is a thing that moves, and a merged mesh cannot
- * (`merge.ts`) — capped at `MAX_BUILT`, inside the frame's shared build
- * allowance (`view.ts`), and put back in a pool when the player leaves.
+ * (`merge.ts`) — the nearest `MAX_BUILT` of them, inside the frame's shared
+ * build allowance (`view.ts`), dissolving in and out as a town does
+ * (`fade.ts`), and put back in a pool when the player leaves.
  *
  * **The sites are worked out a town at a time, on first need.** The whole
  * planet's are about forty thousand vehicles (39,786 on 2026-09-25) and the
@@ -70,8 +71,11 @@ import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
 import { ROAD_HANDLING, WATERLINE, isWater } from './vehicles.ts';
 import { SEA_REACH, coastAt, coastSample, prepareSeaFloor, seaDepthAt, seaZoneAt } from './sea-floor.ts';
 import { AT_REST, discMaterial, motionOf } from './craft/motion.ts';
+import { craftMaterial } from './craft/build.ts';
+import { FADES, createFader, fadeTwin } from './fade.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
-import { CRAFT_KINDS, PARKED_SLOT, isAirKind } from './craft/contract.ts';
+import { CRAFT_KINDS, isAirKind } from './craft/contract.ts';
+import { fleetVariant } from './craft/parked.ts';
 import type { CraftKind, CraftModel, FleetLink, FleetSeats, MovedVehicle, WirePose } from './craft/contract.ts';
 import { writePose } from './player.ts';
 import type { Player } from './player.ts';
@@ -87,16 +91,19 @@ import {
   stripColor,
   stripMaterial,
   stripPoint,
+  stripCorners,
+  stripsMeet,
 } from './craft/airstrip.ts';
 
 export { writePose };
 
 /**
- * The two materials the fleet draws with that the craft's own does not cover:
- * the airstrips' and the propeller discs'. For the shader warm-up (`warm.ts`),
- * which compiles them while the menu is up.
+ * The materials the fleet draws with — the airstrips', the propeller discs'
+ * and the craft's own, and the craft's dissolving twin, which every vehicle
+ * wears for the `FADE_MS` it takes to arrive or go (`fade.ts`). For the shader
+ * warm-up (`warm.ts`), which compiles them while the menu is up.
  */
-export const fleetMaterials = (): THREE.Material[] => [stripMaterial(), discMaterial()];
+export const fleetMaterials = (): THREE.Material[] => [stripMaterial(), discMaterial(), craftMaterial(), fadeTwin(craftMaterial())];
 export { STRIP_APPROACH, STRIP_BACK, STRIP_DRAWN, STRIP_HALF, STRIP_LENGTH, stripPoint };
 
 const DEG = Math.PI / 180;
@@ -422,6 +429,15 @@ export interface SiteIndex extends FieldIndex {
   byId(id: string): FleetSite | null;
   /** How many sites of each kind have been worked out so far, and in how many towns. */
   readonly counts: Readonly<Record<CraftKind, number>> & { towns: number };
+  /**
+   * Work out ahead of time what `fieldsNear` and `planesNear` would work out
+   * on their first ask round `direction`: the plane towns within `radius`
+   * units, nearest first — each one's free strip, then its fields — one town
+   * at a time while `more()` says so. True once nothing within `radius` is
+   * left. Only fills the caches the lookups fill, so it changes when the work
+   * is done and never what it finds.
+   */
+  warm(direction: THREE.Vector3, radius: number, more: () => boolean): boolean;
 }
 
 /**
@@ -437,6 +453,15 @@ const SITE_SPREAD = 150 + Math.max(BOAT_SEARCH, FIELD_CLEAR + FIELD_RINGS * FIEL
 const FIELD_SPREAD =
   150 + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + STRIP_LENGTH + STRIP_APPROACH + STRIP_DISC;
 
+
+/** How far apart two strips' stands may be and their grounds still meet: each its drawn length and `STRIP_HALF` across. */
+const STRIP_MEET = 2 * Math.hypot(STRIP_LENGTH + STRIP_BACK + 8, STRIP_HALF);
+/**
+ * How far a strip's corners reach from its middle (`STRIP_LENGTH / 2` down it,
+ * where `freeStrip` measures from), with a unit to spare: its drawn back end
+ * is the further, `STRIP_BACK` and four more behind the stand.
+ */
+const STRIP_HALF_DIAGONAL = Math.hypot(STRIP_LENGTH / 2 + STRIP_BACK + 4, STRIP_HALF) + 1;
 
 /**
  * The discs a strip keeps: `STRIP_DISC` wide, every `STRIP_STEP` or a little
@@ -473,6 +498,10 @@ const STRIP_ORDER: readonly number[] = (() => {
   return order;
 })();
 const STRIP_SAMPLES = STRIP_ORDER.length;
+/** How far down the strip each sample is, in `STRIP_ORDER`. */
+/** Every candidate a plane's search can try: a stand on each ring and bearing, and each heading from it. */
+const PLANE_CANDIDATES = PLANE_RINGS * FIELD_BEARINGS * STRIP_HEADINGS;
+const STRIP_ALONG: readonly number[] = STRIP_ORDER.map((i) => -STRIP_BACK + ((STRIP_LENGTH + STRIP_BACK) * i) / (STRIP_SAMPLES - 1));
 /** Degrees in one cell of the town index. */
 const CELL = 2;
 const COLS = 360 / CELL;
@@ -562,14 +591,6 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     return false;
   }
 
-  /** Within `clear` units of any built town's disc. */
-  function nearTown(direction: THREE.Vector3, clear: number): boolean {
-    for (const q of townsNear(direction, 150 + clear, townList)) {
-      if (centres[q]!.angleTo(direction) * PLANET_RADIUS < radiusOf(places[q]!) + clear) return true;
-    }
-    return false;
-  }
-
   /** Within `clear` units of the drawn edge of any road. */
   function nearRoad(direction: THREE.Vector3, clear: number): boolean {
     for (const r of roadIndex.near(direction, clear + 12, list)) {
@@ -583,6 +604,123 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     const keep = FIELD_CLEAR + clear;
     const p = monumentProbe.copy(direction).normalize();
     for (const m of monuments) {
+      const dot = p.x * m.up.x + p.y * m.up.y + p.z * m.up.z;
+      if (dot < Math.cos((m.reach + keep) / PLANET_RADIUS)) continue;
+      if (siteGap(m, p, PLANET_RADIUS) < keep) return true;
+    }
+    return false;
+  }
+
+  // ---- a field search's own neighbourhood ------------------------------------
+  //
+  // A field search asks whether hundreds of points near one town are near a
+  // town, a road or a landmark, and each of those questions was a grid walk
+  // over the planet's index. So `fieldSite` asks the indices once, for
+  // everything within reach of any point it can test (`localise`), and the
+  // three tests below ask only those — the same predicate over a superset of
+  // what the grid walk would have handed back, so the same answer.
+
+  /** What is near a patch of ground: the towns (and their centres and built radii, flat), the roads, the landmarks. */
+  interface Neighbourhood {
+    towns: number[];
+    xyzr: Float64Array;
+    roads: number[];
+    monuments: (typeof monuments)[number][];
+  }
+  const emptyNeighbourhood = (): Neighbourhood => ({ towns: [], xyzr: new Float64Array(64), roads: [], monuments: [] });
+  /** Round the town a search is for (`localise`), and round the stand whose strips it is trying (`narrow`). */
+  const local = emptyNeighbourhood();
+  const standing = emptyNeighbourhood();
+  /** Which of the two the tests below ask. */
+  let active = local;
+
+  /** The widest clearance any of the tests asks for: a field's, or a strip's from a town, a road or a landmark. */
+  const clearFor = (reach: number): number => Math.max(reach + FIELD_CLEAR, STRIP_HALF + STRIP_CLEAR, FIELD_CLEAR + STRIP_HALF);
+
+  function keepTown(into: Neighbourhood, q: number, x: number, y: number, z: number, radius: number): void {
+    const i = into.towns.length;
+    into.towns.push(q);
+    if (into.xyzr.length < (i + 1) * 4) {
+      const grown = new Float64Array(into.xyzr.length * 2);
+      grown.set(into.xyzr);
+      into.xyzr = grown;
+    }
+    into.xyzr[i * 4] = x;
+    into.xyzr[i * 4 + 1] = y;
+    into.xyzr[i * 4 + 2] = z;
+    into.xyzr[i * 4 + 3] = radius;
+  }
+
+  /** Every town, road and landmark any point within `span` units of town `p`'s centre could be within `clear` of. */
+  function localise(p: number, span: number, clear: number): void {
+    const centre = centres[p]!;
+    local.towns.length = 0;
+    // A town's disc is at most 150 units round its centre (`nearTown`).
+    for (const q of townsNear(centre, span + 150 + clear + 1, townList)) {
+      const c = centres[q]!;
+      keepTown(local, q, c.x, c.y, c.z, radiusOf(places[q]!));
+    }
+    // `nearRoad` asks `near` for `clear + 12`; the road's own bound is
+    // re-tested at each point (`reaches`), so this only has to hold them all.
+    roadIndex.near(centre, span + clear + 12 + 1, local.roads);
+    local.monuments.length = 0;
+    for (const m of monuments) {
+      const dot = centre.x * m.up.x + centre.y * m.up.y + centre.z * m.up.z;
+      if (Math.acos(Math.min(1, Math.max(-1, dot))) * PLANET_RADIUS <= span + m.reach + FIELD_CLEAR + clear + 1) local.monuments.push(m);
+    }
+    active = local;
+  }
+
+  /**
+   * Of `local`, what any point within `span` units of `point` could be
+   * within `clear` of, into `standing`: by the triangle inequality on each
+   * one's own bound, with a unit to spare, so a superset of what matters.
+   */
+  function narrow(point: THREE.Vector3, span: number, clear: number): void {
+    standing.towns.length = 0;
+    const t = local.xyzr;
+    for (let i = 0; i < local.towns.length; i++) {
+      const x = t[i * 4]!, y = t[i * 4 + 1]!, z = t[i * 4 + 2]!, radius = t[i * 4 + 3]!;
+      if (point.x * x + point.y * y + point.z * z < Math.cos(Math.min(Math.PI, (span + radius + clear + 1) / PLANET_RADIUS))) continue;
+      keepTown(standing, local.towns[i]!, x, y, z, radius);
+    }
+    standing.roads.length = 0;
+    for (const r of local.roads) if (roadIndex.reaches(r, point, span + clear + 12 + 1)) standing.roads.push(r);
+    standing.monuments.length = 0;
+    for (const m of local.monuments) {
+      const dot = point.x * m.up.x + point.y * m.up.y + point.z * m.up.z;
+      if (Math.acos(Math.min(1, Math.max(-1, dot))) * PLANET_RADIUS <= span + m.reach + FIELD_CLEAR + clear + 1) standing.monuments.push(m);
+    }
+    active = standing;
+  }
+
+  /** Within `clear` units of any built town's disc, of those `active` holds. */
+  function nearTownLocal(direction: THREE.Vector3, clear: number): boolean {
+    const { towns, xyzr: t } = active;
+    for (let i = 0; i < towns.length; i++) {
+      const limit = t[i * 4 + 3]! + clear;
+      // Far past the disc by the dot product alone, with a margin, and the
+      // exact test the grid walk's caller made for the rest.
+      if (direction.x * t[i * 4]! + direction.y * t[i * 4 + 1]! + direction.z * t[i * 4 + 2]! < Math.cos(limit / PLANET_RADIUS + 1e-6)) continue;
+      if (centres[towns[i]!]!.angleTo(direction) * PLANET_RADIUS < limit) return true;
+    }
+    return false;
+  }
+
+  /** `nearRoad`, over the roads `active` holds. */
+  function nearRoadLocal(direction: THREE.Vector3, clear: number): boolean {
+    for (const r of active.roads) {
+      if (!roadIndex.reaches(r, direction, clear + 12)) continue;
+      if (distanceToPath(pathOf(r), direction) < roadClearance(roads[r]!.cls) + clear) return true;
+    }
+    return false;
+  }
+
+  /** `nearMonument`, over the landmarks `active` holds. */
+  function nearMonumentLocal(direction: THREE.Vector3, clear: number): boolean {
+    const keep = FIELD_CLEAR + clear;
+    const p = monumentProbe.copy(direction).normalize();
+    for (const m of active.monuments) {
       const dot = p.x * m.up.x + p.y * m.up.y + p.z * m.up.z;
       if (dot < Math.cos((m.reach + keep) / PLANET_RADIUS)) continue;
       if (siteGap(m, p, PLANET_RADIUS) < keep) return true;
@@ -865,17 +1003,27 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
 
   /**
    * A field: land under the whole disc, flat enough, clear of towns, roads
-   * and landmarks. The dearest test, the outlines under five points, goes
-   * last, and not at all for a town far inland.
+   * and landmarks. The cheap tests go first — the neighbourhood `localise`
+   * gathered — then the relief, and the dearest, the outlines under five
+   * points, last and not at all for a town far inland.
    */
   function field(direction: THREE.Vector3, reach: number, grade: number, inland: boolean): boolean {
+    return fieldClear(direction, reach) && fieldGround(direction, reach, grade, inland);
+  }
+
+  /** `field`'s cheap half: clear of the landmarks, towns and roads `active` holds. */
+  function fieldClear(direction: THREE.Vector3, reach: number): boolean {
+    if (nearMonumentLocal(direction, reach) || nearTownLocal(direction, reach + FIELD_CLEAR)) return false;
+    return !nearRoadLocal(direction, reach + FIELD_CLEAR);
+  }
+
+  /** `field`'s dear half: the relief, then the outlines. */
+  function fieldGround(direction: THREE.Vector3, reach: number, grade: number, inland: boolean): boolean {
     north.set(0, 1, 0).projectOnPlane(direction);
     if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(direction);
     north.normalize();
     across.crossVectors(direction, north).normalize();
-    if (nearMonument(direction, reach) || nearTown(direction, reach + FIELD_CLEAR)) return false;
     if (gradeAt(direction, across, north, reach, slope).grade > grade) return false;
-    if (nearRoad(direction, reach + FIELD_CLEAR)) return false;
     if (inland) return true;
     if (wet(direction)) return false;
     for (let k = 0; k < 4; k++) {
@@ -891,30 +1039,48 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
   }
 
   const strip = { at: new THREE.Vector3(), forward: new THREE.Vector3() };
-  const stripAt = new THREE.Vector3();
   const stripAcross = new THREE.Vector3();
+  /** A stand's headings, worked out once for both passes over them. */
+  const headings = Array.from({ length: STRIP_HEADINGS }, () => new THREE.Vector3());
+  /** A strip's samples, in `STRIP_ORDER`, laid again by each half of its tests. */
+  const stripSamples = Array.from({ length: STRIP_SAMPLES }, () => new THREE.Vector3());
 
   /**
-   * The strip from a stand at `strip.at` down `strip.forward`: flat enough
-   * over its own width, clear of the towns, the roads and the landmarks, and
-   * — unless the town is `inland` — on land from edge to edge. The samples go
-   * in `STRIP_ORDER` and the cheap tests first, so a strip that fails usually
-   * fails in a few probes; the water is walked again at `STRIP_WATER_STEP`
-   * once everything else has passed, because a creek or a fjord is narrower
-   * than the gap between two samples.
+   * The strip from a stand at `strip.at` down `strip.forward` has to be flat
+   * enough over its own width, clear of the towns, the roads and the
+   * landmarks, and — unless the town is `inland` — on land from edge to edge.
+   * The samples go in `STRIP_ORDER`, and each test over all of them before
+   * the next, the cheap ones first: the towns, roads and landmarks
+   * `localise` and `narrow` gathered (`stripNear`), then the relief, four
+   * samples of it a point, then the outlines (`stripGround`). A strip passes
+   * only if every test passes at every sample, so the order changes what a
+   * strip costs and never whether it passes. The water is walked again at
+   * `STRIP_WATER_STEP` once everything else has passed, because a creek or a
+   * fjord is narrower than the gap between two samples.
+   *
+   * A strip's cheap half: every sample clear of the landmarks, towns and roads `active` holds.
    */
-  function stripClear(inland: boolean): boolean {
-    stripAcross.crossVectors(strip.forward, strip.at).normalize();
+  function stripNear(): boolean {
     const clear = STRIP_HALF + STRIP_CLEAR;
     for (let n = 0; n < STRIP_SAMPLES; n++) {
-      const along = -STRIP_BACK + ((STRIP_LENGTH + STRIP_BACK) * STRIP_ORDER[n]!) / (STRIP_SAMPLES - 1);
-      stripPoint(strip, along, 0, stripAt);
-      if (nearMonument(stripAt, STRIP_HALF) || nearTown(stripAt, clear)) return false;
-      if (gradeAt(stripAt, stripAcross, strip.forward, STRIP_HALF, slope).grade > PLANE_GRADE) return false;
-      if (nearRoad(stripAt, clear)) return false;
-      if (!inland && (wet(stripAt) || wet(stripPoint(strip, along, STRIP_HALF, corner)) || wet(stripPoint(strip, along, -STRIP_HALF, corner)))) return false;
+      const point = stripPoint(strip, STRIP_ALONG[n]!, 0, stripSamples[n]!);
+      if (nearMonumentLocal(point, STRIP_HALF) || nearTownLocal(point, clear) || nearRoadLocal(point, clear)) return false;
+    }
+    return true;
+  }
+
+  /** A strip's dear half: the relief under every sample, then the outlines. */
+  function stripGround(inland: boolean): boolean {
+    stripAcross.crossVectors(strip.forward, strip.at).normalize();
+    for (let n = 0; n < STRIP_SAMPLES; n++) stripPoint(strip, STRIP_ALONG[n]!, 0, stripSamples[n]!);
+    for (let n = 0; n < STRIP_SAMPLES; n++) {
+      if (gradeAt(stripSamples[n]!, stripAcross, strip.forward, STRIP_HALF, slope).grade > PLANE_GRADE) return false;
     }
     if (inland) return true;
+    for (let n = 0; n < STRIP_SAMPLES; n++) {
+      const along = STRIP_ALONG[n]!;
+      if (wet(stripSamples[n]!) || wet(stripPoint(strip, along, STRIP_HALF, corner)) || wet(stripPoint(strip, along, -STRIP_HALF, corner))) return false;
+    }
     for (let along = -STRIP_BACK; along <= STRIP_LENGTH; along += STRIP_WATER_STEP) {
       for (let edge = -1; edge <= 1; edge++) if (wet(stripPoint(strip, along, edge * STRIP_HALF, corner))) return false;
     }
@@ -931,38 +1097,290 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     return false;
   }
 
-  function fieldSite(p: number, model: string, reach: number, grade: number, salt: string, out: FleetSite[], n = 0): void {
+  const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  /** What a strip that has to search again keeps off: see `planeOf`. */
+  interface StripRivals {
+    /** The middle of the town's own free strip. */
+    own: THREE.Vector3;
+    /** Its neighbours' free strips, and their middles. */
+    strips: readonly FleetSite[];
+    middles: readonly THREE.Vector3[];
+  }
+  /**
+   * Whether the strip being tried (`strip`) crosses into what `rivals` keep:
+   * whether it meets any of their free strips, `STRIP_HALF` of ground either
+   * side of each, or any corner of it is nearer one of their middles than its
+   * own town's — outside its cell of the Voronoi diagram of those middles,
+   * which is convex on the sphere, so a strip whose four corners are in it is
+   * in it whole.
+   */
+  function stripTaken(rivals: StripRivals | null): boolean {
+    if (rivals === null) return false;
+    stripCorners(strip, STRIP_HALF, corners);
+    for (const corner of corners) {
+      const mine = corner.dot(rivals.own);
+      for (const other of rivals.middles) if (corner.dot(other) > mine) return true;
+    }
+    for (const other of rivals.strips) {
+      if (other.at.angleTo(strip.at) * PLANET_RADIUS < STRIP_MEET && stripsMeet(strip, other, STRIP_HALF)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Which candidate the last plane search found, counted in the order it
+   * tries them: ring, bearing, heading. -1 if none.
+   */
+  let foundAt = -1;
+
+  /**
+   * `from` skips every plane candidate before it, and `more`, when given, is
+   * asked before every stand after the first whether to go on: the search
+   * returns the candidate it stopped before, to be taken up there later
+   * (`advanceFree`, `advanceFinal`), or `PLANE_CANDIDATES` once it has
+   * tried them all or found one (`foundAt`). A candidate's tests are its own,
+   * so a search in pieces finds what a search at once does. And a search
+   * again (`advanceFinal`) starts where the town's free search stopped,
+   * because every candidate before that failed a test that has nothing to
+   * do with the other towns' strips, and would fail it again.
+   */
+  function fieldSite(
+    p: number,
+    model: string,
+    reach: number,
+    grade: number,
+    salt: string,
+    out: FleetSite[],
+    n = 0,
+    rivals: StripRivals | null = null,
+    from = 0,
+    more?: () => boolean,
+  ): number {
     const radius = radiusOf(places[p]!);
     const start = rngFrom(salt, p).unit() * Math.PI * 2;
     const plane = model === FLEET_MODELS.plane;
     const rings = plane ? PLANE_RINGS : FIELD_RINGS;
     const inland = inlandFor(p);
+    // The furthest point any test below asks about: the last ring's stand, and
+    // for a plane the strip's far end down any heading from it.
+    const clear = clearFor(reach);
+    localise(p, radius + reach + FIELD_CLEAR + 4 + (rings - 1) * FIELD_STEP + (plane ? STRIP_LENGTH : 0) + 1, clear);
+    foundAt = -1;
+    let stands = 0;
     for (let j = 0; j < rings; j++) {
       const d = radius + reach + FIELD_CLEAR + 4 + j * FIELD_STEP;
       for (let k = 0; k < FIELD_BEARINGS; k++) {
+        const first = (j * FIELD_BEARINGS + k) * STRIP_HEADINGS;
+        if (plane && first + STRIP_HEADINGS <= from) continue;
+        if (stands++ > 0 && more !== undefined && !more()) return Math.max(first, from);
         around(p, start + (k / FIELD_BEARINGS) * Math.PI * 2, d, at);
         // The kinds that came after the plane and the balloon keep off their ground.
         if (!plane && model !== FLEET_MODELS.balloon && fieldTaken(at, reach, out)) continue;
-        if (!field(at, reach, grade, inland)) continue;
-        // Facing away from the town, which is the way a take-off goes.
-        outward(p, at, forward);
+        active = local;
         if (!plane) {
+          if (!field(at, reach, grade, inland)) continue;
+          // Facing away from the town, which is the way a take-off goes.
+          outward(p, at, forward);
           out.push(site(model, p, n, at, forward));
-          return;
+          return PLANE_CANDIDATES;
         }
         // A plane's stand is only as good as the strip it can take off down:
         // straight out of the town first, then swinging either side of that
         // by a sixteenth of a turn at a time, to straight back past it.
+        //
+        // A candidate is the stand's field and one heading's strip, and it
+        // passes only if every test does, so the tests go cheapest first
+        // across all of the stand's headings: the towns, roads and landmarks
+        // under the field and every strip, then the relief and the outlines
+        // under the field, then under each strip still standing, in order.
+        // The first candidate to pass is the one the tests in any order find.
+        if (!fieldClear(at, reach)) continue;
+        outward(p, at, forward);
         strip.at.copy(at);
+        // Every sample of every heading is within a strip's length of the stand.
+        narrow(at, STRIP_LENGTH + 1, clear);
+        let open = 0;
         for (let h = 0; h < STRIP_HEADINGS; h++) {
+          if (first + h < from) continue;
           const turn = Math.ceil(h / 2) * (h % 2 === 1 ? 1 : -1) * ((Math.PI * 2) / STRIP_HEADINGS);
-          strip.forward.copy(forward).applyAxisAngle(at, turn).projectOnPlane(at).normalize();
-          if (!stripClear(inland)) continue;
+          const heading = headings[h]!.copy(forward).applyAxisAngle(at, turn).projectOnPlane(at).normalize();
+          strip.forward.copy(heading);
+          if (stripTaken(rivals) || !stripNear()) continue;
+          open |= 1 << h;
+        }
+        if (open === 0 || !fieldGround(at, reach, grade, inland)) continue;
+        for (let h = 0; h < STRIP_HEADINGS; h++) {
+          if ((open & (1 << h)) === 0) continue;
+          strip.forward.copy(headings[h]!);
+          if (!stripGround(inland)) continue;
           out.push(site(model, p, 0, at, strip.forward));
-          return;
+          foundAt = first + h;
+          return PLANE_CANDIDATES;
         }
       }
     }
+    return PLANE_CANDIDATES;
+  }
+
+  const keepsPlane = (p: number): boolean => shown[p]! && (places[p]!.pop >= PLANE_POP || places[p]!.capital === true);
+  /** The middle of each plane town's free strip, or null where it has none; worked out once. */
+  const freeMiddles: (THREE.Vector3 | null | undefined)[] = new Array(places.length);
+  const freeSites: (FleetSite | null | undefined)[] = new Array(places.length);
+  /** Which candidate each free search found (`foundAt`). */
+  const freeFound: number[] = new Array(places.length).fill(-1);
+  /** Where each free search not yet finished is to be taken up. */
+  const freeNext: number[] = new Array(places.length).fill(0);
+
+  /**
+   * Take town `p`'s free search on, to its end or until `more()` says stop:
+   * true once it has ended, with `freeSites[p]` its strip or null.
+   */
+  function advanceFree(p: number, more?: () => boolean): boolean {
+    if (freeSites[p] !== undefined) return true;
+    const out: FleetSite[] = [];
+    const next = fieldSite(p, FLEET_MODELS.plane, PLANE_FIELD, PLANE_GRADE, 'fleet-plane', out, 0, null, freeNext[p]!, more);
+    if (out.length === 0 && next < PLANE_CANDIDATES) {
+      freeNext[p] = next;
+      return false;
+    }
+    const found = out[0] ?? null;
+    freeFound[p] = foundAt;
+    freeMiddles[p] = found === null ? null : stripPoint(found, STRIP_LENGTH / 2, 0, new THREE.Vector3());
+    freeSites[p] = found;
+    return true;
+  }
+
+  /** The strip a town would lay with no other town's to keep off: the search alone. */
+  function freeStrip(p: number): FleetSite | null {
+    advanceFree(p);
+    return freeSites[p]!;
+  }
+
+  /** The plane towns whose strips could meet town `p`'s, and a little more: each use tests its own bound. */
+  const neighbours: (number[] | undefined)[] = new Array(places.length);
+  function neighboursOf(p: number): readonly number[] {
+    let list = neighbours[p];
+    if (list === undefined) {
+      const reach = stripReach(p);
+      list = townsNear(centres[p]!, reach + stripReach(-1) + 1, []).filter(
+        (q) => q !== p && keepsPlane(q) && centres[q]!.angleTo(centres[p]!) * PLANET_RADIUS <= reach + stripReach(q) + 1,
+      );
+      neighbours[p] = list;
+    }
+    return list;
+  }
+
+  /**
+   * The furthest any corner of town `p`'s strip can stand from its centre:
+   * its square, the last ring a stand is searched on and the strip run out
+   * from there. -1 is the widest square's, for a search round a town.
+   */
+  const stripReach = (p: number): number =>
+    (p < 0 ? 150 : radiusOf(places[p]!)) + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + Math.hypot(STRIP_LENGTH + 4, STRIP_HALF) + 1;
+
+  /**
+   * Whether town `q` outranks town `p`: the bigger, and between two of a size
+   * the one earlier in `places`. A strict order of the places alone.
+   */
+  const outranks = (q: number, p: number): boolean => places[q]!.pop > places[p]!.pop || (places[q]!.pop === places[p]!.pop && q < p);
+
+  /**
+   * A town's plane and its strip, or nothing where none fits. **No two strips
+   * meet**: two drawn over each other are two surfaces at one depth, and they
+   * flickered where they crossed — 575 pairs of the 1,004 strips on
+   * 2026-09-28, mostly where the flat ground round a delta drew a dozen
+   * cities' strips to one field. Every plane town first finds the strip it
+   * would lay alone (`freeStrip`), and then, against its neighbours' — every
+   * plane town near enough for two strips to meet:
+   *
+   * - **it keeps its free strip if that meets no bigger town's free strip**.
+   *   Two kept strips never meet, because of any two that did the smaller
+   *   would not have been kept.
+   * - **Otherwise it searches again**, off every neighbour's free strip — so
+   *   off every kept one — and inside its own cell of the Voronoi diagram of
+   *   the free strips' middles, which no other town that searches again can
+   *   enter (`stripTaken`); and it goes without a plane where nothing fits.
+   *
+   * A rule of the places alone, and a local one: a town asks only its
+   * neighbours' free strips, never their final ones. It keeps 744 of the
+   * 1,004 strips. Yielding to the bigger towns' final strips, the obvious
+   * rule, kept 895 but had to work out a whole region's of them for one cold
+   * tile — 0.3 s at the median and 2.6 s at worst — and a cell round each
+   * town's centre kept 555, because a strip stands up to 700 units out of its
+   * town. This one still works out the free strips of every plane town within
+   * two strips' reach of a cold ask, which is why the fleet warms them up
+   * ahead of the player (`warm`, `WARM_REACH`).
+   */
+  function planeOf(p: number, out: FleetSite[]): void {
+    advanceFinal(p);
+    const plane = finals[p];
+    if (plane !== null && plane !== undefined) out.push(plane);
+  }
+
+  /** Each plane town's strip as it stands, or null; worked out once. */
+  const finals: (FleetSite | null | undefined)[] = new Array(places.length);
+  /** A beaten town's rivals and where its search again is to be taken up, while it is unfinished. */
+  const again: (StripRivals | undefined)[] = new Array(places.length);
+  const againNext: number[] = new Array(places.length).fill(0);
+
+  /**
+   * Take town `p`'s strip on to its end or until `more()` says stop, as
+   * `advanceFree` does its free one: true once `finals[p]` is settled. The
+   * neighbours' free strips it asks are worked out on the spot, whole.
+   */
+  function advanceFinal(p: number, more?: () => boolean): boolean {
+    if (finals[p] !== undefined) return true;
+    const free = keepsPlane(p) ? freeStrip(p) : null;
+    if (free === null) {
+      finals[p] = null;
+      return true;
+    }
+    let rivals = again[p];
+    if (rivals === undefined) {
+      if (!beaten(p, free)) {
+        finals[p] = free;
+        return true;
+      }
+      // Beaten: every neighbour's free strip, and every one's middle.
+      const strips: FleetSite[] = [];
+      const middles: THREE.Vector3[] = [];
+      for (const q of neighboursOf(p)) {
+        if (centres[q]!.angleTo(centres[p]!) * PLANET_RADIUS > stripReach(p) + stripReach(q)) continue;
+        const theirs = freeStrip(q);
+        if (theirs === null) continue;
+        strips.push(theirs);
+        middles.push(freeMiddles[q]!);
+      }
+      again[p] = rivals = { own: freeMiddles[p]!, strips, middles };
+      againNext[p] = freeFound[p]!;
+    }
+    const out: FleetSite[] = [];
+    const next = fieldSite(p, FLEET_MODELS.plane, PLANE_FIELD, PLANE_GRADE, 'fleet-plane', out, 0, rivals, againNext[p]!, more);
+    if (out.length === 0 && next < PLANE_CANDIDATES) {
+      againNext[p] = next;
+      return false;
+    }
+    finals[p] = out[0] ?? null;
+    again[p] = undefined;
+    return true;
+  }
+
+  /**
+   * Whether town `p`'s free strip meets a bigger town's. Only the bigger
+   * towns decide, and only those whose strip's corners reach as far as its
+   * own do (`stripReach` of theirs, and this strip's middle plus its
+   * half-diagonal): so a town works out no smaller neighbour's strip unless
+   * it has to search again.
+   */
+  function beaten(p: number, free: FleetSite): boolean {
+    const centre = centres[p]!;
+    const spread = freeMiddles[p]!.angleTo(centre) * PLANET_RADIUS + STRIP_HALF_DIAGONAL;
+    for (const q of townsNear(centre, spread + stripReach(-1), [])) {
+      if (q === p || !keepsPlane(q) || !outranks(q, p) || centres[q]!.angleTo(centre) * PLANET_RADIUS > spread + stripReach(q)) continue;
+      const theirs = freeStrip(q);
+      if (theirs !== null && theirs.at.angleTo(free.at) * PLANET_RADIUS < STRIP_MEET && stripsMeet(free, theirs, STRIP_HALF)) return true;
+    }
+    return false;
   }
 
   const perPlace: (readonly FleetSite[] | undefined)[] = new Array(places.length);
@@ -982,7 +1400,7 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     if (!shown[p]) return (fieldsPer[p] = NONE);
     const out: FleetSite[] = [];
     const place = places[p]!;
-    if (place.pop >= PLANE_POP || place.capital === true) fieldSite(p, FLEET_MODELS.plane, PLANE_FIELD, PLANE_GRADE, 'fleet-plane', out);
+    planeOf(p, out);
     if (keepsBalloon(p)) fieldSite(p, FLEET_MODELS.balloon, BALLOON_FIELD, BALLOON_GRADE, 'fleet-balloon-site', out);
     // The rest of the fields, after those two so neither moves for them.
     if (place.pop >= HELI_POP) fieldSite(p, FLEET_MODELS.helicopter, SITE_ROOM.helicopter, HELI_GRADE, 'fleet-heli-site', out);
@@ -1051,7 +1469,13 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
       return out;
     },
     near(direction, radius, out, fresh = Infinity) {
-      for (const p of townsNear(direction, radius + SITE_SPREAD, nearTowns)) {
+      townsNear(direction, radius + SITE_SPREAD, nearTowns);
+      // With a limit on the towns worked out for the first time, the nearest
+      // first: in the grid's order a region arrived in filled from its
+      // north-west corner, and the town under the player could wait a few
+      // scans behind a dozen further off.
+      if (fresh !== Infinity) nearTowns.sort((a, b) => centres[b]!.dot(direction) - centres[a]!.dot(direction) || a - b);
+      for (const p of nearTowns) {
         if (perPlace[p] === undefined) {
           if (fresh <= 0) continue;
           fresh--;
@@ -1059,6 +1483,24 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
         out.push(...sitesOf(p));
       }
       return out;
+    },
+    warm(direction, radius, more) {
+      const towns = townsNear(direction, radius, []).filter((q) => keepsPlane(q) && fieldsPer[q] === undefined);
+      if (towns.length === 0) return true;
+      const distance = towns.map((q) => centres[q]!.dot(direction));
+      const order = towns.map((_, i) => i).sort((a, b) => distance[b]! - distance[a]! || towns[a]! - towns[b]!);
+      // Nearest first, each in pieces a stand long: its own free strip and its
+      // neighbours', which its own strip asks, then its own strip, then the
+      // rest of its fields.
+      for (const i of order) {
+        const q = towns[i]!;
+        if (!advanceFree(q, more)) return false;
+        for (const r of neighboursOf(q)) if (!advanceFree(r, more)) return false;
+        if (!advanceFinal(q, more)) return false;
+        if (!more()) return false;
+        fieldsOf(q);
+      }
+      return true;
     },
     all() {
       const out: FleetSite[] = [];
@@ -1373,10 +1815,40 @@ const REACH = 700;
 const KEEP = REACH * 1.15;
 /** Inside this every vehicle in reach is built whatever the camera is pointed at. */
 const ALWAYS_WITHIN = 220;
-/** The most vehicles standing at once. */
+/**
+ * The most vehicles standing at once, and how much nearer than the furthest
+ * of them one has to be to take its place.
+ *
+ * **The cap used to be a wall rather than a rank.** The build loop stopped at
+ * `MAX_BUILT` and a vehicle stood until it left `KEEP`, so in a crowded region
+ * the 36 built on arrival held their places while the player went past them
+ * and a vehicle ahead waited for one behind to fall 805 units away. Round
+ * Utrecht, the Ruhr or Zhengzhou, with 200 to 250 sites inside `REACH`, a
+ * vehicle at a gate came into being 7 units off the player, or never, and was
+ * driven into: run straight at 72 sites in nine regions at a motorbike's
+ * boost, 14 stood under 100 units off and the nearest arrival of anything was
+ * 7 (headless, 2026-09-29). Now the furthest standing gives its place to one
+ * nearer by `ROOM_MARGIN` — the scan's own staleness, `RESCAN_MOVE`, so two
+ * never trade places back and forth — and the same runs stood every one at
+ * 176 units or more, nothing arriving nearer than 114. It builds about twice
+ * as many vehicles a minute on such a run; `pnpm fleet` holds it.
+ */
 const MAX_BUILT = 36;
+const ROOM_MARGIN = 40;
 /** Milliseconds of building a frame may give this streamer. */
 const BUILD_MS = 2;
+/**
+ * The airstrips round the player, worked out ahead of the first ask
+ * (`SiteIndex.warm`): how far, how much of a frame's far allowance, and how
+ * far the player moves before a finished warm-up looks again. A cold ask in
+ * eastern China, where the plane towns are thickest, works out the strips of
+ * about 170 of them — 130 ms at worst headless on 2026-09-28 — and one after
+ * the warm-up 3.3 ms at worst, while no piece of the warm-up took more than
+ * 7 ms: it goes a stand of one town's search at a time, nearest town first.
+ */
+const WARM_REACH = 3000;
+const WARM_MS = 1;
+const WARM_MOVE = 250;
 /** How far the player moves, or how long passes, before the candidates are worked out again. */
 const RESCAN_MOVE = 40;
 const RESCAN_SECONDS = 1;
@@ -1514,9 +1986,9 @@ export interface FleetOptions extends FleetSource {
     near(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
     hide(id: string): void;
     /**
-     * The colour a parked car was parked in, while its town stands: the
-     * vehicle that takes its place, here or on another client, is painted
-     * the same rather than in a colour of its own.
+     * The colour a parked vehicle was parked in, by its id alone: the vehicle
+     * that takes its place, here or on another client, is painted the same
+     * rather than in a colour of its own. Null for the craft's own look.
      */
     paintOf?(id: string): number | null;
   };
@@ -1573,6 +2045,13 @@ export interface Fleet extends FleetSeats {
    * vehicles. A vehicle is a box of its own length and width.
    */
   collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /**
+   * The nearest spot clear of every vehicle standing here, at the same
+   * radius, into `out`; false if `point` already is. `settlements.freeSpotNear`'s
+   * contract, so a body put down by a jump, a spawn or another source's free
+   * spot is not left inside a car.
+   */
+  freeSpotNear(point: THREE.Vector3, radius: number, out: THREE.Vector3): boolean;
   /**
    * Every vehicle standing here that the player is not in, as its centre and
    * a radius along the ground — half its length and width averaged, a
@@ -1659,6 +2138,12 @@ export function createFleet(options: FleetOptions): Fleet {
   const drawn = new Map<string, Drawn>();
   const pool = new Map<string, Drawn[]>();
   const cone = createViewCone(ALWAYS_WITHIN);
+  /**
+   * What streams in and out dissolves (`fade.ts`), as a town or a wood tile
+   * does; a vehicle put away is no longer a wall the moment it goes, and is
+   * drawn until its fade ends.
+   */
+  const fader = createFader();
   let held: Drawn | null = null;
   let heldSeat = 0;
   let pending = false;
@@ -1672,6 +2157,9 @@ export function createFleet(options: FleetOptions): Fleet {
   let promptBay: ParkedCar | null = null;
   const lastScan = new THREE.Vector3(Infinity, 0, 0);
   let scanAge = Infinity;
+  /** Where the warm-up last finished everything in its reach; it rests until the player moves on. */
+  const warmed = new THREE.Vector3(Infinity, 0, 0);
+  const warmAt = new THREE.Vector3();
   let wanted: { id: string; distance: number; site: FleetSite | null }[] = [];
   const found: FleetSite[] = [];
   const pose: WirePose = new Array(9).fill(0);
@@ -1687,24 +2175,26 @@ export function createFleet(options: FleetOptions): Fleet {
    */
   const bayPose = new Map<string, WirePose>();
   /**
-   * The colour each town's parked car the fleet has taken over was parked in,
-   * by id, once known: from the bay on taking it, or from its town the first
-   * time it is drawn anywhere else. See `ParkedCar.paint`.
+   * The colour each vehicle a town parks was parked in, by id: a function of
+   * the id alone (`ParkedCar.paint`), so a car taken in another session, by
+   * somebody else, or from a town not standing here comes back in it. Null,
+   * kept as such, for the craft's own look.
    */
-  const paints = new Map<string, number>();
+  const paints = new Map<string, number | null>();
   function paintOf(id: string): number | undefined {
-    const known = paints.get(id);
-    if (known !== undefined) return known;
-    if (!(Number(id.split(':')[2]) >= PARKED_SLOT)) return undefined;
-    const found = parked?.paintOf?.(id) ?? null;
-    if (found === null) return undefined;
-    paints.set(id, found);
-    return found;
+    let known = paints.get(id);
+    if (known === undefined) {
+      known = parked?.paintOf?.(id) ?? null;
+      paints.set(id, known);
+    }
+    return known ?? undefined;
   }
   /** What `eachDriven` walks: rewritten by every `update`, never reallocated. */
   const drivenNow: Drawn[] = [];
   const bays: ParkedCar[] = [];
   const localPoint = new THREE.Vector3();
+  const free = new THREE.Vector3();
+  const freePush = new THREE.Vector3();
   const inverse = new THREE.Quaternion();
   const heading = new THREE.Vector3();
   const turned = new THREE.Vector3();
@@ -1902,7 +2392,7 @@ export function createFleet(options: FleetOptions): Fleet {
   function build(id: string, site: FleetSite | null): Drawn | null {
     const model = models.get(site?.model ?? modelOfVehicle(id));
     if (model === undefined) return null;
-    const variant = model.variants > 1 ? rngFrom('fleet-variant', id).int(model.variants) : 0;
+    const variant = fleetVariant(id, model.variants);
     const paint = site === null ? paintOf(id) : undefined;
     const key = paint === undefined ? `${model.id}#${variant}` : `${model.id}#${variant}@${paint}`;
     const spare = pool.get(key)?.pop();
@@ -2017,9 +2507,53 @@ export function createFleet(options: FleetOptions): Fleet {
     else if (entry.motion.settling) entry.motion.update(dt, AT_REST);
   }
 
+  /** Whether a part of a vehicle dissolves: a solid mesh of one material, not the propeller's see-through disc. */
+  function fades(part: THREE.Object3D): part is THREE.Mesh {
+    const mesh = part as THREE.Mesh;
+    return mesh.isMesh === true && !Array.isArray(mesh.material) && !(mesh.material as THREE.Material).transparent;
+  }
+
+  /** A vehicle just built or taken from the pool, placed: in, dissolving. */
+  function arrive(entry: Drawn): void {
+    drawn.set(entry.id, entry);
+    group.add(entry.group);
+    place(entry);
+    if (!FADES) return;
+    entry.group.traverse((part) => {
+      if (fades(part)) fader.in(part);
+    });
+  }
+
+  /** Its own materials back at once, for a vehicle somebody gets into mid-fade. */
+  function endFades(entry: Drawn): void {
+    entry.group.traverse((part) => {
+      if (fades(part)) fader.cancel(part);
+    });
+  }
+
+  /** Out of the walls now, and out of sight when its fade is done. */
   function putAway(entry: Drawn): void {
-    group.remove(entry.group);
     drawn.delete(entry.id);
+    let left = 0;
+    if (FADES) {
+      entry.group.traverse((part) => {
+        if (fades(part)) left++;
+      });
+    }
+    if (left === 0) {
+      retire(entry);
+      return;
+    }
+    entry.group.traverse((part) => {
+      if (!fades(part)) return;
+      fader.out(part, () => {
+        if (--left === 0) retire(entry);
+      });
+    });
+  }
+
+  function retire(entry: Drawn): void {
+    group.remove(entry.group);
     const key = entry.key;
     let spares = pool.get(key);
     if (spares === undefined) pool.set(key, (spares = []));
@@ -2036,6 +2570,26 @@ export function createFleet(options: FleetOptions): Fleet {
     entry.group.traverse((part) => {
       if ((part as THREE.Mesh).isMesh && part.name !== 'prop-disc' && !(part as THREE.SkinnedMesh).isSkinnedMesh) (part as THREE.Mesh).geometry.dispose();
     });
+  }
+
+  /**
+   * Puts away the furthest vehicle standing, if it is further than `distance`
+   * by `ROOM_MARGIN`, to make room under `MAX_BUILT` for one that near. Never
+   * the one going on alone, which the player just jumped out of.
+   */
+  function makeRoom(distance: number): boolean {
+    let furthest: Drawn | null = null;
+    let far = distance + ROOM_MARGIN;
+    for (const entry of drawn.values()) {
+      if (coast !== null && coast.entry === entry) continue;
+      const gap = entry.group.position.distanceTo(player.position);
+      if (gap <= far) continue;
+      far = gap;
+      furthest = entry;
+    }
+    if (furthest === null) return false;
+    putAway(furthest);
+    return true;
   }
 
   function place(entry: Drawn): void {
@@ -2129,7 +2683,7 @@ export function createFleet(options: FleetOptions): Fleet {
    */
   function adopt(bay: ParkedCar): Drawn | null {
     const kerb = writePose(bay.position, bay.forward, up.copy(bay.position).normalize(), new Array<number>(9));
-    if (bay.paint !== null) paints.set(bay.id, bay.paint);
+    paints.set(bay.id, bay.paint);
     const entry = build(bay.id, null);
     if (entry === null) return null;
     bayPose.set(bay.id, kerb);
@@ -2141,6 +2695,7 @@ export function createFleet(options: FleetOptions): Fleet {
   }
 
   function takeSeat(entry: Drawn, seat: number): void {
+    endFades(entry);
     drawn.delete(entry.id);
     group.remove(entry.group);
     poseOf(entry.id, pose);
@@ -2454,6 +3009,20 @@ export function createFleet(options: FleetOptions): Fleet {
       return hit;
     },
 
+    freeSpotNear(point, radius, out) {
+      free.copy(point);
+      let moved = false;
+      // A push takes a body out of one box; a second box beside it takes another.
+      for (let round = 0; round < 4; round++) {
+        if (!fleet.collide(free, radius, freePush)) break;
+        // A hair past the side, or rounding leaves it touching and asked again.
+        free.add(freePush.setLength(freePush.length() + 0.01)).setLength(point.length());
+        moved = true;
+      }
+      if (moved) out.copy(free);
+      return moved;
+    },
+
     eachStanding(visit) {
       for (const entry of drawn.values()) {
         const [hx, hz] = wallOf(entry.model);
@@ -2485,6 +3054,7 @@ export function createFleet(options: FleetOptions): Fleet {
     },
 
     update(dt, camera) {
+      fader.update();
       // The vehicle in hand: the driver tells the link where it is, and a
       // passenger is carried wherever the driver has it.
       if (held !== null && player.ride !== null) keepSeat(dt, held);
@@ -2518,22 +3088,32 @@ export function createFleet(options: FleetOptions): Fleet {
 
       coastOn(dt);
 
+      // Far work, so only inside what is left of the frame's allowance.
+      if (warmed.distanceTo(player.position) > WARM_MOVE) {
+        const began = performance.now();
+        const more = (): boolean => mayBuild(began, WARM_MS, false);
+        if (more() && sites.warm(warmAt.copy(player.position).normalize(), WARM_REACH, more)) warmed.copy(player.position);
+      }
+
       scanAge += dt;
       if (scanAge > RESCAN_SECONDS || lastScan.distanceTo(player.position) > RESCAN_MOVE) {
         scan();
         scanAge = 0;
         lastScan.copy(player.position);
-        cone.aim(camera);
         const keep = new Set(wanted.map((entry) => entry.id));
         if (coast !== null) keep.add(coast.entry.id);
         for (const entry of [...drawn.values()]) if (!keep.has(entry.id)) putAway(entry);
       }
 
-      // Build what is wanted and not standing, nearest first, inside the frame's allowance.
+      // Build what is wanted and not standing, nearest first, inside the
+      // frame's allowance; at the cap, in the place of the furthest standing.
+      // The cone is aimed every frame, not only at a scan, so a vehicle
+      // turned towards is admitted now rather than up to a second later.
+      if (camera !== undefined) cone.aim(camera);
       const began = performance.now();
       for (const want of wanted) {
         if (drawn.has(want.id) || (held !== null && held.id === want.id)) continue;
-        if (drawn.size >= MAX_BUILT || want.distance > REACH) break;
+        if (want.distance > REACH) break;
         if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD)) break;
         if (want.distance > ALWAYS_WITHIN && cone.active) {
           if (!poseOf(want.id, pose)) continue;
@@ -2541,11 +3121,10 @@ export function createFleet(options: FleetOptions): Fleet {
           const model = models.get(want.site?.model ?? modelOfVehicle(want.id));
           if (model !== undefined && !cone.admits(centre, Math.max(...model.size))) continue;
         }
+        if (drawn.size >= MAX_BUILT && !makeRoom(want.distance)) break;
         const entry = build(want.id, want.site);
         if (entry === null) continue;
-        drawn.set(entry.id, entry);
-        group.add(entry.group);
-        place(entry);
+        arrive(entry);
       }
       updateStrips(dt, began);
 

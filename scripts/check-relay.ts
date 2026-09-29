@@ -1,7 +1,7 @@
 /**
  * The relay's protocol, against a running relay: the seats, the driven poses,
  * the parks that outlive a socket, the old player poses beside them, how
- * each player looks, the chat and its history, and the gestures.
+ * each player looks, the chat and its history, the gestures and the horn.
  *
  * It starts nothing. Run the relay first (`pnpm peers`, which is
  * `wrangler dev` on port 8787, or any port given to it) and point this at it:
@@ -12,7 +12,7 @@
  * room's storage never answers for this one. Not in CI: it wants a relay.
  */
 
-import { CHAT_BURST, CHAT_HISTORY, CHAT_INTERVAL_MS, CHAT_MAX, EMOTE_INTERVAL_MS } from '../server/src/limits.ts';
+import { CHAT_BURST, CHAT_HISTORY, CHAT_INTERVAL_MS, CHAT_MAX, EMOTE_INTERVAL_MS, HONK_INTERVAL_MS } from '../server/src/limits.ts';
 
 const URL_ = process.env.RELAY_URL ?? 'ws://localhost:8791/ws';
 const WAIT_MS = 2_000;
@@ -179,6 +179,28 @@ async function main(): Promise<void> {
   await sleep(100);
   driver.send({ t: 'vp', v: v1, p: [-HERE[0], 0, 0, 0, 1, 0, 1, 0, 0], sp: 1 });
   check(await other.none((m) => m.t === 'vp', 300), 'a pose across the planet from the last is dropped');
+  await sleep(100);
+
+  // --- The horn, held --------------------------------------------------------
+  other.send({ t: 'honk', k: 'car', on: true });
+  check(await driver.none((m) => m.t === 'honk', 300), 'a horn from anyone but the driver is dropped');
+  driver.send({ t: 'honk', k: 'car', on: true });
+  const held = await got('honk on', other.next((m) => m.t === 'honk' && m.id === driver.id));
+  check(held?.k === 'car' && held?.on === true, 'a horn held is passed on with `on: true`', held);
+  check(await driver.none((m) => m.t === 'honk'), 'and not echoed to the driver');
+  driver.send({ t: 'honk', k: 'car', on: true });
+  check(await other.none((m) => m.t === 'honk', 200), `a start under ${HONK_INTERVAL_MS} ms after the last is dropped`);
+  driver.send({ t: 'honk', k: 'car', on: false });
+  const let_go = await got('honk off', other.next((m) => m.t === 'honk' && m.on === false));
+  check(let_go?.k === 'car', 'the stop goes at once, whatever the pace', let_go);
+  driver.send({ t: 'honk', k: 'car', on: false });
+  check(await other.none((m) => m.t === 'honk', 200), 'a second stop is dropped');
+  driver.send({ t: 'honk', k: 'car', on: 'yes' });
+  check(await other.none((m) => m.t === 'honk', 200), 'an `on` that is not a boolean is dropped');
+  await sleep(HONK_INTERVAL_MS);
+  driver.send({ t: 'honk', k: 'bell' });
+  const tap = await got('honk tap', other.next((m) => m.t === 'honk' && m.k === 'bell'));
+  check(tap !== null && !('on' in tap), 'a tap in the old shape is passed on in the old shape', tap);
   await sleep(100);
 
   // --- Getting out parks it --------------------------------------------------

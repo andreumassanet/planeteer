@@ -710,6 +710,7 @@ function buildWater(world: World): {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
   material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: [0.11, 0.02, 0.01] };
   addGlint(material);
+  paintSea(material);
   addSeaWindow(material, 'hide');
   const mesh = new THREE.Mesh(geometry, material);
   // `atlas.scene.getObjectByName('ocean')` is in the debugging notes and is
@@ -777,6 +778,7 @@ ${FOAM_GLSL}`,
   // key, and Three keys on the source plus this.
   material.customProgramCacheKey = () => 'atlas-shallows';
   addGlint(material);
+  paintSea(material);
   addSeaWindow(material, 'hide');
   return material;
 }
@@ -1241,6 +1243,39 @@ const GLINT_CELL = 1.6;
 /** Where the specks have handed over to the soft band, in units from the eye. */
 const GLINT_BAND_FROM = 250;
 const GLINT_BAND_TO = 900;
+
+/** How much further from grey `paintSea` takes the water, and how much deeper. */
+const SEA_SATURATION = 1.45;
+const SEA_LIGHT = 0.88;
+
+/**
+ * The painted sea: every water surface's colour pushed off grey and a shade
+ * deeper, before the foam is laid on it.
+ *
+ * The water's colours are built from `OCEAN_COLOR` and the palette at build
+ * time and are right on the map; through the tone map and the haze they came
+ * out a chalky grey-cyan, where a painted sea is a saturated turquoise over
+ * sand and a deep blue off the shelf. One function, so the sphere, the
+ * shallows and the clear water round the player (`seabed.ts`) stay one sea.
+ * Chains the material's own hook; the foam, mixed in after `color_fragment`
+ * by the hooks before this one, keeps its white.
+ */
+export function paintSea(material: THREE.MeshToonMaterial): void {
+  const previous = material.onBeforeCompile;
+  const key = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+  {
+    float seaLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    diffuseColor.rgb = max(vec3(0.0), vec3(seaLuma) + (diffuseColor.rgb - vec3(seaLuma)) * ${SEA_SATURATION.toFixed(2)}) * ${SEA_LIGHT.toFixed(2)};
+  }`,
+    );
+  };
+  material.customProgramCacheKey = () => `${key}|sea`;
+}
 
 export function addGlint(material: THREE.MeshToonMaterial): void {
   const previous = material.onBeforeCompile;

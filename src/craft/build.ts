@@ -17,6 +17,7 @@
  * here stands proud of it by `PROUD` or more, as the scenery contract asks.
  */
 import * as THREE from 'three';
+import { varnish } from '../gloss.ts';
 import { createContext } from '../monuments/contract.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
 import { mergeMeshes } from '../merge.ts';
@@ -51,6 +52,7 @@ export function craftMaterial(): THREE.MeshToonMaterial {
   material.userData.outlineParameters = { ...source.userData.outlineParameters, outlineNormal: true };
   material.userData.atlasPainted = true;
   material.name = 'craft';
+  varnish(material);
   return material;
 }
 
@@ -360,8 +362,13 @@ export function finish(draft: CraftDraft): CraftModel {
     ...draft,
     size,
     seats: draft.seats.map((seat) => ({ ...seat, x: seat.x - dx, z: seat.z - dz })),
-    build(variant) {
-      const group = draft.build(variant);
+    ...(draft.lamps === undefined ? {} : { lamps: draft.lamps.map(([x, y, z]) => [x - dx, y, z - dz] as const) }),
+    // The paint goes through with the variant: a town's parked car taken
+    // over is built in the colour it was parked in. Until 2026-09-28 this
+    // passed the variant alone, so every car taken from a kerb came out in
+    // its variant's colour instead, whatever it had stood there in.
+    build(variant, paint) {
+      const group = draft.build(variant, paint);
       for (const child of group.children) {
         child.position.x -= dx;
         child.position.z -= dz;

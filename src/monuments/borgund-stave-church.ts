@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Borgund Stave Church — Lærdal, Norway.
@@ -148,18 +149,21 @@ export const borgundStaveChurch: Monument = {
     block(-EAVE, EAVE, AMBULATORY_TOP, 7.0, -EAVE, -AMBULATORY, timber);
 
     // Corner posts, then three more along the front and two down each side.
+    // Each stands `PROUD` out of the wall's face: flush to within a few
+    // hundredths, the post and the wall under it shared a plane and flickered.
+    const edge = EAVE - 0.72 + PROUD;
     const posts: [number, number][] = [
-      [-EAVE + 0.7, -EAVE + 0.7],
-      [EAVE - 0.7, -EAVE + 0.7],
-      [-EAVE + 0.7, EAVE - 0.7],
-      [EAVE - 0.7, EAVE - 0.7],
-      [-8.4, EAVE - 0.7],
-      [0, EAVE - 0.7],
-      [8.4, EAVE - 0.7],
-      [-EAVE + 0.7, -6.2],
-      [-EAVE + 0.7, 6.2],
-      [EAVE - 0.7, -6.2],
-      [EAVE - 0.7, 6.2],
+      [-edge, -edge],
+      [edge, -edge],
+      [-edge, edge],
+      [edge, edge],
+      [-8.4, edge],
+      [0, edge],
+      [8.4, edge],
+      [-edge, -6.2],
+      [-edge, 6.2],
+      [edge, -6.2],
+      [edge, 6.2],
     ];
     for (const [x, z] of posts) {
       block(x - 0.72, x + 0.72, SILL_TOP, 7.0, z - 0.72, z + 0.72, timber);
@@ -264,7 +268,9 @@ export const borgundStaveChurch: Monument = {
     //    none of that survives at 260 pixels; what does is a tall dark opening
     //    with a heavy frame, under the gallery roof.
     // -----------------------------------------------------------------------
-    block(-1.9, 1.9, SILL_TOP, 6.2, EAVE - 0.4, EAVE + 0.05, palette.bark);
+    // The leaf stands `PROUD` clear of the front posts' faces, which stand
+    // `PROUD` clear of the wall: nearer, the three shared a plane and flickered.
+    block(-1.9, 1.9, SILL_TOP, 6.2, EAVE - 0.4, EAVE + 2 * PROUD, palette.bark);
     for (const side of [-1, 1]) {
       block(side * 1.9, side * 2.8, SILL_TOP, 7.0, EAVE - 0.2, EAVE + 0.45, timber);
     }

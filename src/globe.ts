@@ -1228,6 +1228,19 @@ const PATCH_BROAD = 260;
 const PATCH_FINE = 75;
 const PATCH_LIGHT = 0.22;
 
+/**
+ * The brush: value noise at two scales under the patches, in units — about
+ * four bodies and one — moving the light by `BRUSH_LIGHT` either way. Up close
+ * a flat fill of green is plastic; broken at the scale of a stroke it is paint.
+ */
+const BRUSH_BROAD = 16;
+const BRUSH_FINE = 4.5;
+const BRUSH_LIGHT = 0.1;
+
+/** How much further from grey `atlasLush` takes a green, and how much darker. */
+const LUSH_SATURATION = 1.5;
+const LUSH_LIGHT = 0.8;
+
 const [MOSAIC_LOW, MOSAIC_HIGH] = MOSAIC_LAND;
 
 /**
@@ -1238,6 +1251,25 @@ const [MOSAIC_LOW, MOSAIC_HIGH] = MOSAIC_LAND;
  * the Voronoi of two rectangular lattices, one on half-integers and one on
  * integers, so the id it returns is unique per cell.
  */
+/**
+ * The painted green: the ground's colour pushed off grey and down a shade
+ * where it is green, and left alone where it is sand, rock or snow.
+ *
+ * `groundShade` is the climate's colour and the flag map's and the minimap's,
+ * and it is a pale, chalky green — right on a map, and on the ground a field
+ * of mint. A painted meadow is deeper and more saturated than the swatch it
+ * was named from, so the land and the grass both draw their green through
+ * this one function, and a blade stays the colour of the field it grows in.
+ * The green measure is `atlasPatches`' own.
+ */
+export const LUSH_GLSL = /* glsl */ `
+vec3 atlasLush(vec3 colour) {
+  float green = clamp((colour.g - max(colour.r, colour.b)) / max(colour.g, 1e-3) * 4.0, 0.0, 1.0);
+  float l = dot(colour, vec3(0.2126, 0.7152, 0.0722));
+  vec3 deep = max(vec3(0.0), vec3(l) + (colour - vec3(l)) * ${LUSH_SATURATION.toFixed(2)}) * ${LUSH_LIGHT.toFixed(2)};
+  return mix(colour, deep, green);
+}`;
+
 export const GROUND_MARKS_GLSL = /* glsl */ `
 float atlasHash(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
@@ -1318,6 +1350,26 @@ export function groundPatchesChunk(pos: string): string {
     // Two noises a pixel, and none at all where they would be mixed in at nothing.
     float atlasPatchShare = 1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasPatchFoot);
     if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, ${pos}), atlasPatchShare);
+  }`;
+}
+
+/**
+ * The brush alone, the land's own strokes (`BRUSH_BROAD`, `BRUSH_FINE`), for a
+ * material that draws some of its ground — a road's bank — so the ground it
+ * lays down is painted with the same hand. Faded where a pixel covers a
+ * stroke, as the land fades it. Needs `GROUND_MARKS_GLSL` in the fragment
+ * shader.
+ */
+export function groundBrushChunk(pos: string): string {
+  return /* glsl */ `{
+    vec2 atlasBrushPlane = atlasPlaneOf(${pos});
+    float atlasBrushFoot = max(length(dFdx(atlasBrushPlane)), length(dFdy(atlasBrushPlane)));
+    float atlasBrushAt = 1.0 - smoothstep(${(BRUSH_BROAD * 0.15).toFixed(2)}, ${(BRUSH_BROAD * 0.6).toFixed(2)}, atlasBrushFoot);
+    if (atlasBrushAt > 0.0) {
+      float atlasBrushStroke = atlasNoise(${pos} * ${(1 / BRUSH_BROAD).toFixed(6)}) * 0.6
+        + atlasNoise(${pos} * ${(1 / BRUSH_FINE).toFixed(6)} + 7.3) * 0.4;
+      diffuseColor.rgb *= 1.0 + (atlasBrushStroke - 0.5) * ${(BRUSH_LIGHT * 2).toFixed(3)} * atlasBrushAt;
+    }
   }`;
 }
 
@@ -1470,6 +1522,7 @@ const MOSAIC_GLSL = /* glsl */ `
 varying vec3 vAtlasPos;
 uniform float atlasMosaic;
 uniform float atlasFlag;
+${LUSH_GLSL}
 ${GROUND_MARKS_GLSL}`;
 
 /**
@@ -1555,6 +1608,7 @@ function mosaic(material: THREE.MeshToonMaterial): void {
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
+  diffuseColor.rgb = atlasLush(diffuseColor.rgb);
   ${groundWeatherChunk('vAtlasPos')}
   vec2 atlasPlane = atlasPlaneOf(vAtlasPos);
   // A cell smaller than a pixel is noise, especially when its normal changes
@@ -1568,12 +1622,23 @@ function mosaic(material: THREE.MeshToonMaterial): void {
   // and both weights are zero, which is most of the land on the screen. The
   // derivatives above stay outside the branches, where they are defined.
   vec2 atlasCell = vec2(0.0);
-  float atlasMark = atlasMosaic * atlasQuiet;
+  // The hex cells are the cel look's grain, and they are off: under a
+  // continuous light a tone a cell reads as tiling, not as ground.
+  float atlasMark = 0.0 * atlasMosaic * atlasQuiet;
   // The patches go the same way when a pixel covers a good share of the finer blot.
   float atlasPatchShare = atlasMosaic * atlasYield
     * (1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasFootprint));
   float atlasTone = atlasMark > 0.0 ? atlasCellTone(atlasPlane, atlasCell) : 1.0;
   if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, vAtlasPos), atlasPatchShare);
+  // The brush: the ground's lightness broken at the scale of a stroke, a few
+  // bodies across and a stride across, so a field up close is paint and not a
+  // fill. Gone where a pixel covers a stroke.
+  float atlasBrushShare = atlasYield * (1.0 - smoothstep(${(BRUSH_BROAD * 0.15).toFixed(2)}, ${(BRUSH_BROAD * 0.6).toFixed(2)}, atlasFootprint));
+  if (atlasBrushShare > 0.0) {
+    float atlasStroke = atlasNoise(vAtlasPos * ${(1 / BRUSH_BROAD).toFixed(6)}) * 0.6
+      + atlasNoise(vAtlasPos * ${(1 / BRUSH_FINE).toFixed(6)} + 7.3) * 0.4;
+    diffuseColor.rgb *= 1.0 + (atlasStroke - 0.5) * ${(BRUSH_LIGHT * 2).toFixed(3)} * atlasBrushShare;
+  }
   if (atlasMark > 0.0) diffuseColor.rgb *= mix(1.0, atlasTone, atlasMark);${
     flagged
       ? /* glsl */ `
@@ -1639,6 +1704,40 @@ export function landFlagProxy(): THREE.Mesh {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/** A ring's surface, smoothed: what `emit` writes a corner from. */
+interface Smooth {
+  /** The corners of the triangle being emitted, as indices into the ring's points. */
+  a: number;
+  b: number;
+  c: number;
+  /** A normal and a colour a point, as the buffer stores them. */
+  normals: Int8Array;
+  colors: Uint8Array;
+  /** Points under this index are on the ring's outline or a hole's. */
+  boundary: number;
+  /** Pairs of (offset in the normal buffer, point index) written for outline points. */
+  seams: number[];
+  /** The raised points, whose coordinates key the seams. */
+  keys: THREE.Vector3[];
+}
+
+/**
+ * A summed normal as three signed bytes, scaled by 127 (see `normals` in
+ * `buildLand`), falling back to the sphere's own up where the sum is nothing.
+ */
+function packNormal(x: number, y: number, z: number, up: THREE.Vector3, into: Int8Array, i: number): void {
+  let length = Math.hypot(x, y, z);
+  if (length < 1e-9) {
+    x = up.x;
+    y = up.y;
+    z = up.z;
+    length = 1;
+  }
+  into[i * 3] = Math.round((x / length) * 127);
+  into[i * 3 + 1] = Math.round((y / length) * 127);
+  into[i * 3 + 2] = Math.round((z / length) * 127);
 }
 
 /**
@@ -1760,6 +1859,10 @@ export function buildLand(world: World): THREE.Mesh {
   /** What the splice could not pair up, and what dropping triangles cost instead. */
   let unpaired = 0;
   let droppedFaces = 0;
+  /** The summed face normals at every ring-boundary point, by the point. */
+  const seamNormals = new Map<string, [number, number, number]>();
+  /** Every ring's smoothing record, for the seams' second pass. */
+  const seamsOf: Smooth[] = [];
 
   /** Appends a triangle, flipping it if its normal disagrees with `facing`. */
   const emit = (
@@ -1768,6 +1871,7 @@ export function buildLand(world: World): THREE.Mesh {
     c: THREE.Vector3,
     facing: THREE.Vector3,
     color: THREE.Color,
+    smooth?: Smooth,
   ): void => {
     normal.crossVectors(edge1.subVectors(b, a), edge2.subVectors(c, a));
     // Degenerate triangles draw nothing but carry a meaningless normal, which
@@ -1786,6 +1890,18 @@ export function buildLand(world: World): THREE.Mesh {
     const second = flipped ? c : b;
     const third = flipped ? b : c;
     positions.push(a.x, a.y, a.z, second.x, second.y, second.z, third.x, third.y, third.z);
+    if (smooth !== undefined) {
+      // The surface's own normals and colours, a vertex each, in the order the
+      // corners were just written.
+      const order = flipped ? [smooth.a, smooth.c, smooth.b] : [smooth.a, smooth.b, smooth.c];
+      for (const i of order) {
+        const at = normals.length;
+        normals.push(smooth.normals[i * 3]!, smooth.normals[i * 3 + 1]!, smooth.normals[i * 3 + 2]!);
+        colors.push(smooth.colors[i * 3]!, smooth.colors[i * 3 + 1]!, smooth.colors[i * 3 + 2]!);
+        if (i < smooth.boundary) smooth.seams.push(at, i);
+      }
+      return;
+    }
     // The winding decides the sign: emitting `a, c, b` reverses the cross
     // product, and the normal has to be the one the emitted triangle has.
     const scale = length > 0 ? ((flipped ? -127 : 127) / length) : 0;
@@ -1905,25 +2021,77 @@ export function buildLand(world: World): THREE.Mesh {
     // under its boundary, then the next ring.
     const surfaceFrom = positions.length / 9;
 
+    // **Smooth normals and a colour a vertex** (2026-09-28). The surface was
+    // flat-shaded — one normal and one colour a face, written three times —
+    // because a cel ramp needs facets to step across. The light is continuous
+    // now, and on a continuous light a flat face is a hard crease the size of
+    // the triangle, which over a hillside of 200-unit triangles reads as
+    // folded card. So each vertex takes the area-weighted mean of the normals
+    // of the faces round it, and the biome's colour at its own point, and
+    // both are interpolated across the face: a hill turns over, and a field
+    // shades into the next.
+    //
+    // A ring's outline is shared with its neighbour, and each side would
+    // average only its own faces: a seam of light along every frontier. So
+    // the boundary vertices keep their sums in `seamNormals`, keyed by the
+    // point itself — both rings raise it from the same numbers, so the key is
+    // exact — and are rewritten once every ring is in (see below).
+    const count = raised.length;
+    const vertexNormals = new Float32Array(count * 3);
     for (const [a, b, c] of triangles as [number, number, number][]) {
-      // The biome is sampled once per triangle, at its centre. Per vertex would
-      // be three times the cost for a mesh that is flat-shaded anyway: one
-      // normal per face is what gives the facets, so one colour per face is the
-      // resolution the surface actually has.
-      const ua = unit[a]!;
-      const ub = unit[b]!;
-      const uc = unit[c]!;
-      scratch.set(ua.x + ub.x + uc.x, ua.y + ub.y + uc.y, ua.z + ub.z + uc.z).normalize();
-      groundShade(
-        scratch.x,
-        scratch.y,
-        scratch.z,
-        (relief[a]! + relief[b]! + relief[c]!) / 3,
-        tint,
-        ground,
-      );
-      emit(raised[a]!, raised[b]!, raised[c]!, ua, ground);
+      const pa = raised[a]!;
+      const pb = raised[b]!;
+      const pc = raised[c]!;
+      normal.crossVectors(edge1.subVectors(pb, pa), edge2.subVectors(pc, pa));
+      // Outward, whichever way the triangulator wound it; the length is twice
+      // the area, which is the weight.
+      if (normal.dot(unit[a]!) < 0) normal.negate();
+      for (const i of [a, b, c]) {
+        vertexNormals[i * 3] = vertexNormals[i * 3]! + normal.x;
+        vertexNormals[i * 3 + 1] = vertexNormals[i * 3 + 1]! + normal.y;
+        vertexNormals[i * 3 + 2] = vertexNormals[i * 3 + 2]! + normal.z;
+      }
     }
+    const boundary = all.length;
+    for (let i = 0; i < boundary; i++) {
+      const p = raised[i]!;
+      const key = `${p.x},${p.y},${p.z}`;
+      const sum = seamNormals.get(key);
+      if (sum === undefined) seamNormals.set(key, [vertexNormals[i * 3]!, vertexNormals[i * 3 + 1]!, vertexNormals[i * 3 + 2]!]);
+      else {
+        sum[0] += vertexNormals[i * 3]!;
+        sum[1] += vertexNormals[i * 3 + 1]!;
+        sum[2] += vertexNormals[i * 3 + 2]!;
+      }
+    }
+    const smooth: Smooth = {
+      a: 0,
+      b: 0,
+      c: 0,
+      normals: new Int8Array(count * 3),
+      colors: new Uint8Array(count * 3),
+      boundary,
+      seams: [],
+      keys: raised,
+    };
+    const used = new Uint8Array(count);
+    for (const [a, b, c] of triangles as [number, number, number][]) used[a] = used[b] = used[c] = 1;
+    for (let i = 0; i < count; i++) {
+      if (used[i] === 0) continue;
+      packNormal(vertexNormals[i * 3]!, vertexNormals[i * 3 + 1]!, vertexNormals[i * 3 + 2]!, unit[i]!, smooth.normals, i);
+      const u = unit[i]!;
+      groundShade(u.x, u.y, u.z, relief[i]!, tint, ground);
+      smooth.colors[i * 3] = Math.round(ground.r * 255);
+      smooth.colors[i * 3 + 1] = Math.round(ground.g * 255);
+      smooth.colors[i * 3 + 2] = Math.round(ground.b * 255);
+    }
+    for (const [a, b, c] of triangles as [number, number, number][]) {
+      smooth.a = a;
+      smooth.b = b;
+      smooth.c = c;
+      emit(raised[a]!, raised[b]!, raised[c]!, unit[a]!, ground, smooth);
+    }
+    seamsOf.push(smooth);
 
     // The cliff, one quad per boundary edge. The outline was densified before
     // triangulating, so these edges are exactly the boundary of the surface
@@ -1983,10 +2151,26 @@ export function buildLand(world: World): THREE.Mesh {
     });
   });
 
+  // The frontiers: every boundary vertex written with its own ring's mean is
+  // rewritten with the mean over every ring that shares the point.
+  const packed = new Int8Array(3);
+  for (const smooth of seamsOf) {
+    for (let k = 0; k < smooth.seams.length; k += 2) {
+      const at = smooth.seams[k]!;
+      const i = smooth.seams[k + 1]!;
+      const p = smooth.keys[i]!;
+      const sum = seamNormals.get(`${p.x},${p.y},${p.z}`)!;
+      packNormal(sum[0], sum[1], sum[2], scratch.copy(p).normalize(), packed, 0);
+      normals[at] = packed[0]!;
+      normals[at + 1] = packed[1]!;
+      normals[at + 2] = packed[2]!;
+    }
+  }
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  // One normal per face, written three times: non-indexed on purpose, because
-  // that is what gives flat facets. Smoothing them would dissolve the cel bands.
+  // Non-indexed: the surface carries a smooth normal a vertex (see the ring
+  // loop), and the walls a flat one a face, which an index could not share.
   geometry.setAttribute('normal', new THREE.Int8BufferAttribute(normals, 3, true));
   geometry.setAttribute('color', new THREE.Uint8BufferAttribute(colors, 3, true));
   geometry.computeBoundingSphere();

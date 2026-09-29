@@ -26,8 +26,12 @@ import {
   cleanEmote,
   cleanFlags,
   freshBucket,
+  freshHonk,
   hasFlag,
+  HONK_INTERVAL_MS,
+  cleanHonkOn,
   spendChat,
+  spendHonk,
 } from '../server/src/limits.ts';
 import {
   COMMANDS,
@@ -137,6 +141,25 @@ test(`${CHAT_BURST} lines at once, then one each ${CHAT_INTERVAL_MS} ms`, () => 
   const later = t0 + 3_600_000;
   for (let i = 0; i < CHAT_BURST; i++) assert.ok(spendChat(bucket, later + i));
   assert.equal(spendChat(bucket, later + CHAT_BURST), false);
+});
+
+test(`a horn starts at most once each ${HONK_INTERVAL_MS} ms, and stops only what started`, () => {
+  const horn = freshHonk();
+  const t0 = 2_000_000;
+  assert.equal(spendHonk(horn, false, t0), false, 'a stop with nothing sounding');
+  assert.ok(spendHonk(horn, true, t0), 'a start');
+  assert.equal(spendHonk(horn, true, t0 + 10), false, 'a second start at once');
+  assert.ok(spendHonk(horn, false, t0 + 20), 'the stop, however soon');
+  assert.equal(spendHonk(horn, false, t0 + 30), false, 'and only once');
+  assert.equal(spendHonk(horn, true, t0 + 100), false, 'a tap again too soon');
+  assert.ok(spendHonk(horn, true, t0 + HONK_INTERVAL_MS), 'a start one interval on');
+  assert.ok(spendHonk(horn, true, t0 + HONK_INTERVAL_MS * 4), 'a refresh while held');
+  assert.ok(spendHonk(horn, undefined, t0 + HONK_INTERVAL_MS * 6), 'a tap from an older client');
+  assert.equal(spendHonk(horn, false, t0 + HONK_INTERVAL_MS * 6 + 1), false, 'a tap is not held, so nothing stops it');
+  assert.equal(cleanHonkOn(true), true);
+  assert.equal(cleanHonkOn(false), false);
+  assert.equal(cleanHonkOn(undefined), undefined);
+  for (const bad of [1, 0, 'true', null, {}]) assert.equal(cleanHonkOn(bad), null, String(bad));
 });
 
 test('a clock that goes backwards earns nothing', () => {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { World } from './geo.ts';
 import { PLANET_RADIUS } from './globe.ts';
 import { OCEAN_COLOR, PALETTE, createToonRamp } from './theme.ts';
-import { FOAM_GLSL, SURF_COLOR, addGlint, addSeaWindow, ribbonColour, seaClock, seaWindow, surfaceLift, waterProfile } from './ocean.ts';
+import { FOAM_GLSL, SURF_COLOR, addGlint, addSeaWindow, paintSea, ribbonColour, seaClock, seaWindow, surfaceLift, waterProfile } from './ocean.ts';
 import {
   COLOUR_REACH,
   SEA_REACH,
@@ -586,6 +586,7 @@ ${FOAM_GLSL}`,
   };
   material.customProgramCacheKey = () => 'atlas-sea-water';
   addGlint(material);
+  paintSea(material);
   addSeaWindow(material, 'show');
   return material;
 }

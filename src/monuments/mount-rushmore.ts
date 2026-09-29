@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Mount Rushmore.
@@ -178,7 +179,7 @@ const RIBS: readonly (readonly [number, number, number, number])[] = [
   [-1, 4, 63, 10], // crops Roosevelt's chin
   [5, 10, 46, 15],
   [15, 21, 86, 6], // the mass between Roosevelt and Lincoln
-  [21, 26, 67, 13], // crops Lincoln's beard
+  [21, 26, 67 - PROUD, 13], // crops Lincoln's beard; under the 67 mass's top, which it would share
   [27, 32, 51, 12],
   [33, 38, 68, 13], // crops Lincoln's beard
   [38, 43, 40, 8],
@@ -508,7 +509,9 @@ export const mountRushmore: Monument = {
         crown(17, 8.5, 11, 6.6, 19.4, 7.2); // swept back and up, and the tallest head
       } else if (kind === 'roosevelt') {
         crown(17.4, 11.5, 9, 6, 20, 7.2);
-        cut(16.2, 1.4, 2.4, shade, 0, 15, 9.4); // the pince-nez, and its shadow
+        // The pince-nez, and its shadow; `PROUD` in front of the brow, whose
+        // face it would otherwise share and flicker in.
+        cut(16.2, 1.4, 2.4, shade, 0, 15, BROW_Z + PROUD);
         cut(8.4, 2.4, 3.4, stone, 0, 4.7, 10.8); // the moustache, which is his mouth
       } else {
         crown(17.4, 11, 8, 6, 21.4, 7.2); // a high forehead, so a high hairline
@@ -556,15 +559,21 @@ export const mountRushmore: Monument = {
         // Fresh blasting waste is paler than the weathered face; the rest has
         // been lying there since 1941.
         const tint = grain(index, 4.3);
+        const color = tint > 0.5 ? stone : tint < -0.65 ? shade : rock;
+        // A row up the heap stands on a cone, and chunks of two colours there
+        // would share the row's underside plane and flicker where they overlap,
+        // so each colour is sunk its own `PROUD` into the cone. The ground row
+        // stays on y = 0.
+        const sink = y > 0 ? (color === stone ? 0 : color === rock ? PROUD : 2 * PROUD) : 0;
         const chunk = taper(
           radius,
           radius * 0.62,
           radius * (1.2 + 0.35 * scatter),
-          tint > 0.5 ? stone : tint < -0.65 ? shade : rock,
+          color,
           5,
         );
         chunk.rotation.y = grain(index, 0.4) * 0.6;
-        chunk.position.set(t * spread + grain(index, 1.1) * 3, y, front + grain(index, 3.5) * 2);
+        chunk.position.set(t * spread + grain(index, 1.1) * 3, y - sink, front + grain(index, 3.5) * 2);
         group.add(chunk);
         index++;
       }

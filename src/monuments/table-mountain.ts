@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Monument } from './contract.ts';
 
 /**
@@ -636,7 +637,9 @@ export const tableMountain: Monument = {
     // Crags on the ridge running down to the sea, so the peak has a ridge and
     // not two symmetrical sides.
     group.add(mass(DEVIL_X - 6.5, 1.5, 20, 4.0, 1.2, 3.4, 8.5, rock, 5));
-    group.add(mass(DEVIL_X - 7.5, -2.0, 14, 3.2, 1.0, 2.8, 6.0, gully, 5));
+    // The gully's foot is `PROUD` down in the scree, not level with the rock
+    // mass's underside at 14, where the two colours shared a plane.
+    group.add(mass(DEVIL_X - 7.5, -2.0, 14 - PROUD, 3.2, 1.0, 2.8, 6.0 + PROUD, gully, 5));
     group.add(mass(DEVIL_X + 5.5, 2.5, 22, 3.6, 1.1, 3.2, 6.5, rock, 5));
 
     // --- Kloof Nek, and Lion's Head beyond it ---

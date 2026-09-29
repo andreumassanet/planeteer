@@ -74,6 +74,12 @@ const REAR_AXLE = -0.43 * M;
 const FRONT_AXLE = 0.62 * M;
 /** The grips: an upright city bike's, over the saddle and a forearm ahead of the head tube's top. */
 const BARS = { y: BIKE_HIP + 0.1 * H, z: 0.28 * M };
+/**
+ * The lamp on the head tube, every bicycle's: its axis's height, where it
+ * starts and how long it is, lying along +Z. Under the basket on the ones
+ * that carry one. Where its glass is is the bicycle's headlamp (`lamps`).
+ */
+const BIKE_LAMP = { y: BIKE_HIP - 0.1 * M, z: FRONT_AXLE - 0.1 * M, radius: 0.05 * M, length: 0.07 * M };
 /** How far the bicycle goes for a turn of the pedals: a middle gear, about seven metres. */
 const BIKE_GEARING = 7.4 * M;
 
@@ -139,16 +145,16 @@ function buildBicycle(variant: number, body?: number): THREE.Group {
     const grip = strut(new V(x, BARS.y, BARS.z + 0.05 * M), new V(x, BARS.y, BARS.z - 0.07 * M), tube * 1.6, PALETTE.ink);
     group.add(grip);
   }
-  // A basket on the front of every other one, and a lamp on the rest.
+  // A lamp on every one, and a basket over it on every other one, clear of
+  // the lamp's top.
+  const lamp = column(BIKE_LAMP.radius, BIKE_LAMP.length, PALETTE.cream, 8);
+  lamp.rotation.x = Math.PI / 2;
+  lamp.position.set(0, BIKE_LAMP.y, BIKE_LAMP.z);
+  group.add(lamp);
   if (variant % 2 === 1) {
     const basket = box(0.36 * M, 0.2 * M, 0.26 * M, PALETTE.brown);
-    basket.position.set(0, headTop.y + 0.02 * M, headTop.z + 0.18 * M);
+    basket.position.set(0, BIKE_LAMP.y + BIKE_LAMP.radius + 0.01 * M, headTop.z + 0.18 * M);
     group.add(basket);
-  } else {
-    const lamp = column(0.05 * M, 0.07 * M, PALETTE.cream, 8);
-    lamp.rotation.x = Math.PI / 2;
-    lamp.position.set(0, headTop.y - 0.02 * M, headTop.z + 0.02 * M);
-    group.add(lamp);
   }
   // A rack over the back wheel.
   const rack = box(0.16 * M, 0.025 * M, 0.34 * M, trim);
@@ -205,6 +211,7 @@ export function bicycleModel(): CraftModel {
     draft: 0,
     gearing: BIKE_GEARING,
     variants: BIKE_PAINTS.length,
+    lamps: [[0, BIKE_LAMP.y, BIKE_LAMP.z + BIKE_LAMP.length]],
     build: buildBicycle,
   });
 }
@@ -237,6 +244,8 @@ const PILLION_HIP = MOTO_HIP + 0.06 * M;
 const PILLION_Z = MOTO_SEAT_Z - 0.5 * M;
 /** The bars and the pegs. */
 const MOTO_BARS = { y: 1.08 * M, z: 0.38 * M };
+/** The headlamp's glass in its bowl, lying along +Z: its axis's height, where it starts, how wide and how deep. */
+const MOTO_LAMP = { y: 0.9 * M, z: 0.58 * M, radius: 0.085 * M, length: 0.02 * M };
 const PEG = { y: 0.34 * M, z: MOTO_SEAT_Z + 0.16 * M };
 /** The head of the frame, which the fork turns in, and the fork's rake from it to the axle. */
 const STOCK = new V(0, 0.98 * M, 0.44 * M);
@@ -458,9 +467,9 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
   bowl.rotation.x = Math.PI / 2;
   bowl.position.set(0, 0.9 * M, 0.5 * M);
   group.add(bowl);
-  const lamp = column(0.085 * M, 0.02 * M, PALETTE.cream, 10);
+  const lamp = column(MOTO_LAMP.radius, MOTO_LAMP.length, PALETTE.cream, 10);
   lamp.rotation.x = Math.PI / 2;
-  lamp.position.set(0, 0.9 * M, 0.58 * M);
+  lamp.position.set(0, MOTO_LAMP.y, MOTO_LAMP.z);
   group.add(lamp);
   const clocks = column(0.05 * M, 0.04 * M, PALETTE.ink, 8);
   clocks.rotation.x = -0.6;
@@ -536,6 +545,7 @@ export function motorbikeModel(): CraftModel {
     seats: MOTO_SEATS,
     draft: 0,
     variants: MOTO_PAINTS.length,
+    lamps: [[0, MOTO_LAMP.y, MOTO_LAMP.z + MOTO_LAMP.length]],
     build: buildMotorbike,
   });
 }

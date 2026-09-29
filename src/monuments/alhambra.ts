@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument, Mesh } from './contract.ts';
 
 /**
@@ -168,10 +169,12 @@ const STEPS: Step[] = [
 /**
  * The two anchor towers are built out on spurs of rock in front of the terrace
  * line, as they are in life. Without these their front faces overhang thin air.
+ * Each spur's face stands `PROUD` in front of its tower's: flush, the rock and
+ * the masonry shared a plane and flickered.
  */
 const SPURS: { x: number; w: number; h: number; z: number; d: number }[] = [
-  { x: 42.0, w: 9.6, h: 5.4, z: 4.5, d: 1.8 }, // Torre de la Vela
-  { x: -24.0, w: 11.6, h: 4.0, z: 4.6, d: 2.4 }, // Torre de Comares
+  { x: 42.0, w: 9.6, h: 5.4, z: 4.5 + PROUD / 2, d: 1.8 + PROUD }, // Torre de la Vela
+  { x: -24.0, w: 11.6, h: 4.0, z: 4.6 + PROUD / 2, d: 2.4 + PROUD }, // Torre de Comares
 ];
 
 // --- the towers ------------------------------------------------------------
@@ -219,7 +222,9 @@ const TOWERS: Tower[] = [
   },
   {
     name: 'Torre del Homenaje',
-    x: 21.5, hw: 3.6, hd: 3.4, base: 4.0, shaft: 18.6, crown: 20.8,
+    // 3.3 deep, not 3.4, so its face stands 0.1 behind the rock's at 4.6
+    // rather than sharing that plane in another colour.
+    x: 21.5, hw: 3.6, hd: 3.3, base: 4.0, shaft: 18.6, crown: 20.8,
     roof: 0, cornice: true, flanks: true,
   },
   // Then twenty-one units of low wall over the ravine, and the palaces begin.
@@ -264,7 +269,9 @@ const CURTAINS: Curtain[] = [
   { x0: -3.8, x1: 4.0, base: 3.0, top: 10.8 },
   { x0: -19.0, x1: -8.2, base: 3.2, top: 11.4 }, // the palace stretch
   { x0: -32.6, x1: -28.6, base: 2.4, top: 10.6 },
-  { x0: -46.6, x1: -37.2, base: 0.4, top: 8.6 }, // the tail, trailing off east
+  // The tail, trailing off east; it stops `PROUD` short of the rock's end,
+  // whose end face it shared.
+  { x0: -46.6 + PROUD, x1: -37.2, base: 0.4, top: 8.6 },
 ];
 
 // --- crenellation ----------------------------------------------------------
@@ -342,7 +349,7 @@ const OPENINGS: Opening[] = [
   { x: 43.2, y: 14.0, hw: 0.55, h: 2.2, z: 5.4 },
   { x: 42.0, y: 18.6, hw: 0.6, h: 2.4, z: 5.4 },
   // Torre del Homenaje.
-  { x: 21.5, y: 12.0, hw: 0.6, h: 2.4, z: 4.6 },
+  { x: 21.5, y: 12.0, hw: 0.6, h: 2.4, z: 4.5 },
   // The Partal loggia, under its own tiled roof.
   { x: -35.9, y: 9.6, hw: 0.55, h: 2.2, z: 4.1 },
   { x: -34.1, y: 9.6, hw: 0.55, h: 2.2, z: 4.1 },

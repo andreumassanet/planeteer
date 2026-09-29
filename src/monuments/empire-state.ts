@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -132,7 +133,7 @@ const LEDGE_OUT = 0.5;
  * between "lit" and "lit" to spend on it. A strip standing *proud* gets its own
  * outline for free, and an outline is a hard black line at any distance.
  */
-const PROUD = 0.28;
+const STRIP_OUT = 0.28;
 
 /**
  * The zoning envelope, bottom to top: the mass runs `base` to `top` at
@@ -213,7 +214,7 @@ export const empireState: Monument = {
       halfZ: number,
       width: number,
     ): void => {
-      const strip = box(width, top - base, halfZ * 2 + PROUD * 2, dark);
+      const strip = box(width, top - base, halfZ * 2 + STRIP_OUT * 2, dark);
       strip.position.set(x, base, 0);
       group.add(strip);
     };
@@ -226,7 +227,7 @@ export const empireState: Monument = {
       halfX: number,
       depth: number,
     ): void => {
-      const strip = box(halfX * 2 + PROUD * 2, top - base, depth, dark);
+      const strip = box(halfX * 2 + STRIP_OUT * 2, top - base, depth, dark);
       strip.position.set(0, base, z);
       group.add(strip);
     };
@@ -264,11 +265,14 @@ export const empireState: Monument = {
     // wide centre pier / slot / pier / slot / corner pier. Nine bands on a
     // 12.3-unit face is about 4 pixels each in a monument-sheet cell, which is
     // the floor: three strips would be a fence, five would be grey.
+    // They stop `PROUD` under the shaft's top: level with it, the dark strips'
+    // tops and the stone's shared a plane round the crown's foot and flickered.
+    const stripTop = SHAFT_TOP - PROUD;
     for (const x of mirrored([1.45, 3.95])) {
-      acrossFront(SHAFT_BASE, SHAFT_TOP, x, SHAFT_Z, 1.15);
+      acrossFront(SHAFT_BASE, stripTop, x, SHAFT_Z, 1.15);
     }
     for (const z of mirrored([0, 2.85])) {
-      alongSide(SHAFT_BASE, SHAFT_TOP, z, SHAFT_X, 1.2);
+      alongSide(SHAFT_BASE, stripTop, z, SHAFT_X, 1.2);
     }
 
     // The corner piers stand proud of both faces they meet, which puts four
@@ -343,9 +347,11 @@ export const empireState: Monument = {
 
     // Two collars. A bare 1.2-unit stick is a scratch on the sky; two beads on
     // it are a piece of engineering, and they cost 48 triangles.
+    // The upper one stops `PROUD` short of the mast's top, which it would
+    // otherwise share in another colour.
     for (const [y, radius] of [
       [63.0, 1.0],
-      [65.0, 0.85],
+      [65.0 - PROUD, 0.85],
     ] as const) {
       const ring = column(radius, 0.5, trim, 6);
       ring.position.y = y;

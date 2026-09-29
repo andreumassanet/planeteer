@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Victoria Falls.
@@ -527,7 +528,11 @@ export const victoriaFalls: Monument = {
       // gorge against the sheets' 2.0, so it is a real cornice: the top face
       // catches the sun square and reads a band brighter than the curtain
       // hanging under it, which is the water going over the edge.
-      slab(fall.x0, fall.x1, LIP_Z - 0.6, LIP_Z + 3.4, fall.lip - 2.0, fall.lip - 0.3, foam);
+      //
+      // It runs `PROUD` into the rock at either end: cut to the fall's own
+      // width, its ends lay in the planes of the channel walls beside it, and
+      // flush faces of two colours flicker.
+      slab(fall.x0 - PROUD, fall.x1 + PROUD, LIP_Z - 0.6, LIP_Z + 3.4, fall.lip - 2.0, fall.lip - 0.3, foam);
 
       // The sheet, cut into overlapping slabs of alternating depth and yawed a
       // few degrees each. Widths are drifted off the even division so the
@@ -551,7 +556,9 @@ export const victoriaFalls: Monument = {
           LIP_Z,
           LIP_Z + 1.5 + (j % 2) * 0.5,
           0.9,
-          fall.lip,
+          // `PROUD` under the lip: at the lip itself the yawed top lay in the
+          // plane of the river's surface and of the spurs' tops beside it.
+          fall.lip - PROUD,
           foam,
         );
         sheet.rotation.y = wobble * 0.26;

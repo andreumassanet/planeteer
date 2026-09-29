@@ -8,10 +8,14 @@ import { measure } from './scenery/contract.ts';
 import type { RegionStyle, SceneryContext } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import { PALETTE } from './theme.ts';
-import type { LandProbe } from './land-probe.ts';
-import { COUNTRY_PARTS, ROTOR_RADIUS, buildRotor, pieceRng } from './countryside-kit.ts';
+import { drawnFootprint } from './land-probe.ts';
+import type { DrawnFootprint, LandProbe } from './land-probe.ts';
+import { COUNTRY_PARTS, ROTOR_RADIUS, buildRotor, pieceRng, tractorScale } from './countryside-kit.ts';
+import { countryVehicleId, fleetVariant, parkedArrays, parkedModel } from './craft/parked.ts';
 import type { RotorKind } from './countryside-kit.ts';
 import type { BodyKind } from './scenery/occupancy.ts';
+import { nearArrays } from './scenery/tree-forms.ts';
+import type { LeafArrays } from './scenery/tree-forms.ts';
 import type { CountryLine, CountryPiece, CountryPlan, CropField, CropId, Countryside } from './countryside.ts';
 import { cellsOf, rootOf } from './tile-grid.ts';
 
@@ -33,7 +37,7 @@ import { cellsOf, rootOf } from './tile-grid.ts';
  * between points of the relief, up to a unit and a half off it on a tenth of
  * the ground (`land-probe.ts`), and a patch of wheat a quarter of a unit
  * over the relief is a patch of wheat under the land on a tenth of the
- * farmland. So where the land probe answers — the near field, where the sward
+ * farmland. So where the land probe answers — the near field, where the grass
  * grows — a field's every vertex is the drawn land's own height and normal
  * plus its level's `FIELD_LIFTS`. Past it (a tile built from the air, before the probe has
  * gathered) a field stands `FAR_FIELD_LIFT` over the relief with a skirt down
@@ -64,6 +68,9 @@ export const MOTION_LEVEL = 1;
 /** How far a piece is bedded, as in `vegetation.ts`'s `SEATING`: burying is invisible, floating is not. */
 export const PIECE_BURY = 0.2;
 
+/** The parts that are the fleet's own vehicles, standing still until one is taken (`CountryMachine`). */
+const MACHINES: ReadonlySet<string> = new Set(['tractor']);
+
 /** A flattened build: what `vegetation.ts` calls a `FlatVariant`. */
 export interface CountryFlat {
   position: Float32Array;
@@ -81,6 +88,25 @@ export interface CountryFlat {
 export interface CountryPlaced {
   flat: CountryFlat;
   matrix: THREE.Matrix4;
+  /** A near tree's leaf cards and whether its wood bends in the wind (`vegetation.ts`'s `CARD_LEVEL`). */
+  leaves?: LeafArrays | null;
+  sways?: boolean;
+  /** A vehicle that can be taken (a farm's tractor): its fleet id and where it stands. See `CountryMachine`. */
+  machine?: CountryMachine;
+}
+
+/**
+ * A vehicle the countryside stands that the fleet can take: a farm's tractor,
+ * named `countryVehicleId` of its cell and its ordinal there, merged into its
+ * tile as the fleet's own craft in the look its id decides (`craft/parked.ts`).
+ */
+export interface CountryMachine {
+  id: string;
+  /** The craft that takes its place. */
+  model: string;
+  /** Its base, and the way it faces, in the world. */
+  position: THREE.Vector3;
+  forward: THREE.Vector3;
 }
 
 /** Rows of numbers for `countryside-motion.ts`, world space. */
@@ -100,6 +126,8 @@ export const ROTOR_KINDS: readonly RotorKind[] = ['sails', 'blades', 'vanes'];
 export interface CountryTile {
   placed: CountryPlaced[];
   vertices: number;
+  /** The vertices it would have were every tree drawn as lumps: what the budget counts. */
+  priced: number;
   pieces: number;
   fields: number;
   fences: number;
@@ -115,6 +143,10 @@ export interface CountryFrame {
   north: THREE.Vector3;
   /** World to the tile's own space. */
   inverse: THREE.Matrix4;
+  /** A near tile: a tree is its wood and its leaf cards, not its lumps. */
+  cards?: boolean;
+  /** Where each piece's base went, while `vegetation.sample` is asking (`pnpm seated`). */
+  seats?: { id: string; x: number; y: number; z: number; reach: number; drawn: boolean }[];
 }
 
 export interface CountryBuilder {
@@ -133,6 +165,12 @@ export interface CountryBuilder {
   blocks(x: number, z: number, spread: number): boolean;
   /** The tile's share of the countryside. `floor` is the smallest thing legible at its level. */
   build(plans: readonly CountryPlan[], frame: CountryFrame, floor: number, land: LandProbe | undefined, landReady: boolean): CountryTile;
+  /**
+   * Whether a vehicle the countryside stands has been taken, asked by every
+   * build so one that is somewhere else is not also in its yard. Until this
+   * is set, nothing has been.
+   */
+  setTaken(test: (id: string) => boolean): void;
 }
 
 interface Look {
@@ -178,7 +216,7 @@ function lookOf(ctx: SceneryContext, crop: CropId): Look {
   }
 }
 
-/** The colour the sward takes in a field of straw, or null where no grass grows through it. */
+/** The colour the grass takes in a field of straw, or null where no grass grows through it. */
 export function strawOf(ctx: SceneryContext, crop: CropId): number | null {
   const look = lookOf(ctx, crop);
   return look.straw ? look.plate[0] : null;
@@ -218,6 +256,53 @@ export function createCountryBuilder(
       }
     }
     variants.set(key, made);
+    return made;
+  }
+  /**
+   * A vehicle the fleet can take, as its tile draws it: the craft itself in
+   * the look its id decides, at the part's size (`tractorScale`), solid as a
+   * farm's building is. Null while the kit is not registered.
+   */
+  const machineFlats = new Map<string, CountryFlat | null>();
+  function machineFlat(craft: string, variant: number): CountryFlat | null {
+    const key = `${craft}#${variant}`;
+    const known = machineFlats.get(key);
+    if (known !== undefined) return known;
+    const model = parkedModel(craft);
+    if (model === null) return null;
+    let made: CountryFlat | null = null;
+    try {
+      const scale = tractorScale(model);
+      made = {
+        ...parkedArrays(model, variant, undefined, scale),
+        height: model.size[2] * scale,
+        footprint: COUNTRY_PARTS[craft]?.footprint ?? Math.max(model.size[0], model.size[1]) * scale * 0.5,
+        tilt: 0,
+        solid: 'walls',
+      };
+    } catch (error) {
+      console.warn(`countryside: the ${key} did not build`, error);
+    }
+    machineFlats.set(key, made);
+    return made;
+  }
+  let taken: (id: string) => boolean = () => false;
+
+  /** A tree piece as a near tile draws it: its wood, solid as its lumps are, and its cards. */
+  const nearVariants = new Map<string, { flat: CountryFlat; leaves: LeafArrays } | null>();
+  function nearOf(piece: CountryPiece, style: RegionStyle): { flat: CountryFlat; leaves: LeafArrays } | null {
+    if (piece.scenic) return null;
+    const key = `${piece.part}|${style.id}|${piece.variant}`;
+    const known = nearVariants.get(key);
+    if (known !== undefined) return known;
+    const spec = COUNTRY_PARTS[piece.part];
+    const lumps = flatOf(piece, style);
+    let made: { flat: CountryFlat; leaves: LeafArrays } | null = null;
+    if (spec?.form !== undefined && lumps !== null) {
+      const { wood, leaves } = nearArrays(spec.form(pieceRng(spec.id, style.id, piece.variant), style));
+      made = { flat: { ...wood, outline: wood.normal, triangles: wood.position.length / 9, height: lumps.height, footprint: lumps.footprint, tilt: 0, solid: lumps.solid }, leaves };
+    }
+    nearVariants.set(key, made);
     return made;
   }
   const rotors = new Map<RotorKind, CountryFlat>();
@@ -353,19 +438,32 @@ export function createCountryBuilder(
     quaternion.multiply(spin.setFromAxisAngle(AXIS_Y, yaw));
   }
 
-  /** How high a piece's base is: on the ground, bedded to the lowest of its footprint, never over the drawn land. */
+  /**
+   * How high a piece's base is: bedded to the lowest of the ground under its
+   * footprint — **the drawn land's** where the probe has it (`drawnFootprint`),
+   * which is what is seen, else the relief's. Whether it was the drawn land
+   * is left in `seatedOnDrawn`.
+   *
+   * It was the lower of the relief's lowest and the drawn land under the
+   * middle, and the drawn land is up to seven units off the relief: on a
+   * slope where the mesh runs under the relief, a barn's downhill side
+   * stood on nothing.
+   */
+  let seatedOnDrawn = false;
   function baseOf(piece: CountryPiece, land: LandProbe | undefined, landReady: boolean): number {
+    seatedOnDrawn = false;
     if (piece.base !== undefined) return PLANET_RADIUS + piece.base;
+    const reach = Math.max(1, piece.footprint * 0.7);
+    if (land !== undefined && landReady && drawnFootprint(land, piece.at, pieceAcross, pieceNorth, reach, drawnUnder) === 'drawn') {
+      seatedOnDrawn = true;
+      return drawnUnder.lowest - PIECE_BURY;
+    }
     const elevation = world.elevationAt(piece.at);
     const relief = reliefAt(piece.at.x, piece.at.y, piece.at.z);
     gradeAt(piece.at, pieceAcross, pieceNorth, Math.max(1, piece.footprint * 0.6), slope);
-    let base = PLANET_RADIUS + elevation - relief + Math.min(relief, slope.lowest) - PIECE_BURY;
-    if (land !== undefined && landReady) {
-      const drawn = land.radiusAt(piece.at);
-      if (drawn !== null) base = Math.min(base, drawn - PIECE_BURY);
-    }
-    return base;
+    return PLANET_RADIUS + elevation - relief + Math.min(relief, slope.lowest) - PIECE_BURY;
   }
+  const drawnUnder: DrawnFootprint = { centre: 0, lowest: 0, highest: 0 };
 
   /**
    * A field's ground under a point: the drawn land's height and its face's
@@ -696,6 +794,7 @@ export function createCountryBuilder(
     out.color.length = 0;
     out.outline.length = 0;
     let vertices = 0;
+    let priced = 0;
     let pieces = 0;
     let fields = 0;
     let fences = 0;
@@ -705,16 +804,40 @@ export function createCountryBuilder(
 
     for (const plan of plans) {
       const style = plan.style;
+      /** The cell's row and column, off its key, for the ids of what can be taken. */
+      const cell = plan.key.split('/').map(Number);
+      let machines = 0;
       plan.pieces.forEach((piece, index) => {
-        const flat = flatOf(piece, style);
+        // A farm's tractor is the fleet's (`CountryMachine`): named by its
+        // cell and its ordinal among the cell's, taken or not, and left out
+        // while it is somewhere else.
+        let machine: CountryMachine | undefined;
+        let flat: CountryFlat | null;
+        if (!piece.scenic && MACHINES.has(piece.part)) {
+          const id = countryVehicleId(piece.part, cell[0]!, cell[1]!, machines++);
+          const model = parkedModel(piece.part);
+          if (id === null || model === null || taken(id)) return;
+          flat = machineFlat(piece.part, fleetVariant(id, model.variants));
+          machine = { id, model: piece.part, position: new THREE.Vector3(), forward: new THREE.Vector3() };
+        } else {
+          flat = flatOf(piece, style);
+        }
         if (flat === null) return;
         if (flat.height * piece.scale < floor) return;
         frameAt(piece.at, piece.yaw);
         const base = baseOf(piece, land, landReady);
         scaleVector.setScalar(piece.scale);
         world4.compose(position.copy(piece.at).multiplyScalar(base), quaternion, scaleVector);
-        placed.push({ flat, matrix: new THREE.Matrix4().multiplyMatrices(frame.inverse, world4) });
-        vertices += flat.position.length / 3;
+        if (piece.base === undefined) frame.seats?.push({ id: piece.part, x: position.x, y: position.y, z: position.z, reach: Math.max(1, piece.footprint * 0.7), drawn: seatedOnDrawn });
+        if (machine !== undefined) {
+          machine.position.copy(position);
+          machine.forward.copy(AXIS_Z).applyQuaternion(quaternion);
+        }
+        const near = frame.cards === true && machine === undefined ? nearOf(piece, style) : null;
+        const drawn = near?.flat ?? flat;
+        placed.push({ flat: drawn, matrix: new THREE.Matrix4().multiplyMatrices(frame.inverse, world4), leaves: near?.leaves ?? null, sways: near !== null, machine });
+        vertices += drawn.position.length / 3;
+        priced += flat.position.length / 3;
         pieces++;
         const spec = piece.scenic ? undefined : COUNTRY_PARTS[piece.part];
         if (spec === undefined) return;
@@ -730,6 +853,7 @@ export function createCountryBuilder(
             hub4.makeRotationZ(phase).setPosition(spec.rotor.x, spec.rotor.y, spec.rotor.z);
             placed.push({ flat: rotor, matrix: new THREE.Matrix4().multiplyMatrices(frame.inverse, world4).multiply(hub4) });
             vertices += rotor.position.length / 3;
+            priced += rotor.position.length / 3;
           }
         }
         if (spec.beacon !== undefined) {
@@ -763,8 +887,12 @@ export function createCountryBuilder(
               frameAt(at, yaw);
               const base = baseOf({ part: olive.id, scenic: false, variant, at, yaw, scale: 1, footprint: olive.footprint }, land, landReady);
               world4.compose(position.copy(at).multiplyScalar(base), quaternion, scaleVector.setScalar(1));
-              placed.push({ flat: tree, matrix: new THREE.Matrix4().multiplyMatrices(frame.inverse, world4) });
-              vertices += tree.position.length / 3;
+              const piece = { part: olive.id, scenic: false, variant, at, yaw, scale: 1, footprint: olive.footprint };
+              const near = frame.cards === true ? nearOf(piece, style) : null;
+              const drawn = near?.flat ?? tree;
+              placed.push({ flat: drawn, matrix: new THREE.Matrix4().multiplyMatrices(frame.inverse, world4), leaves: near?.leaves ?? null, sways: near !== null });
+              vertices += drawn.position.length / 3;
+              priced += tree.position.length / 3;
             }
           }
         }
@@ -809,14 +937,24 @@ export function createCountryBuilder(
       }
       placed.push({ flat, matrix: IDENTITY });
       vertices += count;
+      priced += count;
     }
 
     const motion =
       rotorRows.length + beaconRows.length + smokeRows.length > 0
         ? { rotors: Float32Array.from(rotorRows), beacons: Float32Array.from(beaconRows), smokes: Float32Array.from(smokeRows) }
         : null;
-    return { placed, vertices, pieces, fields, fences, motion, provisional: fallback && frame.level <= MOTION_LEVEL };
+    return { placed, vertices, priced, pieces, fields, fences, motion, provisional: fallback && frame.level <= MOTION_LEVEL };
   }
 
-  return { plansUnder, ensure, prepare, blocks, build };
+  return {
+    plansUnder,
+    ensure,
+    prepare,
+    blocks,
+    build,
+    setTaken(test) {
+      taken = test;
+    },
+  };
 }

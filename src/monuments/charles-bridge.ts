@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -357,8 +358,10 @@ export const charlesBridge: Monument = {
     cornice.position.y = WALL_TOP;
     group.add(cornice);
 
-    // 0.05 under each parapet's inner face rather than flush with it.
-    const road = box(DECK_END * 2, ROAD_TOP - CORNICE_TOP, (PARAPET_FACE_Z - 0.45) * 2, paving);
+    // 0.05 under each parapet's inner face rather than flush with it, and
+    // `PROUD` short of the deck's ends: flush, its end faces shared a plane
+    // with the parapets' where the two overlap, and the two colours flickered.
+    const road = box(DECK_END * 2 - PROUD * 2, ROAD_TOP - CORNICE_TOP, (PARAPET_FACE_Z - 0.45) * 2, paving);
     road.position.y = CORNICE_TOP;
     group.add(road);
 

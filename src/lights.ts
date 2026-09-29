@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from './globe.ts';
 import { PALETTE } from './theme.ts';
+import { AVATAR_HEIGHT } from './stature.ts';
 import { radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 
@@ -333,9 +334,10 @@ const atlasLamps = { value: Array.from({ length: NEAR_LAMPS }, () => new THREE.V
 const atlasLampCount = { value: 0 };
 
 /**
- * Headlights: the car you drive and the nearest few of the traffic's, lit
- * through the same per-pixel pools as the street lamps but as cones — a lamp
- * with a direction. `setHeadlights` hands them over each frame, before
+ * Headlights: the vehicle you drive and the nearest few of the traffic's and
+ * of other players', each lamp where its model has it, lit through the same
+ * per-pixel pools as the street lamps but as cones — a lamp with a
+ * direction. `setHeadlights` hands them over each frame, before
  * `setNearLamps`.
  */
 export const NEAR_HEADLIGHTS = 8;
@@ -353,9 +355,41 @@ const atlasHeadCount = { value: 0 };
  * them, so the loops would add nothing, and it does not run them.
  */
 const atlasLightReach = { value: 0 };
-/** The headlights in world space, for the halos. */
-const headWorld = new Float32Array(NEAR_HEADLIGHTS * 4);
 const atlasLampTint = { value: LAMP_LIGHT.clone() };
+
+/**
+ * Campfires: the nearest few of the countryside's (`countryside-motion.ts`),
+ * lit per pixel beside the lamps as a warm orange pool that breathes with the
+ * flame. `setFires` hands them over each frame, before `setNearLamps`.
+ */
+export const NEAR_FIRES = 4;
+/**
+ * How far a campfire lights the ground round it: a little over three bodies,
+ * the ring of faces round a fire at night and not the field behind them.
+ */
+const FIRE_REACH = AVATAR_HEIGHT * 3.2;
+/** The fire's light, an orange warmed towards gold: redder than a sodium lamp. */
+const FIRE_LIGHT = new THREE.Color(PALETTE.orange).lerp(new THREE.Color(PALETTE.gold), 0.4);
+/** The heart of a flame, gold towards white, drawn brighter than white so it blooms. */
+const FIRE_CORE = new THREE.Color(PALETTE.gold).lerp(new THREE.Color(PALETTE.white), 0.3);
+const atlasFires = { value: Array.from({ length: NEAR_FIRES }, () => new THREE.Vector4()) };
+const atlasFireCount = { value: 0 };
+const atlasFireTint = { value: FIRE_LIGHT.clone() };
+/** The fires' part of `atlasLightReach`, which `setNearLamps` finishes. */
+let fireReach = 0;
+
+/**
+ * How bright a fire burns at `time` seconds, 0.7 to 1: two sines out of step
+ * and a third, faster and smaller, so no two fires and no two seconds agree.
+ * The same sum is written in the glow's shader (`FLICKER_GLSL`).
+ */
+export function fireFlicker(time: number, phase: number): number {
+  return 0.85 + 0.08 * Math.sin(time * 7.3 + phase) + 0.05 * Math.sin(time * 11.9 + phase * 2.3) + 0.02 * Math.sin(time * 23.7 + phase * 4.1);
+}
+const FLICKER_GLSL = /* glsl */ `
+  float atlasFlicker(float t, float p) {
+    return 0.85 + 0.08 * sin(t * 7.3 + p) + 0.05 * sin(t * 11.9 + p * 2.3) + 0.02 * sin(t * 23.7 + p * 4.1);
+  }`;
 /** How much a lamp lifts the surface it lands on, over its own colour. */
 const LAMP_LIGHT_GAIN = 1.15;
 
@@ -377,6 +411,25 @@ const LAMP_CHUNK = /* glsl */ `
   uniform vec3 atlasHeadDirs[${NEAR_HEADLIGHTS}];
   uniform int atlasHeadCount;
   uniform float atlasLightReach;
+  uniform vec4 atlasFires[${NEAR_FIRES}];
+  uniform int atlasFireCount;
+  uniform vec3 atlasFireTint;
+
+  // A campfire's pool on one fragment, banded as the lamps' is: its w is how
+  // bright the flame is this frame, so the edge of the pool breathes.
+  float atlasFireLight(vec3 pos, vec3 n) {
+    float sum = 0.0;
+    for (int i = 0; i < ${NEAR_FIRES}; i++) {
+      if (i >= atlasFireCount) break;
+      vec3 d = atlasFires[i].xyz - pos;
+      float dist = length(d);
+      if (dist >= ${FIRE_REACH.toFixed(1)}) continue;
+      float fall = 1.0 - dist / ${FIRE_REACH.toFixed(1)};
+      float facing = max(dot(n, d / max(dist, 1e-3)), 0.0);
+      sum += fall * fall * (0.4 + 0.6 * facing) * atlasFires[i].w;
+    }
+    return 0.5 * smoothstep(0.06, 0.1, sum) + 0.5 * smoothstep(0.3, 0.36, sum);
+  }
 
   float atlasLampLight(vec3 pos, vec3 n, float flatness) {
     float sum = 0.0;
@@ -424,6 +477,9 @@ export function bindNearLights(uniforms: Record<string, THREE.IUniform>): void {
   uniforms.atlasHeadCount = atlasHeadCount;
   uniforms.atlasLightReach = atlasLightReach;
   uniforms.atlasLampTint = atlasLampTint;
+  uniforms.atlasFires = atlasFires;
+  uniforms.atlasFireCount = atlasFireCount;
+  uniforms.atlasFireTint = atlasFireTint;
 }
 
 export function nearLightsGLSL(): string {
@@ -437,11 +493,15 @@ export function nearLightsGLSL(): string {
 
 export function nearLightsChunk(worldPosition: string): string {
   return /* glsl */ `
-  if ((atlasLampCount > 0 || atlasHeadCount > 0) && length(vViewPosition) < atlasLightReach) {
+  if ((atlasLampCount > 0 || atlasHeadCount > 0 || atlasFireCount > 0) && length(vViewPosition) < atlasLightReach) {
     float atlasNearDark = atlasGain * atlasNight(normalize(${worldPosition}), atlasSun);
     if (atlasNearDark > 0.0) {
       totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint
         * atlasLampLight(-vViewPosition, normal, 1.0) * atlasNearDark * 0.75;
+      if (atlasFireCount > 0) {
+        totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.05) * atlasFireTint
+          * atlasFireLight(-vViewPosition, normal) * atlasNearDark * 0.8;
+      }
     }
   }`;
 }
@@ -458,7 +518,7 @@ const lampView = new THREE.Vector3();
 export function setNearLamps(camera: THREE.Camera, heads: Float32Array, count: number): void {
   const n = Math.min(count, NEAR_LAMPS);
   const view = camera.matrixWorldInverse;
-  let reach = headReach;
+  let reach = Math.max(headReach, fireReach);
   for (let i = 0; i < n; i++) {
     lampView.set(heads[i * 4]!, heads[i * 4 + 1]!, heads[i * 4 + 2]!).applyMatrix4(view);
     const distance = heads[i * 4 + 3]!;
@@ -469,7 +529,6 @@ export function setNearLamps(camera: THREE.Camera, heads: Float32Array, count: n
   atlasLampCount.value = n;
   // A unit of slack over the exact bound, for the view transform's rounding.
   atlasLightReach.value = reach > 0 ? reach + 1 : 0;
-  halos.update(heads, n, headWorld, atlasHeadCount.value);
 }
 
 const headDir = new THREE.Vector3();
@@ -479,7 +538,7 @@ let headReach = 0;
 /**
  * Hands the shaders this frame's headlights: `lights` is `x, y, z, dx, dy,
  * dz, strength` in world space, seven floats each, `count` of them. Call
- * before `setNearLamps`, which draws their halos with the lamps'.
+ * before `setNearLamps`, which folds their reach into the lamps'.
  */
 export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count: number): void {
   const n = Math.min(count, NEAR_HEADLIGHTS);
@@ -492,66 +551,84 @@ export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count:
     atlasHeads.value[i]!.set(lampView.x, lampView.y, lampView.z, lights[o + 6]!);
     headDir.set(lights[o + 3]!, lights[o + 4]!, lights[o + 5]!).transformDirection(view);
     atlasHeadDirs.value[i]!.copy(headDir);
-    headWorld[i * 4] = lights[o]!;
-    headWorld[i * 4 + 1] = lights[o + 1]!;
-    headWorld[i * 4 + 2] = lights[o + 2]!;
   }
   atlasHeadCount.value = n;
 }
 
+
+/** The most campfires whose flames glow at once, nearest first, and how far off one still does. */
+export const MAX_FIRE_GLOWS = 16;
+export const FIRE_GLOW_REACH = 600;
+/** A fire's glow across, in world units, at a full flicker: a little over its ring of stones. */
+const FIRE_GLOW_SIZE = 3.4;
+/** How many floats a fire takes in `setFires`'s buffer. */
+export const FIRE_STRIDE = 5;
+
 /**
- * A soft glow round each near lamp's head, additive, so a street at night has
- * its lights *in* it and not only under it. The same points buffer is
- * rewritten each frame from `setNearLamps`; it is gated by the terminator in
- * its own shader like everything else here, so by day it draws nothing.
+ * The glow on the flames themselves: one additive point a fire, its heart
+ * drawn brighter than white so the frame's bloom (`post.ts`) takes it, its
+ * halo the fire's own orange, both breathing with `atlasFlicker`. Un-inked,
+ * depth-tested so a hill hides it, gated by the terminator like the lamps' pools.
  */
-function createHalos(): { points: THREE.Points; update(heads: Float32Array, count: number, more: Float32Array, extra: number): void } {
-  const position = new Float32Array((NEAR_LAMPS + NEAR_HEADLIGHTS) * 3);
+function createFireGlow(): { points: THREE.Points; update(fires: Float32Array, count: number, time: number): void } {
+  const position = new Float32Array(MAX_FIRE_GLOWS * 3);
+  const phase = new Float32Array(MAX_FIRE_GLOWS);
   const geometry = new THREE.BufferGeometry();
-  const attribute = new THREE.BufferAttribute(position, 3);
-  attribute.setUsage(THREE.DynamicDrawUsage);
-  geometry.setAttribute('position', attribute);
+  const positions = new THREE.BufferAttribute(position, 3);
+  positions.setUsage(THREE.DynamicDrawUsage);
+  const phases = new THREE.BufferAttribute(phase, 1);
+  phases.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', positions);
+  geometry.setAttribute('phase', phases);
   geometry.setDrawRange(0, 0);
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
-  // Not the planet's radius: this runs as the module loads, which can be before
-  // `globe.ts` (which imports this file) has one. The halos are never culled.
   const material = new THREE.ShaderMaterial({
     uniforms: {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib['fog']!),
       atlasSun,
       atlasGain,
-      atlasLight: { value: LAMP_LIGHT.clone() },
+      atlasTime: { value: 0 },
+      atlasFireTint,
+      atlasFireCore: { value: FIRE_CORE.clone() },
       screenScale: { value: 450 },
     },
     vertexShader: /* glsl */ `
       uniform vec3 atlasSun;
       uniform float atlasGain;
+      uniform float atlasTime;
       uniform float screenScale;
+      attribute float phase;
       varying float vAlpha;
+      varying float vFlicker;
       #include <common>
       #include <fog_pars_vertex>
       ${NIGHT_CHUNK}
+      ${FLICKER_GLSL}
       void main() {
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         float dist = max(-mvPosition.z, 1.0);
+        vFlicker = atlasFlicker(atlasTime, phase);
         vAlpha = atlasNight(normalize(position), atlasSun) * atlasGain
-          * (1.0 - smoothstep(${(LAMP_FIELD * 0.7).toFixed(1)}, ${LAMP_FIELD.toFixed(1)}, dist));
-        gl_PointSize = clamp(2.6 * projectionMatrix[1][1] * screenScale / dist, 2.0, 96.0);
+          * (1.0 - smoothstep(${(FIRE_GLOW_REACH * 0.7).toFixed(1)}, ${FIRE_GLOW_REACH.toFixed(1)}, dist));
+        gl_PointSize = clamp(${FIRE_GLOW_SIZE.toFixed(2)} * vFlicker * projectionMatrix[1][1] * screenScale / dist, 2.0, 96.0);
         #include <fog_vertex>
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 atlasLight;
+      uniform vec3 atlasFireTint;
+      uniform vec3 atlasFireCore;
       varying float vAlpha;
+      varying float vFlicker;
       #include <common>
       #include <fog_pars_fragment>
       void main() {
         if (vAlpha < 0.004) discard;
         float r = length(gl_PointCoord - 0.5) * 2.0;
-        float glow = (1.0 - smoothstep(0.0, 1.0, r));
-        float core = 1.0 - smoothstep(0.12, 0.2, r);
-        gl_FragColor = vec4(atlasLight, (glow * glow * 0.55 + core * 0.6) * vAlpha);
+        float halo = 1.0 - smoothstep(0.0, 1.0, r);
+        float heart = 1.0 - smoothstep(0.0, 0.32, r);
+        vec3 light = atlasFireTint * halo * halo * 0.5 + atlasFireCore * heart * 2.6 * vFlicker;
+        gl_FragColor = vec4(light, vAlpha);
         #ifdef USE_FOG
           gl_FragColor *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
         #endif
@@ -567,35 +644,61 @@ function createHalos(): { points: THREE.Points; update(heads: Float32Array, coun
   });
   material.userData.outlineParameters = { visible: false };
   const points = new THREE.Points(geometry, material);
-  points.name = 'lamp-halos';
+  points.name = 'fire-glow';
   points.renderOrder = 2;
   points.frustumCulled = false;
   return {
     points,
-    update(heads, count, more, extra) {
-      for (let i = 0; i < count; i++) {
-        position[i * 3] = heads[i * 4]!;
-        position[i * 3 + 1] = heads[i * 4 + 1]!;
-        position[i * 3 + 2] = heads[i * 4 + 2]!;
+    update(fires, count, time) {
+      const n = Math.min(count, MAX_FIRE_GLOWS);
+      for (let i = 0; i < n; i++) {
+        const o = i * FIRE_STRIDE;
+        position[i * 3] = fires[o]!;
+        position[i * 3 + 1] = fires[o + 1]!;
+        position[i * 3 + 2] = fires[o + 2]!;
+        phase[i] = fires[o + 4]!;
       }
-      for (let j = 0; j < extra; j++) {
-        const i = count + j;
-        position[i * 3] = more[j * 4]!;
-        position[i * 3 + 1] = more[j * 4 + 1]!;
-        position[i * 3 + 2] = more[j * 4 + 2]!;
+      if (n > 0) {
+        positions.needsUpdate = true;
+        phases.needsUpdate = true;
       }
-      // By day there are none, and nothing to send.
-      if (count + extra > 0) attribute.needsUpdate = true;
-      geometry.setDrawRange(0, count + extra);
+      geometry.setDrawRange(0, n);
+      material.uniforms.atlasTime!.value = time;
       material.uniforms.screenScale!.value = (typeof innerHeight === 'number' ? innerHeight : 900) * 0.5;
     },
   };
 }
 
-const halos = createHalos();
+const fireGlow = createFireGlow();
 
-/** The glow round the near lamps' heads, to add to the scene once. */
-export const lampHalos: THREE.Points = halos.points;
+/** The glow on the near campfires' flames, to add to the scene once. */
+export const fireGlows: THREE.Points = fireGlow.points;
+
+/**
+ * Hands the shaders this frame's campfires: `fires` is `x, y, z, distance,
+ * phase` in world space, `FIRE_STRIDE` floats each, nearest first, `count`
+ * of them. The first `NEAR_FIRES` within `LAMP_FIELD` light the ground at
+ * `fireFlicker`'s strength, fading out over the field's last fifth as a lamp
+ * does; every one of them, up to `MAX_FIRE_GLOWS`, glows. `time` is seconds.
+ * Call before `setNearLamps`, which finishes the reach.
+ */
+export function setFires(camera: THREE.Camera, fires: Float32Array, count: number, time: number): void {
+  const view = camera.matrixWorldInverse;
+  fireReach = 0;
+  let lit = 0;
+  for (let i = 0; i < count && lit < NEAR_FIRES; i++) {
+    const o = i * FIRE_STRIDE;
+    const distance = fires[o + 3]!;
+    if (distance > LAMP_FIELD) break;
+    lampView.set(fires[o]!, fires[o + 1]!, fires[o + 2]!).applyMatrix4(view);
+    const fade = 1 - Math.min(1, Math.max(0, (distance - LAMP_FIELD * 0.8) / (LAMP_FIELD * 0.2)));
+    atlasFires.value[lit]!.set(lampView.x, lampView.y, lampView.z, fade * fireFlicker(time, fires[o + 4]!));
+    fireReach = Math.max(fireReach, lampView.length() + FIRE_REACH);
+    lit++;
+  }
+  atlasFireCount.value = lit;
+  fireGlow.update(fires, count, time);
+}
 
 /**
  * Draws one window's bedtime and returns it as the byte the buffer carries.
@@ -731,6 +834,9 @@ export function lightWindows(material: THREE.Material): void {
     shader.uniforms.atlasHeadCount = atlasHeadCount;
     shader.uniforms.atlasLightReach = atlasLightReach;
     shader.uniforms.atlasLampTint = atlasLampTint;
+    shader.uniforms.atlasFires = atlasFires;
+    shader.uniforms.atlasFireCount = atlasFireCount;
+    shader.uniforms.atlasFireTint = atlasFireTint;
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -792,9 +898,13 @@ export function lightWindows(material: THREE.Material): void {
               * (1.0 - atlasFlat * atlasNearField * 0.75);
             totalEmissiveRadiance += atlasPool * (${WINDOW_GAIN.toFixed(2)} * vAtlasLit.x * atlasAwake * atlasDark);
           }
-          if ((atlasLampCount > 0 || atlasHeadCount > 0) && length(vViewPosition) < atlasLightReach) {
+          if ((atlasLampCount > 0 || atlasHeadCount > 0 || atlasFireCount > 0) && length(vViewPosition) < atlasLightReach) {
             float atlasLamp = atlasLampLight(-vViewPosition, normal, atlasFlat);
             totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.06) * atlasLampTint * atlasLamp * atlasDark;
+            if (atlasFireCount > 0) {
+              totalEmissiveRadiance += (diffuseColor.rgb * ${LAMP_LIGHT_GAIN.toFixed(2)} + 0.05) * atlasFireTint
+                * atlasFireLight(-vViewPosition, normal) * atlasDark * 0.8;
+            }
           }
         }`,
       );

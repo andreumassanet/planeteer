@@ -1,32 +1,32 @@
-import type { ScenicPart } from '../contract.ts';
-import { rolePaint, sceneryModel } from '../contract.ts';
+import type { RegionStyle, ScenicPart } from '../contract.ts';
+import type { Rng } from '../random.ts';
+import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
- * Shrub: one of Kenney's bushes (Nature Kit, CC0) in the region's foliage.
+ * Shrub: two to four clusters of leaf cards on the ground (`tree-forms.ts`)
+ * in the region's foliage; far off, a few soft lumps. One of Kenney's bushes
+ * until 2026-09-28.
  */
 
-const MODELS = ['plant-bushLarge', 'plant-bush', 'plant-bushDetailed'] as const;
 const FOOTPRINT = 2.5;
+
+function formOf(rng: Rng, style: RegionStyle) {
+  return treeForm('bush', rng, {
+    height: rng.range(0.8, 1.7),
+    // Inside the footprint by a seeded share of it, so a hedge of them is not one silhouette.
+    reach: (FOOTPRINT - 0.05) * rng.range(0.6, 1),
+    leaf: rng.pick(style.foliage),
+    leaf2: rng.pick(style.foliage),
+    bark: 0,
+  });
+}
 
 export const shrub: ScenicPart = {
   id: 'shrub',
   name: 'Shrub',
   kind: 'scatter',
   footprint: FOOTPRINT,
-  note: "Kenney bush, large, plain or detailed, in the region's greens. Texture on the ground, not a plant.",
-
-  build(ctx, rng, style) {
-    const id = rng.pick([...MODELS]);
-    const paint = rolePaint(sceneryModel(id), [[/grass|leaf/i, rng.pick(style.foliage)]]);
-    return ctx.fitted(id, {
-      height: rng.range(0.8, 1.7),
-      // Inside the footprint, which the contract holds to 0.05, and by a seeded
-      // share of it: a model wider than tall is fitted by its radius, and a
-      // fixed radius would give every one of it one silhouette.
-      radius: (FOOTPRINT - 0.02) * rng.range(0.6, 1),
-      yaw: rng.range(0, Math.PI * 2),
-      // Darker under the crown and lit on top: see `ModelFit.shade`.
-      shade: { slots: /leaf|grass/i, bottom: 0.8, top: 1.12 },
-    }, paint);
-  },
+  note: "A few clusters of leaves in the region's greens. Texture on the ground, not a plant.",
+  build: (ctx, rng, style) => solidTree(ctx, formOf(rng, style)),
+  form: formOf,
 };

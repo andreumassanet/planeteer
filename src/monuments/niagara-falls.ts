@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -565,13 +566,17 @@ export const niagaraFalls: Monument = {
         plank(rx, rz, chord + 1.3, RIM + 0.4, 0, COURSE, yaw, shale);
       }
 
+      // A lawn facet sinks `PROUD` into its rock and stands `PROUD` in from its
+      // sides: where it overlapped the river on the next facet the two
+      // undersides shared a plane, and sunk flush its sides shared the rock's.
       const green = GREEN_FACETS.has(i);
+      const trim = green ? PROUD * 2 : 0;
       plank(
         rx,
         rz,
-        chord + 0.7,
-        RIM,
-        RIVER_Y,
+        chord + 0.7 - trim,
+        RIM - trim,
+        green ? RIVER_Y - PROUD : RIVER_Y,
         green ? BANK_Y : LIP_Y,
         yaw,
         green ? park : river,
@@ -622,7 +627,10 @@ export const niagaraFalls: Monument = {
     // a waterfall pouring onto a lawn. The east corner reaches 49.6 of the
     // 52-unit footprint, just inside the American shore's own 49.9, so the
     // widest thing in the model is still the land and not the water.
-    slab(-40, 41, 2, 28, 0, BASIN_Y, river);
+    //
+    // Its back face starts `PROUD` inside the Canadian bank's: the two shared
+    // the plane z = 2, in two colours.
+    slab(-40, 41, 2 + PROUD, 28, 0, BASIN_Y, river);
 
     // The Canadian bank downstream of Table Rock, kept low on purpose: at full
     // gorge height it would be the near rim this model exists without.

@@ -696,6 +696,8 @@ const { registerModelsFromDisk } = await import('./kit-node.ts');
 await registerModelsFromDisk();
 const { createSceneryContext, variantRng } = await import('../src/scenery/contract.ts');
 const { REGIONS } = await import('../src/scenery/regions.ts');
+const { nearArrays } = await import('../src/scenery/tree-forms.ts');
+type TreeForm = import('../src/scenery/tree-forms.ts').TreeForm;
 const { COUNTRY_PARTS, pieceRng } = await import('../src/countryside-kit.ts');
 const sceneryCtx = createSceneryContext(monumentCtx);
 const trunks: number[] = [];
@@ -704,10 +706,14 @@ const boulders: number[] = [];
   const problems: string[] = [];
   const style = REGIONS['atlantic-europe'];
   for (const id of ['conifer-tree', 'broadleaf-tree', 'acacia-tree', 'cypress-tree', 'palm-tree', 'cactus', 'boulder']) {
-    const mod = (await import(`../src/scenery/parts/${id}.ts`)) as Record<string, { id?: string; footprint: number; build: (...a: unknown[]) => THREE.Group }>;
+    const mod = (await import(`../src/scenery/parts/${id}.ts`)) as Record<string, { id?: string; footprint: number; build: (...a: unknown[]) => THREE.Group; form?: (...a: unknown[]) => TreeForm }>;
     const entry = Object.values(mod).find((value) => value?.id === id)!;
     for (let variant = 0; variant < 3; variant++) {
-      const position = mergeMeshes(entry.build(sceneryCtx, variantRng(entry as never, style, variant), style)).position;
+      // A tree is solid where a near tile draws it, and a near tile draws its
+      // wood (`CARD_LEVEL` in `vegetation.ts`): the trunk is measured off that.
+      const position = entry.form !== undefined
+        ? nearArrays(entry.form(variantRng(entry as never, style, variant), style)).wood.position
+        : mergeMeshes(entry.build(sceneryCtx, variantRng(entry as never, style, variant), style)).position;
       const shape = partShape(position, id === 'boulder' ? 'boulder' : 'trunk');
       (id === 'boulder' ? boulders : trunks).push(shape.radius);
       if (!(shape.radius > 0.1 && shape.radius < entry.footprint)) problems.push(`${id}/${variant}: ${n(shape.radius, 2)} of ${entry.footprint}`);

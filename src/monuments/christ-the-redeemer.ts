@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Mesh, Monument, Vector3 } from './contract.ts';
 
 /**
@@ -86,11 +87,15 @@ const DOME: Frustum[] = [
 ];
 const SUMMIT = 30;
 
-/** Lower masses round the dome, as [x, z, bottom, top, height]. The ridge runs on behind. */
+/**
+ * Lower masses round the dome, as [x, z, bottom, top, height]. The ridge runs on
+ * behind. The third stops `PROUD` under the dome's first ledge: level with it,
+ * its top and the ledge were two tones of granite in one plane and flickered.
+ */
 const SHOULDERS: [number, number, number, number, number][] = [
   [-17, -15, 13, 7, 15],
   [16, -17, 12, 6.5, 13],
-  [-20, 7, 9.5, 5, 9],
+  [-20, 7, 9.5, 5, 9 - PROUD],
 ];
 
 /**

@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * The Hassan II Mosque — Casablanca.
@@ -117,8 +118,10 @@ export const hassanIiMosque: Monument = {
 
       for (let i = 0; i < 4; i++) {
         const x = side * (WING_IN + 1.9 + i * 3.8);
-        block(x - 1.05, x + 1.05, 2.6, 8.0, 11.6, 12.65, shade);
-        block(x - 1.35, x + 1.35, 8.0, 9.6, 11.6, 12.65, shade);
+        // `PROUD` out of the wing's face: 0.05 out, the arch and the marble
+        // round it were two colours a hair apart and flickered.
+        block(x - 1.05, x + 1.05, 2.6, 8.0, 11.6, 12.6 + PROUD, shade);
+        block(x - 1.35, x + 1.35, 8.0, 9.6, 11.6, 12.6 + PROUD, shade);
         // A green voussoir band over each arch. It is the only tile at eye
         // level and it is what makes the arcade read as Moroccan rather than
         // Roman.

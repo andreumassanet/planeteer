@@ -14,7 +14,7 @@ import type { LandFlagData } from './land-flags.ts';
  * relief, and at Madison a tenth of the ground is more than 1.5 units *under*
  * it, the worst 3.8. A tree 20 units tall does not care. A clump of grass one
  * and a half units tall stood on the relief is a clump floating in the air, in
- * patches as wide as a triangle — so the sward stands on what is drawn.
+ * patches as wide as a triangle — so the grass stands on what is drawn.
  *
  * The mesh has no index to ask, and 1.31 million triangles (2026-09-24) are
  * too many to test. So this keeps a **local** one: the triangles within `REACH` of a centre,
@@ -66,7 +66,7 @@ export interface LandProbe {
 const probes = new WeakMap<THREE.Mesh, LandProbe>();
 
 /**
- * The one probe of a mesh. The sward, the fleet and the foot all read the
+ * The one probe of a mesh. The grass, the fleet and the foot all read the
  * same land round the same player, and a probe each was a gather each: three
  * passes over the whole buffer every 400 units walked instead of one.
  */
@@ -100,17 +100,93 @@ export function drawnRadius(world: World, probe: LandProbe | null, point: THREE.
   return groundRadius(world, point);
 }
 
+/**
+ * How far a plant is seated into the ground, as a share of its own height,
+ * under what `drawnFootprint` (or the relief) says is the lowest of its
+ * footprint: the wood's (`vegetation.ts`) and the trees round a town's edge
+ * (`settlements.ts`). A ring of probes still misses the true low point
+ * between two of them on a slope, and a twentieth of the height closes it for
+ * nothing — burying a trunk is invisible where floating one is the first
+ * thing anybody notices.
+ */
+export const PLANT_SEATING = 0.05;
+
+/** What `drawnFootprint` finds under a footprint: radii from the planet's centre. */
+export interface DrawnFootprint {
+  /** The drawn land under the footprint's middle. */
+  centre: number;
+  /** The lowest and the highest of the middle and the ring round it. */
+  lowest: number;
+  highest: number;
+}
+
+const footprintAt = new THREE.Vector3();
+
+/**
+ * **What a thing standing on the drawn land is seated on**: the drawn land
+ * under `up` (a unit vector) and under a ring of eight points `reach` units
+ * out along `across` and `north` (unit vectors along the ground there), into
+ * `out`. `'drawn'` when it answered; `'water'` when the middle is over water,
+ * where nothing is drawn to stand on (a point of the ring over water is left
+ * out: the land there has gone under the sea's shelf); `'unknown'` when the
+ * probe has not gathered all nine, and the caller falls back on the relief
+ * knowing it did.
+ *
+ * Eight and not `gradeAt`'s four, because the drawn land is flat triangles
+ * and not a smooth field: the low corner of a footprint on a crease is as
+ * often on a diagonal as on an axis.
+ */
+export function drawnFootprint(
+  probe: LandProbe,
+  up: THREE.Vector3,
+  across: THREE.Vector3,
+  north: THREE.Vector3,
+  reach: number,
+  out: DrawnFootprint,
+): 'drawn' | 'water' | 'unknown' {
+  if (!probe.covers(up)) return 'unknown';
+  const centre = probe.radiusAt(up);
+  if (centre === null) return 'water';
+  let lowest = centre;
+  let highest = centre;
+  const k = reach / PLANET_RADIUS;
+  for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI) / 4;
+    footprintAt
+      .copy(up)
+      .addScaledVector(across, Math.cos(angle) * k)
+      .addScaledVector(north, Math.sin(angle) * k)
+      .normalize();
+    if (!probe.covers(footprintAt)) return 'unknown';
+    const radius = probe.radiusAt(footprintAt);
+    if (radius === null) continue;
+    if (radius < lowest) lowest = radius;
+    if (radius > highest) highest = radius;
+  }
+  out.centre = centre;
+  out.lowest = lowest;
+  out.highest = highest;
+  return 'drawn';
+}
+
+/**
+ * How far round the player the probe always answers, however far he has moved
+ * since it was gathered: its reach less the walk that gathers it again.
+ * Sized for the sward, whose last band reached 768 units from the camera and
+ * a coarse tile's half-diagonal more (until 2026-09-28); the grass's coarse
+ * field reaches 320 each way round the camera (`grass.ts`), and the wood asks
+ * whether a tile built on the relief is inside it, and so worth building again.
+ */
+export const PROBE_SURE = 1200;
+
 export function createLandProbe(land: THREE.Mesh): LandProbe {
-  // The sward's last band at its widest is 768 units from the camera and a
-  // coarse tile's half-diagonal more, so the index must answer 1,200 round the
-  // player however far it has moved since it was gathered.
-  const REACH = 1600;
   const MOVE = 400;
+  const REACH = PROBE_SURE + MOVE;
   const BUCKET = 48;
   const SLICE = 300_000;
   /**
-   * Milliseconds between two slices. The probe is shared, and the sward and
-   * the foot both prepare it every frame: without this a frame paid a slice a
+   * Milliseconds between two slices. The probe is shared, and the vegetation
+   * (for the grass) and the foot both prepare it every frame: without this a frame paid a slice a
    * caller, about 1.7 ms each (2026-09-25, Node).
    */
   const SLICE_GAP = 4;

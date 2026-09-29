@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -184,9 +185,13 @@ export const sagradaFamilia: Monument = {
     // Cornices, in the darker stone. Each one is an ink line straight across the
     // building, which is what keeps the mass from reading as a single lump under
     // the towers.
-    put(box(61.2, 1.4, AISLE_HALF * 2 + 1, trim), 0, AISLE_TOP - 1.4, 0);
-    put(box(61.2, 1.4, VESSEL_HALF * 2 + 2.4, trim), 0, NAVE_TOP - 1.4, 0);
-    put(box(18.4, 1.6, 18.4, trim), 0, CROSSING_TOP - 1.6, 0);
+    // Each stops `PROUD` under the roof it girds, so the roof keeps the stone
+    // colour rather than sharing its plane with the cornice's top, and `PROUD`
+    // inside the apse's drum at its end.
+    const cornice = 61.2 - PROUD * 2;
+    put(box(cornice, 1.4, AISLE_HALF * 2 + 1, trim), 0, AISLE_TOP - 1.4 - PROUD, 0);
+    put(box(cornice, 1.4, VESSEL_HALF * 2 + 2.4, trim), 0, NAVE_TOP - 1.4 - PROUD, 0);
+    put(box(18.4, 1.6, 18.4, trim), 0, CROSSING_TOP - 1.6 - PROUD, 0);
 
     // --- the two ends: a rounded apse at -X, and the Glory end at +X, which is
     //     a blunt wall with no towers on it because that is what is there ---
@@ -202,9 +207,11 @@ export const sagradaFamilia: Monument = {
     // portals left a blank slab between the doors and the spires, which is the
     // one place on the model the eye travels through every time.
     for (const tower of TOWERS.slice(0, 4)) {
-      put(box(3, NATIVITY_TOP - PLINTH, 2.6, trim), tower.x, PLINTH, HALF_WIDTH - 0.8);
+      // `PROUD` over the wall's top, and the lintel `PROUD` past its ends:
+      // flush, the two colours shared a plane.
+      put(box(3, NATIVITY_TOP - PLINTH + PROUD, 2.6, trim), tower.x, PLINTH, HALF_WIDTH - 0.8);
     }
-    put(box(25.5, 2.8, 2.6, trim), 0, 17, HALF_WIDTH - 0.8);
+    put(box(25.5 + PROUD * 2, 2.8, 2.6, trim), 0, 17, HALF_WIDTH - 0.8);
     // The Tree of Life cypress, wedged between the two centre towers. It is the
     // one green thing on the building and it costs one mesh.
     put(taper(1.8, 0.35, 11, cypress, 6), 0, NATIVITY_TOP, HALF_WIDTH - 3.4);

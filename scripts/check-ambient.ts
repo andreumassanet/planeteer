@@ -9,9 +9,11 @@
  * that stood there all along. (Nothing is culled by the view, so turning
  * round cannot change them.) Around it, the habitat
  * and the weather: fireflies on a July night in France and none in the
- * Sahara, in the rain or on the ice; butterflies by day; leaves in the
- * autumn woods and not in the tropics; gulls over a coast; a fish off the
- * shore with its splash; and never more than the two draw calls.
+ * Sahara, in the rain or on the ice; butterflies by day; leaves off the
+ * crowns, a few in July and many in October, lying on the ground and never
+ * under it, and litter under the trees that goes under lying snow; gulls over
+ * a coast; a fish off the shore with its splash; and never more than the
+ * three draw calls.
  *
  *   node scripts/check-ambient.ts
  */
@@ -19,11 +21,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Vector3 } from 'three';
+import type { Mesh } from 'three';
 import { loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from '../src/globe.ts';
 import { decodeLakes, inflate } from '../src/pack.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
-import { unitAt } from '../src/sphere.ts';
+import { latOf, lonOf, unitAt } from '../src/sphere.ts';
 import { sunDirection, solarPosition } from '../src/sun.ts';
 import { setSunDirection } from '../src/lights.ts';
 import { CELL, GULL_CELL, autumnAt, cellKey, columnLon, columnOf, columnsIn, createAmbient, rowLat, rowOf } from '../src/ambient.ts';
@@ -85,8 +88,42 @@ const snow: AmbientWeather = { ...clear, precipitation: 0.5, snow: 1, temperatur
 interface Run {
   ambient: Ambient;
   splashes: number;
-  worst: { fireflies: number; butterflies: number; leaves: number; fish: number; gulls: number; motes: number; calls: number };
+  worst: { fireflies: number; butterflies: number; leaves: number; lying: number; litter: number; fish: number; gulls: number; motes: number; calls: number };
   meanMs: number;
+  /** The dearest frame of the second half. */
+  worstMs: number;
+}
+
+/**
+ * A wood of the check's own, as `vegetation.crownsNear` hands one over: a
+ * crown every `WOOD_STEP` degrees on dry land short of the polar circles,
+ * `CROWN_OVER` over the ground, a broadleaf's green, every fourth a bush that
+ * sheds a third as much. A pure function of where it is asked, as the wood's
+ * tiles are.
+ */
+const WOOD_STEP = 0.08;
+const CROWN_OVER = 8;
+const CROWN_RADIUS = 3.5;
+const CROWN_HALF = 3;
+const woodPoint = new Vector3();
+function woodNear(point: Vector3, range: number, visit: (list: Float32Array, offset: number) => void): void {
+  woodPoint.copy(point).normalize();
+  const lat = latOf(woodPoint.y);
+  const lon = lonOf(woodPoint.x, woodPoint.z);
+  const reach = range / UNITS_PER_DEGREE;
+  const across = reach / Math.max(0.1, Math.cos((lat * Math.PI) / 180));
+  for (let i = Math.floor((lat - reach) / WOOD_STEP); i <= Math.ceil((lat + reach) / WOOD_STEP); i++) {
+    for (let j = Math.floor((lon - across) / WOOD_STEP); j <= Math.ceil((lon + across) / WOOD_STEP); j++) {
+      const at = unitAt(i * WOOD_STEP, j * WOOD_STEP, new Vector3());
+      if (Math.abs(i * WOOD_STEP) > 60) continue;
+      const ground = groundRadius(world, at.clone().multiplyScalar(PLANET_RADIUS));
+      if (ground <= PLANET_RADIUS + 0.5) continue;
+      const middle = at.multiplyScalar(ground + CROWN_OVER);
+      if (middle.distanceTo(point) > range) continue;
+      const bush = (((i * 7 + j * 3) % 4) + 4) % 4 === 0;
+      visit(Float32Array.of(middle.x, middle.y, middle.z, CROWN_RADIUS, CROWN_HALF, 0.18, 0.4, 0.1, bush ? 0.35 : 1), 0);
+    }
+  }
 }
 
 function make(trees = true): { ambient: Ambient; splashes: { count: number } } {
@@ -95,7 +132,7 @@ function make(trees = true): { ambient: Ambient; splashes: { count: number } } {
     groundAt: (point) => groundRadius(world, point),
     madeHeightAt: () => 0,
     meadowAt: () => false,
-    treeNear: () => trees,
+    crownsNear: trees ? woodNear : undefined,
     splash: () => splashes.count++,
     admitPerFrame: 100000,
   });
@@ -123,8 +160,9 @@ function run(
   const frame: AmbientFrame = { player, cameraHeight: 6, time: when, daylight: options.daylight, afloat: options.afloat ?? false };
   const frames = options.frames ?? 80;
   const dt = options.dt ?? 0.05;
-  const worst = { fireflies: 0, butterflies: 0, leaves: 0, fish: 0, gulls: 0, motes: 0, calls: 0 };
+  const worst = { fireflies: 0, butterflies: 0, leaves: 0, lying: 0, litter: 0, fish: 0, gulls: 0, motes: 0, calls: 0 };
   let spent = 0;
+  let dearest = 0;
   for (let i = 0; i < frames; i++) {
     // The first half of an approach walks in from `approach` units east.
     const east = options.approach === undefined ? 0 : Math.max(0, options.approach * (1 - i / (frames / 2)));
@@ -134,10 +172,11 @@ function run(
     const s = ambient.stats;
     if (i >= frames / 2) {
       spent += s.updateMs;
+      dearest = Math.max(dearest, s.updateMs);
       for (const key of Object.keys(worst) as (keyof typeof worst)[]) worst[key] = Math.max(worst[key], s[key]);
     }
   }
-  return { ambient, splashes: splashes.count, worst, meanMs: spent / (frames / 2) };
+  return { ambient, splashes: splashes.count, worst, meanMs: spent / (frames / 2), worstMs: dearest };
 }
 
 const julyNight = new Date(Date.UTC(2026, 6, 10, 22, 30));
@@ -154,7 +193,7 @@ console.log('\nwho lives where');
   const night = run(...FRANCE, julyNight, clear, { daylight: 0 });
   check(night.worst.fireflies > 0, 'fireflies over the French grass on a July night', `${night.worst.fireflies}`);
   check(night.worst.butterflies === 0, 'and no butterflies with them', `${night.worst.butterflies}`);
-  check(night.worst.calls <= 2, 'in at most two draw calls', `${night.worst.calls}`);
+  check(night.worst.calls <= 3, 'in at most three draw calls', `${night.worst.calls}`);
   console.log(`       ${night.meanMs.toFixed(3)} ms a frame in node, cells ${night.ambient.stats.cells}, admitted ${night.ambient.stats.admitted}`);
 
   const wet = run(...FRANCE, julyNight, rain, { daylight: 0 });
@@ -165,20 +204,71 @@ console.log('\nwho lives where');
   const sahara = run(...SAHARA, new Date(Date.UTC(2026, 6, 10, 23, 0)), clear, { daylight: 0 });
   check(sahara.worst.fireflies + sahara.worst.butterflies + sahara.worst.motes === 0, 'no insects in the Sahara', JSON.stringify(sahara.worst));
   const ice = run(...ANTARCTICA, julyNoon, { ...clear, temperatureC: -20 }, { daylight: 1 });
-  check(ice.worst.fireflies + ice.worst.butterflies + ice.worst.leaves + ice.worst.motes === 0, 'nothing on the Antarctic ice', JSON.stringify(ice.worst));
+  check(ice.worst.fireflies + ice.worst.butterflies + ice.worst.leaves + ice.worst.lying + ice.worst.litter + ice.worst.motes === 0, 'nothing on the Antarctic ice', JSON.stringify(ice.worst));
 
   const day = run(...FRANCE, julyNoon, clear, { daylight: 1 });
   check(day.worst.butterflies > 0, 'butterflies over France by day', `${day.worst.butterflies}`);
   check(day.worst.fireflies === 0, 'and no fireflies by day', `${day.worst.fireflies}`);
-  check(day.worst.leaves === 0, 'no leaves falling in July', `${day.worst.leaves}`);
 
-  const autumn = run(...FRANCE, octoberNoon, { ...clear, temperatureC: 14 }, { daylight: 1 });
-  check(autumn.worst.leaves > 0, 'leaves falling under the French trees in October', `${autumn.worst.leaves}`);
+  const autumn = run(...FRANCE, octoberNoon, { ...clear, temperatureC: 14 }, { daylight: 1, frames: 200 });
+  const july = run(...FRANCE, julyNoon, clear, { daylight: 1, frames: 200 });
+  check(autumn.worst.leaves > 0 && autumn.worst.lying > 0, 'leaves falling off the French trees in October, and lying where they fell', `${autumn.worst.leaves} in the air, ${autumn.worst.lying} lying, under ${autumn.ambient.stats.crowns} crowns`);
+  check(july.worst.leaves > 0 && july.worst.leaves * 4 < autumn.worst.leaves, 'a few in July, and many times more in October', `${july.worst.leaves} against ${autumn.worst.leaves}`);
+  check(autumn.worst.litter > 0 && july.worst.litter * 2 < autumn.worst.litter, 'litter under the trees all year, and more in October', `${july.worst.litter} against ${autumn.worst.litter}`);
+  check(autumn.worst.calls <= 3, 'in at most three draw calls', `${autumn.worst.calls}`);
+  console.log(`       ${autumn.meanMs.toFixed(3)} ms a frame in node, the dearest ${autumn.worstMs.toFixed(3)}, ${autumn.ambient.stats.crowns} crowns, ${autumn.ambient.stats.groundAsks} ground heights asked`);
   const bare = run(...FRANCE, octoberNoon, { ...clear, temperatureC: 14 }, { daylight: 1, trees: false });
-  check(bare.worst.leaves === 0, 'and none where no tree stands', `${bare.worst.leaves}`);
-  const tropics = run(...SINGAPORE, octoberNoon, clear, { daylight: 1 });
-  check(tropics.worst.leaves === 0, 'no autumn in Singapore', `${tropics.worst.leaves}`);
+  check(bare.worst.leaves + bare.worst.lying + bare.worst.litter === 0, 'and none where no tree stands', `${bare.worst.leaves}, ${bare.worst.litter}`);
+  const buried = run(...FRANCE, octoberNoon, { ...snow, precipitation: 0 }, { daylight: 1 });
+  check(buried.worst.litter === 0, 'no litter under lying snow', `${buried.worst.litter}`);
+  const tropics = run(...SINGAPORE, octoberNoon, clear, { daylight: 1, frames: 200 });
+  check(tropics.ambient.stats.autumn === 0 && tropics.worst.leaves * 4 < autumn.worst.leaves, 'no autumn in Singapore: a trickle, not a fall', `${tropics.worst.leaves}`);
   check(autumnAt(octoberNoon.getTime(), -40) === 0 && autumnAt(Date.UTC(2026, 3, 20), -40) > 0.5, 'the south has its autumn in April');
+}
+
+console.log('\nwhere the leaves are');
+{
+  // Cold enough that nothing else is out, so every body is a leaf.
+  const cold = run(...FRANCE, octoberNoon, { ...clear, temperatureC: 6 }, { daylight: 1, frames: 200 });
+  const bodies = cold.ambient.group.getObjectByName('ambient-bodies') as Mesh;
+  const litter = cold.ambient.group.getObjectByName('ambient-litter') as Mesh;
+  const probe = new Vector3();
+  const measure = (mesh: Mesh): { count: number; under: number; low: number; high: number } => {
+    const position = mesh.geometry.getAttribute('position');
+    const count = mesh.geometry.drawRange.count;
+    let under = 0;
+    let low = 0;
+    let high = -Infinity;
+    for (let v = 0; v < count; v++) {
+      probe.fromBufferAttribute(position, v);
+      const over = probe.length() - groundRadius(world, probe);
+      if (over < -0.3) under++;
+      if (over < 0.6) low++;
+      high = Math.max(high, over);
+    }
+    return { count, under, low, high };
+  };
+  const air = measure(bodies);
+  check(air.count > 0 && air.under === 0, 'no leaf under the ground', `${air.under} of ${air.count} vertices`);
+  check(air.low > 0, 'some of them lying on it', `${air.low} vertices within 0.6`);
+  check(air.high <= CROWN_OVER + CROWN_HALF + 1, 'none higher than the crowns they came off', `${air.high.toFixed(2)} over the ground`);
+  const lying = measure(litter);
+  check(lying.count > 0 && lying.under === 0 && lying.high < 0.6, 'the litter flat on the ground, neither under it nor floating', `${lying.count / 6} leaves, ${lying.under} vertices under, the highest ${lying.high.toFixed(2)} over`);
+  const normal = litter.geometry.getAttribute('normal');
+  const position = litter.geometry.getAttribute('position');
+  let down = 0;
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  for (let v = 0; v + 2 < lying.count; v += 3) {
+    a.fromBufferAttribute(position, v);
+    b.fromBufferAttribute(position, v + 1);
+    c.fromBufferAttribute(position, v + 2);
+    const face = b.sub(a).cross(c.sub(a));
+    probe.fromBufferAttribute(normal, v);
+    if (face.dot(a) <= 0 || probe.dot(a) <= 0) down++;
+  }
+  check(down === 0, 'every leaf of litter faces the sky', `${down} face down`);
 
   const bay = run(...PALMA_BAY, julyNoon, clear, { daylight: 1, frames: 400, dt: 0.1, afloat: true });
   check(bay.worst.gulls > 0, 'gulls over the bay of Palma', `${bay.worst.gulls}`);
@@ -194,9 +284,11 @@ console.log('\ndeterminism');
   for (const [label, when, daylight] of [
     ['a July night', julyNight, 0],
     ['an October noon', octoberNoon, 1],
+    ['a cold October noon, leaves alone', octoberNoon, 1],
   ] as const) {
-    const walked = run(...FRANCE, when, clear, { daylight, frames: 120, approach: 300 });
-    const stood = run(...FRANCE, when, clear, { daylight, frames: 120 });
+    const weather = label.startsWith('a cold') ? { ...clear, temperatureC: 6 } : clear;
+    const walked = run(...FRANCE, when, weather, { daylight, frames: 120, approach: 300 });
+    const stood = run(...FRANCE, when, weather, { daylight, frames: 120 });
     const a = walked.ambient.snapshot();
     const b = stood.ambient.snapshot();
     let differ = 0;

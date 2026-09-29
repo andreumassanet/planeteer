@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Monument, Vector3 } from './contract.ts';
 
 /**
@@ -242,11 +243,14 @@ export const atomium: Monument = {
     // --- the twenty tubes ---
     // Run centre to centre: both ends finish deep inside their sphere, so no cap
     // is ever visible and the joint is drawn by the outline where the cylinder
-    // crosses the ball.
+    // crosses the ball. Each end stops `PROUD` short of the centre: the lift
+    // shaft's caps otherwise lay in the plane of a ball's equator, where two of
+    // its bands meet, and the two colours shared it.
     const tube = (from: Vector3, to: Vector3) => {
-      const mesh = column(TUBE_R, from.distanceTo(to), rod, TUBE_SIDES);
-      mesh.quaternion.setFromUnitVectors(UP, to.clone().sub(from).normalize());
-      mesh.position.copy(from);
+      const along = to.clone().sub(from).normalize();
+      const mesh = column(TUBE_R, from.distanceTo(to) - PROUD * 2, rod, TUBE_SIDES);
+      mesh.quaternion.setFromUnitVectors(UP, along);
+      mesh.position.copy(from).addScaledVector(along, PROUD);
       group.add(mesh);
     };
 

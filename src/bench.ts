@@ -49,10 +49,16 @@ const RAIL = 0.1;
 /** How far the back rail's front stands behind the bench's middle. */
 export const BENCH_BACK = BENCH_DEPTH / 2 - POST - RAIL;
 /**
- * How far in front of the bench's middle a sitter's root stands: the rail's
- * front plus the hips behind the root, so the back of the hips meets the rail.
+ * How far in front of a seat's middle a sitter's root stands, for a seat
+ * whose back's front is `back` behind that middle: the back of the hips
+ * meets it. The one rule a bench and a café chair (`scenery/street-dressing.ts`)
+ * are both sat on by; a seat's top is at `BENCH_SEAT` for either.
  */
-export const BENCH_SIT_AHEAD = -BENCH_BACK + AVATAR_HEIGHT * SIT_BACK;
+export function sitAhead(back: number): number {
+  return -back + AVATAR_HEIGHT * SIT_BACK;
+}
+/** A bench's: the rail's front plus the hips behind the root. */
+export const BENCH_SIT_AHEAD = sitAhead(BENCH_BACK);
 /**
  * The longest a town's bench is (`street-bench.ts`), which the people
  * strolling past one keep clear of by half and their own width.

@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 
 /**
@@ -160,8 +161,10 @@ export const lasLajas: Monument = {
     block(-RIVER, RIVER, 0, 0.9, -GORGE_Z, GORGE_Z, water);
     for (const side of [-1, 1]) {
       block(side * WALL_IN, side * WALL_OUT, 0, WALL_TOP, -GORGE_Z, GORGE_Z, rock);
-      // One bright seam through the rock, stepped forward so the ink finds it.
-      block(side * (WALL_IN - 0.6), side * WALL_OUT, 11, 15, -GORGE_Z - 0.5, GORGE_Z + 0.5, seam);
+      // One bright seam through the rock, stepped forward so the ink finds it,
+      // and stopped `PROUD` inside the rock's back face: flush there, the two
+      // colours shared a plane.
+      block(side * (WALL_IN - 0.6), side * (WALL_OUT - PROUD), 11, 15, -GORGE_Z - 0.5, GORGE_Z + 0.5, seam);
       // The talus at the foot, sloping in toward the river.
       block(side * RIVER, side * WALL_IN, 0, 3.2, -GORGE_Z, GORGE_Z, rock);
       block(side * (RIVER + 3), side * WALL_IN, 3.2, 7.0, -GORGE_Z, GORGE_Z, rock);
@@ -182,9 +185,11 @@ export const lasLajas: Monument = {
     // 2. The bridge. Two abutment piers into the rock, one in the river, two
     //    great arches between them, and a small arcade over the whole of it.
     // -----------------------------------------------------------------------
+    // The river pier's foot sits `PROUD` under the arches' soffits, whose
+    // undersides would otherwise share its plane at 3.
     for (const x of [-ABUTMENT, 0, ABUTMENT]) {
       const half = x === 0 ? PIER : PIER + 1.4;
-      block(x - half, x + half, x === 0 ? 3.0 : 0, DECK, -SPAN_Z, SPAN_Z, masonry);
+      block(x - half, x + half, x === 0 ? 3.0 - PROUD : 0, DECK, -SPAN_Z, SPAN_Z, masonry);
     }
     arch(-ABUTMENT / 2, 4.6, 3.0, 14.0, DECK - 1.2, -SPAN_Z, SPAN_Z);
     arch(ABUTMENT / 2, 4.6, 3.0, 14.0, DECK - 1.2, -SPAN_Z, SPAN_Z);

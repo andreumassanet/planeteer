@@ -31,6 +31,7 @@ import { latOf, lonOf, unitAt } from '../src/sphere.ts';
 import {
   SITE_ROOM,
   STRIP_BACK,
+  STRIP_DRAWN,
   STRIP_HALF,
   STRIP_LENGTH,
   applyPose,
@@ -44,6 +45,7 @@ import {
 import type { FleetSite } from '../src/fleet.ts';
 import { isWater } from '../src/vehicles.ts';
 import { CRAFT_KINDS } from '../src/craft/contract.ts';
+import { onStrip } from '../src/craft/airstrip.ts';
 import { plannedSite, siteGap } from '../src/landmark-ground.ts';
 import type { LandmarkSite } from '../src/landmark-ground.ts';
 
@@ -122,6 +124,28 @@ const lazyOk = probeTowns.every((p) => {
   return mine.length === theirs.length && mine.every((site, i) => site.id === theirs[i]!.id && site.at.equals(theirs[i]!.at));
 });
 check(lazyOk, `a town's sites do not depend on which towns were asked first (${probeTowns.length} towns, backwards)`);
+// And a warm-up in pieces — one stand of one town's search a call, as a frame
+// hands it out — leaves the same strips behind as asking outright: the plane
+// towns round three crowded places, warmed first and then read.
+{
+  const warm = createSiteIndex(source);
+  const around = ['Shanghai', 'Wuhan', 'Delhi'].map((name) => places.findIndex((place) => place.name === name)).filter((p) => p >= 0);
+  let calls = 0;
+  for (const p of around) {
+    const at = unitAt(places[p]!.lat, places[p]!.lon, new Vector3());
+    for (let n = 0; ; ) {
+      calls++;
+      if (warm.warm(at, 1200, () => n++ % 2 === 0)) break;
+    }
+  }
+  const warmedPlanes = sites.filter((site) => site.kind === 'plane' && around.some((p) => unitAt(places[p]!.lat, places[p]!.lon, new Vector3()).angleTo(unitAt(places[site.place]!.lat, places[site.place]!.lon, new Vector3())) * PLANET_RADIUS < 1200));
+  const warmOk = warmedPlanes.every((site) => {
+    const mine = warm.sitesOf(site.place).find((entry) => entry.id === site.id);
+    return mine !== undefined && mine.at.equals(site.at) && mine.forward.equals(site.forward);
+  });
+  const extra = around.flatMap((p) => warm.planesNear(unitAt(places[p]!.lat, places[p]!.lon, new Vector3()), 300, [])).filter((site) => !sites.some((other) => other.id === site.id));
+  check(warmOk && extra.length === 0 && warmedPlanes.length > 0, 'a warm-up in pieces leaves the same strips as asking outright', `${warmedPlanes.length} strips round ${around.length} cities, ${calls} calls`);
+}
 const ids = new Set(sites.map((site) => site.id));
 check(ids.size === sites.length, 'ids are unique', `${ids.size} of ${sites.length}`);
 const idForm = sites.every((site) => site.id === `${site.model}:${site.place}:${site.id.split(':')[2]}` && /^\d+$/.test(site.id.split(':')[2]!));
@@ -384,6 +408,32 @@ console.log('\nairstrips:');
     }
   }
   check(uncovered === 0, "an airstrip's keepout discs cover all of it", `${uncovered} points outside every disc`);
+  // No two strips cross. Two drawn strips in one place are two coplanar
+  // surfaces, and they fight for the depth buffer wherever they overlap. The
+  // witness is the drawing's own rectangle (`onStrip`), not the search's test:
+  // each strip's drawn rectangle is sampled every `GRID` units and asked
+  // whether the other's, grown by `GRID`, holds it, both ways round.
+  const GRID = 4;
+  const sample = new Vector3();
+  const crosses = (a: FleetSite, b: FleetSite): boolean => {
+    for (let along = -STRIP_BACK - 4; along <= STRIP_LENGTH + 4 + 1e-6; along += GRID) {
+      for (let lateral = -STRIP_DRAWN; lateral <= STRIP_DRAWN + 1e-6; lateral += GRID) {
+        if (onStrip(b, stripPoint(a, along, lateral, sample), GRID)) return true;
+      }
+    }
+    return false;
+  };
+  const pairs: string[] = [];
+  const reach = 2 * (STRIP_LENGTH + STRIP_BACK + 8 + STRIP_HALF);
+  for (let i = 0; i < planes.length; i++) {
+    for (let j = i + 1; j < planes.length; j++) {
+      const a = planes[i]!;
+      const b = planes[j]!;
+      if (units(a.at, b.at) > reach) continue;
+      if (crosses(a, b) || crosses(b, a)) pairs.push(`${places[a.place]!.name}/${places[b.place]!.name} (stands ${units(a.at, b.at).toFixed(0)} apart)`);
+    }
+  }
+  check(pairs.length === 0, 'no two airstrips overlap, worldwide', `${pairs.length} pairs of ${planes.length} strips${pairs.length ? `: ${pairs.slice(0, 12).join(', ')}` : ''}`);
 }
 
 console.log('\nballoons:');
@@ -1032,6 +1082,69 @@ console.log('\nthe ride, headless:');
     check(standing !== undefined && inside && pushed > 1 && !away && !clear, 'a parked car pushes a body out of itself, and nothing near it or over it', `${fleet.stats.built} built, push ${pushed.toFixed(2)}`);
   }
 
+  // What stands still until it is taken — a farm's tractor, a town's car, a
+  // rack's bicycle — taken with the use key: the fleet's vehicle where it
+  // stood and on its ground, in the look and the paint its id decides, which
+  // is what the town or the tile merged (`craft/parked.ts`), and folded out
+  // of what drew it. A car parked in a colour of its own came out of its bay
+  // in its variant's until 2026-09-28.
+  {
+    const { createFleet } = await import('../src/fleet.ts');
+    const { countryVehicleId, fleetVariant, parkedArrays, parkedModel } = await import('../src/craft/parked.ts');
+    const { mergeMeshes } = await import('../src/merge.ts');
+    const { PALETTE } = await import('../src/theme.ts');
+    const side = new Vector3().crossVectors(car.at, car.forward).normalize();
+    const at = car.at.clone().addScaledVector(side, 25 / PLANET_RADIUS).normalize();
+    const cases = [
+      { id: countryVehicleId('tractor', 131, 290, 0)!, model: 'tractor', paint: null },
+      { id: `hatchback:${car.place}:12`, model: 'hatchback', paint: PALETTE.crimson },
+      { id: `bicycle:${car.place}:17`, model: 'bicycle', paint: null },
+    ];
+    const wrong: string[] = [];
+    for (const still of cases) {
+      const walker = createPlayer(world, latOf(at.y), lonOf(at.x, at.z));
+      const hidden: string[] = [];
+      const bay = { id: still.id, model: still.model, position: at.clone().multiplyScalar(ground(at)), forward: car.forward.clone(), paint: still.paint };
+      const fleet = createFleet({
+        ...source,
+        models: craft,
+        link: createLocalLink(`still-${still.model}`),
+        player: walker,
+        parked: {
+          near: (_viewer, _radius, out) => {
+            if (!hidden.includes(bay.id)) out.push(bay);
+          },
+          hide: (id) => hidden.push(id),
+          paintOf: (id) => (id === bay.id ? still.paint : null),
+        },
+      });
+      for (let i = 0; i < 5; i++) fleet.update(0.1);
+      fleet.use();
+      // The one of its model nearest the spot: the fleet stands its own sites round the town too.
+      const taken = fleet.group.children
+        .filter((child) => child.name === `vehicle:${still.model}`)
+        .sort((a, b) => a.position.distanceTo(bay.position) - b.position.distanceTo(bay.position))[0];
+      const model = parkedModel(still.model)!;
+      const expected = parkedArrays(model, fleetVariant(still.id, model.variants), still.paint ?? undefined).color;
+      const colours = taken === undefined ? null : mergeMeshes(taken).color;
+      // As a multiset of the vertices' colours: the motion hangs the body
+      // and the wheels on springs of its own (`craft/motion.ts`), which
+      // changes the order a merge walks them in and nothing else.
+      const sorted = (array: Float32Array): string[] => {
+        const out: string[] = [];
+        for (let i = 0; i < array.length; i += 3) out.push(`${array[i]},${array[i + 1]},${array[i + 2]}`);
+        return out.sort();
+      };
+      const same = colours !== null && sorted(colours).join('|') === sorted(expected).join('|');
+      const off = taken === undefined ? Infinity : taken.position.distanceTo(bay.position);
+      const lift = taken === undefined ? Infinity : taken.position.length() - ground(at);
+      if (!same || !hidden.includes(still.id) || off > 0.5 || Math.abs(lift) > 0.5) {
+        wrong.push(`${still.id}: ${taken === undefined ? 'not taken' : `${same ? 'same' : 'other'} colours, ${off.toFixed(2)} off its spot, ${lift.toFixed(2)} over the ground`}${hidden.includes(still.id) ? '' : ', not folded away'}`);
+      }
+    }
+    check(wrong.length === 0, "a tractor, a town's car and a rack's bicycle taken are the ones that stood there, where they stood", wrong.join('; ') || cases.map((c) => c.id).join(', '));
+  }
+
   // A car jumped out of goes on without anybody, slows, and is parked where it stops.
   {
     const { createFleet } = await import('../src/fleet.ts');
@@ -1057,6 +1170,100 @@ console.log('\nthe ride, headless:');
     const ran = units(from.clone().normalize(), new Vector3(pose[0], pose[1], pose[2]).normalize());
     check(took && out && going > 10 && ran > 5 && (coastLink.moved.get(car.id)?.seats[0] ?? null) === null,
       'a car jumped out of runs on alone, slows, and is parked where it stops', `${ran.toFixed(0)} units on from ${going.toFixed(0)} units/s, parked after ${seconds} s`);
+  }
+
+  // Every vehicle stands, drawn and solid, well before anybody reaches it, and
+  // nothing comes into being in front of anybody. The real fleet, a player
+  // run straight at a site from well outside its reach at a run and at a
+  // motorbike's boost, with a lens behind him looking the way he goes, round
+  // the most crowded regions the sites have: the streamer caps what stands,
+  // and until 2026-09-29 the cap was a wall, so a car at a gate in Utrecht
+  // stood 11 units off a motorbike's nose, or never stood at all. Stepped at
+  // 30 Hz, which the fleet's scans and builds do not notice.
+  {
+    const { createFleet } = await import('../src/fleet.ts');
+    const { PerspectiveCamera } = await import('three');
+    /** How near a vehicle may still be unbuilt: 1.5 s at a motorbike's boost, 3.3 s at a car's. */
+    const STANDS_BY = 120;
+    /** How near anything may come into being once the player is under way: a body's reach, many times over. */
+    const ARRIVES_BEYOND = 60;
+    const index = createSiteIndex(source);
+    const crowded: [string, number, number][] = [['Utrecht', 52.09, 5.12], ['the Ruhr', 51.45, 7.0], ['Zhengzhou', 34.75, 113.62], ['Kolkata', 22.57, 88.36], ['Milan', 45.46, 9.19], ['Iowa', 41.6, -93.6]];
+    const DT = 1 / 30;
+    const late: string[] = [];
+    const sudden: string[] = [];
+    let runs = 0;
+    let nearestStand = Infinity;
+    let nearestArrival = Infinity;
+    for (const [name, lat, lon] of crowded) {
+      const centre = unitAt(lat, lon, new Vector3());
+      const around = index.near(centre, 600, []).filter((site) => units(site.at, centre) < 600).sort((a, b) => (a.id < b.id ? -1 : 1));
+      const targets = around.filter((_, i) => i % Math.max(1, Math.floor(around.length / 4)) === 0).slice(0, 4);
+      for (const speed of [20, 82]) {
+        for (const [k, target] of targets.entries()) {
+          runs++;
+          const up = target.at.clone();
+          const east = new Vector3(0, 1, 0).cross(up).normalize();
+          const north = up.clone().cross(east).normalize();
+          const bearing = (k * 2.4 + speed) % (Math.PI * 2);
+          const axis = up.clone().cross(east.multiplyScalar(Math.cos(bearing)).addScaledVector(north, Math.sin(bearing))).normalize();
+          const walker = { position: new Vector3(), state: 'walking', ride: null, airborne: false, velocity: new Vector3(), speed: 0 };
+          const fleet = createFleet({ ...source, sites: index, models: craft, link: createLocalLink(`approach-${runs}`), player: walker as never });
+          const lens = new PerspectiveCamera(45, 16 / 9, 0.5, 20000);
+          const pose: number[] = [];
+          const push = new Vector3();
+          const ahead = new Vector3();
+          let standing = -1;
+          let before = new Set<Object3D>();
+          let frame = 0;
+          for (let angle = 1200 / PLANET_RADIUS; angle > -20 / PLANET_RADIUS; angle -= (speed * DT) / PLANET_RADIUS) {
+            const at = up.clone().applyAxisAngle(axis, angle);
+            walker.position.copy(at).multiplyScalar(ground(at));
+            ahead.copy(up).applyAxisAngle(axis, angle - 30 / PLANET_RADIUS);
+            lens.position.copy(walker.position).addScaledVector(at, 5).addScaledVector(ahead.clone().sub(at).normalize(), -12);
+            lens.up.copy(at);
+            lens.lookAt(ahead.multiplyScalar(ground(ahead)));
+            fleet.update(DT, lens);
+            // What came into being this frame, once the first second of arriving is over.
+            const now = new Set(fleet.group.children.filter((child) => child.name.startsWith('vehicle:')));
+            if (frame++ > 30) {
+              for (const child of now) {
+                if (before.has(child)) continue;
+                const gap = child.position.distanceTo(walker.position);
+                nearestArrival = Math.min(nearestArrival, gap);
+                if (gap < ARRIVES_BEYOND) sudden.push(`${child.name} ${gap.toFixed(0)} units off at ${speed} near ${name}`);
+              }
+            }
+            before = now;
+            if (standing < 0 && fleet.poseOf(target.id, pose)) {
+              const spot = new Vector3(pose[0], pose[1], pose[2]);
+              if (fleet.collide(spot, 0.05, push)) standing = spot.distanceTo(walker.position);
+            }
+          }
+          if (standing >= 0) nearestStand = Math.min(nearestStand, standing);
+          if (standing < STANDS_BY) late.push(`${target.id} near ${name} at ${speed}: ${standing < 0 ? 'never stood' : `stood ${standing.toFixed(0)} units off`}`);
+        }
+      }
+    }
+    check(late.length === 0, `every vehicle run at stands, drawn and solid, before it is ${STANDS_BY} units off`, late.join('; ') || `${runs} runs round ${crowded.length} regions, the nearest ${nearestStand.toFixed(0)} units off`);
+    check(sudden.length === 0, `nothing comes into being within ${ARRIVES_BEYOND} units of a player under way`, sudden.slice(0, 5).join('; ') || `the nearest ${nearestArrival.toFixed(0)} units off`);
+  }
+
+  // A body put down on a vehicle — a jump, a spawn, a car arriving round
+  // somebody standing still — is given the nearest spot clear of it.
+  {
+    const { createFleet } = await import('../src/fleet.ts');
+    const walker = createPlayer(world, latOf(car.at.y), lonOf(car.at.x, car.at.z));
+    const fleet = createFleet({ ...source, models: craft, link: createLocalLink('free'), player: walker });
+    for (let i = 0; i < 5; i++) fleet.update(0.1);
+    const standing = fleet.group.children.find((child) => child.name.startsWith('vehicle:'));
+    const spot = new Vector3();
+    const push = new Vector3();
+    const freed = standing !== undefined && fleet.freeSpotNear(standing.position.clone(), 1.3, spot);
+    const clear = freed && !fleet.collide(spot, 1.3, push);
+    const gap = freed ? spot.distanceTo(standing!.position) : 0;
+    const already = standing !== undefined && !fleet.freeSpotNear(standing.position.clone().applyAxisAngle(new Vector3(0, 1, 0), 40 / PLANET_RADIUS), 1.3, spot);
+    check(freed && clear && already && gap < 12, 'a body inside a vehicle is given the nearest clear spot, and one clear of it is left where it is', `${standing?.name} ${gap.toFixed(2)} units out${clear ? '' : ', and still inside'}${already ? '' : ', and one clear of it moved'}`);
   }
 
   // A teleport out of a seat is a teleport: on foot, the vehicle let go.

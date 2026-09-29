@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * The Genghis Khan Equestrian Statue — Tsonjin Boldog, Mongolia.
@@ -162,7 +163,10 @@ export const genghisKhanStatue: Monument = {
       [-6.6, 2.1, 1.25],
       [-6.6, -2.1, 1.25],
     ] as const) {
-      const leg = taper(thickness, thickness * 0.72, BELLY - DECK - 1.0, under, 6);
+      // The shank stops `PROUD` inside the gaskin and the hoof stands `PROUD`
+      // over the deck: flush, each top shared a plane with a face of another
+      // colour and flickered.
+      const leg = taper(thickness, thickness * 0.72, BELLY - DECK - 1.0 - PROUD, under, 6);
       leg.position.set(x, DECK, z);
       group.add(leg);
       // The gaskin or forearm: a thicker section on the top half, which is what
@@ -171,7 +175,7 @@ export const genghisKhanStatue: Monument = {
       upper.position.set(x, BELLY - 5.6, z);
       group.add(upper);
       const hoof = column(thickness * 1.15, 0.9, under, 6);
-      hoof.position.set(x, DECK - 0.9, z);
+      hoof.position.set(x, DECK - 0.9 + PROUD, z);
       group.add(hoof);
     }
 

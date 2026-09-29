@@ -3,117 +3,83 @@ import { PLANET_RADIUS } from './globe.ts';
 import { fbm } from './terrain.ts';
 import { createToonRamp } from './theme.ts';
 import { sunUniform } from './sun.ts';
-import type { OutlineTransform } from './outline.ts';
 import { latOf } from './sphere.ts';
 import { weatherHazeAt } from './view.ts';
 
 /**
- * The weather, as a solid.
+ * The weather, as a sky of painted cumulus.
  *
- * **A cloud in this world is not a participating medium, it is a shape with an
- * ink line round it.** That is the whole decision in this file and it was made
- * before any of the arithmetic below. The obvious build is a raymarch: sample a
- * noise field along the view ray, accumulate transmittance, and you get real
- * volumetrics that you can fly into. It would also be the one object in the
- * scene that is not drawn the way everything else is drawn — no cel bands, no
- * silhouette, and no ink, because ink here is `OutlineEffect` hulling a mesh
- * and a density field has no mesh to hull. Reimplementing the pen inside a
- * shader means finding the silhouette of a fuzzy field in screen space, which
- * is a hard problem whose *best* outcome is a slightly worse copy of what
- * `src/outline.ts` already does perfectly. So the clouds are geometry: a closed
- * shell cut out of a geodesic sphere, `MeshToonMaterial` on the shared ramp,
- * and the same pen as the coastline. Volume in the sense that matters — it has
- * a base you stand under, a top you fly over, sides you see edge-on, and an
- * inside, which is a white-out because the material is `DoubleSide`.
+ * **A bank is a heap of puffs, not a shell.** The deck was a prism shell cut out
+ * of a geodesic sphere — flat tops, vertical walls — which read as a cloud only
+ * with the ink round it; without the pen it was beige faceted slabs. What a
+ * painted cumulus is made of is lobes: round, soft-edged, a bright crown and a
+ * cool flat belly. So every bank of the coverage field is filled with
+ * flattened-bottomed spheres, big and stacked where the bank is deep and small
+ * at its rim, drawn instanced from three shared icospheres.
  *
- * The raymarch was not built and measured against this; the argument above is
- * the reason, and it is an argument about the pen rather than about cost.
+ * **The field is the same field.** `coverageAt`, `THRESHOLD`, `DEPTH_SPAN` and
+ * `deckTurn` are untouched, and a puff is seeded only on a kept cell of the
+ * `DETAIL` lattice the prism shell was cut from, laid so that every kept cell's
+ * centre is under a puff (see `SPACING`). What that leaves is the rim between
+ * cell centres: of 20,000 directions spread over the sphere (2026-09-28), 4,574
+ * of the 4,591 where it can rain (depth 0.12 and up) are under a puff, the
+ * deepest miss at a depth of 0.24, and weighted by how hard it rains there the
+ * misses are 0.012% of the rain. 7% of the open sky is under a puff's rim.
  *
- * **It is one mesh built once, not a streamer.** Settlements and vegetation are
- * streamed because they are only ever seen from close up; from the plane's
- * ceiling the towns stop building and the woods hand their job to the ground
- * colour. Weather cannot do that — from the ceiling the cloud field *is* the
- * thing you climbed up to look at, so it has to exist over the whole planet at
- * once. So it is built like the land: from angles rather than distances, at one
- * resolution everywhere. 90,514 cells of 327,680, 238,736 triangles, 17.1 MB
- * (0.7 of it the byte a vertex of `deep` the weather greys; 2026-09-25),
- * 0.4 s headless and up to 0.75 s cold in the browser, and it costs +47,620
- * drawn triangles standing on the ground and +226,888 from the plane's ceiling
- * — see `DETAIL` for why one resolution is enough at both ends.
+ * **It is built once, for the whole planet, and drawn at four levels.** A puff
+ * is 180 triangles inside `NEAR_RANGE`, 80 to `MID_RANGE` and 20 to
+ * `SPLIT_RANGE`, all three sharing a sub-chunk's instance buffers; past that a
+ * base chunk is one draw of its own far set (`FAR_LEAST`). Measured headless
+ * on 2026-09-28: 90,514 cells kept of 327,680; 51,474 puffs (38,065 of them a
+ * heap's bottom tier) and 18,311 in the far set; 5.1 MB of instance data
+ * against the prism shell's 17.1; built in 0.37 to 0.42 s against its 0.4;
+ * 1,244 meshes, most of them off in any frame. Drawn, after the frustum, over
+ * twelve views at each height: 99 k triangles in 23 calls standing on the
+ * ground (the shell: 47,620), 150 k in 63 calls from 1,500 up, 216 k in 80
+ * from 8,000, and 298 k in 16 from the ceiling (the shell: 226,888 in 19).
+ * `stats.drawn` is the same count before the frustum; picking the levels is
+ * under a third of a millisecond.
  *
- * **Four of its uniforms ride the camera's distance to the deck rather than
- * being constants, and each of them was a bug before it was a uniform**: the
- * haze it takes (`hazeAt`), the pen it is drawn with (`penAt`), how much of its
- * own shape is allowed to shade it (`flattenAt`) and how much of its own height
- * it keeps (`squashAt`). One mesh, built once, and a distance is the only thing
- * a mesh built once can respond to. Two of them used to be mutually exclusive —
- * the pen could not be on while the deck was squashed — and are not any more:
- * see `SQUASH_GLSL`.
+ * **There is no pen on it.** A soft edge is the opposite of an ink line, and a
+ * puff's hull would have to apply the instance matrix *and* the squash, which
+ * `outline.ts`'s transform hook does in the wrong order for an instanced mesh.
+ * The deck opts out (`visible: false`) even when `atlas.ink(true)` inks the rest.
+ *
+ * **Three of its uniforms ride the camera's distance to the deck**: the haze
+ * it takes (`hazeAt`), how much of its own shape is allowed to shade it
+ * (`flattenAt`) and how much of its own height it keeps (`squashAt`). A fourth,
+ * the width of the soft edge, rides the flatten.
  */
 
 /**
- * Base of the deck, and it is the number the whole file is arranged around.
+ * Base of the deck.
  *
- * **The altitude is not free: it is the cell size times how many cells a cloud
- * needs.** How big a cloud looks from underneath is `width / altitude`, and how
- * much shape it can have is `width / cell`, so wanting a cumulus about 45
- * degrees across and about nine cells wide fixes `altitude / cell` at around
- * ten whatever else moves. The first build had a 198-unit cell 430 units up,
- * and it came out as a flat white ceiling for exactly that reason: one cell
- * overhead was 26 degrees, so standing under a cloud you were looking at two
- * triangles.
- *
- * The other end of the clamp is orbit. The deck is drawn on a sphere of
- * `PLANET_RADIUS + this`, so from the plane's ceiling it stands proud of the
- * limb by exactly its own fraction of the radius — at 2,600 that is a 16%
- * halo, a ring of weather floating clear of the planet. Under about a
- * fifteenth of the radius it reads as an atmosphere instead, and it only ever
- * reads at all because the coverage is a third: a solid shell at this height
- * would be a rind.
+ * **The altitude is not free: it is the size of a cloud against how big it
+ * should look.** How big a cloud looks from underneath is `width / altitude`,
+ * so a cumulus about 45 degrees across wants about 800 units of bank at a
+ * thousand up. The other end of the clamp is orbit. The deck is drawn on a
+ * sphere of `PLANET_RADIUS + this`, so from the plane's ceiling it stands proud
+ * of the limb by exactly its own fraction of the radius — at 2,600 that is a
+ * 16% halo, a ring of weather floating clear of the planet. Under about a
+ * fifteenth of the radius it reads as an atmosphere instead.
  */
 export const CLOUD_BASE = 1000;
 /** How far the base wanders. Cumulus bases are flat, so this is gentle. */
 const BASE_SWING = 260;
-/** The thinnest a cloud gets at its own edge: enough wall to carry an ink line. */
-const THICKNESS_MIN = 45;
-/** And the tallest it builds where the coverage field is deepest. */
-const THICKNESS_RANGE = 420;
-/**
- * Cauliflower on top of that.
- *
- * `LUMP_SPAN` is four cells and not one on purpose. At one cell the noise
- * lands a different height on every vertex and the top comes out as a field of
- * sharp triangular peaks, which under a cel ramp reads as **snow-capped
- * mountains** — the first build of this deck looked like the Alps hung upside
- * down. A lobe wants to be several triangles across before it is a lobe.
- */
-const LUMP_HEIGHT = 280;
 
 /**
- * How far the *underside* is pulled up at the rim of a bank.
- *
- * Without it the base of the whole deck is one smooth surface and every cloud
- * is a slab: from underneath, which is where you spend most of your time, that
- * is a ceiling. Lifting the rim while the top rises in the middle makes each
- * bank a lens — thin and high at the edge, hanging low in the middle — so the
- * underside has the same shape the top does. The real thing has a flat base and
- * this does not, which is the trade: a flat base is only legible when you can
- * see the cloud from the side, and from the side is not where you are.
+ * How far the belly of a bank's rim is lifted over the belly of its heart, so a
+ * bank hangs lowest in the middle — thin and high at the edge. From underneath,
+ * which is where you spend most of your time, that is what gives the bottom of
+ * the deck a shape.
  */
 const RIM_LIFT = 95;
 
 /**
- * How finely the shell is cut. 20 * 4^DETAIL faces before anything is thrown
- * away: 327,680 at 7, which is a cell 99 units across.
- *
- * One resolution everywhere, the way the land is built, and it is enough at
- * both ends for the same reason: a cell is an *angle*. At 99 units under a
- * 1,000-unit base a cell is 5.7 degrees standing beneath it, so a nine-cell
- * cumulus is 48 degrees and has lobes; from the plane's ceiling the same cell
- * is 5 px of a globe 800 px across, so a bank of nine is a weather system you
- * can point at. Going one level coarser saves three quarters of the triangles
- * and costs the whole of the near view, because the altitude has to rise with
- * the cell to keep the angle — and the altitude is capped by the limb.
+ * How finely the field is sampled: 20 * 4^DETAIL cells, 327,680 at 7, a cell
+ * 99 units across. The cells are what decides *where* cloud is — a puff is
+ * seeded on a kept cell and nowhere else — so this is the resolution of the
+ * weather's agreement with the sky, and it is the prism shell's own.
  */
 const DETAIL = 7;
 
@@ -126,12 +92,10 @@ const DETAIL = 7;
 const WEATHER_SPAN = 900;
 const WARP_SPAN = 7000;
 const BASE_SPAN = 5200;
-const LUMP_SPAN = 420;
 
 const WEATHER_FREQUENCY = PLANET_RADIUS / WEATHER_SPAN;
 const WARP_FREQUENCY = PLANET_RADIUS / WARP_SPAN;
 const BASE_FREQUENCY = PLANET_RADIUS / BASE_SPAN;
-const LUMP_FREQUENCY = PLANET_RADIUS / LUMP_SPAN;
 
 /** How far the warp drags the weather field. In units of the weather lattice. */
 const WARP_STRENGTH = 0.55;
@@ -151,9 +115,9 @@ const WARP_STRENGTH = 0.55;
 export const THRESHOLD = 0.575;
 /**
  * How far past the cut a bank reaches its full depth, in the field's units.
- * A bank's thickness, its lensed underside and — in `weather.ts` — how hard it
- * rains all ride `(coverage - THRESHOLD) / DEPTH_SPAN`, so the tallest cloud
- * in the sky is the one raining on you.
+ * How big a puff is, how high a heap stacks, how low its belly hangs and — in
+ * `weather.ts` — how hard it rains all ride `(coverage - THRESHOLD) /
+ * DEPTH_SPAN`, so the tallest cloud in the sky is the one raining on you.
  */
 export const DEPTH_SPAN = 0.16;
 const CLIMATE_BIAS = 0.042;
@@ -187,173 +151,131 @@ export function deckTurn(timeMs: number, target: THREE.Quaternion): THREE.Quater
 export const DECK_RATE = (Math.PI * 2) / (DECK_PERIOD_MS / 1000);
 
 /**
- * The pen, and **how far away it stops being a pen.**
- *
- * `OutlineEffect`'s thickness is screen space, so 0.005 is about four pixels of
- * a 775-pixel frame whatever it is drawn around. On the land that is a line: the
- * land is one continuous surface whose whole silhouette is a single stroke
- * thousands of pixels long, and four pixels of it is a drawing. **On the deck it
- * is not**, because the deck is thousands of separate small hulls, and a hull
- * only has to get small for the stroke to stop being its edge and start being
- * its area. From the plane's ceiling the camera is 25,000 units off the near
- * clouds and a 99-unit cell subtends **2.9 pixels against a 3.9-pixel pen**: the
- * ink is wider than the thing it is outlining. Measured against the same frame
- * with the deck hidden, that turned a night hemisphere — dark continents, city
- * lights, the sea's depth ramp — into grey rubble with black rims, and the limb
- * into a crown of gravel. The same pen at the same width is right on the ground
- * and wrong from orbit, and nothing about the pen changed.
- *
- * So the pen fades, and what it fades with is the **distance to the deck**
- * rather than the altitude: standing under it, flying in it and looking down on
- * it from just above are all close range, and the number that says so is
- * `|altitude - CLOUD_BASE|`.
- *
- * **Where the fade starts was got wrong first, by measuring the wrong shape.**
- * Pricing the pen against a *cell* — 99 units — puts the ink at a quarter of the
- * shape by 3,600 units of range, and fading it there was measurably worse than
- * leaving it: at 6,000 units up the deck came out as white faceted masses with
- * no line on them, which in this project is the definition of a mistake rather
- * than a decision. `OutlineEffect` hulls a *mesh*, so the line lands on the
- * silhouette of a whole bank and on the steps between banks, not around every
- * cell — and a bank is nine cells. Priced against that, the ink is still a
- * thirtieth of the shape at 5,000 units and only becomes the shape out where the
- * banks themselves are a few pixels. Full ink inside 6,000 and gone by 16,000.
- *
- * It is one uniform on one mesh, so the far side of the sky keeps the near
- * side's pen; that is the price of a deck built once instead of streamed, and
- * the haze has the horizon covered anyway.
+ * How big a puff is, horizontally: `PUFF_RIM` at a bank's edge, `PUFF_HEART`
+ * where it is deepest, each varied by `PUFF_JITTER` either way. The rim's is
+ * set by the lattice — a puff there must still reach over its own 99-unit cell
+ * — and the heart's by the look from the ground: at a thousand units up a
+ * 300-unit lobe is 33 degrees of sky, which is a cumulus and not a pebble.
  */
-const PEN_THICKNESS = 0.005;
-const PEN_FULL_RANGE = 6000;
-const PEN_GONE_RANGE = 15000;
-
-/*
- * **Where the ink pass stops being drawn is `PEN_GONE_RANGE` itself, and it used
- * to be a constant of its own.** Past that range the smoothstep has reached 1
- * and the thickness is exactly zero, so the pass draws a hull that lands on the
- * fill it is copying, fails the depth test everywhere, and costs 226,888
- * triangles and 19 draw calls to paint nothing. `visible: false` is the same
- * picture for half the frame.
- *
- * The constant it used to be — `PEN_OFF_RANGE`, 12,000 — was not a cost switch
- * but a truce: the pen and the squash could not both be on, because the hull was
- * built from the *unsquashed* attribute and a squashed fill under a live hull
- * came out as the whole silhouette of the tall deck painted solid ink over the
- * short one. The hull applies the squash now — see `SQUASH_GLSL` and
- * `outlineParameters.transform` in `outline.ts` — so there is no handover left
- * to name, and the two schedules are chosen independently.
+const PUFF_RIM = 85;
+const PUFF_HEART = 300;
+const PUFF_JITTER = 0.22;
+/** How tall a puff is against how wide, at the rim and at the heart. */
+const TALL_RIM = 0.6;
+const TALL_HEART = 0.95;
+/**
+ * How much of its lower half a puff keeps: the belly is the sphere's bottom
+ * squashed to this, so a bank's floor is nearly flat — the flat base a cumulus
+ * has — and a heap stands on it rather than on a ball.
  */
+const BELLY = 0.3;
+/**
+ * The second and third tiers of a heap: where the bank is deeper than these a
+ * smaller puff is stacked on the one below, leant toward the bank's heart, so
+ * the middle of a bank towers and its rim is one low row.
+ */
+const CROWN_FROM = 0.35;
+const TOWER_FROM = 0.72;
 
 /**
- * How much of a cloud's own shape is allowed to shade it, and why it has to go
- * away at range.
- *
- * Losing the pen took the night hemisphere from rubble-with-black-rims to
- * rubble, which is the half of the diagnosis the pen did not cover. A cel ramp
- * gives every facet of a lump a lit side and a dark side, and **a small pale
- * object with a lit side and a dark side is how you draw a rock.** At 25,000
- * units a cell is three pixels, so what is left of a cloud is one facet and its
- * shadow — and 27% coverage of that over a dark planet is gravel, not weather.
- * What a cloud reads as from orbit is *area and value*: a bright field whose
- * brightness sweeps with the terminator. It is the same lesson the outermost
- * vegetation ring paid for — past a certain range the colour carries the thing
- * and the geometry is noise.
- *
- * So the shading normal is bent toward the local up with distance. The deck
- * keeps every triangle it had — the silhouette, the holes, the crown at the
- * limb are all still geometry — and stops lighting them individually, so a bank
- * takes one value the way a sheet would. It stops at `FLAT_MAX` rather than at
- * 1 because a completely flat deck loses the limb: with no form at all the
- * clouds near the edge of the disc shade exactly like the ones at its centre
- * and the globe stops being a sphere.
- *
- * It is not the same fade as the pen's and it must not be: the ink is unusable
- * the moment a cell is comparable to four pixels, while the form is still worth
- * having well past that.
+ * How close two puffs may seed, and it is what makes the sky and the weather
+ * agree. Cells are taken deepest first and a cell is refused a puff of its own
+ * when it is nearer an accepted puff's centre than `SPACING` of the smaller of
+ * the two radii, or `COVERED` of the accepted one's. Either way a refused cell
+ * lies inside an accepted puff's footprint at no more than 85% of its radius —
+ * so every kept cell is under a drawn puff.
  */
+const SPACING = 0.85;
+const COVERED = 0.7;
+/** The hash grid those tests run on: at least the largest refusal distance. */
+const SEED_GRID = 320;
+
 /**
- * What a cloud on the night hemisphere is worth from orbit, as a fraction of
- * what it is worth on the day one.
- *
- * The material is near white and the ground at night is at `ORBIT_LOOK`'s 0.03
- * ramp floor, so under the same moon the deck comes out three or four times the
- * value of the land under it — which is true of the real thing and is still the
- * wrong picture, because *this* night hemisphere is carrying the city lights and
- * the terminator, and a pale sheet over 28% of it takes both away. Measured
- * against the identical frame with the deck hidden: without it the terminator
- * sweeps the Atlantic and Europe and Africa are dark and speckled; with it at
- * full value they are grey.
- *
- * So the night side of the deck is pulled down toward the land it is standing
- * over. **It is not turned off** — from the ceiling the cloud field is what you
- * climbed up to look at, and at this floor it is still a veil that hides the
- * lights under it, which is what weather at night actually does. It rides
- * `orbitDim`, so it does not exist standing on the ground, where a moonlit
- * cloud is the only thing in the sky worth looking at.
- *
- * The two thresholds are `lights.ts`'s own, to the digit, and deliberately: the
- * cloud has to dim on the same terminator the windows come on at, or the
- * frame's one line is drawn twice in two places.
+ * How a heap shades as one soft mass rather than a pile of balls. The upper
+ * half of each puff's normal is bent toward the normal of a dome under it —
+ * `HEAP_DROP` radii below the centre — and toward the slope of the bank there,
+ * leaning out toward the bank's rim by `LEAN_RIM` at the edge and `LEAN_HEART`
+ * in the middle: the crease where two lobes meet then falls between two
+ * normals that nearly agree.
  */
+const HEAP_DROP = 1.3;
+const HEAP_BLEND = 0.55;
+const LEAN_RIM = 0.85;
+const LEAN_HEART = 0.15;
+
+/**
+ * The levels a puff is drawn at, as `IcosahedronGeometry` details (180, 80 and
+ * 20 triangles), and where they change. A level is chosen a sub-chunk at a
+ * time on the nearest point of its cap (`Cap`): near inside `NEAR_RANGE`, the
+ * middle out to `MID_RANGE`, the far shape out to `SPLIT_RANGE`. Past that a
+ * whole base chunk is one draw of its own far set — see `FAR_LEAST` — so the
+ * planet from the ceiling is at most 20 draw calls.
+ */
+const NEAR_DETAIL = 2;
+const MID_DETAIL = 1;
+const FAR_DETAIL = 0;
+const NEAR_RANGE = 2600;
+const MID_RANGE = 6000;
+const SPLIT_RANGE = 11000;
+/** The sub-chunks the near levels are culled and chosen by: DETAIL-3 faces, 64 a base face, ~2,300 units across. */
+const SUB_LEVEL = 3;
+/**
+ * The smallest puff of the far set. From past `SPLIT_RANGE` a rim puff of 85
+ * units is a few pixels and there are tens of thousands of them, so the far
+ * set is seeded again over the same cells with no puff under this: a bank is
+ * the same bank, a little fuller at its rim, from a fraction of the puffs.
+ * By then the squash has taken most of the height, which is what hides the
+ * crowns it leaves out.
+ */
+const FAR_LEAST = 210;
+
+/**
+ * The soft edge: how far a face must turn from the eye before it is drawn
+ * whole. It is alpha to coverage — the multisampled target's own dither — so it
+ * writes depth where it is drawn, needs no sort, and has no hull to show
+ * through. Wider near, where a puff is big enough to have a soft rim; narrower
+ * at range, where a puff is a few pixels and a wide fade is a hole.
+ */
+const EDGE_NEAR = 0.5;
+const EDGE_FAR = 0.22;
+
+/**
+ * The paint: a warm crown where a lobe faces the sky, a cool blue belly where
+ * it faces the ground (darker under a deep bank), a little light of its own —
+ * the sky's colour — because a lit cloud is the brightest thing in a landscape,
+ * and the sun's own colour on the rim: a little where the rim faces the sun,
+ * and a lot when the sun is behind the cloud, which is the silver lining and
+ * is past `post.ts`'s bloom threshold on purpose.
+ */
+const CROWN_TINT = [1.04, 1.01, 0.95] as const;
+const BELLY_TINT = [0.7, 0.77, 0.92] as const;
+const BELLY_DEEP = 0.22;
+const SELF_LIGHT = 0.12;
+const RIM_POWER = 3;
+const RIM_SIDE = 0.35;
+const RIM_BACK = 1.6;
+const BACK_POWER = 6;
+const SCATTER = 0.3;
+
 /**
  * How much of the deck's own height survives at range, and **the limb is the
- * only place it matters.**
+ * only place it matters.** The limb is the one place the deck is seen edge-on,
+ * so the outer edge of the ring is the tallest top along a chord crossing
+ * dozens of heaps, and its wobble against black space reads as a crust. So the
+ * height is compressed toward the deck's own mean base, in the vertex shader,
+ * after the instance matrix, on the distance to the deck. **What it must not do
+ * is move the base**, which is why it compresses toward a reference radius
+ * rather than scaling the group: scaling takes the whole deck down toward the
+ * ground and slides it through the mountains on the way up.
  *
- * Fading the pen and flattening the shading fixed the disc and left the edge:
- * against black space the deck came out as a chunky grey crust standing proud
- * of the planet's silhouette, with individual lumps resolvable — and a
- * silhouette against maximum contrast is the first thing the eye finds, so it
- * was worse than the disc had ever been. The cause is that **the limb is the
- * one place the deck is seen edge-on.** Everywhere else you look through the
- * thickness; there you look *along* it, so the outer edge of the ring is the
- * tallest top along a chord that crosses dozens of cells. That height runs from
- * 915 to 1,875 units, which at the ceiling is a ring wobbling between 20 and 40
- * pixels: the wobble *is* the crust, and no amount of shading fixes it, because
- * it is geometry.
- *
- * So the height is compressed toward the deck's own mean base, in the vertex
- * shader, on the same distance the other three ride. `SQUASH_KEEP` of 0.12
- * leaves a slab about a hundred units thick where the towers were and takes the
- * ring's outer edge to a smooth 23 pixels — the same width, because that is set
- * by `CLOUD_BASE` and not by the thickness, but with the jaggedness gone.
- *
- * **What it must not do is move the base**, which is why it compresses toward a
- * reference radius rather than scaling the group: scaling the group takes the
- * whole deck down toward the ground and slides it through the mountains on the
- * way up. The base stays at `CLOUD_BASE` and only the height above it shrinks.
- *
- * **It used to start at `PEN_OFF_RANGE` and that was not a range, it was a
- * truce.** The pen and the squash could not both be on, so the squash was not
- * allowed to begin until the ink had gone — which left a band from about 11,000
- * to 14,000 of range with no ink *and* no squash, and the limb there was the
- * crust this whole constant exists to remove. The hull applies the squash now,
- * so the schedule is chosen against the thing it is for: 7,000 is where the
- * deck's edge-on lumps stop being cloud tops you can read and start being
- * gravel on a silhouette, and 13,000 is where the fade has to be finished
- * because that is where the crust was worst. Both are ranges the pen is still
- * partly drawn at, which is the point — the two now overlap for 8,000 units and
- * the deck is inked *and* flattened through the whole of it.
+ * `mix(1.0, ..., 0.0)` is exactly 1.0, so at zero squash this multiplies every
+ * vertex by one and the near view is untouched.
  */
 const SQUASH_REFERENCE = PLANET_RADIUS + CLOUD_BASE;
 const SQUASH_KEEP = 0.12;
 const SQUASH_START_RANGE = 7000;
 const SQUASH_FULL_RANGE = 13000;
 
-/**
- * The squash itself, as one string, because **it is compiled into two programs
- * and the two must not be able to disagree.**
- *
- * The fill calls it on `transformed`; `OutlineEffect` splices the same
- * declaration into the hull's vertex shader and calls it on the same value —
- * see `OutlineTransform` in `outline.ts`. The `squash` uniform is one object
- * shared by both, not two objects that a frame has to keep in step. Written as
- * a function rather than as an inline expression for exactly that reason: a
- * hook that hands over an equation can be got wrong in one of its two copies,
- * and one that hands over a function cannot.
- *
- * `mix(1.0, ..., 0.0)` is exactly 1.0, so at zero squash this multiplies every
- * vertex by one and the near view is the frame it always was, to the bit.
- */
 const SQUASH_GLSL = /* glsl */ `uniform float squash;
 
 vec3 atlasVertex( vec3 p ) {
@@ -366,11 +288,28 @@ function squashAt(altitude: number): number {
   return THREE.MathUtils.smoothstep(range, SQUASH_START_RANGE, SQUASH_FULL_RANGE);
 }
 
+/**
+ * What a cloud on the night hemisphere is worth from orbit, as a fraction of
+ * what it is worth on the day one. The night side carries the city lights and
+ * the terminator, and a pale sheet over a quarter of it takes both away, so it
+ * is pulled down toward the land it stands over — not off: a veil that hides
+ * the lights under it is what weather at night does. It rides `orbitDim`, so it
+ * does not exist standing on the ground. The two thresholds are `lights.ts`'s
+ * own, to the digit, so the cloud dims on the terminator the windows come on at.
+ */
 const NIGHT_FLOOR = 0.34;
 
 /** How much of its light the heart of a bank loses under a storm (`setGrey` at 1). */
 const GREY_DEPTH = 0.58;
 
+/**
+ * How much of a cloud's own shape is allowed to shade it, and why it has to go
+ * away at range: a small pale object with a lit side and a dark side is how you
+ * draw a rock, and from the ceiling a puff is a few pixels. What a cloud reads
+ * as from orbit is area and value, so the shading normal is bent toward the
+ * local up with distance. It stops at `FLAT_MAX` rather than 1 because a wholly
+ * flat deck shades its limb like its centre and the globe stops being a sphere.
+ */
 const FLAT_FULL_RANGE = 4000;
 const FLAT_GONE_RANGE = 16000;
 const FLAT_MAX = 0.9;
@@ -380,30 +319,27 @@ function flattenAt(altitude: number): number {
   return FLAT_MAX * THREE.MathUtils.smoothstep(range, FLAT_FULL_RANGE, FLAT_GONE_RANGE);
 }
 
-function penAt(
-  altitude: number,
-  pen: { thickness: number; color: [number, number, number]; visible: boolean },
-): void {
-  const range = Math.abs(altitude - CLOUD_BASE);
-  const t = THREE.MathUtils.smoothstep(range, PEN_FULL_RANGE, PEN_GONE_RANGE);
-  pen.thickness = PEN_THICKNESS * (1 - t);
-  // `visible` is read out of these parameters every frame — see `outlineFor` in
-  // `outline.ts` — so this is a switch and not a rebuild. Keyed on the range and
-  // on the fade's own end, so the pass goes out exactly where the line already
-  // has and never a unit before it.
-  pen.visible = range < PEN_GONE_RANGE;
-}
-
 export interface CloudStats {
-  /** Faces of the cut shell that came out cloudy, and the fraction they are. */
+  /** Cells of the lattice that came out cloudy, and the fraction they are. */
   cells: number;
   cover: number;
+  /** Puffs in the deck, and how many of them are a heap's bottom tier (the far level's). */
+  puffs: number;
+  bottom: number;
+  /** Puffs in the far set (`FAR_LEAST`). */
+  farPuffs: number;
+  /** Triangles if every puff were drawn at the near level, and the whole far set. */
   triangles: number;
+  farTriangles: number;
+  /** Triangles in the chunks the last update left on, before the frustum. */
+  drawn: number;
+  /** Instanced meshes in the deck, and how many the last update left on. */
   chunks: number;
+  shown: number;
   megabytes: number;
   buildMs: number;
-  /** Walls that came out facing into the cloud. Must be 0; see the count below. */
-  inward: number;
+  /** Puffs whose matrix came out mirrored (determinant <= 0). Must be 0. */
+  mirrored: number;
 }
 
 /**
@@ -424,8 +360,9 @@ export const CLOUD_ORDER = 5;
 export interface Clouds {
   group: THREE.Group;
   /**
-   * Turns the deck into the wind and re-reaches its haze. Call once a frame,
-   * after `sky.update` has set the fog's colour and `main.ts` its distances.
+   * Turns the deck into the wind, re-reaches its haze and picks each chunk's
+   * level. Call once a frame, after `sky.update` has set the fog's colour and
+   * `main.ts` its distances.
    */
   update(time: Date, cameraPosition: THREE.Vector3, fog: THREE.Fog): void;
   /**
@@ -433,18 +370,16 @@ export interface Clouds {
    * a veil, and under a hundredth the group is not drawn at all.
    *
    * **For the start menu and nothing else**, which fades the deck out while you
-   * choose a country and a town — a map you click on, where a solid cloud over
+   * choose a country and a town — a map you click on, where a cloud over
    * eastern Spain hid which coast Valencia's pin was on — and back in from
-   * space, where the weather is most of what the planet looks like. It is a
-   * material switch (transparent and one-sided) and so a recompile, once, the
-   * first time it is asked for; the ink follows on its own because the hull
-   * takes the fill's opacity.
+   * space. It is a material switch (transparent and one-sided) and so a
+   * recompile, once, the first time it is asked for.
    */
   setVeil(opacity: number): void;
   /**
    * How much a bank's deep middle darkens, 0 to 1: the weather's say in how
-   * the deck looks (`weather-view.ts`). 0 is the white deck this file always
-   * drew; 1 is a storm's, `GREY_DEPTH` darker at a bank's heart.
+   * the deck looks (`weather-view.ts`). 0 is the white deck; 1 is a storm's,
+   * `GREY_DEPTH` darker at a bank's heart.
    */
   setGrey(value: number): void;
   stats: CloudStats;
@@ -457,27 +392,15 @@ export interface Clouds {
  * *land's* horizon — because that is the number that has to hide the edge of
  * the world. Standing on the ground that is 1,430 units, and a cloud 1,000
  * units overhead is 65% of the way into it: the entire deck comes out one flat
- * mauve wash, and the first build did exactly that. It is not a bug in the fog.
- * Haze is a path length through air, and the path to something overhead is the
- * one direction that leaves the atmosphere immediately, which is why the zenith
- * is blue on the same afternoon the hills are grey.
+ * wash. Haze is a path length through air, and the path to something overhead
+ * is the one direction that leaves the atmosphere immediately, which is why
+ * the zenith is blue on the same afternoon the hills are grey.
  *
  * So the cloud is in the same haze, in the same colour, measured over the
  * horizon of *its own* sphere: `sqrt(2 R (h + CLOUD_BASE))`, times the same
- * `spread` that opens the fog as you climb. Standing on the ground that closes
- * at 6,000 units, which is where the deck meets the horizon, and it opens far
- * enough by the plane's ceiling that the weather is still weather from up
- * there.
- *
- * It closes with the weather's own haze (`weatherHazeAt` in `view.ts`), so in
- * a fog or a downpour the deck overhead goes into the murk with the hills.
- *
- * The one thing it does not carry is the ink: `OutlineEffect` copies `fog` off
- * the source material and knows nothing about this, so the outline stays black
- * at any distance. That is the right way round — a pale shape with its line
- * still on it is a drawing; the alternative, which is what `fog: true` gives,
- * is every cloud in the sky outlined in mauve, because the deck starts beyond
- * the land's fog and the ink saturates before the fill has begun.
+ * `spread` that opens the fog as you climb. It closes with the weather's own
+ * haze (`weatherHazeAt` in `view.ts`), so in a fog or a downpour the deck
+ * overhead goes into the murk with the hills.
  */
 function hazeAt(
   altitude: number,
@@ -494,15 +417,9 @@ function hazeAt(
 
 /**
  * A geodesic sphere, indexed, with the faces still grouped by the base face
- * they came out of.
- *
- * Three's own `IcosahedronGeometry` would give the same points and is no use
- * here: it is non-indexed, so nothing shares a vertex and there is no way to
- * ask which face is on the other side of an edge. That question is the whole
- * build — a wall belongs on an edge exactly when the face across it is clear —
- * and welding a quarter of a million vertices back together by hashing their
- * coordinates is both slower and a rounding decision waiting to be wrong.
- * Subdividing with a midpoint cache gives exact shared indices for free.
+ * they came out of, and each base face's descendants in subdivision order —
+ * so a face's ancestor at any level is an integer division, which is how the
+ * puffs are sorted into chunks and sub-chunks with no search.
  */
 function icosphere(detail: number): {
   vertices: Float64Array;
@@ -553,9 +470,10 @@ function icosphere(detail: number): {
     return index;
   };
 
-  // Each base face is subdivided on its own so its descendants stay contiguous,
-  // which is what lets the shell be cut into 20 separately culled chunks with
-  // no bookkeeping. The midpoint cache is shared, so the seams still weld.
+  // Each base face is subdivided on its own so its descendants stay contiguous;
+  // the midpoint cache is shared, so the seams still weld. A face's four
+  // children are pushed together, so after L levels face k's descendants at
+  // level L are 4^L k .. 4^L (k + 1) - 1 within the chunk.
   const perChunk = 4 ** detail;
   const faces = new Int32Array(20 * perChunk * 3);
   const chunkOf = new Int32Array(20 * perChunk);
@@ -605,12 +523,164 @@ export function coverageAt(x: number, y: number, z: number): number {
   return raw + CLIMATE_BIAS * Math.cos((lat * Math.PI) / CLIMATE_PERIOD);
 }
 
+/** A deterministic [0, 1) from an integer and a salt: the jitter every client agrees on. */
+function hash01(n: number, salt: number): number {
+  let h = Math.imul(n ^ Math.imul(salt, 0x9e3779b1), 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
 /**
- * Builds the deck.
- *
- * Two passes over the same faces: the first counts triangles so the buffers can
- * be allocated once, the second writes them. Growing arrays instead would cost
- * more than the count does.
+ * The puff all the others are instances of: an icosphere turned so a vertex is
+ * at the top (a round crown, not a ridge), its lower half squashed to `BELLY`,
+ * and the ellipsoid's own normals — smooth, never per face, because a lobe is
+ * a gradient and not a facet.
+ */
+function puffGeometry(detail: number): THREE.BufferGeometry {
+  const geometry = new THREE.IcosahedronGeometry(1, detail);
+  geometry.rotateX(-Math.atan((1 + Math.sqrt(5)) / 2));
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+  const normals = new Float32Array(position.count * 3);
+  const n = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const below = y < 0;
+    // The gradient of x^2 + (y/B)^2 + z^2 at (x, B y, z) is (x, y/B, z).
+    n.set(x, below ? y / BELLY : y, z).normalize();
+    if (below) position.setY(i, y * BELLY);
+    normals[i * 3] = n.x;
+    normals[i * 3 + 1] = n.y;
+    normals[i * 3 + 2] = n.z;
+  }
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.deleteAttribute('uv');
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** A puff shape with a chunk's instance attributes on it. */
+function levelOf(
+  template: THREE.BufferGeometry,
+  deep: THREE.InstancedBufferAttribute,
+  puff: THREE.InstancedBufferAttribute,
+): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  // The same attribute objects as the template, so the GPU holds one copy of
+  // each puff shape however many chunks draw it.
+  geometry.setAttribute('position', template.getAttribute('position'));
+  geometry.setAttribute('normal', template.getAttribute('normal'));
+  geometry.setAttribute('deep', deep);
+  geometry.setAttribute('puff', puff);
+  geometry.boundingSphere = template.boundingSphere!.clone();
+  return geometry;
+}
+
+/** One instanced draw of a chunk. */
+function instanced(
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material,
+  matrices: THREE.InstancedBufferAttribute,
+  name: string,
+): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(geometry, material, 0);
+  mesh.instanceMatrix = matrices;
+  mesh.count = matrices.count;
+  mesh.computeBoundingSphere();
+  mesh.name = name;
+  mesh.renderOrder = CLOUD_ORDER;
+  mesh.visible = false;
+  // It sits at the group's origin and never moves in it: the deck's turn is
+  // the group's, and the world matrix is all this mesh needs each frame.
+  mesh.matrixAutoUpdate = false;
+  return mesh;
+}
+
+/**
+ * Where a chunk's puffs are, as a cap of the deck: the direction of its middle,
+ * the angle out to its furthest puff's edge, and the radii its puffs span. A
+ * bounding sphere of a piece of shell cuts deep under it and puts the nearest
+ * point thousands of units too close; a cap does not.
+ */
+interface Cap {
+  direction: THREE.Vector3;
+  angle: number;
+  low: number;
+  high: number;
+}
+
+function capOf(matrices: Float32Array): Cap {
+  const direction = new THREE.Vector3();
+  const count = matrices.length / 16;
+  for (let i = 0; i < count; i++) {
+    const x = matrices[i * 16 + 12]!;
+    const y = matrices[i * 16 + 13]!;
+    const z = matrices[i * 16 + 14]!;
+    const r = Math.hypot(x, y, z);
+    direction.x += x / r;
+    direction.y += y / r;
+    direction.z += z / r;
+  }
+  direction.normalize();
+  let angle = 0;
+  let low = Infinity;
+  let high = 0;
+  for (let i = 0; i < count; i++) {
+    const e = i * 16;
+    const x = matrices[e + 12]!;
+    const y = matrices[e + 13]!;
+    const z = matrices[e + 14]!;
+    const r = Math.hypot(x, y, z);
+    // The largest of the three scales bounds the puff whichever way it faces.
+    const size = Math.max(
+      Math.hypot(matrices[e]!, matrices[e + 1]!, matrices[e + 2]!),
+      Math.hypot(matrices[e + 4]!, matrices[e + 5]!, matrices[e + 6]!),
+      Math.hypot(matrices[e + 8]!, matrices[e + 9]!, matrices[e + 10]!),
+    );
+    const cos = (direction.x * x + direction.y * y + direction.z * z) / r;
+    angle = Math.max(angle, Math.acos(Math.max(-1, Math.min(1, cos))) + size / r);
+    low = Math.min(low, r - size);
+    high = Math.max(high, r + size);
+  }
+  return { direction, angle, low, high };
+}
+
+/**
+ * A sub-chunk: one mesh whose geometry is swapped between the three levels.
+ * The three geometries share the puff shapes with every other sub-chunk and
+ * the instance buffers with each other, so a swap moves no data.
+ */
+interface Sub {
+  mesh: THREE.InstancedMesh;
+  levels: [THREE.BufferGeometry, THREE.BufferGeometry, THREE.BufferGeometry];
+  cap: Cap;
+}
+
+interface Base {
+  far: THREE.InstancedMesh | null;
+  farCap: Cap | null;
+  subs: Sub[];
+  cap: Cap | null;
+  split: boolean;
+}
+
+/** Puffs as they are written, before they are sorted into chunks. */
+interface Batch {
+  chunk: number[];
+  tier: number[];
+  matrix: number[];
+  deep: number[];
+  shade: number[];
+}
+
+const batch = (): Batch => ({ chunk: [], tier: [], matrix: [], deep: [], shade: [] });
+
+/**
+ * Builds the deck: the field on the lattice, the puffs seeded on it, and the
+ * chunks they are drawn in.
  */
 export function createClouds(): Clouds {
   const began = performance.now();
@@ -618,130 +688,281 @@ export function createClouds(): Clouds {
   const vertexCount = vertices.length / 3;
   const faceCount = faces.length / 3;
 
-  // Everything a vertex is worth, evaluated once. A vertex is shared by six
-  // faces, so asking the noise per face would be six times the work and — worse
-  // — six answers where the mesh needs one, which is a crack.
+  // Everything a vertex is worth, evaluated once: a vertex is shared by six
+  // faces, and six answers where the lattice needs one is a disagreement.
   const cover = new Float32Array(vertexCount);
   const floor = new Float32Array(vertexCount);
-  const ceiling = new Float32Array(vertexCount);
-  /** Each vertex's depth into its bank, a byte: what `grey` darkens. */
-  const deep = new Uint8Array(vertexCount);
   for (let i = 0; i < vertexCount; i++) {
     const x = vertices[i * 3]!;
     const y = vertices[i * 3 + 1]!;
     const z = vertices[i * 3 + 2]!;
-    const c = coverageAt(x, y, z);
-    cover[i] = c;
-    const base =
+    cover[i] = coverageAt(x, y, z);
+    floor[i] =
       CLOUD_BASE +
-      (fbm(x * BASE_FREQUENCY + 61.3, y * BASE_FREQUENCY + 2.7, z * BASE_FREQUENCY - 44.1, 2) - 0.5) *
-        BASE_SWING;
-    // Depth of the bank drives how tall it stands, so an edge is a wisp and the
-    // middle is a tower, with no second field saying so.
-    const depth = Math.max(0, Math.min(1, (c - THRESHOLD) / DEPTH_SPAN));
-    deep[i] = Math.round(depth * 255);
-    const lump = fbm(x * LUMP_FREQUENCY + 7.7, y * LUMP_FREQUENCY - 19.4, z * LUMP_FREQUENCY + 3.3, 3);
-    const bottom = base + RIM_LIFT * (1 - depth);
-    floor[i] = PLANET_RADIUS + bottom;
-    ceiling[i] =
-      PLANET_RADIUS +
-      bottom +
-      THICKNESS_MIN +
-      // Smoothstep and not a power, because it is flat at *both* ends: a power
-      // curve peaks at the deepest cell, so a bank only three cells across —
-      // and most of them are — comes to a point and reads as a tent.
-      THICKNESS_RANGE * depth * depth * (3 - 2 * depth) +
-      LUMP_HEIGHT * lump * depth;
+      (fbm(x * BASE_FREQUENCY + 61.3, y * BASE_FREQUENCY + 2.7, z * BASE_FREQUENCY - 44.1, 2) - 0.5) * BASE_SWING;
   }
 
-  const kept = new Uint8Array(faceCount);
-  let cells = 0;
+  // The kept cells: the face's own coverage is the mean of its corners, as the
+  // prism shell cut it. Deepest first, a little shuffled so equal depths do not
+  // seed in lattice order.
+  const depthOf = new Float32Array(faceCount);
+  const kept: number[] = [];
   for (let f = 0; f < faceCount; f++) {
-    const a = faces[f * 3]!;
-    const b = faces[f * 3 + 1]!;
-    const c = faces[f * 3 + 2]!;
-    // The face's own coverage is the mean of its corners rather than a fourth
-    // sample at the centroid. That is not a saving, it is the thing that keeps
-    // the cut and the heights the same decision: a corner where the cut says
-    // "edge" is a corner where the height says "thinnest", always.
-    if ((cover[a]! + cover[b]! + cover[c]!) / 3 > THRESHOLD) {
-      kept[f] = 1;
-      cells++;
-    }
+    const mean = (cover[faces[f * 3]!]! + cover[faces[f * 3 + 1]!]! + cover[faces[f * 3 + 2]!]!) / 3;
+    if (mean <= THRESHOLD) continue;
+    depthOf[f] = Math.min(1, (mean - THRESHOLD) / DEPTH_SPAN);
+    kept.push(f);
   }
+  const cells = kept.length;
+  const rank = new Float32Array(faceCount);
+  for (const f of kept) rank[f] = depthOf[f]! + (hash01(f, 1) - 0.5) * 0.08;
+  kept.sort((a, b) => rank[b]! - rank[a]!);
 
-  // Which face is on the other side of each edge. Only kept faces need asking,
-  // but the neighbour may be a face that was thrown away, so the map is built
-  // over all of them.
-  const across = new Map<number, number>();
-  const edgeKey = (a: number, b: number): number => (a < b ? a * 1e6 + b : b * 1e6 + a);
-  for (let f = 0; f < faceCount; f++) {
-    const a = faces[f * 3]!;
-    const b = faces[f * 3 + 1]!;
-    const c = faces[f * 3 + 2]!;
-    for (const [u, v] of [[a, b], [b, c], [c, a]] as const) {
-      const key = edgeKey(u, v);
-      const found = across.get(key);
-      // Two faces to an edge and no more, so the sum of the two indices minus
-      // the one you have is the other. One integer per edge instead of a pair.
-      across.set(key, found === undefined ? f : found + f);
-    }
-  }
-  const neighbour = (f: number, u: number, v: number): number => {
-    const sum = across.get(edgeKey(u, v));
-    return sum === undefined ? -1 : sum - f;
+  const DECK = PLANET_RADIUS + CLOUD_BASE;
+  const POLE = new THREE.Vector3(0, 1, 0);
+  const SIDEWAYS = new THREE.Vector3(1, 0, 0);
+  /** East and north at a direction, into the two targets. */
+  const tangents = (at: THREE.Vector3, east: THREE.Vector3, north: THREE.Vector3): void => {
+    east.crossVectors(POLE, at);
+    if (east.lengthSq() < 1e-6) east.crossVectors(SIDEWAYS, at);
+    east.normalize();
+    north.crossVectors(at, east);
   };
 
-  const wallOf = new Uint8Array(faceCount);
-  let triangles = 0;
-  for (let f = 0; f < faceCount; f++) {
-    if (kept[f] === 0) continue;
-    const a = faces[f * 3]!;
-    const b = faces[f * 3 + 1]!;
-    const c = faces[f * 3 + 2]!;
-    let walls = 0;
-    if (kept[neighbour(f, a, b)] !== 1) walls |= 1;
-    if (kept[neighbour(f, b, c)] !== 1) walls |= 2;
-    if (kept[neighbour(f, c, a)] !== 1) walls |= 4;
-    wallOf[f] = walls;
-    triangles += 2 + 2 * ((walls & 1) + ((walls >> 1) & 1) + ((walls >> 2) & 1));
-  }
+  /**
+   * Dart-throwing over the kept cells, deepest first: `visit` is called for
+   * each cell that seeds a puff, with the puff's direction and radius. See
+   * `SPACING` for why a refused cell is still under a puff. `least` is the
+   * smallest radius a puff may have, which is how the far level seeds fewer,
+   * bigger puffs over the same cells.
+   */
+  const seed = (least: number, visit: (f: number, direction: THREE.Vector3, a: number) => void): void => {
+    const grid = new Map<number, number[]>();
+    const cell = Math.max(SEED_GRID, least * SPACING);
+    const keyOf = (gx: number, gy: number, gz: number): number => ((gx + 256) * 512 + (gy + 256)) * 512 + (gz + 256);
+    const seedX: number[] = [];
+    const seedY: number[] = [];
+    const seedZ: number[] = [];
+    const seedA: number[] = [];
+    const direction = new THREE.Vector3();
+    const east = new THREE.Vector3();
+    const north = new THREE.Vector3();
+    for (const f of kept) {
+      direction
+        .fromArray(vertices, faces[f * 3]! * 3)
+        .add(east.fromArray(vertices, faces[f * 3 + 1]! * 3))
+        .add(north.fromArray(vertices, faces[f * 3 + 2]! * 3))
+        .normalize();
+      // A little off the lattice, inside the cell.
+      tangents(direction, east, north);
+      const jitter = 22 / DECK;
+      direction
+        .addScaledVector(east, (hash01(f, 2) - 0.5) * 2 * jitter)
+        .addScaledVector(north, (hash01(f, 3) - 0.5) * 2 * jitter)
+        .normalize();
+      const depth = depthOf[f]!;
+      const smooth = depth * depth * (3 - 2 * depth);
+      const a = Math.max(
+        least,
+        (PUFF_RIM + (PUFF_HEART - PUFF_RIM) * smooth) * (1 + (hash01(f, 4) - 0.5) * 2 * PUFF_JITTER),
+      );
+      const x = direction.x * DECK;
+      const y = direction.y * DECK;
+      const z = direction.z * DECK;
+      const gx = Math.floor(x / cell);
+      const gy = Math.floor(y / cell);
+      const gz = Math.floor(z / cell);
+      let refused = false;
+      for (let dx = -1; dx <= 1 && !refused; dx++) {
+        for (let dy = -1; dy <= 1 && !refused; dy++) {
+          for (let dz = -1; dz <= 1 && !refused; dz++) {
+            const list = grid.get(keyOf(gx + dx, gy + dy, gz + dz));
+            if (list === undefined) continue;
+            for (const j of list) {
+              const other = seedA[j]!;
+              const limit = Math.max(SPACING * Math.min(a, other), COVERED * other);
+              const ex = seedX[j]! - x;
+              const ey = seedY[j]! - y;
+              const ez = seedZ[j]! - z;
+              if (ex * ex + ey * ey + ez * ez < limit * limit) {
+                refused = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (refused) continue;
+      const key = keyOf(gx, gy, gz);
+      const list = grid.get(key);
+      if (list === undefined) grid.set(key, [seedX.length]);
+      else list.push(seedX.length);
+      seedX.push(x);
+      seedY.push(y);
+      seedZ.push(z);
+      seedA.push(a);
+      visit(f, direction, a);
+    }
+  };
 
+  let mirrored = 0;
+  const matrix = new THREE.Matrix4();
+  const puffUp = new THREE.Vector3();
+  const puffEast = new THREE.Vector3();
+  const puffNorth = new THREE.Vector3();
+  const axisX = new THREE.Vector3();
+  const axisY = new THREE.Vector3();
+  const axisZ = new THREE.Vector3();
+  const writePuff = (
+    into: Batch,
+    chunk: number,
+    tier: number,
+    at: THREE.Vector3,
+    a: number,
+    b: number,
+    stretch: number,
+    yaw: number,
+    depth: number,
+    lean: THREE.Vector3,
+    lift: number,
+  ): void => {
+    puffUp.copy(at).normalize();
+    tangents(puffUp, puffEast, puffNorth);
+    axisX.copy(puffEast).multiplyScalar(Math.cos(yaw)).addScaledVector(puffNorth, Math.sin(yaw));
+    // x cross y = z, so the basis is a rotation and the determinant is the
+    // product of the scales.
+    axisZ.crossVectors(axisX, puffUp);
+    const leanX = lean.dot(axisX);
+    const leanZ = lean.dot(axisZ);
+    matrix.makeBasis(
+      axisX.multiplyScalar(a),
+      axisY.copy(puffUp).multiplyScalar(b),
+      axisZ.multiplyScalar(a * stretch),
+    );
+    matrix.setPosition(at);
+    if (matrix.determinant() <= 0) mirrored++;
+    into.chunk.push(chunk);
+    into.tier.push(tier);
+    for (let k = 0; k < 16; k++) into.matrix.push(matrix.elements[k]!);
+    into.deep.push(Math.round(depth * 255));
+    // The lean in the puff's own frame, pre-scaled so that after the normal
+    // matrix's inverse scale it is the world slope it was measured as.
+    into.shade.push(leanX * (a / b), leanZ * ((a * stretch) / b), lift);
+  };
+
+  const pa = new THREE.Vector3();
+  const pb = new THREE.Vector3();
+  const pc = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const gradient = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const lean = new THREE.Vector3();
+  /** Which way the bank thins at a cell: down the coverage's gradient, linear on the triangle. */
+  const leanOf = (f: number, up: THREE.Vector3, depth: number): THREE.Vector3 => {
+    const ia = faces[f * 3]!;
+    const ib = faces[f * 3 + 1]!;
+    const ic = faces[f * 3 + 2]!;
+    pa.fromArray(vertices, ia * 3);
+    pb.fromArray(vertices, ib * 3);
+    pc.fromArray(vertices, ic * 3);
+    normal.subVectors(pb, pa).cross(side.subVectors(pc, pa)).normalize();
+    // The gradient of a barycentric coordinate is the opposite edge turned a
+    // quarter inward, over twice the area; the area is common and drops out.
+    gradient.set(0, 0, 0);
+    gradient.addScaledVector(side.subVectors(pc, pb).applyAxisAngle(normal, Math.PI / 2), cover[ia]!);
+    gradient.addScaledVector(side.subVectors(pa, pc).applyAxisAngle(normal, Math.PI / 2), cover[ib]!);
+    gradient.addScaledVector(side.subVectors(pb, pa).applyAxisAngle(normal, Math.PI / 2), cover[ic]!);
+    gradient.addScaledVector(up, -gradient.dot(up));
+    const slope = gradient.length();
+    if (slope > 1e-9) lean.copy(gradient).multiplyScalar(-(LEAN_RIM + (LEAN_HEART - LEAN_RIM) * depth) / slope);
+    else lean.set(0, 0, 0);
+    return lean;
+  };
+  const floorAt = (f: number, depth: number): number =>
+    (floor[faces[f * 3]!]! + floor[faces[f * 3 + 1]!]! + floor[faces[f * 3 + 2]!]!) / 3 + RIM_LIFT * (1 - depth);
+
+  const subsPerBase = 4 ** SUB_LEVEL;
+  const perBase = 4 ** DETAIL;
+  const perSub = 4 ** (DETAIL - SUB_LEVEL);
+  const centre = new THREE.Vector3();
+  const heart = new THREE.Vector3();
+  const across = new THREE.Vector3();
+
+  // The deck as it is seen near: every tier, by sub-chunk.
+  const fine = batch();
+  seed(0, (f, up, a) => {
+    const depth = depthOf[f]!;
+    const smooth = depth * depth * (3 - 2 * depth);
+    const leaning = leanOf(f, up, depth);
+    const sub = chunkOf[f]! * subsPerBase + Math.floor((f - chunkOf[f]! * perBase) / perSub);
+    const yaw = hash01(f, 5) * Math.PI * 2;
+    const stretch = 1 + hash01(f, 6) * 0.3;
+
+    // The bottom tier: its belly on the bank's floor.
+    const b = a * (TALL_RIM + (TALL_HEART - TALL_RIM) * smooth);
+    centre.copy(up).multiplyScalar(PLANET_RADIUS + floorAt(f, depth) + BELLY * b);
+    writePuff(fine, sub, 0, centre, a, b, stretch, yaw, depth, leaning, 0);
+
+    // The crown and the tower, each on the one below and leant toward the
+    // bank's heart, so a heap climbs toward the middle.
+    tangents(up, across, heart);
+    if (leaning.lengthSq() > 0) heart.copy(leaning).normalize().negate();
+    across.crossVectors(up, heart);
+    let reach = a;
+    let height = b;
+    for (const [tier, from, shrink] of [
+      [1, CROWN_FROM, 0.68],
+      [2, TOWER_FROM, 0.7],
+    ] as const) {
+      if (depth <= from) break;
+      const grow = (depth - from) / (1 - from);
+      const a2 = reach * shrink * (0.8 + 0.2 * grow);
+      const b2 = a2 * TALL_HEART;
+      centre
+        .addScaledVector(up, height * (0.55 + 0.15 * grow))
+        .addScaledVector(heart, reach * 0.25)
+        .addScaledVector(across, (hash01(f, 7 + tier) - 0.5) * reach * 0.3);
+      writePuff(fine, sub, tier, centre, a2, b2, stretch, yaw + tier * 2.1, depth, leaning, tier / 2);
+      reach = a2;
+      height = b2;
+    }
+  });
+
+  // The deck as it is seen from far off: fewer, bigger puffs over the same
+  // cells, the bottom tier only, by base chunk. See `FAR_LEAST`.
+  const coarse = batch();
+  seed(FAR_LEAST, (f, up, a) => {
+    const depth = depthOf[f]!;
+    const smooth = depth * depth * (3 - 2 * depth);
+    const b = a * (TALL_RIM + (TALL_HEART - TALL_RIM) * smooth);
+    centre.copy(up).multiplyScalar(PLANET_RADIUS + floorAt(f, depth) + BELLY * b);
+    const leaning = leanOf(f, up, depth);
+    writePuff(coarse, chunkOf[f]!, 0, centre, a, b, 1 + hash01(f, 6) * 0.3, hash01(f, 5) * Math.PI * 2, depth, leaning, 0);
+  });
+  const puffs = fine.chunk.length;
+  let bottom = 0;
+  for (const tier of fine.tier) if (tier === 0) bottom++;
   const ramp = createToonRamp(4);
   const haze = { color: { value: new THREE.Color(0xc6b6cf) }, near: { value: 1200 }, far: { value: 6000 } };
   const flatten = { value: 0 };
   const orbitDim = { value: 0 };
   const squash = { value: 0 };
   const grey = { value: 0 };
+  const edgeSoft = { value: EDGE_NEAR };
   const material = new THREE.MeshToonMaterial({
-    color: 0xfbf3ec,
+    color: 0xffffff,
     gradientMap: ramp,
-    // The inside is a surface too. Culled back faces mean flying into a cloud
-    // shows you the far wall from behind, which renders as nothing: the deck
-    // you were about to enter simply stops existing at the near plane. Both
-    // sides, and entering one is the white-out it should be.
+    // The inside is a surface too: flying into a puff is the white-out it
+    // should be, not the puff vanishing at the near plane.
     side: THREE.DoubleSide,
+    // The soft edge, as coverage: see `EDGE_NEAR`.
+    alphaToCoverage: true,
     // And the scene's fog is off, which is the one thing here that looks like
     // ignoring the world and is the opposite. See `hazeAt`.
     fog: false,
   });
-  const pen: {
-    thickness: number;
-    color: [number, number, number];
-    visible: boolean;
-    transform: OutlineTransform;
-  } = {
-    thickness: PEN_THICKNESS,
-    color: [0.11, 0.02, 0.01],
-    visible: true,
-    // The pen carries the squash with it: `OutlineEffect` compiles this same
-    // declaration into the hull and calls the same function on the same vertex,
-    // sharing this same uniform object, so the ink is drawn round the deck that
-    // is actually on the screen. Before this the two were different shapes and
-    // the pen had to be switched off before the squash could start.
-    transform: { declaration: SQUASH_GLSL, uniforms: { squash } },
-  };
-  material.userData.outlineParameters = pen;
+  material.userData.outlineParameters = { visible: false };
+  const vec = (c: readonly number[]): string => `vec3(${c.map((v) => v.toFixed(3)).join(', ')})`;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.hazeColor = haze.color;
     shader.uniforms.hazeNear = haze.near;
@@ -751,40 +972,82 @@ export function createClouds(): Clouds {
     shader.uniforms.atlasSun = sunUniform;
     shader.uniforms.squash = squash;
     shader.uniforms.cloudGrey = grey;
+    shader.uniforms.edgeSoft = edgeSoft;
     shader.vertexShader = shader.vertexShader
       .replace(
         'void main() {',
-        SQUASH_GLSL + '\nattribute float deep;\nvarying float vDeep;\nvarying float vHaze;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {\n  vDeep = deep;',
+        SQUASH_GLSL +
+          '\nattribute float deep;\nattribute vec3 puff;\nvarying float vDeep;\nvarying float vHaze;\nvarying float vPuffY;\nvarying float vLift;\nvarying vec3 vRadial;\nvarying vec3 vUp;\n' +
+          'void main() {\n  vDeep = deep;\n  vPuffY = position.y;\n  vLift = puff.z;',
       )
-      // See `squashAt` and `SQUASH_GLSL`. Radial, in object space, which for this
-      // mesh is the planet's own frame turned by the wind — so it is radial in
-      // the world too, and it moves nothing sideways. One line here and the same
-      // line in the hull, out of the one declaration above.
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\ttransformed = atlasVertex(transformed);')
-      // `position` is the radial direction times the radius: the chunks sit at
-      // the group's own origin, which is the planet's centre, so normalising it
-      // is the local up with no extra matrix and no extra attribute.
+      // See `HEAP_DROP`: the upper half of the puff's normal bent toward a dome
+      // under it and the bank's slope, in the puff's own frame, before the
+      // instance matrix takes it into the deck's.
       .replace(
-        '#include <fog_vertex>',
-        '#include <fog_vertex>\n  vHaze = -mvPosition.z;\n  vRadial = normalize(normalMatrix * normalize(position));\n  vUp = normalize((modelMatrix * vec4(position, 1.0)).xyz);',
+        '#include <beginnormal_vertex>',
+        '#include <beginnormal_vertex>\n' +
+          '\t{\n' +
+          `\t\tvec3 atlasHeap = normalize( position + vec3( 0.0, ${HEAP_DROP.toFixed(2)}, 0.0 ) );\n` +
+          '\t\tvec3 atlasMass = normalize( vec3( puff.x, 1.0, puff.y ) );\n' +
+          `\t\tobjectNormal = normalize( mix( objectNormal, normalize( atlasHeap + atlasMass ), smoothstep( -0.2, 0.55, objectNormal.y ) * ${HEAP_BLEND.toFixed(2)} ) );\n` +
+          '\t}',
+      )
+      // The instance matrix first and the squash after it, because the squash
+      // is radial about the planet and a puff's own frame is not.
+      .replace(
+        '#include <project_vertex>',
+        'vec4 atlasDeck = vec4( transformed, 1.0 );\n' +
+          '#ifdef USE_INSTANCING\n\tatlasDeck = instanceMatrix * atlasDeck;\n#endif\n' +
+          'atlasDeck.xyz = atlasVertex( atlasDeck.xyz );\n' +
+          'vec4 mvPosition = modelViewMatrix * atlasDeck;\n' +
+          'gl_Position = projectionMatrix * mvPosition;\n' +
+          // The chunks sit at the group's origin, the planet's centre, so the
+          // deck-frame position normalised is the local up.
+          'vHaze = -mvPosition.z;\n' +
+          'vRadial = normalize( normalMatrix * normalize( atlasDeck.xyz ) );\n' +
+          'vUp = normalize( ( modelMatrix * atlasDeck ).xyz );',
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         'void main() {',
-        'uniform vec3 hazeColor;\nuniform float hazeNear;\nuniform float hazeFar;\nuniform float flatten;\nuniform float orbitDim;\nuniform float cloudGrey;\nuniform vec3 atlasSun;\nvarying float vDeep;\nvarying float vHaze;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {',
+        'uniform vec3 hazeColor;\nuniform float hazeNear;\nuniform float hazeFar;\nuniform float flatten;\nuniform float orbitDim;\nuniform float cloudGrey;\nuniform float edgeSoft;\nuniform vec3 atlasSun;\n' +
+          'varying float vDeep;\nvarying float vHaze;\nvarying float vPuffY;\nvarying float vLift;\nvarying vec3 vRadial;\nvarying vec3 vUp;\nvoid main() {',
       )
-      // See `flattenAt`. The sign keeps a floor a floor: blending every normal
-      // to +up would light the underside of the deck as though it faced the sky,
-      // and the underside is what the limb is made of.
+      // See `flattenAt`. The sign keeps a belly a belly: blending every normal
+      // to +up would light the underside of the deck as though it faced the sky.
+      // The shape's own normal is kept for the soft edge, which is geometry.
       .replace(
         '#include <normal_fragment_begin>',
-        '#include <normal_fragment_begin>\n\tvec3 atlasUp = normalize(vRadial) * (dot(normal, normalize(vRadial)) < 0.0 ? -1.0 : 1.0);\n\tnormal = normalize(mix(normal, atlasUp, flatten));',
+        '#include <normal_fragment_begin>\n\tvec3 atlasShape = normal;\n\tvec3 atlasUp = normalize(vRadial) * (dot(normal, normalize(vRadial)) < 0.0 ? -1.0 : 1.0);\n\tnormal = normalize(mix(normal, atlasUp, flatten));',
       )
-      // See `NIGHT_FLOOR`. Before the haze and after the light, so what is dimmed
-      // is the cloud and not the air in front of it.
       .replace(
         '#include <opaque_fragment>',
-        '#include <opaque_fragment>\n\tfloat atlasNightSide = 1.0 - smoothstep(-0.104528, 0.034899, dot(vUp, atlasSun));\n\tgl_FragColor.rgb *= mix(1.0, ' +
+        '#include <opaque_fragment>\n' +
+          '\t{\n' +
+          '\t\tvec3 cloudView = normalize( vViewPosition );\n' +
+          '\t\tfloat cloudFacing = abs( dot( normalize( atlasShape ), cloudView ) );\n' +
+          // See `CROWN_TINT`: by facing, by height in the puff and by tier.
+          '\t\tfloat cloudCrown = smoothstep( -0.45, 0.8, 0.6 * dot( normal, normalize( vRadial ) ) + 0.4 * vPuffY + 0.35 * vLift );\n' +
+          `\t\tvec3 cloudBelly = ${vec(BELLY_TINT)} * ( 1.0 - ${BELLY_DEEP.toFixed(2)} * vDeep * ( 1.0 - vLift ) );\n` +
+          `\t\tgl_FragColor.rgb *= mix( cloudBelly, ${vec(CROWN_TINT)}, cloudCrown );\n` +
+          '\t\tvec3 cloudSky = vec3( 0.55, 0.68, 0.85 );\n' +
+          '\t\t#if NUM_HEMI_LIGHTS > 0\n\t\t\tcloudSky = hemisphereLights[ 0 ].skyColor;\n\t\t#endif\n' +
+          `\t\tgl_FragColor.rgb += diffuseColor.rgb * cloudSky * ${SELF_LIGHT.toFixed(2)} * mix( 0.6, 1.0, cloudCrown );\n` +
+          // The sun is the first directional light: it casts the shadow and
+          // three puts shadow casters first.
+          '\t\t#if NUM_DIR_LIGHTS > 0\n' +
+          '\t\t\tvec3 cloudToSun = directionalLights[ 0 ].direction;\n' +
+          '\t\t\tvec3 cloudSun = directionalLights[ 0 ].color;\n' +
+          `\t\t\tfloat cloudRim = pow( 1.0 - cloudFacing, ${RIM_POWER.toFixed(1)} );\n` +
+          `\t\t\tfloat cloudBack = pow( max( dot( -cloudView, cloudToSun ), 0.0 ), ${BACK_POWER.toFixed(1)} );\n` +
+          '\t\t\tfloat cloudThin = 1.0 - 0.6 * vDeep;\n' +
+          `\t\t\tgl_FragColor.rgb += cloudSun * ( cloudRim * ( ${RIM_SIDE.toFixed(2)} * max( dot( normal, cloudToSun ), 0.0 ) + ${RIM_BACK.toFixed(2)} * cloudBack * cloudThin ) + ${SCATTER.toFixed(2)} * cloudBack * cloudThin * ( 1.0 - 0.5 * cloudFacing ) );\n` +
+          '\t\t#endif\n' +
+          '\t\tgl_FragColor.a *= smoothstep( 0.02, edgeSoft, cloudFacing );\n' +
+          '\t}\n' +
+          // See `NIGHT_FLOOR`: after the light and before the haze, so what is
+          // dimmed is the cloud and not the air in front of it.
+          '\tfloat atlasNightSide = 1.0 - smoothstep(-0.104528, 0.034899, dot(vUp, atlasSun));\n\tgl_FragColor.rgb *= mix(1.0, ' +
           NIGHT_FLOOR.toFixed(3) +
           ', atlasNightSide * orbitDim);' +
           // See `setGrey`: the deep middle of a bank goes the grey of a rain
@@ -793,8 +1056,7 @@ export function createClouds(): Clouds {
           `\n\tgl_FragColor.rgb *= 1.0 - cloudGrey * ${GREY_DEPTH.toFixed(2)} * smoothstep(0.2, 0.85, vDeep);`,
       )
       // Before tone mapping, so the blend happens in the same linear space the
-      // light was accumulated in — which is one step earlier than three puts
-      // its own fog, and is why the haze does not go chalky at dusk.
+      // light was accumulated in.
       .replace(
         '#include <tonemapping_fragment>',
         'gl_FragColor.rgb = mix(gl_FragColor.rgb, hazeColor, smoothstep(hazeNear, hazeFar, vHaze));\n\t#include <tonemapping_fragment>',
@@ -804,143 +1066,175 @@ export function createClouds(): Clouds {
   const group = new THREE.Group();
   group.name = 'clouds';
 
-  // One mesh per base face of the icosahedron: 20 bounding spheres instead of
-  // one that covers the planet, which is the whole of the culling. The faces
-  // are already contiguous per chunk, so this is a range and not a sort.
-  const chunkTriangles = new Int32Array(20);
-  for (let f = 0; f < faceCount; f++) {
-    if (kept[f] === 0) continue;
-    const walls = wallOf[f]!;
-    const chunk = chunkOf[f]!;
-    chunkTriangles[chunk] = chunkTriangles[chunk]! + 2 + 2 * ((walls & 1) + ((walls >> 1) & 1) + ((walls >> 2) & 1));
-  }
+  const nearShape = puffGeometry(NEAR_DETAIL);
+  const midShape = puffGeometry(MID_DETAIL);
+  const farShape = puffGeometry(FAR_DETAIL);
+  const trianglesOf = (g: THREE.BufferGeometry): number => g.getAttribute('position').count / 3;
+  const nearTriangles = trianglesOf(nearShape);
+  const midTriangles = trianglesOf(midShape);
+  const farTriangles = trianglesOf(farShape);
 
-  const positions: Float32Array[] = [];
-  const depths: Uint8Array[] = [];
-  const cursors = new Int32Array(20);
-  for (let chunk = 0; chunk < 20; chunk++) {
-    positions.push(new Float32Array(chunkTriangles[chunk]! * 9));
-    depths.push(new Uint8Array(chunkTriangles[chunk]! * 3));
-  }
-
-  const push = (chunk: number, x: number, y: number, z: number): void => {
-    const array = positions[chunk]!;
-    const at = cursors[chunk]!;
-    array[at] = x;
-    array[at + 1] = y;
-    array[at + 2] = z;
-    cursors[chunk] = at + 3;
-  };
-  const pushAt = (chunk: number, v: number, radius: Float32Array): void => {
-    const r = radius[v]!;
-    depths[chunk]![cursors[chunk]! / 3] = deep[v]!;
-    push(chunk, vertices[v * 3]! * r, vertices[v * 3 + 1]! * r, vertices[v * 3 + 2]! * r);
-  };
-
-  /**
-   * Wall triangles that came out facing into the cloud, which is the one thing
-   * here that cannot be seen and cannot be reasoned about from the winding.
-   *
-   * A vertical wall's normal is perpendicular to the radius whichever way round
-   * it is, so "no triangle faces inward" — the test that catches a flipped land
-   * cliff — passes for a coast wound backwards. `globe.ts` answers that by
-   * stepping off the wall and asking the outlines whether it landed in the sea.
-   * There is no such third party up here, so the check is the one fact the
-   * construction does supply: the wall's normal must point away from the
-   * centroid of the face it belongs to. Counted at build and reported on
-   * `atlas.clouds.stats`, because a deck built inside out looks like a deck.
-   */
-  let inward = 0;
-  const centroid = new THREE.Vector3();
-  const p0 = new THREE.Vector3();
-  const p1 = new THREE.Vector3();
-  const p2 = new THREE.Vector3();
-  const edge1 = new THREE.Vector3();
-  const edge2 = new THREE.Vector3();
-  const normal = new THREE.Vector3();
-  const inward_ = new THREE.Vector3();
-
-  const at = (v: number, radius: Float32Array, target: THREE.Vector3): THREE.Vector3 => {
-    const r = radius[v]!;
-    return target.set(vertices[v * 3]! * r, vertices[v * 3 + 1]! * r, vertices[v * 3 + 2]! * r);
-  };
-
-  for (let f = 0; f < faceCount; f++) {
-    if (kept[f] === 0) continue;
-    const chunk = chunkOf[f]!;
-    const a = faces[f * 3]!;
-    const b = faces[f * 3 + 1]!;
-    const c = faces[f * 3 + 2]!;
-
-    // The top, wound as the base face was: outward, away from the planet.
-    pushAt(chunk, a, ceiling);
-    pushAt(chunk, b, ceiling);
-    pushAt(chunk, c, ceiling);
-    // The floor of the bank, reversed so its normal points down at whoever is
-    // standing under it. This is the surface the deck is mostly seen as.
-    pushAt(chunk, a, floor);
-    pushAt(chunk, c, floor);
-    pushAt(chunk, b, floor);
-
-    const walls = wallOf[f]!;
-    if (walls === 0) continue;
-    at(a, floor, p0);
-    at(b, floor, p1);
-    at(c, floor, p2);
-    centroid.copy(p0).add(p1).add(p2).multiplyScalar(1 / 3);
-    for (const [bit, u, v] of [[1, a, b], [2, b, c], [4, c, a]] as const) {
-      if ((walls & bit) === 0) continue;
-      // The interior of a counter-clockwise face is to the left of u -> v seen
-      // from outside, so outward is to the right, and the quad
-      // (u.floor, v.floor, v.ceiling, u.ceiling) carries exactly that normal.
-      pushAt(chunk, u, floor);
-      pushAt(chunk, v, floor);
-      pushAt(chunk, v, ceiling);
-      pushAt(chunk, u, floor);
-      pushAt(chunk, v, ceiling);
-      pushAt(chunk, u, ceiling);
-
-      at(u, floor, p0);
-      at(v, floor, p1);
-      at(v, ceiling, p2);
-      edge1.subVectors(p1, p0);
-      edge2.subVectors(p2, p0);
-      normal.crossVectors(edge1, edge2);
-      if (normal.dot(inward_.subVectors(centroid, p0)) > 0) inward++;
+  /** A batch counting-sorted into its chunks: one matrix, depth and shade array a chunk. */
+  const sortInto = (
+    from: Batch,
+    chunks: number,
+  ): { matrices: Float32Array; deep: Uint8Array; shade: Float32Array }[] => {
+    const count = new Int32Array(chunks);
+    for (const c of from.chunk) count[c]!++;
+    const out = Array.from(count, (n) => ({
+      matrices: new Float32Array(n * 16),
+      deep: new Uint8Array(n),
+      shade: new Float32Array(n * 3),
+    }));
+    const cursor = new Int32Array(chunks);
+    for (let i = 0; i < from.chunk.length; i++) {
+      const c = from.chunk[i]!;
+      const k = cursor[c]!++;
+      const into = out[c]!;
+      for (let e = 0; e < 16; e++) into.matrices[k * 16 + e] = from.matrix[i * 16 + e]!;
+      into.deep[k] = from.deep[i]!;
+      for (let e = 0; e < 3; e++) into.shade[k * 3 + e] = from.shade[i * 3 + e]!;
     }
-  }
+    return out;
+  };
+  const subData = sortInto(fine, 20 * subsPerBase);
+  const baseData = sortInto(coarse, 20);
 
   let bytes = 0;
-  for (let chunk = 0; chunk < 20; chunk++) {
-    const array = positions[chunk]!;
-    if (array.length === 0) continue;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(array, 3));
-    geometry.setAttribute('deep', new THREE.BufferAttribute(depths[chunk]!, 1, true));
-    // Non-indexed on purpose, exactly as the land is: one normal per face, so
-    // a lump has facets to step the cel bands across instead of a smooth
-    // gradient that has nothing to band.
-    geometry.computeVertexNormals();
-    geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `clouds-${chunk}`;
-    mesh.renderOrder = CLOUD_ORDER;
-    group.add(mesh);
-    bytes += array.byteLength * 2 + depths[chunk]!.byteLength;
+  const bases: Base[] = [];
+  for (let c = 0; c < 20; c++) {
+    const subs: Sub[] = [];
+    const every: Float32Array[] = [];
+    for (let s = c * subsPerBase; s < (c + 1) * subsPerBase; s++) {
+      const data = subData[s]!;
+      if (data.deep.length === 0) continue;
+      const matrices = new THREE.InstancedBufferAttribute(data.matrices, 16);
+      const deep = new THREE.InstancedBufferAttribute(data.deep, 1, true);
+      const shade = new THREE.InstancedBufferAttribute(data.shade, 3);
+      const levels: Sub['levels'] = [
+        levelOf(nearShape, deep, shade),
+        levelOf(midShape, deep, shade),
+        levelOf(farShape, deep, shade),
+      ];
+      const mesh = instanced(levels[0], material, matrices, `clouds-${s}`);
+      group.add(mesh);
+      subs.push({ mesh, levels, cap: capOf(data.matrices) });
+      every.push(data.matrices);
+      bytes += data.matrices.byteLength + data.deep.byteLength + data.shade.byteLength;
+    }
+    const data = baseData[c]!;
+    let far: THREE.InstancedMesh | null = null;
+    if (data.deep.length > 0) {
+      far = instanced(
+        levelOf(
+          farShape,
+          new THREE.InstancedBufferAttribute(data.deep, 1, true),
+          new THREE.InstancedBufferAttribute(data.shade, 3),
+        ),
+        material,
+        new THREE.InstancedBufferAttribute(data.matrices, 16),
+        `clouds-${c}-far`,
+      );
+      group.add(far);
+      bytes += data.matrices.byteLength + data.deep.byteLength + data.shade.byteLength;
+    }
+    let all: Float32Array | null = null;
+    if (every.length > 0) {
+      all = new Float32Array(every.reduce((n, m) => n + m.length, 0));
+      let at = 0;
+      for (const m of every) {
+        all.set(m, at);
+        at += m.length;
+      }
+    }
+    bases.push({
+      far,
+      farCap: far === null ? null : capOf(data.matrices),
+      subs,
+      cap: all === null ? null : capOf(all),
+      split: true,
+    });
   }
 
-  if (inward > 0) {
-    console.warn(`clouds: ${inward} wall triangles face into the cloud they belong to`);
+  if (mirrored > 0) {
+    console.warn(`clouds: ${mirrored} puffs came out with a mirrored matrix`);
   }
 
   const stats: CloudStats = {
     cells,
     cover: Number((cells / faceCount).toFixed(3)),
-    triangles,
+    puffs,
+    bottom,
+    farPuffs: coarse.chunk.length,
+    triangles: puffs * nearTriangles,
+    farTriangles: coarse.chunk.length * farTriangles,
+    drawn: 0,
     chunks: group.children.length,
+    shown: 0,
     megabytes: Number((bytes / 1048576).toFixed(1)),
     buildMs: Math.round(performance.now() - began),
-    inward,
+    mirrored,
+  };
+
+  const turn = new THREE.Quaternion();
+  const eye = new THREE.Vector3();
+
+  /**
+   * How far the eye is from the nearest point of a cap, and whether any of it
+   * can be over the planet's horizon. The planet is the occluder, so the far
+   * side of the world costs nothing from the ceiling and the deck past the
+   * horizon nothing from the ground.
+   */
+  let eyeLength = 0;
+  let eyeHorizon = 0;
+  const angleTo = (cap: Cap): number =>
+    Math.acos(Math.max(-1, Math.min(1, cap.direction.dot(eye) / eyeLength)));
+  const distanceTo = (cap: Cap): number => {
+    const off = Math.max(0, angleTo(cap) - cap.angle);
+    const r = Math.max(cap.low, Math.min(cap.high, eyeLength));
+    return Math.sqrt(Math.max(0, eyeLength * eyeLength + r * r - 2 * eyeLength * r * Math.cos(off)));
+  };
+  const overHorizon = (cap: Cap): boolean =>
+    angleTo(cap) - cap.angle <= eyeHorizon + Math.acos(Math.min(1, PLANET_RADIUS / cap.high));
+
+  const place = (cameraPosition: THREE.Vector3): void => {
+    // The eye in the deck's own frame, where every cap was measured.
+    eye.copy(cameraPosition).applyQuaternion(turn.copy(group.quaternion).invert());
+    eyeLength = Math.max(1, eye.length());
+    eyeHorizon = Math.acos(Math.min(1, PLANET_RADIUS / Math.max(PLANET_RADIUS + 1, eyeLength)));
+    let drawn = 0;
+    let shown = 0;
+    for (const base of bases) {
+      const split = base.cap !== null && distanceTo(base.cap) < SPLIT_RANGE;
+      if (!split) {
+        if (base.split) {
+          for (const sub of base.subs) sub.mesh.visible = false;
+          base.split = false;
+        }
+        if (base.far !== null) {
+          base.far.visible = overHorizon(base.farCap!);
+          if (base.far.visible) {
+            drawn += base.far.count * farTriangles;
+            shown++;
+          }
+        }
+        continue;
+      }
+      base.split = true;
+      if (base.far !== null) base.far.visible = false;
+      for (const sub of base.subs) {
+        const seen = overHorizon(sub.cap);
+        sub.mesh.visible = seen;
+        if (!seen) continue;
+        const range = distanceTo(sub.cap);
+        const level = range < NEAR_RANGE ? 0 : range < MID_RANGE ? 1 : 2;
+        sub.mesh.geometry = sub.levels[level];
+        drawn += sub.mesh.count * (level === 0 ? nearTriangles : level === 1 ? midTriangles : farTriangles);
+        shown++;
+      }
+    }
+    stats.drawn = drawn;
+    stats.shown = shown;
   };
 
   return {
@@ -950,22 +1244,15 @@ export function createClouds(): Clouds {
       grey.value = Math.max(0, Math.min(1, value));
     },
     setVeil(opacity: number): void {
-      // Not drawn at all rather than drawn at nothing: 226,888 triangles and two
-      // passes of them to paint no pixel.
       group.visible = opacity > 0.01;
       const veiled = opacity < 0.999;
       if (veiled !== material.transparent) {
         material.transparent = veiled;
-        // One side: a see-through deck drawn double-sided shows its own floor
-        // through its own top, which is a grey smear rather than a veil.
-        //
-        // **And it keeps writing depth, which is the part that looks optional
-        // and is not.** The ink is an inverted hull drawn in a second pass, and
-        // what hides the inside of that hull is the depth the fill wrote in
-        // the first. A veil that wrote none had the whole hull show through
-        // it at the veil's own opacity: every cloud over Spain came out a
-        // sheet of dark red-brown ink with a white rim, which is what the
-        // first screenshot of this showed.
+        // A veil blends, so its soft edge is the alpha itself and not the
+        // coverage; one side, because a see-through deck drawn double-sided
+        // shows its own bellies through its own crowns. It keeps writing
+        // depth, so a puff behind another is not blended over it.
+        material.alphaToCoverage = !veiled;
         material.side = veiled ? THREE.FrontSide : THREE.DoubleSide;
         material.needsUpdate = true;
       }
@@ -978,10 +1265,11 @@ export function createClouds(): Clouds {
       deckTurn(time.getTime(), group.quaternion);
       const altitude = cameraPosition.length() - PLANET_RADIUS;
       hazeAt(altitude, fog, haze);
-      penAt(altitude, pen);
       flatten.value = flattenAt(altitude);
-      orbitDim.value = flattenAt(altitude) / FLAT_MAX;
+      orbitDim.value = flatten.value / FLAT_MAX;
+      edgeSoft.value = EDGE_NEAR + (EDGE_FAR - EDGE_NEAR) * orbitDim.value;
       squash.value = squashAt(altitude);
+      place(cameraPosition);
     },
   };
 }

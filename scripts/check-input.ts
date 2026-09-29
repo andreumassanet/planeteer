@@ -5,6 +5,10 @@ import { createInput } from '../src/input.ts';
 import type { Input } from '../src/input.ts';
 import { BINDINGS, CONTROL_SECTIONS, DEFAULT_BINDINGS, boardingHints, actionOf, bindingsChanged, codeOf, keyBindable, labelOf, onKeyLabels, rebind, registerModal, resetBindings } from '../src/controls.ts';
 import type { Action } from '../src/controls.ts';
+import { createHornChorus, createHornKey } from '../src/horn.ts';
+import type { HonkMessage, HornSound } from '../src/horn.ts';
+import { HONK_HOLD_MS, HONK_INTERVAL_MS, HONK_REFRESH_MS, HONK_TAP_MS } from '../server/src/limits.ts';
+import type { Honk } from '../server/src/limits.ts';
 
 function withInput(run: (input: Input, keys: EventTarget, target: EventTarget) => void): void {
   const keys = new EventTarget();
@@ -249,4 +253,99 @@ test('the controls page lists every action the player can move, once', () => {
     if (action === 'release') continue;
     assert.ok(listed.includes(action), action);
   }
+});
+
+/** A horn's sounds as a log: what started, at what level, and whether it is still sounding. */
+function hornLog(): { sound: (voice: Honk, near: number) => HornSound; played: { voice: Honk; near: number; on: boolean }[] } {
+  const played: { voice: Honk; near: number; on: boolean }[] = [];
+  return {
+    played,
+    sound(voice, near) {
+      const entry = { voice, near, on: true };
+      played.push(entry);
+      return {
+        level(value) {
+          entry.near = value;
+        },
+        release() {
+          entry.on = false;
+        },
+      };
+    },
+  };
+}
+
+test('a held horn sounds until the key comes up, and says so on the wire', () => {
+  const log = hornLog();
+  const sent: HonkMessage[] = [];
+  const horn = createHornKey(log.sound, (message) => sent.push(message));
+  horn.press('car', 1000);
+  horn.press('car', 1010);
+  assert.equal(log.played.length, 1, 'a key repeat is not a second horn');
+  assert.deepEqual(sent, [{ t: 'honk', k: 'car', on: true }]);
+  // Held: refreshed each HONK_REFRESH_MS and not in between.
+  for (let t = 1000; t <= 1000 + HONK_REFRESH_MS * 3 + 40; t += 16) horn.update(t, 'car');
+  assert.equal(sent.filter((m) => m.on).length, 4, 'a start and three refreshes');
+  assert.ok(log.played[0]!.on);
+  horn.release(1000 + HONK_REFRESH_MS * 3 + 60);
+  assert.equal(log.played[0]!.on, false);
+  assert.deepEqual(sent.at(-1), { t: 'honk', k: 'car', on: false });
+  horn.release(1000 + HONK_REFRESH_MS * 3 + 60);
+  assert.equal(sent.filter((m) => !m.on).length, 1, 'let go once');
+});
+
+test('a horn is let go with the seat or the keyboard, and a quick second press reaches the wire late, not never', () => {
+  const log = hornLog();
+  const sent: HonkMessage[] = [];
+  const horn = createHornKey(log.sound, (message) => sent.push(message));
+  horn.press('bell', 0);
+  horn.update(16, null);
+  assert.equal(horn.voice, null, 'out of the seat, or a card open');
+  assert.equal(log.played[0]!.on, false);
+  assert.deepEqual(sent.map((m) => m.on), [true, false]);
+  horn.press('bell', 100);
+  assert.ok(log.played[1]!.on, 'heard here at once');
+  assert.equal(sent.length, 2, 'too soon after the last start for the wire');
+  for (let t = 100; t < HONK_INTERVAL_MS; t += 16) horn.update(t, 'bell');
+  horn.update(HONK_INTERVAL_MS, 'bell');
+  assert.deepEqual(sent.at(-1), { t: 'honk', k: 'bell', on: true }, 'sent once the interval allows');
+  horn.update(HONK_INTERVAL_MS + 16, 'car');
+  assert.equal(horn.voice, null, 'another vehicle, another horn: this one is let go');
+});
+
+test('another player\'s horn is held while they hold it, and let go when the stop is lost', () => {
+  const log = hornLog();
+  const chorus = createHornChorus(log.sound);
+  let near: number | null = 0.8;
+  chorus.hear('a', 'bus', true, 0, 0.8);
+  assert.equal(log.played.length, 1);
+  for (let t = 0; t <= HONK_HOLD_MS * 2; t += 100) {
+    if (t % HONK_REFRESH_MS === 0) chorus.hear('a', 'bus', true, t, 0.8);
+    chorus.update(t, () => near);
+  }
+  assert.ok(log.played[0]!.on, 'refreshed, so still held');
+  chorus.hear('a', 'bus', false, HONK_HOLD_MS * 2 + 10, 0.8);
+  assert.equal(log.played[0]!.on, false, 'the stop');
+  assert.equal(chorus.held, 0);
+  // The stop never comes: let go HONK_HOLD_MS after the last word.
+  chorus.hear('b', 'car', true, 10_000, 0.5);
+  chorus.update(10_000 + HONK_HOLD_MS - 1, () => near);
+  assert.ok(log.played[1]!.on);
+  chorus.update(10_000 + HONK_HOLD_MS + 1, () => near);
+  assert.equal(log.played[1]!.on, false, 'not stuck');
+  // A tap from an older client is short; out of earshot is silent until it is not; a player who leaves is let go.
+  chorus.hear('c', 'car', undefined, 20_000, 0.5);
+  chorus.update(20_000 + HONK_TAP_MS + 1, () => near);
+  assert.equal(log.played[2]!.on, false);
+  near = 0;
+  chorus.hear('d', 'ship', true, 30_000, 0);
+  assert.equal(log.played.length, 3, 'out of earshot, nothing sounds');
+  near = 0.6;
+  chorus.update(30_100, () => near);
+  assert.equal(log.played[3]!.voice, 'ship', 'driven into earshot while held');
+  chorus.update(30_200, () => 0.3);
+  assert.equal(log.played[3]!.near, 0.3);
+  chorus.stop('d');
+  assert.equal(log.played[3]!.on, false);
+  assert.equal(chorus.held, 0);
 });

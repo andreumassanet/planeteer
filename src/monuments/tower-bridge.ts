@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Tower Bridge.
@@ -369,7 +370,9 @@ export const towerBridge: Monument = {
         }
 
         for (const at of HANGERS) {
-          const hanger = box(0.45, chainY(at) - ROAD_TOP, 0.45, paint);
+          // `PROUD` inside the railing's faces on each side: 0.45 deep against
+          // its 0.5, the hanger's faces sat 0.025 inside the rail's and flickered.
+          const hanger = box(0.45, chainY(at) - ROAD_TOP, 0.5 - 2 * PROUD, paint);
           hanger.position.set(side * at, ROAD_TOP, z * EDGE_Z);
           group.add(hanger);
         }

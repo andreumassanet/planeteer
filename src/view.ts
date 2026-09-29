@@ -626,7 +626,7 @@ const FRAME_BUILD_MS = 8;
  * How much of it work the player is not standing in may use, so that near
  * work served later in the frame always has the rest. The order is the order
  * `main.ts` updates in: the town under your feet, the road under them, the
- * near wood, the sward, what moves — and far work of any of them only out of
+ * near wood, the grass, what moves — and far work of any of them only out of
  * this.
  */
 const FAR_BUILD_MS = 4;

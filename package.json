@@ -42,6 +42,7 @@
     "railway": "node scripts/check-rails.ts",
     "ground": "node scripts/check-ground.ts",
     "country": "node scripts/check-country.ts",
+    "seated": "node scripts/check-seated.ts",
     "scenery": "node scripts/check-scenery.ts",
     "solids": "node scripts/check-solids.ts",
     "input": "node scripts/check-input.ts",

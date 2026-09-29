@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Perito Moreno Glacier.
@@ -440,7 +441,8 @@ const BERGS: ReadonlyArray<{
   { x: -24, z: 17.0, w: 4.0, d: 3.0, h: 0.7, yaw: -0.35, cap: false },
   { x: -19, z: 7.5, w: 7.0, d: 4.5, h: 1.5, yaw: 0.12, cap: true },
   { x: -12, z: 13.5, w: 4.5, d: 3.2, h: 0.9, yaw: 0.48, cap: false },
-  { x: -4, z: 9.0, w: 6.0, d: 4.0, h: 1.1, yaw: -0.18, cap: false },
+  // 1.2, not 1.1: at 1.1 its deck was in the plane of the melt band's top beside it.
+  { x: -4, z: 9.0, w: 6.0, d: 4.0, h: 1.2, yaw: -0.18, cap: false },
   { x: 3, z: 22.0, w: 3.5, d: 2.6, h: 0.6, yaw: 0.3, cap: false },
   { x: 10, z: 10.5, w: 8.0, d: 5.0, h: 1.8, yaw: -0.1, cap: true },
   { x: 14, z: 26.5, w: 4.5, d: 3.4, h: 1.2, yaw: 0.4, cap: false },
@@ -600,7 +602,15 @@ export const peritoMoreno: Monument = {
     // A channel, not a rectangle: see LAKE. The sheet's green ground is left
     // showing past the near shore on the left, where the headland comes down to
     // meet it — that is the ground the walkways are on.
-    for (const reach of LAKE) slab(reach.x0, reach.x1, LAKE_N, reach.shore, 0, WATER, lake);
+    // The water stops `PROUD` inside the model's west and east ends, and the
+    // first reach `PROUD` short of the headland's south face: the rock and the
+    // ice end in those same planes, and flush faces of two colours flicker.
+    for (const reach of LAKE) {
+      const x0 = reach.x0 === WEST ? WEST + PROUD : reach.x0;
+      const x1 = reach.x1 === EAST ? EAST - PROUD : reach.x1;
+      const shore = reach.x0 === WEST ? reach.shore - PROUD : reach.shore;
+      slab(x0, x1, LAKE_N, shore, 0, WATER, lake);
+    }
 
     // --- the headland ---------------------------------------------------------
     // The rock the glacier's arm runs into. Two masses stepping back and up,

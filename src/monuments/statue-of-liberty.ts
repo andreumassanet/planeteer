@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Statue of Liberty.
@@ -289,7 +290,9 @@ export const statueOfLiberty: Monument = {
     bowl.position.set(TORCH_X, 65.4, 0.2);
     group.add(bowl);
 
-    const gallery = ringWall(2.4, 3.1, 0.7, copper, SIDES);
+    // Its top stops `PROUD` under the bowl's rim, whose plane it would share and
+    // flicker in.
+    const gallery = ringWall(2.4, 3.1, 0.7 - PROUD, copper, SIDES);
     gallery.position.set(TORCH_X, 66.3, 0.2);
     gallery.rotation.y = Math.PI / SIDES;
     group.add(gallery);

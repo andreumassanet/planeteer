@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Group, Monument, MonumentContext } from './contract.ts';
 
 /**
@@ -405,8 +406,10 @@ export const teotihuacan: Monument = {
       // avenue climbs north through a chain of enclosed courts rather than
       // running level, and this is the only cue for that which survives at
       // thumbnail size.
-      const sill = box(AVENUE_WIDE - 2.2, 0.35, 2.4, shade);
-      sill.position.set(AVENUE_X, PAVING, z - 2);
+      // Its far edge stops `PROUD` short of where it was: there it lined up
+      // with the side of a rank's stair, and the two colours shared a plane.
+      const sill = box(AVENUE_WIDE - 2.2, 0.35, 2.4 - PROUD, shade);
+      sill.position.set(AVENUE_X, PAVING, z - 2 + PROUD / 2);
       site.add(sill);
     }
 

@@ -133,14 +133,17 @@ export const citadelleLaferriere: Monument = {
     //    box sits 5.5 units in front of the Y axis and `validate` calls it
     //    off-centre, which it would be.
     // -----------------------------------------------------------------------
-    block(-22, 22, PEAK_TOP, 17.0, -20, -6, wall);
+    // The dressed stone starts where the old courses stop rather than running
+    // down through them: one box inside the other put their faces in one plane
+    // in two colours, and they flickered.
+    block(-22, 22, 8.0, 17.0, -20, -6, wall);
     block(-22, 22, PEAK_TOP, 8.0, -20, -6, old);
     block(-22.8, 22.8, 17.0, 19.6, -20.8, -6, old);
 
     // The two shoulder bastions, running forward from the batteries along the
     // prow's flanks.
     for (const side of [-1, 1]) {
-      block(side * 13, side * 21, PEAK_TOP, 14.5, -8, 6, wall);
+      block(side * 13, side * 21, 6.5, 14.5, -8, 6, wall);
       block(side * 13, side * 21, PEAK_TOP, 6.5, -8, 6, old);
       block(side * 13, side * 21.8, 14.5, 16.8, -8.8, 6.8, old);
       // A gun on each, standing on the terreplein and pointing out over the

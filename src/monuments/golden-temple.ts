@@ -1,4 +1,5 @@
 import type { Group, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Golden Temple (Harmandir Sahib), Amritsar.
@@ -376,13 +377,17 @@ export const goldenTemple: Monument = {
         wall.position.set(at, WALK_TOP, BAND_MID);
         side.add(wall);
 
-        const coping = box(length, near ? 0.35 : 0.6, BAND_DEPTH - 0.4, trim);
+        // `PROUD` short at each end: a coping run to OUTER ended in the plane
+        // of the neighbouring side's outer wall, two colours in one plane.
+        const coping = box(length - 2 * PROUD, near ? 0.35 : 0.6, BAND_DEPTH - 0.4, trim);
         coping.position.set(at, WALK_TOP + wallHeight, BAND_MID - 0.1);
         side.add(coping);
 
+        // The near arcade stops `PROUD` under the wall's top: at 0.85 tall its
+        // top was 0.05 under the wall's, two colours a hair apart that flickered.
         side.add(
           near
-            ? colonnade(length - 3, WALK_TOP + 0.4, 0.85, at)
+            ? colonnade(length - 3, WALK_TOP + 0.4, wallHeight - 0.4 - PROUD, at)
             : colonnade(length - 5, WALK_TOP + 0.7, 2.6, at),
         );
       }

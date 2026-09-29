@@ -1,4 +1,5 @@
 import type { Group, Monument } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Guggenheim Bilbao.
@@ -285,7 +286,9 @@ const BLADES: Blade[] = [
 /** The limestone: width, height, depth, x, y, z. Level tops, no rotations, on purpose. */
 const STONE: Array<[number, number, number, number, number, number]> = [
   [11, 14, 16, -29, QUAY.top, -2], //   the west galleries
-  [8, 5, 9, -31, 17.2, -4], //          their upper storey, set back
+  // Its foot `PROUD` up inside the coping below: at 17.2 its underside and
+  // the coping's shared a plane, sand and tan, and flickered.
+  [8, 5, 9, -31, 17.2 + PROUD, -4], //  their upper storey, set back
   [34, 7, 15, -5, QUAY.top, -2], //     the plinth the whole flower grows out of
   [26, 4, 12, 19, QUAY.top, -1], //     the wing's base
   [5, 16, 7, 31, QUAY.top, -4], //      the tower beyond the bridge
@@ -294,7 +297,9 @@ const STONE: Array<[number, number, number, number, number, number]> = [
 /** The glazing: same tuple. Two slots between blocks, one long band on the river face. */
 const GLASS: Array<[number, number, number, number, number, number]> = [
   [30, 4.6, 2.2, -5, 3.8, 5],
-  [2.6, 14, 15, -23, QUAY.top, -2],
+  // `PROUD` shallower each side than the 15 it was: at that depth its ends lay
+  // in the plane of the plinth's river and back faces and flickered.
+  [2.6, 14, 15 - 2 * PROUD, -23, QUAY.top, -2],
   [2.6, 12, 13, 14, QUAY.top, -2],
 ];
 
@@ -328,7 +333,9 @@ export const guggenheimBilbao: Monument = {
     // --- the river ---------------------------------------------------------
     // Each plate overlaps the step in front of it by 0.3 so no two faces are
     // coplanar and the ink lands exactly on the change of level.
-    const water = box(HALF_X * 2, WATER.top, WATER.front - TERRACE.front + 0.3, palette.steel);
+    // `PROUD` short of the site's ends, which the terrace's ends are cut to:
+    // flush, the two ends shared a plane and flickered where they overlap.
+    const water = box(HALF_X * 2 - 2 * PROUD, WATER.top, WATER.front - TERRACE.front + 0.3, palette.steel);
     water.position.z = (WATER.front + TERRACE.front - 0.3) / 2;
     group.add(water);
 
@@ -364,7 +371,9 @@ export const guggenheimBilbao: Monument = {
     deck.position.set(BRIDGE_X, 15, 0);
     group.add(deck);
 
-    const soffit = box(5.6, 0.9, 25, dark);
+    // `PROUD` narrower than the 5.6 the piers' outer faces reach: flush, those
+    // faces and the soffit's sides were one plane in two colours.
+    const soffit = box(5.6 - 2 * PROUD, 0.9, 25, dark);
     soffit.position.set(BRIDGE_X, 14.1, 0);
     group.add(soffit);
 

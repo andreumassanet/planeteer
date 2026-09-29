@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * The Registan — Samarkand.
@@ -220,10 +221,14 @@ export const registan: Monument = {
       block(side * VOID, side * PORTAL, 1.6, PORTAL_TOP, SCREEN_BACK, FRONT, body);
       // The tile frame runs up the inner edge of each jamb and across the head:
       // one continuous band, which is exactly how a pishtaq is bordered.
-      block(side * VOID, side * (VOID + 1.5), 1.6, PORTAL_TOP, FRONT - 0.5, FRONT + 0.25, tile);
+      // It wraps `PROUD` round the jamb's inner edge, stops `PROUD` under the
+      // screen's top and starts `PROUD` into the plinth: the jamb has faces in
+      // all three planes, and flush faces of two colours flicker.
+      block(side * (VOID - PROUD), side * (VOID + 1.5), 1.6 - PROUD, PORTAL_TOP - PROUD, FRONT - 0.5, FRONT + 0.25, tile);
     }
     block(-PORTAL, PORTAL, ARCH_TOP + 1.5, PORTAL_TOP, SCREEN_BACK, FRONT, body);
-    block(-PORTAL, PORTAL, ARCH_TOP, ARCH_TOP + 1.5, FRONT - 0.5, FRONT + 0.25, tile);
+    // The head's band stops `PROUD` inside the jambs' outer faces, for the same reason.
+    block(-PORTAL + PROUD, PORTAL - PROUD, ARCH_TOP, ARCH_TOP + 1.5, FRONT - 0.5, FRONT + 0.25, tile);
 
     // The back of the iwan, and the door in it. `brown` because this face never
     // sees the sun and a neutral in a recess reads as a hole in the model.
@@ -244,7 +249,8 @@ export const registan: Monument = {
     for (const side of [-1, 1]) {
       const disc = column(2.05, 0.5, sun, 8);
       disc.rotation.x = Math.PI / 2;
-      disc.position.set(side * 10.25, 25.4, FRONT - 0.25);
+      // `PROUD` forward of the tile frame, whose front it would otherwise share.
+      disc.position.set(side * 10.25, 25.4, FRONT - 0.25 + PROUD);
       group.add(disc);
     }
 

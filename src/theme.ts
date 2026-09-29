@@ -7,6 +7,16 @@ THREE.ShaderChunk.gradientmap_pars_fragment = THREE.ShaderChunk.gradientmap_pars
   'texture2D( gradientMap, coord ).rgb',
 );
 
+// Aerial perspective, not a wall of haze: the fog still closes to nothing at
+// `fog.far`, where every streamer's reach ends and must stay hidden, but it
+// comes in along a curve, so the middle distance — the street ahead, the next
+// field — keeps its colour and the haze gathers where the eye expects it, far
+// off. Every material that draws with fog reads this one chunk.
+THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(
+  'float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );',
+  'float fogFactor = pow( smoothstep( fogNear, fogFar, vFogDepth ), 1.6 );',
+);
+
 /**
  * Palette lifted from `static/palette.png` in Bruno Simon's folio-2025: 24
  * colours, one per band of a 128x4 texture. His whole site is painted with
@@ -59,9 +69,9 @@ export const CONTINENT_COLORS: Record<string, number> = {
 export const DEFAULT_LAND = PALETTE.brown;
 
 export const OCEAN_COLOR = 0x2b7fa8;
-export const SKY_TOP = 0x6fc9d8;
-const SKY_HORIZON = 0xfde6e1;
-export const FOG_COLOR = 0xc6b6cf;
+export const SKY_TOP = 0x6aa6e0;
+const SKY_HORIZON = 0xe2ebef;
+export const FOG_COLOR = 0xc8d7e1;
 
 /**
  * The mosaic: how far one cell of a surface may stray from the colour the
@@ -168,14 +178,14 @@ export interface Mood {
 export const DAY_MOOD: Mood = {
   skyTop: SKY_TOP,
   skyHorizon: SKY_HORIZON,
-  skyGlow: PALETTE.cream,
+  skyGlow: 0xfff0d2,
   glow: 0,
   stars: 0,
   fog: FOG_COLOR,
   ambient: 0xffffff,
-  ambientIntensity: 0.4,
+  ambientIntensity: 0.32,
   hemisphereSky: SKY_TOP,
-  hemisphereGround: 0x6b5b47,
+  hemisphereGround: 0x5d6a3e,
   hemisphereIntensity: 0.35,
   sun: 0xfff0d8,
   sunIntensity: 2.6,
@@ -340,19 +350,48 @@ export const ORBIT_LOOK: OrbitLook = {
  * one of those files has to be taught about, and a ramp created later (a
  * monument that streams in after dusk) is born with the mood already on it.
  */
-const ramps: { texture: THREE.DataTexture; steps: number }[] = [];
+const ramps: THREE.DataTexture[] = [];
 let rampMood: Mood = DAY_MOOD;
 
-function writeRamp(texture: THREE.DataTexture, steps: number, mood: Mood): void {
+/**
+ * Texels in a ramp. The ramp used to be four texels read with a nearest
+ * filter, which is what stepped the light into cel bands; it is a smooth
+ * curve now, sampled linearly, and 64 texels hold it to under a byte.
+ */
+const RAMP_TEXELS = 64;
+
+/**
+ * Where the light gives out, on the ramp's own axis (`dot(n, l) * 0.5 + 0.5`).
+ *
+ * 0.5 would be Lambert's terminator, a surface exactly edge-on to the sun. A
+ * little under it is a wrapped diffuse: the light reaches a few degrees past
+ * the edge and dies there softly, which is what a painted hill does and a
+ * lit sphere does not. 0.4 is a wrap of 0.2.
+ */
+const RAMP_TERMINATOR = 0.4;
+
+/**
+ * The light over the ramp: nothing past the terminator, all of it facing the
+ * sun, and between them a curve half way from linear to an ease, so the
+ * shoulder of a hill turns over gently rather than creasing where it leaves
+ * the light.
+ */
+function rampLight(t: number): number {
+  const x = Math.min(1, Math.max(0, (t - RAMP_TERMINATOR) / (1 - RAMP_TERMINATOR)));
+  return (x + x * x * (3 - 2 * x)) * 0.5;
+}
+
+function writeRamp(texture: THREE.DataTexture, mood: Mood): void {
   const data = texture.image.data as Uint8Array;
-  for (let i = 0; i < steps; i++) {
-    // Shadow is tinted rather than black: pure black kills the colour in cel
-    // shading.
-    const t = i / (steps - 1);
-    const v = Math.round(255 * (mood.rampShadow + (1 - mood.rampShadow) * t ** mood.rampGamma));
+  for (let i = 0; i < RAMP_TEXELS; i++) {
+    // The texel's centre, which is where a linear filter reads it exactly.
+    const light = rampLight((i + 0.5) / RAMP_TEXELS);
+    // Shadow is tinted rather than black: a painted shadow is a cooler colour,
+    // never an absence of one.
+    const v = 255 * (mood.rampShadow + (1 - mood.rampShadow) * light ** mood.rampGamma);
     for (let c = 0; c < 3; c++) {
-      const tint = mood.rampShadowTint[c]! + (mood.rampLightTint[c]! - mood.rampShadowTint[c]!) * t;
-      data[i * 4 + c] = Math.round(v * tint);
+      const tint = mood.rampShadowTint[c]! + (mood.rampLightTint[c]! - mood.rampShadowTint[c]!) * light;
+      data[i * 4 + c] = Math.min(255, Math.round(v * tint));
     }
     data[i * 4 + 3] = 255;
   }
@@ -360,22 +399,25 @@ function writeRamp(texture: THREE.DataTexture, steps: number, mood: Mood): void 
 }
 
 /**
- * Cel shading ramp. `MeshToonMaterial` uses it as a lookup table: instead of a
- * continuous gradient, light falls in steps. This is what turns crude geometry
- * into a deliberate drawing, and why we will be able to generate monuments in
- * code without them looking like mistakes.
+ * The light ramp every lit surface shares. `MeshToonMaterial` uses it as a
+ * lookup table from the angle to the sun to the light received, which is what
+ * lets the whole world change its light — the moods, the night, the climb —
+ * by rewriting a few textures rather than every material.
+ *
+ * `steps` is the number of cel bands the ramp was once cut into; it is kept
+ * for the callers and no longer read, because the light is continuous.
  */
-export function createToonRamp(steps = 4): THREE.DataTexture {
-  const texture = new THREE.DataTexture(new Uint8Array(steps * 4), steps, 1);
-  texture.minFilter = THREE.NearestFilter;
-  texture.magFilter = THREE.NearestFilter;
-  writeRamp(texture, steps, rampMood);
-  ramps.push({ texture, steps });
+export function createToonRamp(_steps = 4): THREE.DataTexture {
+  const texture = new THREE.DataTexture(new Uint8Array(RAMP_TEXELS * 4), RAMP_TEXELS, 1);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  writeRamp(texture, rampMood);
+  ramps.push(texture);
   return texture;
 }
 
-/** Repaints every ramp in the world. Cheap: five textures of four texels. */
+/** Repaints every ramp in the world. Cheap: a handful of textures of 64 texels. */
 export function setToonMood(mood: Mood): void {
   rampMood = mood;
-  for (const ramp of ramps) writeRamp(ramp.texture, ramp.steps, mood);
+  for (const ramp of ramps) writeRamp(ramp, mood);
 }

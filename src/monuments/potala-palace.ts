@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -375,8 +376,10 @@ export const potalaPalace: Monument = {
     const porch = box(6, 2.8, 2.6, stair);
     porch.position.set(PORCH_X, 12.8, faceZ(BODY, 12.8) + 1.3);
     group.add(porch);
+    // On a sill `PROUD` over the porch's foot: level with it, the door's
+    // underside and the porch's shared a plane in two colours.
     const doorway = box(2.2, 2.1, 0.8, dark);
-    doorway.position.set(PORCH_X, 12.8, faceZ(BODY, 12.8) + 2.5);
+    doorway.position.set(PORCH_X, 12.8 + PROUD, faceZ(BODY, 12.8) + 2.5);
     group.add(doorway);
 
     return group;

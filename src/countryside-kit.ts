@@ -4,11 +4,15 @@ import type { RegionStyle, SceneryContext } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import type { Rng } from './scenery/random.ts';
 import type { BodyKind } from './scenery/occupancy.ts';
+import { solidTree, treeForm } from './scenery/tree-forms.ts';
+import type { TreeForm } from './scenery/tree-forms.ts';
 import { bodyPaint, isGlass } from './models.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { buildBench } from './bench.ts';
 import { PLACED_SECTION } from './traffic/contract.ts';
 import { farmTractor } from './traffic/parts/farm-tractor.ts';
+import { parkedModel } from './craft/parked.ts';
+import type { CraftModel } from './craft/contract.ts';
 import { PALETTE } from './theme.ts';
 
 /**
@@ -88,6 +92,8 @@ export interface CountryPart {
   /** A triangle cap of its own, over `PIECE_TRIANGLES`: a baked model that is only ever near. */
   cap?: number;
   build(ctx: SceneryContext, rng: Rng, style: RegionStyle): THREE.Group;
+  /** A tree's whole form (`tree-forms.ts`), when `build` is its `solidTree`: a near tile draws its cards. */
+  form?(rng: Rng, style: RegionStyle): TreeForm;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,16 +227,33 @@ const hayBale: CountryPart = {
   },
 };
 
-/** A tractor, parked: Kenney's (Car Kit, CC0), in the colours tractors come in. */
+/**
+ * How a farm's tractor is drawn against the fleet's: as wide as the traffic's
+ * own tractor stands on the road, never wider than the craft.
+ */
+export function tractorScale(model: CraftModel): number {
+  return Math.min(1, (farmTractor.size[1] * PLACED_SECTION) / model.size[1]);
+}
+
+/**
+ * A tractor, parked in its yard: **the fleet's own** (`craft/cars.ts`,
+ * Kenney's, Car Kit, CC0), which anybody can drive off. A tile merges the
+ * look its id decides (`countryside-tile.ts`, `craft/parked.ts`) and the
+ * fleet takes it from there; this build, a look off `rng`, is for the kit's
+ * own checks and sheets.
+ */
 const tractor: CountryPart = {
   id: 'tractor',
   footprint: 2.6,
   // Kenney's is 908, and it is under the legibility floor of every tile but the finest.
   cap: 910,
-  build(ctx, rng) {
-    const body = rng.pick([PALETTE.red, PALETTE.green, PALETTE.orange, PALETTE.skyBlue]);
-    // As wide as the traffic's own tractor stands on the road.
-    return ctx.fitted('tractor', { width: farmTractor.size[1] * PLACED_SECTION }, bodyPaint(sceneryModel('tractor'), body, isGlass));
+  build(_ctx, rng) {
+    const model = parkedModel('tractor');
+    if (model === null) throw new Error("countryside: the fleet's tractor needs the traffic kit registered");
+    const holder = new THREE.Group();
+    holder.scale.setScalar(tractorScale(model));
+    holder.add(model.build(rng.int(model.variants)));
+    return holder;
   },
 };
 
@@ -877,28 +900,26 @@ const rocks: CountryPart = {
   },
 };
 
-/** A date palm at an oasis: Kenney's tall palm (Nature Kit, CC0), fronds in the region's green. */
+/** A date palm at an oasis (`tree-forms.ts`): fronds in the region's green on a brown trunk. */
+const palmForm = (rng: Rng, style: RegionStyle): TreeForm =>
+  treeForm('palm', rng, { height: rng.range(4.8, 6.2), reach: 1.95, leaf: rng.pick(style.foliage), leaf2: rng.pick(style.foliage), bark: PALETTE.brown });
 const palm: CountryPart = {
   id: 'palm',
   footprint: 2,
   body: 'trunk',
-  build(ctx, rng, style) {
-    const id = rng.pick(['tree-palmTall', 'tree-palm', 'tree-palmBend']);
-    const paint = rolePaint(sceneryModel(id), [[/leaf/i, rng.pick(style.foliage)], [/bark|wood|trunk/i, PALETTE.brown]]);
-    return ctx.fitted(id, { height: rng.range(8.5, 11), radius: 1.9, yaw: rng.range(0, Math.PI * 2) }, paint);
-  },
+  build: (ctx, rng, style) => solidTree(ctx, palmForm(rng, style)),
+  form: palmForm,
 };
 
-/** An olive tree of a grove: a low, wide crown in dusty green on a short trunk. */
+/** An olive tree of a grove: a low, round crown in dusty green on a short trunk (`tree-forms.ts`). */
+const oliveForm = (rng: Rng): TreeForm =>
+  treeForm('broadleaf', rng, { height: rng.range(3.6, 4.6), reach: 2.15, leaf: rng.pick([PALETTE.olive, PALETTE.darkOlive]), leaf2: PALETTE.darkOlive, bark: PALETTE.bark });
 const olive: CountryPart = {
   id: 'olive',
   footprint: 2.2,
   body: 'trunk',
-  build(ctx, rng) {
-    const id = rng.pick(['tree-default', 'tree-oak']);
-    const paint = rolePaint(sceneryModel(id), [[/leaf/i, rng.pick([PALETTE.olive, PALETTE.darkOlive])], [/bark|wood|trunk/i, PALETTE.bark]]);
-    return ctx.fitted(id, { height: rng.range(3.6, 4.6), radius: 2.1, squash: 1.25, yaw: rng.range(0, Math.PI * 2) }, paint);
-  },
+  build: (ctx, rng) => solidTree(ctx, oliveForm(rng)),
+  form: (rng) => oliveForm(rng),
 };
 
 // ---------------------------------------------------------------------------

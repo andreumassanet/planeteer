@@ -1,4 +1,5 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Sigiriya — the Lion Rock, Sri Lanka.
@@ -188,8 +189,11 @@ export const sigiriya: Monument = {
           [0.2, 3.7, 9.8, 14.6, leaf],
           [5.0, 2.8, 6.0, 15.6, scrub],
         ] as const) {
-          const tree = taper(size, size * 0.5, height, color, 5);
-          tree.position.set(dx, 3.2, at);
+          // The green one is sunk `PROUD` deeper, its top where it was: the
+          // crowns overlap, and two colours' undersides in one plane flicker.
+          const sink = color === leaf ? PROUD : 0;
+          const tree = taper(size, size * 0.5, height + sink, color, 5);
+          tree.position.set(dx, 3.2 - sink, at);
           clump.add(tree);
         }
         // One boulder, low and dark, sitting out on the apron.

@@ -130,11 +130,14 @@ export interface CountryLine {
   to: THREE.Vector3;
 }
 
-/** Ground where the grass is in flower: the sward reads it (`vegetation.ts`). */
+/**
+ * Ground where the grass is in flower: `ambient.ts`'s butterflies read it. The
+ * sward drew its flowers from it until 2026-09-28; the grass draws none yet.
+ */
 export interface Meadow {
   at: THREE.Vector3;
   radius: number;
-  /** Which of the sward's flowers this meadow is, mostly. */
+  /** Which of five flowers this meadow is, mostly. */
   petal: number;
 }
 
@@ -189,6 +192,14 @@ export interface Countryside {
   fieldAt(direction: THREE.Vector3): CropField | null;
   /** The meadow over a point, if any. */
   meadowAt(direction: THREE.Vector3): Meadow | null;
+  /**
+   * How much of the grass's height stands at a point for the pieces planned
+   * round it (`WORN`): 0 on the bare ground a tent, a fire or a barn takes, 1
+   * where nothing has worn it, and between on the trodden ring round each.
+   * `spread` (units) widens the bare ground, as the grass's other keepouts
+   * are widened (`vegetation.ts`).
+   */
+  trodden(direction: THREE.Vector3, spread?: number): number;
   /**
    * Whether anything planned — a piece, a field, a fence — stands within
    * `radius` units of a point: what a herd (`life.ts`) keeps off, as it keeps
@@ -355,6 +366,36 @@ const TOWN_MARGIN = 6;
 const ROAD_MARGIN = 2;
 /** How far inside its own cell everything a plan holds stays. */
 const CELL_MARGIN = 3;
+/**
+ * The ground a piece wears out of the grass (`trodden`), by part: bare within
+ * `bare` of its footprint (the part's own, not the rotor's reach a mill's is
+ * planned by), then trodden short over `worn` units more, growing back to
+ * the field's height at its edge. A campfire's is its ring of stones and the
+ * earth round it, trampled out to where the tents stand; a tent's the ground
+ * it is pitched on and its door. What is not listed wears `WORN_DEFAULT`, and
+ * a tree none: grass grows under a palm. The whole reach is held inside
+ * `CELL_MARGIN` past the footprint, which is how far in its cell a plan keeps
+ * everything, so a cell answers for its own ground.
+ */
+const WORN: Readonly<Record<string, { bare: number; worn: number }>> = {
+  campfire: { bare: 1.7, worn: 2 },
+  tent: { bare: 0.9, worn: 1.5 },
+  ger: { bare: 0.95, worn: 1.5 },
+  'nomad-tent': { bare: 0.9, worn: 1.5 },
+  'hay-bale': { bare: 1, worn: 0.8 },
+  bench: { bare: 0.7, worn: 1.2 },
+  turbine: { bare: 0.6, worn: 1 },
+  rocks: { bare: 0.6, worn: 0 },
+  'standing-stone': { bare: 0.8, worn: 1 },
+  cairn: { bare: 0.8, worn: 1 },
+  'prayer-flags': { bare: 0, worn: 0 },
+  palm: { bare: 0, worn: 0 },
+  olive: { bare: 0, worn: 0 },
+};
+const WORN_DEFAULT = { bare: 0.85, worn: 1.5 };
+/** How tall the grass stands at the bare edge of a piece's worn ground, of the field's. */
+const TRODDEN = 0.35;
+
 /** What `find` and the density both mean by far from a town. */
 const NEAR_TOWN = 800;
 const NEAR_ROAD = 220;
@@ -698,13 +739,13 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
    * The cells planned, least recently asked first: a hit moves its cell to
    * the back and a full cache lets go of the front one. Emptied whole, it
    * dropped the cells the tiles standing now had just planned, and every one
-   * of them, the sward's clumps and the herds' tests planned again at once.
+   * of them, the grass's texels and the herds' tests planned again at once.
    */
   const plans = new Map<string, CountryPlan>();
   const PLAN_CAP = 12_000;
 
-  // The cell asked last, answered without the key or the cache: the sward
-  // asks two questions a clump, and a tile's clumps are in a handful of cells.
+  // The cell asked last, answered without the key or the cache: the grass
+  // asks a question a texel, and a line of texels is in a handful of cells.
   let lastRow = NaN;
   let lastColumn = NaN;
   let lastPlan: CountryPlan | null = null;
@@ -1370,6 +1411,23 @@ export function createCountryside(world: World, options: CountrysideOptions = {}
         if (meadow.at.distanceTo(direction) * PLANET_RADIUS < meadow.radius) return meadow;
       }
       return null;
+    },
+    trodden(direction, spread = 0) {
+      const found = cellOf(direction);
+      let height = 1;
+      for (const piece of found.pieces) {
+        const wear = WORN[piece.part] ?? WORN_DEFAULT;
+        if (wear.bare <= 0 && wear.worn <= 0) continue;
+        const own = piece.scenic ? piece.footprint : (COUNTRY_PARTS[piece.part]?.footprint ?? piece.footprint) * piece.scale;
+        const reach = Math.min(own * wear.bare + wear.worn, piece.footprint + CELL_MARGIN);
+        const bare = Math.min(own * wear.bare + spread, reach);
+        const distance = piece.at.distanceTo(direction) * PLANET_RADIUS;
+        if (distance >= reach) continue;
+        if (distance <= bare) return 0;
+        const t = (distance - bare) / Math.max(reach - bare, 1e-6);
+        height = Math.min(height, TRODDEN + (1 - TRODDEN) * t * t * (3 - 2 * t));
+      }
+      return height;
     },
     occupied(direction, radius) {
       const lat = latOf(direction.y);

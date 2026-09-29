@@ -1,3 +1,4 @@
+import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
@@ -343,8 +344,10 @@ export const borobudur: Monument = {
           // Solving back through the offset is what puts the gate's foot exactly
           // on the face at the parapet's own height.
           const top = galleryBase(i) + RISE;
-          const gate = taper(GATE_FOOT, GATE_CAP, GATE_H, shadow, 4);
-          gate.position.set(0, top, rampZ(top - RAMP_UP) + RAMP_OUT - GATE_SET - GATE_FOOT);
+          // Its foot is sunk `PROUD` into the gallery: standing on the floor,
+          // its underside shared a plane with the parapet's and flickered.
+          const gate = taper(GATE_FOOT, GATE_CAP, GATE_H + PROUD, shadow, 4);
+          gate.position.set(0, top - PROUD, rampZ(top - RAMP_UP) + RAMP_OUT - GATE_SET - GATE_FOOT);
           stair.add(gate);
         }
 

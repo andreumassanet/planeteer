@@ -1,4 +1,5 @@
 import type { Monument, Object3D } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Mont-Saint-Michel.
@@ -114,7 +115,7 @@ import type { Monument, Object3D } from './contract.ts';
  *
  * - **Identical gables.** Eighteen roofs of one height on one circle is a cog
  *   wheel. `JITTER_RISE` and `JITTER_EAVES` now vary every roof on five-long
- *   cycles that never close against 18, 14 and 12, and seven `PROUD` houses
+ *   cycles that never close against 18, 14 and 12, and seven `TALL_HOUSES`
  *   stand a storey above their ring. The silhouette went from a scalloped rim
  *   to a jumble. The jitter is two arrays and costs nothing at all; the two
  *   extra proud houses cost 4 meshes and are the best 4 in the file.
@@ -244,7 +245,7 @@ const BANDS: Band[] = [
  * difference between a crowd and a colonnade. Angles in degrees about the
  * mount, measured from the gate.
  */
-const PROUD = [
+const TALL_HOUSES = [
   { ring: 0, angle: 24, width: 7.6, wall: 11.4, rise: 4.6 },
   { ring: 0, angle: 133, width: 6.8, wall: 10.0, rise: 4.2 },
   { ring: 1, angle: 62, width: 6.4, wall: 9.4, rise: 3.8 },
@@ -385,7 +386,8 @@ export const montSaintMichel: Monument = {
     // this is what the causeway's budget was spent on instead.
     // -----------------------------------------------------------------------
     put(box(9.0, 9.5, 4.0, wall), 0, WALL_FOOT, 38.0);
-    opening(0, WALL_FOOT, 40.1, 3.2, 5.5);
+    // Its foot goes `PROUD` under the gate's, whose underside it would share.
+    opening(0, WALL_FOOT - PROUD, 40.1, 3.2, 5.5 + PROUD);
     for (const x of [-5.4, 5.4]) {
       put(column(1.9, 11.0, wall, 8), x, WALL_FOOT, 38.6);
       put(column(2.2, 0.9, wall, 8), x, WALL_FOOT + 11.0, 38.6);
@@ -396,7 +398,14 @@ export const montSaintMichel: Monument = {
     // -----------------------------------------------------------------------
     BANDS.forEach((band, index) => {
       const level = RING[index]!;
-      put(ringWall(band.inner, band.outer, level.eaves - level.base, stone, band.sides), 0, level.base, 0);
+      // Sunk `PROUD` into the rock: at the ring's own base its underside lay
+      // in the plane of the rock section's cap, two colours in one plane.
+      put(
+        ringWall(band.inner, band.outer, level.eaves - level.base + PROUD, stone, band.sides),
+        0,
+        level.base - PROUD,
+        0,
+      );
       group.add(
         around(band.gables, (i) => {
           if (band.skip.includes(i)) return null;
@@ -417,11 +426,14 @@ export const montSaintMichel: Monument = {
       );
     });
 
-    for (const house of PROUD) {
+    for (const house of TALL_HOUSES) {
       const level = RING[house.ring]!;
       const band = BANDS[house.ring]!;
       const block = new THREE.Group();
-      const body = box(house.width, house.wall, band.depth * 0.85, stone);
+      // The body goes `PROUD` below the ring's base, so its underside is not in
+      // the plane of the coping's or the rock's, which flickers; its top stays.
+      const body = box(house.width, house.wall + PROUD, band.depth * 0.85, stone);
+      body.position.y = -PROUD;
       block.add(body);
       block.add(gable(0, 0, band.depth * 0.85 + 0.6, house.width / 2 + 0.3, house.wall, house.rise));
       // Body and roof are both built at the origin, so they travel together when
@@ -449,7 +461,9 @@ export const montSaintMichel: Monument = {
     // Between them they are the only place a viewer sees what the whole village
     // is built on, and they are why three rings' worth of gables are skipped.
     // -----------------------------------------------------------------------
-    spoke(300 * RAD, 29.0, RING[0].base, taper(6.0, 2.8, 17.4, rock, 6));
+    // The lower crag's foot is `PROUD` under the ring's base, out of the plane
+    // of the coping's underside; its top is where it was.
+    spoke(300 * RAD, 29.0, RING[0].base - PROUD, taper(6.0, 2.8, 17.4 + PROUD, rock, 6));
     spoke(288 * RAD, 19.0, 30.0, taper(4.2, 1.8, 12.6, rock, 6));
 
     // -----------------------------------------------------------------------

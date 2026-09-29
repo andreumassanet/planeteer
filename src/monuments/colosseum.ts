@@ -1,4 +1,5 @@
 import type { Mesh, Monument, Object3D } from './contract.ts';
+import { PROUD } from './contract.ts';
 
 /**
  * Colosseum.
@@ -254,6 +255,12 @@ export const colosseum: Monument = {
     // --- where the outer wall breaks off -------------------------------------
     // In a pier's own frame +X is the way the angle grows, so past the east end
     // (the negative angles) is local -X and past the west end is local +X.
+    // The brick infill starts `PROUD` in front of the piers' back face and stops
+    // `PROUD` under the attic's base: laid flush, its back shared a plane with
+    // the travertine piers and its top with the entablature band, two colours
+    // in one plane that flickered.
+    const blockedBack = PIER_BACK + PROUD;
+    const blockedTop = ATTIC_BASE - PROUD;
     const blockedWidth = chord(FACE) - PIER_WIDTH + 0.2;
     const blockedAt = ARCH_HALF + PIER_WIDTH / 2;
 
@@ -266,7 +273,7 @@ export const colosseum: Monument = {
       thin.scale.z = 0.42;
       thin.position.set(-3.6, 0, 48.2);
       thin.add(taper(6.4, 1.1, 33, brick, 4));
-      const blocked = slab(blockedWidth, 0, ATTIC_BASE, PIER_BACK, FACE - 0.3, brick);
+      const blocked = slab(blockedWidth, 0, blockedTop, blockedBack, FACE - 0.3, brick);
       blocked.position.x = blockedAt;
       radial(pierAngle(-HALF_INTACT - 1), thin, blocked);
     }
@@ -274,9 +281,9 @@ export const colosseum: Monument = {
     // Valadier's buttress: the arcade carried on in brick, cut down in steps,
     // with the last travertine bay's arches filled.
     {
-      const blocked = slab(blockedWidth, 0, ATTIC_BASE, PIER_BACK, FACE - 0.3, brick);
+      const blocked = slab(blockedWidth, 0, blockedTop, blockedBack, FACE - 0.3, brick);
       blocked.position.x = -blockedAt;
-      const upper = slab(5.2, 0, storeyTop(STOREYS[2]!) + 0.8, PIER_BACK, FACE - 0.1, brick);
+      const upper = slab(5.2, 0, storeyTop(STOREYS[2]!) + 0.8, blockedBack, FACE - 0.1, brick);
       upper.position.x = 4.5;
       const lower = slab(4.4, 0, storeyTop(STOREYS[1]!), PIER_BACK - 0.4, FACE - 0.5, brick);
       lower.position.x = 9.2;
@@ -302,8 +309,10 @@ export const colosseum: Monument = {
     // is the ceiling seen through the arches. Its twin a storey up was cut for
     // the triangles, and the slot it closed is the open upper ambulatory the
     // plane really does look down into.
-    const vault = ringWall(VAULT_INNER, VAULT_OUTER, BAND, vaulting, VAULT_SIDES);
-    vault.position.y = bandBottom(STOREYS[0]!);
+    // `PROUD` inside the band at top and bottom: it reaches into the outer
+    // bands, and at the band's own height their tops and soffits shared planes.
+    const vault = ringWall(VAULT_INNER, VAULT_OUTER, BAND - 2 * PROUD, vaulting, VAULT_SIDES);
+    vault.position.y = bandBottom(STOREYS[0]!) + PROUD;
     oval.add(vault);
 
     // What the arches look into, and on the south the ruined upper cavea rising

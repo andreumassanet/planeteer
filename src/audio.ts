@@ -95,6 +95,28 @@ export interface Soundscape {
 const MUFFLED = 650;
 const OPEN_AIR = 20000;
 
+/** A horn sounding for as long as it is held: see `Audio.holdHorn`. */
+export interface HeldHorn {
+  /** How near it is now, 1 beside you and 0 out of earshot. */
+  level(near: number): void;
+  /** Let go: the chord closes over its release; a one-shot voice has nothing to let go. */
+  release(): void;
+}
+
+/**
+ * The held voices: two oscillators, a low-pass, and how the chord opens and
+ * closes, in seconds. A car's are `horn`'s own two squares a major third
+ * apart; a bus's two saws an octave-ish down, a boat's a fifth lower still
+ * and slower to swell, a motorbike's one bright square.
+ */
+const HELD_CHORDS: Partial<Record<Honk, { type: OscillatorType; tones: readonly number[]; cutoff: number; attack: number; release: number; gain: number }>> = {
+  car: { type: 'square', tones: [370, 466], cutoff: 1600, attack: 0.02, release: 0.06, gain: 1 },
+  bus: { type: 'sawtooth', tones: [185, 233], cutoff: 900, attack: 0.04, release: 0.12, gain: 1.2 },
+  ship: { type: 'sawtooth', tones: [110, 165], cutoff: 600, attack: 0.12, release: 0.3, gain: 1.2 },
+  beep: { type: 'square', tones: [620], cutoff: 2400, attack: 0.01, release: 0.03, gain: 0.8 },
+};
+
+
 export interface Audio {
   /** Call from a user gesture: opens the context and starts fetching the recordings. */
   unlock(): void;
@@ -114,6 +136,16 @@ export interface Audio {
    * formants falling in pitch with a fast shake in it.
    */
   horn(near: number, voice?: Honk): void;
+  /**
+   * A horn held down, from now until its `release`: a driver's own while the
+   * key is down, and another player's while they hold theirs. `near` is as
+   * `horn`'s and can be moved while it sounds. A car's two tones, a bus's, a
+   * boat's and a motorbike's are one chord held for as long as the key is,
+   * with a short attack and a release; a bell, a rubber bulb and a whinny
+   * cannot be held, so they sound again and again until it is let go. Null
+   * until `unlock`.
+   */
+  holdHorn(voice: Honk, near: number): HeldHorn | null;
   /**
    * Thunder, once, `delay` seconds from now — the flash's distance over the
    * speed of sound, which the caller knows — at `loudness` 1 overhead to 0 far
@@ -826,6 +858,61 @@ export function createAudio(): Audio {
       const count = VARIANTS[surface];
       const pick = Math.floor(Math.random() * count);
       play(`step-${surface}-${pick}`, STEP_LEVEL[surface] * Math.min(1.6, weight), between(0.93, 1.07));
+    },
+
+    holdHorn(voice, near) {
+      const ctx = context;
+      if (ctx === null || master === null) return null;
+      const chord = HELD_CHORDS[voice];
+      if (chord === undefined) {
+        // A bell, a bulb, a whinny: a voice that cannot be held sounds once a
+        // press, as a real bell rings once a thumb; holding the key does not
+        // ring it again, pressing it again does.
+        if (near > 0.02) honk(ctx, master, voice, HORN_LEVEL * clamp01(near));
+        return { level() {}, release() {} };
+      }
+      const at = ctx.currentTime + 0.005;
+      const pitch = between(0.96, 1.04);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = chord.cutoff;
+      const env = ctx.createGain();
+      const peak = (value: number): number => HORN_LEVEL * chord.gain * clamp01(value);
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(peak(near), at + chord.attack);
+      filter.connect(env).connect(master);
+      const oscillators = chord.tones.map((frequency) => {
+        const osc = ctx.createOscillator();
+        osc.type = chord.type;
+        osc.frequency.value = frequency * pitch;
+        osc.connect(filter);
+        osc.start(at);
+        voices++;
+        osc.onended = () => {
+          voices--;
+          osc.disconnect();
+        };
+        return osc;
+      });
+      let released = false;
+      return {
+        level(value) {
+          if (released) return;
+          const now = ctx.currentTime;
+          // Past the attack only, or the ramp to the peak is cut short.
+          if (now < at + chord.attack) return;
+          env.gain.setTargetAtTime(peak(value), now, 0.05);
+        },
+        release() {
+          if (released) return;
+          released = true;
+          const now = Math.max(ctx.currentTime, at);
+          env.gain.cancelScheduledValues(now);
+          env.gain.setValueAtTime(env.gain.value, now);
+          env.gain.linearRampToValueAtTime(0, now + chord.release);
+          for (const osc of oscillators) osc.stop(now + chord.release + 0.02);
+        },
+      };
     },
 
     horn(near, voice = 'car') {

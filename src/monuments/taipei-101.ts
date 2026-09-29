@@ -1,4 +1,5 @@
 import type { Monument } from './contract.ts';
+import { PROUD as STEP_PROUD } from './contract.ts';
 
 /**
  * Taipei 101.
@@ -243,8 +244,12 @@ const CORNER = Math.SQRT2;
  */
 const MEDAL_R = 4 * PLAN;
 const MEDAL_T = 6 * PLAN;
-/** Clearance under the top of the module the medallion is mounted on. */
-const MEDAL_DROP = 0.05;
+/**
+ * Clearance under the top of the module the medallion is mounted on, the
+ * contract's `PROUD`: at 0.05 the disc's top flat and the module's top were two
+ * colours a hair apart, facing up, and flickered.
+ */
+const MEDAL_DROP = STEP_PROUD;
 
 // --- plan: the base, half-widths across the flats, in the same plan metre ---
 // 82 m at the pavement down to 56 m where the stack starts, against the shaft's

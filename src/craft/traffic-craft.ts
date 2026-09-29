@@ -25,7 +25,7 @@ import { PALETTE } from '../theme.ts';
 import { scooter } from '../traffic/parts/scooter.ts';
 import { autoRickshaw } from '../traffic/parts/auto-rickshaw.ts';
 import { RIDE_SCALE } from './contract.ts';
-import type { CraftKind, CraftModel, Seat } from './contract.ts';
+import type { CraftKind, CraftModel, Lamp, Seat } from './contract.ts';
 import { ABREAST } from './body.ts';
 import { assemble, finish, soupOf } from './build.ts';
 import type { Soup, Turning } from './build.ts';
@@ -89,6 +89,31 @@ function partSoups(spec: PartSpec, style: TrafficStyle): { still: Soup; wheels: 
     wheels.push({ name: 'wheel', at, soup: about(soupOf(alone), at) });
   }
   return { still: soupOf(holder), wheels };
+}
+
+/**
+ * The part's headlamps at the hero's scale: every mesh it marks lit
+ * (`ctx.lit`, which the part keeps out of its merge for the purpose) that
+ * stands in the front half of it, at the middle of its glass across and up
+ * and at its front face. A tail-lamp is behind the middle and is left out.
+ */
+function partLamps(spec: PartSpec, style: TrafficStyle): Lamp[] {
+  const built = spec.part.build(context(), rngFrom(spec.part.id, 'craft'), style);
+  const holder = new THREE.Group();
+  holder.scale.setScalar(RIDE_SCALE);
+  holder.add(built);
+  holder.updateMatrixWorld(true);
+  const whole = new THREE.Box3().setFromObject(holder);
+  const middle = (whole.min.z + whole.max.z) / 2;
+  const lamps: Lamp[] = [];
+  const box = new THREE.Box3();
+  const centre = new THREE.Vector3();
+  built.traverse((object) => {
+    if (!(object as THREE.Mesh).isMesh || !((object.userData.atlasLit ?? 0) > 0)) return;
+    box.setFromObject(object).getCenter(centre);
+    if (centre.z > middle) lamps.push([centre.x, centre.y, box.max.z]);
+  });
+  return lamps;
 }
 
 /** A seat moved `by` units ahead, its grip and footrests with it, so they stay where the part has them. */
@@ -166,7 +191,8 @@ function partModel(spec: PartSpec): CraftModel {
     const { still, wheels } = partSoups(spec, { ...style, paint: [paint] });
     return assemble(spec.id, [still], wheels);
   };
-  return finish({ id: spec.id, kind: spec.kind, medium: 'road', seats: spec.seats(spec.part), draft: 0, variants, build });
+  const lamps = partLamps(spec, { ...style, paint: [spec.paints[0]!] });
+  return finish({ id: spec.id, kind: spec.kind, medium: 'road', seats: spec.seats(spec.part), draft: 0, variants, lamps, build });
 }
 
 /** The scooter and the tuk-tuk. */
