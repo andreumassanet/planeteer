@@ -533,7 +533,11 @@ export function createMonuments(
   // After dark: the town's lamps, headlights and fires, the lit parts and the
   // floodlight, from the bytes `geometryOf` bakes (`landmark-lights.ts`).
   lightMonuments(material);
-  material.customProgramCacheKey = () => 'atlas-monument:lit';
+  // Its own key, as `lightMonuments` asks, kept in front of the `|clouds` the
+  // shade stamped on it above: one program carries both hooks, and the key
+  // still says so.
+  const shadedKey = material.customProgramCacheKey.bind(material);
+  material.customProgramCacheKey = () => `atlas-monument:lit|${shadedKey()}`;
 
   function geometryOf(slot: Slot): THREE.BufferGeometry | null {
     const id = slot.placement.id;
