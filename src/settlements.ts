@@ -8,6 +8,7 @@ import { LAMP_POOL, bedtimeByte, bedtimeNever, lightWindows, poolAt } from './li
 import { mergeMeshes, sourceVertex } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { leafDepthMaterial, leafMaterial } from './foliage.ts';
 import { CROWN_STRIDE, crownOf, nearArrays, placeCrown } from './scenery/tree-forms.ts';
 import type { LeafArrays } from './scenery/tree-forms.ts';
@@ -1240,7 +1241,8 @@ function townMaterial(): THREE.MeshToonMaterial {
       .replace('#include <lights_toon_fragment>', 'if (townMachine) totalEmissiveRadiance = townMachineGlow;\n  #include <lights_toon_fragment>')
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n  if (townMachine) ${VARNISH_GLSL}`);
   };
-  return material;
+  // Last, over the windows and the paint, and before `fadeTwin` clones it.
+  return shadeByClouds(material);
 }
 
 /**

@@ -10,24 +10,45 @@
  * the relief — and asks the model the questions an atlas can answer, then
  * holds the drawing's two pieces of arithmetic to their contracts: every drop
  * stays inside the box round the camera, and every face of a lightning bolt
- * faces out, because its ink is a back-face hull.
+ * faces out, because its ink is a back-face hull. And the deck's shade on the
+ * ground (`cloud-shade.ts`): its bake against the field, its ray, where it
+ * falls against where it rains, its gates, the sun's budget it shares with the
+ * old cut, and the patch it makes to three's light loop, compiled headless.
  *
  *   node scripts/check-weather.ts
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BufferAttribute, BufferGeometry, Quaternion, Vector3 } from 'three';
+import { BufferAttribute, BufferGeometry, MeshToonMaterial, Quaternion, ShaderChunk, ShaderLib, Vector3 } from 'three';
 import { loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, lyingSnowAt } from '../src/globe.ts';
 import { decodeLakes, inflate } from '../src/pack.ts';
 import { reliefAt, setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import { biomeAt, biomeSample, continentalityAt } from '../src/biome.ts';
-import { THRESHOLD, coverageAt, deckTurn } from '../src/clouds.ts';
-import { unitAt } from '../src/sphere.ts';
+import { CLOUD_BASE, THRESHOLD, bakeCloudMap, cloudShadeAt, coverageAt, createCloudBake, deckTurn } from '../src/clouds.ts';
+import type { CloudShadeSample } from '../src/clouds.ts';
+import {
+  CLOUD_MAP_HEIGHT,
+  CLOUD_MAP_WIDTH,
+  SHADE_HEART,
+  SHADE_RIM,
+  SUN_CUT,
+  cloudLightsChunk,
+  rayToDeck,
+  sampleCloudMap,
+  shadeByClouds,
+  shadeCover,
+  shadeDarkness,
+  sunCutOf,
+  sunScale,
+} from '../src/cloud-shade.ts';
+import { sunDirection } from '../src/sun.ts';
+import { varnish } from '../src/gloss.ts';
+import { latLonOf, unitAt } from '../src/sphere.ts';
 import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, seasonOf, strikeCandidate, weatherAt, weatherSample } from '../src/weather.ts';
 import type { Strike, WeatherSample } from '../src/weather.ts';
-import { BOLT_VERTICES, MAX_DROPS, RAIN_BOX, SNOW_BOX, dropGeometry, dropOffset, writeBolt } from '../src/weather-view.ts';
+import { BOLT_VERTICES, MAX_DROPS, PRESETS, RAIN_BOX, SNOW_BOX, dropGeometry, dropOffset, overcastOf, writeBolt } from '../src/weather-view.ts';
 import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +167,348 @@ console.log('\nthe clouds are the weather');
     if (coverageAt(d.x, d.y, d.z) <= THRESHOLD) rainWithout++;
   }
   check(rained > 0 && rainWithout === 0, 'it rains only under a bank of the drawn deck', `${rained} raining, ${rainWithout} under open sky`);
+}
+
+console.log('\ncloud shadows');
+{
+  // The patch first: it is three's own loop, found by exact text, and a three
+  // that moved the text must fail here before it draws a world without shade.
+  const SHADOW_LINE =
+    'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+  check(ShaderChunk.lights_fragment_begin.includes(SHADOW_LINE), "three's light loop still casts the sun's shadow in the line the shade patches", 'lights_fragment_begin, r182');
+  let chunkError = '';
+  try {
+    cloudLightsChunk();
+  } catch (error) {
+    chunkError = String(error);
+  }
+  check(chunkError === '', 'and the patch derives from it', chunkError);
+
+  // A material opted in, compiled as three would: its hook run on the toon
+  // source, the includes expanded, two directional lights (the sun casting,
+  // the moon not) and the loops unrolled with three's own pattern.
+  const expand = (source: string): string =>
+    source.replace(/#include <(\w+)>/g, (_, name: string) => expand((ShaderChunk as unknown as Record<string, string>)[name] ?? ''));
+  const unroll = (source: string): string =>
+    source.replace(
+      /#pragma unroll_loop_start\s+for\s*\(\s*int\s+i\s*=\s*(\d+)\s*;\s*i\s*<\s*(\d+)\s*;\s*i\s*\+\+\s*\)\s*{([\s\S]+?)}\s+#pragma unroll_loop_end/g,
+      (_, start: string, end: string, body: string) => {
+        let out = '';
+        for (let i = Number(start); i < Number(end); i++) out += body.replace(/\[\s*i\s*\]/g, `[ ${i} ]`).replace(/UNROLLED_LOOP_INDEX/g, String(i));
+        return out;
+      },
+    );
+  const lights = (source: string): string =>
+    source
+      .replace(/NUM_DIR_LIGHT_SHADOWS/g, '1')
+      .replace(/NUM_DIR_LIGHTS/g, '2')
+      .replace(/NUM_(?:POINT|SPOT|RECT_AREA|HEMI)_LIGHTS/g, '0')
+      .replace(/NUM_(?:POINT|SPOT)_LIGHT_SHADOWS(?:_WITH_MAPS)?/g, '0')
+      .replace(/NUM_SPOT_LIGHT_MAPS/g, '0');
+  const compile = (material: InstanceType<typeof MeshToonMaterial>) => {
+    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: ShaderLib.toon!.vertexShader, fragmentShader: ShaderLib.toon!.fragmentShader };
+    material.onBeforeCompile(shader as never, null as never);
+    return { shader, fragment: unroll(lights(expand(shader.fragmentShader))) };
+  };
+  const times = (text: string, needle: string): number => text.split(needle).length - 1;
+  let baseRan = 0;
+  const base = new MeshToonMaterial();
+  base.onBeforeCompile = (shader) => {
+    baseRan++;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\n// the base hook');
+  };
+  base.customProgramCacheKey = () => 'base-key';
+  shadeByClouds(shadeByClouds(base));
+  const { shader, fragment } = compile(base);
+  const other = compile(shadeByClouds(new MeshToonMaterial()));
+  const declared = [...fragment.matchAll(/uniform\s+\w+\s+(atlasCloud\w+)\s*;/g)].map((m) => m[1]!);
+  const shared = declared.every((name) => shader.uniforms[name] !== undefined && shader.uniforms[name] === other.shader.uniforms[name]);
+  check(
+    baseRan === 1 && fragment.includes('// the base hook') && base.customProgramCacheKey() === 'base-key|clouds',
+    'opting in chains the hook and the key, once however often it is asked',
+    `key ${base.customProgramCacheKey()}`,
+  );
+  check(
+    declared.length === 5 && shared && /\bvec2\s+atlasCloudAt\s*\(/.test(fragment),
+    'the program declares the shade once, and binds every uniform of it by reference',
+    `${declared.join(', ')}`,
+  );
+  check(
+    times(fragment, 'vec2 atlasCloud = vec2( 0.0 );') === 1 &&
+      times(fragment, 'atlasCloud = atlasCloudOfView( geometryPosition );') === 1 &&
+      !fragment.includes('#include'),
+    'the cloud is found once a pixel, outside the unrolled loop, and nothing is left to include',
+  );
+  check(
+    fragment.includes('mix( getShadow( directionalShadowMap[ 0 ]') &&
+      times(fragment, '0 == 0 ? atlasCloud.x : 0.0') === 1 &&
+      times(fragment, '#if ( 0 == 0 )\n\t\tdirectLight.color *= 1.0 - atlasCloud.x') === 1 &&
+      times(fragment, '#if ( 1 == 0 )\n\t\tdirectLight.color *= 1.0 - atlasCloud.x') === 1,
+    "the sun (light 0) is shaded and its shadow faded under the cloud; the moon's term is compiled out",
+  );
+  // And a varnished one, whose loop three does not unroll (`gloss.ts`): what
+  // the shade adds to it must compile either way.
+  const varnished = compile(shadeByClouds(varnish(new MeshToonMaterial({ vertexColors: true }))));
+  check(
+    !varnished.fragment.includes('UNROLLED_LOOP_INDEX') && varnished.fragment.includes('if (i == 0) glossLight *= 1.0 - atlasCloud.x;'),
+    'a varnished material under the shade dims the sun\'s highlight, and leaves no loop index unresolved',
+  );
+  const plain = shadeByClouds(new MeshToonMaterial());
+  check(plain.customProgramCacheKey().endsWith('|clouds') && !plain.customProgramCacheKey().includes('shadeByClouds'), 'a material on the default key keeps its own hook\'s text in the key', plain.customProgramCacheKey().slice(0, 48));
+
+  // The bake against the field it bakes: the lookup as the GPU does it, over
+  // directions spread across the sphere, in the shade's own terms.
+  const began = performance.now();
+  const map = bakeCloudMap();
+  const bakeMs = performance.now() - began;
+  let sum = 0;
+  let wrong = 0;
+  let flips = 0;
+  let worst = 0;
+  const N = 60000;
+  for (let i = 0; i < N; i++) {
+    const z = 1 - (2 * (i + 0.5)) / N;
+    const r = Math.sqrt(1 - z * z);
+    const a = i * 2.399963229728653;
+    const x = r * Math.cos(a);
+    const y = r * Math.sin(a);
+    const exact = coverageAt(x, z, y);
+    const baked = sampleCloudMap(map, x, z, y);
+    const d = Math.abs(shadeCover(exact, THRESHOLD) - shadeCover(baked, THRESHOLD));
+    sum += d;
+    worst = Math.max(worst, d);
+    if (d > 0.25) wrong++;
+    if (exact > THRESHOLD !== baked > THRESHOLD) flips++;
+  }
+  console.log(`  --  the bake: ${CLOUD_MAP_WIDTH}x${CLOUD_MAP_HEIGHT}, ${(map.length / 1048576).toFixed(1)} MiB, ${Math.round(bakeMs)} ms here`);
+  check(sum / N < 0.01, 'the baked shade is the field\'s: a small error on average', `mean ${(sum / N).toFixed(4)} over ${N} directions, worst ${worst.toFixed(3)}`);
+  check(wrong / N < 0.001, 'and hardly anywhere a large one', `${wrong} over 0.25`);
+  check(flips / N < 0.01, 'and the cut is where the field puts it', `${((flips / N) * 100).toFixed(2)}% on the other side`);
+  {
+    // A frame at a time is the same map as all at once.
+    const sliced = createCloudBake();
+    let calls = 0;
+    while (sliced.rows < 64 && calls < 1000) {
+      sliced.step(0.5);
+      calls++;
+    }
+    let same = sliced.rows >= 64;
+    for (let k = 0; same && k < 64 * CLOUD_MAP_WIDTH; k++) same = sliced.data[k] === map[k];
+    check(same, 'baked a slice a frame, the map is the same map', `${sliced.rows} rows in ${calls} calls`);
+  }
+
+  // The ray: from a point in the shade's shell to the deck's sphere along the
+  // sun, in the shader's single precision (every step rounded to float32).
+  {
+    const deck = PLANET_RADIUS + CLOUD_BASE;
+    const f = Math.fround;
+    let worstJs = 0;
+    let worstGpu = 0;
+    const p = new Vector3();
+    const sun = new Vector3();
+    for (let i = 0; i < 20000; i++) {
+      const lat = Math.asin(2 * ((i * 0.618034) % 1) - 1) * (180 / Math.PI);
+      const lon = ((i * 0.7548776) % 1) * 360 - 180;
+      unitAt(lat, lon, p);
+      const height = -300 + ((i * 0.41421356) % 1) * 1150;
+      // A sun anywhere over this point's horizon.
+      const up = p.clone();
+      const tilt = Math.acos(((i * 0.2360679) % 1) * 0.999);
+      const spin = ((i * 0.3819660) % 1) * Math.PI * 2;
+      const e = new Vector3(0, 1, 0).cross(up);
+      if (e.lengthSq() < 1e-8) e.set(1, 0, 0);
+      e.normalize();
+      const n = up.clone().cross(e);
+      sun.copy(up).multiplyScalar(Math.cos(tilt)).addScaledVector(e, Math.sin(tilt) * Math.cos(spin)).addScaledVector(n, Math.sin(tilt) * Math.sin(spin)).normalize();
+      p.multiplyScalar(PLANET_RADIUS + height);
+      const t = rayToDeck(p, sun, deck);
+      worstJs = Math.max(worstJs, Math.abs(p.clone().addScaledVector(sun, t).length() - deck) / deck);
+      // As the GLSL does it, in float32.
+      const r = f(Math.hypot(f(p.x), f(p.y), f(p.z)));
+      const c = f(f(deck - r) * f(deck + r));
+      const b = f(f(f(p.x) * f(sun.x)) + f(f(f(p.y) * f(sun.y)) + f(f(p.z) * f(sun.z))));
+      const tg = f(c / f(b + f(Math.sqrt(f(f(b * b) + c)))));
+      const hit = Math.hypot(f(f(p.x) + f(sun.x * tg)), f(f(p.y) + f(sun.y * tg)), f(f(p.z) + f(sun.z * tg)));
+      worstGpu = Math.max(worstGpu, Math.abs(hit - deck));
+    }
+    const horizon = Math.sqrt(deck * deck - PLANET_RADIUS * PLANET_RADIUS);
+    const ground = new Vector3(0, PLANET_RADIUS, 0);
+    const zenith = rayToDeck(ground, new Vector3(0, 1, 0), deck);
+    const longest = rayToDeck(ground, new Vector3(1, 0, 0), deck);
+    check(worstJs < 1e-6, 'the ray meets the deck\'s sphere', `worst ${worstJs.toExponential(1)} of its radius`);
+    check(worstGpu < 0.5, 'and does in the shader\'s single precision, to under half a unit', `worst ${worstGpu.toFixed(3)} units`);
+    check(Math.abs(zenith - CLOUD_BASE) < 1e-6 && Math.abs(longest - horizon) < 1e-6, 'a zenith sun is the deck\'s height away, a horizon one the tangent to it', `${zenith.toFixed(1)} and ${longest.toFixed(0)} units`);
+  }
+
+  // The shade is the deck: as much of the day's ground under it as the deck
+  // covers of the sky, and at a high sun the rain under the shade.
+  {
+    const p = new Vector3();
+    const up = new Vector3();
+    const sun = new Vector3();
+    const turn = new Quaternion();
+    const hit = new Vector3();
+    const out: CloudShadeSample = { cover: 0, depth: 0, shade: 0 };
+    let day = 0;
+    let underCut = 0;
+    let underShade = 0;
+    for (let i = 0; i < 20000; i++) {
+      const lat = Math.asin(2 * ((i * 0.618034) % 1) - 1) * (180 / Math.PI);
+      const lon = ((i * 0.7548776) % 1) * 360 - 180;
+      const t = YEAR0 + ((i * 0.3819) % 1) * 365 * DAY;
+      unitAt(lat, lon, up);
+      sunDirection(new Date(t), sun);
+      if (up.dot(sun) < Math.sin((15 * Math.PI) / 180)) continue;
+      day++;
+      p.copy(up).multiplyScalar(PLANET_RADIUS + 2);
+      cloudShadeAt(p, sun, t, out);
+      if (out.cover > 0.5) underShade++;
+      hit.copy(p).addScaledVector(sun, rayToDeck(p, sun, PLANET_RADIUS + CLOUD_BASE)).normalize().applyQuaternion(deckTurn(t, turn).invert());
+      if (coverageAt(hit.x, hit.y, hit.z) > THRESHOLD) underCut++;
+    }
+    check(Math.abs(underCut / day - 0.28) < 0.03, 'as much of the day\'s ground is under a bank as the deck covers', `${((underCut / day) * 100).toFixed(1)}% of ${day} sunlit points (the deck keeps 27.6% of its cells)`);
+    check(underShade >= underCut && (underShade - underCut) / day < 0.07, 'and the shade reaches a little past the cut, as the puffs\' rims do', `${((underShade / day) * 100).toFixed(1)}% in shade`);
+
+    // A high sun: over 75 degrees the shade is at most 268 units off the
+    // point under the cloud, so where it rains — properly, away from the
+    // rain's own ragged edge — the ground is in its shade.
+    let raining = 0;
+    let shadedRain = 0;
+    const under = { lat: 0, lon: 0 };
+    for (let i = 0; i < 400000 && raining < 600; i++) {
+      const t = YEAR0 + ((i * 0.6180339) % 1) * 365 * DAY;
+      sunDirection(new Date(t), sun);
+      latLonOf(sun, under);
+      const lat = under.lat + (((i * 0.7548776) % 1) - 0.5) * 30;
+      const lon = under.lon + (((i * 0.5698403) % 1) - 0.5) * 30;
+      unitAt(lat, lon, up);
+      if (up.dot(sun) < Math.sin((75 * Math.PI) / 180)) continue;
+      weatherAt(lat, lon, 0, t, a);
+      if (a.precipitation <= 0.2) continue;
+      raining++;
+      p.copy(up).multiplyScalar(PLANET_RADIUS + 2);
+      cloudShadeAt(p, sun, t, out);
+      if (out.cover > 0.5) shadedRain++;
+    }
+    check(raining > 100 && shadedRain / raining >= 0.9, 'under a high sun, where it rains the ground is in the shade', `${shadedRain} of ${raining} raining points`);
+  }
+
+  // Continuity: a step on the ground and a tick of the clock move the shade
+  // by a sliver, never a jump.
+  {
+    const p = new Vector3();
+    const q = new Vector3();
+    const up = new Vector3();
+    const sun = new Vector3();
+    const east = new Vector3();
+    const north = new Vector3();
+    const one: CloudShadeSample = { cover: 0, depth: 0, shade: 0 };
+    const two: CloudShadeSample = { cover: 0, depth: 0, shade: 0 };
+    let worstStep = 0;
+    let worstTick = 0;
+    let samples = 0;
+    for (let i = 0; i < 30000; i++) {
+      const lat = Math.asin(2 * ((i * 0.618034) % 1) - 1) * (180 / Math.PI);
+      const lon = ((i * 0.7548776) % 1) * 360 - 180;
+      const t = YEAR0 + ((i * 0.3819) % 1) * 365 * DAY;
+      unitAt(lat, lon, up);
+      sunDirection(new Date(t), sun);
+      if (up.dot(sun) < 0.1) continue;
+      samples++;
+      p.copy(up).multiplyScalar(PLANET_RADIUS + 3);
+      cloudShadeAt(p, sun, t, one);
+      east.set(-up.z, 0, up.x).normalize();
+      north.crossVectors(up, east);
+      const angle = ((i * 0.2360679) % 1) * Math.PI * 2;
+      q.copy(p).addScaledVector(east, Math.cos(angle)).addScaledVector(north, Math.sin(angle));
+      cloudShadeAt(q, sun, t, two);
+      worstStep = Math.max(worstStep, Math.abs(one.cover - two.cover));
+      cloudShadeAt(p, sun, t + 1000, two);
+      worstTick = Math.max(worstTick, Math.abs(one.cover - two.cover));
+    }
+    // The soft edge is 54 units across at the median and 32 at the thinnest
+    // tenth (`SHADE_EDGE_OUT`), so a unit is a sliver of it; a second is the
+    // deck's drift, 1.6 units at most (`DECK_RATE` at the deck's radius).
+    check(worstStep < 0.1, 'a step moves the shade by a sliver', `worst ${worstStep.toFixed(3)} over ${samples} sunlit points`);
+    check(worstTick < 0.15, 'and so does a second, which drifts the deck a step and a half', `worst ${worstTick.toFixed(3)}`);
+  }
+
+  // The gates: no shade from a sun under the horizon, above the shell (an
+  // airliner at cruise) or under it (the traveller's card at the origin).
+  {
+    const sun = new Vector3();
+    const up = new Vector3();
+    const p = new Vector3();
+    const out: CloudShadeSample = { cover: 0, depth: 0, shade: 0 };
+    let night = 0;
+    let high = 0;
+    let low = 0;
+    let deep = 0;
+    let checked = 0;
+    for (let i = 0; i < 20000; i++) {
+      const lat = Math.asin(2 * ((i * 0.618034) % 1) - 1) * (180 / Math.PI);
+      const lon = ((i * 0.7548776) % 1) * 360 - 180;
+      const t = YEAR0 + ((i * 0.3819) % 1) * 365 * DAY;
+      unitAt(lat, lon, up);
+      sunDirection(new Date(t), sun);
+      const elevation = Math.asin(up.dot(sun)) * (180 / Math.PI);
+      // Deep in a bank along the ray, so a gate is the only thing that can say no.
+      p.copy(up).multiplyScalar(PLANET_RADIUS + 2);
+      if (elevation < -2) {
+        checked++;
+        if (cloudShadeAt(p, sun, t, out).shade !== 0) night++;
+        continue;
+      }
+      if (elevation < 20) continue;
+      cloudShadeAt(p, sun, t, out);
+      if (out.cover < 0.99) continue;
+      deep++;
+      if (cloudShadeAt(p.copy(up).multiplyScalar(PLANET_RADIUS + 1700), sun, t, out).shade !== 0) high++;
+      if (cloudShadeAt(p.copy(up).multiplyScalar(PLANET_RADIUS + 900), sun, t, out).shade !== 0) high++;
+      if (cloudShadeAt(p.copy(up).multiplyScalar(PLANET_RADIUS - 450), sun, t, out).shade !== 0) low++;
+      if (cloudShadeAt(p.copy(up).multiplyScalar(5), sun, t, out).shade !== 0) low++;
+    }
+    check(checked > 1000 && night === 0, 'no shade from a sun two degrees under the horizon', `${night} of ${checked}`);
+    check(deep > 100 && high === 0 && low === 0, 'none over the shell, where the airliners cruise, and none off the planet', `${high} over, ${low} under, of ${deep} points deep in a bank`);
+  }
+
+  // The sun's budget. Each forced sky, and each under a real bank as deep as
+  // its own: forced, or with the weather off, the old cut and nothing else;
+  // under a real bank, never the old cut and the shade together, never under
+  // a fifth of the sun, and a storm about where the old cut put it.
+  {
+    const lines: string[] = [];
+    let forcedOff = 0;
+    let doubled = 0;
+    let dim = 0;
+    let stormOff = Infinity;
+    for (const [kind, preset] of Object.entries(PRESETS)) {
+      const cover = preset.cover ?? 0;
+      const depth = preset.depth ?? 0;
+      const precipitation = preset.precipitation ?? 0;
+      const storm = preset.storm ?? 0;
+      const overcast = overcastOf(preset, 0);
+      const before = 1 - SUN_CUT * overcast;
+      const forced = sunScale(sunCutOf(overcast, precipitation, storm, 0, 0), 0, depth);
+      if (Math.abs(forced - before) > 1e-12) forcedOff++;
+      const deck = sunScale(sunCutOf(overcast, precipitation, storm, 0, 1), cover, depth);
+      const twice = before * (1 - cover * shadeDarkness(depth));
+      if (cover > 0 && deck - twice < 0.05) doubled++;
+      if (deck < 0.2) dim++;
+      if (kind === 'storm') stormOff = Math.abs(deck - before);
+      lines.push(`${kind} ${before.toFixed(2)}>${deck.toFixed(2)}`);
+    }
+    console.log(`  --  the sun's term under each sky, before > with the shade: ${lines.join(', ')}`);
+    check(forcedOff === 0, 'a forced sky and the weather off keep the old cut, exactly', `${forcedOff} differ`);
+    check(doubled === 0 && dim === 0, 'under a real bank the shade replaces the cut: never both, never under a fifth', `${doubled} doubled, ${dim} under 0.2`);
+    check(stormOff <= 0.1, 'and a storm overhead is the dark it was', `off by ${stormOff.toFixed(3)}`);
+    check(sunCutOf(0.3, 0, 0, 0, 1) === 0 && sunScale(sunCutOf(0.3, 0, 0, 0, 1), 0, 0) === 1, 'the open ground beside a dry bank keeps the whole sun');
+    check(
+      Math.abs(sunCutOf(0.58, 0.7, 0, 0, 0.5) - (0.58 + sunCutOf(0.58, 0.7, 0, 0, 1)) / 2) < 1e-12,
+      'and the shade fading in hands the cut over by degrees',
+    );
+    check(SHADE_RIM < SHADE_HEART && Math.abs(SHADE_HEART - 0.65) <= 0.05, 'a bank\'s rim is lighter than its heart, and its heart about as dark as a cast shadow (0.65)', `${SHADE_RIM} to ${SHADE_HEART}`);
+  }
 }
 
 /** Share of three-hourly samples over a year that are each kind, at a place. */

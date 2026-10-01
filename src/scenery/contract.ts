@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
+import { shadeByClouds } from '../cloud-shade.ts';
 import { PAINTED_MARK, createContext, measure, paletteName } from '../monuments/contract.ts';
 import { onPalette, paintModel, toned } from '../models.ts';
 import type { Model, Paint } from '../models.ts';
@@ -930,7 +931,7 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
   function vertexColoured(): THREE.MeshToonMaterial {
     if (paintedMaterial === null) {
       const source = base.toon(PALETTE.ink);
-      paintedMaterial = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: source.gradientMap });
+      paintedMaterial = shadeByClouds(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: source.gradientMap }));
       paintedMaterial.userData.outlineParameters = { ...source.userData.outlineParameters, outlineNormal: true };
       paintedMaterial.userData.atlasToon = PALETTE.white;
       paintedMaterial.userData[PAINTED_MARK] = true;

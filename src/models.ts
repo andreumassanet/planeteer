@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { PALETTE } from './theme.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 
 /**
  * Static models from CC0 packs: a vehicle, a tree, a rock, a house.
@@ -267,7 +268,7 @@ export function modelMaterial(
 ): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap });
   material.userData.outlineParameters = { ...ink, outlineNormal: true };
-  return material;
+  return shadeByClouds(material);
 }
 
 // ---------------------------------------------------------------------------

@@ -3,8 +3,20 @@ import { PLANET_RADIUS } from './globe.ts';
 import { fbm } from './terrain.ts';
 import { createToonRamp } from './theme.ts';
 import { sunUniform } from './sun.ts';
-import { latOf } from './sphere.ts';
+import { latOf, unitAt } from './sphere.ts';
 import { weatherHazeAt } from './view.ts';
+import {
+  CLOUD_MAP_HEIGHT,
+  CLOUD_MAP_WIDTH,
+  cloudMapByte,
+  cloudShade,
+  rayToDeck,
+  setCloudMap,
+  shadeCover,
+  shadeDarkness,
+  shadeGate,
+  updateCloudShade,
+} from './cloud-shade.ts';
 
 /**
  * The weather, as a sky of painted cumulus.
@@ -49,6 +61,15 @@ import { weatherHazeAt } from './view.ts';
  * it takes (`hazeAt`), how much of its own shape is allowed to shade it
  * (`flattenAt`) and how much of its own height it keeps (`squashAt`). A fourth,
  * the width of the soft edge, rides the flatten.
+ *
+ * **And it casts a shade, from the same field.** The ground under a bank is
+ * darker where the bank's shadow falls — along the ray to the sun, as far as
+ * the deck's sphere — and the shadow drifts with it: `createCloudBake` writes
+ * `coverageAt` once into a texture in the deck's own frame, `update` bakes it a
+ * slice a frame and hands the shaders the turn, and `cloud-shade.ts` draws it
+ * on every surface the sun lights. `cloudShadeAt` is the same shade on the
+ * exact field, for the checks and the weather's readout. `atlas.clouds.shadows`
+ * is its A/B.
  */
 
 /**
@@ -382,6 +403,20 @@ export interface Clouds {
    * `GREY_DEPTH` darker at a bank's heart.
    */
   setGrey(value: number): void;
+  /**
+   * The deck's shade on the ground, 0 to 1: `atlas.clouds.shadows = 0` is the
+   * world as it was before it — no shade, and the old cut of the whole
+   * world's sun under a bank — and 1 the shade. For A/B, not a setting.
+   */
+  shadows: number;
+  /** The shade's state: the bake's progress and cost, and the strength the shaders were handed. */
+  readonly shade: { ready: boolean; rows: number; bakeMs: number; strength: number; share: number; weather: number };
+  /**
+   * The deck's shade at a world point, at the instant of the last `update`
+   * and under its sun: `cloudShadeAt`, on the exact field and without the
+   * strength. For the console and `pnpm graphics`' probe.
+   */
+  shadeAt(point: THREE.Vector3): CloudShadeSample;
   stats: CloudStats;
 }
 
@@ -521,6 +556,151 @@ export function coverageAt(x: number, y: number, z: number): number {
   );
   const lat = latOf(y);
   return raw + CLIMATE_BIAS * Math.cos((lat * Math.PI) / CLIMATE_PERIOD);
+}
+
+// ---------------------------------------------------------------------------
+// The shade on the ground
+// ---------------------------------------------------------------------------
+
+/**
+ * Milliseconds of a frame the bake may take, and it is `FLAG_BUILD_MS`'s four
+ * for the same reason (`main.ts`): the whole bake is 0.6 s of `coverageAt`,
+ * 2 M texels at 0.3 us, which in one piece is a stutter and at four
+ * milliseconds a frame is 150 frames nobody sees. They are the menu's frames
+ * as a rule — the deck is built at 'setting the weather' and the menu opens
+ * right after, over seconds of the world building underneath it — so the
+ * shade is there by the time anybody lands.
+ */
+const BAKE_MS = 4;
+/** The frame the budget is a share of, and the most one call may take however late it was called. */
+const BAKE_FRAME_MS = 1000 / 60;
+const BAKE_CATCH_UP_CAP = 2 * BAKE_FRAME_MS;
+
+export interface CloudBake {
+  /**
+   * Bakes rows for about `budgetMs`, and true once every row is done. The
+   * budget is a share of a frame, not a sum: called late — a slow machine, a
+   * throttled tab, a software renderer drawing a frame a second — it takes
+   * the share of the gap since the last call, up to two frames, as the flag
+   * layer's build does (`land-flags.ts`, `CATCH_UP_CAP`), or a bake that needs
+   * 150 calls would take minutes to arrive. `Infinity` bakes the rest at once.
+   */
+  step(budgetMs: number): boolean;
+  readonly done: boolean;
+  /** Rows written, of `CLOUD_MAP_HEIGHT`, and the milliseconds they took. */
+  readonly rows: number;
+  readonly ms: number;
+  /** The map: a byte a texel (`cloudMapByte`), row 0 at the south pole. */
+  readonly data: Uint8Array;
+}
+
+/**
+ * The field written into a texture in the deck's own frame: longitude across,
+ * latitude up, a texel's centre each (`cloudMapUV` is the lookup). Never
+ * stale: the deck is a rigid turn of it, which the shader undoes.
+ */
+export function createCloudBake(): CloudBake {
+  const data = new Uint8Array(CLOUD_MAP_WIDTH * CLOUD_MAP_HEIGHT);
+  // Each column's longitude as the unit vector on the equator, and each row's
+  // latitude as its ring's radius and height: a texel is then two multiplies
+  // and the field, and the conversion is `sphere.ts`'s.
+  const columns = new Float64Array(CLOUD_MAP_WIDTH * 2);
+  const unit = { x: 0, y: 0, z: 0 };
+  for (let i = 0; i < CLOUD_MAP_WIDTH; i++) {
+    unitAt(0, -180 + ((i + 0.5) * 360) / CLOUD_MAP_WIDTH, unit);
+    columns[i * 2] = unit.x;
+    columns[i * 2 + 1] = unit.z;
+  }
+  let rows = 0;
+  let ms = 0;
+  let handedBack = 0;
+  const row = (j: number): void => {
+    unitAt(-90 + ((j + 0.5) * 180) / CLOUD_MAP_HEIGHT, 0, unit);
+    const ring = unit.x;
+    const y = unit.y;
+    const at = j * CLOUD_MAP_WIDTH;
+    for (let i = 0; i < CLOUD_MAP_WIDTH; i++) {
+      data[at + i] = cloudMapByte(coverageAt(ring * columns[i * 2]!, y, ring * columns[i * 2 + 1]!));
+    }
+  };
+  return {
+    data,
+    get done() {
+      return rows >= CLOUD_MAP_HEIGHT;
+    },
+    get rows() {
+      return rows;
+    },
+    get ms() {
+      return ms;
+    },
+    step(budgetMs: number): boolean {
+      if (rows >= CLOUD_MAP_HEIGHT) return true;
+      const began = performance.now();
+      const gap = handedBack === 0 ? BAKE_FRAME_MS : began - handedBack;
+      const allowance = budgetMs === Infinity
+        ? Infinity
+        : Math.min(BAKE_CATCH_UP_CAP, Math.max(budgetMs, (budgetMs * gap) / BAKE_FRAME_MS));
+      // Checked after each row, so a call may pass its allowance by one row:
+      // 2,048 texels, about 0.6 ms.
+      while (rows < CLOUD_MAP_HEIGHT) {
+        row(rows++);
+        if (performance.now() - began >= allowance) break;
+      }
+      ms += performance.now() - began;
+      handedBack = performance.now();
+      return rows >= CLOUD_MAP_HEIGHT;
+    },
+  };
+}
+
+/** The whole map at once, for the checks: `createCloudBake` run to the end. */
+export function bakeCloudMap(): Uint8Array {
+  const bake = createCloudBake();
+  bake.step(Infinity);
+  return bake.data;
+}
+
+/** The shade at a point, as `cloudShadeAt` reports it. */
+export interface CloudShadeSample {
+  /** How much of a bank is between the point and the sun, 0 to 1, the gates included. */
+  cover: number;
+  /** How deep into that bank, 0 at its edge to 1 at its heart. */
+  depth: number;
+  /** The share of the sun's term the cloud takes there: `cover` times the darkness at `depth`. */
+  shade: number;
+}
+
+const shadeHit = new THREE.Vector3();
+const shadeTurn = new THREE.Quaternion();
+
+/**
+ * The shade the shaders draw, on the exact field rather than the bake: the
+ * ray from `point` to the sun (`sun`, a unit vector) as far as the deck's
+ * sphere, turned back through the deck's turn at `timeMs` — `weatherAt`'s
+ * convention — and the field there through the soft edge. The strength the
+ * shaders are handed (the switch, the fade, the veil) is not in it; it is the
+ * deck's, the same for every client at the same instant.
+ */
+export function cloudShadeAt(
+  point: THREE.Vector3,
+  sun: THREE.Vector3,
+  timeMs: number,
+  out: CloudShadeSample = { cover: 0, depth: 0, shade: 0 },
+): CloudShadeSample {
+  out.cover = 0;
+  out.depth = 0;
+  out.shade = 0;
+  const r = point.length();
+  const gate = r > 0 ? shadeGate(r, point.dot(sun) / r, PLANET_RADIUS) : 0;
+  if (gate <= 0) return out;
+  const t = rayToDeck(point, sun, PLANET_RADIUS + CLOUD_BASE);
+  shadeHit.copy(point).addScaledVector(sun, t).normalize().applyQuaternion(deckTurn(timeMs, shadeTurn).invert());
+  const field = coverageAt(shadeHit.x, shadeHit.y, shadeHit.z);
+  out.cover = shadeCover(field, THRESHOLD) * gate;
+  out.depth = Math.min(1, Math.max(0, (field - THRESHOLD) / DEPTH_SPAN));
+  out.shade = out.cover * shadeDarkness(out.depth);
+  return out;
 }
 
 /** A deterministic [0, 1) from an integer and a salt: the jitter every client agrees on. */
@@ -1178,6 +1358,10 @@ export function createClouds(): Clouds {
 
   const turn = new THREE.Quaternion();
   const eye = new THREE.Vector3();
+  /** The shade's map, a slice a frame (`BAKE_MS`), the veil it follows and the instant it was last turned to. */
+  const bake = createCloudBake();
+  let veil = 1;
+  let turnedAt = 0;
 
   /**
    * How far the eye is from the nearest point of a cap, and whether any of it
@@ -1243,7 +1427,28 @@ export function createClouds(): Clouds {
     setGrey(value: number): void {
       grey.value = Math.max(0, Math.min(1, value));
     },
+    get shadows(): number {
+      return cloudShade.shadows;
+    },
+    set shadows(value: number) {
+      cloudShade.shadows = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
+    },
+    get shade() {
+      return {
+        ready: cloudShade.ready,
+        rows: bake.rows,
+        bakeMs: Math.round(bake.ms),
+        strength: Number(cloudShade.strength.toFixed(3)),
+        share: Number(cloudShade.share.toFixed(3)),
+        weather: cloudShade.weather,
+      };
+    },
+    shadeAt(point: THREE.Vector3): CloudShadeSample {
+      return cloudShadeAt(point, sunUniform.value, turnedAt);
+    },
     setVeil(opacity: number): void {
+      // The shade goes with the deck it is the shadow of (`updateCloudShade`).
+      veil = opacity;
       group.visible = opacity > 0.01;
       const veiled = opacity < 0.999;
       if (veiled !== material.transparent) {
@@ -1263,6 +1468,15 @@ export function createClouds(): Clouds {
       // of the clock, so `atlas.sky.setTime` scrubs the weather with the sun
       // and `setRate(600)` runs a front past you in seconds.
       deckTurn(time.getTime(), group.quaternion);
+      turnedAt = time.getTime();
+      // The shade: its map a slice at a time until it is whole, then the same
+      // turn undone for the shaders, and the sun `sky.update` has just set.
+      if (!bake.done && bake.step(BAKE_MS)) {
+        setCloudMap(bake.data, { planet: PLANET_RADIUS, base: CLOUD_BASE, threshold: THRESHOLD, depthSpan: DEPTH_SPAN });
+      }
+      cloudShade.rows = bake.rows;
+      cloudShade.bakeMs = bake.ms;
+      updateCloudShade(group.quaternion, sunUniform.value, cameraPosition, veil);
       const altitude = cameraPosition.length() - PLANET_RADIUS;
       hazeAt(altitude, fog, haze);
       flatten.value = flattenAt(altitude);

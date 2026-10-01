@@ -6,6 +6,7 @@ import { MOSAIC_WATER, OCEAN_COLOR, PALETTE, createToonRamp } from './theme.ts';
 import { fbm } from './terrain.ts';
 import { detail } from './view.ts';
 import { DITHER_GLSL } from './fade.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { latOf, lonOf } from './sphere.ts';
 
 /**
@@ -712,6 +713,7 @@ function buildWater(world: World): {
   addGlint(material);
   paintSea(material);
   addSeaWindow(material, 'hide');
+  shadeByClouds(material);
   const mesh = new THREE.Mesh(geometry, material);
   // `atlas.scene.getObjectByName('ocean')` is in the debugging notes and is
   // still the sphere: it is what "sea level" means.
@@ -780,7 +782,7 @@ ${FOAM_GLSL}`,
   addGlint(material);
   paintSea(material);
   addSeaWindow(material, 'hide');
-  return material;
+  return shadeByClouds(material);
 }
 
 /**
@@ -1342,6 +1344,12 @@ float atlasGlintSpeck(vec3 world, float octave, vec3 drift, float lobe) {
           atlasGlintSpeck(vGlintWorld, gOctave * 2.0, gDrift, gLobe), gBlend);
       }
       float gGlint = mix(gSpecks, gLobe * gLobe * 0.4, gFar);
+      #ifdef ATLAS_CLOUD_SHADE
+      // The glitter is the sun's own image, and under a bank it goes with the
+      // sun: the deck's shade along the glitter's light (cloud-shade.ts), on
+      // a material that opted in.
+      gGlint *= 1.0 - atlasCloudAt(vGlintWorld, uGlintDir).x;
+      #endif
       totalEmissiveRadiance += mix(uGlintTint, vec3(1.0), 0.5) * (gGlint * uGlintStrength * 1.4);
     }
   }`,

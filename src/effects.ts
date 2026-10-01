@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { PLANET_RADIUS } from './globe.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import type { BiomeId } from './biome.ts';
 import type { CraftKind, CraftModel, PlayerState } from './craft/contract.ts';
 import { BALLOON_CLIMB, BALLOON_SPEED, BOAT_BOOST, CAR_BOOST, PLANE_CRUISE_LOW, PLANE_ROTATE, topSpeedOf } from './vehicles.ts';
@@ -377,7 +378,8 @@ function puffMaterial(): THREE.MeshToonMaterial {
       .replace('#include <opaque_fragment>', 'outgoingLight = mix( outgoingLight, diffuseColor.rgb, vFxGlow );\n#include <opaque_fragment>');
   };
   material.customProgramCacheKey = () => 'atlas-effects-puff';
-  return material;
+  // A flame keeps its own colour (`fxGlow`); the smoke and the dust are lit, and shaded.
+  return shadeByClouds(material);
 }
 
 /** A faceted ball: flat normals, because the ramp needs facets to step across. */
@@ -424,13 +426,13 @@ export function createEffects(): Effects {
   foamNormal.setUsage(THREE.DynamicDrawUsage);
   foamGeo.setAttribute('normal', foamNormal);
   foamGeo.setDrawRange(0, 0);
-  const foamMat = new THREE.MeshToonMaterial({
+  const foamMat = shadeByClouds(new THREE.MeshToonMaterial({
     color: FOAM_COLOR,
     gradientMap: createToonRamp(4),
     polygonOffset: true,
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -4,
-  });
+  }));
   foamMat.userData.outlineParameters = { visible: false };
   const foam = new THREE.Mesh(foamGeo, foamMat);
   foam.name = 'effects-foam';
@@ -458,7 +460,7 @@ export function createEffects(): Effects {
 
   /* --- debris --------------------------------------------------------- */
   const debrisGeo = new THREE.BoxGeometry(1, 1, 1);
-  const debrisMat = new THREE.MeshToonMaterial({ gradientMap: createToonRamp(4) });
+  const debrisMat = shadeByClouds(new THREE.MeshToonMaterial({ gradientMap: createToonRamp(4) }));
   debrisMat.userData.outlineParameters = { thickness: 0.004, color: [0.11, 0.02, 0.01] };
   const debris = new THREE.InstancedMesh(debrisGeo, debrisMat, MAX_DEBRIS);
   debris.name = 'effects-debris';

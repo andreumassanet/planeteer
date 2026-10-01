@@ -18,6 +18,7 @@
  */
 import * as THREE from 'three';
 import { varnish } from '../gloss.ts';
+import { shadeByClouds } from '../cloud-shade.ts';
 import { createContext } from '../monuments/contract.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
 import { mergeMeshes } from '../merge.ts';
@@ -53,6 +54,8 @@ export function craftMaterial(): THREE.MeshToonMaterial {
   material.userData.atlasPainted = true;
   material.name = 'craft';
   varnish(material);
+  // Before `fadeTwin` clones it for the fleet (`fleetMaterials`).
+  shadeByClouds(material);
   return material;
 }
 

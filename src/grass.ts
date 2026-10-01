@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GROUND_MARKS_GLSL, LUSH_GLSL, PLANET_RADIUS, bindGroundWeather, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { bindNearLights, nearLightsChunk, nearLightsGLSL } from './lights.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { SCENERY_SCALE, STATURE } from './stature.ts';
 import { createToonRamp } from './theme.ts';
 import { latOf, lonOf } from './sphere.ts';
@@ -657,7 +658,7 @@ function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Tex
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse *= vGrassAO;');
   };
   material.customProgramCacheKey = () => 'atlas-grass';
-  return material;
+  return shadeByClouds(material);
 }
 
 /**

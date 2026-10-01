@@ -12,6 +12,7 @@ import { keepsLeft } from './traffic/regions.ts';
 import { prepareSeaFloor, seaDepthAt } from './sea-floor.ts';
 import { proxyOf } from './warm.ts';
 import { FADES, dissolveGLSL } from './fade.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { isShown, prominenceVersion, radiusOf } from './places.ts';
 import type { Place } from './places.ts';
 import { DATA_URL, decodeRoads, inflate } from './pack.ts';
@@ -3348,6 +3349,8 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       );
   };
   material.customProgramCacheKey = () => 'roads:layers:lit:fade:paint';
+  // A road is ground, and a cloud's shade crosses it as it crosses the verge.
+  shadeByClouds(material);
 
   /**
    * What stands beside the roads (`roadside.ts`): a thing standing on the
@@ -3361,6 +3364,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     gradientMap: createToonRamp(4),
   });
   lightWindows(propsMaterial);
+  shadeByClouds(propsMaterial);
 
   const scratch = new THREE.Vector3();
   const roads = data.roads;

@@ -6,6 +6,7 @@ import type { DrawnFootprint } from './land-probe.ts';
 import { mergeMeshes } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { MAX_SLOPE, gradeAt, reliefAt, shoreDistance } from './terrain.ts';
 import type { Slope } from './terrain.ts';
 import { BIOMES, biomeAt, biomeSample } from './biome.ts';
@@ -924,7 +925,8 @@ function foliageMaterial(): THREE.MeshToonMaterial {
       .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = atlasLush(diffuseColor.rgb);');
   };
   material.customProgramCacheKey = () => 'atlas-foliage';
-  return material;
+  // Before `woodMaterial` and `machineWood` chain it, and `fadeTwin` clones it.
+  return shadeByClouds(material);
 }
 
 /**

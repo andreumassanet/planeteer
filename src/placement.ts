@@ -6,6 +6,7 @@ import { DATA_URL } from './pack.ts';
 import { mergeMeshes } from './merge.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import { NEAR_BUILD, createViewCone, detailPixels, detailReach, fogFar, frameOpenFor, horizonAt, slantRange } from './view.ts';
 import { unitAt } from './sphere.ts';
@@ -497,7 +498,7 @@ export function createMonuments(
   // One material for every monument, drawn on the context's own ramp so a
   // landmark steps through the same four bands it always did.
   const inked = ctx.toon(ctx.palette.ink);
-  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: inked.gradientMap });
+  const material = shadeByClouds(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: inked.gradientMap }));
   material.userData.outlineParameters = {
     ...(inked.userData.outlineParameters as object),
     // Every merged buffer carries the ink's normals, as every town does.

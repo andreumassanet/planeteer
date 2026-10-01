@@ -37,6 +37,8 @@ import { clockAt } from '../src/timezone.ts';
 import { weatherAt, weatherSample } from '../src/weather.ts';
 import { biomeAt, biomeSample } from '../src/biome.ts';
 import { prepareSeaFloor } from '../src/sea-floor.ts';
+import { bakeCloudMap, cloudShadeAt } from '../src/clouds.ts';
+import type { CloudShadeSample } from '../src/clouds.ts';
 import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +92,14 @@ let world!: Awaited<ReturnType<typeof loadWorld>>;
   const ms = timed(1, () => prepareSeaFloor(world));
   // 46 ms on 2026-09-25. Built while the world loads (`createSea`), never in a frame.
   check(ms < 300, 'the sea floor\'s coast index, in under 300 ms', `${ms.toFixed(0)} ms`);
+}
+{
+  const ms = timed(1, () => bakeCloudMap());
+  // 585 to 1,420 ms on 2026-09-30, the high end with two software renderers
+  // on the machine: 2 M texels of `coverageAt`. Never in one piece in the
+  // world — `clouds.ts` spends it four milliseconds a frame under the menu
+  // (`BAKE_MS`) — so this bounds how many frames that takes, not a stutter.
+  check(ms < 1500 * TIME_SCALE, `the deck's shade bakes in under ${1500 * TIME_SCALE} ms`, `${ms.toFixed(0)} ms`);
 }
 
 console.log('\nthe banded point-in-polygon test is insideRing:');
@@ -154,6 +164,7 @@ const places = indexPlaces(placesRaw, 150);
 const now = new Date(Date.UTC(2026, 8, 25, 12));
 const weather = weatherSample();
 const biome = biomeSample();
+const shade: CloudShadeSample = { cover: 0, depth: 0, shade: 0 };
 let sink = 0;
 /** Microseconds a call of `ask`, the median of five runs of `calls`. */
 function perCall(calls: number, ask: (i: number) => number): number {
@@ -173,6 +184,9 @@ const bounds: [string, number, number, (i: number) => number][] = [
   ['shoreDistance', 0.5, 50_000, (i) => shoreDistance(spots[i % 10]![0], spots[i % 10]![1])],
   ['biomeAt', 2, 20_000, (i) => biomeAt(units[i % 10]!.x, units[i % 10]!.y, units[i % 10]!.z, spots[i % 10]![0], spots[i % 10]![1], 10, biome).warmth],
   ['weatherAt', 10, 20_000, (i) => weatherAt(spots[i % 10]![0], spots[i % 10]![1], 10, now.getTime() + i * 1000, weather).cover],
+  // The shade's twin on the exact field, asked by the weather's readout four
+  // times a second: under a zenith sun, so every step of it runs.
+  ['cloudShadeAt', 2, 20_000, (i) => cloudShadeAt(points[i % 10]!, units[i % 10]!, now.getTime() + i * 1000, shade).cover],
   // A scan of every built town, once a frame.
   ['places.nearest', 80, 5_000, (i) => places.nearest(points[i % 10]!).index],
   ['clockAt', 60, 5_000, (i) => {
@@ -182,7 +196,7 @@ const bounds: [string, number, number, (i: number) => number][] = [
   }],
 ];
 const measured: Record<string, number> = {
-  countryAtPoint: 0.2, elevationAt: 1.1, reliefAt: 0.75, shoreDistance: 0.03, biomeAt: 0.25, weatherAt: 1.8, 'places.nearest': 15, clockAt: 12,
+  countryAtPoint: 0.2, elevationAt: 1.1, reliefAt: 0.75, shoreDistance: 0.03, biomeAt: 0.25, weatherAt: 1.8, cloudShadeAt: 0.4, 'places.nearest': 15, clockAt: 12,
 };
 for (const [name, bound, calls, ask] of bounds) {
   const us = perCall(calls, ask);

@@ -25,6 +25,7 @@ import { hash3 } from './weather.ts';
 import { latOf } from './sphere.ts';
 import { mayBuild } from './view.ts';
 import { proxyOf } from './warm.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 
 /**
  * The sea floor round the player, and the clear water over it.
@@ -496,12 +497,17 @@ varying vec3 vFloorWorld;`,
       + sin(cq.y + cq.x * 0.5 - ct * 0.8);
     // Thin lines, not wiggles: only the bottom of the troughs, and faint.
     float caustic = pow(clamp(1.0 - abs(cw) / 0.8, 0.0, 1.0), 7.0);
+    #ifdef ATLAS_CLOUD_SHADE
+    // The sun focused by the swell, so none under a bank (cloud-shade.ts).
+    caustic *= 1.0 - atlasCloudAt(vFloorWorld, atlasCloudSun).x;
+    #endif
     totalEmissiveRadiance += vec3(0.85, 0.95, 1.0) * caustic * uCaustic * exp(-vFloorDepth / 6.0) * 0.2;
   }`,
       );
   };
   material.customProgramCacheKey = () => (decor ? 'atlas-sea-decor' : 'atlas-sea-floor');
-  return material;
+  // The floor is lit by the sun through the water, and shaded with it.
+  return shadeByClouds(material);
 }
 
 const waterUniforms = {
@@ -588,7 +594,7 @@ ${FOAM_GLSL}`,
   addGlint(material);
   paintSea(material);
   addSeaWindow(material, 'show');
-  return material;
+  return shadeByClouds(material);
 }
 
 // ---------------------------------------------------------------------------

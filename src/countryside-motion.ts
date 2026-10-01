@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeMeshes } from './merge.ts';
 import { createToonRamp, PALETTE } from './theme.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import type { SceneryContext } from './scenery/contract.ts';
 import { ROTOR_SPEED, buildRotor } from './countryside-kit.ts';
 import { BEACON_STRIDE, ROTOR_KINDS, ROTOR_STRIDE, SMOKE_STRIDE } from './countryside-tile.ts';
@@ -139,7 +140,7 @@ export function createCountryMotion(ctx: Pick<SceneryContext, 'THREE' | 'box' | 
   rotorGeometry.setAttribute('color', rotorColor);
   rotorGeometry.setAttribute('outlineNormal', rotorOutline);
   rotorGeometry.setDrawRange(0, 0);
-  const rotorMaterial = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
+  const rotorMaterial = shadeByClouds(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) }));
   rotorMaterial.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal: true };
   const rotors = new THREE.Mesh(rotorGeometry, rotorMaterial);
   rotors.name = 'country-rotors';

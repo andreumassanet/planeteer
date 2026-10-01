@@ -10,6 +10,7 @@ import { isWater } from './vehicles.ts';
 import { birdGeometry } from './life.ts';
 import { hash3, seasonTurn } from './weather.ts';
 import { proxyOf } from './warm.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { WIND, windGustAt } from './wind.ts';
 
 /**
@@ -480,7 +481,7 @@ function lush(material: THREE.MeshToonMaterial, key: string): THREE.MeshToonMate
   };
   material.customProgramCacheKey = () => key;
   material.userData.outlineParameters = { visible: false };
-  return material;
+  return shadeByClouds(material);
 }
 
 /**
