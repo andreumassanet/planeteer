@@ -29,14 +29,13 @@
  * and Antares read orange and Rigel and Spica blue at a glance; and how bright
  * it is compresses the real range — a first-magnitude star is about thirty
  * times a sixth-magnitude one here, peak by width squared, not a hundred — so
- * the faint stars are a
- * texture and not a noise, and the bright ones are the shapes of the
- * constellations. **The peak is held under 0.85 of luminance** for every star
- * at every moment, twinkle included: the bloom's bright pass runs at a
- * quarter of the resolution (`post.ts` halves the buffer and `UnrealBloomPass`
- * halves it again) with a threshold of 0.92, and a two-pixel dot above that
- * would blink in and out of it as the camera turned. The halos are drawn here
- * so the bloom never has to.
+ * the faint stars are a texture and not a noise, and the bright ones are the
+ * shapes of the constellations. **The peak is held under 0.85 of luminance**
+ * for every star at every moment, twinkle included: the bloom's bright pass
+ * runs at a quarter of the resolution (`post.ts` halves the buffer and
+ * `UnrealBloomPass` halves it again) with a threshold of 0.92, and a
+ * two-pixel dot above that would blink in and out of it as the camera turned.
+ * The halos are drawn here so the bloom never has to.
  *
  * # Where the air comes in
  *
