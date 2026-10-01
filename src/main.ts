@@ -979,8 +979,9 @@ async function start(): Promise<void> {
     sky.update(camera.position.clone().setLength(PLANET_RADIUS), camera.position, altitude);
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     clouds.update(sky.state.time, camera.position, fog);
-    // No weather over the menu's globe: its sky is the whole planet's.
-    sky.weather.overcast = sky.weather.flash = sky.weather.mist = 0;
+    // No weather over the menu's globe: its sky is the whole planet's. The
+    // deck's shade stays where the deck does, and goes with the veil below.
+    sky.weather.overcast = sky.weather.sunCut = sky.weather.flash = sky.weather.mist = 0;
     clouds.setGrey(0);
     // Nor light shafts: the orrery's space is depth 1 everywhere, which the
     // shafts' mask would read as open sky round the sun (`shafts.ts`).
@@ -3467,10 +3468,14 @@ async function start(): Promise<void> {
       },
       // `atlas.clouds.stats` is the deck's cost: cells kept, coverage,
       // triangles, chunks and the build. `atlas.clouds.group.visible = false`
-      // is the A/B.
+      // is the A/B. `atlas.clouds.shadows = 0` takes the deck's shade off
+      // the ground and puts back the old cut of the whole world's sun under a
+      // bank (`cloud-shade.ts`), 1 is the shade; `atlas.clouds.shade` is its
+      // bake's progress and cost and the strength the shaders have.
       clouds,
       // `atlas.weather.here()`: what the weather is where you stand — its kind,
-      // how strong, the temperature, the wind. `force('storm' | 'rain' |
+      // how strong, the temperature, the wind, the deck's shade on you
+      // (`shade`, the share of the sun it takes). `force('storm' | 'rain' |
       // 'snow' | 'fog' | 'drizzle' | 'cloudy' | 'clear')` holds it there and
       // `force(null)` hands it back to the model; `at(lat, lon, when?)` asks
       // the model anywhere; `.enabled = false` is clear skies; `.stats`.

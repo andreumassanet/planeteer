@@ -8,6 +8,7 @@ import { ROAD_CLASSES, coursePoint, courseTangent, parameterAt, roadGeometryFor,
 import type { Road } from './roads.ts';
 import { createToonRamp, PALETTE } from './theme.ts';
 import { frameOpenFor } from './view.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import { PROUD, assemble, craftContext, soupOf } from './craft/build.ts';
 import {
   BED_FOOT,
@@ -212,6 +213,7 @@ export function createRailway(options: RailwayOptions): Railway {
   };
   bedMaterial.customProgramCacheKey = () => 'railway:bed:weather';
   bedMaterial.name = 'railway-bed';
+  shadeByClouds(bedMaterial);
 
   // --- crossings -------------------------------------------------------------
 

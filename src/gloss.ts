@@ -22,7 +22,8 @@ const GLOSS_SKY = 0.7;
  * mirror, near-black (tyres, trim, rubber) is matte, and paint is between.
  * The highlight is not shadowed — the shadow term is gone by this point — and
  * a car in a building's shade keeps a faint highlight, which nobody reads as
- * wrong.
+ * wrong. A cloud's shade is the sun itself gone, and there the highlight goes
+ * with it (`atlasCloud`, on a material under the deck's shade: `cloud-shade.ts`).
  *
  * A block of its own, after `<lights_fragment_end>`: what a material that
  * draws a still vehicle among other things (a town's, a wood's) runs for its
@@ -49,7 +50,16 @@ export const VARNISH_GLSL = /* glsl */ `
       for (int i = 0; i < NUM_DIR_LIGHTS; i++) {{
         vec3 glossL = directionalLights[i].direction;
         vec3 glossH = normalize(glossL + glossV);
-        glossSpecular += directionalLights[i].color * pow(max(dot(normal, glossH), 0.0), mix(24.0, 90.0, glossGlass))
+        vec3 glossLight = directionalLights[i].color;
+        // Under the deck's shade the sun's highlight goes with the sun, on a
+        // material that opted in (cloud-shade.ts): light 0 is the sun. By the
+        // loop's own index, because this loop is a loop: the comment above
+        // sits between the pragma and the for, and three's pattern for
+        // unrolling wants nothing between them.
+        #ifdef ATLAS_CLOUD_SHADE
+          if (i == 0) glossLight *= 1.0 - atlasCloud.x;
+        #endif
+        glossSpecular += glossLight * pow(max(dot(normal, glossH), 0.0), mix(24.0, 90.0, glossGlass))
           * step(0.0, dot(normal, glossL));
       }}
       #pragma unroll_loop_end

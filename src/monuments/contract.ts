@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE, createToonRamp } from '../theme.ts';
+import { shadeByClouds } from '../cloud-shade.ts';
 
 /**
  * The monument contract.
@@ -424,7 +425,9 @@ export function createContext(): MonumentContext {
     const cached = materials.get(color);
     if (cached) return cached;
 
-    const material = new THREE.MeshToonMaterial({ color, gradientMap: ramp });
+    // Under the deck's shade like everything the sun lights (`cloud-shade.ts`):
+    // the vehicles, the animals and the craft are made through here too.
+    const material = shadeByClouds(new THREE.MeshToonMaterial({ color, gradientMap: ramp }));
     material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: OUTLINE_COLOR };
     // The stamp is the colour *as drawn* — the flatteners in `settlements.ts`
     // and `vegetation.ts` read it straight into vertex bytes, so a tone has to

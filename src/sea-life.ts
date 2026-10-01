@@ -15,6 +15,7 @@ import {
 import type { Cruiser, CruiserKind, Pod, School, TileLife } from './sea-floor.ts';
 import { hash3 } from './weather.ts';
 import { proxyOf } from './warm.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 
 /**
  * What swims: schools of fish over the reef and the kelp, the odd shark, ray
@@ -112,7 +113,7 @@ function fishMaterial(): THREE.MeshToonMaterial {
       );
   };
   material.customProgramCacheKey = () => 'atlas-fish';
-  return material;
+  return shadeByClouds(material);
 }
 
 const fishTime: THREE.IUniform<number> = { value: 0 };

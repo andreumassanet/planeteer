@@ -3,6 +3,7 @@ import { PLANET_RADIUS } from './globe.ts';
 import { DAY_MOOD, NIGHT_MOOD, ORBIT_LOOK, TWILIGHT_MOOD, setToonMood, type Mood } from './theme.ts';
 import { unitAt } from './sphere.ts';
 import { GALACTIC, equatorialBasis } from './celestial.ts';
+import { SUN_CUT } from './cloud-shade.ts';
 
 /**
  * The real sun, at the real time.
@@ -772,13 +773,25 @@ export interface Sky {
    * applied on top of the mood each `update` — a multiplier over whatever the
    * moods say, so a storm at night is the night's own dark, darker.
    *
-   * `overcast` 0 to 1 takes the sun off the ground (and its shadow with it)
-   * and greys the sky and the haze; `flash` 0 to 1 is lightning, a blink of
-   * cold light over everything; `mist` 0 to 1 pales the haze toward the
-   * colour of fog. All three fade out of the sky as the camera climbs, which
-   * is the weather's own business, not this file's.
+   * `overcast` 0 to 1 greys the sky and the haze and dims the moon and the
+   * fill; `sunCut` 0 to 1 takes the sun off the whole world at once (and its
+   * shadow with it); `flash` 0 to 1 is lightning, a blink of cold light over
+   * everything; `mist` 0 to 1 pales the haze toward the colour of fog. All
+   * four fade out of the sky as the camera climbs, which is the weather's own
+   * business, not this file's.
+   *
+   * **The sun's cut is not the overcast, and until 2026-09-30 it was.** A bank
+   * over the player took up to 72% of the sun off every surface on the screen,
+   * the sunlit hills a league off included, because nothing drew where its
+   * shadow fell. The deck's shade does that now, per pixel (`cloud-shade.ts`),
+   * and a cut of the whole world on top of it would darken the ground under a
+   * bank twice; so the sun has a cut of its own, which is the overcast only
+   * where there is no deck behind the weather — a forced sky, the weather or
+   * the shade switched off — and otherwise a little of the rain's gloom
+   * (`sunCutOf`). The sky and the haze still grey with the overcast: a storm
+   * is a grey sky wherever its shadow is.
    */
-  weather: { overcast: number; flash: number; mist: number };
+  weather: { overcast: number; sunCut: number; flash: number; mist: number };
   /** See `SkyUniforms`. */
   uniforms: SkyUniforms;
   /** Adds a `SkyLayer`, called at the end of every `update` from then on. */
@@ -894,7 +907,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
   const cameraUp = new THREE.Vector3(0, 1, 0);
   const mix = new THREE.Color();
   const other = new THREE.Color();
-  const weather = { overcast: 0, flash: 0, mist: 0 };
+  const weather = { overcast: 0, sunCut: 0, flash: 0, mist: 0 };
   const greyed = new THREE.Color();
   // The shadow camera's frame and the snapped focus. Scratch: nothing allocates.
   const shadowRight = new THREE.Vector3();
@@ -1069,10 +1082,12 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     }
 
     // The weather over the mood: see `Sky.weather`. On the numbers the lights
-    // are about to take, so nothing it does outlives the frame.
+    // are about to take, so nothing it does outlives the frame. The sun takes
+    // its own cut, which the deck's shade has taken over from the overcast.
     const overcast = weather.overcast;
+    const sunCut = weather.sunCut;
+    mood.sunIntensity *= 1 - SUN_CUT * sunCut;
     if (overcast > 0) {
-      mood.sunIntensity *= 1 - 0.72 * overcast;
       mood.moonIntensity *= 1 - 0.8 * overcast;
       mood.ambientIntensity *= 1 - 0.2 * overcast;
       mood.hemisphereIntensity *= 1 - 0.3 * overcast;
@@ -1106,8 +1121,10 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     state.shadow =
       THREE.MathUtils.smoothstep(elevation, SHADOW_SUN_FADE[0], SHADOW_SUN_FADE[1]) *
       (1 - THREE.MathUtils.smoothstep(eyeHeight, SHADOW_EYE_FADE[0], SHADOW_EYE_FADE[1])) *
-      // No sun through a bank: the shadow goes as the sun does.
-      (1 - THREE.MathUtils.smoothstep(overcast, 0.3, 0.8));
+      // No sun through a bank: the shadow goes as the sun does — the whole
+      // world's with the sun's cut, and under the deck's shade a pixel at a
+      // time (`cloudLightsChunk`).
+      (1 - THREE.MathUtils.smoothstep(sunCut, 0.3, 0.8));
     sun.shadow.intensity = SHADOW_INTENSITY * state.shadow;
     // The light is placed by `placeShadow`, in the frame the map is redrawn —
     // see its note. With the shadow off nothing is looked up through the map,

@@ -9,6 +9,7 @@ import type { FleetSite } from './fleet.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 import { SCENERY_SCALE } from './stature.ts';
 import { weatherHazeAt } from './view.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import type { CraftKind, CraftModel } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
 import type { MotionInput } from './craft/motion.ts';
@@ -999,7 +1000,10 @@ export function createAirTraffic(options: AirOptions): AirTraffic {
           if (airlinerMaterial === null) {
             const hazed = (mesh.material as THREE.MeshToonMaterial).clone();
             hazed.fog = false;
-            airlinerMaterial = hazed;
+            // A clone leaves the hooks behind: the shade is put back, for
+            // the climb and the approach. At cruise the airliner is over
+            // the shade's shell (`SHADE_BAND`) and takes none.
+            airlinerMaterial = shadeByClouds(hazed);
             airlinerMaterial.userData = { ...(mesh.material as THREE.Material).userData };
           }
           mesh.material = airlinerMaterial;

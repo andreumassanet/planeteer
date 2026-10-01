@@ -4,6 +4,7 @@ import { PLANET_RADIUS, coastEdges, groundRadius, onSphere } from './globe.ts';
 import { LAND_HEIGHT } from './geo.ts';
 import { createToonRamp } from './theme.ts';
 import { CLOUD_ORDER } from './clouds.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 
 /**
  * Where one country ends and the next begins, drawn on the ground as a thick
@@ -472,6 +473,9 @@ varying float vAtlasEye;`,
       );
   };
   material.customProgramCacheKey = () => 'atlas-border';
+  // Lit like the ground it is drawn on, so under a bank's shade with it
+  // (`cloud-shade.ts`): a dash left in the sun would run bright across it.
+  shadeByClouds(material);
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'borders';

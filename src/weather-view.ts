@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundWeather } from './globe.ts';
 import { LAND_HEIGHT } from './geo.ts';
 import { continentalityAt } from './biome.ts';
-import { CLOUD_BASE } from './clouds.ts';
-import type { Clouds } from './clouds.ts';
+import { CLOUD_BASE, cloudShadeAt } from './clouds.ts';
+import type { CloudShadeSample, Clouds } from './clouds.ts';
+import { cloudShade, sunCutOf } from './cloud-shade.ts';
 import type { Sky } from './sun.ts';
 import { reliefAt } from './terrain.ts';
 import { latLonOf, unitAt } from './sphere.ts';
@@ -64,6 +65,12 @@ export interface WeatherHere {
   lying: number;
   /** The ground's wetness, 0 to 1. */
   wet: number;
+  /**
+   * How much of the sun the deck's shade takes where you stand, 0 to about
+   * two thirds, as it is drawn: the bank between you and the sun
+   * (`cloudShadeAt`), times the strength the shaders have this frame.
+   */
+  shade: number;
   forced: WeatherKind | null;
   enabled: boolean;
 }
@@ -153,7 +160,8 @@ const SETTLING = 40;
 const MELTING = 200;
 
 type Preset = Partial<Pick<WeatherSample, 'cover' | 'depth' | 'precipitation' | 'snow' | 'storm' | 'fog' | 'windSpeed'>>;
-const PRESETS: Record<WeatherKind, Preset> = {
+/** What `force(kind)` holds the weather at: a sky with no deck behind it. Exported for `pnpm weather`. */
+export const PRESETS: Record<WeatherKind, Preset> = {
   clear: { cover: 0, depth: 0, precipitation: 0, snow: 0, storm: 0, fog: 0, windSpeed: 3 },
   cloudy: { cover: 1, depth: 0.3, precipitation: 0, snow: 0, storm: 0, fog: 0.1, windSpeed: 5 },
   fog: { cover: 0.6, depth: 0.2, precipitation: 0, snow: 0, storm: 0, fog: 1, windSpeed: 1 },
@@ -164,6 +172,17 @@ const PRESETS: Record<WeatherKind, Preset> = {
 };
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+/**
+ * How grey the weather makes the sky and the haze, 0 to 1, from the cover,
+ * the rain and the storm where you stand, fading as you climb through the
+ * deck (`above`). Until 2026-09-30 it was also the cut of the whole world's
+ * sun; that is `sunCutOf` now (`cloud-shade.ts`).
+ */
+export function overcastOf(weather: { cover?: number; precipitation?: number; storm?: number }, above: number): number {
+  return clamp01((weather.cover ?? 0) * 0.3 + (weather.precipitation ?? 0) * 0.4 + (weather.storm ?? 0) * 0.4) * (1 - above);
+}
+
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = clamp01((x - a) / (b - a));
   return t * t * (3 - 2 * t);
@@ -488,6 +507,8 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
   const strikeUp = new THREE.Vector3();
   const probe = weatherSample();
   const here = { lat: 0, lon: 0 };
+  /** The deck's shade at the player, on the exact field, a sample at a time. */
+  const shadeHere: CloudShadeSample = { cover: 0, depth: 0, shade: 0 };
 
   const sound = { rain: 0, gale: 0 };
 
@@ -506,6 +527,7 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
     latLonOf(player, here);
     const elevation = Math.max(0, ground - PLANET_RADIUS - LAND_HEIGHT);
     weatherAt(here.lat, here.lon, elevation, time, target);
+    cloudShadeAt(player, sky.state.sun, time, shadeHere);
     lying = target.lying;
     if (forced !== null) {
       Object.assign(target, PRESETS[forced]);
@@ -619,6 +641,7 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
         fog: Number(state.fog.toFixed(2)),
         lying: Number(Math.max(lying, freshSnow).toFixed(2)),
         wet: Number(wetGround.toFixed(2)),
+        shade: Number((shadeHere.shade * cloudShade.strength).toFixed(2)),
         forced,
         enabled,
       };
@@ -681,8 +704,14 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
       const above = smoothstep(CLOUD_BASE * 0.7, CLOUD_BASE * 1.35, altitude);
       const orbit = smoothstep(2000, 9000, altitude);
 
-      // The sky and the haze.
-      sky.weather.overcast = clamp01(state.cover * 0.3 + state.precipitation * 0.4 + state.storm * 0.4) * (1 - above);
+      // The sky and the haze, and the sun. A bank's own darkening is the
+      // deck's shade's wherever there is a real deck behind the weather
+      // (`cloudShade.share`); a forced sky and the weather off have none, and
+      // keep the old cut of the whole world's sun (`sunCutOf`).
+      cloudShade.weather = enabled && forced === null ? 1 : 0;
+      const overcast = overcastOf(state, above);
+      sky.weather.overcast = overcast;
+      sky.weather.sunCut = sunCutOf(overcast, state.precipitation, state.storm, above, cloudShade.share);
       sky.weather.mist = clamp01(state.fog * 1.2) * (1 - above);
       clouds.setGrey(clamp01(state.precipitation * 0.9 + state.storm * 0.6 + state.cover * state.wet * 0.15) * (1 - orbit));
       setWeatherHaze(enabled || forced !== null ? (1 - 0.1 * state.wet) * (1 - 0.72 * state.fog) : 1);

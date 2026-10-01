@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { varnish } from './gloss.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 import type { Person } from './cast.ts';
 import type { Folk } from './folk.ts';
 import type { FieldIndex, FieldKeepout } from './fleet.ts';
@@ -1357,8 +1358,9 @@ function moverMaterial(outlineNormal = true): THREE.MeshToonMaterial {
   // would be a second array through JavaScript for twenty triangles a bird.
   material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal };
   // The birds are feathers, not paint; everything else that moves on the
-  // roads and the water is varnished (`gloss.ts`).
-  return outlineNormal ? varnish(material) : material;
+  // roads and the water is varnished (`gloss.ts`). All of it is under the
+  // deck's shade (`cloud-shade.ts`), the birds too: they fly well under it.
+  return shadeByClouds(outlineNormal ? varnish(material) : material);
 }
 
 /**

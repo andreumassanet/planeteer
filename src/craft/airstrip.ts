@@ -38,6 +38,7 @@ import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE, createToonRamp } from '../theme.ts';
+import { shadeByClouds } from '../cloud-shade.ts';
 import { assemble, craftContext, lathe, soupOf } from './build.ts';
 
 const H = AVATAR_HEIGHT;
@@ -158,7 +159,7 @@ export function stripMaterial(): THREE.MeshToonMaterial {
   });
   material.userData.outlineParameters = { visible: false };
   material.name = 'airstrip';
-  return material;
+  return shadeByClouds(material);
 }
 
 const earth = new THREE.Color(PALETTE.brown);

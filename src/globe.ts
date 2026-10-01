@@ -8,6 +8,7 @@ import type { FlagLayer, LandFlagData, RingSpan } from './land-flags.ts';
 import { BIOMES, LAPSE_PER_UNIT, SWING, TEMPERATURE_KNOTS, biomeAt, biomeSample, meanTemperature, seasonalSwing } from './biome.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 import { bindNearLights, nearLightsChunk, nearLightsGLSL } from './lights.ts';
+import { shadeByClouds } from './cloud-shade.ts';
 
 /**
  * Planet radius.
@@ -1682,7 +1683,9 @@ function toonMaterial(): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
   material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: [0.11, 0.02, 0.01] };
   mosaic(material);
-  return material;
+  // After the mosaic, whose key moves when the flag arrives: the shade chains
+  // the key's function, not its first answer.
+  return shadeByClouds(material);
 }
 
 /**

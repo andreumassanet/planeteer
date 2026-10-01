@@ -59,10 +59,14 @@ export const SHAFT_HIGH: readonly [number, number] = [6, 35];
 export const SHAFT_FLOOR = 0.35;
 
 /**
- * The overcast band the shafts go out over: the cast shadow's own
- * (`smoothstep(overcast, 0.3, 0.8)` in `sun.ts`), so rays and shadows come and
- * go together. A whole deck with no rain reads only 0.3 (`weather-view.ts`),
- * which keeps its rays: where the deck is solid the mask already says so.
+ * The overcast band the shafts go out over: the band the cast shadow went out
+ * over until the deck's shade (`cloud-shade.ts`) took the sun off the ground a
+ * pixel at a time. The shadow now fades on the sun's own cut (`sunCut` in
+ * `sun.ts`), which under a deck is only a little of the rain's gloom; the rays
+ * stay on the overcast, the sky's grey, because a ray needs open sky round the
+ * sun and the shade on the ground says nothing about the sky. A whole deck with
+ * no rain reads only 0.3 (`weather-view.ts`), which keeps its rays: where the
+ * deck is solid the mask already says so.
  */
 export const SHAFT_OVERCAST: readonly [number, number] = [0.3, 0.8];
 

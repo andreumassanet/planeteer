@@ -82,6 +82,93 @@ async function check() {
   const light = new a.sky.sun.constructor(0xffffff, 1);
   scene.add(light, light.target);
   const pixel = new Uint8Array(4);
+  // The deck's shade against its twin on the exact field (`cloudShadeAt`): the
+  // land's own material, lit straight down on a patch of the planet deep in a
+  // bank's shade and on one under open sky, drawn with the shade on and off.
+  // In linear light the ratio of the two is what the shade leaves of the sun,
+  // `1 - shade`, and the shader's bake, ray and turn are all in it.
+  //
+  // The bake is a share of each frame (`BAKE_MS`, at most two frames' worth
+  // however late the frame), so its wait is counted in frames, not in ms: a
+  // GPU has it in under three seconds, and SwiftShader, at a frame a second
+  // or two, took 20 and 22 s after the world was up on 2026-10-01. A minute
+  // keeps that inside the run's own 125 s with the world's typical 47 s load.
+  const until = Date.now() + 60000;
+  while (!(a.clouds.shade.ready && a.clouds.shade.share > 0.99)) {
+    if (Date.now() > until) throw new Error('The cloud shade never baked');
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  const cloudShade = () => {
+    const V = a.player.position.constructor;
+    const radius = a.player.position.length();
+    const up = a.player.position.clone().normalize();
+    const east = new V(0, 1, 0).cross(up).normalize();
+    const north = up.clone().cross(east);
+    let deep = null;
+    let open = null;
+    for (let r = 0; r <= 6000 && (deep === null || open === null); r += 60) {
+      for (let k = 0; k < 16; k++) {
+        const p = up.clone().addScaledVector(east, (r * Math.cos(k * Math.PI / 8)) / radius)
+          .addScaledVector(north, (r * Math.sin(k * Math.PI / 8)) / radius).normalize().multiplyScalar(radius);
+        const twin = a.clouds.shadeAt(p);
+        if (p.clone().normalize().dot(a.sky.state.sun) < 0.4) continue;
+        if (deep === null && twin.cover > 0.999) deep = { p, twin };
+        if (open === null && twin.cover === 0) open = { p, twin };
+      }
+    }
+    ensure(deep !== null && open !== null, 'No bank near Palma to probe the cloud shade under');
+    const probe = new land.geometry.constructor();
+    const patch = new land.constructor(probe, land.material);
+    // Moved between the two points: a bounding sphere would stay at the first.
+    patch.frustumCulled = false;
+    const world = new a.scene.constructor();
+    const overhead = new a.sky.sun.constructor(0xffffff, 3);
+    world.add(patch, overhead, overhead.target);
+    const eye = a.rig.camera.clone();
+    const linear = v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const luma = ([r, g, b]) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+    const draw = (p, on) => {
+      const n = p.clone().normalize();
+      const e = new V(0, 1, 0).cross(n).normalize();
+      const t = n.clone().cross(e);
+      const corners = [[-2, -2], [2, -2], [0, 2]].map(([x, y]) => p.clone().addScaledVector(e, x).addScaledVector(t, y));
+      const Attribute = land.geometry.attributes.position.constructor;
+      probe.setAttribute('position', new Attribute(new Float32Array(corners.flatMap(c => [c.x, c.y, c.z])), 3));
+      probe.setAttribute('normal', new Attribute(new Float32Array([n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z]), 3));
+      probe.setAttribute('color', new Attribute(new Float32Array(9).fill(1), 3));
+      overhead.position.copy(p).add(n);
+      overhead.target.position.copy(p);
+      overhead.target.updateMatrixWorld();
+      eye.position.copy(p).add(n);
+      eye.up.copy(e);
+      eye.lookAt(p);
+      eye.near = 0.1;
+      eye.far = 10;
+      eye.aspect = 1;
+      eye.updateProjectionMatrix();
+      a.clouds.shadows = on ? 1 : 0;
+      a.clouds.update(a.sky.state.time, a.rig.camera.position, a.scene.fog);
+      renderer.render(world, eye);
+      gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return Array.from(pixel);
+    };
+    try {
+      const deepOn = draw(deep.p, true);
+      const deepOff = draw(deep.p, false);
+      const openOn = draw(open.p, true);
+      const openOff = draw(open.p, false);
+      const under = luma(deepOn) / luma(deepOff);
+      const beside = luma(openOn) / luma(openOff);
+      const wanted = 1 - deep.twin.shade;
+      ensure(Math.abs(under / wanted - 1) < 0.1, `The cloud shade is not its twin's: ${under.toFixed(3)} of the sun against ${wanted.toFixed(3)} (${deepOn} / ${deepOff})`);
+      ensure(Math.abs(beside - 1) < 0.02, `The cloud shade falls under open sky: ${beside.toFixed(3)} (${openOn} / ${openOff})`);
+      return { under: Number(under.toFixed(3)), wanted: Number(wanted.toFixed(3)), beside: Number(beside.toFixed(3)) };
+    } finally {
+      a.clouds.shadows = 1;
+      a.clouds.update(a.sky.state.time, a.rig.camera.position, a.scene.fog);
+      probe.dispose();
+    }
+  };
   const width = renderer.domElement.width / renderer.getPixelRatio();
   const height = renderer.domElement.height / renderer.getPixelRatio();
   try {
@@ -97,13 +184,14 @@ async function check() {
     ensure(shadow[2] > shadow[0] + 5, `Shadow loses its blue: ${shadow}`);
     ensure(sun[0] > sun[2] + 2, `Sunlight loses its warmth: ${sun}`);
     ensure(sun[0] > shadow[0] * 1.4, 'Cel bands lose contrast');
+    const clouds = cloudShade();
     const sky = a.scene.getObjectByName('sky');
     ensure(!sky.material.depthWrite && sky.material.depthTest, 'Sky must preserve scene depth');
     a.outline.render(a.scene, a.rig.camera);
     ensure(renderer.info.programs.every(program => gl.getProgramParameter(program.program, gl.LINK_STATUS)),
       'A world shader does not link');
     ensure(gl.getError() === gl.NO_ERROR, 'WebGL reports an error');
-    return { result: 'GRAPHICS_OK', shadow, sun };
+    return { result: 'GRAPHICS_OK', shadow, sun, clouds };
   } finally {
     renderer.setSize(width, height, false);
     geometry.dispose();
