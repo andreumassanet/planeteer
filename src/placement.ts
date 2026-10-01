@@ -4,6 +4,10 @@ import { PLANET_RADIUS, groundRadius } from './globe.ts';
 import { createContext } from './monuments/contract.ts';
 import { DATA_URL } from './pack.ts';
 import { mergeMeshes } from './merge.ts';
+import type { MergePiece } from './merge.ts';
+import { lightMonuments } from './lights.ts';
+import { bakeNight, createLandmarkLights } from './landmark-lights.ts';
+import type { LandmarkLights, NightBake } from './landmark-lights.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
 import type { MonumentContext } from './monuments/contract.ts';
@@ -195,9 +199,11 @@ export interface Monuments {
    * Call each frame. Builds what is close and drops what is not.
    *
    * The camera is optional; without one the range is a plain radius, which is
-   * what this did before `view.ts` and what a headless caller needs.
+   * what this did before `view.ts` and what a headless caller needs. `time`
+   * is the sky's clock, which the Eiffel Tower's sparkle keeps
+   * (`landmark-lights.ts`); without it the sparkle stays as it was.
    */
-  update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera): void;
+  update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera, time?: Date): void;
   /** Ids the player has stood in, across sessions. */
   visited: ReadonlySet<string>;
   /** True while this id has been found. Shape the minimap asks for. */
@@ -226,6 +232,16 @@ export interface Monuments {
   madeHeightAt(point: THREE.Vector3): number;
   /** Monuments standing with walls, and the rectangles they hold: for the console. */
   solidStats(): { walled: number; rects: number };
+  /**
+   * The standing landmarks' plaza lamps near a point, chained after the
+   * roads' (`roads.lampsNear`'s contract), for the per-pixel pools.
+   */
+  lampsNear(viewer: THREE.Vector3, radius: number, out: Float32Array, count: number): number;
+  /**
+   * Their night: the red lights (`night.beacons`, to add to the scene), the
+   * sparkle's override and the stats. See `landmark-lights.ts`.
+   */
+  night: LandmarkLights;
 }
 
 /**
@@ -399,6 +415,14 @@ export function createMonuments(
     model.position.copy(slot.direction).multiplyScalar(Math.max(ground, made));
     // The walls carry their roofs as radii, so a monument that moved is measured again.
     unwall(slot);
+    // And its lamps and red lights go with it; `raise` places them once it has turned it.
+    if (slot.object !== null && slot.object === model) standNight(slot, slot.object);
+  }
+
+  /** A standing landmark's baked marks, placed where its model now is. */
+  function standNight(slot: Slot, model: THREE.Mesh): void {
+    const bake = model.geometry.userData.atlasNight as NightBake | undefined;
+    if (bake !== undefined) night.stand(slot.placement.id, slot.placement, model, bake);
   }
 
   const landProbe = land === undefined ? null : landProbeOf(land);
@@ -494,6 +518,8 @@ export function createMonuments(
   const KEEP_BUILT = 24;
   /** Landmarks arriving and leaving by dissolving; see `fade.ts`. */
   const fader = createFader();
+  /** The standing landmarks' lamps and red lights after dark; see `landmark-lights.ts`. */
+  const night = createLandmarkLights();
   // One material for every monument, drawn on the context's own ramp so a
   // landmark steps through the same four bands it always did.
   const inked = ctx.toon(ctx.palette.ink);
@@ -503,6 +529,10 @@ export function createMonuments(
     // Every merged buffer carries the ink's normals, as every town does.
     outlineNormal: true,
   };
+  // After dark: the town's lamps, headlights and fires, the lit parts and the
+  // floodlight, from the bytes `geometryOf` bakes (`landmark-lights.ts`).
+  lightMonuments(material);
+  material.customProgramCacheKey = () => 'atlas-monument:lit';
 
   function geometryOf(slot: Slot): THREE.BufferGeometry | null {
     const id = slot.placement.id;
@@ -526,12 +556,17 @@ export function createMonuments(
     // Its square, where the source gives it one (`landmark-setting.ts`): after
     // the contract has passed the model, because the square is the world's
     // and not the model's, and merged with it so it is no draw call of its own.
+    let square: THREE.Group | null = null;
     if (slot.placement.setting === 'plaza') {
       const region = regionFor(slot.placement.iso, continentOf.get(slot.placement.iso) ?? '', slot.placement.lat).id;
-      const square = buildSetting(ctx, slot.placement, groundStyleFor(region), region);
+      square = buildSetting(ctx, slot.placement, groundStyleFor(region), region);
       if (square !== null) model.add(square);
     }
-    const merged = mergeMeshes(model);
+    const pieces: MergePiece[] = [];
+    const merged = mergeMeshes(model, pieces);
+    // Its night, in bytes beside the merge and kept with it (`landmark-lights.ts`).
+    const bake = bakeNight(id, slot.placement.height, merged, pieces, square);
+    pieces.length = 0;
     // The vertices are copied out; the helpers' geometries are this build's.
     // Materials are the shared cache's and must not be touched.
     model.traverse((object) => {
@@ -545,6 +580,9 @@ export function createMonuments(
     geometry.setAttribute('normal', new THREE.BufferAttribute(merged.normal, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(merged.color, 3));
     geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(outline, 3, true));
+    geometry.setAttribute('atlasFlood', new THREE.BufferAttribute(bake.flood, 4, true));
+    geometry.setAttribute('atlasLit', new THREE.BufferAttribute(bake.lit, 2, true));
+    geometry.userData.atlasNight = bake;
     geometry.computeBoundingSphere();
     built.set(id, geometry);
     if (built.size > KEEP_BUILT) {
@@ -589,6 +627,7 @@ export function createMonuments(
     group.add(model);
     fader.in(model);
     slot.object = model;
+    standNight(slot, model);
   }
 
   // ------------------------------------------------------------------
@@ -666,6 +705,7 @@ export function createMonuments(
     if (model === null) return;
     unwall(slot);
     slot.object = null;
+    night.leave(slot.placement.id);
     // Dissolved away (`fade.ts`). The GPU's copy goes after; the arrays stay in
     // `built` for the next raise — and a raise during the fade shares them, so
     // the copy stays too.
@@ -679,7 +719,7 @@ export function createMonuments(
     group,
     missing,
     broken,
-    update(viewer, altitude, camera) {
+    update(viewer, altitude, camera, time) {
       fader.update();
       // First, so a monument raised below stands on whatever the floors are
       // now, and one already standing follows a floor that moved this frame.
@@ -720,6 +760,7 @@ export function createMonuments(
           raised++;
         }
       }
+      night.update(time);
     },
     collide(point, radius, push) {
       push.set(0, 0, 0);
@@ -767,7 +808,9 @@ export function createMonuments(
     solidStats: () => ({ walled: walled.length, rects: walled.reduce((sum, slot) => sum + slot.walls!.field.solids.length, 0) }),
     visited,
     isVisited: (id) => visited.has(id),
-    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
+    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material)), ...night.proxies()],
+    lampsNear: (viewer, radius, out, count) => night.lampsNear(viewer, radius, out, count),
+    night,
     recordVisits(point) {
       const found: Placement[] = [];
       for (const slot of slots) {

@@ -156,6 +156,15 @@ void main() {
 /** How wide the AO looks, in world units: about a body, which is the scale of a corner. */
 const AO_RADIUS = 4;
 
+/**
+ * The luminance, in the scene's linear light before the exposure, over which
+ * the bloom takes a pixel. Exported because what is *meant* not to bloom is
+ * decided elsewhere against it: a floodlit landmark is capped under it
+ * (`FLOOD_CAP` in `lights.ts`) and `pnpm check` holds the cap to this number
+ * rather than to a copy of it.
+ */
+export const BLOOM_THRESHOLD = 0.92;
+
 const GRADE_VERTEX = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -264,7 +273,7 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
   // A scratch target the bloom pass's signature asks for and never writes.
   const scratch = new THREE.WebGLRenderTarget(1, 1, { type: target.texture.type });
 
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.22, 0.55, 0.92);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.22, 0.55, BLOOM_THRESHOLD);
 
   const uniforms = {
     tScene: { value: target.texture },
