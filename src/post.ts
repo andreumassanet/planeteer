@@ -1,5 +1,22 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {
+  SHAFT_AIR,
+  SHAFT_BLUR_FRAGMENT,
+  SHAFT_DECAY,
+  SHAFT_GAIN,
+  SHAFT_GRADE,
+  SHAFT_GRADE_PARS,
+  SHAFT_MASK_FRAGMENT,
+  SHAFT_MIN,
+  SHAFT_NEAR,
+  SHAFT_NEAR_MOST,
+  SHAFT_RADIUS,
+  SHAFT_SHAPE,
+  SHAFT_SOFT,
+  SHAFT_TAPS,
+  sunOnScreen,
+} from './shafts.ts';
 
 /**
  * The frame after the scene: the light graded into a picture.
@@ -37,6 +54,16 @@ export interface Post {
   ao: number;
   /** Whether the chain runs at all; off, the scene is drawn straight to the canvas. */
   enabled: boolean;
+  /**
+   * Light shafts at a low sun (`shafts.ts`), fed by `main.ts` every frame: the
+   * unit vector toward the sun, its light's colour, how strong the weather and
+   * the hour let them be, and how far the hero is from the lens (nothing
+   * nearer casts a ray). `override`, when it is a number, stands in for
+   * `strength` — `atlas.post.shafts.override = 0` for a frame without them.
+   */
+  shafts: { direction: THREE.Vector3; color: THREE.Color; strength: number; subject: number; override?: number };
+  /** What the last frame ran: `shafts` is 1 when the shaft passes drew, 0 when they were skipped. */
+  stats: { shafts: number };
 }
 
 /**
@@ -63,6 +90,7 @@ uniform float uFrame;
 uniform sampler2D tAO;
 uniform float uAO;
 uniform vec3 uAOColor;
+${SHAFT_GRADE_PARS}
 varying vec2 vUv;
 
 // AgX (Troy Sobotka's), through Rec. 2020 primaries, with a punchy look.
@@ -128,6 +156,7 @@ void main() {
     // sky's shade, which is blue.
     scene = mix(scene * mix(uAOColor * 4.0, vec3(1.0), ao), scene, 1.0 - uAO);
   }
+${SHAFT_GRADE}
   vec3 c = agx(scene * uExposure);
   // Graded in a perceptual space, where "a touch warmer" means the same
   // thing in the shadows as in the highlights.
@@ -261,6 +290,9 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     depthTest: false,
     depthWrite: false,
   });
+  // The light shafts' passes, compiled now: post is built before the menu, and
+  // a program linked at the first dusk is a hitch in the middle of a walk.
+  const shafts = createShaftPasses(renderer, target.depthTexture, target.texture.type);
   // A scratch target the bloom pass's signature asks for and never writes.
   const scratch = new THREE.WebGLRenderTarget(1, 1, { type: target.texture.type });
 
@@ -285,6 +317,13 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     tAO: { value: aoTarget.texture },
     uAO: { value: 1 },
     uAOColor: { value: new THREE.Vector3(0.06, 0.07, 0.14) },
+    tShafts: { value: shafts.texture },
+    tDepth: { value: target.depthTexture },
+    uShafts: { value: 0 },
+    uShaftColor: { value: new THREE.Color() },
+    uShaftAir: { value: new THREE.Vector2(SHAFT_AIR[0], SHAFT_AIR[1]) },
+    uShaftShape: { value: new THREE.Vector2(SHAFT_SHAPE[0], SHAFT_SHAPE[1]) },
+    uCamera: { value: new THREE.Vector2(1, 2) },
   };
   const grade = new THREE.ShaderMaterial({
     name: 'post:grade',
@@ -327,8 +366,11 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     bloom,
     ao: 1,
     enabled: true,
+    shafts: { direction: new THREE.Vector3(0, 1, 0), color: new THREE.Color(1, 1, 1), strength: 0, subject: 0 },
+    stats: { shafts: 0 },
     render(scene, camera) {
       if (!post.enabled) {
+        post.stats.shafts = 0;
         renderer.setRenderTarget(null);
         post.draw(scene, camera);
         return;
@@ -349,6 +391,23 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
         renderer.setRenderTarget(aoTarget);
         renderer.render(aoScene, quadCamera);
       }
+      // The light shafts, from the same depth, and only while there are any
+      // on the screen: at night, under a bank, with the sun behind you, none
+      // of the three passes runs and the grade skips its tap.
+      const lens = camera as THREE.PerspectiveCamera;
+      const wanted = post.shafts.override ?? post.shafts.strength;
+      const lit = lens.isPerspectiveCamera === true && wanted > 0
+        ? wanted * sunOnScreen(camera, post.shafts.direction, shafts.uniforms.uSun.value)
+        : 0;
+      post.stats.shafts = lit > SHAFT_MIN ? 1 : 0;
+      uniforms.uShafts.value = post.stats.shafts * lit;
+      if (post.stats.shafts === 1) {
+        uniforms.uShaftColor.value.copy(post.shafts.color).multiplyScalar(SHAFT_GAIN);
+        uniforms.uCamera.value.set(lens.near, lens.far);
+        const subject = Math.min(post.shafts.subject, SHAFT_NEAR_MOST);
+        shafts.uniforms.uNear.value.set(subject * SHAFT_NEAR[0], subject * SHAFT_NEAR[1]);
+        shafts.render(lens);
+      }
       if (bloom.enabled && bloom.strength > 0) bloom.render(renderer, scratch, target, 0, false);
       uniforms.uFrame.value = frame = (frame + 1) % 1000;
       renderer.setRenderTarget(null);
@@ -364,6 +423,7 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
       bloom.setSize(Math.max(1, Math.round(size.x / 2)), Math.max(1, Math.round(size.y / 2)));
       aoTarget.setSize(Math.max(1, Math.round(size.x / 2)), Math.max(1, Math.round(size.y / 2)));
       aoUniforms.resolution.value.set(aoTarget.width, aoTarget.height);
+      shafts.setSize(size.x, size.y);
       uniforms.resolution.value.set(size.x, size.y);
       void width;
       void height;
@@ -372,5 +432,100 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
   (post as Post & { uniforms: typeof uniforms; target: THREE.WebGLRenderTarget; renderer: THREE.WebGLRenderer }).uniforms = uniforms;
   (post as unknown as { target: THREE.WebGLRenderTarget }).target = target;
   (post as unknown as { renderer: THREE.WebGLRenderer }).renderer = renderer;
+  // The shaft passes' own numbers, for tuning against a frame like the grade's.
+  (post as unknown as { shaftUniforms: typeof shafts.uniforms }).shaftUniforms = shafts.uniforms;
   return post;
+}
+
+/**
+ * The light shafts' three passes, a quarter of the buffer each way (`shafts.ts`
+ * has the why): the mask of open sky round the sun into `a`, a coarse blur
+ * toward the sun into `b`, a fine one back into `a`, which the grade reads.
+ * Two channels, the ray and the glow it would be with nothing in the way, at
+ * the frame's own type: the grade divides one by the other, and a screen from
+ * the sun both are a few hundredths, which eight bits would band. A quarter is
+ * all a ray this soft needs: at 1920x1080 the three passes read 6.7 million
+ * texels, about three quarters of what the AO reads.
+ */
+function createShaftPasses(renderer: THREE.WebGLRenderer, depth: THREE.Texture | null, type: THREE.TextureDataType) {
+  const options = { type, format: THREE.RGFormat, depthBuffer: false };
+  const a = new THREE.WebGLRenderTarget(1, 1, options);
+  const b = new THREE.WebGLRenderTarget(1, 1, options);
+  a.texture.name = 'post:shafts';
+  b.texture.name = 'post:shafts-coarse';
+  const uniforms = {
+    tDepth: { value: depth },
+    tInput: { value: a.texture },
+    uTexel: { value: new THREE.Vector2(1, 1) },
+    uSun: { value: new THREE.Vector2(0.5, 0.5) },
+    uAspect: { value: 1 },
+    uCamera: { value: new THREE.Vector2(1, 2) },
+    uNear: { value: new THREE.Vector2(0, 1) },
+    uRadius: { value: SHAFT_RADIUS },
+    uStep: { value: 1 / SHAFT_TAPS },
+    uDecay: { value: SHAFT_DECAY },
+    uSpread: { value: SHAFT_SOFT },
+    uSeed: { value: 0 },
+  };
+  const pass = (name: string, fragmentShader: string): THREE.Scene => {
+    const material = new THREE.ShaderMaterial({
+      name,
+      uniforms,
+      vertexShader: GRADE_VERTEX,
+      fragmentShader,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    quad.frustumCulled = false;
+    return new THREE.Scene().add(quad);
+  };
+  const mask = pass('post:shaft-mask', SHAFT_MASK_FRAGMENT);
+  const blur = pass('post:shaft-blur', SHAFT_BLUR_FRAGMENT);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  // Into their own target: a program's key holds the output's colour space,
+  // which a target and the canvas do not share, so compiled against the
+  // canvas these would be compiled again at the first dusk anyway.
+  const was = renderer.getRenderTarget();
+  renderer.setRenderTarget(a);
+  renderer.compile(mask, camera);
+  renderer.compile(blur, camera);
+  renderer.setRenderTarget(was);
+  return {
+    texture: a.texture,
+    uniforms,
+    /** Runs the three passes; `uSun` has been written by `sunOnScreen`. */
+    render(lens: THREE.PerspectiveCamera): void {
+      uniforms.uCamera.value.set(lens.near, lens.far);
+      renderer.setRenderTarget(a);
+      renderer.render(mask, camera);
+      // Coarse: the whole way to the sun, straight at it.
+      const decay = uniforms.uDecay.value;
+      const spread = uniforms.uSpread.value;
+      uniforms.tInput.value = a.texture;
+      uniforms.uStep.value = 1 / SHAFT_TAPS;
+      uniforms.uSpread.value = 0;
+      uniforms.uSeed.value = 0;
+      renderer.setRenderTarget(b);
+      renderer.render(blur, camera);
+      // Fine: one coarse step, evenly, which fills the gaps between its taps,
+      // and a little either side, which softens the rays' edges.
+      uniforms.tInput.value = b.texture;
+      uniforms.uStep.value = 1 / (SHAFT_TAPS * SHAFT_TAPS);
+      uniforms.uDecay.value = 1;
+      uniforms.uSpread.value = spread;
+      uniforms.uSeed.value = 37;
+      renderer.setRenderTarget(a);
+      renderer.render(blur, camera);
+      uniforms.uDecay.value = decay;
+    },
+    setSize(width: number, height: number): void {
+      const w = Math.max(1, Math.round(width / 4));
+      const h = Math.max(1, Math.round(height / 4));
+      a.setSize(w, h);
+      b.setSize(w, h);
+      uniforms.uTexel.value.set(1 / width, 1 / height);
+      uniforms.uAspect.value = width / Math.max(1, height);
+    },
+  };
 }
