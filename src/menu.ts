@@ -57,7 +57,7 @@ import { clockAt } from './timezone.ts';
 import { createFlagCanvas } from './flags.ts';
 import { createOrrery } from './orrery.ts';
 import type { OrreryBody } from './orrery.ts';
-import { AU_KM, heliocentric, periodOf } from './system/index.ts';
+import { AU_KM, geocentric, heliocentric, periodOf } from './system/index.ts';
 import type { Body } from './system/index.ts';
 import { ensureStyle, fold, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 
@@ -657,30 +657,17 @@ interface Sighting {
 }
 
 /**
- * Where a body is from Earth right now, from `system/orbits.ts`'s heliocentric
- * positions — the same Standish elements the orrery's rings are laid out by,
- * differenced in au, so this is a real distance on the real date and not the
- * diagram's. It stays in Standish's own ecliptic frame and never becomes a
- * world vector, so none of this world's handedness is involved: that frame is
- * right-handed with the ecliptic pole at +z, longitude grows anticlockwise
- * seen from it, and a body anticlockwise of the Sun is east of it.
+ * Where a body is from Earth right now: `system/orbits.ts`'s `geocentric`, the
+ * same Standish elements the orrery's rings are laid out by, differenced in
+ * au, so this is a real distance on the real date and not the diagram's. It
+ * is the very difference the night sky draws the planet by, so what this card
+ * says and where the planet stands in the world's sky are one computation;
+ * this used to do the subtraction for itself.
  */
 function sighting(body: Body, date: Date): Sighting {
-  const earth = heliocentric('earth', date);
-  if (body.orbit === null) return { km: earth.r * AU_KM, elongation: 0, east: false };
-  const there = heliocentric(body.orbit, date);
-  const gx = there.x - earth.x;
-  const gy = there.y - earth.y;
-  const gz = there.z - earth.z;
-  const range = Math.hypot(gx, gy, gz);
-  if (range < 1e-9) return { km: 0, elongation: 0, east: false };
-  // Earth to the Sun is Earth's own position turned round.
-  const cos = -(gx * earth.x + gy * earth.y + gz * earth.z) / (range * earth.r);
-  return {
-    km: range * AU_KM,
-    elongation: Math.acos(Math.max(-1, Math.min(1, cos))) / DEG,
-    east: -earth.x * gy + earth.y * gx > 0,
-  };
+  if (body.orbit === null) return { km: heliocentric('earth', date).r * AU_KM, elongation: 0, east: false };
+  const seen = geocentric(body.orbit, date);
+  return { km: seen.distance * AU_KM, elongation: seen.elongation, east: seen.east };
 }
 
 /** 41.2 million km, 225 million km, 4.35 billion km. */
@@ -2912,7 +2899,8 @@ export function createMenu(deps: MenuDeps): Menu {
     applyPose(pose);
 
     // The near plane rides the gap to the nearest thing, the far plane reaches
-    // the stars. A near of 5 against a far this deep would put the twenty units
+    // the outermost ring; the stars need none, being drawn at infinity
+    // (`night-sky.ts`). A near of 5 against a far this deep would put the twenty units
     // between a cliff top and the sea inside one depth step, which is every
     // coastline z-fighting — so near is a fifth of the height over the ground,
     // or a third of the way to the nearest planet if one is closer.
@@ -2923,7 +2911,7 @@ export function createMenu(deps: MenuDeps): Menu {
       gap = Math.min(gap, camera.position.distanceTo(entry.position) - extent);
     }
     const near = Math.max(1, Math.min((camera.position.distanceTo(body.centre) - body.radius) * 0.2, gap * 0.3));
-    const far = camera.position.distanceTo(orrery.sun.position) + orrery.starShell * 1.05;
+    const far = camera.position.distanceTo(orrery.sun.position) + orrery.extent * 1.05;
     if (Math.abs(near - camera.near) > near * 0.1 || Math.abs(far - camera.far) > far * 0.05) {
       camera.near = near;
       camera.far = far;

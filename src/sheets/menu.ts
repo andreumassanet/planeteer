@@ -29,6 +29,8 @@ import { loadPlaces, terrainSiteOf } from '../places.ts';
 import { loadPlacements } from '../placement.ts';
 import { setDetailSites, setFlattenSites } from '../terrain.ts';
 import { createSky } from '../sun.ts';
+import { loadStars } from '../celestial.ts';
+import { createNightSky } from '../night-sky.ts';
 import { createOcean } from '../ocean.ts';
 import { createClouds } from '../clouds.ts';
 import { setSunDirection } from '../lights.ts';
@@ -67,6 +69,17 @@ async function main(): Promise<void> {
   const fog = new THREE.Fog(FOG_COLOR, 1, 2);
   scene.fog = fog;
   const sky = createSky(scene, fog);
+  // The orrery's back cloth is the world's own catalogue since 2026-09-30,
+  // not a field of its own, so the sheet asks for it as `main.ts` does — and
+  // as there, a sheet without it is a black sky and otherwise whole.
+  loadStars()
+    .then((catalogue) => {
+      const night = createNightSky(catalogue, sky);
+      night.menu = true;
+      scene.add(night.points);
+      sky.attach(night.update);
+    })
+    .catch((error: unknown) => console.warn('the stars did not load', error));
 
   await stage('filling the ocean');
   const ocean = createOcean(world);

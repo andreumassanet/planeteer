@@ -59,15 +59,18 @@ export { buildAlien, alienFor, ALIEN_POSES } from './alien.ts';
 export type { AlienOptions } from './alien.ts';
 export {
   ELEMENTS,
+  apparentMagnitude,
   elementsAt,
+  geocentric,
   heliocentric,
   moonPosition,
   orbitPath,
   periodOf,
+  ringTilt,
   julianDay,
   centuriesSince2000,
 } from './orbits.ts';
-export type { Elements, Heliocentric, Lunar, OrbitalElements } from './orbits.ts';
+export type { Elements, Geocentric, Heliocentric, Lunar, OrbitalElements } from './orbits.ts';
 
 const BODY_MODULES = import.meta.glob<Record<string, unknown>>('./bodies/*.ts', { eager: true });
 const PART_MODULES = import.meta.glob<Record<string, unknown>>('./parts/*.ts', { eager: true });

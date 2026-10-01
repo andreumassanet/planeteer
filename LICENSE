@@ -35,6 +35,13 @@ public/ are derived from third-party sources and carry their own terms:
   (https://www.geonames.org), cities5000 and countryInfo. Creative Commons
   Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/); the credit
   is shown on the loading screen and on the settings card.
+- public/data/stars.bin: the Bright Star Catalogue, 5th Revised Ed.
+  (Hoffleit, D. & Warren Jr., W. H. 1991, Astronomical Data Center,
+  NSSDC/ADC), as distributed by the CDS, Strasbourg, as catalogue V/50
+  (https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50). No licence ships with
+  it; the CDS distributes it for free use on condition that the authors and
+  the CDS are acknowledged, which is done here, on the loading screen and on
+  the settings card.
 - public/models/*/: CC0 1.0 Universal kits by Kenney, Quaternius, Kay Lousberg
   and CreativeTrio, rebuilt by the bake scripts. Each directory's LICENSE.txt
   names the packs it was built from.

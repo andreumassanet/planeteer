@@ -21,6 +21,7 @@
     "lakes": "node scripts/build-lakes.mjs",
     "roads": "node scripts/build-roads.ts",
     "rails": "node scripts/build-rails.ts",
+    "stars": "node scripts/build-stars.ts",
     "facts": "node scripts/build-country-info.mjs",
     "check": "node scripts/check-world.ts",
     "people": "node scripts/check-people.ts",
