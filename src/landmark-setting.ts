@@ -24,7 +24,9 @@
  *   runs to the rim of the level pad `terrain.ts` cuts, which is as far as the
  *   ground is known to be flat;
  * - **trees in planters, lamps and benches** stand round the edge, inside the
- *   paving and outside the plan, so none of them can meet the model.
+ *   paving and outside the plan, so none of them can meet the model. The
+ *   lamps are lit after dark, their heads burning and their light pooling on
+ *   the paving per pixel, as a town's street lamps do (`landmark-lights.ts`).
  *
  * The regions' own palette decides the stones (`groundStyleFor`), so the square
  * in Seville is lime-washed like the town round it and the one in Kyoto is
@@ -138,6 +140,10 @@ export function buildSetting(ctx: MonumentContext, site: SettingSite, ground: Gr
       const post = ctx.column(0.08 * metre, 4.2 * metre, ctx.palette.steel, 6);
       const head = ctx.box(0.36 * metre, 0.22 * metre, 0.36 * metre, ctx.palette.cream);
       head.position.y = 4.2 * metre;
+      // Lit after dark: the scenery's `lit` mark, which the monument context
+      // has no helper for. `bakeNight` (`landmark-lights.ts`) finds it in the
+      // merge, burns the head till dawn and hangs a lamp's light under it.
+      head.userData.atlasLit = 1;
       item.add(post, head);
     }
     item.position.set(x, PAVING_RISE, z);

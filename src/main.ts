@@ -43,7 +43,7 @@ import { weatherAt, weatherSample } from './weather.ts';
 import { createOcean } from './ocean.ts';
 import { shaftLight, shaftStrength } from './shafts.ts';
 import { proxyOf, warmShaders } from './warm.ts';
-import { FIRE_GLOW_REACH, FIRE_STRIDE, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, fireGlows, lightBrightness, setFires, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
+import { FIRE_GLOW_REACH, FIRE_STRIDE, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, fireGlows, floodTuning, lightBrightness, setFires, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
@@ -1051,6 +1051,8 @@ async function start(): Promise<void> {
     land,
   );
   scene.add(monuments.group);
+  // Their red lights after dark, one draw for all of them (`landmark-lights.ts`).
+  scene.add(monuments.night.beacons);
   if (monuments.broken.length > 0) console.warn('monuments that broke the contract:', monuments.broken);
   console.log(`${monuments.missing.length} placed landmarks have no model yet`);
 
@@ -2821,7 +2823,7 @@ async function start(): Promise<void> {
     guard('settlements', () => settlements.update(player.position, altitude, rig.camera));
     // After the settlements, because a landmark stands on its town's floor
     // where it has one: a floor raised this frame re-seats it this frame.
-    guard('monuments', () => monuments.update(player.position, altitude, rig.camera));
+    guard('monuments', () => monuments.update(player.position, altitude, rig.camera, sky.state.time));
     // After the settlements, because a road is laid over a town's paving where
     // the two meet and the later of two coplanar surfaces is not what decides
     // that — the lift is — but the build budget is served in order and the
@@ -3159,7 +3161,9 @@ async function start(): Promise<void> {
       if (sky.state.elevation > LAMPS_OFF_ABOVE) setNearLamps(rig.camera, nearLamps, 0);
       else {
         const townLamps = settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps);
-        setNearLamps(rig.camera, nearLamps, roads.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, townLamps));
+        const roadLamps = roads.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, townLamps);
+        // And the lamps round a landmark's square, which light its paving.
+        setNearLamps(rig.camera, nearLamps, monuments.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, roadLamps));
       }
     });
 
@@ -3511,7 +3515,13 @@ async function start(): Promise<void> {
       // `atlas.lights.points.visible = false` is the A/B for the far field and
       // `atlas.brightness(0)` turns every emitting surface in the world off,
       // windows and lamps included, without touching the geometry.
-      lights: cityLights,
+      // `atlas.lights.flood` is the landmarks' floodlight, live: `.gain.value`
+      // over every flood, `.cap.value` the per-channel ceiling (keep it under
+      // the bloom's 0.92), `.warm.value` and `.cool.value` the two tints.
+      // `atlas.monuments.night.sparkle = true` holds the Eiffel Tower's
+      // sparkle on for review (`null` hands it back to Paris's clock), and
+      // `atlas.monuments.night.stats` counts the red lights and plaza lamps.
+      lights: Object.assign(cityLights, { flood: floodTuning }),
       brightness: lightBrightness,
       nav,
       map,
