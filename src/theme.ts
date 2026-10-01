@@ -118,7 +118,16 @@ export interface Mood {
   skyGlow: number;
   /** How much of `skyGlow` the sun's own bearing gets. 0 at noon and midnight. */
   glow: number;
-  /** Star density, 0 or 1. They are drawn in the dome's shader, not as geometry. */
+  /**
+   * How much of the Milky Way the look allows, 0 to 1: the gain on the band
+   * the dome paints (`sun.ts`). **Not the stars**, which it was until
+   * 2026-09-30, when it was the density of dots hashed into the dome: the
+   * stars are points now (`night-sky.ts`) and come out by the twilight ladder,
+   * brightest first, whatever this says — a mood is keyed at three moments of
+   * the day, and a star field that came up at a quarter strength all at once
+   * at sunset was the thing the ladder replaced. `sun.ts` multiplies this by
+   * the ladder, the weather and the moon, so it is the art's share only.
+   */
   stars: number;
   fog: number;
   ambient: number;
@@ -207,7 +216,7 @@ export const TWILIGHT_MOOD: Mood = {
   skyHorizon: PALETTE.apricot,
   skyGlow: 0xf2661a,
   glow: 1,
-  stars: 0.25,
+  stars: 0,
   fog: 0xc98f86,
   ambient: 0xffb488,
   ambientIntensity: 0.24,

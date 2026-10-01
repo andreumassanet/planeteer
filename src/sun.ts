@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PLANET_RADIUS } from './globe.ts';
 import { DAY_MOOD, NIGHT_MOOD, ORBIT_LOOK, TWILIGHT_MOOD, setToonMood, type Mood } from './theme.ts';
 import { unitAt } from './sphere.ts';
+import { GALACTIC, equatorialBasis } from './celestial.ts';
 
 /**
  * The real sun, at the real time.
@@ -165,6 +166,89 @@ function sunElevation(sun: THREE.Vector3, up: THREE.Vector3): number {
  */
 const NIGHT_ELEVATION = -12;
 const DAY_ELEVATION = 10;
+
+/**
+ * The twilight ladder: the faintest star the eye finds overhead, as a visual
+ * magnitude, against the sun's elevation in degrees.
+ *
+ * **This is what makes a dusk bring the stars out brightest first**, and it
+ * is the one thing the old sky could not do: its hashed dots came up at a
+ * quarter strength all at once as the sun set. The catalogue is sorted by
+ * magnitude (`pack.ts`), so the stars drawn are a prefix of it — everything
+ * brighter than this number — and at the knots below the evening goes the
+ * way an almanac says it goes: Venus a few minutes after sunset, Jupiter and
+ * Sirius by -3, the first-magnitude stars as civil twilight ends at -6, the
+ * constellations by nautical dusk at -12 and the full sky, 6.4, by
+ * astronomical dusk at -18. The numbers are the naked-eye limits of the
+ * twilight literature (Schaefer's) rounded to what a player can tell apart;
+ * they carry on past `NIGHT_ELEVATION`, where the colours stop changing,
+ * because the stars really do.
+ *
+ * It is the limit for a clear sky at the zenith. `update` takes the weather,
+ * the moon and the altitude off it (`SkyState.limit`), and `night-sky.ts`
+ * adds each star's own airmass and glare.
+ */
+const TWILIGHT_LADDER: readonly (readonly [number, number])[] = [
+  [4, -6],
+  [0, -4],
+  [-2, -2.2],
+  [-4, -0.3],
+  [-6, 1.5],
+  [-8, 3],
+  [-10, 4.3],
+  [-12, 5.3],
+  [-14, 5.9],
+  [-16, 6.2],
+  [-18, 6.4],
+];
+
+/** `TWILIGHT_LADDER` read at an elevation: straight between the knots, flat past the ends. */
+export function twilightLimit(elevation: number): number {
+  const first = TWILIGHT_LADDER[0]!;
+  if (elevation >= first[0]) return first[1];
+  for (let i = 1; i < TWILIGHT_LADDER.length; i++) {
+    const [e1, m1] = TWILIGHT_LADDER[i]!;
+    if (elevation >= e1) {
+      const [e0, m0] = TWILIGHT_LADDER[i - 1]!;
+      return m0 + ((m1 - m0) * (elevation - e0)) / (e1 - e0);
+    }
+  }
+  return TWILIGHT_LADDER[TWILIGHT_LADDER.length - 1]![1];
+}
+
+/**
+ * What the lantern moon costs the stars when it is up: magnitudes off the
+ * limit, and the share of the Milky Way it washes out.
+ *
+ * A real full moon takes a dark site from 6.5 to about 5 and the Milky Way
+ * with it, and this moon is full every night — so a physical one would never
+ * once show the sky this file now draws. It is **half** of that on purpose:
+ * enough that the sky before moonrise and after moonset is visibly deeper
+ * than under it, which is a real thing to notice on a real planet, and not so
+ * much that the lantern — which is a decision about the light, see
+ * `MOON_OFFSET` — becomes a decision about the stars as well.
+ */
+const MOON_LIMIT = 0.7;
+const MOON_WASH = 0.4;
+
+/**
+ * Magnitudes the weather takes off: a closed overcast all of them — the
+ * stars go behind a storm's grey dome, which they used to shine through —
+ * and a fog three.
+ */
+const OVERCAST_LIMIT = 7;
+const MIST_LIMIT = 3;
+
+/** The limit above the air, where nothing is in the way but the sun. */
+const SPACE_LIMIT = 6.5;
+
+/**
+ * The Milky Way is a faint thing, and it comes after the stars: none while
+ * the limit is under 4.6, all of it once it passes 6.2 — so it rises out of
+ * a sky already full of stars, deep in astronomical twilight, and goes first
+ * when the weather or the moon comes.
+ */
+const MILKY_WAY_LIMITS: readonly [number, number] = [4.6, 6.2];
 
 /**
  * A moon that is a lantern hung opposite the sun, not an ephemeris.
@@ -367,6 +451,100 @@ const skyVertex = /* glsl */ `
 `;
 
 /**
+ * How much light the Milky Way adds at its brightest, in the dome's linear
+ * units, before `milky`: the Sagittarius cloud on a moonless night comes to
+ * about two and a half of this. Tuned against the night dome's own zenith,
+ * `NIGHT_MOOD.skyTop`, which is 0.008 of luminance: the band has to read
+ * against it without ever turning the night blue grey.
+ */
+const MILKY_WAY_BRIGHTNESS = 0.018;
+
+/**
+ * A galactic direction as a GLSL constant, in `GALACTIC`'s layout — `(cos b
+ * cos l, cos b sin l, sin b)`. `unitAt` lays a direction out the way the
+ * world lays out a globe, so `y` and `z` trade places on the way in; the
+ * shader cannot import, and this keeps the one conversion in `sphere.ts`.
+ */
+function galacticAt(l: number, b: number): string {
+  const v = unitAt(b, l, { x: 0, y: 0, z: 0 });
+  return `vec3(${v.x.toFixed(5)}, ${(-v.z).toFixed(5)}, ${v.y.toFixed(5)})`;
+}
+
+/**
+ * The Milky Way, painted.
+ *
+ * **Shapes, not a photograph**, for the reason the rest of this world is not
+ * one: a band, a bulge, the dust lanes and the clouds, each a soft analytic
+ * shape in galactic coordinates, with two octaves of noise over the sphere to
+ * break the band into clouds the way a brush would. A baked texture was the
+ * alternative and it was not taken: megabytes for a glow that is two
+ * gradients and a dozen places, and a photograph's grain on a sky that has
+ * none anywhere else. Each place is where it is on the real sky, and the list
+ * is the one an observer names: the bulge toward Sagittarius and its star
+ * clouds, the Great Rift splitting the band from Cygnus to Scorpius, the
+ * Coalsack beside the Southern Cross, the star clouds of Scutum, Cygnus and
+ * Carina, and the two Magellanic Clouds, with Andromeda as the faint smudge it
+ * is. The noise is taken on the galactic direction itself rather than on
+ * `(l, b)`, so it has no seam.
+ *
+ * Warm toward the centre and cool along the arms — which is the colour the
+ * bulge's old stars really give it against the arms' young ones — and written
+ * straight out as linear, like everything else here: see the note at the end
+ * of the dome. How bright is `milky`, set by `update`: 0 by day and in the
+ * weather, and see `MILKY_WAY_LIMITS` and `MOON_WASH` for the rest.
+ */
+const MILKY_WAY_GLSL = /* glsl */ `
+  float valueNoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(hash(i), hash(i + vec3(1.0, 0.0, 0.0)), f.x),
+          mix(hash(i + vec3(0.0, 1.0, 0.0)), hash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+      mix(mix(hash(i + vec3(0.0, 0.0, 1.0)), hash(i + vec3(1.0, 0.0, 1.0)), f.x),
+          mix(hash(i + vec3(0.0, 1.0, 1.0)), hash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y),
+      f.z);
+  }
+
+  // A soft round cloud, size in degrees, about a galactic direction.
+  float cloud(vec3 g, vec3 at, float size) {
+    return exp(-(1.0 - dot(g, at)) / (size * size * 3.0462e-4));
+  }
+
+  vec3 milkyWay(vec3 g) {
+    float b = asin(clamp(g.z, -1.0, 1.0)) * 57.29578;
+    float l = atan(g.y, g.x) * 57.29578;
+    float toward = 0.5 + 0.5 * g.x / max(length(g.xy), 1e-4);
+    float n = valueNoise(g * 7.0) * 0.6 + valueNoise(g * 19.0) * 0.4;
+
+    float width = mix(4.0, 7.0, toward * toward) * (0.8 + 0.4 * n);
+    float band = exp(-0.5 * b * b / (width * width)) * mix(0.36, 1.0, toward * sqrt(toward));
+    float skirt = exp(-0.5 * b * b / (width * width * 7.0)) * mix(0.1, 0.3, toward);
+    float bulge = exp(-0.5 * ((l * l) / 200.0 + (b + 2.0) * (b + 2.0) / 81.0));
+    float clouds = 0.9 * cloud(g, ${galacticAt(1.5, -4)}, 3.2)
+      + 0.5 * cloud(g, ${galacticAt(12, -1)}, 1.2)
+      + 0.55 * cloud(g, ${galacticAt(27, -2.5)}, 2.0)
+      + 0.5 * cloud(g, ${galacticAt(77, 1.5)}, 4.5)
+      + 0.5 * cloud(g, ${galacticAt(287, -1)}, 3.0)
+      + 0.3 * cloud(g, ${galacticAt(330, -2)}, 2.5);
+    float light = band * (0.45 + 0.55 * n) * (1.0 + clouds) + skirt + 1.2 * bulge * (0.7 + 0.3 * n);
+
+    // The dust. The Great Rift runs a few degrees north of the plane from
+    // Cygnus to Ophiuchus; the Coalsack sits below the Cross.
+    float riftAt = mix(1.2, 4.5, smoothstep(60.0, 5.0, l)) + (n - 0.5) * 2.2;
+    float rift = exp(-0.5 * (b - riftAt) * (b - riftAt) / 2.6) * smoothstep(-14.0, 0.0, l) * smoothstep(88.0, 72.0, l);
+    float dust = max(0.8 * rift, 0.85 * cloud(g, ${galacticAt(301, -1)}, 2.3));
+    light *= 1.0 - dust;
+
+    vec3 tint = mix(vec3(0.66, 0.7, 1.0), vec3(1.0, 0.86, 0.7), clamp(toward * toward * 0.7 + bulge * 0.6, 0.0, 1.0));
+    float neighbours = 0.8 * cloud(g, ${galacticAt(280.5, -32.9)}, 2.8)
+      + 0.55 * cloud(g, ${galacticAt(302.8, -44.3)}, 1.5)
+      + 0.2 * cloud(g, ${galacticAt(121.2, -21.6)}, 0.8);
+    return tint * light + vec3(0.86, 0.86, 1.0) * neighbours * (0.8 + 0.4 * n);
+  }
+`;
+
+/**
  * The dome.
  *
  * Three changes from the gradient this replaced. It runs from the *local*
@@ -378,28 +556,40 @@ const skyVertex = /* glsl */ `
  * band painted behind the globe washes out the very terminator you climbed up
  * there to look at.
  *
- * The stars are hashed out of the view direction rather than drawn as geometry:
- * no buffers, no points to sort, and nothing for the outline pass to hull.
+ * **The stars are not here any more.** They were hashed out of the view
+ * direction until 2026-09-30 — no buffers, no points to sort, nothing for the
+ * outline pass to hull — and each of those reasons had an answer: one static
+ * buffer of 8,404 directions, additive light that needs no sorting, and the
+ * outline pass's own opt-out. What the hash could not do was be the sky: the
+ * same dots stood at the same altitude and azimuth every night of the year,
+ * fixed to the ground, and the time-lapse turned the sun and the moon past
+ * them. They are the Bright Star Catalogue now, drawn as points by
+ * `night-sky.ts` just after this dome. What stays in the dome is the glow
+ * that is not points: the Milky Way (`MILKY_WAY_GLSL`).
  */
 const skyFragment = /* glsl */ `
   uniform vec3 top;
   uniform vec3 horizon;
   uniform vec3 glowColor;
   uniform vec3 sunDir;
+  uniform vec3 moonDir;
   uniform vec3 upDir;
   uniform float glow;
-  uniform float stars;
+  uniform float milky;
+  uniform mat3 galactic;
   uniform float space;
   uniform float dip;
   varying vec3 vWorld;
 
   const vec3 SPACE = vec3(0.016, 0.024, 0.055);
+  const float MILKY_WAY = ${MILKY_WAY_BRIGHTNESS.toFixed(4)};
 
   float hash(vec3 cell) {
     vec3 p = fract(cell * 0.1031 + vec3(0.71, 0.113, 0.419));
     p += dot(p, p.yzx + 33.33);
     return fract((p.x + p.y) * p.z);
   }
+  ${MILKY_WAY_GLSL}
 
   void main() {
     vec3 dir = normalize(vWorld - cameraPosition);
@@ -437,20 +627,14 @@ const skyFragment = /* glsl */ `
     float halo = 1.0 - smoothstep(dip, dip + 0.06 * sqrt(1.0 - dip * dip), h);
     color = mix(color, SPACE, space * (1.0 - 0.8 * halo));
 
-    // Stars come with the night or with the altitude, whichever arrives first.
-    float night = max(stars, space);
-    if (night > 0.0) {
-      // One hashed cell per direction: ~1,700 dots over the whole sphere, fixed
-      // to the sky rather than to the camera, and small enough that they never
-      // cross into the neighbouring cell this test cannot see.
-      vec3 cell = floor(dir * 48.0);
-      if (hash(cell) < 0.06) {
-        vec3 centre = normalize(cell + 0.5 + 0.3 * vec3(
-          hash(cell + 11.0) - 0.5, hash(cell + 23.0) - 0.5, hash(cell + 37.0) - 0.5));
-        float bright = 0.35 + 0.65 * hash(cell + 61.0);
-        float dot_ = 1.0 - smoothstep(0.0, 0.0022 * bright, distance(dir, centre));
-        color += vec3(0.85, 0.88, 1.0) * dot_ * bright * night * smoothstep(0.0, 0.12, above);
-      }
+    // The Milky Way comes with the dark or with the altitude, whichever
+    // arrives first. The air thins it toward the horizon and the moon near
+    // its own bearing; above the air neither does.
+    if (milky > 0.0) {
+      float air = 1.0 - space;
+      float thin = mix(1.0, smoothstep(0.0, 0.35, above), air);
+      float moonlit = 1.0 - 0.6 * air * smoothstep(0.82, 0.995, dot(dir, moonDir));
+      color += milkyWay(galactic * dir) * (MILKY_WAY * milky * thin * moonlit);
     }
 
     // Written straight out, with no colour-space conversion, and that is the look
@@ -490,6 +674,42 @@ export interface SkyState {
    * when there is nothing to draw into it.
    */
   shadow: number;
+  /** Unit vector towards the lantern moon (`MOON_OFFSET`), world space. Live. */
+  moon: THREE.Vector3;
+  /**
+   * The J2000 sky in tonight's world: `celestial.ts`'s `equatorialBasis` at
+   * `time`, rebuilt every frame. Live. A catalogue direction times this is
+   * where that star stands now; `night-sky.ts` carries it as its matrix.
+   */
+  celestial: THREE.Matrix4;
+  /**
+   * The faintest star the eye finds at the zenith, as a visual magnitude:
+   * the twilight ladder (`twilightLimit`) at `elevation`, less the weather and
+   * the lantern moon, going to `SPACE_LIMIT` with the altitude. Below -4 by
+   * day, so the sky draws nothing; 6.4 on a clear moonless night.
+   */
+  limit: number;
+}
+
+/**
+ * Something drawn in the sky's own frame and on its clock, which `update`
+ * hands the finished state to at the end of every frame — so the world's
+ * loop, the menu's and the menu's review sheet all drive it without knowing
+ * it exists. `night-sky.ts` is the one there is.
+ */
+export type SkyLayer = (state: SkyState) => void;
+
+/**
+ * The dome's uniforms that a layer shares **by reference**, so a star and the
+ * sky behind it never disagree about which way is up, where the limb is or
+ * how much air is left: the same objects, written once a frame by `update`.
+ */
+export interface SkyUniforms {
+  upDir: { value: THREE.Vector3 };
+  dip: { value: number };
+  space: { value: number };
+  sunDir: { value: THREE.Vector3 };
+  moonDir: { value: THREE.Vector3 };
 }
 
 export interface Sky {
@@ -553,6 +773,10 @@ export interface Sky {
    * is the weather's own business, not this file's.
    */
   weather: { overcast: number; flash: number; mist: number };
+  /** See `SkyUniforms`. */
+  uniforms: SkyUniforms;
+  /** Adds a `SkyLayer`, called at the end of every `update` from then on. */
+  attach(layer: SkyLayer): void;
 }
 
 /** The grey a clouded sky goes, as a fraction of the mood's own brightness. */
@@ -572,9 +796,11 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     horizon: { value: new THREE.Color(DAY_MOOD.skyHorizon) },
     glowColor: { value: new THREE.Color(DAY_MOOD.skyGlow) },
     sunDir: { value: new THREE.Vector3(0, 1, 0) },
+    moonDir: { value: new THREE.Vector3(0, -1, 0) },
     upDir: { value: new THREE.Vector3(0, 1, 0) },
     glow: { value: 0 },
-    stars: { value: 0 },
+    milky: { value: 0 },
+    galactic: { value: new THREE.Matrix3() },
     space: { value: 0 },
     dip: { value: 0 },
   };
@@ -713,7 +939,13 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     sun: solarDirection,
     solar: { declination: 0, subsolarLon: 0, equationOfTime: 0 },
     shadow: 0,
+    moon: moonDirection,
+    celestial: new THREE.Matrix4(),
+    limit: twilightLimit(90),
   };
+  const layers: SkyLayer[] = [];
+  /** Said once: a mirrored sky would say it every frame. */
+  let warnedMirror = false;
 
   // The clock, as an offset and a rate rather than a stored instant, so that a
   // scrubbed time keeps running instead of freezing the world at one minute.
@@ -915,10 +1147,31 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     uniforms.glowColor.value.setHex(mood.skyGlow);
     uniforms.sunDir.value.copy(solarDirection);
     uniforms.upDir.value.copy(cameraUp);
+    uniforms.moonDir.value.copy(moonDirection);
     uniforms.glow.value = mood.glow;
-    uniforms.stars.value = mood.stars;
     uniforms.space.value = orbit;
     uniforms.dip.value = -Math.sqrt(Math.max(0, 1 - (PLANET_RADIUS / distance) ** 2));
+
+    // The stars' frame and how deep into them the night reaches. See
+    // `TWILIGHT_LADDER` and the constants under it for every number here.
+    equatorialBasis(time, state.celestial);
+    if (!warnedMirror && state.celestial.determinant() <= 0) {
+      // A reflection would put every constellation back to front and rising
+      // in the west, and it would render. Say so rather than draw it quietly.
+      warnedMirror = true;
+      console.warn('sky: the celestial basis is a reflection', state.celestial.determinant());
+    }
+    uniforms.galactic.value.setFromMatrix4(state.celestial).transpose().premultiply(GALACTIC);
+    const moonUp = THREE.MathUtils.smoothstep(moonDirection.dot(up), -0.05, 0.2);
+    const dark = twilightLimit(elevation) - OVERCAST_LIMIT * THREE.MathUtils.smoothstep(overcast, 0.2, 0.7) - MIST_LIMIT * weather.mist;
+    state.limit = lerp(dark - MOON_LIMIT * moonUp, SPACE_LIMIT, orbit);
+    // `NIGHT_MOOD.stars` is the art's say, the ladder the sky's and the moon
+    // the lantern's; above the air, only the altitude's. It goes before the
+    // camera leaves the dome (`DOME_EXIT` in `main.ts`), so that edge is not a pop.
+    const deep = THREE.MathUtils.smoothstep(dark, MILKY_WAY_LIMITS[0], MILKY_WAY_LIMITS[1]);
+    uniforms.milky.value =
+      Math.max(mood.stars * deep * (1 - MOON_WASH * moonUp), orbit) *
+      (1 - THREE.MathUtils.smoothstep(distance, PLANET_RADIUS * 4.5, PLANET_RADIUS * 5.5));
 
     // Five 4x1 textures, so this is cheap — but it is an upload, and the ramp
     // moves by a hundredth of a step a minute. Gate it.
@@ -927,6 +1180,8 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
       lastShadow = mood.rampShadow;
       setToonMood(mood);
     }
+
+    for (const layer of layers) layer(state);
   }
 
   return {
@@ -937,6 +1192,10 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     update,
     placeShadow,
     weather,
+    uniforms,
+    attach(layer) {
+      layers.push(layer);
+    },
     setTime(when) {
       const next = when === null ? Date.now() : new Date(when).getTime();
       if (!Number.isFinite(next)) return false;

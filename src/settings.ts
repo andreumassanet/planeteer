@@ -904,7 +904,10 @@ export function createSettings(options: SettingsOptions): Settings {
       html:
         '<p>Coastlines and lakes from <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>. ' +
         'Towns from <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a>, ' +
-        '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC&nbsp;BY&nbsp;4.0</a>.</p>' +
+        '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC&nbsp;BY&nbsp;4.0</a>. ' +
+        'Stars from the <a href="https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50" target="_blank" rel="noopener">Bright Star Catalogue</a> ' +
+        '(Hoffleit &amp; Warren 1991, NASA ADC), distributed by the ' +
+        '<a href="https://cds.unistra.fr/" target="_blank" rel="noopener">CDS</a>, Strasbourg.</p>' +
         '<p>The people and the livestock are by <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>, ' +
         'as are the bus and the bicycle; the cars, the boats, the plants, the rocks and the houses and streets of the towns are ' +
         '<a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>’s; more trees from ' +

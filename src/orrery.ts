@@ -16,12 +16,14 @@
  * comes from `system/orbits.ts` (Standish's elements); the frame they are
  * measured in — the ecliptic of date — is turned into this Earth-fixed world by
  * Greenwich sidereal time and the obliquity, which are two textbook formulas
- * and nothing that `sun.ts` uses. So `verify()` has a real witness: the Sun
- * placed by this file and the sun `sun.ts` lights the land with were computed
- * by different routes, from NOAA's solar formulas on one side and Kepler plus
- * sidereal time on the other, and they have to point the same way. A mirror or
- * a swapped axis anywhere in this chain puts the Sun in the wrong half of the
- * sky, which is the class of bug this project has shipped three times.
+ * (`celestial.ts`) and nothing `sun.ts`'s sun is computed from: it turns the
+ * stars by them and finds the sun by NOAA's route. So `verify()` has a real
+ * witness: the Sun placed by this file and the sun `sun.ts` lights the land
+ * with were computed by different routes, from NOAA's solar formulas on one
+ * side and Kepler plus sidereal time on the other, and they have to point the
+ * same way. A mirror or a swapped axis anywhere in this chain puts the Sun in
+ * the wrong half of the sky, which is the class of bug this project has shipped
+ * three times.
  *
  * **The distances and the sizes are not**, and say so on the screen. At the
  * world's own scale Earth is 16,000 units across and Neptune is eleven billion
@@ -35,7 +37,7 @@
  *
  * # What it costs
  *
- * Eight meshes, a sprite, a point field and eight thin ribbons: the planets are
+ * Eight meshes, a sprite and eight thin ribbons: the planets are
  * geodesic spheres of 5,780 faces each, painted once from their own
  * `GroundModel` where they have one (so Mars shows Syrtis Major where Syrtis
  * Major is) and from latitude bands where they do not. They are drawn by the
@@ -56,12 +58,13 @@
  */
 
 import * as THREE from 'three';
-import { PLANET_RADIUS, onSphere } from './globe.ts';
+import { PLANET_RADIUS } from './globe.ts';
 import { fbm } from './terrain.ts';
 import { PALETTE } from './theme.ts';
-import { BODIES, EARTH_RADIUS_KM, centuriesSince2000, heliocentric, julianDay } from './system/index.ts';
+import { BODIES, EARTH_RADIUS_KM, heliocentric } from './system/index.ts';
 import type { Body, GroundSample } from './system/index.ts';
 import { latOf, lonOf } from './sphere.ts';
+import { PRECESSION, centuriesSince2000, eclipticBasis } from './celestial.ts';
 
 const DEG = Math.PI / 180;
 const R = PLANET_RADIUS;
@@ -96,14 +99,6 @@ const RINGS_B: readonly [number, number] = [1.42, 1.95];
 const RINGS_A: readonly [number, number] = [2.03, 2.3];
 
 /**
- * Where the stars are, in Earth radii from the Sun. Past everything the camera
- * can reach, so they parallax a little as it orbits and never pass in front
- * of a planet.
- */
-const STAR_SHELL = 220;
-const STAR_COUNT = 1400;
-
-/**
  * The approach to Earth over which the rest of the system fades, as distances
  * from Earth's centre in Earth radii: all there beyond the second, all gone
  * inside the first. The rings have always gone over exactly this span, and the
@@ -122,52 +117,12 @@ const NEAR_EARTH: readonly [number, number] = [5, 10];
  */
 const PLANET_DETAIL = 16;
 
-/**
- * The general precession in longitude, degrees per Julian century.
- *
- * Standish's elements are in the J2000 ecliptic and the frame built from
- * sidereal time is the ecliptic of *date*; between them the equinox has slid
- * 0.36 degrees since 2000. Adding it is one term, and leaving it out would be
- * a third of a degree of disagreement in `verify()` for no reason at all.
+/*
+ * Sidereal time, the obliquity, the precession and the ecliptic of date were
+ * private to this file until the night sky needed the same four; they are
+ * `celestial.ts`'s now, one copy for the orrery and the stars, and `verify()`
+ * below is unchanged by the move.
  */
-const PRECESSION = 1.396971;
-
-/**
- * Greenwich mean sidereal time, in degrees: how far the Earth-fixed frame has
- * turned under the stars. The IAU 1982 expression, good to a tenth of a
- * second of time, which is 0.0004 degrees.
- */
-function siderealDegrees(date: Date): number {
-  const d = julianDay(date) - 2451545;
-  const t = d / 36525;
-  const g = 280.46061837 + 360.98564736629 * d + 0.000387933 * t * t;
-  return g - 360 * Math.floor(g / 360);
-}
-
-/** The mean obliquity of the ecliptic, degrees. */
-const obliquity = (t: number): number => 23.439291 - 0.0130042 * t;
-
-/**
- * The ecliptic of date as three world-space unit vectors.
- *
- * A direction on the celestial sphere at right ascension `a` and declination
- * `d` is, in this Earth-fixed world, the point on the unit sphere at longitude
- * `a - GMST` and latitude `d` — that is what sidereal time *means* — and
- * `onSphere` is the one conversion from a longitude and a latitude to a
- * vector, so this goes through it rather than past it. The three are:
- * the equinox (RA 0, Dec 0), ecliptic longitude 90 (RA 90, Dec +e), and the
- * ecliptic pole (RA 270, Dec 90 - e). In the celestial frame those are
- * `(1,0,0)`, `(0, cos e, sin e)` and `(0, -sin e, cos e)`, a right-handed
- * triple; `onSphere` maps the celestial frame to this one by a rotation, so it
- * stays right-handed — and `update` asserts the determinant anyway.
- */
-function eclipticBasis(date: Date, x: THREE.Vector3, y: THREE.Vector3, z: THREE.Vector3): void {
-  const g = siderealDegrees(date);
-  const e = obliquity(centuriesSince2000(date));
-  onSphere(0 - g, 0, x);
-  onSphere(90 - g, e, y);
-  onSphere(270 - g, 90 - e, z);
-}
 
 /** How big a body is drawn, in world units. Earth is exactly the planet. */
 export function drawnRadius(body: Body): number {
@@ -536,10 +491,12 @@ export interface Orrery {
    * orbits in the plane of the first two.
    */
   axes: { x: THREE.Vector3; y: THREE.Vector3; z: THREE.Vector3 };
-  /** The outermost ring plus its planet: how far from the Sun the system reaches. */
+  /**
+   * The outermost ring plus its planet: how far from the Sun the system
+   * reaches, which is what a far plane has to. The stars are further, and
+   * need none: `night-sky.ts` draws them at infinity.
+   */
   extent: number;
-  /** The radius of the star field about the Sun: what a far plane has to reach. */
-  starShell: number;
   /**
    * Place everything for this instant and this camera. `time` is the sky's own
    * clock, so the Sun here and the light on the land cannot drift apart.
@@ -693,50 +650,13 @@ export function createOrrery(): Orrery {
   if (earthBuilt === undefined) throw new Error('orrery: the registry has no Earth');
   const earth = earthBuilt.entry;
 
-  /* --- the stars -------------------------------------------------------- */
-
-  const stars = new Float32Array(STAR_COUNT * 3);
-  const starSizes = new Float32Array(STAR_COUNT);
-  for (let i = 0; i < STAR_COUNT; i++) {
-    // Uniform on the sphere, from a hash rather than Math.random, so the same
-    // sky comes back on every visit.
-    const u = hash01(i * 2 + 1) * 2 - 1;
-    const phi = hash01(i * 2 + 2) * Math.PI * 2;
-    const across = Math.sqrt(1 - u * u);
-    stars.set([across * Math.cos(phi) * STAR_SHELL * R, across * Math.sin(phi) * STAR_SHELL * R, u * STAR_SHELL * R], i * 3);
-    starSizes[i] = 1.2 + hash01(i * 7 + 3) ** 3 * 2.6;
-  }
-  const starGeometry = new THREE.BufferGeometry();
-  starGeometry.setAttribute('position', new THREE.BufferAttribute(stars, 3));
-  starGeometry.setAttribute('aSize', new THREE.BufferAttribute(starSizes, 1));
-  const starScale = { value: 1 };
-  const starMaterial = new THREE.ShaderMaterial({
-    uniforms: { uScale: starScale },
-    vertexShader: /* glsl */ `
-      attribute float aSize;
-      uniform float uScale;
-      varying float vBright;
-      void main() {
-        vBright = clamp(aSize / 3.8, 0.35, 1.0);
-        gl_PointSize = aSize * uScale;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
-    fragmentShader: /* glsl */ `
-      varying float vBright;
-      void main() {
-        float d = length(gl_PointCoord - 0.5);
-        if (d > 0.5) discard;
-        gl_FragColor = vec4(vec3(1.0, 0.95, 0.9) * vBright, 1.0);
-        #include <colorspace_fragment>
-      }`,
-    depthWrite: false,
-  });
-  starMaterial.userData.outlineParameters = { visible: false };
-  const starField = new THREE.Points(starGeometry, starMaterial);
-  starField.name = 'orrery-stars';
-  starField.frustumCulled = false;
-  group.add(starField);
-  disposables.push(starGeometry, starMaterial);
+  /*
+   * The stars were a field of 1,400 hashed points on a shell 220 radii round
+   * the Sun until 2026-09-30, in the right frame and at invented places. The
+   * sky behind the orrery is now the real one: `night-sky.ts`'s catalogue,
+   * which the world's scene already holds and draws at infinity, so it is
+   * right from any camera the menu flies and never passes in front of a planet.
+   */
 
   /* --- placing it ------------------------------------------------------- */
 
@@ -787,7 +707,6 @@ export function createOrrery(): Orrery {
     earth,
     north,
     axes: { x: ex, y: ey, z: ez },
-    starShell: STAR_SHELL * R,
     extent: (() => {
       const outer = built[built.length - 1]!;
       return outer.entry.ring + extentOf(outer.entry.body);
@@ -825,7 +744,6 @@ export function createOrrery(): Orrery {
       fade(sunMat, sunOpacity);
       glowMaterial.opacity = sunOpacity;
       sunMesh.visible = glow.visible = sunOpacity > 0.01;
-      starScale.value = Math.min(2, globalThis.devicePixelRatio || 1);
     },
     highlight(id) {
       highlighted = id;

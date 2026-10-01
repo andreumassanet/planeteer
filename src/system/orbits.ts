@@ -29,30 +29,23 @@
  * and the scale can be argued about without touching the astronomy.
  */
 
+import { OBLIQUITY_J2000, centuriesSince2000 } from '../celestial.ts';
+import { unitAt } from '../sphere.ts';
+
+/**
+ * The one place a JavaScript `Date` becomes an astronomical epoch is
+ * `celestial.ts`, since the night sky (2026-09-30): the sidereal time in the
+ * first load needs it, and importing it from here would have carried this
+ * whole table into that load with it. Re-exported, so nothing that asked this
+ * file for it has to know.
+ */
+export { julianDay, centuriesSince2000 } from '../celestial.ts';
+
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
 
 /** Days in a Julian century, which is the unit every rate below is per. */
 const CENTURY = 36525;
-
-/** Julian date of J2000.0 — 2000 January 1, 12:00 TT. */
-const J2000 = 2451545;
-
-/**
- * The one place a JavaScript `Date` becomes an astronomical epoch.
- *
- * `Date.getTime()` is milliseconds of UTC since 1970-01-01T00:00:00Z, and
- * 2440587.5 is that instant's Julian date. This ignores the difference between
- * UTC and Terrestrial Time — 69 seconds today, and growing — which is 69
- * seconds of Earth's orbit, or **0.0008 degrees of heliocentric longitude**.
- * Against a table whose own error is ten arcminutes that is three orders of
- * magnitude below the noise, so correcting it would be precision theatre.
- * `sun.ts` makes the identical simplification for the identical reason.
- */
-export const julianDay = (date: Date): number => date.getTime() / 86400000 + 2440587.5;
-
-/** Julian centuries since J2000, which is what the rates below multiply. */
-export const centuriesSince2000 = (date: Date): number => (julianDay(date) - J2000) / CENTURY;
 
 /**
  * The six Keplerian elements and their rates, in the order Standish tabulates
@@ -313,6 +306,151 @@ export function orbitPath(id: OrbitId, date: Date, segments = 128): Heliocentric
     });
   }
   return path;
+}
+
+// ---------------------------------------------------------------------------
+// Seen from here
+// ---------------------------------------------------------------------------
+
+/** A planet as seen from the Earth's centre, in the J2000 ecliptic frame. */
+export interface Geocentric {
+  /** From the Earth to the planet, au. */
+  x: number;
+  y: number;
+  z: number;
+  /** Distance from the Earth, au. */
+  distance: number;
+  /** Distance from the Sun, au. */
+  r: number;
+  /** Degrees between it and the Sun in our sky. */
+  elongation: number;
+  /**
+   * The phase angle, degrees: the Sun and the Earth as seen from the planet.
+   * 0 is fully lit, 180 is new; a superior planet never passes 12.
+   */
+  phase: number;
+  /** East of the Sun, which is the evening sky: it sets after the Sun does. */
+  east: boolean;
+}
+
+/**
+ * Where a planet is from the Earth: its heliocentric position less the
+ * Earth's, from the same Standish elements the orrery is laid out by.
+ *
+ * **One copy, for the menu's card and the sky both.** The menu's "Where to
+ * look tonight" did this subtraction for itself (`sighting` in `menu.ts`),
+ * and the night sky has to draw the planet where the card says it is; two
+ * copies of one difference is the drift this project keeps writing down. It
+ * stays in Standish's frame — right-handed, the ecliptic pole at +z,
+ * longitude anticlockwise seen from it, so a body anticlockwise of the Sun is
+ * east of it — and `celestial.ts`'s `ECLIPTIC_J2000` is what turns it into a
+ * direction among the stars.
+ *
+ * No light time: Jupiter moves 0.003 degrees in the 43 minutes its light takes
+ * at opposition, a twentieth of a pixel. The "Earth" row is the Earth–Moon
+ * barycentre, as `ELEMENTS` says, which is 6.4 arcseconds.
+ */
+export function geocentric(id: OrbitId, date: Date): Geocentric {
+  const earth = heliocentric('earth', date);
+  const there = heliocentric(id, date);
+  const x = there.x - earth.x;
+  const y = there.y - earth.y;
+  const z = there.z - earth.z;
+  const distance = Math.hypot(x, y, z);
+  if (distance < 1e-9) return { x: 0, y: 0, z: 0, distance: 0, r: there.r, elongation: 0, phase: 0, east: false };
+  // Earth to the Sun is Earth's own position turned round.
+  const toSun = -(x * earth.x + y * earth.y + z * earth.z) / (distance * earth.r);
+  // And the Sun and the Earth from the planet, by the cosine rule on the
+  // triangle the three distances make.
+  const fromPlanet = (there.r ** 2 + distance ** 2 - earth.r ** 2) / (2 * there.r * distance);
+  return {
+    x,
+    y,
+    z,
+    distance,
+    r: there.r,
+    elongation: Math.acos(Math.max(-1, Math.min(1, toSun))) / DEG,
+    phase: Math.acos(Math.max(-1, Math.min(1, fromPlanet))) / DEG,
+    east: -earth.x * y + earth.y * x > 0,
+  };
+}
+
+/**
+ * The magnitude each planet would have at 1 au from both the Sun and the
+ * Earth, fully lit, and how it fades with the phase angle `i` in degrees —
+ * the Astronomical Almanac's expressions as Meeus gives them (chapter 41).
+ * Each is then `+ 5 log10(r * distance)`. Uranus and Neptune are here so the
+ * table is whole; the sky draws the five that the eye can find.
+ */
+const MAGNITUDE: Partial<Record<OrbitId, (i: number) => number>> = {
+  mercury: (i) => -0.42 + 0.038 * i - 0.000273 * i * i + 0.000002 * i * i * i,
+  venus: (i) => -4.4 + 0.0009 * i + 0.000239 * i * i - 0.00000065 * i * i * i,
+  mars: (i) => -1.52 + 0.016 * i,
+  jupiter: (i) => -9.4 + 0.005 * i,
+  saturn: () => -8.88,
+  uranus: () => -7.19,
+  neptune: () => -6.87,
+};
+
+/**
+ * The pole of Saturn's rings, which is Saturn's own: RA 40.589, Dec 83.537
+ * (IAU, J2000), turned from the catalogue's frame into Standish's ecliptic.
+ * `unitAt` lays the pole out as the world lays out a globe — `(x, y, z)` is
+ * `(X, Z, -Y)` of the astronomers' equatorial triple — and the ecliptic is the
+ * equator leaned back by the J2000 obliquity about the equinox.
+ */
+const RING_POLE = (() => {
+  const c = unitAt(83.537, 40.589, { x: 0, y: 0, z: 0 });
+  const e = OBLIQUITY_J2000 * DEG;
+  const north = -c.z;
+  return { x: c.x, y: north * Math.cos(e) + c.y * Math.sin(e), z: -north * Math.sin(e) + c.y * Math.cos(e) };
+})();
+
+/**
+ * How bright a planet looks from the Earth's centre tonight, as a visual
+ * magnitude: `MAGNITUDE` plus the inverse squares of its two distances.
+ *
+ * **Saturn is its rings.** Seen edge-on it is a +1 star and at 27 degrees of
+ * tilt it is brighter than any star but Sirius and Canopus, so its term is
+ * the tilt of the ring plane to the line of sight, `B`, and the difference in
+ * Saturnicentric longitude between the Sun and the Earth, `dU`, in place of a
+ * phase angle: `-2.60 sin|B| + 1.25 sin^2 B + 0.044 |dU|`. `pnpm system`
+ * holds it to the almanac at the 2026 opposition.
+ */
+export function apparentMagnitude(id: OrbitId, date: Date): number {
+  const law = MAGNITUDE[id];
+  if (law === undefined) return Number.NaN;
+  const seen = geocentric(id, date);
+  const base = 5 * Math.log10(seen.r * seen.distance);
+  if (id !== 'saturn') return law(seen.phase) + base;
+  // From Saturn: to the Earth is the geocentric vector turned round, and to
+  // the Sun is its own heliocentric one.
+  const earthward = { x: -seen.x / seen.distance, y: -seen.y / seen.distance, z: -seen.z / seen.distance };
+  const planet = heliocentric(id, date);
+  const sunward = { x: -planet.x / planet.r, y: -planet.y / planet.r, z: -planet.z / planet.r };
+  const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
+    a.x * b.x + a.y * b.y + a.z * b.z;
+  const sinB = dot(RING_POLE, earthward);
+  // The two in the ring plane, and the angle between them.
+  const inPlane = (v: { x: number; y: number; z: number }): { x: number; y: number; z: number } => {
+    const along = dot(RING_POLE, v);
+    return { x: v.x - along * RING_POLE.x, y: v.y - along * RING_POLE.y, z: v.z - along * RING_POLE.z };
+  };
+  const a = inPlane(earthward);
+  const b = inPlane(sunward);
+  const cosU = dot(a, b) / Math.sqrt(dot(a, a) * dot(b, b));
+  const dU = Math.acos(Math.max(-1, Math.min(1, cosU))) / DEG;
+  return law(0) + base + 0.044 * dU - 2.6 * Math.abs(sinB) + 1.25 * sinB * sinB;
+}
+
+/**
+ * The tilt of Saturn's rings to the line of sight from the Earth, degrees:
+ * `B` above, signed, north positive. For the check script and the curious.
+ */
+export function ringTilt(date: Date): number {
+  const seen = geocentric('saturn', date);
+  const sinB = -(RING_POLE.x * seen.x + RING_POLE.y * seen.y + RING_POLE.z * seen.z) / seen.distance;
+  return Math.asin(Math.max(-1, Math.min(1, sinB))) / DEG;
 }
 
 // ---------------------------------------------------------------------------

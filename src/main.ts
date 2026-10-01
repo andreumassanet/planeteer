@@ -35,6 +35,8 @@ import type { Soundscape, Surface } from './audio.ts';
 import type { Music, MusicMoment } from './music.ts';
 import { PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, topSpeedOf } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
+import { loadStars } from './celestial.ts';
+import type { NightSky } from './night-sky.ts';
 import { createClouds } from './clouds.ts';
 import { createWeatherView } from './weather-view.ts';
 import { weatherAt, weatherSample } from './weather.ts';
@@ -487,6 +489,14 @@ async function start(): Promise<void> {
     console.warn('the railway did not load', error);
     return null;
   });
+  // And the stars, for the same reason and on the same terms: a world whose
+  // `stars.bin` did not come has nights with no stars in them and is
+  // otherwise whole. 43 KB, asked for beside the railway and wanted only at
+  // 'opening the sky', so it is off the chain everything else waits on.
+  const starsLoad = loadStars().catch((error: unknown) => {
+    console.warn('the stars did not load', error);
+    return null;
+  });
   const [placements, places, baked, lakes] = await Promise.all([
     loadPlacements(),
     loadPlaces(PLANET_RADIUS),
@@ -587,6 +597,12 @@ async function start(): Promise<void> {
     names: import('./names.ts'),
     /** The other players, if a relay is configured; see `server/`. */
     peers: import('./peers.ts'),
+    /**
+     * The stars and the planets at night (`night-sky.ts`), with the planets'
+     * astronomy (`system/orbits.ts`), which the menu shares. Attached to the
+     * sky the moment it and `stars.bin` have both come; see `nightSky` below.
+     */
+    nightSky: import('./night-sky.ts'),
     /** The traveller's card, which the menu opens before anything else is built. */
     traveller: import('./traveller.ts'),
     /** What the menu sounds like: its ticks, its dives and the hum of space. */
@@ -713,6 +729,32 @@ async function start(): Promise<void> {
   /** Whether the sun follows the real clock: the settings' time-of-day row. */
   let timeLive = !timeTaken;
   let timeFast = false;
+
+  // **The night sky**, attached whenever its code and its catalogue have both
+  // come, and waited for by nothing: the menu opens on whatever sky there is,
+  // and the stars join it — in practice before it opens, since both were asked
+  // for seconds earlier. Its program is compiled before the points join the
+  // scene, so neither the menu's first frame nor the first dusk is a link.
+  // `sky.attach` is what drives it from then on: every `sky.update`, in the
+  // menu and in the world alike.
+  let nightSky: NightSky | null = null;
+  /** Whether the menu has the sky: the stars are calmer and the planets are the orrery's. */
+  let menuSky = true;
+  const setMenuSky = (on: boolean): void => {
+    menuSky = on;
+    if (nightSky !== null) nightSky.menu = on;
+  };
+  Promise.all([deferred.nightSky, starsLoad])
+    .then(async ([{ createNightSky }, catalogue]) => {
+      if (catalogue === null) return;
+      const night = createNightSky(catalogue, sky);
+      night.menu = menuSky;
+      await renderer.compileAsync(night.points, new THREE.PerspectiveCamera(), scene);
+      scene.add(night.points);
+      sky.attach(night.update);
+      nightSky = night;
+    })
+    .catch((error: unknown) => console.warn('the night sky did not start', error));
 
   // The hero's body is an authored character in `public/models/cast/`, fetched
   // alongside the world rather than after it; `buildAvatar` needs it by the
@@ -1445,6 +1487,7 @@ async function start(): Promise<void> {
   let curtain: Curtain | null = skipMenu ? null : await menu.depart();
   // Whatever the menu did to the sky, the world gets it back.
   clouds.setVeil(1);
+  setMenuSky(false);
   if (skyDome !== undefined) skyDome.visible = true;
   if (sunDisc !== undefined) sunDisc.visible = true;
   if (moonDisc !== undefined) moonDisc.visible = true;
@@ -3258,7 +3301,17 @@ async function start(): Promise<void> {
       // `atlas.sky.setTime('2026-09-04T05:20:00Z')` freezes the world at that
       // instant and keeps it running from there; `atlas.sky.setRate(600)` runs
       // ten minutes a second, which is how you watch a dawn without waiting.
+      // `atlas.sky.state.limit` is the faintest magnitude the night shows now.
       sky,
+      /**
+       * The stars and the planets, or `null` before they have come:
+       * `atlas.night.stats` is how many stars were drawn and at what limit,
+       * and each planet's magnitude; `atlas.night.points.visible = false` is
+       * the A/B switch. See `night-sky.ts`.
+       */
+      get night() {
+        return nightSky;
+      },
       input,
       renderer,
       // The effect, not just the renderer: a frame here is two passes, so

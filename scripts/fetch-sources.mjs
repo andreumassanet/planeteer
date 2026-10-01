@@ -14,12 +14,15 @@
  * change and `pnpm check` is what has to say whether the world still holds.
  * A missing file after a fetch, or a download that failed, is the failure.
  *
+ * A source is saved as it arrives, as the member of a zip named by its
+ * `unzip`, or gunzipped when it says `gunzip` — the form each bake reads.
+ *
  * The asset packs under `../.cache/assets` are not fetched here; see the
  * `assets` note in `sources.json`.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { inflateRawSync } from 'node:zlib';
+import { gunzipSync, inflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -91,6 +94,8 @@ for (const source of wanted) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       let bytes = new Uint8Array(await response.arrayBuffer());
       if (source.unzip) bytes = unzip(bytes, source.unzip);
+      // CDS ships its catalogues as single gzipped files rather than archives.
+      if (source.gunzip) bytes = gunzipSync(bytes);
       writeFileSync(path, bytes);
       console.log(`${(bytes.length / 1048576).toFixed(1)} MB`);
     } catch (error) {
@@ -106,12 +111,14 @@ for (const source of wanted) {
   }
   const bytes = readFileSync(path);
   const hash = sha256(bytes);
+  // A source added after the manifest was first written carries its own date.
+  const recorded = source.recorded ?? manifest.recorded;
   if (hash === source.sha256) {
-    console.log(`  ok   ${source.file}  the copy recorded on ${manifest.recorded}`);
+    console.log(`  ok   ${source.file}  the copy recorded on ${recorded}`);
   } else {
     drifted++;
     console.log(
-      `  WARN ${source.file}  is not the copy recorded on ${manifest.recorded}: ` +
+      `  WARN ${source.file}  is not the copy recorded on ${recorded}: ` +
         `${bytes.length.toLocaleString('en')} bytes against ${source.bytes.toLocaleString('en')}, sha256 ${hash.slice(0, 12)}… — ` +
         `baking from it is a data change; re-bake in order and run \`pnpm check\``,
     );
