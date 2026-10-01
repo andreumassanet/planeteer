@@ -43,6 +43,25 @@ async function check() {
   a.map.hide();
   ensure(!a.map.open, 'Map did not close');
   ensure(a.failures.size === 0, `World update failed: ${JSON.stringify([...a.failures])}`);
+  // The light shafts draw facing a low sun and not at night: one render of
+  // the chain through a clone of the camera turned to the sun, whose stats
+  // are read straight after it, since the loop draws through the rig's.
+  a.weather.force('clear');
+  a.sky.setTime('2026-09-10T17:40:00Z');
+  await frames(3);
+  const lens = a.rig.camera.clone();
+  lens.up.copy(lens.position).normalize();
+  lens.lookAt(lens.position.clone().add(a.sky.state.sun));
+  lens.updateMatrixWorld();
+  a.post.render(a.scene, lens);
+  ensure(a.post.stats.shafts === 1, `No light shafts facing a low sun (strength ${a.post.shafts.strength})`);
+  a.sky.setTime('2026-09-10T01:00:00Z');
+  await frames(3);
+  a.post.render(a.scene, lens);
+  ensure(a.post.stats.shafts === 0, 'Light shafts at night');
+  a.weather.force(null);
+  a.sky.setTime('2026-09-10T10:00:00Z');
+  await frames(2);
   const land = a.scene.getObjectByName('land');
   const scene = new a.scene.constructor();
   const camera = a.rig.camera.clone();

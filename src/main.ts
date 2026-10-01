@@ -39,6 +39,7 @@ import { createClouds } from './clouds.ts';
 import { createWeatherView } from './weather-view.ts';
 import { weatherAt, weatherSample } from './weather.ts';
 import { createOcean } from './ocean.ts';
+import { shaftLight, shaftStrength } from './shafts.ts';
 import { proxyOf, warmShaders } from './warm.ts';
 import { FIRE_GLOW_REACH, FIRE_STRIDE, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, fireGlows, lightBrightness, setFires, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
@@ -939,6 +940,9 @@ async function start(): Promise<void> {
     // No weather over the menu's globe: its sky is the whole planet's.
     sky.weather.overcast = sky.weather.flash = sky.weather.mist = 0;
     clouds.setGrey(0);
+    // Nor light shafts: the orrery's space is depth 1 everywhere, which the
+    // shafts' mask would read as open sky round the sun (`shafts.ts`).
+    post.shafts.strength = 0;
     // **The weather is there from space and gone while you choose.** The
     // country and town stages are a map you click on, and the deck over it is
     // in the way: a solid cell of stratus over eastern Spain hid which coast
@@ -3115,6 +3119,21 @@ async function start(): Promise<void> {
       }
     });
 
+    // The light through the air at a low sun (`shafts.ts`): the real sun, its
+    // light as the mood and the weather leave it, and as strong as the hour,
+    // the grey, the haze and the climb allow. Under the sea there is no sky.
+    // Nothing nearer than the hero casts a ray, so his distance goes too.
+    post.shafts.direction.copy(sky.state.sun);
+    post.shafts.subject = rig.camera.position.distanceTo(player.position);
+    shaftLight(sky.sun, post.shafts.color);
+    post.shafts.strength = shaftStrength({
+      elevation: sky.state.elevation,
+      overcast: sky.weather.overcast,
+      mist: sky.weather.mist,
+      space: sky.state.space,
+      underwater: sea.underwater,
+    });
+
     // The sheet behind `M` is opaque and covers the window, so the world under
     // it is not drawn: that frame goes to painting the map's tiles instead.
     const underMap = map.open;
@@ -3266,7 +3285,12 @@ async function start(): Promise<void> {
       // plus `gl.finish()` is how the settlement budget was measured, because
       // `stats.frameMs` is a rolling average of frames a hidden tab never ran.
       outline,
-      /** The frame after the scene: `atlas.post.exposure`, `.bloom.strength`, `.uniforms` for the grade. */
+      /**
+       * The frame after the scene: `atlas.post.exposure`, `.bloom.strength`,
+       * `.uniforms` for the grade. `atlas.post.shafts.override = 0` takes the
+       * light shafts out of a dusk and `delete atlas.post.shafts.override` puts
+       * them back; `atlas.post.stats.shafts` says whether they drew.
+       */
       post,
       /** The ink's two passes: `atlas.ink(true)` puts the outlines back, `atlas.ink()` reads it. */
       ink(on?: boolean) {

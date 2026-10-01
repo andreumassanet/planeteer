@@ -324,7 +324,7 @@ const SHADOW_RADIUS = 1;
  * the world and the depth buffer sorts the rest. Five radii, comfortably inside
  * the camera's 160,000 far plane and inside the dome's own six.
  */
-const SKY_DISTANCE = PLANET_RADIUS * 5;
+export const SKY_DISTANCE = PLANET_RADIUS * 5;
 
 /**
  * Angular radius of both discs, and they get the same one on purpose.
@@ -472,6 +472,12 @@ export interface SkyState {
   elevation: number;
   /** 0 full night, 1 full day. */
   daylight: number;
+  /**
+   * 0 in the air, 1 out of it: the fade the dome takes to space as the camera
+   * climbs, none over the plane's circuit and all of it a third of a radius
+   * up. The light shafts go out on it (`shafts.ts`).
+   */
+  space: number;
   /**
    * Unit vector towards the sun, in world space. Live: the same object every
    * frame.
@@ -710,6 +716,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     time: new Date(),
     elevation: 90,
     daylight: 1,
+    space: 0,
     sun: solarDirection,
     solar: { declination: 0, subsolarLon: 0, equationOfTime: 0 },
     shadow: 0,
@@ -800,6 +807,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
       PLANET_RADIUS * 0.04,
       PLANET_RADIUS * 0.35,
     );
+    state.space = orbit;
 
     /**
      * From orbit the *light* goes to `ORBIT_LOOK` whatever the local hour, and

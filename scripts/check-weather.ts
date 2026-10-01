@@ -10,7 +10,9 @@
  * the relief — and asks the model the questions an atlas can answer, then
  * holds the drawing's two pieces of arithmetic to their contracts: every drop
  * stays inside the box round the camera, and every face of a lightning bolt
- * faces out, because its ink is a back-face hull.
+ * faces out, because its ink is a back-face hull. And the light shafts, which
+ * the weather gates: none at night, under a bank, from orbit or under the sea,
+ * no pop anywhere in a real day, and the sun put on the screen where it is.
  *
  *   node scripts/check-weather.ts
  */
@@ -28,6 +30,10 @@ import { unitAt } from '../src/sphere.ts';
 import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, seasonOf, strikeCandidate, weatherAt, weatherSample } from '../src/weather.ts';
 import type { Strike, WeatherSample } from '../src/weather.ts';
 import { BOLT_VERTICES, MAX_DROPS, RAIN_BOX, SNOW_BOX, dropGeometry, dropOffset, writeBolt } from '../src/weather-view.ts';
+import { Fog, PerspectiveCamera, Scene, Vector2 } from 'three';
+import { SKY_DISTANCE, createSky } from '../src/sun.ts';
+import { SHAFT_FLOOR, SHAFT_SKY, shaftStrength, sunOnScreen } from '../src/shafts.ts';
+import type { ShaftInput } from '../src/shafts.ts';
 import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -449,6 +455,111 @@ console.log('\nthe drawing');
   bolt.setAttribute('position', new BufferAttribute(positions, 3));
   bolt.computeBoundingSphere();
   check(Number.isFinite(bolt.boundingSphere!.radius) && bolt.boundingSphere!.radius < 1000, 'a bolt is the height of the cloud base, not a planet', `radius ${bolt.boundingSphere!.radius.toFixed(0)}`);
+}
+
+console.log('\nthe light through the air');
+{
+  // The shafts' strength is a product of fades (`shafts.ts`), and each has a
+  // place where it must be nothing and a place where it must be whole.
+  const clear: ShaftInput = { elevation: 3, overcast: 0, mist: 0, space: 0, underwater: false };
+  const at = (change: Partial<ShaftInput>): number => shaftStrength({ ...clear, ...change });
+  const none = [at({ elevation: -10 }), at({ overcast: 0.8 }), at({ overcast: 1 }), at({ space: 1 }), at({ underwater: true }), at({ mist: 1 })];
+  check(none.every((s) => s === 0), 'no shafts at night, under a bank, in a fog, from orbit or under the sea', none.map((s) => s.toFixed(3)).join(' '));
+  check(at({}) > 0.8, 'a clear sky and a sun three degrees up give them nearly all they have', at({}).toFixed(3));
+  check(Math.abs(at({ elevation: 60 }) - SHAFT_FLOOR) < 1e-6, 'and a midday sun keeps a floor, the rays through a canopy looking up', at({ elevation: 60 }).toFixed(3));
+  let rises = 0;
+  for (let e = 2; e < 60; e += 0.1) if (at({ elevation: e + 0.1 }) > at({ elevation: e }) + 1e-9) rises++;
+  for (let o = 0; o < 1; o += 0.01) if (at({ overcast: o + 0.01 }) > at({ overcast: o }) + 1e-9) rises++;
+  check(rises === 0, 'they never grow as the sun climbs past two degrees or the sky greys', `${rises} steps up`);
+
+  // A real day at Palma through `sun.ts` itself, in two-second steps: no step
+  // moves the strength by a pop, at the terminator, at the mood keys or
+  // anywhere else. The fastest fade there is the rise's, 0.0019 a step as the
+  // sun sets through it at 11.6 degrees an hour, so 0.005 is a jump and not a
+  // slope. Under a clear sky, because the weather's own steps are
+  // the continuity section's and the view eases them on top — a raw rain
+  // cell crossing Palma at 16:53 that day moves the rain by 0.04 in ten
+  // seconds, which is the model's business and not the shafts'.
+  const sky = createSky(new Scene(), new Fog(0xffffff, 1, 2));
+  sky.setRate(0);
+  const palma = unitAt(39.5696, 2.6502, new Vector3()).multiplyScalar(PLANET_RADIUS);
+  const eye = palma.clone().setLength(PLANET_RADIUS + 15);
+  const day = Date.UTC(2026, 8, 10, 4);
+  let worst = 0;
+  let worstAt = day;
+  let previous = -1;
+  let peak = 0;
+  let aloft = 0;
+  for (let t = day; t <= day + 16 * HOUR; t += 2000) {
+    sky.setTime(t);
+    sky.update(palma, eye, 15);
+    const s = shaftStrength({ ...clear, elevation: sky.state.elevation, space: sky.state.space });
+    if (sky.state.space !== 0) aloft++;
+    if (previous >= 0 && Math.abs(s - previous) > worst) {
+      worst = Math.abs(s - previous);
+      worstAt = t;
+    }
+    previous = s;
+    peak = Math.max(peak, s);
+  }
+  check(aloft === 0 && peak > 0.5, 'a day at Palma has its shafts, and the ground is not space', `peak ${peak.toFixed(3)}`);
+  check(worst < 0.005, 'and no two seconds of it moves them by a pop', `worst ${worst.toFixed(4)} at ${new Date(worstAt).toISOString().slice(11, 19)}Z`);
+
+  // The climb: `state.space` is the dome's own fade, none over the plane's
+  // circuit and whole well under the ceiling. Past it there are no shafts, so
+  // the furthest ground they can ever see is from there, over the limb, off
+  // a summit behind it (peaks reach 620 units; a thousand is allowed).
+  let top = 0;
+  for (let h = 0; h <= PLANET_RADIUS; h += 50) {
+    sky.update(palma, palma.clone().setLength(PLANET_RADIUS + h), h);
+    if (h === 320 && sky.state.space !== 0) top = -1;
+    if (sky.state.space >= 1 && top === 0) top = h;
+  }
+  const limb = (d: number, r: number): number => Math.sqrt(Math.max(0, d * d - r * r));
+  const furthest = limb(PLANET_RADIUS + top, PLANET_RADIUS) + limb(PLANET_RADIUS + 1000, PLANET_RADIUS);
+  // The sky test is a depth, so along the view axis: the discs at the corner
+  // of the widest lens (60 degrees, 21:9) are nearest it.
+  const corner = Math.atan(Math.tan(30 * (Math.PI / 180)) * Math.hypot(1, 21 / 9));
+  check(top > 0 && furthest < SHAFT_SKY && SKY_DISTANCE * Math.cos(corner) > SHAFT_SKY,
+    'the sky test passes the discs and the dome and nothing standing on the planet',
+    `space whole at ${top} units up; furthest ground then ${furthest.toFixed(0)}, sky past ${SHAFT_SKY}, discs at least ${(SKY_DISTANCE * Math.cos(corner)).toFixed(0)}`);
+
+  // The sun on the screen: centred when ahead, nowhere behind, and a sweep
+  // across the frame's edge and round behind the camera never jumps.
+  const uv = new Vector2();
+  const lens = (fov: number): PerspectiveCamera => {
+    const camera = new PerspectiveCamera(fov, 16 / 9, 0.5, 160_000);
+    camera.updateMatrixWorld();
+    camera.updateProjectionMatrix();
+    return camera;
+  };
+  const ahead = sunOnScreen(lens(60), new Vector3(0, 0, -1), uv);
+  check(ahead === 1 && Math.abs(uv.x - 0.5) < 1e-9 && Math.abs(uv.y - 0.5) < 1e-9, 'a sun straight ahead is the middle of the frame', `fade ${ahead}, uv ${uv.x.toFixed(3)} ${uv.y.toFixed(3)}`);
+  check(sunOnScreen(lens(60), new Vector3(0, 0, 1), uv) === 0, 'and a sun behind the camera is none of it');
+  let jump = 0;
+  let slide = 0;
+  let behind = 0;
+  const dir = new Vector3();
+  const last = new Vector2();
+  for (const fov of [45, 60]) {
+    const camera = lens(fov);
+    for (const across of [true, false]) {
+      let before = 1;
+      for (let deg = 0; deg <= 180; deg += 0.1) {
+        const r = deg * (Math.PI / 180);
+        if (across) dir.set(Math.sin(r), 0, -Math.cos(r));
+        else dir.set(0, Math.sin(r), -Math.cos(r));
+        const fade = sunOnScreen(camera, dir, uv);
+        jump = Math.max(jump, Math.abs(fade - before));
+        if (fade > 0 && before > 0 && deg > 0) slide = Math.max(slide, uv.distanceTo(last));
+        if (deg >= 90 && fade !== 0) behind++;
+        before = fade;
+        last.copy(uv);
+      }
+    }
+  }
+  check(jump < 0.02 && slide < 0.01 && behind === 0, 'sweeping the sun off the frame and round behind it never jumps',
+    `worst fade step ${jump.toFixed(4)} and uv step ${slide.toFixed(4)} per 0.1 degree, ${behind} lit from behind`);
 }
 
 console.log('\ncost');
