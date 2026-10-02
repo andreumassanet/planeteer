@@ -35,6 +35,7 @@ import { setSunDirection } from '../lights.ts';
 import { FOG_COLOR } from '../theme.ts';
 import { fogFar } from '../view.ts';
 import { createMenu, earthBody } from '../menu.ts';
+import type { MenuBodyModule } from '../menu.ts';
 
 /** `main.ts`'s own start, so the sheet's fallback is the world's fallback. */
 const START = { lat: 39.62, lon: 2.99, name: 'Palma' };
@@ -87,6 +88,26 @@ async function main(): Promise<void> {
     fallback: START,
     time: () => sky.state.time,
     sunDirection: () => sky.state.sun,
+    // Every other walkable body's globe, as `main.ts` makes it.
+    loadBody: async (id, centre, drawnRadius) => {
+      const load = import.meta.glob<MenuBodyModule>('../system/menu-body.ts')['../system/menu-body.ts'];
+      if (load === undefined) return null;
+      const module = await load();
+      module.installBanners();
+      return module.menuBodyOf(id, centre, drawnRadius);
+    },
+    // No worlds here: a spawn on another body is printed, and the menu given back.
+    exploreBody: (id, name, spawn) => {
+      const panel = document.getElementById('spawned')!;
+      panel.hidden = false;
+      panel.innerHTML = '';
+      const what = document.createElement('b');
+      what.textContent = spawn === undefined ? name : `${spawn.name}, ${name}`;
+      const where = document.createElement('small');
+      where.textContent = spawn === undefined ? id : `${spawn.region} · ${spawn.site ?? 'no site'} · ${spawn.lat.toFixed(3)}, ${spawn.lon.toFixed(3)}`;
+      panel.append('would land at ', what, where);
+      console.log('menu chose', id, spawn);
+    },
   });
   document.body.appendChild(menu.root);
   // The menu no longer takes the loading card over; the world's own loading
@@ -124,7 +145,7 @@ async function main(): Promise<void> {
     // stages, where it stands between the camera and the map you are choosing
     // on, and the dome goes once the camera is outside it.
     clouds.setVeil(menu.stage === 'region' || menu.stage === 'site' ? 0 : 1);
-    const inside = camera.position.length() < PLANET_RADIUS * 5.5;
+    const inside = camera.position.length() < PLANET_RADIUS * 5.5 && menu.body === 'earth';
     for (const name of ['sky', 'moon']) {
       const object = scene.getObjectByName(name);
       if (object !== undefined) object.visible = inside;

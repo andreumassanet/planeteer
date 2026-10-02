@@ -73,8 +73,8 @@ export const isAirKind = (kind: CraftKind): boolean => kind === 'plane' || kind 
  * The horn each kind sounds when its driver presses the horn key (`horn` in
  * `controls.ts`), as `audio.ts` synthesises it and the relay passes it on
  * (`HONKS`); null where there is none, which is everything that flies. A
- * bicycle rings a bell and a horse whinnies, and a hull of any size has the
- * one horn a boat has.
+ * bicycle rings a bell and a horse snorts (its wire name is still `whinny`),
+ * and a hull of any size has the one horn a boat has.
  */
 export const HORN_OF: Readonly<Record<CraftKind, Honk | null>> = {
   car: 'car',
@@ -237,6 +237,13 @@ export interface FleetLink {
   release(vehicle: string, pose: WirePose | null): void;
   /** While holding seat 0, every frame; the link decides how often to send. */
   drive(vehicle: string, pose: WirePose, speed: number): void;
+  /**
+   * The vehicle has gone under (`FOUNDER_TIME` in `vehicles.ts`) with this
+   * client holding its seat 0: every seat in it is emptied and it is back at
+   * its site, for everyone, at once — it is out of sight under the water, so
+   * nobody watches it go.
+   */
+  sink(vehicle: string): void;
   /** Called with a vehicle's id whenever its entry in `moved` changes. */
   onChange(listener: (vehicle: string) => void): () => void;
   /**

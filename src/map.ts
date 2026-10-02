@@ -3,11 +3,13 @@
  *
  * **This has to earn its place beside the plane**, because the plane *is* a
  * map: climb to the ceiling and the fog opens on the globe. What this gives
- * that altitude cannot is names, the far side of the planet, the visited set
- * at a size you can read, and a destination you can *point* at — pointer lock
- * holds the cursor everywhere else, so this is the one screen where you can
- * click on where you want to go. It decides nothing itself: a landmark clicked
- * goes to `navigation.ts`, a player clicked goes to `onJoin`.
+ * that altitude cannot is names, the far side of the planet, and a marker you
+ * can *point* at — pointer lock holds the cursor everywhere else, so this is
+ * the one screen where you can click on where you want to go. A click anywhere
+ * puts the player's one marker there (on a town or a landmark's pin, at it and
+ * with its name), and a click on the marker takes it away. It decides nothing
+ * itself: the marker is `navigation.ts`'s, and a player clicked goes to
+ * `onJoin`.
  *
  * ## What it is, and what it replaced
  *
@@ -91,6 +93,7 @@
  */
 import * as THREE from 'three';
 import type { World } from './geo.ts';
+import type { PlanetSurface } from './planet.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, coastEdges, groundColorAt } from './globe.ts';
 import { reliefAt } from './terrain.ts';
 import { createFlagCanvas } from './flags.ts';
@@ -108,15 +111,17 @@ import { type SheetRing, ringsForTile, traceOutlines } from './map-outline.ts';
 import { frameOpen } from './view.ts';
 
 export interface WorldMapOptions {
-  /** Every placement, the same array the minimap and `navigation.ts` are given. */
+  /** Every placement, the same array the minimap is given. */
   monuments: readonly Placement[];
-  isVisited(id: string): boolean;
-  /** The landmark `navigation.ts` currently has chosen, or null. */
-  target(): string | null;
-  /** Clicking a landmark. The map decides nothing; `navigation.ts` does. */
-  onChoose(id: string): void;
-  /** Clicking the one already chosen, which is how you put it away. */
-  onClear(): void;
+  /** The player's marker (`navigation.ts`), or null. */
+  marker(): MapMarker | null;
+  /**
+   * A click that puts the marker down: anywhere on the sheet, or at a town or
+   * a landmark, with its name. The map decides nothing; `navigation.ts` does.
+   */
+  onMark(lat: number, lon: number, name: string | null, landmark: boolean): void;
+  /** A click on the marker, or *Clear marker*: put it away. */
+  onUnmark(): void;
   /**
    * Every place, the array `roads.bin` indexes into. The sheet draws the ones
    * `isShown` builds; omit it for a map with no towns on it.
@@ -124,6 +129,11 @@ export interface WorldMapOptions {
   places?: readonly Place[];
   /** The network, as `roads.bin` holds it. */
   roads?: readonly Road[];
+  /**
+   * Or roads already laid, as lines of `[lat, lon]` with a class (0 a lane,
+   * 1 a road, 2 a highway): another world's, which has no `roads.bin`.
+   */
+  courses?: () => readonly { cls: number; points: readonly (readonly [number, number])[] }[];
   /**
    * Who owns pointer lock, so closing the map can hand the mouse back rather
    * than leaving you looking at "click to look around".
@@ -148,6 +158,17 @@ export interface WorldMapOptions {
   peers?: () => readonly MapPeer[];
   /** Clicking a player, which is how you go and stand beside them. */
   onJoin?(id: string): void;
+  /**
+   * The body the sheet is drawn of; Earth when omitted. Its colour, relief
+   * and coasts paint the tiles, and every distance is on its radius.
+   */
+  surface?: PlanetSurface;
+}
+
+export interface MapMarker {
+  lat: number;
+  lon: number;
+  name: string | null;
 }
 
 export interface MapPeer {
@@ -222,6 +243,26 @@ const PAD = 12;
 const COLOUR_STEP = 16;
 /** One `reliefAt` every this many pixels; the light is blended between. */
 const RELIEF_STEP = 2;
+/**
+ * On a world with no sea (`PlanetSurface.sea`), the colour and the relief
+ * lattices are finer and coarser: its ground's colour comes in patches the
+ * 16-pixel blend smeared into a wash, and its relief costs three or four
+ * times Earth's microsecond a point, which at Earth's two pixels kept a
+ * screenful of tiles painting for seconds.
+ */
+const DRY_COLOUR_STEP = 8;
+const DRY_RELIEF_STEP = 4;
+/**
+ * How much of a nation's colour its ground takes on a world with no sea,
+ * which has no coast to read a map by: the political colour is the map.
+ * The menu's globe tints by 0.7 (`orrery.ts`'s `REGION_TINT`).
+ */
+const NATION_TINT = 0.5;
+/** An sRGB byte as a linear value, for the mask's colours. */
+const LINEAR = Float32Array.from({ length: 256 }, (_, i) => {
+  const v = i / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+});
 /** How far the shallows reach off a coast, in tile pixels, as two box passes. */
 const SHALLOW_RADIUS = 5;
 /**
@@ -268,6 +309,12 @@ const KEEP_LEVEL = 2;
 const MAX_FPS = 30;
 /** The first open's zoom, as degrees of longitude across the screen. */
 const OPEN_DEGREES = 38;
+/**
+ * And on another world's: a few nations across rather than a few countries.
+ * Its nations are tens of degrees wide and its towns two dozen, so Earth's
+ * opening zoom put the sheet inside one nation with one town on it.
+ */
+const SURFACE_OPEN_DEGREES = 120;
 /** Pin geometry in pixels. */
 const PIN_RISE = 13;
 const PIN_HEAD = 6;
@@ -275,6 +322,12 @@ const PIN_HEAD = 6;
 const PIN_SPACING = 16;
 /** How far the cursor may be from a mark and still be pointing at it. */
 const PICK_RANGE = 16;
+/**
+ * How long a click on the bare sheet waits before it puts the marker down, in
+ * milliseconds: a double click zooms, and its first click must not drop a
+ * marker that its second would pick up again.
+ */
+const DOUBLE_MS = 280;
 /** A press that moves further than this is a drag, not a click. */
 const CLICK_SLOP = 5;
 /** A town drawn as its footprint rather than a dot once its square is this many pixels. */
@@ -347,17 +400,13 @@ const STYLE = `
   padding: 10px 16px 12px;
   pointer-events: none;
 }
+.atlas-map-head .ui-btn { pointer-events: auto; margin-top: 10px; }
+.atlas-map-head .ui-btn[hidden] { display: none; }
 .atlas-map-title {
   font-size: 19px;
   font-weight: 800;
   letter-spacing: -0.015em;
   line-height: 1.1;
-}
-.atlas-map-count {
-  margin-top: 1px;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.6;
 }
 .atlas-map-legend {
   margin-top: 9px;
@@ -477,7 +526,10 @@ interface SheetTown {
 }
 
 interface SheetRoad {
-  road: Road;
+  cls: number;
+  /** Earth's road, traced from its course; or null where `points` are the line. */
+  road: Road | null;
+  points: readonly (readonly [number, number])[] | null;
   u0: number;
   u1: number;
   v0: number;
@@ -496,23 +548,35 @@ interface CountryLabel {
 }
 
 type Hit =
+  | { kind: 'marker'; x: number; y: number }
   | { kind: 'pin'; index: number; x: number; y: number }
   | { kind: 'peer'; id: string; name: string; x: number; y: number; distance: number }
   | { kind: 'town'; town: SheetTown; x: number; y: number };
 
 export function createWorldMap(world: World, options: WorldMapOptions): WorldMap {
-  const { monuments, isVisited, target, onChoose, onClear } = options;
+  const { monuments, marker, onMark, onUnmark } = options;
   const key = options.key;
   const isKey = (code: string): boolean => (key === undefined ? actionOf(code) === 'map' : code === key);
   const lockTarget = options.lockTarget ?? null;
   const allPlaces = options.places ?? [];
+  // The body under the sheet: Earth's own functions unless a surface is handed in.
+  const surface = options.surface;
+  const RADIUS = surface?.radius ?? PLANET_RADIUS;
+  const UNITS_PER_DEG = surface === undefined ? UNITS_PER_DEGREE : (surface.radius * Math.PI) / 180;
+  const RADIUS_KM = surface?.radiusKm ?? EARTH_KM;
+  const unitScratch = new THREE.Vector3();
+  const colourOf = (point: THREE.Vector3, out: THREE.Color): THREE.Color =>
+    surface === undefined ? groundColorAt(world, point, out) : surface.colorAt(unitScratch.copy(point).normalize(), out);
+  const reliefOf = surface === undefined ? reliefAt : surface.reliefAt;
+  const coastOf = surface === undefined ? coastEdges : surface.coastEdges;
+  /** A body with no sea: every ring is land, painted in its nation's colour. */
+  const dry = surface !== undefined && !surface.sea;
 
   installUi();
   ensureStyle('atlas-map', STYLE);
 
   const ink = hex(PALETTE.ink);
   const paper = hex(PALETTE.white);
-  const gold = hex(PALETTE.gold);
   const violet = hex(PALETTE.violet);
   const pink = hex(PALETTE.pink);
   const oceanHex = hex(OCEAN_COLOR);
@@ -520,7 +584,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   // --- the DOM --------------------------------------------------------------
 
   // A dialog to assistive technology, and not a modal one: the world goes on
-  // flying under it and `Tab` still cycles the landmarks it shows.
+  // flying under it.
   const root = h('div', { class: 'atlas-map', role: 'dialog', 'aria-label': 'World map' });
   // Focused on opening, so a screen reader says where it is; never by `Tab`.
   const sheet = h('div', { class: 'atlas-map-sheet', tabindex: '-1' });
@@ -534,23 +598,24 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const mctx = marksCanvas.getContext('2d')!;
   sheet.append(canvas, marksCanvas);
 
-  const count = h('div', { class: 'atlas-map-count' });
   const legend = h(
     'div',
     { class: 'atlas-map-legend' },
     ...([
-      [paper, 'not found'],
-      [gold, 'found'],
-      [violet, 'destination'],
+      // A world with no landmarks keys its towns instead: its sheet's pale squares.
+      [paper, monuments.length === 0 && surface !== undefined ? 'settlement' : 'landmark'],
+      [violet, 'your marker'],
       ...(options.peers === undefined ? [] : [[pink, 'player'] as const]),
     ] as const).map(([colour, label]) => h('div', {}, h('i', { style: `background: ${colour}` }), label)),
   );
+  const unmark = h('button', { class: 'ui-btn small', type: 'button' }, icon('close', 16), 'Clear marker');
+  unmark.hidden = true;
   const head = h(
     'div',
     { class: 'atlas-map-head ui-card' },
-    h('div', { class: 'atlas-map-title', text: 'The world' }),
-    count,
+    h('div', { class: 'atlas-map-title', text: surface?.name ?? 'The world' }),
     legend,
+    unmark,
   );
 
   const zoomIn = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Zoom in', text: '+' });
@@ -568,13 +633,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     foot.replaceChildren(
       h('span', {}, kbd(labelOf('map')), 'close'),
       h('span', {}, kbd(labelOf('mapIn')), kbd(labelOf('mapOut')), 'zoom'),
-      h('span', { class: 'quiet', text: 'drag to move · scroll to zoom' }),
-      h('span', {
-        text: options.peers === undefined
-          ? 'click a landmark to go there'
-          : 'click a landmark to go there, or a player to join them',
-      }),
-      h('span', {}, kbd(labelOf('next'), labelOf('next').length > 3), 'cycle'),
+      h('span', { class: 'quiet', text: 'drag to move · scroll to zoom · click to place a marker' }),
     );
   };
   relabelFoot();
@@ -600,7 +659,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // A world with no outlines is a sheet of sea: the UI's own tests open the
     // map over a stub world, and `coastEdges` has nothing to read there.
     const source = world.rings ?? [];
-    const coast = source.length > 0 ? coastEdges(world) : [];
+    const coast = source.length > 0 ? coastOf(world) : [];
     rings = source.map((ring, r) => {
       const n = ring.points.length;
       const u = new Float32Array(n);
@@ -629,19 +688,34 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         const seam =
           (Math.abs(latA!) > 89.9 && Math.abs(latB!) > 89.9) ||
           (Math.abs(lonA!) > 179.99 && Math.abs(lonB!) > 179.99);
-        edge[k] = seam ? 2 : ring.water || (flags?.[k] ?? 0) === 1 ? 1 : 0;
+        // A surface's `coastEdges` may say 2 itself: on a walked world, the
+        // straight cut between two rings of one nation (`worlds/surface.ts`).
+        edge[k] = seam || flags?.[k] === 2 ? 2 : ring.water || (flags?.[k] ?? 0) === 1 ? 1 : 0;
       }
-      return { u, v, edge, u0, u1, v0, v1, water: ring.water, levels: [] };
+      const color = dry ? world.countries[ring.country - 1]?.color : undefined;
+      return { u, v, edge, u0, u1, v0, v1, water: ring.water, levels: [], ...(color === undefined ? {} : { fill: hex(color) }) };
     });
     // A country's name sits on the label point the bake computed, sized by
     // its biggest ring; a country of many islands is named by its largest.
     for (const [c, country] of world.countries.entries()) {
       let span = 0;
+      let uLo = Infinity;
+      let uHi = -Infinity;
+      let vLo = Infinity;
+      let vHi = -Infinity;
       for (const [r, ring] of source.entries()) {
         if (ring.country !== c + 1) continue;
         const sheetRing = rings[r]!;
         span = Math.max(span, Math.min(sheetRing.u1 - sheetRing.u0, (sheetRing.v1 - sheetRing.v0) * 1.6));
+        uLo = Math.min(uLo, sheetRing.u0);
+        uHi = Math.max(uHi, sheetRing.u1);
+        vLo = Math.min(vLo, sheetRing.v0);
+        vHi = Math.max(vHi, sheetRing.v1);
       }
+      // A walked world's nation is cut into rings at the quarter meridians
+      // and the equator, so its biggest ring is a piece of it: sized whole,
+      // unless the pieces lie either side of the antimeridian.
+      if (dry && uHi - uLo < 0.5) span = Math.max(span, Math.min(uHi - uLo, (vHi - vLo) * 1.6));
       countryLabels.push({ text: country.name.toUpperCase(), u: uOf(country.lon), v: vOf(country.lat), span });
     }
     countryLabels.sort((a, b) => b.span - a.span);
@@ -721,7 +795,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       // a quarter of the length round both ends is more than any bake wrote.
       const pad = 0.25 * Math.hypot(ub - ua, vb - va);
       return [{
+        cls: road.cls,
         road,
+        points: null,
         u0: Math.min(ua, ub) - pad,
         u1: Math.max(ua, ub) + pad,
         v0: Math.min(va, vb) - pad,
@@ -730,6 +806,26 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         v: null,
       }];
     });
+    // Another world's, laid already: the box is the line's own.
+    for (const line of options.courses?.() ?? []) {
+      if (line.points.length < 2) continue;
+      let u0 = Infinity;
+      let u1 = -Infinity;
+      let v0 = Infinity;
+      let v1 = -Infinity;
+      let last = uOf(line.points[0]![1]);
+      for (const [lat, lon] of line.points) {
+        let u = uOf(lon);
+        u -= Math.round(u - last);
+        last = u;
+        const v = vOf(lat);
+        u0 = Math.min(u0, u);
+        u1 = Math.max(u1, u);
+        v0 = Math.min(v0, v);
+        v1 = Math.max(v1, v);
+      }
+      sheetRoads.push({ cls: line.cls, road: null, points: line.points, u0, u1, v0, v1, u: null, v: null });
+    }
     return sheetRoads;
   }
 
@@ -738,7 +834,22 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const courseLatLon = { lat: 0, lon: 0 };
   const ROAD_SAMPLES = 14;
   function traceRoad(road: SheetRoad): void {
-    courseOf(road.road, allPlaces, course);
+    if (road.points !== null) {
+      const n = road.points.length;
+      const u = new Float32Array(n);
+      const v = new Float32Array(n);
+      for (let k = 0; k < n; k++) {
+        const [lat, lon] = road.points[k]!;
+        let uk = uOf(lon);
+        if (k > 0) uk -= Math.round(uk - u[k - 1]!);
+        u[k] = uk;
+        v[k] = vOf(lat);
+      }
+      road.u = u;
+      road.v = v;
+      return;
+    }
+    courseOf(road.road!, allPlaces, course);
     const u = new Float32Array(ROAD_SAMPLES);
     const v = new Float32Array(ROAD_SAMPLES);
     for (let k = 0; k < ROAD_SAMPLES; k++) {
@@ -799,8 +910,14 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const u0 = i / 2 ** z;
     const v0 = j / 2 ** z;
     const M = maskSize;
+    const colourStep = dry ? DRY_COLOUR_STEP : COLOUR_STEP;
+    const reliefStep = dry ? DRY_RELIEF_STEP : RELIEF_STEP;
 
     // The land, filled from the outlines, and the lakes cut back out of it.
+    // On a world with no sea every ring is filled in its nation's colour
+    // instead, and stroked in it a pixel wide, so the straight cuts between
+    // two rings of one nation leave no hairline of the sheet between them;
+    // the mask is then that nation's tint, and the land is everywhere.
     maskCtx.setTransform(1, 0, 0, 1, 0, 0);
     maskCtx.clearRect(0, 0, M, M);
     const uMin = u0 - PAD / scaleZ;
@@ -813,7 +930,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     for (const pass of [false, true]) {
       maskCtx.globalCompositeOperation = pass ? 'destination-out' : 'source-over';
       maskCtx.fillStyle = '#fff';
-      ringsForTile(sheetRings, scaleZ, uMin, uMax, vMin, vMax, pass, (level, wrap) => {
+      maskCtx.lineWidth = 1.5;
+      maskCtx.lineJoin = 'round';
+      ringsForTile(sheetRings, scaleZ, uMin, uMax, vMin, vMax, pass, (level, wrap, ring) => {
+        if (dry) maskCtx.fillStyle = maskCtx.strokeStyle = ring.fill ?? '#fff';
         maskCtx.beginPath();
         const n = level.u.length;
         for (let k = 0; k < n; k++) {
@@ -824,6 +944,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         }
         maskCtx.closePath();
         maskCtx.fill();
+        if (dry) maskCtx.stroke();
       });
     }
     maskCtx.globalCompositeOperation = 'source-over';
@@ -831,7 +952,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const land = new Float32Array(M * M);
     let anyLand = false;
     for (let k = 0; k < M * M; k++) {
-      land[k] = maskData[k * 4 + 3]! / 255;
+      land[k] = dry ? 1 : maskData[k * 4 + 3]! / 255;
       if (land[k]! > 0) anyLand = true;
     }
     yield;
@@ -839,7 +960,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // The shallows: the land blurred twice, horizontally then vertically,
     // read only on the water.
     const near = new Float32Array(M * M);
-    if (anyLand) {
+    if (anyLand && !dry) {
       const row = new Float32Array(M * M);
       const R = SHALLOW_RADIUS;
       for (let pass = 0; pass < 2; pass++) {
@@ -868,19 +989,19 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // lattice point. `groundColorAt` answers over the sea too — a colour for
     // the ground that is not there — which is what a blend across a coast
     // wants.
-    const GN = TILE / COLOUR_STEP + 1;
+    const GN = TILE / colourStep + 1;
     const lattice = new Float32Array(GN * GN * 3);
     const known = new Uint8Array(GN * GN);
     if (anyLand) {
       for (let gy = 0; gy < GN; gy++) {
         for (let gx = 0; gx < GN; gx++) {
-          const mx = Math.min(M - 1, gx * COLOUR_STEP + PAD);
-          const my = Math.min(M - 1, gy * COLOUR_STEP + PAD);
+          const mx = Math.min(M - 1, gx * colourStep + PAD);
+          const my = Math.min(M - 1, gy * colourStep + PAD);
           if (near[my * M + mx]! <= 0 && land[my * M + mx]! <= 0) continue;
-          const lat = latOfV(v0 + (gy * COLOUR_STEP) / scaleZ);
-          const lon = lonOfU(u0 + (gx * COLOUR_STEP) / scaleZ);
-          unitAt(lat, lon, pointScratch).multiplyScalar(PLANET_RADIUS);
-          groundColorAt(world, pointScratch, colourScratch);
+          const lat = latOfV(v0 + (gy * colourStep) / scaleZ);
+          const lon = lonOfU(u0 + (gx * colourStep) / scaleZ);
+          unitAt(lat, lon, pointScratch).multiplyScalar(RADIUS);
+          colourOf(pointScratch, colourScratch);
           const g = gy * GN + gx;
           lattice[g * 3] = colourScratch.r;
           lattice[g * 3 + 1] = colourScratch.g;
@@ -894,7 +1015,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // The relief, on a lattice of its own a step round the tile so every
     // point inside has neighbours, and the light worked out on that lattice.
     // Where the lattice is over water the ground is taken as flat.
-    const RS = RELIEF_STEP;
+    const RS = reliefStep;
     const RN = TILE / RS + 3;
     const relief = new Float32Array(RN * RN);
     const light = new Float32Array(RN * RN).fill(1);
@@ -908,7 +1029,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
           const mx = Math.min(M - 1, Math.max(0, px + PAD));
           if (land[my * M + mx]! <= 0 && near[my * M + mx]! < 0.02) continue;
           unitAt(lat, lonOfU(u0 + px / scaleZ), pointScratch);
-          relief[ry * RN + rx] = Math.max(0, reliefAt(pointScratch.x, pointScratch.y, pointScratch.z));
+          relief[ry * RN + rx] = Math.max(0, reliefOf(pointScratch.x, pointScratch.y, pointScratch.z));
         }
         if ((ry & 7) === 7) yield;
       }
@@ -917,8 +1038,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       // pixel is 400 units and a 680-unit range is a two-pixel bump.
       for (let ry = 1; ry < RN - 1; ry++) {
         const lat = latOfV(v0 + ((ry - 1) * RS) / scaleZ);
-        const unitsX = ((360 * RS) / scaleZ) * Math.max(0.05, Math.cos(lat * DEG)) * UNITS_PER_DEGREE;
-        const unitsY = ((TAU * RS * Math.cos(0.8 * lat * DEG)) / scaleZ) * R2D * UNITS_PER_DEGREE;
+        const unitsX = ((360 * RS) / scaleZ) * Math.max(0.05, Math.cos(lat * DEG)) * UNITS_PER_DEG;
+        const unitsY = ((TAU * RS * Math.cos(0.8 * lat * DEG)) / scaleZ) * R2D * UNITS_PER_DEG;
         const lift = Math.min(14, Math.max(1.6, Math.sqrt(unitsX / RS / 6)));
         for (let rx = 1; rx < RN - 1; rx++) {
           const k = ry * RN + rx;
@@ -940,7 +1061,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       const ly = y / RS + 1;
       const ly0 = Math.floor(ly);
       const lfy = ly - ly0;
-      const gy = y / COLOUR_STEP;
+      const gy = y / colourStep;
       const gy0 = Math.min(GN - 2, Math.floor(gy));
       const fy = gy - gy0;
       for (let x = 0; x < TILE; x++) {
@@ -957,7 +1078,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
           b += (oceanShallow.b - b) * s;
         }
         if (a > 0) {
-          const gx = x / COLOUR_STEP;
+          const gx = x / colourStep;
           const gx0 = Math.min(GN - 2, Math.floor(gx));
           const fx = gx - gx0;
           let lr = 0;
@@ -991,6 +1112,13 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
           const shade =
             (light[k]! * (1 - lfx) + light[k + 1]! * lfx) * (1 - lfy) +
             (light[k + RN]! * (1 - lfx) + light[k + RN + 1]! * lfx) * lfy;
+          if (dry) {
+            // The nation's own colour over its ground, before the light.
+            const t = (maskData[m * 4 + 3]! / 255) * NATION_TINT;
+            lr += (LINEAR[maskData[m * 4]!]! - lr) * t;
+            lg += (LINEAR[maskData[m * 4 + 1]!]! - lg) * t;
+            lb += (LINEAR[maskData[m * 4 + 2]!]! - lb) * t;
+          }
           lr *= shade;
           lg *= shade;
           lb *= shade;
@@ -1175,7 +1303,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     canvasX = inner.left;
     canvasY = inner.top;
     if (!zoomSet) {
-      S = (width * 360) / OPEN_DEGREES;
+      S = (width * 360) / (surface === undefined ? OPEN_DEGREES : SURFACE_OPEN_DEGREES);
       zoomSet = true;
     }
     clampView();
@@ -1361,8 +1489,13 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   }
 
   function drawRoads(): void {
-    const pxPerDegree = S / 360;
-    if (pxPerDegree < ROADS_FROM || options.roads === undefined) return;
+    // The thresholds are Earth's degrees; on a smaller body a degree is
+    // fewer kilometres, so its roads come up at the same scale in kilometres.
+    const pxPerDegree = ((S / 360) * EARTH_KM) / RADIUS_KM;
+    // Another world's few hundred roads are drawn from further out than
+    // Earth's tens of thousands: the whole network is a handful of lines.
+    const from = options.courses !== undefined ? ROADS_FROM / 4 : ROADS_FROM;
+    if (pxPerDegree < from || (options.roads === undefined && options.courses === undefined)) return;
     const all = prepareRoads();
     const uLeft = cu - width / 2 / S;
     const uRight = cu + width / 2 / S;
@@ -1370,20 +1503,20 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const vBottom = cv + height / 2 / S;
     const lanes = pxPerDegree >= LANES_FROM;
     const widthOf = [lanes ? 1.6 : 0, 2.4, 3.4];
-    const zoomGain = Math.min(1.8, Math.max(1, Math.log2(pxPerDegree / ROADS_FROM) * 0.35 + 1));
+    const zoomGain = Math.min(1.8, Math.max(1, Math.log2(pxPerDegree / from) * 0.35 + 1));
     const paths = [new Path2D(), new Path2D(), new Path2D()];
     for (const road of all) {
-      if (widthOf[road.road.cls] === 0) continue;
+      if (widthOf[road.cls] === 0) continue;
       if (road.v1 < vTop || road.v0 > vBottom) continue;
       let wrap = 0;
       if (road.u1 < uLeft) wrap = 1;
       else if (road.u0 > uRight) wrap = -1;
       if (road.u1 + wrap < uLeft || road.u0 + wrap > uRight) continue;
       if (road.u === null) traceRoad(road);
-      const path = paths[road.road.cls] ?? paths[0]!;
+      const path = paths[road.cls] ?? paths[0]!;
       const originX = width / 2 + (wrap - cu) * S;
       const originY = height / 2 - cv * S;
-      for (let k = 0; k < ROAD_SAMPLES; k++) {
+      for (let k = 0; k < road.u!.length; k++) {
         const x = originX + road.u![k]! * S;
         const y = originY + road.v![k]! * S;
         if (k === 0) path.moveTo(x, y);
@@ -1416,7 +1549,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   function layoutAndDraw(space: LabelSpace): void {
     const pxPerDegree = S / 360;
-    const chosen = target();
     hits.length = 0;
 
     // You, first: nothing is allowed to sit on the arrow.
@@ -1430,29 +1562,29 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     laidMeX = meX;
     laidMeY = meY;
 
-    // The landmarks: which pins stand, the destination always.
+    // The marker's place, so no name is written through it.
+    const mark = marker();
+    if (mark !== null) {
+      const x = screenX(uOf(mark.lon));
+      const y = screenY(vOf(mark.lat));
+      space.claim(x - PIN_HEAD * 1.3 - 2, y - (PIN_RISE + PIN_HEAD) * 1.3 - 2, PIN_HEAD * 2.6 + 4, (PIN_RISE + PIN_HEAD) * 1.3 + 4);
+    }
+
+    // The landmarks: which pins stand.
     keptPins.length = 0;
-    const order = monuments.map((_, index) => index);
-    order.sort((a, b) => {
-      const ca = monuments[a]!.id === chosen ? 0 : 1;
-      const cb = monuments[b]!.id === chosen ? 0 : 1;
-      return ca - cb;
-    });
-    for (const index of order) {
+    for (let index = 0; index < monuments.length; index++) {
       const monument = monuments[index]!;
       const x = screenX(uOf(monument.lon));
       const y = screenY(vOf(monument.lat));
       if (x < -30 || x > width + 30 || y < -30 || y > height + 40) continue;
-      if (monument.id !== chosen) {
-        let crowded = false;
-        for (const pin of keptPins) {
-          if (Math.abs(pin.x - x) < PIN_SPACING && Math.abs(pin.y - y) < PIN_SPACING) {
-            crowded = true;
-            break;
-          }
+      let crowded = false;
+      for (const pin of keptPins) {
+        if (Math.abs(pin.x - x) < PIN_SPACING && Math.abs(pin.y - y) < PIN_SPACING) {
+          crowded = true;
+          break;
         }
-        if (crowded) continue;
       }
+      if (crowded) continue;
       keptPins.push({ index, x, y });
       space.claim(x - PIN_HEAD - 2, y - PIN_RISE - PIN_HEAD - 2, PIN_HEAD * 2 + 4, PIN_RISE + PIN_HEAD + 4);
     }
@@ -1482,8 +1614,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const pinFont = `800 12.5px ${FONT}`;
     for (const pin of keptPins) {
       const monument = monuments[pin.index]!;
-      const showName = pxPerDegree >= 5 || monument.id === chosen;
-      if (!showName) continue;
+      if (pxPerDegree < 5) continue;
       tryLabel(monument.name, pin.x + PIN_HEAD + 5, pin.y - PIN_RISE, pinFont, 12.5, ink, paper, 'left');
     }
 
@@ -1504,13 +1635,15 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
     // The towns: by rank, as many as there is room for above the zoom's floor.
     let floor = 0;
-    for (const [upTo, pop] of TOWN_FLOOR) {
+    // Another world has two dozen towns, none of them a megacity: every one
+    // is named whenever there is room, as Earth's are at a street zoom.
+    for (const [upTo, pop] of surface === undefined ? TOWN_FLOOR : []) {
       if (pxPerDegree < upTo) {
         floor = pop;
         break;
       }
     }
-    const unitsPerPx = (360 / S) * UNITS_PER_DEGREE;
+    const unitsPerPx = (360 / S) * UNITS_PER_DEG;
     const townMarks: { town: SheetTown; x: number; y: number; side: number }[] = [];
     let named = 0;
     for (const town of towns) {
@@ -1580,10 +1713,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
     // The pins are drawn over the sheet with the marks; what is pointed at
     // is known here, where they were laid out.
-    for (const pin of keptPins) {
-      const grow = monuments[pin.index]!.id === chosen ? 1.2 : 1;
-      hits.push({ kind: 'pin', index: pin.index, x: pin.x, y: pin.y - PIN_RISE * grow });
-    }
+    for (const pin of keptPins) hits.push({ kind: 'pin', index: pin.index, x: pin.x, y: pin.y - PIN_RISE });
     ctx.restore();
   }
 
@@ -1686,7 +1816,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const routeB = new THREE.Vector3();
   const routeP = new THREE.Vector3();
   const routeLatLon = { lat: 0, lon: 0 };
-  function drawRoute(to: Placement): void {
+  function drawRoute(to: MapMarker): void {
     unitAt(me.lat, me.lon, routeA);
     unitAt(to.lat, to.lon, routeB);
     const angle = routeA.angleTo(routeB);
@@ -1743,7 +1873,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       mctx.stroke();
       inkedText(mctx, peer.name, x, y - 15, paper, ink, 4);
       unitAt(me.lat, me.lon, routeA);
-      const distance = routeA.angleTo(routeB.set(peer.x, peer.y, peer.z).normalize()) * EARTH_KM;
+      const distance = routeA.angleTo(routeB.set(peer.x, peer.y, peer.z).normalize()) * RADIUS_KM;
       peerHits.push({ kind: 'peer', id: peer.id, name: peer.name, x, y, distance });
     }
   }
@@ -1773,7 +1903,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   function drawScale(): void {
     const lat = latOfV(cv);
-    const kmPerPx = ((TAU * EARTH_KM) / S) * Math.max(0.05, Math.cos(lat * DEG));
+    const kmPerPx = ((TAU * RADIUS_KM) / S) * Math.max(0.05, Math.cos(lat * DEG));
     const raw = kmPerPx * 110;
     const power = 10 ** Math.floor(Math.log10(raw));
     const nice = [1, 2, 5, 10].map((m) => m * power).filter((value) => value <= raw).pop() ?? power;
@@ -1804,19 +1934,27 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     mctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     mctx.clearRect(0, 0, width, height);
     mctx.lineJoin = 'round';
-    const chosen = target();
-    // The route to the destination: the great circle, dashed.
-    if (chosen !== null && me.known) {
-      const to = monuments.find((monument) => monument.id === chosen);
-      if (to !== undefined) drawRoute(to);
-    }
+    const mark = marker();
+    // The route to the marker: the great circle, dashed.
+    if (mark !== null && me.known) drawRoute(mark);
     for (const pin of keptPins) {
-      const monument = monuments[pin.index]!;
-      const fill = monument.id === chosen ? violet : isVisited(monument.id) ? gold : paper;
-      const grow = hover?.kind === 'pin' && hover.index === pin.index ? 1.3 : monument.id === chosen ? 1.2 : 1;
-      drawPin(pin.x, pin.y, fill, grow);
+      const grow = hover?.kind === 'pin' && hover.index === pin.index ? 1.3 : 1;
+      drawPin(pin.x, pin.y, paper, grow);
     }
     peerHits.length = 0;
+    if (mark !== null) {
+      const x = screenX(uOf(mark.lon));
+      const y = screenY(vOf(mark.lat));
+      const grow = hover?.kind === 'marker' ? 1.5 : 1.3;
+      drawPin(x, y, violet, grow);
+      if (mark.name !== null) {
+        mctx.font = `800 12.5px ${FONT}`;
+        mctx.textAlign = 'left';
+        mctx.textBaseline = 'middle';
+        inkedText(mctx, mark.name, x + PIN_HEAD * grow + 5, y - PIN_RISE * grow, paper, ink, 4);
+      }
+      peerHits.push({ kind: 'marker', x, y: y - PIN_RISE * 1.3 });
+    }
     drawPeers();
     if (me.known) drawMe(screenX(me.u), screenY(me.v));
     marksMs = performance.now() - started;
@@ -1835,8 +1973,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     let bestScore = Infinity;
     for (const hit of hits.length === 0 ? peerHits : peerHits.length === 0 ? hits : [...hits, ...peerHits]) {
       const d = Math.hypot(hit.x - x, hit.y - y);
-      // Players first, then pins, then towns: a town under a pin is the pin.
-      const bias = hit.kind === 'peer' ? 0 : hit.kind === 'pin' ? 4 : 8;
+      // The marker, then players, then pins, then towns: a town under a pin is the pin.
+      const bias = hit.kind === 'marker' ? 0 : hit.kind === 'peer' ? 2 : hit.kind === 'pin' ? 4 : 8;
       if (d > PICK_RANGE) continue;
       if (d + bias < bestScore) {
         bestScore = d + bias;
@@ -1848,6 +1986,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   function sameHit(a: Hit | null, b: Hit | null): boolean {
     if (a === null || b === null) return a === b;
+    if (a.kind === 'marker' && b.kind === 'marker') return true;
     if (a.kind === 'pin' && b.kind === 'pin') return a.index === b.index;
     if (a.kind === 'peer' && b.kind === 'peer') return a.id === b.id;
     if (a.kind === 'town' && b.kind === 'town') return a.town === b.town;
@@ -1873,13 +2012,21 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     }
     if (!sameHit(hover, tipFor)) fillTip(hover);
     tip.style.left = `${canvasLeft + hover.x}px`;
-    tip.style.top = `${canvasTop + hover.y - (hover.kind === 'pin' ? 4 : 8)}px`;
+    tip.style.top = `${canvasTop + hover.y - (hover.kind === 'pin' || hover.kind === 'marker' ? 4 : 8)}px`;
     tip.classList.add('on');
   }
   function fillTip(hit: Hit): void {
     tipFor = hit;
     unitAt(me.lat, me.lon, routeA);
-    if (hit.kind === 'peer') {
+    if (hit.kind === 'marker') {
+      const mark = marker();
+      if (mark === null) return;
+      unitAt(mark.lat, mark.lon, tipPoint);
+      tipName.textContent = mark.name ?? 'Your marker';
+      tipSub.replaceChildren(h('b', { text: km(routeA.angleTo(tipPoint) * RADIUS_KM) }), ' · click to remove');
+      tipFlag.replaceChildren();
+      tipIso = '';
+    } else if (hit.kind === 'peer') {
       tipName.textContent = hit.name;
       tipSub.replaceChildren(h('b', { text: km(hit.distance) }), options.onJoin ? ' · click to join' : '');
       tipFlag.replaceChildren();
@@ -1887,18 +2034,17 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     } else if (hit.kind === 'pin') {
       const monument = monuments[hit.index]!;
       unitAt(monument.lat, monument.lon, tipPoint);
-      const distance = routeA.angleTo(tipPoint) * EARTH_KM;
+      const distance = routeA.angleTo(tipPoint) * RADIUS_KM;
       tipName.textContent = monument.name;
       tipSub.replaceChildren(
         `${countryName.get(monument.iso) ?? monument.iso} · `,
         h('b', { text: km(distance) }),
-        isVisited(monument.id) ? ' · found' : '',
       );
       tipFlagFor(monument.iso);
     } else {
       const place = hit.town.place;
       unitAt(place.lat, place.lon, tipPoint);
-      const distance = routeA.angleTo(tipPoint) * EARTH_KM;
+      const distance = routeA.angleTo(tipPoint) * RADIUS_KM;
       tipName.textContent = place.name;
       tipSub.replaceChildren(
         `${countryName.get(place.iso) ?? place.iso} · ${people(place.pop)} · `,
@@ -1908,11 +2054,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     }
   }
 
-  function refreshCount(): void {
-    let found = 0;
-    for (const monument of monuments) if (isVisited(monument.id)) found++;
-    count.textContent = `${found} of ${monuments.length} landmarks found`;
-  }
+  /** The click waiting to put the marker down, until a double click says it was a zoom. */
+  let pendingClick = 0;
 
   const events = new AbortController();
   const { signal } = events;
@@ -1961,20 +2104,44 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     press = null;
     sheet.classList.remove('drag');
     if (wasDrag || event.type === 'pointercancel') return;
+    // The second click of a double: the first is cancelled and the double zooms.
+    if (pendingClick !== 0) {
+      clearTimeout(pendingClick);
+      pendingClick = 0;
+      return;
+    }
     const hit = pickAt(event.clientX, event.clientY);
-    if (hit === null) return;
-    if (hit.kind === 'peer') {
+    const x = event.clientX - canvasX;
+    const y = event.clientY - canvasY;
+    pendingClick = window.setTimeout(() => {
+      pendingClick = 0;
+      if (showing) click(hit, x, y);
+    }, DOUBLE_MS);
+  };
+
+  /** A single click: join a player, or put the marker down or away. */
+  function click(hit: Hit | null, x: number, y: number): void {
+    if (hit?.kind === 'peer') {
       if (options.onJoin === undefined) return;
       hide();
       options.onJoin(hit.id);
-    } else if (hit.kind === 'pin') {
-      // Clicking the one you already chose is how you put it away.
-      const id = monuments[hit.index]!.id;
-      if (id === target()) onClear();
-      else onChoose(id);
-      dirty = true;
+      return;
     }
-  };
+    if (hit?.kind === 'marker') onUnmark();
+    else if (hit?.kind === 'pin') {
+      const monument = monuments[hit.index]!;
+      onMark(monument.lat, monument.lon, monument.name, true);
+    } else if (hit?.kind === 'town') {
+      onMark(hit.town.place.lat, hit.town.place.lon, hit.town.place.name, false);
+    } else {
+      const v = Math.max(0, Math.min(SHEET_HEIGHT, cv + (y - height / 2) / S));
+      onMark(latOfV(v), lonOfU(cu + (x - width / 2) / S), null, false);
+    }
+    hover = null;
+    renderTip();
+    marksDirty = true;
+    dirty = true;
+  }
   canvas.addEventListener('pointerup', release, { signal });
   canvas.addEventListener('pointercancel', release, { signal });
 
@@ -1996,13 +2163,20 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   }, { signal, passive: false });
 
   canvas.addEventListener('dblclick', (event) => {
+    clearTimeout(pendingClick);
+    pendingClick = 0;
     zoomAt(2, event.clientX - canvasX, event.clientY - canvasY);
   }, { signal });
 
   // A click on a button leaves the focus where it was: a focused button on
   // this dialog would hold every key the plane under the map is flown by
   // (`inputBlocked`), and `Tab` with it.
-  for (const button of [zoomIn, zoomOut, locate]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
+  for (const button of [zoomIn, zoomOut, locate, unmark]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
+  unmark.addEventListener('click', () => {
+    onUnmark();
+    marksDirty = true;
+    dirty = true;
+  }, { signal });
   zoomIn.addEventListener('click', () => zoomAt(2, width / 2, height / 2), { signal });
   zoomOut.addEventListener('click', () => zoomAt(0.5, width / 2, height / 2), { signal });
   locate.addEventListener('click', () => centreOnMe(), { signal });
@@ -2020,7 +2194,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     prepareRings();
     prepareTowns();
     prime();
-    refreshCount();
     hover = null;
     renderTip();
     centreOnMe();
@@ -2089,7 +2262,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   let lastMeX = -1;
   let lastMeY = -1;
   let lastHeading = 99;
-  let lastTarget: string | null = null;
+  let lastMarker = '';
   let lastUpdateAt = 0;
   const onScreen = (x: number, y: number): boolean => x > -40 && x < width + 40 && y > -40 && y < height + 40;
 
@@ -2155,10 +2328,12 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       if (paintTiles(busy() || gap > LATE_FRAME_MS ? TILE_BUSY_MS : TILE_BUDGET_MS)) dirty = true;
       // The first still frame after a drag or a zoom, with the fine filter.
       if (drawnBusy && !busy()) dirty = true;
-      // The destination's name is always on the sheet, so a new one is a redraw.
-      const chosen = target();
-      if (chosen !== lastTarget) {
-        lastTarget = chosen;
+      // The marker keeps the names off it, so a new one is a redraw.
+      const mark = marker();
+      const markKey = mark === null ? '' : `${mark.lat},${mark.lon}`;
+      if (markKey !== lastMarker) {
+        lastMarker = markKey;
+        unmark.hidden = mark === null;
         dirty = true;
       }
 

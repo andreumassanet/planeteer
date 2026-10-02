@@ -9,6 +9,10 @@ import type { Road } from './roads.ts';
 import { createToonRamp, PALETTE } from './theme.ts';
 import { frameOpenFor } from './view.ts';
 import { PROUD, assemble, craftContext, soupOf } from './craft/build.ts';
+import { DOOR_JAMB, TONES, createSceneryContext, doorPaint } from './scenery/contract.ts';
+import type { SceneryContext } from './scenery/contract.ts';
+import { regionFor } from './scenery/regions.ts';
+import { rngFrom } from './scenery/random.ts';
 import {
   BED_FOOT,
   BED_HALF,
@@ -38,6 +42,8 @@ import {
 } from './rails.ts';
 import type { RailNetwork, StationFrame, TrainState } from './rails.ts';
 import type { PassingSource } from './passing-sound.ts';
+import { BENCH_SEAT, sitAhead } from './bench.ts';
+import type { Bench } from './bench.ts';
 
 /**
  * The railway, drawn and run: the track laid near the eye, the stations, the
@@ -86,9 +92,26 @@ const RAIL_WIDTH = 0.22;
 /** How far past the carriageway's edge the bed stops at a level crossing. */
 const CROSSING_MARGIN = 0.6;
 
+/**
+ * A station's benches under its canopy, backs to the hall, in the station's
+ * own frame with the platform toward +X (`buildStation` mirrors by its
+ * `sign`): their middle's distance off the track's side, their middles along
+ * the line, and the seat's depth and the back's front behind the middle. The
+ * seat's top is `BENCH_SEAT` over the deck, where the sitting clip's thighs
+ * rest, so a body sits on one as on a town's bench (`bench.ts`), at the
+ * spots `STATION_SIT_ALONG` either side of a bench's middle.
+ */
+const STATION_BENCH_X = PLATFORM_INNER + PLATFORM_WIDTH - 0.2 - 1.1;
+const STATION_BENCH_ZS = [HALL_FROM + HALL_LENGTH / 2 - 4.2 * 2.5, HALL_FROM + HALL_LENGTH / 2 + 4.2 * 2.5] as const;
+const STATION_BENCH_DEPTH = 0.95;
+const STATION_BENCH_BACK = 0.43;
+const STATION_SIT_ALONG = [-0.9, 0.9] as const;
+
 const BALLAST = new THREE.Color(PALETTE.tan).multiplyScalar(0.78);
 const SHOULDER = new THREE.Color(PALETTE.tan).multiplyScalar(0.66);
 const BAND = new THREE.Color(PALETTE.bark).multiplyScalar(0.95);
+/** The bed's own colours, apart from the sleepers' and the rails': what `pnpm railway` walks for open sections. */
+export const BED_COLOURS: readonly THREE.Color[] = [BALLAST, SHOULDER, BAND];
 const SLEEPER = new THREE.Color(PALETTE.bark);
 const RAIL_SIDE = new THREE.Color(PALETTE.steel);
 const RAIL_HEAD = new THREE.Color(PALETTE.bone).multiplyScalar(0.9);
@@ -108,6 +131,8 @@ export interface Railway {
   bedHeightAt(point: THREE.Vector3): number;
   /** The trains' cars and the station halls as walls: true if a body of `radius` at `point` overlaps one, and `push` the way out. */
   collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /** The standing stations' benches whose sitter's spot is inside `radius` of `point`, pushed onto `out`. */
+  benchesNear(point: THREE.Vector3, radius: number, out: Bench[]): void;
   /** Every drawn car, as a point and a radius, for what the road traffic stops for. */
   eachCar(visit: (point: THREE.Vector3, radius: number, moving: boolean) => void): void;
   /** The nearest train this frame, for the ear, or null. */
@@ -189,6 +214,7 @@ export function createRailway(options: RailwayOptions): Railway {
   group.name = 'railway';
   const roadIndex = roads.length > 0 ? roadIndexFor(roads, places) : null;
   const roadGeometry = roads.length > 0 ? roadGeometryFor(roads, places) : null;
+  const continentOf = new Map<string, string>(world.countries.map((country) => [country.iso, country.continent]));
 
   // --- materials -------------------------------------------------------------
 
@@ -323,6 +349,9 @@ export function createRailway(options: RailwayOptions): Railway {
     const colourOf = near ? [SHOULDER, BALLAST, SHOULDER] : [SHOULDER, BALLAST, BAND, BALLAST, SHOULDER];
     const rows: THREE.Vector3[][] = [];
     const rowS: number[] = [];
+    /** Each row's direction along the line and its crown, for the caps. */
+    const rowT: THREE.Vector3[] = [];
+    const rowR: number[] = [];
     for (let k = 0; k <= steps; k++) {
       const s = s0 + ((s1 - s0) * k) / steps;
       const tt = parameterAt(path, s);
@@ -340,13 +369,70 @@ export function createRailway(options: RailwayOptions): Railway {
       }
       rows.push(section);
       rowS.push(s);
+      rowT.push(t.clone());
+      rowR.push(r);
     }
+    const drawn: boolean[] = [];
+    for (let k = 0; k < steps; k++) drawn.push(!inCrossing((rowS[k]! + rowS[k + 1]!) / 2));
     for (let k = 0; k < steps; k++) {
-      const mid = (rowS[k]! + rowS[k + 1]!) / 2;
-      if (inCrossing(mid)) continue;
+      if (!drawn[k]) continue;
       const a = rows[k]!;
       const b = rows[k + 1]!;
       for (let j = 0; j + 1 < across.length; j++) quad(a[j]!, a[j + 1]!, b[j + 1]!, b[j]!, colourOf[j]!);
+    }
+
+    // --- the ends: no section of the bed is ever left open ---
+    // A triangle, dropped where two of its corners are one point.
+    const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, colour: THREE.Color): void => {
+      if (a === b || b === c || a === c) return;
+      push(a, colour); push(b, colour); push(c, colour);
+    };
+    /**
+     * Where the line itself ends, at a terminus, the ballast is hipped like
+     * its sides: the crown's corners run on `BED_FOOT - BED_HALF` and down to
+     * the foot, so the end is a slope of the shoulders' own pitch.
+     */
+    const hip = (k: number, outward: number): void => {
+      const a = rows[k]!;
+      const run = (BED_FOOT - BED_HALF) * outward;
+      const e = a.map((point, j) => {
+        if (j === 0 || j === a.length - 1) return point;
+        const out = point.clone().normalize().addScaledVector(rowT[k]!, run / PLANET_RADIUS).normalize();
+        return out.multiplyScalar(Math.min(rowR[k]! - SHOULDER_DROP, groundAt(out) - 1.5));
+      });
+      for (let j = 0; j + 1 < a.length; j++) {
+        if (outward > 0) {
+          tri(a[j]!, a[j + 1]!, e[j + 1]!, SHOULDER);
+          tri(a[j]!, e[j + 1]!, e[j]!, SHOULDER);
+        } else {
+          tri(e[j]!, e[j + 1]!, a[j + 1]!, SHOULDER);
+          tri(e[j]!, a[j + 1]!, a[j]!, SHOULDER);
+        }
+      }
+    };
+    /**
+     * Anywhere else the bed stops — a level crossing's carriageway, or the end
+     * of a chunk whose neighbour is not built yet, at the haze or while it
+     * streams in — its section is closed flat. Between two chunks that both
+     * stand, the two faces are inside the ballast and nothing sees them.
+     */
+    const close = (k: number, outward: number): void => {
+      const a = rows[k]!;
+      for (let j = 1; j + 1 < a.length; j++) {
+        if (outward > 0) tri(a[0]!, a[j]!, a[j + 1]!, SHOULDER);
+        else tri(a[0]!, a[j + 1]!, a[j]!, SHOULDER);
+      }
+    };
+    for (let k = 0; k < steps; k++) {
+      if (!drawn[k]) continue;
+      if (k === 0 || !drawn[k - 1]) {
+        if (k === 0 && s0 <= 0) hip(0, -1);
+        else close(k, -1);
+      }
+      if (k === steps - 1 || !drawn[k + 1]) {
+        if (k === steps - 1 && s1 >= path.length) hip(steps, 1);
+        else close(k + 1, 1);
+      }
     }
 
     let props: THREE.Group | null = null;
@@ -387,6 +473,9 @@ export function createRailway(options: RailwayOptions): Railway {
             quad(last[1]!, last[2]!, here[2]!, here[1]!, RAIL_HEAD);
             quad(last[2]!, last[3]!, here[3]!, here[2]!, RAIL_SIDE);
           }
+          // The rail's own end at a terminus, under the buffer stop.
+          if (k === 0 && s0 <= 0) quad(here[3]!, here[2]!, here[1]!, here[0]!, RAIL_SIDE);
+          if (k === steps && s1 >= path.length) quad(here[0]!, here[1]!, here[2]!, here[3]!, RAIL_SIDE);
           last = here;
         }
       }
@@ -503,90 +592,327 @@ export function createRailway(options: RailwayOptions): Railway {
 
   // --- stations ----------------------------------------------------------------
 
-  /** A station's model in its own frame: +Z out along the line, the platform toward +X times `sign`. */
-  function buildStation(sign: number, drop: number): THREE.Group {
-    const ctx = craftContext();
-    const { box, column, tone } = ctx;
+  /**
+   * A station's model in its own frame: +Z out along the line, the platform
+   * toward +X times `sign`, y = 0 at the crown, and `drop` how far its slabs
+   * reach down to the lowest ground under them.
+   *
+   * A small country station, dressed in its city's region (`regionFor`): a hall
+   * in the region's render under a hipped roof with eaves, a base course and a
+   * shadow band, framed windows and a door in each long face; a canopy on iron
+   * posts along the platform, falling toward the track, with a fretted valance
+   * on its edge; benches, a clock hung from the canopy, name boards on legs and
+   * lamps; and a buffer stop on the rails at the terminus. One buffer, inked.
+   */
+  let sceneryKit: SceneryContext | null = null;
+  function buildStation(sign: number, drop: number, place: Place, key: string): THREE.Group {
+    const base = craftContext();
+    sceneryKit ??= createSceneryContext(base);
+    const kit = sceneryKit;
+    const { box, column, tone, strut } = base;
     const g = new THREE.Group();
     const x = (v: number): number => sign * v;
-    // The platform: a slab from the ground up to a step over the crown, and a yellow line along its edge.
-    const platform = box(PLATFORM_WIDTH, PLATFORM_RISE + drop, PLATFORM_LENGTH, tone(PALETTE.bone, 1.05));
+    const rng = rngFrom('station', key);
+    const continent = continentOf.get(place.iso ?? '') ?? '';
+    const style = regionFor(place.iso ?? '', continent, place.lat);
+    const wall = rng.pick(style.walls);
+    const tile = rng.pick(style.roofs);
+    const course = tone(wall, TONES.course);
+    const shade = tone(wall, TONES.eave);
+    const surround = tone(wall, TONES.light);
+    const iron = tone(PALETTE.green, 0.55);
+    const timber = tone(PALETTE.brown, 0.9);
+    const cream = PALETTE.cream;
+    const lean = new THREE.Vector3();
+    const foot = new THREE.Vector3();
+
+    // --- the platform: a slab from the ground to a step over the crown, its
+    // coping a shade lighter, and a yellow line along its edge ---
+    const deck = PLATFORM_RISE;
+    const platform = box(PLATFORM_WIDTH, deck + drop, PLATFORM_LENGTH, tone(PALETTE.bone, 1.05));
     platform.position.set(x(PLATFORM_INNER + PLATFORM_WIDTH / 2), -drop, PLATFORM_FROM + PLATFORM_LENGTH / 2);
     g.add(platform);
+    const coping = box(0.7, 0.2, PLATFORM_LENGTH + 2 * PROUD, tone(PALETTE.bone, 1.15));
+    coping.position.set(x(PLATFORM_INNER + 0.35 - PROUD), deck - 0.2 + PROUD, PLATFORM_FROM + PLATFORM_LENGTH / 2);
+    g.add(coping);
     const edge = box(0.35, PROUD, PLATFORM_LENGTH - 0.4, PALETTE.gold);
-    edge.position.set(x(PLATFORM_INNER + 0.45), PLATFORM_RISE, PLATFORM_FROM + PLATFORM_LENGTH / 2);
+    edge.position.set(x(PLATFORM_INNER + 1.0), deck, PLATFORM_FROM + PLATFORM_LENGTH / 2);
     g.add(edge);
-    // A canopy over the platform's middle: posts and a roof.
-    const canopyLength = PLATFORM_LENGTH * 0.55;
-    const canopyZ = PLATFORM_FROM + PLATFORM_LENGTH * 0.35;
-    for (let k = 0; k <= 3; k++) {
-      const post = column(0.16, 4.2, PALETTE.steel, 6);
-      post.position.set(x(PLATFORM_INNER + PLATFORM_WIDTH - 1.1), PLATFORM_RISE, canopyZ - canopyLength / 2 + (canopyLength * k) / 3);
-      g.add(post);
-    }
-    const roof = box(PLATFORM_WIDTH + 0.6, 0.35, canopyLength + 1, tone(PALETTE.red, 0.85));
-    roof.position.set(x(PLATFORM_INNER + PLATFORM_WIDTH / 2 - 0.2), PLATFORM_RISE + 4.2, canopyZ);
-    roof.rotation.z = sign * 0.08;
-    g.add(roof);
-    // A bench under it.
-    const bench = box(0.8, 0.5, 3, PALETTE.brown);
-    bench.position.set(x(PLATFORM_INNER + PLATFORM_WIDTH - 0.9), PLATFORM_RISE, canopyZ);
-    g.add(bench);
-    // The hall: walls, a band of windows either side of a door, a hipped roof.
+
+    // --- the hall ---
     const hallX = PLATFORM_INNER + PLATFORM_WIDTH + HALL_DEPTH / 2 - 0.2;
     const hallZ = HALL_FROM + HALL_LENGTH / 2;
-    const wallHeight = 6;
-    const walls = box(HALL_DEPTH, wallHeight + drop, HALL_LENGTH, PALETTE.blush);
+    const wallHeight = 7.5;
+    const walls = box(HALL_DEPTH, wallHeight + drop - PROUD, HALL_LENGTH, wall);
     walls.position.set(x(hallX), -drop, hallZ);
     g.add(walls);
-    const base = box(HALL_DEPTH + 2 * PROUD, 0.9 + drop, HALL_LENGTH + 2 * PROUD, tone(PALETTE.clay, 0.9));
-    base.position.set(x(hallX), -drop, hallZ);
-    g.add(base);
-    for (const face of [-1, 1]) {
-      // Windows on both long faces: the platform's and the town's.
-      const faceX = hallX + (face * (HALL_DEPTH / 2 + PROUD / 2));
-      for (let k = 0; k < 4; k++) {
-        const z = HALL_FROM + 2.5 + k * ((HALL_LENGTH - 5) / 3);
-        if (k === 1 || k === 2) continue;
-        const pane = box(PROUD, 2.2, 2.4, tone(PALETTE.slate, 0.72));
-        pane.position.set(x(faceX), 2.2, z);
-        g.add(pane);
+    const plinth = box(HALL_DEPTH + 2 * PROUD, 0.9 + drop, HALL_LENGTH + 2 * PROUD, course);
+    plinth.position.set(x(hallX), -drop, hallZ);
+    g.add(plinth);
+    const band = box(HALL_DEPTH + 2 * PROUD, 0.4, HALL_LENGTH + 2 * PROUD, shade);
+    band.position.set(x(hallX), wallHeight - 0.4, hallZ);
+    g.add(band);
+    // Quoins at the four corners, a shade lighter: what makes a box a building.
+    for (const along of [-1, 1]) {
+      for (const across of [-1, 1]) {
+        const quoin = box(0.7, wallHeight - 1.3, 0.7, surround);
+        quoin.position.set(x(hallX + across * (HALL_DEPTH / 2 - 0.35 + PROUD)), 0.9, hallZ + along * (HALL_LENGTH / 2 - 0.35 + PROUD));
+        g.add(quoin);
       }
-      const door = box(PROUD, 3.4, 3.2, tone(PALETTE.brown, 0.8));
-      door.position.set(x(faceX), 0.9, hallZ);
+    }
+
+    // Each long face: a door in the middle bay and a pair of tall windows to
+    // either side of it, laid out as bays so neither reaches the other.
+    const bay = 4.2;
+    const doorPaintHere = doorPaint(rng, style, wall);
+    for (const face of [-1, 1]) {
+      const platformSide = face < 0;
+      const faceX = hallX + (face * HALL_DEPTH) / 2;
+      const turn = (sign * face * Math.PI) / 2;
+      const sill = platformSide ? deck : 0.9;
+      for (const half of [-1, 1]) {
+        const row = kit.windows({ count: 2, width: 1.8, height: 3, panes: 2, frame: surround, spread: bay });
+        row.rotation.y = turn;
+        row.position.set(x(faceX), sill + 1.3, hallZ + half * bay * 1.5);
+        g.add(row);
+      }
+      const door = kit.door({ width: 2.6, height: 4.2, leaf: doorPaintHere, frame: surround });
+      door.rotation.y = turn;
+      door.position.set(x(faceX), sill, hallZ);
       g.add(door);
-      const lintel = box(PROUD * 2, 0.4, 3.8, PALETTE.white);
-      lintel.position.set(x(faceX), 4.3, hallZ);
-      g.add(lintel);
+      if (!platformSide) {
+        // The town's door is up a step from the lowest ground under the hall.
+        const step = box(1, 0.9 + drop, 2.6 + DOOR_JAMB * 2, course);
+        step.position.set(x(faceX + 0.5), -drop, hallZ);
+        g.add(step);
+      }
     }
-    // The roof: two slopes meeting over the hall's middle, eaves proud.
-    for (const slope of [-1, 1]) {
-      const half = box(HALL_DEPTH / 2 + 1.2, 0.4, HALL_LENGTH + 1.6, tone(PALETTE.clay, 1.05));
-      half.position.set(x(hallX + slope * (HALL_DEPTH / 4 + 0.35)), wallHeight + 0.55, hallZ);
-      half.rotation.z = sign * slope * -0.42;
-      g.add(half);
+
+    // The roof: hipped, with eaves, a ridge cap and a chimney.
+    const eaves = 1.2;
+    const rise = 3.2;
+    const ridge = HALL_LENGTH * rng.range(0.35, 0.6);
+    const roof = kit.roof(HALL_LENGTH + eaves * 2, HALL_DEPTH + eaves * 2, rise, ridge, tile);
+    roof.rotation.y = Math.PI / 2;
+    roof.position.set(x(hallX), wallHeight, hallZ);
+    g.add(roof);
+    const ridgeCap = box(0.42, 0.3, ridge + 0.3, tone(tile, TONES.cap));
+    ridgeCap.position.set(x(hallX), wallHeight + rise - 0.1, hallZ);
+    g.add(ridgeCap);
+    const chimney = box(0.9, 2.4, 0.9, course);
+    chimney.position.set(x(hallX + 1.6), wallHeight + 0.6, hallZ + HALL_LENGTH * 0.22 * rng.sign());
+    g.add(chimney);
+    const pot = box(1.1, 0.3, 1.1, tone(tile, TONES.cap));
+    pot.position.set(chimney.position.x, chimney.position.y + 2.4, chimney.position.z);
+    g.add(pot);
+
+    // --- the canopy: iron posts, a roof falling toward the track, a valance ---
+    const canopyFrom = HALL_FROM - 6;
+    const canopyTo = HALL_FROM + HALL_LENGTH + 6;
+    const canopyLength = canopyTo - canopyFrom;
+    const canopyZ = (canopyFrom + canopyTo) / 2;
+    const wallFace = PLATFORM_INNER + PLATFORM_WIDTH - 0.2;
+    const lip = PLATFORM_INNER + 0.3;
+    const high = 6.6;
+    const low = 5.9;
+    const heightAt = (v: number): number => low + ((high - low) * (v - lip)) / (wallFace - lip);
+    const postX = PLATFORM_INNER + 1.5;
+    const posts = 5;
+    for (let k = 0; k < posts; k++) {
+      const z = canopyFrom + 1 + ((canopyLength - 2) * k) / (posts - 1);
+      const post = column(0.16, heightAt(postX) - deck, iron, 8);
+      post.position.set(x(postX), deck, z);
+      g.add(post);
+      const shoe = box(0.5, 0.4, 0.5, iron);
+      shoe.position.set(x(postX), deck, z);
+      g.add(shoe);
+      // A bracket from the post up and back under the roof.
+      g.add(strut(lean.set(x(postX), heightAt(postX) - 1.1, z), foot.set(x(postX + 1.6), heightAt(postX + 1.6) - 0.1, z), 0.14, iron));
     }
-    const gable = box(0.8, 1.6, 0.8, PALETTE.white);
-    gable.position.set(x(hallX), wallHeight + 1.9, hallZ);
-    g.add(gable);
-    // A clock over the door on the platform side.
-    const clock = column(0.7, PROUD * 2, PALETTE.white, 12);
-    clock.rotation.z = Math.PI / 2;
-    clock.position.set(x(hallX - HALL_DEPTH / 2 - PROUD), 5.1, hallZ);
-    g.add(clock);
-    // The buffer stop at the terminus.
-    const stop = box(GAUGE + 1.2, 1.3, 0.7, PALETTE.red);
-    stop.position.set(0, 0.2, 0);
-    g.add(stop);
-    const stripe = box(GAUGE + 1.2 + 2 * PROUD, 0.3, 0.7 + 2 * PROUD, PALETTE.white);
-    stripe.position.set(0, 1.05, 0);
-    g.add(stripe);
+    const beam = box(0.3, 0.35, canopyLength, iron);
+    beam.position.set(x(postX), heightAt(postX) - 0.35, canopyZ);
+    g.add(beam);
+    const slope = Math.atan2(high - low, wallFace - lip);
+    const span = Math.hypot(high - low, wallFace - lip);
+    const sheet = box(span + 0.3, 0.22, canopyLength, tone(tile, 0.92));
+    sheet.rotation.z = sign * slope;
+    sheet.position.set(x((lip + wallFace) / 2), (low + high) / 2 - 0.11, canopyZ);
+    g.add(sheet);
+    g.add(valance(x(lip - 0.12), low - 0.05, canopyFrom, canopyTo, cream));
+
+    // A clock on the hall's end wall, facing up the platform from the town's
+    // end of it, where the canopy does not hide it.
+    const clockX = x(wallFace + 1.7);
+    const clockY = 5.9;
+    const rim = column(0.82, 0.2, iron, 16);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(clockX, clockY, HALL_FROM - 0.2);
+    g.add(rim);
+    const dial = column(0.68, 0.28, cream, 16);
+    dial.rotation.x = Math.PI / 2;
+    dial.position.set(clockX, clockY, HALL_FROM - 0.28);
+    g.add(dial);
+    const hour = box(0.1, 0.4, PROUD, PALETTE.ink);
+    hour.position.set(clockX, clockY, HALL_FROM - 0.28 - PROUD / 2);
+    g.add(hour);
+    const minute = box(0.52, 0.08, PROUD, PALETTE.ink);
+    minute.position.set(clockX + 0.22, clockY + 0.02, HALL_FROM - 0.28 - PROUD / 2);
+    g.add(minute);
+
+    // Benches under the canopy, backs to the hall (`STATION_BENCH_X`), the
+    // seat's top at `BENCH_SEAT` over the deck.
+    const benchX = STATION_BENCH_X;
+    const legs = BENCH_SEAT - 0.14;
+    for (const z of STATION_BENCH_ZS) {
+      const seat = box(STATION_BENCH_DEPTH, 0.14, 3.6, timber);
+      seat.position.set(x(benchX), deck + legs, z);
+      g.add(seat);
+      const back = box(0.14, 0.75, 3.6, timber);
+      back.position.set(x(benchX + STATION_BENCH_BACK + 0.07), deck + legs + 0.26, z);
+      g.add(back);
+      for (const end of [-1, 1]) {
+        const leg = box(1.05, legs, 0.14, iron);
+        leg.position.set(x(benchX + 0.05), deck, z + end * 1.5);
+        g.add(leg);
+        const arm = box(0.14, 0.95, 0.14, iron);
+        arm.position.set(x(benchX + STATION_BENCH_BACK + 0.07), deck + legs, z + end * 1.5);
+        g.add(arm);
+      }
+    }
+
+    // Name boards on two legs, one at each end of the platform, facing the
+    // track and the hall alike; the letters are blocks through the board.
+    const letters = rng.between(5, 9);
+    const boardBlue = tone(PALETTE.skyBlue, 0.5);
+    for (const z of [PLATFORM_FROM + 4.5, PLATFORM_FROM + PLATFORM_LENGTH - 7]) {
+      const boardX = PLATFORM_INNER + PLATFORM_WIDTH - 1.4;
+      for (const end of [-1, 1]) {
+        const leg = column(0.1, 4.2, iron, 6);
+        leg.position.set(x(boardX), deck, z + end * 2.6);
+        g.add(leg);
+      }
+      const frame = box(0.16, 1.3, 5.9, cream);
+      frame.position.set(x(boardX), deck + 3.1, z);
+      g.add(frame);
+      const panel = box(0.32, 1.0, 5.5, boardBlue);
+      panel.position.set(x(boardX), deck + 3.25, z);
+      g.add(panel);
+      const pitch = 4.4 / letters;
+      for (let k = 0; k < letters; k++) {
+        const letter = box(0.48, 0.5, pitch * 0.62, cream);
+        letter.position.set(x(boardX), deck + 3.5, z - 2.2 + pitch * (k + 0.5));
+        g.add(letter);
+      }
+    }
+
+    // Lamps down the open ends of the platform.
+    for (const z of [PLATFORM_FROM + 1.2, canopyTo + 3, PLATFORM_FROM + PLATFORM_LENGTH - 1.2]) {
+      const lampX = PLATFORM_INNER + PLATFORM_WIDTH - 0.8;
+      const pole = column(0.1, 5, iron, 6);
+      pole.position.set(x(lampX), deck, z);
+      g.add(pole);
+      const lantern = box(0.55, 0.7, 0.55, cream);
+      lantern.position.set(x(lampX), deck + 5, z);
+      g.add(lantern);
+      const hat = kit.roof(0.95, 0.95, 0.45, 0, iron);
+      hat.position.set(x(lampX), deck + 5.7, z);
+      g.add(hat);
+    }
+
+    // --- the buffer stop at the terminus, on the rails and the sleepers ---
+    // A painted headstock at buffer height on two posts, two buffers toward
+    // the train, and two stays down behind it to the rails.
+    const stopZ = 2.2;
+    const headY = RAIL_TOP + 1.55;
+    const red = tone(PALETTE.red, 0.9);
+    for (const hand of [-1, 1]) {
+      const rail = (hand * GAUGE) / 2;
+      const sole = box(0.5, 0.3, 2.6, iron);
+      sole.position.set(rail, RAIL_TOP - 0.05, stopZ - 0.9);
+      g.add(sole);
+      const post = box(0.36, headY - RAIL_TOP + 0.3, 0.36, iron);
+      post.position.set(rail, RAIL_TOP + 0.2, stopZ);
+      g.add(post);
+      g.add(strut(lean.set(rail, headY + 0.1, stopZ - 0.1), foot.set(rail, RAIL_TOP + 0.25, stopZ - 2.1), 0.26, iron));
+      const buffer = column(0.2, 0.55, PALETTE.steel, 10);
+      buffer.rotation.x = Math.PI / 2;
+      buffer.position.set(rail, headY + 0.35, stopZ + 0.2);
+      g.add(buffer);
+      const head = column(0.36, 0.12, PALETTE.steel, 12);
+      head.rotation.x = Math.PI / 2;
+      head.position.set(rail, headY + 0.35, stopZ + 0.75);
+      g.add(head);
+    }
+    const headstock = box(GAUGE + 1.4, 0.7, 0.55, red);
+    headstock.position.set(0, headY, stopZ);
+    g.add(headstock);
+    for (let k = -2; k <= 2; k++) {
+      if (k === 0) continue;
+      const chevron = box(0.38, 0.5, PROUD, PALETTE.white);
+      chevron.position.set(k * 0.42, headY + 0.1, stopZ + 0.275 + PROUD / 2);
+      chevron.rotation.z = (k < 0 ? 1 : -1) * 0.5;
+      g.add(chevron);
+    }
+    const lamp = box(0.4, 0.4, 0.3, red);
+    lamp.position.set(0, headY + 0.7, stopZ);
+    g.add(lamp);
+
     const assembled = assemble('station', [soupOf(g)]);
     assembled.traverse((part) => {
       part.castShadow = true;
       part.receiveShadow = true;
     });
     return assembled;
+  }
+
+  /**
+   * A fretted valance board along Z at `atX`, its top at `top`: a band and a
+   * row of points under it, both faces, as one mesh of `color`. Each piece is
+   * a closed prism, every face wound away from its own middle.
+   */
+  function valance(atX: number, top: number, from: number, to: number, color: number): THREE.Mesh {
+    const BAND = 0.32;
+    const POINT = 0.3;
+    const THICK = 0.1;
+    const PITCH = 0.62;
+    const points: number[] = [];
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const face = (corners: THREE.Vector3[], centre: THREE.Vector3): void => {
+      for (let k = 1; k + 1 < corners.length; k++) {
+        const p0 = corners[0]!, p1 = corners[k]!, p2 = corners[k + 1]!;
+        n.crossVectors(a.subVectors(p1, p0), b.subVectors(p2, p0));
+        const flip = n.dot(a.subVectors(p0, centre)) < 0;
+        for (const v of flip ? [p0, p2, p1] : [p0, p1, p2]) points.push(v.x, v.y, v.z);
+      }
+    };
+    /** A prism: a polygon in (z, y) extruded across X by `THICK`. */
+    const prism = (outline: readonly (readonly [number, number])[]): void => {
+      const front = outline.map(([z, y]) => new THREE.Vector3(atX + THICK / 2, y, z));
+      const back = outline.map(([z, y]) => new THREE.Vector3(atX - THICK / 2, y, z));
+      const centre = new THREE.Vector3();
+      for (const v of front) centre.add(v);
+      for (const v of back) centre.add(v);
+      centre.divideScalar(front.length * 2);
+      face(front, centre);
+      face(back, centre);
+      for (let k = 0; k < outline.length; k++) {
+        const k1 = (k + 1) % outline.length;
+        face([front[k]!, front[k1]!, back[k1]!, back[k]!], centre);
+      }
+    };
+    prism([[from, top - BAND], [to, top - BAND], [to, top], [from, top]]);
+    const count = Math.max(1, Math.floor((to - from) / PITCH));
+    const step = (to - from) / count;
+    for (let k = 0; k < count; k++) {
+      const z0 = from + k * step;
+      prism([[z0, top - BAND], [z0 + step / 2, top - BAND - POINT], [z0 + step, top - BAND]]);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+    geometry.computeVertexNormals();
+    return new THREE.Mesh(geometry, craftContext().toon(color));
   }
 
   // --- trains --------------------------------------------------------------------
@@ -686,7 +1012,7 @@ export function createRailway(options: RailwayOptions): Railway {
         }
         const drop = Math.max(1, level - lowest + 1);
         // The model's +X is `up x out`, the platform's side is `side`: the two agree when the hand is -1.
-        const built = buildStation(frame.hand > 0 ? -1 : 1, drop);
+        const built = buildStation(frame.hand > 0 ? -1 : 1, drop, places[end === 0 ? network.lines[line]!.a : network.lines[line]!.b]!, key);
         standAt(built, frame.at, level, frame.out);
         group.add(built);
         stations.set(key, { key, group: built, frame, level, seen: scanCount });
@@ -980,6 +1306,23 @@ export function createRailway(options: RailwayOptions): Railway {
         test(station.group, HALL_DEPTH / 2, HALL_LENGTH / 2, 12, sign * (PLATFORM_INNER + PLATFORM_WIDTH + HALL_DEPTH / 2 - 0.2), HALL_FROM + HALL_LENGTH / 2);
       }
       return hitAny;
+    },
+    benchesNear(point, radius, out) {
+      for (const station of stations.values()) {
+        if (station.group.position.distanceToSquared(point) > (radius + 120) ** 2) continue;
+        const sign = station.frame.hand > 0 ? -1 : 1;
+        const world = station.group.matrixWorld;
+        // The sitter's root, `sitAhead` of the back's front, on the deck.
+        const spotX = sign * (STATION_BENCH_X - sitAhead(STATION_BENCH_BACK));
+        STATION_BENCH_ZS.forEach((z, bench) => {
+          for (const [k, along] of STATION_SIT_ALONG.entries()) {
+            const position = new THREE.Vector3(spotX, PLATFORM_RISE, z + along).applyMatrix4(world);
+            if (position.distanceTo(point) > radius) continue;
+            const facing = new THREE.Vector3(-sign, 0, 0).transformDirection(world);
+            out.push({ position, facing, sink: 0, key: `station:${station.key}:${bench}:${k}` });
+          }
+        });
+      }
     },
     setKit(models) {
       kit = models;

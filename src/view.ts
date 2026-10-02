@@ -320,9 +320,8 @@ const clampDetail = (value: number): number =>
 /**
  * Reading a corrupt or absent store must not cost you the world.
  *
- * The same treatment `placement.ts` gives the visited set, for the same reason:
- * a private window, cleared site data or storage switched off is a worse session
- * and not a broken one.
+ * A private window, cleared site data or storage switched off is a worse
+ * session and not a broken one.
  */
 let current = clampDetail(
   (() => {

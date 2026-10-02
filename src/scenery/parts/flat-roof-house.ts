@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { DOOR_HEAD, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -26,10 +26,10 @@ import type { ScenicPart } from '../contract.ts';
  * palette entry, which costs one colour and no draw calls.
  *
  * The openings are small and deep, which is what a hot climate builds: a
- * reveal, two panes, a lintel over the door and a step under it. **The blue
- * door is not decoration.** The Maghreb and Latin America both put `skyBlue` in
- * `style.trim`, and against a sand wall it is the only saturated mark on the
- * whole building — at 26 pixels it is the thing you actually see.
+ * reveal, two panes, a door set in a stone frame and a step under it. **The
+ * blue door is not decoration.** The Maghreb and the Mediterranean both put
+ * `skyBlue` in `style.doors`, and against a sand wall it is the only saturated
+ * mark on the whole building — at 26 pixels it is the thing you actually see.
  */
 
 const PARAPET = 0.85;
@@ -60,7 +60,9 @@ export const flatRoofHouse: ScenicPart = {
     const group = new THREE.Group();
 
     const wall = rng.pick(style.walls);
-    const trim = rng.pick(style.trim);
+    // The trim colour is drawn and not used, so the draws after it — and every
+    // variant's colours — stay where they were.
+    rng.pick(style.trim);
 
     const course = tone(wall, TONES.course);
     const shade = tone(wall, TONES.eave);
@@ -68,7 +70,6 @@ export const flatRoofHouse: ScenicPart = {
     // The upper block is a shade different from the lower one on some variants:
     // a flat-roofed house is built in stages and rendered in stages.
     const upperWall = rng.chance(0.55) ? tone(wall, TONES.light) : wall;
-    const woodwork = tone(trim, TONES.cap);
     const surround = tone(wall, TONES.light);
 
     const width = rng.range(6, 7.2);
@@ -143,28 +144,34 @@ export const flatRoofHouse: ScenicPart = {
     group.add(stairCap);
 
     // --- openings: small and few, which is what a hot climate builds ---
+    // Two bays a floor, off-centre, and on the ground floor the door takes one
+    // of them. It used to stand anywhere near the middle and overlapped the
+    // ground-floor pair on nearly every variant, a slab with a board over it
+    // laid across the window frames.
     const front = depth / 2;
+    const bays = [-width * 0.29, width * 0.13];
+    const doorBay = rng.between(0, 1);
+    const doorX = bays[doorBay]!;
+    const windowX = bays[1 - doorBay]!;
     const doorWidth = 1.4;
-    const doorX = rng.jitter() * width * 0.18;
-    // The door overlaps the ground-floor pair on nearly every variant, so it
-    // stands in front of it: the pair's frames are `PROUD * 2` deep and their
-    // glass a `PROUD` past that, so the leaf is a `PROUD` past the glass and
-    // the lintel a `PROUD` past the leaf. A step shallower each, the leaf lay
-    // in the frames' plane and the lintel in the glass's, and both z-fought.
-    const leaf = panes(1, doorWidth, 2.5, 0, woodwork, PROUD * 4);
-    leaf.position.set(doorX, COURSE, front + PROUD * 2);
-    group.add(leaf);
-    const lintel = panes(1, doorWidth + 0.6, 0.28, 0, coping, PROUD * 5);
-    lintel.position.set(doorX, COURSE + 2.5, front + PROUD * 2.5);
-    group.add(lintel);
-    const step = box(doorWidth + 0.8, COURSE, 0.5, course);
-    step.position.set(doorX, 0, front + 0.25);
-    group.add(step);
+    const doorHeight = 2.5;
+    const leaf = doorPaint(rng, style, wall);
+    const door = ctx.door({
+      width: doorWidth,
+      height: doorHeight,
+      leaf,
+      frame: surround,
+      sill: COURSE,
+      step: course,
+    });
+    door.position.set(doorX, 0, front);
+    group.add(door);
 
     for (let floor = 0; floor < lower; floor++) {
       const sill = COURSE + floor * STOREY + STOREY * 0.44;
+      const ground = floor === 0;
       const row = windows({
-        count: 2,
+        count: ground ? 1 : 2,
         width: 1.15,
         height: 1.35,
         frame: surround,
@@ -173,7 +180,7 @@ export const flatRoofHouse: ScenicPart = {
         // and at that height nobody is close enough to look into one.
         reveal: floor < 2 ? undefined : 0,
       });
-      row.position.set(-width * 0.08, sill, front);
+      row.position.set(ground ? windowX : -width * 0.08, sill, front);
       group.add(row);
 
       // One deep slot on each flank, which is what a courtyard house shows the
@@ -186,9 +193,12 @@ export const flatRoofHouse: ScenicPart = {
 
     // A canvas awning over the door on some of them: the one horizontal on a
     // building made entirely of verticals, and the only shadow the front has.
+    // Canvas in the door's own colour, a shade lighter, and no wider than the
+    // frame and a hand either side: a dark board here read as a plank nailed
+    // over the door.
     if (rng.chance(0.4)) {
-      const awning = box(doorWidth + 1.3, 0.18, 1.1, woodwork);
-      awning.position.set(doorX, COURSE + 2.9, front + 0.55);
+      const awning = box(doorWidth + 0.7, 0.1, 1.0, tone(leaf, TONES.light));
+      awning.position.set(doorX, COURSE + doorHeight + DOOR_HEAD + 0.2, front + 0.55);
       awning.rotation.x = -0.16;
       group.add(awning);
     }

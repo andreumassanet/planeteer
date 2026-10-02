@@ -104,6 +104,36 @@ export function isWater(ground: number): boolean {
  */
 export const WATERLINE = 0.5;
 
+/**
+ * **What is not a boat sinks.** A car, a bicycle, a bus or a tractor driven
+ * off a quay or down a beach — or one left rolling on alone, or an aircraft
+ * come down on the sea — floats for `FOUNDER_FLOAT` seconds at the
+ * waterline, then goes down at `FOUNDER_SINK` units a second with its nose
+ * dropping to `FOUNDER_NOSE` radians, and at `FOUNDER_TIME` it is gone:
+ * whoever was in it is put out swimming at the surface and the vehicle goes
+ * back to its site (`FleetLink.sink`). Its way through the water dies over
+ * `FOUNDER_DRAG` seconds. A horse is the exception: it stops at the water's
+ * edge, as it always did. `player.ts` founders a vehicle with somebody at the
+ * controls and `fleet.ts` one going on alone; both read these.
+ */
+export const FOUNDER_FLOAT = 1.2;
+export const FOUNDER_SINK = 1.8;
+export const FOUNDER_NOSE = 0.45;
+export const FOUNDER_TIME = 4.5;
+export const FOUNDER_DRAG = 0.8;
+/** How far under the waterline a foundering vehicle is, `t` seconds after it met the water. */
+export function founderDepth(t: number): number {
+  return Math.max(0, t - FOUNDER_FLOAT) * FOUNDER_SINK;
+}
+/** And how far its nose is down, in radians. */
+export function founderNose(t: number): number {
+  return FOUNDER_NOSE * Math.min(1, Math.max(0, t - FOUNDER_FLOAT * 0.5) / (FOUNDER_TIME - FOUNDER_FLOAT * 0.5));
+}
+/** Whether a vehicle founders in water rather than stopping at its edge; a hull floats on it. */
+export function founders(kind: CraftKind, medium: 'road' | 'water' | 'air'): boolean {
+  return medium !== 'water' && kind !== 'horse';
+}
+
 // ---------------------------------------------------------------------------
 // The numbers every craft is driven by
 // ---------------------------------------------------------------------------
@@ -866,15 +896,14 @@ export function buildBoat(): THREE.Group {
 const FLOAT_KEEL = 3.4;
 
 /**
- * Highest the plane will hold.
- *
- * The ceiling is what makes the plane the map, and it is a lens calculation
- * rather than a taste: from 1.45 radii up the camera sits 2.47 radii from the
- * centre, the globe subtends 47.8 degrees, and the chase camera looks at it 2
- * degrees off its centre — 25.9 of the 27.5 the 55 degree lens has. Lower and
- * the planet does not fit; much higher and it is a marble in an empty frame.
+ * Highest the plane will hold: **a little over the clouds**, the deck's base
+ * (`CLOUD_BASE`, 1,000) and its tallest banks under it, so the top of the
+ * climb is flying over the weather with the land still there below — on the
+ * owner's word, 2026-10-02. It was 1.45 radii, a lens calculation that put the
+ * whole globe in the frame, and a light aircraft that climbed out of the
+ * planet; the whole planet is `M`'s.
  */
-export const PLANE_CEILING = PLANET_RADIUS * 1.45;
+export const PLANE_CEILING = 3000;
 /** Clearance kept above the ground: the floats, and 0.6 under them. */
 export const PLANE_CLEARANCE = (FLOAT_KEEL + 0.6) * BODY_SCALE;
 /**
@@ -883,14 +912,13 @@ export const PLANE_CLEARANCE = (FLOAT_KEEL + 0.6) * BODY_SCALE;
  * Speed rides altitude, and that is the whole travel design. Low, 140 crosses
  * Spain in twenty seconds and you can see what you are crossing — it was 380
  * while the plane was three times the world's scale, and at its size now that
- * was a streak rather than a flight. High, 3400 at
- * 2.25 radii is 0.094 rad/s: the Pacific in half a minute. Flying low is
- * scenic, climbing is how you cover an ocean, and the loss of precision that
- * comes with the speed is exactly the loss of precision that comes with zooming
- * a map out.
+ * was a streak rather than a flight. High, over the clouds at the ceiling,
+ * 1,500 is the Atlantic in about a minute; it was 3,400 at 2.25 radii, which
+ * over the clouds would be a smear. Flying low is scenic, climbing is how you
+ * cover an ocean.
  */
 export const PLANE_CRUISE_LOW = 140;
-export const PLANE_CRUISE_HIGH = 3400;
+export const PLANE_CRUISE_HIGH = 1500;
 /**
  * The throttle, `W` and `S`, as a share of the cruise it opens up or closes
  * down: 1.6 times flat out and two thirds of it held back. Flat out used to
@@ -958,11 +986,15 @@ export const PLANE_TOUCHDOWN = 4;
 
 /**
  * The light aircraft on the ground: the speed it lifts off at — a take-off run
- * has to reach it with the climb key held — and the most it taxis at without
- * it. The run opens the throttle for a quarter past it, over `PLANE_RUN_TIME`,
- * so from standing to rotation is 2.6 seconds and 136 units of strip; the
- * wheels then leave it at no climb at all, and the climb builds from there
- * (`PLANE_VERTICAL_TIME`).
+ * reaches it with the throttle (`W`) or the climb key held, and lifts off by
+ * itself there — and the most it taxis at rolling out of a landing. The run
+ * opens the throttle for a quarter past it, over `PLANE_RUN_TIME`, so from
+ * standing to rotation is 2.6 seconds and 136 units of strip; the wheels then
+ * leave it at no climb at all, and it climbs out at `PLANE_CLIMB_MIN` for
+ * `PLANE_CLIMB_OUT` seconds whatever the keys say, about forty units, before
+ * they have it. Until 2026-10-01 the run needed the climb key held all the
+ * way and the plane levelled off a wing's height over the strip when it was
+ * let go.
  *
  * **The run has its own time constant because it has to fit its strip.** Over
  * `PLANE_ACCELERATION_TIME` it was 4.2 s and 220 units, and a strip long
@@ -973,8 +1005,13 @@ export const PLANE_TOUCHDOWN = 4;
 export const PLANE_ROTATE = PLANE_CRUISE_LOW * 0.6;
 export const PLANE_RUN_TIME = 1.6;
 export const PLANE_TAXI = 30;
-/** Steepest ground a plane may be set down on, as rise over run: a field, not a hillside. */
-export const PLANE_LANDING_GRADE = Math.tan(12 * (Math.PI / 180));
+export const PLANE_CLIMB_OUT = 3;
+/**
+ * Steepest ground a plane may be set down on, as rise over run: a field, not
+ * a hillside. 12 degrees until 2026-10-01, which refused a good share of the
+ * rolling country a landing was aimed at.
+ */
+export const PLANE_LANDING_GRADE = Math.tan(15 * (Math.PI / 180));
 
 /**
  * Where the pilot's hip goes, in the plane's own frame — the seat surface, in

@@ -37,6 +37,8 @@ export const EARTH: Body = {
   // are the same four minutes `sun.ts`'s equation of time is a refinement of.
   rotationHours: 23.9345,
   tiltDeg: 23.44,
+  // The IAU's north pole of rotation, J2000 right ascension and declination.
+  pole: { ra: 0, dec: 90 },
   gravity: 9.807,
   blurb:
     // No count in this sentence: it printed 23,867 towns long after the bake

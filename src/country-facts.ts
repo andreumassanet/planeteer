@@ -1,7 +1,8 @@
 /**
- * What a person would say about a country, for the card that names it as you
- * cross in: its capital, how many live there, how big it is, what they speak,
- * what they pay with and which continent it is on.
+ * What a person would say about a country: its capital, how many live there,
+ * how big it is, what they speak, what they pay with and which continent it is
+ * on. The townsfolk read it (`talk.ts`); a card that named the country as you
+ * crossed into it read it too, until 2026-10-01.
  *
  * Baked by `scripts/build-country-info.mjs` from GeoNames' `countryInfo.txt`
  * (CC BY 4.0, credited with the places) into `public/data/countries-info.json`,
@@ -11,9 +12,8 @@
  * rather than a neighbour's facts.
  *
  * **Not in the first load.** It is 10 KB gzipped of something nothing needs
- * until the first frontier, so it is fetched once the HUD exists — early
- * enough that the first card has its line — and kept: every call after the
- * first resolves from the same promise.
+ * until the first conversation, so it is fetched then and kept: every call
+ * after the first resolves from the same promise.
  */
 import { DATA_URL } from './pack.ts';
 
@@ -49,9 +49,4 @@ export function loadCountryFacts(url = `${DATA_URL}countries-info.json`): Promis
       throw error;
     });
   return facts;
-}
-
-/** One country's facts by its outline code, or null for ground that has none. */
-export async function countryFacts(iso: string): Promise<CountryFacts | null> {
-  return (await loadCountryFacts())[iso] ?? null;
 }

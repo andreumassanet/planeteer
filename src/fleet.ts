@@ -68,7 +68,7 @@ import { AVATAR_HEIGHT } from './stature.ts';
 import { plannedSite, siteGap } from './landmark-ground.ts';
 import type { LandmarkSite } from './landmark-ground.ts';
 import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
-import { ROAD_HANDLING, WATERLINE, isWater } from './vehicles.ts';
+import { FOUNDER_DRAG, FOUNDER_TIME, ROAD_HANDLING, WATERLINE, founderDepth, founderNose, founders, isWater } from './vehicles.ts';
 import { SEA_REACH, coastAt, coastSample, prepareSeaFloor, seaDepthAt, seaZoneAt } from './sea-floor.ts';
 import { AT_REST, discMaterial, motionOf } from './craft/motion.ts';
 import { craftMaterial } from './craft/build.ts';
@@ -1789,6 +1789,12 @@ export function createLocalLink(self = 'local'): FleetLink {
       save();
       tell(vehicle);
     },
+    sink(vehicle) {
+      if (!entries.delete(vehicle)) return;
+      moved.delete(vehicle);
+      save();
+      tell(vehicle);
+    },
     drive(vehicle, pose) {
       const entry = entries.get(vehicle);
       if (entry === undefined || entry.seats[0] !== self) return;
@@ -1930,9 +1936,12 @@ const SOCK_OFF = STRIP_DRAWN + 5;
 /**
  * What happened, for whoever tells the player: `bailed` is getting out of a
  * vehicle under way or aloft, which goes on without him; `wrecked` is one of
- * those coming down hard, or into a wall, with where it happened.
+ * those coming down hard, or into a wall, with where it happened;
+ * `foundered` is one of them meeting the water, and `sank` any vehicle going
+ * under it (`FOUNDER_TIME`), with where — the one driven in too, whose body
+ * is put out swimming.
  */
-export type FleetEvent = 'boarded' | 'left' | 'taken' | 'leave-refused' | 'bailed' | 'wrecked';
+export type FleetEvent = 'boarded' | 'left' | 'taken' | 'leave-refused' | 'bailed' | 'wrecked' | 'foundered' | 'sank';
 
 /**
  * A vehicle somebody jumped out of, going on without anybody. A car, a boat
@@ -2212,8 +2221,12 @@ export function createFleet(options: FleetOptions): Fleet {
     age: number;
     /** Aloft when it was let go of, and not yet down. */
     flying: boolean;
+    /** Seconds since it met the water, if it is not a boat (`founders`); -1 until then. */
+    sinking: number;
   }
   let coast: Coast | null = null;
+  const sunkAt = new THREE.Vector3();
+  const sinkSide = new THREE.Vector3();
   const coasting: MotionInput = { ...AT_REST };
   const coastFrom = new THREE.Vector3();
   const coastAxis = new THREE.Vector3();
@@ -2335,6 +2348,21 @@ export function createFleet(options: FleetOptions): Fleet {
   link.onChange((vehicle) => {
     scanAge = Infinity;
     if (link.moved.has(vehicle)) parked?.hide(vehicle);
+    // Gone home from under a passenger — its driver drove it into the water
+    // and it sank (`FleetLink.sink`): the seat is gone and so is where it
+    // was, and the passenger is put out where the link last had it, which is
+    // in the water.
+    if (held !== null && held.id === vehicle && heldSeat !== 0 && player.ride !== null) {
+      const now = link.moved.get(vehicle);
+      if ((now?.seats[heldSeat] ?? null) !== link.self && !isPose(now?.pose)) {
+        leave();
+        const gone = drawn.get(vehicle);
+        if (gone !== undefined) {
+          drawn.delete(vehicle);
+          retire(gone);
+        }
+      }
+    }
   });
 
   /**
@@ -2647,12 +2675,16 @@ export function createFleet(options: FleetOptions): Fleet {
     let best: Prompt | null = null;
     let bestGap = Infinity;
     for (const entry of drawn.values()) {
-      if (coast !== null && coast.entry === entry) continue;
+      // A vehicle jumped out of and still rolling is the jumper's to take
+      // again: its driver's seat is still his on the link (`coastOn`). One
+      // gliding down aloft is not.
+      const rolling = coast !== null && coast.entry === entry;
+      if (rolling && coast!.flying) continue;
       const size = entry.model.size;
       const gap = entry.group.position.distanceTo(player.position) - Math.max(size[0], size[1]) / 2;
       if (gap > BOARD_REACH || gap >= bestGap) continue;
       const seats = link.moved.get(entry.id)?.seats ?? [];
-      const free = entry.model.seats.findIndex((_, i) => (seats[i] ?? null) === null);
+      const free = entry.model.seats.findIndex((_, i) => (seats[i] ?? null) === null || (rolling && i === 0 && seats[i] === link.self));
       if (free < 0) continue;
       bestGap = gap;
       best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? takeLabel(entry.model.kind) : 'Get in', gap };
@@ -2699,17 +2731,26 @@ export function createFleet(options: FleetOptions): Fleet {
     drawn.delete(entry.id);
     group.remove(entry.group);
     poseOf(entry.id, pose);
+    // Back into one still rolling: where it has got to, and going as it was.
+    let going = 0;
+    if (coast !== null && coast.entry === entry) {
+      for (let i = 0; i < 9; i++) pose[i] = coastPose[i]!;
+      going = seat === 0 ? coast.speed : 0;
+      coast = null;
+    }
     held = entry;
     heldSeat = seat;
     lostFor = 0;
     lostTries = 0;
-    player.board({ vehicle: entry.id, seat, model: entry.model, group: entry.group }, pose);
+    player.board({ vehicle: entry.id, seat, model: entry.model, group: entry.group }, pose, going);
     if (seat === 0) link.drive(entry.id, player.pose(pose), 0);
     onEvent?.('boarded', entry.model);
   }
 
   function claim(entry: Drawn, seat: number): Promise<boolean> {
-    finishCoast();
+    // The one rolling on is claimed as it goes, its driver's seat already
+    // ours; anything else is somewhere else, and that one parks.
+    if (coast === null || coast.entry !== entry) finishCoast();
     pending = true;
     prompt = null;
     // The pose goes with the claim: a relay that has never seen this vehicle
@@ -2770,9 +2811,46 @@ export function createFleet(options: FleetOptions): Fleet {
         vertical: flying ? climb : 0,
         age: 0,
         flying,
+        sinking: -1,
       };
     } else link.release(entry.id, heldSeat === 0 ? out : null);
     onEvent?.(under || flying ? 'bailed' : 'left', entry.model);
+  }
+
+  /**
+   * The vehicle going on alone has gone under: it is gone from here and back
+   * at its site, for everyone (`FleetLink.sink`).
+   */
+  function sinkCoast(): void {
+    const c = coast;
+    if (c === null) return;
+    coast = null;
+    sunkAt.copy(c.position);
+    link.sink(c.entry.id);
+    if (drawn.get(c.entry.id) === c.entry) {
+      drawn.delete(c.entry.id);
+      retire(c.entry);
+    }
+    scanAge = Infinity;
+    onEvent?.('sank', c.entry.model, sunkAt);
+  }
+
+  /**
+   * The vehicle at the controls has gone under (`Player.sunk`): the body is
+   * put out swimming at the surface, the vehicle is gone from under the
+   * water and back at its site, for everyone (`FleetLink.sink`).
+   */
+  function sinkHeld(): void {
+    if (held === null) return;
+    const entry = held;
+    sunkAt.copy(player.position);
+    if (player.leave() === null) return;
+    held = null;
+    entry.site = null;
+    retire(entry);
+    link.sink(entry.id);
+    scanAge = Infinity;
+    onEvent?.('sank', entry.model, sunkAt);
   }
 
   /** The vehicle going on alone, parked where it is now. */
@@ -2783,6 +2861,9 @@ export function createFleet(options: FleetOptions): Fleet {
     up.copy(c.position).normalize();
     c.forward.projectOnPlane(up).normalize();
     writePose(c.position, c.forward, up, coastPose);
+    // Parked as a parked one stands, on its wheels, so the reseat that
+    // follows (`RESEAT_SECONDS`) finds it already there.
+    if (!c.flying) seat(c.entry.model, coastPose, coastPose);
     link.release(c.entry.id, coastPose.slice(0, 9));
     if (drawn.get(c.entry.id) === c.entry) applyPose(coastPose, c.entry.group);
     scanAge = Infinity;
@@ -2820,12 +2901,14 @@ export function createFleet(options: FleetOptions): Fleet {
       up.copy(c.position).normalize();
     }
     c.forward.projectOnPlane(up).normalize();
-    // What is under it: a road vehicle stops at the water and a hull at the land.
+    // What is under it: a hull stops at the land and a horse at the water;
+    // anything else rolls on into it and founders (`founders`).
     point.copy(up).multiplyScalar(PLANET_RADIUS);
     const relief = groundRadius(world, point);
     const wet = isWater(relief);
     const afloat = model.medium === 'water';
-    if (!c.flying && (afloat ? !wet : wet && model.medium === 'road')) {
+    const swamps = founders(kind, model.medium);
+    if (!c.flying && (afloat ? !wet : wet && !swamps)) {
       c.position.copy(coastFrom);
       c.speed = 0;
       up.copy(c.position).normalize();
@@ -2840,15 +2923,39 @@ export function createFleet(options: FleetOptions): Fleet {
         c.speed = -c.speed * COAST_BOUNCE;
       }
     }
-    // Its floor: the sea's line, the made ground or the relief.
+    // Its floor: the sea's line, or the ground its kind is parked on
+    // (`seat`) — the drawn land, and what is made over it for anything on
+    // wheels or legs. The relief here put a car rolling on alone up to a few
+    // units under the drawn hill, and up out of it again the moment it parked.
     let floor: number;
-    if (afloat || isWater(groundRadius(world, point.copy(up).multiplyScalar(PLANET_RADIUS)))) floor = PLANET_RADIUS + WATERLINE;
-    else {
-      floor = groundRadius(world, point);
-      point.setLength(floor);
-      floor = Math.max(floor, madeHeightAt?.(point) ?? 0);
-    }
+    point.copy(up).multiplyScalar(PLANET_RADIUS);
+    if (afloat || isWater(groundRadius(world, point))) floor = PLANET_RADIUS + WATERLINE;
+    else floor = isAirKind(kind) ? landAt(point) : standingAt(point);
     let radius = c.position.length();
+    // In the water: it floats a moment, then goes down nose first.
+    if (!c.flying && swamps && isWater(groundRadius(world, point)) && radius <= floor + 0.05) {
+      if (c.sinking < 0) {
+        c.sinking = 0;
+        onEvent?.('foundered', model, c.position);
+      } else c.sinking += dt;
+      c.speed *= Math.exp(-dt / FOUNDER_DRAG);
+      c.vertical = 0;
+      c.position.setLength(floor - founderDepth(c.sinking));
+      up.copy(c.position).normalize();
+      // The nose down about its own side: forward towards down, up towards forward.
+      const nose = founderNose(c.sinking);
+      sinkSide.copy(c.forward).multiplyScalar(Math.cos(nose)).addScaledVector(up, -Math.sin(nose));
+      const tiltedUp = point.copy(up).multiplyScalar(Math.cos(nose)).addScaledVector(c.forward, Math.sin(nose));
+      writePose(c.position, sinkSide, tiltedUp, coastPose);
+      applyPose(coastPose, c.entry.group);
+      link.drive(c.entry.id, coastPose, c.speed);
+      coasting.speed = 0;
+      coasting.grounded = true;
+      c.entry.motion.update(dt, coasting);
+      if (c.sinking >= FOUNDER_TIME) sinkCoast();
+      return;
+    }
+    c.sinking = -1;
     if (!c.flying && radius > floor + 0.05) c.vertical -= COAST_GRAVITY * dt;
     radius += c.vertical * dt;
     if (radius <= floor) {
@@ -2862,6 +2969,8 @@ export function createFleet(options: FleetOptions): Fleet {
     }
     c.position.setLength(radius);
     writePose(c.position, c.forward, up.copy(c.position).normalize(), coastPose);
+    // On the ground, on its wheels as it will stand parked.
+    if (!c.flying && radius <= floor + 0.05) seat(model, coastPose, coastPose);
     applyPose(coastPose, c.entry.group);
     link.drive(c.entry.id, coastPose, c.speed);
     coasting.speed = c.speed;
@@ -3062,6 +3171,7 @@ export function createFleet(options: FleetOptions): Fleet {
         if (heldSeat === 0) {
           player.pose(lastPose);
           link.drive(held.id, lastPose, player.velocity);
+          if (player.sunk) sinkHeld();
         }
         else if (link.sample(held.id, pose)) player.carry(pose);
         else {

@@ -514,11 +514,31 @@ console.log('\nthe motion:');
         proper(fresh, model.id);
         extra += `, a leap lowers the rig ${f(-lowered, 2)} under the clip's rise`;
       }
-      // Its back at `WITHERS` of a person, and not the herds' giant.
+      // Its withers at `WITHERS` of a person, and not the herds' giant.
       const { WITHERS } = await import('../src/craft/horse.ts');
-      const back = model.seats[0]!.y - 0.04 * H;
-      if (Math.abs(back / H - WITHERS) > 0.02) fail(`${model.id}: its back is ${f(back / H)} bodies up, not ${WITHERS}`);
-      extra += `, its back ${f(back / H)} bodies up`;
+      const { rigBack } = await import('../src/fauna/contract.ts');
+      const still = model.build(0);
+      still.updateMatrixWorld(true);
+      const held = still.getObjectByName('rig');
+      const withers = held === undefined ? 0 : held.scale.y * rigBack(horseRig);
+      if (Math.abs(withers / H - WITHERS) > 0.02) fail(`${model.id}: its withers are ${f(withers / H)} bodies up, not ${WITHERS}`);
+      // And the saddle on its back, not on its withers or its neck: a quarter
+      // of the way from the forelegs to the hind legs at least, which the
+      // withers over the forelegs are not, and no higher than the withers.
+      const seat = model.seats[0]!;
+      const legZ = (pattern: RegExp): number | null => {
+        let z: number | null = null;
+        still.traverse((object) => {
+          if (z === null && (object as THREE.Bone).isBone && pattern.test(object.name)) z = object.getWorldPosition(new THREE.Vector3()).z;
+        });
+        return z;
+      };
+      const fore = legZ(/^Front(Upper)?Leg/);
+      const hind = legZ(/^Back(Upper)?Leg/);
+      if (fore === null || hind === null) fail(`${model.id}: no leg bones to find the back between`);
+      else if (!(fore - seat.z > 0.25 * (fore - hind) && seat.z > hind)) fail(`${model.id}: the seat at z ${f(seat.z)} is on the withers, not the back, between the forelegs at ${f(fore)} and the hind legs at ${f(hind)}`);
+      if (seat.y - 0.04 * H > withers + 0.01 * H) fail(`${model.id}: the saddle's back is ${f(seat.y - 0.04 * H)} up, over the withers at ${f(withers)}`);
+      extra += `, its withers ${f(withers / H)} bodies up, the seat ${f(fore !== null ? fore - seat.z : NaN)} behind the forelegs`;
     }
     console.log(`  ${model.id.padEnd(12)} lean ${f(leaned, 3)}  pitch ${f(pitched, 3)}  wheels ${wheels.length}  at rest after it was let go${extra}`);
   }
@@ -563,7 +583,6 @@ console.log('\nwhat stands still until it is taken:');
   const { fleetVariant, paintFor, parkedArrays, parkedModel, countryVehicleId } = await import('../src/craft/parked.ts');
   const { PARKED_CRAFT, PARKED_SLOT } = await import('../src/craft/contract.ts');
   const { TRAFFIC_STYLES } = await import('../src/traffic/regions.ts');
-  const { tractorScale } = await import('../src/countryside-kit.ts');
   const { mergeMeshes } = await import('../src/merge.ts');
   const { PALETTE } = await import('../src/theme.ts');
   const palettes = Object.values(TRAFFIC_STYLES).map((style) => style.paint);
@@ -609,7 +628,13 @@ console.log('\nwhat stands still until it is taken:');
   const tractor = parkedModel('tractor')!;
   for (let n = 0; n < 60; n++) {
     const id = countryVehicleId('tractor', 17 + n * 4, 3 + n * 9, n % 3)!;
-    const merged = parkedArrays(tractor, fleetVariant(id, tractor.variants), undefined, tractorScale(tractor)).color;
+    const arrays = parkedArrays(tractor, fleetVariant(id, tractor.variants), undefined);
+    const merged = arrays.color;
+    // And the same size: it stood at 0.70 of the craft, and grew under whoever took it.
+    if (n === 0) {
+      const takenPositions = mergeMeshes(craft.get('tractor')!.build(fleetVariant(id, tractor.variants))).position;
+      if (!same(arrays.position, takenPositions)) fail(`${id}: the farm's tractor and the one driven off are not the same size`);
+    }
     compared++;
     if (!same(merged, taken(id, undefined))) {
       differ++;
@@ -662,6 +687,100 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
       const off = Math.abs(now - table) / table;
       console.log(`  ${name.padEnd(22)} ${f(now)} measured, ${f(table)} in HERO (${f(off * 100, 1)}%)`);
       if (off > 0.05) fail(`HERO's ${name} is ${f(table)} and the cast now measures ${f(now)}: re-measure body.ts`);
+    }
+
+    // Out of an aircraft: face down and flat in the fall, and under the
+    // canopy hanging upright with both hands on the toggles its lines end in.
+    const { CHUTE_GRIP } = await import('../src/craft/parachute.ts');
+    for (let i = 0; i < 60; i++) hero.skydive(0.05, 0, 0, CHUTE_GRIP);
+    const falling = boxOf(hero.group);
+    const flat = falling.max.y - falling.min.y;
+    const long = falling.max.z - falling.min.z;
+    console.log(`  falling                ${f(flat)} tall, ${f(long)} long`);
+    if (!(flat < AVATAR_HEIGHT * 0.6 && long > AVATAR_HEIGHT * 0.6)) fail(`the fall's pose is not face down and flat: ${f(flat)} tall, ${f(long)} long`);
+    for (let i = 0; i < 60; i++) hero.skydive(0.05, 1, 0, CHUTE_GRIP);
+    hero.group.updateMatrixWorld(true);
+    const wrist = new THREE.Vector3();
+    const misses: number[] = [];
+    for (const side of ['L', 'R'] as const) {
+      let bone: THREE.Object3D | undefined;
+      hero.group.traverse((o) => {
+        if ((o as THREE.Bone).isBone && (o.name === `Wrist.${side}` || o.name === `Wrist${side}`)) bone = o;
+      });
+      if (bone === undefined) continue;
+      hero.group.worldToLocal(bone.getWorldPosition(wrist));
+      const grip = new THREE.Vector3(side === 'L' ? CHUTE_GRIP[0] : -CHUTE_GRIP[0], CHUTE_GRIP[1], CHUTE_GRIP[2]);
+      misses.push(wrist.distanceTo(grip));
+    }
+    const hanging = boxOf(hero.group);
+    console.log(`  under the canopy       wrists ${misses.map((m) => f(m)).join(' and ')} off the toggles, ${f(hanging.max.y - hanging.min.y)} tall`);
+    if (misses.length !== 2 || misses.some((miss) => miss > AVATAR_HEIGHT * 0.06)) fail(`the hands are not on the canopy's toggles: ${misses.map((m) => f(m)).join(', ')} off`);
+
+    // A right turn pulls the right toggle down to the chest, and its line
+    // comes down with the hand: the line's end, stretched by `openCanopy`,
+    // and the wrist the pull put there.
+    const { CHUTE_PULL, buildParachute, openCanopy } = await import('../src/craft/parachute.ts');
+    for (let i = 0; i < 30; i++) hero.skydive(0.05, 1, 1, CHUTE_GRIP, CHUTE_PULL, [0, 0]);
+    hero.group.updateMatrixWorld(true);
+    const pulledTo = new THREE.Vector3(-CHUTE_GRIP[0], CHUTE_GRIP[1] - CHUTE_PULL, CHUTE_GRIP[2] + CHUTE_PULL * 0.25);
+    let rightWrist: THREE.Object3D | undefined;
+    hero.group.traverse((o) => {
+      if ((o as THREE.Bone).isBone && (o.name === 'Wrist.R' || o.name === 'WristR')) rightWrist = o;
+    });
+    const handMiss = rightWrist === undefined ? Infinity : hero.group.worldToLocal(rightWrist.getWorldPosition(wrist)).distanceTo(pulledTo);
+    const canopy = buildParachute();
+    openCanopy(canopy, 10, 0, 1, 0);
+    canopy.updateMatrixWorld(true);
+    // Each line laid down its pivot's -Y, its rest length long: its end, in the player's frame.
+    const toggles = (canopy.children[0]?.userData.toggles ?? []) as { pivot: THREE.Object3D; length: number }[];
+    const lineEnds = toggles.map((toggle) => toggle.pivot.localToWorld(new THREE.Vector3(0, -toggle.length, 0)));
+    const lineMiss = Math.min(...lineEnds.map((end) => end.distanceTo(pulledTo)));
+    console.log(`  a toggle pulled         the wrist ${f(handMiss)} and the line's end ${f(lineMiss)} off the pulled grip`);
+    if (handMiss > AVATAR_HEIGHT * 0.06) fail(`a right turn does not pull the right hand down to its toggle: ${f(handMiss)} off`);
+    if (lineEnds.length !== 2 || lineMiss > AVATAR_HEIGHT * 0.04) fail(`the steering line does not follow the hand down: ${f(lineMiss)} off`);
+
+    // Astride: a scooter is ridden sitting up, and every saddle's lean and
+    // reach comes off the body with it. The lean is the line from the hips to
+    // the neck against the vertical; a body that kept the pose stood with its
+    // arms up at bars no longer there, and a lean laid on again each frame
+    // wound a scooter's rider flat over its bars.
+    const boneOf = (name: string): THREE.Object3D | undefined => {
+      let found: THREE.Object3D | undefined;
+      hero.group.traverse((o) => {
+        if ((o as THREE.Bone).isBone && (o.name === name || o.name === name.replace('.', ''))) found = o;
+      });
+      return found;
+    };
+    const at = (name: string): THREE.Vector3 => {
+      hero.group.updateMatrixWorld(true);
+      return hero.group.worldToLocal(boneOf(name)!.getWorldPosition(new THREE.Vector3()));
+    };
+    const leanOf = (): number => {
+      const spine = at('Neck').sub(at('Hips'));
+      return Math.atan2(spine.z, spine.y);
+    };
+    const DEG = 180 / Math.PI;
+    for (let i = 0; i < 30; i++) hero.stride(0.05, 0, false);
+    const standingWrists = ['Wrist.L', 'Wrist.R'].map(at);
+    const standingLean = leanOf();
+    const UPRIGHT: Record<string, number> = { scooter: 18 / DEG };
+    for (const id of ['scooter', 'bicycle', 'motorbike', 'tuk-tuk', 'jet-ski', 'horse']) {
+      const seat = craft.get(id)?.seats.find((s) => s.pose === 'ride');
+      if (seat === undefined) continue;
+      const leans: number[] = [];
+      for (let i = 0; i < 90; i++) {
+        hero.ride(0.05, seat, i * 0.3);
+        if (i % 30 === 29) leans.push(leanOf());
+      }
+      const wound = Math.max(...leans) - Math.min(...leans);
+      const lean = leans[leans.length - 1]!;
+      hero.stride(0.05, 0, false);
+      const left = Math.max(...['Wrist.L', 'Wrist.R'].map((name, i) => at(name).distanceTo(standingWrists[i]!)));
+      const after = Math.abs(leanOf() - standingLean);
+      console.log(`  astride ${id.padEnd(10)} lean ${f(lean * DEG, 1)} deg, ${f(wound * DEG, 2)} wound over 90 frames; off, the wrists ${f(left)} from standing, the spine ${f(after * DEG, 1)} deg`);
+      if (wound > 0.5 / DEG) fail(`${id}: the rider's lean changes frame to frame (${f(wound * DEG, 1)} deg): it is laid on again over itself`);
+      if (UPRIGHT[id] !== undefined && lean > UPRIGHT[id]) fail(`${id}: the rider leans ${f(lean * DEG, 1)} deg forward, not sitting up (at most ${f(UPRIGHT[id] * DEG, 0)})`);
+      if (left > AVATAR_HEIGHT * 0.02 || after > 1 / DEG) fail(`${id}: getting off kept the seat's pose: the wrists ${f(left)} from standing, the spine ${f(after * DEG, 1)} deg`);
     }
   } catch (error) {
     fail(`the cast did not load, so HERO was not re-measured: ${(error as Error).message}`);

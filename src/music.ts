@@ -6,8 +6,8 @@
  * outro onto the tonic — and then there is silence for a minute or two, the
  * wind and the footsteps, before the next. Music that never stops is
  * wallpaper within ten minutes; music that arrives is an event. Crossing into
- * a new country is the one thing that shortens the silence: the frontier's
- * jingle, and a few seconds later the new country's tune.
+ * a new country is the one thing that shortens the silence: a few seconds
+ * in, the new country's tune.
  *
  * **Where you are is the town's region** (`music-score.ts` asks
  * `scenery/regions.ts`'s `regionFor`), held for a few seconds before it
@@ -36,7 +36,7 @@
  *
  * **Its own volume, under the world.** The music bypasses the effects' master
  * and joins the soundscape at its final compressor, so its slider and the
- * effects' are independent, and it ducks under the landmark jingle.
+ * effects' are independent.
  *
  * This module and its two siblings are imported only after the gesture that
  * opens the sound, so none of it is in the world's first load.
@@ -65,6 +65,11 @@ export interface MusicMoment {
   place: number;
   /** The local hour, 0 to 24: a raga keeps to its time of day. */
   hour: number;
+  /**
+   * A world that is not Earth names its own style: it has no countries of
+   * Earth's to read one from. Earth leaves it out and the map decides.
+   */
+  style?: StyleId;
 }
 
 export interface MusicStats {
@@ -87,8 +92,6 @@ export interface Music {
   observe(moment: MusicMoment): void;
   /** Every frame: hands the next quarter second of notes to the audio thread. */
   update(): void;
-  /** A cue from the soundscape: the music ducks under a jingle. */
-  cue(name: string): void;
   /** Force a style for review, or `play()` to hand it back to the map. Returns what it did. */
   play(style?: string | null): string;
   /** 0 to 1, linear; the slider that sets it is logarithmic. */
@@ -170,17 +173,16 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
   let volume = settings.volume;
   let on = settings.on;
 
-  // The chain: every piece's bus -> compressor -> duck -> level -> the soundscape's limiter.
+  // The chain: every piece's bus -> compressor -> level -> the soundscape's limiter.
   const squeeze = ctx.createDynamicsCompressor();
   squeeze.threshold.value = -20;
   squeeze.knee.value = 12;
   squeeze.ratio.value = 3;
   squeeze.attack.value = 0.015;
   squeeze.release.value = 0.3;
-  const duck = ctx.createGain();
   const level = ctx.createGain();
   level.gain.value = on ? volume * MUSIC_LEVEL : 0;
-  squeeze.connect(duck).connect(level).connect(output);
+  squeeze.connect(level).connect(output);
 
   // A room of generated noise, shared by every piece; each piece sends to it at its style's depth.
   const room = ctx.createConvolver();
@@ -506,14 +508,6 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
     if (next !== null && now - endedAt > 15 && restUntil - now > 6) restUntil = now + between(2.5, 5);
   }
 
-  function duckFor(depth: number, seconds: number): void {
-    const now = ctx.currentTime;
-    const g = duck.gain;
-    hold(g, now);
-    g.setTargetAtTime(depth, now, 0.12);
-    g.setTargetAtTime(1, now + seconds, 0.8);
-  }
-
   function setLevel(): void {
     const g = level.gain;
     hold(g, ctx.currentTime);
@@ -533,7 +527,7 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
       where.continent = moment.continent;
       where.lat = moment.lat;
       where.lon = moment.lon;
-      const wanted = forced ?? styleAt(where);
+      const wanted = forced ?? (moment.style !== undefined && !aloft ? moment.style : styleAt(where));
       if (wanted !== pending) {
         pending = wanted;
         pendingSince = now;
@@ -596,11 +590,6 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
         playing.start = end;
         playing.cursor = 0;
       }
-    },
-
-    cue(name) {
-      if (name === 'landmark') duckFor(0.3, 4.5);
-      else if (name === 'frontier') duckFor(0.6, 2.2);
     },
 
     play(id) {

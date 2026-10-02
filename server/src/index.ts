@@ -7,10 +7,15 @@
  * the world cannot rebuild from its seed is where somebody left a vehicle, so
  * that — and who sits in which — is the only state the room keeps.
  *
- * One room for the whole planet. At the rates below a room of 100 is 1,000
- * messages a second in and 99,000 out, which one Durable Object carries; past
- * that the planet splits into rooms by cell, and `src/peers.ts` is the side
- * that would choose one.
+ * One room a world, and one for the whole of each: `?body=<id>` names the
+ * world (`BODY_RADII` in `limits.ts`), Earth's room is the one an address
+ * without it reaches — so Earth's protocol is what it always was — and a
+ * world the relay does not know is refused. A room bounds a state by its own
+ * world's shell (`shellOf`); the seats, the parks and the horn are Earth's
+ * alone, and another world's room drops `sit`, `up` and `vp` unanswered. At
+ * the rates below a room of 100 is 1,000 messages a second in and 99,000
+ * out, which one Durable Object carries; past that a world splits into rooms
+ * by cell, and `src/peers.ts` is the side that would choose one.
  *
  * The wire is JSON, `src/peers.ts`'s and `src/fleet-sync.ts`'s too. A pose is
  * nine numbers, `[x, y, z, fx, fy, fz, ux, uy, uz]` (`WirePose` in
@@ -25,13 +30,17 @@
  *     `park`) only if the relay has no pose for it yet — it is at its site —
  *     and the claimer is beside it;
  *   `{ t: 'up', v, p? }` leaves it; `p`, from the driver, is where it stands;
+ *   `{ t: 'up', v, sunk: true }` from the driver: it went under the water
+ *     (`FOUNDER_TIME` in `src/vehicles.ts`), so every seat in it is emptied
+ *     and it goes back to its site at once, announced as a `seat` and a
+ *     `park` with no pose. An older relay takes it as a plain `up`;
  *   `{ t: 'vp', v, p, sp }` the driver's pose and speed, from seat 0 only,
  *     and no further from the vehicle's last pose than it could have gone
  *     (`driveReach` in `limits.ts`); a vehicle does not teleport, its driver
  *     does, and leaves it where it was;
  *   `{ t: 'look', l }` how the player now looks (`LOOK_PATTERN`);
  *   `{ t: 'chat', m, c }` a line for everyone, and the country it was sent
- *     from; cleaned by `cleanChat` and paced by `spendChat` in `limits.ts`,
+ *     from (`ESP`, or a nation's key on another world, `mars:tharsis`); cleaned by `cleanChat` and paced by `spendChat` in `limits.ts`,
  *     the same two the game sends by;
  *   `{ t: 'emote', e }` a gesture (`EMOTES`), at most one a second;
  *   `{ t: 'honk', k, on? }` a horn (`HONKS`), from a driver's seat: `on`
@@ -70,11 +79,12 @@
  *     `HONK_HOLD_MS` without a refresh, and at the driver's `bye`;
  *   `{ t: 'flags', id, f }` a player's new flags, to everyone but them.
  *
- * The chat is one room for the planet, like everything else here, and it is
+ * The chat is one room for the world, like everything else here, and it is
  * kept in memory only: a room that sleeps with nobody in it wakes with no
  * history, which is the right amount of history for an empty room.
  *
- * A socket opens with `?name=`, `?look=` and `?key=`. The look is how the
+ * A socket opens with `?name=`, `?look=` and `?key=`, and on any world but
+ * Earth `?body=`. The look is how the
  * player chose to look, which the relay checks the shape of and passes on
  * and never reads; an older client sends none, and an older relay drops it
  * and the `look` message both, so a client on either side of the change still
@@ -90,7 +100,9 @@
  * for any of them to take. Resting poses are kept in the object's storage
  * (`veh:<id>` -> `{ p, at, k? }`, `k` the keys of whoever dropped out of it), written when a vehicle parks and every
  * `SAVE_MS` while it is driven, never per pose; a vehicle left for
- * `EXPIRE_MS` goes back to its site. Who sits where is not stored: it is the
+ * `EXPIRE_MS` goes back to its site — but not while anybody is within
+ * `WATCHED_REACH` of where it rests, who would see it vanish: it is looked at
+ * again every `WATCHED_RETRY_MS` until nobody is. Who sits where is not stored: it is the
  * sockets', so each socket's attachment carries its own seat and a wake from
  * hibernation rebuilds the map from `getWebSockets()`.
  */
@@ -99,9 +111,8 @@ import {
   CHAT_HISTORY,
   EMOTE_INTERVAL_MS,
   FLAGS_INTERVAL_MS,
-  MAX_RADIUS,
   MAX_SPEED,
-  MIN_RADIUS,
+  cleanBody,
   cleanChat,
   cleanCountry,
   cleanEmote,
@@ -112,6 +123,7 @@ import {
   driveReach,
   freshBucket,
   freshHonk,
+  shellOf,
   spendChat,
   spendHonk,
 } from './limits.ts';
@@ -160,8 +172,21 @@ const CLAIM_REACH = 60;
 const SILENT_MS = 5_000;
 /** How often a driven vehicle's pose is written while it moves. */
 const SAVE_MS = 10_000;
-/** A vehicle nobody has touched for this long goes back where it stood. */
-const EXPIRE_MS = 24 * 3_600_000;
+/**
+ * A vehicle nobody has touched for this long goes back where it stood. Three
+ * hours is a session and a break: long enough that a car left outside a
+ * landmark is still there after lunch, short enough that a town whose cars
+ * were all driven off has them back the same evening. It was a day.
+ */
+const EXPIRE_MS = 3 * 3_600_000;
+/**
+ * Nobody sees a vehicle go home: one due while a player stands within this of
+ * it, in world units — past the fleet's `KEEP` (805), where a client stops
+ * drawing it, and the haze of a low flight — waits.
+ */
+const WATCHED_REACH = 2_000;
+/** How long a watched vehicle waits before it is looked at again. */
+const WATCHED_RETRY_MS = 10 * 60_000;
 /**
  * How many resting vehicles the room remembers; the oldest goes home first.
  * A row is about a hundred characters of `hi`, so 5,000 make half a megabyte,
@@ -175,6 +200,8 @@ type Pose = number[];
 
 interface Attachment {
   id: string;
+  /** The world whose room this is (`BODY_RADII`), which bounds where a state may be. */
+  body: string;
   name: string;
   /** How the player looks, `''` for a client that did not say (`cleanLook`). */
   look: string;
@@ -237,12 +264,15 @@ interface Craft {
 const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
-function parseState(value: unknown): State | null {
+/** Where a state or a pose may be on a world: `shellOf` in `limits.ts`. */
+type Shell = { min: number; max: number };
+
+function parseState(value: unknown, shell: Shell): State | null {
   if (!Array.isArray(value) || value.length !== 9) return null;
   if (!value.every(finite)) return null;
   const [x, y, z, fx, fy, fz, state, speed, airborne] = value as number[] as State;
   const radius = Math.hypot(x, y, z);
-  if (radius < MIN_RADIUS || radius > MAX_RADIUS) return null;
+  if (radius < shell.min || radius > shell.max) return null;
   const heading = Math.hypot(fx, fy, fz);
   if (heading < 0.5 || heading > 1.5) return null;
   if (state !== 0 && state !== 1 && state !== 2) return null;
@@ -258,11 +288,11 @@ function parseState(value: unknown): State | null {
 }
 
 /** Nine finite numbers: a point in the shell a vehicle can be in, and two unit vectors. */
-function parsePose(value: unknown): Pose | null {
+function parsePose(value: unknown, shell: Shell): Pose | null {
   if (!Array.isArray(value) || value.length !== 9 || !value.every(finite)) return null;
   const n = value as number[];
   const radius = Math.hypot(n[0]!, n[1]!, n[2]!);
-  if (radius < MIN_RADIUS || radius > MAX_RADIUS) return null;
+  if (radius < shell.min || radius > shell.max) return null;
   for (const at of [3, 6]) {
     const length = Math.hypot(n[at]!, n[at + 1]!, n[at + 2]!);
     if (length < 0.8 || length > 1.2) return null;
@@ -289,6 +319,7 @@ function attachmentOf(socket: WebSocket): Attachment | null {
   if (raw === null || typeof raw !== 'object' || typeof raw.id !== 'string') return null;
   return {
     id: raw.id,
+    body: raw.body ?? 'earth',
     name: raw.name ?? '',
     look: raw.look ?? '',
     key: raw.key ?? '',
@@ -367,11 +398,13 @@ export class Room extends DurableObject<Env> {
 
     const id = crypto.randomUUID().slice(0, 8);
     const query = new URL(request.url).searchParams;
+    // The Worker routed this socket to its world's room by the same parameter.
+    const body = cleanBody(query.get('body')) || 'earth';
     const name = cleanName(query.get('name'));
     const look = cleanLook(query.get('look'));
     const key = query.get('key') ?? '';
     server.serializeAttachment({
-      id, name, look, key: KEY.test(key) ? key : '', state: null, flags: 0, seat: null, drive: null,
+      id, body, name, look, key: KEY.test(key) ? key : '', state: null, flags: 0, seat: null, drive: null,
       rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, flags: 0 },
       horn: freshHonk(),
       chat: freshBucket(),
@@ -381,7 +414,8 @@ export class Room extends DurableObject<Env> {
     // told has already been settled.
     const now = Date.now();
     this.settle(now);
-    this.expire(now);
+    const next = this.expire(now);
+    if (next !== null) this.schedule(next);
     const peers: unknown[] = [];
     // Beside the rows rather than in them: a row's length is what an older
     // client checks a state by, and a tenth field would drop every peer.
@@ -417,11 +451,17 @@ export class Room extends DurableObject<Env> {
       return;
     }
     if (typeof value !== 'object' || value === null) return;
-    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown; f?: unknown; on?: unknown };
-    if (typed.t === 'vp') this.drive(socket, self, typed, now);
-    else if (typed.t === 'sit') this.sit(socket, self, typed, now);
-    else if (typed.t === 'up') this.up(socket, self, typed, now);
-    else if (typed.t === 'look') this.restyle(socket, self, typed.l, now);
+    const typed = value as { t?: unknown; v?: unknown; seat?: unknown; p?: unknown; sp?: unknown; l?: unknown; m?: unknown; c?: unknown; e?: unknown; k?: unknown; f?: unknown; on?: unknown; sunk?: unknown };
+    // The seats are Earth's alone for now: another world's vehicles are its
+    // own and nobody else's, so its room arbitrates none of them.
+    const seats = self.body === 'earth';
+    if (typed.t === 'vp') {
+      if (seats) this.drive(socket, self, typed, now);
+    } else if (typed.t === 'sit') {
+      if (seats) this.sit(socket, self, typed, now);
+    } else if (typed.t === 'up') {
+      if (seats) this.up(socket, self, typed, now);
+    } else if (typed.t === 'look') this.restyle(socket, self, typed.l, now);
     else if (typed.t === 'chat') this.say(socket, self, typed.m, typed.c, now);
     else if (typed.t === 'emote') this.gesture(socket, self, typed.e, now);
     else if (typed.t === 'honk') this.honk(socket, self, typed.k, typed.on, now);
@@ -453,7 +493,7 @@ export class Room extends DurableObject<Env> {
 
   private move(socket: WebSocket, self: Attachment, value: unknown[], now: number): void {
     if (now - self.rate.s < MIN_INTERVAL_MS) return;
-    const state = parseState(value);
+    const state = parseState(value, shellOf(self.body));
     if (state === null) return;
     self.rate.s = now;
     self.state = state;
@@ -562,7 +602,7 @@ export class Room extends DurableObject<Env> {
     const craft = this.craftOf(v);
     // A vehicle still at its site has no pose here; the claimer, who can see
     // it, may say where it stands, and is believed if they are beside it.
-    const site = craft.pose === null && message.p != null ? parsePose(message.p) : null;
+    const site = craft.pose === null && message.p != null ? parsePose(message.p, shellOf(self.body)) : null;
     const placed = site !== null && self.state !== null && apart(self.state, site) <= CLAIM_REACH;
     if (placed) craft.pose = site;
     if (returning) craft.keys = craft.keys.filter((key) => key !== self.key);
@@ -577,12 +617,19 @@ export class Room extends DurableObject<Env> {
     if (placed) this.broadcast(JSON.stringify({ t: 'park', v, p: site }), null);
   }
 
-  private up(socket: WebSocket, self: Attachment, message: { v?: unknown; p?: unknown }, now: number): void {
+  private up(socket: WebSocket, self: Attachment, message: { v?: unknown; p?: unknown; sunk?: unknown }, now: number): void {
     if (now - self.rate.up < SEAT_INTERVAL_MS) return;
     const v = vehicleOf(message.v);
     if (v === null || self.seat === null || self.seat[0] !== v) return;
     self.rate.up = now;
-    const pose = message.p === undefined || message.p === null ? null : parsePose(message.p);
+    if (message.sunk === true && self.seat[1] === 0) {
+      self.seat = null;
+      self.drive = null;
+      socket.serializeAttachment(self);
+      this.sink(v, socket);
+      return;
+    }
+    const pose = message.p === undefined || message.p === null ? null : parsePose(message.p, shellOf(self.body));
     this.vacate(self, now, pose, null);
     socket.serializeAttachment(self);
   }
@@ -591,7 +638,7 @@ export class Room extends DurableObject<Env> {
     if (now - self.rate.vp < DRIVE_INTERVAL_MS) return;
     const v = vehicleOf(message.v);
     if (v === null || self.seat === null || self.seat[0] !== v || self.seat[1] !== 0) return;
-    const pose = parsePose(message.p);
+    const pose = parsePose(message.p, shellOf(self.body));
     const speed = message.sp;
     if (pose === null || !finite(speed)) return;
     // A vehicle goes no faster than anything in the world: from its last
@@ -672,10 +719,13 @@ export class Room extends DurableObject<Env> {
       this.storedCount++;
       if (this.storedCount > MAX_STORED) this.evictOldest();
     }
-    // One alarm at a time: whichever fires first finds the next.
-    const due = craft.at + EXPIRE_MS;
+    this.schedule(craft.at + EXPIRE_MS);
+  }
+
+  /** One alarm at a time, at the earliest due: whichever fires first finds the next. */
+  private schedule(due: number): void {
     void this.ctx.storage.getAlarm().then((alarm) => {
-      if (alarm === null) return this.ctx.storage.setAlarm(due);
+      if (alarm === null || alarm > due) return this.ctx.storage.setAlarm(due);
     });
   }
 
@@ -691,6 +741,29 @@ export class Room extends DurableObject<Env> {
     if (oldest !== null) this.home(oldest);
   }
 
+  /**
+   * Gone under with its driver, whose seat `up` has already emptied: every
+   * other seat in it is emptied too — its passengers' clients put them out
+   * swimming when it goes home under them — and it goes home at once.
+   */
+  private sink(v: string, driver: WebSocket): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket === driver) continue;
+      const other = attachmentOf(socket);
+      if (other === null || other.seat === null || other.seat[0] !== v) continue;
+      other.seat = null;
+      other.drive = null;
+      socket.serializeAttachment(other);
+    }
+    const craft = this.crafts.get(v);
+    if (craft !== undefined) {
+      craft.seats = [];
+      craft.keys = [];
+    }
+    this.broadcast(JSON.stringify({ t: 'seat', v, seats: [] }), null);
+    this.home(v);
+  }
+
   /** Back to its site: forgotten, and announced. */
   private home(v: string): void {
     const craft = this.crafts.get(v);
@@ -704,14 +777,26 @@ export class Room extends DurableObject<Env> {
     this.broadcast(JSON.stringify({ t: 'park', v, p: null }), null);
   }
 
-  /** Sends home everything unattended for `EXPIRE_MS`; returns when the next is due, if any is. */
+  /**
+   * Sends home everything unattended for `EXPIRE_MS` that nobody is near
+   * enough to see go (`WATCHED_REACH`); returns when the next is due, if any is.
+   */
   private expire(now: number): number | null {
     let next: number | null = null;
+    let players: State[] | null = null;
     for (const [v, craft] of [...this.crafts]) {
       if (occupied(craft) || craft.drivenAt !== 0) continue;
-      const due = craft.at + EXPIRE_MS;
-      if (due <= now) this.home(v);
-      else if (craft.stored) next = next === null ? due : Math.min(next, due);
+      let due = craft.at + EXPIRE_MS;
+      if (due <= now) {
+        const pose = craft.pose;
+        players ??= this.ctx.getWebSockets().map((socket) => attachmentOf(socket)?.state ?? null).filter((state): state is State => state !== null);
+        if (pose === null || !players.some((state) => apart(state, pose) < WATCHED_REACH)) {
+          this.home(v);
+          continue;
+        }
+        due = now + WATCHED_RETRY_MS;
+      }
+      if (craft.stored) next = next === null ? due : Math.min(next, due);
     }
     return next;
   }
@@ -748,7 +833,14 @@ export class Room extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/ws') return env.ROOM.get(env.ROOM.idFromName('earth')).fetch(request);
+    if (url.pathname === '/ws') {
+      // A room a world, by name: Earth's is the one it always was, and an
+      // address with no `body` reaches it. A world the relay does not know is
+      // refused rather than given a room of its own.
+      const body = cleanBody(url.searchParams.get('body'));
+      if (body === '') return new Response('No such world', { status: 404 });
+      return env.ROOM.get(env.ROOM.idFromName(body)).fetch(request);
+    }
     return new Response('atlas peers\n', { headers: { 'content-type': 'text/plain' } });
   },
 } satisfies ExportedHandler<Env>;

@@ -364,6 +364,14 @@ export interface Lunar {
   phase: number;
 }
 
+/**
+ * The Moon's mean longitude, degrees, J2000 ecliptic: where it would be on a
+ * circular orbit at its mean rate — `moonPosition`'s `L` alone. A locked Moon
+ * turns at that rate, so its face points along it and the true Moon swings
+ * round it by the equation of the centre: the libration in longitude.
+ */
+export const moonMeanLongitude = (date: Date): number => norm360(218.3164477 + 481267.88123421 * centuriesSince2000(date));
+
 export function moonPosition(date: Date): Lunar {
   const t = centuriesSince2000(date);
 

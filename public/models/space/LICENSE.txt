@@ -1,0 +1,13 @@
+The models in this directory, rebuilt by scripts/build-space.ts.
+Geometry, colours and animation clips are unchanged except where the script
+says: textures read into flat colour slots, parts merged, normals creased,
+clips the worlds do not play left out.
+
+Quaternius (https://quaternius.com) — Ultimate Space Kit
+(https://quaternius.com/packs/ultimatespacekit.html) and Ultimate Monsters
+(https://quaternius.com/packs/ultimatemonsters.html).
+License: CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/).
+
+Kenney (https://kenney.nl) — Space Kit (https://kenney.nl/assets/space-kit) and
+Space Station Kit (https://kenney.nl/assets/space-station-kit).
+License: CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/).

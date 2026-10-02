@@ -31,9 +31,9 @@
 import * as THREE from 'three';
 import type { Folk } from './folk.ts';
 import { decodeAppearance } from './appearance.ts';
-import { foldLegs, limbsOf, poseAstride } from './cast.ts';
+import { foldLegs, handHold, limbsOf, poseAstride } from './cast.ts';
 import type { AstrideSeat } from './cast.ts';
-import type { Limbs, Person } from './cast.ts';
+import type { HandHold, Limbs, Person } from './cast.ts';
 import { AVATAR_HEIGHT, SEAT_SHIN, SEAT_THIGH, createMotion } from './avatar.ts';
 import type { Motion } from './avatar.ts';
 import type { Player } from './player.ts';
@@ -104,6 +104,8 @@ interface Body {
   /** The hero's own: `createMotion` in `avatar.ts`. */
   motion: Motion;
   limbs: Limbs;
+  /** Where the clips left what a seat poses by hand, put back before they run again (`handHold`). */
+  hold: HandHold;
   /** Last frame's facing and whether it was off the ground, for a turn and a landing. */
   facing: THREE.Vector3;
   airborne: boolean;
@@ -145,6 +147,8 @@ export interface PeerMark {
   x: number;
   y: number;
   z: number;
+  /** What they are doing as the wire says it: on foot, swimming, or in a seat. */
+  state: PlayerState;
 }
 
 export interface PeersStats {
@@ -184,9 +188,15 @@ export interface SeatFrameData {
   motion?: { readonly phase: number };
 }
 
+/**
+ * As much of the traveller as the link reads and sends: Earth's `Player`, or
+ * a walked world's traveller dressed in the same fields (`worlds/shell.ts`).
+ */
+export type PeerSelf = Pick<Player, 'position' | 'forward' | 'velocity' | 'airborne' | 'canopy' | 'sitting' | 'state'>;
+
 export interface Peers {
   group: THREE.Group;
-  update(dt: number, player: Player): void;
+  update(dt: number, player: PeerSelf): void;
   /** Every peer's drawn position, on the unit sphere. Rewritten by `update`. */
   readonly marks: readonly PeerMark[];
   /** The nearest drawn peer that is moving, in world units, for the shadow's cadence. */
@@ -227,6 +237,11 @@ export interface Peers {
    * seated peer's vehicle is not built, the peer is only its name.
    */
   useSeats(seats: FleetSeats, seatOf: (id: string) => PeerSeat | null): void;
+  /**
+   * Closes the socket for good, with no reconnection, and takes every peer
+   * off the group: a walked world's link, when the traveller leaves it.
+   */
+  dispose(): void;
 }
 
 /** The name kept on this device, which the next connection sends. */
@@ -290,12 +305,33 @@ function labelOf(name: string): THREE.Sprite {
 }
 
 /** What the player is doing, read so that a `Player` without `state` yet reads as on foot. */
-function stateIndex(player: Player): number {
+function stateIndex(player: PeerSelf): number {
   const state = (player as { state?: string }).state ?? 'foot';
   return Math.max(0, PLAYER_STATES.indexOf(state as PlayerState));
 }
 
-export function createPeers(url: string, folk: Folk): Peers {
+/**
+ * Which world the link is on, and how big it is.
+ *
+ * The relay keeps a room a world (`/ws?body=<id>`): a traveller on Mars and
+ * one on Earth never see each other. Earth is the room an address with no
+ * `body` reaches, so Earth's address is exactly what it always was; any
+ * other id the relay does not know is refused there. `radius` is the
+ * world's walkable radius, in units, for a state's height over its surface;
+ * the waterline a swimmer dives under is Earth's alone, and on another world
+ * a swimmer is never under it.
+ */
+export interface PeersOptions {
+  /** The body's id, `'earth'` when left out. */
+  body?: string;
+  /** Its walkable radius, `PLANET_RADIUS` when left out. */
+  radius?: number;
+}
+
+export function createPeers(url: string, folk: Folk, options: PeersOptions = {}): Peers {
+  const bodyId = options.body ?? 'earth';
+  const onEarth = bodyId === 'earth';
+  const waterline = (options.radius ?? PLANET_RADIUS) + WATERLINE;
   const group = new THREE.Group();
   group.name = 'peers';
   const peers = new Map<string, Peer>();
@@ -331,7 +367,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   let nearestMoving = Infinity;
   const key = pageKey();
   /** The player `update` was last handed, so a new socket can say where we are at once. */
-  let lastPlayer: Player | null = null;
+  let lastPlayer: PeerSelf | null = null;
 
   const basis = new THREE.Matrix4();
   const local = new THREE.Matrix4();
@@ -348,11 +384,18 @@ export function createPeers(url: string, folk: Folk): Peers {
     for (const listener of stateListeners) listener(state);
   }
 
+  /** Set by `dispose`: no socket opens again. */
+  let disposed = false;
+  let retryTimer = 0;
+
   function connect(): void {
+    if (disposed) return;
     setState('connecting');
     let open: WebSocket;
     try {
       const address = new URL(url);
+      // Earth's room is the one an address without a body reaches.
+      if (!onEarth) address.searchParams.set('body', bodyId);
       if (stats.name !== '') address.searchParams.set('name', stats.name);
       if (look !== '') address.searchParams.set('look', look);
       lookInAddress = look;
@@ -363,7 +406,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       // not let open one — and asked again on the same backoff as a drop.
       console.warn('peers: no relay at', url, error);
       setState('closed');
-      setTimeout(connect, retry);
+      retryTimer = window.setTimeout(connect, retry);
       retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
       return;
     }
@@ -392,7 +435,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       looks.clear();
       flagsById.clear();
       setState('closed');
-      setTimeout(connect, retry);
+      retryTimer = window.setTimeout(connect, retry);
       retry = Math.min(RETRY_MS[1], Math.max(RETRY_MS[0], retry * 2));
     };
   }
@@ -528,7 +571,7 @@ export function createPeers(url: string, folk: Folk): Peers {
   }
 
   /** Our flags, sent when they change, no sooner than `FLAGS_SEND_MS` after the last. */
-  function sendFlags(player: Player, now: number): void {
+  function sendFlags(player: PeerSelf, now: number): void {
     if (socket === null || socket.readyState !== WebSocket.OPEN || stats.id === null) return;
     const flags = (player.canopy ? 1 << FLAGS.indexOf('chute') : 0) | (player.sitting ? 1 << FLAGS.indexOf('sitting') : 0);
     if (flags === flagsSent || now - flagsSentAt < FLAGS_SEND_MS) return;
@@ -561,7 +604,7 @@ export function createPeers(url: string, folk: Folk): Peers {
     openCanopy(canopy, peer.canopyAge, 0);
   }
 
-  function send(player: Player): void {
+  function send(player: PeerSelf): void {
     if (socket === null || socket.readyState !== WebSocket.OPEN) return;
     const { position: p, forward: f } = player;
     const state: State = [p.x, p.y, p.z, f.x, f.y, f.z, stateIndex(player), player.velocity, player.airborne ? 1 : 0];
@@ -615,7 +658,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       if ((object as THREE.Mesh).isMesh) object.castShadow = true;
     });
     peer.holder.add(person.root);
-    peer.body = { person, motion: createMotion(person), limbs, facing: new THREE.Vector3(), airborne: false, under: 0 };
+    peer.body = { person, motion: createMotion(person), limbs, hold: handHold(limbs), facing: new THREE.Vector3(), airborne: false, under: 0 };
     return peer.body;
   }
 
@@ -632,6 +675,7 @@ export function createPeers(url: string, folk: Folk): Peers {
       turn = Math.atan2(cross.dot(up), body.facing.dot(forward)) / dt;
     }
     body.facing.copy(forward);
+    body.hold.off();
     if (body.airborne && !airborne) body.motion.land(0);
     body.airborne = airborne;
     body.motion.foot(dt, speed, airborne, { turn });
@@ -646,7 +690,9 @@ export function createPeers(url: string, folk: Folk): Peers {
   function seat(peer: Peer, body: Body, dt: number, data: SeatFrameData): void {
     const root = body.person.root;
     const pose = data.pose ?? 'sit';
+    body.hold.off();
     body.motion.still(dt);
+    body.hold.on();
     if (pose === 'sit') foldLegs(body.limbs, peer.holder, SEAT_THIGH, SEAT_SHIN);
     else if (pose === 'ride' && data.seat !== undefined) {
       peer.holder.updateMatrixWorld(true);
@@ -674,6 +720,7 @@ export function createPeers(url: string, folk: Folk): Peers {
     group,
     update(dt, player) {
       lastPlayer = player;
+      if (disposed) return;
       if (socket === null && stats.state === 'off') connect();
       const now = performance.now();
       if (now - sentAt >= SEND_MS) {
@@ -697,11 +744,12 @@ export function createPeers(url: string, folk: Folk): Peers {
         peer.aloft = state.airborne;
         let mark = markPool[marks.length];
         if (mark === undefined) {
-          mark = { id: '', name: '', x: 0, y: 0, z: 0 };
+          mark = { id: '', name: '', x: 0, y: 0, z: 0, state: 'foot' };
           markPool.push(mark);
         }
         mark.id = peer.id;
         mark.name = peer.name || 'Traveller';
+        mark.state = state.state;
         marks.push(mark);
         up.copy(state.position).normalize();
         mark.x = up.x;
@@ -763,8 +811,9 @@ export function createPeers(url: string, folk: Folk): Peers {
         if (state.state === 'foot') stride(body, dt, state.speed, state.airborne);
         else if (state.state === 'swim') {
           // A state under the water's surface is a diver's: the long pull and glide.
-          const depth = PLANET_RADIUS + WATERLINE - state.position.length();
+          const depth = onEarth ? waterline - state.position.length() : 0;
           body.under += ((depth > DIVING_FROM ? 1 : 0) - body.under) * (1 - Math.exp(-3 * dt));
+          body.hold.off();
           body.motion.swim(dt, state.speed, body.under);
         }
       }
@@ -838,6 +887,19 @@ export function createPeers(url: string, folk: Folk): Peers {
     useSeats(fleetSeats, holderOf) {
       seats = fleetSeats;
       seatOf = holderOf;
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      window.clearTimeout(lookTimer);
+      window.clearTimeout(retryTimer);
+      const open = socket;
+      socket = null;
+      open?.close();
+      for (const id of [...peers.keys()]) drop(id);
+      messageListeners.clear();
+      stateListeners.clear();
+      setState('closed');
     },
   };
   return peersApi;

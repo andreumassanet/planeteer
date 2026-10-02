@@ -13,31 +13,28 @@
  *
  * So it is a **local** map now, and three decisions follow from that:
  *
- * - **The scale is the country you are standing in**, taken from the bounding
- *   cap of the ring you are actually inside rather than of the country as a
- *   whole — France owns islands in three oceans and the United States owns
- *   Alaska, and `menu.ts` already wrote down what framing a country by all of
- *   its rings does. Clamped to [`MIN_VIEW`, `MAX_VIEW`], because Luxembourg's
- *   cap is 126 units and Russia's is a third of the planet and neither is a
- *   useful disc. The clamp is what makes the extremes readable: a microstate is
- *   never blown up past a 300-unit view, and Russia is never drawn wider than
- *   4,000.
- * - **North is up and the marker turns**, which is the opposite of what this
- *   file used to do and the same choice `map.ts` made. A heading-up disc is
- *   steered by; a north-up disc is *read*, and a map fitted to a country has to
- *   be read — the country is a shape you recognise, and it is only a shape you
- *   recognise if it holds still while you turn round. The heading is not lost,
- *   it is the arrow at the centre.
- * - **The towns are on it.** `hud.ts` says *near Palma* and until now nothing
- *   said where Palma was. The built places — `isShown`, the same 9,734 rows the
- *   settlements and the trees agree on — are dots sized by `radiusOf`, so the
- *   disc answers *which one* and *how big* in the same mark.
+ * - **The scale is the ground you will cover**, not the country you are in
+ *   (it was the country's bounding cap until 2026-10-02): `LOCAL_VIEW` round
+ *   you on foot, opening by `SPEED_VIEW` seconds of whatever you are moving at
+ *   — a car's minimap shows the next junction, a walker's the next street —
+ *   and to the horizon in the air, clamped to [`MIN_VIEW`, `MAX_VIEW`]. The
+ *   country as a shape is `map.ts`'s, behind `M`, which is the map that is
+ *   *read*; this one is *steered by*.
+ * - **It turns with the camera**, as a driving game's does (since 2026-10-02;
+ *   it was north-up with the marker turning): what is ahead on the screen is
+ *   up the disc, the arrow is your body against the camera, and the `N` rides
+ *   round the rim to say where north went.
+ * - **The roads are on it, and the towns.** The roads as their own lines
+ *   (`MinimapOptions.roads`), cased in ink as `map.ts` draws them; the built
+ *   places — `isShown`, the same rows the settlements and the trees agree on —
+ *   as dots sized by `radiusOf`, so the disc answers *which one* and *how big*
+ *   in the same mark.
  *
- * What survives from the globe is the part that was never about scale: the rim
- * carries one wedge pointing at the nearest landmark, or at the destination
- * `navigation.ts` has chosen, and that mark is the whole reason a zoomed map
- * does not lose you — the landmark is usually off the disc, and the wedge is
- * how the disc says so.
+ * What survives from the globe is the part that was never about scale: while
+ * the player has put a marker on the world map (`navigation.ts`) the rim
+ * carries one violet wedge pointing at it, and that mark is the whole reason a
+ * zoomed map does not lose you — the marker is usually off the disc, and the
+ * wedge is how the disc says so. On the disc it is a violet pin.
  *
  * **The basis is `cartography.ts`'s.** `setFrame` is the one definition of which
  * way round a map's screen goes and this file is the reason it exists: it built
@@ -45,6 +42,7 @@
  */
 import type * as THREE from 'three';
 import type { World } from './geo.ts';
+import type { PlanetSurface } from './planet.ts';
 import { LAND_HEIGHT, PLANET_RADIUS } from './globe.ts';
 import { MAX_RELIEF } from './terrain.ts';
 import {
@@ -105,8 +103,13 @@ export interface MinimapOptions {
    * `atlas.prominence()` moves it.
    */
   places?: readonly Place[];
-  /** Defaults to nothing being visited. */
-  isVisited?: (id: string) => boolean;
+  /** The body the disc is drawn on; Earth when omitted. See `planet.ts`. */
+  surface?: PlanetSurface;
+  /**
+   * The roads, each a line of points on the unit sphere as `x, y, z` runs;
+   * asked once, the first time the disc is drawn.
+   */
+  roads?: () => readonly Float32Array[];
 }
 
 export interface MinimapStats {
@@ -130,23 +133,14 @@ export interface Minimap {
   /** Not attached to the DOM. The caller mounts it. */
   canvas: HTMLCanvasElement;
   /** Call every frame; the implementation decides how often it actually redraws. */
-  update(position: THREE.Vector3, forward: THREE.Vector3, here?: MinimapHere): void;
+  update(position: THREE.Vector3, forward: THREE.Vector3, here?: MinimapHere, look?: THREE.Vector3): void;
   /**
-   * The landmark you have chosen to head for, or `null` for none.
-   *
-   * Kept apart from the nearest landmark on purpose: they answer different
-   * questions, and the map should not point two ways at once. While a target is set it takes
-   * the rim mark over, gets its own colour, and is exempt from the pin thinning
-   * — the one pin that must never be swallowed by a cluster is the one you asked
-   * for. Unknown ids clear the target rather than throwing: the caller's list
-   * and this one come from the same file, but a typo should not blank the map.
+   * The player's marker as a point on the unit sphere, or `null` for none: a
+   * violet pin where it is on the disc, and a wedge on the rim pointing at it.
+   * Copied, so the caller may reuse the vector.
    */
-  setTarget(id: string | null): void;
-  /**
-   * Force the next `update` to redraw even if nothing has moved. The map skips
-   * redraws while you stand still, so without this a change of visited state
-   * would not appear until you took a step.
-   */
+  setMarker(direction: { x: number; y: number; z: number } | null): void;
+  /** Force the next `update` to redraw even if nothing has moved. */
   invalidate(): void;
   /**
    * The other players, as points on the unit sphere; see `peers.ts`. Drawn on
@@ -156,13 +150,15 @@ export interface Minimap {
   setPeers(marks: readonly { x: number; y: number; z: number }[]): void;
   /** What the disc is showing and what it costs. `atlas.minimap.stats`. */
   readonly stats: MinimapStats;
+  /** Takes the canvas off the page; the disc holds no listener of its own. */
+  dispose(): void;
 }
 
 const DEFAULT_SIZE = 180;
 /** Ink rim, the same 3px weight as the HUD cards in `index.html`. */
 const RIM_WIDTH = 3;
-/** Redraws per second. The map moves slowly; the eye does not miss the rest. */
-const MAX_FPS = 15;
+/** Redraws per second: it turns with the camera, and a turn at fifteen judders. */
+const MAX_FPS = 30;
 /**
  * A redraw is skipped unless something moved by at least this many pixels.
  * Standing still then costs nothing at all, which is most of the time.
@@ -173,14 +169,10 @@ const MAX_FPS = 15;
  */
 const MIN_SHIFT = 0.35;
 /**
- * And the heading, in radians, before the arrow at the centre is redrawn.
- *
- * North-up is what makes this cheap. Turning used to spin the whole planet and
- * cost a full trace of every ring; now it moves one 20-pixel arrow, and the
- * land, the towns and the pins are all still exactly where they were — which is
- * why they live in their own buffer. See `drawBase`.
+ * And the turn, in radians, before the disc is redrawn: the camera's, which
+ * turns the paper, or the body's, which turns the arrow.
  */
-const MIN_TURN = 0.03;
+const MIN_TURN = 0.02;
 /**
  * How finely the horizon rim is walked, in radians. Only ever traversed on the
  * hidden side of the planet, so it is about smoothness, not accuracy.
@@ -219,26 +211,16 @@ const MAX_PLACE_MARKS = 22;
  * already most of the paper.
  */
 const MAX_LABELS = 4;
-/** The bearing wedge: how far it reaches in from the rim, and its half-width. */
-const BEARING_REACH = 7;
-const BEARING_WIDTH = 5;
-/**
- * The chosen destination's mark, which is the same wedge grown into an arrow.
- *
- * Longer and no wider, so it reads as a different mark and not as the crimson
- * one at a different size — the two never share the rim, but they do follow each
- * other, and a mark that only changed colour would look like a state you had
- * missed rather than a thing you had asked for.
- */
+/** The marker's wedge on the rim: how far it reaches in, and its half-width. */
 const TARGET_REACH = 13;
 const TARGET_WIDTH = 5.5;
-/** And its pin, drawn bigger for the same reason. */
+/** And its pin on the disc, drawn bigger than a landmark's. */
 const TARGET_PIN_SCALE = 1.3;
 /**
  * Closer than this, in world units, the bearing mark is dropped.
  *
  * Not a pixel threshold, which is what this was first: three pixels of disc is
- * 216 km of planet, and it swallowed the mark for a landmark two horizons away
+ * 216 km of planet, and it swallowed the mark for a place two horizons away
  * that you very much wanted pointing at. The real reason for a deadzone is that
  * the bearing spins when you are on top of the thing — at 120 units, walking
  * pace turns it a tenth of a radian a second, which is calm. That is a distance,
@@ -247,24 +229,24 @@ const TARGET_PIN_SCALE = 1.3;
 const BEARING_DEADZONE = 120;
 
 /**
- * Half-width of the disc, in world units, at its tightest and its widest.
- *
- * The bottom is set by the smallest country worth a shape: Luxembourg's
- * mainland ring has a bounding cap of 126 units and Liechtenstein's is smaller
- * still, so anything below about 300 is a map of one valley with no country on
- * it. The top is set by what a 174-pixel disc can still say: at 4,000 units one
- * pixel is 18 km, a village is a dot and a coastline is a coastline. Russia does
- * not fit and is not meant to — `M` is where the whole planet lives.
+ * Half-width of the disc, in world units, at its tightest and its widest: a
+ * street round you at the least, and at the most what a 174-pixel disc can
+ * still say — at 4,000 units one pixel is 18 km, a village is a dot and a
+ * coastline is a coastline.
  */
-const MIN_VIEW = 300;
+const MIN_VIEW = 220;
 const MAX_VIEW = 4000;
 /**
- * At sea there is no country to fit, so the frame is the nearest built place
- * and this much room around it. 1.6 puts the coast you left comfortably inside
- * the rim and opens the disc to its widest in the middle of an ocean, which is
- * where you actually need it wide.
+ * The disc round a walker, units, and how many seconds of the way ahead it
+ * opens by as you go faster: a car at forty units a second sees the next 400
+ * units, a plane at a hundred and twenty the next twelve hundred.
  */
-const SEA_MARGIN = 1.6;
+const LOCAL_VIEW = 260;
+const SPEED_VIEW = 10;
+/** How quickly the speed the zoom reads follows the real one, seconds. */
+const SPEED_EASE = 0.8;
+/** Units moved in one update past which it was a jump and not a speed. */
+const JUMP = 60;
 /**
  * In the air the framing is the horizon instead, and this is the floor it
  * counts altitude from: sea level plus the highest ground the planet has, so
@@ -308,7 +290,11 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const size = settings.size ?? DEFAULT_SIZE;
   const monuments = settings.monuments ?? [];
   const gazetteer = settings.places ?? [];
-  const isVisited = settings.isVisited ?? (() => false);
+  // The body under the disc: Earth's own constants unless a surface is handed in.
+  const surface = settings.surface;
+  const RADIUS = surface?.radius ?? PLANET_RADIUS;
+  const RADIUS_KM = surface?.radiusKm ?? EARTH_KM;
+  const CEILING = surface?.groundCeiling ?? GROUND_CEILING;
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
@@ -325,9 +311,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const ocean = hex(OCEAN_COLOR);
   const cream = hex(PALETTE.white);
   const gold = hex(PALETTE.gold);
-  const crimson = hex(PALETTE.crimson);
   // Violet is the only palette colour that collides with nothing already on the
-  // disc — not the ocean, not any continent fill, not cream, gold or crimson.
+  // disc — not the ocean, not any continent fill, not cream or gold.
   const violet = hex(PALETTE.violet);
   // And pink for the other players: round dots, where every landmark is a pin.
   const pink = hex(PALETTE.pink);
@@ -336,8 +321,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const borderWidth = Math.max(1, size / 200);
   const uiScale = size / DEFAULT_SIZE;
 
-  const minAngle = MIN_VIEW / PLANET_RADIUS;
-  const maxAngle = MAX_VIEW / PLANET_RADIUS;
+  const minAngle = MIN_VIEW / RADIUS;
+  const maxAngle = MAX_VIEW / RADIUS;
 
   /**
    * The outlines, at three resolutions, chosen by how far the disc is zoomed
@@ -399,35 +384,13 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
    */
   const SHAPE_BANDS = [MIN_VIEW, 4000, 10000, 20000];
   const levels = SHAPE_BANDS.map((bottom) => {
-    const step = (0.5 * (bottom / PLANET_RADIUS)) / discRadius;
+    const step = (0.5 * (bottom / RADIUS)) / discRadius;
     const shapes = buildShapes(world, step, step);
     return {
       shapes,
       faded: shapes.map((shape) => fade(Number.parseInt(shape.fill.slice(1), 16), 0.45)),
     };
   });
-  /**
-   * The framing always reads the finest set, whatever the draw is using: the
-   * ring caps decide the zoom, and a zoom that jumped when the level changed
-   * would be a zoom driven by its own output.
-   */
-  const shapes = levels[0]!.shapes;
-  const shapeCos = new Float64Array(shapes.map((shape) => Math.cos(shape.radius)));
-
-  /**
-   * The rings of each country, and the biggest of them.
-   *
-   * The framing wants the ring you are *inside*, so that Corsica frames Corsica
-   * and not metropolitan France; the biggest is the fallback for the frames
-   * where no ring contains you, which is every frame you spend just offshore.
-   */
-  const byCountry = new Map<number, number[]>();
-  shapes.forEach((shape, i) => {
-    const list = byCountry.get(shape.country);
-    if (list === undefined) byCountry.set(shape.country, [i]);
-    else list.push(i);
-  });
-
   // Monuments, as unit vectors, once. Same conversion as the outlines, so a pin
   // and the coast it stands on cannot drift apart.
   const pinCount = monuments.length;
@@ -445,7 +408,6 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const keptY = new Float32Array(pinCount);
   const keptPin = new Int32Array(pinCount);
 
-  const pinIndex = new Map(monuments.map((monument, i) => [monument.id, i]));
 
   /**
    * The built places, packed and ordered largest-first — once, not per redraw.
@@ -498,7 +460,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const pinHead = PIN_HEAD * uiScale;
   const pinSpacing = PIN_SPACING * uiScale;
   const placeSpacing = PLACE_SPACING * uiScale;
-  const deadzone = BEARING_DEADZONE / PLANET_RADIUS;
+  const deadzone = BEARING_DEADZONE / RADIUS;
 
   canvas.style.display = 'block';
   canvas.style.width = `${size}px`;
@@ -543,16 +505,18 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   let scale = discRadius / Math.sin(view);
   /** Which way the avatar is facing, as a screen angle: zero is up the sheet. */
   let heading = 0;
+  /** Where north is, as a screen angle: the paper turns with the camera. */
+  let northAngle = 0;
+  /** How fast the traveller is going, units a second, smoothed: what opens the disc. */
+  let speed = 0;
+  const lastPosition = { x: 0, y: 0, z: 0 };
+  let hasLast = false;
 
-  // The nearest monument, recomputed on every update rather than every redraw:
-  // the bearing mark reads it each frame and one that lagged the throttle would
-  // visibly trail the player's own turn.
-  let nearestPin = -1;
-  let nearestAngle = 0;
-  let nearestScreen = 0;
-
-  // The chosen destination, tracked the same way and for the same reason.
-  let targetPin = -1;
+  // The marker, recomputed on every update rather than every redraw: the wedge
+  // reads it each frame and one that lagged the throttle would visibly trail
+  // the player's own turn.
+  let marked = false;
+  const markerPoint = { x: 0, y: 0, z: 0 };
   let targetAngle = 0;
   let targetScreen = 0;
 
@@ -710,20 +674,19 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       pinOrder[visible++] = i;
     }
     if (visible === 0) return 0;
-    // Closest first, then thinned closest-first, with the chosen destination
-    // seeded so it cannot lose a cluster to a nearer neighbour. Both live in
-    // `cartography.ts`: the map behind `M` thins the same pins by the same rule
-    // and two copies of that rule would disagree about which one you see.
+    // Closest first, then thinned closest-first. Both live in `cartography.ts`:
+    // the map behind `M` thins the same pins by the same rule and two copies of
+    // that rule would disagree about which one you see.
     sortByDepth(pinOrder, pinDepth, visible);
     return thinMarks(
-      pinOrder, visible, pinScreenX, pinScreenY, pinSpacing, keptPin, keptX, keptY, targetPin,
+      pinOrder, visible, pinScreenX, pinScreenY, pinSpacing, keptPin, keptX, keptY, -1,
     );
   }
 
   /**
-   * A wedge on the rim pointing out at one monument, at its *screen* azimuth.
+   * A wedge on the rim pointing out at the marker, at its *screen* azimuth.
    *
-   * The disc is north-up now, so this is where the landmark is on the paper
+   * The disc is north-up now, so this is where the marker is on the paper
    * rather than how far you have to turn — the two agreed while the map was
    * heading-up and this is the one place that had to be told they no longer do.
    * The turn itself is `cartography.ts`'s `bearingTo`, which the chip reads.
@@ -749,21 +712,22 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   }
 
   /**
-   * The rim carries one mark, and a chosen destination outranks the nearest
-   * landmark for it.
-   *
-   * Two marks would be two answers to a question you only asked once. The
-   * nearest one keeps its crimson pin when it is on the disc, so "what is around
-   * me" is still there; what it loses is the claim on the rim, which is the part
-   * that reads as "go this way".
+   * The rim carries one mark, the marker's, and only the player's own marker:
+   * nothing in the world is a goal the disc points you at unasked.
    */
   function drawBearing(): void {
-    if (targetPin >= 0) {
-      if (targetAngle >= deadzone) traceBearing(targetScreen, TARGET_REACH, TARGET_WIDTH, violet);
-      return;
-    }
-    if (nearestPin < 0 || nearestAngle < deadzone) return;
-    traceBearing(nearestScreen, BEARING_REACH, BEARING_WIDTH, crimson);
+    if (marked && targetAngle >= deadzone) traceBearing(targetScreen, TARGET_REACH, TARGET_WIDTH, violet);
+  }
+
+  /** The marker's pin, when it stands on the disc. */
+  function drawMarkerPin(): void {
+    if (!marked) return;
+    const { x: mx, y: my, z: mz } = markerPoint;
+    if (mx * ux + my * uy + mz * uz <= 0) return;
+    const x = centre + (mx * rx + my * ry + mz * rz) * scale;
+    const y = centre - (mx * fx + my * fy + mz * fz) * scale;
+    if ((x - centre) ** 2 + (y - centre) ** 2 > discRadius * discRadius) return;
+    tracePin(baseCtx, x, y, pinRise, pinHead, violet, TARGET_PIN_SCALE);
   }
 
   /**
@@ -775,7 +739,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
    * which is how Nancy came out with `50 km` written through it.
    */
   function scaleBar(): { x0: number; x1: number; y: number; km: number } {
-    const kmPerPixel = (view * EARTH_KM) / discRadius;
+    const kmPerPixel = (view * RADIUS_KM) / discRadius;
     const km = niceKm(kmPerPixel * discRadius * 0.42);
     const width = km / kmPerPixel;
     return { x0: centre - width / 2, x1: centre + width / 2, y: size - 13 * uiScale, km };
@@ -797,6 +761,67 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     baseCtx.textAlign = 'center';
     baseCtx.textBaseline = 'alphabetic';
     inkedText(baseCtx, `${km >= 1 ? km : km.toFixed(1)} km`, centre, y - 4 * uiScale, cream, ink, 3);
+  }
+
+  /** The roads, each with its bounding cap on the unit sphere, built the first time they are drawn. */
+  let roadLines: { points: Float32Array; cx: number; cy: number; cz: number; radius: number }[] | null = null;
+
+  /** The roads on the disc: an ink casing and a cream line over it, as `map.ts` draws them. */
+  function drawRoads(): void {
+    if (settings.roads === undefined || typeof Path2D === 'undefined') return;
+    roadLines ??= settings.roads().map((points) => {
+      let cx = 0;
+      let cy = 0;
+      let cz = 0;
+      for (let k = 0; k < points.length; k += 3) {
+        cx += points[k]!;
+        cy += points[k + 1]!;
+        cz += points[k + 2]!;
+      }
+      const length = Math.hypot(cx, cy, cz) || 1;
+      cx /= length;
+      cy /= length;
+      cz /= length;
+      let radius = 0;
+      for (let k = 0; k < points.length; k += 3) {
+        radius = Math.max(radius, Math.acos(Math.min(1, points[k]! * cx + points[k + 1]! * cy + points[k + 2]! * cz)));
+      }
+      return { points, cx, cy, cz, radius };
+    });
+    const path = new Path2D();
+    let any = false;
+    for (const line of roadLines) {
+      const span = line.radius + view;
+      if (span < Math.PI && line.cx * ux + line.cy * uy + line.cz * uz < Math.cos(span)) continue;
+      const p = line.points;
+      let open = false;
+      for (let k = 0; k < p.length; k += 3) {
+        const px = p[k]!;
+        const py = p[k + 1]!;
+        const pz = p[k + 2]!;
+        if (px * ux + py * uy + pz * uz <= 0) {
+          open = false;
+          continue;
+        }
+        const x = centre + (px * rx + py * ry + pz * rz) * scale;
+        const y = centre - (px * fx + py * fy + pz * fz) * scale;
+        if (open) path.lineTo(x, y);
+        else path.moveTo(x, y);
+        open = true;
+        any = true;
+      }
+    }
+    if (!any) return;
+    // As thick as the disc's zoom says a road is, within reason.
+    const width = Math.min(4.2, Math.max(1.6, (9 / (view * RADIUS)) * 120)) * uiScale;
+    baseCtx.lineCap = 'round';
+    baseCtx.lineJoin = 'round';
+    baseCtx.strokeStyle = 'rgba(30, 6, 3, 0.7)';
+    baseCtx.lineWidth = width + 2.2 * uiScale;
+    baseCtx.stroke(path);
+    baseCtx.strokeStyle = cream;
+    baseCtx.lineWidth = width;
+    baseCtx.stroke(path);
   }
 
   /** The land, the towns, the pins, the names, the rim and its mark. */
@@ -826,7 +851,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     drawnPoints = 0;
     // The coarsest set that is still finer than half a pixel here.
     let band = 0;
-    while (band + 1 < SHAPE_BANDS.length && view * PLANET_RADIUS >= SHAPE_BANDS[band + 1]!) band++;
+    while (band + 1 < SHAPE_BANDS.length && view * RADIUS >= SHAPE_BANDS[band + 1]!) band++;
     const level = levels[band]!;
     drawnLevel = band;
     for (let s = 0; s < level.shapes.length; s++) {
@@ -844,6 +869,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       drawnRings++;
       drawnPoints += shape.points.length / 3;
     }
+
+    drawRoads();
 
     const towns = layOutTowns();
     const pins = layOutPins();
@@ -863,7 +890,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     // drawn *through* a name instead of around it.
     const bar = scaleBar();
     space.claim(bar.x0 - 4, bar.y - 16 * uiScale, bar.x1 - bar.x0 + 8, 22 * uiScale);
-    space.claim(centre - 7 * uiScale, 0, 14 * uiScale, RIM_WIDTH + 13 * uiScale);
+    {
+      const northAt = discRadius - RIM_WIDTH - 5 * uiScale;
+      space.claim(centre + Math.sin(northAngle) * northAt - 7 * uiScale, centre - Math.cos(northAngle) * northAt - 7 * uiScale, 14 * uiScale, 14 * uiScale);
+    }
     for (let n = 0; n < pins; n++) {
       space.claim(
         keptX[n]! - pinHead - 2,
@@ -948,17 +978,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       baseCtx.stroke();
     }
     baseCtx.lineWidth = Math.max(1, 1.4 * uiScale);
-    // Backwards, so the nearest one is painted last and nothing lands on top of
-    // the pin you are being pointed at.
-    for (let n = pins - 1; n >= 0; n--) {
-      const i = keptPin[n]!;
-      if (i === targetPin) {
-        tracePin(baseCtx, keptX[n]!, keptY[n]!, pinRise, pinHead, violet, TARGET_PIN_SCALE);
-        continue;
-      }
-      const fill = i === nearestPin ? crimson : isVisited(monuments[i]!.id) ? gold : cream;
-      tracePin(baseCtx, keptX[n]!, keptY[n]!, pinRise, pinHead, fill);
-    }
+    // Backwards, so the nearest one is painted last; one style for every
+    // landmark, and the marker over all of them.
+    for (let n = pins - 1; n >= 0; n--) tracePin(baseCtx, keptX[n]!, keptY[n]!, pinRise, pinHead, cream);
+    drawMarkerPin();
     baseCtx.restore();
 
     baseCtx.beginPath();
@@ -967,12 +990,12 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     baseCtx.strokeStyle = ink;
     baseCtx.stroke();
 
-    // North, because the paper no longer turns and a map that does not turn has
-    // to say which way it is pinned.
+    // North, riding round the rim as the paper turns under it.
     baseCtx.font = `800 ${(9 * uiScale).toFixed(1)}px ${FONT}`;
     baseCtx.textAlign = 'center';
     baseCtx.textBaseline = 'middle';
-    inkedText(baseCtx, 'N', centre, RIM_WIDTH + 6 * uiScale, cream, ink, 2.5);
+    const northAt = discRadius - RIM_WIDTH - 5 * uiScale;
+    inkedText(baseCtx, 'N', centre + Math.sin(northAngle) * northAt, centre - Math.cos(northAngle) * northAt, cream, ink, 2.5);
 
     drawScale(bar);
     drawBearing();
@@ -1042,45 +1065,21 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   }
 
   /**
-   * How wide the disc should be, in radians, for where the caller says you are.
-   *
-   * Three answers in priority order, and the third wins whenever it is bigger:
-   * the ring you are standing inside, the town you are nearest to when there is
-   * no ring, and the horizon when you are in the air. The last is why the plane
-   * did not lose its map — at 6,000 units up the framing opens to 41 degrees on
-   * its own, which is very nearly the hemisphere this disc used to draw from
-   * everywhere.
+   * How wide the disc should be, in radians: the ground you will cover —
+   * `LOCAL_VIEW` and `SPEED_VIEW` seconds of the speed you are going — and
+   * the horizon when you are in the air, whichever is wider. At 6,000 units
+   * up that opens to 41 degrees by itself.
    */
   function framing(position: THREE.Vector3): number {
-    let angle = maxAngle;
-    const rings = country > 0 ? byCountry.get(country) : undefined;
-    if (rings !== undefined) {
-      let inside = Infinity;
-      let widest = 0;
-      for (const s of rings) {
-        const shape = shapes[s]!;
-        if (shape.radius > widest) widest = shape.radius;
-        const dot = shape.cx * ux + shape.cy * uy + shape.cz * uz;
-        if (dot >= shapeCos[s]! && shape.radius < inside) inside = shape.radius;
-      }
-      angle = Number.isFinite(inside) ? inside : widest;
-    } else if (nearby !== null) {
-      // No country under you: the sea. The frame is the coast you are nearest
-      // to, which mid-ocean is far enough away to open the disc to its widest.
-      angle = (nearby.units * SEA_MARGIN) / PLANET_RADIUS;
-    }
-    angle = Math.min(maxAngle, Math.max(minAngle, angle));
-
-    const altitude = position.length() - PLANET_RADIUS - GROUND_CEILING;
-    if (altitude > 0) {
-      angle = Math.max(angle, Math.acos(PLANET_RADIUS / (PLANET_RADIUS + altitude)));
-    }
+    const angle = Math.min(maxAngle, Math.max(minAngle, (LOCAL_VIEW + speed * SPEED_VIEW) / RADIUS));
+    const altitude = position.length() - RADIUS - CEILING;
+    if (altitude > 0) return Math.min(SKY_LIMIT, Math.max(angle, Math.acos(RADIUS / (RADIUS + altitude))));
     return Math.min(SKY_LIMIT, angle);
   }
 
   return {
     canvas,
-    update(position, forward, here) {
+    update(position, forward, here, look) {
       const began = performance.now();
       const dt = previousAt === 0 ? 0 : Math.min(0.1, (began - previousAt) / 1000);
       previousAt = began;
@@ -1090,16 +1089,24 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
         nearby = here.place;
       }
 
-      // North, the world's own pole flattened onto the tangent plane. At a pole
-      // there is no such direction and `setFrame` says so, and the only
-      // orientation left there is the heading — which is what this disc used to
-      // use everywhere, so the degenerate case is the old map.
+      // The paper turns with the camera: what is ahead on the screen is up.
+      // The pole is where the frame falls back to, where the camera looks
+      // straight down and has no heading of its own.
       const length = Math.hypot(position.x, position.y, position.z) || 1;
       const along = position.y / length;
       north.x = (-along * position.x) / length;
       north.y = 1 - along * along;
       north.z = (-along * position.z) / length;
-      if (!setFrame(frame, position, north) && !setFrame(frame, position, forward)) return;
+      if (!setFrame(frame, position, look ?? forward) && !setFrame(frame, position, north)) return;
+      // How fast, smoothed, for the zoom: the ground covered since last time.
+      // A jump (a teleport, a respawn) is not a speed: more than `JUMP` in one
+      // update is left out.
+      const step = Math.hypot(position.x - lastPosition.x, position.y - lastPosition.y, position.z - lastPosition.z);
+      if (dt > 0 && hasLast && step < JUMP) speed += (Math.min(400, step / dt) - speed) * (1 - Math.exp(-dt / SPEED_EASE));
+      lastPosition.x = position.x;
+      lastPosition.y = position.y;
+      lastPosition.z = position.z;
+      hasLast = true;
       ux = frame.ux;
       uy = frame.uy;
       uz = frame.uz;
@@ -1125,37 +1132,14 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
         forward.x * rx + forward.y * ry + forward.z * rz,
         forward.x * fx + forward.y * fy + forward.z * fz,
       );
+      // Where north is on the paper, for the `N` on the rim.
+      const northTurn = Math.atan2(north.x * rx + north.y * ry + north.z * rz, north.x * fx + north.y * fy + north.z * fz);
+      if (Math.abs(Math.atan2(Math.sin(northTurn - northAngle), Math.cos(northTurn - northAngle))) > MIN_TURN) baseStale = true;
+      northAngle = northTurn;
 
-      // Every frame, throttle or no throttle: the nearest landmark is the
-      // bearing mark's and the crimson pin's, and finding it is 85 dot products.
-      let best = -1;
-      let bestDot = -2;
-      for (let i = 0; i < pinCount; i++) {
-        const k = i * 3;
-        const dot = pinPoint[k]! * ux + pinPoint[k + 1]! * uy + pinPoint[k + 2]! * uz;
-        if (dot > bestDot) {
-          bestDot = dot;
-          best = i;
-        }
-      }
-      if (best !== nearestPin) baseStale = true;
-      nearestPin = best;
-      if (best >= 0) {
-        const k = best * 3;
-        const mx = pinPoint[k]!;
-        const my = pinPoint[k + 1]!;
-        const mz = pinPoint[k + 2]!;
-        nearestAngle = Math.acos(Math.min(1, Math.max(-1, bestDot)));
-        nearestScreen = Math.atan2(
-          mx * rx + my * ry + mz * rz,
-          mx * fx + my * fy + mz * fz,
-        );
-      }
-      if (targetPin >= 0) {
-        const k = targetPin * 3;
-        const mx = pinPoint[k]!;
-        const my = pinPoint[k + 1]!;
-        const mz = pinPoint[k + 2]!;
+      // Every frame, throttle or no throttle: the wedge reads it.
+      if (marked) {
+        const { x: mx, y: my, z: mz } = markerPoint;
         targetAngle = Math.acos(Math.min(1, Math.max(-1, mx * ux + my * uy + mz * uz)));
         targetScreen = Math.atan2(
           mx * rx + my * ry + mz * rz,
@@ -1187,12 +1171,15 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       sampleAt = (sampleAt + 1) % samples.length;
       if (sampleCount < samples.length) sampleCount++;
     },
-    setTarget(id) {
-      const next = id === null ? -1 : pinIndex.get(id) ?? -1;
-      if (next === targetPin) return;
-      targetPin = next;
-      // The map skips redraws while you stand still, and choosing a destination
-      // is exactly something you do standing still.
+    setMarker(direction) {
+      marked = direction !== null;
+      if (direction !== null) {
+        markerPoint.x = direction.x;
+        markerPoint.y = direction.y;
+        markerPoint.z = direction.z;
+      }
+      // The disc skips redraws while you stand still, and placing a marker is
+      // exactly something you do standing still.
       baseStale = true;
       overlayStale = true;
     },
@@ -1207,8 +1194,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     get stats() {
       const sorted = Array.from(samples.subarray(0, sampleCount)).sort((a, b) => a - b);
       return {
-        view: Number((view * PLANET_RADIUS).toFixed(1)),
-        km: Number((view * EARTH_KM).toFixed(1)),
+        view: Number((view * RADIUS).toFixed(1)),
+        km: Number((view * RADIUS_KM).toFixed(1)),
         rings: drawnRings,
         points: drawnPoints,
         level: drawnLevel,
@@ -1218,6 +1205,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
         worstMs: Number((sorted[sorted.length - 1] ?? 0).toFixed(3)),
         baseMs: Number(baseMs.toFixed(3)),
       };
+    },
+    dispose() {
+      canvas.remove();
+      peerMarks = [];
     },
   };
 }

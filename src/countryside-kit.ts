@@ -9,10 +9,7 @@ import type { TreeForm } from './scenery/tree-forms.ts';
 import { bodyPaint, isGlass } from './models.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { buildBench } from './bench.ts';
-import { PLACED_SECTION } from './traffic/contract.ts';
-import { farmTractor } from './traffic/parts/farm-tractor.ts';
 import { parkedModel } from './craft/parked.ts';
-import type { CraftModel } from './craft/contract.ts';
 import { PALETTE } from './theme.ts';
 
 /**
@@ -228,30 +225,25 @@ const hayBale: CountryPart = {
 };
 
 /**
- * How a farm's tractor is drawn against the fleet's: as wide as the traffic's
- * own tractor stands on the road, never wider than the craft.
- */
-export function tractorScale(model: CraftModel): number {
-  return Math.min(1, (farmTractor.size[1] * PLACED_SECTION) / model.size[1]);
-}
-
-/**
  * A tractor, parked in its yard: **the fleet's own** (`craft/cars.ts`,
- * Kenney's, Car Kit, CC0), which anybody can drive off. A tile merges the
- * look its id decides (`countryside-tile.ts`, `craft/parked.ts`) and the
- * fleet takes it from there; this build, a look off `rng`, is for the kit's
- * own checks and sheets.
+ * Kenney's, Car Kit, CC0), which anybody can drive off, and **at the fleet's
+ * own size**. It stood at the traffic's width (0.70 of the craft) until
+ * 2026-10-01, and the one taken grew by half again under the driver as the
+ * fleet built it. A tile merges the look its id decides
+ * (`countryside-tile.ts`, `craft/parked.ts`) and the fleet takes it from
+ * there; this build, a look off `rng`, is for the kit's own checks and sheets.
+ * The craft is 6.6 long and 4.1 wide, so the yard it takes is its half
+ * diagonal.
  */
 const tractor: CountryPart = {
   id: 'tractor',
-  footprint: 2.6,
+  footprint: 3.9,
   // Kenney's is 908, and it is under the legibility floor of every tile but the finest.
   cap: 910,
   build(_ctx, rng) {
     const model = parkedModel('tractor');
     if (model === null) throw new Error("countryside: the fleet's tractor needs the traffic kit registered");
     const holder = new THREE.Group();
-    holder.scale.setScalar(tractorScale(model));
     holder.add(model.build(rng.int(model.variants)));
     return holder;
   },

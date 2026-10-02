@@ -117,34 +117,41 @@ export const machiya: ScenicPart = {
     soffit.rotation.x = -0.3;
     group.add(soffit);
 
+    // The entrance, off to one side as a machiya's is, inside the corner post;
+    // the koshi fills the rest of the front, from the other post to a hand's
+    // width short of the door's jamb. The lattice used to be centred and ran
+    // through the entrance on every width this part draws.
+    const side = rng.sign();
+    const doorWidth = 1.1;
+    const jambWidth = 0.16;
+    const postInner = width / 2 - 0.22;
+    const doorX = side * (postInner - 0.12 - jambWidth - doorWidth / 2);
+    const doorway = lit(panes(1, doorWidth, 2.2, 0, ctx.glass, PROUD), 0.6);
+    doorway.position.set(doorX, BASE, depth / 2);
+    doorway.userData.atlasDoor = true;
+    group.add(doorway);
+    const jamb = panes(2, jambWidth, 2.3, doorWidth, post, PROUD * 2);
+    jamb.position.set(doorX, BASE, depth / 2 + PROUD * 1.5);
+    jamb.userData.atlasDoor = true;
+    group.add(jamb);
+
     // The koshi: a lit recess with a row of timber bars across it. See the note
     // above — the bars are one mesh, which is why they exist at all.
-    const latticeWidth = width * 0.74;
+    const near = doorX - side * (doorWidth / 2 + jambWidth + 0.25);
+    const far = -side * (postInner - 0.12);
+    const latticeWidth = Math.abs(near - far);
+    const latticeX = (near + far) / 2;
     const latticeHeight = STOREY * 0.66;
     const recess = lit(panes(1, latticeWidth, latticeHeight, 0, ctx.glass, PROUD), 0.85);
-    recess.position.set(0, BASE + 0.35, depth / 2 + PROUD);
+    recess.position.set(latticeX, BASE + 0.35, depth / 2 + PROUD);
     group.add(recess);
-    const bars = 7;
+    const bars = latticeWidth > 3.2 ? 7 : 6;
     const bar = panes(bars, 0.11, latticeHeight, (latticeWidth - bars * 0.11) / (bars - 1), frame);
-    // A `PROUD` past the door's jambs, which the end of the lattice crosses: at
-    // `PROUD * 2.6` the bars stood 0.008 in front of them.
-    bar.position.set(0, BASE + 0.35, depth / 2 + PROUD * 3.5);
+    bar.position.set(latticeX, BASE + 0.35, depth / 2 + PROUD * 3.5);
     group.add(bar);
-    const head = panes(1, latticeWidth + 0.3, 0.22, 0, post, PROUD * 2);
-    head.position.set(0, BASE + 0.35 + latticeHeight, depth / 2 + PROUD);
+    const head = panes(1, latticeWidth + 0.2, 0.22, 0, post, PROUD * 2);
+    head.position.set(latticeX, BASE + 0.35 + latticeHeight, depth / 2 + PROUD);
     group.add(head);
-
-    // The entrance, off to one side of the lattice as a machiya's is.
-    const doorX = (width * 0.5 - 0.7) * rng.sign();
-    // A `PROUD` deeper than the recess, whose end it overlaps on every width
-    // this part draws: level with it, two glasses lit to different strengths
-    // shared a plane where they crossed, 0.8 u² a build (2026-09-13).
-    const doorway = lit(panes(1, 1.1, 2.2, 0, ctx.glass, PROUD), 0.6);
-    doorway.position.set(doorX, BASE, depth / 2);
-    group.add(doorway);
-    const jamb = panes(2, 0.16, 2.3, 1.1, post, PROUD * 2);
-    jamb.position.set(doorX, BASE, depth / 2 + PROUD * 1.5);
-    group.add(jamb);
 
     if (storeys > 1) {
       const upper = windows({

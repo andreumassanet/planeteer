@@ -131,7 +131,7 @@ const WIDEST_FOOTPRINT = 55;
 /**
  * The disc dressed whatever the camera is pointed at.
  *
- * Wider than `VISIT_RANGE` by a good margin, so a monument cannot be missing
+ * Wider than `LANDMARK_RANGE` by a good margin, so a monument cannot be missing
  * from the frame you turn to look at it in, and cheap: there are sixty-five of
  * these on the planet and never more than a handful inside this.
  */
@@ -140,14 +140,13 @@ const KEEP_ALL_WITHIN = 1200;
 const keepAllWithin = (): number => KEEP_ALL_WITHIN;
 
 /**
- * How close you have to get for a monument to count as found.
+ * How close you have to get for a monument's card to come up.
  *
  * The largest footprint the contract allows is 55 and its pad is 20 wider, so
  * this is roughly "you are standing in it". Deliberately not "you can see it":
- * from the air you can see half a continent, and a counter that filled itself
- * on a single flight would be worth nothing.
+ * from the air you can see half a continent.
  */
-const VISIT_RANGE = 140;
+export const LANDMARK_RANGE = 140;
 
 /**
  * Monuments raised in one frame. A landmark is the largest single build in the
@@ -156,8 +155,6 @@ const VISIT_RANGE = 140;
  * them (`frameOpen` in `view.ts`).
  */
 const RAISES_PER_FRAME = 1;
-
-const STORAGE_KEY = 'atlas.visited';
 
 /**
  * The monument registry, handed in rather than imported.
@@ -198,15 +195,12 @@ export interface Monuments {
    * what this did before `view.ts` and what a headless caller needs.
    */
   update(viewer: THREE.Vector3, altitude: number, camera?: THREE.Camera): void;
-  /** Ids the player has stood in, across sessions. */
-  visited: ReadonlySet<string>;
-  /** True while this id has been found. Shape the minimap asks for. */
-  isVisited(id: string): boolean;
   /**
-   * Records anything within range of a point. Returns what was found for the
-   * first time this call, so the caller can make an event of it.
+   * The landmark standing within `range` of a point (`LANDMARK_RANGE` unless
+   * given), the nearest if two are, or null. Nothing is remembered: a
+   * landmark is a thing in the world, not a box to tick.
    */
-  recordVisits(point: THREE.Vector3): Placement[];
+  landmarkNear(point: THREE.Vector3, range?: number): Placement | null;
   /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
   proxies(): THREE.Object3D[];
   /**
@@ -352,31 +346,6 @@ export function createMonuments(
       const anchor = direction.clone().multiplyScalar(groundRadius(world, direction));
       return { placement, direction, anchor, onDrawn: false, object: null, failed: false, walls: null };
     });
-
-  /**
-   * Reading a corrupt or absent store must not cost you the world, so every
-   * failure here is the same as never having visited anything. Private windows,
-   * cleared site data and browsers with storage disabled all land in the catch.
-   */
-  const visited = new Set<string>(
-    (() => {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        const parsed: unknown = raw === null ? null : JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
-      } catch {
-        return [];
-      }
-    })(),
-  );
-
-  const remember = (): void => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...visited]));
-    } catch {
-      // Not being able to remember is a worse session, not a broken one.
-    }
-  };
 
   const cone = createViewCone(keepAllWithin);
   const north = new THREE.Vector3(0, 1, 0);
@@ -765,19 +734,15 @@ export function createMonuments(
       return highest;
     },
     solidStats: () => ({ walled: walled.length, rects: walled.reduce((sum, slot) => sum + slot.walls!.field.solids.length, 0) }),
-    visited,
-    isVisited: (id) => visited.has(id),
     proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
-    recordVisits(point) {
-      const found: Placement[] = [];
+    landmarkNear(point, range = LANDMARK_RANGE) {
+      let best: Placement | null = null;
+      let bestDistance = range;
       for (const slot of slots) {
-        if (visited.has(slot.placement.id)) continue;
-        if (slot.anchor.distanceTo(point) > VISIT_RANGE) continue;
-        visited.add(slot.placement.id);
-        found.push(slot.placement);
+        const distance = slot.anchor.distanceTo(point);
+        if (distance <= bestDistance) [best, bestDistance] = [slot.placement, distance];
       }
-      if (found.length > 0) remember();
-      return found;
+      return best;
     },
   };
 }

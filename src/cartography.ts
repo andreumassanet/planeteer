@@ -218,7 +218,9 @@ export function buildShapes(world: World, minStep: number, minRadius: number): S
   const step2 = minStep * minStep;
 
   world.countries.forEach((country, index) => {
-    const fill = hex(CONTINENT_COLORS[country.continent] ?? DEFAULT_LAND);
+    // A nation of another world carries its own colour; Earth's countries are
+    // painted by continent.
+    const fill = hex(country.color ?? CONTINENT_COLORS[country.continent] ?? DEFAULT_LAND);
 
     for (const ring of country.rings) {
       const xyz: number[] = [];

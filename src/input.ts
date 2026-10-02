@@ -32,7 +32,7 @@ export interface InputState {
   run: boolean;
   /** Edge-triggered: true for exactly one frame per press. */
   jump: boolean;
-  /** Held. In the air they are the altitude: Space climbs, C or Ctrl descends. */
+  /** Held. In the air they are the altitude: Space climbs, C descends (and in an aircraft Shift too, `player.ts`). */
   climb: boolean;
   dive: boolean;
   /** Edge-triggered: get into the vehicle beside you, or out of the one you are in. */
@@ -71,12 +71,6 @@ export interface Input {
 export interface InputOptions {
   /** Once, the first time the lock is refused and dragging takes over. */
   onLockRefused?(): void;
-  /**
-   * Whether leaving the page now is more likely a slip than a choice: asked
-   * only while `Ctrl` is held as the descend key, whose `Ctrl+W` closes the tab
-   * and cannot be cancelled (`controls.ts`). True asks the browser to confirm.
-   */
-  guardUnload?(): boolean;
 }
 
 /** Radians of camera rotation per pixel of mouse movement. */
@@ -113,13 +107,9 @@ const HELD: Partial<Record<string, string>> = {
   run: 'run',
   jump: 'jump',
   descend: 'dive',
-  dive: 'dive',
   use: 'use',
   view: 'view',
 };
-
-/** The two `Ctrl` keys, which carry `ctrlKey` on their own keydown. */
-const CONTROL_KEYS = new Set(['ControlLeft', 'ControlRight']);
 
 /** Actions that fire once per physical press rather than while held. */
 const EDGES = new Set(['jump', 'use', 'view']);
@@ -182,16 +172,11 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     state.zoom = 0;
   }
 
-  /** `Ctrl` is held as the descend key: see `dive` in `controls.ts`. */
-  const ctrlHeld = (): boolean => held.has('ControlLeft') || held.has('ControlRight');
-
   addEventListener('keydown', (event) => {
     touch();
-    // Leave the browser's own shortcuts alone — except that `Ctrl` is itself a
-    // key now, and while the world holds it the keys it lands on are the
-    // world's: a descent with the throttle open is `Ctrl` and `W` together.
-    if (event.metaKey || event.altKey) return;
-    if (event.ctrlKey && !CONTROL_KEYS.has(event.code) && !ctrlHeld()) return;
+    // Leave the browser's own shortcuts alone. `Ctrl` was the second descend
+    // key until 2026-10-01, and with the throttle open that was `Ctrl+W`.
+    if (event.metaKey || event.altKey || event.ctrlKey) return;
     // Nor the settings card's slider, nor a search box: see `inputBlocked`.
     if (inputBlocked(event)) {
       release();
@@ -230,14 +215,6 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     if (!held.delete(event.code)) return;
     if (!inputBlocked(event)) event.preventDefault();
     refresh();
-  }, { signal });
-
-  // `Ctrl+W` with `Ctrl` held to descend: the one shortcut the page cannot
-  // cancel, so the browser is asked to confirm instead. Nothing else is guarded.
-  addEventListener('beforeunload', (event) => {
-    if (!ctrlHeld() || options.guardUnload?.() !== true) return;
-    event.preventDefault();
-    event.returnValue = '';
   }, { signal });
 
   // Without this a key held while the window loses focus never gets its keyup,

@@ -1,6 +1,7 @@
 /**
  * The front door: the solar system, then a planet, then a country, then the
- * town you wake up in.
+ * town you wake up in. The title screen (`title.ts`) stands in front of it
+ * first and holds it (`hold`) until the player has chosen how to play.
  *
  * **It is the real world and not a picture of one.** The menu draws the
  * world's own scene with the world's own `outline.render`: the land, the sea,
@@ -15,9 +16,10 @@
  * - **system** — the orrery, turned by hand and drifting when left alone; a
  *   dock of every body along the bottom; the search, which can jump straight
  *   to a town from here.
- * - **planet** — one body up close with its card. Only Earth can be entered
- *   today; the rest say so, from the data (`MenuBody` exists for a body or it
- *   does not) rather than from a list.
+ * - **planet** — one body up close with its card. Earth, which has a
+ *   `MenuBody`, goes on to its countries; every other body but the Sun offers
+ *   *Explore*, which hands it to `deps.exploreBody` and leaves the screen to
+ *   whatever walks it (`suspend`).
  * - **region** — the globe, a country ribbon under the pointer, a click to
  *   choose.
  * - **site** — the chosen country's towns, as pins on the map and as a list,
@@ -57,7 +59,7 @@ import { clockAt } from './timezone.ts';
 import { createFlagCanvas } from './flags.ts';
 import { createOrrery } from './orrery.ts';
 import type { OrreryBody } from './orrery.ts';
-import { AU_KM, heliocentric, periodOf } from './system/index.ts';
+import { AU_KM, heliocentric, moonPosition, periodOf } from './system/index.ts';
 import type { Body } from './system/index.ts';
 import { ensureStyle, fold, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 
@@ -89,6 +91,19 @@ export interface MenuRegion {
   lat: number;
   lon: number;
   rings: MenuRing[];
+  /**
+   * The region's own colour, `0xRRGGBB`, for a body whose globe the menu
+   * paints by region (every walkable world but Earth, whose land is the
+   * world's own). Earth leaves it out.
+   */
+  color?: number;
+  /**
+   * The region as `[lon, lat]` rings that never cross the antimeridian, for
+   * painting it flat (`orrery.ts`'s `HeldRegion`): `rings` may be outlines
+   * joined round the globe, which a flat map cannot fill. `rings` when left
+   * out.
+   */
+  flat?: readonly (readonly number[][])[];
 }
 
 /** A city, or whatever a body calls the thing you pick second. */
@@ -101,6 +116,12 @@ export interface MenuSite {
   /** How much this site outranks its neighbours. On Earth, population. */
   weight: number;
   capital?: boolean;
+  /**
+   * The site's own id on its body (`Settlement.id`), which the spawn carries
+   * to the world so it can land on that settlement's arrival. Earth's towns
+   * are found by their coordinate and leave it out.
+   */
+  id?: string;
 }
 
 /**
@@ -132,6 +153,61 @@ export interface MenuBody {
    * Optional; on Earth it is `places.bin`'s own list, through `Places.aliases`.
    */
   aliases?: ReadonlyMap<string, number>;
+  /**
+   * The local time at a site, as the town card shows it (`'14:05'`). Left out,
+   * Earth's own `clockAt` answers, which is the zone of the nearest town.
+   */
+  clock?(site: MenuSite, time: Date): string;
+  /**
+   * What the menu lays over the body's globe while it is the one up — the
+   * frontiers between its regions — **in the body's own frame**: centred on
+   * the origin, a latitude and longitude placed by `onSphere` at `radius`.
+   * The menu adds it to the scene at `centre`, keeps it there as the system
+   * turns, and takes it away again. Earth leaves it out: its frontiers are
+   * the world's own (`borders.ts`).
+   */
+  overlay?: THREE.Object3D;
+  /**
+   * The body as it is walked: its own ground at the drawn radius, still and
+   * upright about its centre, drawn in place of the orrery's painted ball
+   * from the moment it is made — in the system as on its globe.
+   */
+  globe?: {
+    object: THREE.Object3D;
+    update(eye: THREE.Vector3, centre: THREE.Vector3): void;
+    dispose(): void;
+  };
+  /**
+   * What a region and a site are called on this body, singular and plural,
+   * for the cards and the search: `country`/`town` on Earth, and Earth's
+   * words when left out.
+   */
+  words?: MenuWords;
+}
+
+/** What a body calls the two things the menu picks. */
+export interface MenuWords {
+  region: string;
+  regions: string;
+  site: string;
+  sites: string;
+}
+
+/** Earth's words, and every body's that names none. */
+export const EARTH_WORDS: MenuWords = { region: 'country', regions: 'countries', site: 'town', sites: 'towns' };
+
+/**
+ * `src/system/menu-body.ts`'s shape, as `main.ts` imports it on demand: a
+ * walkable body other than Earth as a `MenuBody` — `centre` is the orrery's
+ * live vector for it and `drawnRadius` its drawn size, which become the
+ * `MenuBody`'s own `centre` and `radius` — and the banners its regions'
+ * keys draw as flags (`registerFlagPainter`), installed before any is drawn.
+ * `menuBodyOf` answers `null` for a body with no geography.
+ */
+export interface MenuBodyModule {
+  menuBodyOf(id: string, centre: THREE.Vector3, drawnRadius: number): MenuBody | null;
+  menuWorldOf(id: string, centre: THREE.Vector3, drawnRadius: number): Promise<MenuBody | null>;
+  installBanners(): void;
 }
 
 /** Where the player wakes up. */
@@ -141,6 +217,8 @@ export interface MenuSpawn {
   name: string;
   lat: number;
   lon: number;
+  /** The site's own id (`MenuSite.id`) on a body that has them; see `WorldArrival`. */
+  site?: string;
 }
 
 /**
@@ -238,6 +316,25 @@ export interface MenuDeps {
    * to decide how it sounds. Omit it and the menu is silent.
    */
   sound?: MenuSound;
+  /**
+   * A walkable body's `MenuBody`, made on demand the first time its *Explore*
+   * is pressed: `centre` is where the orrery draws it — a live vector, which
+   * the menu's own frame keeps current as the system turns — and
+   * `drawnRadius` how big. Resolves `null` for a body with no regions, which
+   * *Explore* then hands straight to `exploreBody` with no spawn. Left out,
+   * every body but Earth goes straight there.
+   */
+  loadBody?(id: string, centre: THREE.Vector3, drawnRadius: number): Promise<MenuBody | null>;
+  /**
+   * Go and stand on a body other than Earth: a settlement chosen on its
+   * globe, *Continue* to a world last visited, or — with no `spawn` — a body
+   * that has no `MenuBody`, which lands wherever the world chooses. The
+   * caller takes the screen from here; the menu waits, suspended, until it
+   * is handed back (`suspend(false)`).
+   */
+  exploreBody?(id: string, name: string, spawn?: MenuSpawn): void | Promise<void>;
+  /** `Esc` at the system stage: back to the screen in front of the menu (the title). */
+  onLeave?(): void;
 }
 
 /** What the menu tells its sound: a pointer over something, a choice, a way back, the start. */
@@ -270,6 +367,12 @@ export interface Menu {
   camera: THREE.PerspectiveCamera;
   /** Which stage is up. `main.ts` fades the cloud deck out for `region` and `site`. */
   readonly stage: Stage;
+  /**
+   * The walkable body the globe stages are about, by id: `'earth'` until
+   * another's *Explore* flies down to it. `main.ts` keeps Earth's sky dome
+   * off while it is another, since the camera is then over that body.
+   */
+  readonly body: string;
   /** Whether the camera is on a programmed flight rather than in a hand's control. */
   readonly flying: boolean;
   /**
@@ -290,6 +393,20 @@ export interface Menu {
   depart(): Promise<Curtain>;
   /** The handedness checks, both of them third parties. On `atlasMenu`. */
   verify(): Record<string, unknown>;
+  /**
+   * A screen in front of the menu (the title): while held, the chrome and the
+   * labels stay down and the keys are left alone; the orrery still turns.
+   */
+  hold(on: boolean): void;
+  /** Stops drawing and hides the overlay, for a world that takes the screen; `false` hands it back. */
+  suspend(on: boolean): void;
+  /** Out from whatever globe it is on to the whole system: a world left behind. */
+  toSystem(): void;
+  /**
+   * Makes every other world's globe ahead of time, one after another, so
+   * choosing one never waits for it: called while the title is up.
+   */
+  prepare(): void;
   dispose(): void;
 }
 
@@ -419,6 +536,12 @@ interface LastPlace {
   name: string;
   /** The country's `ADM0_A3`, or empty. */
   iso: string;
+  /**
+   * Which body it was on: `'earth'` for a record that names none, which is
+   * every record Earth writes. A world other than Earth that writes this key
+   * names itself, and its `iso` is then a region's key on that body.
+   */
+  body: string;
   savedAt: number;
 }
 
@@ -450,6 +573,7 @@ function recall(): Remembered | null {
         name: shortText(record['name']) || 'somewhere',
         lat: record['lat'],
         lon: wrapLon(record['lon']),
+        ...(shortText(record['site']) === '' ? {} : { site: shortText(record['site']) }),
       },
       savedAt: finite(record['savedAt']) ? record['savedAt'] : 0,
     };
@@ -479,6 +603,7 @@ function recallPlace(): LastPlace | null {
       lon: wrapLon(record['lon']),
       name: shortText(record['name']),
       iso: shortText(record['iso']),
+      body: shortText(record['body']) || 'earth',
       savedAt: finite(record['savedAt']) ? record['savedAt'] : 0,
     };
   } catch {
@@ -493,7 +618,9 @@ function recallPlace(): LastPlace | null {
 /**
  * A ribbon along every ring of one region, expanded to a **screen-space** width
  * in the vertex shader, so it is the same weight from orbit and from a
- * thousand units up. One geometry per region for the session.
+ * thousand units up. One geometry per region for the session, in the body's
+ * own frame — centred on the origin — and placed at the body's centre by the
+ * group it hangs in, which follows a body other than Earth round the system.
  *
  * **The winding is the trap this world has met four times.** With `along` the
  * segment and `up` the outward radius, `across = along x up`, and the index
@@ -519,7 +646,7 @@ function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
   const seat = (lon: number, lat: number, height: number, target: THREE.Vector3): THREE.Vector3 => {
     onSphere(lon, lat, target);
     const lift = body.radius + height + body.relief(target.x, target.y, target.z) + RIBBON_LIFT;
-    return target.multiplyScalar(lift).add(body.centre);
+    return target.multiplyScalar(lift);
   };
 
   let vertex = 0;
@@ -536,7 +663,7 @@ function buildRibbon(body: MenuBody, region: MenuRegion): THREE.BufferGeometry {
       const span = along.length();
       if (span < 1e-6) continue;
       along.divideScalar(span);
-      up.copy(a).sub(body.centre).normalize();
+      up.copy(a).normalize();
       wide.crossVectors(along, up).normalize();
 
       for (let corner = 0; corner < 4; corner++) {
@@ -667,6 +794,23 @@ interface Sighting {
  */
 function sighting(body: Body, date: Date): Sighting {
   const earth = heliocentric('earth', date);
+  if (body.kind === 'moon') {
+    // Geocentric already, of date: the Sun's ecliptic longitude seen from
+    // here is Earth's heliocentric one turned round, and the elongation is the
+    // angle between the two directions on the ecliptic sphere.
+    // Ecliptic longitude and latitude, lambda and beta, in Standish's own
+    // right-handed frame — never a world vector, so not `sphere.ts`'s.
+    const lunar = moonPosition(date);
+    const sunLambda = Math.atan2(-earth.y, -earth.x);
+    const lambda = lunar.lon * DEG;
+    const beta = lunar.lat * DEG;
+    const cos = Math.cos(beta) * Math.cos(lambda - sunLambda);
+    return {
+      km: lunar.distance,
+      elongation: Math.acos(Math.max(-1, Math.min(1, cos))) / DEG,
+      east: Math.sin(lambda - sunLambda) > 0,
+    };
+  }
   if (body.orbit === null) return { km: earth.r * AU_KM, elongation: 0, east: false };
   const there = heliocentric(body.orbit, date);
   const gx = there.x - earth.x;
@@ -685,6 +829,8 @@ function sighting(body: Body, date: Date): Sighting {
 
 /** 41.2 million km, 225 million km, 4.35 billion km. */
 function distanceText(value: number): string {
+  // The Moon: a distance anyone can say in one breath.
+  if (value < 1e6) return `${(Math.round(value / 100) * 100).toLocaleString('en')} km`;
   if (value >= 1e9) return `${(value / 1e9).toFixed(2)} billion km`;
   return `${(value / 1e6).toFixed(value >= 1e8 ? 0 : 1)} million km`;
 }
@@ -693,6 +839,7 @@ function distanceText(value: number): string {
 function lightText(value: number, unit: 'min' | 'light-min' = 'min'): string {
   const minutes = value / LIGHT_KM_S / 60;
   const hours = unit === 'min' ? 'h' : 'light-h';
+  if (minutes < 1) return `${(minutes * 60).toFixed(1)} ${unit === 'min' ? 's' : 'light-s'}`;
   if (minutes < 60) return `${minutes.toFixed(minutes < 10 ? 1 : 0)} ${unit}`;
   return `${(minutes / 60).toFixed(1)} ${hours}`;
 }
@@ -741,6 +888,9 @@ const STYLE = `
   visibility: hidden;
   pointer-events: none !important;
 }
+.atlas-menu .m-marks { transition: opacity 0.35s ease, visibility 0.35s; }
+.atlas-menu.held .m-marks { opacity: 0; visibility: hidden; }
+.atlas-menu.held { cursor: default; }
 .atlas-menu.departing .m-chrome { opacity: 0 !important; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s; }
 
 /* --- the brand, over the system ------------------------------------------ */
@@ -753,14 +903,14 @@ const STYLE = `
 }
 .m-brand.m-off { transform: translateX(-24px); }
 .m-wordmark {
-  font-size: 76px;
+  font-size: 56px;
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 0.85;
   color: var(--ui-paper);
-  -webkit-text-stroke: 7px var(--ui-ink);
+  -webkit-text-stroke: 6px var(--ui-ink);
   paint-order: stroke fill;
-  text-shadow: 0 7px 0 var(--ui-ink);
+  text-shadow: 0 5px 0 var(--ui-ink);
 }
 .m-tagline {
   margin-top: 16px;
@@ -769,13 +919,6 @@ const STYLE = `
   line-height: 1.35;
   color: rgba(255, 242, 232, 0.9);
   text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7);
-}
-.m-now { margin-top: 16px; }
-.m-scale {
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 242, 232, 0.55);
 }
 
 /* --- the dock of bodies -------------------------------------------------- */
@@ -868,6 +1011,8 @@ const STYLE = `
 .m-label.hot { background: var(--ui-cream); box-shadow: 0 4px 0 var(--ui-ink); }
 .m-label.walk.hot { background: var(--ui-apricot); }
 .m-marks.quiet .m-label { opacity: 0; pointer-events: none; }
+/* The Sun: named, never a destination. */
+.m-label.inert, .m-dock-item.inert { cursor: default; pointer-events: none; }
 .m-halo {
   position: absolute;
   left: 0;
@@ -1233,7 +1378,7 @@ const STYLE = `
 @media (max-width: 900px) {
   .m-panel { width: 290px; }
   .m-search { width: 260px; }
-  .m-wordmark { font-size: 56px; }
+  .m-wordmark { font-size: 44px; }
   .m-info { width: 320px; }
 }
 
@@ -1303,9 +1448,15 @@ export function createMenu(deps: MenuDeps): Menu {
   installUi();
   ensureStyle('atlas-menu', STYLE);
 
-  /** The walkable world the globe stages are about. */
-  let body = bodies[0]!;
+  /** The walkable world the globe stages are about: Earth, until another's *Explore*. */
+  const home = bodies[0]!;
+  let body = home;
   const walkable = new Map(bodies.map((candidate) => [candidate.id, candidate]));
+  /** The bodies `deps.loadBody` has made, kept for the session. */
+  const loaded = new Map<string, MenuBody>();
+  /** What the current body calls a region and a site. */
+  let words = body.words ?? EARTH_WORDS;
+  const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
   /* --- the camera and the orrery ------------------------------------------ */
 
@@ -1321,15 +1472,29 @@ export function createMenu(deps: MenuDeps): Menu {
 
   /* --- the towns, grouped once ------------------------------------------- */
 
-  const regionIndexOf = new Map<string, number>();
-  body.regions.forEach((region, i) => regionIndexOf.set(region.key, i + 1));
-  const sitesOf = new Map<string, MenuSite[]>();
-  for (const site of body.sites) {
-    let list = sitesOf.get(site.key);
-    if (list === undefined) sitesOf.set(site.key, (list = []));
-    list.push(site);
+  /** A body's regions by key and its sites by region, biggest first: made once a body. */
+  interface Catalogue {
+    regionIndexOf: Map<string, number>;
+    sitesOf: Map<string, MenuSite[]>;
   }
-  for (const list of sitesOf.values()) list.sort((a, b) => b.weight - a.weight);
+  const catalogues = new Map<string, Catalogue>();
+  function catalogueOf(of: MenuBody): Catalogue {
+    let catalogue = catalogues.get(of.id);
+    if (catalogue !== undefined) return catalogue;
+    const regionIndex = new Map<string, number>();
+    of.regions.forEach((one, i) => regionIndex.set(one.key, i + 1));
+    const bySite = new Map<string, MenuSite[]>();
+    for (const site of of.sites) {
+      let list = bySite.get(site.key);
+      if (list === undefined) bySite.set(site.key, (list = []));
+      list.push(site);
+    }
+    for (const list of bySite.values()) list.sort((a, b) => b.weight - a.weight);
+    catalogue = { regionIndexOf: regionIndex, sitesOf: bySite };
+    catalogues.set(of.id, catalogue);
+    return catalogue;
+  }
+  let { regionIndexOf, sitesOf } = catalogueOf(body);
 
   /* --- the DOM ----------------------------------------------------------- */
 
@@ -1371,9 +1536,7 @@ export function createMenu(deps: MenuDeps): Menu {
     'div',
     { class: 'm-brand m-fade m-chrome' },
     h('div', { class: 'm-wordmark', text: 'atlas' }),
-    h('div', { class: 'm-tagline', text: 'Walk the whole Earth — on foot, by car, by boat and by plane.' }),
-    h('div', { class: 'ui-tag ink m-now' }, icon('sun'), 'Every planet where it is right now'),
-    h('div', { class: 'm-scale', text: 'The directions are real. The sizes and the distances are not to scale.' }),
+    h('div', { class: 'm-tagline', text: 'Pick a world to explore.' }),
   );
 
   const backButton = h('button', { class: 'ui-btn icon', title: 'Back (Esc)', 'aria-label': 'Back' }, icon('back'));
@@ -1392,6 +1555,13 @@ export function createMenu(deps: MenuDeps): Menu {
     'aria-label': 'Search a country or a town',
   });
   const results = h('div', { class: 'm-results ui-card', role: 'listbox' });
+  /** The search says what it searches: this body's regions and sites, in its own words. */
+  function refreshWords(): void {
+    words = body.words ?? EARTH_WORDS;
+    const what = `Search a ${words.region} or a ${words.site}${body === home ? '' : ` on ${body.name.replace(/^The /, 'the ')}`}`;
+    searchInput.placeholder = what;
+    searchInput.setAttribute('aria-label', what);
+  }
   const search = h(
     'div',
     { class: 'm-search m-fade' },
@@ -1443,6 +1613,9 @@ export function createMenu(deps: MenuDeps): Menu {
 
   let stage: Stage = 'system';
   let flight: Flight | null = null;
+  /** A screen in front (`hold`), and a world that has taken the screen (`suspend`). */
+  let held = false;
+  let suspended = false;
   /** The chosen country, at the site stage. */
   let region: MenuRegion | null = null;
   let regionIndex = 0;
@@ -1472,6 +1645,9 @@ export function createMenu(deps: MenuDeps): Menu {
     const started = recall();
     const place = recallPlace();
     if (place === null || (started !== null && started.savedAt > place.savedAt)) return started?.spawn ?? null;
+    // Another world's own record: where it was, with no settlement to land on,
+    // which is *Continue where you left off* there.
+    if (place.body !== home.id) return { body: place.body, region: '', name: place.name, lat: place.lat, lon: place.lon };
     const index = regionIndexOf.get(place.iso) ?? body.regionAt(place.lat, place.lon);
     return {
       body: body.id,
@@ -1661,6 +1837,14 @@ export function createMenu(deps: MenuDeps): Menu {
   ribbonGroup.visible = false;
   scene.add(ribbonGroup);
 
+  /**
+   * The body's own overlay (`MenuBody.overlay`), hung at its centre while it
+   * is the one up. Earth has none, and so nothing hangs here over Earth.
+   */
+  const overlayGroup = new THREE.Group();
+  overlayGroup.name = 'menu-overlay';
+  scene.add(overlayGroup);
+
   const ribbons = new Map<string, THREE.BufferGeometry>();
   let shown: MenuRegion | null = null;
 
@@ -1679,6 +1863,11 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function ribbonWidth(): void {
+    // The ribbons and the overlay are in the body's frame, and a body other
+    // than Earth moves as the system turns under the sky's clock.
+    ribbonGroup.position.copy(body.centre);
+    overlayGroup.position.copy(body.centre);
+    overlayGroup.visible = stage === 'region' || stage === 'site';
     // The same weight on the screen at every altitude: priced against the
     // distance to the ground under the camera.
     const scale = 1 / Math.max(1e-6, pixelsPerUnit(Math.max(1, camera.position.distanceTo(body.centre) - body.radius)));
@@ -1750,7 +1939,7 @@ export function createMenu(deps: MenuDeps): Menu {
   function bodyAt(clientX: number, clientY: number): string | null {
     let best: Disc | null = null;
     for (const disc of discs) {
-      if (!disc.visible) continue;
+      if (!disc.visible || disc.entry.body.kind === 'star') continue;
       const reach = Math.max(disc.r, 12) + 8;
       if (Math.hypot(clientX - disc.x, clientY - disc.y) > reach) continue;
       if (best === null || disc.depth < best.depth) best = disc;
@@ -1766,13 +1955,17 @@ export function createMenu(deps: MenuDeps): Menu {
   for (const entry of orrery.bodies) {
     const id = entry.body.id;
     const enterable = walkable.has(id);
+    const explorable = enterable || (deps.exploreBody !== undefined && entry.body.kind !== 'star');
     // Out of the tab order: every label has a dock item that does the same
     // thing, and nine stops on the canvas before the dock is nine too many.
+    // The Sun is named on the canvas and in the dock and goes nowhere: there is
+    // nothing to land on, and a card about it was a stop between you and a world.
+    const inert = entry.body.kind === 'star';
     const label = h(
       'button',
-      { class: enterable ? 'm-label walk' : 'm-label', 'aria-label': entry.body.name, tabindex: -1 },
+      { class: inert ? 'm-label inert' : explorable ? 'm-label walk' : 'm-label', 'aria-label': entry.body.name, tabindex: -1 },
       entry.body.name,
-      enterable ? icon('chevron') : null,
+      explorable ? icon('chevron') : null,
     );
     label.addEventListener('click', () => chooseBody(id));
     label.addEventListener('pointerenter', () => (hoverBody = id));
@@ -1811,7 +2004,7 @@ export function createMenu(deps: MenuDeps): Menu {
     }
     const item = h(
       'button',
-      { class: enterable ? 'm-dock-item ui-card walk' : 'm-dock-item ui-card', title },
+      { class: inert ? 'm-dock-item ui-card inert' : enterable ? 'm-dock-item ui-card walk' : 'm-dock-item ui-card', title, ...(inert ? { tabindex: -1, 'aria-disabled': 'true' } : {}) },
       disc,
       h('span', { class: 'm-dock-name', text: entry.body.name.replace(/^The /, '') }),
       tag,
@@ -1830,7 +2023,7 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function layOutLabels(): void {
-    const quiet = flight !== null || chosen !== null || (stage !== 'system' && stage !== 'planet');
+    const quiet = held || flight !== null || chosen !== null || (stage !== 'system' && stage !== 'planet');
     marks.classList.toggle('quiet', quiet);
     let haloOn = false;
     for (const disc of discs) {
@@ -1839,7 +2032,8 @@ export function createMenu(deps: MenuDeps): Menu {
       const hot = id === hoverBody;
       label.classList.toggle('hot', hot);
       dockItems.get(id)?.classList.toggle('hot', hot);
-      const hideThis = quiet || !disc.visible || (stage === 'planet' && id === focusId);
+      // The Sun carries no label: it is the light the rest are seen by.
+      const hideThis = quiet || !disc.visible || disc.entry.body.kind === 'star' || (stage === 'planet' && id === focusId);
       label.style.display = hideThis ? 'none' : '';
       if (!hideThis) {
         label.style.transform = `translate(${disc.x.toFixed(1)}px, ${(disc.y + disc.r + 10).toFixed(1)}px) translateX(-50%)`;
@@ -2057,12 +2251,30 @@ export function createMenu(deps: MenuDeps): Menu {
       if (i > 0) trail.append(icon('chevron'));
       trail.append(part);
     });
-    backLabel.textContent = stage === 'site' ? 'Countries' : 'Solar system';
+    backLabel.textContent = stage === 'site' ? capital(words.regions) : 'Solar system';
+  }
+
+  /**
+   * On another world's globe, Continue is that world's own memory or
+   * nothing: *Start in Palma* over Mars would fly you to Earth from the
+   * screen you are choosing a Martian town on. Earth's stages and the system
+   * keep the newer memory, wherever it is.
+   */
+  function continueHere(): boolean {
+    if ((stage !== 'region' && stage !== 'site') || body === home) return true;
+    return last !== null && last.body === body.id && deps.exploreBody !== undefined;
   }
 
   function refreshContinue(): void {
-    if (last === null) {
+    const elsewhere = last !== null && last.body !== home.id && deps.exploreBody !== undefined;
+    if (last === null || (last.body !== home.id && !elsewhere)) {
       continueLabel.replaceChildren('Start in ', h('span', { class: 'quiet', text: fallback.name }));
+    } else if (elsewhere) {
+      const world = bodyName(last.body).replace(/^The /, 'the ');
+      continueLabel.replaceChildren(
+        'Continue on ',
+        h('span', { class: 'quiet', text: last.name === '' ? world : `${world}, in ${last.name}` }),
+      );
     } else if (last.name === '') {
       // Out at sea, most likely: somewhere with no town to name.
       continueLabel.replaceChildren('Continue where you left off');
@@ -2074,10 +2286,11 @@ export function createMenu(deps: MenuDeps): Menu {
 
   function refreshChrome(): void {
     const flying = flight !== null;
-    const open = chosen === null;
+    const open = chosen === null && !held;
     const settled = !flying && open;
     root.classList.toggle('flying', flying);
-    root.classList.toggle('chosen', !open);
+    root.classList.toggle('chosen', chosen !== null);
+    root.classList.toggle('held', held);
     setOff(brand, !(stage === 'system' && settled));
     setOff(dock, !(stage === 'system' && settled));
     setOff(crumbs, !(stage !== 'system' && open));
@@ -2085,10 +2298,14 @@ export function createMenu(deps: MenuDeps): Menu {
     setOff(info, !(stage === 'planet' && settled));
     setOff(back, !(stage !== 'system' && open));
     setOff(search, !(open && stage !== 'planet'));
-    setOff(continueButton, !open);
+    refreshContinue();
+    setOff(continueButton, !(open && continueHere()));
     if (travellerButton !== null) setOff(travellerButton, !open);
-    setOff(select, !(open ? stage === 'site' && picked !== null && !flying : true));
-    setOff(progressPill, built || !open);
+    // The town picked, or once chosen the landing it is waiting for — never
+    // under the title, which holds the menu with neither.
+    setOff(select, !(chosen !== null || (open && stage === 'site' && picked !== null && !flying)));
+    // Not under the title, which says how far the world is in its own card.
+    setOff(progressPill, built || chosen !== null || held);
     if (flying || !open) closeResults();
     refreshTrail();
   }
@@ -2115,7 +2332,7 @@ export function createMenu(deps: MenuDeps): Menu {
     panel.replaceChildren(
       h('div', { class: 'ui-eyebrow', text: `${body.name} · ${body.note}` }),
       h('h2', { text: 'Where do you want to start?' }),
-      h('p', { text: 'Drag to turn the globe, then click a country. Or type the name of a place in the search.' }),
+      h('p', { text: `Drag to turn the globe, then click a ${words.region}. Or type the name of a place in the search.` }),
       surpriseButton,
     );
   }
@@ -2151,7 +2368,7 @@ export function createMenu(deps: MenuDeps): Menu {
       list.append(row);
     }
     if (all.length > LIST_LENGTH) {
-      list.append(h('div', { class: 'm-more', text: `and ${(all.length - LIST_LENGTH).toLocaleString('en')} smaller towns on the map` }));
+      list.append(h('div', { class: 'm-more', text: `and ${(all.length - LIST_LENGTH).toLocaleString('en')} smaller ${words.sites} on the map` }));
     }
     const count = all.length;
     panel.replaceChildren(
@@ -2163,10 +2380,10 @@ export function createMenu(deps: MenuDeps): Menu {
           'div',
           {},
           h('h2', { text: next.name }),
-          h('div', { class: 'm-country-sub', text: `${next.note} · ${count === 1 ? 'one town' : `${count.toLocaleString('en')} towns`}` }),
+          h('div', { class: 'm-country-sub', text: `${next.note} · ${count === 1 ? `one ${words.site}` : `${count.toLocaleString('en')} ${words.sites}`}` }),
         ),
       ),
-      h('p', { text: 'Pick a town on the map or in the list. Drag the globe to browse the next country — its towns come up when you let go.' }),
+      h('p', { text: `Pick a ${words.site} on the map or in the list. Drag the globe to browse the next ${words.region} — its ${words.sites} come up when you let go.` }),
       list,
     );
   }
@@ -2190,26 +2407,26 @@ export function createMenu(deps: MenuDeps): Menu {
     // badge, no dashed box. The Sun gets neither: it is the star, and nobody
     // expected to land on it.
     const lines: HTMLElement[] = [];
-    if (b.kind !== 'star') {
-      lines.push(h('div', { class: 'm-line' }, icon('eye'), skyText(seen)));
-      if (!walkable.has(b.id)) {
-        const drawn = b.nations.length > 0
-          ? ` Its ${b.nations.length} regions and ${b.settlements.length} towns are drawn up.`
-          : '';
-        lines.push(h('div', { class: 'm-line quiet' }, icon('lock'), `Not walkable yet.${drawn}`));
-      }
-    }
+    if (b.kind !== 'star') lines.push(h('div', { class: 'm-line' }, icon('eye'), skyText(seen)));
 
     const others = orrery.bodies.filter((candidate) => !walkable.has(candidate.body.id));
     const at = others.indexOf(entry);
     const next = others[(at + 1) % others.length]!;
     const nextButton = h('button', { class: 'ui-btn' }, `Next: ${next.body.name.replace(/^The /, '')}`, icon('next', 18));
     nextButton.addEventListener('click', () => chooseBody(next.body.id));
-    const earthButton = h('button', { class: 'ui-btn primary' }, icon('globe', 18), 'Go to Earth');
-    earthButton.addEventListener('click', () => chooseBody(body.id));
+    const short = b.name.replace(/^The /, '');
+    const explore = b.kind !== 'star' && deps.exploreBody !== undefined;
+    const earthButton = h('button', { class: explore ? 'ui-btn' : 'ui-btn primary' }, icon('globe', 18), explore ? 'Earth' : 'Go to Earth');
+    earthButton.addEventListener('click', () => chooseBody(home.id));
+    const exploreButton = explore ? h('button', { class: 'ui-btn primary' }, icon('play', 16), `Explore ${short}`) : null;
+    exploreButton?.addEventListener('click', () => void exploreFrom(entry, exploreButton));
 
+    const eyebrow =
+      b.kind === 'star' ? 'Star · the centre of it all'
+        : b.kind === 'moon' ? 'Moon · Earth\'s own'
+          : `${kindOf(entry)} · ${ordinal(entry.order)} from the Sun`;
     info.replaceChildren(
-      h('div', { class: 'ui-eyebrow', text: b.kind === 'star' ? 'Star · the centre of it all' : `${kindOf(entry)} · ${ordinal(entry.order)} from the Sun` }),
+      h('div', { class: 'ui-eyebrow', text: eyebrow }),
       h('h2', { text: b.name }),
       h('p', { text: b.blurb }),
       h(
@@ -2218,7 +2435,7 @@ export function createMenu(deps: MenuDeps): Menu {
         ...facts.map(([name, value]) => h('div', { class: 'm-fact' }, h('small', { text: name }), h('b', { text: value }))),
       ),
       ...(lines.length > 0 ? [h('div', { class: 'm-lines' }, ...lines)] : []),
-      h('div', { class: 'm-actions' }, earthButton, nextButton),
+      h('div', { class: 'm-actions' }, exploreButton, earthButton, nextButton),
     );
   }
 
@@ -2244,7 +2461,7 @@ export function createMenu(deps: MenuDeps): Menu {
     startButton.addEventListener('click', () => start(site));
     const details = [regionName(site.key)];
     if (site.weight > 0) details.push(people(site.weight));
-    details.push(`${clockAt(time(), site.key, site.lon, site.lat)} local time`);
+    details.push(`${body.clock?.(site, time()) ?? clockAt(time(), site.key, site.lon, site.lat)} local time`);
     select.replaceChildren(
       flag(site.key, 48, 32),
       h(
@@ -2260,21 +2477,30 @@ export function createMenu(deps: MenuDeps): Menu {
   /* --- the stages ------------------------------------------------------- */
 
   function chooseBody(id: string): void {
-    if (flight !== null || chosen !== null) return;
+    if (flight !== null || chosen !== null || exploring !== null) return;
+    const entry = bodyById(id);
+    if (entry.body.kind === 'star') return;
     touch();
-    deps.sound?.cue('select');
-    const next = walkable.get(id);
+    // **Every world is chosen as Earth is**: one click and the camera goes
+    // down onto its globe, its regions coloured and waiting. The card in
+    // between (*Explore*, *Earth*, *Next*) was a stop nobody asked for.
+    const next = walkable.get(id) ?? loaded.get(id);
     if (next !== undefined) {
+      deps.sound?.cue('select');
       enterBody(next);
       return;
     }
+    if (deps.exploreBody !== undefined) {
+      void exploreFrom(entry, null);
+      return;
+    }
+    deps.sound?.cue('select');
     focusId = id;
     orrery.focus(id);
-    const entry = bodyById(id);
     // Seen three-quarters lit: round from the Sun's side of it, a little above
-    // its equator. The Sun itself is seen from wherever the camera already is.
+    // its equator.
     const toSun = scratchB.subVectors(orrery.sun.position, entry.position);
-    const base = entry.body.kind === 'star' ? inPlane(scratchC.subVectors(pose.eye, entry.position)) : inPlane(toSun) + 0.9;
+    const base = inPlane(toSun) + 0.9;
     const reach = entry.radius * (entry.body.id === 'saturn' ? 1.9 : 1);
     focus.azimuth = focusWant.azimuth = base;
     focus.elevation = focusWant.elevation = FOCUS_ELEVATION;
@@ -2286,9 +2512,122 @@ export function createMenu(deps: MenuDeps): Menu {
     flyTo(target, () => refreshChrome());
   }
 
+  /** *Explore* on a body's card, while its `MenuBody` is being made. */
+  let exploring: string | null = null;
+
+  /**
+   * *Explore* on a body's card: down onto its globe, as Earth's is, once
+   * `deps.loadBody` has made its `MenuBody` — its regions, their frontiers
+   * and colours, its sites — and straight to the world when there is none.
+   */
+  async function exploreFrom(entry: OrreryBody, button: HTMLButtonElement | null): Promise<void> {
+    const b = entry.body;
+    if (flight !== null || chosen !== null || exploring !== null) return;
+    touch();
+    const from = stage;
+    let next: MenuBody | null = loaded.get(b.id) ?? null;
+    if (next === null && deps.loadBody !== undefined) {
+      exploring = b.id;
+      if (button !== null) button.disabled = true;
+      next = await bodyOf(entry);
+      exploring = null;
+      if (button !== null) button.disabled = false;
+      // Moved on while it loaded: somewhere else was chosen meanwhile.
+      if (stage !== from || flight !== null || chosen !== null) return;
+    }
+    if (next === null) {
+      deps.sound?.cue('start');
+      deps.exploreBody?.(b.id, b.name);
+      return;
+    }
+    deps.sound?.cue('select');
+    enterBody(next);
+  }
+
+  /** The bodies being made, so a click and the warm-up never make one twice. */
+  const making = new Map<string, Promise<MenuBody | null>>();
+
+  /**
+   * A walkable body's `MenuBody`, made once: its regions, its sites and its
+   * own ground (`MenuBody.globe`), which from then on is what the system
+   * draws for it in place of the orrery's painted ball.
+   */
+  function bodyOf(entry: OrreryBody): Promise<MenuBody | null> {
+    const id = entry.body.id;
+    const have = loaded.get(id);
+    if (have !== undefined) return Promise.resolve(have);
+    const pending = making.get(id);
+    if (pending !== undefined) return pending;
+    const made = (async (): Promise<MenuBody | null> => {
+      if (deps.loadBody === undefined) return null;
+      try {
+        let next = await deps.loadBody(id, entry.position, entry.radius);
+        if (next === null || disposed) return null;
+        // The orrery's own vector, live, whatever the body was made with: the
+        // globe stages follow it round the system as the sky's clock turns it.
+        if (next.centre !== entry.position) next = { ...next, centre: entry.position };
+        loaded.set(id, next);
+        if (next.globe !== undefined) {
+          scene.add(next.globe.object);
+          globes.push({ entry, globe: next.globe });
+          orrery.cover(id);
+        }
+        return next;
+      } catch (error) {
+        console.warn(`menu: ${entry.body.name}'s regions did not load`, error);
+        return null;
+      }
+    })();
+    making.set(id, made);
+    return made;
+  }
+
+  /** The walked worlds' own grounds standing in the system, and whose. */
+  const globes: { entry: OrreryBody; globe: NonNullable<MenuBody['globe']> }[] = [];
+  let disposed = false;
+
+  /** Each world's ground at its body, shown as the orrery shows the body, and as fine as the eye needs. */
+  function placeGlobes(): void {
+    for (const { entry, globe } of globes) {
+      globe.object.position.copy(entry.position);
+      globe.object.visible = entry.opacity > 0.01;
+      if (globe.object.visible) globe.update(camera.position, entry.position);
+    }
+  }
+
+  /** Make a walkable body the one the globe stages are about, without moving the camera. */
+  function setBody(next: MenuBody): void {
+    if (next === body) return;
+    body = next;
+    ({ regionIndexOf, sitesOf } = catalogueOf(body));
+    region = null;
+    regionIndex = 0;
+    hoverIndex = 0;
+    picked = null;
+    hotSite = null;
+    releasePins();
+    sites = [];
+    showRibbon(null);
+    refreshWords();
+    overlayGroup.clear();
+    if (body.overlay !== undefined) {
+      // In the body's own frame: the group it hangs in is what stands at the centre.
+      body.overlay.position.set(0, 0, 0);
+      overlayGroup.add(body.overlay);
+    }
+    if (body === home) {
+      orrery.holdUpright(null);
+    } else {
+      // The drawn globe held still in the world's frame, so a latitude and a
+      // longitude round its centre are where its regions are. Unpainted, as
+      // Earth's land is: a region is seen under the pointer, not as a colour.
+      orrery.holdUpright(body.id, []);
+    }
+  }
+
   /** Down from the system onto a walkable world, to its region stage. */
   function enterBody(next: MenuBody): void {
-    body = next;
+    setBody(next);
     orrery.focus(null);
     // The globe is framed on a blend of where the camera came from and where
     // the Sun is, so the flight is mostly a zoom and it lands on the day side.
@@ -2433,12 +2772,19 @@ export function createMenu(deps: MenuDeps): Menu {
     showRibbon(null);
     tip.classList.remove('on');
     orrery.focus(null);
-    flyTo(systemPose(sys, makePose()), () => refreshChrome());
+    // Back among the planets the search is Earth's again, and the body that
+    // was held up for its globe turns and leans with the rest — once the
+    // camera is out among them, so it does not swing round under the lens.
+    flyTo(systemPose(sys, makePose()), () => {
+      setBody(home);
+      refreshChrome();
+    });
   }
 
   function goBack(): void {
     if (stage === 'site') backToRegions();
     else if (stage === 'region' || stage === 'planet') backToSystem();
+    else if (flight === null) deps.onLeave?.();
   }
 
   function pickTown(site: MenuSite, centre = false): void {
@@ -2462,8 +2808,77 @@ export function createMenu(deps: MenuDeps): Menu {
     refreshChrome();
   }
 
+  /** A body's name as the orrery has it, for a spawn that names only its id. */
+  function bodyName(id: string): string {
+    return orrery.bodies.find((entry) => entry.body.id === id)?.body.name ?? id;
+  }
+
+  /**
+   * Down onto a place on the body the globe stages are about, from a little
+   * south of it, so the last frame before the curtain has a horizon in it
+   * rather than a map. Earth's dive and every other world's are this one.
+   */
+  function divePose(lat: number, lon: number): Pose {
+    const upward = onSphere(lon, lat, new THREE.Vector3());
+    const northward = new THREE.Vector3(0, 1, 0).addScaledVector(upward, -upward.y);
+    if (northward.lengthSq() < 1e-6) northward.set(1, 0, 0);
+    northward.normalize();
+    // The height is Earth's, in the body's own radii.
+    const height = DEPART_HEIGHT * (body.radius / home.radius);
+    const to = makePose();
+    to.target.copy(upward).multiplyScalar(body.radius).add(body.centre);
+    to.eye.copy(to.target).addScaledVector(upward, height).addScaledVector(northward, -height * 0.45);
+    to.up.copy(northward);
+    return to;
+  }
+
+  /**
+   * Another world, entered as Earth is: the dive onto the chosen place, the
+   * curtain over the end of it, the world built under the curtain, and the
+   * curtain lifted off it. The menu waits suspended under the world, so
+   * nothing here is chosen and the choice Earth awaits stays open; when the
+   * world hands the screen back the globe stage picks up where it was.
+   */
+  function diveInto(spawn: MenuSpawn): void {
+    const onGlobe = spawn.body === body.id && (stage === 'region' || stage === 'site');
+    const enter = (): Promise<void> => Promise.resolve(deps.exploreBody?.(spawn.body, bodyName(spawn.body), spawn));
+    if (!onGlobe || calm.matches) {
+      void enter();
+      return;
+    }
+    exploring = spawn.body;
+    root.classList.add('departing');
+    deps.sound?.stage(null);
+    const curtain = h('div', { class: 'atlas-curtain' });
+    document.body.append(curtain);
+    const lift = (): void => {
+      root.classList.remove('departing');
+      deps.sound?.stage(stage);
+      curtain.classList.add('lifting');
+      curtain.classList.remove('on');
+      setTimeout(() => curtain.remove(), 1000);
+    };
+    flyTo(divePose(spawn.lat, spawn.lon), () => {});
+    const seconds = flight!.duration / 1000;
+    setTimeout(() => curtain.classList.add('on'), seconds * 1000 * 0.68);
+    setTimeout(() => {
+      exploring = null;
+      // The world's first frames go under the curtain, as Earth's town does.
+      void enter().finally(() => setTimeout(lift, 450));
+    }, seconds * 1000 * 0.68 + 420);
+  }
+
   function finish(spawn: MenuSpawn): void {
-    if (chosen !== null) return;
+    if (chosen !== null || exploring !== null) return;
+    if (spawn.body !== home.id && !walkable.has(spawn.body)) {
+      if (deps.exploreBody === undefined) return;
+      deps.sound?.cue('start');
+      remember(spawn);
+      closeResults();
+      tip.classList.remove('on');
+      diveInto(spawn);
+      return;
+    }
     chosen = spawn;
     deps.sound?.cue('start');
     remember(spawn);
@@ -2475,7 +2890,14 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function start(site: MenuSite): void {
-    finish({ body: body.id, region: regionName(site.key), name: site.name, lat: site.lat, lon: site.lon });
+    finish({
+      body: body.id,
+      region: regionName(site.key),
+      name: site.name,
+      lat: site.lat,
+      lon: site.lon,
+      ...(site.id === undefined ? {} : { site: site.id }),
+    });
   }
 
   function touch(): void {
@@ -2485,7 +2907,10 @@ export function createMenu(deps: MenuDeps): Menu {
   backButton.addEventListener('click', goBack);
   back.addEventListener('click', goBack);
   continueButton.addEventListener('click', () => {
-    finish(last ?? { body: body.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon });
+    if (flight !== null || !continueHere()) return;
+    // A world the relay of this build cannot reach any more is Earth's fallback.
+    const remembered = last !== null && (last.body === home.id || deps.exploreBody !== undefined) ? last : null;
+    finish(remembered ?? { body: home.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon });
   });
 
   /* --- the search --------------------------------------------------------- */
@@ -2503,55 +2928,69 @@ export function createMenu(deps: MenuDeps): Menu {
     sub: string;
   }
 
-  const entries: Entry[] = [];
-  body.regions.forEach((candidate) => {
-    if (candidate.rings.length === 0) return;
-    const folded = fold(candidate.name);
-    const count = sitesOf.get(candidate.key)?.length ?? 0;
-    entries.push({
-      kind: 'country',
-      name: candidate.name,
-      folded,
-      words: folded.split(/[\s\-']+/),
-      // Countries rank above towns of the same match; the size is a tie-break.
-      weight: 1e12 + count,
-      key: candidate.key,
-      site: null,
-      sub: `${candidate.note} · ${count.toLocaleString('en')} towns`,
+  /**
+   * Every name the search answers on one body, made the first time that body
+   * is searched and kept: its regions, its sites, and the other names a site
+   * answers to.
+   */
+  const entriesOf = new Map<string, Entry[]>();
+  function entriesFor(of: MenuBody): Entry[] {
+    const made = entriesOf.get(of.id);
+    if (made !== undefined) return made;
+    const entries: Entry[] = [];
+    of.regions.forEach((candidate) => {
+      if (candidate.rings.length === 0) return;
+      const folded = fold(candidate.name);
+      const count = catalogueOf(of).sitesOf.get(candidate.key)?.length ?? 0;
+      entries.push({
+        kind: 'country',
+        name: candidate.name,
+        folded,
+        words: folded.split(/[\s\-']+/),
+        // Countries rank above towns of the same match; the size is a tie-break.
+        weight: 1e12 + count,
+        key: candidate.key,
+        site: null,
+        sub: `${candidate.note} · ${count.toLocaleString('en')} ${(of.words ?? EARTH_WORDS).sites}`,
+      });
     });
-  });
-  for (const site of body.sites) {
-    const folded = fold(site.name);
-    entries.push({
-      kind: 'town',
-      name: site.name,
-      folded,
-      words: folded.split(/[\s\-']+/),
-      weight: site.weight,
-      key: site.key,
-      site,
-      sub: site.weight > 0 ? `${regionName(site.key)} · ${compact(site.weight)} people` : regionName(site.key),
-    });
+    for (const site of of.sites) {
+      const folded = fold(site.name);
+      entries.push({
+        kind: 'town',
+        name: site.name,
+        folded,
+        words: folded.split(/[\s\-']+/),
+        weight: site.weight,
+        key: site.key,
+        site,
+        sub: site.weight > 0 ? `${regionName(site.key)} · ${compact(site.weight)} people` : regionName(site.key),
+      });
+    }
+    // The other names a town answers to. The row is the town that stands, and
+    // says which name found it, so typing a famous city the bake folded into a
+    // neighbour is an answer and not "nothing by that name".
+    for (const [alias, index] of of.aliases ?? []) {
+      const site = of.sites[index];
+      if (site === undefined) continue;
+      const folded = fold(alias);
+      if (folded === fold(site.name)) continue;
+      entries.push({
+        kind: 'town',
+        name: site.name,
+        folded,
+        words: folded.split(/[\s\-']+/),
+        weight: site.weight,
+        key: site.key,
+        site,
+        sub: `for ${alias} · ${regionName(site.key)}`,
+      });
+    }
+    entriesOf.set(of.id, entries);
+    return entries;
   }
-  // The other names a town answers to. The row is the town that stands, and
-  // says which name found it, so typing a famous city the bake folded into a
-  // neighbour is an answer and not "nothing by that name".
-  for (const [alias, index] of body.aliases ?? []) {
-    const site = body.sites[index];
-    if (site === undefined) continue;
-    const folded = fold(alias);
-    if (folded === fold(site.name)) continue;
-    entries.push({
-      kind: 'town',
-      name: site.name,
-      folded,
-      words: folded.split(/[\s\-']+/),
-      weight: site.weight,
-      key: site.key,
-      site,
-      sub: `for ${alias} · ${regionName(site.key)}`,
-    });
-  }
+  // Earth's now, while the menu is opening, rather than on the first keystroke.
+  entriesFor(home);
 
   let found: Entry[] = [];
   let cursor = 0;
@@ -2574,7 +3013,7 @@ export function createMenu(deps: MenuDeps): Menu {
       return;
     }
     const scored: { entry: Entry; score: number }[] = [];
-    for (const entry of entries) {
+    for (const entry of entriesFor(body)) {
       let score = 0;
       if (entry.folded.startsWith(query)) score = 3;
       else if (entry.words.some((word) => word.startsWith(query))) score = 2;
@@ -2590,7 +3029,12 @@ export function createMenu(deps: MenuDeps): Menu {
   function renderResults(): void {
     results.replaceChildren();
     if (found.length === 0) {
-      results.append(h('div', { class: 'm-empty', text: 'Nothing by that name that is built — try a bigger town nearby.' }));
+      results.append(h('div', {
+        class: 'm-empty',
+        text: body === home
+          ? 'Nothing by that name that is built — try a bigger town nearby.'
+          : `No ${words.region} or ${words.site} on ${body.name.replace(/^The /, 'the ')} by that name.`,
+      }));
     }
     found.forEach((entry, i) => {
       const row = h(
@@ -2598,7 +3042,7 @@ export function createMenu(deps: MenuDeps): Menu {
         { class: i === cursor ? 'm-result on' : 'm-result', role: 'option' },
         flag(entry.key, 26, 18),
         h('div', {}, h('b', { text: entry.name }), h('small', { text: entry.sub })),
-        h('span', { class: entry.kind === 'country' ? 'ui-tag ink' : 'ui-tag', text: entry.kind }),
+        h('span', { class: entry.kind === 'country' ? 'ui-tag ink' : 'ui-tag', text: entry.kind === 'country' ? words.region : words.site }),
       );
       row.addEventListener('pointerdown', (event) => {
         event.preventDefault();
@@ -2784,7 +3228,7 @@ export function createMenu(deps: MenuDeps): Menu {
   addEventListener('keydown', (event) => {
     if (chosen !== null) return;
     // The card holds the keyboard: its Escape closes it, not a stage of this.
-    if (deps.traveller?.open === true) return;
+    if (deps.traveller?.open === true || held || suspended) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (document.activeElement === searchInput) return;
     touch();
@@ -2910,6 +3354,7 @@ export function createMenu(deps: MenuDeps): Menu {
       }
     }
     applyPose(pose);
+    placeGlobes();
 
     // The near plane rides the gap to the nearest thing, the far plane reaches
     // the stars. A near of 5 against a far this deep would put the twenty units
@@ -2918,7 +3363,8 @@ export function createMenu(deps: MenuDeps): Menu {
     // or a third of the way to the nearest planet if one is closer.
     let gap = Infinity;
     for (const entry of orrery.bodies) {
-      if (entry === orrery.earth) continue;
+      // Not the body the globe stages are about, nor one faded out of the frame.
+      if (entry.body.id === body.id || entry.opacity <= 0.01) continue;
       const extent = entry.radius * (entry.body.id === 'saturn' ? 2.3 : 1);
       gap = Math.min(gap, camera.position.distanceTo(entry.position) - extent);
     }
@@ -2958,7 +3404,7 @@ export function createMenu(deps: MenuDeps): Menu {
           tipName.textContent = next.name;
           tipFlag.replaceChildren(flag(next.key, 30, 20));
           const count = sitesOf.get(next.key)?.length ?? 0;
-          tipSub.textContent = `${next.note} · ${count.toLocaleString('en')} towns · click to explore`;
+          tipSub.textContent = `${next.note} · ${count.toLocaleString('en')} ${words.sites} · click to explore`;
         }
         tip.classList.add('on');
         tip.style.transform = `translate(${pointer.x + 16}px, ${pointer.y + 16}px)`;
@@ -3062,7 +3508,7 @@ export function createMenu(deps: MenuDeps): Menu {
       const v1 = corner(idx.getX(1));
       const v2 = corner(idx.getX(2));
       const normal = new THREE.Vector3().subVectors(v1, v0).cross(new THREE.Vector3().subVectors(v2, v0)).normalize();
-      outward = normal.dot(v0.clone().sub(body.centre).normalize());
+      outward = normal.dot(v0.clone().normalize());
     }
 
     const lon = 12.5 * DEG;
@@ -3093,6 +3539,9 @@ export function createMenu(deps: MenuDeps): Menu {
     get stage() {
       return stage;
     },
+    get body() {
+      return body.id;
+    },
     get flying() {
       return flight !== null;
     },
@@ -3117,19 +3566,12 @@ export function createMenu(deps: MenuDeps): Menu {
       refreshChrome();
     },
     depart() {
+      // Always onto Earth: a spawn on any other body is that world's to land.
+      setBody(home);
       const spawn = chosen ?? { body: body.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon };
       root.classList.add('departing');
       tip.classList.remove('on');
-      // Down onto the town from a little south of it, so the last frame before
-      // the curtain has a horizon in it rather than a map.
-      const upward = onSphere(spawn.lon, spawn.lat, new THREE.Vector3());
-      const northward = new THREE.Vector3(0, 1, 0).addScaledVector(upward, -upward.y);
-      if (northward.lengthSq() < 1e-6) northward.set(1, 0, 0);
-      northward.normalize();
-      const to = makePose();
-      to.target.copy(upward).multiplyScalar(body.radius).add(body.centre);
-      to.eye.copy(to.target).addScaledVector(upward, DEPART_HEIGHT).addScaledVector(northward, -DEPART_HEIGHT * 0.45);
-      to.up.copy(northward);
+      const to = divePose(spawn.lat, spawn.lon);
       const curtain = h('div', { class: 'atlas-curtain' });
       document.body.append(curtain);
       deps.sound?.stage(null);
@@ -3157,11 +3599,50 @@ export function createMenu(deps: MenuDeps): Menu {
       });
     },
     verify,
+    hold(on) {
+      if (held === on) return;
+      held = on;
+      if (on) closeResults();
+      refreshChrome();
+    },
+    suspend(on) {
+      if (suspended === on) return;
+      suspended = on;
+      root.style.display = on ? 'none' : '';
+      deps.sound?.stage(on ? null : stage);
+      if (on) {
+        running = false;
+      } else if (!running) {
+        running = true;
+        previous = performance.now();
+        resize();
+        requestAnimationFrame(frame);
+      }
+    },
+    toSystem() {
+      if (stage !== 'system') backToSystem();
+    },
+    prepare() {
+      // One at a time, each in a pause of its own, so the system keeps
+      // turning smoothly under the title while the worlds are made.
+      const queue = orrery.bodies.filter((entry) => entry.body.kind !== 'star' && !walkable.has(entry.body.id));
+      const next = (): void => {
+        const entry = queue.shift();
+        if (entry === undefined || disposed) return;
+        void bodyOf(entry).then(() => window.setTimeout(next, 120));
+      };
+      window.setTimeout(next, 300);
+    },
     dispose() {
+      disposed = true;
+      for (const { globe } of globes) globe.dispose();
+      globes.length = 0;
       running = false;
       events.abort();
       deps.sound?.dispose();
       scene.remove(ribbonGroup);
+      scene.remove(overlayGroup);
+      orrery.holdUpright(null);
       for (const geometry of ribbons.values()) geometry.dispose();
       ribbons.clear();
       inkRibbon.material.dispose();

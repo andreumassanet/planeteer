@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { castMaterial, foldLegs, limbsOf, loadCast, paintWith, poseAstride } from './cast.ts';
-import type { AstrideSeat, Cast, ClipName, Limbs, Person } from './cast.ts';
+import { aimArm, aimLeg, castMaterial, foldLegs, handHold, limbsOf, loadCast, paintWith, poseAstride, twoBone } from './cast.ts';
+import type { AstrideSeat, Cast, ClipName, HandHold, Limbs, Person } from './cast.ts';
 import {
   DEFAULT_APPEARANCE,
   WARDROBE_OUTFITS,
@@ -447,6 +447,38 @@ export const FALL_AFTER = 0.8;
 const FALL_RAISE = 0.7;
 const FALL_FLAIL = 0.18;
 const FALL_RATE = 1.6;
+
+/**
+ * Out of an aircraft (`skydive`). Falling, the body is pitched this far face
+ * down about its hips — a little short of flat, the head up towards the way it
+ * goes — and banked up to `FREEFALL_BANK` about its own length into a turn.
+ * The limbs are directions in the body's own frame for its left side (+X its
+ * left, +Y its head, +Z its face; the right side mirrored): in the fall, the
+ * upper arm out to the side and a little back towards the sky, the forearm up
+ * past the head; the thigh down and back with the arch, the shin raised
+ * towards the sky. Under the canopy the arms are solved to the toggles and
+ * the legs hang together, the thighs a little forward as a harness seats them.
+ */
+const FREEFALL_PITCH = 1.3;
+const FREEFALL_BANK = 0.45;
+const FALL_ARM: readonly [number, number, number] = [0.92, 0.3, -0.25];
+const FALL_FOREARM: readonly [number, number, number] = [0.3, 0.9, -0.3];
+const FALL_THIGH: readonly [number, number, number] = [0.22, -0.95, -0.28];
+const FALL_SHIN: readonly [number, number, number] = [0.15, -0.5, -0.85];
+const HANG_THIGH: readonly [number, number, number] = [0.04, -1, 0.14];
+const HANG_SHIN: readonly [number, number, number] = [0.02, -1, -0.04];
+/**
+ * What keeps the hanging and the falling body from reading as a statue.
+ * Under the canopy each leg swings on its own slow beat (`DANGLE_RATE`, Hz,
+ * `DANGLE` of a direction, the two legs out of step), the shin a beat behind
+ * its thigh, and both trail the body's own swing (`lag` in `skydive`), the
+ * shin more than the thigh. In the fall the wind shakes the arms and the legs
+ * (`FLUTTER`, at `FLUTTER_RATE` Hz, each limb on its own phase).
+ */
+const DANGLE = 0.07;
+const DANGLE_RATE = 0.33;
+const FLUTTER = 0.05;
+const FLUTTER_RATE = 3.1;
 
 /**
  * The body tips into a change of speed: forward as it sets off, back as it
@@ -984,6 +1016,24 @@ export interface Avatar {
   land(hardness: number): void;
   /** At the launch's helm. `heel` is the craft's roll. */
   steer(dt: number, heel: number): void;
+  /**
+   * Out of an aircraft: face down and arched in the fall, and hanging from
+   * the hands under a canopy, by `open`, 0 to 1. `turn`, -1 to 1 and positive
+   * to the right, banks the fall; `grip` is where the left hand holds its
+   * toggle, in the body's own frame (`CHUTE_GRIP` in `craft/parachute.ts`),
+   * the right mirrored. Under the canopy a turn is a toggle pulled: the hand
+   * on its side comes down by `pull` at a full turn (`CHUTE_PULL`). `lag` is
+   * how far the legs trail the body's swing under the canopy, as directions
+   * across (+X its left) and along (+Z its face).
+   */
+  skydive(
+    dt: number,
+    open: number,
+    turn: number,
+    grip: readonly [number, number, number],
+    pull?: number,
+    lag?: readonly [number, number],
+  ): void;
   /** Seated at the controls of the floatplane, hips at `FIGURE.hipY`. */
   sit(dt: number): void;
   /**
@@ -1022,6 +1072,8 @@ interface Rig {
   person: Person;
   appearance: Appearance;
   limbs: Limbs;
+  /** Where the clips left the bones the seated, astride and hanging poses write by hand. */
+  hold: HandHold;
 }
 
 /**
@@ -1045,7 +1097,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     // Measured in the bind pose, which `limbsOf` puts the skeleton in.
     const limbs = limbsOf(person);
     body.add(person.root);
-    return { person, appearance: wanted, limbs };
+    return { person, appearance: wanted, limbs, hold: handHold(limbs) };
   }
 
   const wanted = fitAppearance(appearance ?? chosen);
@@ -1056,13 +1108,31 @@ export function buildAvatar(appearance?: Appearance): Avatar {
   const motion = createMotion(rig.person);
   let asked = 0;
 
+  /**
+   * **A pose written by hand is taken off again before the clips run**
+   * (`handHold` in `cast.ts`): `handsOn` just before a seated, astride or
+   * hanging pose is written, `handsOff` at the top of every frame, whatever
+   * that frame does — or a rider got off with his arms still up at the bars.
+   */
+  let handPosed: Rig | null = null;
+  function handsOn(): void {
+    rig.hold.on();
+    handPosed = rig;
+  }
+  function handsOff(): void {
+    handPosed?.hold.off();
+    handPosed = null;
+  }
+
   function stride(dt: number, speed: number, airborne: boolean, cues?: MotionCues): void {
+    handsOff();
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     motion.foot(dt, speed, airborne, cues);
   }
 
   function swim(dt: number, speed: number, sink: number, under = 0): void {
+    handsOff();
     motion.swim(dt, speed, under);
     // The body rolls with the stroke, towards the arm that is pulling — a
     // crawl breathes on the roll — and rides a little up on each pull; both
@@ -1083,9 +1153,11 @@ export function buildAvatar(appearance?: Appearance): Avatar {
    * under the root, to its folded ankle), because the pack has no sitting clip.
    */
   function sit(dt: number): void {
+    handsOff();
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     motion.still(dt, 4);
+    handsOn();
     foldLegs(rig.limbs, group, SEAT_THIGH, SEAT_SHIN);
     // Put this character's own hips where `FIGURE` says a seated hip is.
     hipAt.copy(group.worldToLocal(rig.limbs.hips.getWorldPosition(to)));
@@ -1095,9 +1167,11 @@ export function buildAvatar(appearance?: Appearance): Avatar {
   }
 
   function ride(dt: number, seat: AstrideSeat, phase: number): void {
+    handsOff();
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     motion.still(dt, 4);
+    handsOn();
     group.updateMatrixWorld(true);
     hipAt.copy(group.worldToLocal(rig.limbs.hips.getWorldPosition(to)));
     poseAstride(rig.limbs, group, hipAt, seat, phase);
@@ -1108,17 +1182,121 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     body.position.z -= hipAt.z;
   }
 
+  const skyTurn = new THREE.Vector3();
+  const skyUpper = new THREE.Vector3();
+  const skyLower = new THREE.Vector3();
+  const skyHang = new THREE.Vector3();
+  const skyHangLower = new THREE.Vector3();
+  const skyRoot = new THREE.Vector3();
+  const skyMiddle = new THREE.Vector3();
+  const skyEnd = new THREE.Vector3();
+  const skyTarget = new THREE.Vector3();
+  const skyPole = new THREE.Vector3();
+  /** The wind on a falling limb: both its directions shaken a little, each limb on its own phase. */
+  function flutter(limb: number, fall: number): void {
+    if (fall < 1e-3) return;
+    const t = skyClock * FLUTTER_RATE * Math.PI * 2 + limb * 1.7;
+    const shake = FLUTTER * fall;
+    skyUpper.x += Math.sin(t) * shake;
+    skyUpper.z += Math.sin(t * 1.37 + 0.5) * shake;
+    skyUpper.normalize();
+    skyLower.x += Math.sin(t * 1.21 + 1.1) * shake * 1.6;
+    skyLower.y += Math.sin(t * 0.83 + 2.3) * shake * 1.6;
+    skyLower.normalize();
+  }
+
+  /** The two directions of a limb, blended from the fall's to the canopy's by `open`. */
+  function blendLimb(
+    side: number,
+    fall: readonly [number, number, number],
+    fallLower: readonly [number, number, number],
+    hang: THREE.Vector3,
+    hangLower: THREE.Vector3,
+    open: number,
+  ): void {
+    skyUpper.set(side * fall[0], fall[1], fall[2]).normalize().lerp(hang, open).normalize();
+    skyLower.set(side * fallLower[0], fallLower[1], fallLower[2]).normalize().lerp(hangLower, open).normalize();
+  }
+
+  /**
+   * Out of an aircraft. **Falling**, the skydiver's box: face down and pitched
+   * `FREEFALL_PITCH` about the hips, back arched, upper arms out to the sides
+   * with the forearms bent up past the head, knees bent and the shins raised,
+   * banked about the body's own length into a turn. **Under the canopy**,
+   * upright and hanging: each hand on its toggle (`grip`), the elbow bent out
+   * and down by the two-bone solve, the legs together and straight down, a
+   * little forward from the hips as a harness sits. The idle clip is under
+   * both, for the spine and the head; `open` blends one into the other.
+   */
+  let skyClock = 0;
+  function skydive(
+    dt: number,
+    open: number,
+    turn: number,
+    grip: readonly [number, number, number],
+    pull = 0,
+    lag: readonly [number, number] = [0, 0],
+  ): void {
+    handsOff();
+    skyClock += dt;
+    body.position.set(0, 0, 0);
+    body.rotation.set(0, 0, 0);
+    motion.still(dt, 4);
+    handsOn();
+    group.updateMatrixWorld(true);
+    hipAt.copy(group.worldToLocal(rig.limbs.hips.getWorldPosition(to)));
+    // Pitched about the hips: the body's own +Y, its length, comes forward.
+    const fall = 1 - open;
+    body.rotation.set(FREEFALL_PITCH * fall, -turn * FREEFALL_BANK * fall, 0);
+    skyTurn.copy(hipAt).applyEuler(body.rotation);
+    body.position.copy(hipAt).sub(skyTurn);
+    body.updateMatrixWorld(true);
+    const limbs = rig.limbs;
+    limbs.arms.forEach((arm, i) => {
+      const side = i === 0 ? 1 : -1;
+      // The hand to its toggle, in the body's frame.
+      body.worldToLocal(arm.upper.getWorldPosition(skyRoot));
+      body.worldToLocal(arm.lower.getWorldPosition(skyMiddle));
+      body.worldToLocal(arm.wrist.getWorldPosition(skyEnd));
+      // A turn to the right (+) pulls the right toggle (side -1) down, a left the left.
+      const pulled = Math.max(0, side < 0 ? turn : -turn) * pull;
+      body.worldToLocal(group.localToWorld(skyTarget.set(side * grip[0], grip[1] - pulled, grip[2] + pulled * 0.25)));
+      skyPole.set(side, -0.35, -0.3);
+      twoBone(skyRoot, skyRoot.distanceTo(skyMiddle), skyMiddle.distanceTo(skyEnd), skyTarget, skyPole, skyHang, skyHangLower);
+      blendLimb(side, FALL_ARM, FALL_FOREARM, skyHang, skyHangLower, open);
+      flutter(i * 2, 1 - open);
+      aimArm(arm, body, skyUpper, skyLower);
+    });
+    const beat = skyClock * DANGLE_RATE * Math.PI * 2;
+    limbs.legs.forEach((leg, i) => {
+      const side = i === 0 ? 1 : -1;
+      // Each leg on its own beat, the shin behind the thigh, and both trailing the swing.
+      const own = beat + i * 2.1;
+      skyHang
+        .set(side * HANG_THIGH[0] + lag[0] * 0.6 + Math.sin(own * 0.7) * DANGLE * 0.4, HANG_THIGH[1], HANG_THIGH[2] + lag[1] * 0.6 + Math.sin(own) * DANGLE)
+        .normalize();
+      skyHangLower
+        .set(side * HANG_SHIN[0] + lag[0] + Math.sin(own * 0.7 - 0.8) * DANGLE * 0.5, HANG_SHIN[1], HANG_SHIN[2] + lag[1] + Math.sin(own - 0.9) * DANGLE * 1.4)
+        .normalize();
+      blendLimb(side, FALL_THIGH, FALL_SHIN, skyHang, skyHangLower, open);
+      flutter(i * 2 + 5, 1 - open);
+      aimLeg(leg, body, skyUpper, skyLower);
+    });
+  }
+
   /**
    * At the helm: standing in the relaxed idle, giving back two thirds of the
    * deck's roll so the sea reads as moving under him.
    */
   function steer(dt: number, heel: number): void {
+    handsOff();
     body.position.set(0, 0, 0);
     motion.still(dt);
     body.rotation.set(0, 0, -heel * 0.65);
   }
 
   function reset(): void {
+    handsOff();
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     motion.reset();
@@ -1129,6 +1307,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     const fitted = fitAppearance(next);
     await cast.ensure(outfitsOf(fitted));
     if (ask !== asked) return;
+    handsOff();
     const old = rig;
     // Whatever the old body was doing, the new one takes up mid-step: the
     // motion's weights and phase, and every clocked clip where it was.
@@ -1146,6 +1325,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     swim,
     land: (hardness) => motion.land(hardness),
     steer,
+    skydive,
     sit,
     ride,
     reset,

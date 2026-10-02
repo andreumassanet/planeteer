@@ -233,6 +233,47 @@ export interface Vec3 {
 
 export const eclipticToWorld = (v: Vec3): Vec3 => ({ x: v.x, y: v.z, z: -v.y });
 
+const DEG = Math.PI / 180;
+
+/** The obliquity of the ecliptic at J2000.0, degrees (IAU 1976, which the IAU poles are referred to). */
+export const J2000_OBLIQUITY = 23.4392911;
+
+/**
+ * A J2000 equatorial direction (right ascension and declination, degrees) in
+ * the world frame. Equatorial to ecliptic is a turn about the equinox — the
+ * shared x axis — by the obliquity, and ecliptic to world is
+ * `eclipticToWorld`; both are rotations, so the result is one.
+ */
+export function equatorialToWorld(ra: number, dec: number): Vec3 {
+  const a = ra * DEG;
+  const d = dec * DEG;
+  const e = J2000_OBLIQUITY * DEG;
+  const x = Math.cos(d) * Math.cos(a);
+  const y = Math.cos(d) * Math.sin(a);
+  const z = Math.sin(d);
+  return eclipticToWorld({ x, y: y * Math.cos(e) + z * Math.sin(e), z: -y * Math.sin(e) + z * Math.cos(e) });
+}
+
+/**
+ * A body's north pole of rotation in the world frame, a unit vector: its IAU
+ * pole where it declares one, else the old guess — leaning `tiltDeg` from
+ * ecliptic north toward ecliptic longitude 270.
+ */
+export function poleOf(body: Body): Vec3 {
+  if (body.pole !== undefined) return equatorialToWorld(body.pole.ra, body.pole.dec);
+  const t = body.tiltDeg * DEG;
+  return eclipticToWorld({ x: 0, y: -Math.sin(t), z: Math.cos(t) });
+}
+
+/** The pole of an orbit in the world frame: its angular momentum, from the elements' node and inclination. */
+export function orbitPoleOf(orbit: OrbitId, date: Date = new Date(Date.UTC(2000, 0, 1, 12))): Vec3 {
+  const t = (date.getTime() / 86400000 + 2440587.5 - 2451545) / 36525;
+  const { epoch, rate } = ELEMENTS[orbit]!;
+  const i = (epoch.i + rate.i * t) * DEG;
+  const node = (epoch.node + rate.node * t) * DEG;
+  return eclipticToWorld({ x: Math.sin(i) * Math.sin(node), y: -Math.sin(i) * Math.cos(node), z: Math.cos(i) });
+}
+
 /** A body's position in the system view, world frame, system units. */
 export function systemPosition(orbit: OrbitId, date: Date): Vec3 {
   const h = heliocentric(orbit, date);
@@ -290,6 +331,8 @@ export interface Settlement {
   population: number;
   /** The `Nation.id` this stands in. Asserted by the check. */
   nation: string;
+  /** Grown to fill the nation out (`towns.ts`), not named by the body's file. */
+  grown?: boolean;
 }
 
 /**
@@ -356,6 +399,26 @@ export interface Body {
   rotationHours: number;
   /** Obliquity, degrees. Venus's 177 is why its day runs backwards. */
   tiltDeg: number;
+  /**
+   * The north pole of rotation, J2000 equatorial right ascension and
+   * declination in degrees: the IAU's (Archinal et al., 2018), whose "north"
+   * is the pole on the north side of the invariable plane, so a retrograde
+   * rotator (Venus, Uranus) keeps a north pole near ecliptic north and turns
+   * the other way about it — which is what a negative `rotationHours` says.
+   * It is what orients a walked world's sky (`poleOf`), and it is what puts
+   * the seasons in the right half of the year: the tilt alone says how far
+   * the pole leans and not toward which star. Omitted, the pole leans by
+   * `tiltDeg` toward ecliptic longitude 270, which is no body's.
+   */
+  pole?: { ra: number; dec: number };
+  /**
+   * Turns once an orbit with one face to what it circles: the Moon. A walked
+   * world that is locked takes its spin from where its parent is, so the
+   * parent hangs in one place in its sky and only rocks (the librations);
+   * and its clock moves by moving the date, because turning a locked world
+   * would turn its parent round the sky with it.
+   */
+  locked?: boolean;
   /** Surface gravity, m/s². Drives how the species is built; see `alien.ts`. */
   gravity: number;
   /** One sentence for the menu card. */
@@ -439,6 +502,17 @@ export interface Morph {
   tail: number;
   /** Limb half-widths as a fraction of height. */
   limbR: number;
+  /**
+   * How it gets about: `walk` (the default) on its feet, or `float`, borne up
+   * by its own lift a little off the ground, legs hanging, bobbing as it
+   * drifts rather than stepping.
+   */
+  locomotion?: 'walk' | 'float';
+  /**
+   * How far the body leans into the world's wind at full strength, radians.
+   * 0 (the default) stands upright whatever blows.
+   */
+  windLean?: number;
 }
 
 /** One member of a species, the way `Look` is one member of ours. */
@@ -530,15 +604,19 @@ export function decorationRng(part: Decoration, bodyId: string, variant: number)
 /**
  * What one of anything may cost.
  *
- * A crowd person on Earth is 296 triangles median against a 420 cap and is the
- * object you stand next to; an alien is the same object on a different world,
- * so it gets the same allowance and not a bigger one. The decoration is priced
+ * A crowd person on Earth was 296 triangles median against a 420 cap while it
+ * was built in code from four-sided tapers, and an alien was given that and a
+ * little more. **The alien is rounded now** (`alien.ts`: capsules with a ball
+ * at every joint, lathed eggs, eyes with pupils) and a rounded section costs
+ * about one and a half of the tapers it replaced, so the cap rose with it;
+ * it is still a fraction of a baked cast person, and only the walkers near the
+ * eye are drawn at all. The decoration is priced
  * against `scenery/contract.ts`'s `scatter` and `tree` tiers for the same
  * reason: a Martian rock formation seen at 40 units is a Terran boulder seen at
  * 40 units, and the pen does not know which planet it is on.
  */
 export const BUDGETS = {
-  alien: { triangles: 520, meshes: 34, colors: 6 },
+  alien: { triangles: 800, meshes: 34, colors: 6 },
   decoration: { triangles: 220, meshes: 12, colors: 4 },
 } as const;
 
@@ -568,6 +646,25 @@ export function validateBody(body: Body): string[] {
   if (!(body.radiusKm > 0)) problems.push('radius must be positive');
   if (!(body.gravity > 0)) problems.push('gravity must be positive');
   if (Math.abs(body.tiltDeg) > 180) problems.push(`tilt ${body.tiltDeg} is out of range`);
+  if (body.pole !== undefined) {
+    const { ra, dec } = body.pole;
+    if (!(ra >= 0 && ra < 360) || !(Math.abs(dec) <= 90)) problems.push(`pole ${ra}/${dec} is not a right ascension and declination`);
+    // The pole and the tilt are two statements of one fact, and a planet's
+    // obliquity is measured from its own orbit's pole, to the pole its spin
+    // turns positively about: the IAU pole for a prograde rotator, the other
+    // one for a retrograde. A moon's tilt is to the ecliptic, and its pole
+    // precesses round it; it is not held here.
+    if (body.kind !== 'moon' && body.orbit !== null && body.orbit in ELEMENTS) {
+      const p = poleOf(body);
+      const n = orbitPoleOf(body.orbit);
+      const angle = Math.acos(Math.max(-1, Math.min(1, p.x * n.x + p.y * n.y + p.z * n.z))) / DEG;
+      const tilt = body.rotationHours < 0 ? 180 - angle : angle;
+      if (Math.abs(tilt - body.tiltDeg) > 1.5) {
+        problems.push(`the pole ${ra}/${dec} leans ${tilt.toFixed(2)} degrees from the orbit's pole and the tilt says ${body.tiltDeg}`);
+      }
+    }
+  }
+  if (body.locked === true && body.kind !== 'moon') problems.push('only a moon is locked to what it orbits here');
 
   const nations = new Map<string, Nation>();
   for (const nation of body.nations) {
@@ -654,3 +751,65 @@ export function nationAt(body: Body, lat: number, lon: number): Nation | null {
 
 export { PLANET_RADIUS };
 export type { OrbitId, Rng };
+
+// ---------------------------------------------------------------------------
+// How big a town of another world is built
+// ---------------------------------------------------------------------------
+
+/**
+ * **The towns of another world are built bigger than Earth's**: Earth's law
+ * (`radiusFor` in `places.ts`, `0.465 * pop^0.36`) times `WORLD_TOWN_SCALE`,
+ * never under `WORLD_TOWN_MIN` and never over `WORLD_TOWN_MAX`. Earth has
+ * thousands of towns and a hamlet of one house among them is a hamlet; a
+ * world has a few dozen, and a town of one house on it was a model on a
+ * plain. The smallest here — 34, a square of four cells a side — is bigger
+ * than Earth's smallest; a capital of half a million is about 110, thirteen
+ * cells a side, a city to walk in.
+ */
+export const WORLD_TOWN_SCALE = 2.1;
+export const WORLD_TOWN_MIN = 34;
+export const WORLD_TOWN_MAX = 150;
+/** What two towns keep between their built discs at the least, units: room for a road and the country it crosses. */
+export const WORLD_TOWN_GAP = 40;
+
+/** The law alone, before a town is fitted between its neighbours. */
+export const worldTownLaw = (population: number): number =>
+  Math.min(WORLD_TOWN_MAX, Math.max(WORLD_TOWN_MIN, WORLD_TOWN_SCALE * 0.465 * Math.pow(Math.max(1, population), 0.36)));
+
+const radii = new Map<string, ReadonlyMap<string, number>>();
+
+/** How far past its built disc the terrain levels round a town (`ReliefRecipe.padReach`, 1.5 on every world). */
+const PAD_SPAN = 1.5;
+
+/**
+ * **Every town's built radius on a body, fitted between its neighbours**:
+ * the law, taken by the biggest first, and a smaller town built smaller
+ * where a bigger one, or a landmark (`marks`), already stands nearer than
+ * the two levelled pads (`PAD_SPAN` each) and `WORLD_TOWN_GAP` — Earth's fit
+ * (`build-places.mjs`) on a list of dozens. Never under half the minimum; a
+ * pair closer than that keeps it, and the check says so. One definition: the
+ * terrain levels these pads, the towns are built on them, the map draws them
+ * (without the landmarks, which a body's map does not know: the dots of the
+ * one or two towns beside one are a little big).
+ */
+export function townRadii(body: Body, marks: readonly { id: string; lat: number; lon: number; radius: number }[] = []): ReadonlyMap<string, number> {
+  const key = `${body.id}:${marks.map((one) => one.id).join(',')}`;
+  const known = radii.get(key);
+  if (known !== undefined) return known;
+  const unitsPerDegree = (surfaceRadiusOf(body.radiusKm) * Math.PI) / 180;
+  const order = [...body.settlements].sort((a, b) => b.population - a.population || a.id.localeCompare(b.id));
+  const out = new Map<string, number>();
+  const placed: { lat: number; lon: number; r: number }[] = marks.map((one) => ({ lat: one.lat, lon: one.lon, r: one.radius }));
+  for (const town of order) {
+    let r = worldTownLaw(town.population);
+    for (const other of placed) {
+      const apart = angularDistance(town.lat, town.lon, other.lat, other.lon) * unitsPerDegree;
+      r = Math.min(r, (apart - other.r * PAD_SPAN - WORLD_TOWN_GAP) / PAD_SPAN);
+    }
+    r = Math.max(WORLD_TOWN_MIN * 0.5, r);
+    out.set(town.id, r);
+    placed.push({ lat: town.lat, lon: town.lon, r });
+  }
+  radii.set(key, out);
+  return out;
+}

@@ -2,7 +2,7 @@
  * Every key in the world, and the one answer to whether a key belongs to it.
  *
  * **There were five tables and they could disagree.** `input.ts` bound the
- * movement and the vehicles, `navigation.ts` took `Tab`, `map.ts` took `M`,
+ * movement and the vehicles, the landmarks took `Tab`, `map.ts` took `M`,
  * `main.ts` took `B`, `H` and the brackets in a handler of its own, and the two
  * lists that teach the keys — the strip along the bottom of the HUD and the
  * card in the settings — each typed the caps out again as QWERTY letters.
@@ -23,7 +23,7 @@
  * cannot, they fall back to the US names, which is what they always were.
  *
  * **And one predicate says when the keys are not the world's.** With the
- * settings card up, `Tab` changed the destination behind it, the arrows walked
+ * settings card up, `Tab` changed a destination behind it, the arrows walked
  * the player while they were meant to move a slider, and `Space` jumped. Every
  * keyboard listener in the game asks `inputBlocked(event)` first — the card is
  * modal, and a key typed into a field or pressed on a dialog's button is that
@@ -61,13 +61,12 @@ export type Action =
   | 'run'
   | 'jump'
   | 'descend'
-  | 'dive'
   | 'use'
   | 'horn'
   | 'view'
   | 'map'
   | 'settings'
-  | 'next'
+  | 'players'
   | 'flags'
   | 'nearer'
   | 'farther'
@@ -75,6 +74,7 @@ export type Action =
   | 'photo'
   | 'chat'
   | 'wave'
+  | 'dance'
   | 'passport'
   | 'mapIn'
   | 'mapOut'
@@ -93,16 +93,14 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   run: ['ShiftLeft', 'ShiftRight'],
   // Space is read twice: as an edge, which is the jump, and as a held key,
   // which is the climb. A plane that only climbed on the frame you pressed the
-  // key would be a very tiring plane. In a plane or a balloon `Shift` climbs
-  // too (`player.ts`), and `C` or `Ctrl` goes down.
+  // key would be a very tiring plane. In an aircraft `Shift` goes down
+  // (`liftOf` in `player.ts`), and so does `C`, which is also the dive.
   jump: ['Space'],
+  // **Not `Ctrl`, which it also was until 2026-10-01**: held for a descent
+  // with `W` for the throttle it is `Ctrl+W`, which closes the tab and which
+  // no page can cancel, and every other `Ctrl` with a letter is somebody's
+  // shortcut.
   descend: ['KeyC'],
-  // **`Ctrl` is the one binding a browser will not always give up.** Held for
-  // a descent with `W` for the throttle it is `Ctrl+W`, which closes the tab
-  // and which no page can cancel; so while it is held in the air `input.ts`
-  // asks the browser to confirm leaving the page (`guardUnload`). Every other
-  // `Ctrl` shortcut that lands on a bound key is the world's while it is held.
-  dive: ['ControlLeft', 'ControlRight'],
   // `E` for everything a vehicle asks: get in, take the wheel, get out. There
   // used to be a second key, `F`, that took off from anywhere, and it went with
   // the plane everybody owned. It also talks to whoever is nearer than any
@@ -120,7 +118,9 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // `O` for options, beside the photo's `P`. Not `Esc`, which the browser
   // spends on freeing the mouse and does not always hand the page.
   settings: ['KeyO'],
-  next: ['Tab'],
+  // Held, the list of who is playing (`player-list.ts`), as a hundred games
+  // have it.
+  players: ['Tab'],
   flags: ['KeyB'],
   nearer: ['BracketLeft'],
   farther: ['BracketRight'],
@@ -134,6 +134,9 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   chat: ['Enter', 'KeyT', 'NumpadEnter'],
   // A wave where the others can see it: the gesture every player makes first.
   wave: ['KeyG'],
+  // And a dance, beside it, the `/dance` of the chat: on until the body moves.
+  // `F` has been free since it stopped taking off from anywhere.
+  dance: ['KeyF'],
   // The passport (`passport-card.ts`): J for journal, free of both hands' other work.
   passport: ['KeyJ'],
   // The world map's zoom, while it is up: its buttons as keys, since `Tab` on
@@ -241,26 +244,41 @@ function save(): void {
  * left without one. A key another action had as a spare is simply taken from
  * it. The old key of `action` is dropped, not kept as a spare: a player who
  * moves the jump off `Space` does not expect `Space` to go on jumping.
+ *
+ * `slot` is which of the action's keys changes: 0, its own, or a later one,
+ * its second key, under the same rules; one past the last adds a key. A key
+ * wanted for a slot that holds none yet, from an action that has no other,
+ * is refused (`ok` false): there is no old key to give that action back.
  */
-export function rebind(action: Action, code: string): Rebound {
-  if (!actionBindable(action) || !keyBindable(code)) return { ok: false, swapped: null, took: null };
+export function rebind(action: Action, code: string, slot = 0): Rebound {
+  const refused: Rebound = { ok: false, swapped: null, took: null };
   const own = live[action];
-  if (own[0] === code) return { ok: true, swapped: null, took: null };
-  const old = own[0]!;
+  if (!actionBindable(action) || !keyBindable(code) || slot < 0 || slot > own.length) return refused;
+  // Already this key, or, for a second key, already the action's own.
+  if (own[slot] === code || (slot > 0 && own[0] === code)) return { ok: true, swapped: null, took: null };
+  const old = own[slot];
   let swapped: Action | null = null;
   let took: Action | null = null;
   const holder = byCode.get(code);
   if (holder !== undefined && holder !== action) {
     const theirs = live[holder];
-    if (theirs[0] === code) {
-      live[holder] = [old, ...theirs.slice(1)];
-      swapped = holder;
-    } else {
+    if (theirs[0] !== code) {
       live[holder] = theirs.filter((other) => other !== code);
       took = holder;
+    } else if (old !== undefined) {
+      live[holder] = [old, ...theirs.slice(1)];
+      swapped = holder;
+    } else if (theirs.length > 1) {
+      // Their own key, and they have another to fall back on.
+      live[holder] = theirs.slice(1);
+      took = holder;
+    } else {
+      return refused;
     }
   }
-  live[action] = [code, ...own.slice(1).filter((other) => other !== code)];
+  const next = [...own];
+  next[slot] = code;
+  live[action] = next.filter((other, i) => i === slot || other !== code);
   index();
   save();
   notify();
@@ -280,11 +298,95 @@ export function bindingsChanged(): boolean {
   return ACTIONS.some((action) => live[action].join() !== DEFAULT_BINDINGS[action].join());
 }
 
+/** What became of the key pressed for a binding (`captureKey`). */
+export type Captured =
+  | { kind: 'bound'; code: string; before: string | undefined; result: Rebound }
+  /** A key that cannot be had (`keyBindable`), or one `rebind` refused; still listening. */
+  | { kind: 'refused'; code: string }
+  /** `Esc`: nothing changed, and no longer listening. */
+  | { kind: 'cancelled' };
+
+/**
+ * Listens for the next key and binds it to `action` at `slot` (`rebind`):
+ * the settings' controls page, and `pnpm input`, which drives it with real
+ * events. Returns the way to stop listening.
+ *
+ * **The key is taken on the window, in the capture phase, and stopped
+ * there**, before any other listener in the game is offered it. The page
+ * had the capture as one more bubbling listener on the window, registered
+ * after a dozen others, so a press reached the world's keys before the card
+ * that was asking for it, and whether the card got it at all rested on every
+ * one of them standing aside; and a click that was not quite on the button,
+ * or the list drawn again under the focus, took the question away silently.
+ * Here nothing but `Esc`, a refusal or a binding ends it, and the release of
+ * the key that was bound is swallowed too, since `Space` presses a focused
+ * button on its way up.
+ */
+export function captureKey(action: Action, slot: number, done: (outcome: Captured) => void): () => void {
+  let listening = true;
+  let swallow = '';
+  const options = { capture: true } as const;
+  const stopKeys = (): void => {
+    listening = false;
+    removeEventListener('keydown', onDown, options);
+  };
+  const stopRelease = (): void => {
+    swallow = '';
+    removeEventListener('keyup', onUp, options);
+  };
+  function onDown(event: Event): void {
+    if (!listening) return;
+    const key = event as KeyboardEvent;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (key.repeat) return;
+    if (key.code === 'Escape') {
+      stopKeys();
+      stopRelease();
+      done({ kind: 'cancelled' });
+      return;
+    }
+    const before = live[action][slot];
+    const result = rebind(action, key.code, slot);
+    if (!result.ok) {
+      done({ kind: 'refused', code: key.code });
+      return;
+    }
+    stopKeys();
+    swallow = key.code;
+    done({ kind: 'bound', code: key.code, before, result });
+  }
+  function onUp(event: Event): void {
+    const key = event as KeyboardEvent;
+    if (swallow === '' || key.code !== swallow) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    stopRelease();
+  }
+  addEventListener('keydown', onDown, options);
+  addEventListener('keyup', onUp, options);
+  return () => {
+    if (listening) stopKeys();
+    // A release still to come is left to be swallowed: the key is down.
+    if (swallow === '') stopRelease();
+  };
+}
+
 /**
  * The player's bindings, read once as the module loads. **All or nothing**: a
  * stored table that names an unknown action, a reserved key, or one key for
- * two actions is from another version or another hand, and the defaults are
- * safer than any repair of it.
+ * two of the player's own choices is from another version or another hand,
+ * and the defaults are safer than any repair of it.
+ *
+ * **Except a key a later version gave a new default to.** Only the changed
+ * actions are stored, so a key the player chose and a key the game later
+ * handed some action by default (the horn's `Q` came after the bindings did)
+ * met here as one key for two actions — and the whole table was thrown away
+ * on the next load without a word: every key the player had set was back
+ * where it started. The player's choice stands where the default has another
+ * key to keep; where it has none, the default keeps its key and the choice
+ * gives it up, falling back to the action's own default if that is all it
+ * had. Either way every other key the player set is kept.
  */
 function loadBindings(): void {
   let stored: unknown = null;
@@ -296,18 +398,43 @@ function loadBindings(): void {
   }
   if (stored === null || typeof stored !== 'object') return;
   const next = Object.fromEntries(ACTIONS.map((action) => [action, [...DEFAULT_BINDINGS[action]]])) as Record<Action, string[]>;
-  for (const [action, codes] of Object.entries(stored as Record<string, unknown>)) {
+  const chosen = new Set<Action>();
+  for (const [kept, codes] of Object.entries(stored as Record<string, unknown>)) {
+    // `next` cycled the landmarks on `Tab` until 2026-10-01; the key is the player list's now.
+    const action = kept === 'next' ? 'players' : kept;
+    // `dive` was a second descend key, `Ctrl`, until 2026-10-01: gone, and nothing to keep.
+    if (action === 'dive') continue;
     if (!(action in DEFAULT_BINDINGS) || !actionBindable(action as Action)) return;
     if (!Array.isArray(codes) || codes.length === 0) return;
     if (!codes.every((code) => typeof code === 'string' && keyBindable(code))) return;
     next[action as Action] = codes as string[];
+    chosen.add(action as Action);
   }
-  const seen = new Set<string>();
+  const owner = new Map<string, Action>();
   for (const action of ACTIONS) {
+    if (!chosen.has(action)) continue;
     for (const code of next[action]) {
-      if (seen.has(code)) return;
-      seen.add(code);
+      if (owner.has(code)) return;
+      owner.set(code, action);
     }
+  }
+  // The defaults are one key an action among themselves (`pnpm input`), so
+  // what is left to settle is a default against a choice.
+  for (const action of ACTIONS) {
+    if (chosen.has(action)) continue;
+    const kept = next[action].filter((code) => !owner.has(code));
+    if (kept.length > 0) {
+      next[action] = kept;
+    } else {
+      for (const code of next[action]) {
+        const from = owner.get(code)!;
+        next[from] = next[from].filter((other) => other !== code);
+        if (next[from].length === 0) next[from] = DEFAULT_BINDINGS[from].filter((other) => !owner.has(other));
+        if (next[from].length === 0) return;
+        for (const other of next[from]) owner.set(other, from);
+      }
+    }
+    for (const code of next[action]) owner.set(code, action);
   }
   for (const action of ACTIONS) live[action] = next[action];
 }
@@ -465,12 +592,11 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
       { action: 'back', label: 'Back · throttle down' },
       { action: 'left', label: 'Left · bank left' },
       { action: 'right', label: 'Right · bank right' },
-      { action: 'run', label: 'Run · swim faster · boost · gallop · climb' },
-      { action: 'jump', label: 'Jump · take off and climb · rise in a balloon or a helicopter' },
-      { action: 'descend', label: 'Descend and land · sink' },
-      { action: 'dive', label: 'Descend, a second key' },
+      { action: 'run', label: 'Run · swim faster · boost · gallop · descend in the air' },
+      { action: 'jump', label: 'Jump · climb · rise in a balloon or a helicopter · open or stow a parachute' },
+      { action: 'descend', label: 'Descend and land · dive · sink' },
       { action: 'use', label: 'Get in or out · jump out under way · take the wheel · talk' },
-      { action: 'horn', label: 'Horn · bell · whinny, at the controls' },
+      { action: 'horn', label: 'Horn · bell · snort, at the controls' },
     ],
   },
   {
@@ -489,16 +615,17 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
       { action: 'map', label: 'World map' },
       { action: 'mapIn', label: 'Zoom the map in' },
       { action: 'mapOut', label: 'Zoom the map out' },
-      { action: 'next', label: 'Next landmark to find' },
-      { action: 'passport', label: 'Passport: the countries stamped, the landmarks found' },
+      { action: 'passport', label: 'Passport: a stamp for every country' },
       { action: 'flags', label: 'Flags and borders from the air' },
     ],
   },
   {
     title: 'Everyone else',
     rows: [
+      { action: 'players', label: 'Who is playing (hold)' },
       { action: 'chat', label: 'Chat · type / for commands' },
       { action: 'wave', label: 'Wave' },
+      { action: 'dance', label: 'Dance, until you move' },
     ],
   },
   {
@@ -541,13 +668,13 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
       return set('swim', [
         { keys: MOVE, label: 'Swim' },
         { keys: ['run'], label: 'Faster' },
-        { keys: ['descend', 'dive'], label: 'Dive' },
+        { keys: ['descend'], label: 'Dive' },
         { keys: ['jump'], label: 'Up to the surface' },
       ], true);
     case 'submarine':
       return set('submarine', [
         { keys: MOVE, label: 'Steer' },
-        { keys: ['descend', 'dive'], label: 'Dive' },
+        { keys: ['descend'], label: 'Dive' },
         { keys: ['jump'], label: 'Rise · surface to get out' },
         out,
       ], true);
@@ -568,7 +695,7 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
         { keys: MOVE, label: 'Ride' },
         { keys: ['run'], label: 'Gallop' },
         { keys: ['jump'], label: 'Jump' },
-        { ...horn, label: 'Whinny' },
+        { ...horn, label: 'Snort' },
         { ...out, label: 'Dismount' },
       ]);
     case 'helicopter':
@@ -576,35 +703,35 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
       // plane: said until used. On the ground, how to lift off, every time.
       return airborne
         ? set(
-            'helicopter-air',
+            'helicopter-air-2',
             [
-              { keys: ['jump', 'run'], label: 'Rise' },
-              { keys: ['descend', 'dive'], label: 'Descend · land on flat ground' },
+              { keys: ['jump'], label: 'Rise' },
+              { keys: ['run', 'descend'], label: 'Descend · land on flat ground' },
               { keys: ['forward', 'back'], label: 'Fly forward · back' },
               { keys: ['left', 'right'], label: 'Turn' },
               { ...bail, label: 'Jump out, with a parachute' },
             ],
             true,
           )
-        : set('helicopter', [{ keys: ['jump', 'run'], label: 'Hold to lift off' }, { keys: ['left', 'right'], label: 'Turn' }, out]);
+        : set('helicopter', [{ keys: ['jump'], label: 'Hold to lift off' }, { keys: ['left', 'right'], label: 'Turn' }, out]);
     case 'plane':
       return airborne
         ? set(
-            'plane-air',
+            'plane-air-2',
             [
-              { keys: ['jump', 'run'], label: 'Climb' },
-              { keys: ['descend', 'dive'], label: 'Descend · land on flat ground' },
+              { keys: ['jump'], label: 'Climb' },
+              { keys: ['run', 'descend'], label: 'Descend · land on flat ground' },
               { keys: ['left', 'right'], label: 'Bank' },
               { ...bail, label: 'Jump out, with a parachute' },
             ],
             true,
           )
-        : set('plane', [{ keys: MOVE, label: 'Taxi' }, { keys: ['jump'], label: 'Hold to take off' }, out]);
+        : set('plane', [{ keys: ['forward'], label: 'Hold to take off' }, { keys: ['left', 'right'], label: 'Steer' }, { keys: ['back'], label: 'Brake' }, out]);
     case 'balloon':
       return set(airborne ? 'balloon-air' : 'balloon', [
         { keys: MOVE, label: 'Steer' },
-        { keys: ['jump', 'run'], label: 'Rise' },
-        { keys: ['descend', 'dive'], label: 'Sink' },
+        { keys: ['jump'], label: 'Rise' },
+        { keys: ['run', 'descend'], label: 'Sink' },
         airborne ? { ...bail, label: 'Jump out, with a parachute' } : out,
       ]);
     case 'passenger':
@@ -626,8 +753,7 @@ const modals = new Set<() => boolean>();
  * card, a notice. Returns the unregister.
  *
  * **Not the world map**, deliberately: `M` has to close it, and a map you can
- * fly under — the destination cycling on `Tab` while the chart shows it — is
- * worth more than a map that freezes the plane.
+ * fly under is worth more than a map that freezes the plane.
  */
 export function registerModal(isOpen: () => boolean): () => void {
   modals.add(isOpen);
@@ -639,8 +765,8 @@ const tabCards = new Set<() => boolean>();
 /**
  * A card that takes `Tab` while it is up and leaves every other key to the
  * world: the pause card, whose buttons a keyboard could not reach while `Tab`
- * cycled the landmarks behind it. Its own `keydown` walks its controls with
- * `holdFocus`; `navigation.ts` asks `tabTaken` and leaves the key alone.
+ * meant something behind it. Its own `keydown` walks its controls with
+ * `holdFocus`; `player-list.ts` asks `tabTaken` and leaves the key alone.
  * Returns the unregister.
  */
 export function registerTabCard(isUp: () => boolean): () => void {

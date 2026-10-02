@@ -37,7 +37,6 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: 'goto', usage: '<town, country or lat,lon>', help: 'Go straight there', aliases: ['go', 'travel'], argument: 'place' },
   { name: 'home', usage: '', help: 'Back where you started', aliases: ['spawn'] },
   { name: 'where', usage: '', help: 'Where you are standing', aliases: ['here'] },
-  { name: 'landmark', usage: '', help: 'Point at the nearest landmark you have not found', aliases: ['next'] },
   { name: 'time', usage: '<HH:MM · day · night · dawn · dusk · real>', help: 'Set the sun', argument: 'time' },
   { name: 'weather', usage: '<clear · rain · storm · snow · fog · auto>', help: 'Set the weather', argument: 'weather' },
   { name: 'who', usage: '', help: 'Who is online, and where', aliases: ['online', 'players'] },
@@ -279,49 +278,92 @@ function indexOf(gazetteer: Gazetteer): FoldedEntry[] {
 }
 
 /**
- * What `/goto` would offer for a query, best first: the countries, the built
- * towns and the names folded into them, scored as `findPlace` scores them —
- * whole name, then its start, then a word's start, then inside it — then
- * a town's own name before a name folded into a bigger one, then the bigger
- * place, a country counting as its seat's size (a whole name that is a
- * country's is the country, as there). One row a name; `countryName`
- * says whose it is.
+ * A typed `/goto` split into the name and, after a comma, the country it is
+ * in: `Toledo, Spain`, `toledo, es`, `Cuenca,ESP`. The country is folded and
+ * kept only when one of the gazetteer's countries answers to it — its name's
+ * start or its outline code — so a comma inside a name is still a name.
+ */
+function splitQualifier(query: string, gazetteer: Gazetteer): { name: string; isos: Set<string> | null } {
+  const comma = query.lastIndexOf(',');
+  if (comma < 0) return { name: fold(query.trim()), isos: null };
+  const name = fold(query.slice(0, comma).trim());
+  const wanted = fold(query.slice(comma + 1).trim());
+  if (name === '' || wanted === '') return { name: fold(query.trim()), isos: null };
+  const isos = new Set<string>();
+  for (const country of gazetteer.countries) {
+    if (fold(country.iso) === wanted || fold(country.name).startsWith(wanted)) isos.add(country.iso);
+  }
+  return isos.size === 0 ? { name: fold(query.trim()), isos: null } : { name, isos };
+}
+
+/**
+ * The order both `/goto` and its suggestions rank by: how well the name
+ * matches (whole, start, a word's start, inside); on a whole name a country
+ * first ("Georgia" is the country); a town's own name before a name folded
+ * into a bigger one, because the host's population is not the alias's — a
+ * suburb of Bogotá called Madrid outweighed Madrid by Bogotá's; then the
+ * country the player stands in, so `/goto Toledo` from Spain is Spain's; then
+ * the bigger place.
+ */
+function rank(prefer: string | undefined) {
+  const folded = (entry: FoldedEntry): number => Number(entry.via !== undefined && entry.country !== true);
+  return (a: { entry: FoldedEntry; score: number }, b: { entry: FoldedEntry; score: number }): number =>
+    b.score - a.score ||
+    (a.score === 4 ? Number(b.entry.country === true) - Number(a.entry.country === true) : 0) ||
+    folded(a.entry) - folded(b.entry) ||
+    (prefer === undefined ? 0 : Number(b.entry.place.iso === prefer) - Number(a.entry.place.iso === prefer)) ||
+    b.entry.place.pop - a.entry.place.pop;
+}
+
+/** Every entry the query names, ranked, a qualifying country applied. */
+function matches(query: string, gazetteer: Gazetteer, prefer: string | undefined): { entry: FoldedEntry; score: number }[] {
+  const { name, isos } = splitQualifier(query, gazetteer);
+  if (name === '') return [];
+  const scored: { entry: FoldedEntry; score: number }[] = [];
+  for (const entry of indexOf(gazetteer)) {
+    if (isos !== null && (entry.country === true || !isos.has(entry.place.iso))) continue;
+    const s = scoreFolded(entry.folded, entry.words, name);
+    if (s > 0) scored.push({ entry, score: s });
+  }
+  return scored.sort(rank(prefer));
+}
+
+/**
+ * What `/goto` would offer for a query, best first, in `findPlace`'s order.
+ * One row a name and country: the first row of a name is offered bare, as
+ * the bare name finds it, and the rest as `Toledo, Spain`, which is what Tab
+ * fills in and what `findPlace` reads back, so picking a row goes to that row.
  */
 export function suggestPlaces(
   query: string,
   gazetteer: Gazetteer,
   countryName: (iso: string) => string,
   limit = SUGGEST_LIMIT,
+  prefer?: string,
 ): { name: string; detail: string }[] {
-  const folded = fold(query.trim());
-  if (folded === '') return [];
-  const scored: { entry: FoldedEntry; score: number }[] = [];
-  for (const entry of indexOf(gazetteer)) {
-    const s = scoreFolded(entry.folded, entry.words, folded);
-    if (s > 0) scored.push({ entry, score: s });
-  }
-  scored.sort(
-    (a, b) =>
-      b.score - a.score ||
-      (a.score === 4 ? Number(b.entry.country === true) - Number(a.entry.country === true) : 0) ||
-      Number(a.entry.via !== undefined && a.entry.country !== true) - Number(b.entry.via !== undefined && b.entry.country !== true) ||
-      b.entry.place.pop - a.entry.place.pop,
-  );
-  const out: { name: string; detail: string }[] = [];
+  const rows: { entry: FoldedEntry }[] = [];
   const taken = new Set<string>();
-  for (const { entry } of scored) {
-    if (out.length >= limit) break;
-    if (taken.has(entry.folded)) continue;
-    taken.add(entry.folded);
+  for (const match of matches(query, gazetteer, prefer)) {
+    if (rows.length >= limit) break;
+    const key = `${match.entry.folded}|${match.entry.country === true ? '' : match.entry.place.iso}`;
+    if (taken.has(key)) continue;
+    taken.add(key);
+    rows.push(match);
+  }
+  // The first row of a name is what the bare name finds; the rest say whose.
+  const firsts = new Set<string>();
+  return rows.map(({ entry }) => {
     const country = countryName(entry.place.iso);
+    const shared = entry.country !== true && firsts.has(entry.folded);
+    if (entry.country !== true) firsts.add(entry.folded);
+    const folded = entry.via !== undefined && fold(entry.via) !== fold(entry.place.name);
     const detail = entry.country === true
       ? `Country · ${entry.place.name}`
-      : entry.via !== undefined && fold(entry.via) !== fold(entry.place.name)
-        ? `${entry.place.name}, ${country}`
-        : country;
-    out.push({ name: entry.name, detail });
-  }
-  return out;
+      : folded
+        ? shared ? `In ${entry.place.name}` : `${entry.place.name}, ${country}`
+        : shared ? '' : country;
+    return { name: shared ? `${entry.name}, ${country}` : entry.name, detail };
+  });
 }
 
 /**
@@ -390,55 +432,30 @@ function scoreFolded(candidate: string, words: readonly string[], query: string)
 const betterSeat = (place: Place, seat: Place): boolean =>
   (place.capital === true && seat.capital !== true) || (place.capital === seat.capital && place.pop > seat.pop);
 
-function seatOf(iso: string, gazetteer: Gazetteer): Place | null {
-  let seat: Place | null = null;
-  for (const place of gazetteer.places) {
-    if (place.iso === iso && isShown(place) && (seat === null || betterSeat(place, seat))) seat = place;
-  }
-  return seat;
-}
-
 /**
- * The best match for a name, scored as the menu's search scores it — a name
- * that starts with the query beats a word in it, which beats a substring —
- * over the built towns and the names folded into them, ties to the bigger
- * place. A country that matches at least as well is its capital, or its
+ * The best match for a name, in `matches`' order, over the built towns, the
+ * names folded into them and the countries. A country is its capital, or its
  * biggest built town where the capital is not built, because a country is
- * somewhere to arrive and not a point.
+ * somewhere to arrive and not a point. `others` are the other countries a
+ * town of the very same name stands in, for the caller to mention.
  */
-export function findPlace(query: string, gazetteer: Gazetteer): Found | null {
-  const folded = fold(query.trim());
-  if (folded === '') return null;
-  const score = (name: string): number => {
-    const candidate = fold(name);
-    return scoreFolded(candidate, candidate.split(/[\s\-']+/), folded);
-  };
-  let best: { place: Place; score: number; via?: string } | null = null;
-  const offer = (place: Place, s: number, via?: string): void => {
-    if (s === 0) return;
-    if (best === null || s > best.score || (s === best.score && place.pop > best.place.pop)) {
-      best = via === undefined ? { place, score: s } : { place, score: s, via };
+export function findPlace(
+  query: string,
+  gazetteer: Gazetteer,
+  prefer?: string,
+): (Found & { others: string[] }) | null {
+  const ranked = matches(query, gazetteer, prefer);
+  const best = ranked[0];
+  if (best === undefined) return null;
+  const { entry } = best;
+  const found: Found & { others: string[] } = { lat: entry.place.lat, lon: entry.place.lon, name: entry.place.name, iso: entry.place.iso, others: [] };
+  if (entry.via !== undefined && fold(entry.via) !== fold(entry.place.name)) found.via = entry.via;
+  if (entry.country !== true) {
+    for (const { entry: other, score } of ranked) {
+      if (score !== best.score || other.folded !== entry.folded || other.country === true) continue;
+      if (other.place.iso !== entry.place.iso && !found.others.includes(other.place.iso)) found.others.push(other.place.iso);
     }
-  };
-  for (const place of gazetteer.places) if (isShown(place)) offer(place, score(place.name));
-  for (const [alias, index] of gazetteer.aliases) {
-    const place = gazetteer.places[index];
-    if (place !== undefined) offer(place, score(alias), alias);
   }
-  const town = best as { place: Place; score: number; via?: string } | null;
-  // A country wins a tie with any town: "Georgia" is the country.
-  let country: { iso: string; name: string; score: number } | null = null;
-  for (const candidate of gazetteer.countries) {
-    const s = score(candidate.name);
-    if (s > 0 && (country === null || s > country.score)) country = { ...candidate, score: s };
-  }
-  if (country !== null && (town === null || country.score >= town.score)) {
-    const seat = seatOf(country.iso, gazetteer);
-    if (seat !== null) return { lat: seat.lat, lon: seat.lon, name: seat.name, iso: seat.iso, via: country.name };
-  }
-  if (town === null) return null;
-  const found: Found = { lat: town.place.lat, lon: town.place.lon, name: town.place.name, iso: town.place.iso };
-  if (town.via !== undefined && fold(town.via) !== fold(town.place.name)) found.via = town.via;
   return found;
 }
 

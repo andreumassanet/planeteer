@@ -34,7 +34,7 @@ import { createSceneryContext } from '../src/scenery/contract.ts';
 import { measure } from '../src/monuments/contract.ts';
 import { rngFrom } from '../src/scenery/random.ts';
 import { WALK_SPEED, RUN_SPEED } from '../src/avatar.ts';
-import { latOf, lonOf } from '../src/sphere.ts';
+import { latLonOf, latOf, lonOf, unitAt } from '../src/sphere.ts';
 
 import {
   ELEMENTS,
@@ -66,6 +66,8 @@ import {
 } from '../src/system/contract.ts';
 import type { Body, Decoration, GroundSample, Species } from '../src/system/contract.ts';
 import { alienFor, buildAlien } from '../src/system/alien.ts';
+import { POLITICAL_CONTRAST, WALKABLE, buildGeography, localHour, oklabOf, solarDayHours } from '../src/system/geography.ts';
+import { TIME_SCALE } from './time-scale.ts';
 import { AVATAR_HEIGHT } from '../src/stature.ts';
 
 const DEG = Math.PI / 180;
@@ -398,13 +400,22 @@ const BODY_DIR = resolve(import.meta.dirname, '../src/system/bodies');
 const PART_DIR = resolve(import.meta.dirname, '../src/system/parts');
 
 const bodies: Body[] = [];
+/**
+ * The moons with a `Body` file, kept apart as `index.ts` keeps them out of
+ * the orrery: a moon's orbit is its planet's, so the neighbour rule and the
+ * table of where everything is would read it as a second Earth. Its parts
+ * and its species are the walking engine's (`worlds/bodies/moon/`), so the
+ * decoration and species checks below are not its either; its countries,
+ * cities and ground are, and it is checked with the worlds.
+ */
+const moons: Body[] = [];
 const speciesById = new Map<string, Species>();
 for (const file of readdirSync(BODY_DIR).filter((n) => n.endsWith('.ts')).sort()) {
   const module = (await import(pathToFileURL(resolve(BODY_DIR, file)).href)) as Record<string, unknown>;
   let found = 0;
   for (const value of Object.values(module)) {
     if (typeof value === 'object' && value !== null && typeof (value as Body).radiusKm === 'number' && typeof (value as Body).blurb === 'string') {
-      bodies.push(value as Body);
+      ((value as Body).kind === 'moon' ? moons : bodies).push(value as Body);
       found++;
     }
   }
@@ -510,9 +521,9 @@ console.log('\n  the neighbour rule — drawn radii against the gap between the 
 // --- the countries and the cities -----------------------------------------
 
 console.log('\n\n=== the worlds ===\n');
-for (const body of bodies) {
+for (const body of [...bodies, ...moons]) {
   for (const problem of validateBody(body)) fail(`${body.id}: ${problem}`);
-  if (body.species !== null && !speciesById.has(body.species)) {
+  if (body.kind !== 'moon' && body.species !== null && !speciesById.has(body.species)) {
     fail(`${body.id} names species '${body.species}' and no file declares it`);
   }
   const inhabited = body.nations.length > 0;
@@ -608,7 +619,7 @@ const GROUND_EXPECTED: Record<string, [string, number, number, string][]> = {
 
 console.log('\n  the ground, at named places:');
 const sample: GroundSample = { id: '', warmth: 0, second: 0, elevation: 0 };
-for (const body of bodies) {
+for (const body of [...bodies, ...moons]) {
   if (body.ground === null) continue;
   const expected = GROUND_EXPECTED[body.id];
   console.log(`\n    ${body.name} — warmth against ${body.ground.secondAxis}`);
@@ -639,6 +650,196 @@ for (const body of bodies) {
     console.log(`      ${seen.size} of ${Object.keys(body.ground.biomes).length} biomes reached over 24 spiral samples: ${[...seen].sort().join(', ')}`);
   }
   if (seen.size < 3) fail(`${body.id}'s ground model reaches only ${seen.size} biome(s) — the world is one texture`);
+}
+
+// --- the political map ----------------------------------------------------
+
+/**
+ * The outlines `geography.ts` draws from the caps, held to the truth they
+ * were drawn from.
+ *
+ * Every assertion here is a way the shared map, the HUD and the passport
+ * could be wrong on another world while looking right: a town that reports
+ * its neighbour's country, a ring wound the wrong way round (the land on the
+ * left, which `geo.ts`'s shore and wall code would read inside out), a
+ * frontier drawn twice in different places so a sliver belongs to both or to
+ * neither, ground that is nobody's, a ring so wide the lon/lat ray casting is
+ * no longer a fair question. And the time, because the menu waits on it.
+ */
+console.log('\n  the political map, from the caps:');
+console.log('    body        nations  towns  rings  frontiers   points    ms   off truth  near a frontier');
+{
+  const walkable = WALKABLE.map((one) => one.id);
+  const expected = [...bodies, ...moons].filter((one) => one.ground !== null && one.nations.length > 0).map((one) => one.id);
+  for (const id of expected) if (!walkable.includes(id)) fail(`${id} can be walked and is not in geography.ts's WALKABLE`);
+  // Warm the code once, so the first body is not timed compiling it.
+  buildGeography(WALKABLE[0]!);
+  // 150 until 2026-10-02, when the worlds grew their towns (`towns.ts`): Mars
+  // has two hundred and the map's places and outlines grow with them. The menu
+  // makes every world's map while the title is up (`Menu.prepare`), so a click
+  // never waits on it.
+  const BUDGET_MS = 220 * TIME_SCALE;
+  const SAMPLES = 10000;
+  const NEAR = 0.6;
+  let state = 0x9e3779b9;
+  const random = (): number => {
+    state = (Math.imul(state ^ (state >>> 15), 0x2c1b3c6d) + 0x6d2b79f5) >>> 0;
+    return state / 2 ** 32;
+  };
+  for (const body of WALKABLE) {
+    if (body.nations.length < 6 || body.nations.length > 15) {
+      fail(`${body.id} has ${body.nations.length} nations — a world's map wants six to fifteen`);
+    }
+    const t0 = performance.now();
+    const geo = buildGeography(body);
+    const ms = performance.now() - t0;
+    if (ms > BUDGET_MS) fail(`${body.id}'s map took ${ms.toFixed(0)} ms against ${BUDGET_MS}`);
+
+    // Determinism: a second build is the same map to the last digit.
+    const again = buildGeography(body);
+    if (JSON.stringify(again.countries) !== JSON.stringify(geo.countries)) fail(`${body.id}: two builds of the map differ`);
+
+    // Whose ground the named places are.
+    geo.places.forEach((place) => {
+      const want = geo.countries.findIndex((country) => country.iso === place.iso) + 1;
+      const got = geo.world.countryAt(place.lat, place.lon);
+      if (got !== want) fail(`${body.id}: ${place.name} stands in ${geo.countries[got - 1]?.name ?? 'nothing'}, not ${geo.countries[want - 1]?.name}`);
+    });
+    geo.countries.forEach((country, i) => {
+      const got = geo.world.countryAt(country.lat, country.lon);
+      if (got !== i + 1) fail(`${body.id}: ${country.name}'s label point is in ${geo.countries[got - 1]?.name ?? 'nothing'}`);
+      if (country.rings.length === 0) fail(`${body.id}: ${country.name} has no ground at all`);
+      if (country.iso !== `${body.id}:${body.nations[i]!.id}`) fail(`${body.id}: ${country.name} is keyed '${country.iso}'`);
+    });
+    // The political colours: no two nations that share a frontier alike.
+    for (const frontier of geo.frontiers) {
+      const one = geo.countries[frontier.left - 1]!;
+      const two = geo.countries[frontier.right - 1]!;
+      const a = oklabOf(one.color!);
+      const b = oklabOf(two.color!);
+      const apart = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      if (apart < POLITICAL_CONTRAST) fail(`${body.id}: ${one.name} and ${two.name} touch and are ${apart.toFixed(3)} apart in colour, under ${POLITICAL_CONTRAST}`);
+    }
+    for (const nation of body.nations) {
+      const capitals = geo.places.filter((place) => place.iso === `${body.id}:${nation.id}` && place.capital === true);
+      if (capitals.length !== 1) fail(`${body.id}: ${nation.name} has ${capitals.length} capitals`);
+    }
+
+    // The rings: wound with the land on the right, inside one tile, and every
+    // frontier step shared by exactly two rings, once each way.
+    const seen = new Map<string, number>();
+    const step = (a: number[], b: number[]): string => `${a[0]},${a[1]}>${b[0]},${b[1]}`;
+    let ringCount = 0;
+    let points = 0;
+    for (const country of geo.countries) {
+      for (const ring of country.rings) {
+        ringCount++;
+        points += ring.length;
+        let area = 0;
+        let minLon = Infinity;
+        let maxLon = -Infinity;
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i]!;
+          const b = ring[(i + 1) % ring.length]!;
+          area += a[0]! * b[1]! - b[0]! * a[1]!;
+          minLon = Math.min(minLon, a[0]!);
+          maxLon = Math.max(maxLon, a[0]!);
+          minLat = Math.min(minLat, a[1]!);
+          maxLat = Math.max(maxLat, a[1]!);
+          const key = step(a, b);
+          seen.set(key, (seen.get(key) ?? 0) + 1);
+        }
+        if (area >= 0) fail(`${body.id}: a ring of ${country.name} is wound with the land on its left`);
+        if (maxLon - minLon > 90 || maxLat - minLat > 90) {
+          fail(`${body.id}: a ring of ${country.name} spans ${(maxLon - minLon).toFixed(1)} by ${(maxLat - minLat).toFixed(1)} degrees`);
+        }
+      }
+    }
+    let unmatched = 0;
+    for (const [key, count] of seen) {
+      if (count !== 1) {
+        fail(`${body.id}: the step ${key} is in ${count} rings the same way round`);
+        continue;
+      }
+      const [from, to] = key.split('>') as [string, string];
+      const [lon0, lat0] = from.split(',').map(Number) as [number, number];
+      const [lon1, lat1] = to.split(',').map(Number) as [number, number];
+      // The pole and the seam are the edge of the map, not a frontier: nothing
+      // lies past them to share the step with.
+      const pole = Math.abs(lat0) === 90 && lat0 === lat1;
+      const seam = Math.abs(lon0) === 180 && lon0 === lon1;
+      if (!pole && !seam && seen.get(`${to}>${from}`) !== 1) unmatched++;
+    }
+    if (unmatched > 0) fail(`${body.id}: ${unmatched} ring steps have no neighbour running them the other way`);
+
+    // Random ground: always someone's, and the rings' answer the truth's
+    // except within half a degree of a frontier.
+    let off = 0;
+    let offAway = 0;
+    let nobody = 0;
+    const unit = { x: 0, y: 0, z: 0 };
+    for (let k = 0; k < SAMPLES; k++) {
+      const lat = Math.asin(2 * random() - 1) / DEG;
+      const lon = random() * 360 - 180;
+      const got = geo.world.countryAt(lat, lon);
+      if (got === 0) nobody++;
+      const truth = geo.truthAt(lat, lon);
+      if (got === truth) continue;
+      off++;
+      // Is a frontier within NEAR degrees? Look round the point at that distance.
+      let border = false;
+      for (let a = 0; a < 16 && !border; a++) {
+        const bearing = (a / 16) * 2 * Math.PI;
+        const lat2 = Math.asin(Math.sin(lat * DEG) * Math.cos(NEAR * DEG) + Math.cos(lat * DEG) * Math.sin(NEAR * DEG) * Math.cos(bearing));
+        const lon2 = lon * DEG + Math.atan2(Math.sin(bearing) * Math.sin(NEAR * DEG) * Math.cos(lat * DEG), Math.cos(NEAR * DEG) - Math.sin(lat * DEG) * Math.sin(lat2));
+        unitAt(lat2 / DEG, lon2 / DEG, unit);
+        const there = latLonOf(unit);
+        if (geo.truthAt(there.lat, there.lon) !== truth) border = true;
+      }
+      if (!border) offAway++;
+    }
+    if (nobody > 0) fail(`${body.id}: ${nobody} of ${SAMPLES} random points are nobody's ground`);
+    if (off > SAMPLES / 100) fail(`${body.id}: the rings disagree with the truth at ${off} of ${SAMPLES} points`);
+    if (offAway > 0) fail(`${body.id}: ${offAway} points disagree with the truth more than ${NEAR} degrees from any frontier`);
+    console.log(
+      `    ${body.id.padEnd(10)} ${String(body.nations.length).padStart(7)} ${String(geo.places.length).padStart(6)} ${String(ringCount).padStart(6)}` +
+        ` ${String(geo.frontiers.length).padStart(10)} ${String(points).padStart(8)} ${ms.toFixed(0).padStart(5)}` +
+        ` ${(off / (SAMPLES / 100)).toFixed(2).padStart(9)}%  ${offAway === 0 ? 'all of them' : `${offAway} not`}`,
+    );
+  }
+}
+
+// --- the local clock ------------------------------------------------------
+
+/**
+ * `localHour` against the sky's own construction from the other side: on a
+ * world that turns, the hour at a longitude runs through half a day in half
+ * a solar day, and on a body that turns backwards the afternoon is west of the
+ * Sun. A locked Moon's hour moves with the date by one lunar day.
+ */
+console.log('\n  the local clock:');
+{
+  const when = new Date(Date.UTC(2026, 0, 1, 0));
+  for (const body of WALKABLE) {
+    const day = solarDayHours(body);
+    const h0 = localHour(body, 0, when);
+    const later = new Date(when.getTime() + (day / 2) * 3600000);
+    const h1 = localHour(body, 0, later);
+    const advance = (((h1 - h0) % 24) + 24) % 24;
+    // Half a solar day later the clock has gone round twelve hours. Half and
+    // not a quarter: Mercury's Sun stops and runs backwards near perihelion,
+    // so its clock keeps the mean hour only over whole orbits, and half its
+    // solar day is one of them.
+    if (Math.abs(advance - 12) > 0.25) fail(`${body.id}: half a solar day moved the clock ${advance.toFixed(2)} h`);
+    // Fifteen degrees east is an hour later where the world turns eastward
+    // and an hour earlier where it turns backwards.
+    const east = (((localHour(body, 15, when) - h0) % 24) + 24) % 24;
+    const want = body.rotationHours < 0 ? 23 : 1;
+    if (Math.abs(east - want) > 1e-6) fail(`${body.id}: fifteen degrees east is ${east.toFixed(3)} h on, not ${want}`);
+    console.log(`    ${body.id.padEnd(9)} solar day ${day.toFixed(1).padStart(8)} h   at lon 0: ${h0.toFixed(2).padStart(5)} h, half a day on ${h1.toFixed(2).padStart(5)} h`);
+  }
 }
 
 // ===========================================================================

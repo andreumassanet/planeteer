@@ -7,10 +7,11 @@
  * frame — the altitude, the speed, how much of the view is sea, the hour — and
  * a recording of wind at one speed is a recording of wind at one speed: it
  * either repeats where you can hear the seam or it costs megabytes. Filtered
- * noise follows any number for free. A footstep, a click and a jingle are the
+ * noise follows any number for free. A footstep and a click are the
  * opposite case, where a microphone beats any oscillator, so those are
- * Kenney's CC0 recordings, baked by `scripts/build-audio.mjs` (79 KB for all
- * 26, fetched only after the first click and never in the first load).
+ * Kenney's CC0 recordings, baked by `scripts/build-audio.mjs` (76.5 KB for
+ * all 30 on 2026-10-01, the passport's book among them, fetched only after
+ * the first click and never in the first load).
  *
  * **Nothing makes a sound until a gesture unlocks it**, which is the browser's
  * rule and also this project's: the menu's first click is the one that opens
@@ -26,19 +27,22 @@
  */
 
 import type { Honk } from '../server/src/limits.ts';
+import { HORN_HELD } from './horn.ts';
 
 export type Surface = 'grass' | 'paving' | 'snow' | 'dirt';
 
 export type Cue =
-  | 'landmark'
-  | 'frontier'
   | 'land'
   | 'ui-click'
   | 'ui-open'
   | 'ui-close'
   | 'ui-toggle'
   | 'ui-error'
-  | 'ui-confirm';
+  | 'ui-confirm'
+  | 'book-open'
+  | 'book-close'
+  | 'page'
+  | 'stamp';
 
 /** What the world is doing this frame, as far as the ear cares. */
 export interface Soundscape {
@@ -89,6 +93,11 @@ export interface Soundscape {
    * through water — and opens again on surfacing.
    */
   underwater?: number;
+  /**
+   * How much air there is to carry the wind, 1 on Earth and less on a world
+   * with a thinner sky (`SkySpec.air`): none on the Moon, where nothing blows.
+   */
+  air?: number;
 }
 
 /** The low-pass under the water, hertz, and above it, where it lets everything by. */
@@ -104,18 +113,66 @@ export interface HeldHorn {
 }
 
 /**
- * The held voices: two oscillators, a low-pass, and how the chord opens and
- * closes, in seconds. A car's are `horn`'s own two squares a major third
- * apart; a bus's two saws an octave-ish down, a boat's a fifth lower still
- * and slower to swell, a motorbike's one bright square.
+ * The held voices, as an electric or an air horn is made: two or three
+ * sawtooth tones (`tones`, Hz) — two tones a third or so apart is every
+ * car's horn — scooped up into pitch from `scoop` of it over `settle`
+ * seconds, as a diaphragm or a reed comes up to speed; driven into a soft
+ * clip (`drive`), which is the rasp a horn's diaphragm adds; then the horn's
+ * own trumpet as a resonance (`body`, Hz, `focus` its Q), with the mud under
+ * `floor` and the fizz over `ceiling` taken off. `attack` and `release` are
+ * how the chord opens and closes, in seconds, and `gain` its share of
+ * `HORN_LEVEL`.
+ *
+ * A car's is 410 and 515 Hz, close to the pairs real two-tone horns are
+ * tuned to; a bus's an air horn's 277 and 349, swelling in; a boat's a deep
+ * 98 and 147 that takes a quarter of a second to come up. A motorbike's or a
+ * scooter's is a small electromagnetic disc horn: a diaphragm slapping its
+ * contact makes a pulse, not a saw, so its tone is one note near 450 Hz rich
+ * in odd harmonics (`wave` square), sagging a little as the diaphragm comes up
+ * to its swing, the disc's own ring a narrow peak near 2.6 kHz and the nasal
+ * honk of the little trumpet another (`nose`, Hz) near 1.3. Until 2026-10-01
+ * they were bare squares and saws through a low-pass, which read as a test
+ * tone, not a horn, and the scooter's a saw at 565 Hz, which read as a toy.
  */
-const HELD_CHORDS: Partial<Record<Honk, { type: OscillatorType; tones: readonly number[]; cutoff: number; attack: number; release: number; gain: number }>> = {
-  car: { type: 'square', tones: [370, 466], cutoff: 1600, attack: 0.02, release: 0.06, gain: 1 },
-  bus: { type: 'sawtooth', tones: [185, 233], cutoff: 900, attack: 0.04, release: 0.12, gain: 1.2 },
-  ship: { type: 'sawtooth', tones: [110, 165], cutoff: 600, attack: 0.12, release: 0.3, gain: 1.2 },
-  beep: { type: 'square', tones: [620], cutoff: 2400, attack: 0.01, release: 0.03, gain: 0.8 },
+interface HornChord {
+  tones: readonly number[];
+  scoop: number;
+  settle: number;
+  drive: number;
+  body: number;
+  focus: number;
+  floor: number;
+  ceiling: number;
+  attack: number;
+  release: number;
+  gain: number;
+  /** The oscillators' wave, a saw when not given. */
+  wave?: OscillatorType;
+  /** A second resonance, Hz, over `body`'s, as narrow: a disc horn's trumpet. */
+  nose?: number;
+}
+const HELD_CHORDS: Partial<Record<Honk, HornChord>> = {
+  car: { tones: [410, 515], scoop: 0.94, settle: 0.03, drive: 3, body: 1900, focus: 1.3, floor: 300, ceiling: 4500, attack: 0.008, release: 0.05, gain: 1 },
+  bus: { tones: [277, 349], scoop: 0.86, settle: 0.12, drive: 4, body: 950, focus: 1.1, floor: 160, ceiling: 2800, attack: 0.07, release: 0.12, gain: 1.15 },
+  ship: { tones: [98, 147], scoop: 0.9, settle: 0.4, drive: 2.5, body: 420, focus: 0.9, floor: 60, ceiling: 1300, attack: 0.25, release: 0.4, gain: 1.4 },
+  beep: { tones: [452], scoop: 0.93, settle: 0.045, drive: 2.6, body: 2600, focus: 2.4, floor: 380, ceiling: 6500, attack: 0.004, release: 0.025, gain: 0.55, wave: 'square', nose: 1300 },
 };
 
+/**
+ * The bicycle's bell: one strike of a thin dome, whose partials stand at
+ * these ratios to the fundamental (`BELL_PITCH`, Hz) — inharmonic, which is
+ * what makes it a bell and not a note — each its own share of the strike and
+ * its own ring, the high ones dying first; and a twin of the fundamental a
+ * few hertz off, whose beating is the shimmer a struck bell has.
+ */
+const BELL_PITCH = 2150;
+const BELL_PARTIALS: readonly (readonly [ratio: number, level: number, ring: number])[] = [
+  [1, 1, 1.5],
+  [1.004, 0.45, 1.3],
+  [2.76, 0.55, 0.7],
+  [5.4, 0.3, 0.35],
+  [8.93, 0.14, 0.16],
+];
 
 export interface Audio {
   /** Call from a user gesture: opens the context and starts fetching the recordings. */
@@ -128,12 +185,11 @@ export interface Audio {
   /**
    * A horn, once: the traffic kept waiting, a driver's own, another player's.
    * `near` is 1 beside you and 0 out of earshot, and every voice is
-   * synthesised, so none costs a recording: a car's two squares a major third
-   * apart, like every two-tone horn; a bus's the same an octave down and
-   * longer; a motorbike's two short beeps; a bicycle's bell, two strikes of
-   * three inharmonic partials; a tuk-tuk's rubber bulb, a squeak that rises
-   * and falls; a boat's low horn; and a horse's whinny, a buzz through two
-   * formants falling in pitch with a fast shake in it.
+   * synthesised, so none costs a recording (no CC0 pack this project reads
+   * has a horn, a bell or a horse): the held ones are `HELD_CHORDS` for a
+   * moment, the struck ones (`HORN_HELD`) once — a bicycle's bell, one strike
+   * of five inharmonic partials; a tuk-tuk's rubber bulb, one squeeze of a
+   * nasal reed; and a horse's snort, a fluttering blow of breath.
    */
   horn(near: number, voice?: Honk): void;
   /**
@@ -141,9 +197,8 @@ export interface Audio {
    * key is down, and another player's while they hold theirs. `near` is as
    * `horn`'s and can be moved while it sounds. A car's two tones, a bus's, a
    * boat's and a motorbike's are one chord held for as long as the key is,
-   * with a short attack and a release; a bell, a rubber bulb and a whinny
-   * cannot be held, so they sound again and again until it is let go. Null
-   * until `unlock`.
+   * with a short attack and a release; a bell, a rubber bulb and a snort are
+   * struck once and are not held (`HORN_HELD`). Null until `unlock`.
    */
   holdHorn(voice: Honk, near: number): HeldHorn | null;
   /**
@@ -169,8 +224,6 @@ export interface Audio {
    * so the volume and the switch hold it as they hold a footstep.
    */
   readonly bus: GainNode | null;
-  /** Told of every cue as it plays: the music ducks under the jingles. */
-  onCue: ((name: Cue) => void) | null;
   readonly stats: {
     unlocked: boolean;
     state: string;
@@ -181,18 +234,17 @@ export interface Audio {
 
 /** The recordings, by the names `build-audio.mjs` publishes. */
 const VARIANTS: Record<Surface, number> = { grass: 4, paving: 4, snow: 4, dirt: 4 };
-const ONE_SHOTS: Cue[] = ['landmark', 'frontier', 'ui-click', 'ui-open', 'ui-close', 'ui-toggle', 'ui-error', 'ui-confirm'];
+const ONE_SHOTS: Cue[] = ['ui-click', 'ui-open', 'ui-close', 'ui-toggle', 'ui-error', 'ui-confirm', 'book-open', 'book-close', 'stamp'];
 const LANDINGS = 2;
+/** The passport's leaves, `page-<n>`: one picked at random a turn. */
+const PAGES = 3;
 
 /**
- * Each cue's level against the others. The jingles are the loudest thing in the
- * world on purpose — finding a landmark is the event the game is built around —
- * and the frontier is half of it, because from the plane you cross one every
- * few seconds.
+ * Each cue's level against the others. There were two jingles over them, a
+ * landmark's and a frontier's, until the cards they rang with were taken out
+ * (2026-10-01).
  */
 const GAIN: Record<Cue, number> = {
-  landmark: 0.5,
-  frontier: 0.22,
   land: 0.32,
   'ui-click': 0.18,
   'ui-open': 0.22,
@@ -200,6 +252,10 @@ const GAIN: Record<Cue, number> = {
   'ui-toggle': 0.2,
   'ui-error': 0.24,
   'ui-confirm': 0.24,
+  'book-open': 0.3,
+  'book-close': 0.3,
+  page: 0.34,
+  stamp: 0.4,
 };
 
 /** A footstep's level by surface; a run is `RUN_WEIGHT` of it. */
@@ -496,88 +552,137 @@ export function createAudio(): Audio {
     return env;
   }
 
-  /** Every horn but the car's: see `Audio.horn`. */
-  function honk(ctx: AudioContext, out: AudioNode, voice: Honk, peak: number): void {
-    const at = ctx.currentTime + 0.01;
-    const pitch = between(0.96, 1.04);
+  /** Soft-clip curves by drive: `tanh(drive x)`, levelled so a full swing stays a full swing. */
+  const clipCurves = new Map<number, Float32Array<ArrayBuffer>>();
+  function clipper(ctx: AudioContext, drive: number): WaveShaperNode {
+    let curve = clipCurves.get(drive);
+    if (curve === undefined) {
+      curve = new Float32Array(1024);
+      const top = Math.tanh(drive);
+      for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(drive * ((i / (curve.length - 1)) * 2 - 1)) / top;
+      clipCurves.set(drive, curve);
+    }
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = curve;
+    shaper.oversample = '2x';
+    return shaper;
+  }
+
+  /** A filter of `type` at `frequency`, its Q and its gain where it has them. */
+  function biquad(ctx: AudioContext, type: BiquadFilterType, frequency: number, q = 0.7, gain = 0): BiquadFilterNode {
     const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    if (voice === 'bus' || voice === 'ship') {
-      // Two saws a fifth or a third apart, low and long, a slow swell.
-      const length = voice === 'ship' ? 1.1 : 0.6;
-      filter.frequency.value = voice === 'ship' ? 600 : 900;
-      const env = envelope(ctx, at, peak * 1.2, voice === 'ship' ? 0.12 : 0.04, at + length, 0.12);
-      filter.connect(env).connect(out);
-      const base = voice === 'ship' ? 110 : 185;
-      tone(ctx, filter, 'sawtooth', base * pitch, at, at + length + 0.02);
-      tone(ctx, filter, 'sawtooth', base * (voice === 'ship' ? 1.5 : 1.26) * pitch, at, at + length + 0.02);
-      return;
-    }
-    if (voice === 'beep') {
-      // Two short beeps of one square.
-      filter.frequency.value = 2400;
-      filter.connect(out);
-      for (const start of [0, 0.19]) {
-        const env = envelope(ctx, at + start, peak * 0.8, 0.01, at + start + 0.13, 0.02);
-        env.connect(filter);
-        tone(ctx, env, 'square', 620 * pitch, at + start, at + start + 0.15);
-      }
-      return;
-    }
+    filter.type = type;
+    filter.frequency.value = frequency;
+    filter.Q.value = q;
+    filter.gain.value = gain;
+    return filter;
+  }
+
+  /**
+   * A held chord (`HELD_CHORDS`) from `at`, into `env`: its tones scooped up
+   * into pitch, clipped and shaped by the horn's trumpet. The oscillators are
+   * started and not stopped; the caller stops them.
+   */
+  function chord(ctx: AudioContext, env: AudioNode, voice: HornChord, at: number): OscillatorNode[] {
+    const pitch = between(0.97, 1.03);
+    const into = ctx.createGain();
+    into.gain.value = 0.45 / voice.tones.length;
+    const shaped = into
+      .connect(clipper(ctx, voice.drive))
+      .connect(biquad(ctx, 'highpass', voice.floor))
+      .connect(biquad(ctx, 'peaking', voice.body, voice.focus, 7));
+    (voice.nose === undefined ? shaped : shaped.connect(biquad(ctx, 'peaking', voice.nose, 2, 5)))
+      .connect(biquad(ctx, 'lowpass', voice.ceiling))
+      .connect(env);
+    return voice.tones.map((frequency) => {
+      const osc = ctx.createOscillator();
+      osc.type = voice.wave ?? 'sawtooth';
+      const f = frequency * pitch;
+      osc.frequency.setValueAtTime(f * voice.scoop, at);
+      osc.frequency.exponentialRampToValueAtTime(f, at + voice.settle);
+      osc.connect(into);
+      osc.start(at);
+      voices++;
+      osc.onended = () => {
+        voices--;
+        osc.disconnect();
+      };
+      return osc;
+    });
+  }
+
+  /** A struck voice, once: a bicycle's bell, a tuk-tuk's bulb, a horse's snort. See `HORN_HELD`. */
+  function strike(ctx: AudioContext, out: AudioNode, voice: Honk, peak: number): void {
+    const at = ctx.currentTime + 0.005;
+    const pitch = between(0.98, 1.02);
     if (voice === 'bell') {
-      // Ring-ring: three partials each strike, struck twice and left to ring.
-      filter.frequency.value = 9000;
-      filter.connect(out);
-      for (const start of [0, 0.16]) {
+      // One strike: every partial at once, each ringing down on its own time,
+      // and the hammer's tick on top.
+      const bus = biquad(ctx, 'highpass', 900);
+      bus.connect(out);
+      for (const [ratio, share, ring] of BELL_PARTIALS) {
         const env = ctx.createGain();
-        env.gain.setValueAtTime(0, at + start);
-        env.gain.linearRampToValueAtTime(peak * 0.7, at + start + 0.004);
-        env.gain.exponentialRampToValueAtTime(0.0001, at + start + 0.55);
-        env.connect(filter);
-        for (const partial of [1, 1.51, 2.74]) tone(ctx, env, 'sine', 2300 * partial * pitch, at + start, at + start + 0.6);
+        env.gain.setValueAtTime(0, at);
+        env.gain.linearRampToValueAtTime(peak * 0.55 * share, at + 0.002);
+        env.gain.exponentialRampToValueAtTime(0.0001, at + ring);
+        env.connect(bus);
+        tone(ctx, env, 'sine', BELL_PITCH * ratio * pitch, at, at + ring + 0.02);
+      }
+      if (crackNoise !== null) {
+        const tick = ctx.createBufferSource();
+        tick.buffer = crackNoise;
+        const env = envelope(ctx, at, peak * 0.35, 0.001, at + 0.006, 0.004);
+        tick.connect(biquad(ctx, 'highpass', 3500)).connect(env).connect(out);
+        tick.start(at, Math.random() * 0.5, 0.01);
       }
       return;
     }
     if (voice === 'squeak') {
-      // A rubber bulb: a nasal square squeezed up and let go, twice.
-      filter.type = 'bandpass';
-      filter.frequency.value = 1100;
-      filter.Q.value = 2;
-      filter.connect(out);
-      for (const start of [0, 0.3]) {
-        const env = envelope(ctx, at + start, peak * 1.3, 0.02, at + start + 0.22, 0.05);
-        env.connect(filter);
-        const osc = tone(ctx, env, 'square', 520 * pitch, at + start, at + start + 0.24);
-        osc.frequency.setValueAtTime(520 * pitch, at + start);
-        osc.frequency.linearRampToValueAtTime(760 * pitch, at + start + 0.08);
-        osc.frequency.linearRampToValueAtTime(600 * pitch, at + start + 0.22);
-      }
+      // A rubber bulb squeezed once: a reed's buzz, nasal, rising as the
+      // bulb is pressed and falling as it lets go.
+      const env = envelope(ctx, at, peak * 1.6, 0.02, at + 0.34, 0.09);
+      const nose = ctx.createGain();
+      nose.connect(env).connect(out);
+      const clip = clipper(ctx, 3);
+      for (const [centre, q] of [[1100, 3], [2500, 4]] as const) clip.connect(biquad(ctx, 'bandpass', centre, q)).connect(nose);
+      const osc = tone(ctx, clip, 'sawtooth', 430 * pitch, at, at + 0.36);
+      osc.frequency.setValueAtTime(430 * pitch, at);
+      osc.frequency.linearRampToValueAtTime(560 * pitch, at + 0.07);
+      osc.frequency.linearRampToValueAtTime(500 * pitch, at + 0.34);
       return;
     }
-    // The whinny: a buzz through two formants, falling, shaken.
-    const length = 1.0;
-    const formants = ctx.createGain();
-    const env = envelope(ctx, at, peak * 1.4, 0.05, at + length, 0.3);
-    formants.connect(env).connect(out);
-    for (const [centre, q] of [[1300, 4], [2600, 5]] as const) {
-      const band = ctx.createBiquadFilter();
-      band.type = 'bandpass';
-      band.frequency.value = centre;
-      band.Q.value = q;
-      filter.connect(band).connect(formants);
-    }
-    filter.frequency.value = 5000;
-    const buzz = tone(ctx, filter, 'sawtooth', 900 * pitch, at, at + length + 0.02);
-    buzz.frequency.setValueAtTime(900 * pitch, at);
-    buzz.frequency.linearRampToValueAtTime(1150 * pitch, at + 0.15);
-    buzz.frequency.exponentialRampToValueAtTime(420 * pitch, at + length);
-    const shake = ctx.createOscillator();
-    shake.frequency.value = 11;
+    // A horse's snort: a blow of breath through the nostrils, which flutter.
+    // A whinny is a voice no oscillator makes believably: the buzz through
+    // two formants that stood for one until 2026-10-01 did not read as a horse.
+    if (crackNoise === null) return;
+    const length = 0.55;
+    const breath = ctx.createBufferSource();
+    breath.buffer = crackNoise;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, at);
+    env.gain.linearRampToValueAtTime(peak * 2.2, at + 0.025);
+    env.gain.exponentialRampToValueAtTime(peak * 0.6, at + 0.18);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + length);
+    // The flutter: the breath's level shaken thirty times a second, slowing.
+    const flutter = ctx.createGain();
+    flutter.gain.value = 0.55;
+    const lips = ctx.createOscillator();
+    lips.frequency.setValueAtTime(32 * pitch, at);
+    lips.frequency.linearRampToValueAtTime(22 * pitch, at + length);
     const depth = ctx.createGain();
-    depth.gain.value = 70;
-    shake.connect(depth).connect(buzz.frequency);
-    shake.start(at);
-    shake.stop(at + length + 0.02);
+    depth.gain.value = 0.45;
+    lips.connect(depth).connect(flutter.gain);
+    breath
+      .connect(biquad(ctx, 'bandpass', 850 * pitch, 0.9))
+      .connect(biquad(ctx, 'lowpass', 2400))
+      .connect(flutter)
+      .connect(env)
+      .connect(out);
+    breath.start(at, Math.random() * 0.4, length + 0.05);
+    lips.start(at);
+    lips.stop(at + length + 0.05);
+    voices++;
+    lips.onended = () => voices--;
   }
 
   /** One tick of a freewheel's pawl: a click of filtered noise a few milliseconds long. */
@@ -654,6 +759,7 @@ export function createAudio(): Audio {
       for (let i = 0; i < VARIANTS[surface]; i++) names.push(`step-${surface}-${i}`);
     }
     for (let i = 0; i < LANDINGS; i++) names.push(`land-${i}`);
+    for (let i = 0; i < PAGES; i++) names.push(`page-${i}`);
     await Promise.all(
       names.map(async (name) => {
         try {
@@ -706,7 +812,7 @@ export function createAudio(): Audio {
         return;
       }
       const ctx = context;
-      // A gentle compressor on the master, so a jingle over the engine at full
+      // A gentle compressor on the master, so a horn over the engine at full
       // throttle does not clip on a laptop's speakers.
       const squeeze = ctx.createDynamicsCompressor();
       squeeze.threshold.value = -14;
@@ -768,7 +874,7 @@ export function createAudio(): Audio {
           : sailing || drifting
             ? WIND_LEVEL * (0.8 + 0.6 * throttle + 0.6 * (drifting ? high : 0))
             : WIND_LEVEL * (0.45 + 0.9 * clamp01(state.height / 60));
-      follow(wind.gain.gain, windLevel * (0.55 + 0.45 * gust) * (1 + 1.6 * gale), now);
+      follow(wind.gain.gain, windLevel * clamp01(state.air ?? 1) * (0.55 + 0.45 * gust) * (1 + 1.6 * gale), now);
       follow(wind.band.frequency, (flying ? 600 + 900 * throttle : 320) * (0.75 + 0.5 * gust), now, 0.8);
 
       // The swell: a slow rise and a slower fall, one every six to nine seconds.
@@ -863,44 +969,26 @@ export function createAudio(): Audio {
     holdHorn(voice, near) {
       const ctx = context;
       if (ctx === null || master === null) return null;
-      const chord = HELD_CHORDS[voice];
-      if (chord === undefined) {
-        // A bell, a bulb, a whinny: a voice that cannot be held sounds once a
-        // press, as a real bell rings once a thumb; holding the key does not
-        // ring it again, pressing it again does.
-        if (near > 0.02) honk(ctx, master, voice, HORN_LEVEL * clamp01(near));
+      const voiced = HELD_CHORDS[voice];
+      if (!HORN_HELD[voice] || voiced === undefined) {
+        // Struck, not held: once a press, as a real bell rings once a thumb.
+        if (near > 0.02) strike(ctx, master, voice, HORN_LEVEL * clamp01(near));
         return { level() {}, release() {} };
       }
       const at = ctx.currentTime + 0.005;
-      const pitch = between(0.96, 1.04);
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = chord.cutoff;
       const env = ctx.createGain();
-      const peak = (value: number): number => HORN_LEVEL * chord.gain * clamp01(value);
+      const peak = (value: number): number => HORN_LEVEL * voiced.gain * clamp01(value);
       env.gain.setValueAtTime(0, at);
-      env.gain.linearRampToValueAtTime(peak(near), at + chord.attack);
-      filter.connect(env).connect(master);
-      const oscillators = chord.tones.map((frequency) => {
-        const osc = ctx.createOscillator();
-        osc.type = chord.type;
-        osc.frequency.value = frequency * pitch;
-        osc.connect(filter);
-        osc.start(at);
-        voices++;
-        osc.onended = () => {
-          voices--;
-          osc.disconnect();
-        };
-        return osc;
-      });
+      env.gain.linearRampToValueAtTime(peak(near), at + voiced.attack);
+      env.connect(master);
+      const oscillators = chord(ctx, env, voiced, at);
       let released = false;
       return {
         level(value) {
           if (released) return;
           const now = ctx.currentTime;
           // Past the attack only, or the ramp to the peak is cut short.
-          if (now < at + chord.attack) return;
+          if (now < at + voiced.attack) return;
           env.gain.setTargetAtTime(peak(value), now, 0.05);
         },
         release() {
@@ -909,42 +997,19 @@ export function createAudio(): Audio {
           const now = Math.max(ctx.currentTime, at);
           env.gain.cancelScheduledValues(now);
           env.gain.setValueAtTime(env.gain.value, now);
-          env.gain.linearRampToValueAtTime(0, now + chord.release);
-          for (const osc of oscillators) osc.stop(now + chord.release + 0.02);
+          env.gain.linearRampToValueAtTime(0, now + voiced.release);
+          for (const osc of oscillators) osc.stop(now + voiced.release + 0.02);
         },
       };
     },
 
     horn(near, voice = 'car') {
-      const ctx = context;
-      if (ctx === null || master === null || near <= 0.02) return;
-      if (voice !== 'car') {
-        honk(ctx, master, voice, HORN_LEVEL * clamp01(near));
-        return;
-      }
-      const at = ctx.currentTime + 0.01;
-      const length = between(0.28, 0.42);
-      const peak = HORN_LEVEL * clamp01(near);
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 1600;
-      const env = ctx.createGain();
-      env.gain.setValueAtTime(0, at);
-      env.gain.linearRampToValueAtTime(peak, at + 0.02);
-      env.gain.setValueAtTime(peak, at + length);
-      env.gain.linearRampToValueAtTime(0, at + length + 0.06);
-      filter.connect(env).connect(master);
-      const pitch = between(0.94, 1.06);
-      for (const frequency of [370, 466]) {
-        const osc = ctx.createOscillator();
-        osc.type = 'square';
-        osc.frequency.value = frequency * pitch;
-        osc.connect(filter);
-        osc.start(at);
-        osc.stop(at + length + 0.08);
-        voices++;
-        osc.onended = () => voices--;
-      }
+      // A tap of the horn, as the traffic gives one: the held voice for a
+      // moment, or a struck one once.
+      if (near <= 0.02) return;
+      const held = audio.holdHorn(voice, near);
+      if (held === null || !HORN_HELD[voice]) return;
+      setTimeout(() => held.release(), between(280, 420));
     },
 
     thunder(delay, loudness) {
@@ -1004,9 +1069,13 @@ export function createAudio(): Audio {
     },
 
     cue(name) {
-      audio.onCue?.(name);
       if (name === 'land') {
         play(`land-${Math.floor(Math.random() * LANDINGS)}`, GAIN.land, between(0.95, 1.05));
+        return;
+      }
+      if (name === 'page') {
+        // Never quite the same leaf twice: another of the three, pitched a little.
+        play(`page-${Math.floor(Math.random() * PAGES)}`, GAIN.page * between(0.85, 1), between(0.9, 1.12));
         return;
       }
       play(name, GAIN[name]);
@@ -1033,7 +1102,6 @@ export function createAudio(): Audio {
     get bus() {
       return master;
     },
-    onCue: null,
 
     get stats() {
       return {

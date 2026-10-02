@@ -1,6 +1,7 @@
 /**
  * The passport: every country you have set foot in, stamped on the day you
- * arrived and at the town you came in by, and every town you have walked into.
+ * arrived and at the town you came in by, and every town you have walked into;
+ * and which continent's pages each country's stamp belongs on (`continentOf`).
  *
  * **A stamp is an arrival, not a flight over.** The HUD's arrival card is the
  * one debounced answer to *which country is this* — a country has to hold for
@@ -21,6 +22,11 @@
  * read and write wrapped: a private window, a full quota or a blocked store
  * leaves a passport that works for the session and forgets on reload. Nothing
  * of it is sent to the other players.
+ *
+ * **One book for every world.** A nation of another planet is stamped under
+ * its namespaced code, `mars:tharsis`, beside Earth's ADM0 codes, and a town
+ * walked into there is `mars:tharsis:Name`; the card turns them into a chapter
+ * a world (`passport-card.ts`). An older book reads as it always did.
  */
 
 /** How you were travelling when the stamp was taken: `controls.ts`'s `TravelMode`. */
@@ -34,7 +40,7 @@ const MODES: readonly StampMode[] = [
 ];
 
 export interface Stamp {
-  /** ADM0_A3, the outlines' key. */
+  /** ADM0_A3, the outlines' key; on another world the nation's namespaced code, `mars:tharsis`. */
   iso: string;
   /** The country's name when it was stamped, so a book outlives a re-bake that renames it. */
   name: string;
@@ -72,6 +78,19 @@ export function emptyPassport(): PassportData {
 }
 
 const ISO = /^[A-Z0-9]{2,4}$/;
+/** A nation of another world: the body's id, a colon, the nation's. */
+const NATION = /^[a-z]+:[a-z0-9-]{1,32}$/;
+
+/** Whether a stamp's code is one the book can vouch for: Earth's, or another world's. */
+export function isStampKey(iso: string): boolean {
+  return ISO.test(iso) || NATION.test(iso);
+}
+
+/** The world a stamp's code is on: `'earth'` for Earth's codes, the prefix for the rest. */
+export function worldOf(iso: string): string {
+  const colon = iso.indexOf(':');
+  return colon < 0 ? 'earth' : iso.slice(0, colon);
+}
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A string field, trimmed and capped, or null. */
@@ -89,9 +108,9 @@ function coordinate(value: unknown, limit: number): number {
 export function readStamp(value: unknown): Stamp | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
-  const iso = text(raw.iso, 4);
+  const iso = text(raw.iso, 40);
   const date = text(raw.date, 10);
-  if (iso === null || !ISO.test(iso) || date === null || !DATE.test(date)) return null;
+  if (iso === null || !isStampKey(iso) || date === null || !DATE.test(date)) return null;
   const mode = MODES.includes(raw.mode as StampMode) ? (raw.mode as StampMode) : 'foot';
   return {
     iso,
@@ -158,6 +177,48 @@ const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', '
 export function stampDateText(date: string): string {
   const [year, month, day] = date.split('-');
   return `${day} ${MONTHS[Number(month) - 1] ?? '???'} ${year}`;
+}
+
+/**
+ * The continents the book has pages for, in the order it takes them.
+ * Natural Earth's own, less its *Seven seas (open ocean)*, which nobody counts
+ * as one: its islands go to the continent they are counted with
+ * (`OPEN_OCEAN_HOMES`).
+ */
+export const CONTINENTS = ['Europe', 'Asia', 'Africa', 'North America', 'South America', 'Oceania', 'Antarctica'] as const;
+export type Continent = (typeof CONTINENTS)[number];
+
+/**
+ * The open ocean's countries, each with the continent its pages are on: the
+ * Indian Ocean's republics with Africa, as the African Union counts them; the
+ * South Atlantic's islands with Africa or South America, by which shore they
+ * face; and the sub-Antarctic territories with Antarctica.
+ */
+export const OPEN_OCEAN_HOMES: Readonly<Record<string, Continent>> = {
+  MUS: 'Africa',
+  SYC: 'Africa',
+  SHN: 'Africa',
+  SGS: 'South America',
+  ATF: 'Antarctica',
+  HMD: 'Antarctica',
+};
+
+/** Which continent's pages a country's stamp is on, or null for one the book does not know. */
+export function continentOf(country: { iso: string; continent: string }): Continent | null {
+  const home = OPEN_OCEAN_HOMES[country.iso];
+  if (home !== undefined) return home;
+  return (CONTINENTS as readonly string[]).includes(country.continent) ? (country.continent as Continent) : null;
+}
+
+/** Every country on its continent's pages, by name, each continent in `CONTINENTS`' order. */
+export function byContinent<C extends { iso: string; name: string; continent: string }>(countries: readonly C[]): Map<Continent, C[]> {
+  const pages = new Map<Continent, C[]>(CONTINENTS.map((continent) => [continent, []]));
+  for (const country of countries) {
+    const continent = continentOf(country);
+    if (continent !== null) pages.get(continent)!.push(country);
+  }
+  for (const list of pages.values()) list.sort((a, b) => a.name.localeCompare(b.name, 'en'));
+  return pages;
 }
 
 /** The key a town is counted under. */

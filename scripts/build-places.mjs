@@ -359,6 +359,8 @@ function parse(line) {
     pop,
     capital: f[7] === 'PPLC',
     zone: f[17],
+    /** The four admin codes, used to tell a district from a town (`isDistrict`) and then thrown away. */
+    admin: [f[10], f[11], f[12], f[13]],
   };
 }
 
@@ -432,6 +434,7 @@ for (const p of candidates) {
     pop: p.pop,
     capital: p.capital,
     zone: p.zone,
+    admin: p.admin,
     movedKm,
   });
 }
@@ -674,7 +677,7 @@ for (const p of onLand.slice().sort((a, b) => rankOf(b) - rankOf(a) || a.name.lo
     // The host it is folded into is the one it overlaps deepest.
     let deepest = hosts[0];
     for (const h of hosts) if (h.units - h.host.built < deepest.units - deepest.host.built) deepest = h;
-    absorbed.push({ name: p.name, pop: p.pop, capital: p.capital, into: deepest.host });
+    absorbed.push({ name: p.name, iso: p.iso, pop: p.pop, capital: p.capital, lat: p.lat, lon: p.lon, admin: p.admin, into: deepest.host });
     continue;
   }
   if (hosts.length > 0) fitted.push({ place: p, built: kept.built, natural });
@@ -735,9 +738,55 @@ const storedRadius = (p) => (p.built === radiusFor(p.pop) ? undefined : p.built)
  * a second freshness contract like `roads.bin`'s.
  */
 const ALIAS_POPULATION = 100_000;
+
+/**
+ * **A district of its host is not an alias.** `PPLX` is dropped at `parse`,
+ * but GeoNames files most of a big city's districts as plain `PPL` or as an
+ * admin seat — Ciudad Lineal and Chamartín in Madrid, the arrondissements of
+ * Paris, Islington and Westminster in London, Tokyo's special wards, Pudong,
+ * Iztapalapa, Brooklyn — and every one of them over 100,000 people passed the
+ * threshold. A search that offers Paris 15 Vaugirard offers a street map, and
+ * the name goes to the host's own centre anyway, so what it offers is noise.
+ * An absorbed place is a district when it is not a national capital and
+ * either
+ *
+ * - **it is in its host's own municipality**: the host's admin codes, down to
+ *   the third level or deeper, are all the place's too (Madrid's 28079 is
+ *   Ciudad Lineal's; Paris's 75056 is every arrondissement's). The third level
+ *   and not the second, because the second is a county in the United States
+ *   and a prefecture in China, which hold separate cities (Chandler in
+ *   Phoenix's Maricopa, Cixi in Ningbo); or
+ * - **it is within `DISTRICT_KM` of its host's point**, which is the inner
+ *   city of anything big enough to absorb a place of 100,000: Brooklyn,
+ *   Manhattan and Jersey City from New York, Giza from Cairo, Villeurbanne
+ *   from Lyon. A separate town that close is a contiguous part of the same
+ *   city, and its name still finds only the host.
+ *
+ * Over this file (2026-10-01) it took the aliases from 2,395 on 771 rows to
+ * 1,787 on 622, and left every row of `places.bin` as it was. What is left are the separate towns the thinning folded in, which are names a
+ * player types for a town — Yokohama, Móstoles, Reading, Kobe — and the
+ * capitals, Vatican City and Monaco among them.
+ */
+const DISTRICT_KM = 12;
+function isDistrict(a) {
+  if (a.capital) return false;
+  if (unitsBetween(a.lat, a.lon, a.into.lat, a.into.lon) * KM_PER_UNIT < DISTRICT_KM) return true;
+  const host = a.into.admin;
+  let depth = 0;
+  for (let level = 0; level < 4; level++) if (host[level]) depth = level + 1;
+  if (depth < 3 || a.iso !== a.into.iso) return false;
+  for (let level = 0; level < depth; level++) if (a.admin[level] !== host[level]) return false;
+  return true;
+}
+
 const aliasByName = new Map();
+let districts = 0;
 for (const a of absorbed) {
   if ((a.pop < ALIAS_POPULATION && !a.capital) || a.name === a.into.name) continue;
+  if (isDistrict(a)) {
+    districts++;
+    continue;
+  }
   const seen = aliasByName.get(a.name);
   if (seen === undefined || a.pop > seen.pop) aliasByName.set(a.name, a);
 }
@@ -928,7 +977,8 @@ if (lostCapitals.length) {
   const bare = gzipSync(encodePlaces(shipped.map(({ aliases, ...row }) => row)), { level: 9 }).length;
   console.log(
     `  ${names} names absorbed at ${ALIAS_POPULATION.toLocaleString('en')} or more, or capitals, kept as aliases of ` +
-    `${aliasesOf.size} places, +${((readFileSync(OUT).length - bare) / 1024).toFixed(1)} KB gzipped`,
+    `${aliasesOf.size} places, +${((readFileSync(OUT).length - bare) / 1024).toFixed(1)} KB gzipped; ` +
+    `${districts} districts of their host left out (DISTRICT_KM)`,
   );
 }
 

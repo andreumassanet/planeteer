@@ -255,7 +255,8 @@ export interface Grass {
 // The shader
 // ---------------------------------------------------------------------------
 
-const GRASS_VERTEX_PARS = /* glsl */ `
+/** The vertex stage's declarations, for a planet of `radius` units. */
+const grassVertexPars = (radius: number): string => /* glsl */ `
 uniform vec4 uGRect;
 uniform float uGSpacing;
 uniform float uGRadius;
@@ -287,7 +288,7 @@ varying float vGrassT;
 varying float vGrassAO;
 
 const float GRASS_M = ${METRE.toFixed(6)};
-const float GRASS_R = ${PLANET_RADIUS.toFixed(1)};
+const float GRASS_R = ${radius.toFixed(1)};
 
 uvec4 grassPcg(uvec4 v) {
   v = v * 1664525u + 1013904223u;
@@ -624,22 +625,22 @@ function sharedUniforms(): Record<string, THREE.IUniform> {
  * common (`customProgramCacheKey`); each carries its own uniforms, because a
  * material's uniforms are uploaded when the material changes between draws.
  */
-function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Texture): THREE.MeshToonMaterial {
+function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Texture, radius: number, earth: boolean): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ gradientMap: ramp, side: THREE.DoubleSide });
   material.userData.outlineParameters = { visible: false };
   material.userData.uniforms = uniforms;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
-    bindGroundWeather(shader.uniforms);
+    if (earth) bindGroundWeather(shader.uniforms);
     bindNearLights(shader.uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${GRASS_VERTEX_PARS}`)
+      .replace('#include <common>', `#include <common>\n${grassVertexPars(radius)}`)
       .replace('#include <beginnormal_vertex>', GRASS_VERTEX_MAIN)
       .replace('#include <begin_vertex>', 'vec3 transformed = grassLocal;');
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        `#include <common>\nvarying vec3 vGrassRoot;\nvarying vec3 vGrassColour;\nvarying float vGrassT;\nvarying float vGrassAO;\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}\n${nearLightsGLSL()}`,
+        `#include <common>\nvarying vec3 vGrassRoot;\nvarying vec3 vGrassColour;\nvarying float vGrassT;\nvarying float vGrassAO;\n${earth ? `${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}` : ''}\n${nearLightsGLSL()}`,
       )
       .replace('#include <gradientmap_pars_fragment>', GRASS_GRADIENT)
       .replace('#include <lights_toon_pars_fragment>', GRASS_LIGHTS)
@@ -647,7 +648,10 @@ function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Tex
         '#include <color_fragment>',
         // The land's own blots over it (`atlasPatches`, `globe.ts`), at the
         // root: a blade is the patch of ground it grows in.
-        `#include <color_fragment>\n  diffuseColor.rgb = atlasPatches(diffuseColor.rgb * vGrassColour, vGrassRoot);\n  ${groundWeatherChunk('vGrassRoot')}`,
+        earth
+          ? `#include <color_fragment>\n  diffuseColor.rgb = atlasPatches(diffuseColor.rgb * vGrassColour, vGrassRoot);\n  ${groundWeatherChunk('vGrassRoot')}`
+          : // Another world's has no patches of Earth's land and no weather of Earth's on it.
+            '#include <color_fragment>\n  diffuseColor.rgb *= vGrassColour;',
       )
       // The normal the vertex stage turned toward the camera, on both faces:
       // three turns a back face's round, and a blade seen from behind would
@@ -656,7 +660,7 @@ function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Tex
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${nearLightsChunk('vGrassRoot')}`)
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse *= vGrassAO;');
   };
-  material.customProgramCacheKey = () => 'atlas-grass';
+  material.customProgramCacheKey = () => (earth ? 'atlas-grass' : `atlas-grass:${radius.toFixed(1)}`);
   return material;
 }
 
@@ -692,6 +696,8 @@ function bladeGeometry(segments: number): THREE.InstancedBufferGeometry {
 
 /** A tangent frame: the anchor's up, and `across` and `north` along the ground. */
 interface Frame {
+  /** The planet's radius, units: the sphere the tangent plane touches. */
+  radius: number;
   up: THREE.Vector3;
   across: THREE.Vector3;
   north: THREE.Vector3;
@@ -721,7 +727,7 @@ function frameAt(direction: THREE.Vector3, frame: Frame): boolean {
 function directionIn(frame: Frame, x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
   return out
     .copy(frame.up)
-    .multiplyScalar(PLANET_RADIUS)
+    .multiplyScalar(frame.radius)
     .addScaledVector(frame.across, x)
     .addScaledVector(frame.north, z)
     .normalize();
@@ -733,9 +739,9 @@ function tangentOf(frame: Frame, point: THREE.Vector3, out: THREE.Vector3): THRE
   const up = point.dot(frame.up) / length;
   if (up <= 1e-6) return out.set(Infinity, 0, Infinity);
   return out.set(
-    (PLANET_RADIUS * point.dot(frame.across)) / length / up,
-    length - PLANET_RADIUS,
-    (PLANET_RADIUS * point.dot(frame.north)) / length / up,
+    (frame.radius * point.dot(frame.across)) / length / up,
+    length - frame.radius,
+    (frame.radius * point.dot(frame.north)) / length / up,
   );
 }
 
@@ -843,7 +849,17 @@ export function pressOf(player: Pick<Player, 'state' | 'ride' | 'forward'>, out:
   return out;
 }
 
-export function createGrass(ground: GrassGround | null): Grass {
+/** Another world's grass: its own radius, and none of Earth's patches or weather on it. */
+export interface GrassOptions {
+  /** The planet's radius, units; Earth's (`PLANET_RADIUS`) when omitted. */
+  radius?: number;
+  /** Whether the blades carry Earth's ground marks and its weather (snow lying, wet); true when omitted. */
+  earth?: boolean;
+}
+
+export function createGrass(ground: GrassGround | null, options: GrassOptions = {}): Grass {
+  const R = options.radius ?? PLANET_RADIUS;
+  const earth = options.earth ?? true;
   const group = new THREE.Group();
   group.name = 'grass';
   const shared = sharedUniforms();
@@ -877,7 +893,7 @@ export function createGrass(ground: GrassGround | null): Grass {
     layerGroup.visible = false;
     group.add(layerGroup);
     return {
-      frame: { up: new THREE.Vector3(0, 1, 0), across: new THREE.Vector3(), north: new THREE.Vector3(), quaternion: new THREE.Quaternion() },
+      frame: { radius: R, up: new THREE.Vector3(0, 1, 0), across: new THREE.Vector3(), north: new THREE.Vector3(), quaternion: new THREE.Quaternion() },
       fine,
       coarse,
       group: layerGroup,
@@ -934,7 +950,7 @@ export function createGrass(ground: GrassGround | null): Grass {
         uGFaceCam: { value: ring.faceCamera },
         uGRing: { value: index },
       };
-      const mesh = new THREE.Mesh(bladeGeometry(ring.segments), grassMaterial(uniforms, ramp));
+      const mesh = new THREE.Mesh(bladeGeometry(ring.segments), grassMaterial(uniforms, ramp, R, earth));
       mesh.name = `grass-ring-${index}`;
       // Every vertex is placed by the shader; there is nothing for a box to bound.
       mesh.frustumCulled = false;
@@ -975,7 +991,7 @@ export function createGrass(ground: GrassGround | null): Grass {
       field.paint[slot + 3] = 255;
       return true;
     }
-    field.data[slot] = found.radius - PLANET_RADIUS;
+    field.data[slot] = found.radius - R;
     field.data[slot + 1] = found.density;
     field.data[slot + 2] = found.dry;
     // The ground goes on here, grass or none: its height is laid between.
@@ -1139,7 +1155,7 @@ export function createGrass(ground: GrassGround | null): Grass {
 
   function anchor(layer: Layer, direction: THREE.Vector3): void {
     if (!frameAt(direction, layer.frame)) throw new Error('grass: the tangent frame came out a reflection');
-    layer.group.position.copy(layer.frame.up).multiplyScalar(PLANET_RADIUS);
+    layer.group.position.copy(layer.frame.up).multiplyScalar(R);
     layer.group.quaternion.copy(layer.frame.quaternion);
     layer.group.updateMatrixWorld(true);
     for (const field of [layer.fine, layer.coarse]) {
@@ -1192,7 +1208,7 @@ export function createGrass(ground: GrassGround | null): Grass {
           continue;
         }
         for (let c = 0; c + 3 < changes.length; c += 4) {
-          changedAt.set(changes[c]!, changes[c + 1]!, changes[c + 2]!).multiplyScalar(PLANET_RADIUS);
+          changedAt.set(changes[c]!, changes[c + 1]!, changes[c + 2]!).multiplyScalar(R);
           const at = tangentOf(layer.frame, changedAt, changedPlane);
           const reach = changes[c + 3]! + field.texel * 2;
           if (!Number.isFinite(at.x)) continue;
@@ -1246,7 +1262,7 @@ export function createGrass(ground: GrassGround | null): Grass {
     enabled: true,
     height: 1,
     proxies: () => {
-      const probe = grassMaterial({ ...shared, ...front.uniforms, uGRect: { value: new THREE.Vector4() }, uGSpacing: { value: 1 }, uGRadius: { value: 1 }, uGWidth: { value: 1 }, uGFaceCam: { value: 0 }, uGRing: { value: 0 } }, ramp);
+      const probe = grassMaterial({ ...shared, ...front.uniforms, uGRect: { value: new THREE.Vector4() }, uGSpacing: { value: 1 }, uGRadius: { value: 1 }, uGWidth: { value: 1 }, uGFaceCam: { value: 0 }, uGRing: { value: 0 } }, ramp, R, earth);
       return [proxyOf(probe)];
     },
 

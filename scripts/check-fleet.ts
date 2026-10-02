@@ -666,6 +666,11 @@ console.log('\nthe local link:');
   link.release(id, null);
   check(second && link.moved.get(id)?.pose.join() === where.join(), 'a passenger leaving does not move it');
   check(link.sample(id, pose) === false, 'nobody else drives on a local link');
+  // Sunk: back at its site, with nobody in it.
+  await link.claim(id, 0);
+  link.drive(id, where, 0);
+  link.sink(id);
+  check(!link.moved.has(id), 'a vehicle that sank is back at its site');
 }
 
 // --- named places ------------------------------------------------------------------------
@@ -737,13 +742,14 @@ console.log('\nthe ride, headless:');
   const events: string[] = [];
   const player = createPlayer(world, 41.39, 2.17, { onEvent: (event) => events.push(event) });
   const heading = new Vector3();
-  const step = (seconds: number, input: { x?: number; y?: number; run?: boolean; climb?: boolean; dive?: boolean }): void => {
+  const step = (seconds: number, input: { x?: number; y?: number; run?: boolean; climb?: boolean; dive?: boolean; jump?: boolean }): void => {
     for (let t = 0; t < seconds; t += 1 / 60) {
       heading.copy(player.forward);
       player.update(1 / 60, {
         move: { x: input.x ?? 0, y: input.y ?? 0 },
         run: input.run ?? false,
-        jump: false,
+        // An edge: the first frame only.
+        jump: (input.jump ?? false) && t === 0,
         heading,
         climb: input.climb ?? false,
         dive: input.dive ?? false,
@@ -795,6 +801,26 @@ console.log('\nthe ride, headless:');
   step(3, {});
   check(!player.airborne && player.state !== 'seated', 'and down again on foot', `${player.velocity.toFixed(1)} units/s`);
 
+  // A car in the water: it floats a moment, goes down nose first, and once
+  // it has gone (`FOUNDER_TIME`) the fleet puts the driver out swimming.
+  {
+    const { FOUNDER_TIME, founderDepth } = await import('../src/vehicles.ts');
+    const hatchback = craft.get('hatchback')!;
+    const afloat = boat.at.clone().multiplyScalar(PLANET_RADIUS + 0.5);
+    player.board({ vehicle: car.id, seat: 0, model: hatchback, group: hatchback.build(0) }, writePose(afloat, boat.forward, boat.at, []));
+    events.length = 0;
+    step(1 / 60, {});
+    const floating = player.position.length() - PLANET_RADIUS;
+    step(FOUNDER_TIME * 0.5, { y: 1 });
+    const half = player.position.length() - PLANET_RADIUS;
+    check(events.includes('foundered') && !player.sunk && half < floating - 0.5, 'a car in the water founders: it splashes and goes down', `${floating.toFixed(2)} to ${half.toFixed(2)} over the waterline`);
+    step(FOUNDER_TIME * 0.5 + 0.1, { y: 1 });
+    check(player.sunk && player.ride !== null, 'and at FOUNDER_TIME it has sunk', `${(player.position.length() - PLANET_RADIUS).toFixed(2)}, ${founderDepth(FOUNDER_TIME).toFixed(2)} down`);
+    player.leave();
+    check(player.state === 'swim' && player.ride === null && !player.sunk, 'the driver is put out swimming at the surface', player.state);
+    player.goTo(41.39, 2.17);
+  }
+
   // The launch, out of the harbour.
   board(boat);
   step(2, { y: 1 });
@@ -829,30 +855,67 @@ console.log('\nthe ride, headless:');
     }
   }
   check(events.includes('took-off') && player.airborne, 'holding the climb key takes off', `${player.altitude.toFixed(0)} up, ${player.velocity.toFixed(0)} units/s`);
-  step(3, { run: true });
+  step(3, { climb: true });
   const climbed = player.altitude;
   step(3, {});
   const held = player.altitude;
   step(2, {});
-  check(Math.abs(player.altitude - held) < held * 0.01 && held >= climbed, 'the run key climbs too, and letting go levels off', `${climbed.toFixed(0)} then ${held.toFixed(0)} then ${player.altitude.toFixed(0)}`);
-  for (seconds = 0; seconds < 120 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
-  check(player.grounded && events.some((event) => event === 'landed'), 'holding descend lands it', `after ${seconds} s; ${events.join(', ')}`);
+  check(Math.abs(player.altitude - held) < held * 0.01 && held >= climbed, 'letting go of the climb levels off', `${climbed.toFixed(0)} then ${held.toFixed(0)} then ${player.altitude.toFixed(0)}`);
+  step(1, { run: true });
+  check(player.altitude < held - 3, 'the run key descends in the air', `${held.toFixed(0)} then ${player.altitude.toFixed(0)}`);
+  // Down with the throttle held open all the way, as a hand on `W` does.
+  for (seconds = 0; seconds < 120 && !player.grounded; seconds += 1 / 60) step(1 / 60, { run: true, y: 1 });
+  check(player.grounded && events.some((event) => event === 'landed'), 'holding the run key lands it', `after ${seconds.toFixed(1)} s; ${events.join(', ')}`);
+  // Landed with the throttle still open: it rolls out, it does not take off again.
+  events.length = 0;
+  step(4, { y: 1 });
+  check(player.grounded && !events.includes('took-off'), 'a landing with the throttle held rolls out rather than taking off again', `${player.velocity.toFixed(0)} units/s`);
   step(4, { y: -1 });
   check(player.leave() !== null && player.state !== 'seated', 'and it is left on the ground');
 
+  // The take-off on the throttle alone: held, it runs and lifts off by itself, inside its strip, and climbs out.
+  board(plane);
+  events.length = 0;
+  let throttleRun = -1;
+  for (let t = 0; t < 8 && throttleRun < 0; t += 1 / 60) {
+    step(1 / 60, { y: 1 });
+    if (events.includes('took-off')) throttleRun = units(plane.at, player.position.clone().normalize());
+  }
+  const lifted = player.altitude;
+  step(3, { y: 1 });
+  check(throttleRun > 0 && throttleRun < STRIP_LENGTH - 30 && player.altitude > lifted + 15,
+    'holding the throttle alone takes off inside its strip and climbs out', `${throttleRun.toFixed(0)} units of ${STRIP_LENGTH}, ${(player.altitude - lifted).toFixed(0)} up in 3 s`);
+  for (seconds = 0; seconds < 120 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
+  check(player.grounded, 'and the descend key lands it too', `after ${seconds} s`);
+  check(player.leave() !== null, 'and it is left there');
+
   // Out of a plane in flight: a fall, a canopy near the ground, and down.
   board(plane);
-  step(8, { climb: true });
-  step(16, { run: true });
+  step(24, { climb: true });
   const bailedAt = player.altitude - (ground(player.position.clone().normalize()) - PLANET_RADIUS);
   check(player.leave() !== null && player.state === 'foot' && player.parachute && player.airborne && player.ride === null && bailedAt > 150,
     'out of a plane in flight is a jump, with a parachute', `${bailedAt.toFixed(0)} units over the ground`);
+  check(!player.canopy, 'the fall starts with the canopy packed');
+  step(0.5, { jump: true });
+  const opened = player.canopy;
+  step(0.5, { jump: true });
+  check(opened && !player.canopy && player.parachute, 'the jump key opens the canopy, and stows it again high up');
   let underCanopy = 0;
+  let forced = false;
+  let stowedLow = false;
   for (seconds = 0; seconds < 120 && player.parachute; seconds += 1 / 60) {
-    step(1 / 60, { y: 1 });
     const over = player.position.length() - ground(player.position.clone().normalize());
-    if (player.parachute && over < 40) underCanopy = Math.max(underCanopy, -player.climb);
+    if (!forced && player.canopy && over < 120) {
+      // Opened by itself near the ground, and the jump key cannot take it away.
+      forced = true;
+      step(1 / 60, { jump: true });
+      stowedLow = !player.canopy;
+    }
+    step(1 / 60, { y: 1 });
+    const left = player.position.length() - ground(player.position.clone().normalize());
+    if (player.parachute && left < 40) underCanopy = Math.max(underCanopy, -player.climb);
   }
+  check(forced && !stowedLow, 'near the ground the canopy opens by itself, and stays open', `${forced} ${stowedLow}`);
   check(!player.parachute && !player.airborne && (player.state === 'foot' || player.state === 'swim') && underCanopy < 10,
     'and comes down under its canopy, slowly, on the ground or in the water', `after ${seconds.toFixed(1)} s, ${player.state}, sinking ${underCanopy.toFixed(1)} units/s at the end`);
 
@@ -1170,6 +1233,34 @@ console.log('\nthe ride, headless:');
     const ran = units(from.clone().normalize(), new Vector3(pose[0], pose[1], pose[2]).normalize());
     check(took && out && going > 10 && ran > 5 && (coastLink.moved.get(car.id)?.seats[0] ?? null) === null,
       'a car jumped out of runs on alone, slows, and is parked where it stops', `${ran.toFixed(0)} units on from ${going.toFixed(0)} units/s, parked after ${seconds} s`);
+  }
+
+  // And one jumped out of is the jumper's to take again while it still rolls,
+  // going as it was.
+  {
+    const { createFleet } = await import('../src/fleet.ts');
+    const driver = createPlayer(world, latOf(car.at.y), lonOf(car.at.x, car.at.z));
+    const rollLink = createLocalLink('roll');
+    const fleet = createFleet({ ...source, models: craft, link: rollLink, player: driver });
+    const tick = (seconds: number, y: number): void => {
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        driver.update(1 / 60, { move: { x: 0, y }, run: false, jump: false, heading: driver.forward.clone() });
+        fleet.update(1 / 60);
+      }
+    };
+    await fleet.board(car.id);
+    tick(3, 1);
+    fleet.use();
+    tick(0.05, 0);
+    const offered = fleet.prompt?.vehicle === car.id && fleet.prompt.seat === 0;
+    // `E` is acted on once in `USE_INTERVAL_MS`, by the clock.
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    fleet.use();
+    await Promise.resolve();
+    const back = fleet.current()?.vehicle === car.id && driver.state === 'seated';
+    const going = driver.speed;
+    check(offered && back && going > 5, 'a car jumped out of can be taken again while it still rolls, going as it was',
+      `offered ${offered}, back ${back}, ${going.toFixed(1)} units/s`);
   }
 
   // Every vehicle stands, drawn and solid, well before anybody reaches it, and

@@ -36,6 +36,8 @@ export interface SheetRing {
   v0: number;
   v1: number;
   water: boolean;
+  /** The ring's fill on a world with no sea, its nation's colour as CSS; left out on Earth. */
+  fill?: string;
   /** Thinned copies, one a level, built the first time a level is drawn. */
   levels: (OutlineLevel | undefined)[];
 }
@@ -229,7 +231,7 @@ export function ringsForTile(
   vMin: number,
   vMax: number,
   water: boolean,
-  each: (level: OutlineLevel, wrap: number) => void,
+  each: (level: OutlineLevel, wrap: number, ring: SheetRing) => void,
 ): void {
   const level = outlineLevelFor(pixelsPerUnit);
   for (const ring of rings) {
@@ -237,7 +239,7 @@ export function ringsForTile(
     if (ring.v1 < vMin || ring.v0 > vMax) continue;
     for (let wrap = -1; wrap <= 1; wrap++) {
       if (ring.u1 + wrap < uMin || ring.u0 + wrap > uMax) continue;
-      each(levelOf(ring, level), wrap);
+      each(levelOf(ring, level), wrap, ring);
     }
   }
 }

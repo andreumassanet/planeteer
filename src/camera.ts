@@ -391,6 +391,31 @@ const COCKPIT_RETURN = 1.5;
 /** A vehicle's +Z is ahead and a camera looks down its own -Z: a half turn between them. */
 const ABOUT_FACE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
+/**
+ * What the lens follows: Earth's `Player` is one, and so is the traveller on
+ * another world (`worlds/index.ts`), so there is one camera in the game and
+ * every body is framed, chased and swung behind the same way. Only what this
+ * file reads is here.
+ */
+export interface CameraSubject {
+  readonly position: THREE.Vector3;
+  readonly up: THREE.Vector3;
+  readonly forward: THREE.Vector3;
+  /** Ground speed, units a second. */
+  readonly velocity: number;
+  readonly airborne: boolean;
+  readonly altitude: number;
+  readonly depth: number;
+  readonly sink: number;
+  readonly sitting: boolean;
+  readonly state: Player['state'];
+  readonly controls: { lift: number };
+  readonly ride: { readonly model: { readonly kind: string; readonly size: readonly [number, number, number] } } | null;
+  seatEye(position: THREE.Vector3, orientation: THREE.Quaternion): boolean;
+  setBodyVisible(visible: boolean): void;
+  setCockpit(on: boolean): void;
+}
+
 export interface CameraRig {
   camera: THREE.PerspectiveCamera;
   /** Unit vector: where the camera faces, projected tangent to the surface. Feed to player. */
@@ -422,11 +447,11 @@ export interface CameraRig {
    */
   firstPerson: boolean;
   /** Update yaw/pitch from mouse look. Call BEFORE player.update. */
-  aim(dt: number, input: InputState, player: Player): void;
+  aim(dt: number, input: InputState, player: CameraSubject): void;
   /** Chase the player. Call AFTER player.update. */
-  follow(dt: number, player: Player, groundRadiusAt: (p: THREE.Vector3) => number): void;
+  follow(dt: number, player: CameraSubject, groundRadiusAt: (p: THREE.Vector3) => number): void;
   /** Place the camera with no interpolation: first frame, and after a teleport. */
-  snap(player: Player, groundRadiusAt: (p: THREE.Vector3) => number): void;
+  snap(player: CameraSubject, groundRadiusAt: (p: THREE.Vector3) => number): void;
   resize(width: number, height: number): void;
   /**
    * A knock felt through the lens: `strength` from 0 to 1, a car into a wall
@@ -452,14 +477,14 @@ export interface CameraOptions {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 /** In a vehicle's seat, which is every framing that is not a foot's; swimming is a foot's. */
-const seated = (player: Player): boolean => player.state === 'seated';
+const seated = (player: CameraSubject): boolean => player.state === 'seated';
 /**
  * What the camera orbits: the head on foot and afloat — where the body hangs
  * under the surface, the head is `sink` nearer it — and in a vehicle a little
  * over the middle of it, so a balloon is orbited round its envelope and not
  * round the basket.
  */
-const pivotHeight = (player: Player): number =>
+const pivotHeight = (player: CameraSubject): number =>
   player.ride !== null ? Math.max(PIVOT_HEIGHT, player.ride.model.size[2] * 0.6) : PIVOT_HEIGHT - player.sink;
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (rate: number, dt: number) => 1 - Math.exp(-rate * dt);
@@ -593,7 +618,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * the path walked: the camera keeps pointing at the same feature while you
    * walk over a pole, instead of unwinding.
    */
-  function align(player: Player): void {
+  function align(player: CameraSubject): void {
     if (lastUp.lengthSq() === 0) lastUp.copy(player.up);
     transport.setFromUnitVectors(lastUp, player.up);
     heading.applyQuaternion(transport);
@@ -609,7 +634,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
   }
 
   /** Where the framing wants to be for what the player is currently doing. */
-  function want(player: Player): void {
+  function want(player: CameraSubject): void {
     if (player.ride !== null) {
       const [length, width, tall] = player.ride.model.size;
       const kind = player.ride.model.kind;
@@ -643,7 +668,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * foot `follow` hands in the pivot it has smoothed (`orbit`), because on foot
    * the chase is on the pivot and the orbit round it is exact.
    */
-  function place(player: Player, smoothed = false): void {
+  function place(player: CameraSubject, smoothed = false): void {
     if (smoothed) pivot.copy(orbit);
     else pivot.copy(player.position).addScaledVector(player.up, pivotHeight(player));
 
@@ -743,7 +768,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * the lens cannot get below the shoulders it is aiming at, so it can only
    * ever look down.
    */
-  function aimAt(player: Player, lift: number): void {
+  function aimAt(player: CameraSubject, lift: number): void {
     sample.copy(target).addScaledVector(player.up, lift);
 
     // The roll, chosen rather than inferred. `camera.up` follows the surface
@@ -760,7 +785,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
   }
 
   /** Eases the lens towards the one for what you are doing; see `FOV_FOOT`. */
-  function lens(player: Player, rate: number): void {
+  function lens(player: CameraSubject, rate: number): void {
     const wanted = firstPerson ? FOV_EYE
       : seated(player) ? FOV_CRAFT
       : FOV_FOOT + FOV_RUN * ramp(player.velocity, WALK_SPEED, RUN_SPEED);
@@ -770,10 +795,10 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
   }
 
   /** True when the eye is actually in the head on foot, swimming, or falling under a canopy. */
-  const inTheHead = (player: Player): boolean => firstPerson && !seated(player);
+  const inTheHead = (player: CameraSubject): boolean => firstPerson && !seated(player);
 
   /** Tells the player whether the eye is in his seat, when that changes. */
-  function cockpitOn(player: Player, on: boolean): void {
+  function cockpitOn(player: CameraSubject, on: boolean): void {
     if (on === inCockpit) return;
     inCockpit = on;
     player.setCockpit(on);
@@ -784,7 +809,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * vehicle and then by the head. Like the eye on foot, no chase and no lag;
    * the pivot is kept on the body for `V` off.
    */
-  function cockpit(player: Player): boolean {
+  function cockpit(player: CameraSubject): boolean {
     if (!player.seatEye(camera.position, seatTurn)) return false;
     headTurn.setFromEuler(headEuler.set(lookPitch, lookYaw, 0, 'YXZ'));
     camera.quaternion.copy(seatTurn).multiply(headTurn).multiply(ABOUT_FACE);
@@ -805,7 +830,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * `player.setBodyVisible` cannot go quietly missing, because only that file
    * knows which object is the body and a method is a thing the compiler checks.
    */
-  function showBody(player: Player, visible: boolean): void {
+  function showBody(player: CameraSubject, visible: boolean): void {
     player.setBodyVisible(visible);
   }
 
@@ -833,7 +858,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    * first thing you see on pressing `V`. Level is the neutral here, so the
    * shared number is the offset and not the angle.
    */
-  function eye(player: Player): void {
+  function eye(player: CameraSubject): void {
     pitch = clamp(pitch, EYE_MIN_ELEVATION, EYE_MAX_ELEVATION);
     const elevation = pitch;
 

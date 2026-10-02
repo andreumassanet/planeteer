@@ -385,6 +385,21 @@ export function createFleetSync(peers: Peers): FleetSync {
       emit(vehicle);
     },
 
+    sink(vehicle) {
+      const entry = moved.get(vehicle);
+      if (entry === undefined || entry.seats[0] !== self()) return;
+      if (held?.vehicle === vehicle) held = null;
+      sentPose = null;
+      driven.delete(vehicle);
+      parks.delete(vehicle);
+      // Back at its site with nobody in it, here at once; the room says the
+      // same to everyone else (`park` with no pose). A relay older than the
+      // message takes it as an `up` and parks it where it went under.
+      moved.delete(vehicle);
+      if (live) post({ t: 'up', v: vehicle, sunk: true });
+      emit(vehicle);
+    },
+
     drive(vehicle, pose, speed) {
       const entry = moved.get(vehicle);
       if (entry === undefined || entry.seats[0] !== self() || !isPose(pose)) return;

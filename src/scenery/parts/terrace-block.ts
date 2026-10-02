@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -99,11 +99,21 @@ export const terraceBlock: ScenicPart = {
 
     // --- the shopfront: glass, a door, and a fascia over both ---
     const front = depth / 2;
+    // The door stands in its own frame inside the corner and the glass keeps
+    // clear of it: at 0.38 of the width, the narrowest blocks ran the frame
+    // into the last pane.
     const shopGlass = lit(panes(3, width * 0.2, STOREY * 0.5, width * 0.045, ctx.glass), 0.9);
-    shopGlass.position.set(-width * 0.06, PLINTH + STOREY * 0.24, front + PROUD);
+    shopGlass.position.set(-width * 0.08, PLINTH + STOREY * 0.24, front + PROUD);
     group.add(shopGlass);
-    const shopDoor = panes(1, 1.3, STOREY * 0.66, 0, fascia, PROUD * 2);
-    shopDoor.position.set(width * 0.38, PLINTH, front + PROUD);
+    const shopDoor = ctx.door({
+      width: 1.3,
+      height: STOREY * 0.66,
+      leaf: doorPaint(rng, style, wall),
+      frame: fascia,
+      sill: PLINTH,
+      step: course,
+    });
+    shopDoor.position.set(width / 2 - 1.1, 0, front);
     group.add(shopDoor);
     const board = panes(1, width - 0.4, 0.5, 0, fascia, PROUD * 3);
     board.position.set(0, PLINTH + STOREY * 0.8, front + PROUD * 1.5);

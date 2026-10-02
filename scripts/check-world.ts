@@ -131,12 +131,12 @@ import { verifyFlagLayer } from '../src/land-flags.ts';
 import { FLAGS, FLAG_ALIAS, NO_FLAG } from '../src/flag-data.ts';
 import { MAX_FOOTPRINT, createContext } from '../src/monuments/contract.ts';
 import type { Monument } from '../src/monuments/contract.ts';
-import { LANDMARK_KEEP, planReach, planShape, setLandmarks } from '../src/landmark-ground.ts';
+import { ARRIVAL_CLEARANCE, LANDMARK_KEEP, clearOfPlans, planReach, planShape, plannedSite, setLandmarks, siteGap } from '../src/landmark-ground.ts';
 import type { Plan, PlanShape } from '../src/landmark-ground.ts';
 import { SHORE_CLEAR } from '../src/terrain.ts';
 import { mergeMeshes } from '../src/merge.ts';
 import { Mesh } from 'three';
-import { PLANE_CEILING, PLANE_CRUISE_HIGH } from '../src/vehicles.ts';
+import { PLANE_CEILING, PLANE_CRUISE_HIGH, isWater } from '../src/vehicles.ts';
 import * as relay from '../server/src/limits.ts';
 import { TIME_SCALE } from './time-scale.ts';
 import { fightsIn } from './z-fight.ts';
@@ -2099,6 +2099,57 @@ if (existsSync(placesPath)) {
       `${aliases.size} of ${written} names, to ${new Set(aliases.values()).size} towns` +
         (unreached.length > 0 ? `; ${unreached.length} in a country with none built: ${unreached.join(', ')}` : '') +
         (wrong.length > 0 ? `; ${wrong.slice(0, 4).join(', ')}` : ''),
+    );
+  }
+
+  /**
+   * **Nobody arrives inside a landmark.** Every arrival — the menu's town, a
+   * link's `?at=`, `/goto` (a built town, a name folded into one or a
+   * country's seat, which are all built towns), `/home`, `/tp`, the map's
+   * join — is carried out of every landmark's plan by `clearOfPlans` before
+   * the body is put down (`arrivalAt` in `main.ts`), because a monument's
+   * walls are measured from outside and a body inside one has no way out.
+   * Replayed here for every built town's own point, with the same dry-ground
+   * preference; the count of towns whose point stood within the clearance is
+   * what the rule saves.
+   */
+  {
+    const sites = placed.map(plannedSite);
+    const nearestGap = (p: { x: number; y: number; z: number }): number => {
+      let best = Infinity;
+      for (const site of sites) {
+        if (p.x * site.up.x + p.y * site.up.y + p.z * site.up.z < Math.cos((site.reach + 4 * ARRIVAL_CLEARANCE) / PLANET_RADIUS)) continue;
+        best = Math.min(best, siteGap(site, p, PLANET_RADIUS));
+      }
+      return best;
+    };
+    const probe = new Vector3();
+    const dry = (p: { x: number; y: number; z: number }): boolean =>
+      !isWater(groundRadius(world, probe.set(p.x, p.y, p.z).multiplyScalar(PLANET_RADIUS)));
+    const point = { x: 0, y: 0, z: 0 };
+    const before: string[] = [];
+    let insidePlan = 0;
+    let wet = 0;
+    const after: string[] = [];
+    for (const place of places) {
+      if (!isShown(place)) continue;
+      unitAt(place.lat, place.lon, point);
+      const was = nearestGap(point);
+      if (was >= ARRIVAL_CLEARANCE) continue;
+      before.push(`${place.name} ${was.toFixed(0)}`);
+      if (was <= 0) insidePlan++;
+      clearOfPlans(point, sites, PLANET_RADIUS, point, ARRIVAL_CLEARANCE, dry);
+      const now = nearestGap(point);
+      if (now < ARRIVAL_CLEARANCE - 0.01) after.push(`${place.name} ${now.toFixed(1)}`);
+      if (!dry(point)) wet++;
+    }
+    check(
+      after.length === 0,
+      'no arrival at a built town is inside a landmark’s plan',
+      `${before.length} town points within ${ARRIVAL_CLEARANCE} units of a plan, ${insidePlan} inside one, all carried out` +
+        (wet > 0 ? `, ${wet} onto water` : '') +
+        (before.length > 0 ? ` (${before.slice(0, 6).join(', ')})` : '') +
+        (after.length > 0 ? `; still in: ${after.slice(0, 4).join(', ')}` : ''),
     );
   }
 

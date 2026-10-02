@@ -25,6 +25,7 @@ import { PALETTE } from '../../theme.ts';
 import type { Body, Nation, Settlement, Species } from '../contract.ts';
 import { surfaceRadiusOf } from '../contract.ts';
 import { makeGround, reliefBudget } from '../ground.ts';
+import { grownTowns } from '../towns.ts';
 
 const RADIUS_KM = 24622;
 /** Cloud-top relief: the bright companions stand about 50 km over the deck. */
@@ -74,6 +75,8 @@ const GROUND = makeGround({
   },
 });
 
+// The nations and towns are invented; the storms they are named for, and the
+// latitudes they stand at, are Voyager 2's.
 const NATIONS: readonly Nation[] = [
   { id: 'great-dark', name: 'The Great Dark Spot', lat: -22, lon: 15, radius: 22, color: PALETTE.steel,
     note: 'A hole in the deck the size of Earth, seen once in 1989 and gone by 1994.' },
@@ -85,6 +88,8 @@ const NATIONS: readonly Nation[] = [
     note: 'Two thousand kilometres an hour, running backwards against the planet under it.' },
   { id: 'north-band', name: 'The Northern Band', lat: 40, lon: -140, radius: 32, color: PALETTE.bone,
     note: 'Where the wind turns round and runs with the rotation instead of against it.' },
+  { id: 'shadow-streaks', name: 'The Shadow Streaks', lat: 29, lon: 40, radius: 13, color: PALETTE.violet,
+    note: 'Long white cirrus fifty kilometres over the blue, the only clouds anyone has seen cast a shadow on other clouds.' },
   { id: 'south-collar', name: 'The South Polar Collar', lat: -80, lon: 0, radius: 15, color: PALETTE.cream,
     note: 'Ten degrees warmer than anywhere else on the planet, and letting methane out to space.' },
   { id: 'north-collar', name: 'The North Polar Collar', lat: 80, lon: 180, radius: 15, color: PALETTE.cream,
@@ -92,30 +97,47 @@ const NATIONS: readonly Nation[] = [
 ];
 
 const SETTLEMENTS: readonly Settlement[] = [
+  // On the floor of the Dark Spot, and on the companions' ridge over its south rim.
   { id: 'darkspot', name: 'Darkspot', lat: -22, lon: 15, population: 84000, nation: 'great-dark' },
+  { id: 'companion', name: 'Companion', lat: -30.4, lon: 12.4, population: 56000, nation: 'great-dark' },
+  // On Scooter's lens, and the town it laps every few days.
   { id: 'scooter-rise', name: 'Scooter Rise', lat: -42, lon: -60, population: 132000, nation: 'scooter' },
+  { id: 'laptown', name: 'Laptown', lat: -45, lon: -47, population: 18000, nation: 'scooter' },
+  // On the Wizard's bright core, and in its basin's shade.
   { id: 'wizards-eye', name: "Wizard's Eye", lat: -55, lon: 120, population: 47000, nation: 'wizard' },
+  { id: 'eyeshade', name: 'Eyeshade', lat: -49, lon: 132, population: 9000, nation: 'wizard' },
+  // In the jet, where everything that is built is built twice.
   { id: 'jetway', name: 'Jetway', lat: 0, lon: 150, population: 410000, nation: 'equator' },
+  { id: 'backwind', name: 'Backwind', lat: 7, lon: 168, population: 95000, nation: 'equator' },
+  { id: 'halyard', name: 'Halyard', lat: -9, lon: 131, population: 36000, nation: 'equator' },
   { id: 'counterturn', name: 'Counterturn', lat: 40, lon: -140, population: 260000, nation: 'north-band' },
+  { id: 'tetherhome', name: 'Tetherhome', lat: 49, lon: -158, population: 41000, nation: 'north-band' },
+  { id: 'cirrus-landing', name: 'Cirrus Landing', lat: 33, lon: -121, population: 72000, nation: 'north-band' },
+  // Under the streaks Voyager photographed near 29 N.
+  { id: 'shadowline', name: 'Shadowline', lat: 29, lon: 40, population: 26000, nation: 'shadow-streaks' },
+  { id: 'longstreak', name: 'Longstreak', lat: 25, lon: 51, population: 12000, nation: 'shadow-streaks' },
   { id: 'southgate', name: 'Southgate', lat: -80, lon: 0, population: 31000, nation: 'south-collar' },
   { id: 'northgate', name: 'Northgate', lat: 80, lon: 180, population: 22000, nation: 'north-collar' },
 ];
 
 /**
- * The Gale, and every number in it is the wind.
+ * The Gale (invented), and every number in it is the wind.
  *
  * Long, thin and light — 12.4 units to the Bathyd's 4.9, the tallest thing in
  * the kit — with a **stalk** neck and a tail more than half its own height,
- * which are the two additions that turn a body into something that streams.
- * Four eyes and no crown: a crest on a body that lives in a 2,100 km/h jet is a
- * sail, and the one part of this design that is an argument rather than a
- * decoration is that it does not have one.
+ * which are the two additions that turn a body into something that streams:
+ * a Gale stands side-on to the gale like a weathervane, and the tail is the
+ * vane. Four eyes and no crown: a crest on a body that lives in a 2,100 km/h
+ * jet is a sail, and the one part of this design that is an argument rather
+ * than a decoration is that it does not have one. The head is a three-sided
+ * wedge, a leading edge, for the same reason.
  *
  * Three trunk segments, which is the other end of the range the `Morph` covers:
  * the Bathyd is one segment and a barrel, the Martian two, and this is three
  * and a ribbon. `segments` was put in the record for exactly this — the
  * segments taper *outward* on a three-segment body rather than upward, so what
- * it reads as is jointed rather than tall.
+ * it reads as is jointed rather than tall. The slab of a trunk (`depth` 0.55)
+ * is a blade: edge-on to the wind, it is hardly there.
  */
 const GALE: Species = {
   id: 'gale',
@@ -123,7 +145,10 @@ const GALE: Species = {
   morph: {
     id: 'gale', name: 'Gale', height: 12.4, heads: 5.6, legShare: 0.42,
     legPairs: 1, armPairs: 2, segments: 3, shoulderShare: 0.085, hipShare: 0.07,
-    depth: 0.55, neck: 'stalk', headSides: 5, eyes: 4, crown: 'none', tail: 0.55, limbR: 0.016,
+    depth: 0.55, neck: 'stalk', headSides: 3, eyes: 4, crown: 'none', tail: 0.55, limbR: 0.016,
+    // Edge-on to the wind is not enough at two thousand kilometres an hour:
+    // a Gale walks leaning into it, whichever way it is going.
+    windLean: 0.3,
   },
   hides: [PALETTE.skyBlue, PALETTE.bone, PALETTE.slate, PALETTE.white, PALETTE.violet, PALETTE.cream],
   wears: [
@@ -152,6 +177,8 @@ export const NEPTUNE: Body = {
   radiusKm: RADIUS_KM,
   rotationHours: 16.11,
   tiltDeg: 28.32,
+  // The IAU's north pole of rotation, J2000 right ascension and declination.
+  pole: { ra: 299.36, dec: 43.46 },
   gravity: 11.15,
   blurb:
     'Four times Earth across and made of nothing you could stand on, so what you stand on is the cloud. ' +
@@ -168,6 +195,7 @@ export const NEPTUNE: Body = {
   },
   ground: GROUND,
   nations: NATIONS,
-  settlements: SETTLEMENTS,
+  // The file's own towns, and the nations filled out round them (`towns.ts`).
+  settlements: grownTowns({ id: 'neptune', radiusKm: RADIUS_KM, nations: NATIONS, settlements: SETTLEMENTS }),
   species: 'gale',
 };

@@ -944,6 +944,50 @@ export function limbsOf(person: Person): Limbs {
   return { hips: bone('Hips'), spine, legs, arms };
 }
 
+/**
+ * Where the clips left every bone a hand-written pose moves — the spine a
+ * rider leans on, the arms, the legs and the feet — kept by `on` just before
+ * the pose is written and put back by `off` before the clips run again.
+ *
+ * **A hand pose not taken off stays on.** The mixer writes a bone only when
+ * the value its clips blend to has changed since the last one it wrote, and
+ * the relaxed idle holds the spine and much of the arms still: so a rider's
+ * reach stayed on a body that had got off, standing with its arms up at bars
+ * no longer there until the walk moved them, and the lean, laid on the spine
+ * as a turn, wound further each frame its grip was out of reach. `off` does
+ * nothing unless `on` came first.
+ */
+export interface HandHold {
+  on(): void;
+  off(): void;
+}
+
+export function handHold(limbs: Limbs): HandHold {
+  const bones: THREE.Bone[] = limbs.spine === null ? [] : [limbs.spine];
+  for (const arm of limbs.arms) bones.push(arm.upper, arm.lower, arm.wrist);
+  for (const leg of limbs.legs) bones.push(leg.upper, leg.lower, leg.foot);
+  const turns = bones.map(() => new THREE.Quaternion());
+  const places = bones.map(() => new THREE.Vector3());
+  let held = false;
+  return {
+    on() {
+      bones.forEach((bone, i) => {
+        turns[i]!.copy(bone.quaternion);
+        places[i]!.copy(bone.position);
+      });
+      held = true;
+    },
+    off() {
+      if (!held) return;
+      bones.forEach((bone, i) => {
+        bone.quaternion.copy(turns[i]!);
+        bone.position.copy(places[i]!);
+      });
+      held = false;
+    },
+  };
+}
+
 const aimFrom = new THREE.Vector3();
 const aimAlong = new THREE.Vector3();
 const aimTo = new THREE.Vector3();
@@ -1011,6 +1055,60 @@ export function reachArms(limbs: Limbs, frame: THREE.Object3D, grip: THREE.Vecto
   }
 }
 
+/**
+ * One arm along two directions in `frame`: the upper arm along `upper`, the
+ * forearm along `lower`. Allocates nothing.
+ */
+export function aimArm(arm: Limbs['arms'][number], frame: THREE.Object3D, upper: THREE.Vector3, lower: THREE.Vector3): void {
+  aimBone(arm.upper, arm.lower.getWorldPosition(armTip), upper, frame);
+  aimBone(arm.lower, arm.wrist.getWorldPosition(armTip), lower, frame);
+}
+
+/**
+ * One leg along two directions in `frame`, the thigh along `thigh` and the
+ * shin along `shin`, and its foot — an IK control under the root — carried to
+ * the shin's end, as `foldLegs` carries both. Allocates nothing.
+ */
+export function aimLeg(leg: Limbs['legs'][number], frame: THREE.Object3D, thigh: THREE.Vector3, shin: THREE.Vector3): void {
+  aimBone(leg.upper, leg.lower.getWorldPosition(foldTip), thigh, frame);
+  aimBone(leg.lower, leg.lower.localToWorld(foldTip.copy(leg.ankle)), shin, frame);
+  leg.lower.localToWorld(foldTip.copy(leg.ankle));
+  leg.foot.position.copy(leg.foot.parent!.worldToLocal(foldTip));
+  leg.foot.updateMatrixWorld(true);
+}
+
+const twoAlong = new THREE.Vector3();
+const twoPole = new THREE.Vector3();
+const twoEnd = new THREE.Vector3();
+
+/**
+ * The two-bone solve, as directions: a limb from `root`, `first` and `second`
+ * long, reaching for `target`, its middle joint bent towards `pole`. Writes
+ * the first bone's direction into `upper` and the second's into `lower`; a
+ * target out of reach is reached for with the limb straight. Every point and
+ * direction in one frame. Allocates nothing.
+ */
+export function twoBone(
+  root: THREE.Vector3,
+  first: number,
+  second: number,
+  target: THREE.Vector3,
+  pole: THREE.Vector3,
+  upper: THREE.Vector3,
+  lower: THREE.Vector3,
+): void {
+  twoAlong.copy(target).sub(root);
+  const reach = Math.min(first + second - 1e-4, Math.max(Math.abs(first - second) + 1e-4, twoAlong.length()));
+  twoAlong.normalize();
+  twoPole.copy(pole).addScaledVector(twoAlong, -pole.dot(twoAlong));
+  if (twoPole.lengthSq() < 1e-8) twoPole.set(0, 0, 1);
+  twoPole.normalize();
+  const cosine = Math.min(1, Math.max(-1, (first * first + reach * reach - second * second) / (2 * first * reach)));
+  upper.copy(twoAlong).multiplyScalar(cosine).addScaledVector(twoPole, Math.sqrt(1 - cosine * cosine));
+  twoEnd.copy(root).addScaledVector(twoAlong, reach);
+  lower.copy(twoEnd).sub(root).addScaledVector(upper, -first).normalize();
+}
+
 /** What a body astride is put to: `Seat`'s grip, footrests and crank (`craft/contract.ts`). */
 export interface AstrideSeat {
   grip?: readonly [number, number, number];
@@ -1031,8 +1129,10 @@ const gripAt = new THREE.Vector3();
 const KNEE_POLE = new THREE.Vector3(0, 0.35, 1).normalize();
 /**
  * The furthest a rider leans forward from the hips to reach a grip, radians,
- * and the step the lean is found in: a sit-up city bicycle needs none, a
- * scooter's far bars most of it.
+ * and the step the lean is found in. The lean is a turn laid on the spine, so
+ * it is found from the clips' own spine every frame: the caller puts the bone
+ * back before the clips run (`handsOff` in `avatar.ts`), or a grip out of
+ * reach winds the body down over the bars a step a frame.
  */
 export const RIDE_LEAN = 0.7;
 const LEAN_STEP = 0.05;
