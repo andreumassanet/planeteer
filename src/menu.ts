@@ -1523,7 +1523,7 @@ export function createMenu(deps: MenuDeps): Menu {
   const brand = h(
     'div',
     { class: 'm-brand m-fade m-chrome' },
-    h('div', { class: 'm-wordmark', text: 'atlas' }),
+    h('div', { class: 'm-wordmark', text: 'planeteer' }),
     h('div', { class: 'm-tagline', text: 'Pick a world to explore.' }),
   );
 

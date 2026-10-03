@@ -1,12 +1,12 @@
 {
-  "name": "atlas",
+  "name": "planeteer",
   "private": true,
   "description": "An explorer of Earth: a walkable planet holding the world's notable landmarks, on foot and by boat and plane.",
   "license": "MIT",
   "author": "Andreu Massanet",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andreumassanet/atlas.git"
+    "url": "git+https://github.com/andreumassanet/planeteer.git"
   },
   "type": "module",
   "packageManager": "pnpm@11.3.0",

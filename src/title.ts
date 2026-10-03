@@ -235,7 +235,7 @@ export function createTitle(options: TitleOptions): Title {
   const left = h(
     'div',
     { class: 'ti-left' },
-    h('div', {}, h('h1', { class: 'ti-wordmark', text: 'atlas' }), h('div', { class: 'ti-tagline', text: 'Explore the solar system — on foot, by sea and by air.' })),
+    h('div', {}, h('h1', { class: 'ti-wordmark', text: 'planeteer' }), h('div', { class: 'ti-tagline', text: 'Explore the solar system — on foot, by sea and by air.' })),
     h(
       'div',
       { class: 'ti-card ui-card' },
@@ -246,7 +246,7 @@ export function createTitle(options: TitleOptions): Title {
     ),
   );
   const right = h('div', { class: 'ti-right' }, customButton);
-  const root = h('div', { class: 'atlas-title', role: 'dialog', 'aria-label': 'atlas' }, left, right);
+  const root = h('div', { class: 'atlas-title', role: 'dialog', 'aria-label': 'planeteer' }, left, right);
 
   function markLast(): void {
     onlineButton.classList.toggle('last', chosen === 'online' && options.online);

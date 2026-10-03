@@ -998,7 +998,7 @@ export function createSettings(options: SettingsOptions): Settings {
       h(
         'div',
         { class: 'atlas-settings-links' },
-        out('https://github.com/andreumassanet/atlas', 'Source code'),
+        out('https://github.com/andreumassanet/planeteer', 'Source code'),
         out('https://github.com/andreumassanet', 'Andreu Massanet'),
         out('https://github.com/diegoMalagrida', 'Diego Malagrida'),
       ),

@@ -238,7 +238,7 @@ function fail(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   notice(
     'Something went wrong',
-    `atlas stopped: ${message}. Reloading usually fixes it; if it keeps happening, the browser's console says more.`,
+    `planeteer stopped: ${message}. Reloading usually fixes it; if it keeps happening, the browser's console says more.`,
     [reload],
   );
 }
@@ -466,7 +466,7 @@ async function start(): Promise<void> {
   // what the controls are and allowed to try anyway.
   if (!hasWebGL2()) {
     notice(
-      'atlas needs WebGL 2',
+      'planeteer needs WebGL 2',
       'This browser cannot draw it: WebGL 2 is off or unsupported here. A current Chrome, Edge, Firefox or Safari on a computer will run it, as will turning hardware acceleration back on.',
       [reload],
     );
@@ -476,7 +476,7 @@ async function start(): Promise<void> {
     await new Promise<void>((resolve) => {
       notice(
         'Made for a large screen',
-        'atlas is played on a computer, with a keyboard and a mouse. On a phone or a small window it is cramped and slow, and nothing here answers a touch yet.',
+        'planeteer is played on a computer, with a keyboard and a mouse. On a phone or a small window it is cramped and slow, and nothing here answers a touch yet.',
         [{ label: 'Continue anyway', primary: true, run: resolve }],
       );
     });
