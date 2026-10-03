@@ -296,11 +296,6 @@ export interface MenuDeps {
   draw(scene: THREE.Scene, camera: THREE.Camera): void;
   /** Where `Continue` goes when nothing is remembered. `main.ts`'s `START`. */
   fallback: { lat: number; lon: number; name: string };
-  /**
-   * The traveller's card (`traveller.ts`), which the menu has a button for.
-   * While it is up the menu leaves the keys alone. Omit it and there is no button.
-   */
-  traveller?: { show(): void; readonly open: boolean };
   /** The sky's clock. The planets are laid out for it and the town card reads it. */
   time(): Date;
   /** The sun `sun.ts` lights the land by, for `verify()`'s witness. */
@@ -333,7 +328,11 @@ export interface MenuDeps {
    * is handed back (`suspend(false)`).
    */
   exploreBody?(id: string, name: string, spawn?: MenuSpawn): void | Promise<void>;
-  /** `Esc` at the system stage: back to the screen in front of the menu (the title). */
+  /**
+   * `Esc` at the system stage, and its *Main menu* button: back to the screen
+   * in front of the menu (the title), where the traveller is dressed and the
+   * way to play chosen. Omit it and there is no button.
+   */
   onLeave?(): void;
 }
 
@@ -1120,7 +1119,7 @@ const STYLE = `
   gap: 12px;
 }
 .m-continue .quiet { font-weight: 700; opacity: 0.66; }
-.m-search { position: relative; width: 330px; }
+.m-search { position: relative; z-index: 1; width: 330px; }
 .m-search-box {
   display: flex;
   align-items: center;
@@ -1556,12 +1555,14 @@ export function createMenu(deps: MenuDeps): Menu {
     h('label', { class: 'm-search-box ui-card' }, icon('search', 19), searchInput, kbd('/')),
     results,
   );
-  const travellerButton =
-    deps.traveller === undefined
+  // The title is where the traveller is dressed and the way to play chosen;
+  // `Esc` over the system goes there too, and this says so.
+  const leaveButton =
+    deps.onLeave === undefined
       ? null
-      : h('button', { class: 'ui-btn m-traveller m-fade', title: 'How you look to everyone else' }, icon('walk', 16), 'Your traveller');
-  travellerButton?.addEventListener('click', () => deps.traveller?.show());
-  const topRight = h('div', { class: 'm-top-right m-chrome' }, continueButton, travellerButton, search);
+      : h('button', { class: 'ui-btn m-leave m-fade', title: 'Your traveller, and online or offline' }, icon('back', 16), 'Main menu', kbd('Esc'));
+  leaveButton?.addEventListener('click', () => goBack());
+  const topRight = h('div', { class: 'm-top-right m-chrome' }, search, continueButton, leaveButton);
 
   const dock = h('div', { class: 'm-dock m-fade m-chrome' });
   const info = h('div', { class: 'm-info ui-card m-fade m-chrome' });
@@ -2227,7 +2228,9 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function refreshTrail(): void {
-    const parts: HTMLElement[] = [crumb('Solar system', () => backToSystem())];
+    // No *Solar system* at the head: it is where every trail starts, and the
+    // back button and `Esc` say the way there.
+    const parts: HTMLElement[] = [];
     if (stage === 'planet') {
       parts.push(crumb(bodyById(focusId).body.name, null));
     } else if (stage === 'region' || stage === 'site') {
@@ -2240,17 +2243,6 @@ export function createMenu(deps: MenuDeps): Menu {
       trail.append(part);
     });
     backLabel.textContent = stage === 'site' ? capital(words.regions) : 'Solar system';
-  }
-
-  /**
-   * On another world's globe, Continue is that world's own memory or
-   * nothing: *Start in Palma* over Mars would fly you to Earth from the
-   * screen you are choosing a Martian town on. Earth's stages and the system
-   * keep the newer memory, wherever it is.
-   */
-  function continueHere(): boolean {
-    if ((stage !== 'region' && stage !== 'site') || body === home) return true;
-    return last !== null && last.body === body.id && deps.exploreBody !== undefined;
   }
 
   function refreshContinue(): void {
@@ -2287,8 +2279,10 @@ export function createMenu(deps: MenuDeps): Menu {
     setOff(back, !(stage !== 'system' && open));
     setOff(search, !(open && stage !== 'planet'));
     refreshContinue();
-    setOff(continueButton, !(open && continueHere()));
-    if (travellerButton !== null) setOff(travellerButton, !open);
+    // On every stage and every globe, the newer memory wherever it is: the
+    // way back into the game should not vanish as a planet is chosen.
+    setOff(continueButton, !open);
+    if (leaveButton !== null) setOff(leaveButton, !(stage === 'system' && open));
     // The town picked, or once chosen the landing it is waiting for — never
     // under the title, which holds the menu with neither.
     setOff(select, !(chosen !== null || (open && stage === 'site' && picked !== null && !flying)));
@@ -2680,7 +2674,11 @@ export function createMenu(deps: MenuDeps): Menu {
     return { centre, cap };
   }
 
-  /** Make a region the chosen one, without moving the camera. */
+  /**
+   * Make a region the chosen one, without moving the camera. The card's list
+   * is the caller's to fill once the flight lands: filled here, the new list
+   * showed in the card for the moment it took to fade out.
+   */
   function setRegion(index: number): boolean {
     if (index <= 0 || index > body.regions.length) return false;
     regionIndex = index;
@@ -2689,7 +2687,6 @@ export function createMenu(deps: MenuDeps): Menu {
     hotSite = null;
     showRibbon(region);
     loadSites(region);
-    fillSitePanel(region);
     return true;
   }
 
@@ -2697,6 +2694,7 @@ export function createMenu(deps: MenuDeps): Menu {
     if (chosen !== null) return;
     touch();
     if (!setRegion(index)) return;
+    const landing = region!;
     deps.sound?.cue('select');
     closeResults();
     const framing = frameRegion(region!, site, near);
@@ -2706,6 +2704,7 @@ export function createMenu(deps: MenuDeps): Menu {
       view.lat = want.lat = framing.lat;
       view.lon = want.lon = framing.lon;
       view.dist = want.dist = framing.dist;
+      if (region === landing) fillSitePanel(landing);
       if (site !== undefined) pickTown(site);
       refreshChrome();
     });
@@ -2895,7 +2894,7 @@ export function createMenu(deps: MenuDeps): Menu {
   backButton.addEventListener('click', goBack);
   back.addEventListener('click', goBack);
   continueButton.addEventListener('click', () => {
-    if (flight !== null || !continueHere()) return;
+    if (flight !== null) return;
     // A world the relay of this build cannot reach any more is Earth's fallback.
     const remembered = last !== null && (last.body === home.id || deps.exploreBody !== undefined) ? last : null;
     finish(remembered ?? { body: home.id, region: '', name: fallback.name, lat: fallback.lat, lon: fallback.lon });
@@ -3215,8 +3214,8 @@ export function createMenu(deps: MenuDeps): Menu {
 
   addEventListener('keydown', (event) => {
     if (chosen !== null) return;
-    // The card holds the keyboard: its Escape closes it, not a stage of this.
-    if (deps.traveller?.open === true || held || suspended) return;
+    // The title holds the keyboard while it is up, and the cards over it with it.
+    if (held || suspended) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (document.activeElement === searchInput) return;
     touch();

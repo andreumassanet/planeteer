@@ -1050,7 +1050,6 @@ async function start(): Promise<void> {
     // The Resolution setting's ratio, so a resize in the menu keeps it.
     pixelRatio: () => pixelRatioFor(resolution),
     fallback: { lat: START.lat, lon: START.lon, name: 'Palma' },
-    traveller,
     time: () => sky.state.time,
     sunDirection: () => sky.state.sun,
     sound: menuSound,
@@ -1060,9 +1059,9 @@ async function start(): Promise<void> {
     // Every other body's *Explore*, and a settlement chosen on its globe: a
     // world of its own, from `src/worlds/`.
     exploreBody: (id, name, spawn) => exploreWorld(id, name, spawn),
-    // `Esc` over the solar system: back to the title screen.
+    // `Esc` over the solar system, or its *Main menu*: back to the title screen.
     onLeave: () => {
-      if (title === null) return;
+      if (title === null || title.open) return;
       menu.hold(true);
       title.show();
     },
@@ -1155,8 +1154,10 @@ async function start(): Promise<void> {
 
   // **The title screen**: the game's name, how to play — online or offline —
   // and the traveller, large, in front of the solar system. The menu behind
-  // waits (`hold`) until a way to play is chosen.
-  if (!skipMenu && !toSystem) {
+  // waits (`hold`) until a way to play is chosen. Made too when Earth's
+  // *Solar system* comes straight back to the planets, and kept hidden, so
+  // `Esc` there still reaches it to change the way to play or the look.
+  if (!skipMenu) {
     title = createTitle({
       stage: heroStage,
       online: peersUrl !== '',
@@ -1166,8 +1167,10 @@ async function start(): Promise<void> {
       sound: { hover: () => menuSound.cue('hover'), select: () => menuSound.cue('select') },
       onChoose: () => menu.hold(false),
     });
-    menu.hold(true);
-    title.show();
+    if (!toSystem) {
+      menu.hold(true);
+      title.show();
+    }
   }
   // Every other world's globe made while the title is up, so picking one
   // on the menu never waits for it.
