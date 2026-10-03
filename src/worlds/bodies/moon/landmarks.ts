@@ -613,14 +613,14 @@ function fallenAstronaut(ctx: SceneryContext): Group {
   return g;
 }
 
-const APOLLO_RADIUS = 24;
+const APOLLO_RADIUS = 26;
 
 export const TRANQUILITY_BASE: Landmark = {
   id: 'tranquility-base',
   name: 'Tranquility Base',
   lat: 0.67408,
   lon: 23.47297,
-  radius: 22,
+  radius: 25,
   build(ctx, rng) {
     const g = new THREE.Group();
     g.add(descentStage(ctx));

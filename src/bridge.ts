@@ -228,7 +228,7 @@ export function buildBridge(pieces: ReadonlyMap<string, SpacePiece>, look: Bridg
     scratch.euler.set(placing.flip === true ? Math.PI : 0, placing.yaw ?? 0, placing.roll ?? 0, 'YXZ');
     scratch.rotation.makeRotationFromEuler(scratch.euler);
     scratch.matrix.makeTranslation(placing.at.x, placing.at.y, placing.at.z).multiply(scratch.rotation).multiply(scratch.scale).multiply(scratch.centre);
-    // A reflected basis turns the pen's hull inside out (CLAUDE.md, the invariants).
+    // A reflected basis turns the pen's hull inside out (OutlineEffect draws its hull BackSide).
     if (!(scratch.matrix.determinant() > 0)) throw new Error(`bridge: ${id} placed with a reflected basis`);
     scratch.normalMatrix.getNormalMatrix(scratch.matrix);
 

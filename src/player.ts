@@ -13,7 +13,28 @@ import { isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
 import { HERO } from './craft/body.ts';
-import { CANOPY_OPENING, CHUTE_GRIP, CHUTE_PULL, buildParachute, openCanopy } from './craft/parachute.ts';
+import {
+  CANOPY_OPENING,
+  CHUTE_FORCED,
+  CHUTE_GLIDE,
+  CHUTE_GLIDE_RATE,
+  CHUTE_GRIP,
+  CHUTE_PACE,
+  CHUTE_PULL,
+  CHUTE_SINK,
+  CHUTE_SINK_RATE,
+  CHUTE_SWING,
+  CHUTE_TURN,
+  FREEFALL_DIVE,
+  FREEFALL_MIN,
+  FREEFALL_RATE,
+  FREEFALL_TRACK,
+  buildParachute,
+  newChuteSwing,
+  openCanopy,
+  swingUnder,
+  trailOf,
+} from './craft/parachute.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import {
   AVATAR_HIP,
@@ -146,56 +167,6 @@ const BAIL_HOP = 0.45;
 /** How hard the landing out of a moving vehicle is read, for the body's roll: past 1 the hardest. */
 const BAIL_LANDING = 1.2;
 
-/**
- * Out of an aircraft in flight: a fall, and a canopy the jump key opens and
- * stows as often as wanted — until `CHUTE_FORCED` over the ground, where it
- * opens by itself and stays open to the ground.
- *
- * Falling, the body comes down at `FREEFALL_RATE` of its height over the
- * ground a second, never slower than `FREEFALL_MIN` — a real fall's terminal
- * speed would take a minute from cruise height, and this takes a quarter of
- * that from the ceiling — and `W` dives it head down, `FREEFALL_DIVE` faster.
- * The movement keys track it across the ground as they walk a body, towards
- * the camera's way, up to `FREEFALL_TRACK`, and it faces where the camera
- * looks.
- *
- * Under the canopy it sinks at `CHUTE_SINK` and glides ahead at
- * `CHUTE_GLIDE`, each with a share of the height over the ground on top
- * (`CHUTE_SINK_RATE`, `CHUTE_GLIDE_RATE`), so a canopy opened at cruise
- * height comes down in a minute rather than ten; `W` flies it faster and
- * steeper and `S` slower and flatter by `CHUTE_PACE`, and `A` and `D` turn it
- * at `CHUTE_TURN`.
- */
-const FREEFALL_RATE = 0.35;
-const FREEFALL_MIN = 30;
-const FREEFALL_DIVE = 1.3;
-const FREEFALL_TRACK = 45;
-const CHUTE_FORCED = 90;
-const CHUTE_SINK = 6;
-const CHUTE_SINK_RATE = 0.03;
-const CHUTE_GLIDE = 12;
-const CHUTE_GLIDE_RATE = 0.04;
-const CHUTE_PACE = 0.5;
-const CHUTE_TURN = 1.2;
-/** How far the canopy swings with a turn, radians; how fast it opens is `CANOPY_OPENING`. */
-const CHUTE_SWING = 0.35;
-/**
- * The body under a canopy is a pendulum hung from the hands: it swings out
- * past a turn's bank and back, and lags a change of pace — back as the wing
- * surges, forward as it brakes, `CHUTE_SURGE` radians for each unit a second
- * squared up to `CHUTE_SURGE_MAX` — at a period of `CHUTE_PERIOD` seconds,
- * damped to `CHUTE_DAMPING` of critical so a turn rings two or three times.
- * Under it all a slow sway (`CHUTE_SWAY`, radians) keeps it from hanging
- * dead still; the legs trail the swing by `CHUTE_TRAIL` of its angle and
- * `CHUTE_TRAIL_RATE` of its rate (`Avatar.skydive`).
- */
-const CHUTE_PERIOD = 2.4;
-const CHUTE_DAMPING = 0.22;
-const CHUTE_SURGE = 0.05;
-const CHUTE_SURGE_MAX = 0.3;
-const CHUTE_SWAY = 0.035;
-const CHUTE_TRAIL = 0.45;
-const CHUTE_TRAIL_RATE = 0.25;
 
 /**
  * The eye in a seat, over the hip: seated, half a head under the crown the
@@ -944,7 +915,7 @@ export function createPlayer(
   let lastStep = 0;
   let lean = 0;
   /** The body's swing under a canopy, roll and pitch, and how fast each is moving (`CHUTE_PERIOD`). */
-  const chuteSwing = { roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, clock: 0, speed: 0 };
+  const chuteSwing = newChuteSwing();
   const chuteTrail: [number, number] = [0, 0];
   /** How far the body hangs under `position`, swimming. */
   let sink = 0;
@@ -2304,12 +2275,9 @@ export function createPlayer(
       // the hands, which swings with a turn about them as the canopy does.
       sink = 0;
       hang.position.y = 0;
-      swingUnder(dt);
+      swingChute(dt);
       const swing = chuteSwing;
-      chuteTrail[0] = -(swing.roll - lean) * CHUTE_TRAIL - swing.rollRate * CHUTE_TRAIL_RATE;
-      chuteTrail[1] = swing.pitch * CHUTE_TRAIL + swing.pitchRate * CHUTE_TRAIL_RATE;
-      chuteTrail[0] *= spread;
-      chuteTrail[1] *= spread;
+      trailOf(swing, lean, spread, chuteTrail);
       avatar.skydive(dt, spread, steering, CHUTE_GRIP, CHUTE_PULL, chuteTrail);
       // Swung about the hands, where the lines end.
       const pivot = CHUTE_GRIP[1] * spread;
@@ -2446,36 +2414,9 @@ export function createPlayer(
     vertical = 0;
   }
 
-  /**
-   * The pendulum under the canopy (`CHUTE_PERIOD`): towards the turn's bank
-   * (`lean`) and a lag of the wing's surge, with the slow sway on top, in
-   * steps short enough to stay stable at any frame rate.
-   */
-  function swingUnder(dt: number): void {
-    const swing = chuteSwing;
-    swing.clock += dt;
-    const surge = dt > 0 ? (speed - swing.speed) / dt : 0;
-    swing.speed = speed;
-    if (spread < 1e-3) {
-      swing.roll = lean;
-      swing.pitch = 0;
-      swing.rollRate = 0;
-      swing.pitchRate = 0;
-      return;
-    }
-    const omega = (Math.PI * 2) / CHUTE_PERIOD;
-    const stiff = omega * omega;
-    const damp = 2 * CHUTE_DAMPING * omega;
-    const rollTo = lean + Math.sin(swing.clock * 0.9) * CHUTE_SWAY;
-    const pitchTo = clamp(surge * CHUTE_SURGE, -CHUTE_SURGE_MAX, CHUTE_SURGE_MAX) + Math.sin(swing.clock * 0.67 + 1.3) * CHUTE_SWAY * 0.8;
-    const steps = Math.max(1, Math.ceil(dt / 0.02));
-    const h = dt / steps;
-    for (let i = 0; i < steps; i++) {
-      swing.rollRate += (stiff * (rollTo - swing.roll) - damp * swing.rollRate) * h;
-      swing.roll += swing.rollRate * h;
-      swing.pitchRate += (stiff * (pitchTo - swing.pitch) - damp * swing.pitchRate) * h;
-      swing.pitch += swing.pitchRate * h;
-    }
+  /** The pendulum under the canopy: `swingUnder` in `craft/parachute.ts`. */
+  function swingChute(dt: number): void {
+    swingUnder(chuteSwing, dt, speed, lean, spread);
   }
 
   /** The canopy over the body while it is open: opening out, and swinging with a turn. */

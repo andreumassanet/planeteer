@@ -262,9 +262,12 @@ export const WORLD = defineWorld(URANUS, {
     crowd: 0.8,
   }),
   decorations: [],
-  rocks: 0,
+  // Billows of the deck (`BILLOW`), where a crust has its boulders.
+  rocks: 14,
   vehicles: ['skiff', 'lander'],
   ambient: [
+    // Pale fliers in the methane haze.
+    { kind: 'fliers', count: 10, color: PALETTE.skyBlue, belly: PALETTE.white, size: 3 },
     // Methane snow: the deck's haze freezing out, drifting past the eye.
     { kind: 'motes', count: 200, color: PALETTE.white },
     // Columns of convection standing up out of the deck, few and slow.
@@ -274,6 +277,8 @@ export const WORLD = defineWorld(URANUS, {
     // deck obliges.
     { kind: 'glint', count: 36, color: PALETTE.white, size: 0.7 },
   ],
+  // A steady westward drift over the methane deck.
+  wind: { toward: 270, speed: 20, strength: 0.4 },
   landmarks: LANDMARKS,
   // Longlight, on the hood's rim: the Sun circling high all day, Herschel's
   // Glass a short walk north, the popcorn field beyond it.

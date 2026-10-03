@@ -625,6 +625,10 @@ function sharedUniforms(): Record<string, THREE.IUniform> {
  * common (`customProgramCacheKey`); each carries its own uniforms, because a
  * material's uniforms are uploaded when the material changes between draws.
  */
+/** Where a world's growth is put back on its ground's hue, and how: the blade's lightness over the ground's colour. */
+const PLAIN_AT = 'c *= 0.86 + 0.26 * r1.w;';
+const PLAIN_HUE = '      c = paint * (dot(c, vec3(0.2126, 0.7152, 0.0722)) / max(1e-4, dot(paint, vec3(0.2126, 0.7152, 0.0722))));';
+
 function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Texture, radius: number, earth: boolean): THREE.MeshToonMaterial {
   const material = new THREE.MeshToonMaterial({ gradientMap: ramp, side: THREE.DoubleSide });
   material.userData.outlineParameters = { visible: false };
@@ -635,7 +639,10 @@ function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: THREE.Tex
     bindNearLights(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${grassVertexPars(radius)}`)
-      .replace('#include <beginnormal_vertex>', GRASS_VERTEX_MAIN)
+      // Another world's growth keeps the light and shade of Earth's blades
+      // and takes its hue from its own ground alone: the tips' warmth, the
+      // lush green and the yellow patches made a grey regolith olive.
+      .replace('#include <beginnormal_vertex>', earth ? GRASS_VERTEX_MAIN : GRASS_VERTEX_MAIN.replace(PLAIN_AT, `${PLAIN_AT}\n${PLAIN_HUE}`))
       .replace('#include <begin_vertex>', 'vec3 transformed = grassLocal;');
     shader.fragmentShader = shader.fragmentShader
       .replace(

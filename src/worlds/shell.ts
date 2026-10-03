@@ -176,9 +176,10 @@ const ROCKET_KEYS: HintSet = {
   ],
 };
 
-/** The keys on taking a craft of these worlds: Earth's, less the horn and the parachute. */
+/** The keys on taking a craft of these worlds: Earth's, less the horn. */
 function craftHints(kind: VehicleKind, airborne: boolean): HintSet {
-  const out = { keys: ['use' as const], label: 'Get out' };
+  // Out of a craft aloft is out with a parachute, as on Earth (`controls.ts`).
+  const out = { keys: ['use' as const], label: airborne ? 'Jump out, with a parachute' : 'Get out' };
   switch (kind) {
     case 'rover':
       return { id: 'world-rover', once: false, sticky: false, hints: [{ keys: MOVE, label: 'Drive' }, out] };
@@ -365,7 +366,7 @@ export function createShell(world: ShellWorld): Shell {
     surface,
     // Back to the planets, from the bar: the solar system, as a rocket goes.
     leave: { label: 'Solar system', run: () => world.leave() },
-    // These craft have no horn and nobody jumps out of them with a canopy.
+    // These craft have no horn.
     hints: (_mode, airborne) => (player.craft === null ? undefined : craftHints(player.craft.kind, airborne)),
     onSettings: () => settings.toggle(),
     onMap: () => (map.open ? map.hide() : map.show()),
@@ -818,7 +819,8 @@ export function createShell(world: ShellWorld): Shell {
     // `E`: get out; else whoever is nearer, somebody to talk to, a seat or a rocket.
     const afoot = player.craft === null && !player.airborne && inRocket === null;
     const walker = civ === null || !afoot ? null : crowd.nearest(player.position, TALK_REACH);
-    const craft = player.craft === null && inRocket === null ? world.craftInReach() : null;
+    // Never in mid-fall: out of an aircraft is out until the ground.
+    const craft = player.craft === null && inRocket === null && !player.parachute ? world.craftInReach() : null;
     const rocket = afoot ? world.rocketInReach() : null;
     const rocketAway = rocket === null ? Infinity : rocket.position.distanceTo(player.position) - 4;
     const craftAway = craft === null ? Infinity : craft.position.distanceTo(player.position);
@@ -927,7 +929,8 @@ export function createShell(world: ShellWorld): Shell {
     if (peers !== null) {
       self.velocity = player.craft === null ? player.velocity.length() : Math.abs(player.craft.speed);
       self.airborne = moment.aloft;
-      self.state = player.craft === null ? 'foot' : 'seated';
+      self.canopy = player.canopy;
+      self.state = player.craft === null && world.riding() === null ? 'foot' : 'seated';
       peers.update(dt, self);
     }
 

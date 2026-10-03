@@ -245,3 +245,107 @@ export function openCanopy(canopy: THREE.Object3D, seconds: number, lean: number
     toggle.pivot.scale.set(1, length / toggle.length, 1);
   }
 }
+
+/**
+ * Out of an aircraft in flight: a fall, and a canopy the jump key opens and
+ * stows as often as wanted — until `CHUTE_FORCED` over the ground, where it
+ * opens by itself and stays open to the ground.
+ *
+ * Falling, the body comes down at `FREEFALL_RATE` of its height over the
+ * ground a second, never slower than `FREEFALL_MIN` — a real fall's terminal
+ * speed would take a minute from cruise height, and this takes a quarter of
+ * that from the ceiling — and `W` dives it head down, `FREEFALL_DIVE` faster.
+ * The movement keys track it across the ground as they walk a body, towards
+ * the camera's way, up to `FREEFALL_TRACK`, and it faces where the camera
+ * looks.
+ *
+ * Under the canopy it sinks at `CHUTE_SINK` and glides ahead at
+ * `CHUTE_GLIDE`, each with a share of the height over the ground on top
+ * (`CHUTE_SINK_RATE`, `CHUTE_GLIDE_RATE`), so a canopy opened at cruise
+ * height comes down in a minute rather than ten; `W` flies it faster and
+ * steeper and `S` slower and flatter by `CHUTE_PACE`, and `A` and `D` turn it
+ * at `CHUTE_TURN`.
+ */
+export const FREEFALL_RATE = 0.35;
+export const FREEFALL_MIN = 30;
+export const FREEFALL_DIVE = 1.3;
+export const FREEFALL_TRACK = 45;
+export const CHUTE_FORCED = 90;
+export const CHUTE_SINK = 6;
+export const CHUTE_SINK_RATE = 0.03;
+export const CHUTE_GLIDE = 12;
+export const CHUTE_GLIDE_RATE = 0.04;
+export const CHUTE_PACE = 0.5;
+export const CHUTE_TURN = 1.2;
+/** How far the canopy swings with a turn, radians; how fast it opens is `CANOPY_OPENING`. */
+export const CHUTE_SWING = 0.35;
+/**
+ * The body under a canopy is a pendulum hung from the hands: it swings out
+ * past a turn's bank and back, and lags a change of pace — back as the wing
+ * surges, forward as it brakes, `CHUTE_SURGE` radians for each unit a second
+ * squared up to `CHUTE_SURGE_MAX` — at a period of `CHUTE_PERIOD` seconds,
+ * damped to `CHUTE_DAMPING` of critical so a turn rings two or three times.
+ * Under it all a slow sway (`CHUTE_SWAY`, radians) keeps it from hanging
+ * dead still; the legs trail the swing by `CHUTE_TRAIL` of its angle and
+ * `CHUTE_TRAIL_RATE` of its rate (`Avatar.skydive`).
+ */
+export const CHUTE_PERIOD = 2.4;
+export const CHUTE_DAMPING = 0.22;
+export const CHUTE_SURGE = 0.05;
+export const CHUTE_SURGE_MAX = 0.3;
+export const CHUTE_SWAY = 0.035;
+export const CHUTE_TRAIL = 0.45;
+export const CHUTE_TRAIL_RATE = 0.25;
+
+/** The body's swing under a canopy, roll and pitch, and how fast each is moving (`CHUTE_PERIOD`). */
+export interface ChuteSwing {
+  roll: number;
+  rollRate: number;
+  pitch: number;
+  pitchRate: number;
+  clock: number;
+  speed: number;
+}
+
+export const newChuteSwing = (): ChuteSwing => ({ roll: 0, rollRate: 0, pitch: 0, pitchRate: 0, clock: 0, speed: 0 });
+
+/**
+ * The pendulum under the canopy (`CHUTE_PERIOD`): towards the turn's bank
+ * (`lean`) and a lag of the wing's surge (`speed` this frame against the
+ * last), with the slow sway on top, in steps short enough to stay stable at
+ * any frame rate. `spread` is how open the canopy is; shut, the body hangs at
+ * the bank. Every world's skydiver swings by this one law.
+ */
+export function swingUnder(swing: ChuteSwing, dt: number, speed: number, lean: number, spread: number): void {
+  swing.clock += dt;
+  const surge = dt > 0 ? (speed - swing.speed) / dt : 0;
+  swing.speed = speed;
+  if (spread < 1e-3) {
+    swing.roll = lean;
+    swing.pitch = 0;
+    swing.rollRate = 0;
+    swing.pitchRate = 0;
+    return;
+  }
+  const omega = (Math.PI * 2) / CHUTE_PERIOD;
+  const stiff = omega * omega;
+  const damp = 2 * CHUTE_DAMPING * omega;
+  const rollTo = lean + Math.sin(swing.clock * 0.9) * CHUTE_SWAY;
+  const pitchTo =
+    Math.min(CHUTE_SURGE_MAX, Math.max(-CHUTE_SURGE_MAX, surge * CHUTE_SURGE)) + Math.sin(swing.clock * 0.67 + 1.3) * CHUTE_SWAY * 0.8;
+  const steps = Math.max(1, Math.ceil(dt / 0.02));
+  const h = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    swing.rollRate += (stiff * (rollTo - swing.roll) - damp * swing.rollRate) * h;
+    swing.roll += swing.rollRate * h;
+    swing.pitchRate += (stiff * (pitchTo - swing.pitch) - damp * swing.pitchRate) * h;
+    swing.pitch += swing.pitchRate * h;
+  }
+}
+
+/** How far the legs trail the swing (`CHUTE_TRAIL`, `CHUTE_TRAIL_RATE`), for `Avatar.skydive`. */
+export function trailOf(swing: ChuteSwing, lean: number, spread: number, out: [number, number]): [number, number] {
+  out[0] = (-(swing.roll - lean) * CHUTE_TRAIL - swing.rollRate * CHUTE_TRAIL_RATE) * spread;
+  out[1] = (swing.pitch * CHUTE_TRAIL + swing.pitchRate * CHUTE_TRAIL_RATE) * spread;
+  return out;
+}

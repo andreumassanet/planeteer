@@ -179,8 +179,10 @@ export const WORLD = defineWorld(VENUS, {
         { item: 'ring', weight: 1 },
       ],
       landmark: 'hearth',
-      walls: [PALETTE.bark, PALETTE.steel, PALETTE.brown, PALETTE.slate],
-      roofs: [PALETTE.clay, PALETTE.tan, PALETTE.bone, PALETTE.brown],
+      // Pale hulls under dark armour: bark walls on a tan ground under an
+      // overcast read as ink, every building a hole in the town.
+      walls: [PALETTE.sand, PALETTE.bone, PALETTE.apricot, PALETTE.blush],
+      roofs: [PALETTE.bark, PALETTE.clay, PALETTE.brown, PALETTE.steel],
       accents: [PALETTE.gold, PALETTE.apricot, PALETTE.orange],
       ground: PALETTE.tan,
       height: 0.8,
@@ -203,9 +205,11 @@ export const WORLD = defineWorld(VENUS, {
   }),
   decorations: [DUST_DRIFT, IRON_SPIRE, SULPHUR_VENT, VENUS_GALENA, VENUS_SLAB, WIND_STONE],
   rocks: 4,
-  // Armour for the ground and a balloon for the air: nothing else lasts here.
-  vehicles: [CRAWLER, VENUS_AEROSTAT],
+  // Armour for the ground, a balloon for the air and a ship to cross it fast.
+  vehicles: [CRAWLER, VENUS_AEROSTAT, 'lander'],
   ambient: [
+    // Broad gliders riding the soup of an atmosphere.
+    { kind: 'fliers', count: 12, color: PALETTE.gold, belly: PALETTE.cream, size: 3.2 },
     // Not dust devils — the surface wind is a walking pace — but the same
     // pale columns read as heat shimmer rising off a 464-degree plain.
     { kind: 'dust-devil', count: 3, color: PALETTE.cream },

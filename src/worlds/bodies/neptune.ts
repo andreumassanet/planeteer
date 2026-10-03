@@ -36,9 +36,7 @@
 
 import { PALETTE } from '../../theme.ts';
 import { NEPTUNE, SPECIES } from '../../system/bodies/neptune.ts';
-import { DUST_DRIFT } from '../../system/parts/dust-drift.ts';
 import { ICE_PLUME } from '../../system/parts/ice-plume.ts';
-import { IRON_SPIRE } from '../../system/parts/iron-spire.ts';
 import { defineCivilisation, defineWorld } from '../contract.ts';
 import type { Tint } from '../contract.ts';
 import { smoothstep } from '../../system/noise.ts';
@@ -264,10 +262,13 @@ export const WORLD = defineWorld(NEPTUNE, {
   }),
   // The system's biomes name these, and they stand on the deck where its
   // biomes say: ice plumes on the cirrus, drifts in the bands.
-  decorations: [DUST_DRIFT, ICE_PLUME, IRON_SPIRE],
-  rocks: 0,
+  decorations: [ICE_PLUME],
+  // Billows of the deck (`BILLOW`), where a crust has its boulders.
+  rocks: 14,
   vehicles: ['skiff', 'lander'],
   ambient: [
+    // Fliers holding into the gale.
+    { kind: 'fliers', count: 10, color: PALETTE.slate, belly: PALETTE.white, size: 3.2 },
     // Methane ice, blowing past: what the white streaks are made of.
     { kind: 'motes', count: 240, color: PALETTE.white, speed: 16 },
     // Updraft columns, the convection that makes a companion cloud.

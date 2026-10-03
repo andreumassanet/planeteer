@@ -56,7 +56,8 @@ import { rngFrom } from '../scenery/random.ts';
 import type { Rng } from '../scenery/random.ts';
 import { mergeMeshes, sourceVertex } from '../merge.ts';
 import type { MergePiece } from '../merge.ts';
-import { toUnit } from '../sphere.ts';
+import { latOf, lonOf, toUnit } from '../sphere.ts';
+import { NEAR_BUILD, frameOpenFor } from '../view.ts';
 import { linearOf, newSample } from './terrain.ts';
 import { paintModel } from '../models.ts';
 import type { Model, Paint } from '../models.ts';
@@ -715,19 +716,61 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
    * houses, as Earth's are by its lamps and its windows' spill.
    */
   const lights = new Map<string, Float32Array>();
+  /** The deck platform `floorAt` last found a point on. */
+  let lastFloor: Site | null = null;
+  /**
+   * The sites by a one-degree lattice of latitude and longitude, each in the
+   * cells its paving reaches, so `floorAt` asks the platforms near a point
+   * rather than all six hundred of a giant's. Built on first use.
+   */
+  let floorCells: Map<number, Site[]> | null = null;
+  const FLOOR_CELL = 1;
+  const floorKey = (lat: number, lon: number): number => Math.floor((lat + 90) / FLOOR_CELL) * 4096 + Math.floor((((lon % 360) + 540) % 360) / FLOOR_CELL);
+  const NO_SITES: Site[] = [];
+  function floorCellOf(x: number, y: number, z: number): Site[] {
+    if (floorCells === null) {
+      floorCells = new Map();
+      for (const site of sites) {
+        const lat = latOf(site.dir.y);
+        const lon = lonOf(site.dir.x, site.dir.z);
+        const span = (((site.paving + 4) / R) * 180) / Math.PI;
+        const widen = 1 / Math.max(0.05, Math.cos((Math.min(89.9, Math.abs(lat) + span) * Math.PI) / 180));
+        for (let dLat = -span; dLat <= span + FLOOR_CELL; dLat += FLOOR_CELL) {
+          for (let dLon = -span * widen; dLon <= span * widen + FLOOR_CELL; dLon += FLOOR_CELL) {
+            const key = floorKey(Math.max(-90, Math.min(89.999, lat + dLat)), lon + dLon);
+            const list = floorCells.get(key);
+            if (list === undefined) floorCells.set(key, [site]);
+            else if (!list.includes(site)) list.push(site);
+          }
+        }
+      }
+    }
+    const lat = latOf(y);
+    const lon = lonOf(x, z);
+    return floorCells.get(floorKey(Math.max(-90, Math.min(89.999, lat)), lon)) ?? NO_SITES;
+  }
+  /** A landmark setting's lamps, in its site's frame, once it has been built. */
+  const settingLamps = new Map<string, { x: number; z: number; yaw: number }[]>();
   const spots = new Map<string, CraftSpot[]>();
   const found: { x: number; y: number; z: number; d: number }[] = [];
   const scratchLamp = new THREE.Vector3();
   function lightsOf(site: Site): Float32Array {
     const known = lights.get(site.id);
     if (known !== undefined) return known;
-    const town = site.town!;
     const out: number[] = [];
     const at = new THREE.Vector3();
     const push = (x: number, y: number, z: number): void => {
       at.set(x, y, z).applyQuaternion(site.quaternion).add(site.origin);
       out.push(at.x, at.y, at.z);
     };
+    // A landmark's setting has its own ring of lamps (`buildSetting`), on its paving.
+    for (const lamp of settingLamps.get(site.id) ?? []) push(lamp.x + Math.sin(lamp.yaw) * 1.15, site.floor + LAMP_HEIGHT - 0.5, lamp.z + Math.cos(lamp.yaw) * 1.15);
+    const town = site.town;
+    if (town === null) {
+      const heads = new Float32Array(out);
+      lights.set(site.id, heads);
+      return heads;
+    }
     for (const lamp of town.lamps) push(lamp.x + Math.sin(lamp.yaw) * 1.15, site.floor + CARRIAGE_TOP + LAMP_HEIGHT - 0.5, lamp.z + Math.cos(lamp.yaw) * 1.15);
     for (const plot of town.plots) {
       if (plot.kind !== 'module' && plot.kind !== 'hub') continue;
@@ -1096,6 +1139,61 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
       draft.add(post);
       footprints.push({ x: lamp.x, z: lamp.z, radius: 0.35, height: LAMP_HEIGHT });
     }
+    // Between the lamps: benches, bins, vending machines and signposts.
+    for (const one of town.furniture) {
+      const y = floor + KERB_TOP;
+      let piece: THREE.Object3D;
+      let radius = 0.4;
+      let height = 1;
+      switch (one.kind) {
+        case 'bench':
+          piece = bench(0, 0, 0, 0, style.walls[1] ?? style.walls[0] ?? PALETTE.cream);
+          radius = 0.9;
+          break;
+        case 'bin': {
+          const g = new THREE.Group();
+          g.add(ctx.column(0.32, 0.95, ctx.tone(PALETTE.steel, 1.1), 7));
+          const lid = ctx.taper(0.38, 0.22, 0.18, accent, 7);
+          lid.position.y = 0.95;
+          g.add(lid);
+          piece = g;
+          radius = 0.35;
+          break;
+        }
+        case 'vending': {
+          const g = new THREE.Group();
+          g.add(ctx.box(1.05, 2.1, 0.75, accent));
+          const panel = ctx.lit(ctx.box(0.75, 1.3, 0.1, PALETTE.skyBlue), 0.7);
+          panel.position.set(-0.08, 0.55, 0.36);
+          g.add(panel);
+          const slot = ctx.box(0.16, 0.5, 0.1, ctx.tone(PALETTE.steel, 0.8));
+          slot.position.set(0.38, 0.8, 0.36);
+          g.add(slot);
+          piece = g;
+          radius = 0.65;
+          height = 2.1;
+          break;
+        }
+        case 'sign': {
+          const g = new THREE.Group();
+          g.add(ctx.column(0.08, 3, ctx.tone(PALETTE.steel, 1.15), 5));
+          for (const [k, colour] of [[0, accent], [1, style.walls[0] ?? PALETTE.cream]] as const) {
+            const arrow = ctx.box(1.5, 0.32, 0.08, colour);
+            arrow.position.set((k === 0 ? 1 : -1) * 0.6, 2.5 - k * 0.45, 0);
+            arrow.rotation.y = k * 0.5;
+            g.add(arrow);
+          }
+          piece = g;
+          radius = 0.2;
+          height = 3;
+          break;
+        }
+      }
+      piece.position.set(one.x, y, one.z);
+      piece.rotation.y = one.yaw;
+      draft.add(piece);
+      footprints.push({ x: one.x, z: one.z, radius, height });
+    }
     const gardens = smallPlants;
     town.planters.forEach((spot, k) => {
       const rng = rngFrom('worlds', spec.id, 'planter', site.id, k);
@@ -1279,6 +1377,121 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
     return lamp;
   }
 
+  /**
+   * What a landmark stands in, as Earth's `plazas` landmarks stand in a paved
+   * square of their own (`landmark-setting.ts`): a kerb round its paving and a
+   * walk inside it a shade lighter, a ring of the towns' lamps facing in and
+   * lit after dark, benches between them looking at it, an information post
+   * and two flags at the way in, and where the civilisation keeps gardens,
+   * planters of them. Everything stands in the outer fifth of the paving,
+   * clear of the landmark's own `radius * 0.6`.
+   */
+  function buildSetting(kit: WorldKit | null, site: Site, draft: THREE.Group): void {
+    const rng = rngFrom('worlds', spec.id, 'setting', site.id);
+    const floor = site.floor;
+    const edge = site.paving;
+    const ground = style.ground;
+    const accent = rng.pick(style.accents);
+    const wall = rng.pick(style.walls);
+    // Paving's top: the slab under a landmark is laid 0.05 proud of the floor.
+    const top = floor + 0.05;
+    const kerb = ctx.ringWall(edge - 0.7, edge, 0.75, ctx.tone(ground, 0.78), 48);
+    kerb.position.y = top - 0.6;
+    draft.add(kerb);
+    const walk = ctx.ringWall(edge * 0.7, edge * 0.7 + Math.max(2.4, edge * 0.08), 0.5, ctx.tone(ground, 1.16), 48);
+    walk.position.y = top - 0.5 + 0.08;
+    draft.add(walk);
+    const lampsAt: { x: number; z: number; yaw: number }[] = [];
+    const ring = edge * 0.9;
+    const count = Math.max(6, Math.min(16, Math.round((ring * Math.PI * 2) / 16)));
+    const turn = rng.range(0, Math.PI * 2);
+    const way = turn + Math.PI / count;
+    for (let k = 0; k < count; k++) {
+      const a = turn + (k / count) * Math.PI * 2;
+      const x = Math.sin(a) * ring;
+      const z = Math.cos(a) * ring;
+      // The arm over the walk, towards the landmark.
+      const yaw = a + Math.PI;
+      const lamp = gridLamp(accent);
+      lamp.position.set(x, top, z);
+      lamp.rotation.y = yaw;
+      draft.add(lamp);
+      lampsAt.push({ x, z, yaw });
+      // A bench in every other gap, looking in; the gap at the way in is kept clear.
+      if (k % 2 === 1 && k !== 0) {
+        const b = a + Math.PI / count;
+        draft.add(bench(Math.sin(b) * edge * 0.82, top, Math.cos(b) * edge * 0.82, b + Math.PI, wall));
+      }
+    }
+    settingLamps.set(site.id, lampsAt);
+    lights.delete(site.id);
+    // The way in: an information post between two flags.
+    const ix = Math.sin(way) * edge * 0.86;
+    const iz = Math.cos(way) * edge * 0.86;
+    const post = new THREE.Group();
+    const stand = ctx.box(0.5, 1.5, 0.5, ctx.tone(PALETTE.steel, 1.05));
+    post.add(stand);
+    const board = ctx.box(1.9, 1.2, 0.22, wall);
+    board.position.set(0, 1.4, 0);
+    board.rotation.x = -0.35;
+    post.add(board);
+    const face = ctx.lit(ctx.box(1.6, 0.9, 0.1, accent), 0.6);
+    face.position.set(0, 1.55, -0.13);
+    face.rotation.x = -0.35;
+    post.add(face);
+    post.position.set(ix, top, iz);
+    post.rotation.y = way + Math.PI;
+    draft.add(post);
+    for (const side of [-1, 1]) {
+      const fx = ix + Math.cos(way) * side * 4.5;
+      const fz = iz - Math.sin(way) * side * 4.5;
+      const pole = ctx.column(0.1, 7.5, ctx.tone(PALETTE.steel, 1.15), 5);
+      pole.position.set(fx, top, fz);
+      draft.add(pole);
+      // Flying outwards along the kerb from its pole.
+      const banner = ctx.box(0.08, 1.4, 2.3, side < 0 ? accent : wall);
+      banner.position.set(fx + Math.cos(way) * side * 1.2, top + 6.4, fz - Math.sin(way) * side * 1.2);
+      banner.rotation.y = way + Math.PI / 2;
+      draft.add(banner);
+      const finial = ctx.lit(ctx.column(0.2, 0.3, accent, 6), 0.8);
+      finial.position.set(fx, top + 7.5, fz);
+      draft.add(finial);
+    }
+    // Planters of the civilisation's gardens, opposite the way in.
+    const gardens = style.colony?.gardens ?? [];
+    if (kit !== null && gardens.length > 0) {
+      for (let k = 0; k < 4; k++) {
+        const a = way + Math.PI + (k - 1.5) * (Math.PI / count) * 1.1;
+        const x = Math.sin(a) * edge * 0.78;
+        const z = Math.cos(a) * edge * 0.78;
+        const box = ctx.ringWall(0.9, 1.25, 0.8, ctx.tone(wall, 0.9), 8);
+        box.position.set(x, top, z);
+        draft.add(box);
+        placeScatter(kit, draft, rng.pick(gardens), null, rng.range(0.45, 0.6), x, top + 0.5, z, rng.range(0, Math.PI * 2));
+      }
+    }
+  }
+
+  /** A bench looking along +Z: a seat on two feet, a back behind it. */
+  function bench(x: number, y: number, z: number, yaw: number, color: number): THREE.Group {
+    const g = new THREE.Group();
+    const steel = ctx.tone(PALETTE.steel, 0.95);
+    for (const side of [-1, 1]) {
+      const foot = ctx.box(0.16, 0.7, 0.6, steel);
+      foot.position.set(side * 1.05, 0, 0);
+      g.add(foot);
+    }
+    const seat = ctx.box(2.5, 0.16, 0.75, color);
+    seat.position.y = 0.7;
+    g.add(seat);
+    const back = ctx.box(2.5, 0.6, 0.14, ctx.tone(color, 0.9));
+    back.position.set(0, 0.95, -0.38);
+    g.add(back);
+    g.position.set(x, y, z);
+    g.rotation.y = yaw;
+    return g;
+  }
+
   function build(site: Site): void {
     const began = performance.now();
     const kit = colony !== undefined ? worldKit() : null;
@@ -1321,6 +1534,7 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
       made.position.y = floor;
       draft.add(made);
       footprints.push({ x: 0, z: 0, radius: mark.radius * 0.6, height: 40 });
+      buildSetting(kit, site, draft);
     } else if (site.town !== null) {
       buildGridTown(kit, site, site.town, draft, footprints);
     } else {
@@ -1493,7 +1707,10 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
           wanted = site;
         }
       }
-      if (wanted !== null) build(wanted);
+      // Earth's frame allowance (`view.ts`): a town near the traveller is
+      // built whatever the frame has spent, a far one only while the frame
+      // has room — a giant's town is a dozen milliseconds of build.
+      if (wanted !== null && frameOpenFor(0, best - wanted.radius < NEAR_BUILD)) build(wanted);
     },
     prime(eye) {
       for (const site of sites) {
@@ -1568,7 +1785,7 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
     lampsNear(point, out, max) {
       found.length = 0;
       for (const site of sites) {
-        if (site.mesh === null || site.town === null) continue;
+        if (site.mesh === null || (site.town === null && !settingLamps.has(site.id))) continue;
         if (site.origin.distanceTo(point) > site.radius * 1.5 + LAMP_FIELD) continue;
         const heads = lightsOf(site);
         for (let k = 0; k < heads.length; k += 3) {
@@ -1585,14 +1802,25 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
     floorAt(x, y, z) {
       if (!deck) return null;
       const length = Math.hypot(x, y, z) || 1;
-      for (const site of sites) {
+      const on = (site: Site): number | null => {
         const dot = (x * site.dir.x + y * site.dir.y + z * site.dir.z) / length;
-        if (dot < 0.9) continue;
+        if (dot < 0.9) return null;
         const angle = Math.acos(Math.min(1, dot));
         // The plane's own distance from the centre, along it.
         const across = Math.tan(angle) * site.origin.length();
-        if (across > site.paving + 2) continue;
+        if (across > site.paving + 2) return null;
         return site.origin.length() / dot - R + site.floor;
+      };
+      // The platform last stood on first: almost every question is about it.
+      if (lastFloor !== null) {
+        const here = on(lastFloor);
+        if (here !== null) return here;
+      }
+      for (const site of floorCellOf(x / length, y / length, z / length)) {
+        const here = on(site);
+        if (here === null) continue;
+        lastFloor = site;
+        return here;
       }
       return null;
     },

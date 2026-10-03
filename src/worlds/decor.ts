@@ -21,7 +21,8 @@
  * tiles are built without them.
  *
  * Where: a function of the tile's key, so a tile built twice is the same tile,
- * and never on a town's pad. A cloud deck has no boulders, but where its body
+ * and never on a town's pad nor in an outpost's yard (`outposts.ts`), whose
+ * pieces are merged into the same tile. A cloud deck has no boulders, but where its body
  * has a ground model its biomes still name their parts — an ice plume on
  * Neptune's cirrus — and those stand on the deck like anything else.
  */
@@ -41,11 +42,17 @@ import { rngFrom } from '../scenery/random.ts';
 import { coarsened, onPalette, paintColors, toned } from '../models.ts';
 import type { Model } from '../models.ts';
 import { SCATTER, worldKit } from './kit.ts';
+import { ball } from './architecture.ts';
+import { PALETTE } from '../theme.ts';
+import type { Outposts } from './outposts.ts';
+
+/** The kit's rocks a crust's boulders are drawn from. */
+const KIT_ROCKS = ['rock-1', 'rock-2', 'rock-3', 'rock-4'];
 
 /** Most triangles a scattered plant or prop keeps. */
 const SCATTER_TRIANGLES = 420;
 
-/** A plain rock, for every crust: the one decoration every rocky world has. */
+/** A plain rock, for every crust: the one decoration every rocky world has; the kit's rocks (`KIT_ROCKS`) once it is in. */
 export const BOULDER: Decoration = {
   id: 'boulder',
   footprint: 2.5,
@@ -64,7 +71,35 @@ export const BOULDER: Decoration = {
   },
 };
 
-export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryContext): (key: TileKey, centre: THREE.Vector3, up: THREE.Vector3) => THREE.BufferGeometry | null {
+/**
+ * A cloud deck's own lumps, where a crust has its boulders: a billow of the
+ * deck heaped up, three to seven squashed puffs drawn white and tinted at
+ * each spot to the deck's own colour there a shade lighter, as the top of a
+ * cloud catches more of the sun than the deck it rises from. Without them a
+ * giant's deck was one flat colour to the horizon.
+ */
+export const BILLOW: Decoration = {
+  id: 'billow',
+  footprint: 9,
+  bodies: [],
+  build(ctx, rng) {
+    const group = new ctx.THREE.Group();
+    const lumps = rng.between(3, 7);
+    const spread = rng.range(3, 7);
+    for (let k = 0; k < lumps; k++) {
+      const r = rng.range(1.8, 4.2) * (k === 0 ? 1.3 : 1);
+      const puff = ball(ctx, r, k % 3 === 2 ? ctx.tone(PALETTE.white, 0.9) : PALETTE.white, 10);
+      const a = rng.range(0, Math.PI * 2);
+      const d = k === 0 ? 0 : rng.range(0.4, 1) * spread;
+      puff.scale.y = rng.range(0.38, 0.55);
+      puff.position.set(Math.cos(a) * d, r * 0.05, Math.sin(a) * d);
+      group.add(puff);
+    }
+    return group;
+  },
+};
+
+export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryContext, outposts: Outposts | null = null): (key: TileKey, centre: THREE.Vector3, up: THREE.Vector3) => THREE.BufferGeometry | null {
   const byId = new Map<string, Decoration>(spec.decorations.map((part) => [part.id, part]));
   const variants = new Map<string, Merged[]>();
   const biomes = spec.body.ground?.biomes ?? {};
@@ -95,10 +130,11 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
       const coarse = coarsened(piece.model.geometry, piece.model.slot, SCATTER_TRIANGLES);
       model = { geometry: coarse.geometry, slot: coarse.slot, slots: piece.model.slots, defaults: piece.model.defaults };
     }
-    // A rock is the ground's rock: the world's own high and low colours,
-    // keeping the pack's light and shade; the rest on the palette.
+    // A rock is the ground's rock; the rest on the palette.
     const rock = info.kind === 'rock';
-    const colors = paintColors(model as Model, (_slot, original) => (rock ? toned(look.highland, 0.75 + 0.5 * original.getHSL({ h: 0, s: 0, l: 0 }).l) : onPalette(original)));
+    // A rock keeps the pack's light and shade on white, and takes the colour
+    // of the ground it lies on where it is placed (`tint`).
+    const colors = paintColors(model as Model, (_slot, original) => (rock ? toned(PALETTE.white, 0.7 + 0.45 * original.getHSL({ h: 0, s: 0, l: 0 }).l) : onPalette(original)));
     graded(colors);
     const geometry = model.geometry.index === null ? model.geometry : model.geometry.toNonIndexed();
     const position = geometry.getAttribute('position');
@@ -171,11 +207,21 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
   const scale = new THREE.Vector3();
   const R = terrain.radius;
 
+  /**
+   * The ground's colour at a direction times `shade`, for a rock to lie in:
+   * a shade lighter than the dust round it, as a rock's faces catch the sun
+   * the regolith's grain scatters.
+   */
+  function groundTint(at: { x: number; y: number; z: number }, shade: number): [number, number, number] {
+    terrain.sample(at.x, at.y, at.z, sample);
+    return [Math.min(1, sample.r * shade), Math.min(1, sample.g * shade), Math.min(1, sample.b * shade)];
+  }
+
   return (key, centre) => {
     if (key.level !== terrain.levels) return null;
     const rng = rngFrom('worlds', spec.id, 'decor', keyOf(key));
     const [u0, v0, size] = tileSpan(key);
-    const picks: { variant: Merged; matrix: THREE.Matrix4 }[] = [];
+    const picks: { variant: Merged; matrix: THREE.Matrix4; tint?: [number, number, number] | undefined }[] = [];
     const tries = spec.rocks + 14;
     for (let k = 0; k < tries; k++) {
       faceDir(key.face, u0 + rng.unit() * size, v0 + rng.unit() * size, dir);
@@ -184,10 +230,16 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
       const variantIndex = rng.int(DECORATION_VARIANTS);
       const grow = rng.range(0.7, 1.25);
       if (terrain.bareAt(dir.x, dir.y, dir.z)) continue;
+      if (outposts !== null && outposts.covers(key, dir)) continue;
       let part: Decoration | undefined;
+      let tint = false;
+      let rock: Merged | null = null;
       if (k < spec.rocks) {
-        if (!rocky) continue;
-        part = BOULDER;
+        part = rocky ? BOULDER : BILLOW;
+        tint = !rocky;
+        // On a crust, the kit's own rocks in the ground's colours once it is
+        // in: the code-built boulder is a stand-in until then.
+        if (rocky) rock = kitShape(KIT_ROCKS[Math.floor(roll * KIT_ROCKS.length)]!);
       } else {
         terrain.sample(dir.x, dir.y, dir.z, sample);
         const biome = sample.biome === null ? undefined : biomes[sample.biome];
@@ -203,11 +255,23 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
       right.crossVectors(up, forward).normalize();
       // Sunk a little, so a rock on a slope has no daylight under its low side.
       point.copy(up).multiplyScalar(R + ground - 0.25).sub(centre);
-      scale.setScalar(grow);
+      scale.setScalar(rock === null ? grow : grow * 0.55);
       matrix.makeBasis(right, up, forward).scale(scale).setPosition(point);
       if (matrix.determinant() <= 0) continue;
-      picks.push({ variant: variantsOf(part)[variantIndex]!, matrix: matrix.clone() });
+      if (rock !== null) {
+        picks.push({ variant: rock, matrix: matrix.clone(), tint: groundTint(dir, rng.range(1.05, 1.4)) });
+        continue;
+      }
+      let colour: [number, number, number] | undefined;
+      if (tint) {
+        terrain.sample(dir.x, dir.y, dir.z, sample);
+        colour = [Math.min(1, sample.r * 1.1), Math.min(1, sample.g * 1.1), Math.min(1, sample.b * 1.1)];
+      }
+      picks.push({ variant: variantsOf(part)[variantIndex]!, matrix: matrix.clone(), tint: colour });
     }
+    // What stands between the towns (`outposts.ts`), once the kit is in.
+    const outpost = outposts?.planOf(key) ?? null;
+    if (outpost !== null && worldKit() !== null) outposts!.build(key, outpost, centre, picks);
     // The kit's props and plants, a few a tile.
     const scatter = spec.scatter;
     if (scatter !== null && worldKit() !== null) {
@@ -221,6 +285,7 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
         const yaw = rng.range(0, Math.PI * 2);
         const grow = rng.range(0.7, 1.3);
         if (terrain.bareAt(dir.x, dir.y, dir.z)) continue;
+        if (outposts !== null && outposts.covers(key, dir)) continue;
         const shape = kitShape(id);
         if (shape === null) continue;
         const ground = terrain.groundAt(dir.x, dir.y, dir.z);
@@ -233,7 +298,7 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
         scale.setScalar(grow);
         matrix.makeBasis(right, up, forward).scale(scale).setPosition(point);
         if (matrix.determinant() <= 0) continue;
-        picks.push({ variant: shape, matrix: matrix.clone() });
+        picks.push({ variant: shape, matrix: matrix.clone(), tint: SCATTER[id]?.kind === 'rock' ? groundTint(dir, rng.range(1.05, 1.4)) : undefined });
       }
     }
     if (picks.length === 0) return null;
@@ -257,6 +322,14 @@ export function createDecor(spec: WorldSpec, terrain: Terrain, ctx: SceneryConte
         normal[at + i + 2] = point.z;
       }
       color.set(source.color, at);
+      const tint = pick.tint;
+      if (tint !== undefined) {
+        for (let i = 0; i < source.color.length; i += 3) {
+          color[at + i] = color[at + i]! * tint[0];
+          color[at + i + 1] = color[at + i + 1]! * tint[1];
+          color[at + i + 2] = color[at + i + 2]! * tint[2];
+        }
+      }
       at += source.position.length;
     }
     const geometry = new THREE.BufferGeometry();

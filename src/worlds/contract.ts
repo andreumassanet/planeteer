@@ -586,6 +586,8 @@ export interface VehicleModel {
   radius: number;
   /** How high its floor rides over the ground when it stands: a skiff hovers. 0 by default. */
   hover?: number;
+  /** Whether its pilot stands, as in a balloon's basket, rather than sits. */
+  stand?: boolean;
 }
 
 /**
@@ -682,7 +684,7 @@ export interface KitScatter {
  * - `haze` — soft sheets of murk hanging in layers over the ground.
  */
 export interface AmbientSpec {
-  kind: 'dust-devil' | 'motes' | 'streaks' | 'glint' | 'lightning' | 'haze';
+  kind: 'dust-devil' | 'motes' | 'streaks' | 'glint' | 'lightning' | 'haze' | 'fliers';
   count: number;
   color: number;
   /** Degrees clockwise from north the drift runs *toward*. Omitted, the world's wind, else a slow drift. */
@@ -691,8 +693,10 @@ export interface AmbientSpec {
   speed?: number;
   /** Motes: how fast they fall, units a second. */
   fall?: number;
-  /** How big one is, units. */
+  /** How big one is, units; fliers, times Earth's bird. */
   size?: number;
+  /** Fliers: the underside's colour, under `color` on the back. */
+  belly?: number;
   /** Lightning: flashes a minute where it storms hardest. */
   rate?: number;
   /** Lightning: 0 to 1, how stormy a place is; omitted, everywhere alike. */
@@ -747,7 +751,7 @@ export interface WorldSpec {
   civilisation: Civilisation | null;
   /** The decorations the body's biomes name by id, from `src/system/parts/`. */
   decorations: readonly Decoration[];
-  /** Plain boulders on every finest tile (about 50 units square); 0 on a cloud deck. */
+  /** Plain boulders on every finest tile (about 50 units square); on a cloud deck, billows of it (`BILLOW` in `decor.ts`). */
   rocks: number;
   /** One of each stands beside the spawn: an engine kind by name, or a planet's own. */
   vehicles: readonly (VehicleKind | VehicleSpec)[];
@@ -914,7 +918,7 @@ export function defineWorld(body: Body, overrides: WorldOverrides = {}): WorldSp
     sky,
     civilisation: overrides.civilisation ?? null,
     decorations: overrides.decorations ?? [],
-    rocks: overrides.rocks ?? (giant ? 0 : 6),
+    rocks: overrides.rocks ?? (giant ? 14 : 6),
     vehicles: overrides.vehicles ?? [giant ? 'skiff' : 'rover'],
     ambient: overrides.ambient ?? [],
     wind: overrides.wind ?? null,

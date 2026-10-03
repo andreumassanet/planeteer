@@ -56,6 +56,7 @@ import type { Terrain } from '../src/worlds/terrain.ts';
 import { FACES, TILE_SEGMENTS, faceDir, facePoint } from '../src/worlds/cube.ts';
 import { createGround } from '../src/worlds/tiles.ts';
 import { createDecor } from '../src/worlds/decor.ts';
+import { createOutposts } from '../src/worlds/outposts.ts';
 import { createSettlements, layoutOf } from '../src/worlds/settlements.ts';
 import type { Site } from '../src/worlds/settlements.ts';
 import { createSky } from '../src/worlds/sky.ts';
@@ -606,9 +607,56 @@ function checkRoads(spec: WorldSpec, terrain: Terrain): void {
     if (top < ground) under++;
   });
   if (under > 0) fail(`${spec.id}: ${under} of ${sections} road sections under the drawn ground, worst ${(-worst).toFixed(2)}`);
+  // A road meets its town's street flush, not a step above or under the kerb.
+  const step = roads.gateStep();
+  if (step > 0.05) fail(`${spec.id}: a road meets its town's street ${step.toFixed(2)} units off its level`);
   console.log(
     `  roads: ${roads.stats.roads}, ${roads.stats.steep} pairs left apart by the slope; ${sections} sections, the top at least ${Number.isFinite(worst) ? worst.toFixed(2) : '-'} over the ground`,
   );
+  roads.dispose();
+  settlements.dispose();
+}
+
+/**
+ * What stands between the towns (`outposts.ts`): the same plan twice from
+ * two builds, and none on ground the world keeps bare — tried on the tiles
+ * round every town, where the squares and the roads are.
+ */
+function checkOutposts(spec: WorldSpec, terrain: Terrain): void {
+  const settlements = createSettlements(spec, terrain, ctx, gradientMap);
+  const roads = createRoads(spec, terrain, settlements.sites, settlements.network, gradientMap);
+  const one = createOutposts(spec, terrain);
+  const two = createOutposts(spec, terrain);
+  const size = 2 / (1 << terrain.levels);
+  const point = { face: 0, u: 0, v: 0 };
+  const seen = new Set<string>();
+  let tiles = 0;
+  let planned = 0;
+  for (const site of settlements.sites) {
+    facePoint(site.dir.x, site.dir.y, site.dir.z, point);
+    const i0 = Math.floor((point.u + 1) / size);
+    const j0 = Math.floor((point.v + 1) / size);
+    for (let di = -6; di <= 6; di++) {
+      for (let dj = -6; dj <= 6; dj++) {
+        const i = i0 + di;
+        const j = j0 + dj;
+        if (i < 0 || j < 0 || i >= 1 << terrain.levels || j >= 1 << terrain.levels) continue;
+        const key = { face: point.face, level: terrain.levels, i, j };
+        const id = `${key.face}/${i}/${j}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        tiles++;
+        const a = one.planOf(key);
+        const b = two.planOf(key);
+        if (JSON.stringify(a) !== JSON.stringify(b)) fail(`${spec.id}: tile ${id}'s outpost differs between two builds`);
+        if (a === null) continue;
+        planned++;
+        const at = a.at;
+        if (terrain.bareAt(at.x, at.y, at.z)) fail(`${spec.id}: a ${a.kind} outpost stands on bare ground at tile ${id}`);
+      }
+    }
+  }
+  console.log(`  outposts: ${planned} on ${tiles} tiles round the towns`);
   roads.dispose();
   settlements.dispose();
 }
@@ -818,6 +866,7 @@ for (const id of ids) {
   checkCraft(spec, terrain);
   checkArrivals(spec, terrain);
   checkRoads(spec, terrain);
+  checkOutposts(spec, terrain);
   checkPolitical(spec, terrain);
 }
 

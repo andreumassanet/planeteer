@@ -240,9 +240,12 @@ export const WORLD = defineWorld(JUPITER, {
     crowd: 1.2,
   }),
   decorations: [],
-  rocks: 0,
+  // Billows of the deck (`BILLOW`), where a crust has its boulders.
+  rocks: 14,
   vehicles: ['skiff', 'lander'],
   ambient: [
+    // Sky mantas over the deck.
+    { kind: 'fliers', count: 14, color: PALETTE.salmon, belly: PALETTE.cream, size: 4.2 },
     // Ammonia ice: the white of the zones is these, a few microns each,
     // drawn a good deal bigger.
     { kind: 'motes', count: 170, color: PALETTE.white },
@@ -252,6 +255,8 @@ export const WORLD = defineWorld(JUPITER, {
     // and Juno saw it in the brown belts and almost never in the white zones.
     { kind: 'lightning', count: 1, rate: 7, color: PALETTE.white, where: (lat) => 1 - zoneAt(lat) },
   ],
+  // The jets: Jupiter's belts and zones run east and west in alternate bands; here the deck runs east.
+  wind: { toward: 90, speed: 30, strength: 0.6 },
   landmarks: LANDMARKS,
   // Hollow, on the Red Spot's northern flank: the storm's wall stands on the
   // southern horizon, Spot Watch on its crest four thousand units away.

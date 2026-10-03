@@ -58,6 +58,19 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { makeRigged, paintColors } from '../models.ts';
 import type { Model, Rigged } from '../models.ts';
 import type { ClipRole, SpaceCreature } from '../space-kit.ts';
+
+/**
+ * How tall a world's people stand, against the traveller: a species' own
+ * height (`Morph.height`, from the days its people were built in code) kept
+ * within `STATURE` of a person's. Taller than that, a town's crowd was a
+ * herd of giants walking through each other on its pavements.
+ */
+const STATURE: readonly [number, number] = [0.82, 1.08];
+export const statureOf = (height: number): number => Math.min(AVATAR_HEIGHT * STATURE[1], Math.max(AVATAR_HEIGHT * STATURE[0], height));
+/** A blob stands this share of its species' height, a flyer this; and nobody is wider than `WIDEST`. */
+const BLOB_SHARE = 0.55;
+const FLYER_SHARE = 0.85;
+export const WIDEST = AVATAR_HEIGHT * 1.15;
 import { creaturePaint, worldKit } from './kit.ts';
 import type { Walk } from './town-grid.ts';
 import type { Coat } from './kit.ts';
@@ -126,6 +139,8 @@ export interface Walker {
   /** Units tall, and the scale from the pack's units. */
   height: number;
   scale: number;
+  /** How far round its middle the body reaches, units: half its widest, as it is drawn. */
+  room: number;
   /** Where it is in the town's frame, and which way it faces. */
   x: number;
   z: number;
@@ -321,7 +336,15 @@ export function createCrowd(
     const rigged = rigOf(creature, coat);
     const holder = new THREE.Group();
     holder.name = `alien ${key}`;
-    const scale = height / creature.height;
+    // The kind's share of the species' height — a blob is a pet's size, a
+    // flyer floats smaller than a walker — and never wider than `WIDEST`,
+    // or a round blob or a squid's spread of arms stood two people across.
+    const share = creature.entry.kind === 'blob' ? BLOB_SHARE : creature.entry.kind === 'flyer' ? FLYER_SHARE : 1;
+    const tall = height * share;
+    const box = creature.rig.box;
+    const across = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / creature.height;
+    const scale = (Math.min(tall, WIDEST / Math.max(across, 1e-3)) / creature.height);
+    height = creature.height * scale;
     rigged.root.scale.setScalar(scale);
     rigged.root.rotation.set(0, 0, 0);
     holder.add(rigged.root);
@@ -335,6 +358,7 @@ export function createCrowd(
       rigged,
       visitor,
       height,
+      room: (Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * scale) / 2,
       scale,
       x: at.x,
       z: at.z,
@@ -396,7 +420,7 @@ export function createCrowd(
     const free = (x: number, z: number, room: number): boolean =>
       !keep.some((disc) => Math.hypot(disc.x - x, disc.z - z) < disc.r) &&
       !site.footprints.some((f) => Math.hypot(f.x - x, f.z - z) < f.radius + room) &&
-      !walkers.some((other) => other.site === site && Math.hypot(other.x - x, other.z - z) < room * 2 + 1.2);
+      !walkers.some((other) => other.site === site && Math.hypot(other.x - x, other.z - z) < Math.max(room * 2 + 1.2, WIDEST));
     // The stretches clear of every wall along their length, the longest first.
     const stretches = town.walks
       .filter((one) => Math.hypot(one.bx - one.ax, one.bz - one.az) > 5 && segmentClear(site, one.ax, one.az, one.bx, one.bz, 0.5))
@@ -455,7 +479,7 @@ export function createCrowd(
     if (choices.length === 0) return false;
     const began = performance.now();
     const keep = keepClear(site);
-    const base = civ.species.morph.height;
+    const base = statureOf(civ.species.morph.height);
     if (site.town !== null) peopleGrid(site, keep, choices, base);
     const plan = site.town !== null ? null : planOf(spec, site, keep);
     if (plan !== null) plans.set(site.id, plan);
@@ -608,7 +632,7 @@ export function createCrowd(
   }
 
   /** How much room a body keeps round it, units: a share of its height, never under a person's shoulders. */
-  const roomOf = (w: Walker): number => Math.max(AVATAR_HEIGHT * 0.22, w.height * 0.24);
+  const roomOf = (w: Walker): number => Math.max(AVATAR_HEIGHT * 0.22, w.room * 0.85);
 
   /**
    * Whether another walker of the same town stands in the way along

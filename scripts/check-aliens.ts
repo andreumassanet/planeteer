@@ -51,7 +51,7 @@ const { arrivalOf, colonyBudget, createSettlements, layoutOf } = await import('.
 const { townBudget } = await import('../src/worlds/town-grid.ts');
 const { parkingOf } = await import('../src/worlds/arrival.ts');
 const { AVATAR_HEIGHT } = await import('../src/stature.ts');
-const { createCrowd } = await import('../src/worlds/aliens.ts');
+const { createCrowd, statureOf, WIDEST } = await import('../src/worlds/aliens.ts');
 const { DEFAULT_KITS, createCraft } = await import('../src/worlds/craft.ts');
 const { createDecor } = await import('../src/worlds/decor.ts');
 const { BUILT_IN_FORMS } = await import('../src/worlds/architecture.ts');
@@ -312,8 +312,11 @@ function checkPeople(spec: WorldSpec, towns: import('../src/worlds/settlements.t
     if (site.port !== null && mine.length === people.length) fail(`${spec.id}: ${site.id} has a pad and no crew at it`);
     for (const w of people) {
       tall = [Math.min(tall[0]!, w.height), Math.max(tall[1]!, w.height)];
-      const ratio = w.height / civ.species.morph.height;
-      if (ratio < 0.85 || ratio > 1.12) fail(`${spec.id}: a ${civ.species.name} of ${site.id} is ${w.height.toFixed(1)} units tall, the species ${civ.species.morph.height.toFixed(1)}`);
+      // A person's stature at most (`statureOf`), smaller for a blob or a
+      // flyer, and never wider than `WIDEST`.
+      const most = statureOf(civ.species.morph.height) * 1.08;
+      if (w.height > most || w.height < most * 0.3) fail(`${spec.id}: a ${civ.species.name} of ${site.id} is ${w.height.toFixed(1)} units tall, against ${most.toFixed(1)}`);
+      if (w.room * 2 > WIDEST * 1.01) fail(`${spec.id}: a ${civ.species.name} of ${site.id} is ${(w.room * 2).toFixed(1)} units across, wider than ${WIDEST.toFixed(1)}`);
     }
     // A minute of walking, at 30 frames a second, from out of the way.
     const away = player.clone().addScaledVector(site.dir, 200);

@@ -33,6 +33,20 @@ const POLE_CLEAR = 6;
 /** Attempts at a town's site before the nation is called full. */
 const TRIES = 60;
 
+/**
+ * **On a giant, towns come in clusters.** A degree of Jupiter is three
+ * thousand units, so towns spread by the square degree stood twelve
+ * kilometres apart and no road reached from one to the next: a deck of
+ * cloud with a platform on the horizon. Where a degree is longer than
+ * `CLUSTER_FROM` units, every town grows up to `CLUSTER_MOST` satellites
+ * `CLUSTER_NEAR` to `CLUSTER_FAR` units out — a region a skyway joins — and
+ * the deck between regions stays open, as the sea between Earth's islands.
+ */
+const CLUSTER_FROM = 700;
+const CLUSTER_MOST = 5;
+const CLUSTER_NEAR = 650;
+const CLUSTER_FAR = 1700;
+
 /** The words a grown town's name may end with, as the file's own names do. */
 const SUFFIXES = ['Rise', 'Hollow', 'Reach', 'Landing', 'Crossing', 'Wells', 'Station', 'Fold', 'Ridge', 'Basin', 'Gate', 'Field', 'Spur', 'Haven', 'Point', 'Terrace'];
 
@@ -149,6 +163,40 @@ export function grownTowns(body: Unpopulated): Settlement[] {
         grown: true,
       });
       made++;
+    }
+  }
+  if (perDegree > CLUSTER_FROM) {
+    const hubs = [...all];
+    for (const hub of hubs) {
+      const rng = rngFrom('system', body.id, 'cluster', hub.id);
+      const nationTop = Math.max(20000, hub.population);
+      let grown = 0;
+      for (let attempt = 0; attempt < CLUSTER_MOST * 8 && grown < CLUSTER_MOST; attempt++) {
+        const d = rng.range(CLUSTER_NEAR, CLUSTER_FAR) / perDegree;
+        const bearing = rng.range(0, Math.PI * 2);
+        const lat0 = (hub.lat * Math.PI) / 180;
+        const lon0 = (hub.lon * Math.PI) / 180;
+        const delta = (d * Math.PI) / 180;
+        const lat = Math.asin(Math.sin(lat0) * Math.cos(delta) + Math.cos(lat0) * Math.sin(delta) * Math.cos(bearing));
+        const lon = lon0 + Math.atan2(Math.sin(bearing) * Math.sin(delta) * Math.cos(lat0), Math.cos(delta) - Math.sin(lat0) * Math.sin(lat));
+        const latDeg = (lat * 180) / Math.PI;
+        const lonDeg = ((((lon * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
+        if (Math.abs(latDeg) > 90 - POLE_CLEAR) continue;
+        const nation = nationAt(fakeBody, latDeg, lonDeg);
+        if (nation === null) continue;
+        const population = Math.min(populationOf(rng, nationTop), Math.max(9000, hub.population * 0.6));
+        if (!fits(latDeg, lonDeg, population)) continue;
+        all.push({
+          id: `${hub.id}-cluster-${grown}`,
+          name: nameOf(rng, syllables, taken),
+          lat: Math.round(latDeg * 100) / 100,
+          lon: Math.round(lonDeg * 100) / 100,
+          population: Math.round(population / 100) * 100,
+          nation: nation.id,
+          grown: true,
+        });
+        grown++;
+      }
     }
   }
   return all;

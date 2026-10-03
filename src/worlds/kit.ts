@@ -339,21 +339,31 @@ export interface Coat {
   accent: number;
 }
 
+/**
+ * How much of a member's coat goes over the pack's own colour of a slot. The
+ * whole coat, as it was, took a cute pink squid to a slate-grey one and every
+ * creature of a world to one flat colour, which read as toys; at this share
+ * the species' colours still tell its people apart from the next world's and
+ * the pack's own design shows through them.
+ */
+const COAT_SHARE = 0.58;
+const coated = (original: THREE.Color, hex: number, factor: number): THREE.Color => onPalette(original).lerp(toned(hex, factor), COAT_SHARE);
+
 export function creaturePaint(id: string, coat: Coat | null): Paint {
   const table = CREATURE_SLOTS[id];
   return (slot, original) => {
     const role = coat === null || table === undefined ? undefined : table[slotKey(slot)];
     switch (role) {
       case 'hide':
-        return toned(coat!.hide, 1);
+        return coated(original, coat!.hide, 1);
       case 'pale':
-        return toned(coat!.hide, 1.32);
+        return coated(original, coat!.hide, 1.32);
       case 'shade':
-        return toned(coat!.hide, 0.72);
+        return coated(original, coat!.hide, 0.72);
       case 'trim':
-        return toned(coat!.trim, 1);
+        return coated(original, coat!.trim, 1);
       case 'accent':
-        return toned(coat!.accent, 1);
+        return coated(original, coat!.accent, 1);
       default:
         return onPalette(original);
     }

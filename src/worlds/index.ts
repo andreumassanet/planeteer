@@ -42,6 +42,7 @@ import { loadWorldSpec } from './registry.ts';
 import { createTerrain } from './terrain.ts';
 import { createGround } from './tiles.ts';
 import { createDecor } from './decor.ts';
+import { createOutposts } from './outposts.ts';
 import { createSky } from './sky.ts';
 import { arrivalOf, createSettlements } from './settlements.ts';
 import type { Site } from './settlements.ts';
@@ -64,7 +65,7 @@ import { DAY_MOOD, createToonRamp, setToonMood } from '../theme.ts';
 import { createPost } from '../post.ts';
 import { latLonOf, unitAt } from '../sphere.ts';
 import { createEffects } from '../effects.ts';
-import { DETAIL_DEFAULT, detail, sampleFrame, skipFrame } from '../view.ts';
+import { DETAIL_DEFAULT, beginFrameBuild, detail, sampleFrame, skipFrame } from '../view.ts';
 import type { EffectsSubject } from '../effects.ts';
 import { PAD_RADIUS, ROCKET_CLEAR, ROCKET_HEIGHT, ROCKET_REACH, ROCKET_WALL, createRocket, disposeRockets } from '../rocket.ts';
 import type { Rocket } from '../rocket.ts';
@@ -182,9 +183,12 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   scene.add(sky.group);
   const political = geography.world;
   const nationPoint = new THREE.Vector3();
+  // What stands between the towns, merged into the ground's tiles and a wall.
+  const outposts = createOutposts(spec, terrain);
   const ground = createGround(terrain, {
     gradientMap,
-    decorate: createDecor(spec, terrain, ctx),
+    decorate: createDecor(spec, terrain, ctx, outposts),
+    retire: (key) => outposts.retire(key),
     nations: {
       at: (x, y, z) => political.countryAtPoint(nationPoint.set(x, y, z)),
       colors: geography.countries.map((country) => country.color ?? 0x808080),
@@ -238,8 +242,30 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   const headSide = new THREE.Vector3();
   const headAt = new THREE.Vector3();
   const headAim = new THREE.Vector3();
+  let lampScratch = new Float32Array(64);
+  const lampOrder: number[] = [];
   const nightSources: NightSources = {
-    lampsNear: (point, out, max) => settlements.lampsNear(point, out, max),
+    // The towns' lamps and the outposts', each up to `max`, merged nearest
+    // first: filled one after the other, a near outpost's door lost its
+    // place to the far lamps of a town.
+    lampsNear(point, out, max) {
+      if (lampScratch.length < max * 8) lampScratch = new Float32Array(max * 8);
+      const towns = settlements.lampsNear(point, lampScratch, max);
+      const all = outposts.lampsNear(point, lampScratch, towns, max * 2);
+      const order = lampOrder;
+      order.length = 0;
+      for (let k = 0; k < all; k++) order.push(k);
+      order.sort((a, b) => lampScratch[a * 4 + 3]! - lampScratch[b * 4 + 3]!);
+      const n = Math.min(max, all);
+      for (let k = 0; k < n; k++) {
+        const from = order[k]! * 4;
+        out[k * 4] = lampScratch[from]!;
+        out[k * 4 + 1] = lampScratch[from + 1]!;
+        out[k * 4 + 2] = lampScratch[from + 2]!;
+        out[k * 4 + 3] = lampScratch[from + 3]!;
+      }
+      return n;
+    },
     headlights(out, max) {
       let n = 0;
       const burn = (position: THREE.Vector3, heading: THREE.Vector3, radius: number, down: number): void => {
@@ -266,14 +292,20 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   };
 
   /** What a foot stands on: the drawn ground, or a town's platform or a road's top over it. */
+  const skyways = spec.ground === 'cloud-deck';
+  /** How far under a skyway's top a body must be to pass under it rather than stand on it. */
+  const UNDER_SKYWAY = 2.5;
   const groundAt = (point: THREE.Vector3): number => {
     const length = point.length() || 1;
     const x = point.x / length;
     const y = point.y / length;
     const z = point.z / length;
     const floor = settlements.floorAt(x, y, z);
-    const road = roads.surfaceAt(x, y, z);
+    let road = roads.surfaceAt(x, y, z);
     const land = terrain.groundAt(x, y, z);
+    // A skyway over a deck is a roof from below, as a bridge's deck is on
+    // Earth (`ribbonHeightAt`): a body under it stays on the clouds.
+    if (road !== null && skyways && length - R < road - UNDER_SKYWAY) road = null;
     return Math.max(land, floor ?? land, road ?? land);
   };
 
@@ -284,6 +316,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   const rockets = new Map<string, Rocket>();
   const collide = (position: THREE.Vector3, radius: number): boolean => {
     let moved = settlements.collide(position, radius);
+    if (outposts.collide(position, radius)) moved = true;
     for (const craft of crafts) {
       if (craft === player.craft) continue;
       const d = position.distanceTo(craft.position);
@@ -402,6 +435,17 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       const side = new THREE.Vector3().crossVectors(player.facing, up).normalize();
       where.copy(player.position).addScaledVector(side, 14 + k * 14).addScaledVector(player.facing, 6);
       heading.copy(player.facing);
+      // Never inside the landmark the traveller arrived at: out past its
+      // ground, each a little further round than the last.
+      if (spawnSite !== null) {
+        const out = where.clone().sub(spawnSite.origin);
+        out.addScaledVector(spawnSite.dir, -out.dot(spawnSite.dir));
+        const least = spawnSite.radius + 8 + k * 6;
+        if (out.length() < least) {
+          if (out.lengthSq() < 1e-6) out.copy(side);
+          where.copy(spawnSite.origin).addScaledVector(out.normalize(), least);
+        }
+      }
     }
     where.setLength(R + groundAt(where));
     const up = where.clone().normalize();
@@ -515,12 +559,18 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   const still = new Set<Craft>();
   const spotAt = new THREE.Vector3();
   const spotAhead = new THREE.Vector3();
+  /** Which town spot each streamed craft came from, and the spots whose craft the traveller took. */
+  const spotOf = new WeakMap<Craft, string>();
+  const takenSpots = new Set<string>();
   function streamCraft(): void {
     for (const site of settlements.sites) {
       const have = standingCraft.get(site.id);
       if (site.mesh !== null && have === undefined) {
         const made: Craft[] = [];
-        for (const spot of settlements.craftAt(site)) {
+        for (const [index, spot] of settlements.craftAt(site).entries()) {
+          // A spot whose craft the traveller has taken stays empty: that craft
+          // is wherever it was left, and two of it would stand otherwise.
+          if (takenSpots.has(`${site.id}:${index}`)) continue;
           settlements.toWorld(site, spot.x, spot.y, spot.z, spotAt);
           settlements.toWorld(site, spot.x + Math.sin(spot.yaw), spot.y, spot.z + Math.cos(spot.yaw), spotAhead).sub(spotAt);
           spotAt.setLength(R + groundAt(spotAt));
@@ -530,11 +580,16 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
           crafts.push(craft);
           still.add(craft);
           made.push(craft);
+          spotOf.set(craft, `${site.id}:${index}`);
         }
         standingCraft.set(site.id, made);
       } else if (site.mesh === null && have !== undefined) {
         for (const craft of have) {
-          if (!still.has(craft) || craft === player.craft) continue;
+          if (!still.has(craft) || craft === player.craft) {
+            const spot = spotOf.get(craft);
+            if (spot !== undefined) takenSpots.add(spot);
+            continue;
+          }
           still.delete(craft);
           crafts.splice(crafts.indexOf(craft), 1);
           disposeCraft(craft);
@@ -600,6 +655,10 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     player.update(0, noInput, rig.steer);
     rig.snap(player, groundAt, R, terrain.high);
     settlements.prime(rig.camera.position);
+    // The roads round the traveller, so a skyway under their feet is there
+    // to stand on before they are put down (`roads.surfaceAt` knows only
+    // what has been built).
+    roads.update(player.position, 1);
     // A town raised round the traveller may put a wall where they stand: out
     // of it, and back on the ground.
     for (let k = 0; k < 8 && collide(player.position, BODY_RADIUS); k++) continue;
@@ -631,6 +690,9 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     craftInReach,
     jumpTo(lat, lon) {
       if (player.craft !== null) player.leave();
+      // Out of a rocket too: on its pad it is a step out; gone up, it is put back.
+      if (riding !== null && !riding.leave(stepOut)) riding.reset();
+      riding = null;
       standAt(lat, lon);
       rig.heading.copy(player.facing);
       settle();
@@ -680,6 +742,44 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     ride: null,
   };
   let dustAt = 0;
+  /**
+   * What the craft raise off the ground, as Earth's vehicles do: a ship low
+   * over it blows a ring of dust out from under its hull, thicker the nearer
+   * it is (`THRUST_DUST`), and a rover under way throws a little off its back
+   * wheels — the traveller's own and the traffic's near them.
+   */
+  const THRUST_DUST = 24;
+  const DUST_NEAR = 160;
+  let thrustClock = 0;
+  let wheelClock = 0;
+  const dustPoint = new THREE.Vector3();
+  const dustSide = new THREE.Vector3();
+  function raiseDust(dt: number): void {
+    thrustClock -= dt;
+    wheelClock -= dt;
+    const thrust = thrustClock <= 0;
+    const wheels = wheelClock <= 0;
+    if (thrust) thrustClock = 0.09;
+    if (wheels) wheelClock = 0.16;
+    const visit = (craft: Craft): void => {
+      if (craft.position.distanceTo(player.position) > DUST_NEAR) return;
+      if (thrust && craft.kind === 'lander' && craft.airborne) {
+        const ground = R + groundAt(craft.position);
+        const clearance = craft.position.length() - ground;
+        if (clearance > THRUST_DUST) return;
+        const near = 1 - clearance / THRUST_DUST;
+        const up = dustSide.copy(craft.position).normalize();
+        dustPoint.copy(up).multiplyScalar(ground);
+        effects.dustAt(dustPoint, craft.radius * (1 + clearance / THRUST_DUST), Math.round(2 + 5 * near));
+      } else if (wheels && craft.kind === 'rover' && !craft.airborne && Math.abs(craft.speed) > 7) {
+        dustPoint.copy(craft.position).addScaledVector(craft.heading, -craft.radius * 0.8 * Math.sign(craft.speed));
+        dustPoint.setLength(R + groundAt(dustPoint));
+        effects.dustAt(dustPoint, 1.4, Math.abs(craft.speed) > 16 ? 3 : 2);
+      }
+    };
+    if (player.craft !== null) visit(player.craft);
+    for (const rover of traffic.rovers) visit(rover.craft);
+  }
   const dustSample = newSample();
   const dustColor = new THREE.Color();
   const paler = new THREE.Color(0xffffff);
@@ -692,6 +792,8 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     const dt = Math.min(0.1, Math.max(0, interval / 1000));
     last = now;
     const began = performance.now();
+    // The frame's one build allowance, as Earth's loop opens it (`view.ts`).
+    beginFrameBuild();
     // **Earth's render distance** (`view.ts`), one knob for every world: as a
     // multiple of its default it is how finely the ground splits, how far
     // the towns are built and the pads stand, and how far the haze opens.
@@ -748,6 +850,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       }
     }
     ambient.eachDevil((base, upward, color, height, carry) => effects.whirl(carry, base, upward, height, color, dt));
+    raiseDust(dt);
     effects.update(dt, effectsSubject, rig.camera);
     if (skyships !== null) {
       skyships.update(dt, player.position, groundAt, R);
@@ -836,7 +939,29 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     skyships?.dispose();
     roads.dispose();
     traffic.dispose();
-    sward?.group.removeFromParent();
+    // Every craft of this world, the one being driven too; the grass's own
+    // buffers, materials and fields; the canopy's shape (its materials are
+    // the craft kit's, shared with Earth's).
+    if (player.craft !== null) player.leave();
+    for (const craft of crafts) disposeCraft(craft);
+    crafts.length = 0;
+    if (sward !== null) {
+      sward.group.removeFromParent();
+      sward.group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (mesh.isMesh !== true) return;
+        mesh.geometry.dispose();
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          const uniforms = material.userData.uniforms as Record<string, THREE.IUniform> | undefined;
+          for (const uniform of Object.values(uniforms ?? {})) if ((uniform.value as THREE.Texture | null)?.isTexture === true) (uniform.value as THREE.Texture).dispose();
+          material.dispose();
+        }
+      });
+    }
+    scene.getObjectByName('parachute')?.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh === true) mesh.geometry.dispose();
+    });
     // The passing voices let go as the world does.
     passing.update(passingBus, { jet: null, rotor: null });
     disposeRockets(gradientMap);
@@ -887,6 +1012,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       crafts,
       traffic,
       sward,
+      outposts,
       board: (rocket?: Rocket) => {
         const nearest = rocket ?? [...rockets.values()].sort((a, b) => a.position.distanceTo(player.position) - b.position.distanceTo(player.position))[0];
         if (nearest !== undefined) boardRocket(nearest);

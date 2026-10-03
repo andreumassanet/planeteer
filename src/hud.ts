@@ -101,7 +101,7 @@ export interface HudOptions {
   leave?: { label: string; run(): void };
   /**
    * The keys shown on taking a vehicle, where a world's craft are not
-   * Earth's: a rover has no horn and a lander no parachute. `undefined` is
+   * Earth's: a rover has no horn. `undefined` is
    * Earth's own (`boardingHints`).
    */
   hints?(mode: TravelMode, airborne: boolean): HintSet | null | undefined;

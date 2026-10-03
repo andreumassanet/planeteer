@@ -109,6 +109,9 @@ export interface Placed {
   yaw: number;
 }
 
+/** What stands on a pavement between its lamps, as Earth's street dressing does (`street-dressing.ts`). */
+export type FurnitureKind = 'bench' | 'bin' | 'vending' | 'sign';
+
 export interface GridTown {
   grid: TownGrid;
   streets: Street[];
@@ -116,6 +119,8 @@ export interface GridTown {
   walks: Walk[];
   lamps: Placed[];
   planters: Placed[];
+  /** The pavements' furniture: halfway between two lamps, on the kerb side, its back to the carriageway. */
+  furniture: (Placed & { kind: FurnitureKind })[];
   parked: Placed[];
   /** Where a traveller comes down: on the main street south of the middle, looking north into the town. */
   arrival: { x: number; z: number };
@@ -256,10 +261,18 @@ export function gridTownOf(spec: WorldSpec, id: string, radius: number, populati
     const deep = (alongX ? z1 - z0 : x1 - x0) - SETBACK - SIDE_ROOM;
     if (across < 3 || deep < 3) return null;
     const pick = rngFrom('worlds', spec.id, 'plot', seed);
-    for (let tries = 0; tries < 6; tries++) {
-      const pool = choices.filter((one) => (large ? isLarge(one.item) : !isLarge(one.item)));
-      if (pool.length === 0) return null;
-      const form = pick.weighted(pool);
+    // Where none of the choices fits the plot — a colony of hangars, every
+    // one wider than a cell — the people's own forms are tried after them,
+    // the colony's first: without them Venus's capital was twenty-eight
+    // empty lots round two hangars.
+    const own = (colony?.modules ?? []).filter((one) => !isKitBuilding(one.item));
+    const pool = choices.filter((one) => (large ? isLarge(one.item) : !isLarge(one.item)));
+    const fallback = large ? [] : (own.length > 0 ? own : style.forms).filter((one) => !isLarge(one.item));
+    for (let tries = 0; tries < 9; tries++) {
+      // Six draws of the choices, then the people's own forms.
+      const from = tries < 6 && pool.length > 0 ? pool : fallback;
+      if (from.length === 0) return null;
+      const form = pick.weighted(from);
       const [w, d] = planOf(form, 1);
       const s = Math.min(1.08, across / w, deep / d);
       if (s < SMALLEST_FIT) continue;
@@ -417,6 +430,7 @@ export function gridTownOf(spec: WorldSpec, id: string, radius: number, populati
   const walks: Walk[] = [];
   const lamps: Placed[] = [];
   const planters: Placed[] = [];
+  const furniture: (Placed & { kind: FurnitureKind })[] = [];
   const edge = grid.half;
   for (const street of streets) {
     const crossings = streets
@@ -459,6 +473,18 @@ export function gridTownOf(spec: WorldSpec, id: string, radius: number, populati
           if (Math.abs(t) > edge - 4) continue;
           const yaw = street.axis === 'x' ? (side > 0 ? Math.PI : 0) : side > 0 ? -Math.PI / 2 : Math.PI / 2;
           lamps.push(street.axis === 'x' ? { x: t, z: kerb, yaw } : { x: kerb, z: t, yaw });
+          // Halfway to the next lamp, a bench, a bin, a vending machine or a
+          // signpost, set in from the kerb and facing the buildings — a bench
+          // only where the pavement leaves the strollers room past it.
+          const m = t + LAMP_EVERY / 2;
+          if (m >= b - 4.5 || Math.abs(m) > edge - 4) continue;
+          const roll = rngFrom('worlds', spec.id, 'furniture', id, street.axis, street.at, side, Math.round(m)).unit();
+          const kind: FurnitureKind | null =
+            roll < 0.38 ? (street.walk >= 3 ? 'bench' : 'bin') : roll < 0.62 ? 'bin' : roll < 0.78 ? 'vending' : roll < 0.9 ? 'sign' : null;
+          if (kind === null) continue;
+          const inset = street.at + side * (street.half - street.walk + (kind === 'bench' ? 0.75 : 0.55));
+          const face = yaw + Math.PI;
+          furniture.push(street.axis === 'x' ? { x: m, z: inset, yaw: face, kind } : { x: inset, z: m, yaw: face, kind });
         }
         // A planter at each end of a stretch, on the building side of the pavement.
         if (b - a > 10 && street.half > BAND) {
@@ -494,7 +520,7 @@ export function gridTownOf(spec: WorldSpec, id: string, radius: number, populati
   // A square of one or two cells has no street: the arrival is just outside it.
   const arrival = { x: 0, z: grid.cells >= 3 ? -Math.min(edge - 3, grid.pitch) : -(edge + 2.5) };
 
-  const town: GridTown = { grid, streets, plots, walks, lamps, planters, parked, arrival, mainCarriage };
+  const town: GridTown = { grid, streets, plots, walks, lamps, planters, furniture, parked, arrival, mainCarriage };
   cache.set(key, town);
   return town;
 }

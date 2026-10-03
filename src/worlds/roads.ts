@@ -34,7 +34,12 @@
  * the crown worked out a chunk at a time, merged into one buffer a chunk; no
  * ink, which would draw a hull round a strip.
  *
- * A cloud deck has no roads: its towns float.
+ * **On a cloud deck the road is a bridge** (`deck`): the same network and the
+ * same crown, a lift over the clouds, but no banks to a toe in the ground's
+ * colour — a dyke of cloud — and in their place a steel fascia under the
+ * top's edge, a rail along each side and pylons every `PYLON_EVERY` points
+ * sinking out of sight into the deck. The towns' platforms float, and the
+ * skyways between them are what the traffic drives.
  */
 
 import * as THREE from 'three';
@@ -86,6 +91,25 @@ const PAVEMENT_TAPER = 6;
 /** The lit dashes down the middle: how long and how wide. */
 const DASH = 2.6;
 const DASH_HALF = 0.16;
+/**
+ * The marker posts along the shoulder, as Earth's roads keep theirs
+ * (`roadside.ts`): one every this many points of the centre line (fifty
+ * units), on alternate sides, none within `POST_CLEAR` points of a gate; how
+ * tall and how thick, and how much of the top is the lit reflector.
+ */
+const POST_EVERY = 10;
+/** On a deck: a pylon every this many points (forty units), how far it sinks into the clouds, the fascia's depth and the rail's height. */
+const PYLON_EVERY = 8;
+/** On a deck the crown rides this high over the clouds, so the skyway reads as a bridge on its pylons; it ramps down to a platform's street at `RAMP_GRADE`. */
+const DECK_LIFT = 7;
+const PYLON_SINK = 14;
+const PYLON_HALF = 0.55;
+const FASCIA = 1.1;
+const RAIL = 0.95;
+const POST_CLEAR = 6;
+const POST_HEIGHT = 1.5;
+const POST_HALF = 0.11;
+const POST_LAMP = 0.32;
 /** Points of the centre line a point of the map's line: forty units. */
 const MAP_EVERY = 8;
 /** How far over the carriageway a dash lies: enough not to flicker into it from far off. */
@@ -158,6 +182,19 @@ function gatePoint(site: Site, gate: Gate, out: number): THREE.Vector3 {
 }
 
 /**
+ * How high a town's street stands at its gate, over the walkable radius.
+ * Measured **at the gate**, not at the town's middle: a town is built on the
+ * plane tangent to the sphere at its middle, and at its edge that plane is
+ * `d^2 / 2R` higher than the middle's height — on Mercury, three quarters of
+ * a unit a hundred units out, which was the step every road met its street by.
+ */
+function gateHeight(site: Site, gate: Gate, R: number): number {
+  const d = GATE_DIRECTION[gate];
+  const half = site.town!.grid.half;
+  return new THREE.Vector3(d.x * half, site.floor + CARRIAGE_TOP, d.z * half).applyQuaternion(site.quaternion).add(site.origin).length() - R;
+}
+
+/**
  * A road's centre line: out of the gate and straight across the pad, then
  * the country along the great circle — bowed sideways by `bend` of its angle
  * at the middle, easing to nothing at either end — then the other town's pad
@@ -199,12 +236,11 @@ function steepestOf(curve: THREE.CatmullRomCurve3, terrain: Terrain): number {
 }
 
 /** The towns' roads: a pure function of the towns and the ground. */
-export function roadNetwork(spec: WorldSpec, sites: readonly Site[], terrain: Terrain): RoadNetwork {
+export function roadNetwork(_spec: WorldSpec, sites: readonly Site[], terrain: Terrain): RoadNetwork {
   const R = terrain.radius;
   const ends = new Map<string, Set<Gate>>();
   const roads: Road[] = [];
   let steep = 0;
-  if (spec.ground === 'cloud-deck') return { roads, ends, steep };
   const towns = sites.map((site, k) => ({ site, k })).filter((one) => !one.site.landmark && one.site.town !== null);
   const n = towns.length;
   const apart = (i: number, j: number): number => towns[i]!.site.dir.angleTo(towns[j]!.site.dir) * R;
@@ -276,6 +312,8 @@ export interface Roads {
    */
   sweep(each: (top: number, ground: number) => void): void;
   readonly stats: { roads: number; steep: number; chunks: number; triangles: number };
+  /** The worst step between a road's crown at its gate and the town street it meets, units: for the checks. */
+  gateStep(): number;
   dispose(): void;
 }
 
@@ -332,6 +370,10 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
   const pavement = new THREE.Color(PALETTE.bone).multiplyScalar(1.04);
   const gravel = new THREE.Color(PALETTE.steel).multiplyScalar(0.95);
   const accent = new THREE.Color(style?.accents[0] ?? PALETTE.gold);
+  const white = new THREE.Color(PALETTE.white);
+  const deck = spec.ground === 'cloud-deck';
+  const steel = new THREE.Color(PALETTE.steel).multiplyScalar(0.9);
+  const steelDark = new THREE.Color(PALETTE.steel).multiplyScalar(0.6);
 
   const mainWalk = (site: Site): number => site.town!.streets.find((street) => street.main)?.walk ?? 0;
   const ribbons: Ribbon[] = [];
@@ -349,8 +391,8 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
       half,
       walkA: mainWalk(A),
       walkB: mainWalk(B),
-      gateA: A.origin.length() - R + A.floor + CARRIAGE_TOP,
-      gateB: B.origin.length() - R + B.floor + CARRIAGE_TOP,
+      gateA: gateHeight(A, road.gateA, R),
+      gateB: gateHeight(B, road.gateB, R),
       ground: blank(),
       left: blank(),
       right: blank(),
@@ -420,7 +462,7 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
       const s = k * STEP;
       const out = fromGate(ribbon, k);
       // The lift itself climbs out of a gate from the street's top.
-      const lift = Math.min(LIFT, CARRIAGE_TOP + RAMP_GRADE * out);
+      const lift = Math.min(deck ? DECK_LIFT : LIFT, CARRIAGE_TOP + RAMP_GRADE * out);
       let sum = 0;
       let lean = 0;
       let n = 0;
@@ -442,7 +484,14 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
         floor = Math.max(floor, ribbon.ground[j]!, ribbon.left[j]! + tilt * edge, ribbon.right[j]! - tilt * edge);
         if (j < k || (j === k && k < last)) floor = Math.max(floor, ribbon.midGround[j]!, ribbon.midLeft[j]! + tilt * edge, ribbon.midRight[j]! - tilt * edge);
       }
-      const crown = Math.max(floor + lift, Math.min(sum / n + lift, cap));
+      // And no lower than each gate's street less the grade back to it: a
+      // town standing higher than the ground round it — a giant's platform
+      // over its deck — is climbed up to, or the road met its street a step
+      // under the kerb.
+      const low = Math.max(ribbon.gateA - RAMP_GRADE * s, ribbon.gateB - RAMP_GRADE * (last * STEP - s));
+      // At the gate itself, exactly the street: a road ends on its town's
+      // kerb line at its paving's height, as Earth's do.
+      const crown = k === 0 ? ribbon.gateA : k === last ? ribbon.gateB : Math.max(floor + lift, low, Math.min(sum / n + lift, cap));
       ribbon.crown[k] = crown;
       ribbon.tilt[k] = tilt;
     }
@@ -506,6 +555,23 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
         glows.push(glow);
       }
     };
+    /**
+     * A square post standing on `foot` along `up`, `height` tall, its faces
+     * square to the road (`along`). Each face wound outward: seen from
+     * outside, `a` bottom left, `b` top left, `c` top right, `d` bottom right.
+     */
+    const post = (foot: THREE.Vector3, up: THREE.Vector3, along: THREE.Vector3, colour: THREE.Color, glow: number, height: number, thick = POST_HALF): void => {
+      const right = new THREE.Vector3().crossVectors(along, up).normalize();
+      for (const n of [along, right, along.clone().negate(), right.clone().negate()]) {
+        const across = new THREE.Vector3().crossVectors(up, n);
+        const a = foot.clone().addScaledVector(n, thick).addScaledVector(across, -thick);
+        const d = foot.clone().addScaledVector(n, thick).addScaledVector(across, thick);
+        quad(a, a.clone().addScaledVector(up, height), d.clone().addScaledVector(up, height), d, colour, colour, glow);
+      }
+      const top = foot.clone().addScaledVector(up, height);
+      const a = top.clone().addScaledVector(along, -thick).addScaledVector(right, -thick);
+      quad(a, a.clone().addScaledVector(along, thick * 2), a.clone().addScaledVector(along, thick * 2).addScaledVector(right, thick * 2), a.clone().addScaledVector(right, thick * 2), colour, colour, glow);
+    };
     /** The point `offset` across the top at `k`, `over` above it. */
     const across = (k: number, offset: number, over = 0): THREE.Vector3 => {
       sideAt(ribbon, k, side);
@@ -540,9 +606,61 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
       const l0 = toe(k, -1);
       const l1 = toe(k + 1, -1);
       quad(across(k, half), across(k + 1, half), across(k + 1, e1), across(k, e0), shoulder, shoulder, 0);
-      quad(across(k, e0), across(k + 1, e1), r1.point, r0.point, r0.colour, r0.colour, 0);
       quad(across(k, -e0), across(k + 1, -e1), across(k + 1, -half), across(k, -half), shoulder, shoulder, 0);
-      quad(l0.point, l1.point, across(k + 1, -e1), across(k, -e0), l0.colour, l0.colour, 0);
+      if (deck) {
+        // A bridge: the fascia under each edge and a rail along it, faced
+        // both ways, and a pylon under each side now and then.
+        for (const way of [1, -1] as const) {
+          const a0 = across(k, e0 * way);
+          const a1 = across(k + 1, e1 * way);
+          const d0 = across(k, e0 * way, -FASCIA);
+          const d1 = across(k + 1, e1 * way, -FASCIA);
+          const t0 = across(k, e0 * way, RAIL);
+          const t1 = across(k + 1, e1 * way, RAIL);
+          // Wound to face out, away from the carriageway (`quad`'s normal is `(d - a) x (b - a)`).
+          if (way > 0) {
+            quad(d1, d0, a0, a1, steel, steel, 0);
+            quad(a0, a1, t1, t0, white, white, 0);
+            quad(t0, t1, a1, a0, white, white, 0);
+          } else {
+            quad(d0, d1, a1, a0, steel, steel, 0);
+            quad(a1, a0, t0, t1, white, white, 0);
+            quad(t1, t0, a0, a1, white, white, 0);
+          }
+          // A lit strip along the rail's top, facing up: after dark the
+          // skyways are lines of light between the floating towns.
+          const s0 = across(k, (e0 - 0.18) * way, RAIL);
+          const s1 = across(k + 1, (e1 - 0.18) * way, RAIL);
+          const o0 = across(k, (e0 + 0.18) * way, RAIL);
+          const o1 = across(k + 1, (e1 + 0.18) * way, RAIL);
+          if (way > 0) quad(s0, s1, o1, o0, accent, accent, 0.9);
+          else quad(o0, o1, s1, s0, accent, accent, 0.9);
+          if (k % PYLON_EVERY === PYLON_EVERY / 2 && k > POST_CLEAR && k < ribbon.dirs.length - 1 - POST_CLEAR) {
+            const top = across(k, (e0 - PYLON_HALF) * way, -FASCIA);
+            const up = top.clone().normalize();
+            const along = ribbon.dirs[k + 1]!.clone().sub(ribbon.dirs[k]!);
+            along.addScaledVector(up, -along.dot(up)).normalize();
+            const sink = top.length() - (R + ribbon.ground[k]!) + PYLON_SINK;
+            post(top.clone().addScaledVector(up, -sink), up, along, steelDark, 0, sink, PYLON_HALF);
+          }
+        }
+        // The underside, seen from a skiff on the clouds.
+        quad(across(k, e0, -FASCIA), across(k + 1, e1, -FASCIA), across(k + 1, -e1, -FASCIA), across(k, -e0, -FASCIA), steelDark, steelDark, 0);
+      } else {
+        quad(across(k, e0), across(k + 1, e1), r1.point, r0.point, r0.colour, r0.colour, 0);
+        quad(l0.point, l1.point, across(k + 1, -e1), across(k, -e0), l0.colour, l0.colour, 0);
+      }
+      // A marker post on the shoulder's outer edge every `POST_EVERY` points,
+      // white with a reflector that burns after dark, alternating sides.
+      if (!deck && k % POST_EVERY === 0 && k > POST_CLEAR && k < ribbon.dirs.length - 1 - POST_CLEAR) {
+        const way = (k / POST_EVERY) % 2 === 0 ? 1 : -1;
+        const foot = across(k, (e0 - 0.25) * way, 0);
+        const up = foot.clone().normalize();
+        const along = ribbon.dirs[k + 1]!.clone().sub(ribbon.dirs[k]!);
+        along.addScaledVector(up, -along.dot(up)).normalize();
+        post(foot, up, along, white, 0, POST_HEIGHT - POST_LAMP);
+        post(foot.clone().addScaledVector(up, POST_HEIGHT - POST_LAMP), up, along, accent, 0.9, POST_LAMP);
+      }
       // A dash on every other step, half a step long: lit dashes with gaps,
       // as the town's main streets have.
       if (k % 2 === 0) {
@@ -626,6 +744,7 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
         const tilt = ribbon.tilt[k]! + (ribbon.tilt[k + 1]! - ribbon.tilt[k]!) * t;
         let height: number;
         if (away <= edge) height = crown + tilt * offset;
+        else if (deck) continue;
         else {
           // The bank, as `build` lays it: the top's edge straight down to its toe.
           const way = offset > 0 ? 1 : -1;
@@ -658,6 +777,16 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
           }
         }
       }
+    },
+    gateStep() {
+      let worst = 0;
+      for (const ribbon of ribbons) {
+        const last = ribbon.dirs.length - 1;
+        crownOf(ribbon, 0, 0);
+        crownOf(ribbon, last, last);
+        worst = Math.max(worst, Math.abs(ribbon.crown[0]! - ribbon.gateA), Math.abs(ribbon.crown[last]! - ribbon.gateB));
+      }
+      return worst;
     },
     lines() {
       return ribbons.map((ribbon) => {

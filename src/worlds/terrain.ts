@@ -40,6 +40,9 @@ import { latOf, lonOf, toUnit } from '../sphere.ts';
 import { FINEST_DECK, FINEST_TILE, TILE_SEGMENTS, faceDir, facePoint, levelsFor } from './cube.ts';
 import type { FacePoint } from './cube.ts';
 
+/** How wide a billow of a cloud deck's weather is, units: a couple of kilometres. */
+const MOTTLE = 2200;
+
 /** Everything one point of ground is. Reused: `sample` fills it. */
 export interface TerrainSample {
   height: number;
@@ -178,6 +181,42 @@ export function createTerrain(spec: WorldSpec): Terrain {
   for (const landmark of spec.landmarks) addPad(landmark.id, landmark.lat, landmark.lon, landmark.radius);
   if (relief.padGrade !== undefined && relief.padGrade > 0) widenOnSlopes(relief.padGrade);
 
+  // The pads, hashed by a coarse lattice of latitude and longitude as the
+  // bare spots are (`keepBare`): every height asked of the ground went through
+  // every pad on the world — six hundred on Neptune — and now goes through
+  // the few whose levelling reaches its cell.
+  const PAD_CELL = 2;
+  const padCells = new Map<number, Pad[]>();
+  const NO_PADS: Pad[] = [];
+  const padCellOf = (lat: number, lon: number): number => Math.floor((lat + 90) / PAD_CELL) * 4096 + Math.floor((((lon % 360) + 540) % 360) / PAD_CELL);
+  for (const pad of pads) {
+    const lat = latOf(pad.y);
+    const lon = lonOf(pad.x, pad.z);
+    const span = (Math.acos(Math.min(1, pad.cosOuter)) * 180) / Math.PI;
+    // Widened for the cap's highest latitude, where a degree of longitude is shortest.
+    const widen = 1 / Math.max(0.05, Math.cos((Math.min(89.9, Math.abs(lat) + span) * Math.PI) / 180));
+    for (let dLat = -span; dLat <= span + PAD_CELL; dLat += PAD_CELL) {
+      for (let dLon = -span * widen; dLon <= span * widen + PAD_CELL; dLon += PAD_CELL) {
+        const key = padCellOf(Math.max(-90, Math.min(89.999, lat + dLat)), lon + dLon);
+        const list = padCells.get(key);
+        if (list === undefined) padCells.set(key, [pad]);
+        else if (list[list.length - 1] !== pad) list.push(pad);
+      }
+    }
+    // Near a pole a cell is every longitude: a pad there reaches them all.
+    if (Math.abs(lat) + span > 90 - PAD_CELL) {
+      for (let l = -180; l < 180; l += PAD_CELL) {
+        for (let r = Math.max(-90, lat - span); r <= Math.min(89.999, lat + span + PAD_CELL); r += PAD_CELL) {
+          const key = padCellOf(Math.min(89.999, r), l);
+          const list = padCells.get(key);
+          if (list === undefined) padCells.set(key, [pad]);
+          else if (!list.includes(pad)) list.push(pad);
+        }
+      }
+    }
+  }
+  const padsNear = (lat: number, lon: number): Pad[] => padCells.get(padCellOf(Math.max(-90, Math.min(89.999, lat)), lon)) ?? NO_PADS;
+
   /**
    * A pad on a slope reaches as far as the land needs to come back to it at
    * `grade`: the worst rise or fall between the pad's plane and the raw ground
@@ -224,8 +263,8 @@ export function createTerrain(spec: WorldSpec): Terrain {
     });
   }
 
-  function level(h: number, x: number, y: number, z: number): number {
-    for (const pad of pads) {
+  function level(h: number, x: number, y: number, z: number, lat: number, lon: number): number {
+    for (const pad of padsNear(lat, lon)) {
       const dot = x * pad.x + y * pad.y + z * pad.z;
       if (dot <= pad.cosOuter) continue;
       const w = smooth(pad.cosOuter, pad.cosInner, dot);
@@ -244,7 +283,7 @@ export function createTerrain(spec: WorldSpec): Terrain {
   function heightAt(x: number, y: number, z: number): number {
     const lat = latOf(y);
     const lon = lonOf(x, z);
-    return level(raw(x, y, z, lat, lon), x, y, z);
+    return level(raw(x, y, z, lat, lon), x, y, z, lat, lon);
   }
 
   // Every colour the ground is painted from, already through the palette's
@@ -252,6 +291,8 @@ export function createTerrain(spec: WorldSpec): Terrain {
   const graded = (hex: number): [number, number, number] => grade(linearOf(hex), palette.chroma, palette.value);
   const bands = palette.bands.map(graded);
   const base = graded(palette.base);
+  /** What a billow's top whitens toward: the body's own white (`look.cap`). */
+  const cap = graded(spec.body.look.cap);
   const biomeColor = new Map<string, [number, number, number]>();
   /** On a deck, only the biomes the palette names a colour for show through the bands. */
   const deckBiome = new Map<string, [number, number, number]>();
@@ -286,7 +327,7 @@ export function createTerrain(spec: WorldSpec): Terrain {
   function sample(x: number, y: number, z: number, out: TerrainSample): TerrainSample {
     const lat = latOf(y);
     const lon = lonOf(x, z);
-    const h = level(raw(x, y, z, lat, lon), x, y, z);
+    const h = level(raw(x, y, z, lat, lon), x, y, z, lat, lon);
     out.height = h;
     out.lat = lat;
     out.lon = lon;
@@ -308,6 +349,23 @@ export function createTerrain(spec: WorldSpec): Terrain {
       out.r = a[0] + (b[0] - a[0]) * t;
       out.g = a[1] + (b[1] - a[1]) * t;
       out.b = a[2] + (b[2] - a[2]) * t;
+      // And the weather inside a band: a band is thousands of kilometres
+      // across, so walked or flown low it was one flat colour. Billows a
+      // couple of kilometres across (`MOTTLE`) lighter and the lanes between
+      // them darker, and the tops of the biggest whitened toward the cap.
+      const k = radius / MOTTLE;
+      const m = fbm(x * k, y * k * 1.6, z * k, 3);
+      const fine = fbm(x * k * 5, y * k * 5, z * k * 5, 2);
+      const light = 1 + 0.22 * m + 0.07 * fine;
+      out.r *= light;
+      out.g *= light;
+      out.b *= light;
+      const white = Math.max(0, m - 0.35) * 0.9;
+      if (white > 0) {
+        out.r += (cap[0] - out.r) * white;
+        out.g += (cap[1] - out.g) * white;
+        out.b += (cap[2] - out.b) * white;
+      }
       // A deck with a ground model has biomes too — which is what the
       // decorations are scattered by — and a biome the palette names a
       // colour for shows through the bands.
@@ -403,7 +461,7 @@ export function createTerrain(spec: WorldSpec): Terrain {
 
   function padAt(x: number, y: number, z: number): Pad | null {
     const length = Math.hypot(x, y, z) || 1;
-    for (const pad of pads) {
+    for (const pad of padsNear(latOf(y / length), lonOf(x, z))) {
       if ((x * pad.x + y * pad.y + z * pad.z) / length > pad.cosInner) return pad;
     }
     return null;

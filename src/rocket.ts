@@ -25,6 +25,7 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PALETTE } from './theme.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import type { Effects } from './effects.ts';
@@ -168,7 +169,22 @@ function buildVehicle(kit: Kit, gradientMap: THREE.Texture): THREE.Group {
   const band = shape(kit, 'band', () => new THREE.CylinderGeometry(BODY + 0.08, BODY + 0.08, H * 0.3, 12));
   const nose = shape(kit, 'nose', () => new THREE.ConeGeometry(BODY, noseHeight, 12));
   const port = shape(kit, 'port', () => new THREE.CylinderGeometry(BODY * 0.32, BODY * 0.32, 0.3, 12).rotateX(Math.PI / 2));
-  const fin = shape(kit, 'fin', () => new THREE.BoxGeometry(0.3, H * 1.5, BODY * 1.15));
+  // A fin swept back from the body: its root up the side, its tip out and
+  // down to the pad, as a sounding rocket's are. Drawn in the fin's own
+  // plane and turned so its span runs along +z, the way it is set out.
+  const fin = shape(kit, 'fin', () => {
+    const outline = new THREE.Shape();
+    outline.moveTo(0, H * 1.9);
+    outline.lineTo(0, H * 0.1);
+    outline.lineTo(BODY * 0.95, -H * 0.05);
+    outline.lineTo(BODY * 0.95, H * 0.6);
+    outline.closePath();
+    const made = new THREE.ExtrudeGeometry(outline, { depth: 0.3, bevelEnabled: false });
+    made.translate(0, 0, -0.15);
+    return made.rotateY(-Math.PI / 2);
+  });
+  const ring = shape(kit, 'ring', () => new THREE.CylinderGeometry(BODY * 0.5, BODY * 0.5, H * 0.12, 12));
+  const mast = shape(kit, 'mast', () => new THREE.CylinderGeometry(0.06, 0.06, H * 0.7, 5));
   part(g, bell, steel, 0, BELL_MOUTH + bellHeight / 2, 0);
   part(g, body, white, 0, bodyFrom + bodyHeight / 2, 0);
   part(g, band, red, 0, bodyFrom + bodyHeight * 0.18, 0);
@@ -177,9 +193,12 @@ function buildVehicle(kit: Kit, gradientMap: THREE.Texture): THREE.Group {
   part(g, port, glass, 0, bodyFrom + bodyHeight * 0.7, BODY + 0.05);
   for (let k = 0; k < 4; k++) {
     const turn = (k / 4) * Math.PI * 2 + Math.PI / 4;
-    const mesh = part(g, fin, red, Math.sin(turn) * BODY * 1.25, PAD_TOP + H * 0.75, Math.cos(turn) * BODY * 1.25);
+    const mesh = part(g, fin, red, Math.sin(turn) * BODY * 0.92, PAD_TOP + H * 0.1, Math.cos(turn) * BODY * 0.92);
     mesh.rotation.y = turn;
   }
+  // The nozzle's throat ring, and a whip of an antenna off the nose's shoulder.
+  part(g, ring, steel, 0, BELL_MOUTH + bellHeight + H * 0.02, 0);
+  part(g, mast, steel, BODY * 0.55, bodyFrom + bodyHeight + noseHeight * 0.25 + H * 0.3, 0);
   return g;
 }
 
@@ -193,15 +212,78 @@ function buildPad(kit: Kit, gradientMap: THREE.Texture): THREE.Group {
   // under it (`PAD_RADIUS`) has no gap under its downhill edge.
   const towerHeight = ROCKET_HEIGHT * 0.86;
   const deck = shape(kit, 'deck', () => new THREE.CylinderGeometry(PAD, PAD * 1.06, PAD_TOP + PAD_FOOT, 16));
-  const tower = shape(kit, 'tower', () => new THREE.BoxGeometry(H * 0.55, towerHeight, H * 0.55));
+  // A lattice, not a slab: four legs, a ring of girders a level and a cross
+  // of braces on every face between them, merged into one shape.
+  const tower = shape(kit, 'tower', () => lattice(H * 0.9, towerHeight, 7));
+  const tank = shape(kit, 'tank', () => new THREE.SphereGeometry(H * 0.55, 12, 8));
+  const tankLegs = shape(kit, 'tank-legs', () => new THREE.CylinderGeometry(H * 0.42, H * 0.5, H * 0.6, 8));
+  const light = shape(kit, 'light', () => new THREE.BoxGeometry(H * 0.32, H * 0.2, H * 0.14));
+  const pole = shape(kit, 'pole', () => new THREE.CylinderGeometry(0.09, 0.12, H * 2.4, 5));
   const arm = shape(kit, 'arm', () => new THREE.BoxGeometry(BODY * 1.6, H * 0.18, H * 0.3));
   const cap = shape(kit, 'cap', () => new THREE.BoxGeometry(H * 0.75, H * 0.25, H * 0.75));
   part(g, deck, bone, 0, PAD_TOP - (PAD_TOP + PAD_FOOT) / 2, 0);
   const x = -(BODY + H * 0.9);
-  part(g, tower, steel, x, towerHeight / 2, 0);
+  part(g, tower, steel, x, 0, 0);
   part(g, cap, red, x, towerHeight + H * 0.12, 0);
   for (const at of [0.35, 0.62, 0.84]) part(g, arm, red, x + BODY * 0.85, towerHeight * at, 0);
+  // A propellant tank on its stand behind the tower, and two floodlights
+  // across the pad from it, aimed at the vehicle.
+  const white = paint(kit, gradientMap, PALETTE.white);
+  part(g, tankLegs, steel, x - H * 0.2, PAD_TOP + H * 0.3, PAD * 0.62);
+  part(g, tank, white, x - H * 0.2, PAD_TOP + H * 1.05, PAD * 0.62);
+  const gold = paint(kit, gradientMap, PALETTE.gold);
+  for (const side of [-1, 1]) {
+    const px = PAD * 0.62;
+    const pz = side * PAD * 0.55;
+    part(g, pole, steel, px, PAD_TOP + H * 1.2, pz);
+    const lamp = part(g, light, gold, px - H * 0.12, PAD_TOP + H * 2.45, pz);
+    // Its face (+Z) toward the vehicle on the pad's axis.
+    lamp.rotation.y = Math.atan2(-px, -pz);
+  }
   return g;
+}
+
+/**
+ * A square lattice tower `width` across and `height` tall, its feet at y = 0:
+ * four legs, a ring of girders at each of `levels`, and an X of braces on
+ * every face of every level, as one geometry.
+ */
+function lattice(width: number, height: number, levels: number): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const half = width / 2;
+  const leg = 0.2;
+  const rod = 0.09;
+  const step = height / levels;
+  /** A bar from a to b, square in section. */
+  const bar = (a: THREE.Vector3, b: THREE.Vector3, thick: number): void => {
+    const length = a.distanceTo(b);
+    const geometry = new THREE.BoxGeometry(thick, length, thick);
+    const middle = a.clone().add(b).multiplyScalar(0.5);
+    const turn = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    geometry.applyMatrix4(new THREE.Matrix4().compose(middle, turn, new THREE.Vector3(1, 1, 1)));
+    parts.push(geometry);
+  };
+  const corners = [
+    [-half, -half],
+    [half, -half],
+    [half, half],
+    [-half, half],
+  ] as const;
+  for (const [cx, cz] of corners) bar(new THREE.Vector3(cx, 0, cz), new THREE.Vector3(cx, height, cz), leg);
+  for (let level = 0; level <= levels; level++) {
+    const y = level * step;
+    for (let k = 0; k < 4; k++) {
+      const [ax, az] = corners[k]!;
+      const [bx, bz] = corners[(k + 1) % 4]!;
+      bar(new THREE.Vector3(ax, y, az), new THREE.Vector3(bx, y, bz), rod * 1.4);
+      if (level === levels) continue;
+      bar(new THREE.Vector3(ax, y, az), new THREE.Vector3(bx, y + step, bz), rod);
+      bar(new THREE.Vector3(bx, y, bz), new THREE.Vector3(ax, y + step, az), rod);
+    }
+  }
+  const merged = mergeGeometries(parts)!;
+  for (const one of parts) one.dispose();
+  return merged;
 }
 
 /* --- the sound ------------------------------------------------------------- */

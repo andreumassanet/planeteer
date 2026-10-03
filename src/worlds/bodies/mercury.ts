@@ -215,7 +215,8 @@ export const WORLD = defineWorld(MERCURY, {
     crowd: 1.2,
   }),
   decorations: [MERCURY_EJECTA_BLOCK, MERCURY_HOLLOW_GLINT, MERCURY_ICE_SHARD, MERCURY_MELT_GLASS, MERCURY_THRUST_SLAB],
-  rocks: 6,
+  // A field of rubble: the most cratered ground in the system after the Moon's.
+  rocks: 10,
   // A rover under a parasol: on the day side, shade is the equipment.
   vehicles: [SUNSHADE_ROVER, 'lander'],
   // No air, so no devils and no blown dust: only grains lofted off the
@@ -228,7 +229,7 @@ export const WORLD = defineWorld(MERCURY, {
   scatter: {
     props: [{ item: 'rock-1', weight: 2 }, { item: 'rock-2', weight: 2 }, { item: 'rock-3', weight: 2 }, { item: 'rock-4', weight: 1 }, { item: 'rock-large-1', weight: 1 }, { item: 'rock-large-2', weight: 1 }, { item: 'rock-large-3', weight: 1 }, { item: 'meteor', weight: 2 }, { item: 'meteor-half', weight: 1 }, { item: 'crystals', weight: 1 }, { item: 'crater', weight: 1 }],
     flora: [],
-    perTile: 1.1,
+    perTile: 1.8,
     green: 0,
   },
   landmarks: LANDMARKS,

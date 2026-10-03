@@ -100,6 +100,8 @@ export interface GroundOptions {
    * the tile's own frame, or null. Called once per finest tile.
    */
   decorate?(key: TileKey, centre: THREE.Vector3, up: THREE.Vector3): THREE.BufferGeometry | null;
+  /** A decorated tile let go of: what `decorate` registered for it can go too. */
+  retire?(key: TileKey): void;
   /**
    * Whose ground a direction is — a 1-based index into `colors`, 0 for
    * nobody's — and each nation's colour, for `Ground.political`. Asked at a
@@ -168,6 +170,9 @@ export function createGround(terrain: Terrain, options: GroundOptions): Ground {
   };
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: options.gradientMap });
   material.name = deck ? 'world:deck' : 'world:ground';
+  // A deck has no edge to ink: the pen's hull round each tile, on a surface
+  // this flat, is the tile's square drawn on the clouds.
+  if (deck) material.userData.outlineParameters = { visible: false };
   // The crust is faceted, as Earth's land is, and the facets are the
   // shader's: `FLAT_SHADED` takes each fragment's normal from the screen-space
   // derivatives of its own position, so the grid stays indexed (a third of the
@@ -237,6 +242,69 @@ export function createGround(terrain: Terrain, options: GroundOptions): Ground {
   const point = { x: 0, y: 0, z: 0 };
   const heights = new Float32Array(row * row);
   const dirs = new Float64Array(row * row * 3);
+
+  /**
+   * The deck's normals: inside the tile off the grid's own neighbours, and
+   * on its edge — which the next tile shares — off the height field, the
+   * radial up tilted by the field's slope `step` units either way along two
+   * tangents, so both tiles give an edge vertex one normal; a skirt's vertex
+   * takes its edge vertex's. `count` vertices, the grid's
+   * first and then the skirts', as `build` lays them out.
+   */
+  const tangentA = new THREE.Vector3();
+  const tangentB = new THREE.Vector3();
+  const probe = new THREE.Vector3();
+  const upward = new THREE.Vector3();
+  function deckNormals(count: number, spacing: number, positions: Float32Array): Float32Array {
+    const out = new Float32Array(count * 3);
+    const step = Math.max(1, spacing);
+    const angle = step / R;
+    const heightAlong = (t: THREE.Vector3, sign: number): number => {
+      probe.copy(upward).addScaledVector(t, sign * angle).normalize();
+      return terrain.heightAt(probe.x, probe.y, probe.z);
+    };
+    for (let k = 0; k < row * row; k++) {
+      upward.set(dirs[k * 3]!, dirs[k * 3 + 1]!, dirs[k * 3 + 2]!);
+      const i = k % row;
+      const j = (k - i) / row;
+      if (i > 0 && i < S && j > 0 && j < S) {
+        // Inside the tile, off the grid's own neighbours: the field the
+        // vertex already has, with no probe of it. The edge's vertices, which
+        // the next tile shares, are asked of the field below, so both tiles
+        // give them one normal.
+        tangentA.set(positions[(k + 1) * 3]! - positions[(k - 1) * 3]!, positions[(k + 1) * 3 + 1]! - positions[(k - 1) * 3 + 1]!, positions[(k + 1) * 3 + 2]! - positions[(k - 1) * 3 + 2]!);
+        tangentB.set(positions[(k + row) * 3]! - positions[(k - row) * 3]!, positions[(k + row) * 3 + 1]! - positions[(k - row) * 3 + 1]!, positions[(k + row) * 3 + 2]! - positions[(k - row) * 3 + 2]!);
+        probe.crossVectors(tangentA, tangentB).normalize();
+        if (probe.dot(upward) < 0) probe.negate();
+        out[k * 3] = probe.x;
+        out[k * 3 + 1] = probe.y;
+        out[k * 3 + 2] = probe.z;
+        continue;
+      }
+      tangentA.set(-upward.z, 0.31, upward.x);
+      tangentA.addScaledVector(upward, -tangentA.dot(upward)).normalize();
+      tangentB.crossVectors(upward, tangentA);
+      const da = (heightAlong(tangentA, 1) - heightAlong(tangentA, -1)) / (2 * step);
+      const db = (heightAlong(tangentB, 1) - heightAlong(tangentB, -1)) / (2 * step);
+      probe.copy(upward).addScaledVector(tangentA, -da).addScaledVector(tangentB, -db).normalize();
+      out[k * 3] = probe.x;
+      out[k * 3 + 1] = probe.y;
+      out[k * 3 + 2] = probe.z;
+    }
+    // The skirts, in the order `build` drops them: each its edge vertex's.
+    let at = row * row;
+    const copy = (from: number): void => {
+      out[at * 3] = out[from * 3]!;
+      out[at * 3 + 1] = out[from * 3 + 1]!;
+      out[at * 3 + 2] = out[from * 3 + 2]!;
+      at++;
+    };
+    for (let i = 0; i <= S; i++) copy(i);
+    for (let i = 0; i <= S; i++) copy(S * row + i);
+    for (let j = 0; j <= S; j++) copy(j * row);
+    for (let j = 0; j <= S; j++) copy(j * row + S);
+    return out;
+  }
 
   function build(key: TileKey): Tile {
     const began = performance.now();
@@ -349,8 +417,13 @@ export function createGround(terrain: Terrain, options: GroundOptions): Ground {
     geometry.computeBoundingSphere();
     // Smooth normals for the deck, which is drawn soft; the crust is flat-shaded
     // in the shader and needs none — and a normal it does not read is 15 KB a
-    // tile it does not upload.
-    if (deck) geometry.computeVertexNormals();
+    // tile it does not upload. **Taken from the field, not the mesh**: a
+    // tile's own `computeVertexNormals` bent every edge vertex toward its
+    // skirt, so the light stepped at each tile's border and a flat deck was
+    // drawn as a quilt of squares, a leather ball from above. Asked of the
+    // height field either side of the vertex, both tiles that share an edge
+    // give it the same normal and the seam is gone.
+    if (deck) geometry.setAttribute('normal', new THREE.BufferAttribute(deckNormals(s, spacing, positions), 3));
 
     const mesh = new THREE.Mesh(geometry, material);
     // Earth's land never casts (`sun.ts`), and takes every shadow on it.
@@ -484,6 +557,7 @@ export function createGround(terrain: Terrain, options: GroundOptions): Ground {
       tile.mesh.geometry.dispose();
       for (const child of tile.mesh.children) (child as THREE.Mesh).geometry.dispose();
       tiles.delete(tile.id);
+      if (tile.key.level >= terrain.levels - 1) options.retire?.(tile.key);
     }
   }
 

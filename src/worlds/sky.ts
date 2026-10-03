@@ -458,6 +458,17 @@ export function createSky(spec: WorldSpec, scene: THREE.Scene): Sky {
     return (2 * Math.PI * hours) / body.rotationHours;
   }
 
+  /** When the planets were last moved, ms of the sky's clock, and how often they are. */
+  let planetsAt = Number.NaN;
+  const PLANETS_EVERY_MS = 20 * 60000;
+  others.forEach((id, k) => {
+    const tint = id === 'earth' ? linearOf(PALETTE.skyBlue) : id === 'mars' ? linearOf(PALETTE.salmon) : linearOf(PALETTE.cream);
+    planetColors[k * 3] = tint[0] * 1.6;
+    planetColors[k * 3 + 1] = tint[1] * 1.6;
+    planetColors[k * 3 + 2] = tint[2] * 1.6;
+  });
+  planetGeometry.getAttribute('color').needsUpdate = true;
+
   function place(date: Date): void {
     const here = bodyAt(date);
     state.au = here.length();
@@ -475,17 +486,21 @@ export function createSky(spec: WorldSpec, scene: THREE.Scene): Sky {
     halo.position.copy(sunDisc.position);
     halo.scale.setScalar(Math.tan(Math.max(discDeg * 9, 1.6) * DEG) * 0.95);
 
-    // The planets, from here.
-    others.forEach((id, k) => {
-      const h = heliocentric(id, date);
-      const w = eclipticToWorld(h);
-      const v = scratch.set(w.x, w.y, w.z).sub(here).normalize();
-      planetPositions.set([v.x * 0.96, v.y * 0.96, v.z * 0.96], k * 3);
-      const tint = id === 'earth' ? linearOf(PALETTE.skyBlue) : id === 'mars' ? linearOf(PALETTE.salmon) : linearOf(PALETTE.cream);
-      planetColors.set([tint[0] * 1.6, tint[1] * 1.6, tint[2] * 1.6], k * 3);
-    });
-    planetGeometry.getAttribute('position').needsUpdate = true;
-    planetGeometry.getAttribute('color').needsUpdate = true;
+    // The planets, from here: they crawl across the sky over days, so they
+    // are moved every `PLANETS_EVERY_MS` of the sky's clock, and their
+    // colours, which never change, were laid once.
+    if (!(Math.abs(date.getTime() - planetsAt) < PLANETS_EVERY_MS)) {
+      planetsAt = date.getTime();
+      others.forEach((id, k) => {
+        const h = heliocentric(id, date);
+        const w = eclipticToWorld(h);
+        const v = scratch.set(w.x, w.y, w.z).sub(here).normalize();
+        planetPositions[k * 3] = v.x * 0.96;
+        planetPositions[k * 3 + 1] = v.y * 0.96;
+        planetPositions[k * 3 + 2] = v.z * 0.96;
+      });
+      planetGeometry.getAttribute('position').needsUpdate = true;
+    }
 
     // The moons' centres, km from the planet's, body-fixed.
     const days = (date.getTime() - J2000_MS) / 86400000;

@@ -39,6 +39,23 @@ import type { Handling, KitCraft, VehicleKind, VehicleModel, VehicleSpec, WindSp
 import type { SceneryContext } from '../scenery/contract.ts';
 import { mergeMeshes } from '../merge.ts';
 import { FIGURE } from '../avatar.ts';
+import { balloonModel } from '../craft/balloon.ts';
+import type { CraftModel } from '../craft/contract.ts';
+import {
+  BALLOON_CEILING,
+  BALLOON_CLIMB,
+  BALLOON_SPEED,
+  BALLOON_TURN,
+  PLANE_ACCELERATION_TIME,
+  PLANE_CEILING,
+  PLANE_CLIMB_MIN,
+  PLANE_CLIMB_RATE,
+  PLANE_CRUISE_HIGH,
+  PLANE_CRUISE_LOW,
+  PLANE_FLARE,
+  PLANE_TOUCHDOWN,
+  PLANE_VERTICAL_TIME,
+} from '../vehicles.ts';
 import { PALETTE } from '../theme.ts';
 import { ball, dome } from './architecture.ts';
 import { paintModel } from '../models.ts';
@@ -73,6 +90,8 @@ export interface Craft {
   seat: THREE.Vector3;
   /** Whether the driver sits out of sight, under a closed canopy. */
   closed: boolean;
+  /** Whether the pilot stands rather than sits: a balloon's basket. */
+  standing: boolean;
   /** How far a person stands from its centre to board, units. */
   reach: number;
   /** Footprint radius: the wall it is when parked. */
@@ -92,6 +111,8 @@ interface Model {
   gear: THREE.Object3D | null;
   /** Its exhausts' flames, each pointing back along -Z at a nozzle's mouth: scaled by how hard it burns. */
   flames: THREE.Object3D[];
+  /** Whether its pilot stands, as in a balloon's basket, rather than sits. */
+  stand?: boolean;
 }
 
 function merged(draft: THREE.Group, gradientMap: THREE.Texture): THREE.Mesh {
@@ -261,7 +282,7 @@ function landingGear(ctx: SceneryContext, legs: number, width: number, length: n
 
 /** A planet's model as the engine's. */
 function modelOf(made: VehicleModel): Model {
-  return { group: made.group, seat: new THREE.Vector3(made.seat.x, made.seat.y, made.seat.z), radius: made.radius, hover: made.hover ?? 0, closed: false, gear: null, flames: [] };
+  return { group: made.group, seat: new THREE.Vector3(made.seat.x, made.seat.y, made.seat.z), radius: made.radius, hover: made.hover ?? 0, closed: false, gear: null, flames: [], stand: made.stand === true };
 }
 
 function rover(ctx: SceneryContext): Model {
@@ -371,36 +392,18 @@ function lander(ctx: SceneryContext): Model {
  * A balloon: an envelope on a ring of lines over an open gondola, burner in
  * the middle. The engine's own aerostat, for a world that names the kind.
  */
-function aerostat(ctx: SceneryContext): Model {
-  const g = new THREE.Group();
-  const floor = 0.5;
-  const basket = ctx.taper(1.6, 1.8, 1.3, PALETTE.bark, 8);
-  basket.position.y = floor;
-  g.add(basket);
-  const rim = ctx.ringWall(1.6, 1.85, 0.25, PALETTE.gold, 12);
-  rim.position.y = floor + 1.3;
-  g.add(rim);
-  const burner = ctx.column(0.35, 0.6, PALETTE.steel, 6);
-  burner.position.y = floor + 3.4;
-  g.add(burner);
-  const envelope = ball(ctx, 5.2, PALETTE.apricot, 14);
-  envelope.scale.y = 1.15;
-  envelope.position.y = floor + 9.6;
-  g.add(envelope);
-  const band = ctx.ringWall(5.05, 5.3, 1.0, PALETTE.crimson, 16);
-  band.position.y = floor + 8.6;
-  g.add(band);
-  const mouth = ctx.taper(1.2, 2.6, 1.6, PALETTE.apricot, 12);
-  mouth.position.y = floor + 3.6;
-  g.add(mouth);
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * Math.PI * 2;
-    g.add(ctx.strut(new THREE.Vector3(Math.cos(a) * 1.7, floor + 1.5, Math.sin(a) * 1.7), new THREE.Vector3(Math.cos(a) * 3.0, floor + 5.6, Math.sin(a) * 3.0), 0.09, PALETTE.ink));
-  }
-  const seat = ctx.box(1.0, 0.35, 0.8, PALETTE.crimson);
-  seat.position.set(0, floor, -0.6);
-  g.add(seat);
-  return { group: g, seat: new THREE.Vector3(0, floor + 0.35, -0.6), radius: 2.4, hover: 0, closed: false, gear: null, flames: [] };
+/**
+ * The aerostat is **Earth's balloon** (`craft/balloon.ts`): the woven basket,
+ * the gored envelope, the burner on its frame, in one of Earth's schemes
+ * (`variant`); the pilot stands at the burner as on Earth. It was a ball on a
+ * basket built here.
+ */
+let earthBalloon: CraftModel | null = null;
+function aerostat(_ctx: SceneryContext, variant = 5): Model {
+  earthBalloon ??= balloonModel();
+  const seat = earthBalloon.seats[0]!;
+  const radius = Math.max(earthBalloon.size[0], earthBalloon.size[1]) / 2;
+  return { group: earthBalloon.build(variant), seat: new THREE.Vector3(seat.x, seat.y, seat.z), radius, hover: 0, closed: false, gear: null, flames: [], stand: true };
 }
 
 const MODELS: Record<VehicleKind, (ctx: SceneryContext) => Model> = { rover, skiff, lander, aerostat };
@@ -411,13 +414,13 @@ const HANDLING: Record<VehicleKind, Handling> = {
   rover: { top: 24, reverse: 8, accel: 9, turn: 1.3, climb: 0, sink: 0 },
   skiff: { top: 36, reverse: 10, accel: 8, turn: 1.1, climb: 0, sink: 0 },
   lander: { top: 90, reverse: 15, accel: 14, turn: 0.9, climb: 16, sink: 13 },
-  aerostat: { top: 9, reverse: 3, accel: 2.2, turn: 0.5, climb: 3, sink: 2.4 },
+  aerostat: { top: BALLOON_SPEED, reverse: 3, accel: 2.2, turn: BALLOON_TURN, climb: BALLOON_CLIMB, sink: BALLOON_CLIMB * 0.8 },
 };
 /** How much faster a ship goes on its afterburner, and how long its flame is then, units. */
 const TURBO = 3.6;
 const FLAME_LENGTH = 9;
-/** How high an aerostat may climb over the ground, units. */
-const AEROSTAT_CEILING = 700;
+/** How high an aerostat may climb over the ground: Earth's balloon's, units. */
+const AEROSTAT_CEILING = BALLOON_CEILING;
 
 // ---------------------------------------------------------------------------
 // The planets' own
@@ -527,15 +530,11 @@ export const VENUS_AEROSTAT: VehicleSpec = {
   kind: 'aerostat',
   name: 'the aerostat',
   build(ctx) {
-    const made = aerostat(ctx);
-    made.group.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      // Recolour the envelope gold: the one material that is apricot.
-      if (mesh.isMesh === true && (mesh.material as THREE.Material).userData.atlasToon === PALETTE.apricot) mesh.material = ctx.toon(PALETTE.gold);
-    });
-    return { group: made.group, seat: made.seat, radius: made.radius };
+    // Earth's balloon in its crimson and gold, the sulphur's colours.
+    const made = aerostat(ctx, 6);
+    return { group: made.group, seat: made.seat, radius: made.radius, stand: true };
   },
-  handling: { climb: 2.2, sink: 1.8, top: 7 },
+  handling: { climb: BALLOON_CLIMB * 0.7, sink: BALLOON_CLIMB * 0.6, top: BALLOON_SPEED * 0.8 },
 };
 
 const scratchUp = new THREE.Vector3();
@@ -551,6 +550,7 @@ const scratchDrift = new THREE.Vector3();
 
 /** Lets a craft's own geometry and materials go, once it is out of the scene for good. */
 export function disposeCraft(craft: Craft): void {
+  (craft.object.userData.unsubscribe as (() => void) | undefined)?.();
   craft.object.removeFromParent();
   craft.object.traverse((one) => {
     const mesh = one as THREE.Mesh;
@@ -603,6 +603,7 @@ export function createCraft(
     // The hips over the seat's top; the avatar's origin goes `FIGURE.hipY` under them.
     seat: model.seat.clone().setY(model.seat.y - FIGURE.hipY),
     closed: model.closed,
+    standing: model.stand === true,
     reach: model.radius + 3,
     radius: model.radius,
     update(dt, controls, groundAt, gravity, R) {
@@ -615,11 +616,19 @@ export function createCraft(
       // climbs twice as hard while it burns.
       const burning = flies && craft.airborne && controls?.boost === true;
       burn += ((burning ? 1 : 0) - burn) * Math.min(1, dt * 3);
-      const top = handling.top * (1 + (TURBO - 1) * burn);
+      // A ship aloft flies by Earth's plane's laws (`vehicles.ts`): speed
+      // rides the height, from its own top low down to `PLANE_CRUISE_HIGH`'s
+      // share of it at `PLANE_CEILING`, eased over `PLANE_ACCELERATION_TIME`.
+      const over = craft.position.length() - (R + groundAt(craft.position) + model.hover);
+      const high = flies && craft.airborne ? Math.min(1, Math.max(0, over / PLANE_CEILING)) : 0;
+      const top = handling.top * (1 + (PLANE_CRUISE_HIGH / PLANE_CRUISE_LOW - 1) * high) * (1 + (TURBO - 1) * burn);
       const target = throttle > 0 ? Math.max(throttle, burn) * top : throttle * handling.reverse;
-      const grip = craft.airborne && !flies && !floats ? 0.1 : 1;
-      const accel = handling.accel * (1 + 2 * burn);
-      craft.speed += Math.max(-accel * dt, Math.min(accel * dt, target - craft.speed)) * grip;
+      if (flies && craft.airborne) craft.speed += (target - craft.speed) * (1 - Math.exp(-dt / PLANE_ACCELERATION_TIME)) * (1 + 2 * burn);
+      else {
+        const grip = craft.airborne && !flies && !floats ? 0.1 : 1;
+        const accel = handling.accel * (1 + 2 * burn);
+        craft.speed += Math.max(-accel * dt, Math.min(accel * dt, target - craft.speed)) * grip;
+      }
       if (controls === null && !craft.airborne) craft.speed *= Math.exp(-3 * dt);
       const steering = flies || floats ? 1 : Math.min(1, Math.abs(craft.speed) / 4) * Math.sign(craft.speed || 1);
       if (steer !== 0) {
@@ -665,15 +674,24 @@ export function createCraft(
           craft.speed *= Math.exp(-3 * dt);
         }
       } else if (flies) {
-        const wanted = controls === null ? -handling.sink : controls.climb ? handling.climb * (1 + burn) : controls.descend ? -handling.sink : 0;
+        // Earth's plane's climb (`PLANE_CLIMB_MIN`): the keys ask for a
+        // vertical speed that grows with the height and eases into
+        // `PLANE_CEILING`, and coming down it flares to `PLANE_TOUCHDOWN`.
+        // Let go of in the air, a ship comes down by the same law and parks.
+        const clearance = Math.max(0, radial - ground);
+        const authority = Math.max(PLANE_CLIMB_MIN, handling.climb, clearance * PLANE_CLIMB_RATE);
+        const headroom = Math.max(0, R + PLANE_CEILING - radial) * PLANE_CLIMB_RATE;
+        const down = -Math.min(authority, Math.max(PLANE_TOUCHDOWN, clearance * PLANE_FLARE));
+        const wanted =
+          controls === null ? down : controls.climb ? Math.min(authority * (1 + burn), headroom) : controls.descend ? down : 0;
         if (craft.airborne) {
-          // The thrusters chase the asked-for climb; gravity is what they fight.
-          craft.vertical += (wanted - craft.vertical) * Math.min(1, dt * 2.2);
+          // The thrusters chase the asked-for climb, as the plane's stick does.
+          craft.vertical += (wanted - craft.vertical) * (1 - Math.exp(-dt / PLANE_VERTICAL_TIME));
         } else if (wanted > 0) {
           craft.vertical = wanted * 0.5;
           craft.airborne = true;
         } else craft.vertical = 0;
-        radial += craft.vertical * dt;
+        radial = Math.min(Math.max(R + PLANE_CEILING, radial), radial + craft.vertical * dt);
         if (radial <= ground) {
           radial = ground;
           if (craft.airborne && craft.vertical <= 0) {
@@ -739,7 +757,7 @@ export function createCraft(
   // The kit arriving after the craft was made: the code-built model goes and
   // the kit's takes its place, and the seat with it.
   if (kitted === null && made !== undefined) {
-    const unsubscribe = onWorldKit((kit) => {
+    const unsubscribe: () => void = onWorldKit((kit) => {
       const next = fromKit(kit);
       if (next === null) return;
       unsubscribe();
@@ -754,9 +772,13 @@ export function createCraft(
       object.add(mesh);
       craft.seat.copy(model.seat).setY(model.seat.y - FIGURE.hipY);
       craft.closed = model.closed;
+      // A pilot already aboard is under the new model's canopy, or over its seat.
+      for (const child of object.children) if (child !== mesh && child.userData.pilot === true) child.visible = !craft.closed;
       craft.radius = model.radius;
       craft.reach = model.radius + 3;
     });
+    // A craft let go of before the kit arrives stops waiting for it (`disposeCraft`).
+    object.userData.unsubscribe = unsubscribe;
   }
   return craft;
 }

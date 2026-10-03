@@ -24,6 +24,28 @@ import { AVATAR_HEIGHT, RUN_SPEED, WALK_SPEED } from '../avatar.ts';
 import type { InputState } from '../input.ts';
 import type { Emote } from '../../server/src/limits.ts';
 import type { Craft } from './craft.ts';
+import {
+  CANOPY_OPENING,
+  CHUTE_FORCED,
+  CHUTE_GLIDE,
+  CHUTE_GLIDE_RATE,
+  CHUTE_GRIP,
+  CHUTE_PACE,
+  CHUTE_PULL,
+  CHUTE_SINK,
+  CHUTE_SINK_RATE,
+  CHUTE_SWING,
+  CHUTE_TURN,
+  FREEFALL_DIVE,
+  FREEFALL_MIN,
+  FREEFALL_RATE,
+  FREEFALL_TRACK,
+  buildParachute,
+  newChuteSwing,
+  openCanopy,
+  swingUnder,
+  trailOf,
+} from '../craft/parachute.ts';
 
 /**
  * Earth's jump, as `player.ts` has it: `JUMP_HEIGHT` is
@@ -40,6 +62,18 @@ const EARTH_G = 9.807;
 const STEP_DOWN = 1.2;
 /** The body's radius against walls. */
 export const BODY_RADIUS = 0.9;
+/**
+ * Out of a craft this high over the ground or higher is out of an aircraft in
+ * flight: the body falls and opens a canopy, as on Earth (`player.ts`'s
+ * `bailOut`), carrying `BAIL_CARRY` of the craft's speed. Under it, it is
+ * stepping down beside it.
+ */
+const BAIL_HEIGHT = AVATAR_HEIGHT;
+/** Under this height over the ground a craft meets walls; over it, nothing is tall enough to. */
+const CRAFT_WALLS_UNDER = 40;
+/** How high over a point `place` asks for the ground from: over any bridge and under any roof. */
+const PLACE_FROM = 400;
+const BAIL_CARRY = 0.45;
 
 export interface WorldPlayer {
   position: THREE.Vector3;
@@ -49,6 +83,10 @@ export interface WorldPlayer {
   velocity: THREE.Vector3;
   vertical: number;
   airborne: boolean;
+  /** Out of an aircraft in flight and not yet down: falling, then under a canopy (`CHUTE_FORCED`). */
+  readonly parachute: boolean;
+  /** And the canopy open over it. */
+  readonly canopy: boolean;
   /** The craft being driven, or null on foot. */
   craft: Craft | null;
   /** The world's gravity in units a second squared. */
@@ -114,6 +152,121 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
   let home: THREE.Object3D | null = null;
   /** Where the gait was last frame, for the heel strikes. */
   let lastStep = 0;
+  /**
+   * Out of an aircraft: falling (`chute` true, `canopy` 0) and under the
+   * canopy (`canopy` the seconds since it began to open), as on Earth; how
+   * much of the pose is the canopy's (`spread`), the turn's lever and lean,
+   * and the body's swing under it.
+   */
+  let chute = false;
+  let canopy = 0;
+  let spread = 0;
+  let steering = 0;
+  let lean = 0;
+  const swing = newChuteSwing();
+  const trail: [number, number] = [0, 0];
+  let parachute: THREE.Group | null = null;
+  const motion = new THREE.Vector3();
+  const swung = new THREE.Quaternion();
+  const swingEuler = new THREE.Euler();
+  const hangFrom = new THREE.Vector3();
+
+  /** The canopy over the body while it is open, in the body's own upright frame. */
+  function drawCanopy(): void {
+    if (!chute || canopy === 0) {
+      if (parachute !== null) parachute.visible = false;
+      return;
+    }
+    if (parachute === null) {
+      // Hung in the body's upright frame: a holder there, the canopy in it.
+      parachute = new THREE.Group();
+      parachute.name = 'parachute';
+      parachute.add(buildParachute());
+      home?.add(parachute);
+    }
+    parachute.visible = true;
+    parachute.position.copy(position);
+    orient(parachute, UP.copy(position).normalize(), facing);
+    openCanopy(parachute.children[0]!, canopy, lean + (swing.roll - lean) * 0.3, steering, swing.pitch * 0.3);
+  }
+
+  /**
+   * Falling from an aircraft, and under a canopy: Earth's `glide`, its laws
+   * shared from `craft/parachute.ts`. The jump key opens the canopy and stows
+   * it again over `CHUTE_FORCED`; under it the keys steer rather than walk.
+   */
+  function glide(dt: number, input: InputState, steer: THREE.Vector3): void {
+    const up = UP.copy(position).normalize();
+    facing.addScaledVector(up, -facing.dot(up)).normalize();
+    const over = position.length() - (world.radius + world.groundAt(position));
+    if (input.jump && over > CHUTE_FORCED) canopy = canopy > 0 ? 0 : 1e-3;
+    if (canopy === 0 && over <= CHUTE_FORCED) canopy = 1e-3;
+    const open = canopy > 0;
+    if (open) canopy += dt;
+    spread += ((open ? 1 : 0) - spread) * (1 - Math.exp(-dt * (open ? 1 / CANOPY_OPENING : 8)));
+    const stickX = Math.max(-1, Math.min(1, input.move.x));
+    const stickY = Math.max(-1, Math.min(1, input.move.y));
+    let fall: number;
+    if (open) {
+      steering += (stickX - steering) * (1 - Math.exp(-3 * dt));
+      facing.applyAxisAngle(up, -steering * CHUTE_TURN * dt).normalize();
+      const pace = 1 + CHUTE_PACE * stickY;
+      WANT.copy(facing).multiplyScalar((CHUTE_GLIDE + over * CHUTE_GLIDE_RATE) * pace);
+      motion.lerp(WANT, 1 - Math.exp(-1.5 * dt));
+      fall = (CHUTE_SINK + over * CHUTE_SINK_RATE) * (1 + CHUTE_PACE * 0.5 * stickY);
+    } else {
+      // Tracked across the ground like a walk, towards the camera's way, and
+      // facing where the camera looks.
+      const heading = FORWARD.copy(steer).addScaledVector(up, -steer.dot(up));
+      if (heading.lengthSq() < 1e-8) heading.copy(facing);
+      heading.normalize();
+      const side = RIGHT.crossVectors(heading, up).normalize();
+      WANT.set(0, 0, 0).addScaledVector(heading, stickY).addScaledVector(side, stickX);
+      if (WANT.lengthSq() > 1) WANT.normalize();
+      motion.lerp(WANT.multiplyScalar(FREEFALL_TRACK), 1 - Math.exp(-1.2 * dt));
+      facing.lerp(heading, 1 - Math.exp(-4 * dt)).normalize();
+      steering += (stickX - steering) * (1 - Math.exp(-3 * dt));
+      fall = Math.max(FREEFALL_MIN, over * FREEFALL_RATE) * (stickY > 0 ? FREEFALL_DIVE : 1);
+    }
+    vertical += (-fall - vertical) * (1 - Math.exp(-(open ? 2 : 4) * dt));
+    motion.addScaledVector(up, -motion.dot(up));
+    velocity.copy(motion);
+    const height = position.length() + vertical * dt;
+    position.addScaledVector(motion, dt);
+    if (over < AVATAR_HEIGHT * 4) world.collide(position, BODY_RADIUS);
+    lean = open ? steering * CHUTE_SWING : 0;
+    const ground = world.radius + world.groundAt(position);
+    if (height > ground) position.setLength(height);
+    else {
+      // Down.
+      chute = false;
+      canopy = 0;
+      spread = 0;
+      airborne = false;
+      motion.set(0, 0, 0);
+      velocity.set(0, 0, 0);
+      position.setLength(ground);
+      world.onTouchdown?.(-vertical);
+      vertical = 0;
+      avatar.land(0.4);
+    }
+    // The fall's pose, and the body swung about the hands under the canopy.
+    swingUnder(swing, dt, motion.length(), lean, spread);
+    trailOf(swing, lean, spread, trail);
+    if (chute) avatar.skydive(dt, spread, steering, CHUTE_GRIP, CHUTE_PULL, trail);
+    avatar.group.position.copy(position);
+    orient(avatar.group, UP.copy(position).normalize(), facing);
+    if (chute) {
+      const pivot = CHUTE_GRIP[1] * spread;
+      swingEuler.set(swing.pitch * spread, 0, lean + (swing.roll - lean) * spread);
+      swung.setFromEuler(swingEuler);
+      hangFrom.set(0, pivot, 0).applyQuaternion(swung);
+      hangFrom.set(-hangFrom.x, pivot - hangFrom.y, -hangFrom.z).applyQuaternion(avatar.group.quaternion);
+      avatar.group.quaternion.multiply(swung);
+      avatar.group.position.add(hangFrom);
+    }
+    drawCanopy();
+  }
 
   const player: WorldPlayer = {
     position,
@@ -124,6 +277,12 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
     },
     get airborne() {
       return airborne;
+    },
+    get parachute() {
+      return chute;
+    },
+    get canopy() {
+      return chute && canopy > 0;
     },
     get craft() {
       return craft;
@@ -148,11 +307,25 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
           gravity,
           world.radius,
         );
+        // Walls, as on Earth: a vehicle on the ground or low over it is
+        // pushed out of buildings, outposts, towers and other craft, and
+        // loses its way into them; well clear of the ground nothing stands.
+        const clear = c.position.length() - (world.radius + world.groundAt(c.position));
+        if (clear < CRAFT_WALLS_UNDER && world.collide(c.position, c.radius * 0.8)) {
+          c.speed *= -0.2;
+          c.object.position.copy(c.position);
+        }
         position.copy(c.position);
         facing.copy(c.heading);
-        avatar.sit(dt);
+        // Standing in a basket, as a balloon's crew do on Earth; else seated.
+        if (c.standing) avatar.stride(dt, 0, false);
+        else avatar.sit(dt);
         avatar.group.position.copy(c.seat);
         avatar.group.quaternion.identity();
+        return;
+      }
+      if (chute) {
+        glide(dt, input, steer);
         return;
       }
 
@@ -218,12 +391,18 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
     },
     board(next) {
       craft = next;
+      // Whatever fall was under way is over: no canopy left hanging in the sky.
+      chute = false;
+      canopy = 0;
+      spread = 0;
+      if (parachute !== null) parachute.visible = false;
       velocity.set(0, 0, 0);
       vertical = 0;
       airborne = false;
       avatar.emote(null);
       home = avatar.group.parent;
       next.object.add(avatar.group);
+      avatar.group.userData.pilot = true;
       // Under a closed canopy the pilot is not seen: a body sat in a hull pokes through it.
       avatar.group.visible = !next.closed;
       avatar.group.position.copy(next.seat);
@@ -234,19 +413,37 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
       const c = craft;
       craft = null;
       c.object.remove(avatar.group);
+      avatar.group.userData.pilot = false;
       home?.add(avatar.group);
       avatar.group.visible = true;
       const up = UP.copy(c.position).normalize();
       const side = RIGHT.crossVectors(c.heading, up).normalize();
+      const from = c.position.length();
       position.copy(c.position).addScaledVector(side, -(c.radius + 1.6));
-      position.setLength(world.radius + world.groundAt(position));
       facing.copy(c.heading);
-      airborne = false;
       vertical = 0;
       avatar.reset();
+      const ground = world.radius + world.groundAt(position);
+      if (c.airborne && from - ground > BAIL_HEIGHT) {
+        // Out of an aircraft in flight: over the side and falling, going the
+        // way it was; the craft, let go of, comes down by itself and parks.
+        position.setLength(Math.max(from, ground + 1));
+        motion.copy(c.heading).multiplyScalar(Math.max(0, c.speed) * BAIL_CARRY);
+        velocity.copy(motion);
+        airborne = true;
+        chute = true;
+        canopy = 0;
+        spread = 0;
+        steering = 0;
+        return;
+      }
+      position.setLength(ground);
+      airborne = false;
     },
     place(dir, look) {
-      position.copy(dir).normalize();
+      // Asked from high over the point, so a bridge over it (a skyway on a
+      // deck) is stood on rather than taken for a roof.
+      position.copy(dir).normalize().multiplyScalar(world.radius + PLACE_FROM);
       position.setLength(world.radius + world.groundAt(position));
       const up = UP.copy(position).normalize();
       if (look !== undefined) facing.copy(look);
@@ -256,6 +453,10 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
       velocity.set(0, 0, 0);
       vertical = 0;
       airborne = false;
+      chute = false;
+      canopy = 0;
+      spread = 0;
+      if (parachute !== null) parachute.visible = false;
     },
     emote(name) {
       if (name !== null && (craft !== null || airborne)) return false;

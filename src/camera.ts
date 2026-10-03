@@ -48,6 +48,16 @@ const CAMERA_LAG = 7;
  * rate, which is what the reference's own rig does (4.5 across and 3 up).
  */
 const CAMERA_LAG_UP = 4;
+/**
+ * But never further behind along `up` than this. A trail is `v / rate`, so a
+ * body falling out of an aircraft at a thousand units a second trailed 260 at
+ * `CAMERA_LAG_UP` — past the twenty bodies at which `follow` catches a jump
+ * outright — and the lens was caught, fell behind, and was caught again every
+ * few frames: a fall from the ceiling read as a run of teleports until it had
+ * slowed under 300. The rate rises with the speed instead, so the lens trails
+ * a fast fall by this and an ordinary step as it always did.
+ */
+const RISE_TRAIL = AVATAR_HEIGHT * 2;
 /** What the camera orbits: the head, a little under the crown. */
 const PIVOT_HEIGHT = AVATAR_HEIGHT * 0.85;
 /**
@@ -1070,7 +1080,8 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
         else {
           const rise = drift.dot(player.up);
           drift.addScaledVector(player.up, -rise);
-          orbit.addScaledVector(drift, chase).addScaledVector(player.up, rise * approach(CAMERA_LAG_UP, dt));
+          const climbing = dt > 0 ? Math.abs(travel.dot(player.up)) / dt : 0;
+          orbit.addScaledVector(drift, chase).addScaledVector(player.up, rise * approach(Math.max(CAMERA_LAG_UP, climbing / RISE_TRAIL), dt));
         }
         place(player, true);
         const lift = unclip(desired, groundRadiusAt, true);

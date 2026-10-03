@@ -300,7 +300,8 @@ export const SELENITES: Civilisation = defineCivilisation(SELENITE, {
     walls: [PALETTE.bone, PALETTE.cream, PALETTE.steel, PALETTE.bone],
     roofs: [PALETTE.steel, PALETTE.slate, PALETTE.bark],
     accents: [PALETTE.skyBlue, PALETTE.gold, PALETTE.apricot],
-    ground: PALETTE.bone,
+    // The paving a shade of steel: bone paving on bone regolith hid the town in its ground.
+    ground: PALETTE.steel,
     height: 1,
     density: 3.2,
     avenues: 4,

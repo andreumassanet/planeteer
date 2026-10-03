@@ -61,10 +61,12 @@ const GROUND = makeGround({
   lapse: 0.5,
   biomes: {
     cirrus: { id: 'cirrus', color: PALETTE.white, cover: 0.05, parts: ['ice-plume'] },
-    collar: { id: 'collar', color: PALETTE.cream, cover: 0.06, parts: ['ice-plume', 'dust-drift'] },
-    deck: { id: 'deck', color: PALETTE.skyBlue, cover: 0.04, parts: ['ice-plume', 'dust-drift'] },
-    band: { id: 'band', color: PALETTE.slate, cover: 0.03, parts: ['dust-drift'] },
-    storm: { id: 'storm', color: PALETTE.steel, cover: 0.08, parts: ['ice-plume', 'iron-spire'] },
+    // A deck of cloud: plumes of ice and nothing that lies on rock — no dunes
+    // of dust, no spires of iron standing on the clouds.
+    collar: { id: 'collar', color: PALETTE.cream, cover: 0.06, parts: ['ice-plume'] },
+    deck: { id: 'deck', color: PALETTE.skyBlue, cover: 0.04, parts: ['ice-plume'] },
+    band: { id: 'band', color: PALETTE.slate, cover: 0.03, parts: [] },
+    storm: { id: 'storm', color: PALETTE.steel, cover: 0.08, parts: ['ice-plume'] },
   },
   classify(warmth, methane, elevation, maxRelief) {
     if (elevation > maxRelief * 0.72) return 'cirrus';

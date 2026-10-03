@@ -240,7 +240,8 @@ export const WORLD = defineWorld(SATURN, {
       walls: [PALETTE.cream, PALETTE.white, PALETTE.bone, PALETTE.blush],
       roofs: [PALETTE.sand, PALETTE.apricot, PALETTE.gold, PALETTE.tan],
       accents: [PALETTE.gold, PALETTE.skyBlue, PALETTE.violet, PALETTE.white],
-      ground: PALETTE.bone,
+      // Steel paving on the cream deck, so the town stands out of it.
+      ground: PALETTE.steel,
       height: 1.1,
       density: 3.6,
       // Five spokes: an odd number, so no avenue lines up with another.
@@ -260,9 +261,12 @@ export const WORLD = defineWorld(SATURN, {
     crowd: 1.1,
   }),
   decorations: [],
-  rocks: 0,
+  // Billows of the deck (`BILLOW`), where a crust has its boulders.
+  rocks: 14,
   vehicles: ['skiff', 'lander'],
   ambient: [
+    // Sky mantas over the deck.
+    { kind: 'fliers', count: 12, color: PALETTE.apricot, belly: PALETTE.white, size: 3.8 },
     // Ice from the rings: grains drift down out of them all the time (Cassini
     // measured tonnes a second falling in along the field lines), glinting.
     { kind: 'motes', count: 190, color: PALETTE.white, fall: 1.4, speed: 0.6 },
@@ -272,6 +276,8 @@ export const WORLD = defineWorld(SATURN, {
     // months at a time and saw by night once.
     { kind: 'lightning', count: 1, rate: 6, color: PALETTE.white, where: stormAlley },
   ],
+  // Saturn's equatorial jet, the fastest wind of the giants after Neptune's.
+  wind: { toward: 90, speed: 45, strength: 0.8 },
   landmarks: LANDMARKS,
   // Keeler, at 24 N in the North Equatorial Belt: the latitude the rings are
   // widest from, arched over the southern sky from eighteen degrees above the

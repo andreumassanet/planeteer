@@ -246,6 +246,13 @@ export interface Effects {
    */
   crashAt(point: THREE.Vector3, facing: THREE.Vector3, strength: number): void;
   /**
+   * Dust kicked up off the ground at `point`, spread over `reach` units, in
+   * `count` puffs of the ground's dust (`setDust`, else the bone of Earth's
+   * land): a craft's thrust on the ground under it, a rover's wheels. Nothing
+   * while the effects are off.
+   */
+  dustAt(point: THREE.Vector3, reach: number, count: number): void;
+  /**
    * A rocket's exhaust for `dt` (`rocket.ts`): flame out of the bell at
    * `mouth` along `-up`, and smoke billowing off it — spread along the ground
    * when the ground is within `clearance` units under the bell, a column
@@ -1617,6 +1624,11 @@ export function createEffects(): Effects {
       if (!enabled) return;
       splashUp.copy(point).normalize();
       splash(point, splashUp, reach, Math.max(2, Math.round(reach * 3)));
+    },
+    dustAt(point, reach, count) {
+      if (!enabled) return;
+      splashUp.copy(point).normalize();
+      dustBurst(point, splashUp, reach, count, dust ?? PALETTE.bone, H * 0.3);
     },
     crashAt(point, facing, strength) {
       if (!enabled) return;
