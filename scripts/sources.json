@@ -55,6 +55,49 @@
   "assets": {
     "dir": "assets",
     "what": "The CC0 model packs build-cast.mjs, build-kit.ts and retarget-clips.ts read: Quaternius, Kenney, KayKit and Poly Pizza models",
-    "note": "Not fetched by fetch-sources.mjs: each pack is a download from its own site, and ../.cache/assets/INVENTORY.md lists every one with its URL, its licence and when it was taken. What each bake used is named in the LICENSE.txt it writes beside its output under public/models/."
+    "note": "Not fetched by fetch-sources.mjs: each pack is a download from its own site, and ../.cache/assets/INVENTORY.md lists every one with its URL, its licence and when it was taken. What each bake used is named in the LICENSE.txt it writes beside its output under public/models/.",
+    "packsNote": "Packs recorded since 2026-10-01, with where each was downloaded. A zip's sha256 and bytes are the zip's; a Google Drive folder's sha256 is of the sorted `sha256sum` lines of every file under it (`cd <file> && find . -type f | LC_ALL=C sort | xargs -d '\\n' sha256sum | sha256sum`) and its bytes the folder's total.",
+    "packs": [
+      {
+        "file": "quaternius/ultimate-space-kit",
+        "what": "Quaternius, Ultimate Space Kit (glTF folders, 2026-10-01): astronauts, mechs, aliens, colony buildings, rovers, spaceships, alien flora, rocks, planets, pickups",
+        "page": "https://quaternius.com/packs/ultimatespacekit.html",
+        "url": "https://drive.google.com/drive/folders/17F8HlI2zPTlo32aieW5YPPwOk78xo-2m",
+        "licence": "CC0 1.0 (License.txt in the folder; quaternius.com pack page)",
+        "bakes": ["build-space.ts"],
+        "sha256": "eba5517345bbd79ba9c3efdddd9c3856d68e71f796f5c566a267cd890909ea4a",
+        "bytes": 19899245
+      },
+      {
+        "file": "quaternius/ultimate-monsters",
+        "what": "Quaternius, Ultimate Monsters (glTF folders Big, Blob and Flying, 2026-10-01): 50 animated creatures",
+        "page": "https://quaternius.com/packs/ultimatemonsters.html",
+        "url": "https://drive.google.com/drive/folders/18m4KpzpEzhC9wl7jzr6dUc0N8Jozr79C",
+        "licence": "CC0 1.0 (License.txt in the folder; quaternius.com pack page)",
+        "bakes": ["build-space.ts"],
+        "sha256": "922f89de44e6f576e2205a3de8c2fa0e9cb22d251ff1e512d6975949b906eaa6",
+        "bytes": 32220174
+      },
+      {
+        "file": "kenney/kenney_space-kit.zip",
+        "what": "Kenney, Space Kit 2.0 (2026-10-01): craft, hangars, dishes, crystals, meteors, craters, desk seats",
+        "page": "https://kenney.nl/assets/space-kit",
+        "url": "https://kenney.nl/media/pages/assets/space-kit/20874c75ac-1677698978/kenney_space-kit.zip",
+        "licence": "CC0 1.0 (License.txt in the zip)",
+        "bakes": ["build-space.ts"],
+        "sha256": "d5d7cdf2635ed5a43a9187deaf409b6f47484e402321128341d3c3698e9ef4d9",
+        "bytes": 6677531
+      },
+      {
+        "file": "kenney/kenney_space-station-kit.zip",
+        "what": "Kenney, Space Station Kit (2026-10-01): the bridge's floors, walls, windows, consoles, seats",
+        "page": "https://kenney.nl/assets/space-station-kit",
+        "url": "https://kenney.nl/media/pages/assets/space-station-kit/6475288f2e-1712749919/kenney_space-station-kit.zip",
+        "licence": "CC0 1.0 (License.txt in the zip)",
+        "bakes": ["build-space.ts"],
+        "sha256": "215e79bd5415cff93665183390f0343ed9acf87780306331013b78520170c6d8",
+        "bytes": 1835875
+      }
+    ]
   }
 }

@@ -19,6 +19,7 @@ import { PALETTE } from '../../theme.ts';
 import type { Body, Nation, Settlement, Species } from '../contract.ts';
 import { surfaceRadiusOf } from '../contract.ts';
 import { makeGround, reliefBudget } from '../ground.ts';
+import { grownTowns } from '../towns.ts';
 
 const RADIUS_KM = 6051.8;
 const MAX_RELIEF = reliefBudget(13.9, surfaceRadiusOf(RADIUS_KM));
@@ -32,7 +33,11 @@ const GROUND = makeGround({
     // eleven kilometres, the highest ground on the planet and the only feature
     // on Venus named after a man.
     { name: 'Maxwell Montes', lat: 65.2, lon: 3.3, height: MAX_RELIEF * 0.68, extent: 6, shape: 1.5 },
-    { name: 'Lakshmi Planum', lat: 68.6, lon: -20.7, height: MAX_RELIEF * 0.3, extent: 12, shape: 0.5 },
+    // A plateau, but not a cliff: under a shape of about 0.7 the falloff's
+    // slope runs to infinity at the cap's edge, and at 0.5 it stood a wall
+    // eight units high within one unit of its foot, which a person walking
+    // the frost line from Maxwell walked into.
+    { name: 'Lakshmi Planum', lat: 68.6, lon: -20.7, height: MAX_RELIEF * 0.3, extent: 12, shape: 0.8 },
     { name: 'Aphrodite Terra', lat: -10, lon: 105, height: MAX_RELIEF * 0.28, extent: 30, shape: 0.7 },
     { name: 'Beta Regio', lat: 25.3, lon: -77.2, height: MAX_RELIEF * 0.34, extent: 11, shape: 1 },
     { name: 'Atla Regio', lat: 9.2, lon: -159.9, height: MAX_RELIEF * 0.32, extent: 10, shape: 1 },
@@ -66,12 +71,17 @@ const GROUND = makeGround({
     // best explanation is that lead and bismuth sulphides evaporate off the hot
     // lowlands and condense on the highlands. Venus has snow on its mountains
     // and it is made of metal. Nothing else here needed a biome of its own more.
-    frost: { id: 'frost', color: PALETTE.bone, cover: 0.04, parts: ['iron-spire', 'wind-stone'] },
+    // The frost's own part is `venus-galena`: lead sulphide grows in cubes,
+    // and a mountain top crusted in little metal cubes is the one sight on
+    // this planet nobody on Earth has a word for.
+    frost: { id: 'frost', color: PALETTE.bone, cover: 0.05, parts: ['venus-galena', 'iron-spire', 'wind-stone'] },
     tessera: { id: 'tessera', color: PALETTE.slate, cover: 0.07, parts: ['iron-spire', 'wind-stone'] },
     sulphur: { id: 'sulphur', color: PALETTE.gold, cover: 0.1, parts: ['sulphur-vent', 'wind-stone'] },
-    lava: { id: 'lava', color: PALETTE.steel, cover: 0.06, parts: ['sulphur-vent', 'iron-spire'] },
-    crust: { id: 'crust', color: PALETTE.brown, cover: 0.08, parts: ['wind-stone', 'dust-drift'] },
-    plain: { id: 'plain', color: PALETTE.bark, cover: 0.05, parts: ['wind-stone', 'dust-drift'] },
+    lava: { id: 'lava', color: PALETTE.steel, cover: 0.06, parts: ['venus-slab', 'sulphur-vent', 'iron-spire'] },
+    // The plains are Venera 13's photograph: flat plates of layered basalt with
+    // a little dark soil between them, which is `venus-slab`.
+    crust: { id: 'crust', color: PALETTE.brown, cover: 0.08, parts: ['venus-slab', 'wind-stone', 'dust-drift'] },
+    plain: { id: 'plain', color: PALETTE.bark, cover: 0.06, parts: ['venus-slab', 'venus-slab', 'wind-stone', 'dust-drift'] },
   },
   classify(warmth, sulphur, elevation, maxRelief) {
     // Height beats everything, because on this planet height *is* temperature
@@ -100,6 +110,16 @@ const NATIONS: readonly Nation[] = [
     note: 'The deepest plain on the planet, and as low and as smooth as Venus gets.' },
   { id: 'atla', name: 'Atla Regio', lat: 9.2, lon: -159.9, radius: 17, color: PALETTE.orange,
     note: 'Two shield volcanoes and the lightning to go with them. The most likely active place here.' },
+  // The three below are the walking map's: Alpha Regio for the pancake domes
+  // on its eastern edge, Phoebe Regio for the place Venera 13 came down, and
+  // one corona as a city-state of its own, because a corona is a country's
+  // worth of landform and has no older province to belong to.
+  { id: 'alpha', name: 'Alpha Regio', lat: -25.5, lon: 4.5, radius: 12, color: PALETTE.slate,
+    note: 'The first feature on Venus seen by radar from Earth, a tessera highland, and seven lava pancakes on its doorstep.' },
+  { id: 'phoebe', name: 'Phoebe Regio', lat: -8, lon: -62, radius: 12, color: PALETTE.tan,
+    note: 'A rift-cut highland, and east of it the basalt where Venera 13 took the first colour pictures of another surface.' },
+  { id: 'aine', name: 'Aine Corona', lat: -59, lon: 164, radius: 4, color: PALETTE.salmon,
+    note: 'A ring of ridges two hundred kilometres across where a plume of hot rock pushed the crust up and let it sag back.' },
 ];
 
 const SETTLEMENTS: readonly Settlement[] = [
@@ -112,6 +132,16 @@ const SETTLEMENTS: readonly Settlement[] = [
   { id: 'guinevere-flats', name: 'Guinevere Flats', lat: 22, lon: -35, population: 205000, nation: 'guinevere' },
   { id: 'atalanta-deep', name: 'Atalanta Deep', lat: 46, lon: 166, population: 66000, nation: 'atalanta' },
   { id: 'maat', name: 'Maat', lat: 0.9, lon: -165.5, population: 121000, nation: 'atla' },
+  // Invented towns at real features. Seoritsu and Farra stand on two of the
+  // seven pancake domes of Seoritsu Farra (30 S, 11.8 E), on their flat tops;
+  // Baltis on the bank of Baltis Vallis, the longest lava channel in the solar
+  // system; Aine in the middle of its corona; Venera a short walk from where
+  // Venera 13 landed on 1 March 1982, and named after it.
+  { id: 'seoritsu', name: 'Seoritsu', lat: -30.0, lon: 11.8, population: 60000, nation: 'alpha' },
+  { id: 'farra', name: 'Farra', lat: -30.55, lon: 12.5, population: 20000, nation: 'alpha' },
+  { id: 'baltis', name: 'Baltis', lat: 35.62, lon: 160.19, population: 52000, nation: 'atalanta' },
+  { id: 'aine', name: 'Aine', lat: -59, lon: 164, population: 34000, nation: 'aine' },
+  { id: 'venera', name: 'Venera', lat: -8.3, lon: -58.2, population: 27000, nation: 'phoebe' },
 ];
 
 /**
@@ -137,7 +167,11 @@ const BATHYD: Species = {
     legPairs: 2, armPairs: 1, segments: 1, shoulderShare: 0.19, hipShare: 0.185,
     depth: 1.35, neck: 'none', headSides: 8, eyes: 2, crown: 'frill', tail: 0, limbR: 0.042,
   },
-  hides: [PALETTE.clay, PALETTE.brown, PALETTE.gold, PALETTE.tan, PALETTE.apricot, PALETTE.salmon],
+  // Cool hides on a warm world, Mars's argument the other way round: under an
+  // orange sky on orange ground a clay-coloured Bathyd is a Bathyd nobody can
+  // see. Pale and violet, like the things that live under the pressure of a
+  // deep sea on Earth, which is the only comparison anybody has.
+  hides: [PALETTE.slate, PALETTE.violet, PALETTE.bone, PALETTE.steel, PALETTE.green, PALETTE.pink],
   wears: [
     { item: 'harness', weight: 5 },
     { item: 'none', weight: 4 },
@@ -151,7 +185,9 @@ const BATHYD: Species = {
     { item: 'staff', weight: 1 },
   ],
   trims: [PALETTE.ink, PALETTE.darkOlive, PALETTE.bark],
-  accents: [PALETTE.skyBlue, PALETTE.violet, PALETTE.green, PALETTE.crimson, PALETTE.white],
+  // The sulphur lamps every Bathyd carries or wears: gold and its two warmer
+  // neighbours, and white for the old.
+  accents: [PALETTE.gold, PALETTE.apricot, PALETTE.orange, PALETTE.crimson, PALETTE.white],
 };
 
 export const SPECIES: readonly Species[] = [BATHYD];
@@ -165,6 +201,8 @@ export const VENUS: Body = {
   // Retrograde, and the sign is the fact: the sun rises in the west here.
   rotationHours: -5832.5,
   tiltDeg: 177.36,
+  // The IAU's north pole of rotation, J2000 right ascension and declination.
+  pole: { ra: 272.76, dec: 67.16 },
   gravity: 8.87,
   blurb:
     'Earth-sized, 464 degrees at every hour of a day that lasts longer than its year, ' +
@@ -181,6 +219,7 @@ export const VENUS: Body = {
   },
   ground: GROUND,
   nations: NATIONS,
-  settlements: SETTLEMENTS,
+  // The file's own towns, and the nations filled out round them (`towns.ts`).
+  settlements: grownTowns({ id: 'venus', radiusKm: RADIUS_KM, nations: NATIONS, settlements: SETTLEMENTS }),
   species: 'bathyd',
 };

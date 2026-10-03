@@ -63,6 +63,8 @@ jobs:
         run: pnpm fauna
       - name: system
         run: pnpm system
+      - name: worlds
+        run: pnpm worlds
       - name: solids
         run: pnpm solids
       - name: fleet

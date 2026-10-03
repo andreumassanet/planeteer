@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>atlas · space kit</title>
+    <style>
+      :root { --ink:#1e0603; --card:#fff2e8; --sky:#6fc9d8; --bad:#c30e3a; --dim:rgba(30,6,3,0.55); }
+      * { margin:0; padding:0; box-sizing:border-box; }
+      html { background: var(--sky); }
+      body {
+        min-height:100%; font-family: ui-rounded,"SF Pro Rounded","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+        color:var(--ink); -webkit-font-smoothing:antialiased; padding:0 20px 60px;
+      }
+      canvas { display:block; }
+      /* One WebGL context, scissored per cell — browsers cap contexts at about
+         sixteen and this page wants a hundred and sixty. The other sheets do the same. */
+      #view { position:fixed; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; }
+      header, .grid, .band, #notices { position:relative; z-index:1; }
+      header {
+        position:sticky; top:0; z-index:2; margin:0 -20px 18px; padding:12px 20px;
+        background:var(--card); border-bottom:3px solid var(--ink);
+        display:flex; flex-wrap:wrap; align-items:center; gap:9px 16px;
+      }
+      h1 { font-size:17px; font-weight:800; }
+      h1 small { font-weight:600; color:var(--dim); font-size:12px; }
+      .totals { font-size:12.5px; font-weight:700; color:var(--dim); }
+      .totals b { color:var(--ink); }
+      .grow { flex:1; }
+      select { font:inherit; font-size:13px; font-weight:600; padding:4px 8px; border:2px solid var(--ink); border-radius:8px; background:#fff; color:inherit; }
+      .band { margin:26px 0 12px; display:flex; align-items:baseline; gap:10px; border-bottom:3px solid var(--ink); padding-bottom:5px; flex-wrap:wrap; }
+      .band h2 { font-size:15px; font-weight:800; }
+      .band p { font-size:12px; font-weight:600; color:var(--dim); max-width:70ch; }
+      #notices { margin-bottom:16px; display:grid; gap:6px; }
+      .notice { background:var(--bad); color:var(--card); border:3px solid var(--ink); border-radius:10px; padding:8px 14px; font-size:13px; font-weight:700; }
+      .notice.calm { background:var(--card); color:var(--ink); }
+      .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+      .grid.wide { grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); }
+      .grid.tight { grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
+      /* The stage has to be **transparent**. The one WebGL canvas is fixed
+         behind the whole page and every cell is a scissored window onto it, so
+         a card with its own background paints over the render and each cell
+         comes out an empty cream rectangle — which is exactly what the first
+         build of this page did, and it looked like a renderer that was not
+         running rather than a z-order. The caption keeps the card colour. */
+      .cell { background:transparent; border:3px solid var(--ink); border-radius:12px; overflow:hidden; }
+      .cell .caption { background:var(--card); border-top:3px solid var(--ink); }
+      .cell .stage { width:100%; aspect-ratio:4/3; background:transparent; }
+      .cell .stage.tall { aspect-ratio:1/1; }
+      .cell h3 { font-size:13px; font-weight:800; padding:7px 10px 0; }
+      .cell p { font-size:11.5px; font-weight:600; color:var(--dim); padding:1px 10px 8px; line-height:1.35; }
+      .cell p b { color:var(--ink); }
+      .cell p.warn { color:var(--bad); }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <header>
+      <h1>atlas · space kit <small>the CC0 models baked for the other worlds and the title screen</small></h1>
+      <span class="totals" id="totals"></span>
+      <span class="grow"></span>
+      <label style="font-size:12.5px;font-weight:700">colours
+        <select id="paint"><option value="palette">world palette</option><option value="pack">pack's own</option></select>
+      </label>
+      <label style="font-size:12.5px;font-weight:700">show
+        <select id="only"><option value="">everything</option></select>
+      </label>
+    </header>
+    <div id="notices"></div>
+    <div id="sheet"></div>
+    <script type="module" src="/src/sheets/space.ts"></script>
+  </body>
+</html>

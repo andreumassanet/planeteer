@@ -295,12 +295,39 @@ test('/goto finds a built town, a name folded into one, and a country', async ()
   assert.equal(kobe?.name, 'Osaka');
   assert.equal(kobe?.via, 'Kobe');
   // A country is its capital.
+  // A town's own name before a name folded into a bigger one: a suburb of
+  // Bogotá called Madrid once outweighed Madrid by Bogotá's population.
+  assert.equal(go('madrid')?.iso, 'ESP');
+  assert.deepEqual(go('madrid')?.others, ['COL']);
+  // The same name in two countries: where you stand first, a country after a comma.
+  assert.equal(findPlace('toledo', gazetteer, 'ESP')?.iso, 'ESP');
+  assert.equal(findPlace('cuenca', gazetteer, 'ESP')?.iso, 'ESP');
+  assert.equal(go('Toledo, Spain')?.iso, 'ESP');
+  assert.equal(go('cuenca, esp')?.iso, 'ESP');
+  assert.equal(go('Toledo, United')?.iso, 'USA');
+  // A suggestion for a shared name carries its country, and goes to that row.
+  const rows = suggestPlaces('toledo', gazetteer, (iso) => countries.find((c) => c.iso === iso)?.name ?? iso);
+  const spanish = rows.find((row) => row.name.endsWith('Spain'));
+  assert.ok(spanish !== undefined, 'Toledo, Spain is offered');
+  assert.equal(go(spanish.name)?.iso, 'ESP');
   const spain = go('Spain');
   assert.equal(spain?.name, 'Madrid');
   assert.equal(spain?.via, 'Spain');
   assert.equal(go('Japan')?.name, 'Tokyo');
   assert.equal(go('qqqqzz'), null);
   assert.equal(go('  '), null);
+  // A district of a city is not somewhere to go: the bake keeps a folded name
+  // only for a separate town or a capital (`isDistrict` in build-places.mjs).
+  for (const district of ['Ciudad Lineal', 'Chamartín', 'Paris 15 Vaugirard', 'Islington', 'City of Westminster', 'Brooklyn', 'Manhattan', 'Pudong', 'Nakano', 'Iztapalapa', 'Wan Chai']) {
+    assert.equal(gazetteer.aliases.has(district), false, `${district} is a district, not an alias`);
+    assert.notEqual(go(district)?.via, district, `/goto ${district}`);
+  }
+  // The towns folded into a bigger one still are, and so are the capitals.
+  assert.equal(go('Yokohama')?.name, 'Tokyo');
+  assert.equal(go('Móstoles')?.name, 'Madrid');
+  assert.ok(gazetteer.aliases.has('Reading'), 'Reading, folded into London');
+  assert.equal(go('Vatican City')?.name, 'Rome');
+  assert.equal(go('Monaco')?.via, 'Monaco');
 
   const name = (iso: string) => countries.find((country) => country.iso === iso)?.name ?? iso;
   const offer = (query: string) => suggestPlaces(query, gazetteer, name);
@@ -387,4 +414,21 @@ test('what players type is written as text, never as markup', () => {
     const source = readFileSync(resolve(here, file), 'utf8');
     assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|\bhtml:/.test(source), `${file} writes markup`);
   }
+});
+
+test('/goto searches another world\'s gazetteer as it searches Earth\'s: its towns, and its nations at their capitals', async () => {
+  const { PROMINENCE_CAP } = await import('../src/places.ts');
+  const town = (name: string, iso: string, lat: number, lon: number, pop: number, capital = false) =>
+    ({ name, iso, lat, lon, pop, capital, prominence: PROMINENCE_CAP, zone: '' });
+  const places = [
+    town('Ascraeus', 'mars:tharsis', 11.9, -104.1, 900_000, true),
+    town('Pavonis', 'mars:tharsis', 0.8, -113.4, 300_000),
+    town('Hellas Port', 'mars:hellas', -42.4, 70.5, 500_000, true),
+  ];
+  const mars = { places, aliases: new Map<string, number>(), countries: [{ iso: 'mars:tharsis', name: 'Tharsis Union' }, { iso: 'mars:hellas', name: 'Hellas' }] };
+  assert.equal(findPlace('pavonis', mars)?.name, 'Pavonis');
+  assert.equal(findPlace('tharsis', mars)?.name, 'Ascraeus', 'a nation is arrived at in its capital');
+  assert.equal(findPlace('hellas', mars)?.iso, 'mars:hellas');
+  assert.equal(findPlace('Pavonis, Tharsis', mars)?.iso, 'mars:tharsis', 'qualified by its nation\'s name');
+  assert.equal(findPlace('Pavonis, Hellas', mars), null);
 });

@@ -11,6 +11,10 @@ async function check() {
     import('/src/input.ts'), import('/src/settings.ts'), import('/src/map.ts'), import('/src/controls.ts'),
     import('/src/hud.ts'), import('/src/notice.ts'),
   ]);
+  const [{ createPassport }, { createPassportCard }, { createTraveller }, { DEFAULT_APPEARANCE }, { createTitle, PLAY_KEY }] = await Promise.all([
+    import('/src/passport.ts'), import('/src/passport-card.ts'), import('/src/traveller.ts'), import('/src/appearance.ts'),
+    import('/src/title.ts'),
+  ]);
   const ensure = (ok, message) => { if (!ok) throw new Error(message); };
   const checks = [];
   const failures = [];
@@ -42,8 +46,8 @@ async function check() {
     lockTarget: canvas,
   });
   const map = createWorldMap({ countries: [] }, {
-    monuments: [], isVisited: () => false, target: () => null,
-    onChoose() {}, onClear() {}, lockTarget: canvas,
+    monuments: [], marker: () => null,
+    onMark() {}, onUnmark() {}, lockTarget: canvas,
   });
   document.body.append(settings.root, map.root);
   try {
@@ -107,7 +111,7 @@ async function check() {
       resetBindings();
       settings.show('controls');
       try {
-        const buttons = [...settings.root.querySelectorAll('.atlas-settings-keybtn')];
+        const buttons = [...settings.root.querySelectorAll('button.atlas-settings-cap')];
         const jump = buttons.find((button) => button.getAttribute('aria-label')?.startsWith('Jump'));
         ensure(jump !== undefined, 'the jump has a key button');
         jump.focus();
@@ -115,7 +119,7 @@ async function check() {
         ensure(jump.classList.contains('listening'), 'pressed, it listens');
         ensure(key(jump, 'keydown', 'Escape').defaultPrevented && settings.open, 'Escape lets go without closing the card');
         ensure(actionOf('Space') === 'jump', 'and changes nothing');
-        const again = [...settings.root.querySelectorAll('.atlas-settings-keybtn')].find((button) => button.getAttribute('aria-label')?.startsWith('Jump'));
+        const again = [...settings.root.querySelectorAll('button.atlas-settings-cap')].find((button) => button.getAttribute('aria-label')?.startsWith('Jump'));
         again.click();
         key(again, 'keydown', 'KeyW');
         ensure(actionOf('KeyW') === 'jump' && actionOf('Space') === 'forward', 'W is the jump now, and the walk took Space');
@@ -174,7 +178,7 @@ async function check() {
       const hud = createHud({ countries: [] });
       document.body.append(hud.root);
       try {
-        void hud.welcome(3);
+        void hud.welcome();
         const go = hud.root.querySelector('.atlas-welcome-go');
         ensure(document.activeElement === go, 'opening focuses Start exploring');
         ensure(key(go, 'keydown', 'Tab').defaultPrevented && document.activeElement === go, 'Tab stays on the card');
@@ -210,6 +214,133 @@ async function check() {
       } finally {
         if (noticeOpen()) noticeCard.querySelector('button')?.click();
         settings.hide();
+      }
+    });
+    test('the creator holds the keys, frames each category, keeps Tab inside, and Esc closes it', () => {
+      // The stage is a stand-in: what is tested is the column, not the WebGL.
+      const shots = [];
+      const plate = document.createElement('div');
+      const stage = {
+        root: document.createElement('div'), plate, open: false, ready: false, shotName: 'title',
+        show() { this.open = true; }, hide() { this.open = false; }, mode() {},
+        shot(shot) { this.shotName = shot; shots.push(shot); }, insets() {},
+        adoptPlate(container) { container.append(plate); }, wave() {}, editName() {}, refreshName() {},
+        onName() { return () => {}; }, portrait() {},
+      };
+      let look = { ...DEFAULT_APPEARANCE };
+      const creator = createTraveller({
+        appearance: { get: () => look, set: (next) => { look = next; } },
+        stage,
+        lockTarget: canvas,
+      });
+      const root = creator.root;
+      try {
+        opener.focus();
+        creator.show();
+        ensure(creator.open && stage.open, 'it opens, and brings the stage up when nothing else had it');
+        ensure(inputBlocked(), 'and holds the keyboard');
+        ensure(root.contains(plate), 'with the name plate on its own layer, where its Tab reaches');
+        ensure(root.querySelector('.cr-name') === null, 'the name is changed on the plate alone, not in a field of its own');
+        ensure(root.querySelector('#cr-page-looks') === null, 'and there is no page of whole looks: Randomise is that');
+        const you = root.querySelector('.cr-tab[aria-selected="true"]');
+        ensure(document.activeElement === you, 'the open category has the focus');
+        key(you, 'keydown', 'ArrowDown');
+        ensure(document.activeElement.textContent === 'Skin' && shots.at(-1) === 'head', 'the arrows walk the rail, and skin frames the face');
+        for (let i = 0; i < 40; i++) key(document.activeElement ?? window, 'keydown', 'Tab');
+        ensure(root.contains(document.activeElement), 'Tab stays inside');
+        root.querySelectorAll('.cr-tab')[3].click();
+        ensure(shots.at(-1) === 'top', 'the top frames the shoulders');
+        root.querySelectorAll('#cr-page-top .cr-swatch')[2].click();
+        ensure(look.topColour === 2, 'a swatch dresses the hero at once');
+        key(window, 'keydown', 'KeyZ', { ctrlKey: true });
+        ensure(look.topColour === DEFAULT_APPEARANCE.topColour, 'and Ctrl+Z takes it back');
+        key(document.activeElement ?? window, 'keydown', 'Escape');
+        ensure(!creator.open && !stage.open, 'Escape closes it, and the stage it brought goes with it');
+        ensure(document.activeElement === opener, 'and the focus goes back where it was');
+      } finally {
+        if (creator.open) creator.hide();
+        root.remove();
+        opener.focus();
+      }
+    });
+    test('the title stands on the bridge, waits while the creator is up, and Enter leaves by the window', () => {
+      // The stage is a stand-in again: what is tested is what the title asks of it.
+      const calls = [];
+      const plate = document.createElement('div');
+      const stage = {
+        root: document.createElement('div'), plate, open: false, ready: false, shotName: 'title',
+        show(kind) { this.open = true; calls.push(`show:${kind}`); },
+        hide() { this.open = false; calls.push('hide'); },
+        leave() { this.open = false; calls.push('leave'); },
+        mode() {}, shot() {}, insets() {}, wave() {}, editName() {}, refreshName() {}, portrait() {},
+        adoptPlate(container) { container.append(plate); }, onName() { return () => {}; },
+      };
+      const chosen = [];
+      try { localStorage.removeItem(PLAY_KEY); } catch { /* private mode */ }
+      const title = createTitle({ stage, online: false, customise() {}, onChoose: (mode) => chosen.push(mode) });
+      try {
+        title.show();
+        ensure(title.open && stage.open && calls[0] === 'show:bridge', 'it brings the stage up on the bridge');
+        ensure(title.root.contains(plate), 'with the name plate on its own layer');
+        ensure(title.root.querySelector('[data-mode="online"]').disabled, 'and online off without a relay');
+        title.aside(true);
+        document.activeElement?.blur?.();
+        key(window, 'keydown', 'Enter');
+        ensure(chosen.length === 0 && title.open, 'stepped aside for the creator, its keys wait');
+        title.aside(false);
+        document.activeElement?.blur?.();
+        key(window, 'keydown', 'Enter');
+        ensure(chosen[0] === 'offline' && calls.at(-1) === 'leave', 'Enter plays offline, and the stage leaves by the window');
+        ensure(!title.open && !title.root.classList.contains('on') && title.mode === 'offline', 'and the title goes, remembering the way');
+        title.show();
+        title.hide();
+        ensure(calls.at(-2) === 'show:bridge' && calls.at(-1) === 'hide', 'hidden any other way, the stage only hides');
+      } finally {
+        title.dispose();
+        try { localStorage.removeItem(PLAY_KEY); } catch { /* private mode */ }
+        opener.focus();
+      }
+    });
+    test('the passport opens already open, turns only by its corners and bookmarks, and J or Esc closes it', () => {
+      const items = {};
+      const book = createPassport({ getItem: (name) => items[name] ?? null, setItem: (name, value) => { items[name] = value; } });
+      const countries = [
+        { iso: 'ESP', name: 'Spain', continent: 'Europe' },
+        { iso: 'FRA', name: 'France', continent: 'Europe' },
+        { iso: 'JPN', name: 'Japan', continent: 'Asia' },
+        { iso: 'NGA', name: 'Nigeria', continent: 'Africa' },
+      ];
+      const card = createPassportCard({ passport: book, countries, here: () => 'NGA', lockTarget: canvas });
+      document.body.append(card.root);
+      const root = card.root;
+      const current = () => [...root.querySelectorAll('.p-tab')].filter((tab) => tab.getAttribute('aria-current') === 'true').map((tab) => tab.textContent);
+      try {
+        resetBindings();
+        opener.focus();
+        key(window, 'keydown', 'KeyJ');
+        ensure(card.open, 'J opens it');
+        ensure(root.querySelector('.p-page.cover') === null, 'with no cover to open first');
+        ensure(current().length === 1 && current()[0].startsWith('Africa'), 'at the visa of the country underfoot');
+        ensure(root.querySelector('.p-nav, .p-close') === null, 'and no buttons under the book');
+        root.querySelector('.p-side.right .p-page')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        root.querySelector('.p-side.left .p-page')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        ensure(current()[0].startsWith('Africa'), 'a click on the paper turns nothing');
+        root.querySelector('.p-tab.holder').click();
+        ensure(root.querySelector('.p-tab.holder').getAttribute('aria-current') === 'true', 'the holder\'s bookmark goes to the first spread');
+        ensure(root.querySelector('.p-corner.prev').hidden && !root.querySelector('.p-corner.next').hidden, 'where only the next corner turns');
+        root.querySelector('.p-corner.next').click();
+        ensure(current()[0].startsWith('Europe'), 'the corner turns to the next spread');
+        key(window, 'keydown', 'ArrowLeft');
+        ensure(root.querySelector('.p-tab.holder').getAttribute('aria-current') === 'true', 'and the arrows turn it too');
+        key(document.activeElement ?? window, 'keydown', 'KeyJ');
+        ensure(!card.open, 'J closes it');
+        key(window, 'keydown', 'KeyJ');
+        key(document.activeElement ?? window, 'keydown', 'Escape');
+        ensure(!card.open, 'and so does Escape');
+      } finally {
+        if (card.open) card.hide();
+        card.root.remove();
+        opener.focus();
       }
     });
     // Give rejected pointer-lock promises a turn to reach the console if unhandled.

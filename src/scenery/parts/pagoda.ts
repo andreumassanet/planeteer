@@ -1,4 +1,4 @@
-import { PROUD, TONES } from '../contract.ts';
+import { DOOR_JAMB, PROUD, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -124,23 +124,37 @@ export const pagoda: ScenicPart = {
       width *= TIER_TAPER;
     }
 
-    // --- the ground-floor hall: a lit lattice behind timber bars, and a door ---
-    // Two `panes` rows and the hall is lantern-lit at night behind a screen. The
-    // bars are eleven triangles and are the only thing on this model an avatar
-    // standing in front of it is close enough to resolve.
+    // --- the ground-floor hall: a door between two lit lattices ---
+    // Two screens lantern-lit behind timber bars, one either side of the door.
+    // The bars are the only thing on this model an avatar standing in front of
+    // it is close enough to resolve. One screen across the middle used to run
+    // behind the door's leaves.
     const face = groundWidth / 2;
-    const screenWidth = groundWidth * 0.52;
+    const floor = 0.86;
+    const doorWidth = groundWidth * 0.2;
+    const door = ctx.door({
+      width: doorWidth,
+      height: first * 0.62,
+      leaf: doorPaint(rng, style, wall),
+      frame: post,
+    });
+    door.position.set(0, floor, face);
+    group.add(door);
+    const inner = doorWidth / 2 + DOOR_JAMB + 0.3;
+    const outer = face - 0.46 - 0.25;
+    const screenWidth = outer - inner;
     const screenHeight = first * 0.62;
-    const screen = lit(panes(1, screenWidth, screenHeight, 0, ctx.glass, PROUD), 0.85);
-    screen.position.set(0, 0.7 + first * 0.22, face + PROUD);
-    group.add(screen);
-    const bars = 6;
-    const bar = panes(bars, 0.12, screenHeight, (screenWidth - bars * 0.12) / (bars - 1), rail);
-    bar.position.set(0, 0.7 + first * 0.22, face + PROUD * 2.6);
-    group.add(bar);
-    const doors = panes(2, groundWidth * 0.15, first * 0.55, 0.16, post, PROUD * 2);
-    doors.position.set(0, 0.7, face + PROUD);
-    group.add(doors);
+    const screens = lit(panes(2, screenWidth, screenHeight, inner * 2, ctx.glass, PROUD), 0.85);
+    screens.position.set(0, 0.7 + first * 0.22, face + PROUD);
+    group.add(screens);
+    const bars = 3;
+    const barGap = (screenWidth - bars * 0.12) / (bars - 1);
+    const grilles = [-1, 1].map((side) => {
+      const grille = panes(bars, 0.12, screenHeight, barGap, rail);
+      grille.position.set((side * (inner + outer)) / 2, 0.7 + first * 0.22, face + PROUD * 2.6);
+      return grille;
+    });
+    group.add(ctx.merged(grilles));
 
     // The finial: a mast through three rings. It is 12% of the height and it is
     // what stops the stack ending in a shrug.

@@ -269,3 +269,103 @@ export function eachLandmarkNear(p: XYZ, reach: number, visit: (up: XYZ, shape: 
     visit(site.up, site.shape);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Where a body may be put down
+// ---------------------------------------------------------------------------
+
+/**
+ * Ground a body put down near a landmark is kept from its plan, in world
+ * units: past the plan's edge and its plinth's steps, a couple of strides.
+ */
+export const ARRIVAL_CLEARANCE = 12;
+
+/** Directions an arrival is tried in round a landmark, from straight away from it. */
+const ARRIVAL_TURNS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6].map((k) => (k * Math.PI) / 6);
+
+/**
+ * A point on the unit sphere carried out of every landmark plan it is within
+ * `clearance` of, written into `out` (which may be `p`); true when it moved.
+ *
+ * **A body put down inside a model has no way out.** A monument's walls are
+ * measured off its own triangles from outside (`scenery/occupancy.ts`), so
+ * the push-out that frees a body from a building never fires from inside a
+ * dome or a tower, and a town's own point — where the menu, `/goto` and a
+ * link all arrive — can fall inside its landmark's plan: New York's is eight
+ * units off the Statue of Liberty's. So every arrival is asked here first.
+ *
+ * The point is walked out along a ray from the landmark's own point, straight
+ * away from it first and then turned a twelfth of a circle at a time, until
+ * `planGap` clears `clearance`. The first ray whose end is clear of every
+ * plan and that `accept` takes (dry ground, for a caller that has the land)
+ * wins; else the first clear of every plan; else straight out, and the next
+ * plan it is in is cleared in turn, up to four rounds.
+ */
+export function clearOfPlans(
+  p: XYZ,
+  sites: readonly PlannedSite[],
+  planetRadius: number,
+  out: XYZ,
+  clearance = ARRIVAL_CLEARANCE,
+  accept?: (p: XYZ) => boolean,
+): boolean {
+  /** The first site whose plan `q` is within `clearance` of, or null. */
+  const within = (q: XYZ): PlannedSite | null => {
+    for (const site of sites) {
+      if (q.x * site.up.x + q.y * site.up.y + q.z * site.up.z < Math.cos((site.reach + clearance) / planetRadius)) continue;
+      if (siteGap(site, q, planetRadius) < clearance) return site;
+    }
+    return null;
+  };
+  const at = { x: p.x, y: p.y, z: p.z };
+  const probe = { x: 0, y: 0, z: 0 };
+  const clear = { x: 0, y: 0, z: 0 };
+  const straight = { x: 0, y: 0, z: 0 };
+  let moved = false;
+  for (let round = 0; round < 4; round++) {
+    const inside = within(at);
+    if (inside === null) break;
+    // Where the point is in the landmark's frame, and the way straight out.
+    const across = (at.x * inside.across.x + at.y * inside.across.y + at.z * inside.across.z) * planetRadius;
+    const north = (at.x * inside.north.x + at.y * inside.north.y + at.z * inside.north.z) * planetRadius;
+    const away = Math.hypot(across, north) > 1e-6 ? Math.atan2(north, across) : Math.PI / 2;
+    // Best first: clear of every plan on dry ground, then clear of every plan,
+    // then straight out of this one.
+    let found: 'dry' | 'clear' | null = null;
+    for (const turn of ARRIVAL_TURNS) {
+      const dx = Math.cos(away + turn);
+      const dz = Math.sin(away + turn);
+      // Out along the ray a unit at a time from the landmark's point; past
+      // `reach + clearance` nothing of the plan is that near.
+      let t = 0;
+      const limit = inside.reach + clearance + 1;
+      while (t < limit && planGap(inside.shape, t * dx, t * dz) < clearance) t += 1;
+      const s = t / planetRadius;
+      probe.x = inside.up.x + (inside.across.x * dx + inside.north.x * dz) * s;
+      probe.y = inside.up.y + (inside.across.y * dx + inside.north.y * dz) * s;
+      probe.z = inside.up.z + (inside.across.z * dx + inside.north.z * dz) * s;
+      const length = Math.hypot(probe.x, probe.y, probe.z);
+      probe.x /= length;
+      probe.y /= length;
+      probe.z /= length;
+      if (turn === 0) Object.assign(straight, probe);
+      if (within(probe) !== null) continue;
+      if (accept === undefined || accept(probe)) {
+        Object.assign(clear, probe);
+        found = 'dry';
+        break;
+      }
+      if (found === null) {
+        Object.assign(clear, probe);
+        found = 'clear';
+      }
+    }
+    Object.assign(at, found === null ? straight : clear);
+    moved = true;
+    if (found !== null) break;
+  }
+  out.x = at.x;
+  out.y = at.y;
+  out.z = at.z;
+  return moved;
+}

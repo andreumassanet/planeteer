@@ -261,7 +261,7 @@ const MILKY_WAY_LIMITS: readonly [number, number] = [4.6, 6.2];
  * of the anti-solar point so it cross-lights the ground instead of flatly
  * mirroring the sun.
  */
-const MOON_OFFSET = 22 * DEG;
+export const MOON_OFFSET = 22 * DEG;
 const NORTH = new THREE.Vector3(0, 1, 0);
 
 /**
@@ -385,6 +385,38 @@ const SHADOW_INTENSITY = 0.65;
 const SHADOW_NORMAL_BIAS = 0.34;
 /** Units of depth the receiver is pulled towards the light. Negative is towards. */
 const SHADOW_BIAS = -0.145;
+/**
+ * A sun's shadow, as Earth's is cast: the map, the blur, the biases and the
+ * box. **One definition for every world** — another world's sun
+ * (`worlds/sky.ts`) casts through this, sits `SUN_SHADOW.distance` up its own
+ * direction from the traveller and fades as Earth's does (`SUN_SHADOW`).
+ */
+export function castSunShadow(sun: THREE.DirectionalLight): void {
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  sun.shadow.radius = SHADOW_RADIUS;
+  sun.shadow.normalBias = SHADOW_NORMAL_BIAS;
+  // Three's bias is a fraction of the depth range: units over the range.
+  sun.shadow.bias = SHADOW_BIAS / (2 * SHADOW_DEPTH);
+  sun.shadow.intensity = 0;
+  const shadowCamera = sun.shadow.camera;
+  shadowCamera.left = -SHADOW_REACH;
+  shadowCamera.right = SHADOW_REACH;
+  shadowCamera.bottom = -SHADOW_REACH;
+  shadowCamera.top = SHADOW_REACH;
+  shadowCamera.near = SHADOW_DISTANCE - SHADOW_DEPTH;
+  shadowCamera.far = SHADOW_DISTANCE + SHADOW_DEPTH;
+  shadowCamera.updateProjectionMatrix();
+}
+
+/** How far up its direction a shadow-casting sun stands, and how its shadow fades: with the sun's elevation and the eye's height. */
+export const SUN_SHADOW = {
+  distance: SHADOW_DISTANCE,
+  intensity: SHADOW_INTENSITY,
+  sunFade: SHADOW_SUN_FADE,
+  eyeFade: SHADOW_EYE_FADE,
+} as const;
+
 /**
  * Texels of blur across the shadow's edge. **One, not four.** r182's PCF path
  * samples a hardware `sampler2DShadow` (bilinear comparison already, so the
@@ -864,21 +896,7 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
   // stays true whatever the fade says, because toggling it changes the light
   // count every toon material was compiled against and recompiles the world;
   // a faded shadow is `intensity = 0`, which the shader mixes away.
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
-  sun.shadow.radius = SHADOW_RADIUS;
-  sun.shadow.normalBias = SHADOW_NORMAL_BIAS;
-  // Three's bias is a fraction of the depth range: units over the range.
-  sun.shadow.bias = SHADOW_BIAS / (2 * SHADOW_DEPTH);
-  sun.shadow.intensity = 0;
-  const shadowCamera = sun.shadow.camera;
-  shadowCamera.left = -SHADOW_REACH;
-  shadowCamera.right = SHADOW_REACH;
-  shadowCamera.bottom = -SHADOW_REACH;
-  shadowCamera.top = SHADOW_REACH;
-  shadowCamera.near = SHADOW_DISTANCE - SHADOW_DEPTH;
-  shadowCamera.far = SHADOW_DISTANCE + SHADOW_DEPTH;
-  shadowCamera.updateProjectionMatrix();
+  castSunShadow(sun);
 
   // No fade in or out on either of them: they set behind the planet at your
   // dawn like anything else in the sky, because they are genuinely out there

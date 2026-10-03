@@ -91,12 +91,16 @@ function isDecoration(value: unknown): value is Decoration {
 export const REGISTRY_PROBLEMS: string[] = [];
 
 const bodies: Body[] = [];
+const moons: Body[] = [];
 const species = new Map<string, Species>();
 for (const [path, module] of Object.entries(BODY_MODULES)) {
   let found = 0;
   for (const value of Object.values(module)) {
     if (isBody(value)) {
-      bodies.push(value);
+      // A moon is a world of its own and not a planet of the orrery's: drawn
+      // among the planets it would sit on top of the one it circles, so it is
+      // listed apart and the dock reaches it by name.
+      (value.kind === 'moon' ? moons : bodies).push(value);
       found++;
     }
   }
@@ -136,7 +140,12 @@ export const BODIES: readonly Body[] = bodies.sort((a, b) => orderOf(a) - orderO
 export const SPECIES: ReadonlyMap<string, Species> = species;
 export const DECORATIONS: readonly Decoration[] = decorations.sort((a, b) => a.id.localeCompare(b.id));
 
-export const body = (id: string): Body | undefined => BODIES.find((one) => one.id === id);
+/** The moons with a `Body` of their own, which `BODIES` leaves out. The Moon. */
+export const MOONS: readonly Body[] = moons;
+
+/** Any body by id, a planet of the orrery's or a moon. */
+export const body = (id: string): Body | undefined =>
+  BODIES.find((one) => one.id === id) ?? MOONS.find((one) => one.id === id);
 
 /**
  * Which decorations may stand on this world.

@@ -1,7 +1,9 @@
 /**
  * The relay's protocol, against a running relay: the seats, the driven poses,
  * the parks that outlive a socket, the old player poses beside them, how
- * each player looks, the chat and its history, the gestures and the horn.
+ * each player looks, the chat and its history, the gestures, the horn, and
+ * a room a world. Before any of it, headless, the worlds' radii the relay
+ * bounds a state by, against the bodies' own files.
  *
  * It starts nothing. Run the relay first (`pnpm peers`, which is
  * `wrangler dev` on port 8787, or any port given to it) and point this at it:
@@ -12,7 +14,21 @@
  * room's storage never answers for this one. Not in CI: it wants a relay.
  */
 
-import { CHAT_BURST, CHAT_HISTORY, CHAT_INTERVAL_MS, CHAT_MAX, EMOTE_INTERVAL_MS, HONK_INTERVAL_MS } from '../server/src/limits.ts';
+import {
+  BODY_RADII,
+  CHAT_BURST,
+  CHAT_HISTORY,
+  CHAT_INTERVAL_MS,
+  CHAT_MAX,
+  EMOTE_INTERVAL_MS,
+  HONK_INTERVAL_MS,
+  MAX_RADIUS,
+  MIN_RADIUS,
+  cleanBody,
+  cleanCountry,
+  shellOf,
+} from '../server/src/limits.ts';
+import { PLANET_RADIUS, surfaceRadiusOf } from '../src/system/contract.ts';
 
 const URL_ = process.env.RELAY_URL ?? 'ws://localhost:8791/ws';
 const WAIT_MS = 2_000;
@@ -34,9 +50,9 @@ class Client {
   id = '';
   hi: Message | null = null;
 
-  private constructor(name: string, key?: string, look?: string) {
+  private constructor(name: string, key?: string, look?: string, body?: string) {
     this.socket = new WebSocket(
-      `${URL_}?name=${encodeURIComponent(name)}${key === undefined ? '' : `&key=${key}`}${look === undefined ? '' : `&look=${encodeURIComponent(look)}`}`,
+      `${URL_}?name=${encodeURIComponent(name)}${key === undefined ? '' : `&key=${key}`}${look === undefined ? '' : `&look=${encodeURIComponent(look)}`}${body === undefined ? '' : `&body=${encodeURIComponent(body)}`}`,
     );
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data)) as Message;
@@ -46,8 +62,8 @@ class Client {
     });
   }
 
-  static async join(name: string, key?: string, look?: string): Promise<Client> {
-    const client = new Client(name, key, look);
+  static async join(name: string, key?: string, look?: string, body?: string): Promise<Client> {
+    const client = new Client(name, key, look, body);
     const hi = await client.next((m) => m.t === 'hi');
     client.hi = hi;
     client.id = String(hi.id);
@@ -113,8 +129,90 @@ const near = (a: unknown, b: readonly number[], within = 0.05) =>
 const run = Math.floor(Math.random() * 900_000 + 100_000);
 const vehicle = (slot: number) => `hatchback:${run}:${slot}`;
 
+/**
+ * The worlds' radii, headless: every walkable body's file read for its
+ * `radiusKm`, put through `surfaceRadiusOf`, against what the relay restates.
+ */
+async function worlds(): Promise<void> {
+  check(BODY_RADII['earth'] === PLANET_RADIUS, 'Earth\'s room is bounded by the planet\'s own radius');
+  const earth = shellOf('earth');
+  check(earth.min === MIN_RADIUS && earth.max === MAX_RADIUS, "and Earth's shell is the one it always was", earth);
+  for (const id of Object.keys(BODY_RADII)) {
+    if (id === 'earth') continue;
+    const module = (await import(`../src/system/bodies/${id}.ts`)) as Record<string, unknown>;
+    const body = Object.values(module).find((value) => (value as { id?: unknown } | null)?.id === id) as { radiusKm: number } | undefined;
+    const radius = body === undefined ? Number.NaN : Math.round(surfaceRadiusOf(body.radiusKm));
+    check(radius === BODY_RADII[id], `${id}'s radius is its body's, ${radius}`, { relay: BODY_RADII[id], body: radius });
+    const shell = shellOf(id);
+    check(shell.min < radius && shell.max > radius * 1.25, `${id}'s shell holds its surface and its sky`, shell);
+  }
+  check(cleanBody(null) === 'earth' && cleanBody('') === 'earth' && cleanBody('mars') === 'mars', 'no body is Earth, and a known one is itself');
+  check(cleanBody('pluto') === '' && cleanBody('__proto__') === '' && cleanBody(7) === '', 'an unknown world is refused');
+  check(cleanCountry('ESP') === 'ESP' && cleanCountry('mars:tharsis') === 'mars:tharsis', "a country's code and a nation's key are both a line's country");
+  check(cleanCountry('Mars:Tharsis') === '' && cleanCountry('mars:') === '' && cleanCountry('<b>') === '', 'and nothing else is');
+}
+
+/** The rooms a world: who sees whom, and what each room bounds a state by. */
+async function rooms(): Promise<void> {
+  const mars = BODY_RADII['mars']!;
+  const onMars = [mars + 10, 0, 0] as const;
+  const m1 = await Client.join('Mo', undefined, undefined, 'mars');
+  const m2 = await Client.join('Ma', undefined, undefined, 'mars');
+  const e1 = await Client.join('Ea');
+  const e2 = await Client.join('Eb', undefined, undefined, 'earth');
+  const metOnMars = await got('in on mars', m1.next((m) => m.t === 'in' && m.id === m2.id));
+  check(metOnMars?.name === 'Ma', 'a world has a room: a join there is announced there');
+  const metOnEarth = await got('in by ?body=earth', e1.next((m) => m.t === 'in' && m.id === e2.id));
+  check(metOnEarth?.name === 'Eb', '`?body=earth` is the room an address without a body reaches');
+  check(!((m1.hi?.peers as unknown[][] | undefined) ?? []).some((row) => row[0] === e1.id), "a newcomer on Mars is not told of Earth's players");
+  check(await e1.none((m) => m.t === 'in' && (m.id === m1.id || m.id === m2.id), 200), "and Earth's are not told of Mars's");
+
+  m1.standAt(onMars);
+  const there = await got('at on mars', m2.next((m) => m.t === 'at' && m.id === m1.id));
+  check(near(there?.s, [...onMars, 0, 1, 0, 0, 0, 0]), "a state on Mars's surface is relayed on Mars", there);
+  check(await e1.none((m) => m.t === 'at' && m.id === m1.id), 'a peer on Mars is never seen on Earth');
+  e1.standAt(HERE);
+  check(await m1.none((m) => m.t === 'at' && m.id === e1.id), 'nor one on Earth on Mars');
+  await got('at on earth', e2.next((m) => m.t === 'at' && m.id === e1.id));
+  await sleep(100);
+  e1.standAt(onMars);
+  check(await e2.none((m) => m.t === 'at' && m.id === e1.id, 300), "a state at Mars's radius is under Earth's ground, and dropped there");
+  await sleep(100);
+  m1.standAt([mars * 0.5, 0, 0]);
+  check(await m2.none((m) => m.t === 'at' && m.id === m1.id, 300), "and one deep inside Mars is dropped on Mars");
+
+  const giant = await Client.join('Jo', undefined, undefined, 'jupiter');
+  const watcher = await Client.join('Ju', undefined, undefined, 'jupiter');
+  giant.standAt([BODY_RADII['jupiter']! + 10, 0, 0]);
+  const deck = await got('at on jupiter', watcher.next((m) => m.t === 'at' && m.id === giant.id));
+  check(deck !== null, "a state on Jupiter's deck, eleven Earths out, is a state there", deck);
+
+  await sleep(300);
+  m1.send({ t: 'sit', v: vehicle(9), seat: 0 });
+  check(await m1.none((m) => m.t === 'seat', 500), "another world's room arbitrates no seat");
+
+  m1.send({ t: 'chat', m: `hello from Tharsis ${run}`, c: 'mars:tharsis' });
+  const line = await got('chat on mars', m2.next((m) => m.t === 'chat' && m.id === m1.id));
+  check(line?.c === 'mars:tharsis', "a line on Mars carries its nation's key", line);
+  check(await e1.none((m) => m.t === 'chat' && m.id === m1.id, 300), 'and is not heard on Earth');
+  const late = await Client.join('Ed');
+  check(!((late.hi?.chat as Message[] | undefined) ?? []).some((m) => m.id === m1.id), "Earth's history has no line said on Mars");
+
+  let refused = false;
+  try {
+    await Client.join('Pl', undefined, undefined, 'pluto');
+  } catch {
+    refused = true;
+  }
+  check(refused, 'a world the relay does not know has no room');
+
+  await Promise.all([m1.close(), m2.close(), e1.close(), e2.close(), giant.close(), watcher.close(), late.close()]);
+}
+
 async function main(): Promise<void> {
+  await worlds();
   console.log(`relay ${URL_}, run ${run}`);
+  await rooms();
 
   // --- Joining ------------------------------------------------------------
   const a = await Client.join('Ada');
@@ -187,7 +285,8 @@ async function main(): Promise<void> {
   driver.send({ t: 'honk', k: 'car', on: true });
   const held = await got('honk on', other.next((m) => m.t === 'honk' && m.id === driver.id));
   check(held?.k === 'car' && held?.on === true, 'a horn held is passed on with `on: true`', held);
-  check(await driver.none((m) => m.t === 'honk'), 'and not echoed to the driver');
+  // Waited for less than the pace, or the next start is a refresh and goes.
+  check(await driver.none((m) => m.t === 'honk', HONK_INTERVAL_MS / 3), 'and not echoed to the driver');
   driver.send({ t: 'honk', k: 'car', on: true });
   check(await other.none((m) => m.t === 'honk', 200), `a start under ${HONK_INTERVAL_MS} ms after the last is dropped`);
   driver.send({ t: 'honk', k: 'car', on: false });

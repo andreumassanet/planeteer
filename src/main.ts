@@ -11,12 +11,16 @@ import type { PlayerEvent } from './player.ts';
 import { actionOf, inputBlocked, labelOf } from './controls.ts';
 import { notice } from './notice.ts';
 import type { NoticeAction } from './notice.ts';
+import type { PlayMode, WorldSettings, WorldsModule } from './world-host.ts';
 import { AVATAR_HEIGHT, dressHero, heroAppearance, prepareAvatar, wardrobeCast } from './avatar.ts';
 import { decodeAppearance, encodeAppearance } from './appearance.ts';
-import { createMonuments, loadPlacements } from './placement.ts';
+import { LANDMARK_RANGE, createMonuments, loadPlacements } from './placement.ts';
 import { loadPlaces, terrainSiteOf, prominenceRadius, setProminenceRadius } from './places.ts';
 import { createBorders } from './borders.ts';
-import { createRoads, loadRoads } from './roads.ts';
+import { courseOf, coursePoint, createRoads, emptyCourse, loadRoads } from './roads.ts';
+
+/** Points along each road the minimap traces it by: enough for a bend at a street's scale. */
+const MINIMAP_ROAD_SAMPLES = 24;
 import { createRailNetwork, joinFields, loadRails, railFields } from './rails.ts';
 // From the contract rather than from `./monuments/index.ts`, which is the whole
 // registry: see `deferred` in `start()`. `index.ts` re-exports this, and taking
@@ -33,11 +37,12 @@ import type { OtherVisitor } from './effects.ts';
 import type { FeatureKind } from './countryside.ts';
 import type { Soundscape, Surface } from './audio.ts';
 import type { Music, MusicMoment } from './music.ts';
-import { PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, topSpeedOf } from './vehicles.ts';
+import { PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, isWater, topSpeedOf } from './vehicles.ts';
 import { SHADOW_COVER, createSky } from './sun.ts';
 import { loadStars } from './celestial.ts';
 import type { NightSky } from './night-sky.ts';
 import { createClouds } from './clouds.ts';
+import { suspendCloudShade } from './cloud-shade.ts';
 import { createWeatherView } from './weather-view.ts';
 import { weatherAt, weatherSample } from './weather.ts';
 import { createOcean } from './ocean.ts';
@@ -48,15 +53,16 @@ import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
 import type { FlagLayer } from './land-flags.ts';
-import type { Curtain } from './menu.ts';
-import type { TimeOfDay } from './settings.ts';
+import type { Curtain, MenuBody, MenuBodyModule, MenuSpawn } from './menu.ts';
+import type { SettingsOptions, TimeOfDay } from './settings.ts';
 import type { IconName } from './ui.ts';
 import type { Where } from './talk.ts';
-import { latOf, lonOf, unitAt } from './sphere.ts';
+import { latLonOf, latOf, lonOf, unitAt } from './sphere.ts';
+import { ARRIVAL_CLEARANCE, clearOfPlans, plannedSite } from './landmark-ground.ts';
 import { EMOTE_INTERVAL_MS, cleanHonk, cleanHonkOn } from '../server/src/limits.ts';
 import type { Emote, Honk } from '../server/src/limits.ts';
 import { createHornChorus, createHornKey } from './horn.ts';
-import { HEADLIGHTS_OF, HORN_OF, LAMPS_LIKE, isAirKind } from './craft/contract.ts';
+import { HEADLIGHTS_OF, HORN_OF, LAMPS_LIKE } from './craft/contract.ts';
 import type { CraftKind, CraftModel, Lamp } from './craft/contract.ts';
 
 /**
@@ -254,16 +260,21 @@ function hasWebGL2(): boolean {
 }
 
 /**
- * A phone or a tablet with nothing but a finger. The controls are a keyboard
- * and a mouse, and nothing in the world answers a touch — so the player is
- * told so before the world downloads (7.4 MB of data and models on disk,
- * 2026-09-21) and seconds of building freeze the phone, rather than after.
- * `any-pointer: fine` rather than `pointer: fine`, because a tablet with a
- * mouse plugged in has a coarse primary pointer and a fine one as well.
+ * A phone, a tablet with nothing but a finger, or a screen too small for the
+ * card language. The controls are a keyboard and a mouse, nothing in the world
+ * answers a touch, and the HUD, the map and the cards are laid out for a
+ * computer's screen — so the player is told so before the world downloads
+ * (7.4 MB of data and models on disk, 2026-09-21) and seconds of building
+ * freeze the phone, rather than after. `any-pointer: fine` rather than
+ * `pointer: fine`, because a tablet with a mouse plugged in has a coarse
+ * primary pointer and a fine one as well. Never to an automated browser,
+ * whose window may be any size it was given.
  */
-function touchOnly(): boolean {
+function smallOrTouch(): boolean {
+  if (navigator.webdriver) return false;
   try {
-    return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+    const touch = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+    return touch || innerWidth < 760 || Math.min(innerWidth, innerHeight) < 480;
   } catch {
     return false;
   }
@@ -381,6 +392,12 @@ const WELCOME_KEY = 'atlas.welcomed.v1';
  * `pagehide`, which is the last event a closing tab is sure to deliver.
  */
 const LAST_PLACE_KEY = 'atlas.lastPlace.v1';
+/**
+ * Set for one load by Earth's *Solar system* button: the page comes back
+ * straight to the planets, past the title, in the way of playing chosen
+ * last. Session storage, so it is this tab's and is gone with it.
+ */
+const TO_SYSTEM_KEY = 'atlas.toSystem';
 const LAST_PLACE_MS = 10_000;
 
 /**
@@ -455,14 +472,29 @@ async function start(): Promise<void> {
     );
     return;
   }
-  if (touchOnly()) {
+  if (smallOrTouch()) {
     await new Promise<void>((resolve) => {
       notice(
-        'atlas needs a keyboard and a mouse',
-        'You walk, sail and fly with the keys and look around with the mouse, and nothing here answers a touch yet. It is best on a computer.',
-        [{ label: 'Try anyway', primary: true, run: resolve }],
+        'Made for a large screen',
+        'atlas is played on a computer, with a keyboard and a mouse. On a phone or a small window it is cramped and slow, and nothing here answers a touch yet.',
+        [{ label: 'Continue anyway', primary: true, run: resolve }],
       );
     });
+  }
+
+  // `?world=<id>` stands you on another world straight away — the Moon, Mars,
+  // a giant's cloud deck — with none of Earth loaded: `src/worlds/` makes its
+  // own renderer, and leaving reloads without the parameter. One `import()`,
+  // so the worlds stay out of this file's graph (`scripts/check-worlds.ts`).
+  const otherWorld = new URLSearchParams(location.search).get('world');
+  if (otherWorld !== null && otherWorld !== '' && otherWorld !== 'earth') {
+    try {
+      const { standalone } = await import('./worlds/index.ts');
+      await standalone(otherWorld, dismissLoading);
+    } catch (error) {
+      fail(error);
+    }
+    return;
   }
 
   await stage('reading the outlines');
@@ -594,6 +626,8 @@ async function start(): Promise<void> {
     settings: import('./settings.ts'),
     map: import('./map.ts'),
     navigation: import('./navigation.ts'),
+    /** Who is playing, held on `Tab`. */
+    playerList: import('./player-list.ts'),
     /** The country names over the land, which arrive with the flag under them. */
     names: import('./names.ts'),
     /** The other players, if a relay is configured; see `server/`. */
@@ -608,6 +642,8 @@ async function start(): Promise<void> {
     traveller: import('./traveller.ts'),
     /** What the menu sounds like: its ticks, its dives and the hum of space. */
     menuSound: import('./menu-sound.ts'),
+    /** The title screen in front of the menu: online or offline, and the traveller, large. */
+    title: import('./title.ts'),
     /**
      * The vehicles you can take: their models, where they stand, and the
      * relay's half of who has moved which. Built once the player is.
@@ -890,7 +926,6 @@ async function start(): Promise<void> {
         musicLoading = false;
       });
   }
-  audio.onCue = (name) => music?.cue(name);
   weather.onThunder = (delay, loudness) => audio.thunder(delay, loudness);
   weather.enabled = readSetting(WEATHER_KEY) !== '0';
   const unlockAudio = (): void => {
@@ -899,14 +934,84 @@ async function start(): Promise<void> {
   };
   addEventListener('pointerdown', unlockAudio, { capture: true });
   addEventListener('keydown', unlockAudio, { capture: true });
+  // The sound's and the music's rows, which both settings cards show: the
+  // title screen's, before the world is built, and the world's own.
+  const soundRows: NonNullable<SettingsOptions['sound']> = {
+    volume: {
+      get: () => audio.volume,
+      set: (value) => {
+        audio.volume = value;
+        saveSound();
+        return audio.volume;
+      },
+      min: 0.05,
+      max: 1,
+    },
+    on: {
+      get: () => !audio.muted,
+      set: (on) => {
+        audio.muted = !on;
+        saveSound();
+        return on;
+      },
+    },
+    voices: {
+      get: () => voices.voices,
+      set: (on) => {
+        voices.voices = on;
+        saveVoices();
+        return on;
+      },
+    },
+    chat: {
+      get: () => voices.chat,
+      set: (on) => {
+        voices.chat = on;
+        saveVoices();
+        return on;
+      },
+    },
+  };
+  const musicRows: NonNullable<SettingsOptions['music']> = {
+    volume: {
+      get: () => musicSettings.volume,
+      set: (value) => {
+        musicSettings.volume = Math.min(1, Math.max(0, value));
+        if (music !== null) music.volume = musicSettings.volume;
+        saveMusic();
+        return musicSettings.volume;
+      },
+      min: 0.05,
+      max: 1,
+    },
+    on: {
+      get: () => musicSettings.on,
+      set: (on) => {
+        musicSettings.on = on;
+        if (music !== null) music.on = on;
+        else loadMusic();
+        saveMusic();
+        return on;
+      },
+    },
+  };
   /** The connection, once there is one: the card below is made long before it. */
   let peersLink: import('./peers.ts').Peers | null = null;
-  // **The traveller's card**, opened from the front door and from Settings.
-  // Every change dresses the hero at once (`dressHero`, which keeps it on this
-  // device) and goes to the other players as a code beside the name. The name
-  // is the relay's rename, or, before there is a connection, what the first
-  // one will send.
-  const { createTraveller } = await deferred.traveller;
+  // **The traveller's creator**, opened from the title, the planet menu and
+  // Settings, on the hero's stage that the title shares. Every change dresses
+  // the hero at once (`dressHero`, which keeps it on this device) and goes to
+  // the other players as a code beside the name. The name, on the plate over
+  // the hero's head, is the relay's rename, or, before there is a connection,
+  // what the first one will send.
+  const { createTraveller, createHeroStage } = await deferred.traveller;
+  const travellerName = {
+    get: (): string => peersLink?.name ?? peersModule.storedName(),
+    set: (name: string): string => (peersLink === null ? peersModule.storeName(name) : peersLink.rename(name)),
+  };
+  const heroStage = createHeroStage({ appearance: heroAppearance, cast: wardrobeCast, name: travellerName });
+  document.body.appendChild(heroStage.root);
+  /** The title screen, made below unless a link skips every menu. */
+  let title: import('./title.ts').Title | null = null;
   const traveller = createTraveller({
     appearance: {
       get: heroAppearance,
@@ -915,22 +1020,25 @@ async function start(): Promise<void> {
         peersLink?.setLook(encodeAppearance(appearance));
       },
     },
-    cast: wardrobeCast,
-    ...(peersUrl === ''
-      ? {}
-      : {
-          name: {
-            get: () => peersLink?.name ?? peersModule.storedName(),
-            set: (name: string) => (peersLink === null ? peersModule.storeName(name) : peersLink.rename(name)),
-          },
-        }),
+    stage: heroStage,
     lockTarget: renderer.domElement,
-    onOpen: () => audio.cue('ui-open'),
-    onClose: () => audio.cue('ui-close'),
+    // The title, when it is up, steps aside for the creator and takes the stage back after.
+    onOpen: () => {
+      audio.cue('ui-open');
+      title?.aside(true);
+    },
+    onClose: () => {
+      audio.cue('ui-close');
+      title?.aside(false);
+    },
   });
   document.body.appendChild(traveller.root);
   const { createMenu, earthBody } = await deferred.menu;
   const { createMenuSound } = await deferred.menuSound;
+  const { createTitle, storedPlayMode } = await deferred.title;
+  // Through the effects' master and, for the hum, the music's own switch
+  // and volume, so both settings hold the menu as they hold the world.
+  const menuSound = createMenuSound(audio, musicSettings);
   const menu = createMenu({
     // The aliases are the famous names the bake folded into a neighbour —
     // Kobe into Osaka, Manila into Quezon City — so the search answers them.
@@ -945,11 +1053,206 @@ async function start(): Promise<void> {
     traveller,
     time: () => sky.state.time,
     sunDirection: () => sky.state.sun,
-    // Through the effects' master and, for the hum, the music's own switch
-    // and volume, so both settings hold the menu as they hold the world.
-    sound: createMenuSound(audio, musicSettings),
+    sound: menuSound,
+    // Every other walkable body's globe, made the first time its *Explore* is
+    // pressed: its nations, their frontiers and colours, its settlements.
+    loadBody: (id, centre, drawnRadius) => loadMenuBody(id, centre, drawnRadius),
+    // Every other body's *Explore*, and a settlement chosen on its globe: a
+    // world of its own, from `src/worlds/`.
+    exploreBody: (id, name, spawn) => exploreWorld(id, name, spawn),
+    // `Esc` over the solar system: back to the title screen.
+    onLeave: () => {
+      if (title === null) return;
+      menu.hold(true);
+      title.show();
+    },
   });
   document.body.appendChild(menu.root);
+
+  // `?at=lat,lon` skips every menu and lands there. A latitude past a pole is
+  // a point on the far side of it, not a typo worth landing on: such a link
+  // gets the menus.
+  const at = query.get('at')?.split(',').map(Number);
+  const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite) && Math.abs(at[0]!) <= 90 && Math.abs(at[1]!) <= 360;
+  /**
+   * How a link that skips the title plays: the way chosen last time on this
+   * device, online if never — and offline in an automated browser, which has
+   * no business on the relay.
+   */
+  const linkedMode: PlayMode = navigator.webdriver ? 'offline' : (storedPlayMode() ?? 'online');
+  let toSystem = false;
+  try {
+    toSystem = sessionStorage.getItem(TO_SYSTEM_KEY) === '1';
+    sessionStorage.removeItem(TO_SYSTEM_KEY);
+  } catch {
+    // No storage, no shortcut: the title as ever.
+  }
+
+  // **The settings, before the world.** The world's own card is made with the
+  // player, so the title screen has one of its own over the same values: the
+  // ones the world reads when it is built are kept in storage, the rest are
+  // the live objects. It never answers the settings key; the world's does.
+  const { createSettings } = await deferred.settings;
+  const storedToggle = (key: string, fallback: boolean): { get(): boolean; set(on: boolean): boolean } => ({
+    get: () => (fallback ? readSetting(key) !== '0' : readSetting(key) === '1'),
+    set: (on) => {
+      writeSetting(key, on ? '1' : '0');
+      return on;
+    },
+  });
+  /**
+   * The rows every card shares with the walkable worlds' own (`WorldSettings`
+   * in `world-host.ts`): what they turn is kept in storage or is the live
+   * object, so a world's card and this one move the same values.
+   */
+  const sharedSettings: WorldSettings = {
+    sensitivity: {
+      get: () => Number(readSetting(SENSITIVITY_KEY) ?? '1') || 1,
+      set: (value) => {
+        writeSetting(SENSITIVITY_KEY, value.toFixed(3));
+        return value;
+      },
+      min: 0.3,
+      max: 3,
+    },
+    performance: storedToggle(PERFORMANCE_KEY, false),
+    hints: storedToggle(HINTS_KEY, true),
+    resolution: {
+      get: () => resolution,
+      set: (value) => {
+        resolution = RESOLUTIONS.find(([option]) => option === value)?.[0] ?? 'auto';
+        writeSetting(RESOLUTION_KEY, resolution);
+        // The menu sizes the renderer, and asks for the ratio on a resize.
+        dispatchEvent(new Event('resize'));
+        return resolution;
+      },
+      options: RESOLUTIONS,
+    },
+    sound: soundRows,
+    music: musicRows,
+  };
+  const frontSettings = createSettings({
+    ...sharedSettings,
+    key: false,
+    detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
+    autoDetail: { get: autoDetail, set: (on) => setAutoDetail(on) },
+    flags: storedToggle(OVERLAY_KEY, true),
+    weather: {
+      get: () => weather.enabled,
+      set: (on) => {
+        weather.enabled = on;
+        writeSetting(WEATHER_KEY, on ? '1' : '0');
+        return on;
+      },
+    },
+    lockTarget: null,
+    onOpen: () => audio.cue('ui-open'),
+    onClose: () => audio.cue('ui-close'),
+  });
+  // Over the title (`z-index` 10), which the world's card never has to be.
+  frontSettings.root.style.zIndex = '12';
+  document.body.appendChild(frontSettings.root);
+
+  // **The title screen**: the game's name, how to play — online or offline —
+  // and the traveller, large, in front of the solar system. The menu behind
+  // waits (`hold`) until a way to play is chosen.
+  if (!skipMenu && !toSystem) {
+    title = createTitle({
+      stage: heroStage,
+      online: peersUrl !== '',
+      customise: () => traveller.show(),
+      settings: () => frontSettings.show(),
+      covered: () => traveller.open || frontSettings.open,
+      sound: { hover: () => menuSound.cue('hover'), select: () => menuSound.cue('select') },
+      onChoose: () => menu.hold(false),
+    });
+    menu.hold(true);
+    title.show();
+  }
+  // Every other world's globe made while the title is up, so picking one
+  // on the menu never waits for it.
+  if (!skipMenu) menu.prepare();
+
+  /**
+   * A walkable body's `MenuBody` from `src/system/menu-body.ts`, which reads
+   * its geography (`system/geography.ts`) — imported only when asked, so none
+   * of `src/system/` is in Earth's first load. Its nations' banners are
+   * registered with the flags as it comes, so the menu's cards can draw them.
+   * `null` where there is no such module or no such body, and *Explore* then
+   * goes straight to the world.
+   */
+  async function loadMenuBody(id: string, centre: THREE.Vector3, drawnRadius: number): Promise<MenuBody | null> {
+    const load = import.meta.glob<MenuBodyModule>('./system/menu-body.ts')['./system/menu-body.ts'];
+    if (load === undefined) return null;
+    const module = await load();
+    module.installBanners();
+    return module.menuWorldOf(id, centre, drawnRadius);
+  }
+
+  /**
+   * *Explore* on any body but Earth and the Sun: `src/worlds/index.ts`'s
+   * `enterWorld` (`world-host.ts` is the contract), imported only when asked,
+   * with the menu suspended under it until the world hands the screen back.
+   * The glob is empty while that module does not exist, which is the notice.
+   * `spawn` is the settlement chosen on the body's globe, or the place
+   * remembered from the last visit, and the world lands there.
+   */
+  async function exploreWorld(id: string, name: string, spawn?: MenuSpawn): Promise<void> {
+    menu.suspend(true);
+    let left = false;
+    const back = (to?: 'system'): void => {
+      if (left) return;
+      left = true;
+      // The world's engine and wind let go: the menu's is a quiet ear.
+      audio.update(0, { mode: 'menu', speed: 0, throttle: 0, height: 0, sea: 0, daylight: 1, wild: 0, cold: true });
+      menu.suspend(false);
+      if (to === 'system') menu.toSystem();
+    };
+    try {
+      const load = import.meta.glob<WorldsModule>('./worlds/index.ts')['./worlds/index.ts'];
+      if (load === undefined) throw new Error('there is no src/worlds/index.ts');
+      const worlds = await load();
+      if (typeof worlds.enterWorld !== 'function') throw new Error('src/worlds/index.ts has no enterWorld');
+      // The menu's frame hands the shade back on the way out (`clouds.update`).
+      suspendCloudShade();
+      await worlds.enterWorld(id, {
+        renderer,
+        draw: (target, camera) => post.render(target, camera),
+        pixelRatio: () => pixelRatioFor(resolution),
+        sound: () => audio.output,
+        appearance: heroAppearance,
+        cast: wardrobeCast,
+        name: () => peersModule.storedName(),
+        mode: title?.mode ?? linkedMode,
+        time: () => sky.state.time,
+        exit: back,
+        arrival: spawn === undefined
+          ? null
+          : { settlement: spawn.site ?? null, lat: spawn.lat, lon: spawn.lon, name: spawn.name, region: spawn.region },
+        peersUrl,
+        settings: sharedSettings,
+        cue: (cue) => audio.cue(cue),
+        traveller,
+        step: (weight) => audio.step('dirt', weight),
+        countries: world.countries,
+        soundscape: (dt, scape) => audio.update(dt, scape),
+        music: (moment) => {
+          if (music === null) {
+            loadMusic();
+            return;
+          }
+          if (moment !== null) music.observe(moment);
+          music.update();
+        },
+      });
+    } catch (error) {
+      console.warn(`atlas: ${name} cannot be explored yet`, error);
+      back();
+      notice('Coming soon', `${name} cannot be walked on yet. Earth can, and the rest of the solar system is on its way.`, [
+        { label: 'Back to the planets', primary: true, run: () => {} },
+      ]);
+    }
+  }
 
   // The sky's own sun and moon discs hang five radii from the camera, which
   // from the orrery is five radii in front of it: two small discs floating in
@@ -969,6 +1272,28 @@ async function start(): Promise<void> {
   // globe came back as a flat mauve ball — `fog.far` doing exactly what it
   // says at forty times its own range. The same call gives the menu the real
   // sun, the surf and the weather.
+  /**
+   * The flag attribute, which is 11 MB and is therefore not built until the
+   * first time a fade asks for it — the menu's country stage or the climb.
+   * `land-flags.ts` and the 2,091 lines of flag specs behind it arrive with it,
+   * through the dynamic `import()` in `globe.ts`.
+   */
+  let flagLayer: FlagLayer | null = null;
+  let flagAsked = false;
+  /** What `atlas.flags(0.4)` set before the layer existed, if anything. */
+  let flagCeiling: number | null = null;
+  function askFlags(): void {
+    if (flagAsked) return;
+    flagAsked = true;
+    void landFlags(world, land)
+      .then((layer) => {
+        if (flagCeiling !== null) layer.setCeiling(flagCeiling);
+        flagLayer = layer;
+      })
+      // The frontiers and the names do not depend on the chunk, so a failed
+      // fetch costs the flag and nothing else. It is asked for once.
+      .catch((error: unknown) => console.warn('the flag layer did not load:', error));
+  }
   let veil = 1;
   let veiledAt = performance.now();
   menu.beforeRender = (camera) => {
@@ -1000,7 +1325,9 @@ async function start(): Promise<void> {
     veil += (wanted - veil) * (1 - Math.exp(-step / VEIL_LAG));
     if (Math.abs(wanted - veil) < 0.01) veil = wanted;
     clouds.setVeil(veil);
-    const inside = distance < PLANET_RADIUS * DOME_EXIT;
+    // Over another body's globe Earth's sky is not the sky: the camera is
+    // round the Moon or Mars, and Earth is a planet in the frame like any other.
+    const inside = distance < PLANET_RADIUS * DOME_EXIT && menu.body === 'earth';
     if (skyDome !== undefined) skyDome.visible = inside;
     // Not at the country and town stages: there the camera is choosing a place
     // on the planet, and a grey disc hanging beside it is a second body to
@@ -1015,7 +1342,10 @@ async function start(): Promise<void> {
     ocean.update(camera.position, oceanLights);
   };
   dismissLoading();
-  report = (fraction, label) => menu.progress(fraction, label);
+  report = (fraction, label) => {
+    menu.progress(fraction, label);
+    title?.progress(fraction, label);
+  };
 
   await stage('raising the monuments');
   // One context for the whole world: monuments and settlements share a material
@@ -1235,14 +1565,6 @@ async function start(): Promise<void> {
   const talk = createTalk({
     voice: () => (voices.voices && audio.output !== null && audio.bus !== null ? { context: audio.output.context, node: audio.bus } : null),
   });
-  // The other players, on the relay chosen above, wearing what the card chose.
-  const peers = peersUrl === '' ? null : peersModule.createPeers(peersUrl, folk);
-  if (peers !== null) {
-    // Before the first connection, which carries it in its address.
-    peers.setLook(encodeAppearance(heroAppearance()));
-    scene.add(peers.group);
-    peersLink = peers;
-  }
   // Where the vehicles you can take stand, which is a function of the world
   // alone and costs nothing until asked: built this early so the herds here
   // and the wood below keep off a plane's airstrip and a balloon's field. The
@@ -1429,6 +1751,7 @@ async function start(): Promise<void> {
   // a click, on `Enter`, or immediately if the player already picked while the
   // land was building.
   menu.ready();
+  title?.ready();
   report = null;
   // Every program the streamers will draw with, compiled while the player
   // chooses, so the first town, landmark or animal is not also a shader link.
@@ -1481,13 +1804,42 @@ async function start(): Promise<void> {
   const passingSound = (await deferred.passingSound).createPassingSound();
   const passingVoices: Parameters<typeof passingSound.update>[1] = {};
   if (railway !== null) railway.onHorn = (near) => passingSound.horn(audio.bus, near);
-  const at = query.get('at')?.split(',').map(Number);
-  // A latitude past a pole is a point on the far side of it, not a typo worth
-  // landing on: such a link gets the menu.
-  const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite) && Math.abs(at[0]!) <= 90 && Math.abs(at[1]!) <= 360;
   const spawn = skipMenu
     ? { body: 'earth', region: '', name: 'here', lat: at[0]!, lon: at[1]! }
     : await menu.choose();
+  // The other players, on the relay chosen above, wearing what the card chose
+  // — only when the title screen said online (or a link remembered it). Made
+  // here, once the choice is final; it opens its socket on the loop's first
+  // update. Offline there is no `peers` at all, so nothing anywhere sends:
+  // the fleet keeps its local link, the chat is local, and Tab says offline.
+  const playMode: PlayMode = title?.mode ?? linkedMode;
+  const peers = playMode === 'online' && peersUrl !== '' ? peersModule.createPeers(peersUrl, folk) : null;
+  if (peers !== null) {
+    // Before the first connection, which carries it in its address.
+    peers.setLook(encodeAppearance(heroAppearance()));
+    scene.add(peers.group);
+    peersLink = peers;
+  }
+  /**
+   * Where a body is put down for a wanted point: carried out of every
+   * landmark's plan (`clearOfPlans`), onto dry ground where a ray out of it
+   * finds some. Every arrival asks it — the start, a link's `?at=`, `/goto`,
+   * `/home`, `/tp`, the map's join and the console's `goTo` — because a
+   * town's own point can stand inside its landmark, and a body put down in a
+   * model has no way out. The walls of a town, a wood or a vehicle are the
+   * player's `freeSpotNear`, which `goTo` asks too, and once they stand.
+   */
+  const arrivalSites = placements.map(plannedSite);
+  const arrivalPoint = new THREE.Vector3();
+  const arrivalProbe = new THREE.Vector3();
+  const dryArrival = (p: { x: number; y: number; z: number }): boolean =>
+    !isWater(groundRadius(world, arrivalProbe.set(p.x, p.y, p.z).multiplyScalar(PLANET_RADIUS)));
+  function arrivalAt(lat: number, lon: number): { lat: number; lon: number } {
+    unitAt(lat, lon, arrivalPoint);
+    if (!clearOfPlans(arrivalPoint, arrivalSites, PLANET_RADIUS, arrivalPoint, ARRIVAL_CLEARANCE, dryArrival)) return { lat, lon };
+    return latLonOf(arrivalPoint.normalize());
+  }
+  const start = arrivalAt(spawn.lat, spawn.lon);
   // The dive into the town and the curtain over the end of it. Everything below
   // — the player, the rig, the HUD — is built behind the curtain, and the loop
   // lifts it once the town under it has had a moment to stand.
@@ -1565,8 +1917,8 @@ async function start(): Promise<void> {
   };
 
   await avatarReady;
-  landProbe.prime(unitAt(spawn.lat, spawn.lon, new THREE.Vector3()));
-  const player = createPlayer(world, spawn.lat, spawn.lon, {
+  landProbe.prime(unitAt(start.lat, start.lon, new THREE.Vector3()));
+  const player = createPlayer(world, start.lat, start.lon, {
     groundAt,
     madeHeightAt: (point) => madeHeightAt(point),
     // The sea floor, which a diver and a submarine stop on.
@@ -1625,7 +1977,7 @@ async function start(): Promise<void> {
       } else if (event === 'steep-refused') {
         announce('Too steep to land here — find flatter ground', rotor ? 'heli' : 'plane');
         audio.cue('ui-error');
-      } else if (event === 'landed') audio.cue('land');
+      } else if (event === 'landed' || event === 'foundered') audio.cue('land');
       // A car into a wall: the landing's thud, which is the one knock the
       // sound has, and the lens knocked with it.
       else if (event === 'crashed') {
@@ -1681,13 +2033,16 @@ async function start(): Promise<void> {
     onEvent: (event, model, at) => {
       const iconName: IconName = modeIcon(model?.kind ?? null);
       if (event === 'bailed') {
-        // Out of something under way, and a word on the canopy out of an
-        // aircraft, which nobody guesses is steered.
+        // Out of something under way.
         audio.cue('ui-click');
-        if (model !== null && isAirKind(model.kind)) announce('Jumped! The canopy opens near the ground · steer with the movement keys', 'plane');
       } else if (event === 'wrecked') {
         if (at !== undefined) effects.crashAt(at, rig.heading, 0.8);
         if (at !== undefined && at.distanceTo(player.position) < 400) audio.cue('land');
+      } else if (event === 'foundered' || event === 'sank') {
+        // Into the water, and under it: a splash, and the last of it.
+        const reach = model === null ? 3 : Math.max(model.size[0], model.size[1]) * (event === 'sank' ? 0.4 : 0.75);
+        if (at !== undefined) effects.splashAt(at, reach);
+        if (event === 'foundered' && at !== undefined && at.distanceTo(player.position) < 400) audio.cue('land');
       } else if (event === 'leave-refused') {
         // Aloft is a jump now (`bailed`); the one refusal left is a
         // submarine under the surface.
@@ -1760,21 +2115,35 @@ async function start(): Promise<void> {
   const input = createInput(renderer.domElement, {
     // An embed that may not lock the mouse: say once what works instead.
     onLockRefused: () => announce('This page cannot lock the mouse — drag to look around', 'mouse'),
-    // `Ctrl` descends, and `Ctrl+W` would close the tab mid-flight.
-    guardUnload: () => player.ride !== null && player.airborne,
   });
 
   // The pins are what make the map answer "where is anything", which the
   // coastline alone never did. They cover every placement, including the
   // landmarks nobody has modelled yet — a pin for a place you can walk to and
   // find nothing at is still better than no pin. The gazetteer goes with them
-  // because the disc is framed on the country you are in now: it draws the
-  // built towns around you, and the one the chip is naming by name.
+  // because the disc draws the built towns around you, and the one the chip
+  // is naming by name; and the roads, each traced once along its own course
+  // (`courseOf`), the first time the disc is drawn.
   const { createMinimap } = await deferred.minimap;
   const minimap = createMinimap(world, {
     monuments: placements,
     places: places.all,
-    isVisited: (id) => monuments.isVisited(id),
+    roads: () => {
+      const course = emptyCourse();
+      const at = new THREE.Vector3();
+      return baked.roads.map((road) => {
+        courseOf(road, places.all, course);
+        const samples = MINIMAP_ROAD_SAMPLES;
+        const line = new Float32Array(samples * 3);
+        for (let k = 0; k < samples; k++) {
+          coursePoint(course, k / (samples - 1), at);
+          line[k * 3] = at.x;
+          line[k * 3 + 1] = at.y;
+          line[k * 3 + 2] = at.z;
+        }
+        return line;
+      });
+    },
   });
   document.getElementById('minimap')!.appendChild(minimap.canvas);
 
@@ -1858,15 +2227,20 @@ async function start(): Promise<void> {
   const hud = createHud(world, {
     onSettings: () => settings.toggle(),
     onMap: () => (map.open ? map.hide() : map.show()),
-    onShare: shareHere,
     // The card for a new country, and the frontier's jingle with it. The
     // passport takes it as a candidate and stamps it once you are down in it.
+    // A new country is a stamp in the passport's book and nothing on the
+    // screen or in the ears: a card and a jingle at every frontier walked
+    // along were noise by the third.
     onArrival: (id) => {
-      audio.cue('frontier');
       const country = world.countries[id - 1];
       if (country !== undefined) passport.arrived(country.iso, country.name);
     },
     onPassport: () => passportCard.toggle(),
+    // Off Earth and out to the planets. Earth's game is built once behind the
+    // menu, so the way back to the menu is the page's own start, past the
+    // title, under a curtain.
+    leave: { label: 'Solar system', run: () => toSolarSystem() },
     // Inside the welcome card's click, so the lock is still the player's gesture.
     onStart: () => input.lock(),
     // The clock's icon: the weather where you stand, as it is drawn.
@@ -1874,35 +2248,31 @@ async function start(): Promise<void> {
   });
   document.body.appendChild(hud.root);
 
-  /**
-   * How many landmarks are found, counted over the placements that exist. The
-   * visited set is whatever `localStorage` has held since the first visit, and
-   * an id a later build renamed or removed is still in it: its size could read
-   * 86 of 85.
-   */
-  const foundCount = (): number => placements.reduce((sum, placement) => sum + (monuments.isVisited(placement.id) ? 1 : 0), 0);
-  const showCount = (): void => hud.setFound(foundCount(), placements.length);
-  showCount();
-
-  // The passport: a stamp for every country you come down in, the towns you
-  // walk into, and the landmarks found, behind `J` and the pause card.
+  // The passport: a stamp for every country you come down in, a page of them
+  // a continent, behind `J` and the pause card.
   const { createPassport } = await deferred.passport;
   const { createPassportCard } = await deferred.passportCard;
   const passport = createPassport();
   const passportCard = createPassportCard({
     passport,
     countries: world.countries,
-    landmarks: () => ({
-      found: placements.filter((placement) => monuments.isVisited(placement.id)),
-      total: placements.length,
-    }),
+    // The other worlds' chapters, one visa a world, read off their geography
+    // when the book first opens — `src/system/` stays out of the first load.
+    chapters: () => import('./system/geography.ts').then((module) => module.chaptersOf()),
     // The holder's page: the name the others see, and the look they see.
     holder: () => ({ name: peersLink?.name ?? peersModule.storedName(), appearance: heroAppearance() }),
+    // It falls open at the visa of the country underfoot.
+    here: () => passportMoment.iso,
     lockTarget: renderer.domElement,
-    onOpen: () => audio.cue('ui-open'),
-    onClose: () => audio.cue('ui-close'),
-    onTurn: () => audio.cue('ui-toggle'),
-    onThud: () => audio.cue('ui-confirm'),
+    // A book, and it sounds like one: its cover, a page a turn — a riffle
+    // for a bookmark that skips several — and the stamp's thump.
+    onOpen: () => audio.cue('book-open'),
+    onClose: () => audio.cue('book-close'),
+    onTurn: (leaves) => {
+      audio.cue('page');
+      if (leaves > 1) window.setTimeout(() => audio.cue('page'), 90);
+    },
+    onThud: () => audio.cue('stamp'),
   });
   document.body.appendChild(passportCard.root);
   passport.onStamp = (stamp) => passportCard.celebrate(stamp);
@@ -1911,38 +2281,34 @@ async function start(): Promise<void> {
     town: { index: -1, name: '', iso: '', inside: false },
   };
 
-  // Somewhere to go. It picks and it points; it never flies you — the plane's
-  // whole design is that speed rides altitude, so crossing an ocean *is* a climb
-  // and arriving *is* a descent. An autopilot would fly the one interaction the
-  // travel model was built around and leave a loading screen with scenery.
+  // The player's own marker, put down on the map behind `M`. It points and it
+  // never flies you — the plane's whole design is that speed rides altitude,
+  // so crossing an ocean *is* a climb and arriving *is* a descent.
   const { createNavigation } = await deferred.navigation;
   const nav = createNavigation({
-    placements,
     minimap,
     hud,
     groundAt,
-    isVisited: (id) => monuments.isVisited(id),
-    // `Tab` opens on the landmarks of the country you are standing in. Asked
-    // here rather than held, because this is the one place that already knows.
-    countryHere: () => {
-      const id = world.countryAtPoint(player.position);
+    countryAt: (lat, lon) => {
+      const id = world.countryAt(lat, lon);
       return id > 0 ? world.countries[id - 1]!.iso : null;
     },
   });
 
-  // The whole planet on one sheet, behind `M`: names, the visited set, real
-  // distances, and a destination you can point at. It binds its own key the way
-  // `navigation.ts` binds `Tab`, and it drives `nav` rather than owning a
-  // second idea of what a destination is.
+  // The whole planet on one sheet, behind `M`: names, real distances, and a
+  // marker you can put down anywhere. It binds its own key, and it drives `nav`
+  // rather than owning a second idea of where the marker is.
   const { createWorldMap } = await deferred.map;
   /**
-   * A jump to anywhere, which the console and the map's players both make.
-   * Never inside a building: `player.goTo` steps clear of any town already
+   * A jump to anywhere, which the console, the chat and the map's players
+   * all make. Never inside a landmark: `arrivalAt` carries the point out of
+   * every plan first. Never inside a building: `player.goTo` steps clear of any town already
    * standing there, and one raised after the jump pushes you out on its first
    * frame. See the player's options above.
    */
   const jumpPoint = new THREE.Vector3();
-  function jumpTo(lat: number, lon: number): void {
+  function jumpTo(wantedLat: number, wantedLon: number): void {
+    const { lat, lon } = arrivalAt(wantedLat, wantedLon);
     // The land under the far end, gathered now rather than over the next few
     // frames: a foot that arrives on the relief rises onto the drawn land when
     // it comes, by up to a few units.
@@ -1982,7 +2348,8 @@ async function start(): Promise<void> {
 
   /**
    * **A bench is somewhere to sit** (`bench.ts`): the towns' beside their
-   * lamps and the countryside's by the roads and the lighthouses, whichever
+   * lamps, the countryside's by the roads and the lighthouses and the
+   * stations' under their canopies (`railway.benchesNear`), whichever
    * sitter's spot is nearest inside `BENCH_REACH`. Sitting is the `sit`
    * gesture on the wire, sent once the body has settled on the seat: sent
    * with the step onto the spot, the others' copy of it would see a body
@@ -1994,6 +2361,7 @@ async function start(): Promise<void> {
     benchesHere.length = 0;
     settlements.benchesNear(player.position, BENCH_REACH + 2, benchesHere);
     vegetation.countryside?.benchesNear(benchUp.copy(player.position).normalize(), BENCH_REACH + 2, benchesHere);
+    railway?.benchesNear(player.position, BENCH_REACH + 2, benchesHere);
     let best: Bench | null = null;
     let bestDistance = BENCH_REACH;
     for (const bench of benchesHere) {
@@ -2016,10 +2384,9 @@ async function start(): Promise<void> {
     monuments: placements,
     places: places.all,
     roads: baked.roads,
-    isVisited: (id) => monuments.isVisited(id),
-    target: () => nav.target?.id ?? null,
-    onChoose: (id) => nav.select(id),
-    onClear: () => nav.clear(),
+    marker: () => nav.marker,
+    onMark: (lat, lon, name, landmark) => nav.mark(lat, lon, name, landmark),
+    onUnmark: () => nav.clear(),
     lockTarget: renderer.domElement,
     // A card holding the keyboard — Settings, the welcome, a notice — keeps
     // `M` from opening the map underneath it. Closing is never blocked.
@@ -2034,6 +2401,41 @@ async function start(): Promise<void> {
         }),
   });
   document.body.appendChild(map.root);
+
+  // Who is playing, held on `Tab`: yourself first, then everyone the relay has
+  // told us of, each with the flag of the country they stand in and what they
+  // are doing, from the state on the wire and the seat the fleet says they hold.
+  const { createPlayerList, describeDoing } = await deferred.playerList;
+  const { kindOfModel, modelOfVehicle } = await deferred.fleet;
+  const listPoint = new THREE.Vector3();
+  const isoAtPoint = (point: THREE.Vector3): string | null => {
+    const id = world.countryAtPoint(point);
+    return id > 0 ? world.countries[id - 1]!.iso : null;
+  };
+  const doingOf = (state: string, seat: { vehicle: string; seat: number } | null): ReturnType<typeof describeDoing> =>
+    describeDoing(state, seat === null ? null : kindOfModel(modelOfVehicle(seat.vehicle)), seat?.seat === 0);
+  const playerList = createPlayerList({
+    rows: () => [
+      {
+        id: peers?.id ?? 'you',
+        name: peers?.name || peersModule.storedName() || 'Traveller',
+        iso: isoAtPoint(player.position),
+        doing: doingOf(player.state, fleet.current()),
+        you: true,
+      },
+      ...[...(peers?.marks ?? [])]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((mark) => ({
+          id: mark.id,
+          name: mark.name,
+          iso: isoAtPoint(listPoint.set(mark.x, mark.y, mark.z)),
+          doing: doingOf(mark.state, fleetSync?.seatOf(mark.id) ?? null),
+        })),
+    ],
+    online: () => (peers?.online ?? null) !== null,
+    countryName: (iso) => world.countries.find((country) => country.iso === iso)?.name,
+  });
+  document.body.appendChild(playerList.root);
 
   // The names over the land. They are HTML like the rest of the HUD and they
   // ride the same fade the flag and the frontiers do; see `names.ts`.
@@ -2053,26 +2455,6 @@ async function start(): Promise<void> {
   }
   function showDetail(value: number): void {
     announce(`Render distance ${value.toFixed(2)}×`, 'eye');
-  }
-
-  /**
-   * "Copy link to here", from the pause card: the address with `?at=` set to
-   * where you stand, which is the menu-skipping link `main.ts` has always
-   * read. Four decimals is eleven metres of real Earth, under three hundredths
-   * of a unit here.
-   */
-  function shareHere(): void {
-    const { lat, lon } = toLatLon(player.position);
-    const url = `${location.origin}${location.pathname}?at=${lat.toFixed(4)},${lon.toFixed(4)}`;
-    const copied = navigator.clipboard?.writeText(url);
-    if (copied === undefined) {
-      announce(`Copy this link: ${url}`, 'pin');
-      return;
-    }
-    copied.then(
-      () => announce('Link copied — it opens right here', 'pin'),
-      () => announce(`Copy this link: ${url}`, 'pin'),
-    );
   }
 
   /**
@@ -2107,8 +2489,8 @@ async function start(): Promise<void> {
    *
    * On by default, because the whole thing is invisible until you are 500 units
    * up and a player who never finds `B` should still get the map when they fly.
-   * Every read and write of `localStorage` is wrapped, like the visited set's:
-   * a private window throws on the *getter*, not on the write.
+   * Every read and write of `localStorage` is wrapped: a private window
+   * throws on the *getter*, not on the write.
    */
   let overlayOn = readSetting(OVERLAY_KEY) !== '0';
   function setOverlay(on: boolean): boolean {
@@ -2138,7 +2520,7 @@ async function start(): Promise<void> {
     // Not remembered: a reload with nothing on the screen looks broken.
     else if (action === 'hud') announce(hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
     else if (action === 'photo') photoWanted = true;
-    else if (action === 'wave' && !gesture('wave')) announce('Only standing on the ground', 'walk');
+    else if ((action === 'wave' || action === 'dance') && !gesture(action)) announce('Only standing on the ground', 'walk');
     else if (action === 'horn') {
       const voice = hornInHand();
       if (voice !== null) hornKey.press(voice, performance.now());
@@ -2240,7 +2622,6 @@ async function start(): Promise<void> {
   hud.setPerformance(performanceOn);
   hud.setHints(readSetting(HINTS_KEY) !== '0');
   input.sensitivity = Number(readSetting(SENSITIVITY_KEY) ?? '1') || 1;
-  const { createSettings } = await deferred.settings;
   const settings = createSettings({
     detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
     autoDetail: {
@@ -2311,74 +2692,8 @@ async function start(): Promise<void> {
       options: RESOLUTIONS,
     },
     time,
-    sound: {
-      volume: {
-        get: () => audio.volume,
-        set: (value) => {
-          audio.volume = value;
-          saveSound();
-          return audio.volume;
-        },
-        min: 0.05,
-        max: 1,
-      },
-      on: {
-        get: () => !audio.muted,
-        set: (on) => {
-          audio.muted = !on;
-          saveSound();
-          return on;
-        },
-      },
-      voices: {
-        get: () => voices.voices,
-        set: (on) => {
-          voices.voices = on;
-          saveVoices();
-          return on;
-        },
-      },
-      chat: {
-        get: () => voices.chat,
-        set: (on) => {
-          voices.chat = on;
-          saveVoices();
-          return on;
-        },
-      },
-    },
-    music: {
-      volume: {
-        get: () => musicSettings.volume,
-        set: (value) => {
-          musicSettings.volume = Math.min(1, Math.max(0, value));
-          if (music !== null) music.volume = musicSettings.volume;
-          saveMusic();
-          return musicSettings.volume;
-        },
-        min: 0.05,
-        max: 1,
-      },
-      on: {
-        get: () => musicSettings.on,
-        set: (on) => {
-          musicSettings.on = on;
-          if (music !== null) music.on = on;
-          else loadMusic();
-          saveMusic();
-          return on;
-        },
-      },
-    },
-    ...(peers === null
-      ? {}
-      : {
-          players: {
-            name: { get: () => peers.name, set: (name: string) => peers.rename(name) },
-            online: () => peers.online,
-          },
-        }),
-    traveller: { show: (relock: boolean) => traveller.show({ relock }) },
+    sound: soundRows,
+    music: musicRows,
     lockTarget: renderer.domElement,
     // One card at a time: the settings over the world map would be two
     // overlays holding the mouse, and the map's keys under a modal card.
@@ -2428,18 +2743,6 @@ async function start(): Promise<void> {
     photo: () => {
       photoWanted = true;
     },
-    landmark: () => {
-      let best: (typeof placements)[number] | null = null;
-      let bestAngle = Infinity;
-      for (const placement of placements) {
-        if (monuments.isVisited(placement.id)) continue;
-        const angle = unitAt(placement.lat, placement.lon, chatPoint).angleTo(player.position);
-        if (angle < bestAngle) [best, bestAngle] = [placement, angle];
-      }
-      if (best === null) return null;
-      nav.select(best.id);
-      return { name: best.name, km: bestAngle * EARTH_KM };
-    },
     sound: () => (voices.chat && audio.output !== null && audio.bus !== null ? { context: audio.output.context, node: audio.bus } : null),
     lockTarget: renderer.domElement,
     onOpen: () => {
@@ -2447,16 +2750,6 @@ async function start(): Promise<void> {
     },
   });
 
-  /**
-   * The flag attribute, which is 11 MB and is therefore not built until the
-   * first time the fade asks for it. `land-flags.ts` and the 2,091 lines of
-   * flag specs behind it arrive on the same climb, through the dynamic
-   * `import()` in `globe.ts`.
-   */
-  let flagLayer: FlagLayer | null = null;
-  let flagAsked = false;
-  /** What `atlas.flags(0.4)` set before the layer existed, if anything. */
-  let flagCeiling: number | null = null;
   /** The last fade, so `atlas.flags()` can report what is actually on screen. */
   let overlayFade = 0;
 
@@ -2495,6 +2788,23 @@ async function start(): Promise<void> {
    * Plain numbers and strings, so the same record is what a peer would be
    * sent when there are peers.
    */
+  function toSolarSystem(): void {
+    saveLastPlace();
+    try {
+      sessionStorage.setItem(TO_SYSTEM_KEY, '1');
+    } catch {
+      // Without it the page comes back to the title, which is still the way in.
+    }
+    const cover = document.createElement('div');
+    cover.style.cssText = 'position:fixed;inset:0;z-index:40;opacity:0;transition:opacity 0.35s ease;background:radial-gradient(circle at 50% 42%,#fff2e8 0 35%,#fde6e1 100%)';
+    document.body.appendChild(cover);
+    void cover.offsetWidth;
+    cover.style.opacity = '1';
+    // Every parameter kept but the one that skips the menu.
+    const next = new URL(location.href);
+    next.searchParams.delete('at');
+    window.setTimeout(() => location.assign(next.toString()), 380);
+  }
   function saveLastPlace(): void {
     const { lat, lon } = toLatLon(player.position);
     const id = world.countryAtPoint(player.position);
@@ -2519,6 +2829,9 @@ async function start(): Promise<void> {
   // and the first frames render from inside the Earth.
   rig.snap(player, groundAt);
   menu.dispose();
+  title?.dispose();
+  frontSettings.hide();
+  frontSettings.root.remove();
 
 
   let previous = performance.now();
@@ -2557,6 +2870,8 @@ async function start(): Promise<void> {
   let intervalAt = 0;
   /** The welcome card waits for the first arrival: the curtain up, or the first frame of a link. */
   let welcomePending = readSetting(WELCOME_KEY) !== '1' && navigator.webdriver !== true;
+  /** The landmark whose card came up last, until you walk off from it. */
+  let landmarkHere: string | null = null;
 
   /**
    * One subsystem's update, kept from taking the frame down with it.
@@ -2962,36 +3277,28 @@ async function start(): Promise<void> {
       seaLife.update(dt, seaLifeFrame, eachSeaLife);
     });
 
-    // Arriving is only an arrival out of a vehicle — on foot or swimming up to
-    // a lighthouse. `recordVisits` is cheap — a distance test per monument —
-    // and it only ever fires once per landmark.
+    // A landmark says what it is as you walk up to it, out of a vehicle — on
+    // foot or swimming up to a lighthouse — quietly and once each time you
+    // come: nothing is counted and nothing is kept. Walking off half as far
+    // again lets it say so the next time. A distance test per monument.
     if (player.state !== 'seated') {
-      for (const place of monuments.recordVisits(player.position)) {
-        // Every find gets the jingle, the destination included: the card is
-        // what the navigation panel replaces, not the moment.
-        audio.cue('landmark');
-        // Walking into your own destination is one arrival, not two: the
-        // navigation panel turns gold in place and says it better than a card.
-        if (place.id !== nav.target?.id) {
-          // The country of the landmark rather than the country under your feet:
-          // twelve of them stand over water and the Sphinx sits 1.5 units from
-          // the Pyramids, so the ground you are on is not reliably theirs.
-          const owner = world.countries.find((c) => c.iso === place.iso);
-          hud.foundLandmark({
-            name: place.name,
-            iso: place.iso,
-            country: owner?.name ?? place.iso,
-            height: place.height,
-            year: place.year,
-            note: place.note,
-            found: foundCount(),
-            total: placements.length,
-          });
-        }
-        showCount();
-        // The map draws visited pins differently and skips redraws while you
-        // stand still, which is exactly when this fires.
-        minimap.invalidate();
+      const near = monuments.landmarkNear(player.position);
+      if (near !== null && near.id !== landmarkHere) {
+        landmarkHere = near.id;
+        // The country of the landmark rather than the country under your feet:
+        // the Sphinx sits 1.5 units from the Pyramids, and a few stand on a
+        // shore, so the ground you are on is not reliably theirs.
+        const owner = world.countries.find((c) => c.iso === near.iso);
+        hud.showLandmark({
+          name: near.name,
+          iso: near.iso,
+          country: owner?.name ?? near.iso,
+          height: near.height,
+          year: near.year,
+          note: near.note,
+        });
+      } else if (near === null && landmarkHere !== null && monuments.landmarkNear(player.position, LANDMARK_RANGE * 1.5) === null) {
+        landmarkHere = null;
       }
     }
     // The HUD's two per-frame questions, both cached on its side: how you are
@@ -3031,7 +3338,7 @@ async function start(): Promise<void> {
     if (welcomePending && curtain === null) {
       welcomePending = false;
       writeSetting(WELCOME_KEY, '1');
-      void hud.welcome(placements.length);
+      void hud.welcome();
     }
     // Where you are, asked once and handed to both the disc and the chip.
     // Every frame, not throttled: `countryAtPoint` is 2 us and the nearest
@@ -3046,9 +3353,10 @@ async function start(): Promise<void> {
       minimap.update(player.position, player.forward, {
         country: standingIn,
         place: nearbyPlace,
-      }),
+      }, rig.heading),
     );
     guard('navigation', () => nav.update(dt, player, rig.camera));
+    guard('players', () => playerList.update(dt));
     // Costs one branch while it is closed, which is nearly always.
     guard('map', () => map.update(player.position, player.forward));
 
@@ -3056,17 +3364,7 @@ async function start(): Promise<void> {
     // buffer once the flag attribute is built: it is a uniform, an opacity, a
     // width and ten transforms.
     overlayFade = overlayOn ? smoothstep(OVERLAY_LOW, OVERLAY_HIGH, eyeOverGround) : 0;
-    if (overlayFade > 0 && !flagAsked) {
-      flagAsked = true;
-      void landFlags(world, land)
-        .then((layer) => {
-          if (flagCeiling !== null) layer.setCeiling(flagCeiling);
-          flagLayer = layer;
-        })
-        // The frontiers and the names do not depend on the chunk, so a failed
-        // fetch costs the flag and nothing else. It is asked for once.
-        .catch((error: unknown) => console.warn('the flag layer did not load:', error));
-    }
+    if (overlayFade > 0) askFlags();
     if (flagLayer !== null) {
       if (!flagLayer.state.ready) flagLayer.build(FLAG_BUILD_MS);
       flagLayer.setFade(overlayFade);
@@ -3260,7 +3558,7 @@ async function start(): Promise<void> {
         nearbyPlace.place.lon,
       ),
     ));
-    // The passport, after the chip: a candidate from the arrival card is
+    // The passport, after the chip: a candidate from the HUD's arrival is
     // stamped once you are down in its country, and a town counts once you
     // are inside it.
     guard('passport', () => {

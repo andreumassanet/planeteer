@@ -61,7 +61,7 @@ import * as THREE from 'three';
 import { PLANET_RADIUS } from './globe.ts';
 import { fbm } from './terrain.ts';
 import { PALETTE } from './theme.ts';
-import { BODIES, EARTH_RADIUS_KM, heliocentric } from './system/index.ts';
+import { BODIES, EARTH_RADIUS_KM, MOONS, heliocentric, moonPosition } from './system/index.ts';
 import type { Body, GroundSample } from './system/index.ts';
 import { latOf, lonOf } from './sphere.ts';
 import { PRECESSION, centuriesSince2000, eclipticBasis } from './celestial.ts';
@@ -105,6 +105,56 @@ const RINGS_A: readonly [number, number] = [2.03, 2.3];
  * bodies on them go with them; the country stage frames the globe from 2.47.
  */
 const NEAR_EARTH: readonly [number, number] = [5, 10];
+
+/**
+ * How far from Earth's centre the Moon is drawn, in Earth radii, on a ring of
+ * its own round Earth.
+ *
+ * The real figure is sixty, which would put it out past Venus's ring on this
+ * diagram. Off every law, like the Sun's: far enough that its disc (0.64 of
+ * Earth's) stands clear of Earth's with an Earth's width of sky between them
+ * from anywhere in the system, and that the camera framing the Moon's globe
+ * from 2.5 of its own radii is still two Earth radii off Earth's centre; near
+ * enough that it reads as Earth's and is never mistaken for a planet on a
+ * ring of its own. The direction is the real one: the Moon's geocentric
+ * ecliptic longitude and latitude today (`moonPosition`).
+ */
+const MOON_RADII = 3.6;
+
+/**
+ * Faces of a globe held up for its regions to be chosen on it (`holdUpright`
+ * with regions): 20 * (d + 1)^2 = 33,620, about six times the planet's own.
+ * The regions are read per pixel (`TINT_WIDTH`), so this is for the ground
+ * under them: a face of the everyday mesh is four degrees across, coarse for
+ * a globe that fills the screen; at this detail a face is under two degrees,
+ * painted once a body and kept for the session.
+ */
+const HELD_DETAIL = 40;
+
+/** How long a body takes to turn upright once held, seconds: inside the shortest flight down to it. */
+const HOLD_SECONDS = 0.9;
+
+/** How much of a region's own colour a held globe takes over its ground. */
+const REGION_TINT = 0.7;
+
+/**
+ * The held globe's region map, texels: one equirectangular canvas, longitude
+ * across and latitude down. Painted per face, a frontier was a staircase of
+ * two-degree triangles that disagreed with the ink line drawn along it; read
+ * per pixel off this it is the outline, and at a twelfth of a degree a texel
+ * it is crisper than the screen the closest framing puts the globe on.
+ */
+const TINT_WIDTH = 4096;
+const TINT_HEIGHT = 2048;
+
+/**
+ * One region as a held globe is tinted by it: its colour, and its rings as
+ * `[lon, lat]` loops that never cross the antimeridian, so each fills flat.
+ */
+export interface HeldRegion {
+  color: number;
+  rings: readonly (readonly (readonly number[])[])[];
+}
 
 /**
  * Faces of a planet: `IcosahedronGeometry` detail, 20 * (d + 1)^2 = 5,780.
@@ -270,14 +320,24 @@ function planetRamp(): THREE.DataTexture {
  */
 function planetMaterial(sun: { value: THREE.Vector3 }, ramp: THREE.DataTexture): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uSun: sun, uRamp: { value: ramp }, uOpacity: { value: 1 } },
+    uniforms: {
+      uSun: sun,
+      uRamp: { value: ramp },
+      uOpacity: { value: 1 },
+      // A held globe's regions (`holdUpright`): off until one is handed in.
+      uTint: { value: null },
+      uTinted: { value: 0 },
+      uTintRadius: { value: 0 },
+    },
     vertexColors: true,
     vertexShader: /* glsl */ `
       varying vec3 vColor;
       varying vec3 vNormal;
       varying vec3 vWorld;
+      varying vec3 vLocal;
       void main() {
         vColor = color;
+        vLocal = position;
         vec4 world = modelMatrix * vec4(position, 1.0);
         vWorld = world.xyz;
         vNormal = normalize(mat3(modelMatrix) * normal);
@@ -287,16 +347,73 @@ function planetMaterial(sun: { value: THREE.Vector3 }, ramp: THREE.DataTexture):
       uniform vec3 uSun;
       uniform sampler2D uRamp;
       uniform float uOpacity;
+      uniform sampler2D uTint;
+      uniform float uTinted;
+      uniform float uTintRadius;
       varying vec3 vColor;
       varying vec3 vNormal;
       varying vec3 vWorld;
+      varying vec3 vLocal;
       void main() {
         float lit = dot(normalize(vNormal), normalize(uSun - vWorld)) * 0.5 + 0.5;
         vec3 band = texture2D(uRamp, vec2(lit, 0.5)).rgb;
-        gl_FragColor = vec4(vColor * band, uOpacity);
+        vec3 base = vColor;
+        // The region under this pixel, read off the held globe's own frame:
+        // sphere.ts's lat = asin(y) and lon = atan2(-z, x). Not on Saturn's
+        // rings, which share the material and lie outside the globe.
+        if (uTinted > 0.5 && length(vLocal) < uTintRadius) {
+          vec3 unit = normalize(vLocal);
+          float lon = atan(-unit.z, unit.x);
+          float lat = asin(clamp(unit.y, -1.0, 1.0));
+          vec4 region = texture2D(uTint, vec2(lon / 6.2831853 + 0.5, lat / 3.1415927 + 0.5));
+          base = mix(base, region.rgb, region.a * ${REGION_TINT.toFixed(2)});
+        }
+        gl_FragColor = vec4(base * band, uOpacity);
         #include <colorspace_fragment>
       }`,
   });
+}
+
+/**
+ * The regions painted flat on an equirectangular canvas: each in its colour,
+ * filled and stroked a texel wide in it, so two rings of one region meet with
+ * no hairline of the ground between them; nobody's ground stays clear.
+ */
+function tintTexture(regions: readonly HeldRegion[]): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = TINT_WIDTH;
+  canvas.height = TINT_HEIGHT;
+  const ctx = canvas.getContext('2d')!;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 1.5;
+  for (const region of regions) {
+    const fill = `#${region.color.toString(16).padStart(6, '0')}`;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = fill;
+    for (const ring of region.rings) {
+      if (ring.length < 3) continue;
+      ctx.beginPath();
+      ring.forEach((point, k) => {
+        const x = ((point[0]! + 180) / 360) * TINT_WIDTH;
+        const y = ((90 - point[1]!) / 180) * TINT_HEIGHT;
+        if (k === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  // No mipmaps: the longitude wraps inside a pixel at the antimeridian, and a
+  // mip chosen off that jump is a seam of the smallest level down the globe.
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
 }
 
 /**
@@ -470,10 +587,16 @@ export interface OrreryBody {
   radius: number;
   /** Its ring about the Sun, world units; 0 for the Sun. */
   ring: number;
-  /** Counted out from the Sun: Mercury 1, Earth 3. 0 for the Sun. */
+  /** Counted out from the Sun: Mercury 1, Earth 3. 0 for the Sun; a moon has its planet's. */
   order: number;
   /** Where its centre is in world space, as of the last `update`. */
   position: THREE.Vector3;
+  /**
+   * How much of it is drawn after the last `update`, 0 to 1: everything but
+   * the body the camera is near steps back as it nears one (see the header).
+   * Earth's is always 1, since Earth is the world and not this file's mesh.
+   */
+  opacity: number;
 }
 
 export interface Orrery {
@@ -509,6 +632,23 @@ export interface Orrery {
    * nears Earth; `null` when it is Earth or nothing. See the header.
    */
   focus(id: string | null): void;
+  /**
+   * Hold one body still and upright for a globe stage to be played on it:
+   * its pole on the world's +Y and its longitude 0 on +X, so a latitude and a
+   * longitude round its centre (`onSphere`) are on its drawn surface where
+   * its own file says — the same frame Earth's land is in. Its spin stops,
+   * the rest of the system steps back as the camera nears it, as it does for
+   * Earth, and with `regions` its globe is redrawn finer and tinted by them,
+   * per pixel, off a flat map of their rings. `null` lets it go.
+   */
+  holdUpright(id: string | null, regions?: readonly HeldRegion[]): void;
+  /**
+   * A body drawn by somebody else from here on — a walked world's own ground
+   * (`worlds/menu-globe.ts`): its painted ball goes (Saturn keeps its rings),
+   * and it stands still and upright in the world's frame, as Earth's land
+   * does, so holding it for its globe stage turns nothing.
+   */
+  cover(id: string): void;
   /**
    * The handedness witness: the angle between the Sun this file placed and the
    * sun `sun.ts` lights the world by. See the header.
@@ -563,6 +703,10 @@ export function createOrrery(): Orrery {
 
   interface Built {
     entry: OrreryBody;
+    /** The planet a moon circles, whose position its ring is centred on; `null` for a planet. */
+    around: Built | null;
+    /** The everyday painted geometry, put back when a held globe is let go. */
+    coarse: THREE.BufferGeometry | null;
     /** The body's local position in the ecliptic frame, updated from the orbit. */
     local: THREE.Vector3;
     pivot: THREE.Object3D | null;
@@ -575,59 +719,78 @@ export function createOrrery(): Orrery {
     spin: number;
     ring: THREE.Mesh;
     ringMaterial: THREE.ShaderMaterial & { uniforms: RingUniforms };
+    /** Drawn by somebody else, still and upright: see `cover`. */
+    covered?: boolean;
   }
 
-  const sunEntry: OrreryBody = { body: star, radius: SUN_RADII * R, ring: 0, order: 0, position: new THREE.Vector3() };
+  /**
+   * A turn every twenty seconds for a day as long as Earth's, slower for a
+   * longer one and never so slow it looks stopped. Seen from the menu a real
+   * rate is either invisible or a blur; the sign is the real one.
+   */
+  function spinOf(body: Body): number {
+    const hours = Math.abs(body.rotationHours) || 24;
+    return Math.sign(body.rotationHours || 1) * ((Math.PI * 2) / 20) * Math.min(2.5, Math.max(0.25, (24 / hours) ** 0.35));
+  }
+
+  /**
+   * A body's painted globe on its pivot, added to the system: one geodesic
+   * sphere, its own material so it can fade on its own, and Saturn's rings.
+   */
+  function globeOf(body: Body, radius: number): { pivot: THREE.Object3D; mesh: THREE.Mesh; material: THREE.ShaderMaterial } {
+    const material = planetMaterial(sunUniform, ramp);
+    disposables.push(material);
+    const geometry = new THREE.IcosahedronGeometry(radius, PLANET_DETAIL);
+    paint(body, geometry);
+    // Non-indexed, so this is one normal per face: facets for the ramp to
+    // step across, the way the land is built.
+    geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `orrery-${body.id}`;
+    disposables.push(geometry);
+    if (body.id === 'saturn') {
+      for (const [inner, outer] of [RINGS_B, RINGS_A]) {
+        const thick = radius * 0.035;
+        const profile = [
+          new THREE.Vector2(radius * inner, -thick),
+          new THREE.Vector2(radius * outer, -thick),
+          new THREE.Vector2(radius * outer, thick),
+          new THREE.Vector2(radius * inner, thick),
+          new THREE.Vector2(radius * inner, -thick),
+        ];
+        const lathe = new THREE.LatheGeometry(profile, 96).toNonIndexed();
+        lathe.computeVertexNormals();
+        const tone = new THREE.Color(inner === RINGS_B[0] ? PALETTE.sand : PALETTE.tan);
+        const shades = new Float32Array(lathe.getAttribute('position').count * 3);
+        for (let v = 0; v < shades.length; v += 3) shades.set([tone.r, tone.g, tone.b], v);
+        lathe.setAttribute('color', new THREE.BufferAttribute(shades, 3));
+        mesh.add(new THREE.Mesh(lathe, material));
+        disposables.push(lathe);
+      }
+    }
+    // The geometry's pole is +Y, which is how `onSphere` builds a globe; in
+    // the ecliptic frame the pole is +Z. A quarter turn about X carries one
+    // to the other, and the obliquity on top of it leans the pole over —
+    // past a right angle for Uranus and nearly upside down for Venus, which
+    // is what those two numbers mean.
+    const pivot = new THREE.Object3D();
+    pivot.rotation.x = (90 + body.tiltDeg) * DEG;
+    pivot.add(mesh);
+    group.add(pivot);
+    return { pivot, mesh, material };
+  }
+
+  const sunEntry: OrreryBody = { body: star, radius: SUN_RADII * R, ring: 0, order: 0, position: new THREE.Vector3(), opacity: 1 };
   const built: Built[] = [];
   planets.forEach((body, i) => {
     const radius = drawnRadius(body);
     const ringRadius = rings.get(body.id)!;
-    const entry: OrreryBody = { body, radius, ring: ringRadius, order: i + 1, position: new THREE.Vector3() };
+    const entry: OrreryBody = { body, radius, ring: ringRadius, order: i + 1, position: new THREE.Vector3(), opacity: 1 };
 
     let pivot: THREE.Object3D | null = null;
     let mesh: THREE.Mesh | null = null;
     let material: THREE.ShaderMaterial | null = null;
-    if (body.id !== 'earth') {
-      material = planetMaterial(sunUniform, ramp);
-      disposables.push(material);
-      const geometry = new THREE.IcosahedronGeometry(radius, PLANET_DETAIL);
-      paint(body, geometry);
-      // Non-indexed, so this is one normal per face: facets for the ramp to
-      // step across, the way the land is built.
-      geometry.computeVertexNormals();
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.name = `orrery-${body.id}`;
-      disposables.push(geometry);
-      if (body.id === 'saturn') {
-        for (const [inner, outer] of [RINGS_B, RINGS_A]) {
-          const thick = radius * 0.035;
-          const profile = [
-            new THREE.Vector2(radius * inner, -thick),
-            new THREE.Vector2(radius * outer, -thick),
-            new THREE.Vector2(radius * outer, thick),
-            new THREE.Vector2(radius * inner, thick),
-            new THREE.Vector2(radius * inner, -thick),
-          ];
-          const lathe = new THREE.LatheGeometry(profile, 96).toNonIndexed();
-          lathe.computeVertexNormals();
-          const tone = new THREE.Color(inner === RINGS_B[0] ? PALETTE.sand : PALETTE.tan);
-          const shades = new Float32Array(lathe.getAttribute('position').count * 3);
-          for (let v = 0; v < shades.length; v += 3) shades.set([tone.r, tone.g, tone.b], v);
-          lathe.setAttribute('color', new THREE.BufferAttribute(shades, 3));
-          mesh.add(new THREE.Mesh(lathe, material));
-          disposables.push(lathe);
-        }
-      }
-      // The geometry's pole is +Y, which is how `onSphere` builds a globe; in
-      // the ecliptic frame the pole is +Z. A quarter turn about X carries one
-      // to the other, and the obliquity on top of it leans the pole over —
-      // past a right angle for Uranus and nearly upside down for Venus, which
-      // is what those two numbers mean.
-      pivot = new THREE.Object3D();
-      pivot.rotation.x = (90 + body.tiltDeg) * DEG;
-      pivot.add(mesh);
-      group.add(pivot);
-    }
+    if (body.id !== 'earth') ({ pivot, mesh, material } = globeOf(body, radius));
 
     const ringMat = ringMaterial();
     const ring = new THREE.Mesh(ringGeometry(ringRadius, 360), ringMat);
@@ -637,18 +800,38 @@ export function createOrrery(): Orrery {
     group.add(ring);
     disposables.push(ring.geometry, ringMat);
 
-    // A turn every twenty seconds for a day as long as Earth's, slower for a
-    // longer one and never so slow it looks stopped. Seen from the menu a real
-    // rate is either invisible or a blur; the sign is the real one.
-    const hours = Math.abs(body.rotationHours) || 24;
-    const spin = Math.sign(body.rotationHours || 1) * ((Math.PI * 2) / 20) * Math.min(2.5, Math.max(0.25, (24 / hours) ** 0.35));
-
-    built.push({ entry, local: new THREE.Vector3(), pivot, mesh, material, spin, ring, ringMaterial: ringMat });
+    built.push({ entry, local: new THREE.Vector3(), pivot, mesh, material, spin: spinOf(body), ring, ringMaterial: ringMat, around: null, coarse: mesh?.geometry ?? null });
   });
 
   const earthBuilt = built.find((b) => b.entry.body.id === 'earth');
   if (earthBuilt === undefined) throw new Error('orrery: the registry has no Earth');
   const earth = earthBuilt.entry;
+  earth.opacity = 1;
+
+  /* --- the Moon --------------------------------------------------------- */
+
+  // Earth's, on a little ring of its own round Earth (`MOON_RADII`), in the
+  // direction the real Moon is today. Listed right after Earth, so the dock
+  // shows it beside the planet it belongs to.
+  const moonBody = MOONS.find((one) => one.id === 'moon');
+  if (moonBody !== undefined) {
+    const radius = drawnRadius(moonBody);
+    const { pivot, mesh, material } = globeOf(moonBody, radius);
+    const ringMat = ringMaterial();
+    const ring = new THREE.Mesh(ringGeometry(MOON_RADII * R, 180), ringMat);
+    ring.name = `orrery-ring-${moonBody.id}`;
+    ring.frustumCulled = false;
+    ring.renderOrder = 905;
+    group.add(ring);
+    disposables.push(ring.geometry, ringMat);
+    const entry: OrreryBody = { body: moonBody, radius, ring: MOON_RADII * R, order: earth.order, position: new THREE.Vector3(), opacity: 1 };
+    built.push({
+      entry, local: new THREE.Vector3(), pivot, mesh, material, spin: spinOf(moonBody), ring, ringMaterial: ringMat,
+      around: earthBuilt, coarse: mesh.geometry,
+    });
+  }
+  /** The planets alone, the Sun's rings, outermost last. */
+  const planetsBuilt = built.filter((b) => b.around === null);
 
   /*
    * The stars were a field of 1,400 hashed points on a shell 220 radii round
@@ -668,17 +851,55 @@ export function createOrrery(): Orrery {
   const basis = new THREE.Matrix4();
   let highlighted: string | null = null;
   let focused: string | null = null;
+  /** The body held upright for a globe stage, and its finer painted globes by id. */
+  let held: Built | null = null;
+  const heldTurn = new THREE.Quaternion();
+  /** The world's axes in the ecliptic group's frame, this frame: where a covered body's pivot stands. */
+  const upright = new THREE.Quaternion();
+  /** What a covered body's ball is drawn with: nothing. */
+  const nothing = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'color']) nothing.setAttribute(name, new THREE.Float32BufferAttribute([], 3));
+  disposables.push(nothing);
+  /** Where the held body's pivot and spin were when it was taken, and how far it has turned upright, 0 to 1. */
+  const holdFrom = new THREE.Quaternion();
+  let holdSpin = 0;
+  let holdK = 1;
+  const heldGlobes = new Map<string, THREE.BufferGeometry>();
+  /** The held globe's region map, painted on holding it and let go with it. */
+  let heldTint: THREE.CanvasTexture | null = null;
+  /** Switch a body's material's region tint on or off. */
+  const setTint = (b: Built, texture: THREE.CanvasTexture | null): void => {
+    if (b.material === null) return;
+    const uniforms = b.material.uniforms;
+    uniforms['uTint']!.value = texture;
+    uniforms['uTinted']!.value = texture === null ? 0 : 1;
+    uniforms['uTintRadius']!.value = b.entry.radius * 1.2;
+  };
   const gold = new THREE.Color(PALETTE.gold);
   const cream = new THREE.Color(PALETTE.cream);
 
   /** Where every planet is on its ring now, in the ecliptic frame. */
   function layOut(time: Date): void {
     const t = centuriesSince2000(time);
-    for (const b of built) {
+    for (const b of planetsBuilt) {
       const h = heliocentric(b.entry.body.orbit!, time);
       const angle = (h.lon + PRECESSION * t) * DEG;
       b.local.set(Math.cos(angle) * b.entry.ring, Math.sin(angle) * b.entry.ring, 0);
       b.pivot?.position.copy(b.local);
+    }
+    // The Moon's ecliptic longitude and latitude (lambda, beta) are already of
+    // date, so no precession; the frame is the ecliptic's, not `sphere.ts`'s.
+    for (const b of built) {
+      if (b.around === null) continue;
+      const lunar = moonPosition(time);
+      const lambda = lunar.lon * DEG;
+      const beta = lunar.lat * DEG;
+      b.local
+        .set(Math.cos(beta) * Math.cos(lambda), Math.cos(beta) * Math.sin(lambda), Math.sin(beta))
+        .multiplyScalar(b.entry.ring)
+        .add(b.around.local);
+      b.pivot?.position.copy(b.local);
+      b.ring.position.copy(b.around.local);
     }
   }
 
@@ -702,13 +923,13 @@ export function createOrrery(): Orrery {
 
   const api: Orrery = {
     group,
-    bodies: [sunEntry, ...built.map((b) => b.entry)],
+    bodies: [sunEntry, ...planetsBuilt.flatMap((p) => [p, ...built.filter((b) => b.around === p)]).map((b) => b.entry)],
     sun: sunEntry,
     earth,
     north,
     axes: { x: ex, y: ey, z: ez },
     extent: (() => {
-      const outer = built[built.length - 1]!;
+      const outer = planetsBuilt[planetsBuilt.length - 1]!;
       return outer.entry.ring + extentOf(outer.entry.body);
     })(),
     update(time, camera, screenHeight, dt) {
@@ -719,16 +940,38 @@ export function createOrrery(): Orrery {
         // Sun would sit in the wrong half of the sky. Say so rather than draw it.
         console.warn('orrery: the ecliptic basis is a reflection', basis.determinant());
       }
+      upright.setFromRotationMatrix(basis).invert();
       for (const b of built) {
-        if (b.mesh !== null) b.mesh.rotation.y += b.spin * dt;
+        if (b.covered === true) {
+          b.pivot!.quaternion.copy(upright);
+          b.mesh!.rotation.set(0, 0, 0);
+        } else if (b.mesh !== null && b !== held) b.mesh.rotation.y += b.spin * dt;
+      }
+      if (held?.pivot != null && held.covered !== true) {
+        // Upright in the world: the group's own turn undone under it, so the
+        // pivot's frame is the world's axes and the mesh's is the body's.
+        // Turned there over `HOLD_SECONDS` rather than snapped, since it is
+        // usually on the screen, and the flight down to it hides the rest.
+        heldTurn.setFromRotationMatrix(basis).invert();
+        holdK = Math.min(1, holdK + dt / HOLD_SECONDS);
+        const k = holdK * holdK * (3 - 2 * holdK);
+        held.pivot.quaternion.slerpQuaternions(holdFrom, heldTurn, k);
+        held.mesh!.rotation.set(0, holdSpin * (1 - k), 0);
       }
       // Pixels to world units per unit of range, for a ribbon two pixels wide
       // and three when it is the one being pointed at.
       const perRange = (2 * Math.tan((camera.fov * DEG) / 2)) / Math.max(1, screenHeight);
       // Near Earth the rings are in the way — Earth's own passes through the
       // middle of the planet — so they go as the globe fills the frame, and
-      // every body but the one the camera was sent to goes with them.
-      const nearEarth = THREE.MathUtils.smoothstep(camera.position.length(), NEAR_EARTH[0] * R, NEAR_EARTH[1] * R);
+      // every body but the one the camera was sent to goes with them. A body
+      // held up for its globe stage is Earth for this: the same span, in its
+      // own radii.
+      const anchor = held?.entry ?? earth;
+      const nearEarth = THREE.MathUtils.smoothstep(
+        camera.position.distanceTo(anchor.position),
+        NEAR_EARTH[0] * anchor.radius,
+        NEAR_EARTH[1] * anchor.radius,
+      );
       for (const b of built) {
         const hot = b.entry.body.id === highlighted;
         b.ringMaterial.uniforms.uWidth.value = perRange * (hot ? 1.6 : 1);
@@ -736,11 +979,13 @@ export function createOrrery(): Orrery {
         b.ringMaterial.uniforms.uAlpha.value = (hot ? 0.95 : 0.26) * nearEarth;
         b.ring.visible = nearEarth > 0.01;
         if (b.material === null || b.pivot === null) continue;
-        const opacity = b.entry.body.id === focused ? 1 : nearEarth;
+        const opacity = b.entry.body.id === focused || b === held ? 1 : nearEarth;
+        b.entry.opacity = opacity;
         fade(b.material, opacity);
         b.pivot.visible = opacity > 0.01;
       }
       const sunOpacity = star.id === focused ? 1 : nearEarth;
+      sunEntry.opacity = sunOpacity;
       fade(sunMat, sunOpacity);
       glowMaterial.opacity = sunOpacity;
       sunMesh.visible = glow.visible = sunOpacity > 0.01;
@@ -750,6 +995,61 @@ export function createOrrery(): Orrery {
     },
     focus(id) {
       focused = id;
+    },
+    holdUpright(id, regions) {
+      const next = id === null ? null : built.find((b) => b.entry.body.id === id && b.mesh !== null) ?? null;
+      if (held !== null && held !== next && held.covered !== true) {
+        // Let go: the everyday globe back, leaning and turning again.
+        held.mesh!.geometry = held.coarse!;
+        held.pivot!.quaternion.identity();
+        held.pivot!.rotation.x = (90 + held.entry.body.tiltDeg) * DEG;
+        setTint(held, null);
+      }
+      if (heldTint !== null) {
+        heldTint.dispose();
+        heldTint = null;
+      }
+      if (next !== null && next !== held) {
+        holdFrom.copy(next.pivot!.quaternion);
+        // The spin to undo, the short way round.
+        const turn = next.mesh!.rotation.y % (Math.PI * 2);
+        holdSpin = turn > Math.PI ? turn - Math.PI * 2 : turn < -Math.PI ? turn + Math.PI * 2 : turn;
+        holdK = 0;
+      }
+      held = next;
+      if (held === null) return;
+      if (held.covered === true) {
+        // Already still and upright, and drawn by its own ground.
+        holdK = 1;
+        return;
+      }
+      if (regions === undefined) {
+        held.mesh!.geometry = held.coarse!;
+        setTint(held, null);
+        return;
+      }
+      let fine = heldGlobes.get(held.entry.body.id);
+      if (fine === undefined) {
+        fine = new THREE.IcosahedronGeometry(held.entry.radius, HELD_DETAIL);
+        paint(held.entry.body, fine);
+        fine.computeVertexNormals();
+        heldGlobes.set(held.entry.body.id, fine);
+        disposables.push(fine);
+      }
+      held.mesh!.geometry = fine;
+      if (regions.length === 0) {
+        setTint(held, null);
+        return;
+      }
+      heldTint = tintTexture(regions);
+      setTint(held, heldTint);
+    },
+    cover(id) {
+      const b = built.find((one) => one.entry.body.id === id && one.mesh !== null);
+      if (b === undefined || b.covered === true) return;
+      b.covered = true;
+      b.mesh!.geometry = nothing;
+      if (held === b) setTint(b, null);
     },
     verify(sunDirection) {
       const placed = sunWorld.clone().normalize();
@@ -768,6 +1068,7 @@ export function createOrrery(): Orrery {
     },
     dispose() {
       group.removeFromParent();
+      heldTint?.dispose();
       for (const item of disposables) item.dispose();
     },
   };

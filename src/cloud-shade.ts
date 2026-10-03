@@ -523,6 +523,15 @@ export function updateCloudShade(turn: THREE.Quaternion, sun: THREE.Vector3, cam
   uniforms.atlasCloudShade.value.x = strength;
 }
 
+/**
+ * No shade until the next `updateCloudShade`: another world is drawn with
+ * Earth's materials, and Earth's deck is not over it.
+ */
+export function suspendCloudShade(): void {
+  strength = 0;
+  uniforms.atlasCloudShade.value.x = 0;
+}
+
 // ---------------------------------------------------------------------------
 // The sun's budget
 // ---------------------------------------------------------------------------

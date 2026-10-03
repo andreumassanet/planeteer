@@ -1,26 +1,28 @@
 /**
- * The traveller's card: how you look, chosen with the figure turning in front
- * of you, and worn at once by the hero and seen by everyone else.
+ * The traveller's creator: how you look and what you are called, chosen with
+ * the camera walked up to you, and worn at once by the hero and seen by
+ * everyone else.
  *
- * It is the settings card's kind of object — a modal over the world or the
- * menu, holding the keyboard (`registerModal`) and the mouse while it is up —
- * and it owns nothing: the appearance is `avatar.ts`'s (`dressHero`), handed
- * in as a getter and a setter by `main.ts`, which also tells the other
- * players; the name is `peers.ts`'s rename. Every click is applied at once:
- * there is no draft and no Save, because the hero behind the card is the
- * thing being dressed.
+ * **It is not a card in the middle of the screen any more.** The hero stands
+ * on the stage (`hero-stage.ts`) on the right, large, and the creator is a
+ * column on the left: a rail of categories — you, skin, hair, top, bottom,
+ * shoes and rucksack — and the one that is open,
+ * its choices as pictures of the hero wearing each (`stage.portrait`) and its
+ * colours as swatches. Opening a category moves the camera to it: the face
+ * for skin and hair, the feet for shoes, round the back for the rucksack.
+ * The name floats over the hero's head with a pencil (the stage's plate), and
+ * that is the one place it is changed.
  *
- * **The preview is a renderer of its own, and only while the card is up.** A
- * small canvas with its own WebGL context, the world's ramp and pen
- * (`OutlineEffect`), a disc of grass and the figure on it in the relaxed
- * idle, turning slowly or by hand. It is made when the card opens and its
- * context is lost on purpose when it closes, so a card nobody opens costs
- * nothing and one that was opened leaves nothing behind. Its people come from
- * the hero's own cast with every outfit loaded (`wardrobeCast`), which the
- * card asks for on its first opening — the fifteen outfits, a little over two
- * megabytes, which the crowd has usually fetched already.
+ * Opened from the title screen, the stage is already up: the title's column
+ * goes, this one comes, and the camera dollies in; *Done* is the same move
+ * back. Opened from the world or the planet menu, the stage comes up over a
+ * dimmed, blurred version of what was there, and goes with the creator.
+ *
+ * It is a modal like the settings card — it holds the keyboard
+ * (`registerModal`) and the mouse while it is up — and it owns nothing: the
+ * appearance is `avatar.ts`'s (`dressHero`), handed in as a getter and a
+ * setter by `main.ts`, which also tells the other players. Every click is applied at once, and *Undo* walks them back.
  */
-import * as THREE from 'three';
 import {
   CLOTH,
   DEFAULT_APPEARANCE,
@@ -28,29 +30,26 @@ import {
   SKINS,
   WARDROBE,
   colourName,
-  coloursOf,
+  encodeAppearance,
   fitAppearance,
   randomAppearance,
-  wardrobeOf,
 } from './appearance.ts';
 import type { Appearance, Slot } from './appearance.ts';
-import { AVATAR_HEIGHT } from './stature.ts';
-import { paintWith } from './cast.ts';
-import type { Cast, Person } from './cast.ts';
 import { holdFocus, registerModal } from './controls.ts';
-import { OutlineEffect } from './outline.ts';
+import type { HeroStage, PortraitFrame, StageShot } from './hero-stage.ts';
 import { rngFrom } from './scenery/random.ts';
-import { PALETTE, SKY_TOP } from './theme.ts';
+import { PALETTE } from './theme.ts';
 import { ensureStyle, h, hex, icon, installUi } from './ui.ts';
+
+export { createHeroStage } from './hero-stage.ts';
+export type { HeroStage } from './hero-stage.ts';
 
 export interface TravellerOptions {
   /** The appearance, owned by the caller: `set` dresses the hero and tells the others. */
   appearance: { get(): Appearance; set(appearance: Appearance): void };
-  /** The cast the preview is dressed from, with every outfit loaded. */
-  cast(): Promise<Cast>;
-  /** The name over your head, where there are other players to see it. Omit it and the row is not built. */
-  name?: { get(): string; set(name: string): string };
-  /** Where to hand the pointer back to, if it was locked when the card opened. */
+  /** The stage the hero stands on, shared with the title screen. */
+  stage: HeroStage;
+  /** Where to hand the pointer back to, if it was locked when the creator opened. */
   lockTarget?: HTMLElement | null;
   onOpen?(): void;
   onClose?(): void;
@@ -60,453 +59,620 @@ export interface Traveller {
   root: HTMLElement;
   readonly open: boolean;
   /**
-   * Opens the card. `relock` says whether to ask for the pointer back on
+   * Opens the creator. `relock` says whether to ask for the pointer back on
    * closing; left out, it is whether the pointer is locked now — which it is
-   * not for a card opened from another card that already released it.
+   * not for a creator opened from another card that already released it.
    */
   show(options?: { relock?: boolean }): void;
   hide(): void;
 }
 
-const STYLE = `
-.atlas-traveller {
-  position: fixed;
-  inset: 0;
-  z-index: 12;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(30, 6, 3, 0.52);
-  backdrop-filter: blur(4px);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0s 0.2s;
-  font-family: var(--ui-font);
-  color: var(--ui-ink);
-}
-.atlas-traveller.on { opacity: 1; visibility: visible; transition-delay: 0s; }
-.atlas-traveller.on .t-panel { animation: ui-pop 0.32s var(--ui-spring) both; }
-.t-panel {
-  width: min(820px, 100%);
-  max-height: min(760px, calc(100vh - 48px));
-  overflow: auto;
-  padding: 20px 22px 18px;
-  display: grid;
-  grid-template-columns: 290px 1fr;
-  gap: 8px 24px;
-  scrollbar-width: thin;
-}
-.t-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
-.t-badge {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border: 3px solid var(--ui-ink);
-  border-radius: 50%;
-  background: var(--ui-gold);
-  box-shadow: 0 3px 0 var(--ui-ink);
-}
-.t-badge svg { width: 24px; height: 24px; }
-.t-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-.t-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
-.t-close { margin-left: auto; }
-.t-stage { display: flex; flex-direction: column; gap: 12px; }
-.t-view {
-  position: relative;
-  height: 380px;
-  border: 3px solid var(--ui-ink);
-  border-radius: 12px;
-  overflow: hidden;
-  background: linear-gradient(${hex(SKY_TOP)}, ${hex(PALETTE.cream)});
-  cursor: grab;
-  touch-action: none;
-}
-.t-view:active { cursor: grabbing; }
-.t-view canvas { display: block; width: 100%; height: 100%; }
-.t-view .t-wait {
-  position: absolute;
-  inset: auto 0 14px;
-  text-align: center;
-  font-size: 12.5px;
-  font-weight: 800;
-  opacity: 0.6;
-}
-.t-actions { display: flex; gap: 8px; }
-.t-actions .ui-btn { flex: 1; }
-.t-rows { display: flex; flex-direction: column; }
-.t-row { padding: 9px 0; display: grid; gap: 8px; }
-.t-row + .t-row { border-top: 1.5px dashed var(--ui-rule); }
-.t-line { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
-.t-label { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
-.t-pick { display: flex; align-items: center; gap: 6px; }
-.t-pick .ui-btn.icon { width: 34px; height: 34px; border-radius: 10px; box-shadow: 0 3px 0 var(--ui-ink); }
-.t-pick .ui-btn.icon svg { width: 16px; height: 16px; }
-.t-pick output {
-  min-width: 150px;
-  text-align: center;
-  font-size: 13.5px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.t-pick output small { display: block; font-size: 10.5px; font-weight: 700; opacity: 0.5; }
-.t-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
-.t-swatch {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 2.5px solid var(--ui-ink);
-  border-radius: 50%;
-  cursor: pointer;
-  transition: transform 0.12s var(--ui-spring);
-}
-.t-swatch:hover { transform: translateY(-2px); }
-.t-swatch[aria-pressed='true'] { box-shadow: 0 0 0 2.5px var(--ui-paper), 0 0 0 5px var(--ui-ink); }
-.t-swatch:focus-visible { outline: var(--ui-ring); outline-offset: 5px; }
-.t-name {
-  width: 190px;
-  height: 38px;
-  padding: 0 12px;
-  border: 2.5px solid var(--ui-ink);
-  border-radius: 10px;
-  background: var(--ui-paper);
-  font: 700 14px var(--ui-font);
-  color: var(--ui-ink);
-}
-.t-name::placeholder { color: rgba(30, 6, 3, 0.45); }
-.t-name:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
-.t-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-@media (max-width: 720px) {
-  .t-panel { grid-template-columns: 1fr; }
-  .t-view { height: 300px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .atlas-traveller.on .t-panel { animation: none; }
-}
-`;
+type CategoryId = 'you' | 'skin' | 'hair' | 'top' | 'bottom' | 'feet' | 'pack';
 
-/** Radians a second the figure turns by itself, a full turn in about fifteen seconds. */
-const TURN_RATE = 0.42;
-/** Radians of turn per pixel dragged. */
-const DRAG_TURN = 0.012;
-/** The lens, narrow so a figure fills the frame without a wide lens's big head. */
-const LENS = 26;
+interface Category {
+  id: CategoryId;
+  label: string;
+  /** What the panel says under its title. */
+  note: string;
+  /** The rail's picture: strokes on a 24-unit grid, as `ui.ts` draws its icons. */
+  glyph: string;
+  shot: StageShot;
+}
 
-const SLOT_TITLE: Readonly<Record<Slot, string>> = { head: 'Hair', top: 'Top', bottom: 'Bottom', feet: 'Shoes' };
+const CATEGORIES: readonly Category[] = [
+  {
+    id: 'you',
+    label: 'You',
+    note: 'Your body. Everyone online sees you as you choose here.',
+    glyph: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.3c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4M14.2 10h3.3M14.2 13.5h3.3"/>',
+    shot: 'full',
+  },
+  {
+    id: 'skin',
+    label: 'Skin',
+    note: 'Eight tones, the same the people of the world are drawn in.',
+    glyph: '<path d="M12 3.5c3.1 3.7 5.6 6.9 5.6 10.1a5.6 5.6 0 0 1-11.2 0c0-3.2 2.5-6.4 5.6-10.1z"/><path d="M9.6 14.2a2.6 2.6 0 0 0 2 2.4"/>',
+    shot: 'head',
+  },
+  {
+    id: 'hair',
+    label: 'Hair',
+    note: 'A style, a hat or a hood, and the colour of the hair, the brows and any beard.',
+    glyph: '<circle cx="12" cy="13.5" r="6.3"/><path d="M5.7 12.6C6.6 8.4 9 6 12 6s5.4 2.4 6.3 6.6c-2.6-.3-5-1.6-6.3-3.6-1.3 2-3.7 3.3-6.3 3.6z"/>',
+    shot: 'head',
+  },
+  {
+    id: 'top',
+    label: 'Top',
+    note: 'What you wear over your shoulders, and its colour.',
+    glyph: '<path d="M8.7 3.8 4.2 6.2 2.6 11l3 1.2 1.6-1.5v9.8h9.6v-9.8l1.6 1.5 3-1.2-1.6-4.8-4.5-2.4c-.5 1.5-1.8 2.4-3.3 2.4s-2.8-.9-3.3-2.4z"/>',
+    shot: 'top',
+  },
+  {
+    id: 'bottom',
+    label: 'Bottom',
+    note: 'Trousers, shorts or a skirt, and their colour.',
+    glyph: '<path d="M6.6 3.6h10.8l1.5 16.8h-4.6L12 9.6l-2.3 10.8H5.1z"/><path d="M6.6 7h10.8"/>',
+    shot: 'legs',
+  },
+  {
+    id: 'feet',
+    label: 'Shoes',
+    note: 'From sandals to work boots, and their colour.',
+    glyph: '<path d="M3.5 7.5v9h17v-1.4c0-1.8-1.4-3-3.3-3.4L12.3 10.6 9.6 7.5z"/><path d="M3.5 13.8h17M12.3 10.6l-1.6 1.6M14.6 11.2l-1.4 1.5"/>',
+    shot: 'feet',
+  },
+  {
+    id: 'pack',
+    label: 'Rucksack',
+    note: 'A rucksack on your back, or nothing at all.',
+    glyph: '<rect x="5.5" y="6.5" width="13" height="14" rx="3.6"/><path d="M9 6.5V5.2a3 3 0 0 1 6 0v1.3"/><path d="M8.6 13.4h6.8v3.6H8.6z"/>',
+    shot: 'back',
+  },
+];
+
+const SLOT_FRAME: Readonly<Record<Slot, PortraitFrame>> = { head: 'head', top: 'top', bottom: 'bottom', feet: 'feet' };
 const SLOT_COLOUR: Readonly<Record<Slot, 'hair' | 'topColour' | 'bottomColour' | 'feetColour'>> = {
   head: 'hair',
   top: 'topColour',
   bottom: 'bottomColour',
   feet: 'feetColour',
 };
+const SLOT_WORD: Readonly<Record<Slot, string>> = { head: 'Style', top: 'Top', bottom: 'Bottom', feet: 'Shoes' };
 
-/** The preview: a renderer, a scene and a figure, all of it gone when the card closes. */
-interface Preview {
-  renderer: THREE.WebGLRenderer;
-  outline: OutlineEffect;
-  scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
-  turntable: THREE.Group;
-  ground: THREE.Mesh;
-  person: Person | null;
-  frame: number;
-  last: number;
+/** How many steps *Undo* remembers. */
+const UNDO_DEPTH = 60;
+
+const UNDO = '<path d="M9.2 5.5 4.5 10.2l4.7 4.7"/><path d="M4.5 10.2h10a4.9 4.9 0 0 1 0 9.8H11"/>';
+const CHECK = '<path d="m5 12.5 4.5 4.5L19 7.5"/>';
+const glyph = (paths: string): string =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+
+/** A colour's name as a person says it: the pen's ink is black hair, not "ink". */
+const spoken = (color: number): string => (color === PALETTE.ink ? 'black' : colourName(color));
+
+const STYLE = `
+.atlas-creator {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+  visibility: hidden;
+  transition: visibility 0s 0.4s;
+  --cr-centre: 62%;
+}
+.atlas-creator.on { visibility: visible; transition-delay: 0s; }
+.cr-side {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  bottom: 24px;
+  width: min(480px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateX(-36px);
+  transition: opacity 0.35s ease, transform 0.45s var(--ui-ease);
+}
+.atlas-creator.on .cr-side { opacity: 1; transform: none; }
+.cr-head { display: flex; align-items: center; gap: 12px; color: var(--ui-paper); }
+.cr-head h2 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  -webkit-text-stroke: 6px var(--ui-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 var(--ui-ink);
+}
+.cr-head p { margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: rgba(255, 242, 232, 0.78); text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7); }
+.cr-main { flex: 1; min-height: 0; display: flex; gap: 12px; }
+.cr-rail { display: flex; flex-direction: column; gap: 8px; flex: none; width: 78px; overflow-y: auto; scrollbar-width: none; padding: 2px 2px 6px; }
+.cr-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+  height: 62px;
+  padding: 0;
+  font: 800 11.5px/1 var(--ui-font);
+  letter-spacing: -0.01em;
+  color: var(--ui-ink);
+  background: var(--ui-paper);
+  border: 3px solid var(--ui-ink);
+  border-radius: 14px;
+  box-shadow: 0 4px 0 var(--ui-ink);
+  cursor: pointer;
+  transition: transform 0.12s var(--ui-spring), box-shadow 0.12s ease, background 0.15s ease;
+}
+.cr-tab svg { width: 24px; height: 24px; }
+.cr-tab:hover { transform: translateX(3px); }
+.cr-tab[aria-selected='true'] { background: var(--ui-gold); transform: translateX(6px); }
+.cr-tab:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
+.cr-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cr-page { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 18px 20px; scrollbar-width: thin; }
+.cr-page[hidden] { display: none; }
+.cr-page.fresh { animation: cr-in 0.3s var(--ui-ease) both; }
+.cr-title { font-size: 25px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+.cr-note { margin: 6px 0 4px; font-size: 12.5px; font-weight: 600; line-height: 1.4; opacity: 0.62; }
+.cr-section { margin-top: 16px; }
+.cr-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.cr-section-head output { font-size: 12.5px; font-weight: 800; text-transform: capitalize; }
+.cr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 9px; }
+.cr-tiles.two { grid-template-columns: repeat(2, 1fr); }
+.cr-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  padding: 5px 5px 7px;
+  font: 800 12px/1.15 var(--ui-font);
+  color: var(--ui-ink);
+  text-align: center;
+  background: var(--ui-paper);
+  border: 2.5px solid var(--ui-ink);
+  border-radius: 12px;
+  box-shadow: 0 3px 0 var(--ui-ink);
+  cursor: pointer;
+  transition: transform 0.12s var(--ui-spring), box-shadow 0.12s ease, background 0.15s ease;
+}
+.cr-tile:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--ui-ink); }
+.cr-tile:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ui-ink); }
+.cr-tile:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
+.cr-tile[aria-pressed='true'] { background: var(--ui-gold); }
+.cr-tile canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 40%, ${hex(PALETTE.white)}, ${hex(PALETTE.cream)} 70%);
+}
+.cr-tile canvas:not(.drawn) { animation: cr-wait 1.2s ease-in-out infinite alternate; }
+.cr-tile .cr-tick {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--ui-ink);
+  border-radius: 50%;
+  background: var(--ui-paper);
+}
+.cr-tile .cr-tick svg { width: 13px; height: 13px; }
+.cr-tile[aria-pressed='true'] .cr-tick { display: grid; }
+.cr-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.cr-swatch {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 3px solid var(--ui-ink);
+  border-radius: 50%;
+  box-shadow: 0 3px 0 var(--ui-ink);
+  cursor: pointer;
+  transition: transform 0.12s var(--ui-spring);
+}
+.cr-swatch:hover { transform: translateY(-2px) scale(1.06); }
+.cr-swatch[aria-pressed='true'] { box-shadow: 0 0 0 3px var(--ui-paper), 0 0 0 6px var(--ui-ink); transform: scale(1.04); }
+.cr-swatch:focus-visible { outline: var(--ui-ring); outline-offset: 6px; }
+.cr-swatches.big .cr-swatch { width: 44px; height: 44px; }
+.cr-foot { display: flex; align-items: center; gap: 8px; }
+.cr-foot .cr-done { margin-left: auto; }
+.cr-foot .ui-btn svg { width: 18px; height: 18px; }
+.cr-views {
+  position: absolute;
+  left: var(--cr-centre);
+  bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.35s ease 0.1s, left 0.3s var(--ui-ease);
+}
+.atlas-creator.on .cr-views { opacity: 1; }
+.cr-hint { font-size: 12px; font-weight: 700; color: rgba(255, 242, 232, 0.72); text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7); white-space: nowrap; }
+@keyframes cr-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes cr-wait { from { opacity: 0.55; } to { opacity: 1; } }
+@media (max-width: 760px) {
+  .cr-side { left: 12px; right: 12px; top: auto; bottom: 12px; width: auto; height: 56vh; gap: 10px; }
+  .cr-head { display: none; }
+  .cr-main { flex-direction: column; gap: 10px; }
+  .cr-rail { flex-direction: row; width: auto; overflow-x: auto; overflow-y: hidden; }
+  .cr-tab { width: 66px; height: 56px; }
+  .cr-tab[aria-selected='true'] { transform: translateY(-3px); }
+  .cr-tab:hover { transform: none; }
+  .cr-views { bottom: auto; top: 14px; }
+  .cr-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cr-side, .cr-views, .cr-tab, .cr-tile, .cr-swatch { transition: none; }
+  .cr-page.fresh, .cr-tile canvas:not(.drawn) { animation: none; }
+}
+`;
+
+/** A tile: a picture of the hero wearing a choice, and its name. */
+interface TileSpec {
+  key: string;
+  label: string;
+  title?: string;
+  look: () => Appearance;
+  chosen: () => boolean;
+  pick: () => void;
 }
 
 export function createTraveller(options: TravellerOptions): Traveller {
   installUi();
-  ensureStyle('atlas-traveller', STYLE);
+  ensureStyle('atlas-creator', STYLE);
+  const stage = options.stage;
 
-  const root = h('div', { class: 'atlas-traveller', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your traveller' });
-  const panel = h('div', { class: 't-panel ui-card' });
-  root.append(panel);
-
-  const close = h('button', { class: 'ui-btn icon t-close', title: 'Close (Esc)', 'aria-label': 'Close' }, icon('close'));
-  panel.append(
-    h(
-      'div',
-      { class: 't-head' },
-      h('div', { class: 't-badge' }, icon('walk')),
-      h(
-        'div',
-        {},
-        h('div', { class: 't-title', text: 'Your traveller' }),
-        h('div', { class: 't-sub', text: 'How you look to everyone else in the world. Saved on this device.' }),
-      ),
-      close,
-    ),
-  );
-
-  /* --- the state: one appearance, applied on every change ---------------- */
+  /* --- the state: one appearance, applied on every change, and its history -- */
 
   let look: Appearance = fitAppearance(options.appearance.get());
-  const refreshers: (() => void)[] = [];
+  const history: Appearance[] = [];
 
   function change(next: Appearance): void {
-    look = fitAppearance(next);
-    options.appearance.set(look);
-    for (const refresh of refreshers) refresh();
-    redress();
+    const fitted = fitAppearance(next);
+    if (encodeAppearance(fitted) === encodeAppearance(look)) return;
+    history.push(look);
+    if (history.length > UNDO_DEPTH) history.shift();
+    apply(fitted);
   }
 
-  /* --- the controls ------------------------------------------------------ */
+  function apply(next: Appearance): void {
+    look = next;
+    options.appearance.set(look);
+    refresh();
+  }
 
-  function swatches(label: string, colours: readonly number[], get: () => number, set: (index: number) => void): HTMLElement {
+  function undo(): void {
+    const last = history.pop();
+    if (last !== undefined) apply(last);
+  }
+
+  function randomise(): void {
+    change(randomAppearance(rngFrom('traveller', Date.now(), Math.random())));
+    stage.wave();
+  }
+
+  /* --- the pieces a page is made of ------------------------------------------ */
+
+  /** What every page re-reads when anything changes; each page adds its own. */
+  const refreshers = new Map<CategoryId, (() => void)[]>();
+  let building: CategoryId = 'you';
+  const onRefresh = (refresh: () => void): void => {
+    const list = refreshers.get(building) ?? [];
+    list.push(refresh);
+    refreshers.set(building, list);
+  };
+
+  function section(title: string, value: HTMLElement | null, ...body: (Node | null)[]): HTMLElement {
+    return h(
+      'section',
+      { class: 'cr-section' },
+      h('div', { class: 'cr-section-head' }, h('span', { class: 'ui-eyebrow', text: title }), value),
+      ...body,
+    );
+  }
+
+  /**
+   * A grid of tiles, made again whenever the list changes shape — a body's
+   * wardrobe is not the other's — and otherwise only marked and re-pictured.
+   */
+  function tiles(frame: PortraitFrame, list: () => TileSpec[], wide = false): HTMLElement {
+    const grid = h('div', { class: wide ? 'cr-tiles two' : 'cr-tiles', role: 'group' });
+    let shape = '';
+    let made: { spec: TileSpec; button: HTMLButtonElement; canvas: HTMLCanvasElement }[] = [];
+    onRefresh(() => {
+      const specs = list();
+      const now = specs.map((spec) => spec.key).join('|');
+      if (now !== shape) {
+        shape = now;
+        made = specs.map((spec) => {
+          const canvas = h('canvas', { width: 128, height: 128 });
+          const button = h(
+            'button',
+            { type: 'button', class: 'cr-tile', 'aria-pressed': 'false', title: spec.title ?? spec.label },
+            canvas,
+            h('span', { text: spec.label }),
+            h('span', { class: 'cr-tick', html: glyph(CHECK) }),
+          );
+          const tile = { spec, button, canvas };
+          // The spec current at the time of the click, not the one it was made with.
+          button.addEventListener('click', () => tile.spec.pick());
+          return tile;
+        });
+        grid.replaceChildren(...made.map((tile) => tile.button));
+      } else {
+        // The same tiles, with this refresh's closures.
+        made.forEach((tile, index) => {
+          tile.spec = specs[index]!;
+        });
+      }
+      for (const tile of made) {
+        tile.button.setAttribute('aria-pressed', String(tile.spec.chosen()));
+        stage.portrait(tile.spec.look(), frame, tile.canvas);
+      }
+    });
+    return grid;
+  }
+
+  /** A row of colours, with the chosen one's name over it. */
+  function swatches(
+    title: string,
+    colours: readonly number[],
+    get: () => number,
+    set: (index: number) => void,
+    name: (color: number, index: number) => string = spoken,
+    big = false,
+  ): HTMLElement {
+    const value = h('output', { 'aria-live': 'polite' });
     const buttons = colours.map((color, index) => {
       const button = h('button', {
         type: 'button',
-        class: 't-swatch',
-        title: colourName(color),
-        'aria-label': `${label}: ${colourName(color)}`,
+        class: 'cr-swatch',
+        title: name(color, index),
+        'aria-label': `${title}: ${name(color, index)}`,
         'aria-pressed': 'false',
       });
       button.style.background = hex(color);
       button.addEventListener('click', () => set(index));
       return button;
     });
-    refreshers.push(() => buttons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === get()))));
-    return h('div', { class: 't-swatches', role: 'group', 'aria-label': label }, ...buttons);
-  }
-
-  function row(label: string, side: Node | null, below?: Node): HTMLElement {
-    return h('div', { class: 't-row' }, h('div', { class: 't-line' }, h('span', { class: 't-label', text: label }), side), below ?? null);
-  }
-
-  const bodyButtons = (['man', 'woman'] as const).map((body) => {
-    const button = h('button', { type: 'button', text: body === 'man' ? 'Man' : 'Woman', 'aria-pressed': 'false' });
-    // A body is its own wardrobe, so switching keeps the colours and takes
-    // that body's first of everything, not the other body's indices.
-    button.addEventListener('click', () => {
-      if (look.body !== body) change({ ...look, body, head: 0, top: 0, bottom: 0, feet: 0 });
+    onRefresh(() => {
+      const at = get();
+      buttons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === at)));
+      value.textContent = colours[at] === undefined ? '' : name(colours[at]!, at);
     });
-    return [body, button] as const;
-  });
-  refreshers.push(() => bodyButtons.forEach(([body, button]) => button.setAttribute('aria-pressed', String(body === look.body))));
-  const bodyRow = row('Body', h('div', { class: 'ui-seg', role: 'group', 'aria-label': 'Body' }, ...bodyButtons.map(([, button]) => button)));
+    return section(title, value, h('div', { class: big ? 'cr-swatches big' : 'cr-swatches', role: 'group', 'aria-label': title }, ...buttons));
+  }
 
-  const skinRow = row(
-    'Skin',
-    null,
-    swatches('Skin', SKINS, () => look.skin, (skin) => change({ ...look, skin })),
-  );
-
-  function slotRow(slot: Slot): HTMLElement {
-    const title = SLOT_TITLE[slot];
-    const output = h('output', { 'aria-live': 'polite' });
-    const step = (by: number) => () => {
-      const count = WARDROBE[look.body][slot].length;
-      change({ ...look, [slot]: (look[slot] + by + count) % count });
-    };
-    const previous = h('button', { type: 'button', class: 'ui-btn icon', 'aria-label': `Previous ${title.toLowerCase()}` }, icon('back'));
-    const next = h('button', { type: 'button', class: 'ui-btn icon', 'aria-label': `Next ${title.toLowerCase()}` }, icon('next'));
-    previous.addEventListener('click', step(-1));
-    next.addEventListener('click', step(1));
-    refreshers.push(() => {
-      const list = WARDROBE[look.body][slot];
-      output.replaceChildren(document.createTextNode(list[look[slot]]!.label), h('small', { text: `${look[slot] + 1} of ${list.length}` }));
+  /** A slot's styles, as pictures, and its colour. */
+  function slotPage(slot: Slot): (HTMLElement | null)[] {
+    const word = SLOT_WORD[slot];
+    const value = h('output');
+    onRefresh(() => {
+      value.textContent = WARDROBE[look.body][slot][look[slot]]?.label ?? '';
     });
     const field = SLOT_COLOUR[slot];
-    const colours = slot === 'head' ? HAIR : CLOTH;
-    return row(
-      title,
-      h('div', { class: 't-pick' }, previous, output, next),
-      swatches(`${title} colour`, colours, () => look[field], (index) => change({ ...look, [field]: index })),
+    return [
+      section(
+        word,
+        value,
+        tiles(SLOT_FRAME[slot], () =>
+          WARDROBE[look.body][slot].map((choice, index) => ({
+            key: `${look.body}-${slot}-${index}`,
+            label: choice.label,
+            look: () => ({ ...look, [slot]: index }),
+            chosen: () => look[slot] === index,
+            pick: () => change({ ...look, [slot]: index }),
+          })),
+        ),
+      ),
+      swatches('Colour', slot === 'head' ? HAIR : CLOTH, () => look[field], (index) => change({ ...look, [field]: index })),
+    ];
+  }
+
+  /* --- the pages --------------------------------------------------------------- */
+
+  function page(category: Category): HTMLElement {
+    building = category.id;
+    const body: (Node | null)[] = [];
+    switch (category.id) {
+      case 'you':
+        body.push(
+          section(
+            'Body',
+            null,
+            tiles(
+              'body',
+              () =>
+                (['man', 'woman'] as const).map((kind) => ({
+                  key: kind,
+                  label: kind === 'man' ? 'Man' : 'Woman',
+                  // A body is its own wardrobe, so switching keeps the colours
+                  // and takes that body's first of everything.
+                  look: () => (look.body === kind ? look : { ...look, body: kind, head: 0, top: 0, bottom: 0, feet: 0 }),
+                  chosen: () => look.body === kind,
+                  pick: () => {
+                    if (look.body !== kind) change({ ...look, body: kind, head: 0, top: 0, bottom: 0, feet: 0 });
+                  },
+                })),
+              true,
+            ),
+          ),
+        );
+        break;
+      case 'skin':
+        body.push(swatches('Tone', SKINS, () => look.skin, (skin) => change({ ...look, skin }), (_, index) => `tone ${index + 1} of ${SKINS.length}`, true));
+        break;
+      case 'hair':
+        body.push(...slotPage('head'));
+        break;
+      case 'top':
+      case 'bottom':
+      case 'feet':
+        body.push(...slotPage(category.id));
+        break;
+      case 'pack':
+        body.push(
+          section(
+            'On your back',
+            null,
+            tiles(
+              'pack',
+              () =>
+                [false, true].map((on) => ({
+                  key: String(on),
+                  label: on ? 'Rucksack' : 'Nothing',
+                  look: () => ({ ...look, pack: on }),
+                  chosen: () => look.pack === on,
+                  pick: () => change({ ...look, pack: on }),
+                })),
+              true,
+            ),
+          ),
+          // A colour picked is a rucksack worn: nobody chooses the colour of nothing.
+          swatches('Colour', CLOTH, () => look.packColour, (packColour) => change({ ...look, packColour, pack: true })),
+        );
+        break;
+    }
+    return h(
+      'div',
+      { class: 'cr-page', role: 'tabpanel', id: `cr-page-${category.id}`, 'aria-label': category.label },
+      h('div', { class: 'cr-title', text: category.label }),
+      h('p', { class: 'cr-note', text: category.note }),
+      ...body,
     );
   }
 
-  const packSwitch = h('button', { class: 'ui-switch', role: 'switch', 'aria-label': 'Rucksack' });
-  packSwitch.addEventListener('click', () => change({ ...look, pack: !look.pack }));
-  refreshers.push(() => packSwitch.setAttribute('aria-checked', String(look.pack)));
-  const packRow = row(
-    'Rucksack',
-    packSwitch,
-    swatches('Rucksack colour', CLOTH, () => look.packColour, (packColour) => change({ ...look, packColour, pack: true })),
-  );
+  /* --- the column ------------------------------------------------------------- */
 
-  const name = options.name;
-  const nameInput = h('input', {
-    class: 't-name',
-    type: 'text',
-    maxlength: 20,
-    placeholder: 'Traveller',
-    autocomplete: 'nickname',
-    spellcheck: 'false',
-    'aria-label': 'Your name',
-  });
-  if (name !== undefined) {
-    // Handed over on `change` — Enter or leaving the field — because a rename
-    // is a reconnection.
-    nameInput.addEventListener('change', () => {
-      nameInput.value = name.set(nameInput.value);
+  const pages = new Map<CategoryId, HTMLElement>();
+  const tabs = new Map<CategoryId, HTMLButtonElement>();
+  const rail = h('div', { class: 'cr-rail', role: 'tablist', 'aria-label': 'What to change', 'aria-orientation': 'vertical' });
+  const panel = h('div', { class: 'cr-panel ui-card' });
+  for (const category of CATEGORIES) {
+    const tab = h('button', {
+      type: 'button',
+      class: 'cr-tab',
+      role: 'tab',
+      'aria-selected': 'false',
+      'aria-controls': `cr-page-${category.id}`,
+      title: category.label,
+      html: `${glyph(category.glyph)}<span>${category.label}</span>`,
     });
-    nameInput.addEventListener('keydown', (event) => {
-      if (event.code === 'Enter') nameInput.blur();
-    });
+    tab.addEventListener('click', () => select(category.id));
+    tabs.set(category.id, tab);
+    rail.append(tab);
+    const built = page(category);
+    built.hidden = true;
+    pages.set(category.id, built);
+    panel.append(built);
   }
 
-  const rows = h(
+  const randomButton = h('button', { type: 'button', class: 'ui-btn', title: 'A traveller at random' }, icon('dice'), 'Randomise');
+  const undoButton = h('button', { type: 'button', class: 'ui-btn', title: 'Undo (Ctrl+Z)', html: `${glyph(UNDO)}Undo` });
+  const defaultButton = h('button', { type: 'button', class: 'ui-btn quiet', title: 'Back to the traveller everyone starts as' }, 'Default');
+  const doneButton = h('button', { type: 'button', class: 'ui-btn primary cr-done', html: `${glyph(CHECK)}Done` });
+  randomButton.addEventListener('click', randomise);
+  undoButton.addEventListener('click', undo);
+  defaultButton.addEventListener('click', () => change({ ...DEFAULT_APPEARANCE }));
+  doneButton.addEventListener('click', () => hide());
+
+  const side = h(
     'div',
-    { class: 't-rows' },
-    name === undefined ? null : row('Name', nameInput),
-    bodyRow,
-    skinRow,
-    ...(['head', 'top', 'bottom', 'feet'] as const).map(slotRow),
-    packRow,
+    { class: 'cr-side' },
+    h('div', { class: 'cr-head' }, h('div', {}, h('h2', { text: 'Your traveller' }), h('p', { text: 'Saved on this device, and seen by everyone online.' }))),
+    h('div', { class: 'cr-main' }, rail, panel),
+    h('div', { class: 'cr-foot' }, randomButton, undoButton, defaultButton, doneButton),
   );
 
-  const view = h('div', { class: 't-view', title: 'Drag to turn' });
-  const wait = h('div', { class: 't-wait', text: 'Unpacking the wardrobe…' });
-  view.append(wait);
-  const randomise = h('button', { type: 'button', class: 'ui-btn' }, icon('sparkle'), 'Randomise');
-  const reset = h('button', { type: 'button', class: 'ui-btn quiet' }, 'Default');
-  randomise.addEventListener('click', () => change(randomAppearance(rngFrom('traveller', Date.now(), Math.random()))));
-  reset.addEventListener('click', () => change({ ...DEFAULT_APPEARANCE }));
-  const done = h('button', { type: 'button', class: 'ui-btn primary' }, 'Done');
-
-  panel.append(
-    h('div', { class: 't-stage' }, view, h('div', { class: 't-actions' }, randomise, reset)),
-    rows,
-    h('div', { class: 't-foot' }, done),
-  );
-
-  /* --- the preview ------------------------------------------------------- */
-
-  let preview: Preview | null = null;
-  let cast: Cast | null = null;
-  let spin = Math.PI * 0.15;
-  const drawn = new THREE.Vector2();
-  let dragging: { x: number; spin: number } | null = null;
-
-  function buildPreview(): Preview {
-    const canvas = document.createElement('canvas');
-    view.prepend(canvas);
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 0);
-    renderer.shadowMap.enabled = true;
-    const outline = new OutlineEffect(renderer, { defaultThickness: 0.005, defaultColor: [0.11, 0.02, 0.01] });
-    const scene = new THREE.Scene();
-    // The cast sheet's light, which is the world's by day.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    scene.add(new THREE.HemisphereLight(SKY_TOP, 0x6b5b47, 0.35));
-    const sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
-    sun.position.set(-3, 6, 4);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(512, 512);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -4;
-    sun.shadow.camera.right = sun.shadow.camera.top = 4;
-    scene.add(sun, sun.target);
-    const turntable = new THREE.Group();
-    scene.add(turntable);
-    const ground = new THREE.Mesh(new THREE.CylinderGeometry(AVATAR_HEIGHT * 0.62, AVATAR_HEIGHT * 0.62, 0.2, 40), new THREE.MeshToonMaterial({ color: PALETTE.green }));
-    ground.position.y = -0.1;
-    ground.receiveShadow = true;
-    scene.add(ground);
-    const camera = new THREE.PerspectiveCamera(LENS, 1, 0.1, 100);
-    // Framed on the figure: a little above the middle, from a little above the eye.
-    const aim = new THREE.Vector3(0, AVATAR_HEIGHT * 0.5, 0);
-    const distance = (AVATAR_HEIGHT * 0.66) / Math.tan(THREE.MathUtils.degToRad(LENS / 2));
-    camera.position.set(0, aim.y + distance * 0.16, distance);
-    camera.lookAt(aim);
-    return { renderer, outline, scene, camera, turntable, ground, person: null, frame: 0, last: performance.now() };
-  }
-
-  function redress(): void {
-    if (preview === null || cast === null) return;
-    const old = preview.person;
-    const person = cast.make(wardrobeOf(look), paintWith(coloursOf(look)), AVATAR_HEIGHT);
-    const idle = person.actions.get('Idle_Neutral')!;
-    idle.reset().play();
-    person.mixer.update(0);
-    preview.turntable.add(person.root);
-    preview.person = person;
-    if (old !== null) cast.release(old);
-    // The ground takes the ramp the cast was drawn on, and the same pen.
-    const ramp = (person.mesh.material as THREE.MeshToonMaterial).gradientMap;
-    const groundMaterial = preview.ground.material as THREE.MeshToonMaterial;
-    if (groundMaterial.gradientMap !== ramp) {
-      groundMaterial.gradientMap = ramp;
-      groundMaterial.userData.outlineParameters = (person.mesh.material as THREE.Material).userData.outlineParameters;
-      groundMaterial.needsUpdate = true;
-    }
-  }
-
-  function draw(now: number): void {
-    if (preview === null) return;
-    const dt = Math.min(0.1, (now - preview.last) / 1000);
-    preview.last = now;
-    if (dragging === null && !matchMedia('(prefers-reduced-motion: reduce)').matches) spin += dt * TURN_RATE;
-    preview.turntable.rotation.y = spin;
-    preview.person?.mixer.update(dt);
-    const width = view.clientWidth;
-    const height = view.clientHeight;
-    if (width > 0 && height > 0) {
-      preview.renderer.getSize(drawn);
-      if (drawn.x !== width || drawn.y !== height) {
-        preview.renderer.setSize(width, height, false);
-        preview.camera.aspect = width / height;
-        preview.camera.updateProjectionMatrix();
-      }
-      preview.outline.render(preview.scene, preview.camera);
-    }
-    preview.frame = requestAnimationFrame(draw);
-  }
-
-  function openPreview(): void {
-    if (preview !== null) return;
-    try {
-      preview = buildPreview();
-    } catch (error) {
-      // No WebGL for a second context: the card still dresses the hero.
-      console.warn('traveller: no preview', error);
-      wait.textContent = 'No preview on this device; the hero wears it anyway.';
-      return;
-    }
-    preview.frame = requestAnimationFrame(draw);
-    options
-      .cast()
-      .then((loaded) => {
-        cast = loaded;
-        wait.hidden = true;
-        redress();
-      })
-      .catch((error: unknown) => {
-        console.warn('traveller: the wardrobe did not load', error);
-        wait.textContent = 'The wardrobe did not arrive.';
-      });
-  }
-
-  function closePreview(): void {
-    if (preview === null) return;
-    cancelAnimationFrame(preview.frame);
-    if (preview.person !== null && cast !== null) cast.release(preview.person);
-    preview.ground.geometry.dispose();
-    (preview.ground.material as THREE.Material).dispose();
-    preview.renderer.dispose();
-    // Handed back now rather than when the collector finds it: browsers cap
-    // the contexts a page may hold, and the world holds one.
-    preview.renderer.forceContextLoss();
-    preview.renderer.domElement.remove();
-    preview = null;
-  }
-
-  view.addEventListener('pointerdown', (event) => {
-    dragging = { x: event.clientX, spin };
-    view.setPointerCapture(event.pointerId);
+  // Under the hero: the two framings worth a button, and what the hand can do.
+  const viewButtons = (['full', 'head'] as const).map((shot) => {
+    const button = h('button', { type: 'button', text: shot === 'full' ? 'Whole body' : 'Face', 'aria-pressed': 'false' });
+    button.addEventListener('click', () => {
+      stage.shot(shot);
+      refreshViews();
+    });
+    return [shot, button] as const;
   });
-  view.addEventListener('pointermove', (event) => {
-    if (dragging !== null) spin = dragging.spin + (event.clientX - dragging.x) * DRAG_TURN;
-  });
-  const endDrag = (): void => {
-    dragging = null;
+  const refreshViews = (): void => {
+    for (const [shot, button] of viewButtons) button.setAttribute('aria-pressed', String(stage.shotName === shot));
   };
-  view.addEventListener('pointerup', endDrag);
-  view.addEventListener('pointercancel', endDrag);
+  const views = h(
+    'div',
+    { class: 'cr-views' },
+    h('div', { class: 'ui-seg', role: 'group', 'aria-label': 'Camera' }, ...viewButtons.map(([, button]) => button)),
+    h('div', { class: 'cr-hint', text: 'Drag to turn · scroll to zoom' }),
+  );
 
-  /* --- opening and closing ------------------------------------------------ */
+  const root = h('div', { class: 'atlas-creator', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your traveller' }, side, views);
+
+  let current: CategoryId = 'you';
+
+  function refresh(): void {
+    for (const run of refreshers.get(current) ?? []) run();
+    undoButton.disabled = history.length === 0;
+    refreshViews();
+  }
+
+  function select(id: CategoryId, focus = false): void {
+    const category = CATEGORIES.find((entry) => entry.id === id)!;
+    const changed = id !== current;
+    current = id;
+    for (const [key, tab] of tabs) {
+      tab.setAttribute('aria-selected', String(key === id));
+      tab.tabIndex = key === id ? 0 : -1;
+    }
+    for (const [key, element] of pages) {
+      element.hidden = key !== id;
+      if (key === id && changed) {
+        element.classList.remove('fresh');
+        void element.offsetWidth;
+        element.classList.add('fresh');
+        element.scrollTop = 0;
+      }
+    }
+    if (showing) stage.shot(category.shot);
+    if (focus) tabs.get(id)!.focus({ preventScroll: true });
+    refresh();
+  }
+
+  /** Tells the stage how much of the screen the column takes, so the hero stands in the rest. */
+  function measure(): void {
+    const width = innerWidth;
+    const height = innerHeight;
+    if (matchMedia('(max-width: 760px)').matches) {
+      stage.insets({ left: 0, right: 0, top: 64, bottom: Math.max(0, height - side.offsetTop) + 8 });
+      root.style.setProperty('--cr-centre', '50%');
+    } else {
+      const left = side.offsetLeft + side.offsetWidth + 12;
+      stage.insets({ left, right: 0, top: 70, bottom: 92 });
+      root.style.setProperty('--cr-centre', `${(left + (width - left) / 2).toFixed(0)}px`);
+    }
+  }
+  addEventListener('resize', () => {
+    if (showing) measure();
+  });
+
+  /* --- opening and closing ------------------------------------------------------ */
 
   let showing = false;
   let relock = false;
+  /** Whether the stage was brought up for this, and so goes with it. */
+  let ownsStage = false;
   let previousFocus: HTMLElement | null = null;
   registerModal(() => showing);
 
@@ -516,19 +682,26 @@ export function createTraveller(options: TravellerOptions): Traveller {
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const target = options.lockTarget ?? null;
     relock = opening.relock ?? (target !== null && document.pointerLockElement === target);
-    options.onOpen?.();
     if (document.pointerLockElement) document.exitPointerLock();
+    // Before the stage is touched: the title, if it is up, steps aside on this.
+    options.onOpen?.();
     look = fitAppearance(options.appearance.get());
-    if (name !== undefined) nameInput.value = name.get();
-    for (const refresh of refreshers) refresh();
+    history.length = 0;
     if (!root.isConnected) document.body.append(root);
     root.classList.add('on');
-    close.focus({ preventScroll: true });
-    openPreview();
-    redress();
+    measure();
+    const category = CATEGORIES.find((entry) => entry.id === current)!;
+    ownsStage = !stage.open;
+    stage.mode('creator');
+    stage.shot(category.shot, { instant: ownsStage });
+    if (ownsStage) stage.show('dim');
+    stage.adoptPlate(root);
+    select(current);
+    tabs.get(current)!.focus({ preventScroll: true });
+    if (!ownsStage) window.setTimeout(() => stage.wave(), 500);
   }
 
-  // A lock granted while the card is up — asked for by whatever closed as it
+  // A lock granted while the creator is up — asked for by whatever closed as it
   // opened — is handed straight back, as the settings card does.
   document.addEventListener('pointerlockchange', () => {
     if (showing && document.pointerLockElement !== null) document.exitPointerLock();
@@ -538,7 +711,8 @@ export function createTraveller(options: TravellerOptions): Traveller {
     if (!showing) return;
     showing = false;
     root.classList.remove('on');
-    closePreview();
+    if (ownsStage) stage.hide();
+    // The title, if it was under this, takes the stage back on this.
     options.onClose?.();
     const target = options.lockTarget ?? null;
     if (relock && target !== null && typeof target.requestPointerLock === 'function') {
@@ -548,7 +722,7 @@ export function createTraveller(options: TravellerOptions): Traveller {
         const request: unknown = target.requestPointerLock();
         if (request instanceof Promise) request.catch(() => {});
       } catch {
-        // The card is closed either way.
+        // The creator is closed either way.
       }
     }
     (document.activeElement as HTMLElement | null)?.blur?.();
@@ -556,21 +730,29 @@ export function createTraveller(options: TravellerOptions): Traveller {
     previousFocus = null;
   }
 
-  close.addEventListener('click', hide);
-  done.addEventListener('click', hide);
-  root.addEventListener('pointerdown', (event) => {
-    if (event.target === root) hide();
-  });
   addEventListener('keydown', (event) => {
     if (!showing) return;
     if (event.code === 'Escape') {
       event.preventDefault();
-      // Not the menu's Escape as well, which would go back a stage behind the card.
+      // Not the menu's Escape as well, which would go back a stage behind the creator.
       event.stopImmediatePropagation();
       hide();
-    } else {
-      holdFocus(event, panel);
+      return;
     }
+    const typing = event.target instanceof HTMLInputElement;
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === 'KeyZ' && !typing) {
+      event.preventDefault();
+      undo();
+      return;
+    }
+    const along = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[event.code];
+    if (along !== undefined && event.target instanceof Element && rail.contains(event.target)) {
+      event.preventDefault();
+      const at = CATEGORIES.findIndex((entry) => entry.id === current);
+      select(CATEGORIES[(at + along + CATEGORIES.length) % CATEGORIES.length]!.id, true);
+      return;
+    }
+    holdFocus(event, root);
   });
 
   return {

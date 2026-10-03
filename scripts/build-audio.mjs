@@ -9,14 +9,14 @@
 // are loops that have to follow a number — altitude, speed, the distance to
 // the coast, the hour — and a recorded loop either repeats audibly or costs
 // megabytes to hide that it does. What a recording is better at is the thing
-// synthesis is worst at: a footstep, a click, a jingle.
+// synthesis is worst at: a footstep, a click.
 //
 // The sources are Kenney's CC0 packs, downloaded on 2026-09-21 into
 // ../.cache/assets/kenney-audio/ from
 //   https://kenney.nl/assets/impact-sounds     (footsteps, the landing thud)
 //   https://kenney.nl/assets/interface-sounds  (the cards, the map, the toggles)
-//   https://kenney.nl/assets/music-jingles     (a landmark, a frontier)
-//   https://kenney.nl/assets/rpg-audio         (footsteps on dirt and sand)
+//   https://kenney.nl/assets/rpg-audio         (footsteps on dirt and sand; the passport's
+//                                              book opening and closing, its pages, a stamp)
 // Each zip unpacks to its own `kenney_<name>/` folder with a License.txt.
 //
 // **MP3, not the packs' Ogg Vorbis**, because `decodeAudioData` has to decode
@@ -26,8 +26,9 @@
 //
 // **Every file is levelled to the same peak** (-1 dBFS) and the mix lives in
 // `src/audio.ts` as a gain per cue, so re-baking never moves the balance.
-// Silence is trimmed off both ends: a jingle with 200 ms of air in front of it
-// arrives 200 ms after the landmark card does.
+// Silence is trimmed off both ends: a click with 200 ms of air in front of it
+// arrives 200 ms after the card it opens. (Two jingles, a landmark's and a
+// frontier's from Kenney's Music Jingles, went with their cards on 2026-10-01.)
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -39,17 +40,10 @@ const OUT = 'public/audio';
 const impact = (name) => `kenney_impact-sounds/Audio/${name}.ogg`;
 const ui = (name) => `kenney_interface-sounds/Audio/${name}.ogg`;
 const rpg = (name) => `kenney_rpg-audio/Audio/${name}.ogg`;
-const jingle = (folder, name) => `kenney_music-jingles/Audio/${folder}/${name}.ogg`;
 
 /**
  * Published name -> source. A cue with variants is `<cue>-<n>`; `src/audio.ts`
  * picks one at random so a walk is not the same step forty times.
- *
- * The jingles were chosen by their pitch contour, measured with an
- * autocorrelation over four windows, because a rising line reads as a reward
- * and a falling one as a loss: STEEL02 climbs 269 -> 380 -> 450 Hz over 1.4 s
- * and is the landmark; PIZZI02 climbs 263 -> 329 -> 469 Hz in under a second
- * and is the lighter frontier. Swap either here and re-bake.
  */
 const FILES = {
   'step-grass-0': impact('footstep_grass_000'),
@@ -76,8 +70,15 @@ const FILES = {
   'ui-toggle': ui('toggle_002'),
   'ui-error': ui('error_006'),
   'ui-confirm': ui('confirmation_002'),
-  landmark: jingle('Steel jingles', 'jingles_STEEL02'),
-  frontier: jingle('Pizzicato jingles', 'jingles_PIZZI02'),
+  // The passport is a book, and sounds like one: a page a turn (three, picked
+  // at random and pitched a little each time), its covers, and the stamp's
+  // thump as it lands, which is a book put down on a desk.
+  'book-open': rpg('bookOpen'),
+  'book-close': rpg('bookClose'),
+  'page-0': rpg('bookFlip1'),
+  'page-1': rpg('bookFlip2'),
+  'page-2': rpg('bookFlip3'),
+  stamp: rpg('bookPlace1'),
 };
 
 /** Where every file peaks, so the mix is `src/audio.ts`'s alone. */
@@ -86,7 +87,7 @@ const PEAK_DB = -1;
 const SILENCE_DB = -55;
 
 if (!existsSync(SOURCE)) {
-  console.error(`missing ${SOURCE}: download the four packs listed at the top of this file`);
+  console.error(`missing ${SOURCE}: download the three packs listed at the top of this file`);
   process.exit(1);
 }
 
@@ -123,7 +124,7 @@ writeFileSync(
     'The sounds in this directory, rebuilt by scripts/build-audio.mjs.',
     'Trimmed, levelled to one peak and re-encoded as mono MP3; otherwise unchanged.',
     '',
-    'Kenney (https://kenney.nl) — Impact Sounds, Interface Sounds, Music Jingles, RPG Audio.',
+    'Kenney (https://kenney.nl) — Impact Sounds, Interface Sounds, RPG Audio.',
     'License: CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/).',
     '',
   ].join('\n'),

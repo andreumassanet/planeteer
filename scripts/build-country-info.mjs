@@ -1,12 +1,13 @@
 /**
  * Bakes a few facts about each drawn country out of GeoNames' `countryInfo.txt`
  * (CC BY 4.0, the same source and credit as the places) into
- * `public/data/countries-info.json`, for the card that names a country as you
- * cross into it.
+ * `public/data/countries-info.json`, for what the townsfolk say about their
+ * country (`talk.ts`); until 2026-10-01 also for a card that named a country
+ * as you crossed into it.
  *
  *   node scripts/build-country-info.mjs [countryInfo.txt]
  *
- * **What it is for.** The border card's fact line was geometry trivia — "the
+ * **What it was for.** The border card's fact line was geometry trivia — "the
  * prime meridian runs through it" — because the outlines carry a name, a code
  * and a continent and nothing a person would say about a country. GeoNames
  * carries the capital, the population, the area, the languages, the currency

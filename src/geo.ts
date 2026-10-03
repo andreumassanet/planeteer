@@ -10,6 +10,13 @@ export interface Country {
   lon: number;
   lat: number;
   rings: number[][][];
+  /**
+   * The flat colour this country is painted in on the maps, where it is not
+   * Earth's: another world's nations carry their own (`Nation.color`, a
+   * `PALETTE` entry) because there is no flag to read one off. Earth's
+   * countries leave it out and the maps keep their own rule.
+   */
+  color?: number;
 }
 
 /** Degrees per cell of the lookup grid. */
@@ -270,8 +277,38 @@ export async function loadWorld(
   lakes: readonly number[][][],
   url = `${DATA_URL}countries.bin`,
 ): Promise<World> {
-  const countries = await loadCountries(url);
+  return worldFromCountries(await loadCountries(url), lakes, unitsPerDegree);
+}
 
+/**
+ * What a world other than Earth hands in instead of Earth's ground.
+ *
+ * `worldFromCountries` is Earth's by default: it prepares `terrain.ts`'s coast
+ * fields from the rings and answers `elevationAt` with the shelf plus
+ * `reliefAt`. Both are Earth's module state and Earth's relief, so another
+ * body's outlines must not touch them — preparing the terrain from Martian
+ * rings would rebuild Earth's shore index round Tharsis.
+ */
+export interface WorldGround {
+  /** Height of the ground over the datum under a point, as `World.elevationAt` answers it. */
+  elevationAt(point: Vector3): number;
+}
+
+/**
+ * The index half of `loadWorld`: rings, the lookup grid, the banded
+ * point-in-polygon, the lakes' bites — everything but the fetch.
+ *
+ * Factored out so a body whose outlines are computed rather than baked
+ * (`src/system/geography.ts`) answers `countryAt` with **the same code**, and
+ * not with a second copy of the smallest-ring rule. With no `ground` it is
+ * exactly what `loadWorld` always did, terrain preparation included.
+ */
+export function worldFromCountries(
+  countries: Country[],
+  lakes: readonly number[][][],
+  unitsPerDegree: number,
+  ground: WorldGround | null = null,
+): World {
   const rings: LandRing[] = [];
   const bounds: number[][] = [];
   const add = (points: number[][], country: number, water: boolean): void => {
@@ -445,8 +482,9 @@ export async function loadWorld(
   };
 
   // The relief is a function of position and the mesh has to evaluate it too,
-  // so the fields it needs are built once here, as the world loads.
-  prepareTerrain(rings, unitsPerDegree, isLand);
+  // so the fields it needs are built once here, as the world loads. Only
+  // Earth's: another body brings its own ground and leaves these alone.
+  if (ground === null) prepareTerrain(rings, unitsPerDegree, isLand);
 
   // A water ring resolves to nothing, which is the same answer the open sea
   // gives, and that single line is the whole of the boat mechanic on a lake.
@@ -462,6 +500,7 @@ export async function loadWorld(
       return countryOf(resolve(lat, lon));
     },
     elevationAt(point) {
+      if (ground !== null) return ground.elevationAt(point);
       const { lat, lon } = toLatLon(point);
       const ring = resolve(lat, lon);
       if (ring === null || ring.water) return 0;

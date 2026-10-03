@@ -31,6 +31,7 @@ import { PALETTE } from '../../theme.ts';
 import type { Body, GroundModel, GroundSample, Nation, Settlement, Species } from '../contract.ts';
 import { surfaceRadiusOf } from '../contract.ts';
 import { alignment, clamp, fbm, onSphere, ridged, smoothstep } from '../noise.ts';
+import { grownTowns } from '../towns.ts';
 
 const RADIUS_KM = 3389.5;
 
@@ -482,6 +483,8 @@ export const MARS: Body = {
   radiusKm: RADIUS_KM,
   rotationHours: 24.6229,
   tiltDeg: 25.19,
+  // The IAU's north pole of rotation, J2000 right ascension and declination.
+  pole: { ra: 317.68, dec: 52.89 },
   gravity: 3.721,
   blurb:
     'Half the size of Earth and all of it dry land. One volcano taller than three Everests, ' +
@@ -498,7 +501,8 @@ export const MARS: Body = {
   },
   ground: MARS_GROUND,
   nations: NATIONS,
-  settlements: SETTLEMENTS,
+  // The file's own towns, and the nations filled out round them (`towns.ts`).
+  settlements: grownTowns({ id: 'mars', radiusKm: RADIUS_KM, nations: NATIONS, settlements: SETTLEMENTS }),
   species: 'martian',
 };
 

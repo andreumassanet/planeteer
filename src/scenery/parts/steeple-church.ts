@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -162,15 +162,16 @@ export const steepleChurch: ScenicPart = {
 
     // --- the front: a door under an arch, on steps, with a light over it ---
     const face = towerWidth / 2;
-    const door = panes(1, 1.7, 3, 0, woodwork, PROUD * 2);
-    door.position.set(0, 0.5, face + PROUD);
+    const door = ctx.door({
+      width: 1.7,
+      height: 3,
+      leaf: doorPaint(rng, style, stone),
+      frame: cornice,
+      sill: 0.5,
+      step: course,
+    });
+    door.position.set(0, 0, face);
     group.add(door);
-    const arch = panes(1, 2.2, 0.34, 0, cornice, PROUD * 3);
-    arch.position.set(0, 3.5, face + PROUD * 1.5);
-    group.add(arch);
-    const steps = box(2.6, 0.5, 0.7, course);
-    steps.position.set(0, 0, face + 0.35);
-    group.add(steps);
 
     const west = windows({
       count: 1,

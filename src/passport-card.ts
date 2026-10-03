@@ -1,65 +1,97 @@
 /**
- * The passport, as a little book you hold: a closed cover first, then
- * spreads of two pages that turn — the holder's page with a portrait, what
- * the traveller has done, the landmarks found, a visa page for every
- * continent, and the stamps, pressed on at whatever angle the hand left them.
+ * The passport, as a little book you hold: it opens already open, on spreads
+ * of two pages that turn — the holder's page with a portrait, and a visa for
+ * every continent: every one of its countries in a grid, the ones you have
+ * come down in stamped in their own ink and the rest an empty grey outline,
+ * so the book says what is missing as plainly as what is there. Under the
+ * pointer a stamp says the country, its capital and when and how it was
+ * stamped.
  *
  * It is the settings card's kind of object: a modal over the world, holding
  * the keyboard (`registerModal`) and the mouse while it is up, and owning
- * nothing — the book is `passport.ts`'s, the landmarks are the placements'
- * and the portrait is the traveller's own look (`appearance.ts`). `J` opens
- * and closes it (`controls.ts`), as do its button on the HUD's bar and on
- * the pause card.
+ * nothing — the book is `passport.ts`'s, which continent a country's page is
+ * on is `continentOf` there, and the portrait is the traveller's own look
+ * (`appearance.ts`). `J` opens and closes it (`controls.ts`), as does its
+ * button on the HUD's bar; `Esc` closes it too.
  *
- * **A book, not a panel.** It opens closed, on a cloth cover with its title
- * pressed in gold; the arrows, a click on either half or the buttons under it
- * turn a leaf, which swings over the spine in 3D with the next page on its
- * back (`turn`), and `Home` and `End` go to the cover and the newest stamps.
- * The pages are paper — a warm ground, a grain and a guilloche of the kind a
- * real passport is printed with, all CSS and inline SVG — and the book is
- * designed at one size (`BOOK_W` by `BOOK_H`) and scaled to the window, so a
- * page never reflows. With less motion asked for, a leaf turns at once.
+ * **A book, not a panel, and nothing but the book.** It opens on the spread
+ * of the continent you are standing in — else the newest stamp's — inside
+ * its leather cover, as large as the window allows. Every control is part of
+ * the book: a bookmark a continent sticks out of its top edge, in that
+ * continent's ink with its count, and opens it at its visa; the bottom
+ * corner of each page lifts under the pointer, and is the only thing on a
+ * page that turns it (a click anywhere else on the paper does nothing, so
+ * nothing turns by accident). The arrows turn it too, and `Home` and `End` go
+ * to the holder's page and the newest stamp. A leaf swings over the spine in
+ * 3D with the next page on its back (`turn`), one leaf even for a jump to a
+ * far bookmark. The pages are paper — a warm ground, a grain and a guilloche
+ * of the kind a real passport is printed with, all CSS and inline SVG — and
+ * the book is designed at one size (`SHEET_W` by `SHEET_H`) and scaled to the
+ * window, so a page never reflows and the browser draws it crisp at any
+ * scale. With less motion asked for, a leaf turns at once.
  *
  * **A stamp is drawn, not painted**: an SVG in one ink, the country's own
  * colour off its flag (`flagColor`, the one the map layer fills it with),
  * with a thin band of the flag's colours as the one thing in a second ink.
  * Its shape — round, a box or an oval — and its tilt come from a hash of the
- * country's code, so Spain's stamp is Spain's in every book; where it lands
- * on its page and how hard it was pressed come from the same hash and its
- * place in the book. What it says is the country, the in-game day of the
- * first visit, the town you came in by and a mark for how you came.
+ * country's code, so Spain's stamp is Spain's in every book. On its page it
+ * is small and says the country's code and the day; the one that drops when
+ * it is new (`stampSvg`) is large and says the country, the in-game day of
+ * the first visit, the town you came in by and a mark for how you came.
  *
  * **And a new one lands**: `celebrate` drops the stamp onto the screen, big
  * and turning, with a thump when it hits (`onThud`, which the caller makes a
  * sound), holds it a moment and lets it go.
+ *
+ * **One book, a chapter a world.** Earth's chapter is the book as it always
+ * was: the holder's page and the seven continents' visas. Every other world
+ * the caller hands in (`chapters`, a `PassportChapter` each, see `planet.ts`)
+ * follows it: a frontispiece with the world's disc facing one visa that lists
+ * every one of its nations. A column of planet discs stands out of the
+ * cover's right edge, one a chapter, and turns to it; the bookmarks along the
+ * top are the current chapter's pages. A nation's stamp is a round seal in its
+ * own colour with its banner in the middle (`flags.ts`'s painter for the
+ * world's prefix) and, where the chapter brings the species' writing, its
+ * name in that writing round the rim. With no chapters handed in the book is
+ * Earth's alone and looks exactly as it did.
  */
 import { flagColor, flagPalette } from './country-colors.ts';
-import { actionOf, holdFocus, inputBlocked, registerModal } from './controls.ts';
+import { actionOf, holdFocus, inputBlocked, labelOf, registerModal } from './controls.ts';
 import { CLOTH, HAIR, SKINS, encodeAppearance } from './appearance.ts';
 import type { Appearance } from './appearance.ts';
+import { loadCountryFacts } from './country-facts.ts';
+import type { CountryFacts } from './country-facts.ts';
 import { createFlagCanvas } from './flags.ts';
 import { PALETTE } from './theme.ts';
 import { ensureStyle, h, hex, icon, installUi } from './ui.ts';
 import type { IconName } from './ui.ts';
-import { stampDateText } from './passport.ts';
-import type { Passport, Stamp, StampMode } from './passport.ts';
+import { CONTINENTS, byContinent, continentOf, stampDateText, worldOf } from './passport.ts';
+import type { Continent, Passport, Stamp, StampMode } from './passport.ts';
+import type { PassportChapter } from './planet.ts';
 
 export interface PassportCardOptions {
   passport: Passport;
-  /** Every country on the planet, for the counts and the continents. */
+  /** Every country on the planet, for the continents' pages. */
   countries: readonly { iso: string; name: string; continent: string }[];
-  /** The landmarks found, and how many there are. */
-  landmarks(): { found: readonly { name: string; iso: string }[]; total: number };
   /** Who holds the book: the name the others see, and the look they see it on. */
   holder?(): { name: string; appearance: Appearance };
+  /** The country the holder is standing in, by code, or `''`: the book opens at its visa. */
+  here?(): string;
   /** Where to hand the pointer back to, if it was locked when the card opened. */
   lockTarget?: HTMLElement | null;
   onOpen?(): void;
   onClose?(): void;
-  /** A leaf has been turned, or the cover opened or closed. */
-  onTurn?(): void;
+  /** A leaf has been turned: `leaves` is how many it stood for (a bookmark can skip several). */
+  onTurn?(leaves: number): void;
   /** A new stamp has just hit the page. */
   onThud?(): void;
+  /**
+   * The other worlds' chapters, in the order the book takes them after
+   * Earth's: an array, or a function asked on the first opening (or the first
+   * stamp) that may answer later — Earth hands a dynamic import here, so the
+   * worlds' data stays out of its first load.
+   */
+  chapters?: readonly PassportChapter[] | (() => readonly PassportChapter[] | Promise<readonly PassportChapter[]>);
 }
 
 export interface PassportCard {
@@ -71,31 +103,68 @@ export interface PassportCard {
   toggle(): void;
   /** Drops a new stamp onto the screen. */
   celebrate(stamp: Stamp): void;
+  /** Closes it, takes it off the page and lets go of its keys. */
+  dispose(): void;
 }
 
-/** Stamps a page. */
-const PER_PAGE = 6;
-/** Natural Earth's continent for the open ocean's islands, which is not one anybody counts. */
-const OPEN_OCEAN = 'Seven seas (open ocean)';
-/** The continents in the order the visa pages take them, and the ink each is printed in. */
-const CONTINENTS: readonly (readonly [string, number])[] = [
-  ['Europe', PALETTE.skyBlue],
-  ['Asia', PALETTE.crimson],
-  ['Africa', PALETTE.orange],
-  ['North America', PALETTE.green],
-  ['South America', PALETTE.gold],
-  ['Oceania', PALETTE.violet],
-  ['Antarctica', PALETTE.slate],
-];
+/** Countries a page: `COLUMNS` across and six down, which holds the largest continent in a spread. */
+const COLUMNS = 5;
+const PER_PAGE = COLUMNS * 6;
+/** The ink each continent's visa is printed in, and its bookmark is dyed. */
+const CONTINENT_INK: Record<Continent, number> = {
+  Europe: PALETTE.skyBlue,
+  Asia: PALETTE.crimson,
+  Africa: PALETTE.orange,
+  'North America': PALETTE.green,
+  'South America': PALETTE.gold,
+  Oceania: PALETTE.violet,
+  Antarctica: PALETTE.slate,
+};
+/** How a stamp was come by, as the tip says it. */
+const MODE_TEXT: Record<StampMode, string> = {
+  foot: 'on foot',
+  swim: 'swimming ashore',
+  car: 'by car',
+  boat: 'by boat',
+  plane: 'by plane',
+  balloon: 'by balloon',
+  passenger: 'as a passenger',
+  bicycle: 'by bicycle',
+  motorbike: 'by motorbike',
+  horse: 'on horseback',
+  jetski: 'by jet ski',
+  sailboat: 'under sail',
+  helicopter: 'by helicopter',
+  submarine: 'by submarine',
+};
 /** How long a dropped stamp stays, in milliseconds, and when in its fall it hits. */
 const DROP_HOLD = 2600;
 const DROP_HIT = 330;
-/** The book as designed, open, in CSS pixels: two pages of 420 by 560. */
+
+/**
+ * The book as designed, open, in CSS pixels: two pages of 420 by 560, inside
+ * a cover `COVER_PAD` wider all round, under a band of `TAB_ROOM` the
+ * bookmarks stand up into, over a line of `HINT_ROOM` that says the keys.
+ */
 const BOOK_W = 840;
 const BOOK_H = 560;
-/** Room round the book for the buttons under it and the window's edge. */
-const BOOK_MARGIN_X = 32;
-const BOOK_MARGIN_Y = 130;
+const COVER_PAD = 10;
+const TAB_ROOM = 40;
+const HINT_ROOM = 30;
+const SHEET_W = BOOK_W + 2 * COVER_PAD;
+/**
+ * The room the planets stand out into on the right, once the book has
+ * chapters for other worlds; a book of Earth alone is `SHEET_W` wide, as it
+ * always was.
+ */
+const SIDE_ROOM = 30;
+/** A planet's disc on its tab. */
+const DISC = 28;
+const SHEET_H = TAB_ROOM + BOOK_H + 2 * COVER_PAD + HINT_ROOM;
+/** How much of the window the sheet may take, and the most it is ever scaled up. */
+const FIT_HEIGHT = 0.95;
+const FIT_WIDTH = 0.96;
+const MAX_SCALE = 3;
 /** How long a leaf takes to cross the spine. */
 const TURN_MS = 620;
 
@@ -147,6 +216,9 @@ const GUILLOCHE =
   "%3Cpath d='M0 4 C16 -10 16 18 32 4 S48 18 64 4 M0 24 C16 38 16 10 32 24 S48 10 64 24' fill='none' stroke='%233dbbe7' stroke-opacity='0.08' stroke-width='1'/%3E" +
   "%3C/svg%3E\")";
 
+/** The underside of a page, where a corner is folded back: the paper a shade darker. */
+const PAPER_BACK = '#f1dccb';
+
 const STYLE = `
 .atlas-passport {
   position: fixed;
@@ -154,7 +226,6 @@ const STYLE = `
   z-index: 12;
   display: grid;
   place-items: center;
-  padding: 16px;
   background: rgba(30, 6, 3, 0.58);
   backdrop-filter: blur(4px);
   opacity: 0;
@@ -162,21 +233,148 @@ const STYLE = `
   transition: opacity 0.2s ease, visibility 0s 0.2s;
   font-family: var(--ui-font);
   color: var(--ui-ink);
+  user-select: none;
+  -webkit-user-select: none;
 }
 .atlas-passport.on { opacity: 1; visibility: visible; transition-delay: 0s; }
-.p-panel { display: flex; flex-direction: column; align-items: center; gap: 14px; outline: none; }
+.p-panel { outline: none; }
 .atlas-passport.on .p-panel { animation: ui-pop 0.36s var(--ui-spring) both; }
 .p-fit { position: relative; }
-.p-scaler { position: absolute; left: 0; top: 0; width: ${BOOK_W}px; height: ${BOOK_H}px; transform-origin: 0 0; }
-.p-book {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  perspective: 2400px;
-  transition: transform 0.55s var(--ui-ease);
-  cursor: pointer;
+.p-scaler { position: absolute; left: 0; top: 0; width: ${SHEET_W}px; height: ${SHEET_H}px; transform-origin: 0 0; }
+
+/* --- the cover, and the bookmarks standing out of it ----------------------- */
+.p-cover-back {
+  position: absolute;
+  left: 0;
+  top: ${TAB_ROOM}px;
+  width: ${SHEET_W}px;
+  height: ${BOOK_H + 2 * COVER_PAD}px;
+  box-sizing: border-box;
+  border: 3px solid var(--ui-ink);
+  border-radius: 18px;
+  background-color: ${LEATHER};
+  background-image: ${WEAVE}, linear-gradient(90deg, transparent 47%, ${LEATHER_DEEP} 50%, transparent 53%);
+  box-shadow: 0 8px 0 rgba(30, 6, 3, 0.45);
+  z-index: 0;
 }
-.p-book.closed { transform: translateX(-25%); }
+.p-ribbons {
+  position: absolute;
+  left: ${COVER_PAD + 18}px;
+  right: ${COVER_PAD + 18}px;
+  top: 0;
+  height: ${TAB_ROOM + COVER_PAD + 18}px;
+  display: flex;
+  gap: 6px;
+  z-index: 1;
+}
+.p-tab {
+  position: relative;
+  top: 9px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 6px 6px 0;
+  border: 2.5px solid var(--ui-ink);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--tab, ${LEATHER});
+  background-image: ${GRAIN};
+  color: ${hex(PALETTE.white)};
+  font-family: var(--ui-font);
+  text-align: center;
+  cursor: pointer;
+  filter: saturate(0.75) brightness(0.88);
+  transition: top 0.2s var(--ui-spring), filter 0.15s ease;
+}
+.p-tab:hover { top: 3px; filter: none; }
+.p-tab[aria-current='true'] { top: 0; filter: none; }
+.p-tab:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
+.p-tab b {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(30, 6, 3, 0.4);
+}
+.p-tab em { display: block; font-style: normal; font-size: 9.5px; font-weight: 800; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.p-tab.holder { color: var(--ui-gold); background-color: ${LEATHER}; }
+/* A world's chapter has one or two bookmarks; they keep a bookmark's width. */
+.p-tab { max-width: 150px; }
+
+/* --- the planets down the right edge, a chapter each ------------------------- */
+.p-worlds {
+  position: absolute;
+  left: ${SHEET_W - 18}px;
+  top: ${TAB_ROOM + COVER_PAD + 22}px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  z-index: 1;
+}
+.p-worlds[hidden] { display: none; }
+.p-world {
+  position: relative;
+  left: 0;
+  width: ${DISC + 16}px;
+  height: ${DISC + 10}px;
+  box-sizing: border-box;
+  padding: 3px 3px 3px 10px;
+  border: 2.5px solid var(--ui-ink);
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  background-color: ${LEATHER};
+  background-image: ${GRAIN};
+  cursor: pointer;
+  filter: saturate(0.75) brightness(0.88);
+  transition: left 0.2s var(--ui-spring), filter 0.15s ease;
+}
+.p-world:hover { left: 4px; filter: none; }
+.p-world[aria-current='true'] { left: 8px; filter: none; }
+.p-world:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
+.p-world svg { display: block; width: ${DISC}px; height: ${DISC}px; overflow: visible; }
+
+/* --- a world's frontispiece -------------------------------------------------- */
+.p-front { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 30px; text-align: center; }
+.p-globe { width: 150px; height: 150px; margin-bottom: 10px; }
+.p-globe svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.p-front small { font-size: 10px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.55; }
+.p-front b { font-size: 34px; font-weight: 800; letter-spacing: 0.01em; line-height: 1; }
+.p-script { height: 26px; opacity: 0.8; }
+.p-script svg { display: block; height: 100%; width: auto; max-width: 300px; }
+.p-front p { margin: 6px 0 0; max-width: 290px; font-size: 12.5px; font-weight: 600; line-height: 1.5; opacity: 0.75; }
+.p-front .p-bar { width: 240px; }
+.p-tab.holder svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+.p-hint {
+  position: absolute;
+  left: 0;
+  width: ${SHEET_W}px;
+  bottom: 0;
+  height: ${HINT_ROOM}px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ui-paper);
+  opacity: 0.55;
+}
+
+/* --- the book ------------------------------------------------------------------ */
+.p-book {
+  position: absolute;
+  left: ${COVER_PAD}px;
+  top: ${TAB_ROOM + COVER_PAD}px;
+  width: ${BOOK_W}px;
+  height: ${BOOK_H}px;
+  perspective: 2400px;
+  z-index: 2;
+}
 .p-side, .p-leaf { position: absolute; top: 0; width: 50%; height: 100%; }
 .p-side.left, .p-leaf.back { left: 0; }
 .p-side.right, .p-leaf.forward { left: 50%; }
@@ -188,6 +386,33 @@ const STYLE = `
 .p-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; border-radius: inherit; }
 .p-leaf.forward .p-face:not(.under) .p-shade, .p-leaf.back .p-face.under .p-shade { background: linear-gradient(90deg, rgba(30, 6, 3, 0.5), rgba(30, 6, 3, 0.05)); }
 .p-leaf.forward .p-face.under .p-shade, .p-leaf.back .p-face:not(.under) .p-shade { background: linear-gradient(270deg, rgba(30, 6, 3, 0.5), rgba(30, 6, 3, 0.05)); }
+
+/* --- the corners that turn it -------------------------------------------------- */
+.p-corner {
+  position: absolute;
+  bottom: 0;
+  width: 84px;
+  height: 84px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  z-index: 4;
+  transform: scale(0.46);
+  transition: transform 0.24s var(--ui-spring);
+  -webkit-tap-highlight-color: transparent;
+}
+.p-corner.next { right: 0; transform-origin: 100% 100%; }
+.p-corner.prev { left: 0; transform-origin: 0 100%; }
+.p-corner[hidden] { display: none; }
+.p-corner:hover, .p-corner:focus-visible { transform: scale(0.86); }
+.p-corner:focus-visible { outline: none; }
+.p-corner:focus-visible .p-flap { stroke: var(--ui-violet); }
+.p-corner svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.p-corner.prev svg { transform: scaleX(-1); }
+.p-flap { filter: drop-shadow(-2px -2px 2px rgba(30, 6, 3, 0.28)); }
+.p-arrow { opacity: 0; transition: opacity 0.15s ease; }
+.p-corner:hover .p-arrow, .p-corner:focus-visible .p-arrow { opacity: 0.75; }
 
 /* --- paper ------------------------------------------------------------------- */
 .p-page {
@@ -210,35 +435,15 @@ const STYLE = `
 .p-side.blank { visibility: hidden; }
 .p-folio { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; opacity: 0.42; }
 .p-running { position: absolute; top: 12px; left: 30px; right: 30px; display: flex; justify-content: space-between; font-size: 9.5px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.35; }
-.p-h { margin: 6px 0 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.58; }
-.p-rule { height: 0; border-top: 1.5px dashed var(--ui-rule); margin: 12px 0; }
 
-/* --- the cover ----------------------------------------------------------------- */
-.p-page.cover {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 44px 30px 40px;
-  color: var(--ui-gold);
-  background-color: ${LEATHER};
-  background-image: ${WEAVE}, radial-gradient(ellipse at 40% 30%, rgba(255, 255, 255, 0.1), transparent 60%), linear-gradient(90deg, ${LEATHER_DEEP}, transparent 14%);
-  border-radius: 4px 16px 16px 4px;
-  box-shadow: inset 0 0 0 9px ${LEATHER}, inset 0 0 0 10.5px rgba(228, 169, 12, 0.45), 6px 8px 0 rgba(30, 6, 3, 0.35);
-}
-.p-page.cover::after { display: none; }
-.p-emboss { text-shadow: 0 1.5px 0 rgba(30, 6, 3, 0.55), 0 -1px 0 rgba(255, 235, 180, 0.25); }
-.p-cover-top { font-size: 15px; font-weight: 800; letter-spacing: 0.5em; margin-right: -0.5em; }
-.p-cover-emblem { width: 168px; height: 168px; filter: drop-shadow(0 1.5px 0 rgba(30, 6, 3, 0.55)); }
-.p-cover-title { font-size: 44px; font-weight: 800; letter-spacing: 0.2em; margin-right: -0.2em; line-height: 1; }
-.p-cover-sub { margin-top: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.24em; opacity: 0.8; text-align: center; }
-.p-cover-chip { width: 44px; height: 30px; }
+/* --- the inside of the cover ----------------------------------------------------- */
 .p-page.endpaper {
   background-color: ${LEATHER};
   background-image: ${WEAVE}, repeating-linear-gradient(45deg, rgba(228, 169, 12, 0.1) 0 2px, transparent 2px 14px), repeating-linear-gradient(-45deg, rgba(228, 169, 12, 0.1) 0 2px, transparent 2px 14px);
   display: grid;
   place-items: center;
 }
+.p-page.endpaper::after { display: none; }
 .p-label {
   width: 78%;
   padding: 18px 20px;
@@ -287,72 +492,45 @@ const STYLE = `
   opacity: 0.8;
 }
 
-/* --- the record ---------------------------------------------------------------- */
-.p-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.p-count { padding: 10px 12px; border: 2px solid rgba(30, 6, 3, 0.7); border-radius: 10px; background: rgba(255, 255, 255, 0.5); }
-.p-count b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.p-count b small { font-size: 13px; opacity: 0.5; }
-.p-count span { font-size: 11.5px; font-weight: 700; opacity: 0.62; }
-.p-bar { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--ui-rule); overflow: hidden; }
-.p-bar i { display: block; height: 100%; background: var(--ui-gold); }
-.p-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; font-weight: 700; }
-.p-list li { display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.p-list li canvas { flex: none; width: 21px; height: 14px; border: 1.5px solid var(--ui-ink); border-radius: 3px; }
-.p-list li em { margin-left: auto; font-style: normal; font-size: 11px; font-weight: 700; opacity: 0.5; }
-.p-found { display: flex; flex-wrap: wrap; gap: 6px; }
-.p-found span { padding: 3px 9px; border: 2px solid var(--ui-ink); border-radius: 999px; background: rgba(255, 255, 255, 0.6); font-size: 12px; font-weight: 700; }
-.p-none { font-size: 12.5px; font-weight: 600; opacity: 0.55; }
+/* --- a continent's pages ------------------------------------------------------- */
+.p-cont-head { display: flex; align-items: center; gap: 12px; margin: 2px 0 6px; }
+.p-cont-head svg { flex: none; width: 40px; height: 40px; }
+.p-cont-head > div { flex: 1; min-width: 0; }
+.p-cont-head small { display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.55; }
+.p-cont-head b { display: block; font-size: 21px; font-weight: 800; letter-spacing: 0.01em; line-height: 1.05; }
+.p-cont-count { flex: none; font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.p-cont-count small { display: inline; font-size: 12px; letter-spacing: 0; text-transform: none; opacity: 0.5; }
+.p-bar { height: 6px; margin-bottom: 10px; border-radius: 3px; background: var(--ui-rule); overflow: hidden; }
+.p-bar i { display: block; height: 100%; }
+.p-grid { display: grid; grid-template-columns: repeat(${COLUMNS}, 1fr); grid-auto-rows: 66px; gap: 4px 2px; }
+.p-cell { display: flex; flex-direction: column; align-items: center; min-width: 0; padding-top: 2px; border-radius: 8px; cursor: help; }
+.p-cell:hover { background: rgba(30, 6, 3, 0.06); }
+.p-mini { width: 62px; height: 47px; }
+.p-mini svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.p-cell.got .p-mini { transform: rotate(var(--tilt, 0deg)); mix-blend-mode: multiply; }
+.p-cell span { max-width: 100%; padding: 0 2px; box-sizing: border-box; font-size: 9px; font-weight: 800; line-height: 1.25; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-cell.missing span { opacity: 0.4; }
 
-/* --- a visa -------------------------------------------------------------------- */
-.p-visa-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.p-visa-head svg { flex: none; width: 46px; height: 46px; }
-.p-visa-head b { display: block; font-size: 22px; font-weight: 800; letter-spacing: 0.02em; line-height: 1.05; }
-.p-visa-head small { display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.55; }
-.p-visa-grant {
-  position: absolute;
-  right: 30px;
-  bottom: 50px;
-  padding: 8px 14px;
-  border: 3px double currentColor;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-align: center;
-  line-height: 1.3;
-  transform: rotate(-8deg);
-  opacity: 0.85;
-  mix-blend-mode: multiply;
-}
-.p-visa-grant small { display: block; font-size: 10px; letter-spacing: 0.08em; }
-.p-visa-empty {
-  position: absolute;
-  right: 30px;
-  bottom: 50px;
-  width: 150px;
-  height: 78px;
-  display: grid;
-  place-items: center;
-  border: 2px dashed var(--ui-rule);
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.6;
-}
-
-/* --- the stamps ---------------------------------------------------------------- */
-.p-stamps { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); height: 100%; }
-.p-slot { display: grid; place-items: center; }
-.p-stamp { width: 150px; height: 112px; transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--tilt, 0deg)) scale(var(--press, 1)); }
+/* --- a stamp, large ------------------------------------------------------------- */
+.p-stamp { transform: rotate(var(--tilt, 0deg)); }
 .p-stamp svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.p-slots-empty { position: absolute; inset: 40% 10% auto; text-align: center; font-size: 12.5px; font-weight: 700; opacity: 0.45; }
 
-/* --- under the book ---------------------------------------------------------------- */
-.p-nav { display: flex; align-items: center; gap: 10px; }
-.p-nav output { min-width: 150px; text-align: center; font-size: 13px; font-weight: 800; color: var(--ui-paper); opacity: 0.85; font-variant-numeric: tabular-nums; }
-.p-close { margin-left: 14px; }
+/* --- what a stamp says, under the pointer ---------------------------------------- */
+.p-tip {
+  position: fixed;
+  z-index: 1;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  max-width: 300px;
+  padding: 8px 13px 8px 9px;
+  transform: translate(-50%, calc(-100% - 8px));
+  pointer-events: none;
+}
+.p-tip.on { display: flex; }
+.p-tip b { display: block; font-size: 14.5px; font-weight: 800; line-height: 1.15; }
+.p-tip small { display: block; margin-top: 1px; font-size: 11.5px; font-weight: 600; opacity: 0.65; }
+.p-tip small:empty { display: none; }
 
 /* --- the stamp that drops --------------------------------------------------------- */
 .atlas-stamp-drop {
@@ -390,10 +568,29 @@ const STYLE = `
 @keyframes p-lift { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(26px) scale(0.9); } }
 @media (prefers-reduced-motion: reduce) {
   .atlas-passport.on .p-panel { animation: none; }
-  .p-book { transition: none; }
+  .p-tab, .p-corner, .p-world { transition: none; }
   .atlas-stamp-drop.in { animation: ui-fade 0.2s ease both; }
 }
 `;
+
+/**
+ * A page's corner, folded back: the page under it in the triangle past the
+ * fold, the flap of this one over it with its underside showing, and an
+ * arrow on the flap once the pointer is on it. Drawn for the right-hand
+ * corner; the left one is the same, mirrored by its class.
+ */
+function cornerSvg(id: string): string {
+  const ink = hex(PALETTE.ink);
+  return (
+    `<svg viewBox="0 0 84 84" aria-hidden="true"><defs><linearGradient id="${id}" x1="1" y1="1" x2="0" y2="0">` +
+    `<stop offset="0" stop-color="#fffaf4"/><stop offset="1" stop-color="${PAPER_BACK}"/></linearGradient></defs>` +
+    `<path d="M84 0V84H0Z" fill="${PAPER_BACK}"/>` +
+    `<path d="M84 9V84H9" fill="none" stroke="${ink}" stroke-opacity="0.25" stroke-width="2"/>` +
+    `<path d="M84 0V84H0" fill="none" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/>` +
+    `<path class="p-flap" d="M84 0L0 84V0Z" fill="url(#${id})" stroke="${ink}" stroke-width="3.5" stroke-linejoin="round"/>` +
+    `<path class="p-arrow" d="M22 17l10 11-10 11" fill="none" stroke="${ink}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  );
+}
 
 /* --- the stamp ------------------------------------------------------------ */
 
@@ -526,46 +723,268 @@ export function stampSvg(stamp: Stamp): { svg: string; tilt: number } {
   return { svg, tilt };
 }
 
-/**
- * A stamp as it sits in the book: its country's own tilt, and where on its
- * spot it landed, how much further it turned and how hard it was pressed,
- * from its place in the book — the same every time the page is turned to.
- * `place` below zero is the stamp that drops, square on its spot.
- */
-function stampElement(stamp: Stamp, place: number): HTMLElement {
-  const { svg, tilt } = stampSvg(stamp);
-  const element = h('div', { class: 'p-stamp', html: svg });
-  let turn = tilt;
-  if (place >= 0) {
-    const a = hashOf(`${stamp.iso}#${place}`);
-    const b = hashOf(`${place}@${stamp.iso}`);
-    const c = hashOf(`${stamp.date}/${place}`);
-    element.style.setProperty('--dx', `${((a - 0.5) * 26).toFixed(1)}px`);
-    element.style.setProperty('--dy', `${((b - 0.5) * 20).toFixed(1)}px`);
-    element.style.setProperty('--press', (0.92 + c * 0.12).toFixed(3));
-    element.style.opacity = (0.8 + a * 0.2).toFixed(2);
-    turn += Math.round((c - 0.5) * 12);
+/* --- the other worlds' seals ------------------------------------------------ */
+
+/** A nation of another world, as its seal needs it. */
+interface Nation {
+  iso: string;
+  name: string;
+  color: number;
+  /** Its world's name, and the species' writing when the chapter brings it. */
+  world: string;
+  script?: (text: string) => SVGElement;
+}
+
+/** A colour pulled a quarter of the way to the pen, as `inkOf` pulls a flag's. */
+function nationInk(colour: number): string {
+  return inked(colour, 0.25);
+}
+
+/** The banner a nation flies, as a picture for an SVG: `flags.ts` paints it with the world's own painter. */
+const banners = new Map<string, string>();
+function bannerUrl(iso: string): string {
+  const held = banners.get(iso);
+  if (held !== undefined) return held;
+  let url = '';
+  if (typeof document !== 'undefined') {
+    try {
+      url = createFlagCanvas(iso, 60, 40).toDataURL();
+    } catch {
+      // A canvas the browser will not read back: the seal goes without its banner.
+    }
   }
-  element.style.setProperty('--tilt', `${turn}deg`);
-  element.title = `${stamp.name} · ${stampDateText(stamp.date)}${stamp.town === '' ? '' : ` · entered near ${stamp.town}`}`;
+  banners.set(iso, url);
+  return url;
+}
+
+function banner(iso: string, x: number, y: number, width: number, height: number, stroke: number): string {
+  const url = bannerUrl(iso);
+  if (url === '') return '';
+  return (
+    `<image href="${url}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none"/>` +
+    `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="none" stroke="currentColor" stroke-width="${stroke}"/>`
+  );
+}
+
+/**
+ * A name in the species' writing, laid round a ring: the glyphs the chapter's
+ * `script` draws for it, read off its SVG — each glyph is a path placed by a
+ * `translate` along the line — and set end to end round the circle, tops
+ * outward, the name again after a dot until the ring is full. Empty when the
+ * writing cannot be read that way, and the seal keeps its plain ring.
+ */
+const rings = new Map<string, string>();
+function glyphRing(nation: Nation, cx: number, cy: number, radius: number, glyphHeight: number): string {
+  const key = `${nation.iso}/${radius}/${glyphHeight}`;
+  const held = rings.get(key);
+  if (held !== undefined) return held;
+  let out = '';
+  try {
+    const written = nation.script?.(nation.name) ?? null;
+    if (written !== null) out = laidRound(written, cx, cy, radius, glyphHeight);
+  } catch {
+    out = '';
+  }
+  rings.set(key, out);
+  return out;
+}
+
+function laidRound(written: SVGElement, cx: number, cy: number, radius: number, glyphHeight: number): string {
+  const box = (written.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+  const boxHeight = box.length === 4 && Number.isFinite(box[3]) && box[3]! > 0 ? box[3]! : 0;
+  if (boxHeight === 0) return '';
+  const glyphs: { d: string; x: number }[] = [];
+  let firstRow = Infinity;
+  const placed: { d: string; x: number; y: number }[] = [];
+  for (const path of Array.from(written.querySelectorAll('path[transform]'))) {
+    const match = /translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)/.exec(path.getAttribute('transform') ?? '');
+    const d = path.getAttribute('d');
+    if (match === null || d === null) continue;
+    const y = Number(match[2]);
+    placed.push({ d, x: Number(match[1]), y });
+    firstRow = Math.min(firstRow, y);
+  }
+  for (const glyph of placed) if (glyph.y === firstRow) glyphs.push({ d: glyph.d, x: glyph.x });
+  if (glyphs.length === 0) return '';
+  const k = glyphHeight / boxHeight;
+  const last = glyphs[glyphs.length - 1]!;
+  const advance = glyphs.length > 1 ? (last.x - glyphs[0]!.x) / (glyphs.length - 1) : boxHeight * 0.7;
+  const width = advance * k;
+  const lineLength = (last.x - glyphs[0]!.x + advance) * k;
+  const circumference = 2 * Math.PI * radius;
+  const gap = width * 1.4;
+  const stroke = Math.max(1.4, 0.55 / k);
+  const parts: string[] = [];
+  // The name as many whole times as the ring holds, a dot between, spread to close the circle.
+  const copies = Math.max(1, Math.floor(circumference / (lineLength + gap)));
+  const spare = (circumference - copies * (lineLength + gap)) / copies;
+  let s = 0;
+  for (let copy = 0; copy < copies; copy++) {
+    for (const glyph of glyphs) {
+      const along = s + (glyph.x - glyphs[0]!.x) * k + width / 2;
+      const degrees = (along / circumference) * 360;
+      parts.push(
+        `<path transform="rotate(${degrees.toFixed(2)} ${cx} ${cy}) translate(${(cx - width / 2).toFixed(2)} ${(cy - radius - glyphHeight / 2).toFixed(2)}) scale(${k.toFixed(4)})" d="${glyph.d}"/>`,
+      );
+    }
+    s += lineLength + gap + spare;
+    const dot = ((s - (gap + spare) / 2) / circumference) * 2 * Math.PI;
+    parts.push(`<circle cx="${(cx + radius * Math.sin(dot)).toFixed(2)}" cy="${(cy - radius * Math.cos(dot)).toFixed(2)}" r="${(glyphHeight * 0.12).toFixed(2)}" fill="currentColor" stroke="none"/>`);
+  }
+  return `<g fill="none" stroke="currentColor" stroke-width="${stroke.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${parts.join('')}</g>`;
+}
+
+/**
+ * A nation's stamp, 160 by 120: a round seal in the nation's own colour, the
+ * banner it flies in the middle, its name under it and the day, the town (or
+ * the world) along the foot, a mark for how you came over it, and its name
+ * round the rim in the species' writing — a ring of beads where there is none.
+ */
+export function sealSvg(stamp: Stamp, nation: Nation): { svg: string; tilt: number } {
+  const uid = `ps${++stampSerial}`;
+  const h1 = hashOf(stamp.iso);
+  const tilt = Math.round((hashOf(`${stamp.iso}/tilt`) - 0.5) * 22);
+  const name = (nation.name || stamp.name).toUpperCase();
+  const date = stampDateText(stamp.date);
+  const foot = (stamp.town === '' ? nation.world : stamp.town).toUpperCase();
+  const ring = glyphRing(nation, 80, 60, 50.6, 6.4);
+  const parts = [
+    '<circle cx="80" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="3.6"/>',
+    ring === ''
+      ? '<circle cx="80" cy="60" r="50.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="0.1 4.2"/>'
+      : ring,
+    '<circle cx="80" cy="60" r="46" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+    emblem(stamp.mode, 80, 26, 12),
+    banner(stamp.iso, 61, 34, 38, 25, 1),
+    line(name, 80, 75, 72, 11, 6.5),
+    line(date, 80, 87, 60, 9.5, 7),
+    line(foot, 80, 97.5, 46, 6.5, 4.5, 700),
+  ];
+  const filter =
+    `<filter id="${uid}r" x="-5%" y="-5%" width="110%" height="110%">` +
+    `<feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="${Math.floor(h1 * 1000)}" result="n"/>` +
+    '<feDisplacementMap in="SourceGraphic" in2="n" scale="1.8" result="d"/>' +
+    '<feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -3.2 2.55" result="m"/>' +
+    '<feComposite in="d" in2="m" operator="in"/></filter>';
+  const svg =
+    `<svg viewBox="0 0 160 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escape(`${nation.name}, ${nation.world}, ${date}`)}" ` +
+    `style="color:${nationInk(nation.color)};font-family:var(--ui-font)" fill="currentColor">` +
+    `<defs>${filter}</defs><g filter="url(#${uid}r)" opacity="0.92">${parts.join('')}</g></svg>`;
+  return { svg, tilt };
+}
+
+/** A name's initials, for an empty seal: *Tharsis Union* is `TU`. */
+function initials(name: string): string {
+  const words = name.split(/[\s-]+/).filter((word) => /\p{L}/u.test(word));
+  const letters = words.length > 1 ? words.slice(0, 3).map((word) => word[0]) : [name.slice(0, 3)];
+  return letters.join('').toUpperCase();
+}
+
+/**
+ * A nation's place on its world's visa, 64 by 48: the seal small, its banner
+ * and the day, the writing round the rim; or, not yet stamped, an empty grey
+ * ring round its initials, as Earth's places are an empty outline round the code.
+ */
+function miniSeal(nation: Nation, stamp: Stamp | null): string {
+  const got = stamp !== null;
+  const colour = got ? nationInk(nation.color) : 'rgba(30, 6, 3, 0.32)';
+  let body: string;
+  if (got) {
+    const ring = glyphRing(nation, 32, 24, 19.4, 3.1);
+    body =
+      '<circle cx="32" cy="24" r="21.5" fill="none" stroke="currentColor" stroke-width="2.6"/>' +
+      (ring === ''
+        ? '<circle cx="32" cy="24" r="18" fill="none" stroke="currentColor" stroke-width="0.9"/>'
+        : `${ring}<circle cx="32" cy="24" r="17.1" fill="none" stroke="currentColor" stroke-width="0.7"/>`) +
+      banner(nation.iso, 24, 11.5, 16, 10.6, 0.6) +
+      `<text x="32" y="31.5" font-size="6.3" font-weight="800" letter-spacing="0.3" text-anchor="middle">${escape(dayText(stamp.date))}</text>`;
+  } else {
+    body =
+      '<circle cx="32" cy="24" r="21.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-dasharray="3.2 2.4"/>' +
+      `<text x="32" y="28.5" font-size="12" font-weight="800" letter-spacing="0.6" text-anchor="middle">${escape(initials(nation.name))}</text>`;
+  }
+  return (
+    `<svg viewBox="0 0 64 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ` +
+    `style="color:${colour};font-family:var(--ui-font)" fill="currentColor"><g opacity="${got ? 0.92 : 1}">${body}</g></svg>`
+  );
+}
+
+/**
+ * A world as its tab and its frontispiece draw it: a disc in the body's
+ * colour, lit from the upper left with the night on its right, Earth with
+ * land on it and Saturn in its ring.
+ */
+function worldDisc(body: string, colour: number): string {
+  const ink = hex(PALETTE.ink);
+  const fill = hex(colour);
+  const land =
+    body === 'earth'
+      ? `<path d="M9 13c3-4 9-5 11-2s-2 5 1 8-3 7-6 5-4-4-6-6 0-3 0-5zM24 24c3-1 7 1 7 4s-4 6-6 5-3-7-1-9z" fill="${hex(PALETTE.green)}"/>`
+      : '';
+  const ring =
+    body === 'saturn'
+      ? (back: boolean) =>
+          `<ellipse cx="20" cy="20" rx="25" ry="6.5" transform="rotate(-18 20 20)" fill="none" stroke="${ink}" stroke-width="2.4"` +
+          (back ? ' stroke-opacity="0.45"' : '') +
+          '/>'
+      : () => '';
+  return (
+    `<svg viewBox="0 0 40 40" aria-hidden="true" overflow="visible">` +
+    ring(true) +
+    `<circle cx="20" cy="20" r="17" fill="${fill}"/>` +
+    land +
+    `<path d="M20 3a17 17 0 0 1 0 34a10 17 0 0 0 0-34z" fill="${ink}" fill-opacity="0.2"/>` +
+    '<ellipse cx="13.5" cy="12.5" rx="4.5" ry="3.2" fill="#fff" fill-opacity="0.3"/>' +
+    `<circle cx="20" cy="20" r="17" fill="none" stroke="${ink}" stroke-width="2.6"/>` +
+    // The near half of the ring, in front of the planet.
+    (body === 'saturn' ? `<path d="M43.78 12.27A25 6.5 -18 0 1 -3.78 27.73" fill="none" stroke="${ink}" stroke-width="2.4"/>` : '') +
+    '</svg>'
+  );
+}
+
+/** The stamp that drops, square on its spot at its country's own tilt; a nation's seal at its own. */
+function stampElement(stamp: Stamp, nation: Nation | null): HTMLElement {
+  const { svg, tilt } = nation === null ? stampSvg(stamp) : sealSvg(stamp, nation);
+  const element = h('div', { class: 'p-stamp', html: svg });
+  element.style.setProperty('--tilt', `${tilt}deg`);
   return element;
 }
 
-/* --- the pages ------------------------------------------------------------ */
+/** `2026-09-25` as the small stamp says it: `25 SEP`. */
+const dayText = (date: string): string => stampDateText(date).slice(0, 6);
 
-/** The globe on the cover, stroked: the same globe as the UI's, drawn large. */
-const EMBLEM =
-  '<svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true">' +
-  '<circle cx="60" cy="60" r="44" stroke-width="3.2"/>' +
-  '<circle cx="60" cy="60" r="52" stroke-width="1.2" stroke-dasharray="2 5"/>' +
-  '<ellipse cx="60" cy="60" rx="19" ry="44" stroke-width="2.2"/>' +
-  '<path d="M16 60h88M22 38h76M22 82h76" stroke-width="2.2"/>' +
-  '<path d="M60 4v8M60 108v8M4 60h8M108 60h8" stroke-width="2.4"/></svg>';
-/** The chip mark every e-passport's cover carries. */
-const CHIP =
-  '<svg viewBox="0 0 44 30" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
-  '<rect x="1.5" y="1.5" width="41" height="27" rx="4"/><circle cx="22" cy="15" r="6"/>' +
-  '<path d="M1.5 15h14M28 15h14.5"/></svg>';
+/**
+ * A country's place on its continent's page, 64 by 48: the stamp, small, in
+ * its country's ink with its code, the day and the flag's band; or, not yet
+ * stamped, the same shape as an empty grey outline round the code.
+ */
+function miniStamp(iso: string, stamp: Stamp | null): string {
+  const shape = Math.floor(hashOf(iso) * 3);
+  const got = stamp !== null;
+  const colour = got ? inkOf(iso) : 'rgba(30, 6, 3, 0.32)';
+  const dash = got ? '' : ' stroke-dasharray="3.2 2.4"';
+  const ring =
+    shape === 0
+      ? `<circle cx="32" cy="24" r="21.5" fill="none" stroke="currentColor" stroke-width="2.6"${dash}/>` +
+        (got ? '<circle cx="32" cy="24" r="18" fill="none" stroke="currentColor" stroke-width="0.9"/>' : '')
+      : shape === 1
+        ? `<rect x="4" y="4" width="56" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="2.6"${dash}/>` +
+          (got ? '<rect x="7.5" y="7.5" width="49" height="33" rx="3.5" fill="none" stroke="currentColor" stroke-width="0.9"/>' : '')
+        : `<ellipse cx="32" cy="24" rx="28" ry="21" fill="none" stroke="currentColor" stroke-width="2.6"${dash}/>` +
+          (got ? '<ellipse cx="32" cy="24" rx="24.5" ry="17.5" fill="none" stroke="currentColor" stroke-width="0.9"/>' : '');
+  const code = escape(iso.slice(0, 4));
+  const text = got
+    ? `<text x="32" y="25" font-size="12.5" font-weight="800" letter-spacing="0.6" text-anchor="middle">${code}</text>` +
+      `<text x="32" y="33.5" font-size="6.6" font-weight="800" letter-spacing="0.3" text-anchor="middle">${escape(dayText(stamp.date))}</text>` +
+      flagBand(iso, 23, 36.5, 18, 2.5)
+    : `<text x="32" y="28.5" font-size="12.5" font-weight="800" letter-spacing="0.6" text-anchor="middle">${code}</text>`;
+  return (
+    `<svg viewBox="0 0 64 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" ` +
+    `style="color:${colour};font-family:var(--ui-font)" fill="currentColor"><g opacity="${got ? 0.92 : 1}">${ring}${text}</g></svg>`
+  );
+}
+
+/* --- the pages ------------------------------------------------------------ */
 
 /** One continent's seal on its visa page: a rose of the winds in its ink. */
 function seal(colour: string): string {
@@ -614,68 +1033,146 @@ function mrzName(name: string): string {
 
 const pad = (text: string, width: number): string => (text.length >= width ? text.slice(0, width) : text + '<'.repeat(width - text.length));
 
+/** One visa: a bookmark along the top, and a grid of places on one or more pages. */
+interface Visa {
+  /** The continent's name on Earth, the body's id elsewhere. */
+  key: string;
+  /** The chapter it is in: `'earth'` or the body's id. */
+  chapter: string;
+  title: string;
+  /** Its print, and the dye of its bookmark. */
+  ink: string;
+  dye: string;
+  entries: readonly { iso: string; name: string }[];
+}
+
 export function createPassportCard(options: PassportCardOptions): PassportCard {
   installUi();
   ensureStyle('atlas-passport', STYLE);
   const { passport } = options;
+  /** Every listener the card adds goes with it on `dispose`. */
+  const events = new AbortController();
+  const { signal } = events;
 
   const countryOf = new Map(options.countries.map((country) => [country.iso, country]));
-  const perContinent = new Map<string, number>();
-  for (const country of options.countries) perContinent.set(country.continent, (perContinent.get(country.continent) ?? 0) + 1);
-  const continentOrder = [
-    ...CONTINENTS.filter(([name]) => perContinent.has(name)),
-    ...[...perContinent.keys()]
-      .filter((name) => name !== OPEN_OCEAN && !CONTINENTS.some(([known]) => known === name))
-      .map((name) => [name, PALETTE.brown] as const),
-  ];
+  /** Every country on its continent's pages, by name. */
+  const continents = byContinent(options.countries);
+  /** Earth's visas: every continent with a country. */
+  const earthVisas: Visa[] = CONTINENTS.filter((continent) => continents.get(continent)!.length > 0).map((continent) => ({
+    key: continent,
+    chapter: 'earth',
+    title: continent,
+    ink: inked(CONTINENT_INK[continent], 0.35),
+    dye: inked(CONTINENT_INK[continent], 0.3),
+    entries: continents.get(continent)!,
+  }));
+  /** The other worlds, once the caller has handed them over; their nations by code. */
+  let chapters: readonly PassportChapter[] = [];
+  let visas: Visa[] = earthVisas;
+  const nationOf = new Map<string, Nation>();
+  const stampsByIso = (): Map<string, Stamp> => new Map(passport.data.stamps.map((stamp) => [stamp.iso, stamp]));
+  /** The facts for the tip's capital, once `country-facts.ts` has them. */
+  let facts: Record<string, CountryFacts> | null = null;
+  const continentOfIso = (iso: string): Continent | null => {
+    const country = countryOf.get(iso);
+    return country === undefined ? null : continentOf(country);
+  };
+  const visaOf = (key: string): Visa | undefined => visas.find((visa) => visa.key === key);
 
-  const close = h('button', { class: 'ui-btn small p-close', type: 'button', 'aria-label': 'Close the passport' }, icon('close', 16), 'Close');
-  const back = h('button', { class: 'ui-btn small', type: 'button', 'aria-label': 'Previous pages' }, icon('back', 16), 'Back');
-  const forward = h('button', { class: 'ui-btn small', type: 'button', 'aria-label': 'Next pages' }, 'Next', icon('next', 16));
-  const folio = h('output', { 'aria-live': 'polite' });
   const left = h('div', { class: 'p-side left', role: 'group', 'aria-roledescription': 'page' });
   const right = h('div', { class: 'p-side right', role: 'group', 'aria-roledescription': 'page' });
-  const book = h('div', { class: 'p-book closed' }, left, right);
-  const scaler = h('div', { class: 'p-scaler' }, book);
+  // The two corners: the only things on the paper that turn it.
+  const previous = h('button', { class: 'p-corner prev', type: 'button', 'aria-label': 'Previous pages', html: cornerSvg('p-corner-prev') });
+  const next = h('button', { class: 'p-corner next', type: 'button', 'aria-label': 'Next pages', html: cornerSvg('p-corner-next') });
+  const book = h('div', { class: 'p-book' }, left, right, previous, next);
+  // A bookmark for the holder's page and one a visa, standing out of the top
+  // edge; only the current chapter's stand up at once.
+  const holderTab = h('button', { class: 'p-tab holder', type: 'button', 'aria-label': 'The holder' }, h('b', {}, icon('passport', 14), 'Holder'), h('em', { text: 'ATL' }));
+  const tabs = new Map<string, HTMLButtonElement>();
+  holderTab.addEventListener('click', () => turn(0), { signal });
+  const ribbons = h('nav', { class: 'p-ribbons', 'aria-label': 'Bookmarks' }, holderTab);
+  // And a planet a chapter down the right edge, once there is more than Earth.
+  const worldTabs = new Map<string, HTMLButtonElement>();
+  const worlds = h('nav', { class: 'p-worlds', 'aria-label': 'Worlds' });
+  const hint = h('div', { class: 'p-hint' });
+  const scaler = h('div', { class: 'p-scaler' }, h('div', { class: 'p-cover-back' }), ribbons, worlds, book, hint);
   const fit = h('div', { class: 'p-fit' }, scaler);
-  const panel = h(
-    'div',
-    { class: 'p-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport', tabindex: '-1' },
-    fit,
-    h('div', { class: 'p-nav' }, back, folio, forward, close),
-  );
-  const overlay = h('div', { class: 'atlas-passport' }, panel);
+  const panel = h('div', { class: 'p-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport', tabindex: '-1' }, fit);
+  const tipFlag = h('span');
+  const tipName = h('b');
+  const tipCapital = h('small');
+  const tipStamp = h('small');
+  const tip = h('div', { class: 'p-tip ui-card', 'aria-hidden': 'true' }, tipFlag, h('div', {}, tipName, tipCapital, tipStamp));
+  const overlay = h('div', { class: 'atlas-passport' }, panel, tip);
 
   const dropStamp = h('div');
   const dropCaption = h('div', { class: 'p-caption ui-card' });
   const drop = h('div', { class: 'atlas-stamp-drop', 'aria-live': 'polite' }, dropStamp, dropCaption);
   const root = h('div', {}, overlay, drop);
 
+  /** The bookmarks and the planets, for the visas and the chapters as they stand. */
+  function layout(): void {
+    visas = [
+      ...earthVisas,
+      ...chapters.map((chapter) => ({
+        key: chapter.body,
+        chapter: chapter.body,
+        title: chapter.name,
+        ink: inked(chapter.color ?? PALETTE.slate, 0.35),
+        dye: inked(chapter.color ?? PALETTE.slate, 0.3),
+        entries: chapter.nations,
+      })),
+    ];
+    nationOf.clear();
+    for (const chapter of chapters) {
+      for (const nation of chapter.nations) {
+        const entry: Nation = { iso: nation.iso, name: nation.name, color: nation.color, world: chapter.name };
+        if (chapter.script !== undefined) entry.script = chapter.script;
+        nationOf.set(nation.iso, entry);
+      }
+    }
+    tabs.clear();
+    for (const visa of visas) {
+      const tab = h('button', { class: 'p-tab', type: 'button' });
+      tab.style.setProperty('--tab', visa.dye);
+      tab.addEventListener('click', () => {
+        const first = firstPageOf.get(visa.key);
+        if (first !== undefined) turn(spreadOfPage(first));
+      }, { signal });
+      tabs.set(visa.key, tab);
+    }
+    ribbons.replaceChildren(holderTab, ...tabs.values());
+    worldTabs.clear();
+    if (chapters.length > 0) {
+      const all = [{ body: 'earth', name: 'Earth', color: PALETTE.skyBlue as number }, ...chapters.map((chapter) => ({ body: chapter.body, name: chapter.name, color: chapter.color ?? PALETTE.white }))];
+      for (const world of all) {
+        const tab = h('button', { class: 'p-world', type: 'button', html: worldDisc(world.body, world.color) });
+        tab.addEventListener('click', () => {
+          const start = chapterStart.get(world.body);
+          if (start !== undefined) turn(world.body === 'earth' ? 0 : spreadOfPage(start));
+        }, { signal });
+        worldTabs.set(world.body, tab);
+      }
+    }
+    worlds.replaceChildren(...worldTabs.values());
+    worlds.hidden = worldTabs.size === 0;
+  }
+
   /* --- what the pages say ------------------------------------------------ */
 
   type PageMaker = (side: 'verso' | 'recto') => HTMLElement;
 
-  function page(side: 'verso' | 'recto', number: number | null, running: string, ...children: (HTMLElement | null)[]): HTMLElement {
+  function page(side: 'verso' | 'recto', number: number | null, running: string, world: string, ...children: (HTMLElement | null)[]): HTMLElement {
     return h(
       'div',
       { class: `p-page ${side}` },
-      h('div', { class: 'p-running' }, h('span', { text: side === 'verso' ? 'Atlas' : running }), h('span', { text: side === 'verso' ? running : 'Earth' })),
+      h('div', { class: 'p-running' }, h('span', { text: side === 'verso' ? 'Atlas' : running }), h('span', { text: side === 'verso' ? running : world })),
       ...children,
       number === null ? null : h('div', { class: 'p-folio', text: String(number) }),
     );
   }
 
-  function cover(): HTMLElement {
-    return h(
-      'div',
-      { class: 'p-page cover recto' },
-      h('div', { class: 'p-cover-top p-emboss', text: 'ATLAS' }),
-      h('div', { class: 'p-cover-emblem', html: EMBLEM }),
-      h('div', {}, h('div', { class: 'p-cover-title p-emboss', text: 'PASSPORT' }), h('div', { class: 'p-cover-sub p-emboss', text: 'PASSEPORT · PASAPORTE · REISEPASS' })),
-      h('div', { class: 'p-cover-chip', html: CHIP }),
-    );
-  }
-
+  /** The inside of the front cover, with the notice every passport prints there. */
   function endpaper(): HTMLElement {
     const stamps = passport.data.stamps;
     return h(
@@ -686,10 +1183,17 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
         { class: 'p-label' },
         h('b', { text: 'Notice to the holder' }),
         h('p', { text: 'Every country you come down in is stamped in this book: walking in, swimming ashore, driving, sailing or landing. Flying over does not count.' }),
-        h('p', { text: 'Each continent has its visa page, and every landmark you find is written in.' }),
+        h('p', { text: 'Each continent has its visa, with a place for every one of its countries. The ones still in grey are the ones you have not been to.' }),
+        chapters.length === 0 ? null : h('p', { text: 'Every other world has a chapter of its own, behind the planets on the right-hand edge, with a seal for each of its nations.' }),
         h('small', { text: stamps.length === 0 ? 'Not yet stamped.' : `First stamp: ${stamps[0]!.name}, ${stampDateText(stamps[0]!.date)}.` }),
       ),
     );
+  }
+
+  /** The worlds with a stamp in the book, of the worlds it has chapters for. */
+  function worldsStamped(): number {
+    const known = new Set(['earth', ...chapters.map((chapter) => chapter.body)]);
+    return new Set(passport.data.stamps.map((stamp) => worldOf(stamp.iso)).filter((world) => known.has(world))).size;
   }
 
   function holderPage(side: 'verso' | 'recto', number: number): HTMLElement {
@@ -697,6 +1201,7 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     const name = who?.name.trim() || 'Traveller';
     const code = who === null ? '' : encodeAppearance(who.appearance);
     const stamps = passport.data.stamps;
+    const earthly = stamps.filter((stamp) => worldOf(stamp.iso) === 'earth');
     const field = (label: string, value: string, mono = false): HTMLElement =>
       h('div', { class: 'p-field' }, h('small', { text: label }), h('span', { class: mono ? 'code' : '', text: value }));
     const surname = mrzName(name) || 'TRAVELLER';
@@ -707,6 +1212,7 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
       side,
       number,
       'Holder',
+      'Earth',
       h('div', { class: 'p-id-head' }, h('b', { text: 'PASSPORT' }), h('span', { text: 'TYPE P · ATL' })),
       h(
         'div',
@@ -717,7 +1223,9 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
           { class: 'p-fields' },
           field('Name', name),
           field('Nationality', 'Of the Earth'),
-          field('Look', code === '' ? '—' : code, true),
+          field('Countries', `${earthly.length} of ${options.countries.length}`),
+          field('Continents', `${new Set(earthly.map((stamp) => continentOfIso(stamp.iso)).filter((c) => c !== null)).size} of ${earthVisas.length}`),
+          chapters.length === 0 ? null : field('Worlds', `${worldsStamped()} of ${1 + chapters.length}`),
           field('Date of issue', stamps.length === 0 ? 'On the first stamp' : stampDateText(stamps[0]!.date)),
           field('Place of issue', stamps.length === 0 ? '—' : stamps[0]!.town || stamps[0]!.name),
         ),
@@ -729,149 +1237,208 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     return holder;
   }
 
-  function count(value: number, total: number | null, label: string): HTMLElement {
-    const figure = h('b', {}, String(value), total === null ? null : h('small', { text: ` / ${total}` }));
-    const bar = total === null || total === 0 ? null : h('div', { class: 'p-bar' }, h('i'));
-    if (bar !== null) (bar.firstElementChild as HTMLElement).style.width = `${Math.min(100, (value / total!) * 100).toFixed(1)}%`;
-    return h('div', { class: 'p-count' }, figure, h('span', { text: label }), bar);
+  /** Which visa's pages begin where, and which chapter's, as `pagesOf` last laid the book out. */
+  const firstPageOf = new Map<string, number>();
+  const chapterStart = new Map<string, number>();
+
+  /** How many of a visa's places are stamped. */
+  function countOf(visa: Visa, stamped: Map<string, Stamp>): number {
+    return visa.entries.reduce((sum, entry) => sum + (stamped.has(entry.iso) ? 1 : 0), 0);
   }
 
-  function flagOf(iso: string): HTMLCanvasElement | null {
-    try {
-      return createFlagCanvas(iso, 42, 28);
-    } catch {
-      return null;
-    }
-  }
-
-  function recordPage(side: 'verso' | 'recto', number: number): HTMLElement {
-    const stamps = passport.data.stamps;
-    const continents = new Set<string>();
-    for (const stamp of stamps) {
-      const continent = countryOf.get(stamp.iso)?.continent;
-      if (continent !== undefined && continent !== OPEN_OCEAN) continents.add(continent);
-    }
-    const { found, total } = options.landmarks();
-    const towns = passport.data.towns;
-    const recent = h('ul', { class: 'p-list' });
-    for (const key of towns.slice(-7).reverse()) {
-      const colon = key.indexOf(':');
-      const iso = key.slice(0, colon);
-      recent.append(h('li', {}, flagOf(iso), key.slice(colon + 1), h('em', { text: countryOf.get(iso)?.name ?? '' })));
-    }
-    return page(
-      side,
-      number,
-      'Record',
-      h('div', { class: 'p-h', text: 'The holder has visited' }),
-      h(
-        'div',
-        { class: 'p-counts' },
-        count(stamps.length, options.countries.length, 'countries'),
-        count(continents.size, continentOrder.length, 'continents'),
-        count(found.length, total, 'landmarks found'),
-        count(towns.length, null, 'towns walked into'),
-      ),
-      h('div', { class: 'p-rule' }),
-      h('div', { class: 'p-h', text: 'Towns walked into, lately' }),
-      towns.length === 0 ? h('div', { class: 'p-none', text: 'Walk into a town and it is written here.' }) : recent,
-    );
-  }
-
-  function landmarksPage(side: 'verso' | 'recto', number: number): HTMLElement {
-    const { found, total } = options.landmarks();
-    const list = h('div', { class: 'p-found' });
-    const shown = found.slice(0, 30);
-    for (const landmark of shown) list.append(h('span', { text: landmark.name }));
-    if (found.length > shown.length) list.append(h('span', { class: 'p-none', text: `and ${found.length - shown.length} more` }));
-    return page(
-      side,
-      number,
-      'Landmarks',
-      h('div', { class: 'p-h', text: `Landmarks found · ${found.length} of ${total}` }),
-      found.length === 0 ? h('div', { class: 'p-none', text: 'None yet. The minimap’s wedge points at the nearest.' }) : list,
-    );
-  }
-
-  function visaPage(side: 'verso' | 'recto', number: number, continent: string, tint: number): HTMLElement {
-    const ink = inked(tint, 0.35);
-    const stamps = passport.data.stamps.filter((stamp) => countryOf.get(stamp.iso)?.continent === continent);
-    const of = perContinent.get(continent) ?? 0;
-    const list = h('ul', { class: 'p-list' });
-    const shown = stamps.slice(0, 10);
-    for (const stamp of shown) list.append(h('li', {}, flagOf(stamp.iso), stamp.name, h('em', { text: stampDateText(stamp.date) })));
-    if (stamps.length > shown.length) list.append(h('li', { class: 'p-none', text: `and ${stamps.length - shown.length} more` }));
-    const first = stamps[0];
-    const mark =
-      first === undefined
-        ? h('div', { class: 'p-visa-empty', text: 'No entry yet' })
-        : h('div', { class: 'p-visa-grant' }, 'ENTRY GRANTED', h('small', { text: `${stampDateText(first.date)}${first.town === '' ? '' : ` · ${first.town.toUpperCase()}`}` }));
-    if (first !== undefined) mark.style.color = ink;
-    const visa = page(
-      side,
-      number,
-      'Visas',
-      h(
-        'div',
-        { class: 'p-visa-head' },
-        h('span', { html: seal(ink) }),
-        h('div', {}, h('small', { text: 'Visa' }), h('b', { text: continent })),
-      ),
-      h('div', { class: 'p-h', text: `${stamps.length} of ${of} ${of === 1 ? 'country' : 'countries'}` }),
-      stamps.length === 0 ? h('div', { class: 'p-none', text: `Set foot anywhere in ${continent} and the visa is granted.` }) : list,
-      mark,
-    );
-    visa.classList.add('guilloche');
-    return visa;
-  }
-
-  function stampsPage(side: 'verso' | 'recto', number: number, from: number): HTMLElement {
-    const stamps = passport.data.stamps.slice(from, from + PER_PAGE);
-    const grid = h('div', { class: 'p-stamps' });
-    stamps.forEach((stamp, i) => grid.append(h('div', { class: 'p-slot' }, stampElement(stamp, from + i))));
-    if (from === 0 && stamps.length === 0) grid.append(h('div', { class: 'p-slots-empty', text: 'Your stamps go here.' }));
-    return page(side, number, 'Stamps', grid);
-  }
-
-  function blankPage(side: 'verso' | 'recto', number: number): HTMLElement {
-    return page(side, number, 'Notes');
+  function progressBar(got: number, all: number, ink: string): HTMLElement {
+    const bar = h('div', { class: 'p-bar' }, h('i'));
+    const fillBar = bar.firstElementChild as HTMLElement;
+    fillBar.style.width = `${((got / Math.max(1, all)) * 100).toFixed(1)}%`;
+    fillBar.style.background = ink;
+    return bar;
   }
 
   /**
-   * The book as it stands: the cover, the endpaper, the holder, the record,
-   * the landmarks, a visa a continent, and the stamps — at least two pages,
-   * and enough to hold every stamp — with a blank to close the last spread.
+   * A page of a visa: every one of its places in a grid, by name, the ones
+   * stamped in their own ink and the rest an empty outline, so the page says
+   * what is missing as plainly as what is there.
+   */
+  function visaPage(side: 'verso' | 'recto', number: number, visa: Visa, part: number): HTMLElement {
+    const all = visa.entries;
+    const stamped = stampsByIso();
+    const got = countOf(visa, stamped);
+    const earth = visa.chapter === 'earth';
+    const world = earth ? 'Earth' : visa.title;
+    const grid = h('div', { class: 'p-grid' });
+    for (const entry of all.slice(part * PER_PAGE, (part + 1) * PER_PAGE)) {
+      const stamp = stamped.get(entry.iso) ?? null;
+      const nation = earth ? undefined : nationOf.get(entry.iso);
+      const cell = h(
+        'div',
+        {
+          class: stamp === null ? 'p-cell missing' : 'p-cell got',
+          'data-iso': entry.iso,
+          role: 'img',
+          'aria-label': stamp === null ? `${entry.name}, not visited yet` : `${entry.name}, stamped ${stampDateText(stamp.date)}`,
+        },
+        h('div', { class: 'p-mini', html: nation === undefined ? miniStamp(entry.iso, stamp) : miniSeal(nation, stamp) }),
+        h('span', { text: entry.name }),
+      );
+      if (stamp !== null) cell.style.setProperty('--tilt', `${Math.round((hashOf(`${entry.iso}/tilt`) - 0.5) * 16)}deg`);
+      grid.append(cell);
+    }
+    // The heading, the count and the bar once a visa, on its first page; a
+    // page it runs on to carries the grid alone under the running head.
+    const mark = earth ? seal(visa.ink) : worldDisc(visa.chapter, chapters.find((chapter) => chapter.body === visa.chapter)?.color ?? PALETTE.white);
+    const result = part === 0
+      ? page(
+          side,
+          number,
+          visa.title,
+          world,
+          h(
+            'div',
+            { class: 'p-cont-head' },
+            h('span', { html: mark }),
+            h('div', {}, h('small', { text: 'Visa' }), h('b', { text: earth ? visa.title : `The nations of ${visa.title}` })),
+            h('div', { class: 'p-cont-count' }, String(got), h('small', { text: ` / ${all.length}` })),
+          ),
+          progressBar(got, all.length, visa.ink),
+          grid,
+        )
+      : page(side, number, visa.title, world, grid);
+    result.classList.add('guilloche');
+    return result;
+  }
+
+  /**
+   * The page a world's chapter opens on, facing its visa: the planet, its
+   * name, in its own people's writing where they have one, and how much of it
+   * the book holds.
+   */
+  function frontispiece(side: 'verso' | 'recto', number: number, chapter: PassportChapter): HTMLElement {
+    const visa = visaOf(chapter.body);
+    const got = visa === undefined ? 0 : countOf(visa, stampsByIso());
+    const all = chapter.nations.length;
+    const ink = visa?.ink ?? inked(PALETTE.slate, 0.35);
+    let written: Element | null = null;
+    try {
+      written = chapter.script?.(chapter.name) ?? null;
+    } catch {
+      written = null;
+    }
+    const writing = written === null ? null : h('div', { class: 'p-script' }, written as HTMLElement);
+    if (writing !== null) writing.style.color = ink;
+    const front = page(
+      side,
+      number,
+      chapter.name,
+      chapter.name,
+      h(
+        'div',
+        { class: 'p-front' },
+        h('div', { class: 'p-globe', html: worldDisc(chapter.body, chapter.color ?? PALETTE.white) }),
+        h('small', { text: 'Chapter' }),
+        h('b', { text: chapter.name }),
+        writing,
+        h('p', { text: `${got === 0 ? 'Not one' : got} of its ${all} ${all === 1 ? 'nation' : 'nations'} stamped. Every nation you come down in here is sealed on the facing page.` }),
+        progressBar(got, all, ink),
+      ),
+    );
+    front.classList.add('guilloche');
+    return front;
+  }
+
+  function blankPage(side: 'verso' | 'recto', number: number, world = 'Earth'): HTMLElement {
+    return page(side, number, 'Notes', world);
+  }
+
+  /**
+   * The book as it stands, open from the start: the inside of the cover and
+   * the holder's page on the first spread, then a visa of one or more pages a
+   * continent, each of two or more pages opening on a left-hand page so that
+   * it lies open as one spread; then a chapter a world, its frontispiece on a
+   * left-hand page facing its visa; and a blank to close the last spread.
+   * Page `2n` is spread `n`'s left, `2n + 1` its right.
    */
   function pagesOf(): PageMaker[] {
-    const pages: PageMaker[] = [() => cover(), () => endpaper()];
+    const pages: PageMaker[] = [() => endpaper()];
+    let world = 'Earth';
     const add = (make: (side: 'verso' | 'recto', number: number) => HTMLElement): void => {
       const number = pages.length;
       pages.push((side) => make(side, number));
     };
+    const blank = (): void => {
+      const name = world;
+      add((side, number) => blankPage(side, number, name));
+    };
     add(holderPage);
-    add(recordPage);
-    add(landmarksPage);
-    for (const [continent, tint] of continentOrder) add((side, number) => visaPage(side, number, continent, tint));
-    firstStampPage = pages.length;
-    const stampPages = Math.max(2, Math.ceil(passport.data.stamps.length / PER_PAGE));
-    for (let i = 0; i < stampPages; i++) add((side, number) => stampsPage(side, number, i * PER_PAGE));
-    // Every spread two pages: page 0 is the cover, alone on the right.
-    if (pages.length % 2 === 0) add(blankPage);
+    firstPageOf.clear();
+    chapterStart.clear();
+    chapterStart.set('earth', 0);
+    for (const visa of earthVisas) {
+      const parts = Math.ceil(visa.entries.length / PER_PAGE);
+      if (parts > 1 && pages.length % 2 === 1) blank();
+      firstPageOf.set(visa.key, pages.length);
+      for (let part = 0; part < parts; part++) add((side, number) => visaPage(side, number, visa, part));
+    }
+    for (const chapter of chapters) {
+      if (pages.length % 2 === 1) blank();
+      world = chapter.name;
+      chapterStart.set(chapter.body, pages.length);
+      add((side, number) => frontispiece(side, number, chapter));
+      const visa = visaOf(chapter.body)!;
+      firstPageOf.set(visa.key, pages.length);
+      const parts = Math.max(1, Math.ceil(visa.entries.length / PER_PAGE));
+      for (let part = 0; part < parts; part++) add((side, number) => visaPage(side, number, visa, part));
+    }
+    if (pages.length % 2 === 1) blank();
     return pages;
   }
 
   /* --- turning ------------------------------------------------------------ */
 
-  /** Where the stamps begin, as `pagesOf` last laid the book out. */
-  let firstStampPage = 0;
   let pages = pagesOf();
-  /** The spread on show: 0 is the closed cover, `n` shows pages `2n - 1` and `2n`. */
+  /** The spread on show: pages `2n` and `2n + 1`. */
   let spread = 0;
-  const spreads = (): number => Math.floor(pages.length / 2) + 1;
-  /** The first spread with the newest stamp on it. */
+  /** Whether the book has been turned since it opened, so a late chapter does not move it. */
+  let turned = false;
+  const spreads = (): number => pages.length / 2;
+  /** The spread a page lies open on. */
+  const spreadOfPage = (index: number): number => Math.floor(index / 2);
+
+  /** The chapter a spread is in: the last to start at or before its left page. */
+  function chapterAt(at: number): string {
+    let found = 'earth';
+    let best = -1;
+    for (const [id, start] of chapterStart) {
+      if (start <= 2 * at && start > best) {
+        best = start;
+        found = id;
+      }
+    }
+    return found;
+  }
+
+  /** The spread a country's or a nation's place is on, or null for one with no visa. */
+  function spreadOfCountry(iso: string): number | null {
+    const world = worldOf(iso);
+    const key = world === 'earth' ? continentOfIso(iso) : world;
+    if (key === null) return null;
+    const visa = visaOf(key);
+    const first = firstPageOf.get(key);
+    if (visa === undefined || first === undefined) return null;
+    const at = visa.entries.findIndex((entry) => entry.iso === iso);
+    if (world !== 'earth' && at < 0) return null;
+    return spreadOfPage(first + Math.floor(Math.max(0, at) / PER_PAGE));
+  }
+
+  /** The spread with the newest stamp on it, or the holder's with none. */
   function newestSpread(): number {
-    const at = firstStampPage + Math.max(0, Math.ceil(passport.data.stamps.length / PER_PAGE) - 1);
-    return Math.min(spreads() - 1, Math.floor((at + 1) / 2));
+    const newest = passport.data.stamps[passport.data.stamps.length - 1];
+    return (newest === undefined ? null : spreadOfCountry(newest.iso)) ?? 0;
+  }
+
+  /** Where the book falls open: the visa of the country underfoot, else the newest stamp's. */
+  function openingSpread(): number {
+    const here = options.here?.() ?? '';
+    return (here === '' ? null : spreadOfCountry(here)) ?? newestSpread();
   }
 
   function sideOf(index: number, side: 'verso' | 'recto'): HTMLElement | null {
@@ -886,22 +1453,43 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   }
 
   function labelFor(index: number): string {
-    return index === 0 ? 'Cover' : index < 0 || index >= pages.length ? '' : `Page ${index}`;
+    return index === 0 ? 'Inside the cover' : index < 0 || index >= pages.length ? '' : `Page ${index}`;
   }
 
   function showSpread(): void {
-    fill(left, sideOf(2 * spread - 1, 'verso'), labelFor(2 * spread - 1));
-    fill(right, sideOf(2 * spread, 'recto'), labelFor(2 * spread));
-    book.classList.toggle('closed', spread === 0);
+    fill(left, sideOf(2 * spread, 'verso'), labelFor(2 * spread));
+    fill(right, sideOf(2 * spread + 1, 'recto'), labelFor(2 * spread + 1));
     chrome();
   }
 
   function chrome(): void {
-    const last = spreads() - 1;
-    folio.textContent = spread === 0 ? 'Cover' : `Pages ${2 * spread - 1}–${Math.min(2 * spread, pages.length - 1)} of ${pages.length - 1}`;
-    back.disabled = spread === 0;
-    forward.disabled = spread >= last;
-    forward.replaceChildren(spread === 0 ? 'Open' : 'Next', icon('next', 16));
+    const stamped = stampsByIso();
+    const chapter = chapterAt(spread);
+    holderTab.setAttribute('aria-current', String(spread === 0));
+    for (const [key, tab] of tabs) {
+      const visa = visaOf(key)!;
+      // Only the chapter you are in stands up along the top; the holder's is the book's.
+      tab.hidden = visa.chapter !== chapter;
+      const all = visa.entries;
+      const got = countOf(visa, stamped);
+      const first = firstPageOf.get(key) ?? -1;
+      const parts = Math.max(1, Math.ceil(all.length / PER_PAGE));
+      const from = visa.chapter === 'earth' ? spreadOfPage(first) : spreadOfPage(chapterStart.get(visa.chapter) ?? first);
+      const open = !tab.hidden && first >= 0 && from <= spread && spread <= spreadOfPage(first + parts - 1);
+      tab.replaceChildren(h('b', { text: visa.title }), h('em', { text: `${got}/${all.length}` }));
+      tab.setAttribute('aria-label', `${visa.title}: ${got} of ${all.length} stamped`);
+      tab.setAttribute('aria-current', String(open));
+    }
+    for (const [body, tab] of worldTabs) {
+      const name = body === 'earth' ? 'Earth' : chapters.find((each) => each.body === body)?.name ?? body;
+      const got = passport.data.stamps.filter((stamp) => worldOf(stamp.iso) === body).length;
+      tab.setAttribute('aria-current', String(body === chapter));
+      tab.setAttribute('aria-label', `${name}: ${got} stamped`);
+      tab.title = `${name} · ${got} stamped`;
+    }
+    hideTip();
+    previous.hidden = spread === 0;
+    next.hidden = spread >= spreads() - 1;
   }
 
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
@@ -921,31 +1509,31 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     settle();
     const target = Math.max(0, Math.min(spreads() - 1, to));
     if (target === spread) return;
+    turned = true;
     const step = target > spread ? 1 : -1;
     const from = spread;
     spread = target;
-    options.onTurn?.();
-    if (calm.matches || Math.abs(target - from) > 1) {
-      // A jump of several spreads, or less motion asked for: straight there.
+    options.onTurn?.(Math.abs(target - from));
+    if (calm.matches) {
       showSpread();
       return;
     }
-    // Forward: the leaf is the right page lifting, with the next left page on
-    // its back; the next right page is already underneath. Backward is the
-    // mirror of it over the spine.
+    // Forward: the leaf is the right page lifting, with the target's left
+    // page on its back; the target's right page is already underneath.
+    // Backward is the mirror of it over the spine. A jump of several spreads
+    // is one leaf too, the pages between it riffled past unseen.
     const leaf = h('div', { class: `p-leaf ${step > 0 ? 'forward' : 'back'}` });
-    const front = step > 0 ? sideOf(2 * from, 'recto') : sideOf(2 * from - 1, 'verso');
-    const behind = step > 0 ? sideOf(2 * target - 1, 'verso') : sideOf(2 * target, 'recto');
+    const front = step > 0 ? sideOf(2 * from + 1, 'recto') : sideOf(2 * from, 'verso');
+    const behind = step > 0 ? sideOf(2 * target, 'verso') : sideOf(2 * target + 1, 'recto');
     const frontShade = h('div', { class: 'p-shade' });
     const behindShade = h('div', { class: 'p-shade' });
     leaf.append(
       h('div', { class: 'p-face' }, front, frontShade),
       h('div', { class: 'p-face under' }, behind, behindShade),
     );
-    if (step > 0) fill(right, sideOf(2 * target, 'recto'), labelFor(2 * target));
-    else fill(left, sideOf(2 * target - 1, 'verso'), labelFor(2 * target - 1));
+    if (step > 0) fill(right, sideOf(2 * target + 1, 'recto'), labelFor(2 * target + 1));
+    else fill(left, sideOf(2 * target, 'verso'), labelFor(2 * target));
     book.append(leaf);
-    book.classList.toggle('closed', target === 0);
     chrome();
     const animation = leaf.animate(
       [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${step > 0 ? -180 : 180}deg)` }],
@@ -957,8 +1545,8 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     ];
     const done = (): void => {
       leaf.remove();
-      if (step > 0) fill(left, sideOf(2 * target - 1, 'verso'), labelFor(2 * target - 1));
-      else fill(right, sideOf(2 * target, 'recto'), labelFor(2 * target));
+      if (step > 0) fill(left, sideOf(2 * target, 'verso'), labelFor(2 * target));
+      else fill(right, sideOf(2 * target + 1, 'recto'), labelFor(2 * target + 1));
     };
     turning = { animation, shade, done };
     animation.onfinish = () => {
@@ -966,59 +1554,149 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     };
   }
 
-  back.addEventListener('click', () => turn(spread - 1));
-  forward.addEventListener('click', () => turn(spread + 1));
-  // A click on a half of the book turns that half's way, as a hand would;
-  // on the closed cover it opens it.
-  book.addEventListener('click', (event) => {
-    const box = book.getBoundingClientRect();
-    const middle = spread === 0 ? box.left + box.width * 0.5 : box.left + box.width / 2;
-    turn(spread === 0 || event.clientX >= middle ? spread + 1 : spread - 1);
-  });
+  previous.addEventListener('click', () => turn(spread - 1), { signal });
+  next.addEventListener('click', () => turn(spread + 1), { signal });
 
-  /** The book at the largest size up to its own that the window holds. */
-  function resize(): void {
-    const scale = Math.max(0.3, Math.min(1, (innerWidth - BOOK_MARGIN_X) / BOOK_W, (innerHeight - BOOK_MARGIN_Y) / BOOK_H));
-    scaler.style.transform = `scale(${scale.toFixed(4)})`;
-    fit.style.width = `${Math.round(BOOK_W * scale)}px`;
-    fit.style.height = `${Math.round(BOOK_H * scale)}px`;
+  /* --- what a stamp says -------------------------------------------------- */
+
+  let tipIso = '';
+  function hideTip(): void {
+    tipIso = '';
+    tip.classList.remove('on');
   }
+  function showTip(cell: HTMLElement): void {
+    const iso = cell.dataset.iso ?? '';
+    const country = countryOf.get(iso);
+    const nation = nationOf.get(iso);
+    if (country === undefined && nation === undefined) {
+      hideTip();
+      return;
+    }
+    if (iso !== tipIso) {
+      tipIso = iso;
+      const flag = createFlagCanvas(iso, 34, 23);
+      flag.className = 'ui-flag';
+      tipFlag.replaceChildren(flag);
+      tipName.textContent = country?.name ?? nation!.name;
+      const capital = country === undefined ? undefined : facts?.[iso]?.capital;
+      tipCapital.textContent = nation !== undefined ? `A nation of ${nation.world}` : capital === undefined ? '' : `Capital: ${capital}`;
+      const stamp = stampsByIso().get(iso);
+      tipStamp.textContent =
+        stamp === undefined
+          ? 'Not visited yet'
+          : `Stamped ${stampDateText(stamp.date)}${stamp.town === '' ? '' : ` near ${stamp.town}`}, ${MODE_TEXT[stamp.mode]}`;
+    }
+    const box = cell.getBoundingClientRect();
+    tip.style.left = `${Math.max(160, Math.min(innerWidth - 160, box.left + box.width / 2)).toFixed(1)}px`;
+    tip.style.top = `${box.top.toFixed(1)}px`;
+    tip.classList.add('on');
+  }
+  book.addEventListener('pointerover', (event) => {
+    const cell = event.target instanceof Element ? event.target.closest('.p-cell') : null;
+    if (cell instanceof HTMLElement) showTip(cell);
+    else hideTip();
+  }, { signal });
+  book.addEventListener('pointerleave', hideTip, { signal });
+
+  /** The sheet's width as designed: the book, and the planets' room on its right once there are chapters. */
+  const sheetWidth = (): number => SHEET_W + (worldTabs.size > 0 ? SIDE_ROOM : 0);
+
+  /** The book as large as the window holds it, up to `MAX_SCALE` of its design. */
+  function resize(): void {
+    const width = sheetWidth();
+    const scale = Math.max(0.3, Math.min(MAX_SCALE, (innerWidth * FIT_WIDTH) / width, (innerHeight * FIT_HEIGHT) / SHEET_H));
+    scaler.style.width = `${width}px`;
+    scaler.style.transform = `scale(${scale.toFixed(4)})`;
+    fit.style.width = `${Math.round(width * scale)}px`;
+    fit.style.height = `${Math.round(SHEET_H * scale)}px`;
+  }
+
+  /* --- the other worlds' chapters ---------------------------------------- */
+
+  /** Lays the chapters in, and the book out again round the spread on show. */
+  function applyChapters(list: readonly PassportChapter[]): void {
+    chapters = list.filter((chapter) => chapter.body !== 'earth');
+    layout();
+    if (!showing) return;
+    settle();
+    pages = pagesOf();
+    spread = Math.min(spreads() - 1, turned ? spread : openingSpread());
+    showSpread();
+    resize();
+  }
+
+  let chaptersAsked = false;
+  /** Asks for the chapters once, the first time the book is opened or stamped. */
+  function askChapters(): void {
+    if (chaptersAsked) return;
+    chaptersAsked = true;
+    const given = options.chapters;
+    if (given === undefined || Array.isArray(given)) return;
+    try {
+      const answer = (given as () => readonly PassportChapter[] | Promise<readonly PassportChapter[]>)();
+      if (answer instanceof Promise) {
+        answer.then((list) => {
+          if (!disposed) applyChapters(list);
+        }).catch(() => undefined);
+      } else applyChapters(answer);
+    } catch {
+      // No chapters: the book is Earth's alone, as it always was.
+    }
+  }
+  // An array is in hand already: the book is laid out with it from the start.
+  if (Array.isArray(options.chapters)) chapters = (options.chapters as readonly PassportChapter[]).filter((chapter) => chapter.body !== 'earth');
+  layout();
+  pages = pagesOf();
 
   /* --- opening and closing ---------------------------------------------- */
 
   let showing = false;
   let relock = false;
+  let disposed = false;
   let previousFocus: HTMLElement | null = null;
-  registerModal(() => showing);
+  const unregisterModal = registerModal(() => showing);
 
   function show(opening: { relock?: boolean } = {}): void {
-    if (showing) return;
+    if (showing || disposed) return;
     showing = true;
+    turned = false;
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const target = options.lockTarget ?? null;
     relock = opening.relock ?? (target !== null && document.pointerLockElement === target);
     options.onOpen?.();
     if (document.pointerLockElement) document.exitPointerLock();
-    // Closed, on its cover: the book is opened by the one who holds it.
+    // The capitals for the tips; fetched once, and already in hand after the first frontier.
+    if (facts === null) {
+      void loadCountryFacts()
+        .then((loaded) => {
+          facts = loaded;
+        })
+        .catch(() => undefined);
+    }
+    askChapters();
+    // Open already, where the holder is.
     pages = pagesOf();
-    spread = 0;
+    spread = Math.min(spreads() - 1, openingSpread());
     showSpread();
+    const key = labelOf('passport');
+    hint.textContent = `← → turn the page · ${key} or Esc to close`;
     resize();
-    addEventListener('resize', resize);
+    addEventListener('resize', resize, { signal });
     if (!root.isConnected) document.body.append(root);
     overlay.classList.add('on');
-    forward.focus({ preventScroll: true });
+    panel.focus({ preventScroll: true });
   }
 
   // A lock granted while the card is up is handed straight back, as the settings card does.
   document.addEventListener('pointerlockchange', () => {
     if (showing && document.pointerLockElement !== null) document.exitPointerLock();
-  });
+  }, { signal });
 
   function hide(): void {
     if (!showing) return;
     showing = false;
     settle();
+    hideTip();
     removeEventListener('resize', resize);
     overlay.classList.remove('on');
     options.onClose?.();
@@ -1038,10 +1716,10 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     previousFocus = null;
   }
 
-  close.addEventListener('click', () => hide());
+  // Outside the book is outside the passport; on the book, only its corners and bookmarks answer.
   overlay.addEventListener('pointerdown', (event) => {
     if (event.target === overlay) hide();
-  });
+  }, { signal });
   addEventListener('keydown', (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (showing) {
@@ -1070,17 +1748,25 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     if (event.repeat || actionOf(event.code) !== 'passport' || inputBlocked(event)) return;
     event.preventDefault();
     show();
-  });
+  }, { signal });
 
   /* --- the stamp that lands ------------------------------------------------ */
 
   let dropTimer = 0;
   let thudTimer = 0;
   function celebrate(stamp: Stamp): void {
+    if (disposed) return;
+    askChapters();
     clearTimeout(dropTimer);
     clearTimeout(thudTimer);
     if (!root.isConnected) document.body.append(root);
-    dropStamp.replaceChildren(stampElement(stamp, -1));
+    // A nation of a world whose chapter has not arrived yet is sealed in the
+    // book's own crimson; its chapter colours it once it is in.
+    const nation =
+      worldOf(stamp.iso) === 'earth'
+        ? null
+        : nationOf.get(stamp.iso) ?? { iso: stamp.iso, name: stamp.name, color: PALETTE.crimson, world: worldOf(stamp.iso).replace(/^./, (c) => c.toUpperCase()) };
+    dropStamp.replaceChildren(stampElement(stamp, nation));
     dropCaption.textContent = `Passport stamped · ${stamp.name}`;
     drop.classList.remove('in', 'out');
     void drop.offsetWidth;
@@ -1108,5 +1794,14 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     hide,
     toggle: () => (showing ? hide() : show()),
     celebrate,
+    dispose() {
+      hide();
+      disposed = true;
+      clearTimeout(dropTimer);
+      clearTimeout(thudTimer);
+      events.abort();
+      unregisterModal();
+      root.remove();
+    },
   };
 }

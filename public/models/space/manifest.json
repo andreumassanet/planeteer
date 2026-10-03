@@ -1,0 +1,3507 @@
+{
+ "baked": "scripts/build-space.ts",
+ "models": [
+  {
+   "id": "base-large",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Base_Large.gltf",
+   "triangles": 2790,
+   "size": [
+    8.53,
+    4.97,
+    8.53
+   ],
+   "slots": 4,
+   "tags": [
+    "hub"
+   ]
+  },
+  {
+   "id": "building-l",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Building_L.gltf",
+   "triangles": 2940,
+   "size": [
+    7.8,
+    4.31,
+    7.79
+   ],
+   "slots": 4,
+   "tags": [
+    "module"
+   ]
+  },
+  {
+   "id": "geodesic-dome",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/GeodesicDome.gltf",
+   "triangles": 1432,
+   "size": [
+    8.53,
+    5.28,
+    8.53
+   ],
+   "slots": 4,
+   "tags": [
+    "dome"
+   ]
+  },
+  {
+   "id": "house-cylinder",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/House_Cylinder.gltf",
+   "triangles": 1166,
+   "size": [
+    5.61,
+    4.32,
+    5.61
+   ],
+   "slots": 3,
+   "tags": [
+    "module"
+   ]
+  },
+  {
+   "id": "house-long",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/House_Long.gltf",
+   "triangles": 2228,
+   "size": [
+    3.99,
+    4.31,
+    7.79
+   ],
+   "slots": 4,
+   "tags": [
+    "module"
+   ]
+  },
+  {
+   "id": "house-open",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/House_Open.gltf",
+   "triangles": 1156,
+   "size": [
+    3.99,
+    4,
+    3.61
+   ],
+   "slots": 2,
+   "tags": [
+    "module",
+    "door"
+   ]
+  },
+  {
+   "id": "house-open-back",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/House_OpenBack.gltf",
+   "triangles": 1180,
+   "size": [
+    3.99,
+    4,
+    3.61
+   ],
+   "slots": 3,
+   "tags": [
+    "module",
+    "door"
+   ]
+  },
+  {
+   "id": "house-single",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/House_Single.gltf",
+   "triangles": 1080,
+   "size": [
+    3.99,
+    4,
+    3.8
+   ],
+   "slots": 3,
+   "tags": [
+    "module"
+   ]
+  },
+  {
+   "id": "house-single-support",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/House_Single_Support.gltf",
+   "triangles": 464,
+   "size": [
+    3.58,
+    0.87,
+    3.58
+   ],
+   "slots": 1,
+   "tags": [
+    "module",
+    "stilts"
+   ]
+  },
+  {
+   "id": "connector",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Connector.gltf",
+   "triangles": 508,
+   "size": [
+    3.37,
+    2.21,
+    2.17
+   ],
+   "slots": 4,
+   "tags": [
+    "tube"
+   ]
+  },
+  {
+   "id": "metal-support",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/MetalSupport.gltf",
+   "triangles": 540,
+   "size": [
+    0.14,
+    1.2,
+    5.95
+   ],
+   "slots": 1,
+   "tags": [
+    "frame"
+   ]
+  },
+  {
+   "id": "stairs",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Stairs.gltf",
+   "triangles": 256,
+   "size": [
+    1.87,
+    1.39,
+    3.11
+   ],
+   "slots": 2,
+   "tags": [
+    "access"
+   ]
+  },
+  {
+   "id": "ramp",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Ramp.gltf",
+   "triangles": 192,
+   "size": [
+    1.87,
+    1.39,
+    3.11
+   ],
+   "slots": 3,
+   "tags": [
+    "access"
+   ]
+  },
+  {
+   "id": "roof-antenna",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Roof_Antenna.gltf",
+   "triangles": 492,
+   "size": [
+    1.41,
+    3.54,
+    1.43
+   ],
+   "slots": 2,
+   "tags": [
+    "roof"
+   ]
+  },
+  {
+   "id": "roof-radar",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Roof_Radar.gltf",
+   "triangles": 972,
+   "size": [
+    1.63,
+    2.71,
+    1.65
+   ],
+   "slots": 2,
+   "tags": [
+    "roof"
+   ]
+  },
+  {
+   "id": "roof-opening",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Roof_Opening.gltf",
+   "triangles": 350,
+   "size": [
+    1.41,
+    1.2,
+    1.43
+   ],
+   "slots": 2,
+   "tags": [
+    "roof"
+   ]
+  },
+  {
+   "id": "solar-ground",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/SolarPanel_Ground.gltf",
+   "triangles": 372,
+   "size": [
+    1.29,
+    1.1,
+    1.67
+   ],
+   "slots": 3,
+   "tags": [
+    "power"
+   ]
+  },
+  {
+   "id": "solar-array",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/SolarPanel_Structure.gltf",
+   "triangles": 1432,
+   "size": [
+    4,
+    3.07,
+    4
+   ],
+   "slots": 4,
+   "tags": [
+    "power"
+   ]
+  },
+  {
+   "id": "hangar-large",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/hangar_largeA.glb",
+   "triangles": 412,
+   "size": [
+    2,
+    1,
+    3
+   ],
+   "slots": 4,
+   "tags": [
+    "hangar"
+   ]
+  },
+  {
+   "id": "hangar-round",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/hangar_roundA.glb",
+   "triangles": 166,
+   "size": [
+    3.27,
+    1.5,
+    2.83
+   ],
+   "slots": 4,
+   "tags": [
+    "hangar"
+   ]
+  },
+  {
+   "id": "hangar-glass",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/hangar_roundGlass.glb",
+   "triangles": 113,
+   "size": [
+    3.27,
+    1.4,
+    2.83
+   ],
+   "slots": 4,
+   "tags": [
+    "hangar",
+    "dome"
+   ]
+  },
+  {
+   "id": "hangar-small",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/hangar_smallA.glb",
+   "triangles": 280,
+   "size": [
+    2,
+    1,
+    2
+   ],
+   "slots": 4,
+   "tags": [
+    "hangar"
+   ]
+  },
+  {
+   "id": "gate",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/gate_complex.glb",
+   "triangles": 460,
+   "size": [
+    1,
+    1.01,
+    0.5
+   ],
+   "slots": 4,
+   "tags": [
+    "gate"
+   ]
+  },
+  {
+   "id": "dish-large",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/satelliteDish_large.glb",
+   "triangles": 186,
+   "size": [
+    0.85,
+    0.81,
+    0.74
+   ],
+   "slots": 3,
+   "tags": [
+    "mast"
+   ]
+  },
+  {
+   "id": "dish",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/satelliteDish_detailed.glb",
+   "triangles": 390,
+   "size": [
+    0.7,
+    0.62,
+    0.7
+   ],
+   "slots": 5,
+   "tags": [
+    "mast"
+   ]
+  },
+  {
+   "id": "generator",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/machine_generatorLarge.glb",
+   "triangles": 126,
+   "size": [
+    1,
+    0.68,
+    1.3
+   ],
+   "slots": 4,
+   "tags": [
+    "power"
+   ]
+  },
+  {
+   "id": "beacon",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/machine_wireless.glb",
+   "triangles": 174,
+   "size": [
+    0.75,
+    0.6,
+    0.5
+   ],
+   "slots": 4,
+   "tags": [
+    "mast"
+   ]
+  },
+  {
+   "id": "scaffold",
+   "group": "buildings",
+   "file": "buildings.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/structure_detailed.glb",
+   "triangles": 232,
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "slots": 3,
+   "tags": [
+    "frame"
+   ]
+  },
+  {
+   "id": "rover",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Rover_1.gltf",
+   "triangles": 7346,
+   "size": [
+    4.58,
+    4.88,
+    5.16
+   ],
+   "slots": 6,
+   "tags": [
+    "ground"
+   ]
+  },
+  {
+   "id": "rover-cab",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Rover_2.gltf",
+   "triangles": 8032,
+   "size": [
+    4.58,
+    4.88,
+    6.56
+   ],
+   "slots": 6,
+   "tags": [
+    "ground"
+   ]
+  },
+  {
+   "id": "rover-round",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Rover_Round.gltf",
+   "triangles": 7052,
+   "size": [
+    5.79,
+    5.17,
+    3.69
+   ],
+   "slots": 4,
+   "tags": [
+    "ground"
+   ]
+  },
+  {
+   "id": "ship-bee",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Spaceship_BarbaraTheBee.gltf",
+   "triangles": 6208,
+   "size": [
+    7.34,
+    5.7,
+    4.96
+   ],
+   "slots": 3,
+   "tags": [
+    "air"
+   ]
+  },
+  {
+   "id": "ship-flamingo",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Spaceship_FernandoTheFlamingo.gltf",
+   "triangles": 2814,
+   "size": [
+    11.14,
+    2.53,
+    8.66
+   ],
+   "slots": 5,
+   "tags": [
+    "air"
+   ]
+  },
+  {
+   "id": "ship-frog",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Spaceship_FinnTheFrog.gltf",
+   "triangles": 3376,
+   "size": [
+    11.62,
+    3.06,
+    4.11
+   ],
+   "slots": 4,
+   "tags": [
+    "air"
+   ]
+  },
+  {
+   "id": "ship-panda",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Vehicles/GLTF/Spaceship_RaeTheRedPanda.gltf",
+   "triangles": 1614,
+   "size": [
+    9.95,
+    2.35,
+    11.17
+   ],
+   "slots": 3,
+   "tags": [
+    "air"
+   ]
+  },
+  {
+   "id": "buggy",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/rover.glb",
+   "triangles": 172,
+   "size": [
+    0.3,
+    0.39,
+    0.35
+   ],
+   "slots": 4,
+   "tags": [
+    "ground"
+   ]
+  },
+  {
+   "id": "speeder-a",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_speederA.glb",
+   "triangles": 280,
+   "size": [
+    2,
+    0.8,
+    2.1
+   ],
+   "slots": 4,
+   "tags": [
+    "air",
+    "hover"
+   ]
+  },
+  {
+   "id": "speeder-b",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_speederB.glb",
+   "triangles": 270,
+   "size": [
+    2,
+    0.6,
+    2.03
+   ],
+   "slots": 4,
+   "tags": [
+    "air",
+    "hover"
+   ]
+  },
+  {
+   "id": "speeder-d",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_speederD.glb",
+   "triangles": 322,
+   "size": [
+    2.8,
+    0.9,
+    2.23
+   ],
+   "slots": 4,
+   "tags": [
+    "air",
+    "hover"
+   ]
+  },
+  {
+   "id": "racer",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_racer.glb",
+   "triangles": 280,
+   "size": [
+    1.2,
+    0.75,
+    2.03
+   ],
+   "slots": 4,
+   "tags": [
+    "air"
+   ]
+  },
+  {
+   "id": "miner",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_miner.glb",
+   "triangles": 384,
+   "size": [
+    1.8,
+    0.7,
+    2.6
+   ],
+   "slots": 4,
+   "tags": [
+    "air",
+    "heavy"
+   ]
+  },
+  {
+   "id": "cargo-a",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_cargoA.glb",
+   "triangles": 264,
+   "size": [
+    1.6,
+    0.8,
+    2.45
+   ],
+   "slots": 4,
+   "tags": [
+    "air",
+    "heavy"
+   ]
+  },
+  {
+   "id": "cargo-b",
+   "group": "craft",
+   "file": "craft.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craft_cargoB.glb",
+   "triangles": 380,
+   "size": [
+    1.5,
+    0.9,
+    2.5
+   ],
+   "slots": 4,
+   "tags": [
+    "air",
+    "heavy"
+   ]
+  },
+  {
+   "id": "rock-1",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_1.gltf",
+   "triangles": 224,
+   "size": [
+    3.1,
+    3.61,
+    2.83
+   ],
+   "slots": 1,
+   "tags": [
+    "rock"
+   ]
+  },
+  {
+   "id": "rock-2",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_2.gltf",
+   "triangles": 210,
+   "size": [
+    2.74,
+    2.71,
+    2.52
+   ],
+   "slots": 1,
+   "tags": [
+    "rock"
+   ]
+  },
+  {
+   "id": "rock-3",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_3.gltf",
+   "triangles": 224,
+   "size": [
+    3.3,
+    3.83,
+    3.01
+   ],
+   "slots": 1,
+   "tags": [
+    "rock"
+   ]
+  },
+  {
+   "id": "rock-4",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_4.gltf",
+   "triangles": 456,
+   "size": [
+    2.16,
+    3.46,
+    1.7
+   ],
+   "slots": 1,
+   "tags": [
+    "rock"
+   ]
+  },
+  {
+   "id": "rock-large-1",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_Large_1.gltf",
+   "triangles": 222,
+   "size": [
+    7.67,
+    3.29,
+    7.33
+   ],
+   "slots": 1,
+   "tags": [
+    "rock",
+    "large"
+   ]
+  },
+  {
+   "id": "rock-large-2",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_Large_2.gltf",
+   "triangles": 432,
+   "size": [
+    8.54,
+    8.21,
+    7.62
+   ],
+   "slots": 1,
+   "tags": [
+    "rock",
+    "large"
+   ]
+  },
+  {
+   "id": "rock-large-3",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Rock_Large_3.gltf",
+   "triangles": 448,
+   "size": [
+    5.31,
+    7.43,
+    5.19
+   ],
+   "slots": 1,
+   "tags": [
+    "rock",
+    "large"
+   ]
+  },
+  {
+   "id": "crystals",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/rock_crystals.glb",
+   "triangles": 364,
+   "size": [
+    0.85,
+    0.34,
+    0.8
+   ],
+   "slots": 3,
+   "tags": [
+    "crystal"
+   ]
+  },
+  {
+   "id": "crystals-large-a",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/rock_crystalsLargeA.glb",
+   "triangles": 384,
+   "size": [
+    0.83,
+    0.54,
+    0.92
+   ],
+   "slots": 3,
+   "tags": [
+    "crystal",
+    "large"
+   ]
+  },
+  {
+   "id": "crystals-large-b",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/rock_crystalsLargeB.glb",
+   "triangles": 380,
+   "size": [
+    0.94,
+    0.55,
+    0.93
+   ],
+   "slots": 3,
+   "tags": [
+    "crystal",
+    "large"
+   ]
+  },
+  {
+   "id": "meteor",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/meteor_detailed.glb",
+   "triangles": 196,
+   "size": [
+    0.87,
+    0.74,
+    0.83
+   ],
+   "slots": 1,
+   "tags": [
+    "rock",
+    "meteor"
+   ]
+  },
+  {
+   "id": "meteor-half",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/meteor_half.glb",
+   "triangles": 44,
+   "size": [
+    0.87,
+    0.37,
+    0.75
+   ],
+   "slots": 1,
+   "tags": [
+    "rock",
+    "meteor"
+   ]
+  },
+  {
+   "id": "crater-large",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/craterLarge.glb",
+   "triangles": 60,
+   "size": [
+    0.89,
+    0.12,
+    0.89
+   ],
+   "slots": 2,
+   "tags": [
+    "crater"
+   ]
+  },
+  {
+   "id": "crater",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/crater.glb",
+   "triangles": 60,
+   "size": [
+    0.71,
+    0.12,
+    0.83
+   ],
+   "slots": 2,
+   "tags": [
+    "crater"
+   ]
+  },
+  {
+   "id": "bones",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/bones.glb",
+   "triangles": 168,
+   "size": [
+    0.86,
+    0.44,
+    0.58
+   ],
+   "slots": 1,
+   "tags": [
+    "remains"
+   ]
+  },
+  {
+   "id": "barrels",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/barrels.glb",
+   "triangles": 268,
+   "size": [
+    0.55,
+    0.35,
+    0.5
+   ],
+   "slots": 3,
+   "tags": [
+    "clutter"
+   ]
+  },
+  {
+   "id": "tank",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/machine_barrel.glb",
+   "triangles": 338,
+   "size": [
+    0.65,
+    0.6,
+    0.52
+   ],
+   "slots": 4,
+   "tags": [
+    "clutter"
+   ]
+  },
+  {
+   "id": "crate",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Items/GLTF/Pickup_Crate.gltf",
+   "triangles": 1348,
+   "size": [
+    0.87,
+    0.86,
+    0.9
+   ],
+   "slots": 3,
+   "tags": [
+    "clutter"
+   ]
+  },
+  {
+   "id": "jar",
+   "group": "props",
+   "file": "props.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Items/GLTF/Pickup_Jar.gltf",
+   "triangles": 308,
+   "size": [
+    0.69,
+    1.02,
+    0.69
+   ],
+   "slots": 3,
+   "tags": [
+    "clutter"
+   ]
+  },
+  {
+   "id": "tree-blob-3",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Blob_3.gltf",
+   "triangles": 1892,
+   "size": [
+    2.8,
+    3.42,
+    2.77
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "blob"
+   ]
+  },
+  {
+   "id": "tree-floating-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Floating_1.gltf",
+   "triangles": 2440,
+   "size": [
+    2.09,
+    4.61,
+    0.83
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "floating"
+   ]
+  },
+  {
+   "id": "tree-lava-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Lava_1.gltf",
+   "triangles": 1282,
+   "size": [
+    1.2,
+    3.24,
+    1.2
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "lava"
+   ]
+  },
+  {
+   "id": "tree-lava-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Lava_2.gltf",
+   "triangles": 1174,
+   "size": [
+    1.23,
+    3.08,
+    1.15
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "lava"
+   ]
+  },
+  {
+   "id": "tree-lava-3",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Lava_3.gltf",
+   "triangles": 1088,
+   "size": [
+    1.12,
+    2.09,
+    1.13
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "lava"
+   ]
+  },
+  {
+   "id": "tree-light-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Light_1.gltf",
+   "triangles": 2280,
+   "size": [
+    2.63,
+    3.76,
+    1.96
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "light"
+   ]
+  },
+  {
+   "id": "tree-light-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Light_2.gltf",
+   "triangles": 1080,
+   "size": [
+    1.45,
+    2.51,
+    1.51
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "light"
+   ]
+  },
+  {
+   "id": "tree-spikes-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Spikes_1.gltf",
+   "triangles": 2548,
+   "size": [
+    4.05,
+    5.15,
+    4.05
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "spikes"
+   ]
+  },
+  {
+   "id": "tree-spikes-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Spikes_2.gltf",
+   "triangles": 1698,
+   "size": [
+    2.42,
+    4.49,
+    2.11
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "spikes"
+   ]
+  },
+  {
+   "id": "tree-spiral-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Spiral_1.gltf",
+   "triangles": 748,
+   "size": [
+    2.36,
+    4.49,
+    2.23
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "spiral"
+   ]
+  },
+  {
+   "id": "tree-spiral-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Spiral_2.gltf",
+   "triangles": 1490,
+   "size": [
+    3.8,
+    6.19,
+    2.2
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "spiral"
+   ]
+  },
+  {
+   "id": "tree-spiral-3",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Spiral_3.gltf",
+   "triangles": 1280,
+   "size": [
+    4.22,
+    4.05,
+    2.54
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "spiral"
+   ]
+  },
+  {
+   "id": "tree-swirl-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Swirl_1.gltf",
+   "triangles": 2010,
+   "size": [
+    4.61,
+    7.35,
+    1.68
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "swirl"
+   ]
+  },
+  {
+   "id": "tree-swirl-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Tree_Swirl_2.gltf",
+   "triangles": 1112,
+   "size": [
+    3.07,
+    5.15,
+    1.15
+   ],
+   "slots": 2,
+   "tags": [
+    "tree",
+    "swirl"
+   ]
+  },
+  {
+   "id": "bush-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Bush_1.gltf",
+   "triangles": 2304,
+   "size": [
+    3.26,
+    2.48,
+    0.98
+   ],
+   "slots": 1,
+   "tags": [
+    "bush"
+   ]
+  },
+  {
+   "id": "bush-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Bush_2.gltf",
+   "triangles": 1504,
+   "size": [
+    1.82,
+    1.6,
+    0.62
+   ],
+   "slots": 1,
+   "tags": [
+    "bush"
+   ]
+  },
+  {
+   "id": "bush-3",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Bush_3.gltf",
+   "triangles": 640,
+   "size": [
+    1.86,
+    1.58,
+    0.63
+   ],
+   "slots": 1,
+   "tags": [
+    "bush"
+   ]
+  },
+  {
+   "id": "plant-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Plant_1.gltf",
+   "triangles": 540,
+   "size": [
+    1.8,
+    2.18,
+    0.64
+   ],
+   "slots": 2,
+   "tags": [
+    "plant"
+   ]
+  },
+  {
+   "id": "plant-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Plant_2.gltf",
+   "triangles": 196,
+   "size": [
+    1.06,
+    1.97,
+    1.01
+   ],
+   "slots": 2,
+   "tags": [
+    "plant"
+   ]
+  },
+  {
+   "id": "plant-3",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Plant_3.gltf",
+   "triangles": 1608,
+   "size": [
+    2.12,
+    2.98,
+    1.44
+   ],
+   "slots": 1,
+   "tags": [
+    "plant"
+   ]
+  },
+  {
+   "id": "grass-1",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Grass_1.gltf",
+   "triangles": 246,
+   "size": [
+    1.27,
+    0.99,
+    0.91
+   ],
+   "slots": 1,
+   "tags": [
+    "grass"
+   ]
+  },
+  {
+   "id": "grass-2",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Grass_2.gltf",
+   "triangles": 96,
+   "size": [
+    1.7,
+    1.4,
+    1.17
+   ],
+   "slots": 1,
+   "tags": [
+    "grass"
+   ]
+  },
+  {
+   "id": "grass-3",
+   "group": "flora",
+   "file": "flora.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Grass_3.gltf",
+   "triangles": 408,
+   "size": [
+    2.23,
+    2.38,
+    1.49
+   ],
+   "slots": 1,
+   "tags": [
+    "grass"
+   ]
+  },
+  {
+   "id": "planet-1",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_1.gltf",
+   "triangles": 2672,
+   "size": [
+    3.78,
+    3.93,
+    3.8
+   ],
+   "slots": 3,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-2",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_2.gltf",
+   "triangles": 2720,
+   "size": [
+    3.8,
+    3.82,
+    3.84
+   ],
+   "slots": 2,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-3",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_3.gltf",
+   "triangles": 2400,
+   "size": [
+    3.63,
+    3.65,
+    3.38
+   ],
+   "slots": 2,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-4",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_4.gltf",
+   "triangles": 2622,
+   "size": [
+    4.49,
+    4.09,
+    3.96
+   ],
+   "slots": 2,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-5",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_5.gltf",
+   "triangles": 1320,
+   "size": [
+    4.23,
+    4.52,
+    4.03
+   ],
+   "slots": 2,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-6",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_6.gltf",
+   "triangles": 1598,
+   "size": [
+    3.76,
+    3.75,
+    3.76
+   ],
+   "slots": 4,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-7",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_7.gltf",
+   "triangles": 2010,
+   "size": [
+    4.81,
+    2.87,
+    4.46
+   ],
+   "slots": 4,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-8",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_8.gltf",
+   "triangles": 1070,
+   "size": [
+    3.45,
+    3.75,
+    3.75
+   ],
+   "slots": 3,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-9",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_9.gltf",
+   "triangles": 1864,
+   "size": [
+    3.82,
+    3.75,
+    3.81
+   ],
+   "slots": 2,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-10",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_10.gltf",
+   "triangles": 2586,
+   "size": [
+    5.74,
+    4.68,
+    5.74
+   ],
+   "slots": 3,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "planet-11",
+   "group": "planets",
+   "file": "planets.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Environment/GLTF/Planet_11.gltf",
+   "triangles": 2178,
+   "size": [
+    5.59,
+    5.67,
+    5.74
+   ],
+   "slots": 2,
+   "tags": [
+    "planet"
+   ]
+  },
+  {
+   "id": "floor",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor.glb",
+   "triangles": 12,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "floor-detail",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor-detail.glb",
+   "triangles": 44,
+   "size": [
+    1,
+    0.33,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "floor-corner",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor-corner.glb",
+   "triangles": 16,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "floor-panel",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor-panel.glb",
+   "triangles": 92,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "floor-panel-straight",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor-panel-straight.glb",
+   "triangles": 60,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "floor-panel-end",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor-panel-end.glb",
+   "triangles": 60,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "floor-panel-corner",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/floor-panel-corner.glb",
+   "triangles": 52,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 2,
+   "tags": [
+    "floor"
+   ]
+  },
+  {
+   "id": "wall",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall.glb",
+   "triangles": 44,
+   "size": [
+    1,
+    1,
+    0.3
+   ],
+   "slots": 2,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-detail",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-detail.glb",
+   "triangles": 120,
+   "size": [
+    0.4,
+    0.7,
+    0.17
+   ],
+   "slots": 2,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-banner",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-banner.glb",
+   "triangles": 52,
+   "size": [
+    1,
+    1,
+    0.3
+   ],
+   "slots": 3,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-corner",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-corner.glb",
+   "triangles": 92,
+   "size": [
+    0.8,
+    1,
+    0.8
+   ],
+   "slots": 2,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-corner-round",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-corner-round.glb",
+   "triangles": 164,
+   "size": [
+    0.8,
+    1,
+    0.8
+   ],
+   "slots": 2,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-pillar",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-pillar.glb",
+   "triangles": 88,
+   "size": [
+    1,
+    1,
+    0.5
+   ],
+   "slots": 2,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-switch",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-switch.glb",
+   "triangles": 18,
+   "size": [
+    0.1,
+    0.2,
+    0.03
+   ],
+   "slots": 2,
+   "tags": [
+    "wall"
+   ]
+  },
+  {
+   "id": "wall-window",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-window.glb",
+   "triangles": 104,
+   "size": [
+    1,
+    1,
+    0.3
+   ],
+   "slots": 3,
+   "tags": [
+    "wall",
+    "window"
+   ]
+  },
+  {
+   "id": "wall-window-frame",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-window-frame.glb",
+   "triangles": 36,
+   "size": [
+    0.6,
+    0.4,
+    0.1
+   ],
+   "slots": 1,
+   "tags": [
+    "wall",
+    "window"
+   ]
+  },
+  {
+   "id": "wall-window-banner",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-window-banner.glb",
+   "triangles": 112,
+   "size": [
+    1,
+    1,
+    0.3
+   ],
+   "slots": 3,
+   "tags": [
+    "wall",
+    "window"
+   ]
+  },
+  {
+   "id": "wall-window-shutters",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-window-shutters.glb",
+   "triangles": 44,
+   "size": [
+    0.6,
+    0.4,
+    0.1
+   ],
+   "slots": 2,
+   "tags": [
+    "wall",
+    "window"
+   ]
+  },
+  {
+   "id": "wall-door",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-door.glb",
+   "triangles": 98,
+   "size": [
+    1,
+    1,
+    0.3
+   ],
+   "slots": 3,
+   "tags": [
+    "wall",
+    "door"
+   ]
+  },
+  {
+   "id": "wall-door-wide",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/wall-door-wide.glb",
+   "triangles": 98,
+   "size": [
+    1,
+    1,
+    0.3
+   ],
+   "slots": 3,
+   "tags": [
+    "wall",
+    "door"
+   ]
+  },
+  {
+   "id": "door-double",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/door-double.glb",
+   "triangles": 52,
+   "size": [
+    0.6,
+    0.7,
+    0.1
+   ],
+   "slots": 2,
+   "tags": [
+    "wall",
+    "door"
+   ]
+  },
+  {
+   "id": "door-single",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/door-single.glb",
+   "triangles": 52,
+   "size": [
+    0.4,
+    0.7,
+    0.1
+   ],
+   "slots": 2,
+   "tags": [
+    "wall",
+    "door"
+   ]
+  },
+  {
+   "id": "computer",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/computer.glb",
+   "triangles": 140,
+   "size": [
+    0.4,
+    0.66,
+    0.44
+   ],
+   "slots": 4,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "computer-screen",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/computer-screen.glb",
+   "triangles": 198,
+   "size": [
+    0.8,
+    0.66,
+    0.44
+   ],
+   "slots": 4,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "computer-system",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/computer-system.glb",
+   "triangles": 176,
+   "size": [
+    0.9,
+    0.6,
+    0.69
+   ],
+   "slots": 4,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "computer-wide",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/computer-wide.glb",
+   "triangles": 174,
+   "size": [
+    0.8,
+    0.5,
+    0.53
+   ],
+   "slots": 4,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "display-wall",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/display-wall.glb",
+   "triangles": 86,
+   "size": [
+    0.4,
+    0.46,
+    0.38
+   ],
+   "slots": 4,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "display-wall-wide",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/display-wall-wide.glb",
+   "triangles": 96,
+   "size": [
+    0.6,
+    0.46,
+    0.38
+   ],
+   "slots": 4,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "table-display",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/table-display.glb",
+   "triangles": 240,
+   "size": [
+    1.24,
+    0.6,
+    0.82
+   ],
+   "slots": 4,
+   "tags": [
+    "table"
+   ]
+  },
+  {
+   "id": "table-display-planet",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/table-display-planet.glb",
+   "triangles": 140,
+   "size": [
+    0.5,
+    0.4,
+    0.5
+   ],
+   "slots": 3,
+   "tags": [
+    "table"
+   ]
+  },
+  {
+   "id": "table-display-small",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/table-display-small.glb",
+   "triangles": 272,
+   "size": [
+    0.84,
+    0.6,
+    0.82
+   ],
+   "slots": 4,
+   "tags": [
+    "table"
+   ]
+  },
+  {
+   "id": "table",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/table.glb",
+   "triangles": 104,
+   "size": [
+    1.1,
+    0.4,
+    0.6
+   ],
+   "slots": 4,
+   "tags": [
+    "table"
+   ]
+  },
+  {
+   "id": "table-inset",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/table-inset.glb",
+   "triangles": 122,
+   "size": [
+    1.24,
+    0.4,
+    0.74
+   ],
+   "slots": 3,
+   "tags": [
+    "table"
+   ]
+  },
+  {
+   "id": "chair",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/chair.glb",
+   "triangles": 62,
+   "size": [
+    0.3,
+    0.55,
+    0.35
+   ],
+   "slots": 3,
+   "tags": [
+    "seat"
+   ]
+  },
+  {
+   "id": "chair-headrest",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/chair-headrest.glb",
+   "triangles": 106,
+   "size": [
+    0.3,
+    0.7,
+    0.35
+   ],
+   "slots": 3,
+   "tags": [
+    "seat"
+   ]
+  },
+  {
+   "id": "chair-armrest",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/chair-armrest.glb",
+   "triangles": 98,
+   "size": [
+    0.5,
+    0.55,
+    0.35
+   ],
+   "slots": 3,
+   "tags": [
+    "seat"
+   ]
+  },
+  {
+   "id": "chair-armrest-headrest",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/chair-armrest-headrest.glb",
+   "triangles": 142,
+   "size": [
+    0.5,
+    0.7,
+    0.35
+   ],
+   "slots": 3,
+   "tags": [
+    "seat"
+   ]
+  },
+  {
+   "id": "chair-cushion-headrest",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/chair-cushion-headrest.glb",
+   "triangles": 118,
+   "size": [
+    0.3,
+    0.7,
+    0.35
+   ],
+   "slots": 3,
+   "tags": [
+    "seat"
+   ]
+  },
+  {
+   "id": "container",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/container.glb",
+   "triangles": 88,
+   "size": [
+    0.57,
+    0.6,
+    0.57
+   ],
+   "slots": 2,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "container-tall",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/container-tall.glb",
+   "triangles": 116,
+   "size": [
+    0.6,
+    0.9,
+    0.6
+   ],
+   "slots": 2,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "container-wide",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/container-wide.glb",
+   "triangles": 116,
+   "size": [
+    0.6,
+    0.7,
+    0.6
+   ],
+   "slots": 2,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "pipe",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/pipe.glb",
+   "triangles": 20,
+   "size": [
+    0.25,
+    0.5,
+    0.28
+   ],
+   "slots": 1,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "pipe-bend",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/pipe-bend.glb",
+   "triangles": 48,
+   "size": [
+    0.5,
+    0.5,
+    0.28
+   ],
+   "slots": 1,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "pipe-ring-colored",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/pipe-ring-colored.glb",
+   "triangles": 40,
+   "size": [
+    0.35,
+    0.5,
+    0.4
+   ],
+   "slots": 2,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "structure-panel",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/structure-panel.glb",
+   "triangles": 124,
+   "size": [
+    0.85,
+    0.13,
+    0.85
+   ],
+   "slots": 2,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "rail",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/rail.glb",
+   "triangles": 96,
+   "size": [
+    1,
+    0.4,
+    0.1
+   ],
+   "slots": 3,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "stairs",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/stairs.glb",
+   "triangles": 52,
+   "size": [
+    1,
+    0.3,
+    1
+   ],
+   "slots": 3,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "stairs-handrail",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Station Kit",
+   "source": "kenney/space-station-kit/Models/GLB format/stairs-handrail.glb",
+   "triangles": 72,
+   "size": [
+    1,
+    0.56,
+    1
+   ],
+   "slots": 3,
+   "tags": [
+    "fitting"
+   ]
+  },
+  {
+   "id": "desk-chair",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/desk_chairArms.glb",
+   "triangles": 128,
+   "size": [
+    0.25,
+    0.34,
+    0.15
+   ],
+   "slots": 3,
+   "tags": [
+    "seat"
+   ]
+  },
+  {
+   "id": "desk-console-corner",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/desk_computerCorner.glb",
+   "triangles": 126,
+   "size": [
+    0.75,
+    0.38,
+    0.75
+   ],
+   "slots": 3,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "desk-console",
+   "group": "interior",
+   "file": "interior.bin",
+   "pack": "Kenney, Space Kit",
+   "source": "kenney/space-kit/Models/GLTF format/desk_computerScreen.glb",
+   "triangles": 108,
+   "size": [
+    0.53,
+    0.64,
+    0.22
+   ],
+   "slots": 3,
+   "tags": [
+    "console"
+   ]
+  },
+  {
+   "id": "astronaut-bee",
+   "group": "creatures",
+   "file": "creatures/astronaut-bee.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Characters/GLTF/Astronaut_BarbaraTheBee.gltf",
+   "triangles": 6214,
+   "size": [
+    3.23,
+    2.63,
+    1.05
+   ],
+   "slots": 9,
+   "tags": [],
+   "kind": "crew",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "Jump_Idle",
+     "seconds": 0.5
+    },
+    {
+     "name": "Jump_Land",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 256399
+  },
+  {
+   "id": "astronaut-flamingo",
+   "group": "creatures",
+   "file": "creatures/astronaut-flamingo.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Characters/GLTF/Astronaut_FernandoTheFlamingo.gltf",
+   "triangles": 5590,
+   "size": [
+    3.23,
+    2.67,
+    1.13
+   ],
+   "slots": 9,
+   "tags": [],
+   "kind": "crew",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "Jump_Idle",
+     "seconds": 0.5
+    },
+    {
+     "name": "Jump_Land",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 242114
+  },
+  {
+   "id": "astronaut-frog",
+   "group": "creatures",
+   "file": "creatures/astronaut-frog.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Characters/GLTF/Astronaut_FinnTheFrog.gltf",
+   "triangles": 6258,
+   "size": [
+    3.23,
+    2.55,
+    1.49
+   ],
+   "slots": 9,
+   "tags": [],
+   "kind": "crew",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "Jump_Idle",
+     "seconds": 0.5
+    },
+    {
+     "name": "Jump_Land",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 268464
+  },
+  {
+   "id": "astronaut-redpanda",
+   "group": "creatures",
+   "file": "creatures/astronaut-redpanda.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Characters/GLTF/Astronaut_RaeTheRedPanda.gltf",
+   "triangles": 5684,
+   "size": [
+    3.23,
+    2.78,
+    1.24
+   ],
+   "slots": 10,
+   "tags": [],
+   "kind": "crew",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "Jump_Idle",
+     "seconds": 0.5
+    },
+    {
+     "name": "Jump_Land",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 246794
+  },
+  {
+   "id": "greyling",
+   "group": "creatures",
+   "file": "creatures/greyling.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Characters/GLTF/Enemy_Large.gltf",
+   "triangles": 4724,
+   "size": [
+    3.23,
+    3.61,
+    1.33
+   ],
+   "slots": 3,
+   "tags": [
+    "alien"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 199946
+  },
+  {
+   "id": "drifter",
+   "group": "creatures",
+   "file": "creatures/drifter.bin",
+   "pack": "Quaternius, Ultimate Space Kit",
+   "source": "quaternius/ultimate-space-kit/Characters/GLTF/Enemy_Flying.gltf",
+   "triangles": 3820,
+   "size": [
+    1.26,
+    3.7,
+    1.24
+   ],
+   "slots": 3,
+   "tags": [
+    "alien"
+   ],
+   "kind": "flyer",
+   "bones": 4,
+   "clips": [
+    {
+     "name": "Fast_Flying",
+     "seconds": 0.83
+    },
+    {
+     "name": "Flying_Idle",
+     "seconds": 1.17
+    },
+    {
+     "name": "No",
+     "seconds": 1.17
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.17
+    }
+   ],
+   "bytes": 94912
+  },
+  {
+   "id": "alien",
+   "group": "creatures",
+   "file": "creatures/alien.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Alien.gltf",
+   "triangles": 7676,
+   "size": [
+    3.22,
+    3.36,
+    1.61
+   ],
+   "slots": 5,
+   "tags": [
+    "alien"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 287266
+  },
+  {
+   "id": "cactoro",
+   "group": "creatures",
+   "file": "creatures/cactoro.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Cactoro.gltf",
+   "triangles": 6398,
+   "size": [
+    3.22,
+    3.77,
+    2.14
+   ],
+   "slots": 5,
+   "tags": [
+    "desert"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 258610
+  },
+  {
+   "id": "mushroomking",
+   "group": "creatures",
+   "file": "creatures/mushroomking.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/MushroomKing.gltf",
+   "triangles": 6044,
+   "size": [
+    3.36,
+    3.42,
+    2.05
+   ],
+   "slots": 5,
+   "tags": [
+    "fungus"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 226713
+  },
+  {
+   "id": "fish",
+   "group": "creatures",
+   "file": "creatures/fish.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Fish.gltf",
+   "triangles": 6854,
+   "size": [
+    3.25,
+    3.56,
+    2.37
+   ],
+   "slots": 6,
+   "tags": [
+    "water"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 274460
+  },
+  {
+   "id": "frog",
+   "group": "creatures",
+   "file": "creatures/frog.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Frog.gltf",
+   "triangles": 5016,
+   "size": [
+    3.22,
+    2.51,
+    1.67
+   ],
+   "slots": 4,
+   "tags": [
+    "water"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 205871
+  },
+  {
+   "id": "birb",
+   "group": "creatures",
+   "file": "creatures/birb.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Birb.gltf",
+   "triangles": 5704,
+   "size": [
+    3.23,
+    3.12,
+    1.71
+   ],
+   "slots": 5,
+   "tags": [
+    "feathered"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 235244
+  },
+  {
+   "id": "monkroose",
+   "group": "creatures",
+   "file": "creatures/monkroose.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Monkroose.gltf",
+   "triangles": 5824,
+   "size": [
+    3.23,
+    2.79,
+    1.64
+   ],
+   "slots": 5,
+   "tags": [
+    "furred"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 227929
+  },
+  {
+   "id": "yeti",
+   "group": "creatures",
+   "file": "creatures/yeti.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Big/glTF/Yeti.gltf",
+   "triangles": 6094,
+   "size": [
+    3.22,
+    2.64,
+    1.53
+   ],
+   "slots": 6,
+   "tags": [
+    "ice"
+   ],
+   "kind": "walker",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Idle",
+     "seconds": 1
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.37
+    },
+    {
+     "name": "No",
+     "seconds": 1.67
+    },
+    {
+     "name": "Run",
+     "seconds": 0.57
+    },
+    {
+     "name": "Walk",
+     "seconds": 1
+    },
+    {
+     "name": "Wave",
+     "seconds": 1.67
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.67
+    }
+   ],
+   "bytes": 239371
+  },
+  {
+   "id": "greenblob",
+   "group": "creatures",
+   "file": "creatures/greenblob.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Blob/glTF/GreenBlob.gltf",
+   "triangles": 1520,
+   "size": [
+    2.25,
+    1.87,
+    2.14
+   ],
+   "slots": 3,
+   "tags": [
+    "slime"
+   ],
+   "kind": "blob",
+   "bones": 4,
+   "clips": [
+    {
+     "name": "Dance",
+     "seconds": 0.67
+    },
+    {
+     "name": "Idle",
+     "seconds": 2
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.43
+    },
+    {
+     "name": "No",
+     "seconds": 1
+    },
+    {
+     "name": "Walk",
+     "seconds": 0.43
+    },
+    {
+     "name": "Yes",
+     "seconds": 0.97
+    }
+   ],
+   "bytes": 55045
+  },
+  {
+   "id": "pinkblob",
+   "group": "creatures",
+   "file": "creatures/pinkblob.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Blob/glTF/PinkBlob.gltf",
+   "triangles": 1030,
+   "size": [
+    1.83,
+    2,
+    1.85
+   ],
+   "slots": 4,
+   "tags": [
+    "slime"
+   ],
+   "kind": "blob",
+   "bones": 4,
+   "clips": [
+    {
+     "name": "Dance",
+     "seconds": 0.67
+    },
+    {
+     "name": "Idle",
+     "seconds": 2
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.43
+    },
+    {
+     "name": "No",
+     "seconds": 1
+    },
+    {
+     "name": "Walk",
+     "seconds": 0.43
+    },
+    {
+     "name": "Yes",
+     "seconds": 0.97
+    }
+   ],
+   "bytes": 28404
+  },
+  {
+   "id": "mushnub",
+   "group": "creatures",
+   "file": "creatures/mushnub.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Blob/glTF/Mushnub.gltf",
+   "triangles": 1248,
+   "size": [
+    2.75,
+    3.26,
+    2.71
+   ],
+   "slots": 4,
+   "tags": [
+    "fungus"
+   ],
+   "kind": "blob",
+   "bones": 4,
+   "clips": [
+    {
+     "name": "Dance",
+     "seconds": 0.67
+    },
+    {
+     "name": "Idle",
+     "seconds": 2
+    },
+    {
+     "name": "Jump",
+     "seconds": 0.43
+    },
+    {
+     "name": "No",
+     "seconds": 1
+    },
+    {
+     "name": "Walk",
+     "seconds": 0.43
+    },
+    {
+     "name": "Yes",
+     "seconds": 0.97
+    }
+   ],
+   "bytes": 33496
+  },
+  {
+   "id": "squidle",
+   "group": "creatures",
+   "file": "creatures/squidle.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Flying/glTF/Squidle.gltf",
+   "triangles": 4880,
+   "size": [
+    4.38,
+    2.38,
+    2.67
+   ],
+   "slots": 6,
+   "tags": [
+    "tentacled"
+   ],
+   "kind": "flyer",
+   "bones": 43,
+   "clips": [
+    {
+     "name": "Fast_Flying",
+     "seconds": 0.83
+    },
+    {
+     "name": "Flying_Idle",
+     "seconds": 1.17
+    },
+    {
+     "name": "No",
+     "seconds": 1.17
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.17
+    }
+   ],
+   "bytes": 157428
+  },
+  {
+   "id": "glub",
+   "group": "creatures",
+   "file": "creatures/glub.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Flying/glTF/Glub.gltf",
+   "triangles": 2528,
+   "size": [
+    4.3,
+    2.35,
+    2.19
+   ],
+   "slots": 4,
+   "tags": [
+    "water"
+   ],
+   "kind": "flyer",
+   "bones": 13,
+   "clips": [
+    {
+     "name": "Fast_Flying",
+     "seconds": 0.83
+    },
+    {
+     "name": "Flying_Idle",
+     "seconds": 1.17
+    },
+    {
+     "name": "No",
+     "seconds": 1.17
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.17
+    }
+   ],
+   "bytes": 78405
+  },
+  {
+   "id": "hywirl",
+   "group": "creatures",
+   "file": "creatures/hywirl.bin",
+   "pack": "Quaternius, Ultimate Monsters",
+   "source": "quaternius/ultimate-monsters/Flying/glTF/Hywirl.gltf",
+   "triangles": 3296,
+   "size": [
+    2.96,
+    2.73,
+    2.24
+   ],
+   "slots": 3,
+   "tags": [
+    "wind"
+   ],
+   "kind": "flyer",
+   "bones": 38,
+   "clips": [
+    {
+     "name": "Fast_Flying",
+     "seconds": 0.83
+    },
+    {
+     "name": "Flying_Idle",
+     "seconds": 1.17
+    },
+    {
+     "name": "No",
+     "seconds": 1.17
+    },
+    {
+     "name": "Yes",
+     "seconds": 1.17
+    }
+   ],
+   "bytes": 126561
+  }
+ ]
+}

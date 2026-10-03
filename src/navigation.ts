@@ -1,116 +1,106 @@
 /**
- * Somewhere to go.
+ * Somewhere to go: the one marker the player puts on the world map.
  *
- * The plane is already the map: climb and the fog opens on the whole globe. What
- * it never had was a destination — a pin for every landmark and no way to say
- * *that one*.
- * This picks one landmark and then points at it, and it deliberately stops
- * there. It never flies you.
+ * Click anywhere on the map behind `M` — land, sea, a town or a landmark's
+ * pin — and that point is the marker; click it again, or the map's *Clear
+ * marker*, and it is gone. It is the player's own and nobody else's: nothing
+ * in the world picks a destination for you, and nothing counts what you have
+ * reached. It is kept on this device (`MARKER_KEY`), so it is still there
+ * after a reload.
  *
- * **Why there is no autopilot.** The plane's whole design is that speed rides
- * altitude, so crossing an ocean *is* a climb and arriving *is* a descent. Hand
- * that to an autopilot and the one interaction the travel model was built around
- * turns into a loading screen with scenery. A heading cue costs the player
- * nothing they were enjoying, and the flying is the part that is already good.
- *
- * **Why one key.** Pointer lock holds the cursor, so nothing here can be
- * clicked, and WASD is busy flying the aircraft. `Tab` cycles, and the order is
- * what makes it feel spatial rather than like a menu: candidates are sorted
- * nearest-first, with the ones you have already found pushed to the back. So the
- * first press always offers somewhere new, each further press walks outwards,
- * and steering roughly at India puts the Taj Mahal one press away. Flying
- * approximately there is the coarse control; the key is the fine one.
+ * It points and it never flies you. **Why there is no autopilot**: the
+ * plane's whole design is that speed rides altitude, so crossing an ocean
+ * *is* a climb and arriving *is* a descent. Hand that to an autopilot and the
+ * one interaction the travel model was built around turns into a loading
+ * screen with scenery.
  *
  * The guidance is three things that answer three different questions. The
- * minimap says *which way* (its own violet mark, not the crimson one that tracks
- * whatever happens to be nearest). The panel says *how far*, in real kilometres,
- * because the outlines are real. And the waypoint marker says *where*, tracked
- * in 3D and clamped to the screen edge when the planet is in the way — from the
- * ceiling that is a label sitting on the actual continent, which no 180-pixel
- * disc in the corner can be.
+ * minimap's violet wedge says *which way*. The panel under it says *how far*,
+ * in real kilometres, because the outlines are real. And the waypoint says
+ * *where*, tracked in 3D and clamped to the screen edge when the planet is in
+ * the way — from the ceiling that is a label sitting on the actual continent,
+ * which no 180-pixel disc in the corner can be.
+ *
+ * **Reaching it puts it away**: within `ARRIVE_RANGE` of it and not in the air,
+ * the panel says *Arrived* and the marker is cleared, because a marker you
+ * are standing on has nothing left to say.
  */
 import * as THREE from 'three';
-import { EARTH_KM, toUnit } from './cartography.ts';
-import { actionOf, inputBlocked, tabTaken } from './controls.ts';
+import { EARTH_KM } from './cartography.ts';
 import { PLANET_RADIUS } from './globe.ts';
-import type { DestinationEntry, Hud } from './hud.ts';
+import type { Hud } from './hud.ts';
 import type { Minimap } from './minimap.ts';
-import type { Placement } from './placement.ts';
+import type { PlanetSurface } from './planet.ts';
+import { unitAt } from './sphere.ts';
 
 /** As much of the player as this reads. `player.ts` owns the rest. */
 interface Traveller {
   position: THREE.Vector3;
-  /** `foot`, `swim` or `seated`: `PLAYER_STATES`. */
-  state: string;
+  /** Off the ground: a jump, a fall, a flight. */
+  airborne: boolean;
+}
+
+/** The marker, as the map placed it and the device keeps it. */
+export interface Marker {
+  lat: number;
+  lon: number;
+  /** A landmark's or a town's name when one was clicked; null for a bare point. */
+  name: string | null;
+  /** The country under it when it was placed, or null at sea. */
+  iso: string | null;
+  /** A landmark: its waypoint steps aside close in, where the landmark itself is in view. */
+  landmark: boolean;
 }
 
 export interface NavigationOptions {
-  placements: readonly Placement[];
   minimap: Minimap;
   hud: Hud;
   /** Surface radius under a unit direction, exactly as `main.ts` computes it. */
   groundAt: (direction: THREE.Vector3) => number;
-  isVisited: (id: string) => boolean;
+  /** The country under a point, as an ISO code, or null at sea. */
+  countryAt?: (lat: number, lon: number) => string | null;
+  /** Where the marker is kept; the device's `localStorage` unless given, `null` for none. */
+  storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
+  /** The body the marker is on; Earth when omitted. See `planet.ts`. */
+  surface?: PlanetSurface;
   /**
-   * The ISO code of the country the player is standing in, or `null` at sea.
-   * `Tab` lists that country's landmarks first; see `rank`.
+   * The key the marker is kept under: `MARKER_KEY` on Earth, and
+   * `markerKeyOf(surface.id)` on another body, so a marker on Mars is not
+   * read back as a point on Earth.
    */
-  countryHere?: () => string | null;
-  /**
-   * `event.code` that cycles the destination, `controls.ts`'s `next` unless
-   * given. Pass `null` to take the key over yourself and call `advance()`.
-   */
-  key?: string | null;
+  markerKey?: string;
 }
 
 export interface Navigation {
-  /** The landmark you are heading for, or null. */
-  readonly target: Placement | null;
+  /** The marker, or null. */
+  readonly marker: Marker | null;
   /**
-   * Choose the next candidate. The key does this; so does the console.
-   *
-   * Ordered from wherever `update` last put you, which between two frames is
-   * where you are.
+   * Put the marker here, replacing any other. `name` is the landmark's or the
+   * town's that was clicked, and `landmark` says it was a landmark's pin.
    */
-  advance(): void;
-  /**
-   * Choose one by id, which is what pointing at it on the map does.
-   *
-   * It goes through here rather than the map setting its own target for the
-   * reason `hud.ts` and `minimap.ts` both exist to serve: a destination is one
-   * fact with three views of it — the rim mark, the panel and the waypoint —
-   * and a second thing that could set it would be a second answer. Unknown ids
-   * are ignored: the map's list and this one come from the same file, but a
-   * typo should not blank the panel.
-   */
-  select(id: string): void;
-  /** Put the destination away. */
+  mark(lat: number, lon: number, name?: string | null, landmark?: boolean): void;
+  /** Put the marker away. */
   clear(): void;
   /** Every frame, after the rig has placed the camera. */
   update(dt: number, player: Traveller, camera: THREE.PerspectiveCamera): void;
+  /** Stops answering `update`; the marker stays kept on the device. */
   dispose(): void;
 }
 
+/** Where the device keeps the marker. */
+export const MARKER_KEY = 'atlas.marker.v1';
+
+/** Where the device keeps a body's marker: Earth's is `MARKER_KEY`, as it always was. */
+export function markerKeyOf(body: string): string {
+  return body === 'earth' ? MARKER_KEY : `atlas.marker.${body}.v1`;
+}
+
 /**
- * How close counts as arrived, in world units.
- *
- * The same 140 that `placement.ts` counts as a visit, and it has to stay the
- * same: arriving somewhere and finding it are one moment, and two thresholds
- * would let the card and the counter disagree about whether you got there.
+ * How close counts as arrived, in world units: about a hundred metres, the
+ * width of a landmark's pad. A marker dropped on a sheet at street zoom is a
+ * few units off where the click meant, and this swallows that.
  */
 const ARRIVE_RANGE = 140;
-/**
- * And arriving is out of a vehicle — on foot, or swimming up to a lighthouse —
- * for the reason `placement.ts` gives: from the air you can see half a
- * continent. Flying over your destination is not reaching it, and neither is
- * driving past it — the last hundred metres are the reward for the trip.
- */
-const ARRIVE_SEATED = 'seated';
-
-/** How long the shortlist stays open after the last press. */
-const BROWSE_HOLD = 3.5;
-/** How many of the following candidates the shortlist shows. */
-const SHORTLIST = 4;
 
 /**
  * How high above the site the waypoint floats, in world units.
@@ -120,8 +110,9 @@ const SHORTLIST = 4;
  */
 const WAYPOINT_RISE = 90;
 /**
- * Inside this the marker is dropped: you are close enough that the monument
- * itself is on screen, and the label would be standing in front of it.
+ * Inside this a landmark's waypoint is dropped: the monument itself is on
+ * screen, and the label would be standing in front of it. A bare point keeps
+ * its waypoint until it is reached, since there is nothing else to see there.
  */
 const MARKER_DEADZONE = 260;
 /**
@@ -132,158 +123,88 @@ const MARKER_DEADZONE = 260;
  */
 const MARKER_MARGIN = 84;
 
+/** The device's store, if the browser will hand it over at all. */
+function deviceStorage(): NavigationOptions['storage'] {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** A stored marker, or null when it cannot be vouched for. */
+export function readMarker(stored: string | null | undefined): Marker | null {
+  if (typeof stored !== 'string' || stored === '') return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { lat, lon, name, iso, landmark } = raw as Record<string, unknown>;
+  if (typeof lat !== 'number' || typeof lon !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return {
+    lat,
+    lon,
+    name: typeof name === 'string' && name.trim() !== '' ? name.trim().slice(0, 80) : null,
+    iso: typeof iso === 'string' && (/^[A-Z0-9]{2,4}$/.test(iso) || /^[a-z]+:[a-z0-9-]{1,32}$/.test(iso)) ? iso : null,
+    landmark: landmark === true,
+  };
+}
+
 export function createNavigation(options: NavigationOptions): Navigation {
-  const { placements, minimap, hud, groundAt, isVisited } = options;
-  // Which country the player is standing in, asked at the moment `Tab` is
-  // pressed rather than held as state — `main.ts` computes it every frame for
-  // the chip anyway, at 2 us, and a copy kept here would be one more thing that
-  // can go stale.
-  const countryHere = options.countryHere ?? (() => null);
-  // Asked of the live table on every press, so a rebinding holds at once.
-  const key = options.key;
-  const isKey = (code: string): boolean => (key === undefined ? actionOf(code) === 'next' : code === key);
-  const count = placements.length;
+  const { minimap, hud, groundAt } = options;
+  const countryAt = options.countryAt ?? (() => null);
+  const storage = options.storage === undefined ? deviceStorage() : options.storage;
+  const RADIUS = options.surface?.radius ?? PLANET_RADIUS;
+  const RADIUS_KM = options.surface?.radiusKm ?? EARTH_KM;
+  const KEY = options.markerKey ?? (options.surface === undefined ? MARKER_KEY : markerKeyOf(options.surface.id));
+  let disposed = false;
 
-  // Unit vectors once, through the one conversion both maps use for their pins,
-  // so a destination and the pin that stands for it cannot drift apart — and
-  // there is no copy of the `-` on z here to get wrong.
-  const site = new Float32Array(count * 3);
-  placements.forEach((placement, i) => toUnit(placement.lat, placement.lon, site, i * 3));
-
-  const ranked: number[] = [];
-  const closeness = new Float32Array(count);
-
-  let chosen = -1;
-  /** Where the chosen landmark actually stands, and where its marker floats. */
+  let marker: Marker | null = null;
+  /** The marker's direction, where it stands on the ground, and where its waypoint floats. */
+  const site = new THREE.Vector3();
   const anchor = new THREE.Vector3();
-  const marker = new THREE.Vector3();
+  const floating = new THREE.Vector3();
   const scratch = new THREE.Vector3();
-  /** Seconds of shortlist left. Above zero is "browsing". */
-  let browseFor = 0;
 
-  /**
-   * Orders the candidates from where you are standing.
-   *
-   * Visited last, then nearest first. One sort key rather than a special case:
-   * a chooser is for finding things, so the ones you have found sink to the
-   * bottom, and nothing becomes unreachable — flying back to the Eiffel Tower
-   * is further down the same list.
-   */
-  /**
-   * The order `Tab` walks.
-   *
-   * **The country you are standing in comes first, and that is the whole of
-   * what this key is for now**: the landmarks of the country you are in. It is
-   * a sort key rather than a filter, deliberately — landmarks stand in **59 of
-   * 239 countries**, so a filter would make `Tab` do nothing at all in three
-   * quarters of the world, and over water it would do nothing anywhere. Sorting
-   * instead means the panel opens on what is around you and keeps going into
-   * the neighbours when your own country runs out.
-   *
-   * Unvisited before visited, then nearest, exactly as before, inside each
-   * group.
-   */
-  function rank(ux: number, uy: number, uz: number): void {
-    const home = countryHere();
-    ranked.length = 0;
-    for (let i = 0; i < count; i++) {
-      const k = i * 3;
-      closeness[i] = site[k]! * ux + site[k + 1]! * uy + site[k + 2]! * uz;
-      ranked.push(i);
+  function save(): void {
+    try {
+      if (marker === null) storage?.removeItem(KEY);
+      else storage?.setItem(KEY, JSON.stringify(marker));
+    } catch {
+      // Full or blocked: the marker lasts this visit.
     }
-    ranked.sort((a, b) => {
-      if (home !== null) {
-        const ha = placements[a]!.iso === home ? 0 : 1;
-        const hb = placements[b]!.iso === home ? 0 : 1;
-        if (ha !== hb) return ha - hb;
-      }
-      const va = isVisited(placements[a]!.id) ? 1 : 0;
-      const vb = isVisited(placements[b]!.id) ? 1 : 0;
-      if (va !== vb) return va - vb;
-      return closeness[b]! - closeness[a]!;
-    });
   }
 
-  /** Angle in radians from a unit direction to the site at `i`. */
-  function angleTo(i: number, ux: number, uy: number, uz: number): number {
-    const k = i * 3;
-    const dot = site[k]! * ux + site[k + 1]! * uy + site[k + 2]! * uz;
-    return Math.acos(Math.max(-1, Math.min(1, dot)));
-  }
+  const labelOf = (m: Marker): string => m.name ?? 'Marker';
 
-  /** The chosen landmark plus what follows it, for the panel. */
-  function shortlist(ux: number, uy: number, uz: number): DestinationEntry[] {
-    const at = ranked.indexOf(chosen);
-    const entries: DestinationEntry[] = [];
-    for (let n = 0; n < 1 + SHORTLIST && n < ranked.length; n++) {
-      const i = ranked[(at + n) % ranked.length]!;
-      const placement = placements[i]!;
-      entries.push({
-        name: placement.name,
-        iso: placement.iso,
-        km: angleTo(i, ux, uy, uz) * EARTH_KM,
-        visited: isVisited(placement.id),
-      });
+  function set(next: Marker | null, keep = true): void {
+    marker = next;
+    if (keep) save();
+    if (next === null) {
+      minimap.setMarker(null);
+      hud.setDestination(null);
+      return;
     }
-    return entries;
+    unitAt(next.lat, next.lon, site);
+    // The ground is asked once, here: the relief does not move, and a
+    // point-in-polygon query per frame behind a HUD label would be an absurd
+    // price for a label.
+    const ground = groundAt(site);
+    anchor.copy(site).multiplyScalar(ground);
+    floating.copy(site).multiplyScalar(ground + WAYPOINT_RISE);
+    minimap.setMarker(site);
+    hud.setDestination({ name: labelOf(next), iso: next.iso, km: NaN });
   }
 
-  function select(i: number, ux: number, uy: number, uz: number, browsing = true): void {
-    chosen = i;
-    const k = i * 3;
-    scratch.set(site[k]!, site[k + 1]!, site[k + 2]!);
-    // The ground is asked once, here, exactly as `placement.ts` asks it: the
-    // relief does not move, and a point-in-polygon query per frame behind a HUD
-    // label would be an absurd price for a label.
-    const ground = groundAt(scratch);
-    anchor.copy(scratch).multiplyScalar(ground);
-    marker.copy(scratch).multiplyScalar(ground + WAYPOINT_RISE);
-    minimap.setTarget(placements[i]!.id);
-    hud.setDestination(shortlist(ux, uy, uz), browsing);
-  }
-
-  function clear(): void {
-    chosen = -1;
-    browseFor = 0;
-    minimap.setTarget(null);
-    hud.setDestination(null);
-  }
-
-  const byId = new Map(placements.map((placement, i) => [placement.id, i]));
-
-  /** The player's own up, which every ordering here is measured from. */
-  let ux = 0;
-  let uy = 1;
-  let uz = 0;
-
-  function advance(): void {
-    if (count === 0) return;
-    // A fresh press after the shortlist has closed re-orders from where you are
-    // now; while it is open the order is frozen, or the list would reshuffle
-    // under the key you are pressing.
-    if (browseFor <= 0 || ranked.length === 0) {
-      rank(ux, uy, uz);
-      select(ranked[0]!, ux, uy, uz);
-    } else {
-      const at = ranked.indexOf(chosen);
-      select(ranked[(at + 1) % ranked.length]!, ux, uy, uz);
-    }
-    browseFor = BROWSE_HOLD;
-  }
-
-  const events = new AbortController();
-  if (key !== null) {
-    addEventListener('keydown', (event) => {
-      // Leave the browser's own shortcuts alone, the same rule `input.ts` uses,
-      // and a card's keys to the card: `Tab` walks the settings' own controls.
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (!isKey(event.code) || inputBlocked(event)) return;
-      // The pause card's own buttons are what `Tab` walks while it is up,
-      // whether or not `Tab` is still this key.
-      if (event.defaultPrevented || (event.code === 'Tab' && tabTaken())) return;
-      event.preventDefault();
-      if (!event.repeat) advance();
-    }, { signal: events.signal });
+  try {
+    const kept = readMarker(storage?.getItem(KEY));
+    if (kept !== null) set(kept, false);
+  } catch {
+    // A store that refuses a read is a map with no marker on it.
   }
 
   /**
@@ -306,16 +227,15 @@ export function createNavigation(options: NavigationOptions): Navigation {
     const cy = cam.y / length;
     const cz = cam.z / length;
     // Clamped so a camera grazing the surface still has a horizon to speak of.
-    const cosHorizon = PLANET_RADIUS / Math.max(length, PLANET_RADIUS + 1);
+    const cosHorizon = RADIUS / Math.max(length, RADIUS + 1);
 
-    const k = chosen * 3;
-    const tx = site[k]!;
-    const ty = site[k + 1]!;
-    const tz = site[k + 2]!;
+    const tx = site.x;
+    const ty = site.y;
+    const tz = site.z;
     const dot = tx * cx + ty * cy + tz * cz;
 
     if (dot >= cosHorizon) {
-      scratch.copy(marker);
+      scratch.copy(floating);
     } else {
       // Tangent of the great circle at the camera's subpoint, pointing at the
       // destination. Undefined at the exact antipode, where no direction is more
@@ -334,7 +254,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
       const phi = Math.acos(Math.min(1, cosHorizon));
       const c = Math.cos(phi);
       const s = Math.sin(phi);
-      scratch.set(cx * c + ax * s, cy * c + ay * s, cz * c + az * s).multiplyScalar(PLANET_RADIUS);
+      scratch.set(cx * c + ax * s, cy * c + ay * s, cz * c + az * s).multiplyScalar(RADIUS);
     }
 
     // The rig moves the camera every frame but only the render updates its
@@ -387,54 +307,36 @@ export function createNavigation(options: NavigationOptions): Navigation {
   }
 
   return {
-    get target() {
-      return chosen < 0 ? null : placements[chosen]!;
+    get marker() {
+      return marker;
     },
-    advance,
-    select(id) {
-      const i = byId.get(id);
-      if (i === undefined) return;
-      // Not browsing: you pointed at this one, so there is no shortlist to walk
-      // and nothing to close on a timer.
-      rank(ux, uy, uz);
-      select(i, ux, uy, uz, false);
-      browseFor = 0;
+    mark(lat, lon, name = null, landmark = false) {
+      set({ lat, lon, name, iso: countryAt(lat, lon), landmark });
     },
-    clear,
-    update(dt, player, camera) {
+    clear() {
+      if (marker !== null) set(null);
+    },
+    update(_dt, player, camera) {
+      if (marker === null || disposed) return;
       const position = player.position;
-      const length = Math.hypot(position.x, position.y, position.z);
+      const length = position.length();
       if (length < 1e-9) return;
-      ux = position.x / length;
-      uy = position.y / length;
-      uz = position.z / length;
-
-      if (browseFor > 0) {
-        browseFor -= dt;
-        // The shortlist closes on its own and the panel collapses to the one
-        // line you chose. Nothing to dismiss, which matters when both hands are
-        // already flying.
-        if (browseFor <= 0 && chosen >= 0) hud.setDestination(shortlist(ux, uy, uz), false);
-      }
-      if (chosen < 0) return;
-
-      const reach = anchor.distanceTo(position);
-      if (reach <= ARRIVE_RANGE && player.state !== ARRIVE_SEATED) {
-        const placement = placements[chosen]!;
-        clear();
-        // The panel you watched the whole way there resolves in place, which is
-        // a different event from stumbling on a landmark and being told you
-        // found it. The counter's toast still fires; this one says you arrived.
-        hud.arriveAt(placement.name, placement.iso);
+      scratch.copy(position).divideScalar(length);
+      const angle = scratch.angleTo(site);
+      const km = angle * RADIUS_KM;
+      if (angle * RADIUS <= ARRIVE_RANGE && !player.airborne) {
+        const reached = marker;
+        set(null);
+        // The panel you watched the whole way there resolves in place.
+        hud.arriveAt(labelOf(reached), reached.iso);
         return;
       }
-
-      const km = angleTo(chosen, ux, uy, uz) * EARTH_KM;
-      if (reach < MARKER_DEADZONE) hud.trackDestination(km, null, 0, 0);
+      const reach = anchor.distanceTo(position);
+      if (marker.landmark && reach < MARKER_DEADZONE) hud.trackDestination(km, null, 0, 0);
       else place(camera, km);
     },
     dispose() {
-      events.abort();
+      disposed = true;
     },
   };
 }

@@ -353,6 +353,12 @@ export interface RegionStyle {
   roofs: readonly number[];
   /** Doors, shutters, beams, posts: the accent that is not the wall. */
   trim: readonly number[];
+  /**
+   * What a front door is painted: a wood, or the colour a street paints its
+   * doors in. Never a near-black — `trim` capped carries `bark`, and a door of
+   * it read as a hole in the wall. See `doorPaint`.
+   */
+  doors: readonly number[];
   /** Windows and openings. Warm darks, for the reason above. */
   glass: readonly number[];
   /**
@@ -423,6 +429,40 @@ export interface WindowRow {
   reveal?: number;
   /** Ceiling on how bright these may burn after dark. See `lit`. */
   strength?: number;
+}
+
+/** A front door. See `SceneryContext.door`. */
+export interface DoorSpec {
+  /** The opening, inside the frame. */
+  width: number;
+  height: number;
+  /** The leaf: `doorPaint`, never a cap tone of the trim. */
+  leaf: number;
+  /** The architrave round the opening: a light tone of the wall reads as stone or render. */
+  frame: number;
+  /**
+   * How high the threshold stands over the group's base. A step this high
+   * comes out to the pavement under it, as wide as the frame and no wider;
+   * 0 is none. Put the threshold level with the wall's base course and paint
+   * the step in the course's tone: the two tops share a plane.
+   */
+  sill?: number;
+  /** The step's colour: the base course's. Defaults to the frame's. */
+  step?: number;
+  /** Panels on the leaf, in a darker tone of it: true by default. */
+  panels?: boolean;
+}
+
+/** The architrave's jambs and head, how far it stands off the wall, and the step's depth. */
+export const DOOR_JAMB = 0.2;
+export const DOOR_HEAD = 0.26;
+export const DOOR_REVEAL = PROUD * 3.5;
+const DOOR_STEP = 0.5;
+
+/** A door's paint for a wall: one of the region's, and never the wall's own colour. */
+export function doorPaint(rng: Rng, style: RegionStyle, wall: number): number {
+  const choices = style.doors.filter((color) => color !== wall);
+  return rng.pick(choices.length > 0 ? choices : style.doors);
 }
 
 /**
@@ -542,6 +582,28 @@ export interface SceneryContext extends MonumentContext {
    * the whole floor and lights as one room.
    */
   windows(row: WindowRow): THREE.Group;
+
+  /**
+   * A front door set into a wall, as one group standing on y = 0 and facing
+   * +Z, centred on X, with the wall's face at z = 0.
+   *
+   * **Set in, never laid on.** A wall here is a box and cannot be cut, so the
+   * recess is drawn the other way round: an architrave in the wall's light
+   * tone stands `DOOR_REVEAL` off the wall on three sides, its inner faces are
+   * the reveal, and the leaf is a quad a `PROUD` off the wall, far behind the
+   * frame's face — the frame carries the ink and the leaf reads as sunk into
+   * it. The head is the lintel and is no wider than the jambs. A slab with a
+   * board over it, both stuck on the render and wider than the opening, is
+   * what this replaced, and it read as cheap from the street.
+   *
+   * The opening is `width` by `height` over `sill`; the whole thing reaches
+   * `width / 2 + DOOR_JAMB` either side, which is what a part lays its
+   * windows clear of. Its frame and leaf are marked `atlasDoor`, and
+   * `validatePart` fails a variant whose door crosses a window.
+   *
+   * 18 triangles of frame, 2 of leaf, 8 of panels and 12 of step: four meshes.
+   */
+  door(spec: DoorSpec): THREE.Group;
 
   /**
    * Several meshes of one colour, baked into one.
@@ -1084,6 +1146,8 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
     const pane = panes(count, paneWidth, height - FRAME_MARGIN * 2, FRAME_BAR, color);
     pane.geometry.translate(0, FRAME_MARGIN, reveal + PROUD);
     pane.userData.atlasLit = 1;
+    plate.userData.atlasWindow = true;
+    pane.userData.atlasWindow = true;
     return { frame: plate, glass: pane };
   }
 
@@ -1187,7 +1251,76 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
           keep(pair, shutters);
         }
       }
-      for (const list of byColor.values()) group.add(mergeMeshes(list));
+      for (const list of byColor.values()) {
+        const merged = mergeMeshes(list);
+        merged.userData.atlasWindow = true;
+        group.add(merged);
+      }
+      return group;
+    },
+
+    door(spec) {
+      const { width, height, leaf, frame, sill = 0, step = frame, panels = true } = spec;
+      const group = new THREE.Group();
+      group.name = 'door';
+      const inner = width / 2;
+      const outer = inner + DOOR_JAMB;
+      const lintel = sill + height;
+      const top = lintel + DOOR_HEAD;
+      const z0 = 0;
+      const z1 = DOOR_REVEAL;
+
+      // The architrave: three faces in front, three outside, three inside —
+      // the inside ones are the reveal, and the reason the leaf reads as set in.
+      const points: number[] = [];
+      const front = (x0: number, x1: number, y0: number, y1: number): void =>
+        quad(points, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]);
+      const facingLeft = (x: number, y0: number, y1: number): void =>
+        quad(points, [x, y0, z0], [x, y0, z1], [x, y1, z1], [x, y1, z0]);
+      const facingRight = (x: number, y0: number, y1: number): void =>
+        quad(points, [x, y0, z1], [x, y0, z0], [x, y1, z0], [x, y1, z1]);
+      front(-outer, -inner, sill, lintel);
+      front(inner, outer, sill, lintel);
+      front(-outer, outer, lintel, top);
+      facingLeft(-outer, sill, top);
+      facingRight(outer, sill, top);
+      quad(points, [-outer, top, z1], [outer, top, z1], [outer, top, z0], [-outer, top, z0]);
+      facingRight(-inner, sill, lintel);
+      facingLeft(inner, sill, lintel);
+      quad(points, [-inner, lintel, z0], [inner, lintel, z0], [inner, lintel, z1], [-inner, lintel, z1]);
+      const architrave = new THREE.BufferGeometry();
+      architrave.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+      const surround = meshOf(architrave, frame);
+      surround.userData.atlasDoor = true;
+      group.add(surround);
+
+      // The leaf, a `PROUD` off the wall and a quad: the frame inks it.
+      const board = panes(1, width, height, 0, leaf);
+      board.position.set(0, sill, PROUD);
+      board.userData.atlasDoor = true;
+      group.add(board);
+
+      if (panels) {
+        // Four panels in the leaf's own shade, a `PROUD` in front of it and
+        // still well behind the frame: the cheapest thing that says "door".
+        const margin = Math.min(0.2, width * 0.14);
+        const stile = Math.min(0.16, width * 0.11);
+        const panelWidth = (width - margin * 2 - stile) / 2;
+        const shade = base.tone(leaf, 0.8);
+        const low = panes(2, panelWidth, height * 0.3, stile, shade);
+        low.position.set(0, sill + height * 0.12, PROUD * 2);
+        const high = panes(2, panelWidth, height * 0.36, stile, shade);
+        high.position.set(0, sill + height * 0.54, PROUD * 2);
+        const set = mergeMeshes([low, high]);
+        set.userData.atlasDoor = true;
+        group.add(set);
+      }
+
+      if (sill > 0) {
+        const tread = base.box(outer * 2, sill, DOOR_STEP, step);
+        tread.position.z = DOOR_STEP / 2;
+        group.add(tread);
+      }
       return group;
     },
 
@@ -1422,6 +1555,60 @@ export function validatePart(part: ScenicPart, group: THREE.Group): string[] {
       `${colors.length} palette colours, over the '${part.kind}' budget of ${kind.colors} — ` +
         `colours are draw calls here, see KindSpec.colors`,
     );
+  }
+  problems.push(...doorClashes(group));
+  return problems;
+}
+
+/**
+ * Every place a door crosses a window in a built variant: a door's frame or
+ * leaf (`atlasDoor`) against any triangle of glazing, a window's frame or its
+ * shutters (`atlasWindow`, or lit and not a door). A triangle's box is tested
+ * rather than a mesh's, because a row of frames is one mesh and its box spans
+ * the gaps a door may stand in. Touching is allowed; a hundredth of a unit of
+ * overlap on every axis is a clash.
+ */
+export function doorClashes(group: THREE.Object3D): string[] {
+  group.updateMatrixWorld(true);
+  const doors: THREE.Box3[] = [];
+  const openings: THREE.Mesh[] = [];
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    if (mesh.userData.atlasDoor === true) doors.push(new THREE.Box3().setFromObject(mesh));
+    else if (mesh.userData.atlasWindow === true || typeof mesh.userData.atlasLit === 'number') openings.push(mesh);
+  });
+  if (doors.length === 0 || openings.length === 0) return [];
+  const problems: string[] = [];
+  const triangle = new THREE.Box3();
+  const v = new THREE.Vector3();
+  const EPS = 0.01;
+  // A flat face has no extent across itself, so on that axis lying inside
+  // the other box is enough.
+  const axis = (a0: number, a1: number, b0: number, b1: number): boolean => {
+    const overlap = Math.min(a1, b1) - Math.max(a0, b0);
+    return overlap > EPS || (overlap >= 0 && Math.min(a1 - a0, b1 - b0) < EPS);
+  };
+  const overlaps = (a: THREE.Box3, b: THREE.Box3): boolean =>
+    axis(a.min.x, a.max.x, b.min.x, b.max.x) && axis(a.min.y, a.max.y, b.min.y, b.max.y) && axis(a.min.z, a.max.z, b.min.z, b.max.z);
+  for (const mesh of openings) {
+    const position = mesh.geometry.getAttribute('position');
+    const index = mesh.geometry.index;
+    const count = index ? index.count : position.count;
+    for (let i = 0; i + 2 < count && problems.length === 0; i += 3) {
+      triangle.makeEmpty();
+      for (let k = 0; k < 3; k++) {
+        v.fromBufferAttribute(position, index ? index.getX(i + k) : i + k).applyMatrix4(mesh.matrixWorld);
+        triangle.expandByPoint(v);
+      }
+      for (const door of doors) {
+        if (overlaps(door, triangle)) {
+          const c = triangle.getCenter(v);
+          problems.push(`a door crosses a window at (${round(c.x)}, ${round(c.y)}, ${round(c.z)})`);
+          break;
+        }
+      }
+    }
   }
   return problems;
 }

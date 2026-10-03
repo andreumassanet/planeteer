@@ -17,6 +17,24 @@
 import { HONK_HOLD_MS, HONK_REFRESH_MS, HONK_TAP_MS, freshHonk, spendHonk } from '../server/src/limits.ts';
 import type { Honk } from '../server/src/limits.ts';
 
+/**
+ * How each voice is played. A held one — a car's, a bus's, a boat's, a
+ * motorbike's electric horn — sounds for as long as the key is down and stops
+ * when it comes up. The others are struck: a bicycle's bell rings once, a
+ * tuk-tuk's bulb is squeezed once and a horse snorts once, a press, however
+ * long the key is held, and pressing again is what sounds them again. A bell
+ * struck twice a press (`ring-ring`) read as a doubled key.
+ */
+export const HORN_HELD: Readonly<Record<Honk, boolean>> = {
+  car: true,
+  bus: true,
+  ship: true,
+  beep: true,
+  bell: false,
+  squeak: false,
+  whinny: false,
+};
+
 /** A horn sounding until it is released: `Audio.holdHorn`'s. */
 export interface HornSound {
   level(near: number): void;

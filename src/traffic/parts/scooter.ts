@@ -39,7 +39,7 @@ export const scooter: Vehicle = {
   id: 'scooter',
   name: 'Scooter',
   kind: 'cycle',
-  size: [2.5, 0.78, 1.48],
+  size: [2.5, 0.78, 1.54],
   note: 'A step-through with a floorboard, a legshield and a rounded cowl. Weighted above every car in three regions.',
 
   mounts: [
@@ -56,7 +56,12 @@ export const scooter: Vehicle = {
       legroom: 0.65,
       beam: Infinity,
       footrest: [0.2, 0.42, 0.24],
-      grip: [0, 1.17, 0.74],
+      // The grips a forearm over the seat and well back from the legshield,
+      // on a column raked back from it: a step-through is ridden sitting up,
+      // the back near vertical and the hands at the chest. At the legshield's
+      // top they were a hand over the seat and an arm and a half ahead of the
+      // hip, and a body reaching for them lay along the cowl.
+      grip: [0, 1.45, 0.38],
     },
   ],
 
@@ -169,25 +174,27 @@ export const scooter: Vehicle = {
       plate.position.set(0, WHEEL + arc * Math.cos(mid), front + arc * Math.sin(mid));
       draft.add(plate);
     }
-    draft.add(strut(new V(0, WHEEL * 2 + 0.14, front - 0.1), new V(0, 1.1, 0.72), 0.13, paint));
+    draft.add(strut(new V(0, WHEEL * 2 + 0.14, front - 0.1), new V(0, 1.1, 0.66), 0.13, paint));
+    // The column on up from the legshield's top to the headset, raked back.
+    draft.add(strut(new V(0, 1.06, 0.66), new V(0, 1.36, 0.45), 0.1, paint));
     draft.add(strut(new V(0.11, WHEEL * 2 + 0.06, front - 0.04), new V(0.11, WHEEL, front), 0.06, metal));
 
     // The headset: painted, the bars coming out of it into dark grips, the
     // lamp in its face and a mirror either side.
     const headset = solid({ color: paint, width: 0.3, foreWidth: 0.26, topWidth: 0.24, topForeWidth: 0.2, depth: 0.26, height: 0.14 });
-    headset.position.set(0, 1.08, 0.7);
+    headset.position.set(0, 1.34, 0.42);
     draft.add(headset);
-    draft.add(strut(new V(-0.27, 1.17, 0.74), new V(0.27, 1.17, 0.74), 0.06, metal));
+    draft.add(strut(new V(-0.27, 1.45, 0.4), new V(0.27, 1.45, 0.4), 0.06, metal));
     for (const side of [-1, 1]) {
-      draft.add(strut(new V(side * 0.25, 1.17, 0.74), new V(side * 0.36, 1.17, 0.72), 0.08, rubber));
-      draft.add(strut(new V(side * 0.2, 1.2, 0.74), new V(side * 0.3, 1.4, 0.7), 0.035, metal));
-      const mirror = box(0.12, 0.08, 0.04, metal);
-      mirror.position.set(side * 0.31, 1.38, 0.7);
+      draft.add(strut(new V(side * 0.25, 1.45, 0.4), new V(side * 0.36, 1.45, 0.36), 0.08, rubber));
+      draft.add(strut(new V(side * 0.2, 1.47, 0.41), new V(side * 0.27, 1.53, 0.39), 0.035, metal));
+      const mirror = box(0.12, 0.06, 0.04, metal);
+      mirror.position.set(side * 0.29, 1.5, 0.39);
       draft.add(mirror);
     }
     const lamp = lit(column(0.08, 0.05, tone(metal, 1.3), 8));
     lamp.rotation.x = Math.PI / 2;
-    lamp.position.set(0, 1.15, 0.82);
+    lamp.position.set(0, 1.4, 0.54);
     group.add(lamp);
 
     // The exhaust low on the right, under the cowl.

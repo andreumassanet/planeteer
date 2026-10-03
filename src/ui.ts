@@ -424,12 +424,14 @@ const ICONS: Record<string, string> = {
   passport:
     '<rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="10.5" r="3.4"/>' +
     '<path d="M8.6 10.5h6.8M12 7.1c1 1 1.4 2.1 1.4 3.4s-.4 2.4-1.4 3.4c-1-1-1.4-2.1-1.4-3.4s.4-2.4 1.4-3.4z"/><path d="M9 17h6"/>',
+  sound: '<path d="M4 9.5h3.6L12.5 5v14l-4.9-4.5H4z"/><path d="M15.8 9a4.2 4.2 0 0 1 0 6M18.4 6.4a7.8 7.8 0 0 1 0 11.2"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   gauge: '<path d="M4.2 17.5a9 9 0 1 1 15.6 0"/><path d="m12 13.2 4.2-4.7"/><circle cx="12" cy="13.5" r="1.4" fill="currentColor"/>',
   mouse: '<rect x="5.5" y="2.5" width="13" height="19" rx="6.5"/><path d="M12 2.5v7.5"/><path d="M5.5 10h13"/>',
   clock: '<circle cx="12" cy="12" r="8.8"/><path d="M12 7v5l3.4 2"/>',
   layers: '<path d="m12 3.5 9 4.8-9 4.8-9-4.8z"/><path d="m3 12.3 9 4.8 9-4.8"/><path d="m3 16.2 9 4.8 9-4.8"/>',
   help: '<circle cx="12" cy="12" r="8.8"/><path d="M9.4 9.3a2.7 2.7 0 1 1 3.8 2.5c-.8.4-1.2 1-1.2 1.8v.4"/><path d="M12 17h.01"/>',
+  link: '<path d="M13.5 4.5h6v6M19.5 4.5 11 13"/><path d="M17.5 13.5v5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5V8A1.5 1.5 0 0 1 6 6.5h5"/>',
   expand: '<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>',
   camera: '<path d="M4 8h3.2l1.6-2.5h6.4L16.8 8H20v11H4z"/><circle cx="12" cy="13.2" r="3.4"/>',
   talk: '<path d="M4 5.5h16v10H11l-4.5 4v-4H4z"/><path d="M8 9.5h8M8 12.5h5"/>',

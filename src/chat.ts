@@ -111,8 +111,6 @@ export interface ChatHost {
   emote(name: Emote): boolean;
   /** A photo of the world on the next frame. */
   photo(): void;
-  /** Points the navigation at the nearest landmark not yet found, and says which, or null when all are. */
-  landmark(): { name: string; km: number } | null;
   /** Where a line's blip is heard, or null while the chat's sound is off or the sound is not open. */
   sound(): { context: BaseAudioContext; node: AudioNode } | null;
   /** Where to hand the pointer back to, if it was locked when the field opened. */
@@ -131,6 +129,8 @@ export interface Chat {
   system(text: string): void;
   /** `atlas.chat.stats`: lines held, received and sent, and who is muted. */
   readonly stats: { lines: number; received: number; sent: number; muted: string[] };
+  /** Takes the panel off the page and lets go of the keys and the relay's messages. */
+  dispose(): void;
 }
 
 /** How long a line stands on the screen with the field closed, and how long it takes to go. */
@@ -300,6 +300,10 @@ interface Entry {
 export function createChat(host: ChatHost): Chat {
   installUi();
   ensureStyle('atlas-chat', STYLE);
+  /** Every listener the chat adds, and every relay subscription, go with it on `dispose`. */
+  const events = new AbortController();
+  const { signal } = events;
+  const unregister: (() => void)[] = [];
 
   const log = h('div', { class: 'atlas-chat-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Chat' });
   const count = h('span', { class: 'atlas-chat-count' });
@@ -413,7 +417,7 @@ export function createChat(host: ChatHost): Chat {
   const peers = host.peers;
   let wasOpen = false;
   if (peers !== null) {
-    peers.onMessage((message) => {
+    unregister.push(peers.onMessage((message) => {
       if (message.t === 'hi') {
         names.clear();
         for (const row of Array.isArray(message.peers) ? (message.peers as unknown[][]) : []) {
@@ -436,21 +440,30 @@ export function createChat(host: ChatHost): Chat {
         if (name !== undefined) system(`${name} left`);
       }
       showCount();
-    });
-    peers.onState((state) => {
-      if (state === 'open') wasOpen = true;
-      else if (state === 'closed' && wasOpen) {
+    }));
+    let reached = false;
+    let failed = false;
+    unregister.push(peers.onState((state) => {
+      if (state === 'open') {
+        wasOpen = reached = true;
+      } else if (state === 'closed' && wasOpen) {
         wasOpen = false;
         system('Lost the connection · trying again');
+      } else if (state === 'closed' && !reached && !failed) {
+        // Never reached at all: the world plays on alone, and says so once.
+        failed = true;
+        system('Could not reach the server · playing alone until it answers', 'error');
+      } else if (state === 'connecting' && !reached && !failed) {
+        system('Connecting to the server…');
       }
       showCount();
-    });
+    }));
   }
 
   function showCount(): void {
     const online = peers?.online ?? null;
     count.textContent =
-      peers === null ? 'Only you · no server' : online === null ? 'Offline' : online === 0 ? 'Only you online' : `${online + 1} online`;
+      peers === null ? 'Playing offline' : online === null ? (peers.stats.state === 'connecting' ? 'Connecting…' : 'Not connected') : online === 0 ? 'Only you online' : `${online + 1} online`;
   }
 
   /* --- saying -------------------------------------------------------------- */
@@ -511,13 +524,17 @@ export function createChat(host: ChatHost): Chat {
           system(`Off to ${point.lat.toFixed(2)}, ${point.lon.toFixed(2)}`);
           return false;
         }
-        const found = findPlace(args, host.gazetteer());
+        const found = findPlace(args, host.gazetteer(), host.here().iso || undefined);
         if (found === null) {
           system(`Nothing called “${args}” is built · try a bigger town nearby`, 'error');
           return true;
         }
         host.jumpTo(found.lat, found.lon);
         system(`Off to ${found.name}, ${host.countryName(found.iso)}${found.via === undefined ? '' : ` · for ${found.via}`}`);
+        if (found.others.length > 0) {
+          const also = found.others.slice(0, 3).map((iso) => `${found.via ?? found.name}, ${host.countryName(iso)}`);
+          system(`Also: ${also.join(' · ')}`);
+        }
         return false;
       }
       case 'home': {
@@ -531,11 +548,6 @@ export function createChat(host: ChatHost): Chat {
         const place = here.country === '' ? `At sea off ${here.town}` : `${here.near ? 'In' : 'Near'} ${here.town}, ${here.country}`;
         system(`${place} · ${here.lat.toFixed(4)}, ${here.lon.toFixed(4)}`);
         return true;
-      }
-      case 'landmark': {
-        const next = host.landmark();
-        system(next === null ? 'Every landmark is found · well travelled' : `${next.name}, ${Math.round(next.km).toLocaleString('en')} km · the arrow points at it`);
-        return false;
       }
       case 'time': {
         const wanted = parseClock(args);
@@ -566,7 +578,7 @@ export function createChat(host: ChatHost): Chat {
         return done !== true;
       }
       case 'who': {
-        if (peers === null) system('You are exploring alone · this world has no server to meet anyone on');
+        if (peers === null) system('You are playing offline · choose Play online on the title screen to meet others');
         else if (peers.online === null) system('Not connected right now', 'error');
         else {
           const others = players();
@@ -699,7 +711,7 @@ export function createChat(host: ChatHost): Chat {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     submit();
-  });
+  }, { signal });
   /* --- suggestions ------------------------------------------------------------ */
 
   /** The rows over the field, the one chosen, and whether `Esc` put them away until the next key. */
@@ -708,7 +720,7 @@ export function createChat(host: ChatHost): Chat {
   let dismissed = false;
   const sources = {
     players: [] as readonly string[],
-    places: (query: string, limit: number) => suggestPlaces(query, host.gazetteer(), host.countryName, limit),
+    places: (query: string, limit: number) => suggestPlaces(query, host.gazetteer(), host.countryName, limit, host.here().iso || undefined),
   };
 
   function showGhost(): void {
@@ -745,8 +757,8 @@ export function createChat(host: ChatHost): Chat {
         );
         row.addEventListener('mousemove', () => {
           if (chosen !== i) choose(i);
-        });
-        row.addEventListener('click', () => accept(i, false));
+        }, { signal });
+        row.addEventListener('click', () => accept(i, false), { signal });
         return row;
       }),
     );
@@ -809,23 +821,23 @@ export function createChat(host: ChatHost): Chat {
       dismissed = true;
       refresh();
     }
-  });
+  }, { signal });
   field.addEventListener('input', () => {
     dismissed = false;
     refresh();
-  });
-  field.addEventListener('scroll', showGhost);
+  }, { signal });
+  field.addEventListener('scroll', showGhost, { signal });
   // A press on the panel's own lines keeps the field's focus, so the history
   // can be scrolled without closing it…
   root.addEventListener('mousedown', (event) => {
     if (event.target !== field) event.preventDefault();
-  });
+  }, { signal });
   // …and a click anywhere else is a close, as a click on the world would be.
   field.addEventListener('blur', () => {
     window.setTimeout(() => {
       if (showing && !root.contains(document.activeElement)) hide();
     }, 0);
-  });
+  }, { signal });
 
   /**
    * The keys that open it, whenever the keys are the world's: `Enter` and
@@ -842,11 +854,11 @@ export function createChat(host: ChatHost): Chat {
     // The key is typed into nothing: the field opens empty, or with its slash.
     event.preventDefault();
     show(slash ? '/' : '');
-  });
+  }, { signal });
 
   showCount();
   document.body.append(root);
-  if (peers === null) system(`${labelOf('chat')} to chat · / for commands · this world is yours alone`);
+  if (peers === null) system(`${labelOf('chat')} to chat · / for commands · playing offline, only you can read this`);
 
   return {
     root,
@@ -858,6 +870,12 @@ export function createChat(host: ChatHost): Chat {
     system: (text) => system(text),
     get stats() {
       return { lines: entries.length, received, sent: sentCount, muted: [...muted] };
+    },
+    dispose() {
+      if (showing) hide();
+      events.abort();
+      for (const off of unregister.splice(0)) off();
+      root.remove();
     },
   };
 }

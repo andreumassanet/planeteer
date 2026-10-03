@@ -10,7 +10,7 @@ import { rngFrom } from './scenery/random.ts';
 import { PALETTE } from './theme.ts';
 import { drawnFootprint } from './land-probe.ts';
 import type { DrawnFootprint, LandProbe } from './land-probe.ts';
-import { COUNTRY_PARTS, ROTOR_RADIUS, buildRotor, pieceRng, tractorScale } from './countryside-kit.ts';
+import { COUNTRY_PARTS, ROTOR_RADIUS, buildRotor, pieceRng } from './countryside-kit.ts';
 import { countryVehicleId, fleetVariant, parkedArrays, parkedModel } from './craft/parked.ts';
 import type { RotorKind } from './countryside-kit.ts';
 import type { BodyKind } from './scenery/occupancy.ts';
@@ -173,16 +173,87 @@ export interface CountryBuilder {
   setTaken(test: (id: string) => boolean): void;
 }
 
+/**
+ * A row's cross-section, from its left foot over its crown to its right
+ * foot: (across, up) pairs, units, up from the plate. Its colour runs from
+ * `foot` at the plate to `crown` at its top, vertex by vertex.
+ */
+interface RowSection {
+  points: readonly (readonly [number, number])[];
+  foot: number;
+  crown: number;
+}
+
+/**
+ * What grows in a field's rows at the finest level: its section, and a
+ * second crown colour every other row takes (a bed of lettuce beside one of
+ * cabbage), and how far apart the rows are where there are no furrows.
+ */
+interface CropRows {
+  section: RowSection;
+  second?: number;
+  spacing: number;
+}
+
 interface Look {
   /** The plate's two tones, across the rows. */
   plate: [number, number];
   /** Width of one tone's stripe, units. 0 is one colour. */
   stripe: number;
-  /** Rows standing up out of it, at the finest level: a vineyard, maize, a paddy's rice. */
-  rows?: { spacing: number; width: number; height: number; color: number; tone: number; bury: number };
+  /** A paddy's bunds, round it and across it into pools, at the finest level. */
+  bunds?: { width: number; height: number; color: number; tone: number; bury: number };
+  /**
+   * The ridges of soil the plough throws up, at the finest level, `spacing`
+   * apart: the plate under them is the furrows' bottoms, one tone. Low and
+   * rounded — a few decimetres, never a step — and lighter on top, where the
+   * soil dries first.
+   */
+  furrows?: { spacing: number; section: RowSection };
+  /** What grows in rows: on the ridges where there are furrows, else on the plate. */
+  crop?: CropRows;
   /** Whether the grass grows through it, tinted: a field of straw. */
   straw: boolean;
 }
+
+/**
+ * A row of plants seen end on: a narrow foot, its widest a little over
+ * half-way up (`waist`), and a rounded top; `width` its widest, `height` its
+ * top over the plate. Five faces and the colour from the foot up.
+ */
+function plantSection(width: number, height: number, foot: number, crown: number, waist = 0.55): RowSection {
+  return {
+    points: [
+      [-width * 0.3, -0.1],
+      [-width / 2, height * waist],
+      [-width * 0.3, height * 0.92],
+      [width * 0.3, height * 0.92],
+      [width / 2, height * waist],
+      [width * 0.3, -0.1],
+    ],
+    foot,
+    crown,
+  };
+}
+
+/** A ridge of ploughed soil: `width` at the foot and `height` over the furrows, rounded over a narrow crown. */
+function ridgeSection(width: number, height: number, foot: number, crown: number): RowSection {
+  return {
+    points: [
+      [-width / 2, -0.12],
+      [-width * 0.22, height * 0.82],
+      [0, height],
+      [width * 0.22, height * 0.82],
+      [width / 2, -0.12],
+    ],
+    foot,
+    crown,
+  };
+}
+
+/** The furrows' ridges of every ridged crop, in its own soil's tones. */
+const RIDGE_HEIGHT = 0.3;
+/** Of a field just ploughed, the share sown, its rows of shoots up out of the ridges. */
+const SOWN = 0.5;
 
 /** How each crop is drawn: palette colours and their tones. */
 function lookOf(ctx: SceneryContext, crop: CropId): Look {
@@ -198,19 +269,51 @@ function lookOf(ctx: SceneryContext, crop: CropId): Look {
     case 'millet':
       return { plate: [t(P.tan, 1.1), t(P.gold, 0.8)], stripe: 1.6, straw: true };
     case 'lavender':
-      return { plate: [t(P.violet, 0.78), t(P.green, 0.75)], stripe: 1.1, straw: false };
+      // Rounded bushes in rows on bare soil: grey-green at the foot, violet over the top.
+      return {
+        plate: [t(P.violet, 0.78), t(P.tan, 0.92)],
+        stripe: 1.1,
+        crop: { section: plantSection(1.4, 0.95, t(P.green, 0.62), t(P.violet, 0.86), 0.45), second: t(P.violet, 0.78), spacing: 2.1 },
+        straw: false,
+      };
     case 'greens':
-      return { plate: [P.green, t(P.brown, 0.92)], stripe: 1.2, straw: false };
+      // Beds of leaf vegetables on their ridges, a light and a blue-green bed in turn.
+      return {
+        plate: [t(P.green, 0.92), t(P.clay, 0.62)],
+        stripe: 1.2,
+        furrows: { spacing: 1.7, section: ridgeSection(1.6, RIDGE_HEIGHT, t(P.clay, 0.58), t(P.brown, 0.98)) },
+        crop: { section: plantSection(1.05, 0.6, t(P.green, 0.66), t(P.green, 1.08)), second: t(P.slate, 1.05), spacing: 0 },
+        straw: false,
+      };
     case 'ploughed':
-      return { plate: [P.brown, t(P.brown, 0.8)], stripe: 1, straw: false };
+      // Turned soil, warm and dark in the furrows, drier and lighter on the ridges.
+      return {
+        plate: [t(P.clay, 0.7), t(P.brown, 0.66)],
+        stripe: 1,
+        furrows: { spacing: 1.35, section: ridgeSection(1.3, RIDGE_HEIGHT, t(P.clay, 0.55), t(P.brown, 1.02)) },
+        straw: false,
+      };
     case 'maize':
-      return { plate: [t(P.brown, 0.9), t(P.green, 0.85)], stripe: 1.3, rows: { spacing: 2.6, width: 1, height: 2.2, color: P.green, tone: 0.9, bury: 0.4 }, straw: false };
+      // Tall leafy rows on low ridges, yellowing to the tassels.
+      return {
+        plate: [t(P.brown, 0.9), t(P.green, 0.85)],
+        stripe: 1.3,
+        furrows: { spacing: 2.2, section: ridgeSection(1.8, RIDGE_HEIGHT * 0.8, t(P.clay, 0.58), t(P.brown, 0.92)) },
+        crop: { section: plantSection(1.15, 2.6, t(P.green, 0.6), t(P.olive, 0.95)), spacing: 0 },
+        straw: false,
+      };
     case 'vineyard':
-      return { plate: [t(P.tan, 1.05), t(P.darkOlive, 1.2)], stripe: 1.5, rows: { spacing: 3, width: 0.9, height: 1.5, color: P.darkOlive, tone: 1, bury: 0.4 }, straw: false };
+      // Vines on their wires: the dark stocks at the foot, the leaves over them.
+      return {
+        plate: [t(P.tan, 1.05), t(P.darkOlive, 1.2)],
+        stripe: 1.5,
+        crop: { section: plantSection(1.0, 1.6, t(P.bark, 1.2), t(P.green, 0.9), 0.62), second: t(P.olive, 0.8), spacing: 3 },
+        straw: false,
+      };
     case 'olives':
       return { plate: [t(P.tan, 1.08), t(P.tan, 0.98)], stripe: 4, straw: false };
     case 'paddy':
-      return { plate: [t(P.skyBlue, 0.72), t(P.green, 1.12)], stripe: 0.9, rows: { spacing: 0, width: 0.8, height: 0.45, color: P.brown, tone: 0.95, bury: 0.35 }, straw: false };
+      return { plate: [t(P.skyBlue, 0.72), t(P.green, 1.12)], stripe: 0.9, bunds: { width: 0.8, height: 0.45, color: P.brown, tone: 0.95, bury: 0.35 }, straw: false };
     case 'pond':
       return { plate: [t(P.skyBlue, 0.78), t(P.skyBlue, 0.84)], stripe: 0, straw: false };
   }
@@ -260,7 +363,7 @@ export function createCountryBuilder(
   }
   /**
    * A vehicle the fleet can take, as its tile draws it: the craft itself in
-   * the look its id decides, at the part's size (`tractorScale`), solid as a
+   * the look its id decides, at the craft's own size, solid as a
    * farm's building is. Null while the kit is not registered.
    */
   const machineFlats = new Map<string, CountryFlat | null>();
@@ -272,11 +375,10 @@ export function createCountryBuilder(
     if (model === null) return null;
     let made: CountryFlat | null = null;
     try {
-      const scale = tractorScale(model);
       made = {
-        ...parkedArrays(model, variant, undefined, scale),
-        height: model.size[2] * scale,
-        footprint: COUNTRY_PARTS[craft]?.footprint ?? Math.max(model.size[0], model.size[1]) * scale * 0.5,
+        ...parkedArrays(model, variant, undefined),
+        height: model.size[2],
+        footprint: COUNTRY_PARTS[craft]?.footprint ?? Math.max(model.size[0], model.size[1]) * 0.5,
         tilt: 0,
         solid: 'walls',
       };
@@ -321,6 +423,8 @@ export function createCountryBuilder(
     if (look === undefined) looks.set(crop, (look = lookOf(ctx, crop)));
     return look;
   };
+  /** What a field just ploughed and sown carries on its ridges: rows of shoots, bright against the soil. */
+  const shoots: CropRows = { section: plantSection(0.45, 0.36, ctx.tone(PALETTE.green, 0.7), ctx.tone(PALETTE.green, 1.22)), spacing: 0 };
 
   // --- the plans under a tile ------------------------------------------------
   function plansUnder(level: number, row: number, column: number): CountryPlan[] {
@@ -567,8 +671,11 @@ export function createCountryBuilder(
     const shelf = world.elevationAt(field.at) - reliefAt(field.at.x, field.at.y, field.at.z);
     gradeAt(field.at, fieldEast, fieldNorth, Math.min(field.halfX, field.halfZ) * 0.7, slope);
     const tilt = new THREE.Vector3().copy(field.at).addScaledVector(fieldEast, -slope.across).addScaledVector(fieldNorth, -slope.north).normalize();
-    // Strips double in width a level up, so a far field is a few bands and not a moire.
-    const stripe = look.stripe > 0 ? look.stripe * 2 ** level : 0;
+    // Strips double in width a level up, so a far field is a few bands and not a
+    // moire; at the finest level a ridged field's plate is the furrows' bottoms,
+    // one tone under its ridges.
+    const furrowed = level === 0 && look.furrows !== undefined;
+    const stripe = look.stripe > 0 && !furrowed ? look.stripe * 2 ** level : 0;
     const strips = stripe > 0 ? Math.max(1, Math.round((2 * field.halfX) / stripe)) : Math.max(1, Math.ceil((2 * field.halfX) / SEGMENT[level]!));
     const segments = Math.max(1, Math.ceil((2 * field.halfZ) / SEGMENT[level]!));
     // All of a field on the drawn land or all of it on the relief: a field at
@@ -607,7 +714,7 @@ export function createCountryBuilder(
       normal.set(grid[o + 3]!, grid[o + 4]!, grid[o + 5]!);
     };
     for (let i = 0; i < strips; i++) {
-      colour.set(look.plate[i % 2]!);
+      colour.set(look.plate[furrowed ? 1 : i % 2]!);
       for (let j = 0; j < segments; j++) {
         // Anticlockwise seen from above, with x east and z north: up the
         // western side and back down the eastern one.
@@ -724,26 +831,167 @@ export function createCountryBuilder(
     }
   }
 
-  /** The rows standing out of a field, and a paddy's bunds round it and across it. */
+  /**
+   * A row along the ground from a to b (unit vectors), drawn as the layers
+   * given, each a section (`RowSection`) swept along it `over` units above
+   * the plate: a ridge of soil, and the plants on its crown. The ground is
+   * asked once a `SEGMENT[0]` along it, as a bar's is, and shared by every
+   * layer; the faces have no ink (a pen line round every furrow is a
+   * hatching) and their normals are the section's own, smoothed round it, so
+   * the ramp steps across a ridge as across something round. Each end is
+   * closed.
+   */
+  interface RowLayer {
+    section: RowSection;
+    over: number;
+    crown: number;
+  }
+  const rowGround: THREE.Vector3[] = [];
+  const rowUp: THREE.Vector3[] = [];
+  const footColour = new THREE.Color();
+  const crownColour = new THREE.Color();
+  const ca = new THREE.Color();
+  const cb = new THREE.Color();
+  const cc = new THREE.Color();
+  const cd = new THREE.Color();
+  const sectionNormal: [number, number][] = [];
+  /** One quad with a colour a corner, wound to face the way its corners' normals do. */
+  function shadedQuad(): void {
+    e1.subVectors(vb, va);
+    e2.subVectors(vd, va);
+    faceNormal.crossVectors(e1, e2);
+    const facing = faceNormal.dot(e1.copy(na).add(nb).add(nc).add(nd)) >= 0;
+    const hull = noInk.copy(va).normalize().negate();
+    if (facing) {
+      pushVertex(va, na, ca, hull); pushVertex(vb, nb, cb, hull); pushVertex(vc, nc, cc, hull);
+      pushVertex(va, na, ca, hull); pushVertex(vc, nc, cc, hull); pushVertex(vd, nd, cd, hull);
+    } else {
+      pushVertex(va, na, ca, hull); pushVertex(vc, nc, cc, hull); pushVertex(vb, nb, cb, hull);
+      pushVertex(va, na, ca, hull); pushVertex(vd, nd, cd, hull); pushVertex(vc, nc, cc, hull);
+    }
+  }
+  function rowAlong(a: THREE.Vector3, b: THREE.Vector3, layers: readonly RowLayer[], land: LandProbe | undefined, landReady: boolean): void {
+    const length = a.distanceTo(b) * PLANET_RADIUS;
+    const pieces = Math.max(1, Math.ceil(length / SEGMENT[0]!));
+    while (rowGround.length <= pieces) {
+      rowGround.push(new THREE.Vector3());
+      rowUp.push(new THREE.Vector3());
+    }
+    for (let k = 0; k <= pieces; k++) {
+      const up = rowUp[k]!.copy(a).lerp(b, k / pieces).normalize();
+      const shelf = world.elevationAt(up) - reliefAt(up.x, up.y, up.z);
+      const g = groundAt(up, shelf, up, land, landReady);
+      rowGround[k]!.copy(up).multiplyScalar(g.radius - (g.drawn ? 0 : FAR_FIELD_LIFT - fieldLift));
+    }
+    for (const layer of layers) {
+      const points = layer.section.points;
+      const top = Math.max(...points.map(([, y]) => y));
+      footColour.set(layer.section.foot);
+      crownColour.set(layer.crown);
+      // Each corner's normal in the section: its two edges' outward normals
+      // averaged, a foot's tipped up by the ground it stands on.
+      sectionNormal.length = 0;
+      for (let i = 0; i < points.length; i++) {
+        let nx = 0;
+        let ny = 0;
+        for (const [p, q] of [[i - 1, i], [i, i + 1]] as const) {
+          if (p < 0 || q >= points.length) {
+            ny += 1;
+            continue;
+          }
+          const dx = points[q]![0] - points[p]![0];
+          const dy = points[q]![1] - points[p]![1];
+          const l = Math.hypot(dx, dy) || 1;
+          nx += -dy / l;
+          ny += dx / l;
+        }
+        const l = Math.hypot(nx, ny) || 1;
+        sectionNormal.push([nx / l, ny / l]);
+      }
+      const shade = (y: number, into: THREE.Color): THREE.Color => into.copy(footColour).lerp(crownColour, Math.min(1, Math.max(0, y / top)));
+      const corner = (k: number, i: number, into: THREE.Vector3, normal: THREE.Vector3, tint: THREE.Color): void => {
+        const [x, y] = points[i]!;
+        const up = rowUp[k]!;
+        into.copy(rowGround[k]!).addScaledVector(side, x).addScaledVector(up, layer.over + y);
+        const [nx, ny] = sectionNormal[i]!;
+        normal.copy(side).multiplyScalar(nx).addScaledVector(up, ny).normalize();
+        shade(y, tint);
+      };
+      for (let k = 0; k < pieces; k++) {
+        along.subVectors(rowGround[k + 1]!, rowGround[k]!).normalize();
+        side.crossVectors(along, rowUp[k]!).normalize();
+        for (let i = 0; i + 1 < points.length; i++) {
+          corner(k, i, va, na, ca);
+          corner(k + 1, i, vb, nb, cb);
+          corner(k + 1, i + 1, vc, nc, cc);
+          corner(k, i + 1, vd, nd, cd);
+          shadedQuad();
+        }
+        // The two ends, a fan from the section's middle at the plate.
+        for (const end of k === 0 ? (pieces === 1 ? [0, 1] : [0]) : k === pieces - 1 ? [pieces] : []) {
+          const outward = end === 0 ? -1 : 1;
+          const n = nd.copy(along).multiplyScalar(outward);
+          const up = rowUp[end]!;
+          const middle = pa.copy(rowGround[end]!).addScaledVector(up, layer.over);
+          for (let i = 0; i + 1 < points.length; i++) {
+            corner(end, i, vb, na, cb);
+            corner(end, i + 1, vc, na, cc);
+            e1.subVectors(vb, middle);
+            e2.subVectors(vc, middle);
+            faceNormal.crossVectors(e1, e2);
+            const hull = noInk.copy(middle).normalize().negate();
+            shade(0, ca);
+            const [p, q, cp, cq] = faceNormal.dot(n) >= 0 ? [vb, vc, cb, cc] : [vc, vb, cc, cb];
+            pushVertex(middle, n, ca, hull);
+            pushVertex(p, n, cp, hull);
+            pushVertex(q, n, cq, hull);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * A field's rows at the finest level: the plough's ridges with what grows
+   * on them, or rows of plants on the bare plate, and a paddy's bunds round
+   * it and across it. A field just ploughed is sown or not by its own seed:
+   * half of them carry rows of shoots.
+   */
   const rowA = new THREE.Vector3();
   const rowB = new THREE.Vector3();
+  const layers: RowLayer[] = [];
   function rows(field: CropField, land: LandProbe | undefined, landReady: boolean): void {
     const look = lookFor(field.crop);
-    const spec = look.rows;
-    if (spec === undefined) return;
     fieldNorth.set(0, 1, 0).projectOnPlane(field.at).normalize();
     fieldEast.crossVectors(field.at, fieldNorth).normalize();
-    if (spec.spacing > 0) {
-      const count = Math.max(1, Math.floor((2 * field.halfX) / spec.spacing));
+    const furrows = look.furrows;
+    let crop = look.crop;
+    if (field.crop === 'ploughed') {
+      const seed = rngFrom('sown', Math.round(field.at.x * 1e6), Math.round(field.at.y * 1e6), Math.round(field.at.z * 1e6));
+      if (seed.chance(SOWN)) crop = shoots;
+    }
+    const spacing = furrows?.spacing ?? crop?.spacing ?? 0;
+    if (spacing > 0) {
+      const count = Math.max(1, Math.floor((2 * field.halfX) / spacing));
       for (let i = 0; i < count; i++) {
         const x = -field.halfX + (i + 0.5) * ((2 * field.halfX) / count);
-        fieldPoint(field, x, -field.halfZ + 0.8, rowA);
-        fieldPoint(field, x, field.halfZ - 0.8, rowB);
-        const color = ctx.tone(spec.color, i % 2 === 0 ? spec.tone : spec.tone * 1.1);
-        bar(rowA, rowB, spec.width, spec.width * 0.55, spec.height, spec.bury, fieldLift, color, false, land, landReady);
+        // A round field's rows end at its ellipse.
+        const room = field.round ? Math.sqrt(Math.max(0, 1 - (x / field.halfX) ** 2)) : 1;
+        const reach = field.halfZ * room - 0.8;
+        if (reach <= 1) continue;
+        fieldPoint(field, x, -reach, rowA);
+        fieldPoint(field, x, reach, rowB);
+        layers.length = 0;
+        if (furrows !== undefined) layers.push({ section: furrows.section, over: 0, crown: furrows.section.crown });
+        if (crop !== undefined) {
+          const over = furrows === undefined ? 0 : Math.max(...furrows.section.points.map(([, y]) => y)) - 0.05;
+          layers.push({ section: crop.section, over, crown: i % 2 === 1 && crop.second !== undefined ? crop.second : crop.section.crown });
+        }
+        rowAlong(rowA, rowB, layers, land, landReady);
       }
-      return;
     }
+    const bunds = look.bunds;
+    if (bunds === undefined) return;
     // A paddy: bunds round it, and across it into pools of about a dozen units.
     const X = field.halfX;
     const Z = field.halfZ;
@@ -756,7 +1004,7 @@ export function createCountryBuilder(
     for (const [ax, az, bx, bz] of edges) {
       fieldPoint(field, ax, az, rowA);
       fieldPoint(field, bx, bz, rowB);
-      bar(rowA, rowB, spec.width, spec.width * 0.5, spec.height, spec.bury, fieldLift, ctx.tone(spec.color, spec.tone), false, land, landReady);
+      bar(rowA, rowB, bunds.width, bunds.width * 0.5, bunds.height, bunds.bury, fieldLift, ctx.tone(bunds.color, bunds.tone), false, land, landReady);
     }
   }
 

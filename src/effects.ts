@@ -89,6 +89,8 @@ const FOAM_RADIUS = PLANET_RADIUS + FOAM_LIFT;
 const FOAM_COLOR = 0xffffff;
 /** How far from the camera anybody else's vehicle still leaves anything. */
 const REACH = 700;
+/** How far from the camera a rocket's exhaust is still drawn: a launch is seen from the next town. */
+const PLUME_REACH = 3000;
 /** Gravity on spray and debris, in units a second squared: brisk, as a comic's is. */
 const FALL = 30;
 /**
@@ -179,7 +181,7 @@ export type OtherVisitor = (object: THREE.Object3D, kind: CraftKind, model: Craf
 export type SmokeVisitor = (at: THREE.Vector3, up: THREE.Vector3) => void;
 
 /** What the player just did that leaves a mark: `player.ts`'s `PlayerEvent`s, and the two foot callbacks. */
-export type EffectsEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed';
+export type EffectsEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
 
 export interface EffectsStats {
   enabled: boolean;
@@ -244,6 +246,31 @@ export interface Effects {
    * while the effects are off.
    */
   crashAt(point: THREE.Vector3, facing: THREE.Vector3, strength: number): void;
+  /**
+   * Dust kicked up off the ground at `point`, spread over `reach` units, in
+   * `count` puffs of the ground's dust (`setDust`, else the bone of Earth's
+   * land): a craft's thrust on the ground under it, a rover's wheels. Nothing
+   * while the effects are off.
+   */
+  dustAt(point: THREE.Vector3, reach: number, count: number): void;
+  /**
+   * A rocket's exhaust for `dt` (`rocket.ts`): flame out of the bell at
+   * `mouth` along `-up`, and smoke billowing off it — spread along the ground
+   * when the ground is within `clearance` units under the bell, a column
+   * when it is not. `power` 0 is nothing, 1 full thrust; `carry` is the
+   * caller's own two counters, so two rockets owe their puffs apart.
+   */
+  plume(carry: Float64Array, mouth: THREE.Vector3, up: THREE.Vector3, power: number, clearance: number, dt: number): void;
+  /**
+   * A dust devil for `dt`: dust thrown up and round a column `height` tall
+   * standing at `base`, in `hex`. `carry` is the devil's own counter.
+   */
+  whirl(carry: Float64Array, base: THREE.Vector3, up: THREE.Vector3, height: number, hex: number, dt: number): void;
+  /**
+   * The colour a foot or a landing raises on a world whose ground no Earth
+   * biome names (`setGround`'s `dustOf`): null is Earth's own.
+   */
+  setDust(hex: number | null): void;
   /** The wakes' points and their longest joined segment. */
   probe(): WakeProbe;
   /** One mesh per program, for `warm.ts`. */
@@ -849,6 +876,70 @@ export function createEffects(): Effects {
     }
   }
 
+  /** Puffs owed at `rate` a second over `dt`, carried in `carry[slot]`. */
+  function owedIn(carry: Float64Array, slot: number, rate: number, dt: number): number {
+    const due = carry[slot]! + rate * dt;
+    const n = Math.min(FRAME_BURST, Math.floor(due));
+    carry[slot] = due - Math.floor(due);
+    return n;
+  }
+
+  /** A dust devil: see `Effects.whirl`. */
+  function whirl(carry: Float64Array, base: THREE.Vector3, up: THREE.Vector3, height: number, hex: number, dt: number): void {
+    if (base.distanceToSquared(eye) > REACH * REACH) return;
+    e1.set(0, 1, 0).cross(up);
+    if (e1.lengthSq() < 1e-8) e1.set(1, 0, 0);
+    e1.normalize();
+    e2.crossVectors(up, e1);
+    for (let j = 0, n = owedIn(carry, 0, 22, dt); j < n; j++) {
+      // Up the column at a share of its height, a little out from its axis,
+      // and thrown round it — wider the higher it starts, as a funnel is.
+      const share = Math.random();
+      const turn = Math.random() * Math.PI * 2;
+      const out = H * (0.25 + 1.4 * share);
+      const c = Math.cos(turn);
+      const sn = Math.sin(turn);
+      at.copy(base).addScaledVector(up, height * share * 0.7).addScaledVector(e1, c * out).addScaledVector(e2, sn * out);
+      // Round it (the tangent) and up it.
+      vel.set(0, 0, 0).addScaledVector(e1, -sn * 9).addScaledVector(e2, c * 9).addScaledVector(up, rand(4, 8));
+      const shade = Math.random() < 0.5 ? hex : PALETTE.bone;
+      spawnPuff(at, vel, up, rand(1.2, 2), H * (0.12 + 0.2 * share), H * (0.35 + 0.5 * share), 0.5, shade, 0, 1.2, 1.5);
+    }
+  }
+
+  /** A rocket's flame and smoke: see `Effects.plume`. */
+  function plume(carry: Float64Array, mouth: THREE.Vector3, up: THREE.Vector3, power: number, clearance: number, dt: number): void {
+    if (power <= 0.01 || mouth.distanceToSquared(eye) > PLUME_REACH * PLUME_REACH) return;
+    const k = clamp(power, 0, 1);
+    const low = clearance < H * 6;
+    for (let j = 0, n = owedIn(carry, 0, 26 + 34 * k, dt); j < n; j++) {
+      at.copy(mouth);
+      addAcross(up, H * 0.08, at);
+      const life = rand(0.22, 0.38);
+      vel.copy(up).multiplyScalar(-(10 + 34 * k));
+      addAcross(up, rand(0.5, 2), vel);
+      const hex = Math.random() < 0.35 ? PALETTE.white : Math.random() < 0.5 ? PALETTE.gold : Math.random() < 0.6 ? PALETTE.apricot : PALETTE.orange;
+      spawnPuff(at, vel, up, life, H * (0.12 + 0.12 * k), H * (0.28 + 0.22 * k), 0.4, hex, 1, 1.5, 0);
+    }
+    for (let j = 0, n = owedIn(carry, 1, (low ? 18 : 9) * (0.3 + 0.7 * k), dt); j < n; j++) {
+      if (low) {
+        // Down on the pad and out along the ground, every way at once.
+        at.copy(mouth).addScaledVector(up, -Math.max(0, clearance - H * 0.3));
+        addAcross(up, rand(0, H * 0.4), at);
+        vel.set(0, 0, 0);
+        addAcross(up, rand(6, 16) * (0.4 + 0.6 * k), vel);
+        vel.addScaledVector(up, rand(0.5, 2.5));
+      } else {
+        at.copy(mouth).addScaledVector(up, -H * rand(0.3, 1.2));
+        addAcross(up, H * 0.15, at);
+        vel.copy(up).multiplyScalar(-rand(2, 6) * k);
+        addAcross(up, rand(0.5, 2), vel);
+      }
+      const hex = Math.random() < 0.55 ? PALETTE.bone : PALETTE.cream;
+      spawnPuff(at, vel, up, rand(2.6, 4.2), H * 0.25, H * rand(0.9, 1.5) * (0.6 + 0.4 * k), 0.4, hex, 0, 0.9, 0.6);
+    }
+  }
+
   /**
    * A jet ski's rooster tail: the jet's water thrown up and back off the
    * stern, a plume taller and thicker the faster it goes, falling back as
@@ -1425,6 +1516,10 @@ export function createEffects(): Effects {
     } else if (name === 'water-refused' && size !== undefined) {
       at.copy(s.up).multiplyScalar(FOAM_RADIUS);
       splash(at, s.up, Math.max(size[0], size[1]) * 0.6, 14);
+    } else if (name === 'foundered' && size !== undefined) {
+      // Into the water on wheels: the bigger the vehicle, the bigger the splash.
+      at.copy(s.up).multiplyScalar(FOAM_RADIUS);
+      splash(at, s.up, Math.max(size[0], size[1]) * 0.75, 18);
     } else if ((name === 'landed' || name === 'took-off') && size !== undefined) {
       const hex = paved ? PALETTE.bone : dust ?? PALETTE.bone;
       const big = kind === 'plane' || kind === 'helicopter';
@@ -1491,6 +1586,14 @@ export function createEffects(): Effects {
     setSmokers(visit) {
       smokers = visit;
     },
+    plume,
+    whirl,
+    setDust(hex) {
+      if (hex !== null) {
+        paved = false;
+        dust = hex;
+      }
+    },
     event,
     touchdown(speed) {
       const s = subject;
@@ -1523,6 +1626,11 @@ export function createEffects(): Effects {
       if (!enabled) return;
       splashUp.copy(point).normalize();
       splash(point, splashUp, reach, Math.max(2, Math.round(reach * 3)));
+    },
+    dustAt(point, reach, count) {
+      if (!enabled) return;
+      splashUp.copy(point).normalize();
+      dustBurst(point, splashUp, reach, count, dust ?? PALETTE.bone, H * 0.3);
     },
     crashAt(point, facing, strength) {
       if (!enabled) return;

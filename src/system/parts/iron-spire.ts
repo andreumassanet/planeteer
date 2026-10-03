@@ -22,23 +22,38 @@ export const IRON_SPIRE: Decoration = {
   bodies: [],
   build(ctx, rng, look) {
     const group = new ctx.THREE.Group();
-    const height = rng.range(4.5, 11.0);
-    const base = rng.range(1.5, 2.9);
-    const sections = rng.between(3, 5);
+    const height = rng.range(3.5, 8.0);
+    const base = rng.range(1.6, 3.0);
+    const sections = rng.between(3, 4);
     const sides = rng.between(5, 6);
 
+    // **A stack of weathered blocks, not a cone.** Each section narrows only
+    // a little, sits a little off the one under it and leans, so the outline
+    // is a ragged column of rock; one rock's colour, a shade apart a block.
+    // Until 2026-10-02 every section tapered by up to 40% in alternating
+    // colours, and a field of them read as traffic cones.
     let y = 0;
     let width = base;
+    let x = 0;
+    let z = 0;
     for (let n = 0; n < sections; n++) {
-      const run = (height / sections) * rng.spread(1, 0.22);
-      const next = width * rng.range(0.58, 0.86);
-      const piece = ctx.taper(width, next, run, n % 2 === 0 ? look.surface : look.highland, sides);
-      piece.position.y = y;
-      piece.rotation.y = rng.range(0, 1.2);
+      const run = (height / sections) * rng.spread(1, 0.25);
+      const next = width * rng.range(0.78, 0.94);
+      const piece = ctx.taper(width, next, run, ctx.tone(look.surface, rng.range(0.88, 1.04)), sides);
+      piece.position.set(x, y, z);
+      // The first block stands square on the ground; the ones over it lean.
+      const lean = n === 0 ? 0 : 0.08;
+      piece.rotation.set(rng.jitter() * lean, rng.range(0, 1.2), rng.jitter() * lean);
       group.add(piece);
-      y += run;
+      y += run * 0.96;
       width = next;
+      x += rng.jitter() * width * 0.12;
+      z += rng.jitter() * width * 0.12;
     }
+    // A flat, broken cap rather than a point.
+    const cap = ctx.taper(width * 0.92, width * 0.55, width * 0.45, ctx.tone(look.surface, 0.95), sides);
+    cap.position.set(x, y, z);
+    group.add(cap);
 
     // A skirt of fallen blocks. It is on the *near* face of nothing in
     // particular, which is the one thing a low camera can see of a tall object:

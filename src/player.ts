@@ -13,7 +13,28 @@ import { isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
 import { HERO } from './craft/body.ts';
-import { buildParachute, openCanopy } from './craft/parachute.ts';
+import {
+  CANOPY_OPENING,
+  CHUTE_FORCED,
+  CHUTE_GLIDE,
+  CHUTE_GLIDE_RATE,
+  CHUTE_GRIP,
+  CHUTE_PACE,
+  CHUTE_PULL,
+  CHUTE_SINK,
+  CHUTE_SINK_RATE,
+  CHUTE_SWING,
+  CHUTE_TURN,
+  FREEFALL_DIVE,
+  FREEFALL_MIN,
+  FREEFALL_RATE,
+  FREEFALL_TRACK,
+  buildParachute,
+  newChuteSwing,
+  openCanopy,
+  swingUnder,
+  trailOf,
+} from './craft/parachute.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import {
   AVATAR_HIP,
@@ -49,6 +70,7 @@ import {
   PLANE_ACCELERATION_TIME,
   PLANE_CEILING,
   PLANE_CLIMB_MIN,
+  PLANE_CLIMB_OUT,
   PLANE_CLIMB_RATE,
   PLANE_CRUISE_HIGH,
   PLANE_CRUISE_LOW,
@@ -73,7 +95,12 @@ import {
   SUB_VERTICAL_TIME,
   WATERLINE,
   WATER_HANDLING,
+  FOUNDER_DRAG,
+  FOUNDER_TIME,
   buildSplash,
+  founderDepth,
+  founderNose,
+  founders,
   isWater,
 } from './vehicles.ts';
 import type { RoadHandling, WaterHandling } from './vehicles.ts';
@@ -140,24 +167,6 @@ const BAIL_HOP = 0.45;
 /** How hard the landing out of a moving vehicle is read, for the body's roll: past 1 the hardest. */
 const BAIL_LANDING = 1.2;
 
-/**
- * Out of an aircraft in flight: a fall, then a canopy. Falling, the body comes
- * down at `FREEFALL_RATE` of its height over the ground a second, never slower
- * than `FREEFALL_MIN` — a real fall's terminal speed would take a minute from
- * cruise height, and this takes a quarter of that from the ceiling — and the
- * canopy opens `CHUTE_OPEN` over the ground. Under it the body sinks at
- * `CHUTE_SINK` and glides at `CHUTE_GLIDE` ahead, `W` for faster and `S` for
- * slower by `CHUTE_PACE` of it, and turns at `CHUTE_TURN` on `A` and `D`.
- */
-const FREEFALL_RATE = 0.35;
-const FREEFALL_MIN = 30;
-const CHUTE_OPEN = 90;
-const CHUTE_SINK = 6;
-const CHUTE_GLIDE = 12;
-const CHUTE_PACE = 0.5;
-const CHUTE_TURN = 1.2;
-/** How far the canopy swings with a turn, radians; how fast it opens is `CANOPY_OPENING`. */
-const CHUTE_SWING = 0.35;
 
 /**
  * The eye in a seat, over the hip: seated, half a head under the crown the
@@ -480,7 +489,7 @@ const waterOf = (kind: CraftKind): WaterHandling => (kind === 'boat' ? LAUNCH : 
  *   parked vehicle hard enough to count (`CRASH_SPEED`); told with the speed
  *   the knock took off it, for whatever wants to shake or bang in proportion.
  */
-export type PlayerEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed';
+export type PlayerEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
 
 export interface PlayerInput {
   move: { x: number; y: number };
@@ -489,9 +498,10 @@ export interface PlayerInput {
   /** Tangent direction the camera faces. Movement on foot is relative to this. */
   heading: THREE.Vector3;
   /**
-   * Held, in the air: climb and descend. Optional; see `Player.controls`. In a
-   * plane or a balloon the run key climbs as well, so `Shift` and `Space` both
-   * go up and `C` or `Ctrl` go down.
+   * Held, in the air: climb and descend. Optional; see `Player.controls`. In
+   * an aircraft the run key descends as well, so `Space` goes up and `Shift`
+   * or `C` down (`liftOf`); swimming and in a submarine `Shift` stays the
+   * sprint and `C` alone goes down.
    */
   climb?: boolean;
   dive?: boolean;
@@ -532,13 +542,19 @@ export interface Player {
   climb: number;
   /**
    * Out of an aircraft in flight and not yet down: falling, and then under a
-   * canopy (`CHUTE_OPEN`), steered by the movement keys. On foot, and in the air.
+   * canopy (`CHUTE_FORCED`), steered by the movement keys. On foot, and in the air.
    */
   parachute: boolean;
   /** Under the canopy, once it has opened: what the others see (`FLAGS` on the wire). */
   canopy: boolean;
   /** True while off the ground: a jump, a fall, and the whole of a flight. */
   airborne: boolean;
+  /**
+   * At the controls of a vehicle that was driven into the water and has
+   * gone under (`FOUNDER_TIME` in `vehicles.ts`): the fleet puts the body out
+   * swimming and sends the vehicle back to its site.
+   */
+  sunk: boolean;
   /** On foot, swimming, or in a seat: `PLAYER_STATES`, which is what the wire carries. */
   state: PlayerState;
   /** The same, as the keys and the HUD read it: which vehicle, and whether you are driving it. */
@@ -602,8 +618,12 @@ export interface Player {
   setCockpit(on: boolean): void;
   /** Teleport. Leaves the player in a fully consistent state in one call, on foot or swimming. */
   goTo(lat: number, lon: number): void;
-  /** Into a seat, with the vehicle standing at `pose`. */
-  board(ride: Ride, pose: WirePose): void;
+  /**
+   * Into a seat, with the vehicle standing at `pose` — and, at the controls of
+   * one still rolling (jumped out of and taken again), going at `speed`
+   * along its bow.
+   */
+  board(ride: Ride, pose: WirePose, speed?: number): void;
   /**
    * Out of the seat, beside the vehicle: the pose it is left at, or null when
    * not seated. Standing still it is stepping out; under way it is jumping
@@ -872,6 +892,8 @@ export function createPlayer(
    */
   let chute = false;
   let canopy = 0;
+  /** How much of the body's pose is the canopy's rather than the fall's, eased (`Avatar.skydive`). */
+  let spread = 0;
   let parachute: THREE.Group | null = null;
   /** The climb, measured over the frame. */
   let climb = 0;
@@ -892,6 +914,9 @@ export function createPlayer(
   /** The gait's phase last frame, to see a heel strike go by. */
   let lastStep = 0;
   let lean = 0;
+  /** The body's swing under a canopy, roll and pitch, and how fast each is moving (`CHUTE_PERIOD`). */
+  const chuteSwing = newChuteSwing();
+  const chuteTrail: [number, number] = [0, 0];
   /** How far the body hangs under `position`, swimming. */
   let sink = 0;
   /** How far under the surface, diving, and how fast it is going down (positive) or up. */
@@ -904,6 +929,13 @@ export function createPlayer(
    * frame, and how far the camera looks off its facing (`MotionCues`).
    */
   const cues = { turn: 0, look: 0 };
+  /**
+   * Seconds since the vehicle at the controls met the water, -1 on dry
+   * ground (`founders` in `vehicles.ts`), and the way it had on it then,
+   * dying in the water.
+   */
+  let founder = -1;
+  let founderWay = 0;
   /** A car's or a taxiing plane's nose, following the ground under it. */
   let tilt = 0;
   /** The launch's bow, up onto the plane; the balloon's swing out of a turn, and how far it hangs free. */
@@ -916,8 +948,10 @@ export function createPlayer(
   let altitude = 0;
   /** The plane's vertical speed, eased towards what the keys ask: see `PLANE_CLIMB_MIN`. */
   let climbing = 0;
-  /** Seconds of a go-around left after a refused landing; see `PLANE_GO_AROUND`. */
+  /** Seconds of a go-around left after a refused landing, or of the climb-out; see `PLANE_GO_AROUND`. */
   let goAround = 0;
+  /** A plane down from a landing, its take-off run shut until the throttle is let go: see `taxi`. */
+  let rolling = false;
   /** The wheel, the rudder or the balloon's swing, eased after the key: -1 to 1, positive to the right. */
   let steering = 0;
   /** Seconds since a crash was last told; see `CRASH_QUIET`. */
@@ -1399,6 +1433,12 @@ export function createPlayer(
    */
   function rollOn(dt: number, model: CraftModel, width: number, handling: RoadHandling): void {
     const half = model.size[0] / 2;
+    // In the water its way dies whatever the keys say, and it goes nowhere it is steered.
+    const swamps = founders(model.kind, model.medium);
+    if (founder >= 0) {
+      founderWay *= Math.exp(-dt / FOUNDER_DRAG);
+      speed = founderWay;
+    }
     const hitAt = speed;
     motion.copy(forward).multiplyScalar(speed);
     moved.copy(motion).multiplyScalar(dt);
@@ -1413,11 +1453,11 @@ export function createPlayer(
     const distance = travel();
     // The bumper, on the side the car is going.
     pointAhead(forward, (hitAt >= 0 ? half : -half) / position.length(), probe);
-    let blocked = isWater(standingRadius(probe));
+    let blocked = !swamps && isWater(standingRadius(probe));
     let struck = false;
     if (!blocked && collide !== undefined && collide(probe, width * 0.8, pushed)) blocked = struck = true;
     let ground = standingRadius(position);
-    if (!blocked) blocked = isWater(ground);
+    if (!blocked) blocked = !swamps && isWater(ground);
     if (!blocked && !airborne && distance > 1e-9) blocked = ground - height > handling.step + distance * handling.slope;
     if (blocked) {
       undo();
@@ -1429,6 +1469,23 @@ export function createPlayer(
       sinceCrash = 0;
       options.onEvent?.('crashed', lost);
     }
+    // Into the water, off a quay or down a beach: it floats a moment and goes
+    // down nose first (`founderDepth`), and `sunk` says when it has gone.
+    if (swamps && !airborne && isWater(ground)) {
+      if (founder < 0) {
+        founder = 0;
+        founderWay = speed;
+        spray(PLANET_RADIUS + WATERLINE, craftSplash());
+        options.onEvent?.('foundered', Math.abs(speed));
+      } else founder += dt;
+      height = PLANET_RADIUS + WATERLINE - founderDepth(founder);
+      position.setLength(height);
+      tilt = founderNose(founder);
+      velocity = Math.abs(speed);
+      return;
+    }
+    // Washed back onto the shore before it went under: on its wheels again.
+    founder = -1;
     settle(dt, ground, AVATAR_HEIGHT, distance);
     velocity = Math.abs(speed);
 
@@ -1571,31 +1628,42 @@ export function createPlayer(
   }
 
   /**
-   * Up or down, as an aircraft reads the keys: the climb key or the run key
-   * up, the descend key down, and both together nothing. `Shift` was the
-   * plane's boost, and a climb on `Shift` is what everybody reaches for; the
-   * throttle is `W` alone now.
+   * Up or down, as an aircraft reads the keys: the climb key (`Space`) up,
+   * the run key (`Shift`) or the descend key (`C`) down, and up and down
+   * together nothing. The descent was `C` or `Ctrl`, and `Ctrl` with a
+   * movement key is a browser's shortcut (`Ctrl+W` closes the tab); `Shift`
+   * is under the same finger and is nobody's.
    */
   function liftOf(input: PlayerInput): number {
-    return clamp(controls.lift + (input.run ? 1 : 0), -1, 1);
+    return clamp(controls.lift - (input.run ? 1 : 0), -1, 1);
   }
 
-  /** A plane on the ground: taxi on `W`, and a take-off run with the climb key held. */
+  /**
+   * A plane on the ground: `W` opens the throttle and holding it is the
+   * take-off run (as holding the climb key is), which lifts off by itself at
+   * `PLANE_ROTATE` into `PLANE_CLIMB_OUT`; let go it rolls to a stop, and `S`
+   * brakes, then backs. Down from a landing the run is not open again until
+   * both keys have been let go (`rolling`), or a throttle still held from the
+   * approach would take it straight off again.
+   */
   function taxi(dt: number, input: PlayerInput, model: CraftModel): void {
     levers(input.move, stick);
     steerWheels(dt, TAXI);
-    const run = liftOf(input) > 0;
+    const asked = stick.y > 0 || liftOf(input) > 0;
+    if (!asked) rolling = false;
+    const run = asked && !rolling;
     let wanted = 0;
     let time = CAR_COAST_TIME;
     if (run) {
       wanted = PLANE_ROTATE * 1.25;
       time = PLANE_RUN_TIME;
-    } else if (stick.y > 0) {
-      wanted = PLANE_TAXI * stick.y;
-      time = CAR_ACCELERATION_TIME;
     } else if (stick.y < 0) {
       wanted = speed > 0.5 ? 0 : CAR_REVERSE * 0.5 * stick.y;
       time = CAR_BRAKE_TIME;
+    } else if (rolling && stick.y > 0) {
+      // Still rolling out with the throttle held from the approach: it taxis.
+      wanted = PLANE_TAXI * stick.y;
+      time = CAR_ACCELERATION_TIME;
     }
     speed += (wanted - speed) * approach(1 / time, dt);
     if (!run && stick.y === 0 && Math.abs(speed) < 0.05) speed = 0;
@@ -1613,14 +1681,14 @@ export function createPlayer(
       options.onEvent?.('took-off', 0);
       return;
     }
-    if (run && speed >= PLANE_ROTATE) {
+    if (run && speed >= PLANE_ROTATE && founder < 0) {
       grounded = false;
       airborne = true;
       altitude = position.length() - PLANET_RADIUS;
-      // The wheels leave the ground level, and the climb builds from nothing:
-      // the height is what the key goes on asking for, and nothing else.
+      // The wheels leave the ground level and the climb builds from nothing
+      // into a gentle climb-out, whatever the keys say; then they have it.
       climbing = 0;
-      goAround = 0;
+      goAround = PLANE_CLIMB_OUT;
       roll = 0;
       spray(height, craftSplash());
       options.onEvent?.('took-off', 0);
@@ -1719,12 +1787,15 @@ export function createPlayer(
     altitude = radius - PLANET_RADIUS;
     velocity = speed;
 
-    // Down on the floor with the descend key held: a touchdown, if the ground
-    // will take one.
-    if (descending && radius <= floor + 0.5) {
+    // Down on the floor coming down: a touchdown, if the ground will take
+    // one — with the descend key held, or still sinking after it was let go
+    // for the flare. Ground rising under a plane flying level lifts it and is
+    // not a landing; and only the descend key held says out loud that the
+    // ground will not take one, and goes round.
+    if (goAround <= 0 && (descending || climbing < -0.2) && radius <= floor + 0.5) {
       if (isWater(under)) {
         // A landplane on the sea is a wreck, and nothing in this world is.
-        refuse('water-refused');
+        if (descending) refuse('water-refused');
         return;
       }
       const half = model.size[0] / 2;
@@ -1733,7 +1804,7 @@ export function createPlayer(
       pointAhead(forward, -half / radius, probe);
       const back = landAt(probe);
       if (Math.abs(front - back) / (2 * half) > PLANE_LANDING_GRADE || isWater(front) || isWater(back)) {
-        refuse('steep-refused');
+        if (descending) refuse('steep-refused');
         return;
       }
       grounded = true;
@@ -1744,8 +1815,10 @@ export function createPlayer(
       climbing = 0;
       height = standingRadius(position);
       position.setLength(height);
-      // The landing rolls out rather than stopping dead: `taxi` brakes it.
-      speed = Math.min(speed, PLANE_ROTATE);
+      // The landing rolls out rather than stopping dead: `taxi` lets it run
+      // down, and `S` brakes it.
+      speed = Math.min(speed, PLANE_ROTATE * 0.8);
+      rolling = true;
       spray(height, craftSplash());
       options.onEvent?.('landed', 0);
     }
@@ -2197,6 +2270,23 @@ export function createPlayer(
       return;
     }
 
+    if (chute) {
+      // Out of an aircraft: the fall's pose, and the canopy's hanging from
+      // the hands, which swings with a turn about them as the canopy does.
+      sink = 0;
+      hang.position.y = 0;
+      swingChute(dt);
+      const swing = chuteSwing;
+      trailOf(swing, lean, spread, chuteTrail);
+      avatar.skydive(dt, spread, steering, CHUTE_GRIP, CHUTE_PULL, chuteTrail);
+      // Swung about the hands, where the lines end.
+      const pivot = CHUTE_GRIP[1] * spread;
+      craft.rotation.set(swing.pitch * spread, 0, lean + (swing.roll - lean) * spread);
+      hangFrom.set(0, pivot, 0).applyEuler(craft.rotation);
+      craft.position.set(-hangFrom.x, pivot - hangFrom.y, -hangFrom.z);
+      return;
+    }
+
     // Back on the feet coming out of the water, over a moment rather than a frame.
     sink += (0 - sink) * approach(SINK_RATE * 2, dt);
     if (sink < 1e-3) sink = 0;
@@ -2235,33 +2325,57 @@ export function createPlayer(
     height = position.length();
     speed = Math.max(0, way) * BAIL_CARRY;
     velocity = speed;
+    motion.copy(forward).multiplyScalar(speed);
     vertical = 0;
     airborne = true;
     state = 'foot';
     chute = true;
     canopy = 0;
+    spread = 0;
     publish();
     pose(0, 0);
   }
 
   /**
-   * Falling from an aircraft, and then under a canopy: `FREEFALL_RATE` and
-   * `CHUTE_OPEN` above. The keys steer rather than walk, the body facing where
-   * it is going; down on the ground it stands, and on the water it swims.
+   * Falling from an aircraft, and under a canopy: `FREEFALL_RATE` and
+   * `CHUTE_FORCED` above. The jump key opens the canopy and stows it again
+   * over `CHUTE_FORCED`; under it the keys steer rather than walk. Down on
+   * the ground the body stands, and on the water it swims.
    */
   function glide(dt: number, input: PlayerInput): void {
     const over = position.length() - standingRadius(position);
-    if (canopy === 0 && over <= CHUTE_OPEN) canopy = 1e-3;
+    if (input.jump && over > CHUTE_FORCED) canopy = canopy > 0 ? 0 : 1e-3;
+    if (canopy === 0 && over <= CHUTE_FORCED) canopy = 1e-3;
     const open = canopy > 0;
     if (open) canopy += dt;
+    // How much of the pose is the canopy's: filling as it opens out, gone at once when stowed.
+    spread += ((open ? 1 : 0) - spread) * approach(open ? 1 / CANOPY_OPENING : 8, dt);
     levers(input.move, stick);
-    steering += (stick.x - steering) * approach(3, dt);
-    if (open) forward.applyAxisAngle(up, -steering * CHUTE_TURN * dt).normalize();
-    const pace = open ? CHUTE_GLIDE * (1 + CHUTE_PACE * stick.y) : speed;
-    speed += (pace - speed) * approach(open ? 1.5 : 0.3, dt);
-    const fall = open ? CHUTE_SINK : Math.max(FREEFALL_MIN, over * FREEFALL_RATE);
+    let fall: number;
+    if (open) {
+      steering += (stick.x - steering) * approach(3, dt);
+      forward.applyAxisAngle(up, -steering * CHUTE_TURN * dt).normalize();
+      const pace = 1 + CHUTE_PACE * stick.y;
+      target.copy(forward).multiplyScalar((CHUTE_GLIDE + over * CHUTE_GLIDE_RATE) * pace);
+      motion.lerp(target, approach(1.5, dt));
+      // Half as much steeper as faster: a canopy flown hard sinks a little more.
+      fall = (CHUTE_SINK + over * CHUTE_SINK_RATE) * (1 + CHUTE_PACE * 0.5 * stick.y);
+    } else {
+      // Tracked across the ground like a walk, towards the camera's way, and
+      // facing where the camera looks.
+      heading.copy(input.heading).projectOnPlane(up);
+      if (heading.lengthSq() < 1e-8) heading.copy(forward);
+      heading.normalize();
+      side.crossVectors(heading, up).normalize();
+      wish.set(0, 0, 0).addScaledVector(heading, input.move.y).addScaledVector(side, input.move.x);
+      if (wish.lengthSq() > 1) wish.normalize();
+      motion.lerp(target.copy(wish).multiplyScalar(FREEFALL_TRACK), approach(1.2, dt));
+      forward.lerp(heading, approach(4, dt)).projectOnPlane(up).normalize();
+      steering += (input.move.x - steering) * approach(3, dt);
+      fall = Math.max(FREEFALL_MIN, over * FREEFALL_RATE) * (input.move.y > 0 ? FREEFALL_DIVE : 1);
+    }
     vertical += (-fall - vertical) * approach(open ? 2 : 4, dt);
-    motion.copy(forward).multiplyScalar(speed);
+    motion.projectOnPlane(up);
     moved.copy(motion).multiplyScalar(dt);
     if (airWalls !== null) {
       airHeight = position.length();
@@ -2270,6 +2384,7 @@ export function createPlayer(
       throughWalls(dt, airWalls, BODY_RADIUS);
     }
     travel();
+    speed = motion.length();
     velocity = speed;
     cues.turn = 0;
     cues.look = 0;
@@ -2283,6 +2398,7 @@ export function createPlayer(
     // Down.
     chute = false;
     canopy = 0;
+    spread = 0;
     airborne = false;
     speed = 0;
     motion.set(0, 0, 0);
@@ -2298,6 +2414,11 @@ export function createPlayer(
     vertical = 0;
   }
 
+  /** The pendulum under the canopy: `swingUnder` in `craft/parachute.ts`. */
+  function swingChute(dt: number): void {
+    swingUnder(chuteSwing, dt, speed, lean, spread);
+  }
+
   /** The canopy over the body while it is open: opening out, and swinging with a turn. */
   function drawCanopy(): void {
     if (!chute || canopy === 0) {
@@ -2309,7 +2430,9 @@ export function createPlayer(
       object.add(parachute);
     }
     parachute.visible = true;
-    openCanopy(parachute, canopy, lean);
+    // The wing holds the bank and leans a little into the pilot's own swing;
+    // its toggle lines follow the hands down.
+    openCanopy(parachute, canopy, lean + (chuteSwing.roll - lean) * 0.3, steering, chuteSwing.pitch * 0.3);
   }
 
   /**
@@ -2350,9 +2473,12 @@ export function createPlayer(
     climbRate = 0;
     climbing = 0;
     goAround = 0;
+    rolling = false;
     steering = 0;
     dive = 0;
     diveRate = 0;
+    founder = -1;
+    founderWay = 0;
     controls.lift = 0;
   }
 
@@ -2364,6 +2490,7 @@ export function createPlayer(
     ride = null;
     carriedFrom = false;
     grounded = false;
+    founder = -1;
     avatar.reset();
     applyBody();
   }
@@ -2383,6 +2510,7 @@ export function createPlayer(
     player.parachute = chute;
     player.canopy = chute && canopy > 0;
     player.airborne = kind !== null && isAir(kind) ? !grounded : airborne;
+    player.sunk = ride !== null && founder >= FOUNDER_TIME;
     player.state = state;
     player.mode = modeOf();
     player.ride = ride;
@@ -2405,6 +2533,7 @@ export function createPlayer(
     parachute: false,
     canopy: false,
     airborne: false,
+    sunk: false,
     state,
     mode: 'foot',
     ride: null,
@@ -2483,7 +2612,7 @@ export function createPlayer(
       cockpit = on;
       applyBody();
     },
-    board(next, at) {
+    board(next, at, going = 0) {
       if (sitting) stand();
       dropRide();
       const held: Held = { ...next, motion: motionOf(next.group, next.model) };
@@ -2506,6 +2635,10 @@ export function createPlayer(
       // only place one can be left.
       grounded = isAir(kind) && height - standingRadius(position) < 1.5;
       airborne = isAir(kind) && !grounded;
+      if (!airborne && next.seat === 0) {
+        speed = going;
+        velocity = Math.abs(going);
+      }
       next.group.position.set(0, 0, 0);
       next.group.quaternion.identity();
       next.group.scale.setScalar(1);

@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { DOOR_HEAD, DOOR_JAMB, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -44,7 +44,6 @@ export const minaretMosque: ScenicPart = {
     const group = new THREE.Group();
 
     const wall = rng.pick(style.walls);
-    const trim = rng.pick(style.trim);
     const dark = rng.pick(style.glass);
     // The dome is the one saturated thing on the building, so it gets its own
     // pick rather than sharing the roof colour.
@@ -54,7 +53,6 @@ export const minaretMosque: ScenicPart = {
     const shade = tone(wall, TONES.eave);
     const coping = tone(wall, TONES.light);
     const collar = tone(wall, TONES.cap);
-    const woodwork = tone(trim, TONES.cap);
     const domeCap = tone(domeColor, TONES.cap);
 
     const hallWidth = rng.range(9, 11);
@@ -148,7 +146,11 @@ export const minaretMosque: ScenicPart = {
     const bays = 3;
     const spread = hallWidth / (bays + 0.7);
     const archHeight = hallHeight * 0.62;
-    const arches = lit(panes(bays, spread * 0.62, archHeight, spread * 0.38, dark), 0.55);
+    // The outer bays are open arches and the middle one is the door, framed to
+    // fill it between its piers: a door laid over the middle arch read as a
+    // board stuck across an opening.
+    const archWidth = spread * 0.62;
+    const arches = lit(panes(2, archWidth, archHeight, spread * 2 - archWidth, dark), 0.55);
     arches.position.set(0, 0.45, face + PROUD);
     group.add(arches);
     const piers = panes(bays + 1, spread * 0.38, archHeight + 0.5, spread * 0.62, coping, PROUD * 2);
@@ -158,12 +160,16 @@ export const minaretMosque: ScenicPart = {
     lintel.position.set(0, 0.45 + archHeight + 0.5, face + PROUD * 1.5);
     group.add(lintel);
 
-    const door = panes(1, 1.8, 3.1, 0, woodwork, PROUD * 2);
-    door.position.set(0, 0.45, face + PROUD * 2.6);
+    const door = ctx.door({
+      width: archWidth - DOOR_JAMB * 2,
+      height: archHeight - DOOR_HEAD,
+      leaf: doorPaint(rng, style, wall),
+      frame: coping,
+      sill: 0.45,
+      step: course,
+    });
+    door.position.set(0, 0, face);
     group.add(door);
-    const steps = box(2.7, 0.45, 0.7, course);
-    steps.position.set(0, 0, face + 0.35);
-    group.add(steps);
 
     return group;
   },

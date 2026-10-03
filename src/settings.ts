@@ -12,6 +12,11 @@
  * each time it opens, so a change made by a key while it was closed is what it
  * shows.
  *
+ * **One line a setting.** The name on the left, its control on the right, and
+ * what it is for behind a `?` beside the name, shown on hover and on keyboard
+ * focus. Every row used to carry its explanation as a paragraph under the
+ * name, and a card of twenty paragraphs is read by nobody.
+ *
  * It takes the mouse the way the world map does: opening it releases pointer
  * lock, and closing it asks for the lock back only if it was held when the
  * panel opened, so a player who opened it from the pause card is left on the
@@ -19,12 +24,16 @@
  * keyboard**: it registers with `controls.ts` as modal, so `Tab` walks its own
  * controls and the arrows move its sliders instead of the player.
  *
- * **Two pages.** The general one is everything above; the controls page is
- * every key in the game, which used to stand along the bottom of the screen,
- * each one a button: press it and the next key pressed is that action's
- * (`rebind` in `controls.ts`, which swaps a key another action held rather
- * than leave that action with none). `O` opens and closes the card, and says
- * so on the gear.
+ * **Four pages, on a rail down the left**: graphics (how far and how much is
+ * drawn, the map layer and the hour of the sun), sound, controls, and the
+ * credits. It was one long page of everything and a
+ * second of keys, and a player looking for the volume read past the render
+ * distance to find it. The card keeps one size whichever page is open, so
+ * the rail does not jump. The controls page is every key in the game as a
+ * table, an action a line and its one or two keys as caps on the right. A cap is the button: press it and the next key is
+ * that action's (`captureKey` in `controls.ts`, which swaps a key another
+ * action held rather than leave that action with none), `Esc` keeps the old
+ * one. `O` opens and closes the card, and says so on the gear.
  */
 
 import {
@@ -33,18 +42,18 @@ import {
   actionOf,
   bindingsChanged,
   capOf,
+  captureKey,
   holdFocus,
   inputBlocked,
   keyBindable,
   keyLabel,
   labelOf,
   onKeyLabels,
-  rebind,
   registerModal,
   resetBindings,
 } from './controls.ts';
-import type { Action } from './controls.ts';
-import { h, icon, installUi, ensureStyle, kbd } from './ui.ts';
+import type { Action, Captured } from './controls.ts';
+import { h, icon, installUi, ensureStyle } from './ui.ts';
 
 export interface Knob {
   get(): number;
@@ -117,28 +126,21 @@ export interface SettingsOptions {
   sound?: { volume: Knob; on: Toggle; voices?: Toggle; chat?: Toggle };
   /** The music, with its own level and switch, separate from the sound's. Omit it and the rows are not built. */
   music?: { volume: Knob; on: Toggle };
-  /**
-   * The other players: the name they see over you, and how many of them are
-   * connected, `null` while there is no connection. Omit it and the section is
-   * not built, which is a world with no relay.
-   */
-  players?: { name: { get(): string; set(name: string): string }; online(): number | null };
-  /**
-   * The traveller's card: how you look. The row's button closes this card and
-   * opens that one, which hands the pointer back on closing if this one would
-   * have. Omit it and the row is not built.
-   */
-  traveller?: { show(relock: boolean): void };
   /** Where to hand the pointer back to, if it was locked when the panel opened. */
   lockTarget: HTMLElement | null;
+  /**
+   * Whether the settings key opens this card. False for a second card made
+   * before the world exists — the title screen's — so one key never opens two.
+   */
+  key?: boolean;
   /** Called on open, so whatever else holds the screen — the map — can let go. */
   onOpen?(): void;
   /** Called on close. */
   onClose?(): void;
 }
 
-/** The card's two pages. */
-export type SettingsPage = 'general' | 'controls';
+/** The card's pages, in the rail's order. */
+export type SettingsPage = 'graphics' | 'sound' | 'controls' | 'credits';
 
 export interface Settings {
   root: HTMLElement;
@@ -147,6 +149,8 @@ export interface Settings {
   show(page?: SettingsPage): void;
   hide(): void;
   toggle(): void;
+  /** Takes the card off the page and lets go of every key and label it registered. */
+  dispose(): void;
 }
 
 /**
@@ -163,6 +167,19 @@ function detailWord(value: number): string {
   if (value < 3) return 'Far';
   if (value < 4.5) return 'Very far';
   return 'Everything';
+}
+
+/**
+ * An action's line on the controls page, from the one table in `controls.ts`:
+ * the words before the first middle dot (or colon) are its name, and the rest
+ * — what the same key also does in a vehicle or in the air — goes behind the
+ * row's `?`, so a line is a name and its keys and never wraps.
+ */
+function splitLabel(label: string): { name: string; more: string } {
+  const at = label.search(/ · |: /);
+  if (at < 0) return { name: label, more: '' };
+  const more = label.slice(at + (label[at + 1] === ':' ? 2 : 3)).trim();
+  return { name: label.slice(0, at), more: more.charAt(0).toUpperCase() + more.slice(1) };
 }
 
 const STYLE = `
@@ -184,18 +201,71 @@ const STYLE = `
 .atlas-settings.on { opacity: 1; visibility: visible; transition-delay: 0s; }
 .atlas-settings.on .atlas-settings-panel { animation: ui-pop 0.32s var(--ui-spring) both; }
 .atlas-settings-panel {
-  width: min(600px, 100%);
-  max-height: min(820px, calc(100vh - 48px));
-  overflow: auto;
-  padding: 22px 24px 18px;
-  scrollbar-width: thin;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1040px, 100%);
+  height: min(720px, calc(100vh - 48px));
+  padding: 0;
+  overflow: hidden;
 }
 .atlas-settings-head {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 6px;
+  padding: 20px 24px 18px;
+  border-bottom: 2.5px solid var(--ui-rule);
 }
+.atlas-settings-body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+/* --- the rail: a page a button, its picture and its name ------------------- */
+.atlas-settings-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 14px;
+  border-right: 2.5px solid var(--ui-rule);
+  background: var(--ui-cream);
+}
+.atlas-settings-rail button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 2.5px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  font: 800 14.5px/1 var(--ui-font);
+  letter-spacing: -0.01em;
+  color: var(--ui-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.atlas-settings-rail button svg { flex: none; width: 20px; height: 20px; }
+.atlas-settings-rail button:hover { background: rgba(30, 6, 3, 0.07); }
+.atlas-settings-rail button[aria-selected='true'] {
+  border-color: var(--ui-ink);
+  background: var(--ui-gold);
+  box-shadow: 0 3px 0 var(--ui-ink);
+  transform: translateY(-1px);
+}
+.atlas-settings-rail button:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
+.atlas-settings-rail button[hidden] { display: none; }
+.atlas-settings-content {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 28px 0;
+  scrollbar-width: thin;
+}
+.atlas-settings-page-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.atlas-settings-page-note { margin: 4px 0 0; font-size: 13px; font-weight: 600; line-height: 1.4; opacity: 0.6; }
 .atlas-settings-badge {
   display: grid;
   place-items: center;
@@ -210,119 +280,204 @@ const STYLE = `
 .atlas-settings-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
 .atlas-settings-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
 .atlas-settings-close { margin-left: auto; }
+.atlas-settings-page { padding-bottom: 24px; }
+/* The controls page ends on its foot, which is held to the bottom of the card. */
+#atlas-settings-controls { padding-bottom: 0; }
+.atlas-settings-page[hidden] { display: none; }
 .atlas-settings-section {
   margin-top: 18px;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 2.5px solid var(--ui-rule);
 }
-.atlas-settings-section > .ui-eyebrow { margin-bottom: 10px; }
+.atlas-settings-page-note + .atlas-settings-section,
+.atlas-settings-page-title + .atlas-settings-section { margin-top: 14px; }
+.atlas-settings-section > .ui-eyebrow { margin-bottom: 4px; }
+
+/* --- a setting: its name, its ?, its control, on one line ----------------- */
 .atlas-settings-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px 18px;
-  padding: 8px 0;
+  gap: 18px;
+  min-height: 46px;
+  padding: 4px 0;
 }
 .atlas-settings-row + .atlas-settings-row { border-top: 1.5px dashed var(--ui-rule); }
-.atlas-settings-label { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
-.atlas-settings-help { margin-top: 2px; font-size: 12px; font-weight: 600; opacity: 0.58; line-height: 1.35; }
-.atlas-settings-side { display: flex; align-items: center; gap: 10px; }
+.atlas-settings-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.atlas-settings-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.atlas-settings-side .ui-range { width: 240px; }
 .atlas-settings-value {
-  min-width: 108px;
+  min-width: 92px;
   text-align: right;
   font-size: 13px;
   font-weight: 800;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
 .atlas-settings-value small { display: block; font-size: 11px; font-weight: 700; opacity: 0.55; }
-.atlas-settings-name {
-  width: 190px;
-  height: 38px;
-  padding: 0 12px;
-  border: 2.5px solid var(--ui-ink);
-  border-radius: 10px;
-  background: var(--ui-paper);
-  font: 700 14px var(--ui-font);
-  color: var(--ui-ink);
+
+/* --- the ?, and what it says ------------------------------------------------ */
+.atlas-settings-tip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  font: 800 11px/1 var(--ui-font);
+  color: var(--ui-muted);
+  cursor: help;
+  transition: color 0.15s ease, background 0.15s ease;
 }
-.atlas-settings-name::placeholder { color: rgba(30, 6, 3, 0.45); }
-.atlas-settings-name:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
-.atlas-settings-slider { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 4px 0 2px; }
-.atlas-settings-slider span { font-size: 11px; font-weight: 800; opacity: 0.5; white-space: nowrap; }
-.atlas-settings-tabs { margin: 14px 0 0; }
-.atlas-settings-tabs button[aria-selected='true'] { background: var(--ui-ink); color: var(--ui-paper); }
-.atlas-settings-page[hidden] { display: none; }
+.atlas-settings-tip:hover, .atlas-settings-tip:focus-visible { color: var(--ui-ink); background: var(--ui-gold); border-color: var(--ui-ink); }
+.atlas-settings-tip:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
+.atlas-settings-bubble {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 2;
+  width: max-content;
+  max-width: 290px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--ui-ink);
+  color: var(--ui-paper);
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s 0.12s;
+}
+.atlas-settings-tip:hover + .atlas-settings-bubble,
+.atlas-settings-tip:focus-visible + .atlas-settings-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0.15s, 0.15s, 0s;
+}
+
+/* --- the controls page: an action a line, its keys on the right ------------ */
 .atlas-settings-binds {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 22px;
+  gap: 0 36px;
 }
+/* The last line of each column ends on the section's rule, not a dash of its own. */
+.atlas-settings-binds > .atlas-settings-bind:nth-last-child(-n + 2):nth-child(odd),
+.atlas-settings-binds > .atlas-settings-bind:last-child { border-bottom-color: transparent; }
 .atlas-settings-bind {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  min-height: 38px;
+  gap: 12px;
+  min-height: 42px;
   border-bottom: 1.5px dashed var(--ui-rule);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 14px;
+  font-weight: 750;
 }
-.atlas-settings-bind > span:first-child { min-width: 0; padding: 5px 0; }
-.atlas-settings-bind-keys { display: flex; align-items: center; gap: 6px; flex: none; }
-.atlas-settings-bind-alt { font-size: 11px; font-weight: 700; color: var(--ui-muted); white-space: nowrap; }
-/* A key cap that is a button: the cap, raised on a cream key, pressed to listen. */
-.atlas-settings-keybtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 58px;
-  height: 30px;
-  padding: 0 7px;
-  border: 2.5px solid var(--ui-ink);
-  border-radius: 9px;
-  background: var(--ui-cream);
+.atlas-settings-bind .atlas-settings-label { font-size: 14px; font-weight: 750; }
+.atlas-settings-bind .atlas-settings-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-settings-keys { display: flex; align-items: center; gap: 6px; flex: none; }
+/* The cap is the button: one box, raised, pressed while it listens. */
+.atlas-settings-cap {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 28px;
+  padding: 0 9px;
+  border: 2px solid var(--ui-ink);
+  border-radius: 7px;
+  background: var(--ui-paper);
   box-shadow: 0 3px 0 var(--ui-ink);
-  font: 800 12px var(--ui-font);
+  font: 800 12.5px/1 var(--ui-font);
   color: var(--ui-ink);
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 0.09s ease, box-shadow 0.09s ease, background 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.09s ease;
 }
-.atlas-settings-keybtn:hover { transform: translateY(-1px); box-shadow: 0 4px 0 var(--ui-ink); }
-.atlas-settings-keybtn:active { transform: translateY(3px); box-shadow: 0 0 0 var(--ui-ink); }
-.atlas-settings-keybtn:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
-.atlas-settings-keybtn.listening { background: var(--ui-gold); animation: atlas-settings-listen 1.1s ease-in-out infinite; }
-.atlas-settings-keybtn.moved { animation: ui-pop 0.35s var(--ui-spring); }
+.atlas-settings-cap:hover { background: var(--ui-cream); }
+.atlas-settings-cap:active { box-shadow: 0 1px 0 var(--ui-ink); }
+.atlas-settings-cap:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
+.atlas-settings-cap.spare { box-shadow: 0 2px 0 var(--ui-ink); color: var(--ui-muted); border-color: rgba(30, 6, 3, 0.55); }
+.atlas-settings-cap.listening {
+  min-width: 96px;
+  background: var(--ui-gold);
+  animation: atlas-settings-listen 1.1s ease-in-out infinite;
+}
+.atlas-settings-cap.moved { animation: atlas-settings-moved 0.6s ease; }
+.atlas-settings-cap.fixed { cursor: default; background: transparent; box-shadow: none; border-style: dashed; color: var(--ui-muted); }
 @keyframes atlas-settings-listen { 50% { background: var(--ui-cream); } }
-.atlas-settings-fixed { display: inline-flex; gap: 3px; min-width: 58px; justify-content: center; }
+@keyframes atlas-settings-moved { from { background: var(--ui-gold); } }
+
+/* Held to the bottom of the card, so what a key did is said where it is seen. */
 .atlas-settings-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin-top: 16px;
+  margin: 14px -28px 0;
+  padding: 12px 28px 14px;
+  border-top: 2.5px solid var(--ui-rule);
+  background: var(--ui-paper);
 }
 .atlas-settings-status { min-height: 17px; font-size: 12.5px; font-weight: 700; line-height: 1.35; color: var(--ui-muted); }
 .atlas-settings-status.warn { color: var(--ui-crimson); }
+
+/* --- who made what --------------------------------------------------------- */
+.atlas-settings-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.atlas-settings-links .ui-btn { text-decoration: none; }
 .atlas-settings-credit {
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 2.5px solid var(--ui-rule);
-  font-size: 11.5px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  margin: 0;
+  font-size: 12px;
   font-weight: 600;
-  opacity: 0.55;
-  line-height: 1.5;
+  line-height: 1.45;
 }
-.atlas-settings-credit a { color: inherit; }
-.atlas-settings-credit p + p { margin-top: 6px; }
-@media (max-width: 560px) {
+.atlas-settings-credit dt { font-weight: 800; opacity: 0.55; }
+.atlas-settings-credit dd { margin: 0; opacity: 0.75; }
+.atlas-settings-credit a { color: inherit; text-underline-offset: 2px; }
+.atlas-settings-credit a:focus-visible { outline: var(--ui-ring); outline-offset: 2px; border-radius: 3px; }
+
+@media (max-width: 720px) {
+  .atlas-settings { padding: 12px; }
+  .atlas-settings-panel { height: calc(100vh - 24px); }
+  .atlas-settings-head { padding: 14px 16px; }
+  .atlas-settings-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .atlas-settings-rail { flex-direction: row; overflow-x: auto; padding: 10px 12px; border-right: 0; border-bottom: 2.5px solid var(--ui-rule); }
+  .atlas-settings-rail button { width: auto; flex: none; }
+  .atlas-settings-content { padding: 16px 16px 0; }
+  .atlas-settings-foot { margin: 14px -16px 0; padding: 12px 16px 14px; }
   .atlas-settings-binds { grid-template-columns: 1fr; }
-  .atlas-settings-row { grid-template-columns: 1fr; }
+  .atlas-settings-row { grid-template-columns: 1fr; gap: 6px; padding: 8px 0; }
+  .atlas-settings-side { justify-content: flex-start; flex-wrap: wrap; }
+  .atlas-settings-side .ui-range { width: 160px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .atlas-settings.on .atlas-settings-panel { animation: none; }
-  .atlas-settings-keybtn, .atlas-settings-keybtn.listening, .atlas-settings-keybtn.moved { animation: none; transition: none; }
+  .atlas-settings-rail button { transition: none; }
+  .atlas-settings-cap, .atlas-settings-cap.listening, .atlas-settings-cap.moved { animation: none; transition: none; }
+  .atlas-settings-bubble { transition: none; }
 }
 `;
 
@@ -333,9 +488,20 @@ function hourText(hour: number): string {
   return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
 }
 
+/** The first key of an action's after its own whose cap reads differently: the second cap, if any. */
+function spareSlot(codes: readonly string[]): number {
+  const own = keyLabel(codes[0]!);
+  for (let i = 1; i < codes.length; i++) if (keyLabel(codes[i]!) !== own) return i;
+  return -1;
+}
+
 export function createSettings(options: SettingsOptions): Settings {
   installUi();
   ensureStyle('atlas-settings', STYLE);
+  /** Every listener the card adds goes with it on `dispose`. */
+  const events = new AbortController();
+  const { signal } = events;
+  const unregister: (() => void)[] = [];
 
   const root = h('div', { class: 'atlas-settings', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Settings' });
   const panel = h('div', { class: 'atlas-settings-panel ui-card' });
@@ -357,71 +523,82 @@ export function createSettings(options: SettingsOptions): Settings {
     ),
   );
 
-  /* --- the two pages ---------------------------------------------------- */
+  /* --- the pages, and the rail that turns them ------------------------- */
 
-  const tabGeneral = h('button', {
-    type: 'button',
-    role: 'tab',
-    id: 'atlas-settings-tab-general',
-    'aria-controls': 'atlas-settings-general',
-    text: 'General',
-  });
-  const tabControls = h('button', {
-    type: 'button',
-    role: 'tab',
-    id: 'atlas-settings-tab-controls',
-    'aria-controls': 'atlas-settings-controls',
-    text: 'Controls',
-  });
-  const generalPage = h('div', {
-    class: 'atlas-settings-page',
-    id: 'atlas-settings-general',
-    role: 'tabpanel',
-    'aria-labelledby': 'atlas-settings-tab-general',
-  });
-  const controlsPage = h('div', {
-    class: 'atlas-settings-page',
-    id: 'atlas-settings-controls',
-    role: 'tabpanel',
-    'aria-labelledby': 'atlas-settings-tab-controls',
-  });
-  panel.append(h('div', { class: 'ui-seg atlas-settings-tabs', role: 'tablist', 'aria-label': 'Settings pages' }, tabGeneral, tabControls));
-  let page: SettingsPage = 'general';
+  const PAGES: readonly { id: SettingsPage; label: string; glyph: string; note: string }[] = [
+    { id: 'graphics', label: 'Graphics', glyph: 'eye', note: 'How far the world is built, how sharp, what is drawn in it, and the hour of the sun.' },
+    { id: 'sound', label: 'Sound', glyph: 'sound', note: 'The world, the voices and the music, each with its own level.' },
+    { id: 'controls', label: 'Controls', glyph: 'keyboard', note: 'The mouse, and every key. Press a key to change it.' },
+    { id: 'credits', label: 'Credits', glyph: 'star', note: 'Who made atlas, and whose maps, models and sounds it is made of.' },
+  ];
+  const rail = h('div', { class: 'atlas-settings-rail', role: 'tablist', 'aria-label': 'Settings pages', 'aria-orientation': 'vertical' });
+  const content = h('div', { class: 'atlas-settings-content' });
+  const tabs = new Map<SettingsPage, HTMLButtonElement>();
+  const pages = new Map<SettingsPage, HTMLElement>();
+  for (const entry of PAGES) {
+    const tab = h('button', {
+      type: 'button',
+      role: 'tab',
+      id: `atlas-settings-tab-${entry.id}`,
+      'aria-controls': `atlas-settings-${entry.id}`,
+    }, icon(entry.glyph), entry.label);
+    const element = h(
+      'div',
+      { class: 'atlas-settings-page', id: `atlas-settings-${entry.id}`, role: 'tabpanel', 'aria-labelledby': `atlas-settings-tab-${entry.id}` },
+      h('div', { class: 'atlas-settings-page-title', text: entry.label }),
+      h('p', { class: 'atlas-settings-page-note', text: entry.note }),
+    );
+    tab.addEventListener('click', () => turnTo(entry.id), { signal });
+    tabs.set(entry.id, tab);
+    pages.set(entry.id, element);
+    rail.append(tab);
+    content.append(element);
+  }
+  panel.append(h('div', { class: 'atlas-settings-body' }, rail, content));
+  /** The pages a card without sound leaves out, in order. */
+  const shown = (): SettingsPage[] => PAGES.map((entry) => entry.id).filter((id) => !tabs.get(id)!.hidden);
+  let page: SettingsPage = 'graphics';
   function turnTo(next: SettingsPage): void {
+    if (tabs.get(next)!.hidden) next = 'graphics';
     page = next;
-    const controls = next === 'controls';
-    tabGeneral.setAttribute('aria-selected', String(!controls));
-    tabControls.setAttribute('aria-selected', String(controls));
-    // One tab stop for the pair, as a tab list has; the arrows move between them.
-    tabGeneral.tabIndex = controls ? -1 : 0;
-    tabControls.tabIndex = controls ? 0 : -1;
-    generalPage.hidden = controls;
-    controlsPage.hidden = !controls;
-    panel.scrollTop = 0;
+    for (const [id, tab] of tabs) {
+      tab.setAttribute('aria-selected', String(id === next));
+      // One tab stop for the rail, as a tab list has; the arrows walk it.
+      tab.tabIndex = id === next ? 0 : -1;
+    }
+    for (const [id, element] of pages) element.hidden = id !== next;
+    content.scrollTop = 0;
+    stopListening();
   }
-  tabGeneral.addEventListener('click', () => turnTo('general'));
-  tabControls.addEventListener('click', () => turnTo('controls'));
-  for (const tab of [tabGeneral, tabControls]) {
-    tab.addEventListener('keydown', (event) => {
-      if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') return;
-      event.preventDefault();
-      const next = page === 'general' ? tabControls : tabGeneral;
-      turnTo(page === 'general' ? 'controls' : 'general');
-      next.focus({ preventScroll: true });
-    });
-  }
-  turnTo('general');
+  rail.addEventListener('keydown', (event) => {
+    const step = event.code === 'ArrowDown' || event.code === 'ArrowRight' ? 1 : event.code === 'ArrowUp' || event.code === 'ArrowLeft' ? -1 : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    const order = shown();
+    const next = order[(order.indexOf(page) + step + order.length) % order.length]!;
+    turnTo(next);
+    tabs.get(next)!.focus({ preventScroll: true });
+  }, { signal });
 
   /* --- building blocks ------------------------------------------------- */
 
-  const row = (label: string, help: string, side: Node, below?: Node): HTMLElement =>
-    h(
-      'div',
-      { class: 'atlas-settings-row' },
-      h('div', {}, h('div', { class: 'atlas-settings-label', text: label }), h('div', { class: 'atlas-settings-help', text: help })),
-      side,
-      below ?? null,
-    );
+  let tips = 0;
+  /**
+   * A name and the `?` that says what it is for: a button, so a keyboard can
+   * reach it and its focus shows the bubble as a hover does, described by the
+   * bubble for a screen reader. Returns the bubble too, for a text that names
+   * a key and is written again when the key moves.
+   */
+  function labelled(name: string, help: string): { label: HTMLElement; bubble: HTMLElement } {
+    const id = `atlas-settings-tip-${++tips}`;
+    const bubble = h('span', { class: 'atlas-settings-bubble', role: 'tooltip', id, text: help });
+    const tip = h('button', { class: 'atlas-settings-tip', type: 'button', 'aria-label': `About ${name}`, 'aria-describedby': id, text: '?' });
+    const label = h('div', { class: 'atlas-settings-label' }, h('span', { text: name }), help === '' ? null : tip, help === '' ? null : bubble);
+    return { label, bubble };
+  }
+
+  const row = (name: string, help: string, ...side: (Node | null)[]): HTMLElement =>
+    h('div', { class: 'atlas-settings-row' }, labelled(name, help).label, h('div', { class: 'atlas-settings-side' }, ...side));
 
   function makeSwitch(toggle: Toggle, label: string): { element: HTMLButtonElement; refresh(): void } {
     const element = h('button', { class: 'ui-switch', role: 'switch', 'aria-label': label });
@@ -429,7 +606,7 @@ export function createSettings(options: SettingsOptions): Settings {
     element.addEventListener('click', () => {
       toggle.set(!toggle.get());
       refresh();
-    });
+    }, { signal });
     return { element, refresh };
   }
 
@@ -440,11 +617,11 @@ export function createSettings(options: SettingsOptions): Settings {
    */
   function makeSlider(
     knob: Knob,
+    label: string,
     describe: (value: number) => [string, string],
-    ends: [string, string],
-  ): { value: HTMLElement; slider: HTMLElement; refresh(): void } {
+  ): { value: HTMLElement; input: HTMLInputElement; refresh(): void } {
     const value = h('div', { class: 'atlas-settings-value' });
-    const input = h('input', { class: 'ui-range', type: 'range', min: 0, max: 1000, step: 1 });
+    const input = h('input', { class: 'ui-range', type: 'range', min: 0, max: 1000, step: 1, 'aria-label': label });
     const span = Math.log(knob.max / knob.min);
     // Clamped: a value under the knob's floor (a volume of 0 set from the
     // console) is a log of 0, and the thumb and the fill would say -Infinity.
@@ -454,21 +631,15 @@ export function createSettings(options: SettingsOptions): Settings {
       const [main, small] = describe(v);
       value.replaceChildren(document.createTextNode(main), h('small', { text: small }));
       input.style.setProperty('--fill', `${(toPosition(v) / 10).toFixed(1)}%`);
+      input.setAttribute('aria-valuetext', `${main}, ${small}`);
     };
     const refresh = (): void => {
       const v = knob.get();
       input.value = String(Math.round(toPosition(v)));
       show(v);
     };
-    input.addEventListener('input', () => show(knob.set(fromPosition(Number(input.value)))));
-    const slider = h(
-      'div',
-      { class: 'atlas-settings-slider' },
-      h('span', { text: ends[0] }),
-      input,
-      h('span', { text: ends[1] }),
-    );
-    return { value, slider, refresh };
+    input.addEventListener('input', () => show(knob.set(fromPosition(Number(input.value)))), { signal });
+    return { value, input, refresh };
   }
 
   /** A segmented control over a choice: one button a value, the chosen one pressed. */
@@ -478,7 +649,7 @@ export function createSettings(options: SettingsOptions): Settings {
       button.addEventListener('click', () => {
         choice.set(value);
         refresh();
-      });
+      }, { signal });
       return [value, button] as const;
     });
     const element = h('div', { class: 'ui-seg', role: 'group', 'aria-label': label }, ...buttons.map(([, button]) => button));
@@ -489,7 +660,184 @@ export function createSettings(options: SettingsOptions): Settings {
     return { element, refresh };
   }
 
-  /* --- the sections ----------------------------------------------------- */
+  /* --- the controls page -------------------------------------------------- */
+
+  const labels = new Map<Action, string>();
+  for (const section of CONTROL_SECTIONS) for (const line of section.rows) if (line.action !== undefined) labels.set(line.action, splitLabel(line.label).name);
+  const nameOf = (action: Action): string => labels.get(action) ?? action;
+  const bindList = h('div');
+  const bindStatus = h('div', { class: 'atlas-settings-status', role: 'status', 'aria-live': 'polite' });
+  const resetButton = h('button', { class: 'ui-btn small', type: 'button' }, 'Reset to defaults');
+  /** Every cap that is a button, by `action:slot`. */
+  const caps = new Map<string, HTMLButtonElement>();
+  /** The cap waiting for its key, and how to stop it waiting. */
+  let listening: { action: Action; slot: number; id: string } | null = null;
+  let stopCapture: (() => void) | null = null;
+  /** The cap just bound, which flashes once when the list is drawn again. */
+  let moved = new Set<string>();
+
+  function say(text: string, warn = false): void {
+    bindStatus.textContent = text;
+    bindStatus.classList.toggle('warn', warn);
+  }
+
+  /** A cap that rebinds `slot` of `action`'s keys. */
+  function capButton(action: Action, slot: number, name: string): HTMLButtonElement {
+    const id = `${action}:${slot}`;
+    const code = BINDINGS[action][slot]!;
+    const cap = keyLabel(code);
+    const waiting = listening?.id === id;
+    const button = h('button', {
+      class: `atlas-settings-cap${slot > 0 ? ' spare' : ''}${waiting ? ' listening' : ''}${moved.has(id) ? ' moved' : ''}`,
+      type: 'button',
+      'aria-label': `${name}${slot > 0 ? ', second key' : ''}: ${cap}. Press to change`,
+      text: waiting ? 'Press a key' : cap,
+    });
+    button.addEventListener('click', () => {
+      if (listening?.id === id) stopListening();
+      else startListening(action, slot);
+    }, { signal });
+    caps.set(id, button);
+    return button;
+  }
+
+  function renderBinds(): void {
+    const focused = [...caps].find(([, button]) => button === document.activeElement)?.[0] ?? null;
+    caps.clear();
+    bindList.replaceChildren(
+      ...CONTROL_SECTIONS.map((section) =>
+        h(
+          'section',
+          { class: 'atlas-settings-section' },
+          h('div', { class: 'ui-eyebrow', text: section.title }),
+          h(
+            'div',
+            { class: 'atlas-settings-binds' },
+            ...section.rows.map((line) => {
+              const { name, more } = splitLabel(line.label);
+              const label = labelled(name, more).label;
+              if (line.action === undefined) {
+                const cap = line.fixed === 'release' ? labelOf('release') : capOf(line.fixed ?? 'mouse');
+                return h(
+                  'div',
+                  { class: 'atlas-settings-bind' },
+                  label,
+                  h('span', { class: 'atlas-settings-keys' }, h('span', { class: 'atlas-settings-cap fixed', title: 'Cannot be changed', text: cap })),
+                );
+              }
+              const spare = spareSlot(BINDINGS[line.action]);
+              return h(
+                'div',
+                { class: 'atlas-settings-bind' },
+                label,
+                h(
+                  'span',
+                  { class: 'atlas-settings-keys' },
+                  capButton(line.action, 0, name),
+                  spare < 0 ? null : capButton(line.action, spare, name),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+    moved = new Set();
+    resetButton.disabled = !bindingsChanged();
+    // Drawing the list again takes the focus off a cap with it, and a player
+    // walking the list with `Tab` would be thrown out of it.
+    if (focused !== null) caps.get(focused)?.focus({ preventScroll: true });
+  }
+
+  /** What a key pressed for a cap did, in words, with the caps redrawn. */
+  function captured(action: Action, slot: number, outcome: Captured): void {
+    const name = nameOf(action);
+    if (outcome.kind === 'refused') {
+      const holder = actionOf(outcome.code);
+      say(
+        !keyBindable(outcome.code)
+          ? `${keyLabel(outcome.code)} belongs to the browser and cannot be used. Try another key, or ${labelOf('release')} to keep this one.`
+          : `${keyLabel(outcome.code)} is the only key for ${holder === undefined ? 'another action' : nameOf(holder)}. Try another.`,
+        true,
+      );
+      return;
+    }
+    listening = null;
+    stopCapture = null;
+    if (outcome.kind === 'cancelled') {
+      say('Nothing changed.');
+      renderBinds();
+      caps.get(`${action}:${slot}`)?.focus({ preventScroll: true });
+      return;
+    }
+    const cap = keyLabel(outcome.code);
+    const { swapped, took } = outcome.result;
+    if (swapped !== null) {
+      say(`${name} is on ${cap} now. ${nameOf(swapped)} had it, and takes ${outcome.before === undefined ? 'its other key' : keyLabel(outcome.before)} instead.`, true);
+    } else if (took !== null) {
+      say(`${name} is on ${cap} now, which was a key for ${nameOf(took)} as well.`);
+    } else {
+      say(`${name} is on ${cap}.`);
+    }
+    // `rebind` has already had `onKeyLabels` draw the list again; once more
+    // with the moved caps marked and the focus where the player was.
+    moved = new Set([`${action}:${BINDINGS[action].indexOf(outcome.code)}`]);
+    if (swapped !== null) moved.add(`${swapped}:0`);
+    renderBinds();
+    caps.get(`${action}:${BINDINGS[action].indexOf(outcome.code)}`)?.focus({ preventScroll: true });
+  }
+
+  /**
+   * The cap that waits is changed where it stands rather than drawn again: a
+   * button taken out from under a press never receives its click, so a click
+   * on a second cap while the first was waiting would have done nothing.
+   */
+  function startListening(action: Action, slot: number): void {
+    stopListening();
+    const id = `${action}:${slot}`;
+    listening = { action, slot, id };
+    stopCapture = captureKey(action, slot, (outcome) => captured(action, slot, outcome));
+    const button = caps.get(id);
+    if (button !== undefined) {
+      button.classList.add('listening');
+      button.textContent = 'Press a key';
+      button.focus({ preventScroll: true });
+    }
+    say(`Press the key for ${nameOf(action)}${slot > 0 ? ' (second key)' : ''}, or ${labelOf('release')} to keep ${keyLabel(BINDINGS[action][slot]!)}.`);
+  }
+
+  /** Stops waiting for a key, if a cap was. */
+  function stopListening(): void {
+    if (listening === null) return;
+    const { action, slot, id } = listening;
+    stopCapture?.();
+    stopCapture = null;
+    listening = null;
+    say('');
+    const button = caps.get(id);
+    if (button !== undefined) {
+      button.classList.remove('listening');
+      button.textContent = keyLabel(BINDINGS[action][slot]!);
+    }
+  }
+
+  // A press anywhere but on the cap that is waiting lets go of the question,
+  // as `Esc` does.
+  panel.addEventListener('pointerdown', (event) => {
+    if (listening === null) return;
+    const waiting = caps.get(listening.id);
+    if (waiting !== undefined && event.target instanceof Node && waiting.contains(event.target)) return;
+    stopListening();
+  }, { signal });
+
+  resetButton.addEventListener('click', () => {
+    stopListening();
+    resetBindings();
+    say('Every key is back where it started.');
+    resetButton.focus({ preventScroll: true });
+  }, { signal });
+
+  /* --- the general page --------------------------------------------------- */
 
   const autoDetail = options.autoDetail === undefined ? null : makeSwitch(options.autoDetail, 'Automatic render distance');
   const detail = makeSlider(
@@ -503,8 +851,8 @@ export function createSettings(options: SettingsOptions): Settings {
         return set;
       },
     },
+    'Render distance',
     (v) => [detailWord(v), `${v.toFixed(2)}×`],
-    ['Near · fast', 'Far · heavy'],
   );
   const performance = makeSwitch(options.performance, 'Performance overlay');
   const effects = options.effects === undefined ? null : makeSwitch(options.effects, 'Effects');
@@ -513,181 +861,6 @@ export function createSettings(options: SettingsOptions): Settings {
   const flags = makeSwitch(options.flags, 'Flags and borders');
   const hints = makeSwitch(options.hints, 'Key hints');
   const resolution = makeChoice(options.resolution, 'Resolution');
-
-  /**
-   * The controls page: every action a button showing its key. Pressed, the
-   * button listens (`listening`) and the next key is the action's; `Esc`
-   * lets go without changing anything. What moved is said underneath, and a
-   * swap says both halves, because the other action's key moved too.
-   */
-  const labels = new Map<Action, string>();
-  for (const section of CONTROL_SECTIONS) for (const row of section.rows) if (row.action !== undefined) labels.set(row.action, row.label);
-  const bindList = h('div');
-  const bindStatus = h('div', { class: 'atlas-settings-status', role: 'status', 'aria-live': 'polite' });
-  const resetButton = h('button', { class: 'ui-btn small', type: 'button' }, 'Reset to defaults');
-  const keyButtons = new Map<Action, HTMLButtonElement>();
-  /** The action waiting for its key, and the button that is listening for it. */
-  let listening: Action | null = null;
-  /**
-   * Until when a click on a key button is the tail of the key that was just
-   * bound — `Space` and `Enter` press a focused button — and not a new ask.
-   */
-  let settleUntil = 0;
-  /** The key just bound, whose release must not press the button it was bound on (`Space` does). */
-  let captured = '';
-
-  /** A key's cap, named as this keyboard prints it. */
-  const capFor = (code: string): HTMLElement => {
-    const label = keyLabel(code);
-    return kbd(label, label.length > 3);
-  };
-
-  function say(text: string, warn = false): void {
-    bindStatus.textContent = text;
-    bindStatus.classList.toggle('warn', warn);
-  }
-
-  function renderBinds(): void {
-    keyButtons.clear();
-    bindList.replaceChildren(
-      ...CONTROL_SECTIONS.map((section) =>
-        h(
-          'section',
-          { class: 'atlas-settings-section' },
-          h('div', { class: 'ui-eyebrow', text: section.title }),
-          h(
-            'div',
-            { class: 'atlas-settings-binds' },
-            ...section.rows.map((row) => {
-              const name = h('span', { text: row.label });
-              if (row.action === undefined) {
-                const cap = row.fixed === 'release' ? labelOf('release') : capOf(row.fixed ?? 'mouse');
-                return h('div', { class: 'atlas-settings-bind' }, name, h('span', { class: 'atlas-settings-fixed' }, kbd(cap, cap.length > 3)));
-              }
-              const action = row.action;
-              const codes = BINDINGS[action];
-              const primary = keyLabel(codes[0]!);
-              const spare = [...new Set(codes.slice(1).map(keyLabel))].filter((label) => label !== primary);
-              const button = h(
-                'button',
-                {
-                  class: listening === action ? 'atlas-settings-keybtn listening' : 'atlas-settings-keybtn',
-                  type: 'button',
-                  'aria-label': `${row.label}: ${primary}. Press to change`,
-                },
-                listening === action ? 'Press a key' : capFor(codes[0]!),
-              );
-              button.addEventListener('click', () => {
-                if (Date.now() < settleUntil) return;
-                listen(listening === action ? null : action);
-              });
-              // Leaving the button lets go of the question.
-              button.addEventListener('blur', () => {
-                if (listening === action) listen(null);
-              });
-              keyButtons.set(action, button);
-              return h(
-                'div',
-                { class: 'atlas-settings-bind' },
-                name,
-                h(
-                  'span',
-                  { class: 'atlas-settings-bind-keys' },
-                  spare.length === 0 ? null : h('span', { class: 'atlas-settings-bind-alt', text: `or ${spare.join(', ')}` }),
-                  button,
-                ),
-              );
-            }),
-          ),
-        ),
-      ),
-    );
-    resetButton.disabled = !bindingsChanged();
-  }
-
-  /** Starts listening for `action`'s key, or stops listening with `null`. */
-  function listen(action: Action | null): void {
-    const was = listening;
-    listening = action;
-    if (was !== null) {
-      const button = keyButtons.get(was);
-      if (button !== undefined) {
-        button.classList.remove('listening');
-        button.replaceChildren(capFor(BINDINGS[was][0]!));
-      }
-    }
-    if (action === null) return;
-    const button = keyButtons.get(action);
-    if (button === undefined) return;
-    button.classList.add('listening');
-    button.replaceChildren('Press a key');
-    say(`Press the key for ${labels.get(action) ?? action}. ${labelOf('release')} to keep ${keyLabel(BINDINGS[action][0]!)}.`);
-  }
-
-  /** The key pressed while a button listens: bound, refused, or `Esc` to let go. */
-  function capture(event: KeyboardEvent): void {
-    const action = listening;
-    if (action === null) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.repeat) return;
-    if (event.code === 'Escape') {
-      listen(null);
-      say('');
-      return;
-    }
-    if (!keyBindable(event.code)) {
-      say(`${keyLabel(event.code)} is the browser's and cannot be bound. Try another key.`, true);
-      return;
-    }
-    const before = BINDINGS[action][0]!;
-    // Done listening before the list is drawn again, which `rebind` has
-    // `onKeyLabels` do before it returns.
-    listening = null;
-    settleUntil = Date.now() + 400;
-    captured = event.code;
-    const result = rebind(action, event.code);
-    const name = labels.get(action) ?? action;
-    const cap = keyLabel(event.code);
-    if (result.swapped !== null) {
-      say(`${name} is on ${cap} now. ${labels.get(result.swapped) ?? result.swapped} had it, and takes ${keyLabel(before)} instead.`, true);
-    } else if (result.took !== null) {
-      say(`${name} is on ${cap} now, which was a second key for ${labels.get(result.took) ?? result.took}.`);
-    } else {
-      say(`${name} is on ${cap}.`);
-    }
-    const button = keyButtons.get(action);
-    if (button !== undefined) {
-      button.focus({ preventScroll: true });
-      button.classList.add('moved');
-    }
-    if (result.swapped !== null) keyButtons.get(result.swapped)?.classList.add('moved');
-  }
-
-  resetButton.addEventListener('click', () => {
-    listen(null);
-    resetBindings();
-    say('Every key is back where it started.');
-    resetButton.focus({ preventScroll: true });
-  });
-
-  // The caps that name keys, rebuilt when `controls.ts` learns the layout or
-  // a key is rebound.
-  const detailKeys = h('span');
-  const flagsKey = h('span');
-  function relabel(): void {
-    detailKeys.replaceChildren(kbd(labelOf('nearer')), ' ', kbd(labelOf('farther')));
-    flagsKey.replaceChildren(kbd(labelOf('flags')));
-    close.title = `Close (${labelOf('settings')} or ${labelOf('release')})`;
-    close.setAttribute('aria-keyshortcuts', `${labelOf('settings')} Escape`);
-    // Drawing the list again takes the focus off a key button with it, and a
-    // player walking the list with `Tab` would be thrown out of it.
-    const focused = [...keyButtons].find(([, button]) => button === document.activeElement)?.[0] ?? null;
-    renderBinds();
-    if (focused !== null) keyButtons.get(focused)?.focus({ preventScroll: true });
-  }
-  relabel();
-  onKeyLabels(relabel);
 
   /**
    * The time of day: a slider over the hour where you stand, a button back to
@@ -714,227 +887,155 @@ export function createSettings(options: SettingsOptions): Settings {
   if (time !== undefined) {
     timeInput.addEventListener('input', () => {
       showTime(time.setHour(Number(timeInput.value) / 4));
-    });
+    }, { signal });
     timeLive.addEventListener('click', () => {
       time.setLive();
       showTime();
-    });
+    }, { signal });
   }
   /** The clock keeps running while the panel is open, and so does its number. */
   let clockTimer = 0;
+  const loudness = (v: number): [string, string] => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'];
   const sound = options.sound;
-  const volume =
-    sound === undefined
-      ? null
-      : makeSlider(sound.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
+  const volume = sound === undefined ? null : makeSlider(sound.volume, 'Volume', loudness);
   const soundOn = sound === undefined ? null : makeSwitch(sound.on, 'Sound');
   const voicesOn = sound?.voices === undefined ? null : makeSwitch(sound.voices, 'Voices');
   const chatSound = sound?.chat === undefined ? null : makeSwitch(sound.chat, 'Chat sound');
   const music = options.music;
-  const musicVolume =
-    music === undefined
-      ? null
-      : makeSlider(music.volume, (v) => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'], ['Quiet', 'Loud']);
+  const musicVolume = music === undefined ? null : makeSlider(music.volume, 'Music volume', loudness);
   const musicOn = music === undefined ? null : makeSwitch(music.on, 'Music');
-  /**
-   * The name over you, kept as it is typed and handed over on `change` — Enter
-   * or leaving the field — because every rename is a reconnection.
-   */
-  const players = options.players;
-  const nameInput = h('input', {
-    class: 'atlas-settings-name',
-    type: 'text',
-    maxlength: 20,
-    placeholder: 'Traveller',
-    autocomplete: 'nickname',
-    spellcheck: 'false',
-    'aria-label': 'Your name',
-  });
-  const onlineValue = h('div', { class: 'atlas-settings-value' });
-  const showPlayers = (): void => {
-    if (players === undefined) return;
-    if (document.activeElement !== nameInput) nameInput.value = players.name.get();
-    const online = players.online();
-    onlineValue.replaceChildren(
-      document.createTextNode(online === null ? '–' : String(online)),
-      h('small', { text: online === null ? 'offline' : online === 1 ? 'other player' : 'other players' }),
-    );
-  };
-  if (players !== undefined) {
-    nameInput.addEventListener('change', () => {
-      nameInput.value = players.name.set(nameInput.value);
-    });
-    nameInput.addEventListener('keydown', (event) => {
-      if (event.code === 'Enter') nameInput.blur();
-    });
-  }
-  const travellerButton = h('button', { type: 'button', class: 'ui-btn small' }, icon('walk'), 'Change');
-  travellerButton.addEventListener('click', () => {
-    const handBack = relock;
-    // Closed without asking for the pointer: the next card asks, when it closes.
-    relock = false;
-    hide();
-    options.traveller?.show(handBack);
-  });
-  const sensitivity = makeSlider(
-    options.sensitivity,
-    (v) => [`${Math.round(v * 100)}%`, v < 0.8 ? 'steady' : v > 1.3 ? 'quick' : 'default'],
-    ['Slow', 'Fast'],
-  );
+  const sensitivity = makeSlider(options.sensitivity, 'Mouse sensitivity', (v) => [
+    `${Math.round(v * 100)}%`,
+    v < 0.8 ? 'steady' : v > 1.3 ? 'quick' : 'default',
+  ]);
 
-  const sections: (HTMLElement | null)[] = [
-    h(
-      'section',
-      { class: 'atlas-settings-section' },
-      h('div', { class: 'ui-eyebrow', text: 'Graphics' }),
-      row(
-        'Render distance',
-        'How far towns, trees, traffic and animals are built around you. Turn it down if the frame rate drops.',
-        h('div', { class: 'atlas-settings-side' }, detail.value, detailKeys),
-        detail.slider,
-      ),
+  // The two rows whose help names a key, written again when the key moves.
+  const detailRow = labelled('Render distance', '…');
+  const flagsRow = labelled('Flags and borders from the air', '…');
+
+  const section = (title: string, ...rows: (HTMLElement | null)[]): HTMLElement =>
+    h('section', { class: 'atlas-settings-section' }, h('div', { class: 'ui-eyebrow', text: title }), ...rows);
+
+  const link = (href: string, text: string): string => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+
+  /** Puts what was built on a page, leaving out the parts this card has not got. */
+  const fill = (id: SettingsPage, ...parts: (HTMLElement | null)[]): void => {
+    for (const part of parts) if (part !== null) pages.get(id)!.append(part);
+  };
+
+  fill(
+    'graphics',
+    section(
+      'Quality',
+      h('div', { class: 'atlas-settings-row' }, detailRow.label, h('div', { class: 'atlas-settings-side' }, detail.value, detail.input)),
       autoDetail === null
         ? null
-        : row(
-            'Automatic distance',
-            'Turns the render distance up while frames are to spare and down when they are dropped. Moving the slider takes over.',
-            autoDetail.element,
-          ),
-      row(
-        'Resolution',
-        "How sharp the world is drawn. Auto is the screen's own sharpness up to twice the pixels, Balanced stops at one and a half, and Fast draws one pixel a point, the lightest of all.",
-        resolution.element,
-      ),
-      effects === null
-        ? null
-        : row(
-            'Effects',
-            'The wake behind a boat, the smoke of an engine and a plane, the dust off wheels and feet, the splash and the debris of a crash.',
-            effects.element,
-          ),
-      weather === null
-        ? null
-        : row(
-            'Weather',
-            'Rain, snow, storms with their thunder, and fog, where and when the climate brings them. Off is clear skies; the winter snow on the ground stays.',
-            weather.element,
-          ),
-      shake === null
-        ? null
-        : row('Camera shake', 'A knock felt through the camera when you crash. Off by default if your system asks for less motion.', shake.element),
-      row(
-        'Performance overlay',
-        'Frames per second, what a frame costs to update and to draw, its worst hitch and the triangles drawn, in the corner.',
-        performance.element,
-      ),
+        : row('Automatic distance', 'Turns the render distance up while frames are to spare and down when they drop. Moving the slider takes over.', autoDetail.element),
+      row('Resolution', "Auto is the screen's own sharpness, up to twice the pixels. Balanced stops at one and a half; Fast is the lightest.", resolution.element),
+    ),
+    section(
+      'In the world',
+      effects === null ? null : row('Effects', 'Wakes, engine smoke, dust off wheels and feet, splashes and the debris of a crash.', effects.element),
+      weather === null ? null : row('Weather', 'Rain, snow, storms and fog where the climate brings them. Off is clear skies; winter snow on the ground stays.', weather.element),
+      shake === null ? null : row('Camera shake', 'A knock through the camera when you crash. Off by default if your system asks for less motion.', shake.element),
+      h('div', { class: 'atlas-settings-row' }, flagsRow.label, h('div', { class: 'atlas-settings-side' }, flags.element)),
     ),
     time === undefined
       ? null
-      : h(
-          'section',
-          { class: 'atlas-settings-section' },
-          h('div', { class: 'ui-eyebrow', text: 'Sky' }),
-          row(
-            'Time of day',
-            'Live is the real sun where you stand. Drag to put it at another hour; it runs on from there until you reload.',
-            h('div', { class: 'atlas-settings-side' }, timeValue, timeLive),
-            h('div', { class: 'atlas-settings-slider' }, h('span', { text: '00:00' }), timeInput, h('span', { text: '24:00' })),
-          ),
-          row(
-            'Time-lapse',
-            'The day at an hour a minute: the sun, the sky, the lights and the traffic. Until you reload.',
-            timeFast!.element,
-          ),
+      : section(
+          'Sky',
+          row('Time of day', 'Live is the real sun where you stand. Drag to choose another hour; it runs on from there until you reload.', timeLive, timeValue, timeInput),
+          row('Time-lapse', 'The day at an hour a minute: sun, sky, lights and traffic. Until you reload.', timeFast!.element),
         ),
+    section('On screen', row('Performance overlay', 'Frames per second, what a frame costs and the triangles drawn, in the corner.', performance.element)),
+  );
+
+  fill(
+    'sound',
     sound === undefined
       ? null
-      : h(
-          'section',
-          { class: 'atlas-settings-section' },
-          h('div', { class: 'ui-eyebrow', text: 'Sound' }),
-          row('Sound', 'The wind, the sea, the engines, footsteps, and a jingle when you find a landmark.', soundOn!.element),
-          row('Volume', 'How loud all of it is.', volume!.value, volume!.slider),
-          voicesOn === null
-            ? null
-            : row('Voices', 'The townsfolk say their lines aloud as they talk to you, each in a voice of their own.', voicesOn.element),
-          chatSound === null ? null : row('Chat sound', 'A soft blip when somebody says something in the chat.', chatSound.element),
-          ...(music === undefined
-            ? []
-            : [
-                row('Music', 'A tune in the style of the country you are in, now and then, and quiet in between.', musicOn!.element),
-                row('Music volume', 'How loud the music is, apart from everything else.', musicVolume!.value, musicVolume!.slider),
-              ]),
+      : section(
+          'The world',
+          row('Sound', 'Wind, sea, engines, footsteps and the interface.', soundOn!.element),
+          row('Volume', 'How loud all of it is.', volume!.value, volume!.input),
         ),
-    options.traveller === undefined
+    sound === undefined || (voicesOn === null && chatSound === null)
       ? null
-      : h(
-          'section',
-          { class: 'atlas-settings-section' },
-          h('div', { class: 'ui-eyebrow', text: 'You' }),
-          row(
-            'Your traveller',
-            'Man or woman, skin, hair, clothes and colours, and whether you carry a rucksack. The others see you as you choose.',
-            travellerButton,
-          ),
+      : section(
+          'People',
+          voicesOn === null ? null : row('Voices', 'Townsfolk say their lines aloud, each in a voice of their own.', voicesOn.element),
+          chatSound === null ? null : row('Chat sound', 'A soft blip when somebody writes in the chat.', chatSound.element),
         ),
-    players === undefined
+    music === undefined
       ? null
-      : h(
-          'section',
-          { class: 'atlas-settings-section' },
-          h('div', { class: 'ui-eyebrow', text: 'Players' }),
-          row('Your name', 'What the other players see over your head. Leave it empty for a traveller with a number.', nameInput),
-          row('Online now', 'Everyone else in the world at this moment. They are pink on both maps.', onlineValue),
+      : section(
+          'Music',
+          row('Music', 'Now and then, a tune in the style of the country you are in.', musicOn!.element),
+          row('Music volume', 'How loud the music is, apart from everything else.', musicVolume!.value, musicVolume!.input),
         ),
-    h(
-      'section',
-      { class: 'atlas-settings-section' },
-      h('div', { class: 'ui-eyebrow', text: 'Map' }),
-      row(
-        'Flags and borders from the air',
-        "Each country's own colour, its frontiers and its name fade in as you climb in the plane.",
-        h('div', { class: 'atlas-settings-side' }, flagsKey, flags.element),
-      ),
-    ),
-    // Who made what, and it is no longer "everything else in code": the people,
-    // the vehicles, the animals, the plants and most houses are CC0 models,
-    // credited as their LICENSE.txt files in `public/models/` credit them.
-    h('div', {
-      class: 'atlas-settings-credit',
-      html:
-        '<p>Coastlines and lakes from <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>. ' +
-        'Towns from <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a>, ' +
-        '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC&nbsp;BY&nbsp;4.0</a>. ' +
-        'Stars from the <a href="https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50" target="_blank" rel="noopener">Bright Star Catalogue</a> ' +
-        '(Hoffleit &amp; Warren 1991, NASA ADC), distributed by the ' +
-        '<a href="https://cds.unistra.fr/" target="_blank" rel="noopener">CDS</a>, Strasbourg.</p>' +
-        '<p>The people and the livestock are by <a href="https://quaternius.com" target="_blank" rel="noopener">Quaternius</a>, ' +
-        'as are the bus and the bicycle; the cars, the boats, the plants, the rocks and the houses and streets of the towns are ' +
-        '<a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>’s; more trees from ' +
-        '<a href="https://www.kaylousberg.com" target="_blank" rel="noopener">KayKit</a>, and the wooden church by CreativeTrio. ' +
-        'The footsteps, the interface and the jingles are Kenney’s too. All of them CC0.</p>' +
-        '<p>The land, the sea, the sky, the flags, the landmarks and every other building are drawn in code, ' +
-        'and so are the wind, the sea and the engines you hear.</p>',
-    }),
-  ];
-  for (const section of sections) if (section !== null) generalPage.append(section);
+  );
+  tabs.get('sound')!.hidden = sound === undefined && music === undefined;
 
-  controlsPage.append(
-    h(
-      'section',
-      { class: 'atlas-settings-section' },
-      h('div', { class: 'ui-eyebrow', text: 'Mouse and hints' }),
-      row('Mouse sensitivity', 'How far the camera turns for a move of the mouse.', sensitivity.value, sensitivity.slider),
-      row(
-        'Key hints',
-        "A vehicle's keys for a moment as you take it, and the climb and the descent the first time you fly.",
-        hints.element,
-      ),
+  fill(
+    'controls',
+    section(
+      'Mouse and hints',
+      row('Mouse sensitivity', 'How far the camera turns for a move of the mouse.', sensitivity.value, sensitivity.input),
+      row('Key hints', "A vehicle's keys for a moment as you take it, and the climb and descent the first time you fly.", hints.element),
     ),
     bindList,
     h('div', { class: 'atlas-settings-foot' }, bindStatus, resetButton),
   );
-  panel.append(generalPage, controlsPage);
+
+  /** A button out to a page of the people who made it, opened beside the world. */
+  const out = (href: string, text: string): HTMLElement =>
+    h('a', { class: 'ui-btn small', href, target: '_blank', rel: 'noopener' }, icon('link', 16), text);
+
+  fill(
+    'credits',
+    section(
+      'Made by',
+      h(
+        'div',
+        { class: 'atlas-settings-links' },
+        out('https://github.com/andreumassanet/atlas', 'Source code'),
+        out('https://github.com/andreumassanet', 'Andreu Massanet'),
+        out('https://github.com/diegoMalagrida', 'Diego Malagrida'),
+      ),
+    ),
+    // Who made what, as their LICENSE.txt files in `public/` credit them.
+    // GeoNames is CC BY 4.0, which asks for the name and the licence, and the
+    // CDS asks for the catalogue's credit; the
+    // rest is CC0 and credited because it is owed, not because it is asked.
+    section(
+      'Made with',
+      h('dl', {
+        class: 'atlas-settings-credit',
+        html:
+          `<dt>Map data</dt><dd>${link('https://www.naturalearthdata.com/', 'Natural Earth')} · ` +
+          `${link('https://www.geonames.org/', 'GeoNames')} (${link('https://creativecommons.org/licenses/by/4.0/', 'CC&nbsp;BY&nbsp;4.0')})</dd>` +
+          `<dt>Stars</dt><dd>${link('https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50', 'Bright Star Catalogue')} ` +
+          `(Hoffleit &amp; Warren 1991, NASA ADC), distributed by the ${link('https://cds.unistra.fr/', 'CDS')}, Strasbourg</dd>` +
+          `<dt>Models</dt><dd>${link('https://quaternius.com', 'Quaternius')}, ${link('https://kenney.nl', 'Kenney')}, ` +
+          `${link('https://www.kaylousberg.com', 'KayKit')}, CreativeTrio (CC0)</dd>` +
+          `<dt>Sounds</dt><dd>${link('https://kenney.nl', 'Kenney')} (CC0)</dd>` +
+          '<dt>The rest</dt><dd>Drawn and synthesised in code</dd>',
+      }),
+    ),
+  );
+  turnTo('graphics');
+
+  // What names a key, written again when `controls.ts` learns the layout or a
+  // key is rebound.
+  function relabel(): void {
+    detailRow.bubble.textContent = `How far towns, trees, traffic and animals are built around you. Turn it down if the frame rate drops. Also ${labelOf('nearer')} and ${labelOf('farther')}.`;
+    flagsRow.bubble.textContent = `Each country's colour, its frontiers and its name fade in as you climb. Also ${labelOf('flags')}.`;
+    close.title = `Close (${labelOf('settings')} or ${labelOf('release')})`;
+    close.setAttribute('aria-keyshortcuts', `${labelOf('settings')} Escape`);
+    renderBinds();
+  }
+  relabel();
+  unregister.push(onKeyLabels(relabel));
 
   /* --- opening and closing ---------------------------------------------- */
 
@@ -960,15 +1061,15 @@ export function createSettings(options: SettingsOptions): Settings {
     musicVolume?.refresh();
     musicOn?.refresh();
     showTime();
-    showPlayers();
   }
 
-  registerModal(() => showing);
+  unregister.push(registerModal(() => showing));
 
   function show(next?: SettingsPage): void {
     if (next !== undefined) turnTo(next);
     if (showing) return;
     showing = true;
+    say('');
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // Asked for the mouse before `onOpen`, which may close the map — and the
     // map hands the lock back as it closes, which is the next paragraph's
@@ -979,10 +1080,7 @@ export function createSettings(options: SettingsOptions): Settings {
     refresh();
     root.classList.add('on');
     close.focus({ preventScroll: true });
-    clockTimer = window.setInterval(() => {
-      showTime();
-      showPlayers();
-    }, 1000);
+    clockTimer = window.setInterval(() => showTime(), 1000);
   }
 
   // **The panel holds the mouse while it is up.** Something closed as it
@@ -992,11 +1090,11 @@ export function createSettings(options: SettingsOptions): Settings {
   // up is handed straight back.
   document.addEventListener('pointerlockchange', () => {
     if (showing && document.pointerLockElement !== null) document.exitPointerLock();
-  });
+  }, { signal });
 
   function hide(): void {
     if (!showing) return;
-    listen(null);
+    stopListening();
     showing = false;
     window.clearInterval(clockTimer);
     root.classList.remove('on');
@@ -1016,25 +1114,19 @@ export function createSettings(options: SettingsOptions): Settings {
     previousFocus = null;
   }
 
-  close.addEventListener('click', hide);
+  close.addEventListener('click', hide, { signal });
   // A click on the dimmed backdrop closes it, a click on the card does not.
   root.addEventListener('pointerdown', (event) => {
     if (event.target === root) hide();
-  });
+  }, { signal });
   // The world's keys are the world's only while the panel is down — `B` and
   // the brackets used to work over it and the rows followed them, but so did
   // `Tab`, the arrows and `Space`, behind a card the player was reading.
-  // Everything a key did here is a control on the card.
-  //
-  // A key button that is listening takes the next key whatever it is, `Tab`
-  // included; and the card's own key closes it, except from the name field,
-  // where it is a letter.
+  // Everything a key did here is a control on the card. A cap that is waiting
+  // for its key never lets one through to here (`captureKey`); and the card's
+  // own key closes it, except from a text field, where it is a letter.
   addEventListener('keydown', (event) => {
-    if (!showing) return;
-    if (listening !== null) {
-      capture(event);
-      return;
-    }
+    if (!showing || listening !== null) return;
     if (event.code === 'Escape') {
       event.preventDefault();
       hide();
@@ -1048,23 +1140,17 @@ export function createSettings(options: SettingsOptions): Settings {
       return;
     }
     holdFocus(event, panel);
-  });
-
-  addEventListener('keyup', (event) => {
-    if (event.code !== captured) return;
-    captured = '';
-    event.preventDefault();
-  });
+  }, { signal });
 
   // And the card's key opens it, whenever the keys are the world's. Added
   // after the listener above, which has already seen this press and found the
   // card shut: the other order opened the card and closed it on one key.
   addEventListener('keydown', (event) => {
-    if (showing || event.repeat || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (options.key === false || showing || event.repeat || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     if (actionOf(event.code) !== 'settings' || inputBlocked(event)) return;
     event.preventDefault();
     show();
-  });
+  }, { signal });
 
   return {
     root,
@@ -1076,6 +1162,13 @@ export function createSettings(options: SettingsOptions): Settings {
     toggle() {
       if (showing) hide();
       else show();
+    },
+    dispose() {
+      hide();
+      window.clearInterval(clockTimer);
+      events.abort();
+      for (const off of unregister.splice(0)) off();
+      root.remove();
     },
   };
 }

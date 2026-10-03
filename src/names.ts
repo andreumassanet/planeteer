@@ -13,7 +13,7 @@ import { FONT, hex } from './ui.ts';
  * and re-lit; a name in front of the world is a `div` with a `transform`, and
  * text in a browser is the one thing that is already hinted, kerned, subpixel-
  * positioned and free. The HUD is already that — `hud.ts`'s chip, the arrival
- * card, the found counter — so this is the same trick one layer down, at the
+ * card, the landmark card — so this is the same trick one layer down, at the
  * screen position a projection hands back.
  *
  * What it is *not* is a label engine. Four rules and they are all cheap:
@@ -64,7 +64,7 @@ const HERE_SCALE = 1.22;
  * The sides keep a name from straddling an edge; the top and the bottom keep it
  * out of the HUD's own furniture, which is the cheapest way to settle a
  * stacking order between two layers that are both `position: fixed`. The chip
- * and the found card sit in the top 60 pixels, and the controls card and the
+ * and the bar sit in the top 60 pixels, and the controls card and the
  * toast are in the bottom 110 — so a name is never drawn over a card and the
  * cards never have to be lifted above it.
  */
@@ -163,6 +163,8 @@ interface Label {
   span: number;
   /** 1-based country index, so the one under the player can be found. */
   id: number;
+  /** How far from the centre it is drawn: sea level and the ground under it. */
+  radius: number;
 }
 
 /** One label placed this frame, and what it is going to cost in pixels. */
@@ -184,9 +186,24 @@ export interface CountryNames {
   update(fade: number, camera: THREE.PerspectiveCamera, here: number): void;
   /** Names on screen, and how many the frame had to choose from. On `atlas.names`. */
   stats: { drawn: number; candidates: number };
+  /** Takes the layer off the page and lets go of its listener. */
+  dispose(): void;
 }
 
-export function createCountryNames(world: World): CountryNames {
+/**
+ * Another body than Earth: its sea-level radius in units, and how high the
+ * ground stands over it under a label point (a unit vector). Earth's are
+ * `PLANET_RADIUS` and the shelf, `LAND_HEIGHT`, everywhere.
+ */
+export interface NamesOptions {
+  radius?: number;
+  heightAt?(unit: THREE.Vector3): number;
+}
+
+export function createCountryNames(world: World, options: NamesOptions = {}): CountryNames {
+  const RADIUS = options.radius ?? PLANET_RADIUS;
+  const UNITS_PER_DEG = options.radius === undefined ? UNITS_PER_DEGREE : (RADIUS * Math.PI) / 180;
+  const abort = new AbortController();
   const root = document.createElement('div');
   root.className = 'atlas-names';
   const style = document.createElement('style');
@@ -205,12 +222,16 @@ export function createCountryNames(world: World): CountryNames {
   world.countries.forEach((country, index) => {
     const size = area.get(index + 1);
     if (size === undefined) return;
+    const unit = onSphere(country.lon, country.lat, new THREE.Vector3());
     labels.push({
       text: country.name.toUpperCase(),
-      point: onSphere(country.lon, country.lat, new THREE.Vector3()),
+      point: unit,
       size: Math.min(FONT_MAX, FONT_MIN + FONT_PER_ROOT * Math.sqrt(size)),
-      span: 2 * Math.sqrt(size / Math.PI) * UNITS_PER_DEGREE,
+      span: 2 * Math.sqrt(size / Math.PI) * UNITS_PER_DEG,
       id: index + 1,
+      // The shelf's own height, not the relief: a label point is a centroid
+      // and 20 units on a 16,000-unit sphere moves it by a tenth of a pixel.
+      radius: RADIUS + (options.heightAt?.(unit) ?? LAND_HEIGHT),
     });
   });
 
@@ -241,7 +262,7 @@ export function createCountryNames(world: World): CountryNames {
    * Spain — the country the player was standing in. A slot is six numbers and
    * there are 239 countries; there is nothing here worth capping.
    */
-  const blank: Label = { text: '', point: new THREE.Vector3(), size: 0, span: 0, id: -1 };
+  const blank: Label = { text: '', point: new THREE.Vector3(), size: 0, span: 0, id: -1, radius: RADIUS };
   const found: Placed[] = [];
   for (let i = 0; i < labels.length; i++) {
     found.push({ label: blank, x: 0, y: 0, size: 0, opacity: 0, width: 0 });
@@ -261,10 +282,14 @@ export function createCountryNames(world: World): CountryNames {
    */
   let width = innerWidth;
   let height = innerHeight;
-  addEventListener('resize', () => {
-    width = innerWidth;
-    height = innerHeight;
-  });
+  addEventListener(
+    'resize',
+    () => {
+      width = innerWidth;
+      height = innerHeight;
+    },
+    { signal: abort.signal },
+  );
 
   /** How many of the pool are visible, so a frame only touches what changed. */
   let shown = 0;
@@ -276,6 +301,10 @@ export function createCountryNames(world: World): CountryNames {
   return {
     root,
     stats,
+    dispose() {
+      abort.abort();
+      root.remove();
+    },
     update(fade: number, camera: THREE.PerspectiveCamera, here: number): void {
       if (fade <= MIN_FADE) {
         hideFrom(0);
@@ -295,7 +324,7 @@ export function createCountryNames(world: World): CountryNames {
       const perUnit = camera.projectionMatrix.elements[5]! * halfH;
       // The horizon, as a cosine: a point is on the near side when its own up
       // and the eye's are within `acos(R / |eye|)` of each other.
-      const cosHorizon = PLANET_RADIUS / eyeLength;
+      const cosHorizon = RADIUS / eyeLength;
       viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
 
       let count = 0;
@@ -303,9 +332,7 @@ export function createCountryNames(world: World): CountryNames {
         const facing = label.point.dot(eye) / eyeLength;
         const over = facing - cosHorizon;
         if (over <= 0) continue;
-        // The shelf's own height, not the relief: a label point is a centroid
-        // and 20 units on a 16,000-unit sphere moves it by a tenth of a pixel.
-        point.copy(label.point).multiplyScalar(PLANET_RADIUS + LAND_HEIGHT);
+        point.copy(label.point).multiplyScalar(label.radius);
         const ax = point.x - eye.x;
         const ay = point.y - eye.y;
         const az = point.z - eye.z;

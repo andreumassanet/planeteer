@@ -386,6 +386,53 @@ console.log('\ndrawn:');
     });
     check(feet > 0 && hanging === 0, 'the bed\'s shoulders reach into the drawn land, never hang over it', `${hanging} of ${feet} feet over it`);
   }
+  // No section of the ballast is left open: at a terminus, at a level
+  // crossing or at the end of a chunk, every edge of the bed that only one of
+  // its triangles has is down in the ground, never up where the eye sees in.
+  {
+    const { BED_COLOURS } = await import('../src/railway.ts');
+    let open = 0;
+    let edges = 0;
+    let termini = 0;
+    const a = new Vector3();
+    const b = new Vector3();
+    railway.group.traverse((part) => {
+      const mesh = part as InstanceType<typeof Mesh>;
+      if (!mesh.isMesh || !mesh.name.startsWith('rail:')) return;
+      const [, line, index] = mesh.name.split(':').map(Number) as [number, number, number];
+      if (index === 0 || (index + 1) * 150 >= network.path(line).length) termini++;
+      const position = mesh.geometry.getAttribute('position');
+      const colour = mesh.geometry.getAttribute('color');
+      const isBed = (k: number): boolean =>
+        BED_COLOURS.some((c) => Math.abs(c.r - colour.getX(k)) + Math.abs(c.g - colour.getY(k)) + Math.abs(c.b - colour.getZ(k)) < 1e-4);
+      const key = (k: number): string => `${position.getX(k)},${position.getY(k)},${position.getZ(k)}`;
+      const count = new Map<string, { n: number; i: number; j: number }>();
+      for (let t = 0; t + 2 < position.count; t += 3) {
+        if (!isBed(t)) continue;
+        for (const [i, j] of [[t, t + 1], [t + 1, t + 2], [t + 2, t]] as const) {
+          const ki = key(i);
+          const kj = key(j);
+          const edge = ki < kj ? `${ki}|${kj}` : `${kj}|${ki}`;
+          const known = count.get(edge);
+          if (known === undefined) count.set(edge, { n: 1, i, j });
+          else known.n++;
+        }
+      }
+      for (const { n, i, j } of count.values()) {
+        if (n !== 1) continue;
+        edges++;
+        a.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+        b.fromBufferAttribute(position, j).applyMatrix4(mesh.matrixWorld);
+        const above = (v: Vector3): boolean => {
+          const radius = v.length();
+          const ground = probe.covers(v.clone().normalize()) ? probe.radiusAt(v.clone().normalize()) : null;
+          return radius > (ground ?? PLANET_RADIUS + world.elevationAt(v.clone().normalize())) + 0.05;
+        };
+        if (above(a) && above(b)) open++;
+      }
+    });
+    check(edges > 0 && termini > 0 && open === 0, 'no section of the ballast is open: a terminus, a crossing and a chunk\'s end are all closed', `${open} open edges of ${edges} free ones, ${termini} chunks at a terminus`);
+  }
   // A train's wheels stand on the rail head: each car's model starts at its holder's floor, and the holder rides the rail head.
   {
     let worstFloor = 0;

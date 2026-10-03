@@ -2,7 +2,9 @@
  * A bench, and sitting on one: how high its seat is, how deep, where the
  * sitter's feet go, and the one model every bench in the world is built from
  * — the countryside's by a road or a lighthouse (`countryside-kit.ts`) and a
- * town's on its pavements (`scenery/parts/street-bench.ts`).
+ * town's on its pavements (`scenery/parts/street-bench.ts`). A station's
+ * bench under its canopy is its own model, sat on by the same numbers
+ * (`railway.ts`, `benchesNear`).
  *
  * **The seat is the clip's, not the other way round.** Sitting is the cast's
  * `Sit` clip (`retarget-clips.ts`), which the library authored on a chair, so

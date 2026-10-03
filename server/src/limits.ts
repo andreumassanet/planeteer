@@ -31,6 +31,54 @@ export const MIN_RADIUS = 15_000;
  */
 export const MAX_RADIUS = PLANET_RADIUS + 2 * (PLANET_RADIUS * 1.45);
 
+// ---------------------------------------------------------------------------
+// The worlds
+// ---------------------------------------------------------------------------
+//
+// One room a world: a traveller on Mars and one on Earth never see each
+// other, and a state is bounded by the shell of the world it was sent on.
+
+/**
+ * Every world the relay keeps a room for, and its walkable radius in units:
+ * `surfaceRadiusOf` in `src/system/contract.ts` — the real radius in km over
+ * `KM_PER_UNIT`, Earth's 6,371 km to its 16,000 units, the same scale on
+ * every world because the traveller is the same size on every world — of
+ * each body's `radiusKm`, rounded. A giant's is its cloud deck, at one bar.
+ * `scripts/check-relay.ts` holds these to the bodies' own files; a world
+ * missing here is a world whose players are refused a room.
+ */
+export const BODY_RADII: Readonly<Record<string, number>> = {
+  earth: PLANET_RADIUS,
+  mercury: 6_127,
+  venus: 15_198,
+  moon: 4_363,
+  mars: 8_512,
+  jupiter: 175_573,
+  saturn: 146_243,
+  uranus: 63_694,
+  neptune: 61_835,
+};
+
+/** A world's id as the relay keeps rooms for it: `'earth'` for none, `''` for one it does not know. */
+export function cleanBody(raw: unknown): string {
+  if (raw === null || raw === undefined || raw === '') return 'earth';
+  return typeof raw === 'string' && Object.hasOwn(BODY_RADII, raw) ? raw : '';
+}
+
+/**
+ * The shell a player or a vehicle can be in on a world: Earth's exactly
+ * `MIN_RADIUS` to `MAX_RADIUS`; on another, the same depth under the surface
+ * in proportion (a tenth of the radius, below any crater or deck the worlds
+ * draw) and over it the larger of Earth's allowance over its own surface
+ * (46,400 units, the plane's ceiling twice) and three tenths of the radius,
+ * which a giant's sky needs.
+ */
+export function shellOf(body: string): { min: number; max: number } {
+  if (body === 'earth') return { min: MIN_RADIUS, max: MAX_RADIUS };
+  const radius = BODY_RADII[body] ?? PLANET_RADIUS;
+  return { min: radius * 0.9, max: radius + Math.max(MAX_RADIUS - PLANET_RADIUS, radius * 0.3) };
+}
+
 /**
  * About twice the fastest thing in the world. The plane at the ceiling, its
  * cruise of 3,400 with the stick and the throttle full on (`fly` in
@@ -135,8 +183,15 @@ export function cleanChat(raw: unknown): string {
 /** The outline code of the country a line was sent from (`Country.iso`), or `''` at sea. */
 export const COUNTRY_PATTERN = /^[A-Z0-9]{2,3}$/;
 
+/**
+ * A nation on another world, as its key is written: `'<body>:<nation>'`
+ * (`keyOf` in `src/system/geography.ts`), `'mars:tharsis'`. Its banner is
+ * the flag a line carries there.
+ */
+export const NATION_PATTERN = /^[a-z]+:[a-z0-9-]{1,32}$/;
+
 export function cleanCountry(raw: unknown): string {
-  return typeof raw === 'string' && COUNTRY_PATTERN.test(raw) ? raw : '';
+  return typeof raw === 'string' && (COUNTRY_PATTERN.test(raw) || NATION_PATTERN.test(raw)) ? raw : '';
 }
 
 /** The gestures a player can make where others see them, as the wire names them. */

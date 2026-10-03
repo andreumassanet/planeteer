@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { DOOR_HEAD, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -25,7 +25,8 @@ import type { ScenicPart } from '../contract.ts';
  *   more ink line along the single most useful edge a small building has;
  * - **windows with frames and panes** instead of a band — a lighter rendered
  *   surround, two slate panes, shutters on about half of them;
- * - a **door with a lintel and a step**, and a **chimney with a cap**.
+ * - a **door set into a frame, over a step**, in a bay of its own, and a
+ *   **chimney with a cap**.
  *
  * Four masses still carry it at the distance it is actually seen (see
  * `LEGIBLE_AT`): the pitch of the roof, the overhang of the eaves, the chimney
@@ -176,21 +177,29 @@ export const gabledHouse: ScenicPart = {
     if (gableToFront) cap.rotation.y = Math.PI / 2;
     group.add(cap);
 
-    // --- the door: a leaf, a lintel over it, a step under it ---
+    // --- the front: two bays, and the door takes one of them ---
+    // The floors above run a pair of windows down the middle of the wall, and
+    // the ground floor keeps the same two bays: a window under one and the
+    // door under the other. Laid out anywhere else, the door, its frame and a
+    // shuttered window shared the wall on every narrow variant and crossed.
     const front = depth / 2;
+    const windowWidth = 1.35;
+    const windowHeight = 1.5;
+    const bay = width / 2.6;
+    const doorSide = rng.sign();
+    const doorX = (doorSide * bay) / 2;
     const doorWidth = 1.45;
-    const doorX = -width * 0.24;
-    const leaf = panes(1, doorWidth, 2.45, 0, woodwork, PROUD * 2);
-    leaf.position.set(doorX, COURSE, front + PROUD);
-    group.add(leaf);
-    // Two `PROUD`s past the leaf rather than one: on the narrowest houses its
-    // end crosses the glass of the ground-floor pair, which is at `PROUD * 3`.
-    const lintel = panes(1, doorWidth + 0.55, 0.26, 0, surround, PROUD * 4);
-    lintel.position.set(doorX, COURSE + 2.45, front + PROUD * 2);
-    group.add(lintel);
-    const step = box(doorWidth + 0.75, COURSE, 0.55, course);
-    step.position.set(doorX, 0, front + 0.27);
-    group.add(step);
+    const doorHeight = 2.45;
+    const door = ctx.door({
+      width: doorWidth,
+      height: doorHeight,
+      leaf: doorPaint(rng, style, wall),
+      frame: surround,
+      sill: COURSE,
+      step: course,
+    });
+    door.position.set(doorX, 0, front);
+    group.add(door);
 
     // --- the windows ---
     // `windows` merges the frames of a row into one mesh and the shutters into
@@ -198,31 +207,29 @@ export const gabledHouse: ScenicPart = {
     // house's rooms one at a time. The back gets a bare pane row: one mesh, one
     // room, four triangles, and nobody stands behind a house.
     const shutters = rng.chance(0.45) ? woodwork : undefined;
-    const windowWidth = 1.35;
-    const windowHeight = 1.5;
     // Which wall the second row of a floor goes on, stepped by floor. A house
     // with all its glazing on the front and the back has two blank flanks, and
     // a street of them is a corridor of blank walls — but a fourth row costs
-    // four triangles the part does not have at 260 of 264. Stepping the one
-    // row it does have round the building is free: a one-storey house shows a
-    // flank or a back, and a three-storey house shows all three.
+    // four triangles on every house in the world, and the worst variant
+    // measured 260 of 264 before the door took a window's bay (2026-09).
+    // Stepping the one row it does have round the building is free: a
+    // one-storey house shows a flank or a back, and a three-storey house
+    // shows all three.
     const firstSide = rng.between(0, 2);
     for (let floor = 0; floor < storeys; floor++) {
       const sill = COURSE + floor * STOREY + STOREY * 0.38;
       const framed = floor < FRAMED_FLOORS;
-      // The ground floor shares its frontage with the door, so its pair sits to
-      // one side; the floors above run the middle of the wall.
-      const count = 2;
+      const ground = floor === 0;
       const row = windows({
-        count,
+        count: ground ? 1 : 2,
         width: windowWidth,
         height: windowHeight,
         frame: surround,
-        spread: width / (count + 0.6),
-        shutters: floor === 0 ? shutters : undefined,
+        spread: bay,
+        shutters: ground ? shutters : undefined,
         reveal: framed ? undefined : 0,
       });
-      row.position.set(floor === 0 ? width * 0.2 : 0, sill, front);
+      row.position.set(ground ? -doorX : 0, sill, front);
       group.add(row);
 
       const side = (firstSide + floor) % 3;
@@ -256,8 +263,9 @@ export const gabledHouse: ScenicPart = {
     } else if (annex === 2) {
       // A porch over the door: two posts and a pent roof. It is the one annex
       // that reads from the front, which is the side a street sees.
+      // Its eaves clear the door's head, which they used to cut across.
       const porchDepth = 1.5;
-      const porchHeight = 2.9;
+      const porchHeight = COURSE + doorHeight + DOOR_HEAD + 0.3;
       const posts = panes(2, 0.24, porchHeight, doorWidth + 0.9, woodwork, 0.24);
       posts.position.set(doorX, 0, front + porchDepth - 0.12);
       group.add(posts);

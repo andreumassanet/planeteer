@@ -65,7 +65,8 @@ export interface Place {
    * GeoNames' own IANA time zone for the row — `America/Edmonton` for Calgary,
    * `Europe/Moscow` for Kazan — which is what the chip's clock reads wherever
    * the nearest built town stands in the country you are standing in; see
-   * `clockAt` in `timezone.ts`.
+   * `clockAt` in `timezone.ts`. Empty on another world, whose clock is its
+   * own body's turning rather than a zone.
    */
   zone: string;
 }
@@ -640,8 +641,12 @@ export async function loadPlaces(
  * built ones were packed apart. A grid would be faster and would also be a
  * second structure to keep in step with the array, for no budget that is under
  * threat.
+ *
+ * `radius` is the body's sea level in units and `radiusKm` its real radius,
+ * which `Nearby.km` is measured on; Earth's when omitted. Another world's
+ * gazetteer is indexed by the same function (`planet.ts`).
  */
-export function indexPlaces(all: readonly Place[], radius: number): Places {
+export function indexPlaces(all: readonly Place[], radius: number, radiusKm = EARTH_KM): Places {
   const unit = new Float64Array(all.length * 3);
   const claim = new Float64Array(all.length);
   const label = new Float64Array(all.length);
@@ -740,7 +745,7 @@ export function indexPlaces(all: readonly Place[], radius: number): Places {
         place: all[found]!,
         index: found,
         units,
-        km: angle * EARTH_KM,
+        km: angle * radiusKm,
         radius: claim[found]!,
         labelRadius: label[found]!,
         inside: units <= claim[found]!,
