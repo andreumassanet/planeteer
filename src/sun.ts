@@ -515,7 +515,7 @@ const MILKY_WAY_GLSL = /* glsl */ `
   vec3 milkyWay(vec3 g) {
     float b = asin(clamp(g.z, -1.0, 1.0)) * 57.29578;
     float l = atan(g.y, g.x) * 57.29578;
-    float toward = 0.5 + 0.5 * g.x / max(length(g.xy), 1e-4);
+    float toward = clamp(0.5 + 0.5 * g.x / max(length(g.xy), 1e-4), 0.0, 1.0);
     float n = valueNoise(g * 7.0) * 0.6 + valueNoise(g * 19.0) * 0.4;
 
     float width = mix(4.0, 7.0, toward * toward) * (0.8 + 0.4 * n);
