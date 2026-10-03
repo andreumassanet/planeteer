@@ -1492,9 +1492,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // The thresholds are Earth's degrees; on a smaller body a degree is
     // fewer kilometres, so its roads come up at the same scale in kilometres.
     const pxPerDegree = ((S / 360) * EARTH_KM) / RADIUS_KM;
-    // Another world's few hundred roads are drawn from further out than
-    // Earth's tens of thousands: the whole network is a handful of lines.
-    const from = options.courses !== undefined ? ROADS_FROM / 4 : ROADS_FROM;
+    // Another world's few hundred roads are drawn at every zoom, as its
+    // minimap draws them: the whole network is a handful of lines. A
+    // threshold in kilometres hid them on the giants, where the sheet opens
+    // seven to twenty times further out than it does on Mars.
+    const from = options.courses !== undefined ? 0 : ROADS_FROM;
     if (pxPerDegree < from || (options.roads === undefined && options.courses === undefined)) return;
     const all = prepareRoads();
     const uLeft = cu - width / 2 / S;
@@ -1503,7 +1505,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const vBottom = cv + height / 2 / S;
     const lanes = pxPerDegree >= LANES_FROM;
     const widthOf = [lanes ? 1.6 : 0, 2.4, 3.4];
-    const zoomGain = Math.min(1.8, Math.max(1, Math.log2(pxPerDegree / from) * 0.35 + 1));
+    // Widening from where another world's roads used to come up, so a far
+    // sheet keeps them hairlines.
+    const gainFrom = options.courses !== undefined ? ROADS_FROM / 4 : ROADS_FROM;
+    const zoomGain = Math.min(1.8, Math.max(1, Math.log2(pxPerDegree / gainFrom) * 0.35 + 1));
     const paths = [new Path2D(), new Path2D(), new Path2D()];
     for (const road of all) {
       if (widthOf[road.cls] === 0) continue;

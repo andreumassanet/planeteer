@@ -128,6 +128,15 @@ const UP = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
 const FORWARD = new THREE.Vector3();
 const WANT = new THREE.Vector3();
+const WAS_FACING = new THREE.Vector3();
+const CROSS = new THREE.Vector3();
+
+/** The angle from `from` to `to` about `about`, positive to the left: Earth's `player.ts` measures the same. */
+function angleAbout(from: THREE.Vector3, to: THREE.Vector3, about: THREE.Vector3): number {
+  CROSS.crossVectors(from, to);
+  return Math.atan2(CROSS.dot(about), from.dot(to));
+}
+
 const basis = new THREE.Matrix4();
 
 /** Points a group's +y along `up` and its +z along `forward` (tangent). Right-handed. */
@@ -144,6 +153,8 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
   const gravity = EARTH_GRAVITY * (world.gravity / EARTH_G);
   const position = new THREE.Vector3(0, world.radius, 0);
   const facing = new THREE.Vector3(0, 0, 1);
+  /** What `avatar.stride` is told on top of the speed; see `MotionCues`. */
+  const cues = { turn: 0, look: 0 };
   const velocity = new THREE.Vector3();
   let vertical = 0;
   let airborne = false;
@@ -344,7 +355,13 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
       // Grip on the ground, a little steering in the air.
       const grip = airborne ? 1.2 : 12;
       velocity.lerp(want, Math.min(1, grip * dt));
+      WAS_FACING.copy(facing);
       if (want.lengthSq() > 0.01) facing.lerp(want.clone().normalize(), Math.min(1, dt * 10)).normalize();
+      // What the body is told on top of its speed, as on Earth: how fast it
+      // turns, and where the camera looks from its facing, which the head and
+      // chest turn towards while it stands.
+      cues.turn = dt > 0 ? angleAbout(WAS_FACING, facing, up) / dt : 0;
+      cues.look = angleAbout(facing, forward, up);
 
       position.addScaledVector(velocity, dt);
       world.collide(position, BODY_RADIUS);
@@ -379,7 +396,7 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
       const horizontal = velocity.length();
       // A gesture is made standing: the first step puts it down.
       if (avatar.emoting !== null && want.lengthSq() > 0.01) avatar.emote(null);
-      avatar.stride(dt, horizontal, airborne);
+      avatar.stride(dt, horizontal, airborne, cues);
       // A heel strike at each half of the cycle; see `Avatar.phase`.
       const stepPhase = avatar.phase;
       if (!airborne && horizontal > WALK_SPEED * 0.3 && (stepPhase < lastStep || (lastStep < 0.5 && stepPhase >= 0.5))) {
