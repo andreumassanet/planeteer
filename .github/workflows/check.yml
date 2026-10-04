@@ -51,6 +51,8 @@ jobs:
         run: pnpm check
       - name: perf
         run: pnpm perf
+      - name: reach
+        run: pnpm reach
       - name: traffic
         run: pnpm traffic
       - name: scenery

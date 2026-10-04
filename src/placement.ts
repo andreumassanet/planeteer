@@ -105,7 +105,7 @@ export async function loadPlacements(url = `${DATA_URL}monuments.json`): Promise
  * contact sheet keeps teaching, and the fix is the same every time: ask each one
  * what it is worth.
  */
-function reachFor(altitude: number): number {
+export function reachFor(altitude: number): number {
   return Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(Math.min(24000, Math.max(1500, horizonAt(altitude, PLANET_RADIUS) * 2))));
 }
 
@@ -723,7 +723,7 @@ export function createMonuments(
         // spire at the top of the frame.
         const bound = footprint + 150;
         if (distance < range && legible && cone.admits(slot.anchor, bound)) {
-          if (slot.object === null && !slot.failed && raised < RAISES_PER_FRAME && frameOpenFor(raised, distance - footprint < NEAR_BUILD)) {
+          if (slot.object === null && !slot.failed && raised < RAISES_PER_FRAME && frameOpenFor(raised, distance - footprint < NEAR_BUILD, 'landmarks')) {
             raise(slot);
             raised++;
           }

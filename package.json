@@ -53,6 +53,7 @@
     "chat": "node scripts/check-chat.ts",
     "music": "node scripts/check-music.ts",
     "perf": "node scripts/check-perf.ts",
+    "reach": "node scripts/check-reach.ts",
     "ui": "node scripts/check-ui.mjs",
     "shot": "node scripts/check-shot.mjs",
     "graphics": "node scripts/check-graphics.mjs",

@@ -420,14 +420,20 @@ export interface AirSchedule {
    * Every flight up at `seconds` within its kind's `REACH` of `direction`,
    * appended to `out`. The flights are kept by id while they are asked for,
    * so the same flight is the same object from one call to the next.
+   *
+   * With `ahead`, every flight that is up and within reach at any instant of
+   * `[seconds, seconds + ahead]`: the reach is widened by how far the kind
+   * flies in that time, and what departs inside it is offered too. The scan
+   * is held for a wall-clock interval, and under `atlas.sky.setRate` the sky
+   * covers far more than that in it; the draw filters by the live instant.
    */
-  flightsNear(direction: THREE.Vector3, seconds: number, out: Flight[]): Flight[];
+  flightsNear(direction: THREE.Vector3, seconds: number, out: Flight[], ahead?: number): Flight[];
   /** Every hub's destination for its `n`th departure, or -1: for the check. */
   destinationOf(hub: number, n: number): number;
   /** A strip's circuit, or null where the strip has none: for the check. */
   circuitOf(site: FleetSite): Flight | null;
-  /** The flights of the airliners from one hub up at `seconds`: for the check. */
-  airlinersFrom(hub: number, seconds: number, out: Flight[]): Flight[];
+  /** The flights of the airliners from one hub up at `seconds` (or at any instant up to `until`): for the check. */
+  airlinersFrom(hub: number, seconds: number, out: Flight[], until?: number): Flight[];
   /** A balloon town's flight in a slot, or null: for the check. */
   balloonOf(place: number, slot: number): Flight | null;
 }
@@ -528,9 +534,9 @@ export function createAirSchedule(source: AirSource): AirSchedule {
     };
   }
 
-  function airlinersFrom(hub: number, seconds: number, out: Flight[]): Flight[] {
+  function airlinersFrom(hub: number, seconds: number, out: Flight[], until = seconds): Flight[] {
     const phase = phaseOf(hub);
-    const last = Math.floor((seconds - phase) / AIRLINER_EVERY);
+    const last = Math.floor((until - phase) / AIRLINER_EVERY);
     const first = Math.floor((seconds - phase - longest) / AIRLINER_EVERY);
     for (let n = first; n <= last; n++) {
       const id = `airliner:${hub}:${n}`;
@@ -540,7 +546,7 @@ export function createAirSchedule(source: AirSource): AirSchedule {
         grounded.add(id);
         continue;
       }
-      if (seconds >= flight.from && seconds < flight.to) out.push(flight);
+      if (until >= flight.from && seconds < flight.to) out.push(flight);
     }
     return out;
   }
@@ -800,9 +806,11 @@ export function createAirSchedule(source: AirSource): AirSchedule {
 
   const sites: FleetSite[] = [];
   const probe = flyerPose();
-  const near = (flight: Flight, direction: THREE.Vector3, seconds: number): boolean => {
-    flight.pose(seconds, probe);
-    return probe.position.angleTo(direction) * PLANET_RADIUS < REACH[flight.kind];
+  // A flight not yet up is asked where it will start; the widened reach
+  // covers wherever it gets to by the end of the window.
+  const near = (flight: Flight, direction: THREE.Vector3, seconds: number, ahead: number): boolean => {
+    flight.pose(Math.min(flight.to, Math.max(flight.from, seconds)), probe);
+    return probe.position.angleTo(direction) * PLANET_RADIUS < REACH[flight.kind] + SPEED_OF[flight.kind] * ahead;
   };
   const within = (p: number, direction: THREE.Vector3, reach: number): boolean =>
     centres[p]!.dot(direction) >= Math.cos(Math.min(Math.PI, reach / PLANET_RADIUS));
@@ -813,13 +821,14 @@ export function createAirSchedule(source: AirSource): AirSchedule {
     airlinersFrom,
     circuitOf: (site) => keep(`circuit:${site.id}`, () => circuit(site)),
     balloonOf: (p, slot) => balloon(p, slot),
-    flightsNear(direction, seconds, out) {
+    flightsNear(direction, seconds, out, ahead = 0) {
       scan++;
+      const until = seconds + ahead;
       const list: Flight[] = [];
       for (const hub of hubs) {
         if (!within(hub, direction, HOP_MAX + REACH.airliner + AIRPORT_OUT + 200)) continue;
         list.length = 0;
-        for (const flight of airlinersFrom(hub, seconds, list)) if (near(flight, direction, seconds)) out.push(flight);
+        for (const flight of airlinersFrom(hub, seconds, list, until)) if (near(flight, direction, seconds, ahead)) out.push(flight);
       }
       if (source.strips !== undefined) {
         sites.length = 0;
@@ -840,29 +849,31 @@ export function createAirSchedule(source: AirSource): AirSchedule {
         }
       }
       const reachBalloon = REACH.balloon + BALLOON_FLIGHT * BALLOON_DRIFT_MAX + 400;
-      const balloonSlot = Math.floor(seconds / BALLOON_SLOT);
       for (const p of balloonTowns) {
         if (!within(p, direction, reachBalloon)) continue;
-        const id = `balloon:${p}:${balloonSlot}`;
-        if (grounded.has(id)) continue;
-        const flight = keep(id, () => balloon(p, balloonSlot));
-        if (flight === null) {
-          grounded.add(id);
-          continue;
+        for (let slot = Math.floor(seconds / BALLOON_SLOT); slot <= Math.floor(until / BALLOON_SLOT); slot++) {
+          const id = `balloon:${p}:${slot}`;
+          if (grounded.has(id)) continue;
+          const flight = keep(id, () => balloon(p, slot));
+          if (flight === null) {
+            grounded.add(id);
+            continue;
+          }
+          if (until >= flight.from && seconds < flight.to && near(flight, direction, seconds, ahead)) out.push(flight);
         }
-        if (seconds >= flight.from && seconds < flight.to && near(flight, direction, seconds)) out.push(flight);
       }
-      const airshipSlot = Math.floor(seconds / AIRSHIP_SLOT);
       for (const p of airshipCities) {
         if (!within(p, direction, REACH.airship + AIRSHIP_RUN + 400)) continue;
-        const id = `airship:${p}:${airshipSlot}`;
-        if (grounded.has(id)) continue;
-        const flight = keep(id, () => airship(p, airshipSlot));
-        if (flight === null) {
-          grounded.add(id);
-          continue;
+        for (let slot = Math.floor(seconds / AIRSHIP_SLOT); slot <= Math.floor(until / AIRSHIP_SLOT); slot++) {
+          const id = `airship:${p}:${slot}`;
+          if (grounded.has(id)) continue;
+          const flight = keep(id, () => airship(p, slot));
+          if (flight === null) {
+            grounded.add(id);
+            continue;
+          }
+          if (until >= flight.from && seconds < flight.to && near(flight, direction, seconds, ahead)) out.push(flight);
         }
-        if (seconds >= flight.from && seconds < flight.to && near(flight, direction, seconds)) out.push(flight);
       }
       // Forget what has not been asked for in a while.
       if (scan % 16 === 0) {
@@ -949,8 +960,26 @@ export interface AirOptions {
 
 const CRAFT_OF: Partial<Record<FlyerKind, string>> = { plane: 'light-plane', helicopter: 'helicopter', balloon: 'balloon' };
 const KIND_OF: Partial<Record<FlyerKind, CraftKind>> = { plane: 'plane', helicopter: 'helicopter', balloon: 'balloon' };
+/**
+ * The timetable is read again every `RESCAN_S` of the machine's clock, not
+ * the sky's: at `setRate(60)` half a sky second passes every frame, and a
+ * rescan held to sky time ran every frame. Each scan looks `ahead` over the
+ * sky time the next interval will cover (the clock's own pace times
+ * `RESCAN_S`, with a margin), so a flight that departs or comes into reach in
+ * between is already a candidate; past `AHEAD_MAX` the window stops growing
+ * and the sky running out of it calls the next scan early instead.
+ */
 const RESCAN_S = 0.5;
 const RESCAN_MOVE = 250;
+const AHEAD_MAX = 60;
+/** How far each kind can get in a second, which widens a scan's reach by its window. */
+const SPEED_OF: Readonly<Record<FlyerKind, number>> = {
+  airliner: AIRLINER_SPEED,
+  plane: CIRCUIT_SPEED,
+  helicopter: HELI_SPEED,
+  balloon: BALLOON_DRIFT_MAX,
+  airship: AIRSHIP_SPEED,
+};
 
 interface Drawn {
   flight: Flight;
@@ -1085,6 +1114,10 @@ export function createAirTraffic(options: AirOptions): AirTraffic {
 
   let candidates: Flight[] = [];
   let scanAt = -Infinity;
+  /** The sky seconds past `scanAt` the last scan covers, and the wall seconds since it. */
+  let scanAhead = 0;
+  let sinceScan = 0;
+  let lastSeconds = NaN;
   const scanFrom = new THREE.Vector3(Infinity, 0, 0);
   const drawn = new Map<string, Drawn>();
   const eye = new THREE.Vector3();
@@ -1155,9 +1188,22 @@ export function createAirTraffic(options: AirOptions): AirTraffic {
       const { seconds } = frame;
       frame.camera.getWorldPosition(eye);
       direction.copy(frame.player).normalize();
-      if (Math.abs(seconds - scanAt) > RESCAN_S || scanFrom.distanceTo(frame.player) > RESCAN_MOVE) {
-        candidates = schedule.flightsNear(direction, seconds, []);
+      // The sky's pace, in sky seconds a wall second; a clock run backwards
+      // has no window ahead and falls back on a scan each `RESCAN_S` of sky.
+      const pace = frame.dt > 0 && Number.isFinite(lastSeconds) ? (seconds - lastSeconds) / frame.dt : 1;
+      lastSeconds = seconds;
+      sinceScan += frame.dt;
+      if (
+        sinceScan > RESCAN_S ||
+        seconds < scanAt - RESCAN_S ||
+        seconds > scanAt + scanAhead ||
+        scanFrom.distanceTo(frame.player) > RESCAN_MOVE
+      ) {
+        const ahead = Math.min(AHEAD_MAX, Math.max(RESCAN_S, pace * RESCAN_S * 1.5));
+        candidates = schedule.flightsNear(direction, seconds, [], ahead);
         scanAt = seconds;
+        scanAhead = ahead;
+        sinceScan = 0;
         scanFrom.copy(frame.player);
         stats.flights = candidates.length;
       }

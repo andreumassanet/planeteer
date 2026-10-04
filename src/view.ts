@@ -297,10 +297,26 @@ export function horizonAt(altitude: number, planetRadius: number): number {
  * `atlas.detail(3)` is the world this was tuned for. **Since 2026-09-21 it is
  * only where a machine starts**: the automatic knob (`sampleFrame`) moves it
  * from there by what the frames say, and remembers where it got to.
+ *
+ * **v3 since 2026-10-04**, when the haze began to open linearly with the knob
+ * (`detailFog`): a 2 kept from before meant a haze 1.4 times the default's and
+ * means 4 times it now, so every kept value is retired once and a machine
+ * starts again at the default, under the automatic knob.
  */
-const DETAIL_KEY = 'atlas.detail.v2';
+const DETAIL_KEY = 'atlas.detail.v3';
 export const DETAIL_MIN = 0.25;
-export const DETAIL_MAX = 6;
+/**
+ * The top of the knob is where the budgets stop keeping up with the haze.
+ *
+ * With the haze linear the ground inside it goes as the square of the knob,
+ * and so do the triangle budgets, so up to here what is set is what is drawn.
+ * Past it `vegetation.ts`'s `MAX_TRIANGLES` — a memory ceiling, not a frame
+ * one — would bind first and a higher setting would push the haze out over a
+ * wood that had stopped growing: that is a setting that does nothing, so the
+ * slider ends here instead. 3 puts the haze on foot at about 4,600 units, six
+ * times the default's.
+ */
+export const DETAIL_MAX = 3;
 export const DETAIL_DEFAULT = 0.5;
 
 /**
@@ -640,27 +656,159 @@ export const NEAR_BUILD = 600;
 let frameBegan = -1;
 
 /**
+ * Milliseconds the streamers have run past the frame's allowance in frames
+ * that started far work, and not yet paid back; far work waits while there is
+ * any.
+ *
+ * **An allowance checked before a build is overshot by the whole build**, and
+ * from the air every build is far: a town is about ten milliseconds of plots
+ * and buffers on the machine this was measured on, so a share that let one
+ * start whenever it had a moment left put ten into *every* frame of a flight —
+ * 8 to 12 ms a frame of settlements alone, banked round 2,000 units over Paris
+ * (headless, 2026-10-04). The overrun is carried now: what a frame that
+ * started far work spent past `FRAME_BUILD_MS` is owed, a frame that owes
+ * starts no far work, and every frame pays back `FAR_BUILD_MS` of it. Far work
+ * then costs about its share *on average*, which is what the share meant, and
+ * the towns at the horizon arrive at that pace and dissolve in as they always
+ * did. A far build that fits inside the frame — a wood tile, a road — owes
+ * nothing and is not slowed at all, and near work never waits on it: the
+ * ground under the foot is the reason the allowance exists.
+ */
+let farDebt = 0;
+/** Milliseconds `endFrameBuild` measured for the last frame's streamers; negative when it was not called. */
+let lastSpan = -1;
+/** Whether this frame let any far work start. */
+let farStarted = false;
+
+/*
+ * **Far work served in order starves the end of the queue, and in the air all
+ * work is far.** `FIRST_BUILD_MS` lets every streamer start one *near* build
+ * whatever the frame has spent; nothing did the same for far work, and from a
+ * plane there is no near work at all. So the towns, first in the frame's
+ * order, took the far share every frame they had a town pending — which, at
+ * 1,500 units a second with a horizon of thirty thousand, is every frame — and
+ * the roads and the wood behind them never built: banked over France at 2,100
+ * units up, 0 wood tiles standing with 202 to 462 pending and 0 or 1 roads
+ * with 78 to 499 pending, at every detail from 2 to 6, the towns' queue never
+ * empty (headless, 2026-10-04). Raising the knob added towns and nothing else.
+ *
+ * So far work that names itself (`who`) takes turns, in the order it was
+ * refused: while any named streamer is waiting, only the one waiting longest
+ * may start far work, and a streamer served goes to the back of the line the
+ * next time it is refused. And once a frame, whoever's turn it is may start
+ * one far build even when the frame's far share is already spent, as
+ * `FIRST_BUILD_MS` lets near work: the wood is last in the frame's order and
+ * the scans ahead of it alone can spend the share, so without that a turn
+ * would be a turn at a closed door. What it costs is bounded by `farDebt`,
+ * which no forced start escapes. A streamer alone with far work builds as
+ * much of it as the frame allows, as before.
+ */
+/** Named streamers refused far work and not served since, longest waiting first. */
+const farWaiting = new Set<string>();
+/** Whether this frame has already let one far build start past the share. */
+let farForced = false;
+/**
+ * Who asked for far work last frame: a streamer whose queue has emptied stops
+ * asking, and must stop being waited for, or the line would stand still
+ * behind nobody for ever.
+ */
+const farAsked = new Set<string>();
+
+/**
+ * The streamer served far work this frame, and until when a forced start lets
+ * it go on: its next asks are part of the same turn — the wood plans the
+ * country under a tile in steps, each one an ask — and are judged by the
+ * share, or for a forced start by `FAR_FORCED_MS`, the far twin of
+ * `FIRST_BUILD_MS`.
+ */
+let farHolder: string | null = null;
+let farHeldUntil = 0;
+const FAR_FORCED_MS = 1;
+
+/** Whether `who` may start far work now, and the bookkeeping either way. */
+function farTurn(open: boolean, who: string | undefined): boolean {
+  if (who === undefined) {
+    if (open) farStarted = true;
+    return open;
+  }
+  farAsked.add(who);
+  if (who === farHolder) {
+    if (open || performance.now() < farHeldUntil) return true;
+    // Its turn is over: to the back of the line.
+    farHolder = null;
+    farWaiting.add(who);
+    return false;
+  }
+  let turn: string | null = null;
+  for (const waiting of farWaiting) {
+    turn = waiting;
+    break;
+  }
+  if (turn === null || turn === who) {
+    const forced = !open && !farForced && farDebt <= 0;
+    if (open || forced) {
+      farForced ||= forced;
+      farHeldUntil = forced ? performance.now() + FAR_FORCED_MS : 0;
+      farHolder = who;
+      farWaiting.delete(who);
+      farStarted = true;
+      return true;
+    }
+  }
+  farWaiting.add(who);
+  return false;
+}
+
+/**
  * Once a frame, before the first streamer. Without it — a headless check, a
  * review sheet — there is no frame allowance and each streamer is held by
  * its own slice alone, which is what they did before this existed.
  */
 export function beginFrameBuild(): void {
+  // Charged only for a frame that started far work: a frame that overran on
+  // near work alone was already closed to the far, and owes it nothing.
+  if (lastSpan >= 0 && farStarted) farDebt = Math.min(FAR_DEBT_CAP, farDebt + Math.max(0, lastSpan - FRAME_BUILD_MS));
+  farDebt = Math.max(0, farDebt - FAR_BUILD_MS);
+  lastSpan = -1;
+  farStarted = false;
+  farForced = false;
+  farHolder = null;
+  for (const waiting of farWaiting) if (!farAsked.has(waiting)) farWaiting.delete(waiting);
+  farAsked.clear();
   frameBegan = performance.now();
 }
+
+/**
+ * Once a frame, after the last streamer: what the frame's building cost,
+ * which is what the next frame's far allowance is charged with. A caller that
+ * never ends a frame — another world's loop, a sheet — carries no debt.
+ */
+export function endFrameBuild(): void {
+  if (frameBegan >= 0) lastSpan = performance.now() - frameBegan;
+}
+
+/**
+ * The most the far work can owe, in milliseconds: one hitch of a frame is not
+ * a reason to leave the horizon unbuilt for a second.
+ */
+const FAR_DEBT_CAP = 40;
 
 /** Whether the frame has room left for one more build, near or far. */
 export function frameOpen(near: boolean): boolean {
   if (frameBegan < 0) return true;
+  if (!near && farDebt > 0) return false;
   return performance.now() - frameBegan < (near ? FRAME_BUILD_MS : FAR_BUILD_MS);
 }
 
 /**
  * `frameOpen` for work counted per frame rather than timed: the first near
  * item of the frame always goes (`done` is how many this caller has done), for
- * the reason `FIRST_BUILD_MS` gives, and the rest wait for the allowance.
+ * the reason `FIRST_BUILD_MS` gives, and the rest wait for the allowance. Far
+ * work named by `who` takes turns with the other named streamers (`farTurn`).
  */
-export function frameOpenFor(done: number, near: boolean): boolean {
-  return (near && done === 0) || frameOpen(near);
+export function frameOpenFor(done: number, near: boolean, who?: string): boolean {
+  if (near) return done === 0 || frameOpen(true);
+  return farTurn(frameOpen(false), who);
 }
 
 /**
@@ -682,33 +830,46 @@ const FIRST_BUILD_MS = 1;
 /**
  * Whether a streamer may start one more build: inside its own slice (`share`
  * milliseconds since it began, at `began`) and inside the frame's — or, for
- * near work, as its first build of the frame (`FIRST_BUILD_MS`).
+ * near work, as its first build of the frame (`FIRST_BUILD_MS`). Far work
+ * named by `who` takes turns with the other named streamers (`farTurn`).
  */
-export function mayBuild(began: number, share: number, near: boolean): boolean {
+export function mayBuild(began: number, share: number, near: boolean, who?: string): boolean {
   const own = performance.now() - began;
-  return own < share && (frameOpen(near) || (near && own < FIRST_BUILD_MS));
+  if (own >= share) return false;
+  if (near) return frameOpen(true) || own < FIRST_BUILD_MS;
+  return farTurn(frameOpen(false), who);
 }
 
 /**
  * How far the haze should let you see, given how far the streamers now build.
  *
- * **This is the half of the knob that makes the other half visible, and leaving
- * it out was the whole of the first attempt's mistake.** `main.ts` closes the
- * fog at about 1.35 horizons, which on flat ground is 1,430 units; a knob that
- * admits geometry at eight thousand while the haze closes at fourteen hundred
- * spends the frame on a wall. So the fog opens with the knob.
+ * **This is the half of the knob that makes the other half visible.**
+ * `main.ts` closes the fog at about 1.35 horizons; a knob that admits geometry
+ * at eight thousand while the haze closes at fourteen hundred spends the frame
+ * on a wall. So the fog opens with the knob.
  *
- * It opens as the *square root*, not linearly, and that is a judgement rather
- * than an arithmetic: the warm depth haze is half the visual direction this
- * project took from bruno-simon, and a world with the fog pulled to the geometry
- * limit is an airless diagram — every hill equally crisp to the horizon, no
- * sense of distance, and the cel bands flattened by having nothing to recede
- * into. A square root at detail 3 opens the ground horizon from about 1,430 to
- * 2,470 units, which is the furthest it goes before the air stops reading as
- * air. Past that the knob buys reach that the haze keeps softening, which is the
- * right way round.
+ * **Linearly, since 2026-10-04, and anchored at the default.** It opened as the
+ * square root until then — a judgement that a haze pulled out with the
+ * geometry reads as an airless diagram — and the price of that judgement was a
+ * setting that did not look like one: a step of `]` is a quarter more reach
+ * and a ninth more visible distance, so the setting was moved and nothing on
+ * the screen seemed to change, which is what it was reported as. Now the haze
+ * is the reach's: every step is a quarter further, the reach and the haze keep
+ * the proportion they have at `DETAIL_DEFAULT` — the world the haze was tuned
+ * under, which is unchanged, since `SQRT2 * 0.5` is the square root of the
+ * default — and the air still recedes because the haze is still there; it is
+ * only as far as the setting says.
  */
-export const detailFog = (spread: number): number => spread * Math.sqrt(current);
+export const detailFog = (spread: number): number => spread * Math.SQRT1_2 * detailScale();
+
+/**
+ * The knob as a multiple of its default, which is the one curve every world
+ * reads: Earth's haze above, and another world's reach and haze
+ * (`worlds/index.ts`).
+ */
+export function detailScale(): number {
+  return current / DETAIL_DEFAULT;
+}
 
 /**
  * Where the haze closes, in world units along the ground.
@@ -728,6 +889,17 @@ export function fogFar(altitude: number, planetRadius: number): number {
   const horizon = horizonAt(altitude, planetRadius);
   return horizon * detailFog(1.35 + (altitude / planetRadius) * 6) * weatherHazeAt(altitude);
 }
+
+/**
+ * Where the haze closes on foot in clear air at a given setting, in world
+ * units: what the render distance means, for the settings card to say.
+ */
+export function clearHazeAt(value: number, planetRadius: number): number {
+  const knob = clampDetail(value);
+  return horizonAt(FOOT_ALTITUDE, planetRadius) * (1.35 + (FOOT_ALTITUDE / planetRadius) * 6) * Math.SQRT1_2 * (knob / DETAIL_DEFAULT);
+}
+/** The altitude the streamers are handed on foot: `STREAM_FLOOR` in `main.ts`. */
+const FOOT_ALTITUDE = 20;
 
 /**
  * The weather's share of the haze at an altitude: `weatherHaze` on the
@@ -763,4 +935,3 @@ const HAZE_LIFT: [number, number] = [350, 1300];
 export function setWeatherHaze(value: number): void {
   weatherHaze = Math.max(WEATHER_HAZE_MIN, Math.min(1, Number.isFinite(value) ? value : 1));
 }
-

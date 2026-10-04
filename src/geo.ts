@@ -444,6 +444,9 @@ export function worldFromCountries(
    * wins over it whatever the areas say; see `bitten`.
    */
   const resolve = (lat: number, lon: number): LandRing | null => {
+    // A NaN passes every clamp below and indexes no cell: say so, rather than
+    // fail on the grid or answer for a place that is nowhere.
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new RangeError(`countryAt: no position (${lat}, ${lon})`);
     // Exactly +/-90 is degenerate for ray casting: the polar edge of the
     // Antarctic ring lies on that latitude, so no segment ever straddles it.
     const y = Math.min(89.999, Math.max(-89.999, lat));

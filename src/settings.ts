@@ -93,8 +93,14 @@ export interface TimeOfDay {
 }
 
 export interface SettingsOptions {
-  /** How far the world is built: `view.ts`'s knob, 0.25 to 6. */
+  /** How far the world is built: `view.ts`'s knob, `DETAIL_MIN` to `DETAIL_MAX`. */
   detail: Knob;
+  /**
+   * What a value of the knob lets you see, in words a player reads as a
+   * distance ("1.8 km"): shown beside the slider, so a step of it is a number
+   * that changes. Without it the slider says the multiple alone.
+   */
+  detailDistance?: (value: number) => string;
   /**
    * Whether the knob turns itself by the frame rate (`view.ts`'s automatic
    * detail). Moving the slider by hand turns it off, as the keys do.
@@ -161,12 +167,11 @@ export interface Settings {
  * presses of `]` — and the one the world ships at is called what it is.
  */
 function detailWord(value: number): string {
-  if (value < 0.4) return 'Lightest';
-  if (value < 0.75) return 'Light';
-  if (value < 1.5) return 'Balanced';
-  if (value < 3) return 'Far';
-  if (value < 4.5) return 'Very far';
-  return 'Everything';
+  if (value < 0.35) return 'Lightest';
+  if (value < 0.7) return 'Light';
+  if (value < 1.3) return 'Balanced';
+  if (value < 2.2) return 'Far';
+  return 'Farthest';
 }
 
 /**
@@ -839,7 +844,17 @@ export function createSettings(options: SettingsOptions): Settings {
 
   /* --- the general page --------------------------------------------------- */
 
-  const autoDetail = options.autoDetail === undefined ? null : makeSwitch(options.autoDetail, 'Automatic render distance');
+  // The switch says what the knob is doing, and the slider beside it says it
+  // too: turned on, the value reads *auto* and follows the knob as it moves.
+  const autoToggle = options.autoDetail;
+  const autoDetail = autoToggle === undefined ? null : makeSwitch({
+    get: autoToggle.get,
+    set: (on) => {
+      const set = autoToggle.set(on);
+      detail.refresh();
+      return set;
+    },
+  }, 'Automatic render distance');
   const detail = makeSlider(
     {
       ...options.detail,
@@ -852,7 +867,10 @@ export function createSettings(options: SettingsOptions): Settings {
       },
     },
     'Render distance',
-    (v) => [detailWord(v), `${v.toFixed(2)}×`],
+    (v) => [
+      options.detailDistance === undefined ? detailWord(v) : `${detailWord(v)} · ${options.detailDistance(v)}`,
+      `${v.toFixed(2)}×${autoToggle?.get() === true ? ' · auto' : ''}`,
+    ],
   );
   const performance = makeSwitch(options.performance, 'Performance overlay');
   const effects = options.effects === undefined ? null : makeSwitch(options.effects, 'Effects');
@@ -930,7 +948,7 @@ export function createSettings(options: SettingsOptions): Settings {
       h('div', { class: 'atlas-settings-row' }, detailRow.label, h('div', { class: 'atlas-settings-side' }, detail.value, detail.input)),
       autoDetail === null
         ? null
-        : row('Automatic distance', 'Turns the render distance up while frames are to spare and down when they drop. Moving the slider takes over.', autoDetail.element),
+        : row('Automatic distance', 'Turns the render distance up while frames are to spare and down when they drop. Moving the slider, or a render distance key, takes over and turns this off.', autoDetail.element),
       row('Resolution', "Auto is the screen's own sharpness, up to twice the pixels. Balanced stops at one and a half; Fast is the lightest.", resolution.element),
     ),
     section(
@@ -1080,7 +1098,13 @@ export function createSettings(options: SettingsOptions): Settings {
     refresh();
     root.classList.add('on');
     close.focus({ preventScroll: true });
-    clockTimer = window.setInterval(() => showTime(), 1000);
+    clockTimer = window.setInterval(() => {
+      showTime();
+      // The automatic knob moves while the card is up; the slider follows it
+      // rather than showing where it was when the card opened.
+      detail.refresh();
+      autoDetail?.refresh();
+    }, 1000);
   }
 
   // **The panel holds the mouse while it is up.** Something closed as it

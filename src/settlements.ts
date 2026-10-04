@@ -12,7 +12,7 @@ import { shadeByClouds } from './cloud-shade.ts';
 import { leafDepthMaterial, leafMaterial } from './foliage.ts';
 import { CROWN_STRIDE, crownOf, nearArrays, placeCrown } from './scenery/tree-forms.ts';
 import type { LeafArrays } from './scenery/tree-forms.ts';
-import type { MergePiece } from './merge.ts';
+import type { MergePiece, Merged } from './merge.ts';
 import {
   DASH,
   GROUND_LIFT,
@@ -117,6 +117,7 @@ import { LANDMARK_KEEP, planGap, planGapToBox, planShape } from './landmark-grou
 import type { PlanShape } from './landmark-ground.ts';
 import { PARKED_AT_RIDE_SCALE, PARKED_CRAFT, PARKED_SLOT } from './craft/contract.ts';
 import { MACHINE_BED, fleetVariant, paintFor, parkedArrays, parkedModel } from './craft/parked.ts';
+import { glassMaterial } from './craft/build.ts';
 import { VARNISH_GLSL } from './gloss.ts';
 import { BENCH_DEPTH, BENCH_LONGEST, BENCH_SIT_AHEAD } from './bench.ts';
 import type { Bench } from './bench.ts';
@@ -220,12 +221,20 @@ const FIT_SCALE = 0.9;
  * instead of all of them — see `view.ts` — and the pixel test below still throws
  * away every town too small to read long before this does.
  */
-function reachFor(altitude: number): number {
+export function reachFor(altitude: number): number {
   return Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(Math.min(20000, Math.max(1400, horizonAt(altitude, PLANET_RADIUS) * 2))));
 }
 
 function rangeFor(altitude: number): number {
   return slantRange(altitude, reachFor(altitude));
+}
+
+/** Runs a build in steps to its end at once: what every caller but the far job wants. */
+function drain<T>(steps: Generator<void, T, void>): T {
+  for (;;) {
+    const step = steps.next();
+    if (step.done === true) return step.value;
+  }
 }
 
 /**
@@ -352,6 +361,15 @@ const RESCAN_TURN = 8 * (Math.PI / 180);
  * when the range itself has moved.
  */
 const RESCAN_MOVE = 60;
+/**
+ * And a share of the range on top of it, because a step is worth a scan only
+ * against how far the scan reaches. On foot the range is about 1,500 and this
+ * adds 15 units; from the plane's ceiling the range is 20,000 and the plane
+ * flies 1,500 units a second, so 60 alone was a scan of every slot on the
+ * planet every other frame for a horizon that had moved by three tenths of a
+ * percent.
+ */
+const RESCAN_SHARE = 0.01;
 
 /**
  * Milliseconds of building allowed in one frame.
@@ -501,6 +519,29 @@ const BENCH_OFF_LINE = 0.05;
  */
 const PEOPLED_RANK = 12;
 const UNPEOPLE_RANK = 20;
+
+/**
+ * And how near, in world units from the viewer, a town has to be as well as
+ * among the nearest twelve.
+ *
+ * The rank was written on foot, where the twelfth-nearest town is inside the
+ * haze anyway. From the plane it is not: at 2,000 units up every town is at
+ * least 2,000 away, a person 3.8 units tall is under two pixels there, and the
+ * rank still gave the nearest twelve on the screen the City Kits and a crowd —
+ * and, as the frame swept and the twelve changed, built each of them again
+ * both ways. `KEEP_ALL_WITHIN`, the on-foot haze, is where a person stops being
+ * worth a triangle, so it is where a town stops being peopled; the second
+ * number is the hysteresis, as `UNPEOPLE_RANK` is the rank's.
+ */
+const PEOPLED_REACH = KEEP_ALL_WITHIN;
+
+/**
+ * How many far towns the scan wants at once that are not built yet: about a
+ * second of the far builder from the plane, which is as far ahead as wanting
+ * is worth. See `scan`.
+ */
+const FAR_WANTING = 12;
+const UNPEOPLE_REACH = 1.25;
 
 /**
  * How many triangles the near towns may cost over what the same towns would
@@ -734,6 +775,13 @@ interface FlatVariant {
    * the session for one debug call.
    */
   pieceVertices: number[];
+  /**
+   * A parked vehicle's see-through glass, apart from the rest (`parkedArrays`
+   * glazed): the town draws every bay's glass as one mesh of its own in the
+   * glass's material, over a cabin merged with everything else, so a car with
+   * nobody in it reads as empty. Absent for anything without glass.
+   */
+  glass?: Merged;
 }
 
 /**
@@ -1027,6 +1075,11 @@ export interface Settlements {
    * drawn. Idempotent, and nothing when its town is not standing.
    */
   hideParked(id: string): void;
+  /**
+   * Puts a folded car back (`hideParked`): its town is built again, which
+   * leaves out whatever the fleet still has (`setParkedTaken`).
+   */
+  showParked(id: string): void;
   /**
    * The body colour a vehicle a town parks is parked in (`ParkedCar.paint`),
    * by its id alone, whether its town stands or not; null for the craft's own.
@@ -1424,10 +1477,12 @@ export interface BikeSlot {
   forward: THREE.Vector3;
 }
 
-/** A `ParkedCar` and where it is in its town's buffer and walls. */
+/** A `ParkedCar` and where it is in its town's buffer, its glass's and its walls. */
 interface Bay extends ParkedCar {
   start: number;
   count: number;
+  glassStart: number;
+  glassCount: number;
   solid: Solid;
   hidden: boolean;
 }
@@ -1635,6 +1690,55 @@ export function createSettlements(
   }
 
   /**
+   * Every part a town built in `style` can ask `variantOf` for: the four
+   * mixes, and the street furniture every town is lit and seated with.
+   * `styleFor`'s styles are kept, so this is worked out once a style.
+   */
+  const partsOfStyle = new WeakMap<RegionStyle, readonly string[]>();
+  function partsAskedBy(style: RegionStyle): readonly string[] {
+    let found = partsOfStyle.get(style);
+    if (found === undefined) {
+      const ids = new Set<string>();
+      for (const mix of [style.buildings, style.civic, style.trees, style.scatter]) {
+        for (const entry of mix) ids.add(entry.item);
+      }
+      ids.add(LAMP_PART).add(SIGNAL_PART).add(BENCH_PART);
+      found = [...ids];
+      partsOfStyle.set(style, found);
+    }
+    return found;
+  }
+
+  /**
+   * **A region's variants are made a step each before its first far town is
+   * planned** (`stepFar`), so the plan finds them in the cache.
+   *
+   * A variant is made the first time a town asks for it, and the plan asks
+   * from inside its fitting — one cell can try several parts and a variant of
+   * each before one fits — so the first town of a region not yet seen made
+   * several of them inside one step: from the plane, a step of about 46 ms,
+   * one window at 78, at the first town of every new region (2026-10-04). One
+   * variant's build and check is a few milliseconds at most (headless,
+   * 2026-10-04: the dearest a nordic gabled house at 6.6 ms cold, a region's
+   * whole set 9 to 56 ms, `flatten` not included), so each one made is a step
+   * of its own here and the frame's allowance is asked between them; a
+   * variant already made costs nothing, so after the first town of a region
+   * this is a pass over the keys. What is made is what `variantOf` would have
+   * made later, from the same key and the same seed: only when changes,
+   * never what.
+   */
+  function* warmSteps(slot: Slot): Generator<void, void, void> {
+    const style = slot.style;
+    for (const id of partsAskedBy(styleFor(slot))) {
+      for (let index = 0; index < VARIANTS; index++) {
+        if (variants.has(`${id}:${style.id}:${index}`)) continue;
+        variantOf(id, style, index);
+        yield;
+      }
+    }
+  }
+
+  /**
    * A vehicle nobody can take — a lorry, a hand-cart — merged at its
    * **placed** scale, cached per region and variant. What can be taken is
    * parked as its craft (`machineVariant`).
@@ -1702,7 +1806,7 @@ export function createSettlements(
     if (cached !== undefined) return cached;
     let value: FlatVariant | null = null;
     try {
-      const arrays = parkedArrays(model, variant, paint ?? undefined, scale);
+      const arrays = parkedArrays(model, variant, paint ?? undefined, scale, true);
       let minX = Infinity;
       let maxX = -Infinity;
       let minZ = Infinity;
@@ -2415,14 +2519,14 @@ export function createSettlements(
    * All of it is drawn out of the field `buildFloor` makes, and that field is
    * what `floorLiftAt` reads, so the surface a foot finds is this one.
    */
-  function buildGround(
+  function* buildGroundSteps(
     slot: Slot,
     grid: TownGrid,
     band: number,
     urbanity: number,
     litPlots: readonly LitPlot[],
     pavedCells: ReadonlySet<number>,
-  ): Ground {
+  ): Generator<void, Ground, void> {
     const out: Ground = {
       position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], benches: [], folk: [], kerbs: [], paved: 0, lawn: null, mouths: [],
       terraces: new Map(),
@@ -2480,6 +2584,7 @@ export function createSettlements(
 
     const levels = new Map<number, number>();
     for (let col = 0; col < cells; col++) {
+      yield;
       for (let row = 0; row < cells; row++) {
         const level = terraceAt(col, row);
         if (level !== null) levels.set(cellKey(col, row), level);
@@ -2854,6 +2959,7 @@ export function createSettlements(
     }
 
     for (const [key, level] of levels) {
+      yield;
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const a = cornerAt(col, row);
@@ -3152,6 +3258,7 @@ export function createSettlements(
       piece(from, axis === 0 ? q.z : q.x);
     };
     for (const [key, level] of levels) {
+      yield;
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const a = cornerAt(col, row);
@@ -3214,6 +3321,7 @@ export function createSettlements(
       return found;
     };
     for (const [key, apron] of field.aprons ?? []) {
+      yield;
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const a = cornerAt(col, row);
@@ -3405,6 +3513,7 @@ export function createSettlements(
       }
     }
     for (const list of field.flights?.values() ?? []) {
+      yield;
       for (const flight of list) {
         const col = Math.floor(flight.cell / 1024) - 512;
         const row = (flight.cell % 1024) - 512;
@@ -3535,6 +3644,7 @@ export function createSettlements(
     const spot: number[] = [];
     const folkChance = Math.min(0.6, 0.2 + urbanity * 0.55);
     for (const key of levels.keys()) {
+      yield;
       const col = Math.floor(key / 1024) - 512;
       const row = (key % 1024) - 512;
       const x0 = cellCentre(grid, col) - pitch * 0.5;
@@ -3838,7 +3948,7 @@ export function createSettlements(
    * - and the sea and anything steeper than `MAX_SLOPE`, which `raise` asks of
    *   the relief when it seats each one.
    */
-  function countryside(slot: Slot, grid: TownGrid, style: RegionStyle): Placed[] {
+  function* countrysideSteps(slot: Slot, grid: TownGrid, style: RegionStyle): Generator<void, Placed[], void> {
     const out: Placed[] = [];
     const cells = grid.cells;
     const town = (col: number, row: number): boolean => inGrid(grid, col, row) && terraceAt(col, row) !== null;
@@ -3868,9 +3978,12 @@ export function createSettlements(
     const neighbours: { x: number; z: number; radius: number }[] = [];
     if (disc > slot.radius) {
       const cosReach = Math.cos((disc + BIGGEST_SETTLEMENT) / PLANET_RADIUS);
+      // The cone first and `isShown` after it: this is a pass over every slot
+      // on the planet, once a town built, and the dot product is what lets
+      // all but a handful of them go without asking anything else.
       for (const other of slots) {
-        if (other === slot || !isShown(other.place)) continue;
-        if (other.direction.dot(slot.direction) < cosReach) continue;
+        if (other === slot || other.direction.dot(slot.direction) < cosReach) continue;
+        if (!isShown(other.place)) continue;
         neighbours.push({ x: other.direction.dot(across) * PLANET_RADIUS, z: other.direction.dot(north) * PLANET_RADIUS, radius: other.radius });
       }
     }
@@ -3893,6 +4006,7 @@ export function createSettlements(
     };
     const clear = (x: number, z: number): boolean => fromTown(x, z) >= grid.pitch * SLOPE_CLEAR;
     for (let col = -COUNTRY_RING; col < cells + COUNTRY_RING; col++) {
+      yield;
       for (let row = -COUNTRY_RING; row < cells + COUNTRY_RING; row++) {
         if (town(col, row)) continue;
         // A cell of the edge slope takes nothing on its inner half, where the
@@ -3946,6 +4060,11 @@ export function createSettlements(
   }
 
   function planTown(slot: Slot, grid: TownGrid): { placed: Placed[] } {
+    yieldFarJob();
+    return drain(planTownSteps(slot, grid));
+  }
+
+  function* planTownSteps(slot: Slot, grid: TownGrid): Generator<void, { placed: Placed[] }, void> {
     const style = styleFor(slot);
     const urbanity = urbanityOf(slot.place.pop);
     const band = streetBand(grid, slot.ground.street);
@@ -4179,6 +4298,7 @@ export function createSettlements(
       Math.hypot(cellCentre(grid, a[0]), cellCentre(grid, a[1])) - Math.hypot(cellCentre(grid, b[0]), cellCentre(grid, b[1]))
       || a[0] - b[0] || a[1] - b[1]);
     for (const [col, row] of order) {
+      yield;
       if (isAvenue(grid, col, row) || taken.has(cellKey(col, row))) continue;
       // A cell the ground refuses is not paved, so nothing stands on it.
       if (terraceAt(col, row) === null) continue;
@@ -4249,11 +4369,24 @@ export function createSettlements(
         plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: room, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
       });
     }
-    placed.push(...countryside(slot, grid, style));
+    placed.push(...(yield* countrysideSteps(slot, grid, style)));
     return { placed };
   }
 
   function raise(slot: Slot): void {
+    yieldFarJob();
+    drain(raiseSteps(slot));
+  }
+
+  /**
+   * `raise` in steps: it yields between the cells it plans, the plots it
+   * stands, the courses of floor it lays and the parts it merges, so a caller
+   * can stop between any two and come back next frame (`farJob`). Everything
+   * it touches between two steps is its own — the slot, the town frame and
+   * the terraces it shares with no one while it runs — which is why only one
+   * runs at a time and anything else that builds a town ends it first.
+   */
+  function* raiseSteps(slot: Slot): Generator<void, void, void> {
     if (slot.mesh !== null || slot.failed) return;
     slot.builtPeopled = slot.peopled;
     slot.stale = false;
@@ -4290,6 +4423,7 @@ export function createSettlements(
     // across its width. `cellLevel` is the one definition, and `roads.ts` asks
     // it the same question about the gate cells through `gateLevel`.
     for (const [key, level] of townTerraces(grid, townGround, heldGates(slot.place))) terraces.set(key, level);
+    yield;
     // And the cells the town stops short of its square in, which are not paved
     // either: taken out after the levels, so a street's cells keep the level
     // their whole group was cut to. The streets the roads come in by and the
@@ -4304,6 +4438,7 @@ export function createSettlements(
       }
     }
     const half = grid.pitch * 0.5;
+    yield;
     const outskirts = outskirtsOf(grid, slot.seed, (col, row) => kept.has(cellKey(col, row)) || keepouts.some((keepout) => {
       const cx = cellCentre(grid, col);
       const cz = cellCentre(grid, row);
@@ -4338,7 +4473,8 @@ export function createSettlements(
       }
     }
 
-    const placed = planTown(slot, grid).placed;
+    yield;
+    const placed = (yield* planTownSteps(slot, grid)).placed;
 
     // Two passes. The first works out the ground under every plot and throws
     // away the ones in the water or on a cliff; only then is the buffer sized,
@@ -4406,6 +4542,7 @@ export function createSettlements(
     const bakedParts = new Set(Object.values(styleFor(slot).assets ?? {}));
 
     for (const entry of placed) {
+      yield;
       const flat = variantOf(entry.partId, slot.style, entry.variant);
       if (flat === null) continue;
 
@@ -4637,7 +4774,7 @@ export function createSettlements(
     // doubled that for every settlement resident. It also gets the town's own
     // frustum culling and its own bounding sphere for free.
     const band = streetBand(grid, slot.ground.street);
-    const ground = buildGround(slot, grid, band, urbanityOf(slot.place.pop), litPlots, pavedCells);
+    const ground = yield* buildGroundSteps(slot, grid, band, urbanityOf(slot.place.pop), litPlots, pavedCells);
     slot.paved = ground.paved;
     // The floor, in the frame it was laid in, so a foot can find it. See
     // `Slot.floor` and `madeHeightAt`.
@@ -4863,6 +5000,8 @@ export function createSettlements(
             paint: flat.paint ?? null,
             start: 0,
             count: 0,
+            glassStart: 0,
+            glassCount: 0,
             solid,
             hidden: false,
           };
@@ -5084,6 +5223,8 @@ export function createSettlements(
           paint: null,
           start: 0,
           count: 0,
+          glassStart: 0,
+          glassCount: 0,
           solid,
           hidden: false,
         };
@@ -5130,6 +5271,7 @@ export function createSettlements(
     let cursor = 0;
     let vertex = 0;
     for (const item of standing) {
+      yield;
       const e = item.matrix.elements;
       // Uniform scale, so the normal transform is the rotation and dividing by
       // the scale is the same as normalising. A part may not scale itself —
@@ -5182,6 +5324,7 @@ export function createSettlements(
       }
       vertex += written;
     }
+    yield;
     position.set(ground.position, cursor);
     normal.set(ground.normal, cursor);
     color.set(ground.color, cursor);
@@ -5193,6 +5336,7 @@ export function createSettlements(
     // A pool with no light keeps no hour either (`MACHINE_TEST`).
     for (let i = vertex * 2; i < glow.length; i += 2) if (glow[i] === 0) glow[i + 1] = 0;
 
+    yield;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
@@ -5232,9 +5376,15 @@ export function createSettlements(
       mesh.userData.leaves = leafMesh;
       townCrowns(mesh, cards);
     }
+    const glassMesh = townGlass(standing, slot.place.name);
+    if (glassMesh !== null) {
+      mesh.add(glassMesh);
+      mesh.userData.glass = glassMesh;
+    }
     group.add(mesh);
     fader.in(mesh);
     if (leafMesh !== null) fader.in(leafMesh);
+    if (glassMesh !== null) fader.in(glassMesh);
     // The people into the world's frame, once: the town does not move while
     // it stands, so `folkNear` never has to.
     for (const person of slot.folk) {
@@ -5274,12 +5424,13 @@ export function createSettlements(
     if (slot.bikeSlots.length > 0) rackTowns.add(slot);
 
     slot.mesh = mesh;
-    slot.triangles = (total + leafVertices) / 3;
+    const glassVertices = glassMesh === null ? 0 : glassMesh.geometry.getAttribute('position').count;
+    slot.triangles = (total + leafVertices + glassVertices) / 3;
     slot.parts = standing.length;
     // Three float triples, the two light bytes and the three bytes of the ink's
     // normal: 41 bytes a vertex. It was 36 before the lights and 38 before the
     // painted parts (2026-09-16).
-    slot.bytes = total * (3 * 4 * 3 + 2 + 3) + leafVertices * 26;
+    slot.bytes = total * (3 * 4 * 3 + 2 + 3) + leafVertices * 26 + glassVertices * 36;
   }
 
   /**
@@ -5298,6 +5449,47 @@ export function createSettlements(
     if (crownList.length === 0) return;
     mesh.userData.crowns = Float32Array.from(crownList);
     crowned.add(mesh);
+  }
+
+  /**
+   * Every parked vehicle's see-through glass in a town, as one mesh in the
+   * town's frame in the craft's glass material (`glassMaterial`): position,
+   * normal and colour, each bay's run recorded on it (`Bay.glassStart`) so
+   * `hideParked` folds it with the car. Null for a town with no glazed bay.
+   * One draw call a near town that parks cars, and no ink: a pane has none.
+   */
+  function townGlass(standing: readonly { flat: FlatVariant; matrix: THREE.Matrix4; bay?: Bay }[], name: string): THREE.Mesh | null {
+    let count = 0;
+    for (const item of standing) if (item.bay !== undefined && item.flat.glass !== undefined) count += item.flat.glass.position.length / 3;
+    if (count === 0) return null;
+    const position = new Float32Array(count * 3);
+    const normal = new Float32Array(count * 3);
+    const color = new Float32Array(count * 3);
+    const at = new THREE.Vector3();
+    const normalMatrix = new THREE.Matrix3();
+    let v = 0;
+    for (const item of standing) {
+      const glass = item.flat.glass;
+      if (item.bay === undefined || glass === undefined) continue;
+      normalMatrix.getNormalMatrix(item.matrix);
+      item.bay.glassStart = v;
+      item.bay.glassCount = glass.position.length / 3;
+      for (let i = 0; i < glass.position.length; i += 3, v++) {
+        at.fromArray(glass.position, i).applyMatrix4(item.matrix).toArray(position, v * 3);
+        at.fromArray(glass.normal, i).applyMatrix3(normalMatrix).normalize().toArray(normal, v * 3);
+      }
+      color.set(glass.color, item.bay.glassStart * 3);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, glassMaterial());
+    mesh.name = `town-glass:${name}`;
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   /**
@@ -5368,13 +5560,13 @@ export function createSettlements(
       mesh.geometry.dispose();
     };
     crowned.delete(mesh);
-    // Its leaves, a child, go with it on the same clock.
-    const leafMesh = mesh.userData.leaves as THREE.Mesh | undefined;
-    if (leafMesh !== undefined) {
+    // Its leaves and its parked cars' glass, children, go with it on the same clock.
+    for (const child of [mesh.userData.leaves, mesh.userData.glass] as (THREE.Mesh | undefined)[]) {
+      if (child === undefined) continue;
       if (instant) {
-        fader.cancel(leafMesh);
-        leafMesh.geometry.dispose();
-      } else fader.out(leafMesh, () => leafMesh.geometry.dispose());
+        fader.cancel(child);
+        child.geometry.dispose();
+      } else fader.out(child, () => child.geometry.dispose());
     }
     if (instant) {
       fader.cancel(mesh);
@@ -5426,8 +5618,20 @@ export function createSettlements(
       raise(slot);
       return;
     }
-    // What the old town published goes now, and the new one publishes its
-    // own; `noteFloor` first, because it reads the floor it is noting.
+    letGoOf(slot);
+    raise(slot);
+    // Out as the new one comes in, on complementary pixels: a cross-dissolve.
+    retireMesh(old, false);
+    settleRebuilt(slot);
+  }
+
+  /**
+   * What a standing town published goes, ahead of building it again, and the
+   * new one publishes its own; its mesh is left to the caller, standing until
+   * the new one does. `noteFloor` first, because it reads the floor it is
+   * noting.
+   */
+  function letGoOf(slot: Slot): void {
     if (slot.floor !== null) noteFloor(slot);
     slot.floor = null;
     floors.delete(slot);
@@ -5442,9 +5646,10 @@ export function createSettlements(
     slot.bikeSlots = [];
     rackTowns.delete(slot);
     slot.mesh = null;
-    raise(slot);
-    // Out as the new one comes in, on complementary pixels: a cross-dissolve.
-    retireMesh(old, false);
+  }
+
+  /** After a town was built again: if it would not build, nothing stands here, as after `drop`. */
+  function settleRebuilt(slot: Slot): void {
     if (slot.mesh === null) {
       // It would not build again: nothing stands here now, as after `drop`.
       slot.triangles = 0;
@@ -5764,6 +5969,95 @@ export function createSettlements(
   /** Indices of what should be standing, nearest first. Rebuilt on movement. */
   let wanted: number[] = [];
   let queue: number[] = [];
+
+  /**
+   * **A far town is built over as many frames as it takes**, a step at a time
+   * (`raiseSteps`), asking the frame's allowance between steps.
+   *
+   * A town was built whole inside one frame, and the allowance was asked only
+   * before it began: the biggest cities are 70 to 110 ms of plots, floor and
+   * merge on the machine this was measured on, so from the plane, where every
+   * town is far and the big ones are what you see, one of them arriving was
+   * a frame that long (headless, 2026-10-04) — the hitch felt as lag. Now a
+   * frame pays its far share and one step past it, and the dearest step
+   * measured was about 6 ms, the setting-up before a big city's first cell.
+   * Nothing new is drawn until the last step stands the town, which dissolves
+   * in as before; a town built again keeps its old mesh drawn until then and
+   * the two cross-dissolve, as `rebuild` does. A near town is still built
+   * whole, because the ground under a foot is worth the frame.
+   */
+  let farJob: { slot: Slot; steps: Generator<void, void, void>; old: THREE.Mesh | null } | null = null;
+
+  /** A far town's steps: its region's variants first (`warmSteps`), then the town. */
+  function* farSteps(slot: Slot): Generator<void, void, void> {
+    yield* warmSteps(slot);
+    yield* raiseSteps(slot);
+  }
+
+  /**
+   * Steps a far town while `more` allows; true once it stands. Another town's
+   * job is ended first: the steps share the town frame and the terraces.
+   */
+  function stepFar(slot: Slot, more: () => boolean): boolean {
+    if (farJob !== null && farJob.slot !== slot) endFarJob();
+    if (farJob === null) {
+      // A town standing is built again with its old mesh kept drawn until the
+      // last step, as `rebuild` keeps it.
+      const old = slot.mesh;
+      if (old !== null) letGoOf(slot);
+      farJob = { slot, steps: farSteps(slot), old };
+    }
+    const job = farJob;
+    do {
+      if (job.steps.next().done === true) {
+        farJob = null;
+        if (job.old !== null) {
+          // Out as the new one comes in, on complementary pixels.
+          retireMesh(job.old, false);
+          settleRebuilt(slot);
+        }
+        return true;
+      }
+    } while (more());
+    return false;
+  }
+
+  /**
+   * Abandons the far town under way, if any, and takes back what its steps
+   * published before the end — only the floor is published early. It starts
+   * again from the beginning when it is next wanted.
+   */
+  /**
+   * Makes way for another build: a far town begun from nothing is abandoned
+   * and begun again later, and one being built again is finished now, since
+   * its old mesh may only go when the new one stands.
+   */
+  function yieldFarJob(): void {
+    if (farJob === null) return;
+    if (farJob.old === null) endFarJob();
+    else stepFar(farJob.slot, () => true);
+  }
+
+  function endFarJob(): void {
+    if (farJob === null) return;
+    const slot = farJob.slot;
+    const old = farJob.old;
+    farJob.steps.return(undefined);
+    farJob = null;
+    if (slot.mesh !== null) return;
+    // A town being built again goes out as the town it was: `scan` no longer
+    // wants it, or something else is being built and it will come back.
+    if (old !== null) retireMesh(old, false);
+    slot.stale = false;
+    if (slot.floor !== null) noteFloor(slot);
+    slot.floor = null;
+    floors.delete(slot);
+    slot.folk = [];
+    slot.parked = [];
+    slot.benches = [];
+    slot.bikeSlots = [];
+    slot.paved = 0;
+  }
   const scannedAt = new THREE.Vector3(Infinity, Infinity, Infinity);
   const scannedAxis = new THREE.Vector3(0, 0, 1);
   let scannedRange = -1;
@@ -5775,12 +6069,18 @@ export function createSettlements(
   const cone = createViewCone(keepAllWithin);
   const anchor = new THREE.Vector3();
 
+  /** The standing towns the last scan found out of the frame. */
+  const behindSet = new Set<number>();
+  /** Whether the last scan left far towns unwanted for `FAR_WANTING` alone. */
+  let moreFar = false;
+
   function scan(viewer: THREE.Vector3, range: number): void {
     const keep = range * 1.25;
     const pixelFloor = minPixels();
     const budget = triangleBudget();
     const residentCap = maxResident();
     const candidates: { index: number; distance: number }[] = [];
+    const behind: { index: number; distance: number }[] = [];
     for (let i = 0; i < slots.length; i++) {
       const dx = anchors[i * 3]! - viewer.x;
       const dy = anchors[i * 3 + 1]! - viewer.y;
@@ -5807,21 +6107,36 @@ export function createSettlements(
       // inscribed in it — but a `block` tower is 34 tall and the apron runs a
       // cell past the kerb.
       const bound = slot.radius + 40;
-      const admitted = slot.mesh !== null
+      // A far town half built (`farJob`) is judged as a standing one: turned
+      // from before its last step, it is finished rather than thrown away.
+      const standingNow = slot.mesh !== null || farJob?.slot === slot;
+      const admitted = standingNow
         ? cone.keeps(anchor, bound)
         : cone.admits(anchor, bound);
-      if (!admitted) continue;
-      candidates.push({ index: i, distance });
+      if (admitted) candidates.push({ index: i, distance });
+      // Standing and out of the frame: kept while there is room, never built.
+      else if (standingNow) behind.push({ index: i, distance });
     }
     candidates.sort((a, b) => a.distance - b.distance);
+    behind.sort((a, b) => a.distance - b.distance);
+    behindSet.clear();
+    for (const entry of behind) behindSet.add(entry.index);
 
     // **Who is inhabited is a rank, not a range**, and it is applied here
     // because here is where the sort already exists. Two thresholds rather than
     // one: a town sitting exactly on a single line would be dropped and rebuilt
     // on every scan, and a settlement build is milliseconds.
+    //
+    // **And a reach as well as a rank** (`PEOPLED_REACH`): from the plane the
+    // nearest twelve towns on the screen are thousands of units off, and the
+    // rank alone gave them the City Kits and a crowd nobody could see — then
+    // built them again as the frame swept and the ranks shuffled.
     for (let rank = 0; rank < candidates.length; rank++) {
       const slot = slots[candidates[rank]!.index]!;
-      const want = slot.peopled ? rank < UNPEOPLE_RANK : rank < PEOPLED_RANK;
+      const distance = candidates[rank]!.distance;
+      const want = slot.peopled
+        ? rank < UNPEOPLE_RANK && distance < PEOPLED_REACH * UNPEOPLE_REACH
+        : rank < PEOPLED_RANK && distance < PEOPLED_REACH;
       if (want !== slot.peopled) {
         slot.peopled = want;
         // The parked cars and the kit's buildings are baked into the merged
@@ -5834,8 +6149,32 @@ export function createSettlements(
     wanted = [];
     let triangles = 0;
     let nearExtra = 0;
-    for (const candidate of candidates) {
+    // **What is on the screen first, and then what is standing behind it**,
+    // for as long as the budget and the count have room. A town that left the
+    // frame used to be disposed on the next scan, and in a plane the frame
+    // sweeps: banked round and round over the Ile-de-France at 2,000 units up,
+    // the streamer built 32 towns a second, the same circle of them disposed
+    // and built again on every turn (headless, 2026-10-04). Out of the frame it costs
+    // no draw call — Three culls it — only its buffer, and the budget that
+    // holds the buffers is the one that also says when it must go: a town on
+    // the screen always outranks every town behind, so the frame's own towns
+    // are never refused for one the camera has turned from.
+    //
+    // **And only so many far towns waiting to be built at once**
+    // (`FAR_WANTING`). An unbuilt town is charged its estimate as soon as it
+    // is wanted, and from a plane, where far towns arrive a step at a time,
+    // the wanted list held a hundred of them the builder would reach in
+    // seconds or never: their estimates spent the budget and evicted the
+    // towns already standing behind the camera, so banked over the
+    // Ile-de-France the standing set swung from 31 towns to 5 and back while
+    // nothing was short of room (headless, 2026-10-04). The rest are asked
+    // for again once the queue empties (`moreFar`).
+    const onScreen = candidates.length;
+    let farWanting = 0;
+    moreFar = false;
+    for (let n = 0; n < onScreen + behind.length; n++) {
       if (wanted.length >= residentCap) break;
+      const candidate = n < onScreen ? candidates[n]! : behind[n - onScreen]!;
       const slot = slots[candidate.index]!;
       // A settlement already standing knows what it costs; one that is not is
       // estimated from its plots, so the budget cannot be blown by the first
@@ -5849,15 +6188,25 @@ export function createSettlements(
         cost -= extra;
       }
       if (triangles + cost > budget && wanted.length > 0) continue;
+      if (slot.mesh === null && farJob?.slot !== slot && candidate.distance - slot.radius >= NEAR_BUILD) {
+        if (farWanting >= FAR_WANTING) {
+          moreFar = true;
+          continue;
+        }
+        farWanting++;
+      }
       triangles += cost;
       wanted.push(candidate.index);
     }
 
     const set = new Set(wanted);
+    if (farJob !== null && !set.has(farJob.slot.index)) endFarJob();
     for (let i = 0; i < slots.length; i++) {
-      if (!set.has(i)) drop(slots[i]!);
+      if (slots[i]!.mesh !== null && !set.has(i)) drop(slots[i]!);
     }
-    queue = wanted.filter((index) => slots[index]!.mesh === null || slots[index]!.stale);
+    // Only what is on the screen is built or built again: a town kept behind
+    // the camera keeps the build it has until it comes back into the frame.
+    queue = wanted.filter((index) => slots[index]!.mesh === null || (slots[index]!.stale && !behindSet.has(index)));
   }
 
   /**
@@ -6014,11 +6363,35 @@ export function createSettlements(
       }
       position.addUpdateRange(first, bay.count * 3);
       position.needsUpdate = true;
+      // And its glass, in the town's glass mesh, the same way.
+      const glassMesh = slot.mesh.userData.glass as THREE.Mesh | undefined;
+      if (glassMesh !== undefined && bay.glassCount > 0) {
+        const panes = glassMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const glass = panes.array as Float32Array;
+        const head = bay.glassStart * 3;
+        for (let v = bay.glassStart + 1; v < bay.glassStart + bay.glassCount; v++) {
+          glass[v * 3] = glass[head]!;
+          glass[v * 3 + 1] = glass[head + 1]!;
+          glass[v * 3 + 2] = glass[head + 2]!;
+        }
+        panes.addUpdateRange(head, bay.glassCount * 3);
+        panes.needsUpdate = true;
+      }
       const floor = slot.floor;
       if (floor !== null && floor.solids !== null) {
         const rest = floor.solids.solids.filter((solid) => solid !== bay.solid);
         floor.solids = rest.length > 0 ? solidField(rest) : null;
       }
+    },
+
+    showParked(id) {
+      const parts = id.split(':');
+      const index = Number(parts[1]);
+      const slot = slots[index];
+      if (slot === undefined || slot.mesh === null || slot.stale) return;
+      if (slot.parked.find((entry) => entry.id === id)?.hidden !== true) return;
+      slot.stale = true;
+      if (!queue.includes(index)) queue.push(index);
     },
 
     setParkedTaken(test) {
@@ -6032,11 +6405,12 @@ export function createSettlements(
       stats.reach = Math.round(reachFor(altitude));
       cone.aim(camera);
       if (
-        viewer.distanceToSquared(scannedAt) > RESCAN_MOVE * RESCAN_MOVE ||
+        viewer.distanceToSquared(scannedAt) > (RESCAN_MOVE + scannedRange * RESCAN_SHARE) ** 2 ||
         Math.abs(range - scannedRange) > scannedRange * 0.1 ||
         cone.turnFrom(scannedAxis) > RESCAN_TURN ||
         scannedDetail !== detailVersion() ||
-        scannedProminence !== prominenceVersion()
+        scannedProminence !== prominenceVersion() ||
+        (moreFar && queue.length === 0)
       ) {
         scan(viewer, range);
         scannedAt.copy(viewer);
@@ -6077,22 +6451,34 @@ export function createSettlements(
         const began = performance.now();
         const allowance = detailBuild(BUILD_BUDGET_MS);
         let built = 0;
+        let stepped = false;
         while (queue.length > 0) {
-          const slot = slots[queue[0]!]!;
+          const head = slots[queue[0]!]!;
           // Near first, and out of the whole frame; far only out of its share
           // of it (`view.ts`). The queue is nearest first, so the first far
           // town that does not fit is the last thing this frame would build.
-          const near = slot.anchor.distanceTo(viewer) - slot.radius < NEAR_BUILD;
-          if (!mayBuild(began, allowance, near)) break;
-          queue.shift();
-          if (slot.mesh !== null && !slot.stale) continue;
-          rebuild(slot);
+          const near = head.anchor.distanceTo(viewer) - head.radius < NEAR_BUILD;
+          if (!mayBuild(began, allowance, near, 'towns')) break;
+          // A far town already under way goes on before another is begun.
+          const slot = !near && farJob !== null && queue.includes(farJob.slot.index) ? farJob.slot : head;
+          if (slot.mesh !== null && !slot.stale) {
+            queue.shift();
+            continue;
+          }
+          if (near) {
+            queue.shift();
+            rebuild(slot);
+            built++;
+            continue;
+          }
+          stepped = true;
+          if (!stepFar(slot, () => mayBuild(began, allowance, false, 'towns'))) break;
+          queue.splice(queue.indexOf(slot.index), 1);
           built++;
         }
-        if (built > 0) {
-          stats.lastBuildMs = Number((performance.now() - began).toFixed(2));
-          stats.built += built;
-        }
+        // What this frame's building cost, a far town's steps included.
+        if (built > 0 || stepped) stats.lastBuildMs = Number((performance.now() - began).toFixed(2));
+        stats.built += built;
       }
 
       let resident = 0;

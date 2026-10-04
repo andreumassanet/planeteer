@@ -298,7 +298,7 @@ function visibleTo(level: number): number {
 }
 
 
-function reachFor(altitude: number): number {
+export function reachFor(altitude: number): number {
   // Called rather than hoisted into a constant: `visibleTo` reads
   // `MIN_APPARENT_PIXELS`, which is declared further down this file, and a
   // module-level `const` up here would evaluate it inside its temporal dead
@@ -393,12 +393,16 @@ const MAX_TILES = 80;
  * bytes a triangle the ink's normal made it on 2026-09-17), and because the build
  * queue is nearest-first what the cap drops is the furthest ring.
  *
- * That makes the top of the knob honest rather than a cliff: past about detail
- * 4.5 the vegetation stops reaching further and the rest of the world keeps
- * going, which is a thing you can see happening instead of a tab that dies.
+ * Since 2026-10-04 it is also where the knob stops: 2.7 M is `TRIANGLE_BUDGET`
+ * at `DETAIL_MAX` (3, in `view.ts`), so the cap never binds under the top of
+ * the slider and a setting the wood could not follow is not offered at all
+ * (`pnpm reach` holds the two together). It was 2.6 M while the knob ran to
+ * 6, where past about detail 4.5 the wood stopped reaching further.
  */
-const MAX_TRIANGLES = 2_600_000;
+const MAX_TRIANGLES = 2_700_000;
 const triangleBudget = (): number => Math.min(MAX_TRIANGLES, detailArea(TRIANGLE_BUDGET));
+/** Whether the memory ceiling, rather than the knob, is deciding the budget now. For `pnpm reach`. */
+export const budgetCapped = (): boolean => detailArea(TRIANGLE_BUDGET) > MAX_TRIANGLES;
 const maxTiles = (): number => detailCount(MAX_TILES);
 
 /**
@@ -2518,7 +2522,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
    *
    * So a tile the scan no longer wants **retires** instead: it stays drawn
    * until every wanted tile that covers any of its ground (`overlaps`) is
-   * standing or known barren, and a tile built while a retiring one still
+   * standing, known barren or turned away by the build (`refused`), and a tile built while a retiring one still
    * covers its ground is **staged** — built, counted, not drawn — until then.
    * When the last one arrives, the old go and the new appear in the same
    * frame. A tile leaving the range altogether has nothing to wait for and
@@ -2569,6 +2573,16 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   const solidPush = { x: 0, z: 0 };
   let wantedTiles: Tile[] = [];
   /**
+   * The wanted tiles the build turned away since the last scan: over their
+   * level's `SHARE_OF`, or left in the queue when the cap was reached. None of
+   * them will be built before the scan asks again, so `settle` counts them as
+   * barren — or a coarse tile retiring over one waited on it forever, drawn,
+   * while the finer tiles that replace the rest of its ground stood staged
+   * and hidden. Their squares are bare until the next scan, which is what the
+   * share and the cap decided.
+   */
+  const refused = new Set<string>();
+  /**
    * Near tiles whose fields were laid on the relief because the drawn land
    * could not yet be asked (`countryside-tile.ts`). Once it can, each is built
    * again and swapped for the old one the way a level change is, so a field
@@ -2595,7 +2609,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         let covered = true;
         for (const tile of wantedTiles) {
           if (!overlaps(old, tile)) continue;
-          if (standing.has(tile.key) || barren.has(tile.key)) continue;
+          if (standing.has(tile.key) || barren.has(tile.key) || refused.has(tile.key)) continue;
           covered = false;
           break;
         }
@@ -2671,6 +2685,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       residentByLevel[back.level] = residentByLevel[back.level]! + back.priced;
     }
     wantedTiles = wanted;
+    refused.clear();
     queue = wanted.filter((tile) => !standing.has(tile.key));
   }
 
@@ -3017,15 +3032,18 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       const tile = queue[0]!;
       const near = tile.distance - Math.hypot(tile.halfEast, tile.halfNorth) < NEAR_BUILD;
       if (nearOnly && !near) break;
-      if (!mayBuild(began, allowance, near)) break;
+      if (!mayBuild(began, allowance, near, 'wood')) break;
       // The countryside's plans under it first, over as many frames as they take.
-      if (country !== null && !standing.has(tile.key) && !country.builder.ensure(tile.level, tile.row, tile.column, () => mayBuild(began, allowance, near))) break;
+      if (country !== null && !standing.has(tile.key) && !country.builder.ensure(tile.level, tile.row, tile.column, () => mayBuild(began, allowance, near, 'wood'))) break;
       queue.shift();
       if (standing.has(tile.key)) continue;
       // This level has had its share. The tile is dropped rather than
       // deferred: the queue is nearest first, so what is waiting behind it
       // is the coarser ring that the share exists to protect.
-      if (residentByLevel[tile.level]! >= budget * SHARE_OF[tile.level]!) continue;
+      if (residentByLevel[tile.level]! >= budget * SHARE_OF[tile.level]!) {
+        refused.add(tile.key);
+        continue;
+      }
       const result = raise(tile);
       built++;
       if (result.mesh === null) {
@@ -3058,6 +3076,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       residentByLevel[tile.level] = residentByLevel[tile.level]! + result.priced;
       // The real cap. See `residentTriangles`.
       if (residentTriangles >= budget) {
+        for (const left of queue) refused.add(left.key);
         queue.length = 0;
         break;
       }
@@ -3090,6 +3109,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
         for (const old of retiring.values()) release(old);
         retiring.clear();
         barren.clear();
+        refused.clear();
         rebuildKeepouts();
         country?.planner.reset();
         provisional.clear();
@@ -3127,6 +3147,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
           const tile = wantedTiles.find((wanted) => wanted.key === key);
           if (tile !== undefined && standing.has(key)) {
             retire(key);
+            refused.delete(key);
             queue.unshift(tile);
           }
         }

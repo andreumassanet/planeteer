@@ -109,13 +109,18 @@ const RINGS: Readonly<Record<GrassQuality, readonly Ring[]>> = {
   ],
 };
 
+/** How far each quality's rings reach, units: the furthest ring's radius at `METRE`, worked out once. */
+const RING_REACH = Object.fromEntries(
+  Object.entries(RINGS).map(([quality, rings]) => [quality, Math.max(...rings.map((ring) => ring.radius)) * METRE]),
+) as Readonly<Record<GrassQuality, number>>;
+
 export type GrassQuality = 'low' | 'medium' | 'high';
 
 /**
  * The quality the detail knob (`view.ts`) asks for: the knob starts at 0.5 on
  * every machine and moves itself by the frame rate within [0.25, 2].
  */
-function qualityFor(knob: number): GrassQuality {
+export function qualityFor(knob: number): GrassQuality {
   return knob < 0.4 ? 'low' : knob < 0.9 ? 'medium' : 'high';
 }
 
@@ -1300,7 +1305,7 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
         stats.quality = wanted;
         stats.rings = RINGS[wanted].length;
       }
-      const reach = Math.max(...RINGS[wanted].map((ring) => ring.radius)) * METRE;
+      const reach = RING_REACH[wanted];
 
       frame.camera.getWorldPosition(eye);
       const jumped = eye.distanceTo(lastEye) > JUMP;

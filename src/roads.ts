@@ -2511,12 +2511,12 @@ function bandFor(distance: number): number {
  * `fogFar(altitude)` took the Alps at a camera height of 700 from 510 roads
  * and 10,830 triangles to **1,597 and 29,760**, which is worse than the wash
  * this LOD exists to remove: 912 units up the haze is 6,466 and it was
- * licensing every `road` within four thousand units of the camera. The knob
- * shrinking a reach faster than it shrinks the fog is the documented asymmetry
- * in `view.ts` — reach linearly, fog as the square root — and this is not the
- * file that should be arguing with it.
+ * licensing every `road` within four thousand units of the camera. Since
+ * 2026-10-04 the fog moves linearly with the knob as the class reach does
+ * (`detailFog` in `view.ts`), so the two keep the proportion they have at the
+ * default.
  */
-function classReaches(into: number[]): number[] {
+export function classReaches(into: number[]): number[] {
   for (let i = 0; i < ROAD_CLASSES.length; i++) into[i] = detailReach(ROAD_CLASSES[i]!.reach);
   return into;
 }
@@ -2839,7 +2839,7 @@ const keepAllWithin = (): number => KEEP_ALL_WITHIN;
  * class reach in `ROAD_CLASSES` is what actually binds for everything but a
  * trunk.
  */
-function reachFor(altitude: number): number {
+export function reachFor(altitude: number): number {
   return Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(Math.min(34000, Math.max(2600, horizonAt(altitude, PLANET_RADIUS) * 2))));
 }
 
@@ -3197,7 +3197,12 @@ export function roadsideSite(
       const sB = path.length - s;
       const ground = world.elevationAt(point);
       const centre = needsCentre(ramp, s, sB) ? world.elevationAt(siteCentre.copy(siteAt)) : ground;
-      point.multiplyScalar(PLANET_RADIUS + ground + surfaceLift(ramp, half, s, sB, lateral, ground, centre));
+      // Past the section's foot (or a bridge's girder) `surfaceLift` is
+      // -Infinity, off the road: what is drawn there is the land itself. Scaled
+      // by -Infinity the point was no point at all, and its NaN direction
+      // reached `countryAt` (a rail's probe past a cutting's narrow bank).
+      const lift = surfaceLift(ramp, half, s, sB, lateral, ground, centre);
+      point.multiplyScalar(PLANET_RADIUS + ground + (lift === -Infinity ? 0 : lift));
     },
     groundRadius: (point) => PLANET_RADIUS + Math.max(0, world.elevationAt(siteCentre.copy(point).normalize())),
     floorRadius: (point) => {
@@ -3748,6 +3753,21 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   }
   const ribbons = new Map<number, Ribbon>();
   let ribbonBytes = 0;
+
+  /**
+   * Makes the ribbons a tile's drawn roads need at this band, while `more`
+   * says so; true once every one of them is in the cache.
+   */
+  function warmRibbons(tile: Tile, band: number, more: () => boolean): boolean {
+    let made = false;
+    for (const index of tile.members) {
+      if (roadDrawn[index] === 0 || ribbons.has(index * SPANS.length + band)) continue;
+      if (made && !more()) return false;
+      ribbonOf(index, band);
+      made = true;
+    }
+    return true;
+  }
 
   function ribbonOf(index: number, band: number): Ribbon {
     const key = index * SPANS.length + band;
@@ -4679,9 +4699,22 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
           // its share of it; see `mayBuild` in `view.ts`.
           const head = queue[0]!.tile;
           const near = head.anchor.distanceTo(viewer) - head.bound < NEAR_BUILD;
-          if (!mayBuild(began, detailBuild(BUILD_BUDGET_MS), near)) break;
-          const next = queue.shift()!;
-          if (next.tile.band === next.band && next.tile.sign === next.sign) continue;
+          if (!mayBuild(began, detailBuild(BUILD_BUDGET_MS), near, 'roads')) break;
+          const next = queue[0]!;
+          if (next.tile.band === next.band && next.tile.sign === next.sign) {
+            queue.shift();
+            continue;
+          }
+          // **A tile's ribbons one road at a time, over as many frames as they
+          // take, and the tile only once they are all made.** A far tile is
+          // every drawn road through a few thousand units of ground, and from
+          // the plane a tile of long trunks came to 50 to 120 ms in one frame
+          // (headless, 2026-10-04); the allowance is asked between roads now,
+          // so a frame pays for one ribbon past it at most. The ribbons wait in
+          // the cache `ribbonOf` already keeps, and the old mesh stands until
+          // the new one is raised from them.
+          if (!warmRibbons(next.tile, next.band, () => mayBuild(began, detailBuild(BUILD_BUDGET_MS), near, 'roads'))) break;
+          queue.shift();
           drop(next.tile);
           raise(next.tile, next.band, next.sign);
           built++;

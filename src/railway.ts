@@ -80,6 +80,13 @@ const DRAW_REACH = 2600;
 const STATION_REACH = 1800;
 const TRAIN_REACH = 1600;
 const MAX_TRAINS = 4;
+/**
+ * The scan is spatial — the lines near the eye, their chunks, their stations —
+ * and the trains on those lines are placed from the clock every frame
+ * (`runTrains`), so a jump of the sky's clock needs no rescan. It is held to
+ * the machine's clock: measured in sky seconds it ran every frame at
+ * `setRate(60)`.
+ */
 const RESCAN_S = 0.4;
 const RESCAN_MOVE = 60;
 /** Chunks built a frame at most, nearest first; the first near one always goes. */
@@ -972,7 +979,8 @@ export function createRailway(options: RailwayOptions): Railway {
   const player = new THREE.Vector3();
   const eyeDir = new THREE.Vector3();
   const scanFrom = new THREE.Vector3(Infinity, 0, 0);
-  let scanAt = -Infinity;
+  /** Wall seconds since the last scan. */
+  let sinceScan = Infinity;
   let scanCount = 0;
   let nearLines: number[] = [];
   const frame0 = emptyStation();
@@ -1047,7 +1055,7 @@ export function createRailway(options: RailwayOptions): Railway {
         known.seen = scanCount;
         continue;
       }
-      if (built >= BUILDS_PER_FRAME || !frameOpenFor(built, w.distance < 600)) continue;
+      if (built >= BUILDS_PER_FRAME || !frameOpenFor(built, w.distance < 600, 'railway')) continue;
       const { bed, props } = buildBed(w.line, w.index, w.near);
       group.add(bed);
       if (props !== null) group.add(props);
@@ -1093,6 +1101,7 @@ export function createRailway(options: RailwayOptions): Railway {
 
   const carPoint = new THREE.Vector3();
   const carAhead = new THREE.Vector3();
+  const hornAt = new THREE.Vector3();
   const carBehind = new THREE.Vector3();
   const basis = new THREE.Matrix4();
   const bx = new THREE.Vector3();
@@ -1187,9 +1196,13 @@ export function createRailway(options: RailwayOptions): Railway {
       if (!state.standing && traffic.onHorn !== null) {
         for (const [k, crossing] of crossings(line).entries()) {
           const before = (crossing.s - state.head) * state.direction;
-          if (before > 0 && before < 90 && !train.sounded.has(k)) {
+          // A crossing behind the train is free to sound again: the clock
+          // scrubbed back puts it ahead once more, and it was silent for the
+          // rest of the run.
+          if (before < 0) train.sounded.delete(k);
+          else if (before > 0 && before < 90 && !train.sounded.has(k)) {
             train.sounded.add(k);
-            const near = Math.max(0, 1 - crossing.point.clone().multiplyScalar(PLANET_RADIUS).distanceTo(eye) / 700);
+            const near = Math.max(0, 1 - hornAt.copy(crossing.point).multiplyScalar(PLANET_RADIUS).distanceTo(eye) / 700);
             if (near > 0) traffic.onHorn(near);
           }
         }
@@ -1247,8 +1260,9 @@ export function createRailway(options: RailwayOptions): Railway {
       if (!traffic.enabled) return;
       frame.camera.getWorldPosition(eye);
       player.copy(frame.player);
-      if (Math.abs(frame.seconds - scanAt) > RESCAN_S || scanFrom.distanceTo(eye) > RESCAN_MOVE) {
-        scanAt = frame.seconds;
+      sinceScan += frame.dt;
+      if (sinceScan > RESCAN_S || scanFrom.distanceTo(eye) > RESCAN_MOVE) {
+        sinceScan = 0;
         scanFrom.copy(eye);
         scan(frame.fogFar);
       }

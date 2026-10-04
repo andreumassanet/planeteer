@@ -113,8 +113,8 @@ export interface RoadsideSite {
   top(s: number): number;
   /**
    * The point on the road's drawn surface `lateral` units off the centre line
-   * at `s` (positive is the left of the way from A to B), written into
-   * `point`, with the section's frame at that point: `ahead` along the road
+   * at `s` (positive is the left of the way from A to B) — on the ground
+   * itself where that is past the section's foot — written into `point`, with the section's frame at that point: `ahead` along the road
    * from A to B and `side` to its left, both unit tangents.
    */
   surface(s: number, lateral: number, point: THREE.Vector3, ahead: THREE.Vector3, side: THREE.Vector3): void;
