@@ -33,27 +33,19 @@
  *
  * ## How the ground is painted
  *
- * **In tiles, as a web map is**, 256 pixels square on a pyramid of levels, and
- * painted from the world's own definitions rather than from a picture of it:
- * `groundColorAt` for the colour, which is what the land mesh is painted with,
- * and `reliefAt` for the light. `groundColorAt` costs 40 microseconds a point
- * (a country lookup and the biome's whole classifier), so it is asked on a
- * coarse lattice, one point every `COLOUR_STEP` pixels, and blended; the
- * relief costs one microsecond and is asked for every pixel, because the hill
- * shading is where the detail is. The coast is a mask filled from the outlines
- * — the same rings `countryAt` reads — so the edge of the land is exact at
- * every zoom and the lattice only has to be right about the colour.
- *
- * A tile is a generator that yields every few rows, and `update` runs them
- * inside `TILE_BUDGET_MS` a frame, nearest the middle of the screen first.
- * Until a tile is painted its nearest painted ancestor is drawn scaled up in
- * its place, so zooming in sharpens rather than pops. The world's first level
- * is painted in one go on the first open, so the sheet is never empty.
+ * **From tiles it shares with the disc in the corner** (`map-tiles.ts`):
+ * 256 pixels square on a pyramid of levels, painted from the world's own
+ * definitions rather than from a picture of it — the land's colour and its
+ * stepped hill shade, and from level 5 what stands on it, down to every
+ * building's plan box at level 8 (`map-features.ts`). Until a tile is
+ * painted its nearest painted ancestor is drawn scaled up in its place, so
+ * zooming in sharpens rather than pops; the planet-scale levels come baked
+ * (`public/maps/`), and what was painted once comes back from IndexedDB.
  *
  * **Everything that has to be crisp is drawn over the tiles as vectors**: the
  * coast in ink, the frontiers thinner (`coastEdges` says which edge is which),
- * the roads, the towns as the squares they are built as, the names, the pins,
- * the players and you.
+ * the names, the pins, the pads' rockets, the players and you; the roads and
+ * the towns only at the zooms under the tiles' own (`FEATURES_FROM`).
  *
  * ## What a frame of it costs, and what it no longer does (2026-09-25)
  *
@@ -74,10 +66,10 @@
  *   coast was walked for one bay (2026-09-25). The tile painter fills its land
  *   mask from the same levels.
  * - **Painting yields to the frame.** 10 ms a frame while the sheet is still,
- *   4 while a hand moves it or when the frame came late; a tile composes 32
- *   rows between yields, where it composed all 256 in one; and the world's
- *   first levels and the screenful round you are painted before the sheet is
- *   ever opened, in the frame's far allowance.
+ *   4 while a hand moves it or when the frame came late; a tile is painted in
+ *   steps of a few milliseconds (`map-tiles.ts`); and the screenful round you
+ *   is asked of the paper before the sheet is ever opened, and painted in the
+ *   far share's turn (`'maptiles'`), the planet-scale levels coming baked.
  * - **Painted tiles become `ImageBitmap`s**, and a moving sheet scales them
  *   with the plain filter, the still one with the fine one.
  * - Label widths are measured once per font and name; the tip is filled when
@@ -94,21 +86,31 @@
 import * as THREE from 'three';
 import type { World } from './geo.ts';
 import type { PlanetSurface } from './planet.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, coastEdges, groundColorAt } from './globe.ts';
-import { reliefAt } from './terrain.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE } from './globe.ts';
 import { createFlagCanvas } from './flags.ts';
 import type { Placement } from './placement.ts';
 import { type Place, isShown, radiusOf, rankOf } from './places.ts';
 import { type Road, courseOf, coursePoint, emptyCourse } from './roads.ts';
-import { gatesOf, isAvenue, outskirtsOf, townGrid } from './scenery/grid.ts';
-import { cellKey } from './scenery/ground.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { ensureStyle, FONT, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 import { EARTH_KM, LabelSpace, R2D, TAU, inkedText, traceRocket } from './cartography.ts';
 import { latLonOf, unitAt } from './sphere.ts';
 import { actionOf, inputBlocked, labelOf, onKeyLabels } from './controls.ts';
-import { type SheetRing, ringsForTile, traceOutlines } from './map-outline.ts';
-import { frameOpen } from './view.ts';
+import { type SheetRing, traceOutlines } from './map-outline.ts';
+import {
+  MAX_LEVEL,
+  type MapTile,
+  type MapTiles,
+  SHEET_HEIGHT,
+  TILE,
+  type TileSource,
+  createMapTiles,
+  latOfV,
+  lonOfU,
+  rowsAt,
+  uOf,
+  vOf,
+} from './map-tiles.ts';
 
 export interface WorldMapOptions {
   /** Every placement, the same array the minimap is given. */
@@ -170,6 +172,12 @@ export interface WorldMapOptions {
    * while the sheet is at a street zoom and some are still being worked out.
    */
   pads?: (direction: THREE.Vector3, radius: number, out: MapPad[]) => boolean;
+  /**
+   * The paper, shared with the disc (`map-tiles.ts`); one of its own, the
+   * ground alone, when omitted. A shared one is pumped by its owner while
+   * the sheet is closed; the sheet pumps it while it is open.
+   */
+  tiles?: MapTiles;
 }
 
 /** As much of a `LaunchPad` as the sheet needs. */
@@ -233,56 +241,11 @@ export interface WorldMap {
 // ---------------------------------------------------------------------------
 
 const DEG = Math.PI / 180;
-/** Miller's `y` at a pole: `1.25 ln tan(pi/4 + 0.4 * pi/2)`. */
-const Y_MAX = 1.25 * Math.log(Math.tan(Math.PI / 4 + 0.2 * Math.PI));
-/** The sheet's height when its width is 1. */
-const SHEET_HEIGHT = (2 * Y_MAX) / TAU;
-
-const uOf = (lon: number): number => (lon + 180) / 360;
-const vOf = (lat: number): number =>
-  (Y_MAX - 1.25 * Math.log(Math.tan(Math.PI / 4 + 0.4 * lat * DEG))) / TAU;
-const lonOfU = (u: number): number => {
-  const lon = u * 360 - 180;
-  return lon - 360 * Math.floor((lon + 180) / 360);
-};
-const latOfV = (v: number): number =>
-  (2.5 * Math.atan(Math.exp(0.8 * (Y_MAX - v * TAU))) - 0.625 * Math.PI) * R2D;
 
 // ---------------------------------------------------------------------------
 // Tiles
 // ---------------------------------------------------------------------------
 
-const TILE = 256;
-/** The deepest level: 364 pixels a degree, about 0.8 world units a pixel; a big city fills a third of the screen. */
-const MAX_LEVEL = 9;
-/** Pixels of mask painted round a tile, so the shallows do not stop at its edge. */
-const PAD = 12;
-/** One `groundColorAt` every this many pixels, blended between. */
-const COLOUR_STEP = 16;
-/** One `reliefAt` every this many pixels; the light is blended between. */
-const RELIEF_STEP = 2;
-/**
- * On a world with no sea (`PlanetSurface.sea`), the colour and the relief
- * lattices are finer and coarser: its ground's colour comes in patches the
- * 16-pixel blend smeared into a wash, and its relief costs three or four
- * times Earth's microsecond a point, which at Earth's two pixels kept a
- * screenful of tiles painting for seconds.
- */
-const DRY_COLOUR_STEP = 8;
-const DRY_RELIEF_STEP = 4;
-/**
- * How much of a nation's colour its ground takes on a world with no sea,
- * which has no coast to read a map by: the political colour is the map.
- * The menu's globe tints by 0.7 (`orrery.ts`'s `REGION_TINT`).
- */
-const NATION_TINT = 0.5;
-/** An sRGB byte as a linear value, for the mask's colours. */
-const LINEAR = Float32Array.from({ length: 256 }, (_, i) => {
-  const v = i / 255;
-  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-});
-/** How far the shallows reach off a coast, in tile pixels, as two box passes. */
-const SHALLOW_RADIUS = 5;
 /**
  * The frame's allowance for painting tiles, in milliseconds, while the sheet
  * is still and the frames are keeping time. The world goes on updating under
@@ -296,17 +259,12 @@ const TILE_BUSY_MS = 4;
 const LATE_FRAME_MS = 24;
 /** How long after the last drag or wheel step the sheet counts as moving. */
 const SETTLE_MS = 180;
-/** Rows of a tile composed between yields. */
-const COMPOSE_ROWS = 32;
 /**
- * While the sheet is shut, the tiles it will open on are painted in the
- * world's spare time: this much a frame, and only while the frame's far build
- * allowance (`view.ts`) is not spent. The first open painted the world's first
- * tile in one go and then its screenful at the full allowance, with the
- * parents scaled up in the meantime.
+ * While the sheet is shut, the tiles it will open on are asked for and
+ * painted in the world's spare time — the far share's turn, by whoever owns
+ * the paper — and not in the first seconds, which are the streamers' arrival.
  */
 const WARM_BUDGET_MS = 1.5;
-/** And not in the first seconds, which are the streamers' arrival. */
 const WARM_AFTER_MS = 8000;
 /**
  * How often the screenful round you is asked for again as you travel, at
@@ -314,11 +272,8 @@ const WARM_AFTER_MS = 8000;
  * chasing it would spend the far allowance on tiles nobody opened.
  */
 const WARM_EVERY_MS = 15000;
-/** Tiles held; the first three levels are always kept on top of these. */
-const MAX_TILES = 220;
-/** Levels painted up front and never evicted: 1 + 2 + 6 tiles. */
+/** The first levels, asked for with every warming: 1 + 2 + 6 tiles, baked on Earth. */
 const KEEP_LEVEL = 2;
-
 // ---------------------------------------------------------------------------
 // The sheet
 // ---------------------------------------------------------------------------
@@ -348,10 +303,8 @@ const PICK_RANGE = 16;
 const DOUBLE_MS = 280;
 /** A press that moves further than this is a drag, not a click. */
 const CLICK_SLOP = 5;
-/** A town drawn as its footprint rather than a dot once its square is this many pixels. */
+/** A town left to the paper rather than marked with a dot once its square is this many pixels. */
 const SQUARE_FROM = 7;
-/** Its streets and blocks drawn once a cell is this many pixels. */
-const CELLS_FROM = 4;
 
 /**
  * The smallest population named at a zoom, by pixels per degree. A capital is
@@ -385,6 +338,8 @@ const LANES_FROM = 55;
  * pixel and a half rather than 0.8: the whole planet on one screen.
  */
 const PLANET_ZOOM = 4096;
+/** One `TileSource`, reused: what `drawTiles` draws a tile from. */
+const NO_IMAGE = null as unknown as CanvasImageSource;
 /**
  * How far you may move on the screen before the names are laid out round you
  * again, in pixels. The names keep clear of the arrow; the arrow is drawn over
@@ -526,27 +481,10 @@ const STYLE = `
 }
 `;
 
-interface Tile {
-  z: number;
-  i: number;
-  j: number;
-  /**
-   * The painted tile: the canvas it was painted on, and then, once the
-   * browser has made one, an `ImageBitmap` of it — a picture that cannot
-   * change, which a GPU canvas keeps as a texture instead of taking a fresh
-   * copy of a canvas every time it is drawn.
-   */
-  canvas: HTMLCanvasElement | ImageBitmap | null;
-  job: Generator<undefined, void, unknown> | null;
-  used: number;
-}
-
 interface SheetTown {
   place: Place;
   /** Index into `places`, which is what the roads' ends are. */
   index: number;
-  /** Which cells stand, row-major, once asked: 0 gone to the outskirts, 1 block, 2 street. */
-  cells: Uint8Array | null;
   u: number;
   v: number;
   rank: number;
@@ -593,13 +531,11 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const RADIUS = surface?.radius ?? PLANET_RADIUS;
   const UNITS_PER_DEG = surface === undefined ? UNITS_PER_DEGREE : (surface.radius * Math.PI) / 180;
   const RADIUS_KM = surface?.radiusKm ?? EARTH_KM;
-  const unitScratch = new THREE.Vector3();
-  const colourOf = (point: THREE.Vector3, out: THREE.Color): THREE.Color =>
-    surface === undefined ? groundColorAt(world, point, out) : surface.colorAt(unitScratch.copy(point).normalize(), out);
-  const reliefOf = surface === undefined ? reliefAt : surface.reliefAt;
-  const coastOf = surface === undefined ? coastEdges : surface.coastEdges;
   /** A body with no sea: every ring is land, painted in its nation's colour. */
   const dry = surface !== undefined && !surface.sea;
+  // The paper, shared or the sheet's own.
+  const ownTiles = options.tiles === undefined;
+  const mapTiles = options.tiles ?? createMapTiles({ world, ...(surface === undefined ? {} : { surface }) });
 
   installUi();
   ensureStyle('atlas-map', STYLE);
@@ -688,45 +624,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   function prepareRings(): SheetRing[] {
     if (rings !== null) return rings;
-    // A world with no outlines is a sheet of sea: the UI's own tests open the
-    // map over a stub world, and `coastEdges` has nothing to read there.
     const source = world.rings ?? [];
-    const coast = source.length > 0 ? coastOf(world) : [];
-    rings = source.map((ring, r) => {
-      const n = ring.points.length;
-      const u = new Float32Array(n);
-      const v = new Float32Array(n);
-      const edge = new Uint8Array(n);
-      let u0 = Infinity;
-      let u1 = -Infinity;
-      let v0 = Infinity;
-      let v1 = -Infinity;
-      const flags = coast[r];
-      for (let k = 0; k < n; k++) {
-        const [lon, lat] = ring.points[k]!;
-        u[k] = uOf(lon!);
-        v[k] = vOf(Math.max(-89.999, Math.min(89.999, lat!)));
-        if (u[k]! < u0) u0 = u[k]!;
-        if (u[k]! > u1) u1 = u[k]!;
-        if (v[k]! < v0) v0 = v[k]!;
-        if (v[k]! > v1) v1 = v[k]!;
-      }
-      for (let k = 0; k < n; k++) {
-        const [lonA, latA] = ring.points[k]!;
-        const [lonB, latB] = ring.points[(k + 1) % n]!;
-        // Not an edge of anything: a ring's run along a pole, or the seam
-        // where Natural Earth cut a country at the antimeridian. Drawn, both
-        // are a line across the ice or down the Bering Strait.
-        const seam =
-          (Math.abs(latA!) > 89.9 && Math.abs(latB!) > 89.9) ||
-          (Math.abs(lonA!) > 179.99 && Math.abs(lonB!) > 179.99);
-        // A surface's `coastEdges` may say 2 itself: on a walked world, the
-        // straight cut between two rings of one nation (`worlds/surface.ts`).
-        edge[k] = seam || flags?.[k] === 2 ? 2 : ring.water || (flags?.[k] ?? 0) === 1 ? 1 : 0;
-      }
-      const color = dry ? world.countries[ring.country - 1]?.color : undefined;
-      return { u, v, edge, u0, u1, v0, v1, water: ring.water, levels: [], ...(color === undefined ? {} : { fill: hex(color) }) };
-    });
+    rings = mapTiles.painter.rings();
     // A country's name sits on the label point the bake computed, sized by
     // its biggest ring; a country of many islands is named by its largest.
     for (const [c, country] of world.countries.entries()) {
@@ -760,54 +659,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     towns = [];
     for (const [index, place] of allPlaces.entries()) {
       if (!isShown(place)) continue;
-      towns.push({ place, index, cells: null, u: uOf(place.lon), v: vOf(place.lat), rank: rankOf(place), radius: radiusOf(place) });
+      towns.push({ place, index, u: uOf(place.lon), v: vOf(place.lat), rank: rankOf(place), radius: radiusOf(place) });
     }
     towns.sort((a, b) => b.rank - a.rank);
-  }
-
-  /** Which gates each town's roads come in by, from `roads.bin`. */
-  let roadGates: Map<number, number[]> | null = null;
-
-  /**
-   * A town's plan as `settlements.ts` cuts it: the square, its streets, and
-   * the outskirts given up from the edge in, keeping every street a road comes
-   * in by. The landmarks' own cells are not kept here — the sheet does not know
-   * them — so a town with a landmark at its edge may lose a cell on the map
-   * that it keeps in the world.
-   */
-  function cellsOf(town: SheetTown): Uint8Array {
-    if (town.cells !== null) return town.cells;
-    if (roadGates === null) {
-      roadGates = new Map();
-      for (const road of options.roads ?? []) {
-        for (const [end, gate] of [[road.a, road.gateA], [road.b, road.gateB]] as const) {
-          const list = roadGates.get(end);
-          if (list === undefined) roadGates.set(end, [gate]);
-          else list.push(gate);
-        }
-      }
-    }
-    const grid = townGrid(town.radius);
-    const kept = new Set<number>();
-    const gates = gatesOf(grid);
-    for (const index of roadGates.get(town.index) ?? []) {
-      const gate = gates[index];
-      if (gate === undefined) continue;
-      for (const [col, row] of gate.cells) {
-        for (let c = 0; c < grid.cells; c++) kept.add(gate.outX !== 0 ? cellKey(c, row) : cellKey(col, c));
-      }
-    }
-    const place = town.place;
-    const outskirts = outskirtsOf(grid, `${place.name}@${place.lat},${place.lon}`, (col, row) => kept.has(cellKey(col, row)));
-    const cells = new Uint8Array(grid.cells * grid.cells);
-    for (let row = 0; row < grid.cells; row++) {
-      for (let col = 0; col < grid.cells; col++) {
-        if (outskirts.has(cellKey(col, row))) continue;
-        cells[row * grid.cells + col] = isAvenue(grid, col, row) ? 2 : 1;
-      }
-    }
-    town.cells = cells;
-    return cells;
   }
 
   let sheetRoads: SheetRoad[] | null = null;
@@ -901,363 +755,28 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
 
   // --- tiles -----------------------------------------------------------------
 
-  const tiles = new Map<number, Tile>();
-  const tileKey = (z: number, i: number, j: number): number => z * 4_194_304 + i * 2048 + j;
-  const rowsAt = (z: number): number => Math.ceil(SHEET_HEIGHT * 2 ** z);
-  let useClock = 0;
-  /** The tiles the last draw wanted and did not have, nearest the middle first. */
-  const wanted: Tile[] = [];
-
-  const maskSize = TILE + 2 * PAD;
-  const mask = document.createElement('canvas');
-  mask.width = mask.height = maskSize;
-  const maskCtx = mask.getContext('2d', { willReadFrequently: true })!;
-
-  const colourScratch = new THREE.Color();
-  const pointScratch = new THREE.Vector3();
-  const oceanDeep = new THREE.Color(OCEAN_COLOR);
-  const oceanShallow = new THREE.Color(OCEAN_COLOR).lerp(new THREE.Color(PALETTE.skyBlue), 0.62);
-  const fallbackLand = new THREE.Color(PALETTE.green);
-
-  function tileOf(z: number, i: number, j: number): Tile {
-    const k = tileKey(z, i, j);
-    let tile = tiles.get(k);
-    if (tile === undefined) {
-      tile = { z, i, j, canvas: null, job: null, used: 0 };
-      tile.job = paintTile(tile);
-      tiles.set(k, tile);
-    }
-    tile.used = ++useClock;
-    return tile;
-  }
-
-  /**
-   * One tile, a few rows at a time. The mask and the shallows are one step
-   * each; the colour lattice and the relief yield by the row.
-   */
-  function* paintTile(tile: Tile): Generator<undefined, void, unknown> {
-    const sheetRings = prepareRings();
-    const { z, i, j } = tile;
-    const scaleZ = TILE * 2 ** z;
-    const u0 = i / 2 ** z;
-    const v0 = j / 2 ** z;
-    const M = maskSize;
-    const colourStep = dry ? DRY_COLOUR_STEP : COLOUR_STEP;
-    const reliefStep = dry ? DRY_RELIEF_STEP : RELIEF_STEP;
-
-    // The land, filled from the outlines, and the lakes cut back out of it.
-    // On a world with no sea every ring is filled in its nation's colour
-    // instead, and stroked in it a pixel wide, so the straight cuts between
-    // two rings of one nation leave no hairline of the sheet between them;
-    // the mask is then that nation's tint, and the land is everywhere.
-    maskCtx.setTransform(1, 0, 0, 1, 0, 0);
-    maskCtx.clearRect(0, 0, M, M);
-    const uMin = u0 - PAD / scaleZ;
-    const uMax = u0 + (TILE + PAD) / scaleZ;
-    const vMin = v0 - PAD / scaleZ;
-    const vMax = v0 + (TILE + PAD) / scaleZ;
-    // Each ring thinned to this tile's own zoom (`map-outline.ts`): the
-    // world's first tile is the whole planet 256 pixels across, and it was
-    // filled from all 188,507 points, most of them inside a pixel of the last.
-    for (const pass of [false, true]) {
-      maskCtx.globalCompositeOperation = pass ? 'destination-out' : 'source-over';
-      maskCtx.fillStyle = '#fff';
-      maskCtx.lineWidth = 1.5;
-      maskCtx.lineJoin = 'round';
-      ringsForTile(sheetRings, scaleZ, uMin, uMax, vMin, vMax, pass, (level, wrap, ring) => {
-        if (dry) maskCtx.fillStyle = maskCtx.strokeStyle = ring.fill ?? '#fff';
-        maskCtx.beginPath();
-        const n = level.u.length;
-        for (let k = 0; k < n; k++) {
-          const x = (level.u[k]! + wrap - u0) * scaleZ + PAD;
-          const y = (level.v[k]! - v0) * scaleZ + PAD;
-          if (k === 0) maskCtx.moveTo(x, y);
-          else maskCtx.lineTo(x, y);
-        }
-        maskCtx.closePath();
-        maskCtx.fill();
-        if (dry) maskCtx.stroke();
-      });
-    }
-    maskCtx.globalCompositeOperation = 'source-over';
-    const maskData = maskCtx.getImageData(0, 0, M, M).data;
-    const land = new Float32Array(M * M);
-    let anyLand = false;
-    for (let k = 0; k < M * M; k++) {
-      land[k] = dry ? 1 : maskData[k * 4 + 3]! / 255;
-      if (land[k]! > 0) anyLand = true;
-    }
-    yield;
-
-    // The shallows: the land blurred twice, horizontally then vertically,
-    // read only on the water.
-    const near = new Float32Array(M * M);
-    if (anyLand && !dry) {
-      const row = new Float32Array(M * M);
-      const R = SHALLOW_RADIUS;
-      for (let pass = 0; pass < 2; pass++) {
-        const from = pass === 0 ? land : near;
-        for (let y = 0; y < M; y++) {
-          let sum = 0;
-          for (let x = -R; x <= R; x++) sum += from[y * M + Math.min(M - 1, Math.max(0, x))]!;
-          for (let x = 0; x < M; x++) {
-            row[y * M + x] = sum / (2 * R + 1);
-            sum += from[y * M + Math.min(M - 1, x + R + 1)]! - from[y * M + Math.max(0, x - R)]!;
-          }
-        }
-        for (let x = 0; x < M; x++) {
-          let sum = 0;
-          for (let y = -R; y <= R; y++) sum += row[Math.min(M - 1, Math.max(0, y)) * M + x]!;
-          for (let y = 0; y < M; y++) {
-            near[y * M + x] = sum / (2 * R + 1);
-            sum += row[Math.min(M - 1, y + R + 1) * M + x]! - row[Math.max(0, y - R) * M + x]!;
-          }
-        }
-      }
-    }
-    yield;
-
-    // The colour, on a lattice, wherever there is land within reach of a
-    // lattice point. `groundColorAt` answers over the sea too — a colour for
-    // the ground that is not there — which is what a blend across a coast
-    // wants.
-    const GN = TILE / colourStep + 1;
-    const lattice = new Float32Array(GN * GN * 3);
-    const known = new Uint8Array(GN * GN);
-    if (anyLand) {
-      for (let gy = 0; gy < GN; gy++) {
-        for (let gx = 0; gx < GN; gx++) {
-          const mx = Math.min(M - 1, gx * colourStep + PAD);
-          const my = Math.min(M - 1, gy * colourStep + PAD);
-          if (near[my * M + mx]! <= 0 && land[my * M + mx]! <= 0) continue;
-          const lat = latOfV(v0 + (gy * colourStep) / scaleZ);
-          const lon = lonOfU(u0 + (gx * colourStep) / scaleZ);
-          unitAt(lat, lon, pointScratch).multiplyScalar(RADIUS);
-          colourOf(pointScratch, colourScratch);
-          const g = gy * GN + gx;
-          lattice[g * 3] = colourScratch.r;
-          lattice[g * 3 + 1] = colourScratch.g;
-          lattice[g * 3 + 2] = colourScratch.b;
-          known[g] = 1;
-        }
-        yield;
-      }
-    }
-
-    // The relief, on a lattice of its own a step round the tile so every
-    // point inside has neighbours, and the light worked out on that lattice.
-    // Where the lattice is over water the ground is taken as flat.
-    const RS = reliefStep;
-    const RN = TILE / RS + 3;
-    const relief = new Float32Array(RN * RN);
-    const light = new Float32Array(RN * RN).fill(1);
-    if (anyLand) {
-      for (let ry = 0; ry < RN; ry++) {
-        const py = (ry - 1) * RS;
-        const lat = latOfV(v0 + py / scaleZ);
-        const my = Math.min(M - 1, Math.max(0, py + PAD));
-        for (let rx = 0; rx < RN; rx++) {
-          const px = (rx - 1) * RS;
-          const mx = Math.min(M - 1, Math.max(0, px + PAD));
-          if (land[my * M + mx]! <= 0 && near[my * M + mx]! < 0.02) continue;
-          unitAt(lat, lonOfU(u0 + px / scaleZ), pointScratch);
-          relief[ry * RN + rx] = Math.max(0, reliefOf(pointScratch.x, pointScratch.y, pointScratch.z));
-        }
-        if ((ry & 7) === 7) yield;
-      }
-      // The light is from the north-west, as every printed relief map has it,
-      // and the exaggeration grows as the pixel does: at the world's scale a
-      // pixel is 400 units and a 680-unit range is a two-pixel bump.
-      for (let ry = 1; ry < RN - 1; ry++) {
-        const lat = latOfV(v0 + ((ry - 1) * RS) / scaleZ);
-        const unitsX = ((360 * RS) / scaleZ) * Math.max(0.05, Math.cos(lat * DEG)) * UNITS_PER_DEG;
-        const unitsY = ((TAU * RS * Math.cos(0.8 * lat * DEG)) / scaleZ) * R2D * UNITS_PER_DEG;
-        const lift = Math.min(14, Math.max(1.6, Math.sqrt(unitsX / RS / 6)));
-        for (let rx = 1; rx < RN - 1; rx++) {
-          const k = ry * RN + rx;
-          const sx = ((relief[k + 1]! - relief[k - 1]!) / (2 * unitsX)) * lift;
-          const sy = ((relief[k + RN]! - relief[k - RN]!) / (2 * unitsY)) * lift;
-          // n . L over L.z, so flat ground is exactly 1: L = (-1, -1, sqrt 2) / 2.
-          const shade = (0.5 * sx + 0.5 * sy + 0.7071) / Math.sqrt(sx * sx + sy * sy + 1) / 0.7071;
-          light[k] = Math.min(1.22, Math.max(0.58, shade));
-        }
-      }
-    }
-
-    // Composed, a band of rows at a time: the whole tile in one step was the
-    // longest stretch the painter held a frame for.
-    const image = new ImageData(TILE, TILE);
-    const out = image.data;
-    for (let y = 0; y < TILE; y++) {
-      if (y > 0 && y % COMPOSE_ROWS === 0) yield;
-      const ly = y / RS + 1;
-      const ly0 = Math.floor(ly);
-      const lfy = ly - ly0;
-      const gy = y / colourStep;
-      const gy0 = Math.min(GN - 2, Math.floor(gy));
-      const fy = gy - gy0;
-      for (let x = 0; x < TILE; x++) {
-        const m = (y + PAD) * M + (x + PAD);
-        const a = land[m]!;
-        let r = oceanDeep.r;
-        let g = oceanDeep.g;
-        let b = oceanDeep.b;
-        const shallow = Math.min(1, near[m]! * 2.2);
-        if (shallow > 0) {
-          const s = Math.sqrt(shallow);
-          r += (oceanShallow.r - r) * s;
-          g += (oceanShallow.g - g) * s;
-          b += (oceanShallow.b - b) * s;
-        }
-        if (a > 0) {
-          const gx = x / colourStep;
-          const gx0 = Math.min(GN - 2, Math.floor(gx));
-          const fx = gx - gx0;
-          let lr = 0;
-          let lg = 0;
-          let lb = 0;
-          let weight = 0;
-          for (let c = 0; c < 4; c++) {
-            const cx = gx0 + (c & 1);
-            const cy = gy0 + (c >> 1);
-            const idx = cy * GN + cx;
-            if (known[idx] === 0) continue;
-            const w = ((c & 1) === 1 ? fx : 1 - fx) * ((c >> 1) === 1 ? fy : 1 - fy) + 1e-4;
-            lr += lattice[idx * 3]! * w;
-            lg += lattice[idx * 3 + 1]! * w;
-            lb += lattice[idx * 3 + 2]! * w;
-            weight += w;
-          }
-          if (weight > 0) {
-            lr /= weight;
-            lg /= weight;
-            lb /= weight;
-          } else {
-            lr = fallbackLand.r;
-            lg = fallbackLand.g;
-            lb = fallbackLand.b;
-          }
-          const lx = x / RS + 1;
-          const lx0 = Math.floor(lx);
-          const lfx = lx - lx0;
-          const k = ly0 * RN + lx0;
-          const shade =
-            (light[k]! * (1 - lfx) + light[k + 1]! * lfx) * (1 - lfy) +
-            (light[k + RN]! * (1 - lfx) + light[k + RN + 1]! * lfx) * lfy;
-          if (dry) {
-            // The nation's own colour over its ground, before the light.
-            const t = (maskData[m * 4 + 3]! / 255) * NATION_TINT;
-            lr += (LINEAR[maskData[m * 4]!]! - lr) * t;
-            lg += (LINEAR[maskData[m * 4 + 1]!]! - lg) * t;
-            lb += (LINEAR[maskData[m * 4 + 2]!]! - lb) * t;
-          }
-          lr *= shade;
-          lg *= shade;
-          lb *= shade;
-          r += (lr - r) * a;
-          g += (lg - g) * a;
-          b += (lb - b) * a;
-        }
-        const o = (y * TILE + x) * 4;
-        // THREE's colours are linear; the canvas is sRGB.
-        out[o] = toByte(r);
-        out[o + 1] = toByte(g);
-        out[o + 2] = toByte(b);
-        out[o + 3] = 255;
-      }
-    }
-    const painted = document.createElement('canvas');
-    painted.width = painted.height = TILE;
-    painted.getContext('2d')!.putImageData(image, 0, 0);
-    tile.canvas = painted;
-    tile.job = null;
-    // Swapped for a bitmap when the browser has made one; drawn from the
-    // canvas until then. A tile evicted meanwhile lets its bitmap go.
-    if (typeof createImageBitmap === 'function') {
-      createImageBitmap(painted).then(
-        (bitmap) => {
-          if (tiles.get(tileKey(tile.z, tile.i, tile.j)) === tile && tile.canvas === painted) tile.canvas = bitmap;
-          else bitmap.close();
-        },
-        () => {
-          // The canvas it was painted on serves.
-        },
-      );
-    }
-  }
-
-  /** Drops a tile, and the bitmap it holds with it. */
-  function dropTile(tile: Tile): void {
-    if (typeof ImageBitmap !== 'undefined' && tile.canvas instanceof ImageBitmap) tile.canvas.close();
-    tile.canvas = null;
-    tile.job = null;
-    tiles.delete(tileKey(tile.z, tile.i, tile.j));
-  }
-
-  /** Runs tile jobs, nearest the middle first, until the allowance is spent. */
-  function paintTiles(budgetMs: number): boolean {
-    if (wanted.length === 0) return false;
-    const start = performance.now();
-    let finished = false;
-    while (wanted.length > 0 && performance.now() - start < budgetMs) {
-      const tile = wanted[0]!;
-      if (tile.job === null) {
-        wanted.shift();
-        continue;
-      }
-      if (tile.job.next().done === true) {
-        tile.job = null;
-        wanted.shift();
-        finished = true;
-      }
-    }
-    return finished;
-  }
-
-  /**
-   * Down to `limit` tiles past the first levels, the least recently drawn
-   * first. A tile asked for and never finished counts once no draw wants it:
-   * a quick pan leaves a trail of them, each holding its half-painted job, and
-   * they used to stay in the table for good.
-   */
-  function evictTiles(limit: number): void {
-    const pending = new Set(wanted);
-    const loose = [...tiles.values()].filter((tile) => tile.z > KEEP_LEVEL && (tile.canvas !== null || !pending.has(tile)));
-    if (loose.length <= limit) return;
-    loose.sort((a, b) => a.used - b.used);
-    for (let k = 0; k < loose.length - limit; k++) dropTile(loose[k]!);
-  }
-
-  /** The first levels, painted in one go the first time the sheet opens. */
-  let primed = false;
-  function prime(): void {
-    if (primed) return;
-    primed = true;
-    const tile = tileOf(0, 0, 0);
-    while (tile.job !== null && tile.job.next().done !== true) {
-      // Painting the whole world's first tile, synchronously.
-    }
-    tile.job = null;
-    for (let z = 1; z <= KEEP_LEVEL; z++) {
-      for (let j = 0; j < rowsAt(z); j++) for (let i = 0; i < 2 ** z; i++) wanted.push(tileOf(z, i, j));
-    }
-  }
+  /** Where `drawTiles` draws each tile from: its own picture or an ancestor's corner. */
+  const tileSource: TileSource = { image: NO_IMAGE, sx: 0, sy: 0, size: TILE, up: 0 };
+  /** The paper's version when the sheet was last drawn: a tile painted since, by anyone, is a redraw. */
+  let drawnVersion = -1;
+  /** The level a zoom draws: tiles a little under a screen pixel at a two-to-one screen. */
+  const levelAt = (scale: number): number => Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((scale * Math.min(ratio, 1.5)) / TILE))));
 
   /**
    * The tiles a view at this middle and zoom draws, nearest the middle first,
-   * without drawing: what `warm` paints before the sheet is opened on it.
+   * without drawing: what `warm` asks for before the sheet is opened on it.
    */
-  function tilesAt(midU: number, midV: number, scale: number): Tile[] {
-    const z = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((scale * Math.min(ratio, 1.5)) / TILE))));
+  function tilesAt(midU: number, midV: number, scale: number): MapTile[] {
+    const z = levelAt(scale);
     const n = 2 ** z;
     const rows = rowsAt(z);
     const halfU = width / 2 / scale;
     const halfV = height / 2 / scale;
-    const out: { tile: Tile; d: number }[] = [];
+    const out: { tile: MapTile; d: number }[] = [];
     for (let j = Math.max(0, Math.floor((midV - halfV) * n)); j <= Math.min(rows - 1, Math.floor((midV + halfV) * n)); j++) {
       for (let i = Math.floor((midU - halfU) * n); i <= Math.floor((midU + halfU) * n); i++) {
         const d = Math.hypot((i + 0.5) / n - midU, (j + 0.5) / n - midV);
-        out.push({ tile: tileOf(z, ((i % n) + n) % n, j), d });
+        out.push({ tile: mapTiles.tile(z, ((i % n) + n) % n, j), d });
       }
     }
     out.sort((a, b) => a.d - b.d);
@@ -1269,28 +788,27 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   let warmedKey = '';
   /**
    * While the sheet is shut: the first levels, then the screenful it would
-   * open on, painted in what is left of the frame's far allowance.
+   * open on, asked of the paper as `'warm'` and painted in the far share's
+   * turn by whoever owns the paper — this sheet, when the paper is its own.
    */
   function warm(now: number): void {
-    if (!me.known || now - createdAt < WARM_AFTER_MS || !frameOpen(false)) return;
-    if (wanted.length === 0) {
-      if (width === 0) resize();
-      if (width <= 1) return;
-      const z = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((S * Math.min(ratio, 1.5)) / TILE))));
-      const n = 2 ** z;
-      const key = `${z}:${Math.floor(me.u * n)}:${Math.floor(me.v * n)}`;
-      if (key === warmedKey || now - warmedAt < WARM_EVERY_MS) return;
+    if (!me.known || now - createdAt < WARM_AFTER_MS) return;
+    if (width === 0) resize();
+    if (width <= 1) return;
+    const z = levelAt(S);
+    const n = 2 ** z;
+    const key = `${z}:${Math.floor(me.u * n)}:${Math.floor(me.v * n)}`;
+    if (key !== warmedKey && now - warmedAt >= WARM_EVERY_MS) {
       warmedKey = key;
       warmedAt = now;
-      const queue = [tileOf(0, 0, 0)];
+      const queue = [mapTiles.tile(0, 0, 0)];
       for (let level = 1; level <= KEEP_LEVEL; level++) {
-        for (let j = 0; j < rowsAt(level); j++) for (let i = 0; i < 2 ** level; i++) queue.push(tileOf(level, i, j));
+        for (let j = 0; j < rowsAt(level); j++) for (let i = 0; i < 2 ** level; i++) queue.push(mapTiles.tile(level, i, j));
       }
       queue.push(...tilesAt(me.u, me.v, S));
-      for (const tile of queue) if (tile.job !== null) wanted.push(tile);
-      if (tiles.size > MAX_TILES + 40) evictTiles(MAX_TILES);
+      mapTiles.want('warm', queue.filter((tile) => tile.state !== 'ready'));
     }
-    paintTiles(WARM_BUDGET_MS);
+    if (ownTiles) mapTiles.pump(WARM_BUDGET_MS, true);
   }
 
   // --- the view --------------------------------------------------------------
@@ -1414,7 +932,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   }
 
   function drawTiles(): void {
-    level = Math.min(MAX_LEVEL, Math.max(0, Math.round(Math.log2((S * Math.min(ratio, 1.5)) / TILE))));
+    level = levelAt(S);
     const n = 2 ** level;
     const tilePx = S / n;
     const rows = rowsAt(level);
@@ -1423,7 +941,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     const iLast = Math.floor((cu + width / 2 / S) * n);
     const jFirst = Math.max(0, Math.floor((cv - height / 2 / S) * n));
     const jLast = Math.min(rows - 1, Math.floor((cv + height / 2 / S) * n));
-    const want: { tile: Tile; d: number }[] = [];
+    const want: { tile: MapTile; d: number }[] = [];
     ctx.imageSmoothingEnabled = true;
     // The best filter only once the sheet is still; while it moves, the
     // plain one, and the still frame after it draws the fine one.
@@ -1434,42 +952,19 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         const wrapI = ((i % n) + n) % n;
         const x = width / 2 + (i / n - cu) * S;
         const y = height / 2 + (j / n - cv) * S;
-        const tile = tileOf(level, wrapI, j);
-        // A hair over a pixel each way, so the seams between scaled tiles
-        // never show the sea underneath.
-        if (tile.canvas !== null) {
-          ctx.drawImage(tile.canvas, x, y, tilePx + 0.6, tilePx + 0.6);
-          continue;
-        }
-        want.push({ tile, d: Math.hypot(x + tilePx / 2 - width / 2, y + tilePx / 2 - height / 2) });
-        // The nearest painted ancestor, cut down to this tile's corner of it.
-        for (let up = 1; up <= level; up++) {
-          const parent = tiles.get(tileKey(level - up, wrapI >> up, j >> up));
-          if (parent?.canvas == null) continue;
-          parent.used = ++useClock;
-          const part = TILE / 2 ** up;
-          ctx.drawImage(
-            parent.canvas,
-            (wrapI - ((wrapI >> up) << up)) * part,
-            (j - ((j >> up) << up)) * part,
-            part,
-            part,
-            x,
-            y,
-            tilePx + 0.6,
-            tilePx + 0.6,
-          );
-          break;
-        }
+        const tile = mapTiles.tile(level, wrapI, j);
+        if (tile.state !== 'ready') want.push({ tile, d: Math.hypot(x + tilePx / 2 - width / 2, y + tilePx / 2 - height / 2) });
+        // The tile, or the nearest painted ancestor cut down to this tile's
+        // corner of it; a hair over a pixel each way, so the seams between
+        // scaled tiles never show the sea underneath.
+        if (!mapTiles.source(level, wrapI, j, tileSource)) continue;
+        ctx.drawImage(tileSource.image, tileSource.sx, tileSource.sy, tileSource.size, tileSource.size, x, y, tilePx + 0.6, tilePx + 0.6);
       }
     }
-    // What this view wants comes first, nearest the middle; the first levels'
-    // backlog stays behind it.
+    // What this view wants comes first, nearest the middle.
     want.sort((a, b) => a.d - b.d);
-    const behind = wanted.filter((tile) => tile.z <= KEEP_LEVEL && tile.job !== null);
-    wanted.length = 0;
-    for (const { tile } of want) wanted.push(tile);
-    for (const tile of behind) if (!wanted.includes(tile)) wanted.push(tile);
+    mapTiles.want('map', want.map((entry) => entry.tile));
+    drawnVersion = mapTiles.version;
   }
 
   function drawGraticule(): void {
@@ -1521,6 +1016,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   }
 
   function drawRoads(): void {
+    // From the paper's own zoom the tiles carry them, at their width.
+    if (level >= mapTiles.painter.fromLevel) return;
     // The thresholds are Earth's degrees; on a smaller body a degree is
     // fewer kilometres, so its roads come up at the same scale in kilometres.
     const pxPerDegree = ((S / 360) * EARTH_KM) / RADIUS_KM;
@@ -1731,9 +1228,12 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     ctx.lineJoin = 'round';
     for (const mark of townMarks) {
       const { x, y, side, town } = mark;
-      if (side >= SQUARE_FROM) {
-        drawTown(town, x, y, side);
-      } else {
+      // A square the paper draws (`map-features.ts`, every building in it at
+      // a street zoom) is left to the paper; only a town too small for it is
+      // a dot.
+      if (side >= SQUARE_FROM && level >= mapTiles.painter.fromLevel) {
+        // Drawn by the tiles.
+      } else if (side < SQUARE_FROM) {
         const capital = town.place.capital === true;
         ctx.beginPath();
         ctx.arc(x, y, capital ? 4.5 : 3.4, 0, TAU);
@@ -1813,82 +1313,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       added = true;
     }
     return added;
-  }
-
-  const blockFill = hex(PALETTE.blush);
-  const streetFill = hex(PALETTE.white);
-  /**
-   * A town as it is built: its blocks, its streets and the ragged edge the
-   * outskirts leave, inked round the outside only. Below `CELLS_FROM` a cell
-   * is too small to read and the town is one colour with the same outline.
-   */
-  function drawTown(town: SheetTown, x: number, y: number, side: number): void {
-    const grid = townGrid(town.radius);
-    const cells = cellsOf(town);
-    const n = grid.cells;
-    const cell = side / n;
-    const left = x - side / 2;
-    const top = y - side / 2;
-    const detailed = cell >= CELLS_FROM;
-    // Rows run north, the sheet runs south: row `r` is drawn at `n - 1 - r`.
-    ctx.fillStyle = blockFill;
-    ctx.beginPath();
-    for (let row = 0; row < n; row++) {
-      for (let col = 0; col < n; col++) {
-        if (cells[row * n + col] === 0) continue;
-        ctx.rect(left + col * cell, top + (n - 1 - row) * cell, cell + 0.4, cell + 0.4);
-      }
-    }
-    ctx.fill();
-    if (detailed) {
-      // The streets: whole avenue cells, and the bands `townGrid` lays along a
-      // boundary between two cells — the square is symmetric, so one list of
-      // boundaries is both the north-south and the east-west streets. Clipped
-      // to the cells that stand, so a street stops where the outskirts begin.
-      ctx.save();
-      ctx.beginPath();
-      for (let row = 0; row < n; row++) {
-        for (let col = 0; col < n; col++) {
-          if (cells[row * n + col] !== 0) ctx.rect(left + col * cell, top + (n - 1 - row) * cell, cell + 0.4, cell + 0.4);
-        }
-      }
-      ctx.clip();
-      ctx.fillStyle = streetFill;
-      ctx.beginPath();
-      const band = cell * 0.2;
-      for (let c = 0; c < n; c++) {
-        if (grid.avenue[c] === 1) {
-          ctx.rect(left + c * cell, top, cell, side);
-          ctx.rect(left, top + (n - 1 - c) * cell, side, cell);
-        }
-        if (c + 1 < n && (grid.high[c] === 1 || grid.low[c + 1] === 1)) {
-          ctx.rect(left + (c + 1) * cell - band, top, 2 * band, side);
-          ctx.rect(left, top + (n - 1 - c) * cell - band, side, 2 * band);
-        }
-      }
-      ctx.fill();
-      ctx.restore();
-    }
-    // The outline: every side of a standing cell whose neighbour is not.
-    const standing = (col: number, row: number): boolean =>
-      col >= 0 && row >= 0 && col < n && row < n && cells[row * n + col] !== 0;
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = detailed ? 2 : 1.4;
-    ctx.lineCap = 'square';
-    ctx.beginPath();
-    for (let row = 0; row < n; row++) {
-      for (let col = 0; col < n; col++) {
-        if (!standing(col, row)) continue;
-        const x0 = left + col * cell;
-        const y0 = top + (n - 1 - row) * cell;
-        if (!standing(col, row + 1)) { ctx.moveTo(x0, y0); ctx.lineTo(x0 + cell, y0); }
-        if (!standing(col, row - 1)) { ctx.moveTo(x0, y0 + cell); ctx.lineTo(x0 + cell, y0 + cell); }
-        if (!standing(col - 1, row)) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + cell); }
-        if (!standing(col + 1, row)) { ctx.moveTo(x0 + cell, y0); ctx.lineTo(x0 + cell, y0 + cell); }
-      }
-    }
-    ctx.stroke();
-    ctx.lineCap = 'butt';
   }
 
   function drawPin(x: number, y: number, fill: string, grow: number): void {
@@ -2301,7 +1725,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     resize();
     prepareRings();
     prepareTowns();
-    prime();
     hover = null;
     renderTip();
     centreOnMe();
@@ -2318,9 +1741,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     hover = null;
     press = null;
     sheet.classList.remove('drag');
-    // A closed sheet holds the first levels and a screenful, not a trail of
-    // every place you zoomed into.
-    evictTiles(40);
+    // A closed sheet paints nothing for itself: its screenful is let go to
+    // the paper's own keeping.
+    mapTiles.want('map', []);
     if (relock && lockTarget !== null && typeof lockTarget.requestPointerLock === 'function') {
       try {
         const request: unknown = lockTarget.requestPointerLock();
@@ -2396,11 +1819,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       dirty = true;
     },
     get stats() {
-      let painted = 0;
-      for (const tile of tiles.values()) if (tile.canvas !== null) painted++;
+      const paper = mapTiles.stats;
       return {
-        tiles: painted,
-        pending: wanted.length,
+        tiles: paper.ready,
+        pending: paper.pending,
         pixelsPerDegree: S / 360,
         level,
         drawMs,
@@ -2436,7 +1858,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       if (askPads()) dirty = true;
       // Less painting in a frame that came late or while a hand moves the
       // sheet: the parents stand in, and the drag keeps its pace.
-      if (paintTiles(busy() || gap > LATE_FRAME_MS ? TILE_BUSY_MS : TILE_BUDGET_MS)) dirty = true;
+      mapTiles.pump(busy() || gap > LATE_FRAME_MS ? TILE_BUSY_MS : TILE_BUDGET_MS);
+      // A tile painted since the last draw, by this sheet or by the disc's.
+      if (mapTiles.version !== drawnVersion) dirty = true;
       // The first still frame after a drag or a zoom, with the fine filter.
       if (drawnBusy && !busy()) dirty = true;
       // The marker keeps the names off it, so a new one is a redraw.
@@ -2459,10 +1883,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         Math.abs(meX - lastMeX) > 0.5 || Math.abs(meY - lastMeY) > 0.5 || Math.abs(me.heading - lastHeading) > 0.02;
       const peersMoving = (options.peers?.().length ?? 0) > 0;
       if ((moving || peersMoving) && now - drawnAt >= interval) marksDirty = true;
-      if (dirty) {
-        draw();
-        if (tiles.size > MAX_TILES + 40) evictTiles(MAX_TILES);
-      }
+      if (dirty) draw();
       if (!marksDirty) return;
       lastMeX = meX;
       lastMeY = meY;
@@ -2473,15 +1894,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     dispose() {
       events.abort();
       unlabel();
-      for (const tile of [...tiles.values()]) dropTile(tile);
+      if (ownTiles) mapTiles.dispose();
+      else mapTiles.want('map', []);
       root.remove();
     },
   };
-}
-
-/** A linear channel to an sRGB byte. */
-function toByte(linear: number): number {
-  const c = linear <= 0 ? 0 : linear >= 1 ? 1 : linear;
-  const s = c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
-  return Math.round(s * 255);
 }

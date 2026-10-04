@@ -32,6 +32,16 @@
  *   little rocket `map.ts` draws them with (`traceRocket`), while the disc
  *   is no wider than `PAD_VIEW`.
  *
+ * **And under all of it, what is really there** (since 2026-10-04): the
+ * paper the sheet behind `M` draws too (`map-tiles.ts`), reprojected onto the
+ * disc a tile at a time (`drawTiles`) — the land in the colours it is drawn
+ * in, its woods and fields, the roads at their width and every town as it
+ * stands, each building's plan box in its roof's colour. The countries'
+ * flat fills it replaced are kept for a disc with no paper; with one, the
+ * rings are the coast's and the frontiers' ink alone. The roads as lines and
+ * the towns as dots are drawn only under the zooms the paper carries them
+ * at, and the names, the pins, the pads and you stay vectors over it.
+ *
  * What survives from the globe is the part that was never about scale: while
  * the player has put a marker on the world map (`navigation.ts`) the rim
  * carries one violet wedge pointing at it, and that mark is the whole reason a
@@ -58,6 +68,8 @@ import {
 } from './places.ts';
 import type { Nearby, Place } from './places.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
+import { type MapTile, type MapTiles, MAX_LEVEL, SHEET_HEIGHT, TILE, type TileSource, latOfV, levelFor, lonOfU, rowsAt, uOf, vOf } from './map-tiles.ts';
+import { latLonOf, unitAt } from './sphere.ts';
 import { FONT, hex } from './ui.ts';
 import {
   EARTH_KM,
@@ -122,6 +134,14 @@ export interface MinimapOptions {
    * next paper. Omit it for a world with no rockets beside its strips.
    */
   pads?: (direction: THREE.Vector3, radius: number, out: MinimapPad[]) => boolean;
+  /**
+   * The paper the sheet behind `M` draws too (`map-tiles.ts`): the disc
+   * reprojects its tiles under the coast's ink, so what is on the ground —
+   * the land's colour, the roads, every building — is on the disc. Asked
+   * for as `'minimap'` and painted by whoever owns it; without it the disc
+   * fills the countries flat, as it did before the tiles.
+   */
+  tiles?: MapTiles;
 }
 
 /** As much of a `LaunchPad` as the disc needs: where it stands. */
@@ -141,6 +161,9 @@ export interface MinimapStats {
   pins: number;
   /** The rockets' pads on the last paper. */
   pads: number;
+  /** The paper's tiles under the disc, and their level; -1 without a paper. */
+  tiles: number;
+  tileLevel: number;
   /** Milliseconds in `update`, over the last 60 calls: the median and the worst. */
   medianMs: number;
   worstMs: number;
@@ -262,6 +285,26 @@ const PAD_HEIGHT = 12;
 const PAD_SPACING = 10;
 /** At most this many: round a capital a handful stand inside `PAD_VIEW`. */
 const MAX_PAD_MARKS = 12;
+/**
+ * At most this many tiles under the disc: a coarser level is taken past it.
+ * On foot the disc holds four to nine (a level-7 tile is 512 units of
+ * Paris across); from a plane at the ceiling the horizon wants a hemisphere,
+ * which a dozen coarse tiles hold.
+ */
+const MAX_DISC_TILES = 20;
+/**
+ * A tile is drawn on the disc as a grid of pieces, each by an affine of its
+ * own (`drawTiles`): the disc is orthographic and the tile is Miller, and
+ * one affine for a whole level-7 tile put its far corner four pixels off
+ * its neighbour's at Paris's latitude. A piece spans at most this many
+ * degrees of latitude, which keeps the seam under a quarter of a pixel; and
+ * a paper draws at most `MAX_PIECES` of them, the pieces coarsened past it.
+ */
+const PIECE_DEGREES = 0.4;
+const MAX_PIECES = 640;
+/** The tile level from which the towns are the paper's and not dots. */
+const TOWNS_TILED = 6;
+
 /** The marker's wedge on the rim: how far it reaches in, and its half-width. */
 const TARGET_REACH = 13;
 const TARGET_WIDTH = 5.5;
@@ -636,7 +679,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
    * one multiplier, so the horizon sits at radius `scale`, which at the tightest
    * framing is thirteen disc radii off the canvas and is clipped away.
    */
-  function traceRing(shape: Shape): void {
+  function traceRing(shape: Shape, fill = true): void {
     const p = shape.points;
     const count = p.length / 3;
     /** Azimuth at which the previous point sat on the horizon; NaN if it was near. */
@@ -691,7 +734,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       rim = angle;
     }
     baseCtx.closePath();
-    baseCtx.fill();
+    if (fill) baseCtx.fill();
     baseCtx.stroke();
   }
 
@@ -954,6 +997,110 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     baseCtx.stroke(path);
   }
 
+  /** The level the last paper drew its tiles at, and the paper's version then. */
+  let tileLevel = -1;
+  let tileVersion = -1;
+  let drawnTiles = 0;
+  const tileSource: TileSource = { image: null as unknown as CanvasImageSource, sx: 0, sy: 0, size: TILE, up: 0 };
+  const tileHere = { lat: 0, lon: 0 };
+  const corner = new Vector3();
+  const pieceX = new Float64Array(81);
+  const pieceY = new Float64Array(81);
+  const pieceIn = new Uint8Array(81);
+
+  /**
+   * The paper's tiles under the disc, each reprojected onto it piece by
+   * piece, the nearest painted ancestor standing in for any not painted
+   * yet; and what is missing asked for, nearest the middle first. False
+   * where nothing could be drawn.
+   */
+  function drawTiles(): boolean {
+    const paper = settings.tiles!;
+    latLonOf({ x: ux, y: uy, z: uz }, tileHere);
+    const cosLat = Math.max(0.05, Math.cos((tileHere.lat * Math.PI) / 180));
+    // Pixels a sheet unit east-west at the disc's middle: a sheet unit is
+    // the whole turn of longitude.
+    let z = Math.min(MAX_LEVEL, levelFor(scale * TAU * cosLat * ratio));
+    const reach = Math.min(89, ((view * 180) / Math.PI) * 1.08);
+    const latTop = Math.min(89.99, tileHere.lat + reach);
+    const latBottom = Math.max(-89.99, tileHere.lat - reach);
+    const widest = Math.max(Math.abs(latTop), Math.abs(latBottom));
+    const lonReach = widest >= 89 ? 180 : Math.min(180, reach / Math.max(0.02, Math.cos((widest * Math.PI) / 180)));
+    let i0 = 0;
+    let i1 = 0;
+    let j0 = 0;
+    let j1 = 0;
+    for (;; z--) {
+      const n = 2 ** z;
+      j0 = Math.max(0, Math.floor(vOf(latTop) * n));
+      j1 = Math.min(rowsAt(z) - 1, Math.floor(vOf(latBottom) * n));
+      if (lonReach >= 180) {
+        i0 = 0;
+        i1 = n - 1;
+      } else {
+        i0 = Math.floor(uOf(tileHere.lon - lonReach) * n);
+        i1 = Math.floor(uOf(tileHere.lon + lonReach) * n);
+      }
+      if ((i1 - i0 + 1) * (j1 - j0 + 1) <= MAX_DISC_TILES || z === 0) break;
+    }
+    tileLevel = z;
+    const n = 2 ** z;
+    const latSpan = (latOfV(j0 / n) - latOfV((j0 + 1) / n));
+    let k = Math.max(1, Math.min(8, Math.ceil(latSpan / PIECE_DEGREES)));
+    while (k > 1 && (i1 - i0 + 1) * (j1 - j0 + 1) * k * k > MAX_PIECES) k--;
+    const want: { tile: MapTile; d: number }[] = [];
+    let drew = 0;
+    baseCtx.imageSmoothingEnabled = true;
+    baseCtx.imageSmoothingQuality = 'high';
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const wrapI = ((i % n) + n) % n;
+        // The tile's lattice of corners on the disc, and which are in front.
+        let front = false;
+        for (let b = 0; b <= k; b++) {
+          const lat = latOfV(Math.min(SHEET_HEIGHT, (j + b / k) / n));
+          for (let a = 0; a <= k; a++) {
+            unitAt(lat, lonOfU((i + a / k) / n), corner);
+            const at = b * (k + 1) + a;
+            const height = corner.x * ux + corner.y * uy + corner.z * uz;
+            pieceIn[at] = height > 0.02 ? 1 : 0;
+            pieceX[at] = centre + (corner.x * rx + corner.y * ry + corner.z * rz) * scale;
+            pieceY[at] = centre - (corner.x * fx + corner.y * fy + corner.z * fz) * scale;
+            if (pieceIn[at] === 1 && Math.abs(pieceX[at]! - centre) < centre * 1.2 && Math.abs(pieceY[at]! - centre) < centre * 1.2) front = true;
+          }
+        }
+        if (!front) continue;
+        const tile = paper.tile(z, wrapI, j);
+        if (tile.state !== 'ready') want.push({ tile, d: Math.hypot(pieceX[(k >> 1) * (k + 2)]! - centre, pieceY[(k >> 1) * (k + 2)]! - centre) });
+        if (!paper.source(z, wrapI, j, tileSource)) continue;
+        const part = tileSource.size / k;
+        for (let b = 0; b < k; b++) {
+          for (let a = 0; a < k; a++) {
+            const p0 = b * (k + 1) + a;
+            const p1 = p0 + 1;
+            const p2 = p0 + k + 1;
+            if (pieceIn[p0] === 0 || pieceIn[p1] === 0 || pieceIn[p2] === 0 || pieceIn[p2 + 1] === 0) continue;
+            const ax = pieceX[p1]! - pieceX[p0]!;
+            const ay = pieceY[p1]! - pieceY[p0]!;
+            const cx = pieceX[p2]! - pieceX[p0]!;
+            const cy = pieceY[p2]! - pieceY[p0]!;
+            // A hair over each way, so no seam shows the paper underneath.
+            const grow = 0.7 / Math.max(1, Math.min(Math.hypot(ax, ay), Math.hypot(cx, cy)));
+            baseCtx.setTransform(ax * ratio, ay * ratio, cx * ratio, cy * ratio, pieceX[p0]! * ratio, pieceY[p0]! * ratio);
+            baseCtx.drawImage(tileSource.image, tileSource.sx + a * part, tileSource.sy + b * part, part, part, -grow / 2, -grow / 2, 1 + grow, 1 + grow);
+          }
+        }
+        drew++;
+      }
+    }
+    baseCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    want.sort((p, q) => p.d - q.d);
+    paper.want('minimap', want.map((entry) => entry.tile), true);
+    tileVersion = paper.version;
+    drawnTiles = drew;
+    return drew > 0;
+  }
+
   /** The land, the towns, the pins, the names, the rim and its mark. */
   function drawBase(): void {
     const began = performance.now();
@@ -987,6 +1134,9 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     while (band + 1 < SHAPE_BANDS.length && view * RADIUS >= SHAPE_BANDS[band + 1]!) band++;
     const level = levels[band]!;
     drawnLevel = band;
+    // The paper's tiles first, where there is a paper; the rings are then
+    // the coast's and the frontiers' ink alone over them.
+    const tiled = settings.tiles !== undefined && drawTiles();
     for (let s = 0; s < level.shapes.length; s++) {
       const shape = level.shapes[s]!;
       // The ring's own bounding cap against the disc's. One dot product and one
@@ -998,12 +1148,13 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       baseCtx.fillStyle = mine ? shape.fill : level.faded[s]!;
       baseCtx.strokeStyle = mine ? ink : faintInk;
       baseCtx.lineWidth = borderWidth * (mine ? 1.8 : 1);
-      traceRing(shape);
+      traceRing(shape, !tiled);
       drawnRings++;
       drawnPoints += shape.points.length / 3;
     }
 
-    drawRoads();
+    // The roads as the disc's own lines only where the paper does not carry them.
+    if (!tiled || tileLevel < settings.tiles!.painter.fromLevel) drawRoads();
 
     const towns = layOutTowns();
     const pins = layOutPins();
@@ -1108,7 +1259,9 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     // mark and the one you are being pointed at.
     baseCtx.lineWidth = Math.max(1, 1.3 * uiScale);
     baseCtx.strokeStyle = ink;
-    for (let n = towns - 1; n >= 0; n--) {
+    // A town the paper draws as it stands keeps its name and loses its dot.
+    const dotted = !tiled || tileLevel < TOWNS_TILED;
+    for (let n = towns - 1; n >= 0 && dotted; n--) {
       const k = townKept[n]!;
       baseCtx.beginPath();
       baseCtx.arc(townKeptX[n]!, townKeptY[n]!, townDot[k]! * uiScale, 0, TAU);
@@ -1352,8 +1505,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       // things: the first rebuilds the land, the second copies a bitmap.
       const moved = Math.acos(Math.min(1, ux * lastUx + uy * lastUy + uz * lastUz));
       if (moved * scale > MIN_SHIFT) baseStale = true;
-      // A pad still being worked out comes onto the paper at its next redraw.
+      // A pad still being worked out comes onto the paper at its next redraw,
+      // and so does a tile painted since.
       if (padsWaiting) baseStale = true;
+      if (settings.tiles !== undefined && settings.tiles.version !== tileVersion) baseStale = true;
       if (baseStale || Math.abs(heading - lastHeading) > MIN_TURN) overlayStale = true;
 
       if (overlayStale) {
@@ -1404,6 +1559,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
         places: drawnPlaces,
         pins: drawnPins,
         pads: drawnPads,
+        tiles: drawnTiles,
+        tileLevel,
         medianMs: Number((sorted[sorted.length >> 1] ?? 0).toFixed(3)),
         worstMs: Number((sorted[sorted.length - 1] ?? 0).toFixed(3)),
         baseMs: Number(baseMs.toFixed(3)),

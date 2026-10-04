@@ -30,6 +30,12 @@ const MINIMAP_ROAD_SAMPLES = 24;
  * round the player whatever the maps ask.
  */
 const MAP_PADS_MS = 1;
+/**
+ * The frame's share for painting the maps' tiles (`map-tiles.ts`), ms: out of
+ * the near allowance for what the disc in the corner shows now, out of the
+ * far share's turn for what the sheet behind `M` would open on.
+ */
+const MAP_TILES_MS = 4;
 /** The pads one ask of either map found, before they are handed on. */
 const mapPads: LaunchPad[] = [];
 import { createRailNetwork, joinFields, loadRails, railFields } from './rails.ts';
@@ -659,6 +665,9 @@ async function start(): Promise<void> {
     /** The gear's panel. It owns no state, so it can arrive with the HUD. */
     settings: import('./settings.ts'),
     map: import('./map.ts'),
+    /** The paper both maps draw (`map-tiles.ts`) and what stands on it (`map-features.ts`). */
+    mapTiles: import('./map-tiles.ts'),
+    mapFeatures: import('./map-features.ts'),
     navigation: import('./navigation.ts'),
     /** Who is playing, held on `Tab`. */
     playerList: import('./player-list.ts'),
@@ -2204,8 +2213,30 @@ async function start(): Promise<void> {
   // because the disc draws the built towns around you, and the one the chip
   // is naming by name; and the roads, each traced once along its own course
   // (`courseOf`), the first time the disc is drawn.
+  // The maps' paper: the ground as the land is drawn, and what stands on it
+  // read off the same definitions the world is built from — the roads'
+  // courses, the towns' plans, the countryside's, the strips and the pads.
+  const { createMapTiles } = await deferred.mapTiles;
+  const { createEarthFeatures } = await deferred.mapFeatures;
+  const mapTiles = createMapTiles({
+    world,
+    features: createEarthFeatures({
+      world,
+      places: places.all,
+      roads: baked.roads,
+      rails: railNetwork,
+      landmarks: placements,
+      planesNear: (direction, radius, out) => fleetSites.planesNear(direction, radius, out as never),
+      stripsReady: (direction, radius, more) => fleetSites.warm(direction, radius, more),
+      pads: padsForMaps,
+      countryside: () => vegetation.countryside,
+      plans: (index) => settlements.townPlan(index),
+    }),
+    baked: `${import.meta.env.BASE_URL}maps/earth/`,
+  });
   const { createMinimap } = await deferred.minimap;
   const minimap = createMinimap(world, {
+    tiles: mapTiles,
     monuments: placements,
     places: places.all,
     roads: () => {
@@ -2534,6 +2565,7 @@ async function start(): Promise<void> {
     blocked: () => inputBlocked(),
     // The rockets' pads at a street zoom, worked out as the minimap's are.
     pads: padsForMaps,
+    tiles: mapTiles,
     ...(peers === null
       ? {}
       : {
@@ -3371,6 +3403,9 @@ async function start(): Promise<void> {
         railway.update({ dt, seconds: sky.state.time.getTime() / 1000, camera: rig.camera, player: player.position, fogFar: fog.far }),
       );
     }
+    // The maps' tiles, last of the frame's building: the disc's out of the
+    // near allowance, the rest out of the far share's turn.
+    guard('maptiles', () => mapTiles.pump(MAP_TILES_MS, true));
     // The streamers' building ends here, and what it cost is what the next
     // frame's far work is charged with (`endFrameBuild` in `view.ts`).
     endFrameBuild();
@@ -3914,6 +3949,32 @@ async function start(): Promise<void> {
       stats,
       hud,
       minimap,
+      /** The maps' paper: `atlas.mapTiles.stats` is what is painted, stored and baked, and what a tile costs by level. */
+      mapTiles,
+      /**
+       * The maps painted now rather than in the frames' spare time: the plans
+       * of the towns within `reach` units worked out at once, then the tiles
+       * asked for painted for up to `ms`. For the shots, whose software
+       * frames leave the far share nothing.
+       */
+      async settleMaps(ms = 4000, reach = 3000) {
+        const here = player.position.clone().normalize();
+        const at = new THREE.Vector3();
+        const cos = Math.cos(reach / PLANET_RADIUS);
+        places.all.forEach((place, index) => {
+          if (unitAt(place.lat, place.lon, at).dot(here) > cos) settlements.townPlanNow(index);
+        });
+        const until = performance.now() + ms;
+        // A turn of the event loop between slices: the bake's images and the
+        // stored tiles arrive by promise.
+        while (performance.now() < until) {
+          mapTiles.pump(100);
+          minimap.invalidate();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (mapTiles.stats.pending === 0) break;
+        }
+        return mapTiles.stats;
+      },
       borders,
       /**
        * The map layer — every country's own flag over its own land, the dashed
