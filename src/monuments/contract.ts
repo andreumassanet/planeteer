@@ -343,6 +343,12 @@ export interface MonumentContext {
    * once it is baked, so it throws instead. Consumes the draft's geometry.
    */
   merge(draft: THREE.Object3D): THREE.Group;
+  /**
+   * The ramp and every material made through this context, freed: for a
+   * context that is let go of, as a walked world's is on leaving it. What was
+   * built with it must be gone first, or it compiles them again.
+   */
+  dispose(): void;
 }
 
 /**
@@ -550,6 +556,12 @@ export function createContext(): MonumentContext {
         group.add(new THREE.Mesh(geometry, material));
       }
       return group;
+    },
+
+    dispose() {
+      for (const material of materials.values()) material.dispose();
+      materials.clear();
+      ramp.dispose();
     },
   };
 }

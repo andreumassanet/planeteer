@@ -90,7 +90,8 @@ export const DEFAULT_LOOK: Readonly<Look> = { style: 'ground', tint: 0, strength
  * opens only on moonlit nights and the lit pictures of it are renders;
  * Kinderdijk's mills are lit one week a year; and the ruins in open country
  * (Stonehenge, Machu Picchu, Nan Madol, the moai, Ur, the Citadelle) stand in
- * the dark they stand in. The Terracotta Army is indoors.
+ * the dark they stand in; Tikal's temple, in its national park, was added on
+ * 2026-10-04 on that ground and was not checked that day. The Terracotta Army is indoors.
  */
 export const DARK: ReadonlySet<string> = new Set([
   'angel-falls',
@@ -115,6 +116,7 @@ export const DARK: ReadonlySet<string> = new Set([
   'taj-mahal',
   'terracotta-army',
   'the-pitons',
+  'tikal-temple-i',
   'uluru',
   'victoria-falls',
   'ziggurat-of-ur',

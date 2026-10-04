@@ -316,6 +316,46 @@
    "clearance": 50
   },
   {
+   "id": "belem-tower",
+   "name": "Belém Tower",
+   "iso": "PRT",
+   "lat": 38.6993,
+   "lon": -9.1923,
+   "footprint": 25,
+   "height": 30,
+   "year": 1519,
+   "note": "Built between 1514 and 1519 on a rock in the Tagus to guard Lisbon's harbour, carved with ropes, armillary spheres and the cross of the Order of Christ.",
+   "snappedKm": 2.2,
+   "plan": [
+    -16.5,
+    16.5,
+    -23,
+    22.5
+   ],
+   "shore": true,
+   "clearance": -20
+  },
+  {
+   "id": "hungarian-parliament",
+   "name": "Hungarian Parliament Building",
+   "iso": "HUN",
+   "lat": 47.5071,
+   "lon": 19.0456,
+   "footprint": 53,
+   "height": 96,
+   "year": 1904,
+   "note": "Hungary's largest building, 268 metres along the Danube; its dome stands 96 metres high, for the year 896 when the Magyars settled the Carpathian Basin.",
+   "plan": [
+    -49.5,
+    49.5,
+    -17,
+    18.5
+   ],
+   "setting": "plaza",
+   "clearance": 50,
+   "toward": 157
+  },
+  {
    "id": "st-basils-cathedral",
    "name": "Saint Basil's Cathedral",
    "iso": "RUS",
@@ -440,6 +480,40 @@
     24.5,
     -20.5,
     20.5
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "malbork-castle",
+   "name": "Malbork Castle",
+   "iso": "POL",
+   "lat": 54.0397,
+   "lon": 19.0281,
+   "footprint": 41,
+   "year": 1406,
+   "note": "Seat of the Teutonic Order's grand masters from 1309, it is the largest castle in the world by area, and it is built almost entirely of brick.",
+   "plan": [
+    -38.5,
+    38.5,
+    -14.5,
+    15.5
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "bran-castle",
+   "name": "Bran Castle",
+   "iso": "ROU",
+   "lat": 45.5149,
+   "lon": 25.3672,
+   "footprint": 25,
+   "year": 1388,
+   "note": "Built by the Saxons of Brașov in 1377-1388 to guard a pass into Transylvania; it is sold to visitors as Dracula's castle, though Vlad III's link to it is slight.",
+   "plan": [
+    -23,
+    23.5,
+    -21.5,
+    23.5
    ],
    "clearance": 50
   },
@@ -664,6 +738,25 @@
    "clearance": 50
   },
   {
+   "id": "grand-palace",
+   "name": "Grand Palace and Wat Phra Kaew",
+   "iso": "THA",
+   "lat": 13.75,
+   "lon": 100.4913,
+   "footprint": 46.5,
+   "year": 1782,
+   "note": "Begun in 1782 when King Rama I moved the capital to Bangkok; Wat Phra Kaew, inside its walls, keeps the Emerald Buddha, the most revered image in Thailand.",
+   "plan": [
+    -37.5,
+    37.5,
+    -29,
+    29.5
+   ],
+   "setting": "plaza",
+   "clearance": 20,
+   "toward": -67
+  },
+  {
    "id": "petra",
    "name": "Petra",
    "iso": "JOR",
@@ -698,6 +791,26 @@
    "setting": "plaza",
    "clearance": 50,
    "toward": 48
+  },
+  {
+   "id": "sultan-qaboos-grand-mosque",
+   "name": "Sultan Qaboos Grand Mosque",
+   "iso": "OMN",
+   "lat": 23.37,
+   "lon": 58.4121,
+   "footprint": 31.5,
+   "height": 91.5,
+   "year": 2001,
+   "note": "Oman's principal mosque, opened in 2001; its prayer hall is laid with a single hand-woven carpet of some 4,300 square metres.",
+   "plan": [
+    -21,
+    21,
+    -23,
+    22
+   ],
+   "setting": "plaza",
+   "clearance": 50,
+   "toward": 1
   },
   {
    "id": "tokyo-tower",
@@ -809,6 +922,22 @@
    "clearance": 40
   },
   {
+   "id": "chocolate-hills",
+   "name": "Chocolate Hills",
+   "iso": "PHL",
+   "lat": 9.8297,
+   "lon": 124.1397,
+   "footprint": 27.5,
+   "note": "At least 1,260 grassy limestone mounds, most 30 to 50 metres high, spread over some 50 square kilometres of Bohol; in the dry season the grass turns chocolate brown.",
+   "plan": [
+    -25.5,
+    25,
+    -25.5,
+    25
+   ],
+   "clearance": 20
+  },
+  {
    "id": "taipei-101",
    "name": "Taipei 101",
    "iso": "TWN",
@@ -885,6 +1014,44 @@
    "toward": 77
   },
   {
+   "id": "bayterek-tower",
+   "name": "Bayterek Tower",
+   "iso": "KAZ",
+   "lat": 51.1283,
+   "lon": 71.4305,
+   "footprint": 14.5,
+   "height": 105,
+   "year": 2002,
+   "note": "A white tree of life holding a golden glass egg, raised for the capital's move to Astana; the deck inside the sphere stands 97 metres up, for 1997.",
+   "plan": [
+    -14,
+    14,
+    -14,
+    14
+   ],
+   "setting": "plaza",
+   "clearance": 50,
+   "toward": -11
+  },
+  {
+   "id": "minaret-of-jam",
+   "name": "Minaret of Jam",
+   "iso": "AFG",
+   "lat": 34.3964,
+   "lon": 64.516,
+   "footprint": 24,
+   "height": 65,
+   "year": 1190,
+   "note": "A Ghurid minaret of fired brick from about 1190, 65 metres tall in a remote river gorge, wrapped in geometric relief and a band of turquoise Kufic script.",
+   "plan": [
+    -23.5,
+    23,
+    -9,
+    7.5
+   ],
+   "clearance": 50
+  },
+  {
    "id": "hassan-ii-mosque",
    "name": "Hassan II Mosque",
    "iso": "MAR",
@@ -902,6 +1069,26 @@
    ],
    "shore": true,
    "clearance": -12
+  },
+  {
+   "id": "el-jem-amphitheatre",
+   "name": "Amphitheatre of El Jem",
+   "iso": "TUN",
+   "lat": 35.2964,
+   "lon": 10.7069,
+   "footprint": 52,
+   "height": 36,
+   "year": 238,
+   "note": "Built around AD 238 in Roman Thysdrus for some 35,000 spectators; the breach in its west side was opened in 1695 to drive out rebels sheltering inside.",
+   "plan": [
+    -50.5,
+    50.5,
+    -42,
+    42
+   ],
+   "setting": "plaza",
+   "clearance": 24,
+   "toward": 6
   },
   {
    "id": "pyramids-of-giza",
@@ -953,6 +1140,22 @@
    "clearance": 50
   },
   {
+   "id": "pyramids-of-meroe",
+   "name": "Pyramids of Meroë",
+   "iso": "SDN",
+   "lat": 16.9383,
+   "lon": 33.7489,
+   "footprint": 48,
+   "note": "Some two hundred steep pyramids of the kings and queens of Kush, built from about 300 BC to AD 350; in 1834 Giuseppe Ferlini blew the tops off several looking for gold.",
+   "plan": [
+    -34.5,
+    35.5,
+    -47,
+    47
+   ],
+   "clearance": 50
+  },
+  {
    "id": "djenne-mosque",
    "name": "Great Mosque of Djenne",
    "iso": "MLI",
@@ -969,6 +1172,24 @@
    "setting": "plaza",
    "clearance": 50,
    "toward": -179
+  },
+  {
+   "id": "african-renaissance-monument",
+   "name": "African Renaissance Monument",
+   "iso": "SEN",
+   "lat": 14.7686,
+   "lon": -16.9491,
+   "footprint": 21,
+   "height": 49,
+   "year": 2010,
+   "note": "Unveiled in 2010 for the fiftieth anniversary of independence: a bronze family 49 metres tall on one of the two Mamelles hills over Dakar.",
+   "plan": [
+    -20,
+    20,
+    -20.5,
+    19
+   ],
+   "clearance": 50
   },
   {
    "id": "elmina-castle",
@@ -1035,6 +1256,23 @@
     49,
     -29,
     16
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "great-zimbabwe",
+   "name": "Great Zimbabwe",
+   "iso": "ZWE",
+   "lat": -20.2675,
+   "lon": 30.9339,
+   "footprint": 40,
+   "height": 11,
+   "note": "The stone capital of a trading kingdom of the 11th to 15th centuries, its Great Enclosure laid in granite without mortar; the country takes its name from it.",
+   "plan": [
+    -39.5,
+    39.5,
+    -29.5,
+    29.5
    ],
    "clearance": 50
   },
@@ -1245,6 +1483,26 @@
    "clearance": 50
   },
   {
+   "id": "el-capitolio",
+   "name": "El Capitolio",
+   "iso": "CUB",
+   "lat": 22.9365,
+   "lon": -82.2066,
+   "footprint": 46,
+   "height": 92,
+   "year": 1929,
+   "note": "Finished in 1929 for Cuba's Congress; a replica diamond set in the floor under its dome marks kilometre zero of the island's roads.",
+   "plan": [
+    -22,
+    18.5,
+    -44.5,
+    44.5
+   ],
+   "setting": "plaza",
+   "clearance": 24,
+   "toward": 40
+  },
+  {
    "id": "the-pitons",
    "name": "The Pitons",
    "iso": "LCA",
@@ -1292,6 +1550,23 @@
     45.5,
     -51,
     52
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "tikal-temple-i",
+   "name": "Tikal Temple I",
+   "iso": "GTM",
+   "lat": 17.222,
+   "lon": -89.6237,
+   "footprint": 17,
+   "height": 47,
+   "note": "The funerary pyramid of the king Jasaw Chan K'awiil I, entombed beneath it in 734; a giant figure of him enthroned once filled its roof comb.",
+   "plan": [
+    -13,
+    16,
+    -12.5,
+    12.5
    ],
    "clearance": 50
   },
@@ -1362,6 +1637,22 @@
     38.5
    ],
    "clearance": 50
+  },
+  {
+   "id": "tiwanaku",
+   "name": "Tiwanaku",
+   "iso": "BOL",
+   "lat": -16.5545,
+   "lon": -68.6733,
+   "footprint": 21.5,
+   "note": "The ceremonial centre of an Andean culture that flourished near Lake Titicaca from about AD 500 to 1000; the Gate of the Sun is cut from a single block of andesite.",
+   "plan": [
+    -13.5,
+    13.5,
+    -16.5,
+    18
+   ],
+   "clearance": 28
   },
   {
    "id": "moai-rapa-nui",
