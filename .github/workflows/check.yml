@@ -95,6 +95,8 @@ jobs:
         run: pnpm passport
       - name: music
         run: pnpm music
+      - name: maps
+        run: pnpm maps-check
 
       - name: build
         run: pnpm exec vite build
