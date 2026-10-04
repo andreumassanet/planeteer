@@ -832,7 +832,15 @@ export function createCrowd(
       // Each rig's geometry is its own colour over the creature's shared
       // attributes; the creature is kept for the next visit, and its buffers
       // are uploaded again the first time it is drawn.
-      for (const list of pool.values()) for (const rigged of list) rigged.body.geometry.dispose();
+      // And each rig's skeleton, its own clone with a bone texture of its own
+      // on the card, which outlived the visit as Earth's cast's does not.
+      for (const list of pool.values()) {
+        for (const rigged of list) {
+          rigged.body.geometry.dispose();
+          rigged.body.skeleton.dispose();
+          rigged.mixer.uncacheRoot(rigged.mixer.getRoot());
+        }
+      }
       pool.clear();
       material.dispose();
     },

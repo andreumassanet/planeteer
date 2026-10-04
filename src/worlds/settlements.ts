@@ -127,9 +127,10 @@ const DOOR_LIGHT = AVATAR_HEIGHT * 0.8;
 /**
  * What is parked on a grid town's main streets, as craft to take — the
  * engine's own models at the engine's own sizes (`DEFAULT_KITS`), so the
- * car on the kerb is the car you drive — and on a deck the skiff.
+ * car on the kerb is the car you drive, on a cloud deck's skyways as on a
+ * crust's roads (the traffic there is the same rover, `traffic.ts`).
  */
-const PARKED_KITS: readonly KitCraft[] = [DEFAULT_KITS.rover!, { id: 'rover-cab', length: 9.4, seat: [-0.17, 0.3, 0.17], closed: true }];
+export const PARKED_KITS: readonly KitCraft[] = [DEFAULT_KITS.rover!, { id: 'rover-cab', length: 11, seat: [-0.17, 0.3, 0.17], closed: true }];
 
 /** A craft standing in a site, in the site's frame. */
 export interface CraftSpot {
@@ -1757,9 +1758,9 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
         town.parked.forEach((spot, k) => {
           const rng = rngFrom('worlds', spec.id, 'parked', site.id, k);
           const livery = liveryOf(style, rng);
-          const kit = deck ? DEFAULT_KITS.skiff! : rng.pick(PARKED_KITS);
+          const kit = rng.pick(PARKED_KITS);
           out.push({
-            vehicle: { kind: deck ? 'skiff' : 'rover', name: deck ? 'the skiff' : 'the rover', kit: { ...kit, livery: { wall: livery.wall, roof: livery.roof, accent: livery.accent } } },
+            vehicle: { kind: 'rover', name: 'the rover', kit: { ...kit, livery: { wall: livery.wall, roof: livery.roof, accent: livery.accent } } },
             x: spot.x,
             y: site.floor + CARRIAGE_TOP,
             z: spot.z,
@@ -1861,6 +1862,7 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
       for (const site of sites) drop(site);
       material.dispose();
       beaconGeometry.dispose();
+      (beacons.material as THREE.Material).dispose();
     },
   };
   return api;

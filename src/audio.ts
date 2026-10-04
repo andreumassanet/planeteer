@@ -52,7 +52,8 @@ export interface Soundscape {
    * the same loop low and closed, a motorbike's and a jet ski's high and open;
    * a helicopter's is its rotor's chop; a balloon, a sail and a bicycle have
    * none — a bicycle's freewheel ticks as it coasts — a horse is its hooves,
-   * and a swimmer hears the sea and the wind and nothing else.
+   * and a swimmer hears the sea and the wind and nothing else. A saucer, on
+   * the other worlds, is a soft hum that warbles, rising with its pace.
    */
   mode:
     | 'menu'
@@ -68,7 +69,8 @@ export interface Soundscape {
     | 'sail'
     | 'plane'
     | 'helicopter'
-    | 'balloon';
+    | 'balloon'
+    | 'saucer';
   /** Units a second over the ground or the water. */
   speed: number;
   /** The craft's speed as a fraction of its range, 0 idle to 1 flat out. */
@@ -270,6 +272,8 @@ const BOAT_LEVEL = 0.14;
 const PLANE_LEVEL = 0.13;
 const CAR_LEVEL = 0.11;
 const ROTOR_LEVEL = 0.16;
+/** A saucer's hum: quieter than any engine, it is meant to be heard and not noticed. */
+const SAUCER_LEVEL = 0.07;
 const TICK_LEVEL = 0.05;
 const HOOF_LEVEL = 0.22;
 
@@ -313,6 +317,7 @@ export function createAudio(): Audio {
   let boat: { gain: GainNode; low: OscillatorNode; high: OscillatorNode; filter: BiquadFilterNode } | null = null;
   let plane: { gain: GainNode; a: OscillatorNode; b: OscillatorNode; filter: BiquadFilterNode; buzz: GainNode } | null = null;
   let rotor: { gain: GainNode; chop: OscillatorNode; whine: GainNode } | null = null;
+  let saucer: { gain: GainNode; low: OscillatorNode; high: OscillatorNode; warble: OscillatorNode; depth: GainNode; filter: BiquadFilterNode } | null = null;
   /** Seconds to a bicycle's next freewheel tick, and a horse's next hoof. */
   let nextTick = 0;
   let nextHoof = 0;
@@ -498,6 +503,39 @@ export function createAudio(): Audio {
       chop.start();
       turbine.start();
       rotor = { gain, chop, whine };
+    }
+
+    // The saucer: two sines a fifth apart, a hair out of tune so they beat,
+    // their pitch wobbled by a slow oscillator — the warble — under a soft
+    // low-pass. The pitch, the warble's speed and its depth rise with the pace.
+    {
+      const low = ctx.createOscillator();
+      low.type = 'sine';
+      low.frequency.value = 110;
+      const high = ctx.createOscillator();
+      high.type = 'triangle';
+      high.frequency.value = 166;
+      const warble = ctx.createOscillator();
+      warble.frequency.value = 4;
+      const depth = ctx.createGain();
+      depth.gain.value = 3;
+      warble.connect(depth);
+      depth.connect(low.frequency);
+      depth.connect(high.frequency);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 900;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const highGain = ctx.createGain();
+      highGain.gain.value = 0.35;
+      low.connect(filter);
+      high.connect(highGain).connect(filter);
+      filter.connect(gain).connect(out);
+      low.start();
+      high.start();
+      warble.start();
+      saucer = { gain, low, high, warble, depth, filter };
     }
 
     nature = ctx.createGain();
@@ -849,7 +887,7 @@ export function createAudio(): Audio {
       }
       const flying = state.mode === 'plane';
       const sailing = state.mode === 'boat' || state.mode === 'jetski' || state.mode === 'sail';
-      const drifting = state.mode === 'balloon' || state.mode === 'helicopter';
+      const drifting = state.mode === 'balloon' || state.mode === 'helicopter' || state.mode === 'saucer';
       // Open to the air and quiet: birds and crickets are heard on a bicycle
       // or a horse as they are on foot; under sail it is the sea that is heard.
       const walking = state.mode === 'foot' || state.mode === 'bicycle' || state.mode === 'horse';
@@ -909,6 +947,18 @@ export function createAudio(): Audio {
       const chopping = state.mode === 'helicopter';
       follow(rotor.gain.gain, chopping ? ROTOR_LEVEL * (0.6 + 0.4 * throttle) : 0, now);
       follow(rotor.chop.frequency, 10 + 3 * throttle, now, 0.8);
+
+      // The saucer's hum, whenever somebody is at its controls.
+      if (saucer !== null) {
+        const humming = state.mode === 'saucer';
+        follow(saucer.gain.gain, humming ? SAUCER_LEVEL * (0.55 + 0.45 * throttle) : 0, now, 0.4);
+        const pitch = 96 + 150 * throttle;
+        follow(saucer.low.frequency, pitch, now, 0.5);
+        follow(saucer.high.frequency, pitch * 1.5 * 1.006, now, 0.5);
+        follow(saucer.warble.frequency, 3.5 + 6 * throttle, now, 0.5);
+        follow(saucer.depth.gain, pitch * (0.025 + 0.03 * throttle), now, 0.5);
+        follow(saucer.filter.frequency, 700 + 1400 * throttle, now, 0.5);
+      }
 
       // A bicycle's freewheel ticks as it coasts, faster the faster it goes;
       // pedalled, the pawl is carried round and says nothing.

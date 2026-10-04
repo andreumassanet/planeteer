@@ -31,7 +31,7 @@
  *   heavy and in their own violets, slates and greens; their towns are the
  *   kit's low hangars among their own kilns, vaults and pancakes, round the
  *   hearth, with lava trees and orange grass in the yards.
- * - **What to take**: a rover, and a lander for the long distances.
+ * - **What to take**: a rover, and a lander or a saucer for the long distances.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -206,7 +206,7 @@ export const WORLD = defineWorld(VENUS, {
   decorations: [DUST_DRIFT, IRON_SPIRE, SULPHUR_VENT, VENUS_GALENA, VENUS_SLAB, WIND_STONE],
   rocks: 4,
   // Armour for the ground, a balloon for the air and a ship to cross it fast.
-  vehicles: [CRAWLER, VENUS_AEROSTAT, 'lander'],
+  vehicles: [CRAWLER, VENUS_AEROSTAT, 'lander', 'ufo'],
   ambient: [
     // Broad gliders riding the soup of an atmosphere.
     { kind: 'fliers', count: 12, color: PALETTE.gold, belly: PALETTE.cream, size: 3.2 },

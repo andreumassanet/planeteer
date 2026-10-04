@@ -24,7 +24,7 @@
  *   alien in their own hides, and their towns are its colony — pods on
  *   cradles joined by tubes, long halls, glass domes, solar arrays — in rows
  *   down the avenues round a hub with a radar on its crown.
- * - **What to take**: the kit's six-wheeled rover and a cargo lander.
+ * - **What to take**: the kit's six-wheeled rover, a cargo lander and a saucer.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -186,7 +186,7 @@ export const WORLD = defineWorld(MARS, {
   }),
   decorations: [DUST_DRIFT, FROST_FAN, IRON_SPIRE, WIND_STONE],
   rocks: 7,
-  vehicles: ['rover', 'lander'],
+  vehicles: ['rover', 'lander', 'ufo'],
   ambient: [
     { kind: 'dust-devil', count: 4, color: PALETTE.sand },
     { kind: 'motes', count: 140, color: PALETTE.apricot },

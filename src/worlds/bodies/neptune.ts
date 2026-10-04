@@ -31,7 +31,8 @@
  * - **Drawn from the space kit**: the Gale are the kit's birb and hywirl at
  *   their own great height, and the kit's modules are drawn large for them,
  *   among their own wind-houses and sail halls.
- * - **What to take**: a hover-skiff and a lander.
+ * - **What to take**: a saucer and a lander, both of which fly; the rovers
+ *   parked on its streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -265,7 +266,7 @@ export const WORLD = defineWorld(NEPTUNE, {
   decorations: [ICE_PLUME],
   // Billows of the deck (`BILLOW`), where a crust has its boulders.
   rocks: 14,
-  vehicles: ['skiff', 'lander'],
+  vehicles: ['ufo', 'lander'],
   ambient: [
     // Fliers holding into the gale.
     { kind: 'fliers', count: 10, color: PALETTE.slate, belly: PALETTE.white, size: 3.2 },

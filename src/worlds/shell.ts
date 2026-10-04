@@ -45,7 +45,7 @@ import type { WorldPlayer } from './player.ts';
 import type { WorldRig } from './camera.ts';
 import type { Input } from '../input.ts';
 import type { Frontiers } from './frontiers.ts';
-import { WORLD_IDS, loadWorldSpec } from './registry.ts';
+import { WORLDS, WORLD_IDS } from './registry.ts';
 import { scriptOf, svgOf, writeLine } from './glyphs.ts';
 import type { Script } from './glyphs.ts';
 import { lineOf, voiceFor } from './speech.ts';
@@ -119,27 +119,28 @@ const STATS_MS = 500;
 /** A craft of the walked worlds as the HUD, the passport and the player list say it: Earth's nearest kind. */
 const MODE_OF: Readonly<Record<VehicleKind, TravelMode & StampMode>> = {
   rover: 'car',
-  skiff: 'boat',
   lander: 'plane',
   aerostat: 'balloon',
+  // What hovers and turns on the spot: Earth's helicopter, aloft or down.
+  ufo: 'helicopter',
 };
 const ICON_OF: Readonly<Record<VehicleKind, IconName>> = {
   rover: 'car',
-  skiff: 'boat',
   lander: 'plane',
   aerostat: 'balloon',
+  ufo: 'orbit',
 };
 
 /**
  * What each craft sounds like through Earth's mix (`Soundscape.mode`): the
- * rover a car's engine, the skiff the launch's outboard, the lander a
- * plane's, the aerostat the balloon's silence.
+ * rover a car's engine, the lander a plane's, the aerostat the balloon's
+ * silence, the saucer its own warbling hum (`audio.ts`).
  */
 const SOUND_OF: Readonly<Record<VehicleKind, Soundscape['mode']>> = {
   rover: 'car',
-  skiff: 'boat',
   lander: 'plane',
   aerostat: 'balloon',
+  ufo: 'saucer',
 };
 
 /**
@@ -161,9 +162,9 @@ const MUSIC_STYLE: Readonly<Record<string, StyleId>> = {
 /** And what the music takes it for, as Earth's `MUSIC_OF`: on the road, at sea, or in the sky. */
 const MUSIC_OF: Readonly<Record<VehicleKind, MusicMoment['mode']>> = {
   rover: 'car',
-  skiff: 'boat',
   lander: 'plane',
   aerostat: 'balloon',
+  ufo: 'plane',
 };
 /** The keys in a rocket on its pad. */
 const ROCKET_KEYS: HintSet = {
@@ -183,8 +184,6 @@ function craftHints(kind: VehicleKind, airborne: boolean): HintSet {
   switch (kind) {
     case 'rover':
       return { id: 'world-rover', once: false, sticky: false, hints: [{ keys: MOVE, label: 'Drive' }, out] };
-    case 'skiff':
-      return { id: 'world-skiff', once: false, sticky: false, hints: [{ keys: MOVE, label: 'Steer' }, out] };
     case 'aerostat':
       return {
         id: airborne ? 'world-aerostat-air' : 'world-aerostat',
@@ -207,6 +206,21 @@ function craftHints(kind: VehicleKind, airborne: boolean): HintSet {
             ],
           }
         : { id: 'world-lander', once: false, sticky: false, hints: [{ keys: ['jump'], label: 'Hold to lift off' }, { keys: MOVE, label: 'Steer' }, out] };
+    case 'ufo':
+      return airborne
+        ? {
+            id: 'world-ufo-air',
+            once: true,
+            sticky: false,
+            hints: [
+              { keys: ['jump'], label: 'Rise' },
+              { keys: ['descend'], label: 'Sink · land' },
+              { keys: ['run'], label: 'Boost' },
+              { keys: MOVE, label: 'Fly' },
+              out,
+            ],
+          }
+        : { id: 'world-ufo', once: false, sticky: false, hints: [{ keys: ['jump'], label: 'Lift off' }, { keys: MOVE, label: 'Turn' }, out] };
   }
 }
 
@@ -270,6 +284,8 @@ export interface ShellWorld {
   groundAt(point: THREE.Vector3): number;
   /** The nearest craft in reach to board, or null. */
   craftInReach(): Craft | null;
+  /** Whether a rover with its driver at the wheel is in reach: nothing to take, and `E` says so. */
+  occupiedInReach(): boolean;
   /** Stands the traveller at a place — a town's own arrival when it is in one — and builds the ground there. */
   jumpTo(lat: number, lon: number): void;
   /** Where this visit began. */
@@ -419,7 +435,9 @@ export function createShell(world: ShellWorld): Shell {
     await Promise.all(
       WORLD_IDS.map(async (id) => {
         try {
-          const other = await loadWorldSpec(id);
+          // The spec alone, not `loadWorldSpec`, which fetches the world's
+          // whole kit as well: opening the book downloaded every world's.
+          const { WORLD: other } = await WORLDS[id]!();
           if (other.civilisation !== null) scripts.set(id, scriptOf(other.civilisation.script));
         } catch {
           // A world that will not load has a chapter without its writing.
@@ -439,7 +457,11 @@ export function createShell(world: ShellWorld): Shell {
     // It falls open at the visa of the nation underfoot.
     here: () => moment.iso,
     lockTarget,
-    onOpen: () => cue('book-open'),
+    // One card at a time, as on Earth: the map gives way to the book.
+    onOpen: () => {
+      if (map.open) map.hide(false);
+      cue('book-open');
+    },
     onClose: () => cue('book-close'),
     onTurn: (leaves) => {
       cue('page');
@@ -524,7 +546,7 @@ export function createShell(world: ShellWorld): Shell {
         id: peers?.id ?? 'you',
         name: peers?.name || host.name() || storedName() || 'Traveller',
         iso: isoAt(player.position),
-        doing: player.craft === null ? doingOf('foot') : { text: `Driving the ${player.craft.name}`, icon: ICON_OF[player.craft.kind] },
+        doing: player.craft === null ? doingOf('foot') : { text: `Driving ${player.craft.name}`, icon: ICON_OF[player.craft.kind] },
         you: true,
       },
       ...[...(peers?.marks ?? [])]
@@ -575,7 +597,7 @@ export function createShell(world: ShellWorld): Shell {
     lockTarget,
     // One card at a time, as on Earth.
     onOpen: () => {
-      if (map.open) map.hide();
+      if (map.open) map.hide(false);
       cue('ui-open');
     },
     onClose: () => cue('ui-close'),
@@ -618,7 +640,7 @@ export function createShell(world: ShellWorld): Shell {
     sound: () => (host.settings?.sound?.chat?.get() === false ? null : host.sound()),
     lockTarget,
     onOpen: () => {
-      if (map.open) map.hide();
+      if (map.open) map.hide(false);
     },
   });
 
@@ -656,11 +678,13 @@ export function createShell(world: ShellWorld): Shell {
   addEventListener(
     'keydown',
     (event) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (inputBlocked(event)) return;
       const action = actionOf(event.code);
+      // The render distance repeats while held, as on Earth; the toggles do not.
       if (action === 'nearer') hud.toast(`Render distance ${setDetail(Math.max(DETAIL_MIN, detail() / 1.25)).toFixed(2)}×`, 'eye');
       else if (action === 'farther') hud.toast(`Render distance ${setDetail(Math.min(DETAIL_MAX, detail() * 1.25)).toFixed(2)}×`, 'eye');
+      else if (event.repeat) return;
       else if (action === 'flags') hud.toast(setOverlay(!overlayOn) ? 'Nations and borders on' : 'Nations and borders off', 'flag');
       else if (action === 'hud') hud.toast(hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
       else if (action === 'photo') photoWanted = true;
@@ -783,6 +807,8 @@ export function createShell(world: ShellWorld): Shell {
   let musicAt = -Infinity;
   /** Whether the rocket's keys are up. */
   let wasInRocket = false;
+  /** Whether those keys are on the strip still: until out, or until it leaves the pad. */
+  let rocketKeysUp = false;
   const scape: Soundscape = { mode: 'foot', speed: 0, throttle: 0, height: 0, sea: 0, daylight: 1, wild: 0, cold: true, air: spec.sky.air };
 
   /** Once per device, after the first arrival, on any world. */
@@ -805,6 +831,12 @@ export function createShell(world: ShellWorld): Shell {
       if (!wasInRocket) {
         wasInRocket = true;
         hud.showKeys(ROCKET_KEYS);
+        rocketKeysUp = true;
+      }
+      // Off the pad `E` gets nobody out: the keys go with the clamps.
+      if (inRocket.state !== 'boarded' && rocketKeysUp) {
+        rocketKeysUp = false;
+        hud.showKeys(null);
       }
       if (state.use && inRocket.state === 'boarded') {
         world.leaveRocket();
@@ -813,7 +845,8 @@ export function createShell(world: ShellWorld): Shell {
       hud.setPrompt(inRocket.state === 'boarded' ? 'Get out' : null, 'walk');
     } else if (wasInRocket) {
       wasInRocket = false;
-      hud.showKeys(null);
+      if (rocketKeysUp) hud.showKeys(null);
+      rocketKeysUp = false;
     }
 
     // `E`: get out; else whoever is nearer, somebody to talk to, a seat or a rocket.
@@ -842,6 +875,11 @@ export function createShell(world: ShellWorld): Shell {
         stopTalking();
         player.board(craft);
         cue('ui-confirm');
+      } else if (afoot && walker === null && world.occupiedInReach()) {
+        // Nothing to take, and a rover beside you with its driver at the
+        // wheel: say so, calmly, as Earth does, rather than leave the key
+        // doing nothing.
+        hud.toast('Someone is driving that one', ICON_OF.rover);
       }
     }
 

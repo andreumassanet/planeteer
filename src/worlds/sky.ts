@@ -674,6 +674,14 @@ export function createSky(spec: WorldSpec, scene: THREE.Scene): Sky {
         (one.disc.mesh.material as THREE.Material).dispose();
       }
       for (const layer of layers) layer.dispose();
+      // The halo's drawn texture, and the lights: the sun's shadow map is a
+      // 2048-square render target the renderer made on its first shadow and
+      // frees only here, so every visit to a world kept one on the card.
+      halo.material.map?.dispose();
+      halo.material.dispose();
+      sun.dispose();
+      moon.dispose();
+      scene.remove(sun, sun.target, moon, moon.target, ambient, hemisphere);
     },
   };
 }

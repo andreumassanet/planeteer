@@ -310,8 +310,9 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
             steer: input.move.x,
             climb: input.climb,
             // A ship's run key is its afterburner and it comes down on the
-            // descend key alone, as Earth's plane does; anything else sinks on either.
-            descend: c.kind === 'lander' ? input.dive : input.dive || input.run,
+            // descend key alone, as Earth's plane does (the lander, the
+            // saucer); anything else sinks on either.
+            descend: c.boosts ? input.dive : input.dive || input.run,
             boost: input.run,
           },
           world.groundAt,
@@ -328,9 +329,11 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
         }
         position.copy(c.position);
         facing.copy(c.heading);
-        // Standing in a basket, as a balloon's crew do on Earth; else seated.
+        // Standing in a basket, as a balloon's crew do on Earth; else seated
+        // as the craft's seat says, the legs to its pedals and the hands on
+        // what it is steered by, turned with it (`Craft.pose`, `Craft.turn`).
         if (c.standing) avatar.stride(dt, 0, false);
-        else avatar.sit(dt);
+        else avatar.sit(dt, c.pose ?? undefined, c.turn);
         avatar.group.position.copy(c.seat);
         avatar.group.quaternion.identity();
         return;
@@ -420,7 +423,8 @@ export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlay
       home = avatar.group.parent;
       next.object.add(avatar.group);
       avatar.group.userData.pilot = true;
-      // Under a closed canopy the pilot is not seen: a body sat in a hull pokes through it.
+      // Seen through the glass of a closed craft (`cockpit.ts`), and over the
+      // side of an open one; hidden only in a hull no seated body fits.
       avatar.group.visible = !next.closed;
       avatar.group.position.copy(next.seat);
       avatar.group.quaternion.identity();

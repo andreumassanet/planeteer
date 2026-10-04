@@ -7,8 +7,11 @@
  * Near and capped, as Earth's are: `SHIPS` at once, each put down on a
  * straight line past the traveller at a height, a heading and a speed of its
  * own, and stood up again on another line once it has flown out of `REACH`.
- * Each is its own small mesh, inked, because it moves; the lights under a
- * saucer turn. They are heard through Earth's passing voices
+ * Each is its own small mesh, inked, because it moves. **A saucer is the
+ * saucer a traveller can fly** (`ufo.ts`), in the inhabitants' colours, its
+ * lamps chasing round its band, its legs folded and its beam off at that
+ * height — so the one in the sky is plainly the one parked by a town. They
+ * are heard through Earth's passing voices
  * (`passing-sound.ts`): a saucer as a jet's hush, a shuttle as a rotor's beat.
  */
 
@@ -16,6 +19,9 @@ import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
 import { AVATAR_HEIGHT } from '../avatar.ts';
 import type { PassingSource } from '../passing-sound.ts';
+import type { SceneryContext } from '../scenery/contract.ts';
+import { buildUfo } from './ufo.ts';
+import type { UfoModel } from './ufo.ts';
 
 /** How many fly at once, and how far from the traveller one is let go and flown again. */
 const SHIPS = 4;
@@ -40,8 +46,7 @@ interface Ship {
   along: THREE.Vector3;
   height: number;
   speed: number;
-  saucer: boolean;
-  spinner: THREE.Object3D | null;
+  saucer: UfoModel | null;
   wobble: number;
 }
 
@@ -54,44 +59,25 @@ function toon(color: number, gradientMap: THREE.Texture, materials: THREE.Materi
   return material;
 }
 
-export function createSkyships(gradientMap: THREE.Texture, hull: number, trim: number): Skyships {
+export function createSkyships(ctx: SceneryContext, gradientMap: THREE.Texture, hull: number, trim: number): Skyships {
   const group = new THREE.Group();
   group.name = 'skyships';
   const materials: THREE.Material[] = [];
   const H = AVATAR_HEIGHT;
   const hullPaint = toon(hull, gradientMap, materials);
   const trimPaint = toon(trim, gradientMap, materials);
-  const glass = toon(PALETTE.skyBlue, gradientMap, materials);
   const glow = new THREE.MeshBasicMaterial({ color: PALETTE.gold });
   glow.userData.outlineParameters = { visible: false };
   materials.push(glow);
 
-  // Shapes shared by every ship: a saucer is a squashed sphere, its dome and
-  // a ring of lights; a shuttle a capsule with stubby wings and a tail.
-  const disc = new THREE.SphereGeometry(H * 2.2, 16, 8).scale(1, 0.28, 1);
-  const dome = new THREE.SphereGeometry(H * 0.9, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  // A shuttle's shapes: a capsule with stubby wings and a tail.
   const lamp = new THREE.SphereGeometry(H * 0.18, 6, 4);
   const body = new THREE.CapsuleGeometry(H * 0.75, H * 3.2, 4, 10).rotateX(Math.PI / 2);
   const wing = new THREE.BoxGeometry(H * 3.4, H * 0.12, H * 1.1);
   const fin = new THREE.BoxGeometry(H * 0.12, H * 1.1, H * 0.9);
-  const geometries = [disc, dome, lamp, body, wing, fin];
-
-  function saucer(): { object: THREE.Group; spinner: THREE.Object3D } {
-    const object = new THREE.Group();
-    object.add(new THREE.Mesh(disc, hullPaint));
-    const top = new THREE.Mesh(dome, glass);
-    top.position.y = H * 0.35;
-    object.add(top);
-    const spinner = new THREE.Group();
-    for (let k = 0; k < 8; k++) {
-      const turn = (k / 8) * Math.PI * 2;
-      const light = new THREE.Mesh(lamp, k % 2 === 0 ? glow : trimPaint);
-      light.position.set(Math.sin(turn) * H * 1.7, -H * 0.42, Math.cos(turn) * H * 1.7);
-      spinner.add(light);
-    }
-    object.add(spinner);
-    return { object, spinner };
-  }
+  const geometries = [lamp, body, wing, fin];
+  /** What a saucer is told each frame: aloft, its legs up and its beam off at any height it flies. */
+  const flying = { airborne: true, over: 0, pace: 0.6, burn: 0 };
 
   function shuttle(): THREE.Group {
     const object = new THREE.Group();
@@ -110,18 +96,18 @@ export function createSkyships(gradientMap: THREE.Texture, hull: number, trim: n
 
   const ships: Ship[] = [];
   for (let k = 0; k < SHIPS; k++) {
-    const isSaucer = k % 2 === 0;
-    const made = isSaucer ? saucer() : { object: shuttle(), spinner: null };
-    made.object.visible = false;
-    group.add(made.object);
+    // Every other one a saucer, in the hull's and the trim's colours.
+    const saucer = k % 2 === 0 ? buildUfo(ctx, gradientMap, { wall: hull, roof: PALETTE.steel, accent: trim }) : null;
+    const object = saucer?.group ?? shuttle();
+    object.visible = false;
+    group.add(object);
     ships.push({
-      object: made.object,
+      object,
       dir: new THREE.Vector3(),
       along: new THREE.Vector3(),
       height: 0,
       speed: 0,
-      saucer: isSaucer,
-      spinner: made.spinner,
+      saucer,
       wobble: Math.random() * 10,
     });
   }
@@ -149,7 +135,7 @@ export function createSkyships(gradientMap: THREE.Texture, hull: number, trim: n
     ship.dir.copy(player).addScaledVector(lateral, offset).addScaledVector(ship.along, -back).normalize();
     ship.along.addScaledVector(ship.dir, -ship.along.dot(ship.dir)).normalize();
     ship.height = rand(HEIGHT[0], HEIGHT[1]);
-    ship.speed = rand(SPEED[0], SPEED[1]) * (ship.saucer ? 1.2 : 1);
+    ship.speed = rand(SPEED[0], SPEED[1]) * (ship.saucer !== null ? 1.2 : 1);
     ship.object.visible = true;
   }
 
@@ -177,16 +163,19 @@ export function createSkyships(gradientMap: THREE.Texture, hull: number, trim: n
         // +x = up x z: a rotation, determinant +1.
         basis.makeBasis(side, ship.dir, ship.along);
         ship.object.quaternion.setFromRotationMatrix(basis);
-        if (ship.saucer) ship.object.rotateZ(Math.sin(ship.wobble * 1.3) * 0.08);
-        if (ship.spinner !== null) ship.spinner.rotation.y += dt * 2.4;
+        if (ship.saucer !== null) {
+          ship.object.rotateZ(Math.sin(ship.wobble * 1.3) * 0.08);
+          flying.over = ship.height;
+          ship.saucer.animate(dt, flying);
+        }
         const distance = at.distanceTo(player);
         if (distance > REACH && at.clone().sub(player).dot(ship.along) > 0) fly(ship, player, false);
         const closing = -at.clone().sub(player).normalize().dot(ship.along) * ship.speed;
-        if (ship.saucer && distance < jetNear) {
+        if (ship.saucer !== null && distance < jetNear) {
           jetNear = distance;
           jet.distance = distance;
           jet.closing = closing;
-        } else if (!ship.saucer && distance < rotorNear) {
+        } else if (ship.saucer === null && distance < rotorNear) {
           rotorNear = distance;
           rotor.distance = distance;
           rotor.closing = closing;
@@ -199,6 +188,15 @@ export function createSkyships(gradientMap: THREE.Texture, hull: number, trim: n
       group.removeFromParent();
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();
+      // The saucers' own meshes, which are theirs alone.
+      for (const ship of ships) {
+        ship.saucer?.group.traverse((one) => {
+          const mesh = one as THREE.Mesh;
+          if (mesh.isMesh !== true) return;
+          mesh.geometry.dispose();
+          for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
+        });
+      }
     },
   };
 }

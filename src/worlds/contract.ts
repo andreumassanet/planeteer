@@ -86,6 +86,7 @@ import type { Group, SceneryContext } from '../scenery/contract.ts';
 import type { Rng } from '../scenery/random.ts';
 import { PALETTE } from '../theme.ts';
 import type { Color, Object3D, Vector3 } from 'three';
+import type { SeatedPose } from '../cast.ts';
 
 // ---------------------------------------------------------------------------
 // The ground
@@ -554,14 +555,15 @@ export interface Civilisation {
 // ---------------------------------------------------------------------------
 
 /**
- * A craft to take, by how it moves. `rover` drives the ground, `skiff` hovers
- * over a cloud deck (or anything), `lander` flies with the aircraft's keys —
- * Space up, Shift or C down, W and S the throttle, A and D to turn — and
+ * A craft to take, by how it moves. `rover` drives the ground, `lander` flies
+ * with the aircraft's keys — Space up, C down, Shift the afterburner, W and S
+ * the throttle, A and D to turn — `ufo` is the saucer, which flies on the same
+ * keys and laws but takes its speed at once and turns briskly (`ufo.ts`), and
  * `aerostat` is a balloon: it climbs and sinks slowly on the same keys, holds
  * its height when neither is held, and drifts with the world's wind when the
  * throttle is let go.
  */
-export type VehicleKind = 'rover' | 'skiff' | 'lander' | 'aerostat';
+export type VehicleKind = 'rover' | 'lander' | 'aerostat' | 'ufo';
 
 /** How a craft answers its keys, units and seconds. */
 export interface Handling {
@@ -584,16 +586,25 @@ export interface VehicleModel {
   seat: { x: number; y: number; z: number };
   /** Footprint radius: the wall it is when parked. */
   radius: number;
-  /** How high its floor rides over the ground when it stands: a skiff hovers. 0 by default. */
-  hover?: number;
   /** Whether its pilot stands, as in a balloon's basket, rather than sits. */
   stand?: boolean;
+  /**
+   * The driver's eye, for `V` in the seat, in the model's frame; omitted,
+   * `SEAT_EYE` over the hip (`craft/body.ts`), or a standing eye for `stand`.
+   */
+  eye?: { x: number; y: number; z: number };
+  /**
+   * How the driver sits and what the hands hold, as Earth's seats say it
+   * (`SeatedPose` in `cast.ts`): omitted, a chair's fold and the hands idle.
+   */
+  pose?: SeatedPose;
 }
 
 /**
- * A planet's own craft: a model, a name and a motion. The engine's three
- * (`rover`, `skiff`, `lander`) are kinds named by themselves in `vehicles`;
- * this is the other way in, for a rover with a sunshade or a crawler in armour.
+ * A planet's own craft: a model, a name and a motion. The engine's own
+ * (`rover`, `lander`, `aerostat`, `ufo`) are kinds named by themselves in
+ * `vehicles`; this is the other way in, for a rover with a sunshade or a
+ * crawler in armour, or a town's saucer in the town's colours.
  */
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -613,6 +624,8 @@ export interface VehicleSpec {
   dress?(ctx: SceneryContext, size: { width: number; height: number; length: number }): Group;
   /** Over the kind's own handling. */
   handling?: Partial<Handling>;
+  /** `PALETTE` entries for a code-built craft's hull, trim and accent (the saucer's); its own colours omitted. */
+  livery?: { wall: number; roof: number; accent: number };
 }
 
 /**
@@ -627,19 +640,24 @@ export interface KitCraft {
   /**
    * Where the driver's hips go, as fractions of the model's box once it faces
    * +Z: across from -0.5 (left) to 0.5, up from 0 to 1, along from -0.5 (tail)
-   * to 0.5 (nose).
+   * to 0.5 (nose). A `closed` craft's seats are laid off its own shell
+   * instead (`cockpit.ts`), where a seated crown clears its roof, and this
+   * is not read.
    */
   seat: readonly [number, number, number];
   /** The pack authored it facing -Z (Kenney's), so it is turned half round. */
   faces?: 'z' | '-z';
-  /** Units its floor rides over the ground when it stands: a skiff hovers. */
-  hover?: number;
   /**
    * A ship with no wheels stands on legs this long, units, folded away once
    * it is well off the ground.
    */
   legs?: number;
-  /** The driver sits under a closed canopy and is not seen from outside. */
+  /**
+   * A closed cabin: glazed, lined and furnished from Earth's cabin pieces
+   * (`cockpit.ts`), a cab on wheels or a canopy on `legs`, the driver seen
+   * through its glass. The craft is fitted so a seated crown clears its
+   * roof, and `scripts/check-worlds.ts` holds it.
+   */
   closed?: boolean;
   /**
    * A ship's exhausts on its tail, each `[across, up, radius]` as shares of
@@ -852,7 +870,7 @@ export type WorldOverrides = Partial<Omit<WorldSpec, 'id' | 'body' | 'relief' | 
 /**
  * A spec from a body and only what differs from the default — the shape every
  * file in `bodies/` uses. The defaults follow the body: a giant gets a cloud
- * deck, a skiff and banded colours from its `look`; a rocky body a crust, a
+ * deck, a saucer and banded colours from its `look`; a rocky body a crust, a
  * rover and a light cratering.
  */
 export function defineWorld(body: Body, overrides: WorldOverrides = {}): WorldSpec {
@@ -919,7 +937,7 @@ export function defineWorld(body: Body, overrides: WorldOverrides = {}): WorldSp
     civilisation: overrides.civilisation ?? null,
     decorations: overrides.decorations ?? [],
     rocks: overrides.rocks ?? (giant ? 14 : 6),
-    vehicles: overrides.vehicles ?? [giant ? 'skiff' : 'rover'],
+    vehicles: overrides.vehicles ?? [giant ? 'ufo' : 'rover'],
     ambient: overrides.ambient ?? [],
     wind: overrides.wind ?? null,
     landmarks: overrides.landmarks ?? [],

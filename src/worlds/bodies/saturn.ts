@@ -28,7 +28,8 @@
  * - **Drawn from the space kit**: the Drifters are the kit's squidle and pink
  *   blob; their platforms carry glass domes and pods among their halos and
  *   gyres, with swirl trees in the yards, and the big ones a landing pad.
- * - **What to take**: a hover-skiff and a lander.
+ * - **What to take**: a saucer and a lander, both of which fly; the rovers
+ *   parked on its streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -263,7 +264,7 @@ export const WORLD = defineWorld(SATURN, {
   decorations: [],
   // Billows of the deck (`BILLOW`), where a crust has its boulders.
   rocks: 14,
-  vehicles: ['skiff', 'lander'],
+  vehicles: ['ufo', 'lander'],
   ambient: [
     // Sky mantas over the deck.
     { kind: 'fliers', count: 12, color: PALETTE.apricot, belly: PALETTE.white, size: 3.8 },

@@ -11,8 +11,14 @@
  * the traveller is watching turns round instead.
  *
  * Each is a craft (`createCraft`), the world's own rover at its own size,
- * driven along `Roads.place` — so the traveller can stop one, get in and
- * take it (`take`), as every vehicle in the world can be taken.
+ * driven along `Roads.place`, glazed and furnished as the one the traveller
+ * takes is (`cockpit.ts`). **Near, someone is at the wheel** (since
+ * 2026-10-04): within `CABIN_REACH` — Earth's traffic's (`cabin.ts`) — a
+ * driver sits in its seat, a body of the cast held as the traveller sits
+ * (`Avatar.sit`, the hands on the wheel), so a rover on the road reads as
+ * driven, as Earth's cars do. A driven rover is not the traveller's to take,
+ * as no car on Earth's roads is; `E` beside one says so (`occupiedNear`).
+ * Past the reach the seat is empty and nobody looks.
  */
 
 import * as THREE from 'three';
@@ -22,6 +28,8 @@ import { createCraft, disposeCraft } from './craft.ts';
 import type { Craft } from './craft.ts';
 import type { SceneryContext } from '../scenery/contract.ts';
 import { rngFrom } from '../scenery/random.ts';
+import type { Avatar } from '../avatar.ts';
+import { CABIN_REACH } from '../craft/cabin.ts';
 
 /** The most rovers driving at once. */
 const MOST = 7;
@@ -59,6 +67,8 @@ export interface Traffic {
   readonly rovers: readonly TrafficRover[];
   /** Takes a rover off the road for the traveller: it is theirs now, a craft like any other, standing where it stopped. */
   take(craft: Craft): void;
+  /** Whether a driven rover is within its own boarding reach of `point`: what `E` beside one, with nothing to take, answers. */
+  occupiedNear(point: THREE.Vector3): boolean;
   dispose(): void;
 }
 
@@ -69,9 +79,23 @@ interface Driving extends TrafficRover {
   way: 1 | -1;
   speed: number;
   cruise: number;
+  /** Its driver while it is near (`CABIN_REACH`), or null. */
+  driver: Avatar | null;
+  /** Which of the drivers' looks it seats, from its own seed. */
+  look: number;
 }
 
-export function createTraffic(spec: WorldSpec, roads: Roads, ctx: SceneryContext, gradientMap: THREE.Texture): Traffic {
+/**
+ * A driver for the traffic: a body of the cast, dressed by `look` (any
+ * number; the same number, the same person). Handed in by the world, which
+ * has the cast; absent headless, where the seats stay empty.
+ */
+export type DriverOf = (look: number) => Avatar | null;
+
+/** Past the reach by this share again, a driver is let go: so one at the edge does not come and go each frame. */
+const DRIVER_HYSTERESIS = 1.2;
+
+export function createTraffic(spec: WorldSpec, roads: Roads, ctx: SceneryContext, gradientMap: THREE.Texture, driverOf: DriverOf | null = null): Traffic {
   const group = new THREE.Group();
   group.name = 'world-traffic';
   const rovers: Driving[] = [];
@@ -130,14 +154,41 @@ export function createTraffic(spec: WorldSpec, roads: Roads, ctx: SceneryContext
       way,
       speed: cruise,
       cruise,
+      driver: null,
+      look: Math.floor(rng.unit() * 1e6),
     };
     pose(rover);
     group.add(object);
     rovers.push(rover);
   }
 
+  /**
+   * The drivers not seated, kept to be seated again: a body of the cast is a
+   * skinned mesh and its clips, so one let go is not thrown away but sat in
+   * the next rover to come near, as whoever it was — at most `MOST` of them
+   * are ever built, one a rover.
+   */
+  const idle: Avatar[] = [];
+  function unseat(rover: Driving): void {
+    if (rover.driver === null) return;
+    rover.driver.group.removeFromParent();
+    idle.push(rover.driver);
+    rover.driver = null;
+  }
+  function seat(rover: Driving): void {
+    if (rover.driver !== null || driverOf === null || rover.craft.closed) return;
+    const driver = idle.pop() ?? driverOf(rover.look);
+    if (driver === null) return;
+    driver.group.position.copy(rover.craft.seat);
+    driver.group.quaternion.identity();
+    driver.group.visible = true;
+    rover.object.add(driver.group);
+    rover.driver = driver;
+  }
+
   function drop(index: number): void {
     const rover = rovers[index]!;
+    unseat(rover);
     group.remove(rover.object);
     rovers.splice(index, 1);
     disposeCraft(rover.craft);
@@ -183,18 +234,36 @@ export function createTraffic(spec: WorldSpec, roads: Roads, ctx: SceneryContext
           rover.s = Math.min(length - 7, Math.max(7, rover.s));
         }
         pose(rover);
+        // Someone at the wheel while it is near enough to be seen there,
+        // held as the traveller sits (`Avatar.sit`): the legs to the pedals,
+        // the hands on the wheel, which stands still on a road that is the
+        // rover's to follow.
+        const away = rover.position.distanceTo(traveller);
+        if (away < CABIN_REACH) seat(rover);
+        else if (away > CABIN_REACH * DRIVER_HYSTERESIS) unseat(rover);
+        if (rover.driver !== null) {
+          rover.driver.group.position.copy(rover.craft.seat);
+          rover.driver.sit(dt, rover.craft.pose ?? undefined, 0);
+        }
       }
     },
     take(craft) {
       const index = rovers.findIndex((one) => one.craft === craft);
       if (index < 0) return;
       const rover = rovers[index]!;
+      unseat(rover);
       rovers.splice(index, 1);
       group.remove(rover.object);
       craft.speed = 0;
     },
+    occupiedNear(point) {
+      return rovers.some((rover) => rover.driver !== null && rover.position.distanceTo(point) < rover.craft.reach);
+    },
     dispose() {
       for (let i = rovers.length - 1; i >= 0; i--) drop(i);
+      // Every driver unseated by now: back to the cast's pool, not disposed.
+      for (const driver of idle) driver.dispose();
+      idle.length = 0;
       group.removeFromParent();
     },
   };

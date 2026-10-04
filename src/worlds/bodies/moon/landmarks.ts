@@ -19,6 +19,7 @@ import { dome, ball } from '../../architecture.ts';
 import type { Group, SceneryContext } from '../../../scenery/contract.ts';
 import { PROUD } from '../../../scenery/contract.ts';
 import type { Rng } from '../../../scenery/random.ts';
+import type { SeatedPose } from '../../../cast.ts';
 import { AVATAR_HEIGHT, PERSON_METRES } from '../../../stature.ts';
 import { PALETTE } from '../../../theme.ts';
 
@@ -260,8 +261,11 @@ function rover(ctx: SceneryContext): Group {
     tube(v(x, 0.52, -0.55), v(x * 0.95, 0.66, -0.25), 0.04);
   }
   for (const z of [-1.45, -0.6, 0.55, 1.45]) tube(v(-0.6, 0.52, z), v(0.6, 0.52, z));
+  // The floor pan low between the rails, where a seated driver's soles,
+  // legs out to the footrest, come down on it (`HERO.drive.sole` under the
+  // seat's 0.66 m).
   const pan = ctx.box(1.2 * M, 0.03 * M, 1.05 * M, ctx.tone(PALETTE.steel, 0.9));
-  pan.position.set(0, 0.49 * M, 0);
+  pan.position.set(0, 0.4 * M, 0);
   g.add(pan);
   // The wheels: a wire-mesh tyre (the titanium chevrons as a darker tread),
   // the hub with its drive motor, the fender arched over the top half, and the
@@ -330,9 +334,9 @@ function rover(ctx: SceneryContext): Group {
     rest.rotation.x = 0.35;
     g.add(rest);
   }
-  // The T-handle between the seats, and the console on its post.
-  tube(v(0, 0.52, 0.0), v(0, 0.82, 0.05), 0.04);
-  tube(v(-0.07, 0.82, 0.05), v(0.07, 0.82, 0.05), 0.03);
+  // The T-handle between the seats (`LRV_HANDLE`), and the console on its post.
+  tube(v(0, 0.52, -0.02), v(LRV_HANDLE.x, LRV_HANDLE.y, LRV_HANDLE.z), 0.04);
+  tube(v(-0.07, LRV_HANDLE.y, LRV_HANDLE.z), v(0.07, LRV_HANDLE.y, LRV_HANDLE.z), 0.03);
   tube(v(0, 0.52, 0.55), v(0, 1.02, 0.6), 0.045);
   const console = ctx.box(0.5 * M, 0.32 * M, 0.09 * M, ctx.tone(PALETTE.steel, 1.2));
   console.position.set(0, 0.98 * M, 0.62 * M);
@@ -407,6 +411,33 @@ function rover(ctx: SceneryContext): Group {
 }
 
 /**
+ * The hand controller between the seats, metres: the real one was a T-handle
+ * on a post a little ahead of the seat pans, pushed to drive and leaned to
+ * steer, by either crew member. Its crossbar is 0.9 m up and level with the
+ * seats' front edge, where the commander's right hand reaches it — the hero's
+ * arm is short for his height (`HERO.reach`, 0.22 of a body), and at 0.82 m
+ * and 0.25 m ahead of the hip the bar was out of it.
+ */
+const LRV_HANDLE = { x: 0, y: 0.9, z: 0 };
+/** The commander's hip, on the left seat's pan. */
+const LRV_SEAT = { x: 0.33 * M, y: 0.66 * M, z: -0.2 * M };
+/**
+ * How the commander sits: the legs out to the footrest, the right hand on
+ * the T-handle and the left on the thigh (`WheelGrip.rest`), as the LRV was
+ * driven one-handed.
+ */
+const LRV_POSE: SeatedPose = {
+  legs: 'drive',
+  wheel: {
+    centre: [(LRV_HANDLE.x * M - LRV_SEAT.x), LRV_HANDLE.y * M - LRV_SEAT.y, LRV_HANDLE.z * M - LRV_SEAT.z],
+    tilt: 0,
+    radius: 0.01 * AVATAR_HEIGHT,
+    spread: 0,
+    rest: { side: 1, at: [0.09 * AVATAR_HEIGHT, 0.1 * AVATAR_HEIGHT, 0.11 * AVATAR_HEIGHT] },
+  },
+};
+
+/**
  * The rover again, as a craft to take: the same model the landing sites park,
  * the driver in the commander's seat on the left, at the LRV's own 13 km an
  * hour or a little more, because nobody is counting the battery.
@@ -414,7 +445,7 @@ function rover(ctx: SceneryContext): Group {
 export const LUNAR_ROVER: VehicleSpec = {
   kind: 'rover',
   name: 'the Lunar Roving Vehicle',
-  build: (ctx) => ({ group: rover(ctx), seat: { x: 0.33 * M, y: 0.66 * M, z: -0.2 * M }, radius: 1.75 * M }),
+  build: (ctx) => ({ group: rover(ctx), seat: LRV_SEAT, radius: 1.75 * M, pose: LRV_POSE }),
   handling: { top: 16, accel: 6, turn: 1.1 },
 };
 

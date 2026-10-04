@@ -27,8 +27,8 @@
  *   blobs in their pinks and creams; their towns are pods joined by tubes,
  *   glass domes and solar arrays round the skylight, a landing pad in the
  *   biggest with crew standing at it.
- * - **What to take**: Apollo's rover, the Selenites' own and a lander: the
- *   craft the Moon was explored in.
+ * - **What to take**: Apollo's rover, the Selenites' own, a lander and a
+ *   saucer: the craft the Moon was explored in, and one it was not.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -43,13 +43,14 @@ import { SELENITES } from './moon/selenites.ts';
 /**
  * The Selenites' own rover beside Apollo's: the kit's six-wheeled
  * pressurised one, white with an orange stripe like the space-exploration
- * vehicles drawn for a lunar base, its crew under the cab's roof, for the long
+ * vehicles drawn for a lunar base, its crew seen through the cab's glass, for the long
  * drive between the towns.
  */
 const BUBBLE_ROVER: VehicleSpec = {
   kind: 'rover',
   name: 'the pressurised rover',
-  kit: { id: 'rover', length: 7.6, seat: [-0.17, 0.3, 0.06], closed: true, livery: { wall: PALETTE.white, roof: PALETTE.steel, accent: PALETTE.orange } },
+  // 8.8 long, where it was 7.6: fitted so a seated crown clears its cab (`worlds/cockpit.ts`).
+  kit: { id: 'rover', length: 8.8, seat: [-0.17, 0.3, 0.06], closed: true, livery: { wall: PALETTE.white, roof: PALETTE.steel, accent: PALETTE.orange } },
   handling: { top: 20 },
 };
 
@@ -95,7 +96,7 @@ export const WORLD = defineWorld(MOON, {
   civilisation: SELENITES,
   decorations: MOON_DECORATIONS,
   rocks: 8,
-  vehicles: [LUNAR_ROVER, BUBBLE_ROVER, 'lander'],
+  vehicles: [LUNAR_ROVER, BUBBLE_ROVER, 'lander', 'ufo'],
   // Lunar horizon glow: dust lofted a little way by the charge sunlight leaves
   // on it, which Surveyor 7 photographed over the horizon after sunset. Few, and slow.
   ambient: [{ kind: 'motes', count: 40, color: PALETTE.bone }],

@@ -29,7 +29,7 @@
  *   a sunshade) and mushroom king, in their own dark hides; their towns are
  *   pods, tall cylinders and long halls with solar arrays in every yard and
  *   their own parasols among them, round the shade tower in the square.
- * - **What to take**: a rover and a lander.
+ * - **What to take**: a rover, a lander and a saucer.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -218,7 +218,7 @@ export const WORLD = defineWorld(MERCURY, {
   // A field of rubble: the most cratered ground in the system after the Moon's.
   rocks: 10,
   // A rover under a parasol: on the day side, shade is the equipment.
-  vehicles: [SUNSHADE_ROVER, 'lander'],
+  vehicles: [SUNSHADE_ROVER, 'lander', 'ufo'],
   // No air, so no devils and no blown dust: only grains lofted off the
   // ground by the charge the solar wind leaves on it, glinting in the sun.
   ambient: [

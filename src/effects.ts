@@ -275,6 +275,11 @@ export interface Effects {
   probe(): WakeProbe;
   /** One mesh per program, for `warm.ts`. */
   proxies(): THREE.Object3D[];
+  /**
+   * Every buffer, material and ramp the pools made, freed: a world's visit
+   * makes a set of its own and lets it go on leaving (`worlds/index.ts`).
+   */
+  dispose(): void;
 }
 
 /* --- the pools' rows ------------------------------------------------------ */
@@ -1669,6 +1674,17 @@ export function createEffects(): Effects {
       foamProxyGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1e-3, 0, 0, 0, 0, 1e-3]), 3));
       foamProxyGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
       return [puffProxy, debrisProxy, new THREE.Mesh(foamProxyGeo, foamMat)];
+    },
+    dispose() {
+      group.removeFromParent();
+      puffs.dispose();
+      debris.dispose();
+      for (const geometry of [puffGeo, foamGeo, debrisGeo]) geometry.dispose();
+      // A material lets its program go and not its textures: each has a ramp of its own.
+      for (const material of [puffMat, foamMat, debrisMat]) {
+        material.gradientMap?.dispose();
+        material.dispose();
+      }
     },
   };
   return effects;

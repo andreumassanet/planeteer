@@ -387,7 +387,7 @@ function checkCraft(spec: WorldSpec, terrain: import('../src/worlds/terrain.ts')
       const seat = craft.seat;
       if (Math.abs(seat.x) > size.x / 2 || Math.abs(seat.z) > Math.max(size.x, size.z) / 2) fail(`${spec.id}: ${label}'s seat is outside it`);
     }
-    const flies = kind !== 'rover' && kind !== 'skiff';
+    const flies = kind !== 'rover';
     for (let k = 0; k < 120; k++) craft.update(1 / 60, { throttle: 1, steer: 0.3, climb: flies && k < 60, descend: false }, groundAt, EARTH_GRAVITY, terrain.radius);
     const p = craft.position;
     if (![p.x, p.y, p.z].every(Number.isFinite)) fail(`${spec.id}: ${label} drove off to ${p.toArray()}`);

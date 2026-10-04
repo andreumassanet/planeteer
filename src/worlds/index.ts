@@ -32,7 +32,8 @@
  * - `shell.ts` — the game around all of it.
  *
  * Debugging: `window.atlasWorld` — `.goTo(lat, lon)`, `.hour(h)`, `.stats()`,
- * `.spec`, `.terrain`, `.geography`, `.player`, `.rig`, `.leave()`.
+ * `.spec`, `.terrain`, `.geography`, `.player`, `.rig`, `.leave()`; `.ufos()`
+ * lists the parked saucers nearest first and `.toUfo(k)` walks you to one.
  */
 
 import * as THREE from 'three';
@@ -56,16 +57,21 @@ import { createAmbient } from './ambient.ts';
 import { createFrontiers } from './frontiers.ts';
 import { surfaceOf } from './surface.ts';
 import { createShell } from './shell.ts';
-import { capitalOf, parkingOf, siteAt } from './arrival.ts';
+import { capitalOf, padOf, parkingOf, siteAt, ufoParkingOf } from './arrival.ts';
+import type { UfoProbe } from './arrival.ts';
+import type { CraftSpot } from './settlements.ts';
+import { UFO_RADIUS } from './ufo.ts';
 import { geographyOf } from '../system/geography.ts';
 import { createSceneryContext } from '../scenery/contract.ts';
 import { createInput } from '../input.ts';
 import { buildAvatar, heroAppearance, prepareAvatar, wardrobeCast } from '../avatar.ts';
+import { randomAppearance } from '../appearance.ts';
+import { rngFrom } from '../scenery/random.ts';
 import { DAY_MOOD, createToonRamp, setToonMood } from '../theme.ts';
 import { createPost } from '../post.ts';
 import { latLonOf, unitAt } from '../sphere.ts';
 import { createEffects } from '../effects.ts';
-import { DETAIL_DEFAULT, beginFrameBuild, detail, sampleFrame, skipFrame } from '../view.ts';
+import { beginFrameBuild, detailScale, endFrameBuild, sampleFrame, skipFrame } from '../view.ts';
 import type { EffectsSubject } from '../effects.ts';
 import { PAD_RADIUS, ROCKET_CLEAR, ROCKET_HEIGHT, ROCKET_REACH, ROCKET_WALL, createRocket, disposeRockets } from '../rocket.ts';
 import type { Rocket } from '../rocket.ts';
@@ -75,6 +81,7 @@ import { createRoads } from './roads.ts';
 import { swardOf } from './sward.ts';
 import { createGrass } from '../grass.ts';
 import { createTraffic } from './traffic.ts';
+import type { TrafficRover } from './traffic.ts';
 import { LAMP_FIELD, litAtNight, updateNight } from './night.ts';
 import type { NightSources } from './night.ts';
 import { createPassingSound } from '../passing-sound.ts';
@@ -210,7 +217,9 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   if (sward !== null) scene.add(sward.group);
   const swardPress = { forward: new THREE.Vector3(), length: 0, width: 0 };
   // And the rovers that drive them.
-  const traffic = createTraffic(spec, roads, ctx, gradientMap);
+  // Their drivers near (`traffic.ts`): bodies of the cast, each dressed by
+  // its rover's own seed, the traveller's own cast and nothing new to load.
+  const traffic = createTraffic(spec, roads, ctx, gradientMap, (look) => buildAvatar(randomAppearance(rngFrom('worlds', spec.id, 'driver', look))));
   scene.add(traffic.group);
   // The arrival and the parked craft are kept clear of people; filled in
   // below, once both are placed, and read only when a town is peopled.
@@ -224,7 +233,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   const effects = createEffects();
   scene.add(effects.group);
   // Where somebody lives, their craft cross the sky, heard as Earth's are.
-  const skyships = spec.civilisation === null ? null : createSkyships(gradientMap, PALETTE.white, PALETTE.violet);
+  const skyships = spec.civilisation === null ? null : createSkyships(ctx, gradientMap, PALETTE.white, PALETTE.violet);
   if (skyships !== null) scene.add(skyships.group);
   // One for the page: its voices are made once and kept, and a second world
   // visited would otherwise start a second set under the first.
@@ -242,6 +251,31 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   const headSide = new THREE.Vector3();
   const headAt = new THREE.Vector3();
   const headAim = new THREE.Vector3();
+  /** The headlights written so far this frame, seven floats each (`burn`). */
+  let headCount = 0;
+  /** Two lamps at a craft's nose, a little apart, aimed down the way it is going, while `out` has room. */
+  function burn(out: Float32Array, max: number, position: THREE.Vector3, heading: THREE.Vector3, radius: number, down: number): void {
+    headUp.copy(position).normalize();
+    headSide.crossVectors(heading, headUp).normalize();
+    headAim.copy(heading).addScaledVector(headUp, -down).normalize();
+    for (let side = -1; side <= 1; side += 2) {
+      if (headCount >= max) return;
+      headAt.copy(position).addScaledVector(heading, radius * 0.8).addScaledVector(headSide, side * radius * 0.3).addScaledVector(headUp, 1.3);
+      const at = headCount * 7;
+      out[at] = headAt.x;
+      out[at + 1] = headAt.y;
+      out[at + 2] = headAt.z;
+      out[at + 3] = headAim.x;
+      out[at + 4] = headAim.y;
+      out[at + 5] = headAim.z;
+      out[at + 6] = 1;
+      headCount++;
+    }
+  }
+  /** The traffic, nearest the traveller first, and each one's distance: kept, not made a frame. */
+  const nearRovers: TrafficRover[] = [];
+  const roverAway = new Map<TrafficRover, number>();
+  const byAway = (a: TrafficRover, b: TrafficRover): number => roverAway.get(a)! - roverAway.get(b)!;
   let lampScratch = new Float32Array(64);
   const lampOrder: number[] = [];
   const nightSources: NightSources = {
@@ -267,27 +301,24 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       return n;
     },
     headlights(out, max) {
-      let n = 0;
-      const burn = (position: THREE.Vector3, heading: THREE.Vector3, radius: number, down: number): void => {
-        headUp.copy(position).normalize();
-        headSide.crossVectors(heading, headUp).normalize();
-        headAim.copy(heading).addScaledVector(headUp, -down).normalize();
-        for (const side of [-1, 1]) {
-          if (n >= max) return;
-          headAt.copy(position).addScaledVector(heading, radius * 0.8).addScaledVector(headSide, side * radius * 0.3).addScaledVector(headUp, 1.3);
-          out.set([headAt.x, headAt.y, headAt.z, headAim.x, headAim.y, headAim.z, 1], n * 7);
-          n++;
-        }
-      };
+      headCount = 0;
       const craft = player.craft;
-      if (craft !== null) burn(craft.position, craft.heading, craft.radius, craft.kind === 'lander' && craft.airborne ? 0.9 : 0.12);
-      // Then the traffic's, nearest first.
-      const near = [...traffic.rovers].sort((a, b) => a.position.distanceToSquared(player.position) - b.position.distanceToSquared(player.position));
+      // A saucer aloft shines straight down from under its belly, where its
+      // beam is; a lander aloft down ahead of it; anything else down the road.
+      if (craft !== null && craft.kind === 'ufo' && craft.airborne) burn(out, max, craft.position, craft.heading, craft.radius * 0.25, 6);
+      else if (craft !== null) burn(out, max, craft.position, craft.heading, craft.radius, craft.kind === 'lander' && craft.airborne ? 0.9 : 0.12);
+      // Then the traffic's, nearest first: by their distances, taken once.
+      const near = nearRovers;
+      near.length = 0;
+      for (const rover of traffic.rovers) near.push(rover);
+      roverAway.clear();
+      for (const rover of near) roverAway.set(rover, rover.position.distanceToSquared(player.position));
+      near.sort(byAway);
       for (const rover of near) {
-        if (n >= max || rover.position.distanceTo(player.position) > LAMP_FIELD * 1.5) break;
-        burn(rover.position, rover.heading, rover.radius, 0.12);
+        if (headCount >= max || rover.position.distanceTo(player.position) > LAMP_FIELD * 1.5) break;
+        burn(out, max, rover.position, rover.heading, rover.radius, 0.12);
       }
-      return n;
+      return headCount;
     },
   };
 
@@ -418,14 +449,46 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     keepClear.set(spawnSite.id, [{ x: point.x, z: point.z, r: 12 }]);
   }
 
+  const padAt = new THREE.Vector3();
+  const ufoAt = new THREE.Vector3();
+  /** A town's roads within `within` of a point in its frame (`padOf`, `ufoParkingOf`). */
+  const roadNear = (site: Site) => (x: number, z: number, within: number): boolean => roads.near(settlements.toWorld(site, x, 0, z, padAt), within).length > 0;
+  /** What `ufoParkingOf` asks of the ground round a town, in its frame. */
+  const ufoProbe = (site: Site): UfoProbe => ({
+    road: roadNear(site),
+    other: (x, z) => {
+      const found = siteAt(settlements.sites, R, settlements.toWorld(site, x, 0, z, ufoAt));
+      return found !== null && found !== site;
+    },
+    // The land and a deck town's platform, never a road's top: what a road
+    // has built so far is not a pure function of the world.
+    ground: (x, z) => {
+      const n = settlements.toWorld(site, x, 0, z, ufoAt).normalize();
+      const land = terrain.groundAt(n.x, n.y, n.z);
+      return Math.max(land, settlements.floorAt(n.x, n.y, n.z) ?? land);
+    },
+  });
+  /** The town whose saucer waits among the arrival's craft, off its corner, if one does. */
+  let arrivalUfo: Site | null = null;
+
   // The craft: in the town you came down in, on its avenues and past its
-  // edge (`parkingOf`); out in the open, round you.
+  // edge (`parkingOf`) — a saucer off a corner of its square, as the towns
+  // park theirs (`ufoParkingOf`), where one is clear — out in the open, round you.
   spec.vehicles.forEach((vehicle, k) => {
     const kind = typeof vehicle === 'string' ? vehicle : vehicle.kind;
-    const flies = kind === 'lander' || kind === 'aerostat';
+    const flies = kind === 'lander' || kind === 'aerostat' || kind === 'ufo';
     const where = new THREE.Vector3();
     const heading = new THREE.Vector3();
-    if (spawnSite !== null && !spawnSite.landmark) {
+    const cornered =
+      kind === 'ufo' && spawnSite !== null && spawnSite.town !== null && !spawnSite.landmark
+        ? ufoParkingOf(spec, spawnSite, padOf(spawnSite, spec.vehicles.length, roadNear(spawnSite)).corner, ufoProbe(spawnSite), true)
+        : null;
+    if (cornered !== null && spawnSite !== null) {
+      arrivalUfo = spawnSite;
+      settlements.toWorld(spawnSite, cornered.x, 0, cornered.z, where);
+      settlements.toWorld(spawnSite, cornered.ahead.x, 0, cornered.ahead.z, heading);
+      heading.sub(where);
+    } else if (spawnSite !== null && !spawnSite.landmark) {
       const spot = parkingOf(spawnSite, k, flies);
       settlements.toWorld(spawnSite, spot.x, 0, spot.z, where);
       settlements.toWorld(spawnSite, spot.ahead.x, 0, spot.ahead.z, heading);
@@ -450,6 +513,8 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     where.setLength(R + groundAt(where));
     const up = where.clone().normalize();
     heading.addScaledVector(up, -heading.dot(up)).normalize();
+    // Nothing lies about under a saucer off a corner, as under the towns' own.
+    if (cornered !== null) terrain.keepBare(where.x, where.y, where.z, UFO_RADIUS + 4);
     const craft = createCraft(vehicle, ctx, gradientMap, where, heading, spec.wind);
     craft.update(0, null, groundAt, 1, R);
     scene.add(craft.object);
@@ -466,38 +531,21 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
    * is there is a way off the world within a walk; kept clear of people.
    */
   const pads = new Map<string, { site: Site; x: number; z: number; ahead: { x: number; z: number } }>();
-  /** What a pad keeps from a road's centre line past its own clearance: the carriageway, its bank and a verge. */
-  const ROAD_CLEAR = 22;
   /** What a parked craft keeps of the people walking past it, units: a rover's half-length and a step. */
   const PARKED_CLEAR = 6;
-  const padAt = new THREE.Vector3();
   const padAhead = new THREE.Vector3();
   const padUp = new THREE.Vector3();
   const padSide = new THREE.Vector3();
   const padOther = new THREE.Vector3();
   const padProbe = new THREE.Vector3();
   /**
-   * Where a grid town's rocket stands: off a corner of its square, which no
-   * road leaves by — a road goes out at the middle of a side, down a main
-   * street — the first corner with no road within reach of the pad and the
-   * camera that watches it go; the arrival's parking rule where none is clear.
+   * The saucers parked off the towns' corners (`ufoParkingOf`), by town: a
+   * craft to take like the town's own (`streamCraft`), after them in its list.
    */
-  const padOf = (site: Site): { x: number; z: number; ahead: { x: number; z: number } } => {
-    if (site.town === null) return parkingOf(site, spec.vehicles.length, true);
-    const out = site.town.grid.half + ROCKET_CLEAR + 4;
-    // North-east first, then round: the arrival comes in from the south.
-    for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]] as const) {
-      const x = sx * out;
-      const z = sz * out;
-      settlements.toWorld(site, x, 0, z, padAt);
-      if (roads.near(padAt, ROCKET_CLEAR + ROAD_CLEAR).length > 0) continue;
-      return { x, z, ahead: { x: x + sx * 5, z: z + sz * 5 } };
-    }
-    return parkingOf(site, spec.vehicles.length, true);
-  };
+  const ufoSpots = new Map<string, CraftSpot[]>();
   for (const site of settlements.sites) {
     if (site.landmark) continue;
-    const spot = padOf(site);
+    const spot = padOf(site, spec.vehicles.length, roadNear(site));
     pads.set(site.id, { site, ...spot });
     const clear = keepClear.get(site.id) ?? [];
     clear.push({ x: spot.x, z: spot.z, r: ROCKET_CLEAR });
@@ -505,7 +553,21 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     // Nothing lies about on it, or under the camera that watches it go.
     settlements.toWorld(site, spot.x, 0, spot.z, padAt);
     terrain.keepBare(padAt.x, padAt.y, padAt.z, ROCKET_CLEAR + ROCKET_HEIGHT * 1.6);
+    // The town the traveller came down in has its saucer among the arrival's craft.
+    const ufo = site === arrivalUfo ? null : ufoParkingOf(spec, site, spot.corner, ufoProbe(site));
+    if (ufo !== null) {
+      ufoSpots.set(site.id, [{ vehicle: { kind: 'ufo', name: 'the saucer', livery: ufo.livery }, x: ufo.x, y: 0, z: ufo.z, yaw: Math.atan2(ufo.ahead.x - ufo.x, ufo.ahead.z - ufo.z) }]);
+      clear.push({ x: ufo.x, z: ufo.z, r: UFO_RADIUS + 3 });
+      // Nothing lies about under it, and no outpost is planned on it.
+      settlements.toWorld(site, ufo.x, 0, ufo.z, ufoAt);
+      terrain.keepBare(ufoAt.x, ufoAt.y, ufoAt.z, UFO_RADIUS + 4);
+    }
   }
+  /** Everything a town keeps to take: its own craft, then its saucer. */
+  const spotsOf = (site: Site): readonly CraftSpot[] => {
+    const ufo = ufoSpots.get(site.id);
+    return ufo === undefined ? settlements.craftAt(site) : [...settlements.craftAt(site), ...ufo];
+  };
   // The craft standing in a town are kept clear of its people, as the pads are.
   for (const site of settlements.sites) {
     const spots = settlements.craftAt(site);
@@ -567,7 +629,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       const have = standingCraft.get(site.id);
       if (site.mesh !== null && have === undefined) {
         const made: Craft[] = [];
-        for (const [index, spot] of settlements.craftAt(site).entries()) {
+        for (const [index, spot] of spotsOf(site).entries()) {
           // A spot whose craft the traveller has taken stays empty: that craft
           // is wherever it was left, and two of it would stand otherwise.
           if (takenSpots.has(`${site.id}:${index}`)) continue;
@@ -635,11 +697,8 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       const d = craft.position.distanceTo(player.position);
       if (d < craft.reach && d < best) [found, best] = [craft, d];
     }
-    // And the traffic's, which stops for a traveller in its way.
-    for (const rover of traffic.rovers) {
-      const d = rover.position.distanceTo(player.position);
-      if (d < rover.craft.reach && d < best) [found, best] = [rover.craft, d];
-    }
+    // Not the traffic's: a rover on the road has its driver at the wheel, as
+    // a car on Earth's has (`traffic.ts`), and `E` beside one says so.
     return found;
   }
 
@@ -688,6 +747,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     roadLines: () => roads.lines(),
     groundAt,
     craftInReach,
+    occupiedInReach: () => traffic.occupiedNear(player.position),
     jumpTo(lat, lon) {
       if (player.craft !== null) player.leave();
       // Out of a rocket too: on its pad it is a step out; gone up, it is put back.
@@ -763,7 +823,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     if (wheels) wheelClock = 0.16;
     const visit = (craft: Craft): void => {
       if (craft.position.distanceTo(player.position) > DUST_NEAR) return;
-      if (thrust && craft.kind === 'lander' && craft.airborne) {
+      if (thrust && (craft.kind === 'lander' || craft.kind === 'ufo') && craft.airborne) {
         const ground = R + groundAt(craft.position);
         const clearance = craft.position.length() - ground;
         if (clearance > THRUST_DUST) return;
@@ -796,8 +856,9 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     beginFrameBuild();
     // **Earth's render distance** (`view.ts`), one knob for every world: as a
     // multiple of its default it is how finely the ground splits, how far
-    // the towns are built and the pads stand, and how far the haze opens.
-    const reachScale = detail() / DETAIL_DEFAULT;
+    // the towns are built and the pads stand, and how far the haze opens —
+    // linearly, the curve Earth's haze follows (`detailScale`, `detailFog`).
+    const reachScale = detailScale();
     ground.detail = Math.min(GROUND_DETAIL_MAX, Math.max(0.5, reachScale));
     settlements.reach = reachScale;
     // Earth's renderer counts both of a frame's passes by hand (`autoReset`
@@ -899,6 +960,9 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
         hidden: riding !== null,
       });
     }
+    // The streamers' building ends here; what it cost is what the next
+    // frame's far work is charged with, as on Earth (`endFrameBuild`).
+    endFrameBuild();
     crowd.update(dt, player.position, eye);
     ambient.update(dt, player.position, eye, groundAt, R);
     sky.update(shell.date(), player.position, eye, rig.camera.far);
@@ -979,15 +1043,32 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     crowd.dispose();
     ambient.dispose();
     sky.dispose();
-    effects.group.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      if (mesh.isMesh !== true) return;
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
-    });
+    // The pools' buffers, materials and the ramps they each made.
+    effects.dispose();
+    // The traveller back to the cast's pool, as the drivers went (`traffic.dispose`).
+    avatar.dispose();
+    // What was drawn with the scenery context is gone by now: its ramp and
+    // materials last. The outposts and the decor's variants are arrays, never
+    // uploaded, and the rig holds no listener: both go with this closure.
+    ctx.dispose();
     gradientMap.dispose();
     delete (globalThis as Record<string, unknown>)['atlasWorld'];
     host.exit(to);
+  }
+
+  /** The saucers parked off the towns' corners, nearest first: the town, where, and how far, for the console. */
+  function listUfos(): { site: string; lat: number; lon: number; away: number }[] {
+    const out: { site: string; lat: number; lon: number; away: number }[] = [];
+    const here = player.position.clone().setLength(R);
+    for (const [id, spots] of ufoSpots) {
+      const site = byId(id)!;
+      for (const spot of spots) {
+        settlements.toWorld(site, spot.x, 0, spot.z, ufoAt);
+        const { lat, lon } = latLonOf(ufoAt);
+        out.push({ site: site.name, lat, lon, away: Math.round(ufoAt.setLength(R).distanceTo(here)) });
+      }
+    }
+    return out.sort((a, b) => a.away - b.away);
   }
 
   Object.assign(globalThis, {
@@ -1019,6 +1100,21 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       },
       goTo(lat: number, lon: number) {
         standAt(lat, lon);
+        shell.hud.jump();
+      },
+      ufos: listUfos,
+      /** Stands the traveller a few paces from the `k`th nearest parked saucer (`ufos()`), facing it. */
+      toUfo(k = 0) {
+        const one = listUfos()[k];
+        if (one === undefined) return;
+        unitAt(one.lat, one.lon, ufoAt);
+        const up = ufoAt.clone();
+        const side = new THREE.Vector3(up.y, -up.x, 0.2).cross(up).normalize();
+        start.copy(ufoAt).multiplyScalar(R).addScaledVector(side, UFO_RADIUS + 8);
+        look.copy(ufoAt).multiplyScalar(R).sub(start);
+        player.place(start.normalize(), look);
+        rig.heading.copy(player.facing);
+        settle();
         shell.hud.jump();
       },
       hour(h: number) {

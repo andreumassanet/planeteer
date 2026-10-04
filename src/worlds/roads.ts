@@ -644,7 +644,7 @@ export function createRoads(spec: WorldSpec, terrain: Terrain, sites: readonly S
             post(top.clone().addScaledVector(up, -sink), up, along, steelDark, 0, sink, PYLON_HALF);
           }
         }
-        // The underside, seen from a skiff on the clouds.
+        // The underside, seen from the clouds under it.
         quad(across(k, e0, -FASCIA), across(k + 1, e1, -FASCIA), across(k + 1, -e1, -FASCIA), across(k, -e0, -FASCIA), steelDark, steelDark, 0);
       } else {
         quad(across(k, e0), across(k + 1, e1), r1.point, r0.point, r0.colour, r0.colour, 0);

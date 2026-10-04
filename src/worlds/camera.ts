@@ -16,13 +16,17 @@ import type { CameraSubject } from '../camera.ts';
 import type { InputState } from '../input.ts';
 import type { VehicleKind } from './contract.ts';
 import type { WorldPlayer } from './player.ts';
+import { COCKPIT_NEAR } from '../craft/body.ts';
+import { faintGlass } from '../craft/build.ts';
 
 /** A craft of the walked worlds as the rig frames it: Earth's nearest kind. */
 const FRAMED_AS: Readonly<Record<VehicleKind, string>> = {
   rover: 'car',
-  skiff: 'boat',
   lander: 'plane',
   aerostat: 'balloon',
+  // A saucer hovers and turns on the spot: framed as a helicopter is, pulled
+  // back and up with the height.
+  ufo: 'helicopter',
 };
 
 export interface WorldRig {
@@ -56,6 +60,10 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
   const model = { kind: 'car', size };
   const ride = { model };
   let altitude = 0;
+  /** Whether the lens is at the seated eye (`seatEye`), which hides the body and opens the near plane. */
+  let inCockpit = false;
+  /** The craft whose glass is faint for the eye inside it, to give it back when the eye leaves. */
+  let fainted: THREE.Object3D | null = null;
   let traveller: WorldPlayer | null = null;
   let groundOf: (point: THREE.Vector3) => number = () => 0;
   let worldRadius = 1;
@@ -100,12 +108,40 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
       size[2] = craft.radius;
       return ride;
     },
-    // No seated eye on these craft: `V` in a seat stays behind it.
-    seatEye: () => false,
+    // The seated eye (`Craft.eye`): every craft has one, as every seat on
+    // Earth does — the cabs and the canopy furnished to be seen from inside
+    // (`cockpit.ts`), the saucer's dome, the open rovers, the basket. The eye
+    // rides the craft's own frame, bank and wobble with it.
+    seatEye(position, orientation) {
+      const craft = traveller?.craft ?? null;
+      if (craft === null || craft.eye === null) return false;
+      orientation.copy(craft.object.quaternion);
+      position.copy(craft.eye).applyQuaternion(orientation).add(craft.object.position);
+      return true;
+    },
     setBodyVisible(visible) {
       if (traveller !== null) traveller.avatar.group.visible = traveller.craft !== null ? !traveller.craft.closed : visible;
     },
-    setCockpit: () => {},
+    // In the seat's eye the body is drawn and its head folded away, as on
+    // Earth (`Player.setCockpit`, `Avatar.setHeadless`): the eye is inside
+    // the head, and looks down on its own arms on the wheel and its knees
+    // under the dashboard. And the craft's glass is all but cleared, as
+    // Earth's is (`faintGlass`): from inside, a dome or a windscreen at its
+    // outside tint was a blue filter over the whole view.
+    setCockpit(on) {
+      inCockpit = on;
+      if (fainted !== null) faintGlass(fainted, false);
+      fainted = null;
+      const p = traveller;
+      if (p === null) return;
+      const seated = p.craft !== null;
+      p.avatar.setHeadless(on && seated);
+      if (seated) p.avatar.group.visible = !p.craft!.closed;
+      if (on && seated) {
+        fainted = p.craft!.object;
+        faintGlass(fainted, true);
+      }
+    },
   };
 
   function bind(player: WorldPlayer, groundAt: (point: THREE.Vector3) => number, radius: number): void {
@@ -129,7 +165,11 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
     const eyeR = camera.position.length();
     const horizon = Math.sqrt(Math.max(0, eyeR * eyeR - radius * radius));
     const beyond = Math.sqrt(Math.max(0, (radius + top) ** 2 - radius * radius));
-    camera.near = Math.max(0.25, Math.min(50, altitude * 0.02));
+    // In a cockpit the roof's lining is a third of a unit over the eye and
+    // the wheel's rim nearer still: the near plane comes in to Earth's own
+    // for a seat (`COCKPIT_NEAR`, `main.ts`), which `pnpm craft` and
+    // `check-worlds.ts` hold every cabin's roof and wheel further from.
+    camera.near = inCockpit ? COCKPIT_NEAR : Math.max(0.25, Math.min(50, altitude * 0.02));
     camera.far = Math.max(3000, horizon + beyond);
     camera.updateProjectionMatrix();
   }

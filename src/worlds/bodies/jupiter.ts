@@ -26,7 +26,8 @@
  * - **Drawn from the space kit**: the Floaters are the kit's drifter and glub,
  *   floating; their platforms carry pods and glass hangars among their own
  *   bladders and wind wheels, with floating trees in the yards.
- * - **What to take**: a hover-skiff and a lander.
+ * - **What to take**: a saucer and a lander, both of which fly; the rovers
+ *   parked on its streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -242,7 +243,7 @@ export const WORLD = defineWorld(JUPITER, {
   decorations: [],
   // Billows of the deck (`BILLOW`), where a crust has its boulders.
   rocks: 14,
-  vehicles: ['skiff', 'lander'],
+  vehicles: ['ufo', 'lander'],
   ambient: [
     // Sky mantas over the deck.
     { kind: 'fliers', count: 14, color: PALETTE.salmon, belly: PALETTE.cream, size: 4.2 },

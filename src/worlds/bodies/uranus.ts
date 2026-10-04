@@ -34,7 +34,8 @@
  * - **Drawn from the space kit**: the Sidelings are the kit's fish and frog,
  *   calm and violet; their platforms carry pods and glass domes among their
  *   crystals and lenses, with spiral trees and blue bushes in the yards.
- * - **What to take**: a hover-skiff and a lander.
+ * - **What to take**: a saucer and a lander, both of which fly; the rovers
+ *   parked on its streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -264,7 +265,7 @@ export const WORLD = defineWorld(URANUS, {
   decorations: [],
   // Billows of the deck (`BILLOW`), where a crust has its boulders.
   rocks: 14,
-  vehicles: ['skiff', 'lander'],
+  vehicles: ['ufo', 'lander'],
   ambient: [
     // Pale fliers in the methane haze.
     { kind: 'fliers', count: 10, color: PALETTE.skyBlue, belly: PALETTE.white, size: 3 },

@@ -27,6 +27,17 @@
  *    - the species' script is deterministic, its glyphs all different, and no
  *      two species share a glyph; every phrase writes;
  *    - the aliens and the craft build, deterministically, inside budget;
+ *    - **the saucer** (`ufo.ts`): the seated crown under its glass with room
+ *      to spare, the shoulders and the pack inside the dome, the eye `V` puts
+ *      in the seat under it; the glass drawn the one way glass may be in this
+ *      world (writing depth, no hull); every frame proper, the lamps' too; it
+ *      lifts off, holds its height with no key held, folds its legs and
+ *      lights its beam low, and comes down and parks;
+ *    - **the saucers parked off the towns** (`ufoParkingOf`): the same twice,
+ *      at least one on every world, each clear of every wall of every town
+ *      built round it, of every road, of the rocket's pad and of the craft
+ *      waiting at the arrival, on ground under 12 degrees, and walked to from
+ *      the square's corner with no wall in the way;
  *    - **every town's arrival** (`arrival.ts`), which is where the menu puts
  *      a traveller down: on the town's paving, clear of every wall, on ground
  *      under 15 degrees, with every craft that waits there at least
@@ -41,6 +52,9 @@
  *    page against Mars and taken down again: every key, resize and page
  *    listener it added let go, the minimap's canvas off the page, and a
  *    second shell built after it answering alone.
+ * 4b. **Leaving** (`leave` in `worlds/index.ts`): every geometry, material,
+ *    texture and instanced buffer the effects, the craft and a visit's own
+ *    scenery context made, freed when they are taken down as `leave` does.
  *
  * `node scripts/check-worlds.ts`, or `pnpm worlds`; `node scripts/check-worlds.ts mars`
  * checks one world.
@@ -57,15 +71,27 @@ import { FACES, TILE_SEGMENTS, faceDir, facePoint } from '../src/worlds/cube.ts'
 import { createGround } from '../src/worlds/tiles.ts';
 import { createDecor } from '../src/worlds/decor.ts';
 import { createOutposts } from '../src/worlds/outposts.ts';
-import { createSettlements, layoutOf } from '../src/worlds/settlements.ts';
+import { PARKED_KITS, PLATFORM_LIFT, createSettlements, layoutOf } from '../src/worlds/settlements.ts';
 import type { Site } from '../src/worlds/settlements.ts';
 import { createSky } from '../src/worlds/sky.ts';
 import { createRoads, roadNetwork } from '../src/worlds/roads.ts';
 import { scriptOf, svgOf, writeLine } from '../src/worlds/glyphs.ts';
 import { bodyOf } from '../src/worlds/aliens.ts';
-import { createCraft } from '../src/worlds/craft.ts';
+import { DEFAULT_KITS, createCraft, disposeCraft } from '../src/worlds/craft.ts';
+import { createEffects } from '../src/effects.ts';
+import { craftMaterial } from '../src/craft/build.ts';
+import { cockpitOf } from '../src/worlds/cockpit.ts';
+import { provideWorldKit } from '../src/worlds/kit.ts';
+import { glassFaults, meshTriangles, probeOfMeshes, uncovered, wheelFaults } from './cabin-contract.ts';
+import { isGlassMaterial } from '../src/craft/cabin.ts';
 import { BODY_RADIUS, EARTH_GRAVITY, JUMP_SPEED } from '../src/worlds/player.ts';
-import { PARKING_CLEAR, capitalOf, parkingOf, siteAt } from '../src/worlds/arrival.ts';
+import { PARKING_CLEAR, SQUARE_CORNERS, UFO_GRADE, capitalOf, padOf, parkingOf, siteAt, ufoParkingOf } from '../src/worlds/arrival.ts';
+import type { UfoProbe } from '../src/worlds/arrival.ts';
+import { UFO_COCKPIT, UFO_HEAD_ROOM, UFO_RADIUS } from '../src/worlds/ufo.ts';
+import { COCKPIT_NEAR, HERO, SEAT_EYE } from '../src/craft/body.ts';
+import { FIGURE } from '../src/avatar.ts';
+import { ROCKET_CLEAR } from '../src/rocket.ts';
+import { AVATAR_HEIGHT } from '../src/stature.ts';
 import { arrivalOf } from '../src/worlds/settlements.ts';
 import { frontierEdges, outlinesOf, surfaceOf } from '../src/worlds/surface.ts';
 import { createFrontiers } from '../src/worlds/frontiers.ts';
@@ -557,7 +583,7 @@ function checkCraft(spec: WorldSpec, terrain: Terrain): void {
   unitAt(5, 5, here);
   for (const vehicle of spec.vehicles) {
     const kind = typeof vehicle === 'string' ? vehicle : `${vehicle.kind} (${vehicle.name})`;
-    const flies = (typeof vehicle === 'string' ? vehicle : vehicle.kind) !== 'rover' && (typeof vehicle === 'string' ? vehicle : vehicle.kind) !== 'skiff';
+    const flies = fliesOf(vehicle);
     const craft = createCraft(vehicle, ctx, gradientMap, here.clone().multiplyScalar(terrain.radius), new THREE.Vector3(0, 1, 0).addScaledVector(here, -here.y).normalize(), spec.wind);
     const groundAt = (p: THREE.Vector3): number => {
       const n = p.clone().normalize();
@@ -578,10 +604,247 @@ function checkCraft(spec: WorldSpec, terrain: Terrain): void {
 
 
 /** Whether the craft of a spec flies, by kind. */
-const fliesOf = (vehicle: WorldSpec['vehicles'][number]): boolean => {
+function fliesOf(vehicle: WorldSpec['vehicles'][number]): boolean {
   const kind = typeof vehicle === 'string' ? vehicle : vehicle.kind;
-  return kind === 'lander' || kind === 'aerostat';
-};
+  return kind === 'lander' || kind === 'aerostat' || kind === 'ufo';
+}
+
+/**
+ * The saucer as the world builds it: its cockpit against the seated body,
+ * its glass, its frames, and a flight — up, a hover with no key held, the
+ * legs folded and the beam lit low, and down again to park.
+ */
+function checkSaucer(spec: WorldSpec, terrain: Terrain): void {
+  const vehicle = spec.vehicles.find((one) => (typeof one === 'string' ? one : one.kind) === 'ufo');
+  if (vehicle === undefined) return;
+  const H = AVATAR_HEIGHT;
+  const { hip, dome } = UFO_COCKPIT;
+  // The dome's height over the collar at a distance `r` from its axis.
+  const glassAt = (r: number): number => (r >= dome.radius ? 0 : dome.height * Math.sqrt(1 - (r / dome.radius) ** 2));
+  const inside = (x: number, y: number, z: number): boolean => ((x * x + z * z) / dome.radius ** 2 + ((y - dome.y) / dome.height) ** 2) < 1;
+  // The crown, and a head's width round it, under the glass with room.
+  const crown = hip.y + HERO.crown;
+  let headRoom = Infinity;
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const r = Math.hypot(hip.x + Math.cos(a) * 0.06 * H, hip.z + Math.sin(a) * 0.06 * H);
+    headRoom = Math.min(headRoom, dome.y + glassAt(r) - crown);
+  }
+  if (headRoom < UFO_HEAD_ROOM) fail(`${spec.id}: the saucer's pilot has ${headRoom.toFixed(2)} units over the crown, under ${UFO_HEAD_ROOM.toFixed(2)}`);
+  // The shoulders at their height, the pack behind the hip, the knees and toes ahead.
+  const points: [string, number, number, number][] = [
+    ['left shoulder', hip.x - HERO.half, hip.y + HERO.shoulder, hip.z],
+    ['right shoulder', hip.x + HERO.half, hip.y + HERO.shoulder, hip.z],
+    ['pack', hip.x, hip.y + HERO.shoulder, hip.z - HERO.back],
+    ['knees', hip.x, hip.y + HERO.kneeTop, hip.z + HERO.knee],
+    ['toes', hip.x, hip.y - HERO.sole, hip.z + HERO.toe],
+  ];
+  for (const [what, x, y, z] of points) {
+    if (y >= dome.y && !inside(x, y, z)) fail(`${spec.id}: the saucer's pilot's ${what} is through the dome`);
+    if (Math.hypot(x, z) > dome.radius) fail(`${spec.id}: the saucer's pilot's ${what} is outside the cockpit's floor`);
+  }
+  if (hip.y - HERO.sole < UFO_COCKPIT.floor - 0.02 * H) fail(`${spec.id}: the saucer's pilot's soles are through its floor`);
+
+  const here = new THREE.Vector3();
+  unitAt(5, 5, here);
+  const R = terrain.radius;
+  const north = new THREE.Vector3(0, 1, 0).addScaledVector(here, -here.y).normalize();
+  const make = () => createCraft(vehicle, ctx, gradientMap, here.clone().multiplyScalar(R + terrain.groundAt(here.x, here.y, here.z)), north.clone(), spec.wind);
+  const craft = make();
+  // The seat and the eye the world reads: the hips over the seat, and the eye under the glass.
+  if (Math.abs(craft.seat.y + FIGURE.hipY - hip.y) > 1e-6) fail(`${spec.id}: the saucer's seat is not its cockpit's hips`);
+  if (craft.eye === null) fail(`${spec.id}: the saucer has no seated eye for V`);
+  else if (!inside(craft.eye.x, craft.eye.y, craft.eye.z)) fail(`${spec.id}: the saucer's seated eye is outside its dome`);
+  // Built twice, the same.
+  const fingerprints = (object: THREE.Object3D): string[] => {
+    const out: string[] = [];
+    object.traverse((one) => {
+      const mesh = one as THREE.Mesh;
+      if (mesh.isMesh === true) out.push(`${mesh.name}:${fingerprint(mesh.geometry)}`);
+    });
+    return out;
+  };
+  if (JSON.stringify(fingerprints(craft.object)) !== JSON.stringify(fingerprints(make().object))) fail(`${spec.id}: the saucer differs between two builds`);
+  // The glass: transparent, writing its depth, no hull; and nothing mirrored.
+  let panes = 0;
+  craft.object.updateMatrixWorld(true);
+  const instance = new THREE.Matrix4();
+  craft.object.traverse((one) => {
+    const mesh = one as THREE.Mesh;
+    if (mesh.isMesh !== true) return;
+    const material = mesh.material as THREE.Material;
+    if (mesh.name === 'ufo glass') {
+      panes++;
+      if (!material.transparent || !material.depthWrite) fail(`${spec.id}: the saucer's glass is not a see-through fill that writes its depth`);
+      if (material.userData.outlineParameters?.visible !== false) fail(`${spec.id}: the saucer's glass has an ink hull, which shows through it`);
+    }
+    if (mesh.matrixWorld.determinant() <= 0) fail(`${spec.id}: the saucer's ${mesh.name || 'part'} is mirrored`);
+    const many = mesh as THREE.InstancedMesh;
+    if (many.isInstancedMesh === true) {
+      for (let k = 0; k < many.count; k++) {
+        many.getMatrixAt(k, instance);
+        if (instance.determinant() <= 0) fail(`${spec.id}: the saucer's lamp ${k} is mirrored`);
+      }
+    }
+  });
+  if (panes !== 2) fail(`${spec.id}: the saucer's dome is ${panes} shells, not the far and the near`);
+  const triangles = trianglesOf(craft.object);
+  if (triangles > 3000) fail(`${spec.id}: the saucer is ${triangles} triangles`);
+
+  // A flight over this world's own ground.
+  const groundAt = (p: THREE.Vector3): number => {
+    const n = p.clone().normalize();
+    return terrain.groundAt(n.x, n.y, n.z);
+  };
+  const over = (): number => craft.position.length() - R - groundAt(craft.position);
+  const gear = craft.object.getObjectByName('gear')!;
+  const beam = craft.object.getObjectByName('ufo beam')!;
+  const dt = 1 / 60;
+  const fly = (frames: number, controls: { throttle?: number; climb?: boolean; descend?: boolean }): void => {
+    for (let k = 0; k < frames; k++) craft.update(dt, { throttle: controls.throttle ?? 0, steer: 0, climb: controls.climb ?? false, descend: controls.descend ?? false }, groundAt, spec.body.gravity, R);
+  };
+  fly(30, { climb: true });
+  if (!craft.airborne) fail(`${spec.id}: the saucer does not lift off on the climb key`);
+  if (!beam.visible) fail(`${spec.id}: the saucer lights no beam low over the ground`);
+  fly(120, { climb: true });
+  // Let go: it stops within a second, and then it stays.
+  fly(60, {});
+  const held = over();
+  fly(180, {});
+  const drift = Math.abs(over() - held);
+  if (drift > 1) fail(`${spec.id}: the saucer drifts ${drift.toFixed(1)} units in three seconds of hovering with no key held`);
+  if (gear.visible && over() > 12) fail(`${spec.id}: the saucer keeps its legs down ${over().toFixed(0)} units up`);
+  const climbed = held;
+  fly(240, { throttle: 1 });
+  if (craft.speed < 50) fail(`${spec.id}: the saucer is at ${craft.speed.toFixed(0)} units a second after four seconds of throttle`);
+  let frames = 0;
+  while (craft.airborne && frames < 60 * 60) {
+    fly(1, { descend: true });
+    frames++;
+  }
+  if (craft.airborne) fail(`${spec.id}: the saucer does not come down in a minute on the descend key`);
+  fly(60, {});
+  if (!gear.visible) fail(`${spec.id}: the saucer parks with its legs up`);
+  if (over() < -0.01) fail(`${spec.id}: the saucer parks ${(-over()).toFixed(2)} under the ground`);
+  craft.object.updateMatrixWorld(true);
+  if (craft.object.matrixWorld.determinant() <= 0) fail(`${spec.id}: the saucer's frame is mirrored`);
+  console.log(
+    `  saucer: ${triangles} triangles, ${headRoom.toFixed(2)} units over the crown, up to ${climbed.toFixed(0)} and held within ${drift.toFixed(2)}, down in ${(frames / 60).toFixed(1)} s`,
+  );
+}
+
+/**
+ * The saucers parked off the towns' corners, as the world parks them
+ * (`worlds/index.ts`): the same probes in the town's frame, then held
+ * against what the world builds round each.
+ */
+function checkParkedSaucers(spec: WorldSpec, terrain: Terrain): void {
+  const R = terrain.radius;
+  const settlements = createSettlements(spec, terrain, ctx, gradientMap);
+  const roads = createRoads(spec, terrain, settlements.sites, settlements.network, gradientMap);
+  const at = new THREE.Vector3();
+  const groundAt = (point: THREE.Vector3): number => {
+    const n = point.clone().normalize();
+    const floor = settlements.floorAt(n.x, n.y, n.z);
+    const land = terrain.groundAt(n.x, n.y, n.z);
+    return floor === null ? land : Math.max(land, floor);
+  };
+  const probeOf = (site: Site): UfoProbe => ({
+    road: (x, z, within) => roads.near(settlements.toWorld(site, x, 0, z, at), within).length > 0,
+    other: (x, z) => {
+      const found = siteAt(settlements.sites, R, settlements.toWorld(site, x, 0, z, at));
+      return found !== null && found !== site;
+    },
+    ground: (x, z) => groundAt(settlements.toWorld(site, x, 0, z, at)),
+  });
+  const placed = (site: Site, x: number, z: number): THREE.Vector3 => {
+    settlements.toWorld(site, x, 0, z, at).normalize();
+    return at.clone().multiplyScalar(R + groundAt(at));
+  };
+  let count = 0;
+  let grids = 0;
+  let nearestRoad = Infinity;
+  for (const site of settlements.sites) {
+    if (site.landmark) continue;
+    if (site.town !== null) grids++;
+    const pad = padOf(site, spec.vehicles.length, probeOf(site).road);
+    const kept = ufoParkingOf(spec, site, pad.corner, probeOf(site));
+    const two = ufoParkingOf(spec, site, pad.corner, probeOf(site));
+    if (JSON.stringify(kept) !== JSON.stringify(two)) fail(`${spec.id}: ${site.id}'s saucer differs between two asks`);
+    if (kept !== null) count++;
+    // And the one waiting for a traveller come down in the town (`always`),
+    // which is the town's own where it keeps one: every town's is held.
+    const one = ufoParkingOf(spec, site, pad.corner, probeOf(site), true);
+    if (kept !== null && JSON.stringify(kept) !== JSON.stringify(one)) fail(`${spec.id}: ${site.id}'s arrival saucer is not the one it keeps`);
+    if (one === null) continue;
+    const name = `${spec.id}: the saucer by ${site.id}${kept === null ? ' (at the arrival)' : ''}`;
+    if (one.corner === pad.corner) fail(`${name} stands on the rocket's corner`);
+    if (Math.hypot(one.x - pad.x, one.z - pad.z) < UFO_RADIUS + ROCKET_CLEAR) fail(`${name} is on the rocket's pad`);
+    // Every wall of the towns round it, built.
+    const where = placed(site, one.x, one.z);
+    settlements.prime(where);
+    if (site.mesh === null) settlements.prime(site.origin);
+    if (settlements.collide(where.clone(), UFO_RADIUS)) fail(`${name} stands in a wall`);
+    // Its own town's walls inside the square, which is what keeps it clear of them.
+    const half = site.town!.grid.half;
+    for (const f of site.footprints) {
+      if (Math.abs(f.x) + f.radius > half + 6 - 1e-6 || Math.abs(f.z) + f.radius > half + 6 - 1e-6) {
+        fail(`${name}: a wall of the town reaches ${Math.max(Math.abs(f.x), Math.abs(f.z)) + f.radius - half} past its square`);
+        break;
+      }
+    }
+    // Off every road, past its carriageway.
+    for (const hit of roads.near(where, UFO_RADIUS + 40)) {
+      const p = new THREE.Vector3();
+      roads.place(hit.road, hit.s, 0, p, new THREE.Vector3());
+      const gap = p.setLength(R).distanceTo(where.clone().setLength(R)) - roads.halfOf(hit.road);
+      nearestRoad = Math.min(nearestRoad, gap - UFO_RADIUS);
+      if (gap < UFO_RADIUS + 2) fail(`${name} is on a road (${gap.toFixed(1)} units from its kerb)`);
+    }
+    const other = siteAt(settlements.sites, R, where);
+    if (other !== null && other !== site) fail(`${name} stands in ${other.id}`);
+    // Clear of the craft waiting at the arrival and of the town's own.
+    spec.vehicles.forEach((vehicle, k) => {
+      const spot = parkingOf(site, k, fliesOf(vehicle));
+      if (Math.hypot(spot.x - one.x, spot.z - one.z) < UFO_RADIUS + 9) fail(`${name} is on the arrival's craft ${k}`);
+    });
+    for (const spot of settlements.craftAt(site)) if (Math.hypot(spot.x - one.x, spot.z - one.z) < UFO_RADIUS + 6) fail(`${name} is on a craft parked in the town`);
+    // Level enough under its legs.
+    const g = probeOf(site).ground;
+    const middle = g(one.x, one.z);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const span = UFO_RADIUS * 0.65;
+      if (Math.abs(g(one.x + Math.cos(a) * span, one.z + Math.sin(a) * span) - middle) / span > UFO_GRADE + 1e-9) fail(`${name} stands on ground over 12 degrees`);
+    }
+    // Walked to from the square's corner: no wall on the way, no cliff — but
+    // a deck town's platform edge, `PLATFORM_LIFT`, which a foot steps up.
+    const [sx, sz] = SQUARE_CORNERS[one.corner]!;
+    let before = g(sx * half, sz * half);
+    for (let k = 1; k <= 12; k++) {
+      const t = k / 12;
+      const x = sx * half + (one.x - sx * half) * t;
+      const z = sz * half + (one.z - sz * half) * t;
+      const h = g(x, z);
+      const step = Math.hypot(one.x - sx * half, one.z - sz * half) / 12;
+      // On a deck, the platform's edge taken off the rise once.
+      const rise = Math.abs(h - before);
+      if ((spec.ground === 'cloud-deck' ? Math.max(0, rise - PLATFORM_LIFT) : rise) / step > 1) {
+        fail(`${name} is up a slope over 45 degrees from the square (${before.toFixed(2)} to ${h.toFixed(2)} over ${step.toFixed(1)} units, ${k} of 12)`);
+        break;
+      }
+      before = h;
+      if (t < 1 - (UFO_RADIUS + BODY_RADIUS) / Math.hypot(one.x - sx * half, one.z - sz * half) && settlements.collide(placed(site, x, z), BODY_RADIUS)) {
+        fail(`${name}: a wall stands between it and the square`);
+        break;
+      }
+    }
+  }
+  if (count === 0) fail(`${spec.id}: no town keeps a saucer`);
+  console.log(`  saucers: ${count} parked by ${grids} grid towns, nearest road ${Number.isFinite(nearestRoad) ? nearestRoad.toFixed(1) : '-'} units past the footprint`);
+  roads.dispose();
+  settlements.dispose();
+}
 
 /**
  * The roads: the network a function of the towns and the ground, and every
@@ -864,7 +1127,9 @@ for (const id of ids) {
   checkSky(spec, terrain);
   checkPeople(spec);
   checkCraft(spec, terrain);
+  checkSaucer(spec, terrain);
   checkArrivals(spec, terrain);
+  checkParkedSaucers(spec, terrain);
   checkRoads(spec, terrain);
   checkOutposts(spec, terrain);
   checkPolitical(spec, terrain);
@@ -1247,6 +1512,7 @@ async function checkShell(): Promise<void> {
         input,
         groundAt: () => 0,
         craftInReach: () => null,
+        occupiedInReach: () => false,
         jumpTo: () => {},
         home: { lat: 0, lon: 0, name: 'Home' },
         leave: () => left++,
@@ -1303,6 +1569,242 @@ async function checkShell(): Promise<void> {
 }
 
 if (only === undefined || only === 'mars') await checkShell();
+
+// ===========================================================================
+// 4b. Leaving a world
+// ===========================================================================
+
+/**
+ * What a visit makes that `leave` must free (`worlds/index.ts`): every
+ * geometry, material, texture and instanced buffer reachable from what it
+ * built, each listened to for its `dispose` event, then taken down the way
+ * `leave` takes it down — the effects' pools, and a scenery context of the
+ * visit's own with the craft drawn from it — and counted. A resource Earth
+ * shares (the craft kit's material, the glass, anything marked `shared`) is
+ * Earth's to keep and is left out.
+ */
+function checkLeave(spec: WorldSpec): void {
+  console.log('\n=== leaving a world ===\n');
+  const watched = new Map<THREE.EventDispatcher<{ dispose: object }>, string>();
+  const freed = new Set<unknown>();
+  const watch = (one: THREE.EventDispatcher<{ dispose: object }> | null | undefined, what: string): void => {
+    if (one === null || one === undefined || watched.has(one)) return;
+    watched.set(one, what);
+    one.addEventListener('dispose', () => freed.add(one));
+  };
+  const shared = (material: THREE.Material): boolean => material.userData.shared === true || isGlassMaterial(material) || material === craftMaterial();
+  const collect = (root: THREE.Object3D, label: string): void => {
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.geometry === undefined) return;
+      watch(mesh.geometry, `${label}: a geometry`);
+      if ((mesh as unknown as THREE.InstancedMesh).isInstancedMesh === true) watch(mesh as unknown as THREE.InstancedMesh, `${label}: an instanced mesh's buffers`);
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        if (shared(material)) continue;
+        watch(material, `${label}: material ${material.type}`);
+        for (const value of Object.values(material)) if ((value as THREE.Texture | null)?.isTexture === true) watch(value as THREE.Texture, `${label}: a ${material.type}'s texture`);
+      }
+    });
+  };
+  const effects = createEffects();
+  collect(effects.group, 'the effects');
+  // The visit's own context and ramp, as `buildWorld` makes them.
+  const visit = createSceneryContext();
+  const ramp = createToonRamp(4);
+  const crafts = spec.vehicles.map((vehicle, k) => {
+    const craft = createCraft(vehicle, visit, ramp, new THREE.Vector3(0, 1000, 0), new THREE.Vector3(1, 0, 0), spec.wind);
+    collect(craft.object, `craft ${k}`);
+    return craft;
+  });
+  // A few of the context's own colours, as the towns and the people draw
+  // with; their geometry is the builder's, merged and let go as it builds.
+  for (const colour of [PALETTE.white, PALETTE.ink, PALETTE.bark]) {
+    const box = visit.box(1, 1, 1, colour);
+    collect(box, 'the scenery context');
+    box.geometry.dispose();
+  }
+  effects.dispose();
+  for (const craft of crafts) disposeCraft(craft);
+  visit.dispose();
+  ramp.dispose();
+  const kept = new Map<string, number>();
+  for (const [one, what] of watched) if (!freed.has(one)) kept.set(what, (kept.get(what) ?? 0) + 1);
+  for (const [what, count] of kept) fail(`${spec.id}: leaving keeps ${count} of ${what}`);
+  console.log(`  ${watched.size} resources made by the effects, ${crafts.length} craft and a scenery context: ${watched.size - [...kept.values()].reduce((a, b) => a + b, 0)} freed`);
+}
+
+if (only === undefined || only === 'mars') checkLeave(await loadWorldSpec('mars'));
+
+// ===========================================================================
+// 5. The craft's insides
+// ===========================================================================
+
+/**
+ * Every craft a traveller takes on the worlds checked, with the space kit's
+ * models read off disk as the browser has them, held to the contract Earth's
+ * closed craft are (`cabin-contract.ts`, `check-craft.ts`): a closed one has
+ * a cabin and glass that is see-through, both-sided, writes no depth, carries
+ * no ink and casts no shadow, its shell lined (from the seated eye no ray
+ * meets the shell before the lining, the furniture or the glass), every
+ * seated crown under its roof with a hand of air, and its driver seen
+ * (`Craft.closed` false); every craft has a seated eye for `V` with nothing
+ * inside the near plane round it (`COCKPIT_NEAR`), inside the cabin where
+ * there is one; and whatever the driver holds is within the hero's reach of
+ * both shoulders and drawn where the seat holds it. Run after the worlds'
+ * own checks, which measure the code-built craft the kit replaces: the kit is
+ * given to the craft here and to nothing else.
+ */
+async function checkInsides(specs: readonly WorldSpec[]): Promise<void> {
+  console.log("\n=== the craft's insides ===");
+  const g = globalThis as Record<string, unknown>;
+  g.ProgressEvent ??= class extends Event {
+    constructor(type: string, init: Record<string, unknown> = {}) {
+      super(type);
+      Object.assign(this, init);
+    }
+  };
+  g.self ??= globalThis;
+  const { spaceGroupFrom } = await import('../src/space-kit.ts');
+  const space = resolve(ROOT, 'public/models/space');
+  const manifest = (JSON.parse(readFileSync(resolve(space, 'manifest.json'), 'utf8')) as { models: import('../src/space-kit.ts').SpaceEntry[] }).models;
+  const pieces = await spaceGroupFrom(readFileSync(resolve(space, 'craft.bin')), manifest.filter((entry) => entry.group === 'craft'));
+  const H = AVATAR_HEIGHT;
+  const f = (value: number): string => value.toFixed(2);
+  const solidsOf = (root: THREE.Object3D, keep: (mesh: THREE.Mesh) => boolean): THREE.Mesh[] => {
+    const out: THREE.Mesh[] = [];
+    root.traverse((one) => {
+      const mesh = one as THREE.Mesh;
+      if (mesh.isMesh === true && (mesh as THREE.InstancedMesh).isInstancedMesh !== true && mesh.visible && keep(mesh)) out.push(mesh);
+    });
+    return out;
+  };
+  // Every kind of craft once, by what it is: a world's own, the engine's, and the towns' parked kits.
+  const seen = new Set<string>();
+  const vehicles: { label: string; vehicle: WorldSpec['vehicles'][number] }[] = [];
+  const add = (label: string, vehicle: WorldSpec['vehicles'][number]): void => {
+    const key = typeof vehicle === 'string' ? vehicle : `${vehicle.kind}:${vehicle.name}:${vehicle.kit?.id ?? ''}:${vehicle.kit?.length ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    vehicles.push({ label, vehicle });
+  };
+  for (const spec of specs) for (const vehicle of spec.vehicles) add(`${spec.id}: ${typeof vehicle === 'string' ? `the ${vehicle}` : vehicle.name}`, vehicle);
+  for (const kit of PARKED_KITS) add(`a town's parked ${kit.id}`, { kind: 'rover', name: 'the rover', kit });
+  add("a town's parked ship", { kind: 'lander', name: 'the ship', kit: DEFAULT_KITS.lander! });
+
+  // First the code-built stand-ins a kit model replaces once it arrives, as
+  // a traveller may sit in one before it does; then everything with the kit.
+  const passes: { label: string; vehicle: WorldSpec['vehicles'][number]; kitted: boolean }[] = [];
+  for (const { label, vehicle } of vehicles) {
+    const kit = typeof vehicle === 'string' ? DEFAULT_KITS[vehicle] : vehicle.kit;
+    if (kit !== undefined) passes.push({ label: `${label}, in code until the kit arrives`, vehicle, kitted: false });
+  }
+  for (const { label, vehicle } of vehicles) passes.push({ label, vehicle, kitted: true });
+  let given = false;
+  for (const { label, vehicle, kitted } of passes) {
+    if (kitted && !given) {
+      provideWorldKit({ pieces });
+      given = true;
+    }
+    const craft = createCraft(vehicle, ctx, gradientMap, new THREE.Vector3(), new THREE.Vector3(0, 0, 1));
+    const root = craft.object;
+    root.updateMatrixWorld(true);
+    const said: string[] = [];
+    const kit = typeof vehicle === 'string' ? DEFAULT_KITS[vehicle] : vehicle.kit;
+    const closed = kitted && kit?.closed === true;
+    const hip = craft.seat.clone().setY(craft.seat.y + FIGURE.hipY);
+    if (craft.closed) fail(`${label}: its driver is hidden in the hull: no seated body fits it`);
+    if (craft.eye === null) {
+      fail(`${label}: no eye for V in its seat`);
+      continue;
+    }
+    const eye = craft.eye;
+    if (!craft.standing && craft.pose === null) fail(`${label}: its driver sits with no pose, the hands on nothing`);
+    const glassMeshes = solidsOf(root, (mesh) => isGlassMaterial(mesh.material as THREE.Material));
+    const opaque = solidsOf(root, (mesh) => !isGlassMaterial(mesh.material as THREE.Material) && (mesh.material as THREE.Material).visible !== false && !((mesh.material as THREE.Material).transparent && !(mesh.material as THREE.Material).depthWrite));
+    if (closed) {
+      const glass = root.getObjectByName('glass') as THREE.Mesh | undefined;
+      const cabin = root.getObjectByName('cabin') as THREE.Mesh | undefined;
+      const shell = root.getObjectByName('shell') as THREE.Mesh | undefined;
+      if (glass === undefined) fail(`${label}: a closed craft with no glass you can see through`);
+      else {
+        for (const fault of glassFaults(glass)) fail(`${label}: ${fault}`);
+        said.push(`glass ${glass.geometry.getAttribute('position').count / 3}`);
+      }
+      if (cabin === undefined) fail(`${label}: a closed craft with no cabin`);
+      else said.push(`cabin ${cabin.geometry.getAttribute('position').count / 3}`);
+      if (shell !== undefined && cabin !== undefined && glass !== undefined) {
+        const inside = solidsOf(root, (mesh) => mesh !== shell && !isGlassMaterial(mesh.material as THREE.Material));
+        const bare = uncovered(eye, meshTriangles([shell], root), probeOfMeshes(inside, root), probeOfMeshes([glass], root));
+        // A ray along a pillar's edge, or past a cut-open hull's rim, can slip
+        // between the lining's corners: 1.4% on the lander, 0 on the cabs.
+        if (bare > 0.02) fail(`${label}: ${(bare * 100).toFixed(1)}% of the shell seen from the seat is unlined, its ink hull showing`);
+        said.push(`${(bare * 100).toFixed(1)}% unlined`);
+      }
+      // Every seat's crown under the roof's lining, and a head's width round
+      // it, where the skull has curved a fiftieth of a body down from its top.
+      const piece = pieces.get(kit!.id)!;
+      const size = piece.model.box.getSize(new THREE.Vector3());
+      const cockpit = cockpitOf(piece.model, (kit!.legs ?? 0) > 0 ? 'canopy' : 'cab', kit!.length / size.z);
+      const lift = kit!.legs ?? 0;
+      const all = probeOfMeshes([...opaque, ...glassMeshes], root);
+      let headRoom = Infinity;
+      for (const seat of cockpit.seats) {
+        for (let k = 0; k <= 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          const r = k === 8 ? 0 : 0.05 * H;
+          const x = seat.x + Math.cos(a) * r;
+          const z = seat.z + SEAT_EYE.ahead * 0.5 + Math.sin(a) * r;
+          const from = lift + seat.y + HERO.shoulder;
+          const crown = lift + seat.y + HERO.crown - (k === 8 ? 0 : 0.02 * H);
+          headRoom = Math.min(headRoom, from + all.cast(x, from, z, 0, 1, 0) - crown);
+        }
+      }
+      if (!(headRoom >= 0)) fail(`${label}: a seated crown is ${f(-headRoom)} through the roof's lining`);
+      said.push(`${cockpit.seats.length} seat${cockpit.seats.length === 1 ? '' : 's'}, ${f(headRoom)} over the crowns`);
+      // The eye inside the cabin: a roof over it and a wall either side, past the near plane.
+      const over = all.cast(eye.x, eye.y, eye.z, 0, 1, 0);
+      const left = all.cast(eye.x, eye.y, eye.z, 1, 0, 0);
+      const right = all.cast(eye.x, eye.y, eye.z, -1, 0, 0);
+      if (!Number.isFinite(over) || !Number.isFinite(left) || !Number.isFinite(right)) fail(`${label}: the seated eye is not inside its cabin`);
+      if (over < COCKPIT_NEAR * 1.5) fail(`${label}: the roof is ${f(over)} over the seated eye, inside the near plane's ${f(COCKPIT_NEAR)} and a half`);
+    } else if (root.getObjectByName('glass') !== undefined) {
+      // A code-built dome: the glass's contract, and the crown under it.
+      for (const fault of glassFaults(root.getObjectByName('glass') as THREE.Mesh)) fail(`${label}: ${fault}`);
+      const all = probeOfMeshes([...opaque, ...glassMeshes], root);
+      const from = hip.y + HERO.shoulder;
+      const room = from + all.cast(hip.x, from, hip.z, 0, 1, 0) - (hip.y + HERO.crown);
+      if (!(room >= 0.02 * H)) fail(`${label}: the seated crown has ${f(room)} under its dome`);
+      said.push(`${f(room)} over the crown`);
+    }
+    // Nothing drawn inside the near plane round the eye (the body is not part of the craft).
+    const near = probeOfMeshes(opaque, root);
+    let nearest = Infinity;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < 400; i++) {
+      const y = 1 - (2 * (i + 0.5)) / 400;
+      const r = Math.sqrt(1 - y * y);
+      nearest = Math.min(nearest, near.cast(eye.x, eye.y, eye.z, Math.cos(golden * i) * r, y, Math.sin(golden * i) * r));
+    }
+    if (nearest < COCKPIT_NEAR * 1.5) fail(`${label}: something of it is ${f(nearest)} from the seated eye, inside the near plane's ${f(COCKPIT_NEAR)} and a half`);
+    said.push(`nearest ${f(nearest)} from the eye`);
+    // What the hands hold.
+    const wheel = craft.pose?.wheel;
+    if (wheel !== undefined) {
+      const grips = craft.kind === 'ufo' || wheel.rest !== undefined;
+      const held = wheelFaults(wheel, craft.pose?.legs, !grips);
+      for (const fault of held.faults) fail(`${label}: ${fault}`);
+      const steer = root.getObjectByName('steer');
+      if (steer !== undefined) {
+        const at = steer.getWorldPosition(new THREE.Vector3());
+        const want = new THREE.Vector3(hip.x + wheel.centre[0], hip.y + wheel.centre[1], hip.z + wheel.centre[2]);
+        if (at.distanceTo(want) > 0.01 * H) fail(`${label}: the wheel is drawn ${f(at.distanceTo(want))} off where the seat holds it`);
+      } else if (!grips) fail(`${label}: a wheel in the hands and none drawn`);
+      said.push(`${grips ? 'grips' : 'wheel'} ${f(held.reach)} from a shoulder`);
+    } else if (!craft.standing) said.push('hands idle');
+    console.log(`  ${label}: ${said.join(', ')}`);
+  }
+}
+await checkInsides(await Promise.all(ids.map((id) => loadWorldSpec(id))));
 
 console.log(failures === 0 ? '\nOK\n' : `\n${failures} failures\n`);
 process.exit(failures === 0 ? 0 : 1);
