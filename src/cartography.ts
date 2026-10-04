@@ -330,6 +330,55 @@ export function tracePin(
 }
 
 /**
+ * A rocket standing on its pad, its base at (x, y) and its nose `height`
+ * above it, screen-up: the pin's rule, the mark's foot on the coordinate.
+ *
+ * Fins in `accent` behind a body in `fill`, inked like the pins; a porthole
+ * only where the body is wide enough for one to read as a porthole rather
+ * than a blot. Both maps draw their pads with it, so the disc and the sheet
+ * show one mark. The caller sets the stroke's width.
+ */
+export function traceRocket(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  height: number,
+  fill: string,
+  accent: string,
+  ink: string,
+): void {
+  const half = height * 0.2;
+  const shoulder = y - height * 0.62;
+  const top = y - height;
+  ctx.strokeStyle = ink;
+  ctx.beginPath();
+  ctx.moveTo(x - half, y - height * 0.4);
+  ctx.lineTo(x - half * 2.3, y);
+  ctx.lineTo(x + half * 2.3, y);
+  ctx.lineTo(x + half, y - height * 0.4);
+  ctx.closePath();
+  ctx.fillStyle = accent;
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - half, y);
+  ctx.lineTo(x - half, shoulder);
+  ctx.quadraticCurveTo(x - half, top + height * 0.1, x, top);
+  ctx.quadraticCurveTo(x + half, top + height * 0.1, x + half, shoulder);
+  ctx.lineTo(x + half, y);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.stroke();
+  if (half >= 2.5) {
+    ctx.beginPath();
+    ctx.arc(x, y - height * 0.56, half * 0.42, 0, TAU);
+    ctx.fillStyle = ink;
+    ctx.fill();
+  }
+}
+
+/**
  * Sorts `order[0..count)` by `depth` descending, in place, allocating nothing.
  *
  * Insertion sort because the order barely changes between frames, which is the

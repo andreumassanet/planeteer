@@ -28,7 +28,9 @@
  *   (`MinimapOptions.roads`), cased in ink as `map.ts` draws them; the built
  *   places — `isShown`, the same rows the settlements and the trees agree on —
  *   as dots sized by `radiusOf`, so the disc answers *which one* and *how big*
- *   in the same mark.
+ *   in the same mark; and the rockets' pads beside the airstrips, as the
+ *   little rocket `map.ts` draws them with (`traceRocket`), while the disc
+ *   is no wider than `PAD_VIEW`.
  *
  * What survives from the globe is the part that was never about scale: while
  * the player has put a marker on the world map (`navigation.ts`) the rim
@@ -41,6 +43,7 @@
  * its own `right = up x forward` for months and drew every map mirrored.
  */
 import type * as THREE from 'three';
+import { Color, Vector3 } from 'three';
 import type { World } from './geo.ts';
 import type { PlanetSurface } from './planet.ts';
 import { LAND_HEIGHT, PLANET_RADIUS } from './globe.ts';
@@ -69,6 +72,7 @@ import {
   thinMarks,
   toUnit,
   tracePin,
+  traceRocket,
 } from './cartography.ts';
 
 /** As much of a `Placement` as the map needs. `placement.ts` owns the rest. */
@@ -110,6 +114,19 @@ export interface MinimapOptions {
    * asked once, the first time the disc is drawn.
    */
   roads?: () => readonly Float32Array[];
+  /**
+   * The rockets' pads within `radius` units of `direction`, appended to
+   * `out` as unit vectors (`PadIndex.padsWithin` in `launch-pads.ts`, on a
+   * budget of the caller's): true once every pad there is in it, false
+   * while some are still being worked out, and the disc asks again on its
+   * next paper. Omit it for a world with no rockets beside its strips.
+   */
+  pads?: (direction: THREE.Vector3, radius: number, out: MinimapPad[]) => boolean;
+}
+
+/** As much of a `LaunchPad` as the disc needs: where it stands. */
+export interface MinimapPad {
+  at: { x: number; y: number; z: number };
 }
 
 export interface MinimapStats {
@@ -122,6 +139,8 @@ export interface MinimapStats {
   level: number;
   places: number;
   pins: number;
+  /** The rockets' pads on the last paper. */
+  pads: number;
   /** Milliseconds in `update`, over the last 60 calls: the median and the worst. */
   medianMs: number;
   worstMs: number;
@@ -178,6 +197,25 @@ const MIN_TURN = 0.02;
  * hidden side of the planet, so it is about smoothness, not accuracy.
  */
 const RIM_STEP = 0.12;
+/**
+ * The shortest stretch of road the disc strokes, in pixels: a road gets one
+ * segment per this much of its own extent on the disc. Under the stroke's own
+ * width a finer bend is not a bend anyone can see, only a join to rasterise.
+ */
+const ROAD_SEGMENT_PX = 3;
+/**
+ * How long the paper stands before it is drawn again, as a multiple of what
+ * drawing it last cost, and the most that may be.
+ *
+ * On foot the paper is a few rings and costs a fraction of a millisecond, so
+ * this is under the overlay's own interval and nothing changes. From a plane
+ * the disc opens to thousands of units, hundreds of rings and every road in
+ * them, and it moves half a pixel every frame: it was redrawn as often as
+ * `MAX_FPS` let it. Eight is the paper's share — an eighth of the time — and
+ * between its redraws `draw` carries the old one with the camera.
+ */
+const BASE_GAP = 8;
+const BASE_GAP_MAX = 250;
 
 // Pin geometry, in pixels at the default size. A teardrop with its point at the
 // coordinate: the head carries the colour and the point says exactly where,
@@ -211,6 +249,19 @@ const MAX_PLACE_MARKS = 22;
  * already most of the paper.
  */
 const MAX_LABELS = 4;
+/**
+ * The rockets' pads, drawn on the paper with the towns, while the disc is no
+ * wider than this many units: past it a pad is a strip's neighbour forty
+ * kilometres across, and asking for every pad under a plane's horizon would
+ * work out the strips of half a continent for marks nobody can tell apart.
+ * The disc on foot, in a car and in a low plane is inside it.
+ */
+const PAD_VIEW = 2400;
+/** A pad's rocket, in pixels at the default size, base to nose; and no two closer than this. */
+const PAD_HEIGHT = 12;
+const PAD_SPACING = 10;
+/** At most this many: round a capital a handful stand inside `PAD_VIEW`. */
+const MAX_PAD_MARKS = 12;
 /** The marker's wedge on the rim: how far it reaches in, and its half-width. */
 const TARGET_REACH = 13;
 const TARGET_WIDTH = 5.5;
@@ -309,6 +360,16 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const discRadius = centre - RIM_WIDTH / 2;
   const ink = hex(PALETTE.ink);
   const ocean = hex(OCEAN_COLOR);
+  /**
+   * What the disc is painted with under the land: the sea on Earth, and on a
+   * body with none the ground's own colour under the disc's centre, read off
+   * the surface each time the paper is drawn. Ocean blue there drew a sea
+   * between the nations of Mars and round the rim between redraws.
+   */
+  const dryBody = surface !== undefined && !surface.sea;
+  const paperColour = new Color();
+  const paperAt = new Vector3();
+  let paper = ocean;
   const cream = hex(PALETTE.white);
   const gold = hex(PALETTE.gold);
   // Violet is the only palette colour that collides with nothing already on the
@@ -407,6 +468,14 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   const keptX = new Float32Array(pinCount);
   const keptY = new Float32Array(pinCount);
   const keptPin = new Int32Array(pinCount);
+  // The pads, asked afresh with each paper: a few, and they never move.
+  const padFound: MinimapPad[] = [];
+  const padAt = new Vector3();
+  const padKeptX = new Float32Array(MAX_PAD_MARKS);
+  const padKeptY = new Float32Array(MAX_PAD_MARKS);
+  /** Some pad on the disc was still being worked out when the paper was drawn: draw it again. */
+  let padsWaiting = false;
+  const red = hex(PALETTE.red);
 
 
   /**
@@ -494,6 +563,20 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   let previousAt = 0;
   let baseStale = true;
   let overlayStale = true;
+  /** The frame and scale the paper was last drawn in; see `draw`. */
+  let baseUx = 0;
+  let baseUy = 1;
+  let baseUz = 0;
+  let baseFx = 0;
+  let baseFy = 0;
+  let baseFz = 1;
+  let baseRx = 1;
+  let baseRy = 0;
+  let baseRz = 0;
+  let baseScale = 1;
+  /** When the paper was last drawn, and how long it must stand before the next. */
+  let baseDrawnAt = -Infinity;
+  let baseGap = 0;
 
   /** Where you are, as the caller last said. */
   let country = 0;
@@ -527,6 +610,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   let drawnPoints = 0;
   let drawnLevel = 0;
   let drawnPlaces = 0;
+  let drawnPads = 0;
   let drawnPins = 0;
   let baseMs = 0;
   const samples = new Float64Array(60);
@@ -684,6 +768,35 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
   }
 
   /**
+   * Asks for the pads on the disc, projects them like the towns and thins
+   * them, nearest the coordinate first by nothing but the order asked:
+   * pads stand miles apart, and two that meet on the disc are one mark.
+   * Returns how many stand. Only on the paper, because a pad is geography.
+   */
+  function layOutPads(): number {
+    padsWaiting = false;
+    if (settings.pads === undefined || view * RADIUS > PAD_VIEW) return 0;
+    padFound.length = 0;
+    padsWaiting = !settings.pads(padAt.set(ux, uy, uz), view * RADIUS, padFound);
+    const spacing = PAD_SPACING * uiScale;
+    let count = 0;
+    for (const pad of padFound) {
+      const { x: mx, y: my, z: mz } = pad.at;
+      if (mx * ux + my * uy + mz * uz <= 0) continue;
+      const x = centre + (mx * rx + my * ry + mz * rz) * scale;
+      const y = centre - (mx * fx + my * fy + mz * fz) * scale;
+      if ((x - centre) ** 2 + (y - centre) ** 2 > discRadius * discRadius) continue;
+      let crowded = false;
+      for (let n = 0; n < count && !crowded; n++) crowded = Math.abs(padKeptX[n]! - x) < spacing && Math.abs(padKeptY[n]! - y) < spacing;
+      if (crowded) continue;
+      padKeptX[count] = x;
+      padKeptY[count] = y;
+      if (++count === MAX_PAD_MARKS) break;
+    }
+    return count;
+  }
+
+  /**
    * A wedge on the rim pointing out at the marker, at its *screen* azimuth.
    *
    * The disc is north-up now, so this is where the marker is on the paper
@@ -698,17 +811,17 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     const from = apex - reach * uiScale;
     const wide = width * uiScale;
 
-    baseCtx.beginPath();
-    baseCtx.moveTo(centre + dx * apex, centre + dy * apex);
-    baseCtx.lineTo(centre + dx * from - dy * wide, centre + dy * from + dx * wide);
-    baseCtx.lineTo(centre + dx * from + dy * wide, centre + dy * from - dx * wide);
-    baseCtx.closePath();
-    baseCtx.fillStyle = fill;
-    baseCtx.fill();
-    baseCtx.lineWidth = Math.max(1, 1.5 * uiScale);
-    baseCtx.lineJoin = 'round';
-    baseCtx.strokeStyle = ink;
-    baseCtx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(centre + dx * apex, centre + dy * apex);
+    ctx.lineTo(centre + dx * from - dy * wide, centre + dy * from + dx * wide);
+    ctx.lineTo(centre + dx * from + dy * wide, centre + dy * from - dx * wide);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1, 1.5 * uiScale);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = ink;
+    ctx.stroke();
   }
 
   /**
@@ -747,20 +860,22 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
 
   function drawScale(bar: { x0: number; x1: number; y: number; km: number }): void {
     const { x0, x1, y, km } = bar;
-    baseCtx.lineWidth = Math.max(1, 1.6 * uiScale);
-    baseCtx.strokeStyle = ink;
-    baseCtx.beginPath();
-    baseCtx.moveTo(x0, y - 2.5 * uiScale);
-    baseCtx.lineTo(x0, y + 2.5 * uiScale);
-    baseCtx.moveTo(x0, y);
-    baseCtx.lineTo(x1, y);
-    baseCtx.moveTo(x1, y - 2.5 * uiScale);
-    baseCtx.lineTo(x1, y + 2.5 * uiScale);
-    baseCtx.stroke();
-    baseCtx.font = `800 ${(8.5 * uiScale).toFixed(1)}px ${FONT}`;
-    baseCtx.textAlign = 'center';
-    baseCtx.textBaseline = 'alphabetic';
-    inkedText(baseCtx, `${km >= 1 ? km : km.toFixed(1)} km`, centre, y - 4 * uiScale, cream, ink, 3);
+    ctx.lineWidth = Math.max(1, 1.6 * uiScale);
+    ctx.strokeStyle = ink;
+    ctx.beginPath();
+    ctx.moveTo(x0, y - 2.5 * uiScale);
+    ctx.lineTo(x0, y + 2.5 * uiScale);
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.moveTo(x1, y - 2.5 * uiScale);
+    ctx.lineTo(x1, y + 2.5 * uiScale);
+    ctx.stroke();
+    ctx.font = `800 ${(8.5 * uiScale).toFixed(1)}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    // Under a kilometre in metres: the small worlds' discs go that far down,
+    // and a tenth of a kilometre to one place read `0.0 km`.
+    inkedText(ctx, km >= 1 ? `${km} km` : `${Math.round(km * 1000)} m`, centre, y - 4 * uiScale, cream, ink, 3);
   }
 
   /** The roads, each with its bounding cap on the unit sphere, built the first time they are drawn. */
@@ -794,8 +909,23 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       const span = line.radius + view;
       if (span < Math.PI && line.cx * ux + line.cy * uy + line.cz * uz < Math.cos(span)) continue;
       const p = line.points;
+      // **As many segments as the road has pixels for, and no more.** Every
+      // road is held at its full sampling, which is right for the street-scale
+      // framing on foot and ruinous from the air: at the 8,000-unit framing a
+      // plane at its ceiling opens, a road is one to four pixels long, and the
+      // disc stroked every sample of every road in it — twice, casing and
+      // line, with round joins. The canvas's rasterisation of that one path
+      // was **105 ms a frame, against 3.5 with no roads at all** (headless,
+      // 3,000 units over Paris, 2026-10-04), and it was paid on every redraw,
+      // which in a plane is every one the throttle allows. So a road takes one
+      // segment per `ROAD_SEGMENT_PX` of its own extent on the disc, its ends
+      // always kept: the street-scale disc still draws every sample, and the
+      // plane's draws a road as the stroke it is at that size.
+      const samples = p.length / 3;
+      const segments = Math.max(1, Math.min(samples - 1, Math.ceil((2 * line.radius * scale) / ROAD_SEGMENT_PX)));
       let open = false;
-      for (let k = 0; k < p.length; k += 3) {
+      for (let j = 0; j <= segments; j++) {
+        const k = Math.round((j * (samples - 1)) / segments) * 3;
         const px = p[k]!;
         const py = p[k + 1]!;
         const pz = p[k + 2]!;
@@ -834,9 +964,12 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     baseCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
     baseCtx.clearRect(0, 0, size, size);
 
+    if (dryBody && surface !== undefined && ux * ux + uy * uy + uz * uz > 0) {
+      paper = `#${surface.colorAt(paperAt.set(ux, uy, uz).normalize(), paperColour).getHexString()}`;
+    }
     baseCtx.beginPath();
     baseCtx.arc(centre, centre, discRadius, 0, TAU);
-    baseCtx.fillStyle = ocean;
+    baseCtx.fillStyle = paper;
     baseCtx.fill();
 
     baseCtx.save();
@@ -874,8 +1007,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
 
     const towns = layOutTowns();
     const pins = layOutPins();
+    const pads = layOutPads();
     drawnPlaces = towns;
     drawnPins = pins;
+    drawnPads = pads;
 
     // The names come last but their space is claimed first, and getting that
     // order wrong is visible rather than theoretical: the marks are painted over
@@ -904,6 +1039,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     }
     for (let n = 0; n < towns; n++) {
       space.claim(townKeptX[n]! - 4 * uiScale, townKeptY[n]! - 4 * uiScale, 8 * uiScale, 8 * uiScale);
+    }
+    const padHeight = PAD_HEIGHT * uiScale;
+    for (let n = 0; n < pads; n++) {
+      space.claim(padKeptX[n]! - padHeight * 0.5, padKeptY[n]! - padHeight - 1, padHeight, padHeight + 2);
     }
 
     let labels = 0;
@@ -977,29 +1116,57 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       baseCtx.fill();
       baseCtx.stroke();
     }
+    // The pads over the towns and under the landmarks: a rocket stands
+    // outside a town, beside its strip, and a landmark is still the mark
+    // the disc points at.
+    baseCtx.lineWidth = Math.max(1, 1.2 * uiScale);
+    baseCtx.lineJoin = 'round';
+    for (let n = 0; n < pads; n++) traceRocket(baseCtx, padKeptX[n]!, padKeptY[n]!, padHeight, cream, red, ink);
     baseCtx.lineWidth = Math.max(1, 1.4 * uiScale);
+    baseCtx.strokeStyle = ink;
     // Backwards, so the nearest one is painted last; one style for every
     // landmark, and the marker over all of them.
     for (let n = pins - 1; n >= 0; n--) tracePin(baseCtx, keptX[n]!, keptY[n]!, pinRise, pinHead, cream);
     drawMarkerPin();
     baseCtx.restore();
 
-    baseCtx.beginPath();
-    baseCtx.arc(centre, centre, discRadius, 0, TAU);
-    baseCtx.lineWidth = RIM_WIDTH;
-    baseCtx.strokeStyle = ink;
-    baseCtx.stroke();
+    // Where the paper stood when it was drawn, which is what `draw` moves it
+    // from until the next one.
+    baseUx = ux;
+    baseUy = uy;
+    baseUz = uz;
+    baseFx = fx;
+    baseFy = fy;
+    baseFz = fz;
+    baseRx = rx;
+    baseRy = ry;
+    baseRz = rz;
+    baseScale = scale;
+    baseMs = performance.now() - began;
+  }
+
+  /**
+   * What belongs to the disc rather than to the paper — the rim, north riding
+   * round it, the scale bar and the marker's wedge — drawn over the paper on
+   * every redraw, because the paper between two of its own redraws is moved
+   * (`draw`) and these must not move with it.
+   */
+  function drawFrameMarks(): void {
+    ctx.beginPath();
+    ctx.arc(centre, centre, discRadius, 0, TAU);
+    ctx.lineWidth = RIM_WIDTH;
+    ctx.strokeStyle = ink;
+    ctx.stroke();
 
     // North, riding round the rim as the paper turns under it.
-    baseCtx.font = `800 ${(9 * uiScale).toFixed(1)}px ${FONT}`;
-    baseCtx.textAlign = 'center';
-    baseCtx.textBaseline = 'middle';
+    ctx.font = `800 ${(9 * uiScale).toFixed(1)}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     const northAt = discRadius - RIM_WIDTH - 5 * uiScale;
-    inkedText(baseCtx, 'N', centre + Math.sin(northAngle) * northAt, centre - Math.cos(northAngle) * northAt, cream, ink, 2.5);
+    inkedText(ctx, 'N', centre + Math.sin(northAngle) * northAt, centre - Math.cos(northAngle) * northAt, cream, ink, 2.5);
 
-    drawScale(bar);
+    drawScale(scaleBar());
     drawBearing();
-    baseMs = performance.now() - began;
   }
 
   function draw(): void {
@@ -1009,15 +1176,48 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       canvas.width = Math.round(size * dpr);
       canvas.height = Math.round(size * dpr);
       baseStale = true;
+      baseDrawnAt = -Infinity;
     }
-    if (baseStale) {
+    const began = performance.now();
+    const redrawn = baseStale && began - baseDrawnAt >= baseGap;
+    if (redrawn) {
       drawBase();
       baseStale = false;
+      baseDrawnAt = began;
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(base, 0, 0);
+    // **The paper as it was drawn, moved to where it is now.** Between two of
+    // its own redraws the paper is carried by the turn, the shift and the zoom
+    // since — near the centre of an orthographic disc that is a rotation, a
+    // translation and a scale, which is one transform — so a disc whose
+    // redraw costs more than a frame can turn with the camera at the overlay's
+    // rate and redraw its land at a rate of its own (`BASE_GAP`). Over the
+    // ocean the paper uncovers, which is why the disc is filled first.
+    const k = scale / baseScale;
+    const a = k * (baseRx * rx + baseRy * ry + baseRz * rz);
+    const b = -k * (baseRx * fx + baseRy * fy + baseRz * fz);
+    const c = -k * (baseFx * rx + baseFy * ry + baseFz * rz);
+    const d = k * (baseFx * fx + baseFy * fy + baseFz * fz);
+    const e = centre + scale * (baseUx * rx + baseUy * ry + baseUz * rz) - (a + c) * centre;
+    const f = centre - scale * (baseUx * fx + baseUy * fy + baseUz * fz) - (b + d) * centre;
+    ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath();
+    ctx.arc(centre, centre, discRadius, 0, TAU);
+    ctx.fillStyle = paper;
+    ctx.fill();
+    ctx.clip();
+    ctx.setTransform(a, b, c, d, e * dpr, f * dpr);
+    ctx.drawImage(base, 0, 0);
+    ctx.restore();
+    if (redrawn) {
+      // What the paper costs, the copy that flushes it included, says how
+      // long until it may be drawn again.
+      baseGap = Math.min(BASE_GAP_MAX, (performance.now() - began) * BASE_GAP);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawFrameMarks();
 
     const rim = discRadius - 5 * uiScale;
     for (const mark of peerMarks) {
@@ -1152,6 +1352,8 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       // things: the first rebuilds the land, the second copies a bitmap.
       const moved = Math.acos(Math.min(1, ux * lastUx + uy * lastUy + uz * lastUz));
       if (moved * scale > MIN_SHIFT) baseStale = true;
+      // A pad still being worked out comes onto the paper at its next redraw.
+      if (padsWaiting) baseStale = true;
       if (baseStale || Math.abs(heading - lastHeading) > MIN_TURN) overlayStale = true;
 
       if (overlayStale) {
@@ -1201,6 +1403,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
         level: drawnLevel,
         places: drawnPlaces,
         pins: drawnPins,
+        pads: drawnPads,
         medianMs: Number((sorted[sorted.length >> 1] ?? 0).toFixed(3)),
         worstMs: Number((sorted[sorted.length - 1] ?? 0).toFixed(3)),
         baseMs: Number(baseMs.toFixed(3)),

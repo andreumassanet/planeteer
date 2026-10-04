@@ -12,7 +12,8 @@ import type { Emote } from '../server/src/limits.ts';
 import { isAirKind } from './craft/contract.ts';
 import type { CraftKind, CraftModel, PlayerState, Seat, WirePose } from './craft/contract.ts';
 import { AT_REST, motionOf } from './craft/motion.ts';
-import { HERO } from './craft/body.ts';
+import { SEAT_EYE } from './craft/body.ts';
+import { faintGlass } from './craft/build.ts';
 import {
   CANOPY_OPENING,
   CHUTE_FORCED,
@@ -169,14 +170,13 @@ const BAIL_LANDING = 1.2;
 
 
 /**
- * The eye in a seat, over the hip: seated, half a head under the crown the
- * seats are built round (`HERO` in `craft/body.ts`) and a little ahead, the
- * face being ahead of the spine; astride, further ahead, a rider leaning into
- * the bars. Standing, the foot's own eye over the soles (`camera.ts`).
+ * The eye in a seat, over the hip: `SEAT_EYE` in `craft/body.ts`, where the
+ * cabins are built round it and `pnpm craft` holds it under every roof.
+ * Standing, the foot's own eye over the soles (`camera.ts`).
  */
-const SEAT_EYE_UP = HERO.crown - AVATAR_HEIGHT / 14;
-const SEAT_EYE_AHEAD = AVATAR_HEIGHT * 0.05;
-const RIDE_EYE_AHEAD = AVATAR_HEIGHT * 0.12;
+const SEAT_EYE_UP = SEAT_EYE.up;
+const SEAT_EYE_AHEAD = SEAT_EYE.ahead;
+const RIDE_EYE_AHEAD = SEAT_EYE.rideAhead;
 const STAND_EYE = AVATAR_HEIGHT * 0.93;
 
 /**
@@ -555,6 +555,12 @@ export interface Player {
    * swimming and sends the vehicle back to its site.
    */
   sunk: boolean;
+  /**
+   * Seconds the vehicle at the controls has been going down in the water,
+   * -1 while it is not: so a driver who gets out of it slowly leaves it going
+   * down where it was rather than parked afloat (`fleet.ts`).
+   */
+  foundering: number;
   /** On foot, swimming, or in a seat: `PLAYER_STATES`, which is what the wire carries. */
   state: PlayerState;
   /** The same, as the keys and the HUD read it: which vehicle, and whether you are driving it. */
@@ -600,8 +606,10 @@ export interface Player {
    * that knows which object is the body: the camera used to find it by name,
    * which meant a rename in `avatar.ts` broke first person into a face drawn
    * across the whole screen with nothing to say where it came from. A method
-   * cannot go quietly missing. A seat inside a closed cab keeps it hidden
-   * whatever this says (`Seat.shown`).
+   * cannot go quietly missing. A seat that hides its body (`Seat.shown`
+   * false, which no craft has had since 2026-10-04) keeps it hidden whatever
+   * this says; first person in a seat draws it whatever this says
+   * (`setCockpit`).
    */
   setBodyVisible(visible: boolean): void;
   /**
@@ -611,9 +619,9 @@ export interface Player {
    */
   seatEye(position: THREE.Vector3, orientation: THREE.Quaternion): boolean;
   /**
-   * First person in a seat: the body hidden, and inside a closed cab the
-   * vehicle drawn without its ink, whose hull seen from within is a screen of
-   * ink. Off, both are as they were.
+   * First person in a seat: the body drawn without its head, so the eye sees
+   * its own arms and knees in the cabin (`craft/cabin.ts`), and the ride's
+   * glass all but cleared (`applyBody`). Off, both are as they were.
    */
   setCockpit(on: boolean): void;
   /** Teleport. Leaves the player in a fully consistent state in one call, on foot or swimming. */
@@ -1141,19 +1149,48 @@ export function createPlayer(
   /** The seat you are in, as the model publishes it. */
   const seatOf = (held: Held): Seat => held.model.seats[held.seat] ?? held.model.seats[0]!;
 
-  /** Whether the body is drawn: wanted by the camera, and not shut in a cab. */
+  /** What `applyBody` last did to which ride's materials. */
+  const swapped: { group: THREE.Object3D | null; ink: boolean; faint: boolean } = { group: null, ink: false, faint: false };
+  /**
+   * Whether the body is drawn: wanted by the camera, and on a seat that shows
+   * it. In first person in a seat it is drawn whatever the camera wanted, its
+   * head folded away (`Avatar.setHeadless`), so the eye sees its own arms on
+   * the wheel and its knees under the dashboard; and the ride's glass is all
+   * but cleared, because from inside a window is something seen through and
+   * the cabin's pillars and frames already say where it is (`faintGlass`).
+   * A seat that hides its body keeps the old answer: the body hidden and the
+   * shell drawn without its ink (`inkless`).
+   */
   function applyBody(): void {
-    avatar.group.visible = bodyWanted && !(cockpit && ride !== null) && (ride === null || seatOf(ride).shown);
-    if (ride !== null) inkless(ride.group, cockpit && !seatOf(ride).shown);
+    const inside = cockpit && ride !== null;
+    const shown = ride === null || seatOf(ride).shown;
+    avatar.group.visible = shown && (bodyWanted || inside);
+    avatar.setHeadless(inside && shown);
+    if (ride === null) return;
+    // Only when the answer changes: the camera says what it wants of the body
+    // every frame, and each swap walks the whole vehicle. And the later swap
+    // undone first, since the glass's may hold the ink's copy as its own.
+    const ink = inside && !shown;
+    if (swapped.group === ride.group && swapped.ink === ink && swapped.faint === inside) return;
+    faintGlass(ride.group, false);
+    inkless(ride.group, ink);
+    faintGlass(ride.group, inside);
+    swapped.group = ride.group;
+    swapped.ink = ink;
+    swapped.faint = inside;
   }
 
   /**
-   * A closed cab seen from inside it, without its ink. From within, every
-   * face of the body is a back face and is not drawn — the eye sees out
-   * through the roof and the doors, and down onto the bonnet, which faces it
-   * — but the ink hull is drawn from its back faces, and from inside a hull
+   * A closed shell seen from inside it, without its ink. From within, every
+   * face of an unlined shell is a back face and is not drawn — the eye sees
+   * out through the roof and the doors, and down onto the bonnet, which faces
+   * it — but the ink hull is drawn from its back faces, and from inside a hull
    * is a screen of ink. So each of the ride's meshes is given a copy of its
    * material with the ink off, kept per material, and its own back after.
+   * Every closed craft has been lined since 2026-10-04 (`liner` in
+   * `craft/cabin.ts`), which hides the shell's hull from inside with the
+   * lining's own fill, and shows its body; this is for a seat that does not
+   * (`Seat.shown` false).
    */
   const noInk = new WeakMap<THREE.Material, THREE.Material>();
   function inkless(group: THREE.Object3D, on: boolean): void {
@@ -1458,7 +1495,10 @@ export function createPlayer(
     if (!blocked && collide !== undefined && collide(probe, width * 0.8, pushed)) blocked = struck = true;
     let ground = standingRadius(position);
     if (!blocked) blocked = !swamps && isWater(ground);
-    if (!blocked && !airborne && distance > 1e-9) blocked = ground - height > handling.step + distance * handling.slope;
+    // In the air as on the ground, as `walk` keeps it: a riser over the
+    // wheels (or a horse's hooves) mid-jump is still a wall, where skipping
+    // the test let a leaping horse land on any terrace or quay it met.
+    if (!blocked && distance > 1e-9) blocked = ground - height > handling.step + distance * handling.slope;
     if (blocked) {
       undo();
       speed = struck ? -hitAt * handling.bounce : 0;
@@ -1623,8 +1663,13 @@ export function createPlayer(
     const floor = options.seaFloorAt === undefined
       ? 0
       : PLANET_RADIUS + WATERLINE - model.draft - SUB_FLOOR_CLEAR - options.seaFloorAt(position);
-    dive = clamp(dive + diveRate * dt, 0, clamp(floor, 0, SUB_MAX_DEPTH));
-    if ((dive === 0 && diveRate < 0) || (dive >= floor && diveRate > 0)) diveRate = 0;
+    // The rate stops at the depth the hull is held to, which is the floor or
+    // `SUB_MAX_DEPTH`, the shallower: against the floor alone a submarine
+    // parked at its limit over deep water kept a descending rate, and the
+    // trim read off it held the nose down for as long as the key was.
+    const deepest = clamp(floor, 0, SUB_MAX_DEPTH);
+    dive = clamp(dive + diveRate * dt, 0, deepest);
+    if ((dive === 0 && diveRate < 0) || (dive >= deepest && diveRate > 0)) diveRate = 0;
   }
 
   /**
@@ -2137,7 +2182,9 @@ export function createPlayer(
     const kind = held.model.kind;
     swell += dt;
     spin(held, dt, speed_);
-    if (where.pose === 'sit') avatar.sit(dt);
+    // Seated, the legs as the seat folds them and, at a wheel, the hands
+    // round it at the turn the motion has just given it.
+    if (where.pose === 'sit') avatar.sit(dt, where, held.motion.steer);
     else if (where.pose === 'ride') avatar.ride(dt, where, held.motion.phase);
     else if (held.model.medium === 'water') avatar.steer(dt, lean);
     else avatar.stride(dt, 0, false);
@@ -2486,7 +2533,9 @@ export function createPlayer(
   function dropRide(): void {
     if (ride === null) return;
     craft.remove(ride.group);
+    faintGlass(ride.group, false);
     inkless(ride.group, false);
+    swapped.group = null;
     ride = null;
     carriedFrom = false;
     grounded = false;
@@ -2511,6 +2560,7 @@ export function createPlayer(
     player.canopy = chute && canopy > 0;
     player.airborne = kind !== null && isAir(kind) ? !grounded : airborne;
     player.sunk = ride !== null && founder >= FOUNDER_TIME;
+    player.foundering = ride !== null ? founder : -1;
     player.state = state;
     player.mode = modeOf();
     player.ride = ride;
@@ -2534,6 +2584,7 @@ export function createPlayer(
     canopy: false,
     airborne: false,
     sunk: false,
+    foundering: -1,
     state,
     mode: 'foot',
     ride: null,
@@ -2596,7 +2647,7 @@ export function createPlayer(
       if (ride === null) return false;
       const where = seatOf(ride);
       if (where.pose === 'stand') eyeLocal.set(0, STAND_EYE - AVATAR_HIP, 0);
-      else eyeLocal.set(0, SEAT_EYE_UP, where.pose === 'ride' ? RIDE_EYE_AHEAD : SEAT_EYE_AHEAD);
+      else eyeLocal.set(0, where.legs === 'drive' ? SEAT_EYE.inCar : SEAT_EYE_UP, where.pose === 'ride' ? RIDE_EYE_AHEAD : SEAT_EYE_AHEAD);
       eyeLocal.applyAxisAngle(LOCAL_Y, where.yaw);
       eyeLocal.x += where.x;
       eyeLocal.y += where.y + ride.motion.lift;
@@ -2614,6 +2665,9 @@ export function createPlayer(
     },
     board(next, at, going = 0) {
       if (sitting) stand();
+      // How fast the body was going, read before it lets go of what carried
+      // it: a passenger taking the controls aloft goes on at it.
+      const carried = velocity;
       dropRide();
       const held: Held = { ...next, motion: motionOf(next.group, next.model) };
       ride = held;
@@ -2638,6 +2692,12 @@ export function createPlayer(
       if (!airborne && next.seat === 0) {
         speed = going;
         velocity = Math.abs(going);
+      } else if (airborne && next.seat === 0) {
+        // Aloft the controls are taken in flight (`takeControls` in
+        // `fleet.ts`): at a standstill a plane hung in the air and built its
+        // speed back from nothing.
+        speed = Math.max(Math.abs(going), carried);
+        velocity = speed;
       }
       next.group.position.set(0, 0, 0);
       next.group.quaternion.identity();
@@ -2663,6 +2723,12 @@ export function createPlayer(
       // side with some of its way on. A passenger's speed is what carries him.
       const way = held.seat === 0 ? speed : velocity;
       const under = Math.abs(way) > BAIL_SPEED || airborne;
+      // Aloft, the body leaves from the height the vehicle is at and keeps its
+      // fall: the spot found below is only where it is over, or a car off a
+      // ramp set its driver down on the ground under it in one frame.
+      const midair = airborne;
+      const fell = vertical;
+      const from = position.length();
       bow.copy(forward);
       // Out on the side the seat is on — a model's +X is its left — then
       // round the vehicle, nearest that side first; land if there is any
@@ -2707,6 +2773,11 @@ export function createPlayer(
         up.copy(position);
         position.setLength(standingRadius(position));
       }
+      // Falling, the water is met when the body comes down to it (`settle`).
+      if (midair) {
+        wet = false;
+        position.setLength(Math.max(from, standingRadius(position)));
+      }
       height = position.length();
       if (under) {
         // The way the vehicle was going, less what the jump leaves behind,
@@ -2716,7 +2787,7 @@ export function createPlayer(
         motion.addScaledVector(side, BAIL_SHOVE);
         velocity = motion.length();
         if (!wet) {
-          vertical = JUMP_SPEED * BAIL_HOP;
+          vertical = (midair ? fell : 0) + JUMP_SPEED * BAIL_HOP;
           airborne = true;
           tumbling = true;
         }
@@ -2726,6 +2797,10 @@ export function createPlayer(
         sink = SWIM_DEPTH;
         dive = 0;
         diveRate = 0;
+        // Into the water a swimmer is a swimmer, as `enterWater` holds one:
+        // off a jet ski at full tilt the body skimmed away at twice a sprint.
+        motion.clampLength(0, SWIM_SPRINT);
+        velocity = motion.length();
         spray(PLANET_RADIUS + WATERLINE, SWIM_SPLASH);
       } else state = 'foot';
       publish();
@@ -2754,11 +2829,13 @@ export function createPlayer(
     },
     sitOn(at, facing, sink) {
       if (ride !== null || state !== 'foot' || airborne) return false;
+      // The facing tested before anything moves: refused after, the body was
+      // left on the bench with a zero forward, and every pose after it threw.
+      direction.copy(at).normalize();
+      if (target.copy(facing).projectOnPlane(direction).lengthSq() < 1e-8) return false;
       position.copy(at);
-      up.copy(position).normalize();
-      forward.copy(facing).projectOnPlane(up);
-      if (forward.lengthSq() < 1e-8) return false;
-      forward.normalize();
+      up.copy(direction);
+      forward.copy(target).normalize();
       still();
       height = standingRadius(position) - sink;
       position.setLength(height);
@@ -2780,6 +2857,9 @@ export function createPlayer(
       forward.normalize();
       height = position.length();
       if (ride !== null && isAir(ride.model.kind)) grounded = height - standingRadius(position) < 1.5;
+      // A passenger in a submarine is as deep as it is: what keeps them in
+      // it under the surface, the lens under the water and the depth sent.
+      if (ride !== null && ride.model.kind === 'submarine') dive = Math.max(0, PLANET_RADIUS + WATERLINE - height);
     },
     goTo(lat, lon) {
       if (sitting) stand();

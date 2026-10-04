@@ -39,7 +39,7 @@ const BODY = H * 0.62;
 const PAD = BODY * 3.4;
 const PAD_TOP = 0.35;
 /** How far the pad's drum reaches under its seat: the fall across it a slope can have. */
-const PAD_FOOT = 4;
+export const PAD_FOOT = 4;
 /** The pad's radius, for whoever seats it on the ground. */
 export const PAD_RADIUS = PAD;
 /** The wall a parked rocket and its tower are to a body, units round the rocket's axis. */
@@ -62,6 +62,14 @@ const AUTO_GONE = 1800;
 const AUTO_EMPTY = [40, 90] as const;
 /** A sound past this is not heard, units. */
 const EARSHOT = 2600;
+/**
+ * Where the lens watches a launch from, in rocket heights off the pad: out
+ * along the pad's side (`up x ahead`, away from the tower) and along its
+ * `ahead`, the porthole's way. Earth turns a pad so this lands on open ground
+ * (`watchHeading`).
+ */
+const WATCH_SIDE = 1.3;
+const WATCH_AHEAD = 0.6;
 
 /** Where the bell's mouth is over the vehicle's base. */
 const BELL_MOUTH = PAD_TOP + 0.3;
@@ -94,6 +102,8 @@ export interface Rocket {
   autolaunch(): boolean;
   /** Back on the pad, cold. */
   reset(): void;
+  /** Its roar let go, now: a rocket put away mid-launch fades for a moment, and is not heard doing it. */
+  silence(): void;
   dispose(): void;
 }
 
@@ -108,6 +118,8 @@ export interface RocketSound {
 interface Kit {
   materials: Map<number, THREE.MeshToonMaterial>;
   geometries: Map<string, THREE.BufferGeometry>;
+  /** Each assembly's pieces merged by colour (`assemble`), once a ramp. */
+  assemblies: Map<string, { color: number; geometry: THREE.BufferGeometry }[]>;
 }
 
 /** Materials by colour, one set a ramp: every rocket on a world shares them. */
@@ -116,7 +128,7 @@ const kits = new WeakMap<THREE.Texture, Kit>();
 function kitFor(gradientMap: THREE.Texture): Kit {
   let kit = kits.get(gradientMap);
   if (kit === undefined) {
-    kit = { materials: new Map(), geometries: new Map() };
+    kit = { materials: new Map(), geometries: new Map(), assemblies: new Map() };
     kits.set(gradientMap, kit);
   }
   return kit;
@@ -142,105 +154,147 @@ function shape(kit: Kit, key: string, make: () => THREE.BufferGeometry): THREE.B
   return geometry;
 }
 
-function part(group: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(x, y, z);
-  mesh.castShadow = true;
-  group.add(mesh);
-  return mesh;
+/** One piece of an assembly: a shape, its colour, and where it stands, turned about +y. */
+interface Piece {
+  geometry: THREE.BufferGeometry;
+  color: number;
+  matrix: THREE.Matrix4;
+}
+
+function part(pieces: Piece[], geometry: THREE.BufferGeometry, color: number, x: number, y: number, z: number, turn = 0): void {
+  // A turn about +y and a move: a rotation, determinant +1.
+  pieces.push({ geometry, color, matrix: new THREE.Matrix4().makeRotationY(turn).setPosition(x, y, z) });
+}
+
+/**
+ * An assembly — the vehicle, or the pad and its tower — as one mesh a
+ * colour: its pieces merged by colour once a ramp (`Kit.assemblies`), and
+ * every rocket drawing the same few shapes. Piece by piece a rocket was 24
+ * meshes, 48 draws with the ink's pass; Earth stands several within sight of
+ * a crowded delta's airstrips, and merged it is 9. A merged mesh is still
+ * hulled per triangle, so every piece keeps its line.
+ */
+function assemble(kit: Kit, gradientMap: THREE.Texture, key: string, make: () => Piece[]): THREE.Group {
+  let colours = kit.assemblies.get(key);
+  if (colours === undefined) {
+    const byColour = new Map<number, THREE.BufferGeometry[]>();
+    for (const piece of make()) {
+      const placed = (piece.geometry.index !== null ? piece.geometry.toNonIndexed() : piece.geometry.clone()).applyMatrix4(piece.matrix);
+      // Position and normal only: the ramp needs nothing else, and the shapes disagree on the rest.
+      for (const name of Object.keys(placed.attributes)) if (name !== 'position' && name !== 'normal') placed.deleteAttribute(name);
+      let list = byColour.get(piece.color);
+      if (list === undefined) byColour.set(piece.color, (list = []));
+      list.push(placed);
+    }
+    colours = [];
+    for (const [color, list] of byColour) {
+      const geometry = mergeGeometries(list)!;
+      for (const one of list) one.dispose();
+      kit.geometries.set(`${key}:${color}`, geometry);
+      colours.push({ color, geometry });
+    }
+    kit.assemblies.set(key, colours);
+  }
+  const g = new THREE.Group();
+  for (const { color, geometry } of colours) {
+    const mesh = new THREE.Mesh(geometry, paint(kit, gradientMap, color));
+    mesh.castShadow = true;
+    g.add(mesh);
+  }
+  return g;
 }
 
 /** The vehicle, its base at the origin, +y up, +z the side its porthole faces. */
 function buildVehicle(kit: Kit, gradientMap: THREE.Texture): THREE.Group {
-  const g = new THREE.Group();
-  const white = paint(kit, gradientMap, PALETTE.white);
-  const red = paint(kit, gradientMap, PALETTE.red);
-  const steel = paint(kit, gradientMap, PALETTE.steel);
-  const glass = paint(kit, gradientMap, PALETTE.slate);
-  const bellHeight = H * 0.45;
-  const bodyFrom = BELL_MOUTH + bellHeight;
-  const bodyHeight = ROCKET_HEIGHT * 0.66;
-  const noseHeight = ROCKET_HEIGHT - bodyFrom - bodyHeight;
-  // Twelve sides: a curve's segments are chosen by how many ink lines it
-  // should carry, and twelve reads as round without hatching it.
-  const bell = shape(kit, 'bell', () => new THREE.CylinderGeometry(BODY * 0.42, BODY * 0.7, bellHeight, 12, 1, true));
-  const body = shape(kit, 'body', () => new THREE.CylinderGeometry(BODY, BODY, bodyHeight, 12));
-  // A band stands `PROUD` of the body, or the pen draws no line round it.
-  const band = shape(kit, 'band', () => new THREE.CylinderGeometry(BODY + 0.08, BODY + 0.08, H * 0.3, 12));
-  const nose = shape(kit, 'nose', () => new THREE.ConeGeometry(BODY, noseHeight, 12));
-  const port = shape(kit, 'port', () => new THREE.CylinderGeometry(BODY * 0.32, BODY * 0.32, 0.3, 12).rotateX(Math.PI / 2));
-  // A fin swept back from the body: its root up the side, its tip out and
-  // down to the pad, as a sounding rocket's are. Drawn in the fin's own
-  // plane and turned so its span runs along +z, the way it is set out.
-  const fin = shape(kit, 'fin', () => {
-    const outline = new THREE.Shape();
-    outline.moveTo(0, H * 1.9);
-    outline.lineTo(0, H * 0.1);
-    outline.lineTo(BODY * 0.95, -H * 0.05);
-    outline.lineTo(BODY * 0.95, H * 0.6);
-    outline.closePath();
-    const made = new THREE.ExtrudeGeometry(outline, { depth: 0.3, bevelEnabled: false });
-    made.translate(0, 0, -0.15);
-    return made.rotateY(-Math.PI / 2);
+  return assemble(kit, gradientMap, 'vehicle', () => {
+    const g: Piece[] = [];
+    const white = PALETTE.white;
+    const red = PALETTE.red;
+    const steel = PALETTE.steel;
+    const glass = PALETTE.slate;
+    const bellHeight = H * 0.45;
+    const bodyFrom = BELL_MOUTH + bellHeight;
+    const bodyHeight = ROCKET_HEIGHT * 0.66;
+    const noseHeight = ROCKET_HEIGHT - bodyFrom - bodyHeight;
+    // Twelve sides: a curve's segments are chosen by how many ink lines it
+    // should carry, and twelve reads as round without hatching it.
+    const bell = shape(kit, 'bell', () => new THREE.CylinderGeometry(BODY * 0.42, BODY * 0.7, bellHeight, 12, 1, true));
+    const body = shape(kit, 'body', () => new THREE.CylinderGeometry(BODY, BODY, bodyHeight, 12));
+    // A band stands `PROUD` of the body, or the pen draws no line round it.
+    const band = shape(kit, 'band', () => new THREE.CylinderGeometry(BODY + 0.08, BODY + 0.08, H * 0.3, 12));
+    const nose = shape(kit, 'nose', () => new THREE.ConeGeometry(BODY, noseHeight, 12));
+    const port = shape(kit, 'port', () => new THREE.CylinderGeometry(BODY * 0.32, BODY * 0.32, 0.3, 12).rotateX(Math.PI / 2));
+    // A fin swept back from the body: its root up the side, its tip out and
+    // down to the pad, as a sounding rocket's are. Drawn in the fin's own
+    // plane and turned so its span runs along +z, the way it is set out.
+    const fin = shape(kit, 'fin', () => {
+      const outline = new THREE.Shape();
+      outline.moveTo(0, H * 1.9);
+      outline.lineTo(0, H * 0.1);
+      outline.lineTo(BODY * 0.95, -H * 0.05);
+      outline.lineTo(BODY * 0.95, H * 0.6);
+      outline.closePath();
+      const made = new THREE.ExtrudeGeometry(outline, { depth: 0.3, bevelEnabled: false });
+      made.translate(0, 0, -0.15);
+      return made.rotateY(-Math.PI / 2);
+    });
+    const ring = shape(kit, 'ring', () => new THREE.CylinderGeometry(BODY * 0.5, BODY * 0.5, H * 0.12, 12));
+    const mast = shape(kit, 'mast', () => new THREE.CylinderGeometry(0.06, 0.06, H * 0.7, 5));
+    part(g, bell, steel, 0, BELL_MOUTH + bellHeight / 2, 0);
+    part(g, body, white, 0, bodyFrom + bodyHeight / 2, 0);
+    part(g, band, red, 0, bodyFrom + bodyHeight * 0.18, 0);
+    part(g, band, red, 0, bodyFrom + bodyHeight * 0.86, 0);
+    part(g, nose, red, 0, bodyFrom + bodyHeight + noseHeight / 2, 0);
+    part(g, port, glass, 0, bodyFrom + bodyHeight * 0.7, BODY + 0.05);
+    for (let k = 0; k < 4; k++) {
+      const turn = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      part(g, fin, red, Math.sin(turn) * BODY * 0.92, PAD_TOP + H * 0.1, Math.cos(turn) * BODY * 0.92, turn);
+    }
+    // The nozzle's throat ring, and a whip of an antenna off the nose's shoulder.
+    part(g, ring, steel, 0, BELL_MOUTH + bellHeight + H * 0.02, 0);
+    part(g, mast, steel, BODY * 0.55, bodyFrom + bodyHeight + noseHeight * 0.25 + H * 0.3, 0);
+    return g;
   });
-  const ring = shape(kit, 'ring', () => new THREE.CylinderGeometry(BODY * 0.5, BODY * 0.5, H * 0.12, 12));
-  const mast = shape(kit, 'mast', () => new THREE.CylinderGeometry(0.06, 0.06, H * 0.7, 5));
-  part(g, bell, steel, 0, BELL_MOUTH + bellHeight / 2, 0);
-  part(g, body, white, 0, bodyFrom + bodyHeight / 2, 0);
-  part(g, band, red, 0, bodyFrom + bodyHeight * 0.18, 0);
-  part(g, band, red, 0, bodyFrom + bodyHeight * 0.86, 0);
-  part(g, nose, red, 0, bodyFrom + bodyHeight + noseHeight / 2, 0);
-  part(g, port, glass, 0, bodyFrom + bodyHeight * 0.7, BODY + 0.05);
-  for (let k = 0; k < 4; k++) {
-    const turn = (k / 4) * Math.PI * 2 + Math.PI / 4;
-    const mesh = part(g, fin, red, Math.sin(turn) * BODY * 0.92, PAD_TOP + H * 0.1, Math.cos(turn) * BODY * 0.92);
-    mesh.rotation.y = turn;
-  }
-  // The nozzle's throat ring, and a whip of an antenna off the nose's shoulder.
-  part(g, ring, steel, 0, BELL_MOUTH + bellHeight + H * 0.02, 0);
-  part(g, mast, steel, BODY * 0.55, bodyFrom + bodyHeight + noseHeight * 0.25 + H * 0.3, 0);
-  return g;
 }
 
 /** The pad and its tower: still, standing on the ground at the origin. */
 function buildPad(kit: Kit, gradientMap: THREE.Texture): THREE.Group {
-  const g = new THREE.Group();
-  const steel = paint(kit, gradientMap, PALETTE.steel);
-  const bone = paint(kit, gradientMap, PALETTE.bone);
-  const red = paint(kit, gradientMap, PALETTE.red);
-  // Sunk `PAD_FOOT` into the ground, so a pad seated on the highest ground
-  // under it (`PAD_RADIUS`) has no gap under its downhill edge.
-  const towerHeight = ROCKET_HEIGHT * 0.86;
-  const deck = shape(kit, 'deck', () => new THREE.CylinderGeometry(PAD, PAD * 1.06, PAD_TOP + PAD_FOOT, 16));
-  // A lattice, not a slab: four legs, a ring of girders a level and a cross
-  // of braces on every face between them, merged into one shape.
-  const tower = shape(kit, 'tower', () => lattice(H * 0.9, towerHeight, 7));
-  const tank = shape(kit, 'tank', () => new THREE.SphereGeometry(H * 0.55, 12, 8));
-  const tankLegs = shape(kit, 'tank-legs', () => new THREE.CylinderGeometry(H * 0.42, H * 0.5, H * 0.6, 8));
-  const light = shape(kit, 'light', () => new THREE.BoxGeometry(H * 0.32, H * 0.2, H * 0.14));
-  const pole = shape(kit, 'pole', () => new THREE.CylinderGeometry(0.09, 0.12, H * 2.4, 5));
-  const arm = shape(kit, 'arm', () => new THREE.BoxGeometry(BODY * 1.6, H * 0.18, H * 0.3));
-  const cap = shape(kit, 'cap', () => new THREE.BoxGeometry(H * 0.75, H * 0.25, H * 0.75));
-  part(g, deck, bone, 0, PAD_TOP - (PAD_TOP + PAD_FOOT) / 2, 0);
-  const x = -(BODY + H * 0.9);
-  part(g, tower, steel, x, 0, 0);
-  part(g, cap, red, x, towerHeight + H * 0.12, 0);
-  for (const at of [0.35, 0.62, 0.84]) part(g, arm, red, x + BODY * 0.85, towerHeight * at, 0);
-  // A propellant tank on its stand behind the tower, and two floodlights
-  // across the pad from it, aimed at the vehicle.
-  const white = paint(kit, gradientMap, PALETTE.white);
-  part(g, tankLegs, steel, x - H * 0.2, PAD_TOP + H * 0.3, PAD * 0.62);
-  part(g, tank, white, x - H * 0.2, PAD_TOP + H * 1.05, PAD * 0.62);
-  const gold = paint(kit, gradientMap, PALETTE.gold);
-  for (const side of [-1, 1]) {
-    const px = PAD * 0.62;
-    const pz = side * PAD * 0.55;
-    part(g, pole, steel, px, PAD_TOP + H * 1.2, pz);
-    const lamp = part(g, light, gold, px - H * 0.12, PAD_TOP + H * 2.45, pz);
-    // Its face (+Z) toward the vehicle on the pad's axis.
-    lamp.rotation.y = Math.atan2(-px, -pz);
-  }
-  return g;
+  return assemble(kit, gradientMap, 'pad', () => {
+    const g: Piece[] = [];
+    const steel = PALETTE.steel;
+    const bone = PALETTE.bone;
+    const red = PALETTE.red;
+    // Sunk `PAD_FOOT` into the ground, so a pad seated on the highest ground
+    // under it (`PAD_RADIUS`) has no gap under its downhill edge.
+    const towerHeight = ROCKET_HEIGHT * 0.86;
+    const deck = shape(kit, 'deck', () => new THREE.CylinderGeometry(PAD, PAD * 1.06, PAD_TOP + PAD_FOOT, 16));
+    // A lattice, not a slab: four legs, a ring of girders a level and a cross
+    // of braces on every face between them, merged into one shape.
+    const tower = shape(kit, 'tower', () => lattice(H * 0.9, towerHeight, 7));
+    const tank = shape(kit, 'tank', () => new THREE.SphereGeometry(H * 0.55, 12, 8));
+    const tankLegs = shape(kit, 'tank-legs', () => new THREE.CylinderGeometry(H * 0.42, H * 0.5, H * 0.6, 8));
+    const light = shape(kit, 'light', () => new THREE.BoxGeometry(H * 0.32, H * 0.2, H * 0.14));
+    const pole = shape(kit, 'pole', () => new THREE.CylinderGeometry(0.09, 0.12, H * 2.4, 5));
+    const arm = shape(kit, 'arm', () => new THREE.BoxGeometry(BODY * 1.6, H * 0.18, H * 0.3));
+    const cap = shape(kit, 'cap', () => new THREE.BoxGeometry(H * 0.75, H * 0.25, H * 0.75));
+    part(g, deck, bone, 0, PAD_TOP - (PAD_TOP + PAD_FOOT) / 2, 0);
+    const x = -(BODY + H * 0.9);
+    part(g, tower, steel, x, 0, 0);
+    part(g, cap, red, x, towerHeight + H * 0.12, 0);
+    for (const at of [0.35, 0.62, 0.84]) part(g, arm, red, x + BODY * 0.85, towerHeight * at, 0);
+    // A propellant tank on its stand behind the tower, and two floodlights
+    // across the pad from it, aimed at the vehicle.
+    part(g, tankLegs, steel, x - H * 0.2, PAD_TOP + H * 0.3, PAD * 0.62);
+    part(g, tank, PALETTE.white, x - H * 0.2, PAD_TOP + H * 1.05, PAD * 0.62);
+    for (const side of [-1, 1]) {
+      const px = PAD * 0.62;
+      const pz = side * PAD * 0.55;
+      part(g, pole, steel, px, PAD_TOP + H * 1.2, pz);
+      // Its face (+Z) toward the vehicle on the pad's axis.
+      part(g, light, PALETTE.gold, px - H * 0.12, PAD_TOP + H * 2.45, pz, Math.atan2(-px, -pz));
+    }
+    return g;
+  });
 }
 
 /**
@@ -296,7 +350,15 @@ interface Roar {
   sources: AudioScheduledSourceNode[];
 }
 
+/**
+ * Two seconds of the roar's noise, made once a context and shared by every
+ * roar: 96,000 random samples on the main thread each time one came into
+ * earshot was a stall, and every frame while it was being rebuilt.
+ */
+const noises = new WeakMap<BaseAudioContext, AudioBuffer>();
 function noiseBuffer(context: AudioContext): AudioBuffer {
+  const kept = noises.get(context);
+  if (kept !== undefined) return kept;
   const buffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
   const data = buffer.getChannelData(0);
   // Brown noise, integrated white: the roar is in the low end.
@@ -305,8 +367,13 @@ function noiseBuffer(context: AudioContext): AudioBuffer {
     last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
     data[i] = last * 3.5;
   }
+  noises.set(context, buffer);
   return buffer;
 }
+
+/** Whether two ways out are the same: by what they are, not by the object carrying them. */
+const sameSound = (a: RocketSound | null, b: RocketSound | null): boolean =>
+  a === b || (a !== null && b !== null && a.context === b.context && a.node === b.node);
 
 function startRoar(sound: RocketSound): Roar {
   const { context, node } = sound;
@@ -354,6 +421,23 @@ function stopRoar(roar: Roar): void {
 }
 
 /* --- the rocket ------------------------------------------------------------ */
+
+/** How far from the pad the lens watching a launch stands, units along the ground. */
+export const WATCH_REACH = ROCKET_HEIGHT * Math.hypot(WATCH_SIDE, WATCH_AHEAD);
+
+/**
+ * The `heading` to hand `createRocket` so the lens that watches the launch
+ * (`frame`) stands out along `toward` — a unit tangent at the pad, where `up`
+ * is the pad's up — `WATCH_REACH` from it. The lens is at `cos a side + sin a
+ * ahead` with `side = up x ahead` and `tan a = WATCH_AHEAD / WATCH_SIDE`, so
+ * with `t = up x toward` the heading is `sin a toward - cos a t`: put back in,
+ * `side = sin a t + cos a toward`, and the sum is `toward`.
+ */
+export function watchHeading(up: THREE.Vector3, toward: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  const a = Math.atan2(WATCH_AHEAD, WATCH_SIDE);
+  const t = new THREE.Vector3().crossVectors(up, toward);
+  return out.copy(toward).multiplyScalar(Math.sin(a)).addScaledVector(t, -Math.cos(a));
+}
 
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 
@@ -488,7 +572,10 @@ export function createRocket(at: THREE.Vector3, up: THREE.Vector3, heading: THRE
 
       const away = listener.distanceTo(mouth);
       const near = Math.max(0, 1 - away / EARSHOT);
-      if (sound !== roarOn) silence();
+      // By its context and node: Earth's frame hands a new object each time,
+      // and by identity the roar was torn down and started again every frame
+      // — fifty chains overlapping, none of them ever reaching its level.
+      if (!sameSound(sound, roarOn)) silence();
       if (power > 0 && near > 0 && sound !== null) {
         if (roar === null) {
           roar = startRoar(sound);
@@ -506,8 +593,8 @@ export function createRocket(at: THREE.Vector3, up: THREE.Vector3, heading: THRE
       // On the ground beside the pad, off the tower's side, rising slower than
       // the rocket so it climbs up the frame and away.
       eye.copy(position)
-        .addScaledVector(side, ROCKET_HEIGHT * 1.3)
-        .addScaledVector(ahead, ROCKET_HEIGHT * 0.6)
+        .addScaledVector(side, ROCKET_HEIGHT * WATCH_SIDE)
+        .addScaledVector(ahead, ROCKET_HEIGHT * WATCH_AHEAD)
         .addScaledVector(upward, H * 1.6 + Math.min(height * 0.22, ROCKET_HEIGHT * 3));
       aim.copy(position).addScaledVector(upward, height + ROCKET_HEIGHT * 0.5);
       const power = state === 'flying' ? Math.max(0, 1 - height / 500) : ignition * 0.6;
@@ -536,6 +623,7 @@ export function createRocket(at: THREE.Vector3, up: THREE.Vector3, heading: THRE
       if (vehicle.parent !== object) object.add(vehicle);
       place();
     },
+    silence,
     dispose() {
       silence();
       object.removeFromParent();

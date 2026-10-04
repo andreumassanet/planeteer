@@ -71,7 +71,7 @@ import { NEAR_BUILD, createViewCone, mayBuild } from './view.ts';
 import { FOUNDER_DRAG, FOUNDER_TIME, ROAD_HANDLING, WATERLINE, founderDepth, founderNose, founders, isWater } from './vehicles.ts';
 import { SEA_REACH, coastAt, coastSample, prepareSeaFloor, seaDepthAt, seaZoneAt } from './sea-floor.ts';
 import { AT_REST, discMaterial, motionOf } from './craft/motion.ts';
-import { craftMaterial } from './craft/build.ts';
+import { cabinMaterial, craftMaterial, glassMaterial } from './craft/build.ts';
 import { FADES, createFader, fadeTwin } from './fade.ts';
 import type { CraftMotion, MotionInput } from './craft/motion.ts';
 import { CRAFT_KINDS, isAirKind } from './craft/contract.ts';
@@ -99,11 +99,21 @@ export { writePose };
 
 /**
  * The materials the fleet draws with — the airstrips', the propeller discs'
- * and the craft's own, and the craft's dissolving twin, which every vehicle
- * wears for the `FADE_MS` it takes to arrive or go (`fade.ts`). For the shader
+ * and the craft's own, its see-through glass, and the dissolving twin of
+ * each of those two, which every vehicle wears for the `FADE_MS` it takes to
+ * arrive or go (`fade.ts`). For the shader
  * warm-up (`warm.ts`), which compiles them while the menu is up.
  */
-export const fleetMaterials = (): THREE.Material[] => [stripMaterial(), discMaterial(), craftMaterial(), fadeTwin(craftMaterial())];
+export const fleetMaterials = (): THREE.Material[] => [
+  stripMaterial(),
+  discMaterial(),
+  craftMaterial(),
+  fadeTwin(craftMaterial()),
+  cabinMaterial(),
+  fadeTwin(cabinMaterial()),
+  glassMaterial(),
+  fadeTwin(glassMaterial()),
+];
 export { STRIP_APPROACH, STRIP_BACK, STRIP_DRAWN, STRIP_HALF, STRIP_LENGTH, stripPoint };
 
 const DEG = Math.PI / 180;
@@ -438,6 +448,13 @@ export interface SiteIndex extends FieldIndex {
    * is done and never what it finds.
    */
   warm(direction: THREE.Vector3, radius: number, more: () => boolean): boolean;
+  /**
+   * What keeps a thing `clear` units round a spot off it, of what a field
+   * keeps off: a built town's disc, a road's carriageway and verge, a
+   * landmark's plan (and `FIELD_CLEAR`), or null where none does. Pure, like
+   * the rest; the rockets' pads ask it (`launch-pads.ts`).
+   */
+  takenAt(direction: THREE.Vector3, clear: number): 'town' | 'road' | 'landmark' | null;
 }
 
 /**
@@ -448,9 +465,11 @@ export interface SiteIndex extends FieldIndex {
 const SITE_SPREAD = 150 + Math.max(BOAT_SEARCH, FIELD_CLEAR + FIELD_RINGS * FIELD_STEP + 40);
 /**
  * And the furthest a field's edge reaches from it: the last ring a search
- * tries, the stand on it, and for a plane the strip run out from there.
+ * tries, the stand on it, and for a plane the strip run out from there. The
+ * rockets' pads warm the strips this far past what they are asked for
+ * (`padsWithin` in `launch-pads.ts`), which is how far `planesNear` looks.
  */
-const FIELD_SPREAD =
+export const FIELD_SPREAD =
   150 + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + STRIP_LENGTH + STRIP_APPROACH + STRIP_DISC;
 
 
@@ -1463,8 +1482,14 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
       return out;
     },
     planesNear(direction, radius, out) {
+      // A town's plane is its strip alone (`planeOf`): the rest of a town's
+      // fields are not worked out for it, so a wide ask — the maps' — costs
+      // the plane towns and nothing else.
       for (const p of townsNear(direction, radius + FIELD_SPREAD, fieldTowns)) {
-        for (const entry of fieldsOf(p)) if (entry.kind === 'plane') out.push(entry);
+        if (!keepsPlane(p)) continue;
+        advanceFinal(p);
+        const plane = finals[p];
+        if (plane !== null && plane !== undefined) out.push(plane);
       }
       return out;
     },
@@ -1506,6 +1531,14 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
       const out: FleetSite[] = [];
       for (let p = 0; p < places.length; p++) out.push(...sitesOf(p));
       return out;
+    },
+    takenAt(direction, clear) {
+      // A town's disc is at most 150 units round its centre, as in `localise`.
+      for (const q of townsNear(direction, 150 + clear + 1, townList)) {
+        if (centres[q]!.angleTo(direction) * PLANET_RADIUS < radiusOf(places[q]!) + clear) return 'town';
+      }
+      if (nearRoad(direction, clear)) return 'road';
+      return nearMonument(direction, clear) ? 'landmark' : null;
     },
     byId(id) {
       const parts = id.split(':');
@@ -1994,6 +2027,8 @@ export interface FleetOptions extends FleetSource {
   parked?: {
     near(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
     hide(id: string): void;
+    /** Puts one back in its town, nobody having it any more: see `link.onChange`. */
+    show?(id: string): void;
     /**
      * The colour a parked vehicle was parked in, by its id alone: the vehicle
      * that takes its place, here or on another client, is painted the same
@@ -2110,6 +2145,11 @@ interface Drawn {
   group: THREE.Group;
   seats: THREE.Object3D[];
   site: FleetSite | null;
+  /**
+   * `sites.byId` asked and found none: a town's car taken from its kerb,
+   * whose id no site has. Pure, so asked once and not every frame.
+   */
+  siteless: boolean;
   /** Seconds to the next re-seat, for a vehicle standing at its site. */
   reseat: number;
   /** Its springs, wheels and propeller: `craft/motion.ts`. */
@@ -2327,7 +2367,7 @@ export function createFleet(options: FleetOptions): Fleet {
     clock += dt;
     for (const want of stripsWanted) {
       if (strips.has(want.site.id)) continue;
-      if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD)) break;
+      if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD, 'fleet')) break;
       // Gathered a slice a frame; the strips wait for it rather than lie on the relief.
       if (probe !== null && !probe.prepare(player.position)) break;
       strips.set(want.site.id, buildStripFor(want.site));
@@ -2348,6 +2388,10 @@ export function createFleet(options: FleetOptions): Fleet {
   link.onChange((vehicle) => {
     scanAge = Infinity;
     if (link.moved.has(vehicle)) parked?.hide(vehicle);
+    // And one nobody has any more — sunk and sent home by whoever took it,
+    // or forgotten with a relay that started again — back at its kerb, where
+    // it was folded away for good while its town stood.
+    else if (!bayPose.has(vehicle)) parked?.show?.(vehicle);
     // Gone home from under a passenger — its driver drove it into the water
     // and it sank (`FleetLink.sink`): the seat is gone and so is where it
     // was, and the passenger is put out where the link last had it, which is
@@ -2427,6 +2471,7 @@ export function createFleet(options: FleetOptions): Fleet {
     if (spare !== undefined) {
       spare.id = id;
       spare.site = site;
+      spare.siteless = false;
       spare.reseat = 0;
       spare.tracked = false;
       spare.speed = spare.turn = 0;
@@ -2452,10 +2497,12 @@ export function createFleet(options: FleetOptions): Fleet {
       built.add(frame);
       return frame;
     });
+    // Everything casts and takes shadow but the glass, which casts none, and
+    // the cabin, which takes none (`assemble`).
     built.traverse((object) => {
       if ((object as THREE.Mesh).isMesh) {
-        object.castShadow = true;
-        object.receiveShadow = true;
+        object.castShadow = object.name !== 'glass';
+        object.receiveShadow = object.name !== 'cabin';
       }
     });
     // After the seats, so the springs carry them too.
@@ -2469,6 +2516,7 @@ export function createFleet(options: FleetOptions): Fleet {
       group: built,
       seats,
       site,
+      siteless: false,
       reseat: 0,
       motion,
       last: new THREE.Vector3(),
@@ -2535,10 +2583,17 @@ export function createFleet(options: FleetOptions): Fleet {
     else if (entry.motion.settling) entry.motion.update(dt, AT_REST);
   }
 
-  /** Whether a part of a vehicle dissolves: a solid mesh of one material, not the propeller's see-through disc. */
+  /**
+   * Whether a part of a vehicle dissolves: a mesh of one material, solid or
+   * its glass — a pane left whole while the car round it dissolved would
+   * hang in the air for the length of the fade — and not the propeller's
+   * see-through disc, which is drawn only at speed.
+   */
   function fades(part: THREE.Object3D): part is THREE.Mesh {
     const mesh = part as THREE.Mesh;
-    return mesh.isMesh === true && !Array.isArray(mesh.material) && !(mesh.material as THREE.Material).transparent;
+    if (mesh.isMesh !== true || Array.isArray(mesh.material)) return false;
+    const material = mesh.material as THREE.Material;
+    return !material.transparent || material.userData.atlasGlass === true;
   }
 
   /** A vehicle just built or taken from the pool, placed: in, dissolving. */
@@ -2785,6 +2840,7 @@ export function createFleet(options: FleetOptions): Fleet {
     const speed = player.speed;
     const climb = player.climb;
     const flying = isAirKind(held.model.kind) && player.airborne;
+    const sinking = player.foundering;
     const out = player.leave();
     if (out === null) {
       onEvent?.('leave-refused', held.model);
@@ -2798,7 +2854,9 @@ export function createFleet(options: FleetOptions): Fleet {
     entry.site = null;
     entry.reseat = 0;
     scanAge = Infinity;
-    const under = flying || Math.abs(speed) > COAST_STOP * 4;
+    // Going down in the water is under way too, however slowly: released
+    // there it was parked afloat for good, for everyone.
+    const under = flying || sinking >= 0 || Math.abs(speed) > COAST_STOP * 4;
     // A passenger leaves the driver to it; the driver of a vehicle under way
     // leaves it going.
     if (heldSeat === 0 && under) {
@@ -2811,7 +2869,8 @@ export function createFleet(options: FleetOptions): Fleet {
         vertical: flying ? climb : 0,
         age: 0,
         flying,
-        sinking: -1,
+        // On from where it had got to, not afloat again for a moment first.
+        sinking,
       };
     } else link.release(entry.id, heldSeat === 0 ? out : null);
     onEvent?.(under || flying ? 'bailed' : 'left', entry.model);
@@ -2857,13 +2916,24 @@ export function createFleet(options: FleetOptions): Fleet {
   function finishCoast(): void {
     const c = coast;
     if (c === null) return;
+    // Still aloft — a balloon left at altitude falls for longer than
+    // `COAST_MAX`, and a second vehicle taken ends the first one's coast —
+    // it comes down where it is: under, over water it cannot float on, or on
+    // the ground below. Parked in the air, it was drawn on the ground by the
+    // reseat and boarded back at the altitude it was left at.
+    point.copy(c.position).normalize().multiplyScalar(PLANET_RADIUS);
+    if (c.flying && founders(c.entry.model.kind, c.entry.model.medium) && isWater(groundRadius(world, point))) {
+      c.position.setLength(PLANET_RADIUS + WATERLINE);
+      sinkCoast();
+      return;
+    }
     coast = null;
     up.copy(c.position).normalize();
     c.forward.projectOnPlane(up).normalize();
     writePose(c.position, c.forward, up, coastPose);
     // Parked as a parked one stands, on its wheels, so the reseat that
     // follows (`RESEAT_SECONDS`) finds it already there.
-    if (!c.flying) seat(c.entry.model, coastPose, coastPose);
+    seat(c.entry.model, coastPose, coastPose);
     link.release(c.entry.id, coastPose.slice(0, 9));
     if (drawn.get(c.entry.id) === c.entry) applyPose(coastPose, c.entry.group);
     scanAge = Infinity;
@@ -3124,6 +3194,11 @@ export function createFleet(options: FleetOptions): Fleet {
       // A push takes a body out of one box; a second box beside it takes another.
       for (let round = 0; round < 4; round++) {
         if (!fleet.collide(free, radius, freePush)) break;
+        // Squeezed between two that push it equally both ways, the pushes
+        // cancel and it was handed back inside both: out sideways instead,
+        // along the ground, a body's width a round.
+        if (freePush.lengthSq() < 1e-12) freePush.set(0, 1, 0).projectOnPlane(free).setLength(radius * 2);
+        if (freePush.lengthSq() < 1e-12) freePush.set(1, 0, 0).projectOnPlane(free).setLength(radius * 2);
         // A hair past the side, or rounding leaves it touching and asked again.
         free.add(freePush.setLength(freePush.length() + 0.01)).setLength(point.length());
         moved = true;
@@ -3184,15 +3259,35 @@ export function createFleet(options: FleetOptions): Fleet {
         }
       } else if (held !== null) {
         // The player was put somewhere else — a teleport — and the vehicle
-        // stays where it was left.
+        // stays where it was left: on what is under it, as `leave` would
+        // leave it, not in the air it was flying through, under the sea a
+        // submarine was diving in, or afloat where a car was going down.
         const entry = held;
         held = null;
-        link.release(entry.id, heldSeat === 0 && isPose(lastPose) ? lastPose : null);
-        group.add(entry.group);
-        if (poseOf(entry.id, pose)) applyPose(pose, entry.group);
-        drawn.set(entry.id, entry);
-        entry.site = null;
-        entry.reseat = 0;
+        const model = entry.model;
+        let settled: WirePose | null = heldSeat === 0 && isPose(lastPose) ? [...lastPose] : null;
+        if (settled !== null) point.set(settled[0]!, settled[1]!, settled[2]!).normalize().multiplyScalar(PLANET_RADIUS);
+        if (settled !== null && founders(model.kind, model.medium) && isWater(groundRadius(world, point))) {
+          entry.site = null;
+          retire(entry);
+          link.sink(entry.id);
+          settled = null;
+        } else {
+          if (settled !== null) {
+            if (AFLOAT.has(model.kind)) {
+              point.set(settled[0]!, settled[1]!, settled[2]!).setLength(PLANET_RADIUS + WATERLINE);
+              settled[0] = point.x;
+              settled[1] = point.y;
+              settled[2] = point.z;
+            } else seat(model, settled, settled);
+          }
+          link.release(entry.id, settled);
+          group.add(entry.group);
+          if (poseOf(entry.id, pose)) applyPose(pose, entry.group);
+          drawn.set(entry.id, entry);
+          entry.site = null;
+          entry.reseat = 0;
+        }
         scanAge = Infinity;
       }
 
@@ -3224,7 +3319,7 @@ export function createFleet(options: FleetOptions): Fleet {
       for (const want of wanted) {
         if (drawn.has(want.id) || (held !== null && held.id === want.id)) continue;
         if (want.distance > REACH) break;
-        if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD)) break;
+        if (!mayBuild(began, BUILD_MS, want.distance < NEAR_BUILD, 'fleet')) break;
         if (want.distance > ALWAYS_WITHIN && cone.active) {
           if (!poseOf(want.id, pose)) continue;
           centre.set(pose[0]!, pose[1]!, pose[2]!);
@@ -3270,9 +3365,10 @@ export function createFleet(options: FleetOptions): Fleet {
             continue;
           }
         }
-        if (entry.site === null) {
+        if (entry.site === null && !entry.siteless) {
           // Moved once and since expired or reset: back to its site.
           entry.site = sites.byId(entry.id);
+          entry.siteless = entry.site === null;
           entry.reseat = 0;
         }
         entry.reseat -= dt;

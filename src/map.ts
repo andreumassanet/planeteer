@@ -104,7 +104,7 @@ import { gatesOf, isAvenue, outskirtsOf, townGrid } from './scenery/grid.ts';
 import { cellKey } from './scenery/ground.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';
 import { ensureStyle, FONT, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
-import { EARTH_KM, LabelSpace, R2D, TAU, inkedText } from './cartography.ts';
+import { EARTH_KM, LabelSpace, R2D, TAU, inkedText, traceRocket } from './cartography.ts';
 import { latLonOf, unitAt } from './sphere.ts';
 import { actionOf, inputBlocked, labelOf, onKeyLabels } from './controls.ts';
 import { type SheetRing, ringsForTile, traceOutlines } from './map-outline.ts';
@@ -163,6 +163,19 @@ export interface WorldMapOptions {
    * and coasts paint the tiles, and every distance is on its radius.
    */
   surface?: PlanetSurface;
+  /**
+   * The rockets' pads within `radius` units of `direction`, appended to
+   * `out` (`PadIndex.padsWithin` in `launch-pads.ts`, on a budget of the
+   * caller's): true once every pad there is in it. Asked a frame at a time
+   * while the sheet is at a street zoom and some are still being worked out.
+   */
+  pads?: (direction: THREE.Vector3, radius: number, out: MapPad[]) => boolean;
+}
+
+/** As much of a `LaunchPad` as the sheet needs. */
+export interface MapPad {
+  id: string;
+  at: { x: number; y: number; z: number };
 }
 
 export interface MapMarker {
@@ -198,7 +211,12 @@ export interface WorldMap {
   readonly open: boolean;
   toggle(): void;
   show(): void;
-  hide(): void;
+  /**
+   * Put the sheet away. The mouse is locked again when the sheet took the
+   * lock as it opened — or when `relock` says so either way: false for a
+   * card that takes the sheet's place, true for a click that means play.
+   */
+  hide(relock?: boolean): void;
   /**
    * Centre the sheet on a place, and optionally set the zoom as how many
    * degrees of longitude the screen is wide. For the console and the shots.
@@ -348,6 +366,17 @@ const TOWN_FLOOR: readonly [number, number][] = [
   [70, 30_000],
   [Infinity, 0],
 ];
+/**
+ * The rockets' pads are drawn from this zoom, in pixels per degree: the one
+ * the towns come up as the squares they are built as, a pad being a thing
+ * beside a town's strip; and no further than this many units from the
+ * middle of the screen are they asked for, which a 2,560-pixel sheet at
+ * that zoom just fills.
+ */
+const PADS_FROM = 70;
+const PADS_REACH = 6000;
+/** A pad's rocket on the sheet, base to nose, in pixels. */
+const PAD_HEIGHT = 17;
 /** Roads are drawn from this zoom, in pixels per degree; lanes from the second. */
 const ROADS_FROM = 30;
 const LANES_FROM = 55;
@@ -579,6 +608,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const paper = hex(PALETTE.white);
   const violet = hex(PALETTE.violet);
   const pink = hex(PALETTE.pink);
+  const red = hex(PALETTE.red);
   const oceanHex = hex(OCEAN_COLOR);
 
   // --- the DOM --------------------------------------------------------------
@@ -606,6 +636,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       [paper, monuments.length === 0 && surface !== undefined ? 'settlement' : 'landmark'],
       [violet, 'your marker'],
       ...(options.peers === undefined ? [] : [[pink, 'player'] as const]),
+      // Keyed by its fins, the one colour of it nothing else on the sheet is.
+      ...(options.pads === undefined ? [] : [[red, 'rocket pad'] as const]),
     ] as const).map(([colour, label]) => h('div', {}, h('i', { style: `background: ${colour}` }), label)),
   );
   const unmark = h('button', { class: 'ui-btn small', type: 'button' }, icon('close', 16), 'Clear marker');
@@ -1594,6 +1626,19 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       space.claim(x - PIN_HEAD - 2, y - PIN_RISE - PIN_HEAD - 2, PIN_HEAD * 2 + 4, PIN_RISE + PIN_HEAD + 4);
     }
 
+    // The rockets' pads, beside their towns' strips: claimed with the pins,
+    // before any name is laid out, so no name is written through one.
+    const padMarks: { x: number; y: number }[] = [];
+    if (pxPerDegree >= PADS_FROM) {
+      for (const pad of padsOnSheet.values()) {
+        const x = screenX(pad.u);
+        const y = screenY(pad.v);
+        if (x < -20 || x > width + 20 || y < -10 || y > height + PAD_HEIGHT + 10) continue;
+        padMarks.push({ x, y });
+        space.claim(x - PAD_HEIGHT * 0.5, y - PAD_HEIGHT - 2, PAD_HEIGHT, PAD_HEIGHT + 4);
+      }
+    }
+
     // Names, most important first: the pins', then the countries', then the towns'.
     const labels: { text: string; x: number; y: number; font: string; fill: string; halo: string; weight: number; align: CanvasTextAlign }[] = [];
     const tryLabel = (
@@ -1707,6 +1752,9 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       hits.push({ kind: 'town', town, x, y });
     }
 
+    ctx.lineWidth = 1.8;
+    for (const pad of padMarks) traceRocket(ctx, pad.x, pad.y, PAD_HEIGHT, paper, red, ink);
+
     for (const label of labels) {
       ctx.font = label.font;
       ctx.textAlign = label.align;
@@ -1720,6 +1768,51 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // is known here, where they were laid out.
     for (const pin of keptPins) hits.push({ kind: 'pin', index: pin.index, x: pin.x, y: pin.y - PIN_RISE });
     ctx.restore();
+  }
+
+  // --- the rockets' pads ------------------------------------------------------
+
+  /**
+   * Every pad the sheet has been told of, on the sheet: they never move, so
+   * what one ask found is kept, and an ask only ever adds.
+   */
+  const padsOnSheet = new Map<string, { u: number; v: number }>();
+  const padsFound: MapPad[] = [];
+  const padCentre = new THREE.Vector3();
+  const padCorner = new THREE.Vector3();
+  const padLatLon = { lat: 0, lon: 0 };
+  /** The view the last ask was complete for: none asked again until the view moves. */
+  let padsAskedFor = '';
+
+  /**
+   * Asks for the pads under the screen, from its middle out to its furthest
+   * corner, and says whether that found any the sheet did not have.
+   */
+  function askPads(): boolean {
+    if (options.pads === undefined || S / 360 < PADS_FROM || width <= 1) return false;
+    const view = `${cu.toFixed(5)}:${cv.toFixed(5)}:${Math.round(S)}:${width}:${height}`;
+    if (view === padsAskedFor) return false;
+    const halfU = width / 2 / S;
+    const halfV = height / 2 / S;
+    unitAt(latOfV(cv), lonOfU(cu), padCentre);
+    let reach = 0;
+    for (const du of [-halfU, halfU]) {
+      for (const dv of [-halfV, halfV]) {
+        const v = Math.min(SHEET_HEIGHT, Math.max(0, cv + dv));
+        unitAt(latOfV(v), lonOfU(cu + du), padCorner);
+        reach = Math.max(reach, padCentre.angleTo(padCorner) * RADIUS);
+      }
+    }
+    padsFound.length = 0;
+    if (options.pads(padCentre, Math.min(PADS_REACH, reach), padsFound)) padsAskedFor = view;
+    let added = false;
+    for (const pad of padsFound) {
+      if (padsOnSheet.has(pad.id)) continue;
+      latLonOf(pad.at, padLatLon);
+      padsOnSheet.set(pad.id, { u: uOf(padLatLon.lon), v: vOf(padLatLon.lat) });
+      added = true;
+    }
+    return added;
   }
 
   const blockFill = hex(PALETTE.blush);
@@ -2128,7 +2221,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   function click(hit: Hit | null, x: number, y: number): void {
     if (hit?.kind === 'peer') {
       if (options.onJoin === undefined) return;
-      hide();
+      hide(true);
       options.onJoin(hit.id);
       return;
     }
@@ -2186,9 +2279,19 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   zoomOut.addEventListener('click', () => zoomAt(0.5, width / 2, height / 2), { signal });
   locate.addEventListener('click', () => centreOnMe(), { signal });
 
+  /**
+   * Whether the sheet took the pointer lock as it opened, and so gives it
+   * back as it closes: as Settings, the passport and the traveller's card do.
+   * Opened from the pause card, with the mouse already free, closing it
+   * threw the player straight into mouse look; and a card opened over it —
+   * the chat, above all — had the lock arrive under it while it was typed in.
+   */
+  let relockOnHide = false;
+
   function show(): void {
     if (showing) return;
     showing = true;
+    relockOnHide = lockTarget !== null && document.pointerLockElement === lockTarget;
     // The cursor is the whole point of this screen, and pointer lock is
     // holding it. `input.ts` already stops the mouse look the moment the lock
     // goes, so nothing else has to be told.
@@ -2205,9 +2308,10 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     dirty = true;
   }
 
-  function hide(): void {
+  function hide(relock = relockOnHide): void {
     if (!showing) return;
     showing = false;
+    relockOnHide = false;
     root.classList.remove('on');
     if (root.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
     tip.classList.remove('on');
@@ -2217,7 +2321,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // A closed sheet holds the first levels and a screenful, not a trail of
     // every place you zoomed into.
     evictTiles(40);
-    if (lockTarget !== null && typeof lockTarget.requestPointerLock === 'function') {
+    if (relock && lockTarget !== null && typeof lockTarget.requestPointerLock === 'function') {
       try {
         const request: unknown = lockTarget.requestPointerLock();
         if (request instanceof Promise) request.catch(() => {});
@@ -2281,7 +2385,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
       else show();
     },
     show,
-    hide,
+    hide: (relock?: boolean) => hide(relock),
     focus(lat, lon, degreesAcross) {
       if (width === 0) resize();
       cu = uOf(lon);
@@ -2328,6 +2432,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
         forward.x * -Math.sin(lat) * Math.cos(lon) + forward.y * Math.cos(lat) + forward.z * Math.sin(lat) * Math.sin(lon);
       if (Math.abs(east) + Math.abs(north) > 1e-6) me.heading = Math.atan2(east, north);
 
+      // The pads under a street zoom, a millisecond of working out a frame.
+      if (askPads()) dirty = true;
       // Less painting in a frame that came late or while a hand moves the
       // sheet: the parents stand in, and the drag keeps its pace.
       if (paintTiles(busy() || gap > LATE_FRAME_MS ? TILE_BUSY_MS : TILE_BUDGET_MS)) dirty = true;
