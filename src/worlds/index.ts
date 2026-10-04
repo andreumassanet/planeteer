@@ -563,6 +563,12 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       terrain.keepBare(ufoAt.x, ufoAt.y, ufoAt.z, UFO_RADIUS + 4);
     }
   }
+  // The pads and the saucers as the maps mark them: points on the sphere.
+  const mapPads = [...pads.values()].map(({ site, x, z }) => ({ id: `rocket:${site.id}`, at: settlements.toWorld(site, x, 0, z, new THREE.Vector3()).normalize() }));
+  const mapSaucers = [...ufoSpots.entries()].flatMap(([id, spots]) => {
+    const site = settlements.sites.find((one) => one.id === id);
+    return site === undefined ? [] : spots.map((spot) => ({ id: `ufo:${id}`, at: settlements.toWorld(site, spot.x, 0, spot.z, new THREE.Vector3()).normalize() }));
+  });
   /** Everything a town keeps to take: its own craft, then its saucer. */
   const spotsOf = (site: Site): readonly CraftSpot[] => {
     const ufo = ufoSpots.get(site.id);
@@ -745,6 +751,9 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     crafts,
     input,
     roadLines: () => roads.lines(),
+    roadRibbons: () => roads.lines().map((line, k) => ({ half: roads.halfOf(k), points: line.points })),
+    pads: mapPads,
+    saucers: mapSaucers,
     groundAt,
     craftInReach,
     occupiedInReach: () => traffic.occupiedNear(player.position),
@@ -960,6 +969,8 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
         hidden: riding !== null,
       });
     }
+    // The maps' tiles, last of the frame's building, as on Earth.
+    shell.pumpTiles();
     // The streamers' building ends here; what it cost is what the next
     // frame's far work is charged with, as on Earth (`endFrameBuild`).
     endFrameBuild();
@@ -1085,6 +1096,9 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       frontiers,
       ground,
       hud: shell.hud,
+      /** The maps' paper: `.stats` is what is painted, stored and baked. */
+      mapTiles: shell.mapTiles,
+      map: shell.map,
       leave,
       /** The pads standing round the traveller; `.board(rocket)` gets in the nearest as `E` does. */
       rockets: () => [...rockets.values()],

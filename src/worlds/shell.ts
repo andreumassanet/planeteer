@@ -53,7 +53,9 @@ import type { Line } from './speech.ts';
 import { createHud } from '../hud.ts';
 import type { Hud } from '../hud.ts';
 import { createMinimap } from '../minimap.ts';
-import { createWorldMap } from '../map.ts';
+import { type WorldMap, createWorldMap } from '../map.ts';
+import { type MapTiles, createMapTiles } from '../map-tiles.ts';
+import { createWorldFeatures } from './map-features.ts';
 import { createNavigation } from '../navigation.ts';
 import { createChat } from '../chat.ts';
 import type { Gazetteer } from '../chat-core.ts';
@@ -279,6 +281,15 @@ export interface ShellWorld {
   crafts: readonly Craft[];
   /** The roads between the towns, as the map draws them (`Roads.lines`). */
   roadLines(): readonly { cls: number; points: readonly (readonly [number, number])[] }[];
+  /** And at their carriageways' half-widths, for the maps' tiles (`Roads.halfOf`). */
+  roadRibbons(): readonly { half: number; points: readonly (readonly [number, number])[] }[];
+  /**
+   * Every rocket's pad, one a town (`padOf`), and every saucer parked off a
+   * town's corner (`ufoParkingOf`), as points on the sphere: what both maps
+   * mark them at, as Earth's mark its pads.
+   */
+  pads: readonly { id: string; at: THREE.Vector3 }[];
+  saucers: readonly { id: string; at: THREE.Vector3 }[];
   input: Input;
   /** Ground height over the radius under a point of any length. */
   groundAt(point: THREE.Vector3): number;
@@ -309,8 +320,20 @@ export interface Shell {
   /** Every frame, straight after the draw: the photo, the frame counter. */
   drawn(updateMs: number, drawMs: number): void;
   readonly hud: Hud;
+  /** The maps' paper (`map-tiles.ts`), `atlasWorld.mapTiles` on the console. */
+  readonly mapTiles: MapTiles;
+  /** The sheet behind `M`, `atlasWorld.map` on the console. */
+  readonly map: WorldMap;
+  /** Paints the maps' tiles out of the frame's allowance: called inside the frame's building, before `endFrameBuild`. */
+  pumpTiles(): void;
   dispose(): void;
 }
+
+/**
+ * The frame's share for the maps' tiles, ms: Earth's `MAP_TILES_MS` — the
+ * disc's out of the near allowance, the rest out of the far share's turn.
+ */
+const MAP_TILES_MS = 4;
 
 export function createShell(world: ShellWorld): Shell {
   const { host, spec, geography, surface, player, rig, sky, ground, frontiers, settlements, crowd, input } = world;
@@ -406,8 +429,32 @@ export function createShell(world: ShellWorld): Shell {
   // Over the nations' outlines joined back along their cuts (`outlinesOf`):
   // the disc inks the outline of the nation you stand in, and an outline is
   // its frontiers and nothing else.
+  // The maps' paper: the world's ground as its tiles draw it, and its towns,
+  // roads, pads and saucers over it (`worlds/map-features.ts`), shared by
+  // the disc and the sheet as on Earth.
+  const mapTiles = createMapTiles({
+    world: political,
+    surface,
+    features: createWorldFeatures({
+      spec,
+      settlements,
+      roads: () => world.roadRibbons(),
+      pads: () => world.pads,
+      saucers: () => world.saucers,
+    }),
+    // Headless (`check-worlds.ts`) there is no `import.meta.env`, and nothing to fetch.
+    ...(import.meta.env === undefined ? {} : { baked: `${import.meta.env.BASE_URL}maps/${spec.id}/` }),
+  });
+  /** The pads within `radius` of `direction`: a few hundred a world, all known at once. */
+  const padsNear = (direction: THREE.Vector3, radius: number, out: { push(pad: { id: string; at: THREE.Vector3 }): unknown }): boolean => {
+    const cos = Math.cos(radius / R);
+    for (const pad of world.pads) if (pad.at.dot(direction) >= cos) out.push(pad);
+    return true;
+  };
   const minimap = createMinimap(outlinesOf(geography), {
     surface,
+    tiles: mapTiles,
+    pads: padsNear,
     places: geography.places,
     // The roads between the towns, as the disc traces them: unit vectors.
     roads: () =>
@@ -525,6 +572,8 @@ export function createShell(world: ShellWorld): Shell {
 
   const map = createWorldMap(political, {
     surface,
+    tiles: mapTiles,
+    pads: padsNear,
     monuments: [],
     courses: () => world.roadLines(),
     places: geography.places,
@@ -1026,6 +1075,11 @@ export function createShell(world: ShellWorld): Shell {
     update,
     drawn,
     hud,
+    mapTiles,
+    map,
+    pumpTiles() {
+      mapTiles.pump(MAP_TILES_MS, true);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1040,6 +1094,7 @@ export function createShell(world: ShellWorld): Shell {
       map.dispose();
       nav.dispose();
       minimap.dispose();
+      mapTiles.dispose();
       minimap.canvas.remove();
       if (ownHolder) minimapHolder.remove();
       bubble.dispose();
