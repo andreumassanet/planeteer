@@ -6,6 +6,7 @@ import { PALETTE, createToonRamp } from './theme.ts';
 import { BODY_SCALE } from './stature.ts';
 import { LAMP_POOL, bedtimeByte, bedtimeNever, lightWindows, poolAt } from './lights.ts';
 import { mergeMeshes, sourceVertex } from './merge.ts';
+import { toByte } from './raster.ts';
 import { proxyOf } from './warm.ts';
 import { createFader, fadeTwin } from './fade.ts';
 import { shadeByClouds } from './cloud-shade.ts';
@@ -228,6 +229,13 @@ export function reachFor(altitude: number): number {
 function rangeFor(altitude: number): number {
   return slantRange(altitude, reachFor(altitude));
 }
+
+/**
+ * The far share a frame gives the map's town plans (`planSteps`), ms: a plan
+ * is a town's square and plots without its floor or its merge, a few ms for
+ * a city once its region's variants stand.
+ */
+const PLAN_BUILD_MS = 2;
 
 /** Runs a build in steps to its end at once: what every caller but the far job wants. */
 function drain<T>(steps: Generator<void, T, void>): T {
@@ -1174,6 +1182,53 @@ export interface Settlements {
   survey(step?: number, near?: boolean): unknown;
   /** One mesh per program this draws with, for `warm.ts` to compile while the menu is up. */
   proxies(): THREE.Object3D[];
+  /**
+   * A town as the map draws it (`map-features.ts`): its cells, its floor's
+   * colours and every building's plan box with its roof's colour, as the town
+   * stands near — the near style, the City Kits where a region builds them.
+   * `undefined` while it is still being worked out, which this call asks for
+   * (a far job of its own, `'townplans'`, between the towns' builds); null
+   * where the place builds nothing or is not one of these.
+   */
+  townPlan(index: number): TownPlan | null | undefined;
+  /** The same, worked out now in one go: for the checks and the console. */
+  townPlanNow(index: number): TownPlan | null;
+}
+
+/**
+ * A town's plan for the map: what `raiseSteps` stands, without a mesh.
+ *
+ * Every length is in the town's own frame (`townFrame`: `+z` north, `+x`
+ * `across`, which is *west* — `landmarkFrame`'s note), world units about the
+ * town's centre. The map projects it through the frame's own three vectors,
+ * so nothing here says which way east is.
+ */
+export interface TownPlan {
+  index: number;
+  up: THREE.Vector3;
+  across: THREE.Vector3;
+  north: THREE.Vector3;
+  /** `townGrid(radiusOf(place))`, the square the cells are of. */
+  grid: TownGrid;
+  /**
+   * Each cell, `row * cells + col`: 0 not paved (the outskirts, the sea, a
+   * cut too deep), 1 a yard, 2 paving under a block, 3 a yard of the land's
+   * own ground at the edge, 4 a landmark's plaza.
+   */
+  cells: Uint8Array;
+  /** The street's half-width on a band between two cells (`streetBand`), and a pavement's (`pavementOf`). */
+  band: number;
+  walk: number;
+  /** sRGB: the carriageway, the pavement, a yard, the land, a plaza. */
+  colours: { road: number; walk: number; yard: number; land: number; plaza: number };
+  /** Each building's footprint as `solids.ts` holds it: x, z, cos, sin, hx, hz. */
+  buildings: Float32Array;
+  /** Its kind: 0 a dwelling, 1 a block, 2 a civic building. */
+  kinds: Uint8Array;
+  /** And its roof, sRGB: the up-facing triangles of its own variant, by area. */
+  roofs: Uint32Array;
+  /** The trees in the yards and round the edge: x, z, radius. */
+  trees: Float32Array;
 }
 
 /**
@@ -4373,30 +4428,235 @@ export function createSettlements(
     return { placed };
   }
 
+  // ------------------------------------------------------------------
+  // The map's plans
+  // ------------------------------------------------------------------
+
+  /**
+   * Each town's plan for the map (`TownPlan`), kept: what a near town stood,
+   * or what `planSteps` worked out for one that never stood near. At most
+   * `MAP_PLANS_KEPT`, the oldest let go first; a plan is a few kilobytes.
+   */
+  const mapPlans = new Map<number, TownPlan | null>();
+  const MAP_PLANS_KEPT = 400;
+  /** The towns the map has asked for and nothing has planned yet, oldest first. */
+  const planWanted: number[] = [];
+  const planAsked = new Set<number>();
+  /** The plan under way, which shares the town frame and the terraces with a far build and gives way to one. */
+  let planJob: { index: number; steps: Generator<void, TownPlan | null, void> } | null = null;
+
+  function keepPlan(index: number, plan: TownPlan | null): void {
+    mapPlans.delete(index);
+    mapPlans.set(index, plan);
+    planAsked.delete(index);
+    while (mapPlans.size > MAP_PLANS_KEPT) mapPlans.delete(mapPlans.keys().next().value!);
+  }
+
+  /** A variant's roof, as the map paints it: its up-facing triangles high on it, averaged by area seen from above. */
+  const roofColours = new WeakMap<FlatVariant, number>();
+  function roofOf(flat: FlatVariant): number {
+    const known = roofColours.get(flat);
+    if (known !== undefined) return known;
+    const p = flat.position;
+    const c = flat.color;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let weight = 0;
+    let anyR = 0;
+    let anyG = 0;
+    let anyB = 0;
+    let anyWeight = 0;
+    const high = flat.height * 0.35;
+    for (let t = 0; t < flat.triangles; t++) {
+      const k = t * 9;
+      const ax = p[k + 3]! - p[k]!;
+      const ay = p[k + 4]! - p[k + 1]!;
+      const az = p[k + 5]! - p[k + 2]!;
+      const bx = p[k + 6]! - p[k]!;
+      const by = p[k + 7]! - p[k + 1]!;
+      const bz = p[k + 8]! - p[k + 2]!;
+      // The cross product's y is twice the area seen from above, signed by which way the face looks.
+      const nx = ay * bz - az * by;
+      const ny = az * bx - ax * bz;
+      const nz = ax * by - ay * bx;
+      const area = Math.hypot(nx, ny, nz);
+      if (area <= 0) continue;
+      const cr = (c[k]! + c[k + 3]! + c[k + 6]!) / 3;
+      const cg = (c[k + 1]! + c[k + 4]! + c[k + 7]!) / 3;
+      const cb = (c[k + 2]! + c[k + 5]! + c[k + 8]!) / 3;
+      anyR += cr * area;
+      anyG += cg * area;
+      anyB += cb * area;
+      anyWeight += area;
+      if (ny / area < 0.45 || (p[k + 1]! + p[k + 4]! + p[k + 7]!) / 3 < high) continue;
+      r += cr * ny;
+      g += cg * ny;
+      b += cb * ny;
+      weight += ny;
+    }
+    if (weight <= 0) {
+      r = anyR;
+      g = anyG;
+      b = anyB;
+      weight = Math.max(1e-9, anyWeight);
+    }
+    const hex = (toByte(r / weight) << 16) | (toByte(g / weight) << 8) | toByte(b / weight);
+    roofColours.set(flat, hex);
+    return hex;
+  }
+
+  const planLand = new THREE.Color();
+  const planYard = new THREE.Color();
+  const planDir = new THREE.Vector3();
+  /**
+   * A town's plan out of what stands on its square: read while the town frame
+   * and the terraces are still this town's (`squareSteps`), so it is called at
+   * the end of `raiseSteps` and of `planSteps` and nowhere else.
+   */
+  function slotPlan(
+    slot: Slot,
+    grid: TownGrid,
+    solids: readonly Solid[],
+    flats: readonly FlatVariant[],
+    kinds: readonly number[],
+    trees: readonly number[],
+    pavedCells: ReadonlySet<number>,
+  ): TownPlan {
+    const n = grid.cells;
+    const style = slot.ground;
+    const cells = new Uint8Array(n * n);
+    for (let row = 0; row < n; row++) {
+      for (let col = 0; col < n; col++) {
+        const key = cellKey(col, row);
+        if (terraceAt(col, row) === null) continue;
+        const cx = cellCentre(grid, col);
+        const cz = cellCentre(grid, row);
+        // The floor's own tests (`buildGroundSteps`): a landmark's ground, a block's paving, a lawn at the edge.
+        const plaza = keepouts.some((keepout) => planGap(keepout.shape, cx - keepout.x, cz - keepout.z) < keepout.radius);
+        const outer = style.yard !== 'earth' && (n < OUTSKIRT_MIN_CELLS || outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING);
+        cells[row * n + col] = plaza ? 4 : pavedCells.has(key) ? 2 : outer ? 3 : 1;
+      }
+    }
+    directionAt(0, 0, planDir);
+    groundColorAt(world, planDir.multiplyScalar(PLANET_RADIUS), planLand);
+    if (style.yard === 'paved') planYard.setHex(style.walk);
+    else if (style.yard === 'earth') trodden(planLand, planYard);
+    else planYard.copy(planLand);
+    const buildings = new Float32Array(solids.length * 6);
+    const roofs = new Uint32Array(solids.length);
+    solids.forEach((solid, k) => {
+      buildings.set([solid.x, solid.z, solid.cos, solid.sin, solid.hx, solid.hz], k * 6);
+      roofs[k] = roofOf(flats[k]!);
+    });
+    const band = streetBand(grid, style.street);
+    return {
+      index: slot.index,
+      up: up.clone(),
+      across: across.clone(),
+      north: north.clone(),
+      grid,
+      cells,
+      band,
+      walk: pavementOf(band),
+      colours: { road: style.road, walk: style.walk, yard: planYard.getHex(), land: planLand.getHex(), plaza: style.plaza },
+      buildings,
+      kinds: Uint8Array.from(kinds),
+      roofs,
+      trees: Float32Array.from(trees),
+    };
+  }
+
+  /**
+   * A town's plan as it would stand near, without standing it: its region's
+   * near variants (`warmSteps`), its square (`squareSteps`) and its plots
+   * (`planTownSteps`), each plot kept or refused by `raiseSteps`' own
+   * tests — the sea under it, a cell with no terrace. The slope test on the
+   * trees round the edge is left out; a tree is a dot on the map.
+   */
+  function* planSteps(slot: Slot): Generator<void, TownPlan | null, void> {
+    // A copy that is near: the square and the plan read a slot and write
+    // nothing the town keeps.
+    const near: Slot = { ...slot, peopled: true };
+    yield* warmSteps(near);
+    const grid = yield* squareSteps(near);
+    if (grid === null) return null;
+    yield;
+    const placed = (yield* planTownSteps(near, grid)).placed;
+    const solids: Solid[] = [];
+    const flats: FlatVariant[] = [];
+    const kinds: number[] = [];
+    const trees: number[] = [];
+    const pavedCells = new Set<number>();
+    let k = 0;
+    for (const entry of placed) {
+      if ((++k & 31) === 0) yield;
+      const flat = variantOf(entry.partId, near.style, entry.variant);
+      if (flat === null) continue;
+      directionAt(entry.plot.x, entry.plot.z, scratch);
+      if (world.elevationAt(scratch) <= 0) continue;
+      const country = inTheCountry.has(entry);
+      if (!country && terraceAt(entry.plot.col, entry.plot.row) === null) continue;
+      const kind = KIND_OF.get(entry.partId);
+      if (kind === 'tree') {
+        trees.push(entry.plot.x, entry.plot.z, footprintOf(entry.partId) * entry.scale);
+        continue;
+      }
+      if (country || (kind !== 'dwelling' && kind !== 'block' && kind !== 'civic')) continue;
+      const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, 0);
+      solids.push(solid);
+      flats.push(flat);
+      kinds.push(kind === 'block' ? 1 : kind === 'civic' ? 2 : 0);
+      if (kind !== 'dwelling') pavedUnder(solid, grid, pavedCells);
+    }
+    return slotPlan(near, grid, solids, flats, kinds, trees, pavedCells);
+  }
+
+  /** Abandons the plan under way: a town is about to be built, and the frame is its. */
+  function endPlanJob(): void {
+    if (planJob === null) return;
+    planJob.steps.return(null);
+    planWanted.unshift(planJob.index);
+    planJob = null;
+  }
+
+  /** Plans what the map has asked for while the frame's far share allows, one plan at a time. */
+  function stepPlans(began: number): void {
+    while (mayBuild(began, PLAN_BUILD_MS, false, 'townplans')) {
+      if (planJob === null) {
+        let index = planWanted.shift();
+        while (index !== undefined && mapPlans.has(index)) index = planWanted.shift();
+        if (index === undefined) return;
+        planJob = { index, steps: planSteps(slots[index]!) };
+      }
+      const step = planJob.steps.next();
+      if (step.done === true) {
+        keepPlan(planJob.index, step.value);
+        planJob = null;
+      }
+    }
+  }
+
   function raise(slot: Slot): void {
     yieldFarJob();
     drain(raiseSteps(slot));
   }
 
   /**
-   * `raise` in steps: it yields between the cells it plans, the plots it
-   * stands, the courses of floor it lays and the parts it merges, so a caller
-   * can stop between any two and come back next frame (`farJob`). Everything
-   * it touches between two steps is its own — the slot, the town frame and
-   * the terraces it shares with no one while it runs — which is why only one
-   * runs at a time and anything else that builds a town ends it first.
+   * The square a town stands on, before anything stands on it: the town
+   * frame about its centre, the keepouts, and every cell's terrace — the
+   * outskirts and the gate cells too deep to cut taken out. `raiseSteps`
+   * begins with it, and so does the map's plan (`planSteps`), so the two
+   * cannot disagree about which cells a town paves. Null where the frame
+   * cannot be built.
    */
-  function* raiseSteps(slot: Slot): Generator<void, void, void> {
-    if (slot.mesh !== null || slot.failed) return;
-    slot.builtPeopled = slot.peopled;
-    slot.stale = false;
-
+  function* squareSteps(slot: Slot): Generator<void, TownGrid | null, void> {
     up.copy(slot.direction);
     frameAt();
     if (basis.determinant() <= 0) {
       slot.failed = true;
       broken.push(`${slot.place.name}: settlement basis has determinant ${basis.determinant()}`);
-      return;
+      return null;
     }
 
     /**
@@ -4473,6 +4733,24 @@ export function createSettlements(
       }
     }
 
+    return grid;
+  }
+
+  /**
+   * `raise` in steps: it yields between the cells it plans, the plots it
+   * stands, the courses of floor it lays and the parts it merges, so a caller
+   * can stop between any two and come back next frame (`farJob`). Everything
+   * it touches between two steps is its own — the slot, the town frame and
+   * the terraces it shares with no one while it runs — which is why only one
+   * runs at a time and anything else that builds a town ends it first.
+   */
+  function* raiseSteps(slot: Slot): Generator<void, void, void> {
+    if (slot.mesh !== null || slot.failed) return;
+    slot.builtPeopled = slot.peopled;
+    slot.stale = false;
+
+    const grid = yield* squareSteps(slot);
+    if (grid === null) return;
     yield;
     const placed = (yield* planTownSteps(slot, grid)).placed;
 
@@ -4535,6 +4813,10 @@ export function createSettlements(
     const litPlots: LitPlot[] = [];
     /** The walls of what stands, for `collide`. See `solidOf`. */
     const solids: Solid[] = [];
+    /** And for the map's plan (`TownPlan`): each wall's variant and kind, and the trees. */
+    const solidFlats: FlatVariant[] = [];
+    const solidKinds: number[] = [];
+    const treesAt: number[] = [];
     /** The square's buildings as triangles, for what hangs between them (`scenery/overhead.ts`). */
     const overheadHosts: OverheadHost[] = [];
     /** The square's buildings with their fronts, for what dresses them (`scenery/street-dressing.ts`). */
@@ -4635,6 +4917,7 @@ export function createSettlements(
       const bedShift = flat.emits ? Math.round(lit.jitter() * INSTANCE_BED) : 0;
       standing.push({ flat, matrix: transform.clone(), glow: shine, bed: bedShift });
       vertices += flat.position.length / 3;
+      if (kind === 'tree') treesAt.push(entry.plot.x, entry.plot.z, footprint);
       if (shine > 0) {
         litPlots.push({
           // The frame the floor's vertices are in, which is the one `local`
@@ -4659,6 +4942,8 @@ export function createSettlements(
         built.add(cellKey(entry.plot.col, entry.plot.row));
         const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level);
         solids.push(solid);
+        solidFlats.push(flat);
+        solidKinds.push(kind === 'block' ? 1 : kind === 'civic' ? 2 : 0);
         if (!country) overheadHosts.push({ position: flat.position, matrix: standing[standing.length - 1]!.matrix });
         if (!country) dressFronts.push({ flat, matrix: standing[standing.length - 1]!.matrix, solid, kind: kind ?? 'dwelling', baked: bakedParts.has(entry.partId) });
         // A block and a civic building stand on paving, a house in its yard.
@@ -4751,8 +5036,12 @@ export function createSettlements(
         }
         built.add(cellKey(lone, lone));
         solids.push(solidOf(flat, loneAt, loneAt, loneYaw, 1, baseElevation));
+        solidFlats.push(flat);
+        solidKinds.push(0);
       }
     }
+    // What stood near is what the map draws: kept as the town's plan.
+    if (slot.builtPeopled) keepPlan(slot.index, slotPlan(slot, grid, solids, solidFlats, solidKinds, treesAt, pavedCells));
 
     slot.planned = placed.length;
     slot.drowned = drowned;
@@ -6000,6 +6289,7 @@ export function createSettlements(
    */
   function stepFar(slot: Slot, more: () => boolean): boolean {
     if (farJob !== null && farJob.slot !== slot) endFarJob();
+    endPlanJob();
     if (farJob === null) {
       // A town standing is built again with its old mesh kept drawn until the
       // last step, as `rebuild` keeps it.
@@ -6033,6 +6323,7 @@ export function createSettlements(
    * its old mesh may only go when the new one stands.
    */
   function yieldFarJob(): void {
+    endPlanJob();
     if (farJob === null) return;
     if (farJob.old === null) endFarJob();
     else stepFar(farJob.slot, () => true);
@@ -6480,6 +6771,9 @@ export function createSettlements(
         if (built > 0 || stepped) stats.lastBuildMs = Number((performance.now() - began).toFixed(2));
         stats.built += built;
       }
+      // The map's plans, in what the towns left of the frame and only
+      // while no far town is half built: the two share the town frame.
+      if (farJob === null && (planJob !== null || planWanted.length > 0)) stepPlans(performance.now());
 
       let resident = 0;
       let triangles = 0;
@@ -6506,6 +6800,27 @@ export function createSettlements(
       seatLog = into;
     },
     proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
+    townPlan(index) {
+      const known = mapPlans.get(index);
+      if (known !== undefined || mapPlans.has(index)) return known ?? null;
+      const slot = slots[index];
+      if (slot === undefined || !isShown(slot.place)) return null;
+      if (!planAsked.has(index)) {
+        planAsked.add(index);
+        planWanted.push(index);
+      }
+      return undefined;
+    },
+    townPlanNow(index) {
+      const known = mapPlans.get(index);
+      if (known !== undefined) return known;
+      const slot = slots[index];
+      if (slot === undefined || !isShown(slot.place)) return null;
+      yieldFarJob();
+      const plan = drain(planSteps(slot));
+      keepPlan(index, plan);
+      return plan;
+    },
     floorChanges(since, into) {
       into.length = 0;
       if (floorVersion - since > FLOOR_CHANGES) {

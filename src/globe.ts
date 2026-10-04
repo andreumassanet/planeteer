@@ -1271,6 +1271,83 @@ vec3 atlasLush(vec3 colour) {
   return mix(colour, deep, green);
 }`;
 
+/**
+ * `atlasLush`'s JS twin, for the map's tiles (`map-tiles.ts`): the ground's
+ * colour as the land draws it rather than as `groundShade` names it, so the
+ * map's green is the field's green. Linear channels, in place.
+ */
+export function lushOf(colour: THREE.Color): THREE.Color {
+  const { r, g, b } = colour;
+  const green = Math.min(1, Math.max(0, ((g - Math.max(r, b)) / Math.max(g, 1e-3)) * 4));
+  if (green <= 0) return colour;
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const deep = (c: number): number => Math.max(0, l + (c - l) * LUSH_SATURATION) * LUSH_LIGHT;
+  return colour.setRGB(r + (deep(r) - r) * green, g + (deep(g) - g) * green, b + (deep(b) - b) * green);
+}
+
+const fract = (x: number): number => x - Math.floor(x);
+
+/** `atlasHash13`, in doubles: the GLSL's floats differ in the last bits, which a map cannot show. */
+function hash13(x: number, y: number, z: number): number {
+  let px = fract(x * 0.1031);
+  let py = fract(y * 0.1031);
+  let pz = fract(z * 0.1031);
+  const d = px * (pz + 31.32) + py * (py + 31.32) + pz * (px + 31.32);
+  px += d;
+  py += d;
+  pz += d;
+  return fract((px + py) * pz);
+}
+
+/** `atlasNoise`'s twin: value noise on the integer lattice, smoothed. */
+function noise3(x: number, y: number, z: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const iz = Math.floor(z);
+  let fx = x - ix;
+  let fy = y - iy;
+  let fz = z - iz;
+  fx = fx * fx * (3 - 2 * fx);
+  fy = fy * fy * (3 - 2 * fy);
+  fz = fz * fz * (3 - 2 * fz);
+  const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
+  return mix(
+    mix(mix(hash13(ix, iy, iz), hash13(ix + 1, iy, iz), fx), mix(hash13(ix, iy + 1, iz), hash13(ix + 1, iy + 1, iz), fx), fy),
+    mix(mix(hash13(ix, iy, iz + 1), hash13(ix + 1, iy, iz + 1), fx), mix(hash13(ix, iy + 1, iz + 1), hash13(ix + 1, iy + 1, iz + 1), fx), fy),
+    fz,
+  );
+}
+
+/**
+ * `atlasPatches`' JS twin: the blots a shade lusher or drier than the biome,
+ * at a world-space point (units). For the map's tiles, which ask it on their
+ * colour lattice, so a field on the map is the blot it is on the ground.
+ */
+export function patchesOf(colour: THREE.Color, x: number, y: number, z: number): THREE.Color {
+  let blot = noise3(x / PATCH_BROAD, y / PATCH_BROAD, z / PATCH_BROAD) * 0.65
+    + noise3(x / PATCH_FINE + 17, y / PATCH_FINE + 17, z / PATCH_FINE + 17) * 0.35;
+  blot = Math.min(1, Math.max(0, (blot - 0.5) * 2.4 + 0.5));
+  const { r, g, b } = colour;
+  const green = Math.min(1, Math.max(0, ((g - Math.max(r, b)) / Math.max(g, 1e-3)) * 4));
+  const light = 1 + (blot - 0.5) * PATCH_LIGHT * 2;
+  let tr = r * light;
+  let tg = g * light;
+  let tb = b * light;
+  const step = (e0: number, e1: number, t: number): number => {
+    const k = Math.min(1, Math.max(0, (t - e0) / (e1 - e0)));
+    return k * k * (3 - 2 * k);
+  };
+  const dry = step(0.5, 0.1, blot) * green;
+  tr += (tr * 0.8 - tr) * dry;
+  tg += (tg * 0.95 - tg) * dry;
+  tb += (tb * 0.78 - tb) * dry;
+  const lush = step(0.5, 0.9, blot) * green;
+  tr += (tr * 1.18 - tr) * lush;
+  tg += (tg * 1.08 - tg) * lush;
+  tb += (tb * 0.72 - tb) * lush;
+  return colour.setRGB(tr, tg, tb);
+}
+
 export const GROUND_MARKS_GLSL = /* glsl */ `
 float atlasHash(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));

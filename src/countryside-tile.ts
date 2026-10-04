@@ -8,6 +8,7 @@ import { measure } from './scenery/contract.ts';
 import type { RegionStyle, SceneryContext } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import { PALETTE } from './theme.ts';
+import { tone } from './monuments/contract.ts';
 import { drawnFootprint } from './land-probe.ts';
 import type { DrawnFootprint, LandProbe } from './land-probe.ts';
 import { COUNTRY_PARTS, ROTOR_RADIUS, buildRotor, pieceRng } from './countryside-kit.ts';
@@ -317,6 +318,14 @@ function lookOf(ctx: SceneryContext, crop: CropId): Look {
     case 'pond':
       return { plate: [t(P.skyBlue, 0.78), t(P.skyBlue, 0.84)], stripe: 0, straw: false };
   }
+}
+
+/**
+ * A crop's plate, its two tones across the rows: what the map paints a field
+ * with (`map-features.ts`), read off the same table the field is built from.
+ */
+export function cropPlate(crop: CropId): readonly [number, number] {
+  return lookOf({ tone } as unknown as SceneryContext, crop).plate;
 }
 
 /** The colour the grass takes in a field of straw, or null where no grass grows through it. */
