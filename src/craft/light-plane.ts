@@ -2,11 +2,16 @@
  * The light plane: a chunky low-wing tourer with one open cockpit for four,
  * two abreast in two rows, a propeller on the nose and three wheels on y = 0.
  *
- * **Open, because this world has no glass you can see through.** A canopy is a
- * see-through fill, and a see-through fill that writes no depth shows its whole
- * ink hull through itself; an opaque one hides the four people it exists to
- * carry. So the cockpit is a well in the fuselage, like the old floatplane's,
- * and each row has a low screen ahead of it that stops under the seated eyes.
+ * **Open, and that was first forced and is now chosen.** It was built when
+ * this world had no glass you could see through: a see-through fill that
+ * writes no depth shows its whole ink hull through itself, and an opaque
+ * canopy hides the four people it exists to carry. So the cockpit is a well
+ * in the fuselage, like the old floatplane's, with a low screen ahead of it
+ * that stops under the seated eyes. Since 2026-10-04 a closed craft can have
+ * glass (`cabin.ts`) and the screen is glass; the cockpit stays open because
+ * an open tourer is what this one is, and from the overhead camera a canopy
+ * would only lay a sheen over the four heads. The front row has a row of
+ * dials each and a yoke over the knees, for the eye in first person.
  *
  * **Low wing, and the reason is the map camera.** The plane is looked at from
  * overhead for most of a flight — the whole globe fits the lens at the ceiling —
@@ -37,7 +42,9 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { ABREAST, HERO } from './body.ts';
-import { PROUD, assemble, craftContext, finish, loft, octagon, soupOf, well } from './build.ts';
+import { GLASS_TINT, PROUD, assemble, craftContext, finish, loft, octagon, soupOf, well } from './build.ts';
+import { instrumentPanel, painted, wheelPart } from './cabin.ts';
+import type { WheelGrip } from '../cast.ts';
 import type { Station, Turning } from './build.ts';
 
 const H = AVATAR_HEIGHT;
@@ -77,9 +84,15 @@ const PAINTS: readonly [number, number, number][] = [
   [PALETTE.violet, PALETTE.white, PALETTE.gold],
 ];
 
+/**
+ * The pilot's yoke, about the hip: over the knees and as near the chest as
+ * the hero's arms reach (`HERO.reach`), drawn as a small wheel.
+ */
+const YOKE: WheelGrip = { centre: [0, 0.21 * H, 0.24 * H], tilt: 0.2, radius: 0.06 * H, spread: 1.5 };
+
 const SEATS: readonly Seat[] = [
   // The pilot in the front left seat, which facing +Z is +X.
-  { x: ABREAST / 2, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true },
+  { x: ABREAST / 2, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true, wheel: YOKE },
   { x: -ABREAST / 2, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true },
   { x: ABREAST / 2, y: HIP, z: REAR, yaw: 0, pose: 'sit', shown: true },
   { x: -ABREAST / 2, y: HIP, z: REAR, yaw: 0, pose: 'sit', shown: true },
@@ -215,13 +228,35 @@ function buildPlane(variant: number): THREE.Group {
     group.add(pan, back);
   }
 
+  // An instrument panel standing on the coaming before each front seat, its
+  // dials facing the seat, high enough to be seen from it over the knees —
+  // on the bulkhead under the coaming it was under the eye's view — and each
+  // front seat's yoke on its column out of it. The pilot's is held and turns
+  // with the ailerons (`YOKE`, a `'steer'`); the other is still.
+  for (const seat of SEATS.slice(0, 2)) {
+    group.add(instrumentPanel(seat, 0.36 * H, 0.3 * H, WELL_FORE - FRONT - 0.05 * H, PALETTE.steel, 3));
+    const hub = new V(seat.x + YOKE.centre[0], seat.y + YOKE.centre[1], seat.z + YOKE.centre[2]);
+    group.add(strut(hub.clone().add(new V(0, 0, 0.02 * H)), new V(hub.x, hub.y - 0.03 * H, WELL_FORE - 0.04 * H), 0.02 * H, PALETTE.steel));
+    if (seat !== SEATS[0]) {
+      const yoke = box(0.15 * H, 0.025 * H, 0.025 * H, PALETTE.ink);
+      yoke.position.set(hub.x, hub.y - 0.0125 * H, hub.z);
+      group.add(yoke);
+      for (const side of [-1, 1]) {
+        const horn = box(0.025 * H, 0.06 * H, 0.025 * H, PALETTE.ink);
+        horn.position.set(hub.x + side * 0.075 * H, hub.y - 0.0125 * H, hub.z);
+        group.add(horn);
+      }
+    }
+  }
+
   // A low screen on the cowl, raked back, its top edge a third of a body over
-  // the hip: under the seated eyes, so the front row looks over it.
-  const glass = tone(PALETTE.slate, 0.72);
-  const front = box(HALF * 1.7, 0.2 * H, PROUD, glass);
+  // the hip: under the seated eyes, so the front row looks over it — and
+  // through it, since 2026-10-04, when it became glass (`glassMaterial`).
+  const screen = new THREE.Group();
+  const front = box(HALF * 1.7, 0.2 * H, PROUD, PALETTE.slate);
   front.position.set(0, cowlTop - 0.01 * H, WELL_FORE + 0.08 * H);
   front.rotation.x = -0.6;
-  group.add(front);
+  screen.add(front);
   const frame = box(HALF * 1.74, 0.02 * H, 0.03 * H, trim);
   frame.position.set(0, cowlTop - 0.01 * H + 0.2 * H * Math.cos(0.6), WELL_FORE + 0.08 * H - 0.2 * H * Math.sin(0.6));
   group.add(frame);
@@ -276,6 +311,7 @@ function buildPlane(variant: number): THREE.Group {
 
   // ---- the undercarriage --------------------------------------------------
   const turning: Turning[] = [];
+  turning.push(wheelPart(YOKE, new V(SEATS[0]!.x + YOKE.centre[0], SEATS[0]!.y + YOKE.centre[1], SEATS[0]!.z + YOKE.centre[2]), PALETTE.ink));
   // A tyre and a hub cap about the axle, which is X through the origin: a
   // prism stood on y = 0 and laid over by a quarter turn, then slid back half
   // its width so it turns about its own middle.
@@ -341,7 +377,7 @@ function buildPlane(variant: number): THREE.Group {
   }
   turning.push({ name: 'prop', at: new V(0, HUB_Y, NOSE + 0.005 * H), soup: soupOf(prop) });
 
-  return assemble('light-plane', [soupOf(group)], turning);
+  return assemble('light-plane', [soupOf(group)], turning, { glass: [painted(soupOf(screen), GLASS_TINT)] });
 }
 
 /**

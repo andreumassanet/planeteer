@@ -47,7 +47,10 @@ import {
   fogFar,
   slantRange,
 } from './view.ts';
-import { createSceneryContext } from './scenery/contract.ts';
+import { createSceneryContext, findSceneryModel } from './scenery/contract.ts';
+import { glazeTraffic } from './craft/cars.ts';
+import { CABIN_REACH } from './craft/cabin.ts';
+import { glassMaterial } from './craft/build.ts';
 import type { RegionStyle, SceneryContext } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import type { Weighted } from './scenery/random.ts';
@@ -55,7 +58,7 @@ import { regionFor } from './scenery/regions.ts';
 import { POSES, buildPerson } from './scenery/people.ts';
 import type { Look } from './scenery/people.ts';
 import { lookFor } from './scenery/dress.ts';
-import { AVATAR_HEIGHT, FIGURE, RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
+import { AVATAR_HEIGHT, DRIVE_SHIN, DRIVE_THIGH, FIGURE, RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED, WALK_STRIDE, swingLift } from './avatar.ts';
 import {
   RIDER_HEIGHT,
   VARIANTS,
@@ -223,6 +226,15 @@ const HERD_MOVERS = 8;
  */
 const MAX_MOVERS = 90;
 
+/**
+ * The suffix on a road vehicle's pool key that asks for its glazed, driven
+ * build; and the same build with the driver on the right, for a road whose
+ * country keeps left (`sideOf`, the road's first town's), as a car built for
+ * that side of the road sits its driver.
+ */
+const INSIDE = 'in';
+const INSIDE_RIGHT = 'ir';
+
 /** How far along the ground each family is worth placing, at detail 1. */
 const ROAD_REACH = 1100;
 const WATER_REACH = 1700;
@@ -311,6 +323,18 @@ const HERD_ANIMATED_CAP = 36;
  * 2026-09-24, from 700 and 900.)
  */
 const CEILING = { road: 1800, foot: 300, water: 4000, air: 1500, herd: 400 } as const;
+
+const BASE_REACH = { road: ROAD_REACH, foot: FOOT_REACH, water: WATER_REACH, air: BIRD_REACH, herd: HERD_REACH } as const;
+
+/**
+ * How far along the ground a family of movers is admitted, at a handed-over
+ * altitude: its own reach as the knob leaves it, never past the haze, and
+ * nothing at all above its ceiling. Exported for `pnpm reach`, which holds it
+ * to the knob.
+ */
+export function moverReach(family: keyof typeof CEILING, altitude: number): number {
+  return altitude > CEILING[family] ? 0 : Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(BASE_REACH[family]));
+}
 
 /**
  * How fast a vehicle goes, by road class.
@@ -461,6 +485,29 @@ const MIN_SECONDS = 8;
  * sorted out again. See the note in `scan`.
  */
 const ROAD_SCAN_CAP = 120;
+
+/**
+ * **A ring of cells has to close at the antimeridian, or a boat changes its name
+ * there.** A cell's row and column are its seed and its key, so the column one
+ * scan calls 428 and the next calls -429 for the same ground is a herd that
+ * vanishes and another that appears as you walk across 180 degrees. 0.42 and
+ * 0.35 do not divide 360, so the columns are as wide as the nearest whole number
+ * of them round the planet (`columnsOf`: 857 at 0.42, 0.42007 wide, and 1,029 at
+ * 0.35) and every column is folded into one turn (`wrapColumn`, centred on
+ * Greenwich so the western hemisphere keeps its negative columns and its seeds).
+ * The rows stay `size`; a herd moved at most 0.03 degrees and a flock 0.08,
+ * both at the seam, and the sea's 1.5 is 240 columns already and did not move.
+ * 2 x 24 + 1 columns a scan, at the clamp, never reaches round to meet itself.
+ */
+function columnsOf(size: number): number {
+  return Math.max(1, Math.round(360 / size));
+}
+
+/** One column index folded into the turn `[-floor(n/2), n - floor(n/2))`. */
+function wrapColumn(col: number, count: number): number {
+  const half = count >> 1;
+  return ((((col + half) % count) + count) % count) - half;
+}
 
 /** A craft under way. A boat is slow, and that is what makes it read as a boat. */
 const CRAFT_SPEED = 17;
@@ -877,6 +924,13 @@ interface Mover {
   key: string;
   /** Which pooled geometry. A walker's phase is appended at draw time. */
   pool: string;
+  /**
+   * `pool` with each walk phase appended, and with the two near builds'
+   * suffixes (`INSIDE`, `INSIDE_RIGHT`): made the first time they are asked,
+   * not every frame (`poolKeys`).
+   */
+  phaseKeys?: string[];
+  insideKeys?: [string, string];
   /** Units a second along its own route, which is also the walker's leg cadence. */
   speed: number;
   /** `ground` false skips the point-in-polygon and answers at the shelf. */
@@ -1071,6 +1125,42 @@ interface Flock {
   rate: number;
   count: number;
   seed: number;
+  /**
+   * Each bird's lead, radius, rise and wingbeat, four a bird, drawn from
+   * `rngFrom(seed, 'bird', i)` once when the flock is admitted rather than
+   * every frame it is drawn (`birdsOf`).
+   */
+  birds: Float64Array;
+}
+
+/** A walker's pool key at walk phase `phase`: see `Mover.phaseKeys`. */
+function phaseKeyOf(mover: Mover, phase: number): string {
+  let keys = mover.phaseKeys;
+  if (keys === undefined) {
+    keys = [];
+    for (let k = 0; k < WALK_PHASES; k++) keys.push(`${mover.pool}|${k}`);
+    mover.phaseKeys = keys;
+  }
+  return keys[phase]!;
+}
+
+/** A road vehicle's near build's pool key, kept to the right or not: see `Mover.insideKeys`. */
+function insideKeyOf(mover: Mover, right: boolean): string {
+  const keys = (mover.insideKeys ??= [`${mover.pool}|${INSIDE}`, `${mover.pool}|${INSIDE_RIGHT}`]);
+  return keys[right ? 1 : 0];
+}
+
+/** A flock's birds' draws, four a bird: see `Flock.birds`. */
+function birdsOf(seed: number, count: number, radius: number): Float64Array {
+  const out = new Float64Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    const rng = rngFrom(seed, 'bird', i);
+    out[i * 4] = rng.unit() * TAU;
+    out[i * 4 + 1] = radius * rng.spread(1, 0.28);
+    out[i * 4 + 2] = rng.range(-14, 14);
+    out[i * 4 + 3] = rng.range(5.5, 8.5);
+  }
+  return out;
 }
 
 export interface LifeStats {
@@ -2120,6 +2210,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
     triangles: number;
     bytes: number;
     /**
+     * A near road vehicle's see-through glass, drawn as a child of its mesh
+     * in the glass's material (`glazeTraffic`); absent for everything else.
+     */
+    glass?: THREE.BufferGeometry;
+    /**
      * How many animals this buffer ended up holding. Herds only, and it is not
      * the count the scan asked for: an animal whose own patch is too steep is
      * dropped at build time, so `stats.animals` reads this rather than the
@@ -2208,6 +2303,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
         const entry = pool.get(member);
         if (entry === undefined) continue;
         entry.geometry.dispose();
+        entry.glass?.dispose();
         pool.delete(member);
         usedAt.delete(member);
         if (!key.startsWith('w|')) break;
@@ -2249,14 +2345,35 @@ export function createLife(world: World, places: readonly Place[], options: Life
    * `PLACED_SECTION`, 1.35, he is 3.11 against a 3.77-unit pedestrian: a little
    * smaller, because the vehicles take less of `STATURE` than the people do.
    */
-  function buildVehicle(key: string, id: string, style: TrafficStyle, region: string, variant: number): Pooled | null | 'pending' {
+  function buildVehicle(key: string, id: string, style: TrafficStyle, region: string, variant: number, inside = false, rightHand = false): Pooled | null | 'pending' {
     const entry = registry.get(id);
     if (entry === undefined) return null;
     // A rider is a cast character when there is a cast, and the cast arrives
     // after the traffic can: a ridden vehicle waits for it rather than being
-    // pooled with the code-built body for the rest of the session.
-    if (entry.mounts.length > 0 && folk !== undefined && !folk.ready) return 'pending';
+    // pooled with the code-built body for the rest of the session. So does a
+    // near car's driver.
+    if ((entry.mounts.length > 0 || inside) && folk !== undefined && !folk.ready) return 'pending';
     const built = entry.build(traffic, variantRng(entry, style, variant), style);
+
+    // Near, a closed vehicle is glazed and driven (`CABIN_REACH`): its
+    // windows see-through, a cabin inside, and a driver at the wheel, so an
+    // occupied car reads as one at a glance. A vehicle with nothing to glaze
+    // is refused here, and the far build stands in for it.
+    if (inside) {
+      const drivers = glazeTraffic(built, findSceneryModel, rightHand);
+      if (drivers.length === 0) {
+        dispose(built);
+        return null;
+      }
+      for (const [n, seat] of drivers.entries()) {
+        // The hands on the wheel's rim, the elbows bent, as the hero drives
+        // (`holdWheel`): reached for straight, they met at the wheel's boss.
+        const driver = folk?.seated(`${key}|driver|${n}`, region, seat.height, { thigh: DRIVE_THIGH, shin: DRIVE_SHIN, wheel: seat.wheel }) ?? null;
+        if (driver === null) continue;
+        driver.position.copy(seat.hip);
+        built.add(driver);
+      }
+    }
 
     for (const mount of entry.mounts) {
       const rider = folk !== undefined ? castRider(key, region, mount) : codeRider(key, region, mount);
@@ -2266,12 +2383,29 @@ export function createLife(world: World, places: readonly Place[], options: Life
       built.add(rider);
     }
 
+    // The glass apart: it is drawn in its own see-through material.
+    const panes: THREE.Object3D[] = [];
+    built.traverse((object) => {
+      if (object.name === 'glass' && (object as THREE.Mesh).isMesh) panes.push(object);
+    });
+    for (const pane of panes) pane.removeFromParent();
     const scale = placedScale(entry);
     built.scale.set(scale[0], scale[1], scale[2]);
     const merged = mergeGroup(built);
     const geometry = geometryOf(merged);
     dispose(built);
-    return { geometry, triangles: merged.triangles, bytes: merged.position.byteLength * 4 };
+    let glass: THREE.BufferGeometry | undefined;
+    let glassBytes = 0;
+    if (panes.length > 0) {
+      const holder = new THREE.Group();
+      holder.scale.copy(built.scale);
+      holder.add(...panes);
+      const pane = mergeGroup(holder);
+      glass = geometryOf(pane);
+      glassBytes = pane.position.byteLength * 4;
+      dispose(holder);
+    }
+    return { geometry, glass, triangles: merged.triangles, bytes: merged.position.byteLength * 4 + glassBytes };
   }
 
   /**
@@ -2673,7 +2807,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
       const parts = key.split('|');
       if (parts[0] === 'v') {
         const style = trafficCache.get(parts[2]!);
-        const built = style === undefined ? null : buildVehicle(key, parts[1]!, style, parts[2]!, Number(parts[3]));
+        const built = style === undefined ? null : buildVehicle(key, parts[1]!, style, parts[2]!, Number(parts[3]), parts[4] === INSIDE || parts[4] === INSIDE_RIGHT, parts[4] === INSIDE_RIGHT);
         if (built === null) refused.add(key);
         else if (built !== 'pending') pool.set(key, built);
       } else if (parts[0] === 'w') {
@@ -3047,8 +3181,6 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
   function scan(viewer: THREE.Vector3, altitude: number): void {
     candidates.length = 0;
-    const reach = (base: number, ceiling: number): number =>
-      altitude > ceiling ? 0 : Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(base));
     /**
      * **A ceiling written as a zero reach does not switch a family off, and for
      * a while none of them did.** `slantRange(altitude, reach)` is
@@ -3063,16 +3195,16 @@ export function createLife(world: World, places: readonly Place[], options: Life
      * `distance > range` is a strict comparison and the ground under you is at
      * almost exactly `altitude`.
      */
-    const rangeFor = (base: number, ceiling: number): number => {
-      const along = reach(base, ceiling);
+    const rangeFor = (family: keyof typeof CEILING): number => {
+      const along = moverReach(family, altitude);
       return along <= 0 ? 0 : slantRange(altitude, along);
     };
-    const roadRange = rangeFor(ROAD_REACH, CEILING.road);
-    const waterRange = rangeFor(WATER_REACH, CEILING.water);
-    const footRange = rangeFor(FOOT_REACH, CEILING.foot);
-    const birdRange = rangeFor(BIRD_REACH, CEILING.air);
-    const herdRange = rangeFor(HERD_REACH, CEILING.herd);
-    stats.reach = reach(ROAD_REACH, CEILING.road);
+    const roadRange = rangeFor('road');
+    const waterRange = rangeFor('water');
+    const footRange = rangeFor('foot');
+    const birdRange = rangeFor('air');
+    const herdRange = rangeFor('herd');
+    stats.reach = moverReach('road', altitude);
 
     // --- the road, and the verge beside it -------------------------------
     //
@@ -3514,14 +3646,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
         if (point.distanceTo(viewer) > birdRange || !cone.admits(point, 140)) return;
         seen.add(key);
         if (flocks.has(key)) return;
-        flocks.set(key, {
-          centre,
-          radius: rng.range(FLOCK_RADIUS[0], FLOCK_RADIUS[1]),
-          altitude: altitudeOf,
-          rate: (rng.chance(0.5) ? 1 : -1) * rng.range(0.14, 0.3),
-          count: rng.int(FLOCK_MAX - FLOCK_MIN + 1) + FLOCK_MIN,
-          seed: rng.int(0x7fffffff),
-        });
+        const radius = rng.range(FLOCK_RADIUS[0], FLOCK_RADIUS[1]);
+        const rate = (rng.chance(0.5) ? 1 : -1) * rng.range(0.14, 0.3);
+        const count = rng.int(FLOCK_MAX - FLOCK_MIN + 1) + FLOCK_MIN;
+        const seed = rng.int(0x7fffffff);
+        flocks.set(key, { centre, radius, altitude: altitudeOf, rate, count, seed, birds: birdsOf(seed, count, radius) });
       });
     }
     for (const key of [...flocks.keys()]) if (!seen.has(key)) flocks.delete(key);
@@ -3584,17 +3713,18 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // of the whole planet.
     const cols = Math.min(24, Math.ceil(rows / Math.max(0.12, Math.cos(lat * DEG))));
     const row0 = Math.floor(lat / size);
-    const col0 = Math.floor(lon / size);
+    const count = columnsOf(size);
+    const col0 = Math.floor(lon / (360 / count));
     for (let dr = -rows; dr <= rows; dr++) {
       const row = row0 + dr;
       if (row * size < -89 || row * size > 88) continue;
-      for (let dc = -cols; dc <= cols; dc++) visit(row, col0 + dc);
+      for (let dc = -cols; dc <= cols; dc++) visit(row, wrapColumn(col0 + dc, count));
     }
   }
 
   /** A unit vector inside one lat/lon cell. The planet's own handedness. */
   function cellPoint(row: number, col: number, size: number, u: number, v: number): THREE.Vector3 {
-    return unitAt((row + u) * size, (col + v) * size, new THREE.Vector3());
+    return unitAt((row + u) * size, (col + v) * (360 / columnsOf(size)), new THREE.Vector3());
   }
 
   const wrap = (t: number): number => {
@@ -3642,11 +3772,11 @@ export function createLife(world: World, places: readonly Place[], options: Life
       // Banked into the turn, which is most of what says *circling* at 13 px.
       bankMatrix.makeRotationZ(flock.rate > 0 ? 0.34 : -0.34);
       for (let i = 0; i < flock.count && drawn < MAX_BIRDS; i++) {
-        const rng = rngFrom(flock.seed, 'bird', i);
-        const lead = rng.unit() * TAU;
-        const radius = flock.radius * rng.spread(1, 0.28);
-        const rise = rng.range(-14, 14);
-        const beatRate = rng.range(5.5, 8.5);
+        const birds = flock.birds;
+        const lead = birds[i * 4]!;
+        const radius = birds[i * 4 + 1]!;
+        const rise = birds[i * 4 + 2]!;
+        const beatRate = birds[i * 4 + 3]!;
         const angle = lead + clock * flock.rate;
         const c = Math.cos(angle);
         const s = Math.sin(angle);
@@ -4707,15 +4837,25 @@ export function createLife(world: World, places: readonly Place[], options: Life
       }
 
       const key = mover.family === 'foot'
-        ? `${mover.pool}|${Math.min(WALK_PHASES - 1, Math.floor(walkPhase(mover, clock) * WALK_PHASES))}`
+        ? phaseKeyOf(mover, Math.min(WALK_PHASES - 1, Math.floor(walkPhase(mover, clock) * WALK_PHASES)))
         : mover.pool;
-      const pooled = pool.get(key);
+      let pooled = pool.get(key);
       if (pooled !== undefined) usedAt.set(key, frameCount);
       if (pooled === undefined) {
         if (!refused.has(mover.pool)) wanted.add(mover.pool);
         if (mover.mesh !== null) mover.mesh.visible = false;
         if (mover.animated) releaseHerd(mover);
         continue;
+      }
+      // Near, a road vehicle's glazed and driven build in place of its plain
+      // one, once it is built: see `CABIN_REACH`.
+      if (mover.family === 'road' && mover.at.distanceTo(viewer) < CABIN_REACH) {
+        const insideKey = insideKeyOf(mover, mover.way?.keep === 1);
+        const inside = refused.has(insideKey) ? undefined : pool.get(insideKey);
+        if (inside !== undefined) {
+          usedAt.set(insideKey, frameCount);
+          pooled = inside;
+        } else if (!refused.has(insideKey)) wanted.add(insideKey);
       }
       if (!frame.live || !cone.keeps(mover.at, 20)) {
         if (mover.mesh !== null) mover.mesh.visible = false;
@@ -4740,6 +4880,20 @@ export function createLife(world: World, places: readonly Place[], options: Life
       }
       mesh.visible = true;
       if (mesh.geometry !== pooled.geometry) mesh.geometry = pooled.geometry;
+      // Its glass, a child in the glass's own material, while the build has any.
+      let pane = mesh.userData.glass as THREE.Mesh | undefined;
+      if (pooled.glass !== undefined) {
+        if (pane === undefined) {
+          pane = new THREE.Mesh(pooled.glass, glassMaterial());
+          pane.name = 'glass';
+          pane.castShadow = false;
+          pane.receiveShadow = true;
+          mesh.add(pane);
+          mesh.userData.glass = pane;
+        }
+        if (pane.geometry !== pooled.glass) pane.geometry = pooled.glass;
+        pane.visible = true;
+      } else if (pane !== undefined) pane.visible = false;
       if (way !== undefined) {
         way.shown = true;
         if (way.sized !== pooled.geometry) {

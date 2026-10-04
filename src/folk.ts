@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { AVATAR_HEIGHT, FIGURE, WALK_SPEED, WALK_STRIDE } from './avatar.ts';
-import { OUTFITS, castMaterial, castSkin, foldLegs, limbsOf, loadCast, paintWith, reachArms } from './cast.ts';
+import { OUTFITS, castMaterial, castSkin, foldLegs, holdWheel, limbsOf, loadCast, paintWith, reachArms } from './cast.ts';
 import { bakeSkin } from './models.ts';
-import type { Cast, ClipName, Person } from './cast.ts';
+import type { Cast, ClipName, Person, WheelGrip } from './cast.ts';
 import type { MonumentContext } from './monuments/contract.ts';
 import { coloursOf, wardrobeOf } from './appearance.ts';
 import type { Appearance } from './appearance.ts';
@@ -78,7 +78,8 @@ export interface Folk {
   /**
    * A person of `region` held seated, as a still mesh `height` tall: hips at
    * the origin, facing +Z, thighs along `thigh` and shins along `shin`, hands
-   * at `grip` when there is one (a point, hips at the origin). Painted, inked
+   * at `grip` when there is one (a point, hips at the origin) or on the rim of
+   * `wheel` (`holdWheel`, the elbows bent: a traffic driver's). Painted, inked
    * along its own `outlineNormal`, and ready to merge into a vehicle — a rider
    * rides still, so a rider is one frame of a cast character baked into the
    * vehicle's buffer. `null` until the cast has loaded.
@@ -90,6 +91,8 @@ export interface SeatPose {
   thigh: THREE.Vector3;
   shin: THREE.Vector3;
   grip?: THREE.Vector3;
+  /** A wheel about the hip, at this body's size, held as the hero holds his (`holdWheel`). */
+  wheel?: WheelGrip;
 }
 
 /** Marks a mesh whose colours are its vertices' for the flatteners; it is never drawn. */
@@ -154,7 +157,11 @@ export function createFolk(ctx: MonumentContext): Folk {
       idle.play();
       person.mixer.setTime(0.5);
       foldLegs(limbs, frame, pose.thigh, pose.shin);
-      if (pose.grip !== undefined) {
+      if (pose.wheel !== undefined) {
+        frame.updateMatrixWorld(true);
+        const hip = frame.worldToLocal(limbs.hips.getWorldPosition(new THREE.Vector3()));
+        holdWheel(limbs, frame, hip, pose.wheel, 0);
+      } else if (pose.grip !== undefined) {
         frame.updateMatrixWorld(true);
         const hip = frame.worldToLocal(limbs.hips.getWorldPosition(new THREE.Vector3()));
         reachArms(limbs, frame, pose.grip.clone().add(hip));

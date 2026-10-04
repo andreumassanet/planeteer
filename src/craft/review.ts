@@ -25,8 +25,9 @@ export interface SeatReview {
   seat: Seat;
   /**
    * The first surface under the hip (seated) or the soles (standing), less
-   * where it should be: 0 is a hip on its pan or soles on their floor. Null in a
-   * closed cab, which is a shell seen from inside and gives a ray nothing.
+   * where it should be: 0 is a hip on its pan or soles on their floor. Null on
+   * a seat that hides its body (`Seat.shown` false), which no craft has had
+   * since every closed one got a cabin (2026-10-04).
    */
   under: number | null;
   /** The roof over the crown, or null when nothing is over the head. */
@@ -77,9 +78,13 @@ function soupsOf(group: THREE.Object3D): Float32Array[] {
  * The area of every triangle with its centroid or a corner inside a box: crude,
  * and deliberately generous about what counts.
  */
-function areaInside(soups: readonly Float32Array[], min: readonly number[], max: readonly number[]): number {
+function areaInside(soups: readonly Float32Array[], min: readonly number[], max: readonly number[], arches: CraftModel['arches'] = []): number {
   const inside = (x: number, y: number, z: number) =>
     x > min[0]! && x < max[0]! && y > min[1]! && y < max[1]! && z > min[2]! && z < max[2]!;
+  // What is inside a wheel arch is not seen (`CraftModel.arches`): the arch's
+  // own faces, the tyre under it and the shell round it.
+  const arched = (x: number, y: number, z: number): boolean =>
+    arches.some((box) => x >= box.min[0] && x <= box.max[0] && y >= box.min[1] && y <= box.max[1] && z >= box.min[2] && z <= box.max[2]);
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
@@ -89,6 +94,7 @@ function areaInside(soups: readonly Float32Array[], min: readonly number[], max:
       a.fromArray(soup, i);
       b.fromArray(soup, i + 3);
       c.fromArray(soup, i + 6);
+      if (arched((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3)) continue;
       const hit =
         inside((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3) ||
         inside(a.x, a.y, a.z) ||
@@ -166,7 +172,9 @@ export function reviewCraft(model: CraftModel, variant = 0, group: THREE.Group =
       under = dropFrom(group, seat.x, seat.y + 0.005 * H, seat.z) - want;
       if (Math.abs(under) > 0.05 * H) own.push(`the first surface under the ${standing ? 'soles' : 'hip'} is ${f(under)} off`);
       if (seat.pose === 'sit') {
-        const feet = dropFrom(group, seat.x, seat.y - HERO.sole + 0.02 * H, seat.z + HERO.toe * 0.8);
+        // At the wheel the soles are nearer the hip and the toes further ahead (`HERO.drive`).
+        const drive = seat.legs === 'drive';
+        const feet = dropFrom(group, seat.x, seat.y - (drive ? HERO.drive.sole : HERO.sole) + 0.02 * H, seat.z + (drive ? HERO.drive.ankle : HERO.toe * 0.8));
         if (feet > 0.12 * H) own.push(`nothing under the feet for ${f(feet)}`);
       }
       if (seat.pose === 'ride') {
@@ -189,7 +197,7 @@ export function reviewCraft(model: CraftModel, variant = 0, group: THREE.Group =
     const inside: Record<string, number> = {};
     let total = 0;
     for (const envelope of envelopeOf(seat)) {
-      inside[envelope.name] = areaInside(soups, envelope.min, envelope.max);
+      inside[envelope.name] = areaInside(soups, envelope.min, envelope.max, model.arches);
       total += inside[envelope.name]!;
     }
     if (seat.shown && total > INTRUSION) {

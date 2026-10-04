@@ -839,6 +839,21 @@ export const seaWindow = {
 };
 
 /**
+ * The hull the sea stays out of: round the axis of the submarine the player is
+ * in, through four stations (`uHull`), `uHullR` across at each, a frustum
+ * between each pair and open at both ends; a first radius of 0 is none. A
+ * submarine at the surface floats with most of its hull under the water, and
+ * the sea's surface, opaque, ran straight through the cabin at the waterline
+ * — from the seat it was a floor of water over the real one. Inside the hull
+ * the sphere and the ribbon are not drawn (`addSeaWindow`'s `hide`), and the
+ * hull's own lining is what is seen.
+ */
+export const seaHull = {
+  uHull: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] },
+  uHullR: { value: new THREE.Vector4() },
+};
+
+/**
  * The window's cut, as GLSL: 1 inside, 0 outside, the band a ramp between,
  * compared with the screen door's threshold by whoever draws it. `world` is
  * the fragment's world position.
@@ -856,6 +871,7 @@ export function addSeaWindow(material: THREE.Material, mode: 'hide' | 'show'): v
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
     Object.assign(shader.uniforms, seaWindow);
+    if (mode === 'hide') Object.assign(shader.uniforms, seaHull);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSeaWindow;')
       .replace('#include <project_vertex>', '#include <project_vertex>\n  vSeaWindow = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -866,7 +882,7 @@ export function addSeaWindow(material: THREE.Material, mode: 'hide' | 'show'): v
 varying vec3 vSeaWindow;
 uniform vec3 uSeaCentre;
 uniform float uSeaRadius;
-uniform float uSeaBand;`,
+uniform float uSeaBand;${mode === 'hide' ? '\nuniform vec3 uHull[4];\nuniform vec4 uHullR;\nbool inHull(vec3 p, vec3 a, vec3 b, float ra, float rb) {\n  vec3 axis = b - a;\n  float t = dot(p - a, axis) / dot(axis, axis);\n  return t > 0.0 && t < 1.0 && length(p - (a + axis * t)) < mix(ra, rb, t);\n}' : ''}`,
       )
       .replace(
         '#include <clipping_planes_fragment>',
@@ -875,7 +891,12 @@ uniform float uSeaBand;`,
     float seaCut = ${seaWindowGLSL('vSeaWindow')};
     float seaDoor = ${DITHER_GLSL};
     if (${mode === 'hide' ? 'seaDoor < seaCut' : 'seaDoor >= seaCut'}) discard;
-  }`,
+  }${
+          mode === 'hide'
+            ? `
+  if (uHullR.x > 0.0 && (inHull(vSeaWindow, uHull[0], uHull[1], uHullR.x, uHullR.y) || inHull(vSeaWindow, uHull[1], uHull[2], uHullR.y, uHullR.z) || inHull(vSeaWindow, uHull[2], uHull[3], uHullR.z, uHullR.w))) discard;`
+            : ''
+        }`,
       );
   };
   const key = material.customProgramCacheKey.bind(material);

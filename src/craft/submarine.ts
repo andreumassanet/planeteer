@@ -4,11 +4,13 @@
  * hatch and a periscope, a bubble of a viewport at the bow, portholes down the
  * sides, dive planes and a rudder, and a screw astern.
  *
- * **A closed cab**, as a bus's is: the two seats are inside the hull, one
- * behind the other under the tower, and the bodies in them are not drawn —
- * every window in this world is opaque, and a body drawn through a hull
- * reads as a mistake. The seats are still sized round the seated hero, so
- * the hull's crown clears his.
+ * **A cabin you see out of** (since 2026-10-04): the two seats are inside the
+ * hull, one behind the other under the tower, and the hull is lined inside
+ * (`liner` in `cabin.ts`) and open at the bow, where the dome is see-through
+ * glass — the viewport the whole boat is built round. A floor, two seats and
+ * a console ahead of the front one; from outside, whoever is aboard is seen
+ * through the dome, and from the front seat the reef is seen through it.
+ * The seats are sized round the seated hero, so the hull's crown clears his.
  *
  * **What turns** is the screw, a `'prop'` about +Z, which the motion spins
  * with the throttle as it does a propeller's.
@@ -23,8 +25,9 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { HERO } from './body.ts';
-import { PROUD, assemble, craftContext, finish, lathe, loft, soupOf } from './build.ts';
-import type { Station, Turning } from './build.ts';
+import { GLASS_TINT, PROUD, assemble, craftContext, finish, lathe, loft, soupOf } from './build.ts';
+import type { Soup, Station, Turning } from './build.ts';
+import { instrumentPanel, joinSoups, liner, painted, probeOf, seatPieces } from './cabin.ts';
 
 const H = AVATAR_HEIGHT;
 const M = H / 1.75;
@@ -67,37 +70,19 @@ const PAINTS: readonly [number, number][] = [
 
 function buildSubmarine(variant: number): THREE.Group {
   const ctx = craftContext();
-  const { box, strut, column, tone, taper } = ctx;
+  const { box, strut, column, tone, taper, ringWall } = ctx;
   const [hull, trim] = PAINTS[((variant % PAINTS.length) + PAINTS.length) % PAINTS.length]!;
   const glass = tone(PALETTE.slate, 0.78);
   const group = new THREE.Group();
 
-  // The hull: a cigar, fuller forward, drawn to a point aft for the screw.
-  group.add(
-    loft(
-      [
-        round(STERN, 0.28 * M),
-        round(STERN + 0.9 * M, RADIUS * 0.62),
-        round(-2.2 * M, RADIUS * 0.94),
-        round(-0.6 * M, RADIUS),
-        round(1.6 * M, RADIUS),
-        round(3.0 * M, RADIUS * 0.86),
-        round(BOW - 0.35 * M, RADIUS * 0.55),
-      ],
-      hull,
-    ),
-  );
-  // The viewport: a dome of glass on the bow, the one big window.
-  const dome = lathe(
-    [[0, 0.62 * M], [0.38 * M, 0.52 * M], [0.62 * M, 0.26 * M], [RADIUS * 0.58, 0]],
-    glass,
-    12,
-  );
-  dome.rotation.x = Math.PI / 2;
-  dome.position.set(0, AXIS, BOW - 0.4 * M);
-  group.add(dome);
-  // A band of trim round the hull where the dome meets it, proud of the skin.
-  const band = column(RADIUS * 0.57 + PROUD, 0.18 * M, trim, 12);
+  // The hull: a cigar, fuller forward, drawn to a point aft for the screw,
+  // and open at the bow, where the dome is.
+  const shell = new THREE.Group();
+  shell.add(loft(HULL, hull, true));
+  group.add(shell);
+  // A band of trim round the hull where the dome meets it, proud of the skin:
+  // a ring, so the bow it stands round stays open.
+  const band = ringWall(RADIUS * 0.535, RADIUS * 0.57 + PROUD, 0.18 * M, trim, 12);
   band.rotation.x = Math.PI / 2;
   band.position.set(0, AXIS, BOW - 0.45 * M);
   group.add(band);
@@ -172,7 +157,86 @@ function buildSubmarine(variant: number): THREE.Group {
   }
   const turning: Turning[] = [{ name: 'prop', at: new V(0, AXIS, STERN - 0.12 * M), soup: soupOf(screw) }];
 
-  return assemble('submarine', [soupOf(group)], turning);
+  return assemble('submarine', [soupOf(group)], turning, { glass: [dome()], cabin: [cabinOf(soupOf(shell))] });
+}
+
+/** The hull's sections, aft to fore. */
+const HULL: readonly Station[] = [
+  round(STERN, 0.28 * M),
+  round(STERN + 0.9 * M, RADIUS * 0.62),
+  round(-2.2 * M, RADIUS * 0.94),
+  round(-0.6 * M, RADIUS),
+  round(1.6 * M, RADIUS),
+  round(3.0 * M, RADIUS * 0.86),
+  round(BOW - 0.35 * M, RADIUS * 0.55),
+];
+
+/** The viewport: a dome of see-through glass on the open bow, the one big window. */
+function dome(): Soup {
+  const holder = new THREE.Group();
+  const shape = lathe([[0, 0.62 * M], [0.38 * M, 0.52 * M], [0.62 * M, 0.26 * M], [RADIUS * 0.58, 0]], PALETTE.slate, 12);
+  shape.rotation.x = Math.PI / 2;
+  shape.position.set(0, AXIS, BOW - 0.4 * M);
+  holder.add(shape);
+  return painted(soupOf(holder), GLASS_TINT);
+}
+
+/**
+ * Where the sea is kept out of the hull while it floats (`seaHull` in
+ * `ocean.ts`): along the axis from behind the rear seat to the dome, through
+ * four of the hull's own stations, a little inside the lining at each; each
+ * station's z about the front seat's, which `finish` moves with the hull.
+ */
+export const SUB_DRY = {
+  y: AXIS,
+  stations: [
+    [-2.2 * M - FRONT, RADIUS * 0.88],
+    [1.6 * M - FRONT, RADIUS * 0.95],
+    [3.0 * M - FRONT, RADIUS * 0.82],
+    [BOW - 0.4 * M - FRONT, RADIUS * 0.52],
+  ] as const,
+};
+
+/** The floor's top, under the soles of the two seated in the hull. */
+const FLOOR = HIP - HERO.sole;
+
+/**
+ * The inside: the hull lined, a floor laid across it at the soles, the two
+ * seats, and a console ahead of the front one with its instruments facing
+ * it, under the line from the eye to the dome.
+ */
+function cabinOf(shell: Soup): Soup {
+  const { box, tone } = craftContext();
+  const probe = probeOf([shell]);
+  const lining = liner(shell, {
+    keep: () => true,
+    colour: (y) => (y < FLOOR ? tone(PALETTE.steel, 0.8) : PALETTE.bone),
+  });
+  const group = new THREE.Group();
+  const keepIn = 0.03 * H;
+  const half = (z: number): number => Math.max(0.1 * H, Math.min(probe.wall(FLOOR, z, 1), probe.wall(FLOOR, z, -1)) - keepIn);
+  // From behind the rear seat forward for as long as the hull is deep enough
+  // under it: the hull narrows to the bow, and a floor past where its bottom
+  // rises over the floor's would stand out through it.
+  const deep = (z: number): boolean => probe.floor(0, AXIS, z) < FLOOR - 0.03 * H - keepIn;
+  const from = REAR - HERO.back - 0.2 * H;
+  let to = FRONT;
+  while (to + 0.1 * M < BOW && deep(to + 0.1 * M)) to += 0.1 * M;
+  const steps = 6;
+  const floor: Station[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const z = from + ((to - from) * i) / steps;
+    const w = half(z);
+    floor.push({ z, ring: [[-w, FLOOR - 0.03 * H], [w, FLOOR - 0.03 * H], [w, FLOOR], [-w, FLOOR]] });
+  }
+  group.add(loft(floor, tone(PALETTE.bark, 0.8)));
+  for (const seat of SEATS) group.add(seatPieces(seat, FLOOR, PALETTE.bark));
+  const front = SEATS[0]!;
+  group.add(instrumentPanel(front, 0.5 * H, 0.22 * H, HERO.toe + 0.05 * H, PALETTE.steel, 3));
+  const stand = box(0.3 * H, front.y + 0.08 * H - FLOOR, 0.08 * H, tone(PALETTE.steel, 0.8));
+  stand.position.set(0, FLOOR, front.z + HERO.toe + 0.09 * H);
+  group.add(stand);
+  return joinSoups([lining, soupOf(group)]);
 }
 
 /** The tower's section, `share` of its full size: a rounded box from inside the hull to its top. */
@@ -192,8 +256,8 @@ function towerRing(share: number): [number, number][] {
 }
 
 const SEATS: readonly Seat[] = [
-  { x: 0, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: false },
-  { x: 0, y: HIP, z: REAR, yaw: 0, pose: 'sit', shown: false },
+  { x: 0, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true },
+  { x: 0, y: HIP, z: REAR, yaw: 0, pose: 'sit', shown: true },
 ];
 
 export function submarineModel(): CraftModel {

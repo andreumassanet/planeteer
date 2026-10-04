@@ -5,7 +5,7 @@ import { OutlineEffect } from '../outline.ts';
 import { SKY_TOP } from '../theme.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { loadCraft } from '../craft/index.ts';
-import { bodyFrame } from '../craft/body.ts';
+import { COCKPIT_NEAR, SEAT_EYE, bodyFrame } from '../craft/body.ts';
 import { reviewCraft } from '../craft/review.ts';
 import type { CraftReview } from '../craft/review.ts';
 import type { CraftModel, Seat } from '../craft/contract.ts';
@@ -22,6 +22,9 @@ import type { CraftModel, Seat } from '../craft/contract.ts';
  * a hull's sheer and a car's roof line are; the plane adds the overhead,
  * which is the framing it spends a flight in, and the balloon a close look at
  * its basket, because at the whole balloon's framing the basket is a crumb.
+ * Every craft a body sits inside — and the plane — adds the driver's eye:
+ * first person from the seat, the body without its head, the hands on the
+ * wheel, through the glass (`craft/cabin.ts`).
  *
  * **One more hero stands beside each craft**, on the ground or on a jetty,
  * because a model without a person next to it has no size.
@@ -43,8 +46,12 @@ interface ViewSpec {
   azimuth: number;
   /** Degrees over the horizon. */
   elevation: number;
-  /** Frame the whole craft, or only the people in it. */
-  frame: 'whole' | 'seats';
+  /**
+   * Frame the whole craft, or only the people in it, or look out of the
+   * driver's eyes, as first person in the seat does (`Player.seatEye`): the
+   * body drawn without its head, the near plane the game's (`COCKPIT_NEAR`).
+   */
+  frame: 'whole' | 'seats' | 'eye';
 }
 
 const VIEWS: ViewSpec[] = [
@@ -52,8 +59,18 @@ const VIEWS: ViewSpec[] = [
   { label: 'three-quarter front', note: 'the faces', azimuth: 140, elevation: 16, frame: 'whole' },
   { label: 'side', note: 'the sheer, the roof line', azimuth: 90, elevation: 5, frame: 'whole' },
 ];
+/** Out of the driver's eyes, for every craft a body sits inside. */
+const EYE: ViewSpec = { label: "the driver's eye", note: 'first person: the wheel, the hands, the glass', azimuth: 0, elevation: -8, frame: 'eye' };
 const EXTRA: Record<string, ViewSpec[]> = {
-  'light-plane': [{ label: 'overhead', note: 'the map camera: four heads from above', azimuth: 25, elevation: 72, frame: 'whole' }],
+  hatchback: [EYE],
+  van: [EYE],
+  jeep: [EYE],
+  pickup: [EYE],
+  tractor: [EYE],
+  bus: [EYE],
+  helicopter: [EYE],
+  submarine: [EYE],
+  'light-plane': [{ label: 'overhead', note: 'the map camera: four heads from above', azimuth: 25, elevation: 72, frame: 'whole' }, EYE],
   balloon: [{ label: 'the basket', note: 'four standing, the rim at the chest', azimuth: 150, elevation: 20, frame: 'seats' }],
   launch: [{ label: 'the cockpit', note: 'hips on the pans, feet on the sole', azimuth: 200, elevation: 38, frame: 'seats' }],
   motorbike: [{ label: 'the far side', note: 'the exhaust, the fins, the disc', azimuth: 270, elevation: 8, frame: 'whole' }],
@@ -156,7 +173,13 @@ async function main(): Promise<void> {
 
     let target: THREE.Vector3;
     let radius: number;
-    if (view.frame === 'seats') {
+    if (view.frame === 'eye') {
+      // The eye in the driver's seat, and ahead of it, level; the driver's head put away.
+      const seat = model.seats[0]!;
+      riders[0]?.avatar.setHeadless(true);
+      target = new THREE.Vector3(seat.x, seat.y + SEAT_EYE.up, seat.z + SEAT_EYE.ahead);
+      radius = 0;
+    } else if (view.frame === 'seats') {
       const box = new THREE.Box3();
       for (const seat of model.seats) {
         box.expandByPoint(new THREE.Vector3(seat.x, seat.y - 0.5 * H, seat.z));
@@ -170,7 +193,7 @@ async function main(): Promise<void> {
       radius = whole;
     }
     const distance = (radius / Math.sin((FOV / 2) * DEG)) * 1.02;
-    const camera = new THREE.PerspectiveCamera(FOV, 1.25, 0.1, distance * 8 + 200);
+    const camera = view.frame === 'eye' ? new THREE.PerspectiveCamera(60, 1.25, COCKPIT_NEAR, 400) : new THREE.PerspectiveCamera(FOV, 1.25, 0.1, distance * 8 + 200);
 
     const frame = document.createElement('div');
     frame.className = 'cell';
@@ -300,7 +323,8 @@ async function main(): Promise<void> {
       if (running) {
         for (const rider of cell.riders) {
           rider.avatar.group.visible = rider.seat.shown || hiddenInput.checked;
-          if (rider.seat.pose === 'sit') rider.avatar.sit(dt);
+          if (rider.seat.pose === 'sit') rider.avatar.sit(dt, rider.seat, 0);
+          else if (rider.seat.pose === 'ride') rider.avatar.ride(dt, rider.seat, 0);
           else rider.avatar.stride(dt, 0, false);
         }
         cell.scale.stride(dt, 0, false);
@@ -311,13 +335,23 @@ async function main(): Promise<void> {
 
       const azimuth = cell.view.azimuth * DEG + (turnInput.checked ? spin : 0);
       const elevation = cell.view.elevation * DEG;
-      // Azimuth 0 is behind the craft, which faces +Z.
-      cell.camera.position.set(
-        cell.target.x + Math.sin(azimuth) * Math.cos(elevation) * cell.distance,
-        cell.target.y + Math.sin(elevation) * cell.distance,
-        cell.target.z - Math.cos(azimuth) * Math.cos(elevation) * cell.distance,
-      );
-      cell.camera.lookAt(cell.target);
+      if (cell.view.frame === 'eye') {
+        // From the eye, ahead and a little down; turning, the head turns.
+        cell.camera.position.copy(cell.target);
+        cell.camera.lookAt(
+          cell.target.x + Math.sin(azimuth) * Math.cos(elevation),
+          cell.target.y + Math.sin(elevation),
+          cell.target.z + Math.cos(azimuth) * Math.cos(elevation),
+        );
+      } else {
+        // Azimuth 0 is behind the craft, which faces +Z.
+        cell.camera.position.set(
+          cell.target.x + Math.sin(azimuth) * Math.cos(elevation) * cell.distance,
+          cell.target.y + Math.sin(elevation) * cell.distance,
+          cell.target.z - Math.cos(azimuth) * Math.cos(elevation) * cell.distance,
+        );
+        cell.camera.lookAt(cell.target);
+      }
       cell.camera.aspect = rect.width / rect.height;
       cell.camera.updateProjectionMatrix();
 

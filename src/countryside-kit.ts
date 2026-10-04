@@ -9,7 +9,7 @@ import type { TreeForm } from './scenery/tree-forms.ts';
 import { bodyPaint, isGlass } from './models.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { buildBench } from './bench.ts';
-import { parkedModel } from './craft/parked.ts';
+import { parkedModel, unfurnish } from './craft/parked.ts';
 import { PALETTE } from './theme.ts';
 
 /**
@@ -244,7 +244,8 @@ const tractor: CountryPart = {
     const model = parkedModel('tractor');
     if (model === null) throw new Error("countryside: the fleet's tractor needs the traffic kit registered");
     const holder = new THREE.Group();
-    holder.add(model.build(rng.int(model.variants)));
+    // As its tile stands it: its cabin left out and its glass opaque (`unfurnish`).
+    holder.add(unfurnish(model.build(rng.int(model.variants))));
     return holder;
   },
 };

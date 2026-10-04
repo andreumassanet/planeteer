@@ -30,6 +30,7 @@
  */
 import type * as THREE from 'three';
 import type { Honk } from '../../server/src/limits.ts';
+import type { WheelGrip } from '../cast.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { RIDER_HEIGHT } from '../traffic/contract.ts';
 
@@ -140,8 +141,28 @@ export interface Seat {
    * down either side to `feet` and the hands on `grip`.
    */
   pose: 'sit' | 'stand' | 'ride';
-  /** False inside a closed cab, where a body would be drawn through the roof. */
+  /**
+   * Whether a body on it is drawn. Every seat of every craft is shown since
+   * 2026-10-04, when the closed ones got glass you can see through and a
+   * cabin to sit in (`cabin.ts`): until then a closed cab's seats were
+   * hidden, because its windows were opaque slate and a body there could
+   * only put its head through the roof at some angle. Kept, for a seat that
+   * some day has to hide again, and because the relay's peers read it.
+   */
   shown: boolean;
+  /**
+   * Seated in a car: `drive` folds the legs forward to the pedals rather
+   * than hanging them as a chair does (`DRIVE_THIGH` in `avatar.ts`,
+   * `HERO.drive` in `body.ts`), because a car's floor is far nearer the hip
+   * than a chair's. Absent is a chair.
+   */
+  legs?: 'chair' | 'drive';
+  /**
+   * The driver's wheel, which the hands are put on and which turns with the
+   * steering (`holdWheel` in `cast.ts`, the `'steer'` part in `motion.ts`):
+   * its middle about the hip in the seat's frame, its tilt, radius and grip.
+   */
+  wheel?: WheelGrip;
   /**
    * Astride: where the hands hold — the bars, the reins — about the hip, in
    * the seat's own frame (+X the rider's left, +Z ahead).
@@ -187,6 +208,16 @@ export interface CraftModel {
    * as `HEADLIGHTS_OF` says the kind lights; absent where it has none.
    */
   lamps?: readonly Lamp[];
+  /**
+   * Inside a closed cabin, the covers over the road wheels where they come up
+   * into it (`roadCabin` in `cabin.ts`), as boxes in the model's frame: the
+   * pack's wheels are a third of a car's width each, so a rear passenger's
+   * outer hip and a driver's outer foot go into one, under the window line
+   * and under the dashboard where nothing of them is seen. What a body on a
+   * seat may share with the model there is not counted against it
+   * (`review.ts`).
+   */
+  arches?: readonly { min: readonly [number, number, number]; max: readonly [number, number, number] }[];
   /** How many looks the model has; `build` takes one of `0 .. variants - 1`. */
   variants: number;
   /**

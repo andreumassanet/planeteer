@@ -31,10 +31,10 @@
 import * as THREE from 'three';
 import type { Folk } from './folk.ts';
 import { decodeAppearance } from './appearance.ts';
-import { foldLegs, handHold, limbsOf, poseAstride } from './cast.ts';
-import type { AstrideSeat } from './cast.ts';
+import { foldLegs, handHold, holdWheel, limbsOf, poseAstride } from './cast.ts';
+import type { AstrideSeat, SeatedPose } from './cast.ts';
 import type { HandHold, Limbs, Person } from './cast.ts';
-import { AVATAR_HEIGHT, SEAT_SHIN, SEAT_THIGH, createMotion } from './avatar.ts';
+import { AVATAR_HEIGHT, DRIVE_SHIN, DRIVE_THIGH, SEAT_SHIN, SEAT_THIGH, createMotion } from './avatar.ts';
 import type { Motion } from './avatar.ts';
 import type { Player } from './player.ts';
 import { PLAYER_STATES } from './craft/contract.ts';
@@ -62,13 +62,19 @@ const NAME_KEY = 'atlas.peers.name';
 /** A gesture not yet made this long after it was heard is not made at all: a wave is a moment. */
 const GESTURE_STALE_MS = 3_000;
 /**
- * The least time between two looks sent, a little over the relay's own
- * (`LOOK_INTERVAL_MS` in `server/src/index.ts`), which drops one sooner: a
- * run of clicks on the card sends the first at once and the last after this.
+ * The least time between two looks sent, half as long again as the relay's
+ * own (`LOOK_INTERVAL_MS` in `server/src/index.ts`), which drops one sooner
+ * without a word: a run of clicks on the card sends the first at once and the
+ * last after this. The relay paces by arrival, and a tenth of a second of
+ * margin was less than one message delayed on a busy link brings the next to.
  */
-const LOOK_SEND_MS = 1100;
-/** The least time between two changes of flags sent, a little over the relay's `FLAGS_INTERVAL_MS`. */
-const FLAGS_SEND_MS = 250;
+const LOOK_SEND_MS = 1500;
+/**
+ * The least time between two changes of flags sent, twice the relay's
+ * `FLAGS_INTERVAL_MS`, for the same reason: a change it drops is not sent
+ * again, and the others saw a canopy or a bench that had gone.
+ */
+const FLAGS_SEND_MS = 400;
 /**
  * How far under the water's surface a swimmer's state has to be for the
  * body to dive: `UNDER_FROM` in `player.ts`, which says when the player's
@@ -175,8 +181,8 @@ export interface PeerSeat {
 
 /**
  * How a seat frame from `FleetSeats.seatFrame` says what a body in it looks
- * like, by the frame's `userData`: `shown: false` inside a closed cab, where
- * the body is not drawn, and `pose: 'stand'` at a helm or in a basket, where
+ * like, by the frame's `userData`: `shown: false` on a seat that hides its
+ * body (none since 2026-10-04, when the closed craft got glass and a cabin), and `pose: 'stand'` at a helm or in a basket, where
  * the body stands with its hip at the frame, `pose: 'ride'` astride, to the
  * `seat`'s grip and footrests and round its crank at the `motion`'s phase.
  * All optional; a frame without them is a visible seat, sat in.
@@ -184,8 +190,10 @@ export interface PeerSeat {
 export interface SeatFrameData {
   shown?: boolean;
   pose?: 'sit' | 'stand' | 'ride';
-  seat?: AstrideSeat;
-  motion?: { readonly phase: number };
+  /** Astride, its grip and footrests; seated, how the legs fold and the wheel the hands are on (`SeatedPose`). */
+  seat?: AstrideSeat & SeatedPose;
+  /** The vehicle's motion: a crank's phase, and its steering wheel's turn. */
+  motion?: { readonly phase: number; readonly steer?: number };
 }
 
 /**
@@ -254,11 +262,13 @@ export function storedName(): string {
 }
 
 /**
- * A name as the relay will take it: printable, one line, twenty characters.
+ * A name as the relay will take it: printable, one line, twenty characters
+ * — code points, so an emoji at the twentieth is kept whole or not at all,
+ * never cut to half a pair that draws as a box.
  * The relay cleans it again (`cleanName` in `server/src/index.ts`); this is
  * so that what the field shows is what the others will see.
  */
-export const cleanName = (name: string): string => name.replace(/[\p{C}<>]/gu, '').trim().slice(0, 20);
+export const cleanName = (name: string): string => Array.from(name.replace(/[\p{C}<>]/gu, '').trim()).slice(0, 20).join('').trim();
 
 /**
  * Keeps a name for the next connection without a connection of its own: the
@@ -693,7 +703,8 @@ export function createPeers(url: string, folk: Folk, options: PeersOptions = {})
     body.hold.off();
     body.motion.still(dt);
     body.hold.on();
-    if (pose === 'sit') foldLegs(body.limbs, peer.holder, SEAT_THIGH, SEAT_SHIN);
+    const driving = data.seat?.legs === 'drive';
+    if (pose === 'sit') foldLegs(body.limbs, peer.holder, driving ? DRIVE_THIGH : SEAT_THIGH, driving ? DRIVE_SHIN : SEAT_SHIN);
     else if (pose === 'ride' && data.seat !== undefined) {
       peer.holder.updateMatrixWorld(true);
       hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));
@@ -702,6 +713,9 @@ export function createPeers(url: string, folk: Folk, options: PeersOptions = {})
     peer.holder.updateMatrixWorld(true);
     hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));
     root.position.sub(hipAt);
+    // At a wheel, the hands on it once the hips are on the frame: the hip is
+    // the frame's own origin then, and the wheel turns as the vehicle does.
+    if (pose === 'sit' && data.seat?.wheel !== undefined) holdWheel(body.limbs, peer.holder, hipAt.set(0, 0, 0), data.seat.wheel, data.motion?.steer ?? 0);
   }
 
   /** Puts the holder on a seat frame, through whatever carries this group. False when the seat is not drawn. */

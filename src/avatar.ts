@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { aimArm, aimLeg, castMaterial, foldLegs, handHold, limbsOf, loadCast, paintWith, poseAstride, twoBone } from './cast.ts';
-import type { AstrideSeat, Cast, ClipName, HandHold, Limbs, Person } from './cast.ts';
+import { aimArm, aimLeg, castMaterial, foldLegs, handHold, holdWheel, limbsOf, loadCast, paintWith, poseAstride, twoBone } from './cast.ts';
+import type { AstrideSeat, Cast, ClipName, HandHold, Limbs, Person, SeatedPose } from './cast.ts';
 import {
   DEFAULT_APPEARANCE,
   WARDROBE_OUTFITS,
@@ -329,6 +329,19 @@ export function dressHero(appearance: Appearance): Promise<void> {
  */
 export const SEAT_THIGH = new THREE.Vector3(0, -0.12, 1).normalize();
 export const SEAT_SHIN = new THREE.Vector3(0, -1, 0.08).normalize();
+/**
+ * How a body at the wheel of a car folds its legs (`SeatedPose.legs` of
+ * `drive`): the thigh a little up off the cushion and the shin forward and
+ * down to the pedals, at about fifty degrees off the vertical. A chair's fold
+ * puts the soles 0.28 of a body under the hip; a car's floor is far nearer
+ * the hip than that — a real one's heel point is 0.25 to 0.4 m under the
+ * hip point — and the pack's cars carry their floor high over the road, so
+ * the chair's soles came out through the bottom of the car. Folded so, the
+ * soles are 0.13 of a body under the hip and the toes half a body ahead
+ * (`HERO.drive` in `craft/body.ts`, measured off the cast by `pnpm craft`).
+ */
+export const DRIVE_THIGH = new THREE.Vector3(0, 0.12, 1).normalize();
+export const DRIVE_SHIN = new THREE.Vector3(0, -0.62, 0.78).normalize();
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -1034,8 +1047,20 @@ export interface Avatar {
     pull?: number,
     lag?: readonly [number, number],
   ): void;
-  /** Seated at the controls of the floatplane, hips at `FIGURE.hipY`. */
-  sit(dt: number): void;
+  /**
+   * Seated, hips at `FIGURE.hipY`: on a chair or a bench, or in a car with
+   * the legs to the pedals and the hands on its wheel, turned `turn` radians
+   * (`SeatedPose`, `CraftMotion.steer`).
+   */
+  sit(dt: number, seat?: SeatedPose, turn?: number): void;
+  /**
+   * The head put away, for the eye inside it: in first person in a seat the
+   * body is drawn — the arms on the wheel, the knees under the dash — and the
+   * head, which the lens is inside, is folded to a point on its bone.
+   */
+  setHeadless(headless: boolean): void;
+
+
   /**
    * Astride — a saddle, a bicycle, a jet ski — hips at `FIGURE.hipY` as
    * seated, the legs to the seat's footrests or round its crank at `phase`,
@@ -1065,6 +1090,12 @@ export interface Avatar {
    * one still loading.
    */
   wear(appearance: Appearance): Promise<void>;
+  /**
+   * Done with: the body goes back to the cast's pool (`Cast.release`, never
+   * disposed), a hero stops being dressed by `dressHero`, and a `wear` still
+   * loading is dropped. A world's traveller and its drivers, on leaving it.
+   */
+  dispose(): void;
 }
 
 /** One dressed body. Swapped whole by `wear`; the motion carries over. */
@@ -1129,6 +1160,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     motion.foot(dt, speed, airborne, cues);
+    if (headless) foldHead();
   }
 
   function swim(dt: number, speed: number, sink: number, under = 0): void {
@@ -1152,18 +1184,32 @@ export function buildAvatar(appearance?: Appearance): Avatar {
    * by hand (`foldLegs` in `cast.ts`, which carries each foot, an IK control
    * under the root, to its folded ankle), because the pack has no sitting clip.
    */
-  function sit(dt: number): void {
+  function sit(dt: number, seat?: SeatedPose, turn = 0): void {
     handsOff();
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
     motion.still(dt, 4);
     handsOn();
-    foldLegs(rig.limbs, group, SEAT_THIGH, SEAT_SHIN);
+    const driving = seat?.legs === 'drive';
+    foldLegs(rig.limbs, group, driving ? DRIVE_THIGH : SEAT_THIGH, driving ? DRIVE_SHIN : SEAT_SHIN);
     // Put this character's own hips where `FIGURE` says a seated hip is.
     hipAt.copy(group.worldToLocal(rig.limbs.hips.getWorldPosition(to)));
     body.position.x -= hipAt.x;
     body.position.y += FIGURE.hipY - hipAt.y;
     body.position.z -= hipAt.z;
+    // The hands on the wheel, once the hips are where they sit: the
+    // shoulders the arms are solved from move with them.
+    if (seat?.wheel !== undefined) holdWheel(rig.limbs, group, hipAt.set(0, FIGURE.hipY, 0), seat.wheel, turn);
+    foldHead();
+  }
+
+  /** The head bone's own scale, kept while it is folded away; see `setHeadless`. */
+  let headless = false;
+  function foldHead(): void {
+    const head = rig.person.bones.get('Head');
+    if (head === undefined) return;
+    if (headless) head.scale.setScalar(1e-3);
+    else head.scale.setScalar(1);
   }
 
   function ride(dt: number, seat: AstrideSeat, phase: number): void {
@@ -1180,6 +1226,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     body.position.x -= hipAt.x;
     body.position.y += FIGURE.hipY - hipAt.y;
     body.position.z -= hipAt.z;
+    foldHead();
   }
 
   const skyTurn = new THREE.Vector3();
@@ -1293,6 +1340,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     body.position.set(0, 0, 0);
     motion.still(dt);
     body.rotation.set(0, 0, -heel * 0.65);
+    foldHead();
   }
 
   function reset(): void {
@@ -1314,7 +1362,9 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     rig = dress(fitted);
     body.remove(old.person.root);
     motion.rebind(rig.person);
+    old.person.bones.get('Head')?.scale.setScalar(1);
     cast.release(old.person);
+    foldHead();
   }
 
   if (hero) heroes.add(wear);
@@ -1329,6 +1379,11 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     sit,
     ride,
     reset,
+    setHeadless(on) {
+      if (on === headless) return;
+      headless = on;
+      foldHead();
+    },
     wear,
     emote: (name) => motion.emote(name),
     get emoting() {
@@ -1339,6 +1394,16 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     },
     get appearance() {
       return { ...rig.appearance };
+    },
+    dispose() {
+      asked++;
+      heroes.delete(wear);
+      handsOff();
+      motion.unlay();
+      group.removeFromParent();
+      body.remove(rig.person.root);
+      rig.person.bones.get('Head')?.scale.setScalar(1);
+      cast.release(rig.person);
     },
   };
 }

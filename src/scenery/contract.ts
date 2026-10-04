@@ -762,6 +762,11 @@ export function registerSceneryModels(models: Iterable<Model>): void {
   for (const model of models) SCENERY_MODELS.set(model.name, model);
 }
 
+/** A registered model by its name, or null: for a caller asking whether a mesh is one (`glazeTraffic`). */
+export function findSceneryModel(id: string): Model | null {
+  return SCENERY_MODELS.get(id) ?? null;
+}
+
 export function sceneryModel(id: string): Model {
   const model = SCENERY_MODELS.get(id);
   if (model === undefined) {
@@ -1199,6 +1204,11 @@ export function createSceneryContext(base: MonumentContext = createContext()): S
 
   return {
     ...base,
+    dispose() {
+      paintedMaterial?.dispose();
+      paintedMaterial = null;
+      base.dispose();
+    },
     painted,
     coloured,
     fitted,

@@ -11,8 +11,10 @@ import type { Vehicle } from '../contract.ts';
  * so a toy-proportioned asset is fitted by width (see `TrafficContext.vehicle`)
  * and comes out shorter than the code car was, 4.87 against 5.16.
  *
- * No mount. The glass is opaque slate like every window in this world, so a
- * driver is never seen, and a rider nobody sees is ~700 triangles a car.
+ * No mount. Its driver is not the part's: near enough to be seen through the
+ * glass, `life.ts` glazes the car and seats one at the wheel (`glazeTraffic`
+ * in `craft/cars.ts`, `CABIN_REACH`), and past that a driver nobody sees
+ * would be ~700 triangles a car.
  */
 const MODEL = 'hatchback-sports';
 

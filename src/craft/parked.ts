@@ -25,6 +25,9 @@ import { mergeMeshes } from '../merge.ts';
 import type { Merged } from '../merge.ts';
 import type { Model } from '../models.ts';
 import type { CraftModel } from './contract.ts';
+import { craftMaterial } from './build.ts';
+import { tone } from '../monuments/contract.ts';
+import { PALETTE } from '../theme.ts';
 import { buildCars } from './cars.ts';
 import { bicycleModel } from './cycles.ts';
 import { buildPartCraft } from './traffic-craft.ts';
@@ -79,21 +82,76 @@ export function parkedModel(craft: string): CraftModel | null {
   return models.get(craft) ?? null;
 }
 
+/** A parked craft's buffers: everything opaque, and its see-through glass where it was asked for apart. */
+export type ParkedArrays = Merged & { glass?: Merged };
+
 /**
  * A craft's look as one buffer, at `scale` about its base: what a town or a
  * tile merges where it stands. Every mesh's geometry is dropped once read.
+ *
+ * **Glazed or opaque.** A closed craft carries a cabin and see-through glass
+ * (`Inside` in `build.ts`), and the buffer it is merged into is one material
+ * that cannot be see-through. `glazed` hands the glass back apart, as its
+ * own buffer, for the caller to draw in the glass's material over a cabin
+ * merged with the rest — a town does, so a parked car with nobody in it
+ * reads as empty. Otherwise the cabin is left out, its wheel and needle with
+ * it, and the glass is painted the opaque slate every window in the world
+ * was until 2026-10-04 (`OPAQUE_GLASS`): a farm's tractor in a field, seen
+ * from a road, needs no seat drawn inside it.
  */
-export function parkedArrays(model: CraftModel, variant: number, paint: number | undefined, scale = 1): Merged {
+export function parkedArrays(model: CraftModel, variant: number, paint: number | undefined, scale = 1, glazed = false): ParkedArrays {
   const group = model.build(variant, paint);
   const holder = new THREE.Group();
   holder.scale.setScalar(scale);
   holder.add(group);
-  const merged = mergeMeshes(holder);
+  const glass = group.getObjectByName('glass') as THREE.Mesh | undefined;
+  let panes: Merged | undefined;
+  if (glass !== undefined) {
+    if (glazed) {
+      glass.removeFromParent();
+      const alone = new THREE.Group();
+      alone.scale.setScalar(scale);
+      alone.add(glass);
+      panes = mergeMeshes(alone);
+      glass.geometry.dispose();
+    } else unfurnish(group);
+  }
+  const merged: ParkedArrays = mergeMeshes(holder);
+  if (panes !== undefined) merged.glass = panes;
   group.traverse((object) => {
     const mesh = object as THREE.Mesh;
     if (mesh.isMesh) mesh.geometry.dispose();
   });
   return merged;
+}
+
+/** The opaque windows' colour: `slate` toned as `GLASS_TONE` in the scenery contract has it (`bodyPaint`). */
+export const OPAQUE_GLASS = tone(PALETTE.slate, 0.72);
+
+/**
+ * A built craft as a buffer that cannot carry glass stands it, in place: its
+ * cabin left out, its wheel and needle with it, and its glass painted
+ * `OPAQUE_GLASS` in the craft's own material, so it merges with the rest.
+ * What a farm's tile draws (`parkedArrays`), and the countryside kit's own
+ * build of the same tractor for its checks and sheets.
+ */
+export function unfurnish(group: THREE.Object3D): THREE.Object3D {
+  for (const name of ['cabin', 'steer', 'needle']) {
+    for (let part = group.getObjectByName(name); part !== undefined; part = group.getObjectByName(name)) {
+      part.traverse((object) => {
+        if ((object as THREE.Mesh).isMesh) (object as THREE.Mesh).geometry.dispose();
+      });
+      part.removeFromParent();
+    }
+  }
+  const glass = group.getObjectByName('glass') as THREE.Mesh | undefined;
+  if (glass !== undefined) {
+    const colour = glass.geometry.getAttribute('color') as THREE.BufferAttribute;
+    const opaque = new THREE.Color(OPAQUE_GLASS);
+    for (let i = 0; i < colour.count; i++) colour.setXYZ(i, opaque.r, opaque.g, opaque.b);
+    glass.material = craftMaterial();
+  }
+  return group;
 }
 
 /**

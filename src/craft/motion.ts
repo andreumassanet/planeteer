@@ -27,7 +27,9 @@
 import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
 import type { Rigged } from '../models.ts';
+import { ROAD_HANDLING } from '../vehicles.ts';
 import type { CraftModel } from './contract.ts';
+import { NEEDLE_REST, NEEDLE_SWEEP, WHEEL_LOCK } from './cabin.ts';
 
 /** What the vehicle is doing this frame, as the motion reads it. */
 export interface MotionInput {
@@ -72,6 +74,13 @@ export interface CraftMotion {
    * own body is not under the model (`player.ts`) and adds it itself.
    */
   readonly lift: number;
+  /**
+   * The steering wheel's turn, radians, positive clockwise as the driver sees
+   * it: the front wheels' own lock carried up the column (`WHEEL_LOCK`). The
+   * driver's hands are put round it (`holdWheel` in `cast.ts`), so they and
+   * the rim cannot part. 0 for anything without a wheel.
+   */
+  readonly steer: number;
 }
 
 /** A motion input with nothing asked of it: parked, engine off. */
@@ -193,6 +202,9 @@ interface Parts {
   /** The group the rig hangs in, which a jump lowers, and the jumps it can play. */
   holder: THREE.Object3D | null;
   jumps: Readonly<Record<string, JumpCurve>> | null;
+  /** A cabin's steering wheel and its speedometer's needle (`cabin.ts`). */
+  steers: THREE.Object3D[];
+  needles: THREE.Object3D[];
   /** The wheels and their radii, and which are steered (ahead of the middle). */
   wheels: THREE.Object3D[];
   radii: number[];
@@ -224,6 +236,8 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   const cranks: THREE.Object3D[] = [];
   const rotors: THREE.Object3D[] = [];
   const tails: THREE.Object3D[] = [];
+  const steers: THREE.Object3D[] = [];
+  const needles: THREE.Object3D[] = [];
   let rig: Rigged | null = null;
   let back: THREE.Bone | null = null;
   let holder: THREE.Object3D | null = null;
@@ -252,6 +266,8 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
     else if (part.name === 'crank') cranks.push(part);
     else if (part.name === 'rotor') rotors.push(part);
     else if (part.name === 'tail') tails.push(part);
+    else if (part.name === 'steer') steers.push(part);
+    else if (part.name === 'needle') needles.push(part);
   });
   // A wheel's mesh is built about its own axle (`Turning` in `build.ts`), so
   // its geometry's box is the wheel's, whatever the vehicle is doing.
@@ -296,7 +312,7 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
       throw new Error(`craft ${model.id}: '${part.name}' has a reflected matrix under its motion`);
     }
   });
-  return { sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, rig, back, holder, jumps };
+  return { sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, steers, needles, rig, back, holder, jumps };
 }
 
 let disc: THREE.CircleGeometry | null = null;
@@ -347,6 +363,10 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   const gearing = model.gearing ?? 0;
   let crank = 0;
   let lift = 0;
+  /** The steering wheel's turn, and the speed the needle reads at its stop. */
+  let wheelTurn = 0;
+  const needleFull = ROAD_HANDLING[kind]?.boost ?? 40;
+  for (const needle of parts.needles) needle.rotation.z = NEEDLE_REST;
   // The horse's clips, their weights and their rates.
   const rigged = parts.rig;
   const idle = rigged?.actions.get('Idle') ?? null;
@@ -404,6 +424,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
     parts.sprung.position.set(0, 0, 0);
     parts.sprung.rotation.set(0, 0, 0);
     for (const wheel of parts.wheels) wheel.rotation.y = 0;
+    wheelTurn = 0;
+    for (const part of parts.steers) part.rotation.z = 0;
+    for (const needle of parts.needles) needle.rotation.z = NEEDLE_REST;
     for (const d of parts.discs) d.visible = false;
     for (const b of parts.blades) b.visible = true;
     settling = false;
@@ -418,6 +441,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
     },
     get lift() {
       return lift;
+    },
+    get steer() {
+      return wheelTurn;
     },
     rest,
     update(dt, input) {
@@ -540,6 +566,19 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         }
       }
 
+      // The steering wheel turns with the front wheels, eased the same way, and
+      // comes back to the middle as they do; the needle reads the speed.
+      // Each is a turn about its own +Z on top of the tilt `assemble` stood it
+      // at, so the matrix stays a rotation (`Turning.tilt`).
+      if (parts.steers.length > 0) {
+        wheelTurn += (input.steering * WHEEL_LOCK - wheelTurn) * approach(12, dt);
+        for (const part of parts.steers) part.rotation.z = wheelTurn;
+      }
+      if (parts.needles.length > 0) {
+        const read = NEEDLE_REST + NEEDLE_SWEEP * clamp(Math.abs(speed) / needleFull, 0, 1);
+        for (const needle of parts.needles) needle.rotation.z += (read - needle.rotation.z) * approach(6, dt);
+      }
+
       // A bicycle's crank goes round while it is pedalled, by the gearing;
       // coasting, the pedals stop where they are.
       if (parts.cranks.length > 0 && gearing > 0 && input.grounded && input.throttle > 0 && speed > 0) {
@@ -576,6 +615,8 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
 
       let steered = false;
       for (let i = 0; i < parts.wheels.length; i++) if (parts.steered[i] && Math.abs(parts.wheels[i]!.rotation.y) > 1e-3) steered = true;
+      if (Math.abs(wheelTurn) > 1e-3) steered = true;
+      for (const needle of parts.needles) if (Math.abs(needle.rotation.z - NEEDLE_REST) > 1e-3) steered = true;
       settling =
         input.engine ||
         input.moored ||

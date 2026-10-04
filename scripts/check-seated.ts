@@ -47,7 +47,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Vector3 } from 'three';
+import { Color, Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from '../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
@@ -167,7 +167,8 @@ const { GRASS_FIELDS, GRASS_SPREAD } = await import('../src/grass.ts');
 // vehicle standing still is held to.
 const { craftFrom } = await import('../src/craft/index.ts');
 const { modelsFrom } = await import('../src/kit.ts');
-const { fleetVariant, MACHINE_BED } = await import('../src/craft/parked.ts');
+const { fleetVariant, MACHINE_BED, OPAQUE_GLASS } = await import('../src/craft/parked.ts');
+const { craftMaterial } = await import('../src/craft/build.ts');
 const { mergeMeshes } = await import('../src/merge.ts');
 const fleetCraft = craftFrom(await modelsFrom(readFileSync(resolve(here, '../public/models/traffic/kit.bin'))));
 type ParkedCar = import('../src/settlements.ts').ParkedCar;
@@ -270,12 +271,27 @@ const parkedStill = tally();
 const machines = { towns: 0, tiles: 0, kinds: new Set<string>(), wrong: [] as string[], strayMarks: 0 };
 const machineSeen = new Set<string>();
 
-/** The colours the fleet draws the vehicle with this id in, as `fleet.ts` builds it. */
-function fleetColours(id: string): Float32Array | null {
+/**
+ * The colours the fleet draws the vehicle with this id in, as `fleet.ts`
+ * builds it, less what the buffer it stands in cannot carry: a town draws a
+ * closed craft's glass apart (`glazed`), and a tile leaves its cabin out and
+ * paints its glass the opaque slate (`parkedArrays` in `craft/parked.ts`).
+ */
+function fleetColours(id: string, glazed: boolean): Float32Array | null {
   const model = fleetCraft.get(id.slice(0, id.indexOf(':')));
   if (model === undefined) return null;
   const paint = settlements.parkedPaint(id);
-  return mergeMeshes(model.build(fleetVariant(id, model.variants), paint ?? undefined)).color;
+  const group = model.build(fleetVariant(id, model.variants), paint ?? undefined);
+  const leave = glazed ? ['glass'] : ['cabin', 'steer', 'needle'];
+  for (const name of leave) for (let part = group.getObjectByName(name); part !== undefined; part = group.getObjectByName(name)) part.removeFromParent();
+  const glass = group.getObjectByName('glass') as import('three').Mesh | undefined;
+  if (glass !== undefined) {
+    const colour = glass.geometry.getAttribute('color');
+    const opaque = new Color(OPAQUE_GLASS);
+    for (let i = 0; i < colour.count; i++) colour.setXYZ(i, opaque.r, opaque.g, opaque.b);
+    glass.material = craftMaterial();
+  }
+  return mergeMeshes(group).color;
 }
 
 /**
@@ -292,7 +308,7 @@ function measureParked(centre: Vector3): void {
     machineSeen.add(bay.id);
     const town = places[Number(bay.id.split(':')[1])]!;
     const meshes = settlements.group.children.filter((child) => child.name === `town:${town.name}`) as import('three').Mesh[];
-    const expected = fleetColours(bay.id);
+    const expected = fleetColours(bay.id, true);
     let matched = false;
     for (const mesh of meshes) {
       const color = mesh.geometry.getAttribute('color').array as Float32Array;
@@ -329,7 +345,7 @@ function measureTileMachines(lat: number, lon: number): void {
   for (const machine of list) {
     if (machineSeen.has(machine.id)) continue;
     machineSeen.add(machine.id);
-    const expected = fleetColours(machine.id);
+    const expected = fleetColours(machine.id, false);
     let ok = expected !== null && machine.count * 3 === expected.length && wind !== undefined;
     for (let i = 0; ok && i < expected!.length; i++) ok = Math.abs(color[machine.start * 3 + i]! - Math.round(Math.min(1, Math.max(0, expected![i]!)) * 255)) <= 1;
     for (let v = machine.start; ok && v < machine.start + machine.count; v++) ok = wind![v * 4 + 2] === MACHINE_BED;

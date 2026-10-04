@@ -19,7 +19,8 @@
 import * as THREE from 'three';
 import { varnish } from '../gloss.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
-import { createContext } from '../monuments/contract.ts';
+import { createContext, tone } from '../monuments/contract.ts';
+import { PALETTE } from '../theme.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
 import { mergeMeshes } from '../merge.ts';
 import type { Merged } from '../merge.ts';
@@ -59,6 +60,117 @@ export function craftMaterial(): THREE.MeshToonMaterial {
   return material;
 }
 
+let matte: THREE.MeshToonMaterial | null = null;
+/**
+ * The cabin's material: the craft's, without the varnish. The varnish gives a
+ * painted body the sky at a glancing angle, and a dashboard seen from the
+ * seat is all glancing angle — it came out the hemisphere's lilac whatever it
+ * was painted. A cabin is cloth, plastic and leather, and matte.
+ */
+export function cabinMaterial(): THREE.MeshToonMaterial {
+  if (matte !== null) return matte;
+  const source = craftContext().toon(craftContext().palette.ink);
+  matte = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: source.gradientMap });
+  matte.userData.outlineParameters = { ...source.userData.outlineParameters, outlineNormal: true };
+  matte.userData.atlasPainted = true;
+  matte.name = 'craft-cabin';
+  shadeByClouds(matte);
+  return matte;
+}
+
+/**
+ * How much of what is behind it a pane lets through: about a quarter, so a
+ * car still reads as having windows and the driver behind them reads as a
+ * person from the chase camera, not as a shadow behind a blue panel.
+ */
+export const GLASS_OPACITY = 0.24;
+
+/**
+ * The glass's colour: the world's window slate (`GLASS_TONE` in the scenery
+ * contract), lightened where the opaque panes were darkened, because what is
+ * behind it now shows through and darkens it.
+ */
+export const GLASS_TINT = tone(PALETTE.slate, 1.4);
+
+let glass: THREE.MeshToonMaterial | null = null;
+
+/**
+ * The one material every see-through pane of a craft is drawn with: its
+ * colours are its vertices', on the craft's own ramp, both sides lit,
+ * blended, writing no depth (see the head of `cabin.ts`), and **no ink** —
+ * `outlineParameters.visible` false, so the outline pass leaves it out. It
+ * casts no shadow either: a car's shadow with its windows lighter in it is
+ * what a real one throws.
+ */
+export function glassMaterial(): THREE.MeshToonMaterial {
+  if (glass !== null) return glass;
+  const source = craftContext().toon(craftContext().palette.ink);
+  glass = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: source.gradientMap,
+    transparent: true,
+    opacity: GLASS_OPACITY,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  glass.userData.outlineParameters = { visible: false };
+  glass.userData.atlasPainted = true;
+  glass.userData.atlasGlass = true;
+  glass.name = 'craft-glass';
+  // The craft's own varnish, which takes this slate for glass and gives it
+  // the sky at a glancing angle and the sun's highlight; and the clouds' shade.
+  varnish(glass);
+  shadeByClouds(glass);
+  return glass;
+}
+
+/**
+ * How much of a pane's opacity is left for the eye inside the ride
+ * (`faintGlass`): a third, so the windscreen is a faint sheen over the road
+ * and not a blue filter over the whole view.
+ */
+export const INSIDE_GLASS = 0.35;
+
+const faint = new WeakMap<THREE.Material, THREE.Material>();
+/**
+ * A ride's see-through glass, faint, for the eye inside it — Earth's seats
+ * (`player.ts`) and the walked worlds' (`worlds/camera.ts`) alike: each mesh
+ * whose material is glass (`atlasGlass`, every pane in `glassMaterial`; or
+ * `atlasFaint`, a craft's own glass such as the saucer's dome) is given a
+ * copy of its material at `INSIDE_GLASS` of its opacity, kept per material,
+ * and its own back after (`on` false) — the swap `inkless` makes for the
+ * ink. The copy of a material that is not the shared glass goes when its
+ * source does.
+ */
+export function faintGlass(group: THREE.Object3D, on: boolean): void {
+  group.traverse((part) => {
+    const mesh = part as THREE.Mesh;
+    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    const own = mesh.userData.clear as THREE.Material | undefined;
+    if (!on) {
+      if (own !== undefined) mesh.material = own;
+      delete mesh.userData.clear;
+      return;
+    }
+    const material = mesh.material;
+    if (own !== undefined || (material.userData.atlasGlass !== true && material.userData.atlasFaint !== true)) return;
+    let clear = faint.get(material);
+    if (clear === undefined) {
+      const made = material.clone();
+      // The varnish and the clouds' shade are shader patches, which a clone leaves behind.
+      made.onBeforeCompile = material.onBeforeCompile;
+      made.customProgramCacheKey = material.customProgramCacheKey;
+      made.opacity = material.opacity * INSIDE_GLASS;
+      made.userData.outlineParameters = { visible: false };
+      faint.set(material, made);
+      if (material.userData.atlasGlass !== true) material.addEventListener('dispose', () => made.dispose());
+      clear = made;
+    }
+    mesh.userData.clear = material;
+    mesh.material = clear;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Triangle soups
 // ---------------------------------------------------------------------------
@@ -77,11 +189,18 @@ export function soupOf(group: THREE.Object3D): Soup {
   return mergeMeshes(group);
 }
 
-/** A turning part: its soup, built about its own axle at the origin, and where that axle is. */
+/**
+ * A turning part: its soup, built about its own axle at the origin, and where
+ * that axle is. A steering wheel (`'steer'`) and a speedometer's needle
+ * (`'needle'`) turn about their own +Z, which `tilt` — a turn about X, forward
+ * and down — stands at the angle the column or the dial is at; the motion
+ * turns them about that axle and leaves the tilt alone (`craft/motion.ts`).
+ */
 export interface Turning {
-  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank';
+  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank' | 'steer' | 'needle';
   at: THREE.Vector3;
   soup: Soup;
+  tilt?: number;
 }
 
 const faceA = new THREE.Vector3();
@@ -93,7 +212,7 @@ const faceC = new THREE.Vector3();
  * here rather than trusted: `computeVertexNormals` gives one a NaN normal,
  * and a NaN normal black-holes the whole mesh it is in.
  */
-function geometryOf(soups: readonly Soup[]): THREE.BufferGeometry {
+export function geometryOf(soups: readonly Soup[]): THREE.BufferGeometry {
   let count = 0;
   for (const soup of soups) count += soup.position.length;
   const position = new Float32Array(count);
@@ -127,8 +246,8 @@ function geometryOf(soups: readonly Soup[]): THREE.BufferGeometry {
   return geometry;
 }
 
-function meshOf(soups: readonly Soup[], name: string): THREE.Mesh {
-  const mesh = new THREE.Mesh(geometryOf(soups), craftMaterial());
+function meshOf(soups: readonly Soup[], name: string, material: THREE.Material = craftMaterial()): THREE.Mesh {
+  const mesh = new THREE.Mesh(geometryOf(soups), material);
   mesh.name = name;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -136,21 +255,54 @@ function meshOf(soups: readonly Soup[], name: string): THREE.Mesh {
 }
 
 /**
- * The finished craft: the still soups as one mesh named `'body'`, and each
- * turning part as a group of its own name at its axle holding its mesh. Every
- * matrix in the result is asserted proper — a reflection here renders the
- * craft as a solid blob of ink, and an ordinary `Mesh` would hide it.
+ * What a closed craft carries besides its shell: the see-through glass, and
+ * the cabin — the shell's lining, the floor, the seats, the dashboard — each
+ * its own mesh so that a buffer that cannot carry glass (a farm's tile,
+ * `parkedArrays`) can leave the cabin out and paint the glass opaque.
  */
-export function assemble(name: string, still: readonly Soup[], turning: readonly Turning[] = []): THREE.Group {
+export interface Inside {
+  glass?: readonly Soup[];
+  cabin?: readonly Soup[];
+}
+
+/**
+ * The finished craft: the still soups as one mesh named `'body'`, each
+ * turning part as a group of its own name at its axle holding its mesh, and
+ * a closed craft's `Inside`: its cabin as a mesh named `'cabin'` in the same
+ * material, and its see-through glass as a mesh named `'glass'` in the
+ * glass's own (`glassMaterial`), casting no shadow. Every matrix in the
+ * result is asserted proper — a reflection here renders the craft as a solid
+ * blob of ink, and an ordinary `Mesh` would hide it.
+ */
+export function assemble(name: string, still: readonly Soup[], turning: readonly Turning[] = [], inside: Inside = {}): THREE.Group {
   const group = new THREE.Group();
   group.name = name;
   group.add(meshOf(still, 'body'));
+  if (inside.cabin !== undefined && inside.cabin.some((soup) => soup.position.length > 0)) {
+    // The cabin takes no shadow: the shell over it would put the whole inside
+    // in its own shade, and a dashboard and seats in the ramp's darkest band
+    // read as one dark block through the glass and from the seat. It still
+    // casts one, onto the people in it, as the shell does.
+    const cabin = meshOf(inside.cabin, 'cabin', cabinMaterial());
+    cabin.receiveShadow = false;
+    group.add(cabin);
+  }
+  const glass = inside.glass ?? [];
   for (const part of turning) {
     const pivot = new THREE.Group();
     pivot.name = part.name;
     pivot.position.copy(part.at);
-    pivot.add(meshOf([part.soup], `${part.name}-mesh`));
+    pivot.rotation.x = part.tilt ?? 0;
+    // A cabin's wheel and needle are the cabin's, matte.
+    pivot.add(meshOf([part.soup], `${part.name}-mesh`, part.name === 'steer' || part.name === 'needle' ? cabinMaterial() : craftMaterial()));
     group.add(pivot);
+  }
+  if (glass.some((soup) => soup.position.length > 0)) {
+    const pane = new THREE.Mesh(geometryOf(glass), glassMaterial());
+    pane.name = 'glass';
+    pane.castShadow = false;
+    pane.receiveShadow = true;
+    group.add(pane);
   }
   group.updateMatrixWorld(true);
   group.traverse((object) => {
@@ -197,7 +349,7 @@ const shoelace = (ring: readonly (readonly [number, number])[]): number => {
  * (`assertOutward`, the same test `vehicles.ts` runs). A shell wound inside out
  * turns its hull front-facing and draws as a solid blob of ink.
  */
-export function loft(stations: readonly Station[], color: number): THREE.Mesh {
+export function loft(stations: readonly Station[], color: number, openFore = false): THREE.Mesh {
   if (stations.length < 2) throw new Error('loft: needs two stations');
   const n = stations[0]!.ring.length;
   for (let i = 1; i < stations.length; i++) {
@@ -238,8 +390,12 @@ export function loft(stations: readonly Station[], color: number): THREE.Mesh {
     }
   };
   cap(rings[0]!, -1);
+  // An open fore end — a hull whose bow is a window, which glass of its own
+  // covers — is checked closed and handed over without its cap.
+  const shell = p.length;
   cap(rings[rings.length - 1]!, 1);
   assertOutward(p);
+  if (openFore) p.length = shell;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
   geometry.computeVertexNormals();
@@ -366,6 +522,14 @@ export function finish(draft: CraftDraft): CraftModel {
     size,
     seats: draft.seats.map((seat) => ({ ...seat, x: seat.x - dx, z: seat.z - dz })),
     ...(draft.lamps === undefined ? {} : { lamps: draft.lamps.map(([x, y, z]) => [x - dx, y, z - dz] as const) }),
+    ...(draft.arches === undefined
+      ? {}
+      : {
+          arches: draft.arches.map(({ min, max }) => ({
+            min: [min[0] - dx, min[1], min[2] - dz] as const,
+            max: [max[0] - dx, max[1], max[2] - dz] as const,
+          })),
+        }),
     // The paint goes through with the variant: a town's parked car taken
     // over is built in the colour it was parked in. Until 2026-09-28 this
     // passed the variant alone, so every car taken from a kerb came out in

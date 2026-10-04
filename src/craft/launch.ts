@@ -37,7 +37,9 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { ABREAST, HERO } from './body.ts';
-import { PROUD, assemble, craftContext, finish, loft, octagon, soupOf, well } from './build.ts';
+import { GLASS_TINT, PROUD, assemble, craftContext, finish, loft, octagon, soupOf, well } from './build.ts';
+import { painted, wheelPart } from './cabin.ts';
+import type { WheelGrip } from '../cast.ts';
 import type { Station, WellSection } from './build.ts';
 
 const H = AVATAR_HEIGHT;
@@ -110,9 +112,16 @@ const PAINTS: readonly [number, number][] = [
   [PALETTE.orange, PALETTE.white],
 ];
 
+/**
+ * The helmsman's wheel, about his hip: over the knees and near the chest, as
+ * the hero's arms reach (`HERO.reach`), its axle tipped forward a quarter of
+ * the way from level.
+ */
+const HELM: WheelGrip = { centre: [0, 0.26 * H, 0.2 * H], tilt: 0.42, radius: 0.07 * H, spread: 1.0 };
+
 const SEATS: readonly Seat[] = [
   // The helm is to starboard, which facing +Z is -X.
-  { x: -ABREAST / 2, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true },
+  { x: -ABREAST / 2, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true, wheel: HELM },
   { x: ABREAST / 2, y: HIP, z: FRONT, yaw: 0, pose: 'sit', shown: true },
   { x: -ABREAST / 2, y: HIP, z: REAR, yaw: 0, pose: 'sit', shown: true },
   { x: ABREAST / 2, y: HIP, z: REAR, yaw: 0, pose: 'sit', shown: true },
@@ -120,7 +129,7 @@ const SEATS: readonly Seat[] = [
 
 function buildLaunch(variant: number): THREE.Group {
   const ctx = craftContext();
-  const { box, strut, ringWall, column, tone } = ctx;
+  const { box, strut, column, tone } = ctx;
   const [hullColour, stripe] = PAINTS[((variant % PAINTS.length) + PAINTS.length) % PAINTS.length]!;
   const deck = PALETTE.cream;
   const cushion = PALETTE.tan;
@@ -162,18 +171,20 @@ function buildLaunch(variant: number): THREE.Group {
   // bulkhead. Its top edge is a third of a body over the sheer: over the
   // seated knees, under the seated eyes, so the helmsman looks over it and the
   // chase camera sees four heads above it.
-  const glass = tone(PALETTE.slate, 0.72);
+  // Glass since 2026-10-04 (`glassMaterial`): the helmsman sees the bow
+  // through it, and from outside the dashboard behind it shows.
+  const panes = new THREE.Group();
   const screenFoot = sheerAt(WELL_FORE + 0.05 * H);
   const screenTall = 0.24 * H;
-  const middle = box(screenFoot.half * 1.1, screenTall, PROUD, glass);
+  const middle = box(screenFoot.half * 1.1, screenTall, PROUD, PALETTE.slate);
   middle.position.set(0, screenFoot.y, WELL_FORE + 0.06 * H);
   middle.rotation.x = -0.45;
-  group.add(middle);
+  panes.add(middle);
   for (const side of [-1, 1]) {
-    const wing = box(screenFoot.half * 0.55, screenTall * 0.92, PROUD, glass);
+    const wing = box(screenFoot.half * 0.55, screenTall * 0.92, PROUD, PALETTE.slate);
     wing.position.set(side * screenFoot.half * 0.78, screenFoot.y, WELL_FORE + 0.03 * H);
     wing.rotation.set(-0.35, side * 0.7, 0, 'YXZ');
-    group.add(wing);
+    panes.add(wing);
   }
   const rail = strut(
     new V(-screenFoot.half * 0.55, screenFoot.y + screenTall * Math.cos(0.45), WELL_FORE + 0.06 * H - screenTall * Math.sin(0.45)),
@@ -186,13 +197,21 @@ function buildLaunch(variant: number): THREE.Group {
   // ---- the helm -----------------------------------------------------------
   // A wheel on a raked column off the bulkhead's edge, in front of the helm
   // seat and over the helmsman's knees. The column is all the console there
-  // is: a box from the sole up would stand where his shins are.
-  const hub = new V(SEATS[0]!.x, HIP + 0.19 * H, WELL_FORE - 0.06 * H);
+  // is: a box from the sole up would stand where his shins are. The wheel is
+  // the helmsman's to hold (`HELM`): it turns with the rudder and his hands
+  // go round it, so it is near enough his chest for the hero's short arms.
+  const helm = SEATS[0]!;
+  const hub = new V(helm.x + HELM.centre[0], helm.y + HELM.centre[1], helm.z + HELM.centre[2]);
   group.add(strut(new V(hub.x, SHEER + 0.02 * H, WELL_FORE + 0.02 * H), hub.clone(), 0.045 * H, PALETTE.steel));
-  const rim = ringWall(0.06 * H, 0.085 * H, 0.03 * H, PALETTE.ink, 10);
-  rim.position.copy(hub);
-  rim.rotation.x = -1.15;
-  group.add(rim);
+  // A small binnacle on the foredeck behind the screen, a compass card in
+  // it, for the eye over the wheel.
+  const deckAt = sheerAt(WELL_FORE + 0.03 * H).y + PROUD;
+  const binnacle = column(0.04 * H, 0.03 * H, PALETTE.ink, 10);
+  binnacle.position.set(helm.x, deckAt, WELL_FORE + 0.03 * H);
+  group.add(binnacle);
+  const card = column(0.032 * H, PROUD, PALETTE.cream, 10);
+  card.position.set(helm.x, deckAt + 0.03 * H, WELL_FORE + 0.03 * H);
+  group.add(card);
   // A grab rail on the passenger's side of the bulkhead.
   group.add(strut(new V(ABREAST * 0.15, SHEER - 0.02 * H, WELL_FORE - 0.05 * H), new V(ABREAST * 0.85, SHEER - 0.02 * H, WELL_FORE - 0.05 * H), 0.03 * H, PALETTE.steel));
 
@@ -241,7 +260,7 @@ function buildLaunch(variant: number): THREE.Group {
     group.add(lamp);
   }
 
-  return assemble('launch', [soupOf(group)]);
+  return assemble('launch', [soupOf(group)], [wheelPart(HELM, hub, PALETTE.ink)], { glass: [painted(soupOf(panes), GLASS_TINT)] });
 }
 
 /** A rounded box standing on y = 0: the outboard's cowl. */
