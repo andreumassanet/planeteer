@@ -96,11 +96,25 @@ export function markerKeyOf(body: string): string {
 }
 
 /**
- * How close counts as arrived, in world units: about a hundred metres, the
- * width of a landmark's pad. A marker dropped on a sheet at street zoom is a
- * few units off where the click meant, and this swallows that.
+ * How close counts as arrived, in world units: about a hundred metres at the
+ * scale things are built at (`SCENERY_SCALE`), the width of a landmark's pad.
+ * A marker dropped on a sheet at street zoom is a few units off where the
+ * click meant, and this swallows that. **The panel counts real kilometres**
+ * — the planet's own scale, 0.4 km a unit on Earth — so it would read about
+ * 56 km at the moment this says arrived; the two scales are the world's, not
+ * a slip of this constant's, and the last stretch says *Here* (`HERE_RANGE`).
  */
 const ARRIVE_RANGE = 140;
+
+/**
+ * Inside this, in world units, the panel says *Here* instead of a distance.
+ * Counted in real kilometres the last stretch reads 170 to 56 km on Earth: a
+ * number that tells someone in sight of the place that they are far from it,
+ * and from the air, where nothing arrives, tens of kilometres over the place
+ * itself. Three times `ARRIVE_RANGE` is a short walk on foot and a moment
+ * from the plane.
+ */
+const HERE_RANGE = ARRIVE_RANGE * 3;
 
 /**
  * How high above the site the waypoint floats, in world units.
@@ -219,7 +233,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
    * is the whole reason to compute a horizon point rather than hide the marker:
    * from the ceiling, "just over that limb" is a real and useful answer.
    */
-  function place(camera: THREE.PerspectiveCamera, km: number): void {
+  function place(camera: THREE.PerspectiveCamera, km: number | null): void {
     const cam = camera.position;
     const length = cam.length();
     if (length < 1e-6) return;
@@ -323,7 +337,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
       if (length < 1e-9) return;
       scratch.copy(position).divideScalar(length);
       const angle = scratch.angleTo(site);
-      const km = angle * RADIUS_KM;
+      const km = angle * RADIUS <= HERE_RANGE ? null : angle * RADIUS_KM;
       if (angle * RADIUS <= ARRIVE_RANGE && !player.airborne) {
         const reached = marker;
         set(null);

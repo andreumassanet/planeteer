@@ -374,8 +374,15 @@ export function createSeaLife(options: SeaLifeOptions = {}): SeaLife {
   let fishCount = 0;
   let schoolCount = 0;
   const bigCount: Record<string, number> = {};
-  /** Each dolphin's last height over the surface, to see it break the water. */
-  const dolphinWas = new Float32Array(MAX_DOLPHINS);
+  /**
+   * Each dolphin's last height over the surface and the frame it was taken
+   * on, as pairs by its place in its pod, to see it break the water. Kept by
+   * the animal and not by its instance: the instances are handed out afresh
+   * every frame in the order the pods are met, so a slot's last height was
+   * often another dolphin's, and a splash fell where nothing leapt.
+   */
+  const dolphinWas = new WeakMap<Pod, Float64Array>();
+  let podFrame = 0;
 
   /** Unit east and north at a unit direction. */
   function frameAt(unit: THREE.Vector3): void {
@@ -611,6 +618,7 @@ export function createSeaLife(options: SeaLifeOptions = {}): SeaLife {
   function pods(frame: SeaLifeFrame, t: number, dt: number): void {
     const camera = frame.camera;
     podEye.copy(camera).normalize();
+    podFrame++;
     for (const kind of POD_KINDS) {
       const slotLength = kind === 'dolphin' ? DOLPHIN_SLOT : WHALE_SLOT;
       const slot = Math.floor(t / slotLength);
@@ -643,6 +651,11 @@ export function createSeaLife(options: SeaLifeOptions = {}): SeaLife {
     heading.copy(forward);
     up.copy(home);
     side.crossVectors(up, heading).normalize();
+    let was = dolphinWas.get(pod);
+    if (was === undefined) {
+      was = new Float64Array(pod.count * 2).fill(NaN);
+      dolphinWas.set(pod, was);
+    }
     for (let k = 0; k < pod.count; k++) {
       const index = bigCount.dolphin!;
       if (index >= MAX_DOLPHINS) return;
@@ -668,16 +681,19 @@ export function createSeaLife(options: SeaLifeOptions = {}): SeaLife {
         .normalize();
       const upHere = splashAt.copy(at);
       at.multiplyScalar(PLANET_RADIUS + height);
+      // Out and back in, judged against its own height a frame ago: one not
+      // seen last frame (out of range, past the cap) has nothing to compare.
+      const broke = was[k * 2 + 1] === podFrame - 1 && (was[k * 2]! < 0) !== (height < 0);
+      was[k * 2] = height;
+      was[k * 2 + 1] = podFrame;
       if (at.distanceTo(camera) > DOLPHIN_RANGE) continue;
       // Nose up out of the water and down into it: the arc's own slope.
       forward.copy(heading).multiplyScalar(pod.speed).addScaledVector(upHere, climb).normalize();
       place(dolphins, index, at, forward, upHere, 1);
-      // A splash where it breaks the surface, out and back in.
-      const was = dolphinWas[index]!;
-      if ((was < 0) !== (height < 0) && options.splash !== undefined && at.distanceTo(camera) < 250) {
+      // A splash where it breaks the surface.
+      if (broke && options.splash !== undefined && at.distanceTo(camera) < 250) {
         options.splash(splashAt.multiplyScalar(PLANET_RADIUS + 0.5), 2.2);
       }
-      dolphinWas[index] = height;
       bigCount.dolphin = index + 1;
       saw('dolphin', at);
     }

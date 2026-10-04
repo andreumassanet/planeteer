@@ -62,6 +62,7 @@ import type { OrreryBody } from './orrery.ts';
 import { AU_KM, geocentric, heliocentric, moonPosition, periodOf } from './system/index.ts';
 import type { Body } from './system/index.ts';
 import { ensureStyle, fold, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
+import { modalOpen } from './controls.ts';
 
 const DEG = Math.PI / 180;
 const R = PLANET_RADIUS;
@@ -1630,22 +1631,28 @@ export function createMenu(deps: MenuDeps): Menu {
    * latitude and a longitude `main.ts` stands the player on, which has them
    * swimming if it is sea.
    */
-  const last = ((): MenuSpawn | null => {
+  function lastOf(): MenuSpawn | null {
     const started = recall();
     const place = recallPlace();
     if (place === null || (started !== null && started.savedAt > place.savedAt)) return started?.spawn ?? null;
     // Another world's own record: where it was, with no settlement to land on,
     // which is *Continue where you left off* there.
     if (place.body !== home.id) return { body: place.body, region: '', name: place.name, lat: place.lat, lon: place.lon };
-    const index = regionIndexOf.get(place.iso) ?? body.regionAt(place.lat, place.lon);
+    const index = catalogueOf(home).regionIndexOf.get(place.iso) ?? home.regionAt(place.lat, place.lon);
     return {
-      body: body.id,
-      region: body.regions[index - 1]?.name ?? '',
+      body: home.id,
+      region: home.regions[index - 1]?.name ?? '',
       name: place.name,
       lat: place.lat,
       lon: place.lon,
     };
-  })();
+  }
+  /**
+   * Asked again whenever the menu comes back from a world, whose own record
+   * of where you were it then is: worked out once, it said *Continue in
+   * Palma* after a walk on Mars, and went to Palma.
+   */
+  let last = lastOf();
 
   const sys: Orbit = { azimuth: 0, elevation: SYSTEM_ELEVATION, distance: orrery.extent * 1.5 };
   const sysWant: Orbit = { ...sys };
@@ -2515,7 +2522,9 @@ export function createMenu(deps: MenuDeps): Menu {
       exploring = null;
       if (button !== null) button.disabled = false;
       // Moved on while it loaded: somewhere else was chosen meanwhile.
-      if (stage !== from || flight !== null || chosen !== null) return;
+      // Nor under the title, or a world: a globe that came while the menu
+      // was put away flew the hidden menu down to that body.
+      if (stage !== from || flight !== null || chosen !== null || held || suspended) return;
     }
     if (next === null) {
       deps.sound?.cue('start');
@@ -2544,7 +2553,14 @@ export function createMenu(deps: MenuDeps): Menu {
       if (deps.loadBody === undefined) return null;
       try {
         let next = await deps.loadBody(id, entry.position, entry.radius);
-        if (next === null || disposed) return null;
+        if (next === null) return null;
+        // Made after the menu went — the game started while it was being
+        // built — it is let go here, as `dispose` lets go of the rest.
+        if (disposed) {
+          next.globe?.dispose();
+          if (next.overlay !== undefined) disposeObject(next.overlay);
+          return null;
+        }
         // The orrery's own vector, live, whatever the body was made with: the
         // globe stages follow it round the system as the sky's clock turns it.
         if (next.centre !== entry.position) next = { ...next, centre: entry.position };
@@ -2562,6 +2578,17 @@ export function createMenu(deps: MenuDeps): Menu {
     })();
     making.set(id, made);
     return made;
+  }
+
+  /** Every geometry and material under `object`: a body's overlay, which the menu owns once it has it. */
+  function disposeObject(object: THREE.Object3D): void {
+    object.traverse((part) => {
+      const drawn = part as THREE.Mesh;
+      drawn.geometry?.dispose();
+      const material = drawn.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(material)) for (const one of material) one.dispose();
+      else material?.dispose();
+    });
   }
 
   /** The walked worlds' own grounds standing in the system, and whose. */
@@ -2691,7 +2718,8 @@ export function createMenu(deps: MenuDeps): Menu {
   }
 
   function chooseRegion(index: number, site?: MenuSite, near?: THREE.Vector3): void {
-    if (chosen !== null) return;
+    // Nor during the dive into a world, whose curtain is already coming down.
+    if (chosen !== null || exploring !== null) return;
     touch();
     if (!setRegion(index)) return;
     const landing = region!;
@@ -2840,7 +2868,9 @@ export function createMenu(deps: MenuDeps): Menu {
     document.body.append(curtain);
     const lift = (): void => {
       root.classList.remove('departing');
-      deps.sound?.stage(stage);
+      // Not while the world has the screen: the menu's hum came back under
+      // it for the whole visit (`suspend` gives it back on the way out).
+      if (!suspended) deps.sound?.stage(stage);
       curtain.classList.add('lifting');
       curtain.classList.remove('on');
       setTimeout(() => curtain.remove(), 1000);
@@ -3215,7 +3245,10 @@ export function createMenu(deps: MenuDeps): Menu {
   addEventListener('keydown', (event) => {
     if (chosen !== null) return;
     // The title holds the keyboard while it is up, and the cards over it with it.
-    if (held || suspended) return;
+    if (held || suspended || exploring !== null) return;
+    // Nor behind a card over everything: a notice of a lost graphics context,
+    // the traveller's card. `Esc` there is the card's, and went back a stage.
+    if (modalOpen()) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (document.activeElement === searchInput) return;
     touch();
@@ -3598,6 +3631,10 @@ export function createMenu(deps: MenuDeps): Menu {
       suspended = on;
       root.style.display = on ? 'none' : '';
       deps.sound?.stage(on ? null : stage);
+      if (!on) {
+        last = lastOf();
+        refreshContinue();
+      }
       if (on) {
         running = false;
       } else if (!running) {
@@ -3608,6 +3645,13 @@ export function createMenu(deps: MenuDeps): Menu {
       }
     },
     toSystem() {
+      // A dive into a world is still a flight when the world takes the
+      // screen — its last third is under the curtain — and a flight refuses
+      // the way back: landed now, or the planets were never reached.
+      if (flight !== null) {
+        copyPose(flight.to, pose);
+        flight = null;
+      }
       if (stage !== 'system') backToSystem();
     },
     prepare() {
@@ -3630,6 +3674,7 @@ export function createMenu(deps: MenuDeps): Menu {
       deps.sound?.dispose();
       scene.remove(ribbonGroup);
       scene.remove(overlayGroup);
+      for (const one of loaded.values()) if (one?.overlay !== undefined) disposeObject(one.overlay);
       orrery.holdUpright(null);
       for (const geometry of ribbons.values()) geometry.dispose();
       ribbons.clear();

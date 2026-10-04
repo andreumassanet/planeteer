@@ -90,7 +90,17 @@ export function createFleetSync(peers: Peers): FleetSync {
   const listeners = new Set<(vehicle: string) => void>();
   /** Where this client left a vehicle while offline, told to the room when the socket opens. */
   const parks = new Map<string, WirePose>();
+  /** And the vehicles that went under while offline, told to the room the same way. */
+  const sunkOffline = new Set<string>();
   const outbox: RelayMessage[] = [];
+  /**
+   * The offline parks whose `sit` has gone or is going out and whose `up`
+   * with the pose has not: the room's grant of that `sit` is not a claim
+   * that timed out, and is not given straight back with a bare `up` — which
+   * parked the vehicle where the socket dropped, and left the real `up`, a
+   * moment later, to a socket that no longer held the seat.
+   */
+  const parking = new Set<string>();
   let flushing: ReturnType<typeof setInterval> | null = null;
   let live = false;
   /** Our id as the room named us, so the seats it filled can be renamed when it goes. */
@@ -151,6 +161,7 @@ export function createFleetSync(peers: Peers): FleetSync {
     const next = () => {
       const message = outbox.shift();
       if (message !== undefined && live) post(message);
+      if (message?.t === 'up' && typeof message.v === 'string') parking.delete(message.v);
       if (outbox.length === 0 || !live) {
         if (flushing !== null) clearInterval(flushing);
         flushing = null;
@@ -189,16 +200,36 @@ export function createFleetSync(peers: Peers): FleetSync {
     // the seat still held, because every `sit` gives up the one before.
     for (const [vehicle, pose] of parks) {
       entryOf(vehicle).pose = pose;
+      parking.add(vehicle);
       outbox.push({ t: 'sit', v: vehicle, seat: 0 }, { t: 'up', v: vehicle, p: wire(pose) });
     }
     parks.clear();
+    for (const vehicle of sunkOffline) {
+      moved.delete(vehicle);
+      parking.add(vehicle);
+      outbox.push({ t: 'sit', v: vehicle, seat: 0 }, { t: 'up', v: vehicle, sunk: true });
+      touched.add(vehicle);
+    }
+    sunkOffline.clear();
     if (held !== null) {
       const { vehicle, seat } = held;
       const entry = entryOf(vehicle);
       if ((entry.seats[seat] ?? null) === null) {
         entry.seats[seat] = self();
         for (let i = 0; i < entry.seats.length; i++) entry.seats[i] ??= null;
-        pending.set(vehicle, { seat, resolve: null, timer: null });
+        // Unanswered — the relay drops a `sit` on its pace without a word —
+        // the seat is given up here as well, and the fleet asks for it again
+        // (`keepSeat`); pending for ever, the vehicle sent no pose again.
+        const timer = setTimeout(() => {
+          if (pending.get(vehicle)?.resolve !== null) return;
+          if (held?.vehicle === vehicle && held.seat === seat) held = null;
+          const now = moved.get(vehicle);
+          if (now !== undefined && now.seats[seat] === self()) now.seats[seat] = null;
+          settle(vehicle, false);
+          tidy(vehicle);
+          emit(vehicle);
+        }, CLAIM_MS + FLUSH_MS * (outbox.length + 1));
+        pending.set(vehicle, { seat, resolve: null, timer });
         outbox.push({ t: 'sit', v: vehicle, seat, ...(entry.pose.length === 9 ? { p: wire(entry.pose) } : {}) });
       } else {
         // Somebody took it while we were away: the fleet sees its seat gone.
@@ -220,6 +251,9 @@ export function createFleetSync(peers: Peers): FleetSync {
       if (won) held = { vehicle, seat: wait.seat };
       else if (held?.vehicle === vehicle && held.seat === wait.seat) held = null;
       settle(vehicle, won);
+    } else if (wait === undefined && parking.has(vehicle)) {
+      // An offline park's `sit`, granted: its `up` with the pose follows.
+      if (seats[0] !== me) parking.delete(vehicle);
     } else if (wait === undefined) {
       if (held?.vehicle === vehicle && seats[held.seat] !== me) held = null;
       // A seat granted after the claim for it timed out: nobody here is
@@ -281,6 +315,7 @@ export function createFleetSync(peers: Peers): FleetSync {
     const gone = liveId;
     liveId = null;
     outbox.length = 0;
+    parking.clear();
     driven.clear();
     for (const [vehicle, entry] of moved) {
       entry.seats = entry.seats.map((id) => (id !== null && id === gone ? LOCAL_SELF : null));
@@ -356,6 +391,9 @@ export function createFleetSync(peers: Peers): FleetSync {
     claim(vehicle, seat, site) {
       if (moved.get(vehicle)?.seats[seat] === self() && !pending.has(vehicle)) return Promise.resolve(true);
       if (!live) {
+        // Taken again before the room heard it went under: it is back at its
+        // site here, and it is what is done with it now that the room hears.
+        sunkOffline.delete(vehicle);
         if (site !== undefined && isPose(site) && entryOf(vehicle).pose.length === 0) entryOf(vehicle).pose = [...site];
         grantLocally(vehicle, seat);
         return Promise.resolve(true);
@@ -370,6 +408,17 @@ export function createFleetSync(peers: Peers): FleetSync {
     },
 
     release(vehicle, pose) {
+      // Left before the seat taken again on reconnecting was answered: the
+      // `sit` still waiting in the outbox is not sent, and one already sent
+      // is given back when it is granted (`onSeat`, a win nobody awaits).
+      const again = pending.get(vehicle);
+      if (again !== undefined && again.resolve === null) {
+        settle(vehicle, false);
+        for (let i = outbox.length - 1; i >= 0; i--) {
+          const queued = outbox[i]!;
+          if (queued.t === 'sit' && queued.v === vehicle) outbox.splice(i, 1);
+        }
+      }
       const entry = moved.get(vehicle);
       const me = self();
       const seat = entry?.seats.indexOf(me) ?? -1;
@@ -397,6 +446,7 @@ export function createFleetSync(peers: Peers): FleetSync {
       // message takes it as an `up` and parks it where it went under.
       moved.delete(vehicle);
       if (live) post({ t: 'up', v: vehicle, sunk: true });
+      else sunkOffline.add(vehicle);
       emit(vehicle);
     },
 

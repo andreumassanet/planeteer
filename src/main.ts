@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OutlineEffect } from './outline.ts';
 import { createPost } from './post.ts';
 import { loadLakes, loadWorld, toLatLon } from './geo.ts';
+import { SCENERY_SCALE } from './stature.ts';
 import { groundRadius, landFlagProxy, landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
 import { drawnRadius, landProbeOf } from './land-probe.ts';
 import { createInput } from './input.ts';
@@ -21,6 +22,16 @@ import { courseOf, coursePoint, createRoads, emptyCourse, loadRoads } from './ro
 
 /** Points along each road the minimap traces it by: enough for a bend at a street's scale. */
 const MINIMAP_ROAD_SAMPLES = 24;
+/**
+ * Milliseconds either map may spend working out the strips and the rockets'
+ * pads it is about to show (`padsWithin`): one a paper or a frame, the rest
+ * left for the next ask. A pad's first search averaged 4.8 ms in `pnpm
+ * fleet` (2026-10-04), so one can run over; the streamer works out the ones
+ * round the player whatever the maps ask.
+ */
+const MAP_PADS_MS = 1;
+/** The pads one ask of either map found, before they are handed on. */
+const mapPads: LaunchPad[] = [];
 import { createRailNetwork, joinFields, loadRails, railFields } from './rails.ts';
 // From the contract rather than from `./monuments/index.ts`, which is the whole
 // registry: see `deferred` in `start()`. `index.ts` re-exports this, and taking
@@ -33,6 +44,9 @@ import type { BiomeSample } from './biome.ts';
 import { createAudio } from './audio.ts';
 import { BENCH_REACH } from './bench.ts';
 import type { Bench } from './bench.ts';
+import type { Rocket, RocketSound } from './rocket.ts';
+import type { LaunchPad } from './launch-pads.ts';
+import type { HintSet } from './controls.ts';
 import type { OtherVisitor } from './effects.ts';
 import type { FeatureKind } from './countryside.ts';
 import type { Soundscape, Surface } from './audio.ts';
@@ -45,13 +59,13 @@ import { createClouds } from './clouds.ts';
 import { suspendCloudShade } from './cloud-shade.ts';
 import { createWeatherView } from './weather-view.ts';
 import { weatherAt, weatherSample } from './weather.ts';
-import { createOcean } from './ocean.ts';
+import { createOcean, seaHull } from './ocean.ts';
 import { shaftLight, shaftStrength } from './shafts.ts';
 import { proxyOf, warmShaders } from './warm.ts';
 import { FIRE_GLOW_REACH, FIRE_STRIDE, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS, createCityLights, fireGlows, floodTuning, lightBrightness, setFires, setHeadlights, setNearLamps, setSunDirection } from './lights.ts';
 import { clockAt } from './timezone.ts';
 import { FOG_COLOR } from './theme.ts';
-import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, detail, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
+import { DETAIL_MAX, DETAIL_MIN, autoDetail, autoDetailState, beginFrameBuild, clearHazeAt, detail, endFrameBuild, fogFar, sampleFrame, setAutoDetail, setDetail, skipFrame } from './view.ts';
 import type { FlagLayer } from './land-flags.ts';
 import type { Curtain, MenuBody, MenuBodyModule, MenuSpawn } from './menu.ts';
 import type { SettingsOptions, TimeOfDay } from './settings.ts';
@@ -64,6 +78,8 @@ import type { Emote, Honk } from '../server/src/limits.ts';
 import { createHornChorus, createHornKey } from './horn.ts';
 import { HEADLIGHTS_OF, HORN_OF, LAMPS_LIKE } from './craft/contract.ts';
 import type { CraftKind, CraftModel, Lamp } from './craft/contract.ts';
+import { COCKPIT_NEAR } from './craft/body.ts';
+import { SUB_DRY } from './craft/submarine.ts';
 
 /**
  * Where you wake up: Mallorca.
@@ -95,6 +111,24 @@ const HAZE_ELEVATION = 0.25;
  * was; only where you see it from has moved.
  */
 const STREAM_FLOOR = 20;
+
+/**
+ * The render distance in words a player reads as a distance: where the haze
+ * closes on foot in clear air at that setting (`clearHazeAt` in `view.ts`),
+ * in metres at the scale everything made is built to (`SCENERY_SCALE`), which
+ * is the scale a walker judges by. The map's kilometres are the planet's and
+ * not this: the planet's distances are drawn at about 1:500 of a walker's.
+ */
+function renderDistanceWords(value: number): string {
+  const metres = clearHazeAt(value, PLANET_RADIUS) / SCENERY_SCALE;
+  return metres < 1000 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1000).toFixed(1)} km`;
+}
+/**
+ * How near a moving car has to be, past its own half-length, for `E` with
+ * nothing to take to say that somebody is driving it: about the reach `E`
+ * asks of a seat.
+ */
+const TRAFFIC_BESIDE = AVATAR_HEIGHT * 0.8;
 /**
  * How far another player's horn carries, in units: past this it is not heard.
  * Twice the reach of the traffic's, which is a car kept waiting in the next
@@ -477,7 +511,7 @@ async function start(): Promise<void> {
       notice(
         'Made for a large screen',
         'planeteer is played on a computer, with a keyboard and a mouse. On a phone or a small window it is cramped and slow, and nothing here answers a touch yet.',
-        [{ label: 'Continue anyway', primary: true, run: resolve }],
+        [{ label: 'Continue anyway', primary: true, escape: true, run: resolve }],
       );
     });
   }
@@ -656,6 +690,8 @@ async function start(): Promise<void> {
     passingSound: import('./passing-sound.ts'),
     fleet: import('./fleet.ts'),
     fleetSync: import('./fleet-sync.ts'),
+    /** The rockets on their pads beside half the airstrips, and `rocket.ts` with them. */
+    launchPads: import('./launch-pads.ts'),
   };
   // Each of them is awaited in its turn below, and a rejection there is a
   // failure of `start()`. But one that fails *now* — a chunk that did not
@@ -1134,6 +1170,7 @@ async function start(): Promise<void> {
     ...sharedSettings,
     key: false,
     detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
+    detailDistance: renderDistanceWords,
     autoDetail: { get: autoDetail, set: (on) => setAutoDetail(on) },
     flags: storedToggle(OVERLAY_KEY, true),
     weather: {
@@ -1252,7 +1289,7 @@ async function start(): Promise<void> {
       console.warn(`atlas: ${name} cannot be explored yet`, error);
       back();
       notice('Coming soon', `${name} cannot be walked on yet. Earth can, and the rest of the solar system is on its way.`, [
-        { label: 'Back to the planets', primary: true, run: () => {} },
+        { label: 'Back to the planets', primary: true, escape: true, run: () => {} },
       ]);
     }
   }
@@ -1501,6 +1538,22 @@ async function start(): Promise<void> {
    * ahead by its length, from the bottom of its model. A little dimmer than a
    * player's, as they always were.
    */
+  /**
+   * Whether a moving road vehicle is right beside the player: within its own
+   * half-length and `TRAFFIC_BESIDE` of him, which is how near `E` is asked
+   * of a seat. Every one of them has somebody at the wheel (`glazeTraffic`),
+   * and none can be taken.
+   */
+  let besideTraffic = false;
+  const visitBeside = (mesh: THREE.Object3D, halfLength: number): void => {
+    if (!besideTraffic && mesh.position.distanceTo(player.position) < halfLength + TRAFFIC_BESIDE) besideTraffic = true;
+  };
+  function trafficBeside(): boolean {
+    besideTraffic = false;
+    life.eachRoadVehicle(visitBeside);
+    return besideTraffic;
+  }
+
   const visitTraffic = (mesh: THREE.Object3D, halfLength: number, halfWidth: number, vehicle: string, bottom: number): void => {
     const like = LAMPS_LIKE[vehicle];
     const model = like === undefined ? undefined : craftModels.get(like);
@@ -1584,7 +1637,19 @@ async function start(): Promise<void> {
       : null;
   if (railData !== null && railNetwork === null) console.warn('rails.bin was baked against other places or roads: run `pnpm rails`');
   const railGround = railNetwork === null ? null : railFields(railNetwork);
-  const takenGround = joinFields(fleetSites, railGround);
+  // The rockets' pads beside half the airstrips, which keep off the railway
+  // (it was baked without them) and which everything else keeps off in turn.
+  const { createLaunchPads, createPadIndex } = await deferred.launchPads;
+  const padIndex = createPadIndex({ world, sites: fleetSites, rails: railGround });
+  const takenGround = joinFields(joinFields(fleetSites, padIndex), railGround);
+  /** What both maps ask the pads by: `MAP_PADS_MS` of working out an ask, the rest left for the next. */
+  const padsForMaps = (direction: THREE.Vector3, radius: number, out: { push(...pads: LaunchPad[]): unknown }): boolean => {
+    const until = performance.now() + MAP_PADS_MS;
+    mapPads.length = 0;
+    const done = padIndex.padsWithin(direction, radius, mapPads, () => performance.now() < until);
+    out.push(...mapPads);
+    return done;
+  };
   // Nothing beside a road stands on the track where a line crosses it.
   if (railGround !== null) {
     const taken: { at: THREE.Vector3; radius: number }[] = [];
@@ -1600,6 +1665,9 @@ async function start(): Promise<void> {
   const { createRigLibrary } = await deferred.kit;
   const { modelMaterial } = await import('./models.ts');
   const inkSource = ctx.toon(ctx.palette.ink);
+  // The rockets standing near the player, on the ramp the world is drawn with.
+  const launchPads = createLaunchPads({ world, pads: padIndex, gradientMap: inkSource.gradientMap!, land });
+  scene.add(launchPads.group);
   const streetPush = new THREE.Vector3();
   const life = createLife(world, places.all, {
     context: ctx,
@@ -1733,6 +1801,8 @@ async function start(): Promise<void> {
     screw: null as THREE.Vector3 | null,
     screwSpeed: 0,
   };
+  /** What the floor is told each frame, filled in place (the player and the rig are made further down). */
+  const seaFrame: Parameters<typeof sea.update>[1] = { player: new THREE.Vector3(), camera: new THREE.Vector3(), daylight: 1, fog };
   let oceanHidden = false;
   const diverHead = new THREE.Vector3();
   const subScrew = new THREE.Vector3();
@@ -1888,7 +1958,7 @@ async function start(): Promise<void> {
    * knows only its own, so the pushes are summed and a free spot is asked of
    * each in turn.
    */
-  const stillWalls = [settlements, monuments, vegetation] as const;
+  const stillWalls = [settlements, monuments, vegetation, launchPads] as const;
   const stillPush = new THREE.Vector3();
   const freeFrom = new THREE.Vector3();
   const freeTo = new THREE.Vector3();
@@ -1967,7 +2037,13 @@ async function start(): Promise<void> {
     },
     // And a balloon or a plane higher than that: only the buildings whose
     // roofs are still over it.
-    collideAloft: (point, radius, push) => settlements.collideAloft(point, radius, push),
+    collideAloft: (point, radius, push) => {
+      const roof = settlements.collideAloft(point, radius, push);
+      if (!launchPads.collideAloft(point, radius, vehiclePush)) return roof;
+      if (roof) push.add(vehiclePush);
+      else push.copy(vehiclePush);
+      return true;
+    },
     freeSpotNear: (point, radius, out) => freeOfWalls(point, radius, out),
     // What the player did or was refused, in words. Only what the strip along
     // the bottom does not already say: a landing refused, and why.
@@ -2019,6 +2095,7 @@ async function start(): Promise<void> {
         settlements.hideParked(id);
         vegetation.hideParked(id);
       },
+      show: (id) => settlements.showParked(id),
       paintOf: (id) => settlements.parkedPaint(id),
     },
     // What a vehicle nobody is driving any more runs into: the still walls
@@ -2105,7 +2182,7 @@ async function start(): Promise<void> {
   if (peers !== null && fleetSync !== null) peers.useSeats(fleet, (id) => fleetSync.seatOf(id));
 
   const rig = createCameraRig({
-    blocks: (point) => settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point),
+    blocks: (point) => settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point) || launchPads.blocksSight(point),
   });
   // A crash shakes the lens unless the player said not to, or the system asks
   // for less motion and the player has not said either way.
@@ -2147,6 +2224,9 @@ async function start(): Promise<void> {
         return line;
       });
     },
+    // The rockets' pads, a millisecond of working out a paper: the disc
+    // asks again until every pad on it is known.
+    pads: padsForMaps,
   });
   document.getElementById('minimap')!.appendChild(minimap.canvas);
 
@@ -2256,6 +2336,12 @@ async function start(): Promise<void> {
   const { createPassport } = await deferred.passport;
   const { createPassportCard } = await deferred.passportCard;
   const passport = createPassport();
+  /**
+   * The world map put away under the book, one card at a time as Settings
+   * and the chat do. A closure filled in once the map exists, below: the book
+   * answers `J` from here on and the map is made a few awaits later.
+   */
+  let mapGivesWay = (): void => {};
   const passportCard = createPassportCard({
     passport,
     countries: world.countries,
@@ -2269,7 +2355,10 @@ async function start(): Promise<void> {
     lockTarget: renderer.domElement,
     // A book, and it sounds like one: its cover, a page a turn — a riffle
     // for a bookmark that skips several — and the stamp's thump.
-    onOpen: () => audio.cue('book-open'),
+    onOpen: () => {
+      mapGivesWay();
+      audio.cue('book-open');
+    },
     onClose: () => audio.cue('book-close'),
     onTurn: (leaves) => {
       audio.cue('page');
@@ -2373,6 +2462,55 @@ async function start(): Promise<void> {
     }
     return best === null ? null : { bench: best, distance: bestDistance };
   }
+  /** The rocket `E` would put you in, this frame (`launchPads.offer`), decided with the prompt. */
+  let rocketOffer: Rocket | null = null;
+  /** The keys in a rocket on its pad: the other worlds' (`ROCKET_KEYS` in `worlds/shell.ts`). */
+  const rocketKeys: HintSet = {
+    id: 'rocket',
+    once: false,
+    sticky: true,
+    hints: [
+      { keys: ['jump'], label: 'Hold to launch' },
+      { keys: ['use'], label: 'Get out' },
+    ],
+  };
+  const rocketOut = new THREE.Vector3();
+  function boardRocket(rocket: Rocket): void {
+    launchPads.board(rocket, player.object);
+    if (launchPads.riding === null) return;
+    hud.showKeys(rocketKeys);
+    rocketKeysUp = true;
+    audio.cue('ui-confirm');
+  }
+  /** Out of the rocket on its pad, a step from its door; nothing once it has lifted. */
+  function leaveRocket(): void {
+    if (!launchPads.leave(rocketOut)) return;
+    const at = toLatLon(rocketOut);
+    player.goTo(at.lat, at.lon);
+    rig.snap(player, groundAt);
+    hud.showKeys(null);
+    rocketKeysUp = false;
+    audio.cue('ui-click');
+    rocketHeld = false;
+  }
+  /**
+   * The cream that comes down over the end of a launch the player rides, as
+   * it does in the other worlds; under it the page goes to the solar system
+   * the way Earth's *Solar system* button takes it (`toSolarSystem`).
+   */
+  let rocketCurtain: HTMLDivElement | null = null;
+  let rocketGone = false;
+  /** `Space` held for the player from the console (`atlas.rockets.ignite`), until he is out. */
+  let rocketHeld = false;
+  /** The way out the rockets roar through, made once the sound is open and handed over the same every frame. */
+  let rocketSound: RocketSound | null = null;
+  const rocketSoundOf = (): RocketSound | null => {
+    if (rocketSound === null && audio.output !== null && audio.bus !== null) rocketSound = { context: audio.output.context, node: audio.bus };
+    return rocketSound;
+  };
+  /** Whether the rocket's keys are on the strip: from boarding until out, or until it leaves the pad. */
+  let rocketKeysUp = false;
+
   let sitTimer = 0;
   function sitDown(bench: Bench): void {
     if (!player.sitOn(bench.position, bench.facing, bench.sink)) return;
@@ -2394,6 +2532,8 @@ async function start(): Promise<void> {
     // A card holding the keyboard — Settings, the welcome, a notice — keeps
     // `M` from opening the map underneath it. Closing is never blocked.
     blocked: () => inputBlocked(),
+    // The rockets' pads at a street zoom, worked out as the minimap's are.
+    pads: padsForMaps,
     ...(peers === null
       ? {}
       : {
@@ -2404,6 +2544,9 @@ async function start(): Promise<void> {
         }),
   });
   document.body.appendChild(map.root);
+  mapGivesWay = () => {
+    if (map.open) map.hide(false);
+  };
 
   // Who is playing, held on `Tab`: yourself first, then everyone the relay has
   // told us of, each with the flag of the country they stand in and what they
@@ -2457,7 +2600,7 @@ async function start(): Promise<void> {
     hud.toast(text, iconName);
   }
   function showDetail(value: number): void {
-    announce(`Render distance ${value.toFixed(2)}×`, 'eye');
+    announce(`Render distance ${renderDistanceWords(value)} (${value.toFixed(2)}×)`, 'eye');
   }
 
   /**
@@ -2627,6 +2770,7 @@ async function start(): Promise<void> {
   input.sensitivity = Number(readSetting(SENSITIVITY_KEY) ?? '1') || 1;
   const settings = createSettings({
     detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
+    detailDistance: renderDistanceWords,
     autoDetail: {
       get: autoDetail,
       set: (on) => setAutoDetail(on),
@@ -2701,7 +2845,7 @@ async function start(): Promise<void> {
     // One card at a time: the settings over the world map would be two
     // overlays holding the mouse, and the map's keys under a modal card.
     onOpen: () => {
-      if (map.open) map.hide();
+      if (map.open) map.hide(false);
       audio.cue('ui-open');
     },
     onClose: () => audio.cue('ui-close'),
@@ -2749,7 +2893,7 @@ async function start(): Promise<void> {
     sound: () => (voices.chat && audio.output !== null && audio.bus !== null ? { context: audio.output.context, node: audio.bus } : null),
     lockTarget: renderer.domElement,
     onOpen: () => {
-      if (map.open) map.hide();
+      if (map.open) map.hide(false);
     },
   });
 
@@ -2925,6 +3069,9 @@ async function start(): Promise<void> {
   let soundWildTarget = 1;
   let mapWasOpen = false;
 
+  /** What the soundscape is handed each frame (`audio.update`), filled in place. */
+  const soundscape: Soundscape = { mode: 'foot', speed: 0, throttle: 0, height: 0, sea: 0, daylight: 1, wild: 0, cold: false, rain: 0, gale: 0, underwater: 0 };
+
   function frame(now: number): void {
     requestAnimationFrame(frame);
     // **A tab left open on the pause card draws at about 30 frames a second**
@@ -2950,30 +3097,58 @@ async function start(): Promise<void> {
     // Order matters: the rig decides where you are looking, the player moves
     // relative to that, and only then does the camera chase the result. Chasing
     // first would leave the camera a frame behind its own aim.
-    rig.aim(dt, input.state, player);
+    // In a rocket the lens is the launch's and the body is in it: no aim, no walk.
+    const inRocket = launchPads.riding;
+    if (inRocket === null) rig.aim(dt, input.state, player);
     // `E`, before the player moves: on with the conversation you are in, or
     // to the person nearer than any seat, or into the vehicle beside you, or
     // out of the one you are in, so this frame already drives or walks.
     if (input.state.use) {
-      if (talk.open) {
+      if (inRocket !== null) leaveRocket();
+      else if (talk.open) {
         talk.next();
         audio.cue(talk.open ? 'ui-click' : 'ui-close');
       } else if (talkOffer !== null) startTalk(talkOffer);
       else if (player.sitting) player.stand();
       else if (benchOffer !== null) sitDown(benchOffer);
-      else fleet.use();
+      else if (rocketOffer !== null) boardRocket(rocketOffer);
+      else if (fleet.prompt === null && fleet.current() === null && player.mode === 'foot' && trafficBeside()) {
+        // Nothing to take, and a car beside you with its driver at the wheel:
+        // say so, calmly, rather than leave the key doing nothing.
+        announce('Someone is driving that one', modeIcon('car'));
+      } else fleet.use();
     }
     // The drawn land round the player, while the ground is near enough to
     // matter: a slice a frame when he has moved on. Not at cruise, where it
     // would gather again every 400 units for nothing.
     if (player.position.length() - groundAt(player.position) < PROBE_CEILING) landProbe.prepare(player.position);
-    player.update(dt, {
-      move: input.state.move,
-      run: input.state.run,
-      jump: input.state.jump,
-      heading: rig.steer,
-    });
-    rig.follow(dt, player, cameraGroundAt);
+    if (launchPads.riding === null) {
+      player.update(dt, {
+        move: input.state.move,
+        run: input.state.run,
+        jump: input.state.jump,
+        heading: rig.steer,
+      });
+      // The sea kept out of the submarine the player is in (`seaHull`), round
+      // the axis of its cabin's own lining, so the waterline does not run
+      // through the cabin while it floats at the surface.
+      {
+        const ride = player.ride;
+        const cabin = ride?.model.kind === 'submarine' ? player.object.getObjectByName('cabin') : undefined;
+        if (ride !== null && cabin?.parent != null) {
+          // In the frame the hull is built in, which the springs carry; the
+          // seats say where `finish` has centred it.
+          const frame = cabin.parent;
+          frame.updateWorldMatrix(true, false);
+          const front = ride.model.seats[0]!.z;
+          SUB_DRY.stations.forEach(([z, r], i) => {
+            seaHull.uHull.value[i]!.set(0, SUB_DRY.y, front + z).applyMatrix4(frame.matrixWorld);
+            seaHull.uHullR.value.setComponent(i, r);
+          });
+        } else seaHull.uHullR.value.set(0, 0, 0, 0);
+      }
+      rig.follow(dt, player, cameraGroundAt);
+    } else launchPads.frame(rig.camera, dt);
     input.endFrame();
 
     // After the rig, because the sky needs both where you stand — which decides
@@ -3051,26 +3226,27 @@ async function start(): Promise<void> {
       }
       guard('music', () => tune.update());
     }
-    guard('audio', () => audio.update(dt, {
-      mode: soundMode,
-      speed: speedNow,
-      throttle:
-        soundMode === 'plane'
-          ? player.airborne
-            ? (speedNow - PLANE_CRUISE_LOW * 0.55) / (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW * 0.55)
-            : speedNow / PLANE_CRUISE_LOW
-          : soundKind !== null
-            ? speedNow / topSpeedOf(soundKind)
-            : 0,
-      height: eyeOverGround,
-      sea: soundSea,
-      daylight: sky.state.daylight,
-      wild: soundWild,
-      cold: soundCold,
-      rain: weather.sound.rain,
-      gale: weather.sound.gale,
-      underwater: sea.underwater ? 1 : 0,
-    }));
+    // One record, written over each frame: `audio.update` reads it and keeps nothing of it.
+    soundscape.mode = soundMode;
+    soundscape.speed = speedNow;
+    soundscape.throttle =
+      soundMode === 'plane'
+        ? player.airborne
+          ? (speedNow - PLANE_CRUISE_LOW * 0.55) / (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW * 0.55)
+          : speedNow / PLANE_CRUISE_LOW
+        : soundKind !== null
+          ? speedNow / topSpeedOf(soundKind)
+          : 0;
+    soundscape.height = eyeOverGround;
+    soundscape.sea = soundSea;
+    soundscape.daylight = sky.state.daylight;
+    soundscape.wild = soundWild;
+    soundscape.cold = soundCold;
+    // The rain's drum is on the surface, not under it.
+    soundscape.rain = sea.underwater ? 0 : weather.sound.rain;
+    soundscape.gale = weather.sound.gale;
+    soundscape.underwater = sea.underwater ? 1 : 0;
+    guard('audio', () => audio.update(dt, soundscape));
     if (map.open !== mapWasOpen) {
       mapWasOpen = map.open;
       audio.cue(map.open ? 'ui-open' : 'ui-close');
@@ -3084,9 +3260,8 @@ async function start(): Promise<void> {
     // half visible.** A knob that admits geometry at eight thousand units while
     // the haze closes at fourteen hundred spends the frame on a wall: nothing
     // the player can see changes, which is exactly the failure that produced
-    // the knob. `detailFog` opens it as the square root rather than linearly —
-    // see `view.ts` for why that is a judgement about the look and not
-    // arithmetic.
+    // the knob. `detailFog` opens it linearly, anchored at the default, so a
+    // step of the setting is a step of what you see (`view.ts`).
     //
     // **Measured from the ground under the player, with a quarter of that
     // ground's own height added back**, not from the sea. From a camera 15
@@ -3118,7 +3293,15 @@ async function start(): Promise<void> {
     // between a cliff top and the sea then fall inside a single depth step and
     // every coastline starts z-fighting. Nothing is ever drawn closer than the
     // avatar, so near can grow with that distance instead.
-    const near = Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
+    //
+    // **In first person in a seat it is held at `COCKPIT_NEAR`**: the eye is
+    // inside a cabin now (`craft/cabin.ts`), the roof's lining a third of a
+    // unit over it and the wheel and the hands two thirds of one ahead, while
+    // the rule above, reading the eye's height over the vehicle's origin,
+    // gives 0.43 and cut the lining open over the head. A tenth of the depth
+    // range is the price, which at the ground's haze is a few units at 3 km.
+    const inCab = rig.firstPerson && player.ride !== null;
+    const near = inCab ? COCKPIT_NEAR : Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
     if (Math.abs(near - rig.camera.near) > near * 0.1) {
       rig.camera.near = near;
       rig.camera.updateProjectionMatrix();
@@ -3188,6 +3371,9 @@ async function start(): Promise<void> {
         railway.update({ dt, seconds: sky.state.time.getTime() / 1000, camera: rig.camera, player: player.position, fogFar: fog.far }),
       );
     }
+    // The streamers' building ends here, and what it cost is what the next
+    // frame's far work is charged with (`endFrameBuild` in `view.ts`).
+    endFrameBuild();
     passingVoices.prop = airTraffic.passing.prop;
     passingVoices.rotor = airTraffic.passing.rotor;
     passingVoices.jet = airTraffic.passing.jet;
@@ -3223,6 +3409,36 @@ async function start(): Promise<void> {
     // The vehicles after everything they stand on, and before the other
     // players, who may be sitting in one of them.
     guard('fleet', () => fleet.update(dt, rig.camera));
+    // The rockets beside the airstrips: streamed round the player, lit by
+    // `Space` held in the one he is in, now and then by nobody; and the
+    // curtain over the end of his launch, and the solar system under it.
+    guard('rockets', () => {
+      launchPads.update({
+        dt,
+        player: player.position,
+        listener: rig.camera.position,
+        hold: input.state.climb || rocketHeld,
+        effects,
+        sound: rocketSoundOf(),
+      });
+      const ride = launchPads.riding;
+      // Off the pad `E` gets nobody out: the keys it offered go with the clamps.
+      if (rocketKeysUp && ride !== null && ride.state !== 'boarded') {
+        rocketKeysUp = false;
+        hud.showKeys(null);
+      }
+      if (ride === null || ride.curtain <= 0) return;
+      if (rocketCurtain === null) {
+        rocketCurtain = document.createElement('div');
+        rocketCurtain.style.cssText = 'position:fixed;inset:0;z-index:40;pointer-events:none;background:radial-gradient(circle at 50% 42%,#fff2e8 0 35%,#fde6e1 100%)';
+        document.body.appendChild(rocketCurtain);
+      }
+      rocketCurtain.style.opacity = ride.curtain.toFixed(3);
+      if (ride.curtain >= 1 && !rocketGone) {
+        rocketGone = true;
+        toSolarSystem();
+      }
+    });
     if (peers !== null) guard('peers', () => peers.update(dt, player));
     // A horn held is let go with the seat or the keyboard, and others' follow their players.
     guard('horns', () => {
@@ -3256,7 +3472,10 @@ async function start(): Promise<void> {
     // After the fog is set, which under the surface it takes over, and after
     // the ocean, whose window it opens.
     guard('sea', () => {
-      sea.update(dt, { player: player.position, camera: rig.camera.position, daylight: sky.state.daylight, fog });
+      seaFrame.player = player.position;
+      seaFrame.camera = rig.camera.position;
+      seaFrame.daylight = sky.state.daylight;
+      sea.update(dt, seaFrame);
       // Under the surface the sphere and the ribbon are seen from inside,
       // where their fills are culled and their ink is not: the pen would
       // draw the whole underside of the sea as a black ceiling. So they go
@@ -3265,6 +3484,9 @@ async function start(): Promise<void> {
       if (sea.underwater !== oceanHidden) {
         oceanHidden = sea.underwater;
         ocean.group.visible = !oceanHidden;
+        // Nor does it rain under the sea: the drops are a box round the lens,
+        // drawn without the fog, and fell round a diver as they did ashore.
+        weather.group.visible = !oceanHidden;
       }
     });
     guard('sea life', () => {
@@ -3317,10 +3539,16 @@ async function start(): Promise<void> {
     // A bench nearer than any seat, with nobody to talk to.
     const bench = talk.open || talkOffer !== null || player.sitting || player.mode !== 'foot' || player.airborne ? null : nearestBench();
     benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) ? bench.bench : null;
-    if (talk.open) hud.setPrompt(null);
+    // A parked rocket nearer than any of those: the worlds' prompt.
+    const rocketNear = talkOffer !== null || benchOffer !== null || talk.open || !afoot || player.sitting ? null : launchPads.offer(player.position);
+    rocketOffer = rocketNear !== null && (offer === null || rocketNear.gap < offer.gap) ? rocketNear.rocket : null;
+    const riding = launchPads.riding;
+    if (riding !== null) hud.setPrompt(riding.state === 'boarded' ? 'Get out' : null, 'walk');
+    else if (talk.open) hud.setPrompt(null);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else if (player.sitting) hud.setPrompt('Stand up', 'walk');
     else if (benchOffer !== null) hud.setPrompt('Sit', 'seat');
+    else if (rocketOffer !== null) hud.setPrompt('Board the rocket', 'sparkle');
     else hud.setPrompt(offer === null ? null : offer.label, modeIcon(offer?.model.kind ?? null));
     hud.setPaused(!input.looking && !map.open && !settings.open && !traveller.open && !chat.open && !passportCard.open, input.dragging);
     // The curtain from the menu's dive comes up once the ground under it has
@@ -3402,6 +3630,7 @@ async function start(): Promise<void> {
       settlements.group.children.length +
       vegetation.group.children.length +
       life.group.children.length +
+      launchPads.group.children.length +
       (railway?.group.children.length ?? 0);
     const moving =
       player.velocity > 0 ||
@@ -3410,6 +3639,8 @@ async function start(): Promise<void> {
       townsfolk.stats.nearestMoving < SHADOW_COVER ||
       (railway !== null && railway.stats.nearestMoving < SHADOW_COVER) ||
       (peers !== null && peers.nearestMoving < SHADOW_COVER) ||
+      // A rocket lighting or climbing, its own shadow going up the pad.
+      launchPads.stats.nearestMoving < SHADOW_COVER ||
       // The wood round you, in the wind (`foliage.ts`): its shadows move with it.
       vegetation.stats.swaying;
     const cadence = moving ? 0 : SHADOW_STILL_MS;
@@ -3621,6 +3852,30 @@ async function start(): Promise<void> {
        * out the whole planet's, which takes seconds.
        */
       fleet,
+      /**
+       * The rockets beside half the airstrips: `atlas.rockets.pads.padsNear(dir, r, [])`
+       * says where they stand, `.standing()` the ones built round you,
+       * `.board()` gets in the nearest as `E` does, `.launch()` lights the
+       * nearest nobody is in, and `.stats` the streamer.
+       */
+      rockets: {
+        pads: padIndex,
+        standing: () => launchPads.standing(),
+        get stats() {
+          return launchPads.stats;
+        },
+        board: (rocket?: Rocket) => {
+          const nearest = rocket ?? launchPads.standing().sort((a, b) => a.position.distanceTo(player.position) - b.position.distanceTo(player.position))[0];
+          if (nearest !== undefined) boardRocket(nearest);
+        },
+        launch: (rocket?: Rocket) => {
+          const nearest = rocket ?? launchPads.standing().filter((one) => one.state === 'parked').sort((a, b) => a.position.distanceTo(player.position) - b.position.distanceTo(player.position))[0];
+          return nearest?.autolaunch() ?? false;
+        },
+        leave: () => leaveRocket(),
+        /** Holds `Space` for the player in the rocket he is in: the launch, through to the solar system. */
+        ignite: () => (rocketHeld = launchPads.riding !== null),
+      },
       rig,
       scene,
       // `atlas.sky.setTime('2026-09-04T05:20:00Z')` freezes the world at that

@@ -146,6 +146,27 @@ export const CHAT_INTERVAL_MS = 1_500;
 /** …up to this many in hand: three quick lines, then one each interval. */
 export const CHAT_BURST = 3;
 
+/**
+ * The most the network may stretch or squeeze the gap between two lines on
+ * their way to the relay, in milliseconds, and the game's own interval with
+ * it: the game paces itself `CHAT_JITTER_MS` slower than the relay does,
+ * with the same burst, so a line the field lets through is never one the
+ * relay drops for having arrived early.
+ *
+ * Why the margin is a sum and not a factor: a line the relay would refuse
+ * is the `CHAT_BURST + 1`-th inside some window, and the game never lets
+ * one go until a whole interval of its own after the window opened. Lines
+ * sent `gap` apart arrive at least `gap - CHAT_JITTER_MS` apart (a socket
+ * keeps their order, and no delay is shorter than the shortest), so the
+ * relay has earned the line once `CHAT_CLIENT_INTERVAL_MS - CHAT_JITTER_MS`
+ * is a whole `CHAT_INTERVAL_MS`. Nothing on the wire changes: the relay
+ * reads `spendChat` as it always has, and only the game passes the slower
+ * interval. `scripts/check-chat.ts` sends a sender who hammers the key
+ * through a jittered socket and holds the relay to dropping nothing.
+ */
+export const CHAT_JITTER_MS = 500;
+export const CHAT_CLIENT_INTERVAL_MS = CHAT_INTERVAL_MS + CHAT_JITTER_MS;
+
 /** How many lines the room keeps for whoever joins next. */
 export const CHAT_HISTORY = 50;
 
@@ -307,11 +328,12 @@ export const freshBucket = (): ChatBucket => ({ tokens: CHAT_BURST, at: 0 });
 
 /**
  * Whether a line may go at `now`, spending it if so. The allowance refills
- * one line each `CHAT_INTERVAL_MS` up to `CHAT_BURST`; a clock that went
- * backwards refills nothing.
+ * one line each `interval` up to `CHAT_BURST`; a clock that went backwards
+ * refills nothing. The relay's interval is `CHAT_INTERVAL_MS`; the game
+ * passes `CHAT_CLIENT_INTERVAL_MS`, which is the margin.
  */
-export function spendChat(bucket: ChatBucket, now: number): boolean {
-  const earned = bucket.at === 0 ? CHAT_BURST : Math.max(0, now - bucket.at) / CHAT_INTERVAL_MS;
+export function spendChat(bucket: ChatBucket, now: number, interval = CHAT_INTERVAL_MS): boolean {
+  const earned = bucket.at === 0 ? CHAT_BURST : Math.max(0, now - bucket.at) / interval;
   bucket.tokens = Math.min(CHAT_BURST, bucket.tokens + earned);
   bucket.at = now;
   if (bucket.tokens < 1) return false;
@@ -319,9 +341,9 @@ export function spendChat(bucket: ChatBucket, now: number): boolean {
   return true;
 }
 
-/** How long until `bucket` has a line to spend, in milliseconds; 0 if it has one now. */
-export function chatWait(bucket: ChatBucket, now: number): number {
-  const earned = bucket.at === 0 ? CHAT_BURST : Math.max(0, now - bucket.at) / CHAT_INTERVAL_MS;
+/** How long until `bucket` has a line to spend at `interval` a line, in milliseconds; 0 if it has one now. */
+export function chatWait(bucket: ChatBucket, now: number, interval = CHAT_INTERVAL_MS): number {
+  const earned = bucket.at === 0 ? CHAT_BURST : Math.max(0, now - bucket.at) / interval;
   const tokens = Math.min(CHAT_BURST, bucket.tokens + earned);
-  return tokens >= 1 ? 0 : Math.ceil((1 - tokens) * CHAT_INTERVAL_MS);
+  return tokens >= 1 ? 0 : Math.ceil((1 - tokens) * interval);
 }

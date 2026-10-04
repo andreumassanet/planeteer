@@ -135,6 +135,8 @@ const REBASE = 4000;
 
 /** How far off a strike is still drawn, and how far its flash and its thunder reach. */
 const STRIKE_REACH = 5000;
+/** The least time between two strikes seen, on the machine's clock: see `struckAt`. */
+const STRIKE_GAP_MS = 600;
 /**
  * How far a strike lights the scene: fully within `FLASH_NEAR`, fading out
  * by `FLASH_FAR`, about the haze's reach on the ground; past that only
@@ -502,6 +504,15 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
   const candidate: Strike = { lat: 0, lon: 0, at: 0, seed: 0 };
   let strikes = 0;
   let flashAge = Infinity;
+  /**
+   * When the last strike was seen, on the machine's clock. The strikes are
+   * the sky clock's, and under the time-lapse (60 times) a slot of them goes
+   * by in a frame or two: the scene flashed at thirty a second and the
+   * thunder piled up by the hundred. However fast the sky runs, one strike in
+   * `STRIKE_GAP_MS` is seen and heard; the rest pass unseen, as strikes past
+   * the haze do.
+   */
+  let struckAt = -Infinity;
   let flashStrength = 0;
   const strikePoint = new THREE.Vector3();
   const strikeUp = new THREE.Vector3();
@@ -580,6 +591,9 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
     strikePoint.copy(strikeUp).multiplyScalar(ground);
     const distance = strikePoint.distanceTo(camera);
     if (distance > STRIKE_REACH) return;
+    const wall = performance.now();
+    if (wall - struckAt < STRIKE_GAP_MS) return;
+    struckAt = wall;
     strikes++;
     writeBolt(boltPositions, strikePoint, strikeUp, BOLT_TOP, 3 + distance * 0.0012, strike.seed);
     boltAttribute.needsUpdate = true;

@@ -175,6 +175,10 @@ export function createHornChorus(sound: SoundHorn): HornChorus {
           stop(id);
           continue;
         }
+        // A struck voice — a bell, a bulb, a snort — sounds once a press: one
+        // walked out of earshot and back while its key is held is not struck
+        // again, as a held horn is taken up again.
+        if (!HORN_HELD[held.voice]) continue;
         if (level <= EARSHOT) {
           held.playing?.release();
           held.playing = null;

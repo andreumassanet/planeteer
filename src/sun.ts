@@ -24,6 +24,10 @@ import { SUN_CUT } from './cloud-shade.ts';
  */
 
 const DEG = Math.PI / 180;
+/** The furthest a `Date` reaches either side of 1970, ms. */
+const MAX_DATE_MS = 8.64e15;
+/** The fastest the sky's clock may be made to run, either way: some nineteen years a real minute. */
+const MAX_RATE = 1e7;
 
 /** What both discs are mixed towards, so neither ever goes as dim as its light. */
 const WHITE = new THREE.Color(0xffffff);
@@ -1035,7 +1039,10 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     // and the position is asked once, not once for the record and again for
     // the direction. Nothing holds either past the frame.
     const time = state.time;
-    time.setTime(anchor + (Date.now() - anchorReal) * rate);
+    // Held inside what a `Date` can hold: past ±8.64e15 ms it is an Invalid
+    // Date, and NaN went to the sun, the clouds and the traffic and the
+    // chip's formatter threw every frame. Only a console's rate gets there.
+    time.setTime(Math.max(-MAX_DATE_MS, Math.min(MAX_DATE_MS, anchor + (Date.now() - anchorReal) * rate)));
     directionOf(solarPosition(time, state.solar), solarDirection);
     const step = Math.floor(time.getTime() / SHADOW_STEP_MS);
     if (step !== lightStep) {
@@ -1244,10 +1251,14 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
       if (!Number.isFinite(next)) return false;
       anchor = next;
       anchorReal = Date.now();
+      // The real clock runs at the real rate: `setTime(null)` from the console
+      // kept a time-lapse running from now.
+      if (when === null) rate = 1;
       return true;
     },
     setRate(next) {
       if (!Number.isFinite(next)) return;
+      next = Math.max(-MAX_RATE, Math.min(MAX_RATE, next));
       anchor = anchor + (Date.now() - anchorReal) * rate;
       anchorReal = Date.now();
       rate = next;

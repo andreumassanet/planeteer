@@ -15,8 +15,16 @@ import { holdFocus, registerModal } from './controls.ts';
 export interface NoticeAction {
   label: string;
   primary?: boolean;
+  /**
+   * `Esc` presses it: the way out of a card that only says something — never
+   * a reload, which `Esc` taking would be a lost world for a reflex.
+   */
+  escape?: boolean;
   run(): void;
 }
+
+/** The action `Esc` presses on the card up now, if it has one. */
+let onEscape: (() => void) | null = null;
 
 let open = false;
 registerModal(() => open);
@@ -27,6 +35,13 @@ registerModal(() => open);
 addEventListener('keydown', (event) => {
   const card = document.getElementById('notice');
   if (open && card !== null) holdFocus(event, card);
+  if (open && event.code === 'Escape' && onEscape !== null) {
+    // The card's alone: closed by it, the screen behind would otherwise take
+    // the same key as its own `Esc` the moment the card stopped holding it.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    onEscape();
+  }
 });
 
 /** Whether a notice is up. */
@@ -44,20 +59,24 @@ export function notice(title: string, text: string, actions: readonly NoticeActi
   }
   heading.textContent = title;
   body.textContent = text;
+  onEscape = null;
   row.replaceChildren(
     ...actions.map((action) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = action.primary === true ? 'n-btn primary' : 'n-btn';
       button.textContent = action.label;
-      button.addEventListener('click', () => {
+      const press = (): void => {
         // Back to the world, like the welcome card: nothing opened this one,
         // so there is no control to hand the focus back to.
         button.blur();
         root.hidden = true;
         open = false;
+        onEscape = null;
         action.run();
-      });
+      };
+      button.addEventListener('click', press);
+      if (action.escape === true) onEscape = press;
       return button;
     }),
   );

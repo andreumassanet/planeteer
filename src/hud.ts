@@ -141,7 +141,8 @@ export interface Hud {
    */
   jump(): void;
   setDestination(entry: DestinationEntry | null): void;
-  trackDestination(km: number, x: number | null, y: number, angle: number): void;
+  /** `km` null is *Here*: near enough that a distance would mislead (`HERE_RANGE` in `navigation.ts`). */
+  trackDestination(km: number | null, x: number | null, y: number, angle: number): void;
   arriveAt(name: string, iso: string | null): void;
   /** You walked up to a landmark: a quiet card that says what it is. */
   showLandmark(landmark: LandmarkArrival): void;
@@ -615,11 +616,16 @@ const STYLE = `
 /* --- everything away: H ------------------------------------------------------- */
 /*
  * The overlay and the pieces other files own that are part of it — the
- * minimap, the chat's standing lines — go; the pause card, the welcome and a
- * toast saying how to get it all back stay, since they are how you do.
+ * minimap, the chat's standing lines, a conversation's bubble, a stamp
+ * coming down and the country names over the land — go; the pause card, the
+ * welcome and a toast saying how to get it all back stay, since they are how
+ * you do.
  */
 .atlas-hud.hidden > :not(.atlas-pause):not(.atlas-welcome):not(.atlas-toast),
 body.atlas-hud-hidden #minimap,
+body.atlas-hud-hidden .atlas-bubble,
+body.atlas-hud-hidden .atlas-stamp-drop,
+body.atlas-hud-hidden .atlas-names,
 body.atlas-hud-hidden .atlas-chat:not(.open) {
   opacity: 0 !important;
   visibility: hidden;
@@ -1025,10 +1031,15 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
    * - **At sea, the town whose coast you are off**, inside `OFFSHORE_KM`.
    * - **On land, the town whose name reaches here**: `near`, or `inside` it.
    */
+  /** A body with no water a traveller can be on (`PlanetSurface.sea`). */
+  const dryBody = options.surface?.sea === false;
   function keyOf(countryId: number, near: Nearby | null): string {
     if (near === null) return '';
     if (flying) return near.inside ? `${near.index}!` : '';
-    if (countryId === 0) return near.km <= OFFSHORE_KM ? `${near.index}@` : '';
+    // Country 0 is the water only where the body has any: on a world without
+    // a sea it is ground nobody claims, and walked like any land — it read
+    // *Off Tharsis Station* on dry Martian dust.
+    if (countryId === 0 && !dryBody) return near.km <= OFFSHORE_KM ? `${near.index}@` : '';
     return near.near ? `${near.index}${near.inside ? '!' : '~'}` : '';
   }
 
@@ -1042,7 +1053,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     if (settled < 0) return;
     const country = settled > 0 ? world.countries[settled - 1]! : null;
     const relation = placeSettled.slice(-1);
-    if (country !== null) placeMode = relation === '!' ? 'in' : relation === '~' ? 'near' : null;
+    if (country !== null || dryBody) placeMode = relation === '!' ? 'in' : relation === '~' ? 'near' : null;
     // At sea the badge says the sea — the ocean is not somewhere you arrived —
     // unless a town's quay is in sight: *Off Palma* from the bay. "Water" and
     // not "sea", because a lake is country 0 as well and Baikal is not a sea.
@@ -1206,7 +1217,10 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   }, { signal });
   // The pause card takes `Tab` from the player list while it is up: its buttons
   // are the only things on the screen a key can press.
-  const pauseUp = (): boolean => paused === true && !welcoming;
+  // Only while it has any: a card with nothing to focus that took the key
+  // swallowed it whole — the bar's buttons out of a keyboard's reach and the
+  // player list dead while the mouse was free.
+  const pauseUp = (): boolean => paused === true && !welcoming && pause.querySelector('button, input, select, a[href], [tabindex]') !== null;
   unregister.push(registerTabCard(pauseUp));
   addEventListener('keydown', (event) => {
     if (pauseUp()) holdFocus(event, pause);
@@ -1253,10 +1267,11 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       destination.classList.add('on');
     },
     trackDestination(distanceKm, x, y, angle) {
-      const rounded = Math.round(distanceKm);
+      // -1 is *Here*, which no rounded distance is.
+      const rounded = distanceKm === null ? -1 : Math.round(distanceKm);
       if (rounded !== shownKm) {
         shownKm = rounded;
-        destinationRange.textContent = km(distanceKm);
+        destinationRange.textContent = distanceKm === null ? 'Here' : km(distanceKm);
       }
       if (x === null || arrivedFor > 0) {
         waypoint.classList.remove('on');

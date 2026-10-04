@@ -504,7 +504,10 @@ console.log('\nvehicles on slopes');
  * drives never reached the carriageway (every 300th road, four vehicles, six
  * angles, walking and running). A drive whose vehicle stops inside a built
  * town's disc is left out and counted: the town's floor, which would be
- * there, is not built here.
+ * there, is not built here. So is a start whose straight way to the road
+ * crosses water, a field across an inlet from the bank (North Port's, since
+ * the re-bake of 2026-10-04): no wheel crosses the sea, and that drive asks
+ * nothing of the bank.
  *
  * **And a wall is still a wall**: a four-unit terrace riser laid across the
  * carriageway ahead stops the car, and a kerb's 0.4 does not.
@@ -607,6 +610,18 @@ console.log('\nthe roads on the drawn land');
   let drives = 0;
   let reached = 0;
   let townLeft = 0;
+  let acrossWater = 0;
+  const wayProbe = new Vector3();
+  /** Whether the straight way from `start` to the road's centre at `middle` crosses water the road does not bridge. */
+  const wetWay = (): boolean => {
+    const steps = Math.ceil((start.angleTo(middle) * PLANET_RADIUS) / 1);
+    for (let k = 1; k < steps; k++) {
+      wayProbe.copy(start).lerp(middle, k / steps).normalize();
+      if (roads.ribbonHeightAt(wayProbe) > 0) return false;
+      if (isWater(groundAt(wayProbe))) return true;
+    }
+    return false;
+  };
   const stuck: string[] = [];
   let stuckCount = 0;
   /** Drives `kind` at `from` toward `forward` for up to `seconds`; true when `done` says so first. */
@@ -649,6 +664,10 @@ console.log('\nthe roads on the drawn land');
           const back = (26 / Math.tan((angle * Math.PI) / 180)) * (spot.s < path.length / 2 ? 1 : -1);
           start.copy(middle).addScaledVector(across, (side * 26) / PLANET_RADIUS).addScaledVector(tangent, back / PLANET_RADIUS).normalize();
           if (isWater(groundAt(start)) || roads.ribbonHeightAt(start) > 0 || inTown(start)) continue;
+          if (wetWay()) {
+            acrossWater++;
+            continue;
+          }
           toward.copy(middle).sub(start).projectOnPlane(start).normalize();
           for (const kind of ['hatchback', 'bicycle', 'bus']) {
             drives++;
@@ -668,7 +687,7 @@ console.log('\nthe roads on the drawn land');
       }
     }
   }
-  console.log(`  ${drives} drives from the field onto a road: ${reached} reached the carriageway, ${stuckCount} stopped short, ${townLeft} left out inside a town`);
+  console.log(`  ${drives} drives from the field onto a road: ${reached} reached the carriageway, ${stuckCount} stopped short, ${townLeft} left out inside a town, ${acrossWater} starts across water from the road left out`);
   check(drives >= 200 && stuckCount === 0, 'a car, a bicycle and a bus drive from the field up the bank onto the road', stuck.join('; '));
 
   // A wall across the carriageway, and a kerb: the first stops the car, the second does not.

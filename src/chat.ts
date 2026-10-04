@@ -17,7 +17,9 @@
  * How long, which characters, how often: `cleanChat` and `spendChat` in
  * `server/src/limits.ts`, which the relay reads too, so a line this panel
  * lets through is a line the relay passes on, and one it would drop is
- * refused here with a reason. A line is only ever written with `textContent`
+ * refused here with a reason. The panel paces at `CHAT_CLIENT_INTERVAL_MS`,
+ * a little slower than the relay, so a socket's jitter cannot bring two
+ * lines in closer than the relay allows. A line is only ever written with `textContent`
  * — nothing a player types is markup, however it looks.
  *
  * ## Without a relay
@@ -56,6 +58,7 @@ import { cleanName } from './peers.ts';
 import type { Peers, RelayMessage } from './peers.ts';
 import { blip } from './voice.ts';
 import {
+  CHAT_CLIENT_INTERVAL_MS,
   CHAT_MAX,
   chatWait,
   cleanChat,
@@ -472,8 +475,10 @@ export function createChat(host: ChatHost): Chat {
     const m = cleanChat(text);
     if (m === '') return;
     const now = Date.now();
-    const wait = chatWait(bucket, now);
-    if (wait > 0 || !spendChat(bucket, now)) {
+    // At the game's own interval, slower than the relay's by the jitter a
+    // socket may add (`CHAT_JITTER_MS`): refused here, never dropped there.
+    const wait = chatWait(bucket, now, CHAT_CLIENT_INTERVAL_MS);
+    if (wait > 0 || !spendChat(bucket, now, CHAT_CLIENT_INTERVAL_MS)) {
       system(`Not so fast · you can say something again in ${Math.max(1, Math.ceil(wait / 1000))} s`, 'error');
       return;
     }
@@ -670,6 +675,13 @@ export function createChat(host: ChatHost): Chat {
     refresh();
     log.scrollTop = log.scrollHeight;
   }
+
+  // A lock asked for by whatever this field opened over — a card closing as
+  // it opened — arrives after `show` has let go of the lock: given back, or
+  // the field is typed in with the mouse turning the camera.
+  document.addEventListener('pointerlockchange', () => {
+    if (showing && document.pointerLockElement !== null) document.exitPointerLock();
+  }, { signal: events.signal });
 
   function hide(): void {
     if (!showing) return;

@@ -309,7 +309,8 @@ const apart = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0]! -
 
 /** Printable, single-line, short; a blank one becomes a traveller with a number. */
 function cleanName(raw: string | null): string {
-  const name = (raw ?? '').replace(/[\p{C}<>]/gu, '').trim().slice(0, MAX_NAME);
+  // By code point, as `peers.ts` cuts it: an emoji is kept whole or not at all.
+  const name = Array.from((raw ?? '').replace(/[\p{C}<>]/gu, '').trim()).slice(0, MAX_NAME).join('').trim();
   return name === '' ? `Traveller ${Math.floor(Math.random() * 900 + 100)}` : name;
 }
 
@@ -387,7 +388,27 @@ export class Room extends DurableObject<Env> {
 
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
-    const sockets = this.ctx.getWebSockets();
+    const query = new URL(request.url).searchParams;
+    const key = query.get('key') ?? '';
+    const kept = KEY.test(key) ? key : '';
+    // **The same page back on a new socket while its old one is still here**:
+    // a blip the client saw before the relay did. The old socket is a ghost —
+    // a page's key is drawn afresh on every load (`peers.ts`) — and it still
+    // held its seat, so the returning driver's claim was refused and the
+    // fleet put them out of their own car a few seconds later. It leaves now,
+    // as a dropped socket does, which keeps its seat for this key.
+    if (kept !== '') {
+      for (const socket of this.ctx.getWebSockets()) {
+        if (attachmentOf(socket)?.key !== kept) continue;
+        this.leave(socket);
+        try {
+          socket.close(4000, 'Replaced');
+        } catch {
+          // Already going.
+        }
+      }
+    }
+    const sockets = this.ctx.getWebSockets().filter((socket) => attachmentOf(socket) !== null);
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
@@ -397,14 +418,12 @@ export class Room extends DurableObject<Env> {
     }
 
     const id = crypto.randomUUID().slice(0, 8);
-    const query = new URL(request.url).searchParams;
     // The Worker routed this socket to its world's room by the same parameter.
     const body = cleanBody(query.get('body')) || 'earth';
     const name = cleanName(query.get('name'));
     const look = cleanLook(query.get('look'));
-    const key = query.get('key') ?? '';
     server.serializeAttachment({
-      id, body, name, look, key: KEY.test(key) ? key : '', state: null, flags: 0, seat: null, drive: null,
+      id, body, name, look, key: kept, state: null, flags: 0, seat: null, drive: null,
       rate: { s: 0, vp: 0, sit: 0, up: 0, look: 0, emote: 0, flags: 0 },
       horn: freshHonk(),
       chat: freshBucket(),
@@ -574,6 +593,10 @@ export class Room extends DurableObject<Env> {
       socket.serializeAttachment(self);
     }
     this.broadcast(JSON.stringify({ t: 'bye', id: self.id }), socket);
+    // Once: a socket's error and its close both come here, and a ghost
+    // replaced by its page's new socket closes after it has left. With no
+    // attachment it is nobody, to every loop that asks.
+    socket.serializeAttachment(null);
   }
 
   // -------------------------------------------------------------------------

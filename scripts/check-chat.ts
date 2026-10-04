@@ -16,7 +16,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   CHAT_BURST,
+  CHAT_CLIENT_INTERVAL_MS,
   CHAT_INTERVAL_MS,
+  CHAT_JITTER_MS,
   CHAT_MAX,
   EMOTES,
   FLAGS,
@@ -160,6 +162,66 @@ test(`a horn starts at most once each ${HONK_INTERVAL_MS} ms, and stops only wha
   assert.equal(cleanHonkOn(false), false);
   assert.equal(cleanHonkOn(undefined), undefined);
   for (const bad of [1, 0, 'true', null, {}]) assert.equal(cleanHonkOn(bad), null, String(bad));
+});
+
+/**
+ * Two minutes of a sender pressing Enter whenever `press` says, paced by the game's own
+ * bucket at `interval`, each line it lets through delayed on its way by a
+ * random `[0, jitter]` and kept in order, as a socket keeps it; and how many
+ * of those the relay's bucket refuses.
+ */
+function dropped(interval: number, jitter: number, seed: number, press: (n: number) => number): { sent: number; lost: number } {
+  let state = seed >>> 0;
+  const random = (): number => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 2 ** 32;
+  };
+  const game = freshBucket();
+  const relay = freshBucket();
+  let arrived = 0;
+  let sent = 0;
+  let lost = 0;
+  const start = 1_000_000;
+  let t = start;
+  // Two minutes of it, however often the key is pressed.
+  for (let n = 0; t < start + 120_000; n++) {
+    t += press(n);
+    if (chatWait(game, t, interval) > 0 || !spendChat(game, t, interval)) continue;
+    sent++;
+    arrived = Math.max(arrived, t + random() * jitter);
+    if (!spendChat(relay, arrived)) lost++;
+  }
+  return { sent, lost };
+}
+
+test(`the game paces ${CHAT_JITTER_MS} ms slower than the relay, so jitter never loses a line`, () => {
+  assert.equal(CHAT_CLIENT_INTERVAL_MS, CHAT_INTERVAL_MS + CHAT_JITTER_MS, 'the margin is the jitter it absorbs, added');
+  // The burst is the relay's: three lines at once still go.
+  const game = freshBucket();
+  for (let i = 0; i < CHAT_BURST; i++) assert.ok(spendChat(game, 7_000_000 + i, CHAT_CLIENT_INTERVAL_MS), `line ${i + 1} of the burst`);
+  assert.equal(spendChat(game, 7_000_000 + CHAT_BURST, CHAT_CLIENT_INTERVAL_MS), false);
+  assert.ok(chatWait(game, 7_000_000 + CHAT_BURST, CHAT_CLIENT_INTERVAL_MS) > CHAT_INTERVAL_MS, 'the game waits longer than the relay would');
+  // Hammering the key, pressing at random, and pressing just as the game
+  // allows: through a socket that jitters by up to the margin, none lost.
+  const senders: [string, (n: number) => number][] = [
+    ['every millisecond', () => 1],
+    ['every 37 ms', () => 37],
+    ['at random', (n) => ((n * 7_919) % 2_300) + 1],
+    ['just as allowed', () => CHAT_CLIENT_INTERVAL_MS],
+    ['in bursts', (n) => (n % 5 === 4 ? 6_000 : 2)],
+  ];
+  for (const [name, press] of senders) {
+    for (let seed = 1; seed <= 20; seed++) {
+      const { sent, lost } = dropped(CHAT_CLIENT_INTERVAL_MS, CHAT_JITTER_MS, seed, press);
+      assert.ok(sent > CHAT_BURST, `${name}: some lines go (${sent})`);
+      assert.equal(lost, 0, `${name}, seed ${seed}: ${lost} of ${sent} lines dropped by the relay`);
+    }
+  }
+  // And the test bites: paced at the relay's own interval, the same socket
+  // loses lines, which is what the margin is for.
+  let lost = 0;
+  for (let seed = 1; seed <= 20; seed++) lost += dropped(CHAT_INTERVAL_MS, CHAT_JITTER_MS, seed, () => 1).lost;
+  assert.ok(lost > 0, 'without the margin, jitter drops a line');
 });
 
 test('a clock that goes backwards earns nothing', () => {

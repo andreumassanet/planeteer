@@ -183,11 +183,16 @@ const STORAGE_KEY = 'atlas.keys.v1';
  * lock and every card's way out of itself; `/` opens the chat with the slash
  * typed, by what it prints (`chat.ts`); the system keys and the three
  * function keys are the browser's own (reload, full screen, the tools), and a
- * binding would take them from the player without saying so.
+ * binding would take them from the player without saying so. **And `Ctrl`**:
+ * every listener that answers the world's keys leaves a press with `ctrlKey`
+ * set to the browser (`input.ts`), and `Ctrl` pressed alone is such a press,
+ * so a binding to it was accepted by the settings and then never fired.
  */
 const RESERVED = new Set([
   'Escape',
   'Slash',
+  'ControlLeft',
+  'ControlRight',
   'MetaLeft',
   'MetaRight',
   'OSLeft',
@@ -406,8 +411,12 @@ function loadBindings(): void {
     if (action === 'dive') continue;
     if (!(action in DEFAULT_BINDINGS) || !actionBindable(action as Action)) return;
     if (!Array.isArray(codes) || codes.length === 0) return;
-    if (!codes.every((code) => typeof code === 'string' && keyBindable(code))) return;
-    next[action as Action] = codes as string[];
+    // A `Ctrl` kept from before it was reserved never fired: let it go,
+    // and the rest of what the player set with it stays.
+    const usable = codes.filter((code) => code !== 'ControlLeft' && code !== 'ControlRight');
+    if (usable.length === 0) continue;
+    if (!usable.every((code) => typeof code === 'string' && keyBindable(code))) return;
+    next[action as Action] = usable as string[];
     chosen.add(action as Action);
   }
   const owner = new Map<string, Action>();
@@ -758,6 +767,16 @@ const modals = new Set<() => boolean>();
 export function registerModal(isOpen: () => boolean): () => void {
   modals.add(isOpen);
   return () => modals.delete(isOpen);
+}
+
+/**
+ * Whether a card that holds the keyboard is up, whatever has the focus: for
+ * a screen with keys of its own behind it — the menu's `Esc` and `Enter` —
+ * whose own buttons are not the card's and must keep answering.
+ */
+export function modalOpen(): boolean {
+  for (const open of modals) if (open()) return true;
+  return false;
 }
 
 const tabCards = new Set<() => boolean>();

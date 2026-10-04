@@ -26,6 +26,28 @@ const FAR = PLANET_RADIUS * 10;
 const FOV_FOOT = 45;
 const FOV_RUN = 4;
 const FOV_EYE = 60;
+/**
+ * First person in a seat: a wider lens than on foot, and the gaze tipped a
+ * little down to the road. The pack's cars are toys, their windscreens a
+ * band under a deep roof; at 60 degrees, level, the roof's lining was half
+ * the frame and the wheel was under it.
+ */
+const FOV_COCKPIT = 64;
+const COCKPIT_DOWN = 11 * (Math.PI / 180);
+/**
+ * Further down where what is held is low before the eye: the bars of a
+ * bicycle, a motorbike, a jet ski, a tuk-tuk and a horse's reins, and the
+ * plane's and the helicopter's panels and sticks in their open cockpits.
+ */
+const DOWN_BY_KIND: Readonly<Record<string, number>> = {
+  bicycle: 16 * (Math.PI / 180),
+  motorbike: 16 * (Math.PI / 180),
+  jetski: 16 * (Math.PI / 180),
+  tuktuk: 14 * (Math.PI / 180),
+  horse: 14 * (Math.PI / 180),
+  plane: 15 * (Math.PI / 180),
+  helicopter: 14 * (Math.PI / 180),
+};
 const FOV_CRAFT = 55;
 /** How fast the lens follows a change of those, per second. */
 const FOV_RATE = 3;
@@ -796,7 +818,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
 
   /** Eases the lens towards the one for what you are doing; see `FOV_FOOT`. */
   function lens(player: CameraSubject, rate: number): void {
-    const wanted = firstPerson ? FOV_EYE
+    const wanted = firstPerson ? (seated(player) ? FOV_COCKPIT : FOV_EYE)
       : seated(player) ? FOV_CRAFT
       : FOV_FOOT + FOV_RUN * ramp(player.velocity, WALK_SPEED, RUN_SPEED);
     if (Math.abs(wanted - camera.fov) < 0.01) return;
@@ -821,7 +843,8 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
    */
   function cockpit(player: CameraSubject): boolean {
     if (!player.seatEye(camera.position, seatTurn)) return false;
-    headTurn.setFromEuler(headEuler.set(lookPitch, lookYaw, 0, 'YXZ'));
+    const down = (player.ride === null ? undefined : DOWN_BY_KIND[player.ride.model.kind]) ?? COCKPIT_DOWN;
+    headTurn.setFromEuler(headEuler.set(lookPitch + down, lookYaw, 0, 'YXZ'));
     camera.quaternion.copy(seatTurn).multiply(headTurn).multiply(ABOUT_FACE);
     orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
     held = Infinity;
