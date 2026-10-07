@@ -19,6 +19,7 @@
 import type * as THREE from 'three';
 import type { Appearance } from './appearance.ts';
 import type { Cue, Soundscape } from './audio.ts';
+import type { Gazetteer } from './chat-core.ts';
 import type { MusicMoment } from './music.ts';
 import type { Cast } from './cast.ts';
 import type { SettingsOptions } from './settings.ts';
@@ -110,6 +111,13 @@ export interface WorldHost {
    * every world, and its Earth pages list every country stamped or not.
    */
   countries?: readonly { iso: string; name: string; continent: string }[];
+  /**
+   * Off to another world from this one, at `lat`, `lon` on it — `/goto` and
+   * `/tp` to a place or a player that is not here. The page reloads into it.
+   */
+  travel?(world: string, lat: number, lon: number, name: string): void;
+  /** Every world's towns and nations, for `/goto`; null before they are made. */
+  gazetteer?(): Gazetteer | null;
   /**
    * Earth's soundscape, every frame (`Audio.update`): the wind, the engines
    * and the air round the ear are Earth's own, told what this world is doing.

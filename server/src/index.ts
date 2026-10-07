@@ -407,7 +407,14 @@ export class Room extends DurableObject<Env> {
       const players = this.ctx.getWebSockets()
         .map((socket) => attachmentOf(socket))
         .filter((self) => self !== null)
-        .map((self) => ({ id: self.id, name: self.name, w: self.body }));
+        .map((self) => ({
+          id: self.id,
+          name: self.name,
+          w: self.body,
+          // Where they stand on their world, for `/tp` from another: what any
+          // socket in their room is sent anyway.
+          ...(self.state === null ? {} : { p: [Math.round(self.state[0]), Math.round(self.state[1]), Math.round(self.state[2])] }),
+        }));
       return Response.json({ players });
     }
     // A line said on another world, passed on by its room: kept and heard here too.
@@ -916,7 +923,7 @@ export default {
         Object.keys(BODY_RADII).map(async (world) => {
           try {
             const answer = await env.ROOM.get(env.ROOM.idFromName(world)).fetch(new Request('https://room/count'));
-            return ((await answer.json()) as { players: { id: string; name: string; w: string }[] }).players;
+            return ((await answer.json()) as { players: { id: string; name: string; w: string; p?: number[] }[] }).players;
           } catch {
             return [];
           }

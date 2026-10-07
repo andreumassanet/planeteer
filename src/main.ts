@@ -465,6 +465,66 @@ const LAST_PLACE_KEY = 'atlas.lastPlace.v1';
  * last. Session storage, so it is this tab's and is gone with it.
  */
 const TO_SYSTEM_KEY = 'atlas.toSystem';
+/**
+ * And a journey to another world asked from the chat (`/goto`, `/tp`): where to
+ * arrive, and on which world. The page reloads with it, and comes up there —
+ * on Earth as an `?at=` link does, on any other world by its *Explore*,
+ * past the title, in the way of playing chosen last.
+ */
+const TRAVEL_KEY = 'atlas.travel';
+
+/** Where the chat asked to go, kept across the reload. */
+interface Journey {
+  world: string;
+  lat: number;
+  lon: number;
+  name: string;
+  /** The way of playing it was asked in: a journey online arrives online. */
+  mode: PlayMode;
+}
+
+/** The journey this page was loaded for, read once and forgotten; null for none. */
+function takeJourney(): Journey | null {
+  try {
+    const raw = sessionStorage.getItem(TRAVEL_KEY);
+    sessionStorage.removeItem(TRAVEL_KEY);
+    if (raw === null) return null;
+    const journey = JSON.parse(raw) as Partial<Journey>;
+    if (typeof journey.world !== 'string' || typeof journey.lat !== 'number' || typeof journey.lon !== 'number') return null;
+    if (!Number.isFinite(journey.lat) || !Number.isFinite(journey.lon) || Math.abs(journey.lat) > 90) return null;
+    return {
+      world: journey.world,
+      lat: journey.lat,
+      lon: journey.lon,
+      name: typeof journey.name === 'string' ? journey.name : '',
+      mode: journey.mode === 'online' ? 'online' : 'offline',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Off to another world: the journey kept, the screen covered, the page loaded
+ * again without the parameters that would send it somewhere else. Every
+ * world is built under the loading screen, so arriving costs what starting
+ * does, and nothing of the world left behind outlives the reload.
+ */
+function travelTo(world: string, lat: number, lon: number, name: string, mode: PlayMode): void {
+  try {
+    sessionStorage.setItem(TRAVEL_KEY, JSON.stringify({ world, lat, lon, name, mode }));
+  } catch {
+    // No storage, no journey: the page comes back to the title, which is still the way in.
+  }
+  const cover = document.createElement('div');
+  cover.style.cssText = 'position:fixed;inset:0;z-index:40;opacity:0;transition:opacity 0.35s ease;background:radial-gradient(circle at 50% 42%,#fff2e8 0 35%,#fde6e1 100%)';
+  document.body.appendChild(cover);
+  void cover.offsetWidth;
+  cover.style.opacity = '1';
+  const next = new URL(location.href);
+  for (const key of ['at', 'world', 'site']) next.searchParams.delete(key);
+  window.setTimeout(() => location.assign(next.toString()), 380);
+}
 const LAST_PLACE_MS = 10_000;
 
 /**
@@ -1143,14 +1203,16 @@ async function start(): Promise<void> {
   // `?at=lat,lon` skips every menu and lands there. A latitude past a pole is
   // a point on the far side of it, not a typo worth landing on: such a link
   // gets the menus.
-  const at = query.get('at')?.split(',').map(Number);
+  // A journey from the chat is an `?at=` link when it is to Earth.
+  const journey = takeJourney();
+  const at = journey?.world === 'earth' ? [journey.lat, journey.lon] : query.get('at')?.split(',').map(Number);
   const skipMenu = at !== undefined && at.length === 2 && at.every(Number.isFinite) && Math.abs(at[0]!) <= 90 && Math.abs(at[1]!) <= 360;
   /**
    * How a link that skips the title plays: the way chosen last time on this
    * device, online if never — and offline in an automated browser, which has
    * no business on the relay.
    */
-  const linkedMode: PlayMode = navigator.webdriver ? 'offline' : (storedPlayMode() ?? 'online');
+  const linkedMode: PlayMode = journey?.mode ?? (navigator.webdriver ? 'offline' : (storedPlayMode() ?? 'online'));
   let toSystem = false;
   try {
     toSystem = sessionStorage.getItem(TO_SYSTEM_KEY) === '1';
@@ -1158,6 +1220,9 @@ async function start(): Promise<void> {
   } catch {
     // No storage, no shortcut: the title as ever.
   }
+  // To another world: past the title, as the planets are, and in by its *Explore*.
+  const awayJourney = journey !== null && journey.world !== 'earth' ? journey : null;
+  if (awayJourney !== null) toSystem = true;
 
   // **The settings, before the world.** The world's own card is made with the
   // player, so the title screen has one of its own over the same values: the
@@ -1275,6 +1340,8 @@ async function start(): Promise<void> {
    * `spawn` is the settlement chosen on the body's globe, or the place
    * remembered from the last visit, and the world lands there.
    */
+  /** Every world's towns and nations (`system/gazetteer.ts`), once the menu has made them; null until then. */
+  let everyWorld: import('./chat-core.ts').Gazetteer | null = null;
   async function exploreWorld(id: string, name: string, spawn?: MenuSpawn): Promise<void> {
     menu.suspend(true);
     let left = false;
@@ -1301,7 +1368,7 @@ async function start(): Promise<void> {
         appearance: heroAppearance,
         cast: wardrobeCast,
         name: () => peersModule.storedName(),
-        mode: title?.mode ?? linkedMode,
+        mode: journey?.mode ?? title?.mode ?? linkedMode,
         time: () => sky.state.time,
         exit: back,
         arrival: spawn === undefined
@@ -1313,6 +1380,8 @@ async function start(): Promise<void> {
         traveller,
         step: (weight) => audio.step('dirt', weight),
         countries: world.countries,
+        travel: (to, lat, lon, place) => travelTo(to, lat, lon, place, title?.mode ?? linkedMode),
+        gazetteer: () => everyWorld,
         soundscape: (dt, scape) => audio.update(dt, scape),
         music: (moment) => {
           if (music === null) {
@@ -1892,8 +1961,21 @@ async function start(): Promise<void> {
   // the screen lift, and not before the frames have come back smooth.
   await stage('warming up');
   await Promise.all([warmed, prepared]);
+  // Every world's towns and nations in one list, for `/goto` and the menu's
+  // search: made from geographies the menu has just built, so nearly free.
+  everyWorld = await import('./system/gazetteer.ts')
+    .then(({ allWorlds }) => allWorlds({ places: places.all, aliases: places.aliases(), countries: world.countries }))
+    .catch((error: unknown) => {
+      console.warn('the other worlds are not in the search', error);
+      return null;
+    });
   await whenSettled(() => heroStage.settled);
   dismissLoading();
+  // A journey from the chat to another world: in by its *Explore*, as soon as
+  // the screen lifts.
+  if (awayJourney !== null) {
+    void exploreWorld(awayJourney.world, awayJourney.name, { body: awayJourney.world, region: '', name: awayJourney.name, lat: awayJourney.lat, lon: awayJourney.lon });
+  }
   const spawn = skipMenu
     ? { body: 'earth', region: '', name: 'here', lat: at[0]!, lon: at[1]! }
     : await menu.choose();
@@ -2909,8 +2991,9 @@ async function start(): Promise<void> {
       return { country: countryOf(chatPoint)?.name ?? '', town: nearby.place.name, near: nearby.near };
     },
     countryName: (iso) => world.countries.find((country) => country.iso === iso)?.name ?? iso,
-    gazetteer: () => (gazetteer ??= { places: places.all, aliases: places.aliases(), countries: world.countries }),
+    gazetteer: () => everyWorld ?? (gazetteer ??= { places: places.all, aliases: places.aliases(), countries: world.countries }),
     jumpTo,
+    travel: (to, lat, lon, place) => travelTo(to, lat, lon, place, playMode),
     home: () => ({ lat: spawn.lat, lon: spawn.lon, name: places.nearest(unitAt(spawn.lat, spawn.lon, chatPoint)).place.name }),
     joinPlayer: joinPeer,
     time,

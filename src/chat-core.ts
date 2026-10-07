@@ -397,18 +397,33 @@ export function parseLatLon(text: string): { lat: number; lon: number } | null {
   return { lat, lon };
 }
 
+/**
+ * The world a place's key puts it on: Earth's countries are outline codes
+ * (`ESP`), another world's nations `'<body>:<nation>'` (`keyOf` in
+ * `system/geography.ts`).
+ */
+export function worldOfKey(iso: string): string {
+  const colon = iso.indexOf(':');
+  return colon < 0 ? 'earth' : iso.slice(0, colon);
+}
+
 /** A place `/goto` found: where it is, what it is called, and the name that found it. */
 export interface Found {
   lat: number;
   lon: number;
   name: string;
-  /** The outline code of its country. */
+  /** The outline code of its country, or another world's nation key. */
   iso: string;
+  /** The world it is on (`worldOfKey`). */
+  world: string;
   /** The name that matched, when it is not `name`: an alias, or the country for its capital. */
   via?: string;
 }
 
-/** What `/goto` searches: the gazetteer, the names folded into it, and the countries. */
+/**
+ * What `/goto` searches: the gazetteer, the names folded into it, and the
+ * countries — one world's, or every world's (`system/gazetteer.ts`).
+ */
 export interface Gazetteer {
   places: readonly Place[];
   /** `Places.aliases()`: a name as written to the index of the built town it stands for. */
@@ -448,7 +463,14 @@ export function findPlace(
   const best = ranked[0];
   if (best === undefined) return null;
   const { entry } = best;
-  const found: Found & { others: string[] } = { lat: entry.place.lat, lon: entry.place.lon, name: entry.place.name, iso: entry.place.iso, others: [] };
+  const found: Found & { others: string[] } = {
+    lat: entry.place.lat,
+    lon: entry.place.lon,
+    name: entry.place.name,
+    iso: entry.place.iso,
+    world: worldOfKey(entry.place.iso),
+    others: [],
+  };
   if (entry.via !== undefined && fold(entry.via) !== fold(entry.place.name)) found.via = entry.via;
   if (entry.country !== true) {
     for (const { entry: other, score } of ranked) {

@@ -56,6 +56,8 @@ import { ensureStyle, fold, h, icon, installUi, kbd } from './ui.ts';
 import type { Suggestion } from './chat-core.ts';
 import { cleanName } from './peers.ts';
 import { worldName } from './relay-players.ts';
+import { worldDisc } from './world-disc.ts';
+import { latLonOf } from './sphere.ts';
 import type { RelayPlayer } from './relay-players.ts';
 import type { Peers, RelayMessage } from './peers.ts';
 import { blip } from './voice.ts';
@@ -81,6 +83,7 @@ import {
   parseWeather,
   suggest,
   suggestPlaces,
+  worldOfKey,
   unescapeSlash,
 } from './chat-core.ts';
 import type { Gazetteer, ParsedCommand, WeatherWanted } from './chat-core.ts';
@@ -104,6 +107,12 @@ export interface ChatHost {
   /** What `/goto` searches. Asked on the first `/goto`. */
   gazetteer(): Gazetteer;
   jumpTo(lat: number, lon: number): void;
+  /**
+   * Off to another world, at `lat`, `lon` on it: what `/goto` and `/tp` do
+   * when the place or the player is not on this one. Absent where this page
+   * cannot leave its world.
+   */
+  travel?(world: string, lat: number, lon: number, name: string): void;
   /** Where this visit began. */
   home(): { lat: number; lon: number; name: string };
   /** Beside a player, as the map's *join* puts you: false where they have gone. */
@@ -204,8 +213,7 @@ const STYLE = `
 .atlas-chat-line .who { flex: none; font-weight: 800; white-space: nowrap; }
 .atlas-chat-line .flag { flex: none; align-self: center; display: block; width: 18px; height: 12px; border: 1.5px solid var(--ui-ink); border-radius: 3px; }
 .atlas-chat-line .flag.sea { background: var(--ui-sky); }
-.atlas-chat-line .flag.world { display: grid; place-items: center; background: var(--ui-space); color: var(--ui-cream); }
-.atlas-chat-line .flag.world svg { width: 10px; height: 10px; }
+.atlas-chat-line .world-disc { align-self: center; margin: 0 3px; }
 .atlas-chat-line .where { flex: none; align-self: center; font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }
 .atlas-chat-line.self .who { color: var(--ui-violet); }
 .atlas-chat-line.me .text { font-style: italic; }
@@ -376,7 +384,15 @@ export function createChat(host: ChatHost): Chat {
     return image;
   }
 
-  function add(element: HTMLElement, from = ''): void {
+  /** Another world's ball, as the menu's dock paints it, where a flag would be. */
+  function discOf(world: string): HTMLElement {
+    const disc = worldDisc(world, 12);
+    disc.classList.add('world');
+    disc.title = worldName(world);
+    return disc;
+  }
+
+    function add(element: HTMLElement, from = ''): void {
     const stuck = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
     log.append(element);
     entries.push({ element, from });
@@ -403,7 +419,7 @@ export function createChat(host: ChatHost): Chat {
     const element = h(
       'div',
       { class: `atlas-chat-line${self ? ' self' : ''}${action !== null ? ' me' : ''}` },
-      away ? h('span', { class: 'flag world', title: worldName(world) }, icon('planet')) : flagOf(iso),
+      away ? discOf(world) : flagOf(iso),
       away ? h('span', { class: 'where', text: worldName(world) }) : null,
       h('span', { class: 'who', text: action !== null ? name : `${name}:` }),
       h('span', { class: 'text', text: action ?? message }),
@@ -431,6 +447,24 @@ export function createChat(host: ChatHost): Chat {
       const out = host.sound();
       if (out !== null) blip(out.context, out.node);
     }
+  }
+
+  /**
+   * A country's or another world's nation's name, from the gazetteer `/goto`
+   * searches — which knows every world's — and the world it is on after it
+   * when that is not this one: `Tharsis · Mars`.
+   */
+  const placeNames = new WeakMap<Gazetteer, Map<string, string>>();
+  function placeName(iso: string): string {
+    const gazetteer = host.gazetteer();
+    let names = placeNames.get(gazetteer);
+    if (names === undefined) {
+      names = new Map(gazetteer.countries.map((country) => [country.iso, country.name]));
+      placeNames.set(gazetteer, names);
+    }
+    const name = names.get(iso) ?? host.countryName(iso);
+    const world = worldOfKey(iso);
+    return world === (host.world ?? 'earth') ? name : `${name} · ${worldName(world)}`;
   }
 
   const peers = host.peers;
@@ -550,10 +584,16 @@ export function createChat(host: ChatHost): Chat {
           system(`Nothing called “${args}” is built · try a bigger town nearby`, 'error');
           return true;
         }
-        host.jumpTo(found.lat, found.lon);
-        system(`Off to ${found.name}, ${host.countryName(found.iso)}${found.via === undefined ? '' : ` · for ${found.via}`}`);
+        const away = found.world !== (host.world ?? 'earth');
+        if (away && host.travel === undefined) {
+          system(`${found.name} is on ${worldName(found.world)}, and there is no getting there from here`, 'error');
+          return true;
+        }
+        if (away) host.travel!(found.world, found.lat, found.lon, found.name);
+        else host.jumpTo(found.lat, found.lon);
+        system(`Off to ${found.name}, ${placeName(found.iso)}${found.via === undefined ? '' : ` · for ${found.via}`}`);
         if (found.others.length > 0) {
-          const also = found.others.slice(0, 3).map((iso) => `${found.via ?? found.name}, ${host.countryName(iso)}`);
+          const also = found.others.slice(0, 3).map((iso) => `${found.via ?? found.name}, ${placeName(iso)}`);
           system(`Also: ${also.join(' · ')}`);
         }
         return false;
@@ -625,6 +665,21 @@ export function createChat(host: ChatHost): Chat {
       case 'tp': {
         const others = players();
         const found = matchPlayer(args, others);
+        if (found === null && args !== '' && host.elsewhere !== undefined && host.travel !== undefined) {
+          // Not on this world: perhaps on another, where the relay says they stand.
+          const world = host.world ?? 'earth';
+          void host.elsewhere().then((all) => {
+            const away = matchPlayer(args, (all ?? []).filter((one) => one.world !== world && one.at !== undefined));
+            if (away === null || away.at === undefined) {
+              system(`No one online is called “${args}” · /who lists them`, 'error');
+              return;
+            }
+            const { lat, lon } = latLonOf(away.at);
+            system(`Off to ${away.name}, on ${worldName(away.world)}`);
+            host.travel!(away.world, lat, lon, away.name);
+          });
+          return true;
+        }
         if (found === null) {
           system(args === '' ? `Who? ${usage('tp')}` : `No one online is called “${args}” · /who lists them`, 'error');
           return true;
@@ -755,7 +810,7 @@ export function createChat(host: ChatHost): Chat {
   let dismissed = false;
   const sources = {
     players: [] as readonly string[],
-    places: (query: string, limit: number) => suggestPlaces(query, host.gazetteer(), host.countryName, limit, host.here().iso || undefined),
+    places: (query: string, limit: number) => suggestPlaces(query, host.gazetteer(), placeName, limit, host.here().iso || undefined),
   };
 
   function showGhost(): void {

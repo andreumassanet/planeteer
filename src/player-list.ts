@@ -19,6 +19,7 @@ import { createFlagCanvas } from './flags.ts';
 import { actionOf, inputBlocked, tabTaken } from './controls.ts';
 import type { RelayPlayer } from './relay-players.ts';
 import { worldName } from './relay-players.ts';
+import { worldDisc } from './world-disc.ts';
 import { ensureStyle, h, icon, installUi } from './ui.ts';
 
 /** One player on the list. */
@@ -103,8 +104,7 @@ const STYLE = `
   background: var(--ui-sky);
 }
 .atlas-players-sea svg { width: 13px; height: 13px; }
-.atlas-players-world { background: var(--ui-space); color: var(--ui-cream); }
-.atlas-players-world svg { width: 15px; height: 15px; }
+.atlas-players-world { display: grid; place-items: center; width: 30px; height: 20px; }
 .atlas-players-name { font-size: 14px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .atlas-players-name small { margin-left: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ui-muted); }
 .atlas-players-note { margin-top: 8px; padding-top: 7px; border-top: 2px solid var(--ui-rule); font-size: 12px; font-weight: 700; color: var(--ui-muted); text-align: center; }
@@ -156,7 +156,9 @@ export function createPlayerList(options: PlayerListOptions): PlayerList {
   /** The mark at the head of a row: a world's, a country's flag, or the sea's. */
   function markOf(row: PlayerRow): HTMLElement {
     if (row.world !== undefined && row.world !== 'earth') {
-      return h('span', { class: 'atlas-players-sea atlas-players-world', title: worldName(row.world) }, icon('planet'));
+      const disc = worldDisc(row.world, 20);
+      disc.title = worldName(row.world);
+      return h('span', { class: 'atlas-players-world' }, disc);
     }
     if (row.iso === null) return h('span', { class: 'atlas-players-sea', title: 'At sea' }, icon('boat'));
     const flag = createFlagCanvas(row.iso, 30, 20);

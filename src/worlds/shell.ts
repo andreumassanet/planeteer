@@ -667,10 +667,11 @@ export function createShell(world: ShellWorld): Shell {
       return { country: iso === null ? '' : countryName(iso), town: nearby.place.name, near: nearby.near };
     },
     countryName,
-    // The towns and the nations of this world, and nothing of Earth's: `/goto
-    // Paris` on Mars finds nothing, which is the truth there.
-    gazetteer: () => (gazetteer ??= { places: geography.places, aliases: new Map(), countries }),
+    // Every world's towns and nations when the host has them, so `/goto Paris`
+    // from Mars goes home; this world's alone where it does not (a `?world=` link).
+    gazetteer: () => host.gazetteer?.() ?? (gazetteer ??= { places: geography.places, aliases: new Map(), countries }),
     jumpTo: jump,
+    ...(host.travel === undefined ? {} : { travel: host.travel }),
     home: () => world.home,
     joinPlayer: joinPeer,
     time,

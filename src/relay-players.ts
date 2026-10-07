@@ -13,6 +13,8 @@ export interface RelayPlayer {
   id: string;
   name: string;
   world: string;
+  /** Where they stand on their world, in its units, once they have said; for `/tp`. */
+  at?: { x: number; y: number; z: number };
 }
 
 /** Everybody on every world, or null when the relay does not answer, or answers something else. */
@@ -29,11 +31,15 @@ export async function relayPlayers(socketUrl: string): Promise<RelayPlayer[] | n
     const out: RelayPlayer[] = [];
     for (const raw of players as unknown[]) {
       if (typeof raw !== 'object' || raw === null) continue;
-      const { id, name, w } = raw as { id?: unknown; name?: unknown; w?: unknown };
+      const { id, name, w, p } = raw as { id?: unknown; name?: unknown; w?: unknown; p?: unknown };
       const world = cleanBody(w);
       if (typeof id !== 'string' || world === '') continue;
       // The relay cleaned the name when the socket opened; it is only ever drawn as text.
-      out.push({ id, name: typeof name === 'string' && name !== '' ? name.slice(0, 40) : 'Traveller', world });
+      const player: RelayPlayer = { id, name: typeof name === 'string' && name !== '' ? name.slice(0, 40) : 'Traveller', world };
+      if (Array.isArray(p) && p.length === 3 && p.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+        player.at = { x: p[0] as number, y: p[1] as number, z: p[2] as number };
+      }
+      out.push(player);
     }
     return out;
   } catch {
