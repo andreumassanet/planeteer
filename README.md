@@ -98,4 +98,4 @@ Kay Lousberg and CreativeTrio (CC0).
 ## License
 
 Code under the [MIT License](LICENSE) © 2026 Andreu Massanet. The data and
-models in `public/` carry their own terms, listed in [LICENSE](LICENSE).
+models in `public/` carry their own terms, listed in [CREDITS.md](CREDITS.md).

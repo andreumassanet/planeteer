@@ -8,7 +8,7 @@ import { toUnit, unitAt } from './sphere.ts';
  *
  * The data is `public/data/places.bin`, baked by `scripts/build-places.mjs`
  * from GeoNames `cities5000` (CC BY 4.0, credited on the loading card and the
- * settings card, and in `LICENSE`), with every row already checked to sit on land and to agree
+ * settings card, and in `CREDITS.md`), with every row already checked to sit on land and to agree
  * with `countryAt`. It replaced Natural Earth's own populated places, which are
  * a *cartographic* file rather than a gazetteer and gave Spain 48 towns.
  *

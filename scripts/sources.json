@@ -45,7 +45,7 @@
       "what": "The Bright Star Catalogue, 5th Revised Ed. (Hoffleit & Warren 1991, Astronomical Data Center, NSSDC/ADC), CDS catalogue V/50: the main file, 9,110 fixed-width records, gunzipped from catalog.gz",
       "url": "https://cdsarc.cds.unistra.fr/ftp/V/50/catalog.gz",
       "gunzip": true,
-      "licence": "No licence file ships with it: a NASA ADC compilation distributed by CDS (Strasbourg) for free use on condition that the authors (Hoffleit & Warren 1991) and CDS are acknowledged, which LICENSE, the loading screen and the settings card do",
+      "licence": "No licence file ships with it: a NASA ADC compilation distributed by CDS (Strasbourg) for free use on condition that the authors (Hoffleit & Warren 1991) and CDS are acknowledged, which CREDITS.md, the loading screen and the settings card do",
       "bakes": ["build-stars.ts"],
       "recorded": "2026-09-30",
       "sha256": "69797549cc1605aad7ff94e9325e29a1661f2a253917faaa056d9bf20b809afd",

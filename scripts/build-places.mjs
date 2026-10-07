@@ -17,7 +17,7 @@
  * GeoNames' `cities5000` is that file: every settlement over about 5,000 people
  * or seat of an administrative division, 69,622 of them, with real populations
  * and coordinates good to a few metres. **It is CC BY 4.0, not public domain** —
- * see the credit on the loading screen, on the settings card and in `LICENSE`,
+ * see the credit on the loading screen, on the settings card and in `CREDITS.md`,
  * which is the whole of what the licence asks and is not optional.
  *
  * Four decisions are baked in here and each is measured. The numbers are from
