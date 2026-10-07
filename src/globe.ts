@@ -1723,8 +1723,13 @@ function mosaic(material: THREE.MeshToonMaterial): void {
   // The flag, in the square root: a wash is a painting operation. A triangle
   // with no flag of its own carries the land's own colour here, so this is the
   // identity for it at every opacity and needs no mask of its own.
+  //
+  // Both roots are floored at zero. Under multisampling a triangle smaller than
+  // a pixel is shaded at the pixel's centre, outside it, and the varying there
+  // is extrapolated and can dip under zero: one NaN pixel from orbit, which
+  // the bloom's blur spread into a green or yellow wash over the whole frame.
   if (atlasFlag > 0.0) {
-    diffuseColor.rgb = mix(sqrt(max(diffuseColor.rgb, 0.0)), sqrt(vAtlasFlag), atlasFlag);
+    diffuseColor.rgb = mix(sqrt(max(diffuseColor.rgb, 0.0)), sqrt(max(vAtlasFlag, 0.0)), atlasFlag);
     diffuseColor.rgb *= diffuseColor.rgb;
   }`
       : ''
