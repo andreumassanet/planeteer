@@ -1,8 +1,6 @@
 <p align="center">
-  <img src=".github/assets/banner.jpg" alt="A light plane climbing over a coastal town, a balloon below it, a mountain across the bay" width="100%">
+  <img src=".github/assets/banner.jpg" alt="planeteer: the app's globe and its name over a coastal town seen from a light plane, a balloon below it and a mountain across the bay" width="100%">
 </p>
-
-<h1 align="center">planeteer</h1>
 
 <p align="center">
   <b>The whole Earth, walkable, in an inked comic style.</b><br>
@@ -20,9 +18,7 @@
 
 <p align="center">
   <a href="#the-planet">The planet</a> ·
-  <a href="#the-landmarks">The landmarks</a> ·
   <a href="#getting-around">Getting around</a> ·
-  <a href="#day-night-and-weather">Day, night and weather</a> ·
   <a href="#the-map">The map</a> ·
   <a href="#the-other-worlds">The other worlds</a> ·
   <a href="#running-it">Running it</a>
@@ -41,10 +37,6 @@ black ink round every shape, flat bands of light, one warm sun.
 
 ## The planet
 
-<p align="center">
-  <img src=".github/assets/climb.gif" alt="The camera rising from a traveller standing in the grass by the Colosseum, over the town, over Italy, until the whole planet turns with every country in its own colour" width="100%">
-</p>
-
 **The land is the countries' own outlines**, triangulated into a constrained
 Delaunay mesh of 1.3 million triangles, given a relief, a shore that ramps into
 the sea and 26 lakes cut out of it. The sea has a floor you can dive to, with
@@ -52,34 +44,14 @@ reefs and kelp where the water is warm enough for them. Towns stand where real
 towns stand and are as big as their population says; roads join them gate to
 gate, bridges cross narrow water, and a railway runs between the big cities.
 Between them is countryside — woods, fields, farms, windmills, herds grazing —
-all a pure function of where you are.
-
-**Climb, and the world turns into a map of itself.** As you rise, each
-country's colour fades in over its land, the frontiers are drawn and the names
-come up; by orbit it is a political globe.
-
-## The landmarks
-
-<p align="center">
-  <img src=".github/assets/landmarks.jpg" alt="Nine landmarks from above, each in its town: the Eiffel Tower, the Colosseum, the Golden Gate Bridge, Hagia Sophia, the Forbidden City, Mount Fuji, Chichen Itza, the Sydney Opera House and Big Ben" width="100%">
-</p>
-
-**101 landmarks in 74 countries, every one modelled in code** — the Eiffel Tower
-to Great Zimbabwe, Uluru to the Moai of Rapa Nui. Each stands at its real
-coordinates, and the town round it yields: it
-paves the ground under it, keeps its roads off it and builds round it. Walk up
-to one and a card tells you which it is, when it was built and one thing worth
-knowing about it; the list was chosen by where the map was empty, not only by
-fame.
-
-<p align="center">
-  <img src=".github/assets/orbit.gif" alt="The camera circling the Taj Mahal and its town, with the roads running out across the desert" width="100%">
-</p>
+all a pure function of where you are. 101 landmarks stand at their real
+coordinates, each modelled in code, from the Eiffel Tower to the Moai of Rapa
+Nui.
 
 ## Getting around
 
 <p align="center">
-  <img src=".github/assets/fly.gif" alt="A light plane taking off from a grass strip, climbing over a bay and banking over towns, fields and a balloon" width="100%">
+  <img src=".github/assets/fly.gif" alt="A light plane taking off from a strip in Jordan, crossing the Jordan valley and the Dead Sea, climbing until the Middle East lies below with every country in its own colour, and the camera pulling back to the whole globe" width="100%">
 </p>
 
 **Nobody owns a vehicle; they stand in the world.** A car a few lengths out of
@@ -91,22 +63,12 @@ it stays. Jump out of a plane and a parachute opens. On foot you walk, run,
 jump, swim and dive, and the people in the towns stop, turn and talk to you in
 their own language, with the English underneath.
 
+**Climb, and the world turns into a map of itself.** As you rise, each
+country's colour fades in over its land, the frontiers are drawn and the names
+come up; by orbit it is a political globe.
+
 **Online, it is one shared planet**: other travellers appear where they are,
 seats are taken for real, and there is a chat for the whole world.
-
-## Day, night and weather
-
-<p align="center">
-  <img src=".github/assets/night-and-weather.jpg" alt="Left, a city at night under Tokyo Tower, its windows lit; right, rain driving across a field outside Paris" width="100%">
-</p>
-
-**The sky is the real one.** The sun is at its true position for where you
-stand and the clock reads the local time zone; at night the world goes dark and
-what you see by is street lamps, lit windows and headlights. The weather is one
-function of place and time that reads the cloud deck itself — so it rains only
-under a cloud you can see, snow lies above the real snowline, and every player
-sees the same storm. Music plays now and then in the style of the region you
-are in — twenty styles, composed as you go.
 
 ## The map
 
@@ -123,14 +85,14 @@ in.
 ## The other worlds
 
 <p align="center">
-  <img src=".github/assets/worlds.jpg" alt="Left, the solar system menu with every planet at its real position today; right, the traveller walking down a street on Mars" width="100%">
+  <img src=".github/assets/moon.gif" alt="The traveller crossing the Moon's grey plain in long, slow leaps under a black sky, boarding a parked saucer and lifting off over a base of domes and roads" width="100%">
 </p>
 
 **The menu is the solar system as it is today** — every body at its real
 orbital position, with its real distance and light time. Earth is the main
-world, but the others can be walked too, with towns, craft and a saucer
-parked here and there; a rocket on a pad beside an airstrip is the way up from
-Earth.
+world, but the others can be walked too, each under its own gravity, with
+towns, rovers and a saucer parked here and there; a rocket on a pad beside an
+airstrip is the way up from Earth.
 
 ## How it is made
 
