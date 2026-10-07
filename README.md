@@ -8,6 +8,10 @@
 </p>
 
 <p align="center">
+  <a href="https://planeteer.vercel.app"><img src="https://img.shields.io/badge/%E2%96%B6%20Play%20in%20the%20browser-planeteer.vercel.app-e8a33d?style=for-the-badge&labelColor=1e0603" alt="Play in the browser" height="36"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/andreumassanet/planeteer/actions/workflows/check.yml"><img src="https://github.com/andreumassanet/planeteer/actions/workflows/check.yml/badge.svg" alt="check"></a>
   <img src="https://img.shields.io/badge/Three.js-r182-000000?style=flat-square&logo=threedotjs&logoColor=white" alt="Three.js">
   <img src="https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
