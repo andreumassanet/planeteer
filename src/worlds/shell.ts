@@ -62,7 +62,7 @@ import type { Gazetteer } from '../chat-core.ts';
 import { createSettings } from '../settings.ts';
 import type { TimeOfDay } from '../settings.ts';
 import { createPlayerList } from '../player-list.ts';
-import type { Doing } from '../player-list.ts';
+import { relayPlayers } from '../relay-players.ts';
 import { createPassport } from '../passport.ts';
 import type { PassportMoment, StampMode } from '../passport.ts';
 import { createPassportCard } from '../passport-card.ts';
@@ -584,24 +584,18 @@ export function createShell(world: ShellWorld): Shell {
   });
   document.body.appendChild(map.root);
 
-  const listPoint = new THREE.Vector3();
-  const doingOf = (state: string): Doing =>
-    state === 'seated' ? { text: 'In a vehicle', icon: 'seat' } : { text: 'On foot', icon: 'walk' };
+  // On another world every row carries the world's mark, not its nations'
+  // banners, which nobody would recognise; see `player-list.ts`.
   const playerList = createPlayerList({
+    world: spec.id,
     rows: () => [
-      {
-        id: peers?.id ?? 'you',
-        name: peers?.name || host.name() || storedName() || 'Traveller',
-        iso: isoAt(player.position),
-        doing: player.craft === null ? doingOf('foot') : { text: `Driving ${player.craft.name}`, icon: ICON_OF[player.craft.kind] },
-        you: true,
-      },
+      { id: peers?.id ?? 'you', name: peers?.name || host.name() || storedName() || 'Traveller', iso: null, world: spec.id, you: true },
       ...[...(peers?.marks ?? [])]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((mark) => ({ id: mark.id, name: mark.name, iso: isoAt(listPoint.set(mark.x, mark.y, mark.z)), doing: doingOf(mark.state) })),
+        .map((mark) => ({ id: mark.id, name: mark.name, iso: null, world: spec.id })),
     ],
     online: () => (peers?.online ?? null) !== null,
-    countryName,
+    ...(online ? { elsewhere: () => relayPlayers(host.peersUrl!) } : {}),
   });
   document.body.appendChild(playerList.root);
 
@@ -657,6 +651,8 @@ export function createShell(world: ShellWorld): Shell {
   const chatPoint = new THREE.Vector3();
   const chat = createChat({
     peers,
+    world: spec.id,
+    ...(online ? { elsewhere: () => relayPlayers(host.peersUrl!) } : {}),
     name: () => peers?.name || host.name() || storedName(),
     here: () => {
       const { lat, lon } = latLonOf(player.position);

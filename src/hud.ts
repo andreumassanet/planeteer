@@ -633,11 +633,10 @@ body.atlas-hud-hidden .atlas-chat:not(.open) {
 }
 
 /* --- the pause card ------------------------------------------------------------ */
-/* In the upper third, over the sky: the middle of the screen is the traveller. */
 .atlas-pause {
   position: absolute;
   left: 50%;
-  top: 27%;
+  top: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -59,6 +59,19 @@ export const BODY_RADII: Readonly<Record<string, number>> = {
   neptune: 61_835,
 };
 
+/** Each world's name as a line in the chat or a row on `Tab` says it, short: `'Moon'`, not `'The Moon'`. */
+export const BODY_NAMES: Readonly<Record<string, string>> = {
+  earth: 'Earth',
+  mercury: 'Mercury',
+  venus: 'Venus',
+  moon: 'Moon',
+  mars: 'Mars',
+  jupiter: 'Jupiter',
+  saturn: 'Saturn',
+  uranus: 'Uranus',
+  neptune: 'Neptune',
+};
+
 /** A world's id as the relay keeps rooms for it: `'earth'` for none, `''` for one it does not know. */
 export function cleanBody(raw: unknown): string {
   if (raw === null || raw === undefined || raw === '') return 'earth';

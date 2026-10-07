@@ -15,6 +15,7 @@
  */
 
 import {
+  BODY_NAMES,
   BODY_RADII,
   CHAT_BURST,
   CHAT_HISTORY,
@@ -147,6 +148,10 @@ async function worlds(): Promise<void> {
     check(shell.min < radius && shell.max > radius * 1.25, `${id}'s shell holds its surface and its sky`, shell);
   }
   check(cleanBody(null) === 'earth' && cleanBody('') === 'earth' && cleanBody('mars') === 'mars', 'no body is Earth, and a known one is itself');
+  check(
+    Object.keys(BODY_NAMES).sort().join() === Object.keys(BODY_RADII).sort().join(),
+    'every world with a room has a name for the chat and `Tab`, and no other does',
+  );
   check(cleanBody('pluto') === '' && cleanBody('__proto__') === '' && cleanBody(7) === '', 'an unknown world is refused');
   check(cleanCountry('ESP') === 'ESP' && cleanCountry('mars:tharsis') === 'mars:tharsis', "a country's code and a nation's key are both a line's country");
   check(cleanCountry('Mars:Tharsis') === '' && cleanCountry('mars:') === '' && cleanCountry('<b>') === '', 'and nothing else is');
@@ -193,10 +198,22 @@ async function rooms(): Promise<void> {
 
   m1.send({ t: 'chat', m: `hello from Tharsis ${run}`, c: 'mars:tharsis' });
   const line = await got('chat on mars', m2.next((m) => m.t === 'chat' && m.id === m1.id));
-  check(line?.c === 'mars:tharsis', "a line on Mars carries its nation's key", line);
-  check(await e1.none((m) => m.t === 'chat' && m.id === m1.id, 300), 'and is not heard on Earth');
+  check(line?.c === 'mars:tharsis' && line?.w === 'mars', "a line on Mars carries its nation's key and its world", line);
+  const heardOnEarth = await got('chat crossed to earth', e1.next((m) => m.t === 'chat' && m.m === line?.m));
+  check(heardOnEarth?.w === 'mars' && heardOnEarth?.name === 'Mo', 'and is heard on Earth too, saying where it was said', heardOnEarth);
   const late = await Client.join('Ed');
-  check(!((late.hi?.chat as Message[] | undefined) ?? []).some((m) => m.id === m1.id), "Earth's history has no line said on Mars");
+  check(((late.hi?.chat as Message[] | undefined) ?? []).some((m) => m.m === line?.m && m.w === 'mars'), "Earth's history keeps the line said on Mars");
+  e1.send({ t: 'chat', m: `hello from Earth ${run}`, c: 'ESP' });
+  const heardOnMars = await got('chat crossed to mars', m2.next((m) => m.t === 'chat' && m.id === e1.id && m.w === 'earth'));
+  check(heardOnMars?.c === 'ESP', 'a line on Earth reaches Mars with its country', heardOnMars);
+
+  const counted = (await (await fetch(URL_.replace(/^ws/, 'http').replace(/\/ws$/, '/count'))).json()) as { online?: number; players?: { id: string; name: string; w: string }[] };
+  const who = counted.players ?? [];
+  check(
+    who.some((one) => one.name === 'Mo' && one.w === 'mars') && who.some((one) => one.name === 'Ea' && one.w === 'earth') && counted.online === who.length,
+    '`/count` lists everyone on every world, and on which',
+    counted,
+  );
 
   let refused = false;
   try {

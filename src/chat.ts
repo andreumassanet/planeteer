@@ -55,12 +55,15 @@ import { createFlagCanvas } from './flags.ts';
 import { ensureStyle, fold, h, icon, installUi, kbd } from './ui.ts';
 import type { Suggestion } from './chat-core.ts';
 import { cleanName } from './peers.ts';
+import { worldName } from './relay-players.ts';
+import type { RelayPlayer } from './relay-players.ts';
 import type { Peers, RelayMessage } from './peers.ts';
 import { blip } from './voice.ts';
 import {
   CHAT_CLIENT_INTERVAL_MS,
   CHAT_MAX,
   chatWait,
+  cleanBody,
   cleanChat,
   cleanCountry,
   freshBucket,
@@ -86,6 +89,10 @@ import type { Gazetteer, ParsedCommand, WeatherWanted } from './chat-core.ts';
 export interface ChatHost {
   /** The relay's socket, or null for a world with none. */
   peers: Peers | null;
+  /** The world this page is on, as the relay names it; Earth when left out. */
+  world?: string;
+  /** Everyone on every world, from the relay, for `/who`; null when it does not answer. */
+  elsewhere?(): Promise<readonly RelayPlayer[] | null>;
   /** Our name as the others see it; offline, as we would be seen. */
   name(): string;
   /** Where we stand: the country's code and name (`''` at sea), the nearest built town, and the point. */
@@ -197,6 +204,9 @@ const STYLE = `
 .atlas-chat-line .who { flex: none; font-weight: 800; white-space: nowrap; }
 .atlas-chat-line .flag { flex: none; align-self: center; display: block; width: 18px; height: 12px; border: 1.5px solid var(--ui-ink); border-radius: 3px; }
 .atlas-chat-line .flag.sea { background: var(--ui-sky); }
+.atlas-chat-line .flag.world { display: grid; place-items: center; background: var(--ui-space); color: var(--ui-cream); }
+.atlas-chat-line .flag.world svg { width: 10px; height: 10px; }
+.atlas-chat-line .where { flex: none; align-self: center; font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }
 .atlas-chat-line.self .who { color: var(--ui-violet); }
 .atlas-chat-line.me .text { font-style: italic; }
 .atlas-chat-line.system { background: var(--ui-cream); font-weight: 700; color: var(--ui-muted); }
@@ -381,14 +391,20 @@ export function createChat(host: ChatHost): Chat {
     add(h('div', { class: `atlas-chat-line ${kind}` }, icon(kind === 'error' ? 'help' : 'sparkle', 14), h('span', { class: 'text', text })));
   }
 
-  /** A player's line, from the relay or from ourselves offline. */
-  function line(name: string, iso: string, message: string, self: boolean): void {
+  /**
+   * A player's line, from the relay or from ourselves offline. Said on Earth it
+   * carries the flag of the country it was said in; said on another world, that
+   * world's mark and name, because its nations' banners mean nothing to anyone.
+   */
+  function line(name: string, iso: string, message: string, self: boolean, world = 'earth'): void {
     if (!self && muted.has(fold(name))) return;
     const action = actionIn(message);
+    const away = world !== 'earth';
     const element = h(
       'div',
       { class: `atlas-chat-line${self ? ' self' : ''}${action !== null ? ' me' : ''}` },
-      flagOf(iso),
+      away ? h('span', { class: 'flag world', title: worldName(world) }, icon('planet')) : flagOf(iso),
+      away ? h('span', { class: 'where', text: worldName(world) }) : null,
       h('span', { class: 'who', text: action !== null ? name : `${name}:` }),
       h('span', { class: 'text', text: action ?? message }),
     );
@@ -409,7 +425,7 @@ export function createChat(host: ChatHost): Chat {
     if (seen.size > SEEN_LINES) seen.delete(seen.values().next().value!);
     const name = cleanName(typeof message.name === 'string' ? message.name : '') || 'Traveller';
     const self = id === host.peers?.id;
-    line(name, cleanCountry(message.c), m, self);
+    line(name, cleanCountry(message.c), m, self, cleanBody(message.w) || 'earth');
     received++;
     if (fresh && !self && !muted.has(fold(name))) {
       const out = host.sound();
@@ -486,7 +502,7 @@ export function createChat(host: ChatHost): Chat {
     sentCount++;
     // The relay's copy comes back to us too, and that is the line shown.
     if (peers !== null && peers.send({ t: 'chat', m, c: iso })) return;
-    line(host.name() || 'You', iso, m, true);
+    line(host.name() || 'You', iso, m, true, host.world);
     if (peers !== null) system('Not connected · only you can see that', 'error');
   }
 
@@ -586,16 +602,23 @@ export function createChat(host: ChatHost): Chat {
         if (peers === null) system('You are playing offline · choose Play online on the title screen to meet others');
         else if (peers.online === null) system('Not connected right now', 'error');
         else {
-          const others = players();
-          if (others.length === 0) system('Nobody else is online right now');
-          else {
-            system(`${others.length} other ${others.length === 1 ? 'traveller' : 'travellers'} online`);
-            for (const other of others.slice(0, WHO_LIST)) {
-              const where = host.whereIs(other);
-              system(`${other.name} · ${where.country === '' ? `at sea off ${where.town}` : `${where.near ? 'in' : 'near'} ${where.town}, ${where.country}`}`);
+          // Here first, where a town can be named; then the other worlds, from the relay.
+          const here = players().map((other) => {
+            const where = host.whereIs(other);
+            return `${other.name} · ${where.country === '' ? `at sea off ${where.town}` : `${where.near ? 'in' : 'near'} ${where.town}, ${where.country}`}`;
+          });
+          const world = host.world ?? 'earth';
+          void (host.elsewhere?.() ?? Promise.resolve(null)).then((all) => {
+            const away = (all ?? []).filter((one) => one.world !== world).map((one) => `${one.name} · on ${worldName(one.world)}`);
+            const lines = [...here, ...away];
+            if (lines.length === 0) {
+              system('Nobody else is online right now');
+              return;
             }
-            if (others.length > WHO_LIST) system(`and ${others.length - WHO_LIST} more`);
-          }
+            system(`${lines.length} other ${lines.length === 1 ? 'traveller' : 'travellers'} online`);
+            for (const text of lines.slice(0, WHO_LIST)) system(text);
+            if (lines.length > WHO_LIST) system(`and ${lines.length - WHO_LIST} more`);
+          });
         }
         return true;
       }

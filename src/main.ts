@@ -80,6 +80,7 @@ import type { Where } from './talk.ts';
 import { latLonOf, latOf, lonOf, unitAt } from './sphere.ts';
 import { ARRIVAL_CLEARANCE, clearOfPlans, plannedSite } from './landmark-ground.ts';
 import { EMOTE_INTERVAL_MS, cleanHonk, cleanHonkOn } from '../server/src/limits.ts';
+import { relayPlayers } from './relay-players.ts';
 import type { Emote, Honk } from '../server/src/limits.ts';
 import { createHornChorus, createHornKey } from './horn.ts';
 import { HEADLIGHTS_OF, HORN_OF, LAMPS_LIKE } from './craft/contract.ts';
@@ -307,25 +308,6 @@ function smallOrTouch(): boolean {
     return touch || innerWidth < 760 || Math.min(innerWidth, innerHeight) < 480;
   } catch {
     return false;
-  }
-}
-
-/**
- * How many travellers the relay holds on every world, from its `/count` beside
- * the socket's `/ws`; null when it does not answer, or answers nonsense.
- */
-async function onlineCount(socketUrl: string): Promise<number | null> {
-  try {
-    const url = new URL(socketUrl);
-    url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-    url.pathname = url.pathname.replace(/\/ws$/, '/count');
-    url.search = '';
-    const answer = await fetch(url, { cache: 'no-store' });
-    if (!answer.ok) return null;
-    const { online } = (await answer.json()) as { online?: unknown };
-    return typeof online === 'number' && Number.isFinite(online) && online >= 0 ? Math.round(online) : null;
-  } catch {
-    return null;
   }
 }
 
@@ -1252,7 +1234,7 @@ async function start(): Promise<void> {
     title = createTitle({
       stage: heroStage,
       online: peersUrl !== '',
-      players: () => onlineCount(peersUrl),
+      players: () => relayPlayers(peersUrl).then((all) => (all === null ? null : all.length)),
       customise: () => traveller.show(),
       settings: () => frontSettings.show(),
       covered: () => traveller.open || frontSettings.open,
@@ -2606,37 +2588,29 @@ async function start(): Promise<void> {
     if (map.open) map.hide(false);
   };
 
-  // Who is playing, held on `Tab`: yourself first, then everyone the relay has
-  // told us of, each with the flag of the country they stand in and what they
-  // are doing, from the state on the wire and the seat the fleet says they hold.
-  const { createPlayerList, describeDoing } = await deferred.playerList;
-  const { kindOfModel, modelOfVehicle } = await deferred.fleet;
+  // Who is playing, held on `Tab`: yourself first, then everyone on Earth with
+  // the flag of the country they stand in, then everyone on the other worlds.
+  const { createPlayerList } = await deferred.playerList;
   const listPoint = new THREE.Vector3();
   const isoAtPoint = (point: THREE.Vector3): string | null => {
     const id = world.countryAtPoint(point);
     return id > 0 ? world.countries[id - 1]!.iso : null;
   };
-  const doingOf = (state: string, seat: { vehicle: string; seat: number } | null): ReturnType<typeof describeDoing> =>
-    describeDoing(state, seat === null ? null : kindOfModel(modelOfVehicle(seat.vehicle)), seat?.seat === 0);
   const playerList = createPlayerList({
+    world: 'earth',
     rows: () => [
       {
         id: peers?.id ?? 'you',
         name: peers?.name || peersModule.storedName() || 'Traveller',
         iso: isoAtPoint(player.position),
-        doing: doingOf(player.state, fleet.current()),
         you: true,
       },
       ...[...(peers?.marks ?? [])]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((mark) => ({
-          id: mark.id,
-          name: mark.name,
-          iso: isoAtPoint(listPoint.set(mark.x, mark.y, mark.z)),
-          doing: doingOf(mark.state, fleetSync?.seatOf(mark.id) ?? null),
-        })),
+        .map((mark) => ({ id: mark.id, name: mark.name, iso: isoAtPoint(listPoint.set(mark.x, mark.y, mark.z)) })),
     ],
     online: () => (peers?.online ?? null) !== null,
+    elsewhere: () => relayPlayers(peersUrl),
     countryName: (iso) => world.countries.find((country) => country.iso === iso)?.name,
   });
   document.body.appendChild(playerList.root);
@@ -2921,6 +2895,7 @@ async function start(): Promise<void> {
   };
   const chat = createChat({
     peers,
+    ...(peers === null ? {} : { elsewhere: () => relayPlayers(peersUrl) }),
     name: () => peers?.name || peersModule.storedName(),
     here: () => {
       const { lat, lon } = toLatLon(player.position);

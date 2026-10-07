@@ -70,18 +70,22 @@
  *   `{ t: 'vp', v, p, sp }` a driver's pose, to everyone but the driver;
  *   `{ t: 'park', v, p }` when a vehicle comes to rest at `p`, or goes back
  *     to its site with `p: null`;
- *   `{ t: 'chat', id, name, c, m, at }` a line, to everyone and its sender
- *     too, stamped with who sent it under the name the room knows them by and
- *     when; the sender's copy is how it knows the line went;
+ *   `{ t: 'chat', id, name, c, m, at, w }` a line, to everyone on every
+ *     world and its sender too, stamped with who sent it under the name the
+ *     room knows them by, when, and the world it was said on; the sender's
+ *     copy is how it knows the line went;
  *   `{ t: 'emote', id, e }` a gesture, to everyone but its maker;
  *   `{ t: 'honk', id, k, on? }` a horn, to everyone but its driver, with
  *     the `on` it was sent with; a peer lets a held one go by itself after
  *     `HONK_HOLD_MS` without a refresh, and at the driver's `bye`;
  *   `{ t: 'flags', id, f }` a player's new flags, to everyone but them.
  *
- * The chat is one room for the world, like everything else here, and it is
- * kept in memory only: a room that sleeps with nobody in it wakes with no
- * history, which is the right amount of history for an empty room.
+ * The chat is the one thing that crosses worlds: a room passes each line it
+ * is sent to every other world's room (`/chat`, which only a room reaches),
+ * so everyone reads everyone, and each room keeps the lines it has seen in
+ * memory only: a room that sleeps with nobody in it wakes with no history,
+ * which is the right amount of history for an empty room. The Worker's
+ * `/count` says who is connected and on which world, for the title and `Tab`.
  *
  * A socket opens with `?name=`, `?look=` and `?key=`, and on any world but
  * Earth `?body=`. The look is how the
@@ -223,7 +227,7 @@ interface Attachment {
   chat: ChatBucket;
 }
 
-/** A chat line as the room keeps it and sends it. */
+/** A chat line as the room keeps it and sends it: `w` is the world it was said on. */
 interface ChatLine {
   t: 'chat';
   id: string;
@@ -231,6 +235,15 @@ interface ChatLine {
   c: string;
   m: string;
   at: number;
+  w: string;
+}
+
+/** Whether a body is a chat line another world's room passed on, and safe to keep. */
+function isChatLine(raw: unknown): raw is ChatLine {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const line = raw as Partial<ChatLine>;
+  return line.t === 'chat' && typeof line.id === 'string' && typeof line.name === 'string' && typeof line.c === 'string'
+    && typeof line.m === 'string' && typeof line.at === 'number' && typeof line.w === 'string' && cleanBody(line.w) === line.w;
 }
 
 /** What storage keeps of a vehicle at rest. */
@@ -388,10 +401,21 @@ export class Room extends DurableObject<Env> {
   }
 
   override async fetch(request: Request): Promise<Response> {
-    // How many are here, for the Worker's `/count`.
-    if (new URL(request.url).pathname === '/count') {
-      const here = this.ctx.getWebSockets().filter((socket) => attachmentOf(socket) !== null).length;
-      return Response.json({ online: here });
+    const path = new URL(request.url).pathname;
+    // Who is here, for the Worker's `/count`.
+    if (path === '/count') {
+      const players = this.ctx.getWebSockets()
+        .map((socket) => attachmentOf(socket))
+        .filter((self) => self !== null)
+        .map((self) => ({ id: self.id, name: self.name, w: self.body }));
+      return Response.json({ players });
+    }
+    // A line said on another world, passed on by its room: kept and heard here too.
+    if (path === '/chat' && request.method === 'POST') {
+      const line: unknown = await request.json().catch(() => null);
+      if (!isChatLine(line)) return new Response('Not a line', { status: 400 });
+      this.keep(line);
+      return new Response(null, { status: 204 });
     }
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
     const query = new URL(request.url).searchParams;
@@ -548,7 +572,21 @@ export class Room extends DurableObject<Env> {
     const allowed = spendChat(self.chat, now);
     socket.serializeAttachment(self);
     if (!allowed) return;
-    const line: ChatLine = { t: 'chat', id: self.id, name: self.name, c: cleanCountry(country), m, at: now };
+    const line: ChatLine = { t: 'chat', id: self.id, name: self.name, c: cleanCountry(country), m, at: now, w: self.body };
+    this.keep(line);
+    // **One chat for every world**: the line goes to each other world's room,
+    // which keeps it and passes it to its own sockets. The positions stay a
+    // world's own; only what is said crosses.
+    const body = JSON.stringify(line);
+    for (const world of Object.keys(BODY_RADII)) {
+      if (world === self.body) continue;
+      const room = this.env.ROOM.get(this.env.ROOM.idFromName(world));
+      this.ctx.waitUntil(room.fetch('https://room/chat', { method: 'POST', body }).then(() => undefined, () => undefined));
+    }
+  }
+
+  /** A line into this room's history and out to everyone in it. */
+  private keep(line: ChatLine): void {
     this.history.push(line);
     if (this.history.length > CHAT_HISTORY) this.history.shift();
     this.broadcast(JSON.stringify(line), null);
@@ -871,20 +909,22 @@ export default {
       return env.ROOM.get(env.ROOM.idFromName(body)).fetch(request);
     }
     if (url.pathname === '/count') {
-      // Everybody connected, on every world: the title's *Play online* says it.
+      // Everybody connected, on every world, and where: the title's *Play
+      // online* says how many, and `Tab` lists the ones on other worlds.
       // One request to each world's room; a room that is asleep wakes empty.
-      const counts = await Promise.all(
+      const rooms = await Promise.all(
         Object.keys(BODY_RADII).map(async (world) => {
           try {
             const answer = await env.ROOM.get(env.ROOM.idFromName(world)).fetch(new Request('https://room/count'));
-            return ((await answer.json()) as { online: number }).online;
+            return ((await answer.json()) as { players: { id: string; name: string; w: string }[] }).players;
           } catch {
-            return 0;
+            return [];
           }
         }),
       );
+      const players = rooms.flat();
       return Response.json(
-        { online: counts.reduce((sum, n) => sum + n, 0) },
+        { online: players.length, players },
         { headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' } },
       );
     }
