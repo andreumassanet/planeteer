@@ -772,7 +772,7 @@ console.log('');
 // --- determinism ----------------------------------------------------------
 //
 // Two worlds, same seed, same clock. The same shape of check `pnpm people` and
-// the traffic sheet already make, one level up: not "does one body rebuild the
+// `pnpm traffic` already make, one level up: not "does one body rebuild the
 // same" but "does the whole cast".
 
 console.log('determinism:');

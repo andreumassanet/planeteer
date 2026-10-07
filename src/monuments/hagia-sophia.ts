@@ -5,7 +5,7 @@ import type { Monument } from './contract.ts';
  * Hagia Sophia.
  *
  * The hard part of this one is not the building, it is the Taj Mahal. Both are
- * domed, both have four minarets, and on a contact sheet two cards of "dome plus
+ * domed, both have four minarets, and side by side two thumbnails of "dome plus
  * four corner spikes" is one card printed twice. So every decision here is made
  * against that: the two buildings must be nameable side by side, from the
  * silhouette, with the captions covered.

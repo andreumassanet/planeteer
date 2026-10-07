@@ -51,7 +51,7 @@ import { PROUD } from './contract.ts';
  *
  * - **The crenellated parapet.** A smooth wall is a dam. The merlons are drawn
  *   3.3 units wide and 2.9 tall, one to a bay — a notch every 5.4 units, about
- *   12 px on the contact sheet. True to the two scales above they would be 0.4
+ *   12 px in a thumbnail. True to the two scales above they would be 0.4
  *   units wide and stand 1 unit proud, which is not a notch, it is noise. So the
  *   parapet is exaggerated a second time on top of the 4.3x — 4.7 units where
  *   its real 1.8 m earns 2.1 — for exactly the reason the Golden Gate fattens
@@ -289,7 +289,7 @@ export const greatWall: Monument = {
     /**
      * A patch of ground standing on the run, turned so local +X goes along the
      * wall and local +Z is the outer face — the crenellated one, and the one the
-     * contact sheet's front camera looks at.
+     * front camera looks at.
      */
     const spanFrom = (t0: number, t1: number): { bay: Group; chord: number } => {
       const x0 = pathX(t0);

@@ -69,15 +69,15 @@ const LEAN = 10 * DEG;
  *
  * In life the portal is on the north face and the tower leans south: the door
  * and the lean are on opposite sides of the shaft, near enough 180 degrees
- * apart. The contract pins the front to +Z and the contact sheet checks it with
+ * apart. The contract pins the front to +Z and it is checked from
  * a fixed front camera at (0, 0.12, 1), so a faithful model would tip straight
  * away from that camera — and a tilt along Z projects to *nothing at all* head
  * on. The one feature that must survive would be the one feature the checking
  * view cannot show.
  *
  * So the lean is rotated a quarter turn onto the model's X axis while the portal
- * stays on +Z. +X and not -X because screen-right is +X in both of the sheet's
- * views, and the tower falls to the right in every photograph ever taken of the
+ * stays on +Z. +X and not -X because screen-right is +X in both the front and
+ * the quarter views, and the tower falls to the right in every photograph ever taken of the
  * piazza: those are shot from the west end, looking east, where south is on the
  * right hand.
  *

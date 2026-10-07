@@ -11,7 +11,7 @@ import { PROUD } from './contract.ts';
  * one-storey houses with a wall of three arcades rising out of the middle of it.
  *
  * Three things name it, and they are what separates it from the Colosseum
- * standing a few hundred kilometres north on the same contact sheet:
+ * standing a few hundred kilometres north:
  *
  * 1. **The ring is whole.** All three storeys of arches run right round the
  *    oval; the Colosseum is two-fifths of an outer ring on a stump. Here the

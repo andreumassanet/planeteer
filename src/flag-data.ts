@@ -24,8 +24,8 @@
  *
  * ## Fidelity
  *
- * Where a flag carries a coat of arms, it is reduced to a mark and the key goes
- * in `SIMPLIFIED`. At the sizes this is drawn a real one is four illegible
+ * Where a flag carries a coat of arms, it is reduced to a mark. At the sizes
+ * this is drawn a real one is four illegible
  * pixels, and inventing detail is a worse lie than admitting to a placeholder.
  * Where a flag is a picture the vocabulary cannot honestly reach, it is left
  * out and falls through to the plate. A good spec with honest gaps beats a full
@@ -225,8 +225,7 @@ const badge = (c: string): Layer[] => [
  * straight and wavy. The wave is carried by the ray's length and width rather
  * than by an actual curve — at any size this gets drawn, a wavy ray and a
  * slightly longer straight one are the same handful of pixels. The human face
- * in the middle is the part that does not survive, which is why both flags are
- * in `SIMPLIFIED`.
+ * in the middle is the part that does not survive.
  */
 function sunOfMay(p: Painter, cx: number, cy: number, r: number, c: string): void {
   const { ctx } = p;
@@ -2086,33 +2085,3 @@ export const FLAG_ALIAS: Record<string, string> = {
  */
 export const NO_FLAG = new Set(['CNM', 'BRT', 'KAS', 'SPI']);
 
-/**
- * Flags whose emblem is a mark rather than the real thing. The field and the
- * layout are right; the device is not.
- *
- * The line, so the coverage number stays honest and the next person applies it
- * the same way: a **pictorial** device — a person, an animal, a plant, a coat
- * of arms, a script, a face, a national outline cut by hand — that has been
- * reduced or dropped puts the flag in here. Geometric devices are drawn exactly
- * and stay out: stripes, crosses, saltires, discs, crescents, stars, India's
- * chakra, Korea's taegeuk and trigrams, North Macedonia's rays.
- *
- * Argentina and Uruguay are what the rule caught late. Their sun has 32 rays
- * *and a human face*, and a sun without the face is precisely what the tag is
- * for.
- */
-export const SIMPLIFIED = new Set([
-  'ALB', 'AND', 'BLR', 'CYP', 'ESP', 'HRV', 'IMN', 'JEY', 'KOS', 'LIE', 'MDA',
-  'MLT', 'MNE', 'PRT', 'SMR', 'SRB', 'SVK', 'SVN',
-  'AFG', 'BRN', 'BTN', 'IRN', 'IRQ', 'KAZ', 'KGZ', 'KHM', 'LKA', 'MNG', 'NPL',
-  'OMN', 'SAU', 'TJK', 'TKM',
-  'AGO', 'EGY', 'ERI', 'GNQ', 'KEN', 'LSO', 'MOZ', 'SWZ', 'UGA', 'ZMB', 'ZWE',
-  'SOL',
-  'AIA', 'BLZ', 'BMU', 'CYM', 'DMA', 'DOM', 'GRD', 'GTM', 'GUM', 'HTI', 'MEX',
-  'MSR', 'NIC', 'SLV', 'SXM', 'TCA', 'VGB', 'VIR', 'BOL', 'BRA', 'ECU', 'FLK',
-  'PER', 'PRY',
-  'ASM', 'FJI', 'KIR', 'MNP', 'NCL', 'PCN', 'PNG', 'PYF', 'SGS', 'SHN', 'IOT',
-  'ATF', 'VUT',
-  // Found by re-reading the sheet against the rule above, not while drawing.
-  'ARG', 'URY', 'PHL', 'ETH', 'LBN', 'CAN', 'ATA', 'HKG', 'MAR', 'BRB', 'NFK',
-]);

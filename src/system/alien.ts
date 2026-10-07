@@ -22,8 +22,7 @@
  * darker back — which is how a painted creature is painted.
  *
  * The joints are `Bone`s, so one build serves twice: as a still (`buildAlien`,
- * posed and stood on its own feet, which is what the check script measures and
- * a sheet shows) and as the rig of an animated walker (`worlds/aliens.ts`
+ * posed and stood on its own feet, which is what the check script measures) and as the rig of an animated walker (`worlds/aliens.ts`
  * merges the sections into one skinned mesh, each bound wholly to its joint,
  * and moves the bones). A section is bound rigidly and the ball at its joint is
  * what hides the seam, which is the oldest trick there is for a jointed figure
@@ -723,32 +722,6 @@ export function setLeg(leg: LegRig, swing: number, bend: number): void {
 export function setArm(arm: ArmRig, swing: number, bend: number, splay: number): void {
   arm.shoulder.rotation.set(-swing, 0, arm.sign * splay);
   arm.elbow.rotation.set(-bend, 0, 0);
-}
-
-/**
- * The height of the lowest sole over the root's own origin, with the joints
- * where they are now: what a walker's root is lifted by so the stance foot is
- * on the ground and the bob comes free. It reads the joints' local matrices
- * and nothing in the world, so it is the same on a still and on a clone.
- */
-const scratch = { m: null as import('three').Matrix4 | null, v: null as import('three').Vector3 | null };
-export function lowestSole(rig: AlienRig, T: Three): number {
-  const m = (scratch.m ??= new T.Matrix4());
-  const v = (scratch.v ??= new T.Vector3());
-  const keep = rig.root.position.y;
-  rig.root.position.y = 0;
-  rig.root.updateMatrix();
-  let low = Infinity;
-  for (const leg of rig.legs) {
-    leg.hip.updateMatrix();
-    leg.knee.updateMatrix();
-    leg.ankle.updateMatrix();
-    m.copy(rig.root.matrix).multiply(leg.hip.matrix).multiply(leg.knee.matrix).multiply(leg.ankle.matrix);
-    v.set(0, -leg.sole, 0).applyMatrix4(m);
-    low = Math.min(low, v.y);
-  }
-  rig.root.position.y = keep;
-  return Number.isFinite(low) ? low : 0;
 }
 
 /**

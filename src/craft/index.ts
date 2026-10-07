@@ -20,9 +20,9 @@ import type { CraftModel } from './contract.ts';
 import type { Model, Rig } from '../models.ts';
 // Static, and not a dynamic import inside `loadCraft`: this file is itself
 // reached only through a deferred import (`main.ts`), so the kit's reader
-// adds nothing to the world's first load — while a review sheet that awaits
+// adds nothing to the world's first load — while a page that awaits
 // `loadCraft` at its top level, with the reader in a chunk that imports back
-// from the sheet's own, waits on itself for ever.
+// from the page's own, waits on itself for ever.
 import { loadModels, loadRig } from '../kit.ts';
 import { buildCars } from './cars.ts';
 import { buildPartCraft } from './traffic-craft.ts';

@@ -92,7 +92,7 @@ const PANEL_LENGTH = 11;
 /**
  * How far a panel's face stands off the wall: 0.22, not the 0.08 that is the
  * least the pen can draw, because the wall is a slope inside its own bounding
- * box. At 0.22 the panel's foot clears that box, so the contact sheet's burial
+ * box. At 0.22 the panel's foot clears that box, so the burial
  * probe — which only knows boxes — sees a relief rather than a part sealed in.
  */
 const PANEL_PROUD = 0.22;

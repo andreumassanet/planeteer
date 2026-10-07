@@ -45,7 +45,7 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * triangles of the tier's 2,600.
  *
  * The arcade hides a band about four times its height behind it from the
- * sheet's camera, so the courtyard floor is never seen and carries nothing; the
+ * quarter camera, so the courtyard floor is never seen and carries nothing; the
  * arches are on the outer faces, where they are.
  *
  * Colours: the walls are the pale sandstone of the building, `sand`; the trim

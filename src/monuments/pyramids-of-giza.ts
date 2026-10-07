@@ -32,7 +32,7 @@ import type { Mesh, Monument, Vector3 } from './contract.ts';
  *   worth a quarter of the size: here Khafre is 65 degrees west of south of
  *   Khufu and Menkaure 60, at 1.8 times Khafre's distance where life has 2.0,
  *   and Khufu's half-base is 15.6. It is still a diagonal from every side, and
- *   from the north-north-west — the contact sheet's quarter view, which lands
+ *   from the north-north-west — the quarter view, which lands
  *   within two degrees of square to the diagonal — the three stand side by
  *   side, largest to smallest, as on every postcard.
  * - **The plateau is part of the model.** It is where the height comes from

@@ -166,7 +166,7 @@ export const PROUD = 0.08;
  * and a shadow under its eaves; a roof has a darker ridge; a chimney has a cap;
  * a door has a lintel. A model made of one flat colour per part reads as a
  * primitive, and the same model with those tones reads as a house — measured on
- * this kit by eye, at 40 and at 120 units, on the sheet. Tones are free against
+ * this kit by eye, at 40 and at 120 units. Tones are free against
  * the colour budget (`measure` folds them onto their base) and cost a merged
  * town only the vertex bytes it already carries, so **they are the first thing
  * a part spends and triangles are the last.**
@@ -332,7 +332,7 @@ export const VARIANTS = 6;
 export interface RegionStyle {
   id: string;
   name: string;
-  /** One line for the review sheet. What you would notice if you landed there. */
+  /** One line: what you would notice if you landed there. */
   note: string;
 
   /**
@@ -369,7 +369,7 @@ export interface RegionStyle {
   foliage: readonly number[];
   /** Rock and bare ground. Grey in Norway, red in the Australian centre. */
   stone: readonly number[];
-  /** The ground a village of this region sits on, for the review sheet. */
+  /** The ground a village of this region sits on. */
   ground: number;
 
   /** Roof rise over half-span. 0.15 is a flat Maghreb terrace, 1.0 is alpine. */
@@ -379,7 +379,7 @@ export interface RegionStyle {
   /** Storeys an ordinary building gets here, both ends included. */
   storeys: readonly [number, number];
 
-  /** Part ids and their weights. Unknown ids are reported by the review sheet. */
+  /** Part ids and their weights. Unknown ids are reported by `pnpm scenery`. */
   buildings: readonly Weighted<string>[];
   civic: readonly Weighted<string>[];
   trees: readonly Weighted<string>[];
@@ -1442,12 +1442,12 @@ export interface ScenicPart {
    * Radius of the circle **every** variant must stay inside.
    *
    * Stricter than a monument's, because a monument declares a footprint for one
-   * model and this one is a promise about a family: the review sheet builds a
-   * dozen seeds and holds all of them to it. A layout that has to re-measure
+   * model and this one is a promise about a family: every seed built is held
+   * to it. A layout that has to re-measure
    * each variant is a layout that cannot be a table of transforms.
    */
   footprint: number;
-  /** One line on the sheet: what this is and what it is for. */
+  /** One line: what this is and what it is for. */
   note?: string;
   /**
    * A triangle cap of the part's own, over its kind's. **A baked model's**: a
@@ -1459,7 +1459,7 @@ export interface ScenicPart {
    * Builds **one variant**.
    *
    * Deterministic in `rng` and `style` and nothing else — no `Math.random()`, no
-   * `Date`, no module-level counters. The review sheet builds each variant twice
+   * `Date`, no module-level counters. `pnpm scenery` builds each variant twice
    * from the same seed and compares, exactly as the monument loader does.
    *
    * The `Group` it returns follows the monument rules: faces +Z, base at y = 0,
@@ -1637,9 +1637,9 @@ export interface Variety {
  * The monument contract has no equivalent, and could not: a monument that came
  * out the same twice is *correct*. Here it is the whole failure mode. A part
  * that ignores its seed produces a village of one house repeated, which no
- * bounding-box check can see and which is instantly obvious on the sheet — so
- * this is the mechanical half of that judgement, and the cluster view is the
- * other half.
+ * bounding-box check can see and which is instantly obvious in a row of them —
+ * so this is the mechanical half of that judgement, and the eye is the other
+ * half.
  */
 export function varietyOf(measurements: readonly Measurements[]): Variety {
   const shapes = new Set<string>();

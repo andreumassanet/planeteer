@@ -36,7 +36,7 @@ import { PROUD } from './contract.ts';
  *
  * ## Scale: the one monument in the set that needs no distortion at all
  *
- * The contact sheet's figure is 6.8 units for a 1.8 m person, so a metre is 3.78
+ * The reference figure is 6.8 units for a 1.8 m person, so a metre is 3.78
  * units. At that rate the largest boulder here is `4.0` in radius — 8 units,
  * **2.1 m across**, which is the largest at Moeraki. The smallest is 0.3 m. The
  * bank is 15.4 units, 4.1 m, which is what the Koekohe bank does. The crop is
@@ -201,7 +201,7 @@ import { PROUD } from './contract.ts';
  * ## The cracked boulders, and the 13.4-degree problem
  *
  * The first version had a real well: a rim standing round a sunk dark floor.
- * From the contact sheet's quarter camera, 13.4 degrees above the model, a floor
+ * From the quarter camera, 13.4 degrees above the model, a floor
  * `d` below its rim is hidden across `d / tan(13.4deg)` = 4.2d of its width. A
  * 1-unit-deep hollow 3 units across is therefore **entirely invisible** —
  * Victoria Falls' cutaway, in miniature.

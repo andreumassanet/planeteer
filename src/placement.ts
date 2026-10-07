@@ -101,8 +101,8 @@ export async function loadPlacements(url = `${DATA_URL}monuments.json`): Promise
  * it had to be set by the smallest: Stonehenge is 4.8 units across and is a
  * speck at 800, so a range that suited it wasted the Pyramids, which are 55
  * across and still eleven pixels wide at eleven thousand. One constant for
- * sixty-five objects that differ by a factor of eleven in size is the thing the
- * contact sheet keeps teaching, and the fix is the same every time: ask each one
+ * sixty-five objects that differ by a factor of eleven in size is the thing this
+ * world keeps teaching, and the fix is the same every time: ask each one
  * what it is worth.
  */
 export function reachFor(altitude: number): number {
@@ -290,8 +290,8 @@ export function createMonuments(
    * So a monument stands on the floor when there is one under it, and on the
    * ground when there is not — which is every landmark in open country, where
    * `terrain.ts` has already levelled a pad and there is nothing to be level
-   * with. Optional, because the streamer and the sheet build monuments with no
-   * settlements at all.
+   * with. Optional, because a monument may be built with no settlements at
+   * all.
    *
    * It is asked at `raise` rather than when the slot is made: the town under a
    * monument is streamed and may not have been standing when the planet loaded.

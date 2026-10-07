@@ -377,5 +377,3 @@ export function storeAppearance(appearance: Appearance): void {
   }
 }
 
-/** Whether two appearances dress the same traveller. */
-export const sameAppearance = (a: Appearance, b: Appearance): boolean => encodeAppearance(a) === encodeAppearance(b);

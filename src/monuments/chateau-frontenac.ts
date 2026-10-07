@@ -39,7 +39,7 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * ---------------------------------------------------------------------------
  *
  * In life the central tower rises from the middle of the block, behind the wing
- * that faces the river. The contact sheet's quarter camera is 13.4 degrees up,
+ * that faces the river. Seen in three-quarter view from 13.4 degrees up,
  * so a ridge of height `h` hides everything below `h + 0.238 d` at depth `d`
  * behind it. The riverfront ridge is 24.5 at z = 13; a tower left in the middle
  * of the courtyard at z = 0 would need to clear `24.5 + 0.238 x 13 = 27.6`, and

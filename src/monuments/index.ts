@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { findFlaws, measure, validate } from './contract.ts';
-import type { Flaw, Measurements, Monument, MonumentContext } from './contract.ts';
+import { validate } from './contract.ts';
+import type { Monument, MonumentContext } from './contract.ts';
 
 export { TIERS, MAX_ASPECT, createContext, findFlaws, findUnsupported, measure, validate, paletteName } from './contract.ts';
 export type {
@@ -19,15 +19,14 @@ export type { Group, Mesh, Object3D, Vector3 } from './contract.ts';
  * The registry.
  *
  * **Adding a monument is one file and nothing else.** Drop `taj-mahal.ts` into
- * this folder exporting a `Monument`, and it is in the world and on the contact
- * sheet. No line to add here, which matters because the monuments are written
+ * this folder exporting a `Monument`, and it is in the world. No line to add
+ * here, which matters because the monuments are written
  * independently of each other: a registry every file has to append to is a
  * registry every change collides in, and a monument that builds perfectly but
  * was never registered is the one failure nobody notices.
  *
  * The cost of the magic is that a file can go missing silently, so it does not:
- * anything in this folder that exports no `Monument` lands in `SKIPPED`, and the
- * contact sheet prints that list at the top.
+ * anything in this folder that exports no `Monument` lands in `SKIPPED`.
  *
  * Adding one, end to end:
  *
@@ -56,23 +55,22 @@ export type { Group, Mesh, Object3D, Vector3 } from './contract.ts';
  *    it is too flat to read at its tier, squeeze the plan, as Stonehenge does at
  *    2:1. Read the note beside `MAX_ASPECT` in `contract.ts` before deciding,
  *    and put the numbers you chose in your file.
- * 6. Open `/sheets/monuments.html`. A green card means it passes *mechanically*,
- *    and that is all it means: `validate` measures a bounding box, so a stick
- *    with a crossbar passes every check there is. The real gate is the
- *    thumbnail. Name the thing from it without reading the caption, and put it
- *    beside the Eiffel Tower, the Colosseum and Christ the Redeemer on the same
- *    sheet — **if yours is visibly barer than those three, it is not done.**
+ * 6. Passing `validate` means it passes *mechanically*, and that is all it
+ *    means: `validate` measures a bounding box, so a stick with a crossbar
+ *    passes every check there is. The real gate is how it reads at thumbnail
+ *    size. Name the thing from it without a caption, and put it beside the
+ *    Eiffel Tower, the Colosseum and Christ the Redeemer — **if yours is
+ *    visibly barer than those three, it is not done.**
  *    Chunky and readable beats detailed, because the ink does the drawing; bare
  *    is a different thing from chunky, and it is what underspending looks like.
  *
  *    Optional, and meant to stay optional: a small throwaway z-buffered
  *    software rasterizer — `main.ts`'s four-step ramp and light rig, a couple
- *    of hundred lines — renders one monument at true thumbnail size without
- *    waiting on the sheet. It has changed real decisions: the Petronas piers
- *    went from `bone` to `white` because at that size the eight-pointed plan
- *    dissolved into one dark slab, and Hagia Sophia's buttresses were rebuilt
- *    after it showed them reading as free-standing posts. It is a heavy tool
- *    for a small question. Reach for it when the sheet is too busy to read, or
+ *    of hundred lines — renders one monument at true thumbnail size. It has
+ *    changed real decisions: the Petronas piers went from `bone` to `white`
+ *    because at that size the eight-pointed plan dissolved into one dark slab,
+ *    and Hagia Sophia's buttresses were rebuilt after it showed them reading as
+ *    free-standing posts. It is a heavy tool for a small question. Reach for it
  *    when you cannot tell what a shape is doing at 260 pixels — not as a
  *    ritual.
  */
@@ -127,7 +125,7 @@ for (const path of Object.keys(MODULES).sort()) {
   }
 }
 
-/** Every monument, sorted by id so the contact sheet and the world agree on order. */
+/** Every monument, sorted by id so every consumer agrees on order. */
 export const MONUMENTS: readonly Monument[] = collected.sort((a, b) => a.id.localeCompare(b.id));
 
 export function monument(id: string): Monument | undefined {
@@ -155,61 +153,3 @@ export function buildMonument(id: string, ctx: MonumentContext): THREE.Group {
   return group;
 }
 
-export interface Review {
-  monument: Monument;
-  group: THREE.Group;
-  measurements: Measurements;
-  /** Contract violations. Non-empty means `buildMonument` would refuse it. */
-  problems: string[];
-  /** Buried or floating parts: a warning for a person, never a refusal. */
-  flaws: Flaw[];
-}
-
-/**
- * The same thing without the refusal: builds, measures and collects every
- * complaint so the contact sheet can show a broken monument next to what is
- * wrong with it. A monument that throws is reported, not propagated — one bad
- * file must not blank the sheet you were going to use to find it.
- */
-export function reviewMonument(monument: Monument, ctx: MonumentContext): Review {
-  let group: THREE.Group;
-  try {
-    group = monument.build(ctx);
-  } catch (error) {
-    return {
-      monument,
-      group: new THREE.Group(),
-      measurements: measure(new THREE.Group()),
-      problems: [`build() threw: ${String(error)}`],
-      flaws: [],
-    };
-  }
-
-  const problems = validate(monument, group);
-  const measurements = measure(group);
-
-  // Determinism is part of the contract and is invisible to `validate`, which
-  // only ever sees one group. Build a second time and compare: `Math.random()`
-  // in a monument would otherwise show up as a model that quietly differs
-  // between the contact sheet and the planet.
-  try {
-    const again = monument.build(ctx);
-    const second = measure(again);
-    if (
-      second.triangles !== measurements.triangles ||
-      Math.abs(second.height - measurements.height) > 1e-9 ||
-      Math.abs(second.radius - measurements.radius) > 1e-9
-    ) {
-      problems.push('build() is not deterministic — two builds differ. No Math.random(), no Date.');
-    }
-    again.traverse((object) => {
-      const mesh = object as THREE.Mesh;
-      // Materials are shared with the first build; only the geometry is ours.
-      if (mesh.isMesh) mesh.geometry.dispose();
-    });
-  } catch (error) {
-    problems.push(`build() threw on its second call: ${String(error)}`);
-  }
-
-  return { monument, group, measurements, problems, flaws: findFlaws(group) };
-}

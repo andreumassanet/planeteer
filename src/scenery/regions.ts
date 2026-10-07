@@ -531,9 +531,7 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
  * **Only codes that exist in the current bake are listed.** Monaco, the Vatican,
  * Gibraltar, Macao and the Maldives are all real countries with real ISO codes
  * and none of them is a feature at any scale this project has read, so an entry
- * for them would be a line that can never fire — and the review sheet's "unknown
- * code" warning would then be permanently red, which is the same as not having
- * it.
+ * for them would be a line that can never fire.
  */
 export const ISO_REGIONS: Record<string, RegionId> = {
   // Nordic
@@ -690,10 +688,3 @@ export function nativeHere(plantId: string, region: RegionId): boolean {
   return range === undefined || range.includes(region);
 }
 
-/** Countries the table names for one region, for the review sheet. */
-export function isoCodesFor(id: RegionId): string[] {
-  return Object.entries(ISO_REGIONS)
-    .filter(([, region]) => region === id)
-    .map(([iso]) => iso)
-    .sort();
-}

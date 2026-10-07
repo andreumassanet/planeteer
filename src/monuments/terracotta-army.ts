@@ -15,7 +15,7 @@ import type { Group, Mesh, Monument } from './contract.ts';
  * and a box for the head. One mesh per man was the tempting answer, because it
  * buys ninety figures instead of forty-eight; it is also a rank of fence posts.
  * The head is the whole difference between a peg and a standing man, it is about
- * 4 px on the contact sheet's thumbnail, and it is not decoration here but the
+ * 4 px on a thumbnail, and it is not decoration here but the
  * site's own subject, because the figures at the broken end are precisely the
  * ones that have lost it. So two meshes, and the size of the army falls out as
  * `(110 - earth - wreckage) / 2`.
@@ -54,8 +54,8 @@ import type { Group, Mesh, Monument } from './contract.ts';
  * is how much elbow room the ranks had, which no photograph of the place shows
  * you anyway.
  *
- * The other distortion is vertical, and it is forced by the camera. **The
- * contact sheet views this from 7 deg and 13 deg above the horizon, and at 13
+ * The other distortion is vertical, and it is forced by the camera. **It is
+ * seen from 7 deg and 13 deg above the horizon, and at 13
  * deg a rim of height h hides a band 4.2h deep behind it.** A rim at the true
  * 5 m (19 units) hides the entire pit: the monument becomes a lump of earth with
  * a slot in it. So the side rims are trimmed to 8.2 — head height, a rail you

@@ -58,7 +58,7 @@ import { PROUD } from './contract.ts';
  * What is spent, and where the camera let it be spent
  * ---------------------------------------------------------------------------
  *
- * The contact sheet's 13.4-degree camera decides two things here.
+ * A 13.4-degree camera decides two things here.
  *
  * **The summit ruins have to stand at the front of the platform, and the summit
  * had to come down to make room for them.** The rim's top edge is at 34.5 and

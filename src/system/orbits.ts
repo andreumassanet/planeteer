@@ -42,8 +42,6 @@ import { unitAt } from '../sphere.ts';
 export { julianDay, centuriesSince2000 } from '../celestial.ts';
 
 const DEG = Math.PI / 180;
-const TAU = Math.PI * 2;
-
 /** Days in a Julian century, which is the unit every rate below is per. */
 const CENTURY = 36525;
 
@@ -259,54 +257,6 @@ export function heliocentric(id: OrbitId, date: Date): Heliocentric {
  * out of numbers that were fitted, not derived.
  */
 export const periodOf = (id: OrbitId): number => (360 / ELEMENTS[id]!.rate.L) * CENTURY;
-
-/**
- * A whole orbit as a closed polyline in the ecliptic frame, for drawing.
- *
- * Sampled in **eccentric** anomaly rather than in true anomaly or in time, and
- * that is the difference between an ellipse and a comet's tail. Equal steps in
- * time crowd the samples at aphelion, where the curvature is least and they are
- * worth least; equal steps in true anomaly crowd them at perihelion but not
- * enough, because for `e = 0.21` the radius still swings by half between
- * neighbouring samples near the turn. Equal steps in `E` put them where the
- * curvature is, which is what a parametrisation is for.
- *
- * The ellipse is evaluated at one instant's elements and not re-derived per
- * sample: over one orbit the rates move Mercury's own ellipse by 4e-7 au, and a
- * curve whose two ends were computed at different epochs does not close.
- */
-export function orbitPath(id: OrbitId, date: Date, segments = 128): Heliocentric[] {
-  const t = centuriesSince2000(date);
-  const { a, e, i, peri, node } = elementsAt(id, t);
-  const argument = (peri - node) * DEG;
-  const cosW = Math.cos(argument);
-  const sinW = Math.sin(argument);
-  const cosO = Math.cos(node * DEG);
-  const sinO = Math.sin(node * DEG);
-  const cosI = Math.cos(i * DEG);
-  const sinI = Math.sin(i * DEG);
-
-  const path: Heliocentric[] = [];
-  for (let n = 0; n < segments; n++) {
-    const E = (n / segments) * TAU;
-    const xp = a * (Math.cos(E) - e);
-    const yp = a * Math.sqrt(1 - e * e) * Math.sin(E);
-    const x = (cosW * cosO - sinW * sinO * cosI) * xp + (-sinW * cosO - cosW * sinO * cosI) * yp;
-    const y = (cosW * sinO + sinW * cosO * cosI) * xp + (-sinW * sinO + cosW * cosO * cosI) * yp;
-    const z = sinW * sinI * xp + cosW * sinI * yp;
-    const r = Math.hypot(x, y, z);
-    path.push({
-      x,
-      y,
-      z,
-      r,
-      lon: norm360(Math.atan2(y, x) / DEG),
-      lat: Math.asin(z / r) / DEG,
-      trueAnomaly: norm360(Math.atan2(yp, xp) / DEG),
-    });
-  }
-  return path;
-}
 
 // ---------------------------------------------------------------------------
 // Seen from here

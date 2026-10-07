@@ -168,9 +168,6 @@ export function deckTurn(timeMs: number, target: THREE.Quaternion): THREE.Quater
   return target.setFromAxisAngle(DECK_AXIS, (phase / DECK_PERIOD_MS) * Math.PI * 2);
 }
 
-/** Radians a second the deck turns: the drift `weather.ts` takes its wind from. */
-export const DECK_RATE = (Math.PI * 2) / (DECK_PERIOD_MS / 1000);
-
 /**
  * How big a puff is, horizontally: `PUFF_RIM` at a bank's edge, `PUFF_HEART`
  * where it is deepest, each varied by `PUFF_JITTER` either way. The rim's is

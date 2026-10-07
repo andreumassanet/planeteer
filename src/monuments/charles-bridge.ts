@@ -4,7 +4,7 @@ import type { Monument } from './contract.ts';
 /**
  * Charles Bridge, Prague.
  *
- * **The fourth bridge on the sheet, and it has to be the one that is not made of
+ * **The fourth bridge among the monuments, and it has to be the one that is not made of
  * steel.** The Golden Gate is a suspension cable, Sydney is a lattice arch,
  * Tower Bridge is a pair of Gothic towers over a bascule — three 19th- and
  * 20th-century steel machines that all read as *one heroic span with something
@@ -28,7 +28,7 @@ import type { Monument } from './contract.ts';
  *   at all, which is also what the palette note asks for: the arch voids are the
  *   deepest recesses in the model, and `bark` (0x4a413c, R > G > B) keeps its
  *   hue in shade where `steel` would go flat black and open a hole in the wall.
- * - **It is populated.** Thirty statues. No other bridge on the sheet carries
+ * - **It is populated.** Thirty statues. No other bridge among the monuments carries
  *   figures, and that alone names this one.
  *
  * ---
@@ -49,9 +49,8 @@ import type { Monument } from './contract.ts';
  *
  * **One tower, not both, and that is the deliberate part.** The bridge has a
  * tower at each end and a symmetric crop would have kept both — which is exactly
- * the Golden Gate's frame (tower, span, tower) and exactly Tower Bridge's, three
- * cells away on the same sheet. Two verticals with something strung between them
- * is the silhouette this monument most needs to avoid. One tower at one end and
+ * the Golden Gate's frame (tower, span, tower) and exactly Tower Bridge's. Two
+ * verticals with something strung between them is the silhouette this monument most needs to avoid. One tower at one end and
  * an arcade running off the opposite edge is a shape nothing else here has, and
  * it is the view from Kampa that every photograph of the bridge uses.
  *
@@ -103,8 +102,8 @@ import type { Monument } from './contract.ts';
  *    project 1.2 units further in z than the wall behind them and 1.0 further
  *    than the openings, so every pier throws its own cutwater and its own ink
  *    line into the elevation. Counting the arches is the test.
- * 2. **Thirty dark masses on pale plinths** along both parapets. The sheet gives
- *    this card about 1.7 px per unit, so each is four pixels — a dark blob on a
+ * 2. **Thirty dark masses on pale plinths** along both parapets. A thumbnail gives
+ *    this model about 1.7 px per unit, so each is four pixels — a dark blob on a
  *    light one, which is all it is meant to be, and the deterministic variation
  *    in their height and yaw is what stops fifteen of them reading as a picket
  *    fence.

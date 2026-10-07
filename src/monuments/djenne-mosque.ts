@@ -3,8 +3,8 @@ import type { Monument } from './contract.ts';
 /**
  * The Great Mosque of Djenne, Mali.
  *
- * The largest mud-brick building in the world, and it looks like nothing else on
- * the sheet. Four things are the building, and every mesh here pays for one:
+ * The largest mud-brick building in the world, and it looks like no other
+ * monument. Four things are the building, and every mesh here pays for one:
  *
  * - **The three great tapering towers**, across the qibla wall, each on a spike
  *   with an ostrich egg on top and the middle one standing proud of the other
@@ -39,8 +39,8 @@ import type { Monument } from './contract.ts';
  *   ratio of 1.67. Squeezing the plan is the trade the `MAX_ASPECT` note
  *   describes in the other direction: the axis that carries the recognition here
  *   is the *vertical* rhythm of fins and towers, and at true proportions a fin
- *   is 1.5 units wide in a 102-unit facade — under three pixels on the contact
- *   sheet's cell, which is no rhythm at all. The plan is the axis that could
+ *   is 1.5 units wide in a 102-unit facade — under three pixels in a
+ *   thumbnail, which is no rhythm at all. The plan is the axis that could
  *   afford to give.
  * - *Toron are 3x thick and 3.7x long.* At this model's scale (22.5 units of
  *   wall for 16 m) a real bundle is 0.21 units thick projecting 0.71; here it is
@@ -166,7 +166,7 @@ const FRONT_FINS = [7.5, 10.9, 14.3, 26.7, 29.4];
 /**
  * And the flanks, along z, mirrored about both. Three a side rather than two:
  * with the corner piers that is five verticals across a 31-unit flank, and the
- * quarter view is the view the contact sheet opens on. Two left the back half of
+ * quarter view is the default view. Two left the back half of
  * the side wall as a blank sloping plane.
  */
 const FLANK_FINS = [-8.5, 0, 8.5];

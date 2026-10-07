@@ -321,36 +321,6 @@ export interface Look {
   grip?: readonly [number, number, number];
 }
 
-/**
- * The player, as a `Look`, so the hero and the crowd can be put in one frame.
- *
- * `crimson` is the hero's and is deliberately absent from every region's
- * wardrobe: the player is the only person on the planet wearing it, which is how
- * you find yourself in a street.
- */
-export function heroLook(palette: SceneryContext['palette']): Look {
-  return {
-    height: BODY.height,
-    girth: 1,
-    age: 'adult',
-    hair: 'crop',
-    beard: false,
-    headwear: 'none',
-    garment: 'shirt',
-    sleeves: 'long',
-    carry: 'pack',
-    pose: 'stand',
-    stoop: 0,
-    sway: 0,
-    skin: palette.blush,
-    hairColor: palette.bark,
-    top: palette.crimson,
-    bottom: palette.slate,
-    trim: palette.bark,
-    accent: palette.gold,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Poses
 // ---------------------------------------------------------------------------

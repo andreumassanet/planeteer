@@ -51,72 +51,6 @@ import type { Rng, Weighted } from '../scenery/random.ts';
 // Scale: the decision, and the arithmetic that forces it
 // ---------------------------------------------------------------------------
 
-/**
- * **A vehicle is built at `SCENERY_SCALE`, 1.267 units per metre, the same as
- * every house and every road.** Until 2026-09-24 it was not built against the
- * person, who was 6.8 units tall; since then a person is 3.77 (`stature.ts`),
- * and the vehicle is placed at `PLACED_SECTION` to stand beside him.
- *
- * This is the one decision in the file and everything else is downstream, so it
- * is written out with the numbers rather than asserted. Three things want to
- * decide how big a car is and they do not agree:
- *
- * ```
- *                                real     avatar scale   scenery scale
- *   a 4.0 m car is                        (3.78 u/m)     (1.267 u/m)
- *     long                       4.00 m      15.1            5.07
- *     wide                       1.75 m       6.62           2.22
- *     tall                       1.55 m       5.86           1.96
- * ```
- *
- * against a world whose numbers are already fixed by other files:
- *
- * ```
- *   ROAD_CLASSES        lane 5.5   road 8.5   trunk 12      (roads.ts, before
- *                                                             the x1.5 below)
- *   GroundStyle.street  4.0 (Maghreb alley) .. 10.0 (US)    (scenery/ground.ts,
- *                                                             likewise)
- *   gabled-house        6.2 .. 7.8 wide, 7.6 tall at 2 storeys
- *   a person            6.80 tall, 5.46 seated, 2.60 across the shoulders
- *                       (until 2026-09-24; 3.77 tall now, `AVATAR_HEIGHT`)
- * ```
- *
- * **At avatar scale a car is wider than a lane.** 6.62 against 5.5: it does not
- * fit on the road it is meant to be driving down, let alone pass another one.
- * It is 15.1 long against a house 7.0 wide — two houses long — and 5.86 tall
- * against a two-storey house's 7.6, so a village would read as a car park with
- * some sheds in it. A bus at that scale is 43 units long against a **median
- * settlement radius of 32**: one bus is longer than the town it is parked in.
- *
- * **At scenery scale every one of those lands.** 2.22 wide is two cars abreast
- * on a 5.5-unit lane with half a unit each side; 5.07 long is 0.72 of a house's
- * width; 1.96 tall is 26% of the house's 7.6, and in life a car is 25% of a
- * six-metre eaves. The whole set is right at once, which is what you would
- * expect, because **the roads and the houses were both authored at this scale
- * and the person is the only thing in the world that was not.**
- *
- * So the cost of the decision, while a person was 6.8 units, was precisely one
- * thing: **he was three times too big to stand beside these vehicles**, exactly
- * as he was three times too big beside the houses. He was not a new error, he
- * was the existing one arriving somewhere it showed more — and it showed more
- * because the error scales with how close the object's size is to a person's.
- * A house is four times a person, so a 3x error still left it overhead and it
- * read as *slightly toy*. A car is one person tall, so the same 3x error put the
- * roof at his knee and it read as *broken*. On 2026-09-24 the person came down
- * to 3.77 units, 1.7 times this scale (`STATURE` in `stature.ts`), and the
- * vehicles are placed 1.35 times it (`PLACED_SECTION`), which leaves most of
- * the error gone and the rest chosen.
- *
- * **`RIDER_SCALE` was the answer to it until then and it is not a fudge**: a
- * rider is the crowd's own figure scaled to this world, and every seat in the kit is
- * validated against the seated pose *after* that scaling, mechanically, in
- * `validateVehicle`. See `SEATED`.
- *
- * Do not author in metres. This constant is here to be quoted in a review, the
- * same way `SCENERY_SCALE` is; parts are authored in world units.
- */
-export const TRAFFIC_SCALE = SCENERY_SCALE;
-
 export { SCENERY_SCALE, STOREY, AVATAR_HEIGHT };
 
 // ---------------------------------------------------------------------------
@@ -230,10 +164,8 @@ export function placedSize(vehicle: Vehicle): [number, number, number] {
  * Restated rather than imported, deliberately: `src/scenery/people.ts` has been
  * moved on disk twice while this file was being written, and a hard import
  * takes the whole traffic kit down with it every time. The cost of restating is
- * drift, and drift is answered mechanically — `seatedDrift` takes the crowd's
- * own `BODY` and reports any joint that has moved, and the review sheet calls
- * it, so a proportion changing next door is a red banner rather than a rider's
- * shins through a bicycle frame.
+ * drift: a proportion changed in the crowd's own `BODY` has to be changed here
+ * too, or it is a rider's shins through a bicycle frame.
  */
 export const SEATED = {
   /** Standing, for reference. */
@@ -278,29 +210,6 @@ export interface CrowdBody {
   bootDepth: number;
   hipHalf: number;
   shoulderHalf: number;
-}
-
-/**
- * Whether `SEATED` still agrees with the crowd's own figure.
- *
- * Hand it `BODY` from `src/scenery/people.ts` and it returns one line per joint
- * that has moved. Only the numbers the chain actually determines are compared —
- * the crown, the toe and the elbow envelope are *measured* off built meshes and
- * there is nothing in `BODY` to check them against, which is itself worth
- * knowing: they cannot drift silently, they can only drift unnoticed.
- */
-export function seatedDrift(body: CrowdBody): string[] {
-  const owed: [string, number, number][] = [
-    ['standing', SEATED.standing, body.height],
-    ['crown (before the head cap)', SEATED.crown - 0.04 * BODY_SCALE, body.height - body.hip],
-    ['sole (canonical, before the envelope)', 1.66 * BODY_SCALE, body.shin + body.ankle],
-    ['knee', SEATED.knee, body.thigh],
-    ['hipHalf', SEATED.hipHalf, body.hipHalf],
-    ['shoulderHalf', SEATED.shoulderHalf, body.shoulderHalf],
-  ];
-  return owed
-    .filter(([, ours, theirs]) => Math.abs(ours - theirs) > 1e-6)
-    .map(([name, ours, theirs]) => `SEATED ${name} is ${ours} and people.ts now says ${theirs.toFixed(3)}`);
 }
 
 /**
@@ -805,7 +714,7 @@ export interface Vehicle {
   size: readonly [number, number, number];
   /** Where riders go. Empty is legal: nobody rides in a parked lorry. */
   mounts: readonly Mount[];
-  /** One line on the sheet: what this is and what it is for. */
+  /** One line: what this is and what it is for. */
   note?: string;
   /**
    * Builds **one variant**. Deterministic in `rng` and `style` and nothing else.
@@ -845,7 +754,7 @@ export function variantRng(vehicle: Vehicle, style: TrafficStyle, variant: numbe
 export interface TrafficStyle {
   id: string;
   name: string;
-  /** One line for the review sheet. What you would notice on the road there. */
+  /** One line: what you would notice on the road there. */
   note: string;
 
   /**
@@ -870,7 +779,7 @@ export interface TrafficStyle {
   /** Load: crates, sacks, hay, nets. What a working vehicle is carrying. */
   cargo: readonly number[];
 
-  /** What is parked or moving on a street here. Unknown ids are reported by the sheet. */
+  /** What is parked or moving on a street here, by vehicle id. */
   road: readonly Weighted<string>[];
   /** What is moored at a coastal settlement. */
   water: readonly Weighted<string>[];

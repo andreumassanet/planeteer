@@ -624,7 +624,7 @@ const FAUNA: RigEntry[] = [
   { id: 'sheep', source: `${FARM}Sheep.fbx`, clips: /Idle$/ },
   // The deer and the pig were baked here too, 335 KB and 90 KB that no species
   // read: the reindeer is the stag's rig and the pig has no region to stand
-  // in. Nothing is baked that nothing loads; the lab shows both from the pack.
+  // in. Nothing is baked that nothing loads.
 ];
 
 // ---------------------------------------------------------------------------

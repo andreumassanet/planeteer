@@ -71,8 +71,8 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * ---------------------------------------------------------------------------
  *
  * It laid a 38 by 52 unit plate of `green` under everything as a verge, with the
- * laterite track on top of it. On the contact sheet that is invisible: the sheet
- * stands every monument on a `PALETTE.green` disc, so a green plate on a green
+ * laterite track on top of it. Seen alone that is invisible: a model shown on its
+ * own stands on a `PALETTE.green` disc, so a green plate on a green
  * disc has no edge. **In the world it is a bright green rectangle with a straight
  * edge all the way round, cut into western Madagascar's dry gold.** Measured at
  * the placed coordinate: `biomeAt` says `savanna` and `groundColorAt` says

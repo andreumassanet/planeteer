@@ -175,7 +175,7 @@ export const borgundStaveChurch: Monument = {
 
     // -----------------------------------------------------------------------
     // 3. The nave. Its wall is only visible in the band between the gallery's
-    //    eave and its own roof — from the sheet's 13.4-degree camera the skirt
+    //    eave and its own roof — from a 13.4-degree camera the skirt
     //    hides everything under about 5.6 — so the planking and the staves are
     //    spent where they can be seen.
     // -----------------------------------------------------------------------

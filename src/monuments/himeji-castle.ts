@@ -66,7 +66,7 @@ import type { Monument } from './contract.ts';
  * patch and `slate` comes back frankly blue. A 23-unit battered mass has a shaded
  * face from every angle there is, and a base that reads as a hole is a base that
  * has stopped holding the keep up. `brown` is warm, so its shaded side stays
- * stone — and it was picked over the greyer `tan` on the contact sheet itself,
+ * stone — and it was picked over the greyer `tan` by looking at both,
  * where `tan` lit came out within a band of `white` in shade and the base and
  * the plaster started to merge into one cream mass.
  * `bark` is the gate, the window slots and the top storey's gallery band; `gold`

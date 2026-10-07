@@ -19,7 +19,7 @@ import { PROUD } from './contract.ts';
  *
  * The contract asks a model to face +Z, and for a building that means the
  * façade. For an equestrian statue it has to mean **the profile**, because a
- * horse seen head-on is a post with ears. The contact sheet's quarter view sits
+ * horse seen head-on is a post with ears. The three-quarter view sits
  * 31.8 degrees round from +Z, so a horse whose long axis runs along X is seen
  * 31.8 degrees off broadside — its length foreshortened to 0.85 — and in the
  * front view it is exactly side-on. Any other choice loses the animal.

@@ -90,42 +90,6 @@ export const m = (metres: number): number => metres * FAUNA_SCALE;
 
 export { AVATAR_HEIGHT, SCENERY_SCALE };
 
-/**
- * How many pixels one unit is at a given distance, on this project's own lens.
- *
- * The same `937 / distance` every other kit prices itself with. Quoted here
- * because the fauna are the one kit whose *correct* size was in doubt: see
- * `LEGIBILITY` below.
- */
-export const LEGIBLE_AT = (distance: number): number => 937 / distance;
-
-/**
- * What the fauna's scale buys, in pixels, and why nothing here is cropped.
- *
- * While a person was 6.8 units (until 2026-09-24) the animals were at avatar
- * scale, 2.98 times scenery scale, and the table below had an `avatar` column:
- * a sheep 4.91 units long, 15 px at 300 units, two above `life.ts`'s gull (4.2
- * across then, a 2.37x crop on a real 1.4 m span). Since then they are at
- * `FAUNA_SCALE`, scenery scale times `STATURE` (2.15 u/m; they were at scenery
- * scale itself, 1.267, earlier on 2026-09-24), and the pixel columns are the
- * lens's arithmetic on it:
- *
- * ```
- *                       real     fauna      px at 300u   px at 120u   px at 40u
- *   camel, nose to tail  3.0 m    6.46 u       20           50          151
- *   cattle, ditto        2.4      5.17         16           40          121
- *   horse, ditto         2.4      5.17         16           40          121
- *   sheep, ditto         1.3      2.80         8.7          22           66
- * ```
- *
- * They are 0.57 of the size they were on screen at a given distance, and
- * the reaches came down with them (`HERD_REACH`, `HERD_ANIMATED_REACH` in
- * `life.ts`), so an animal is drawn at the distances where it still reads.
- * The gull scaled with the body, and the sheep is still at least as legible as
- * it; `pnpm fauna` checks that. Nothing in this kit is cropped.
- */
-export const LEGIBILITY = { lens: 937, checkedAt: [300, 120, 40] } as const;
-
 // ---------------------------------------------------------------------------
 // The gait: one equation, and the two joints that read it in opposite directions
 // ---------------------------------------------------------------------------
@@ -532,7 +496,7 @@ export interface Animal {
    */
   size: readonly [number, number, number];
   gait: GaitName;
-  /** One line on the sheet: what this is and where it stands. */
+  /** One line: what this is and where it stands. */
   note?: string;
   /** The proportions of one variant, in metres. Deterministic in `rng` and `style`. */
   shape(rng: Rng, style: FaunaStyle): AnimalShape;

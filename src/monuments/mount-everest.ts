@@ -100,7 +100,7 @@ import type { Group, Monument, Vector3 } from './contract.ts';
  *    person has been here.
  *
  * **Facts deliberately not modelled.** The Khumbu Icefall is on the south side
- * and would be invisible from the sheet's front camera; six broken blocks sit
+ * and would be invisible from the front camera; six broken blocks sit
  * on the apron instead, which is as much icefall as 110 units can carry. The
  * Kangshung Face — the east side, 3,350 m of it, the biggest wall on the
  * mountain and unclimbed until 1983 — is modelled by **leaving bearing 90
@@ -169,12 +169,12 @@ const PROFILE = [
  *
  * This is the asymmetry, and both components earn their place from the front
  * camera. `placement.ts` aims a monument's +Z at the north pole, so **+Z is
- * north, -X is east**, and the contact sheet's front view therefore looks
+ * north, -X is east**, and the front view therefore looks
  * straight at the North Face with the West Ridge on the screen's right and the
  * Kangshung Face on its left.
  *
  * - **North (+Z 5.5).** Pulling the summit toward the camera steepens the
- *   North Face, which is the wall the sheet is going to see.
+ *   North Face, which is the wall the front view is going to see.
  * - **East (-X 6.5).** This is the one that shows in *silhouette*: the west
  *   flank has to run 61 units out from under the summit and the east flank only
  *   49, so the screen-right profile is long and stepped and the screen-left
@@ -549,7 +549,7 @@ export const mountEverest: Monument = {
     // it running down the North-East and South-East ridges. They stand slightly
     // proud rather than sunk, which is what a cornice does, and they roughly
     // double the amount of white at the top: the thing that has to read from
-    // across the sheet is a white tip on a black triangle, and the tip alone
+    // a distance is a white tip on a black triangle, and the tip alone
     // was too small to be sure of.
     group.add(rib(NE_RIDGE, 70, 82, 1.8, 0.8, snow, -0.4, 0.5));
     group.add(rib(SE_RIDGE, 68, 81, 1.8, 0.8, snow, -0.4, 0.5));
@@ -609,7 +609,7 @@ export const mountEverest: Monument = {
      * They run 30 units east and drop 8 degrees, topping out at 81.1 so the
      * peak at 84 stays the highest point of the model. Each is squashed across
      * its width, which leaves it broad in the screen plane and thin front to
-     * back: from the sheet's camera it is a banner, and from the side it nearly
+     * back: from the front camera it is a banner, and from the side it nearly
      * disappears, which is what a banner cloud does.
      */
     const PLUME_FACE = new THREE.Vector3(0, 0, 1);

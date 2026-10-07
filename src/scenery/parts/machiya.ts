@@ -5,8 +5,8 @@ import type { ScenicPart } from '../contract.ts';
  * Machiya — the East Asian townhouse.
  *
  * This part exists to answer the question the whole kit is for: a house in Japan
- * must not be a house in Morocco. Put this beside `flat-roof-house` on the sheet
- * and nothing about them is shared except the palette they draw from.
+ * must not be a house in Morocco. Put this beside `flat-roof-house` and
+ * nothing about them is shared except the palette they draw from.
  *
  * Three proportions do the work, and all three are the opposite of the gabled
  * house's:

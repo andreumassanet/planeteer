@@ -7,7 +7,7 @@
  * `life.ts`'s traps call *a bird*, and the measurement that said nothing in this
  * kit needs the monument crop. Since 2026-09-24 it is 1.65 units, 5 pixels at
  * 300 and 15 at 100, and still no smaller than the gull, which came down with
- * it. See `LEGIBILITY` in the contract.
+ * it.
  *
  * At 15 pixels a sheep is a pale lozenge with a dark head and four dark stalks,
  * and that is exactly what one is. So the whole budget goes on the fleece — an

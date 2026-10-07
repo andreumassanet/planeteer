@@ -43,8 +43,8 @@ import type { Monument } from './contract.ts';
  * **What is exaggerated, in numbers.**
  *
  * - *Batter.* Real walls lean 6-9 degrees off vertical. Here the podium leans
- *   19, the White Palace 17, the Red Palace 10 — 2 to 2.5x life. On the contact
- *   sheet's 260-pixel cell an honest 8 degrees is three pixels of lean across
+ *   19, the White Palace 17, the Red Palace 10 — 2 to 2.5x life. In a 260-pixel
+ *   thumbnail an honest 8 degrees is three pixels of lean across
  *   the whole facade and simply is not there. The *side* walls are not
  *   exaggerated and land near life: a mass is one square frustum scaled to a
  *   rectangle, so its z faces batter by `atan(tan(deg) * depth / width)` — 7.5

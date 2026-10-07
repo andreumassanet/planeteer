@@ -5,7 +5,7 @@ import type { Monument } from './contract.ts';
  *
  * ## Tier: `landmark`, and the argument is entirely about height
  *
- * At 553 m this is the tallest structure on the whole sheet but one — the only
+ * At 553 m this is the tallest monument in the world but one — the only
  * things above it are the Burj Khalifa and the mountains. Read off the sibling
  * files, the company it has to be placed among:
  *
@@ -24,8 +24,8 @@ import type { Monument } from './contract.ts';
  * | Leaning Tower of Pisa | 57 | `tower` | 70 |
  *
  * **That column is not sorted by metres, and the exceptions are the argument.**
- * A 508 m building is a `tower` and a 333 m one is a `landmark`. What the sheet
- * has actually converged on is a split by *kind*: every supertall office
+ * A 508 m building is a `tower` and a 333 m one is a `landmark`. What the monuments
+ * have actually converged on is a split by *kind*: every supertall office
  * building is filed `tower` — Taipei 101, Petronas, Empire State, all of them
  * taller than the Eiffel Tower and all of them 70 units — while every
  * free-standing tower is filed `landmark`, down to the Atomium at 102 m. One
@@ -47,8 +47,8 @@ import type { Monument } from './contract.ts';
  *   read from across Lake Ontario. The killing arithmetic is the detail budget,
  *   not the tier's footprint: at 40 units the antenna is 7.5 units, the upper
  *   pod is 0.98 units tall and the main pod's nine decks compress into 1.99.
- *   Three of the six things the silhouette is made of would be sub-pixel on the
- *   contact sheet. Refused.
+ *   Three of the six things the silhouette is made of would be sub-pixel at
+ *   thumbnail size. Refused.
  * - **`tower` (70 tall, 28 footprint)** — "the landmark of its city. Big Ben,
  *   Pisa, the Statue of Liberty." Superficially this is the right sentence: the
  *   CN Tower is exactly what Toronto is drawn as, and it is the rung the three
@@ -65,13 +65,13 @@ import type { Monument } from './contract.ts';
  *   thing that tier is built to enforce does not bind here at all. Refused.
  * - **`landmark` (120 tall, 55 footprint)** — "the landmark of the planet." It
  *   held the record for the world's tallest free-standing structure from 1975
- *   to 2007, **thirty-two years**, and lost it to the Burj Khalifa, which is on
- *   this sheet as a `landmark` for that same reason, and is the *only* building
+ *   to 2007, **thirty-two years**, and lost it to the Burj Khalifa, which is
+ *   filed as a `landmark` for that same reason, and is the *only* building
  *   there. Two consecutive holders of one record belong on the same rung. Taken.
  *
  * The one entry this has to answer for is **Taipei 101**: 508 m, filed `tower`,
  * 45 m shorter than this and 50 units shorter in the model — 1.09x apart in life
- * and 1.71x apart on the sheet. That gap is the genre split doing its job, and
+ * and 1.71x apart in the models. That gap is the genre split doing its job, and
  * the two files' own footprints say the same thing without being asked: Taipei
  * 101 declares 14.5 against this file's 4.8. One has a hundred and one floors
  * and the other has none.
@@ -88,7 +88,7 @@ import type { Monument } from './contract.ts';
  * all of it: footprint **4.8**, against the Burj Khalifa's 14.5, the Tokyo
  * Tower's 26 and the Eiffel Tower's 35. Three times narrower than the Burj at
  * the same height, seven times narrower than the Eiffel, and the narrowest
- * declared footprint anywhere on the sheet. On a rung where everything is 120
+ * declared footprint of any monument. On a rung where everything is 120
  * units tall, this one is a hair and the rest are masses, and that is the whole
  * point of it.
  *
@@ -108,7 +108,7 @@ import type { Monument } from './contract.ts';
  *    Needle discrimination and it is deliberate; see below.
  * 2. **The upper pod is about 1.2x wider than life** — 15.2 m against something
  *    nearer 13. Built honestly it disappeared. Rendered at 180 pixels, which is
- *    roughly what a monument-sheet thumbnail gives a 120-unit model, a 2.7-unit
+ *    roughly what a thumbnail gives a 120-unit model, a 2.7-unit
  *    drum on a 1.5-unit mast was one grey pixel of swelling, and the tower lost
  *    one of the six things it is made of. Widened, it is 2.14x the shaft it
  *    stands on and it survives. It is still only **half the main pod's width**,
@@ -176,7 +176,7 @@ import type { Monument } from './contract.ts';
  * Toronto and Seattle are 29.9 degrees apart on the great circle — 3,330 km, or
  * **8,354 world units** at 279.25 units per degree — so there is no placement
  * conflict of the kind the Arc de Triomphe had with the Eiffel Tower. The
- * collision is entirely a *reading* collision on the contact sheet: both are
+ * collision is entirely a *reading* collision side by side: both are
  * concrete observation towers with a pod near the top.
  *
  * `space-needle.ts` landed while this was being written, so the comparison below
@@ -206,10 +206,10 @@ import type { Monument } from './contract.ts';
  *    main pod. Above the Space Needle's saucer there is only a short spire.
  * 5. **A second pod at 81%.** The Space Needle has no equivalent, so a small
  *    drum up on the needle is by itself disambiguating.
- * 6. **120 units against 70.** They are not even the same size on the sheet:
+ * 6. **120 units against 70.** They are not even the same size as models:
  *    one is nearly twice the other and a third of its width.
  *
- * ## Against the skyscrapers on the sheet
+ * ## Against the other skyscrapers
  *
  * This is a mast, not a building, and the model says so by having **no floors**.
  * The Burj Khalifa has eighteen setbacks and the Empire State has floor bands
@@ -246,7 +246,7 @@ import type { Monument } from './contract.ts';
  * survive the shaded band, not enough to read as a colour. Rendered, it is
  * sun-warmed grey concrete, and pale is what this tower is; the CN Tower
  * photographs nearly white against the sky, not grey. It is also the rarest
- * entry in use on the sheet — two monuments out of fifty before this one — which
+ * entry in use among the monuments — two out of fifty before this one — which
  * is worth something for the same reason the rest of this file is: the Space
  * Needle went `white` over `darkOlive`, so the two towers do not share a single
  * large surface between them.
@@ -254,7 +254,7 @@ import type { Monument } from './contract.ts';
  * Three more, and no others. **`tan`** for the ground apron and the base roof —
  * chosen *because* it is the continent's own colour, so the ground works settle
  * into the plate they stand on instead of becoming a fourth thing on the tower,
- * while still reading as a dark collar against the sky on the contact sheet.
+ * while still reading as a dark collar against the sky at thumbnail size.
  * **`steel`** for the glazing — the three pod bands, the upper pod's band, the
  * two antenna collars and the elevator slots, every one of them narrow, which
  * is the one place where going near-black in shade is the point rather than the
@@ -266,7 +266,7 @@ import type { Monument } from './contract.ts';
  * ## Against the budget
  *
  * 29 meshes of the `landmark` tier's 130 and 1,192 triangles of 3,600 — 22% and
- * 33%. That is under-spent by the sheet's usual standard and it
+ * 33%. That is under-spent by the monuments' usual standard and it
  * is the right answer here, because the budget is a cap and not a quota: this
  * model is 120 units tall and 9.4 wide, and there is nothing that can be added
  * to a mast that is wider than a line without contradicting the one thing it is

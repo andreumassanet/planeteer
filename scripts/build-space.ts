@@ -11,7 +11,7 @@
  *
  * - Quaternius, "Ultimate Space Kit" (glTF): the astronauts, the space kit's
  *   own aliens, the colony's buildings, rovers and spaceships, alien flora,
- *   rocks, planets and pickups. One 512-pixel swatch atlas, 16-pixel swatches.
+ *   rocks and pickups. One 512-pixel swatch atlas, 16-pixel swatches.
  * - Quaternius, "Ultimate Monsters" (glTF): the Big, Blob and Flying sets.
  *   One 1024-pixel swatch atlas, 32-pixel swatches.
  * - Kenney, "Space Kit" (GLB, flat material colours): craft, hangars, dishes,
@@ -32,7 +32,7 @@
  *
  * Every file is a gzipped GLB, like the kit's. `manifest.json` beside them
  * says what each holds — group, triangles, size, clips, source — so a loader
- * and the review sheet can list the kit without opening a file.
+ * can list the kit without opening a file.
  *
  * The PNG decoder and the Node shims are the ones `build-kit.ts` carries; the
  * glTF loader here also reads images embedded in a `.gltf`'s data-URI buffer,
@@ -428,9 +428,6 @@ const FLORA: StaticEntry[] = [
   ),
 ];
 
-/** The planets of the title screen's window: Quaternius's eleven little worlds. */
-const PLANETS: StaticEntry[] = Array.from({ length: 11 }, (_, i) => q(`Environment/GLTF/Planet_${i + 1}`, `planet-${i + 1}`, ['planet']));
-
 /** A ship's bridge: the Space Station Kit, and the Space Kit's desk seats. */
 const INTERIOR: StaticEntry[] = [
   ...['floor', 'floor-detail', 'floor-corner', 'floor-panel', 'floor-panel-straight', 'floor-panel-end', 'floor-panel-corner'].map((n) => st(n, ['floor'])),
@@ -655,7 +652,6 @@ await bakeStatic('buildings', BUILDINGS);
 await bakeStatic('craft', CRAFT);
 await bakeStatic('props', PROPS);
 await bakeStatic('flora', FLORA);
-await bakeStatic('planets', PLANETS);
 await bakeStatic('interior', INTERIOR);
 await bakeCreatures();
 

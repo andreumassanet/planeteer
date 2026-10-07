@@ -19,7 +19,7 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * slender Apadana columns beside it, thirteen of the original seventy-two.
  *
  * So the two are set **side by side rather than one behind the other**. The
- * contact sheet's camera is 13.4 degrees up and 32 degrees round toward +X, so a
+ * quarter view is 13.4 degrees up and 32 degrees round toward +X, so a
  * gate in front of the columns would cut their shafts off at the knee and leave
  * only capitals floating. Laid out across the terrace — gate at x = -16, columns
  * from x = 0 to 26 — both are seen whole, which is also how the site is

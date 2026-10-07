@@ -127,15 +127,6 @@ export function ringShade(px: number, py: number, pz: number, sun: { x: number; 
   return tau === 0 ? 1 : Math.exp(-tau / Math.abs(sun.y));
 }
 
-/** The arch's elevation over the horizon, degrees, toward the equator on the meridian, for a ring radius. */
-export function archElevation(lat: number, r: number): number {
-  const a = (Math.abs(lat) * Math.PI) / 180;
-  const vx = r - Math.cos(a);
-  const vy = -Math.sin(a);
-  const up = vx * Math.cos(a) + vy * Math.sin(a);
-  return (Math.asin(up / Math.hypot(vx, vy)) * 180) / Math.PI;
-}
-
 const glslFloat = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${v}`);
 const glslVec3 = (hex: number): string => `vec3(${linearOf(hex).map((c) => glslFloat(+c.toFixed(5))).join(', ')})`;
 

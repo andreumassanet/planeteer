@@ -106,8 +106,8 @@ import type { Group, Monument } from './contract.ts';
  * here there is no smaller version to retreat to, because the tablecloth's
  * entire subject is the front lip. Two further reasons it should not come back:
  * static white geometry with an ink outline around it reads as rock, not vapour
- * (Victoria Falls again), and white on a summit next to Fuji and Kilimanjaro on
- * the same contact sheet reads as **snow** — on a mountain at 34 degrees south
+ * (Victoria Falls again), and white on a summit next to Fuji and Kilimanjaro
+ * reads as **snow** — on a mountain at 34 degrees south
  * that has never held any. The cloud is weather; the mountain is the monument.
  *
  * **Also rejected.** The cable car and its upper station, which sit on the
@@ -224,8 +224,8 @@ const TABLE_X1 = 28;
  * **Their heights are spread over the whole exposed wall, and a unit of jitter
  * was not enough.** They sat at about 21 on every ledged mass and about 31 on
  * every ledged mass, jittered a unit either way — which is two ruled lines
- * across a mountain, and two more reasons to think it was built. At the contact
- * sheet's 260 pixels a unit is a third of a pixel, so the jitter did not exist
+ * across a mountain, and two more reasons to think it was built. In a 260-pixel
+ * thumbnail a unit is a third of a pixel, so the jitter did not exist
  * and the two rows of small lit rectangles read as two courses of **windows**,
  * on a wall that already had a lintel over it. They now run 16.8 to 32.6 with no
  * two masses sharing a height.
@@ -420,8 +420,8 @@ const BOULDERS: ReadonlyArray<
  *
  * **Which end each stands on is decided by the picture, not the compass.** The
  * canonical view of this mountain is from the north across Table Bay, and in it
- * Devil's Peak is on the left and Lion's Head on the right; the contact sheet's
- * front camera looks at the model's +Z from the same side, so Devil's Peak takes
+ * Devil's Peak is on the left and Lion's Head on the right; the front
+ * camera looks at the model's +Z from the same side, so Devil's Peak takes
  * negative x. `mount-rushmore.ts` settles the same question the same way, with
  * Washington at x = -32 because that is where he is in the photograph.
  *

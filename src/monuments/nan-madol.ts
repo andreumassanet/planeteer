@@ -52,7 +52,7 @@ import type { Group, Mesh, Object3D, Monument, MonumentContext } from './contrac
  * Every wall steps down toward the camera, and that is not decoration
  * ---------------------------------------------------------------------------
  *
- * The contact sheet looks from 13.4 degrees in the quarter view and 6.8 in the
+ * The camera looks from 13.4 degrees in the quarter view and 6.8 in the
  * front, so a rim of height h hides 4.2h behind it and 8.4h from the front. A
  * complete Nandauwas — 10 units of wall all the way round — hides its own
  * 19.4-unit court twice over and renders as a closed box.

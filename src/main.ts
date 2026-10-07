@@ -3865,8 +3865,8 @@ async function start(): Promise<void> {
       /**
        * How you look: `atlas.traveller.show()` opens the card,
        * `atlas.traveller.code()` is what the others are sent, and
-       * `atlas.traveller.wear('a1...')` dresses the hero in a code — one off
-       * `/sheets/cast.html`, say — as the card would.
+       * `atlas.traveller.wear('a1...')` dresses the hero in a code — another
+       * player's, say — as the card would.
        */
       traveller: {
         show: () => traveller.show(),

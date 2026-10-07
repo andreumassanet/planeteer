@@ -12,8 +12,7 @@ import type { Monument } from './contract.ts';
  * 1. **A waterfall is a shape of land.** Falling water has no silhouette, and
  *    this toolkit draws neither texture nor motion. So the monument is the
  *    landform and the water is what makes it visible.
- * 2. **The contact sheet's quarter camera sits 13.4 degrees above the model**
- *    (`VIEWS` in `sheets/monuments.ts`), so a gorge narrower than it is deep cannot
+ * 2. **The quarter view sits 13.4 degrees above the model**, so a gorge narrower than it is deep cannot
  *    be seen into and has to be cut open. The arithmetic is Victoria's; the
  *    conclusion here is the opposite one, and that is the whole point — see
  *    below.
@@ -460,7 +459,7 @@ const MIST: ReadonlyArray<Puff> = [
  * cliff edge: `(-42, -3)` hung one corner in the air, `(33, -14)` another, and
  * `(-45.5, -6.5)` had two thirds of its base over the void. A floating box does
  * not show from either fixed view — the rim behind it hides the gap — and does
- * show the moment the world turns it, which is what the contact sheet's spin is
+ * show the moment the world turns it, which is what spinning the model is
  * for. The two on the rim moved as little as it took; the third had nowhere on
  * that plank to go without piling onto its neighbour, so it went down to the
  * bank at 6.8, which is Queen Victoria Park, is true, and gives the one blank

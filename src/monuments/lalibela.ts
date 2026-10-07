@@ -39,7 +39,7 @@ import type { Mesh, Monument } from './contract.ts';
  * The sightline problem, and the one liberty taken to solve it
  * ---------------------------------------------------------------------------
  *
- * The contact sheet views a monument from 13.9° above the horizon, and at that
+ * Seen from 13.9° above the horizon, and at that
  * angle a pit whose rim stands at the church's roofline is a closed box. The
  * arithmetic, on this model's own numbers: a ray leaving a point on the church's
  * front face rises 0.28 units for every unit it travels toward the camera, so a

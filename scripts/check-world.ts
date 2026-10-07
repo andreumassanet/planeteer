@@ -4172,7 +4172,7 @@ console.log('\nmade ground');
    * Until 2026-09-13 the two cells either side of a band street each cut their
    * own terrace, so on a hill a riser ran down the middle of the street and it
    * climbed by two half-flights in two different places: invisible in a table
-   * of levels, a tangle of stairs on the screen, 11,403 of them. `cellLevel`
+   * of levels, a tangle of stairs on the screen, 11,403 of them. `townTerraces`
    * cuts the cells that share a street to one level. Held here over a square of
    * every size the built world has, `townGrid`'s own, on a hill climbing both
    * ways with a ripple in it — enough to put a riser in most blocks and to

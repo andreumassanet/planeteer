@@ -433,7 +433,7 @@ console.log('\ncloud shadows');
     }
     // The soft edge is 54 units across at the median and 32 at the thinnest
     // tenth (`SHADE_EDGE_OUT`), so a unit is a sliver of it; a second is the
-    // deck's drift, 1.6 units at most (`DECK_RATE` at the deck's radius).
+    // deck's drift, 1.6 units at most (`deckTurn` at the deck's radius).
     check(worstStep < 0.1, 'a step moves the shade by a sliver', `worst ${worstStep.toFixed(3)} over ${samples} sunlit points`);
     check(worstTick < 0.15, 'and so does a second, which drifts the deck a step and a half', `worst ${worstTick.toFixed(3)}`);
   }

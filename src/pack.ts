@@ -471,9 +471,8 @@ export function decodeCountries(bytes: Uint8Array): Country[] {
  * the wire for a string nothing reads.
  *
  * It is its own file rather than a fourth section of `countries.bin` for two
- * reasons, and only one of them is about bytes. `sheets/flags.html` and
- * `sheets/scenery.html` call `loadCountries` for the country list alone and have
- * no use for 18,000 points of shoreline; and extending the outlines' layout
+ * reasons, and only one of them is about bytes. `loadCountries` reads the
+ * outlines alone, with no use for 18,000 points of shoreline; and extending the outlines' layout
  * would have to bump `VERSION`, which invalidates `places.bin` and `roads.bin`
  * as well and forces a re-bake of files this change does not touch.
  */

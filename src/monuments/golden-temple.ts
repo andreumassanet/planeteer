@@ -84,13 +84,13 @@ import { PROUD } from './contract.ts';
  * - **The causeway runs along X, not toward the viewer.** The real bridge
  *   approaches from the west bank; the tank is four-fold symmetric so any side is
  *   as true as another, and the camera decides. Running to +Z it projects to 53%
- *   of its length in the contact sheet's quarter view and is completely hidden
+ *   of its length in the quarter view and is completely hidden
  *   behind the pavilion in the front view. Crossing to +X it is 85% and 100%.
  *   The front of this monument is therefore the broad face of the tank, with the
  *   causeway crossing left to right and the ghats in the foreground.
  * - **The two near sides of the perimeter are cut down to a 1.3-unit arcade**
  *   while the two far sides stand 4.4 with cornice and roof. Not decoration: the
- *   sheet's two cameras sit 13 and 7 degrees above the horizon, and a wall 6
+ *   two fixed cameras sit 13 and 7 degrees above the horizon, and a wall 6
  *   units up between them and the tank swallows the near half of the water and
  *   the causeway with it. At 1.3 it hides about one unit of a 35-unit tank. The
  *   water is the monument; the near wall is what one gives up to keep it.
@@ -403,7 +403,7 @@ export const goldenTemple: Monument = {
       if (gate) {
         // Darshani Deorhi: two gilt-capped pylons where the causeway leaves the
         // pavement. They stand well off the pavilion's silhouette from both of
-        // the sheet's cameras.
+        // the fixed cameras.
         for (const flank of [1, -1]) {
           const post = column(0.85, 3.6, marble, 4);
           post.position.set(flank * 3.2, WALK_TOP, 20.4);

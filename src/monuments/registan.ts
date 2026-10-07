@@ -190,7 +190,7 @@ export const registan: Monument = {
     // -----------------------------------------------------------------------
     // 3. The domes. A drum, five courses of melon, a gold finial. They stand on
     //    the wings rather than behind them, which is both where Sher-Dor's are
-    //    and the only place the contact sheet's 13-degree camera could see them:
+    //    and the only place a 13-degree camera could see them:
     //    anything behind a 22-unit parapet is under a ray that has already
     //    climbed past the tier's ceiling by the time it gets there.
     // -----------------------------------------------------------------------

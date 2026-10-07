@@ -77,7 +77,7 @@ export interface PlotOptions {
    * absolute plot sizes are unchanged to the last unit — see `PLOT_PITCH` in
    * `settlements.ts`, which does exactly that and buys 1.4 times the cells.
    *
-   * The default is the pair the review sheet's `hamlet` has always used.
+   * The default is the pair `hamlet` has always used.
    */
   plot?: readonly [number, number];
 }
@@ -163,10 +163,10 @@ export interface HamletOptions {
  *
  * **This is a stand-in.** The real one belongs with the populated-places data
  * that has not been baked yet, where a city's population decides its radius and
- * how much of it is `block` rather than `dwelling`. What it is for today is the
- * review sheet: repetition is invisible in a single thumbnail and obvious in
- * forty houses, so the sheet needs something that puts forty houses down, and
- * the rules it uses are the ones the real builder will want anyway.
+ * how much of it is `block` rather than `dwelling`. What it is for today is
+ * putting forty houses down: repetition is invisible in a single house and
+ * obvious in forty, and the rules it uses are the ones the real builder will
+ * want anyway.
  *
  * The three that matter:
  *

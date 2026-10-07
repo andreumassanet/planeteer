@@ -16,8 +16,8 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * ---------------------------------------------------------------------------
  *
  * The church is a long nave with a tower at one end, and **the nave cannot be
- * built here** — not because of the tier but because of the camera. The contact
- * sheet looks from 13.4 degrees up, so a 70-unit tower at the front hides a band
+ * built here** — not because of the tier but because of the camera. Seen
+ * from 13.4 degrees up, so a 70-unit tower at the front hides a band
  * roughly 290 units deep behind it, and the nave is 60. Every triangle spent on
  * it would render as nothing. So the model is the west front alone, which is
  * also the only elevation anybody photographs.

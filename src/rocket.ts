@@ -422,13 +422,10 @@ function stopRoar(roar: Roar): void {
 
 /* --- the rocket ------------------------------------------------------------ */
 
-/** How far from the pad the lens watching a launch stands, units along the ground. */
-export const WATCH_REACH = ROCKET_HEIGHT * Math.hypot(WATCH_SIDE, WATCH_AHEAD);
-
 /**
  * The `heading` to hand `createRocket` so the lens that watches the launch
  * (`frame`) stands out along `toward` — a unit tangent at the pad, where `up`
- * is the pad's up — `WATCH_REACH` from it. The lens is at `cos a side + sin a
+ * is the pad's up. The lens is at `cos a side + sin a
  * ahead` with `side = up x ahead` and `tan a = WATCH_AHEAD / WATCH_SIDE`, so
  * with `t = up x toward` the heading is `sin a toward - cos a t`: put back in,
  * `side = sin a t + cos a toward`, and the sum is `toward`.

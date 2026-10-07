@@ -346,7 +346,7 @@ export const STREET_STEEPEST = 0.6;
  * counts both the cells and the towns.
  *
  * **Since one level a street (2026-09-13) it bounds the cut and not the wall.**
- * A cell is cut to its street's level (`cellLevel` in `grid.ts`), which is its
+ * A cell is cut to its street's level (`townTerraces` in `grid.ts`), which is its
  * own or a higher one where a cell across the street stands higher, so the
  * face on its low side can be taller than the 15.8 above: 29.96 at the worst
  * cell that is not a gate's, at Guayaquil, and 509 of them over 19 across the
@@ -604,29 +604,6 @@ export function trodden(base: THREE.Color, target: THREE.Color): THREE.Color {
     (hsl.h + 0.78 * towards(hsl.h, EARTH_HUE) + 1) % 1,
     hsl.s * 0.62,
     hsl.l * 0.94,
-  );
-}
-
-/**
- * Unmade ground: a dirt track, and the ends of things.
- *
- * `trodden` is a yard — ground that is walked on and has stopped growing. This
- * is the next step along the same axis: a track of earth, not of grass. A dirt
- * road is not a made road that has faded, and it is not a lawn stripe; it is
- * earth, and earth is darker and browner than the field it crosses rather than
- * paler and greyer.
- *
- * The three surfaces the kit now distinguishes, in order of how made they are:
- * `GroundStyle.road` (a carriageway, and it keeps its colour the whole way),
- * `dirt` (a track), and `trodden` (a yard). A track that degrades degrades to
- * the middle one.
- */
-export function dirt(base: THREE.Color, target: THREE.Color): THREE.Color {
-  target.copy(base).getHSL(hsl);
-  return target.setHSL(
-    (hsl.h + 0.95 * towards(hsl.h, EARTH_HUE) + 1) % 1,
-    Math.max(0.16, hsl.s * 0.78),
-    hsl.l * 0.78,
   );
 }
 

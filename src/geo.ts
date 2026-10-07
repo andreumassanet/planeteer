@@ -231,11 +231,9 @@ export function insideBands(band: RingBands, lon: number, y: number): boolean {
  *
  * **It is 168 KB and it used to be 456**, and nothing about the data changed:
  * `countries.json` spent fourteen characters on `[66.52,37.35]` to carry a step
- * along a coastline, and `src/pack.ts` spends two. Exported on its own because
- * two review sheets want the country list without the planet — `sheets/flags.html`
- * draws every flag from it and `sheets/scenery.html` checks its region table
- * against it — and a second `fetch` of a format that is no longer self-
- * describing is a second place to get it wrong.
+ * along a coastline, and `src/pack.ts` spends two. On its own because a caller
+ * may want the country list without the planet, and a second `fetch` of a
+ * format that is no longer self-describing is a second place to get it wrong.
  */
 export async function loadCountries(url = `${DATA_URL}countries.bin`): Promise<Country[]> {
   const response = await fetch(url);

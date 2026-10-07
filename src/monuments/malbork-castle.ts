@@ -9,7 +9,7 @@ import type { Monument, Mesh } from './contract.ts';
  * what names it from a distance is a **long, low, dark red mass of brick under
  * steep red roofs, broken by stepped gables and one tall square tower**. No
  * white wall and no grey slate anywhere: that is what keeps it from reading as
- * Neuschwanstein or as any of the white castles on the sheet.
+ * Neuschwanstein or as any of the other white castles.
  *
  * What has to survive at thumbnail size, in the order the eye finds it:
  *

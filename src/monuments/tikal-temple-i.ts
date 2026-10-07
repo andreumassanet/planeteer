@@ -5,7 +5,7 @@ import type { Mesh, Monument } from './contract.ts';
  * Tikal Temple I — the Temple of the Great Jaguar, on the east side of the
  * Great Plaza.
  *
- * Its neighbour on this sheet is El Castillo (`chichen-itza.ts`), so what
+ * Its nearest neighbour among the monuments is El Castillo (`chichen-itza.ts`), so what
  * matters is what Tikal is and Chichen is not:
  *
  * 1. **Steep.** El Castillo rises at about 55 degrees and is wider than it is
@@ -31,8 +31,8 @@ import type { Mesh, Monument } from './contract.ts';
  *
  * **Orientation.** `placement.ts` turns +Z north and +X west, and the stair
  * faces west onto the Great Plaza, so the model is drawn with its stair on +Z
- * and turned a quarter (`rotation.y = PI / 2`) before it is merged. The contact
- * sheet's front view therefore sees its north flank in profile, which is the
+ * and turned a quarter (`rotation.y = PI / 2`) before it is merged. The front
+ * view therefore sees its north flank in profile, which is the
  * terraced arris and the comb, and its quarter view sees the stair.
  *
  * **Scale.** One scale throughout, 0.85 units a metre: 47 m is the comb's top

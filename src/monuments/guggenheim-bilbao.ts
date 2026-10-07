@@ -95,7 +95,7 @@ import { PROUD } from './contract.ts';
  * It is in, at one mesh, and it is stated rather than shown: three level steps
  * down — plaza at 3.2, riverside terrace at 2.2, water at 0.9 — so the ink draws
  * two lines before the dark plate, and one metal volume lies down *into* it at
- * the front. From the sheet's cameras (7 and 13 degrees above the horizon) a
+ * the front. From the fixed cameras (7 and 13 degrees above the horizon) a
  * 9-unit band of water projects to a couple of units, which is a dark line under
  * the building rather than a lake. That is the correct amount: the Guggenheim is
  * a building on a river, not a building in one.
@@ -107,8 +107,8 @@ import { PROUD } from './contract.ts';
  *   tall, or 1.76:1. It is not a taste decision — the `building` tier cannot
  *   hold the true proportion at all. At its maximum 55-unit footprint and its
  *   maximum 40-unit height the widest honest model is about 105 long, still only
- *   2.7:1, and a 55-unit footprint also makes the contact sheet frame the model
- *   smaller, which costs exactly the thing that has to be legible. The axis that
+ *   2.7:1, and a 55-unit footprint also frames the model smaller in a
+ *   thumbnail, which costs exactly the thing that has to be legible. The axis that
  *   carries the least recognition here is the length: nobody names this building
  *   by how long it is.
  * - **The squeeze was paid back to the east wing.** Compressed evenly, the long
@@ -260,7 +260,7 @@ const BLADES: Blade[] = [
   },
 
   // The river face. Thicker in section than the row (`deep` 0.62 and 0.4): these
-  // two are seen face-on from the sheet's cameras, and a plate seen face-on
+  // two are seen face-on from the fixed cameras, and a plate seen face-on
   // needs some body or it reads as a sheet of paper stood on its edge.
   {
     // apex 20.8 — sweeps down the front to the terrace. The most Gehry thing here.

@@ -185,17 +185,6 @@ export const drawnRadiusOf = (radiusKm: number): number =>
  */
 export const SUN_DRAWN = 129;
 
-/**
- * When a body stops being a mark and becomes a mesh.
- *
- * `settlements.ts`'s number and `settlements.ts`'s lens, one level up: a town
- * builds at 8 apparent pixels and a body does the same. `937 * 2r / d > 8`
- * rearranges to `d < 234 * r`, which is `LEGIBLE_AT` in the scenery contract
- * written the other way round, so Earth is a mesh inside 6,552 system units and
- * the Sun inside 30,186. From the whole-system framing every one of them is a
- * pin, which is correct rather than a shortfall.
- */
-export const MIN_APPARENT_PIXELS = 8;
 export const meshWithin = (drawnRadius: number): number => 234 * drawnRadius;
 
 /** How many pixels a body of this radius is at this range, on the shared lens. */

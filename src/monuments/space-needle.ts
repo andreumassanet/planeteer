@@ -51,7 +51,7 @@ import type { Monument } from './contract.ts';
  *   40-unit height is a licence to be wide — the opposite of what this is. At 40
  *   units, scaling the plan below by 40/69.9, the saucer is 12.8 across and its
  *   glazing band 0.9 thick, and the needle is 7 units long and 0.16 wide. On the
- *   contact sheet's 260-pixel cell that band and that needle are under two
+ *   260-pixel thumbnail that band and that needle are under two
  *   pixels each, so **the two features the shape is named by are the first two
  *   to disappear**.
  * - **`monument` (15 tall, 14 footprint)** is "you find it by walking into it",
@@ -86,7 +86,7 @@ import type { Monument } from './contract.ts';
  * In life the observation deck is at 520 ft of 605 and the top house roof at
  * about 540: the mast is the last 11% of the building. Built at 11% it would be
  * 7.7 units long and taper from 0.9 to 0.14 — about 26 pixels tall and one wide
- * in a monument-sheet cell, which is a scratch, not a needle, on a monument
+ * in a 260-pixel thumbnail, which is a scratch, not a needle, on a monument
  * called the Space Needle. Stretching it to 17.6% is 12.3 units, and since the
  * total height is fixed by the tier the twelve units have to come out of
  * something: the saucer drops from life's 0.86 to **0.757**. That is not a

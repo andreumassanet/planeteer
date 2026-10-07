@@ -40,7 +40,7 @@ import type { Monument } from './contract.ts';
  * - **The quincunx is a rectangle, 37 x 28, not a square.** The only distortion
  *   in this file that exists purely for the camera, and it earns it twice.
  *   Head-on, the front pair stands 6.9 units clear of the centre tower on each
- *   side. At the contact sheet's default three-quarter view (32 degrees off
+ *   side. At the default three-quarter view (32 degrees off
  *   axis) the five project to five distinct screen positions — 0, +-8.4,
  *   +-23.1 — where a square plan of the same area would put the inner pair at
  *   +-5.2, inside the centre tower's own 6.8 half-width, and hide two of the

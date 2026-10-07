@@ -468,7 +468,7 @@ export interface Cast {
   has(outfit: OutfitId): boolean;
   /** Loads more outfits; resolves once `make` may use every one of them. */
   ensure(outfits: readonly OutfitId[]): Promise<void>;
-  /** The materials of one part of a loaded outfit, for the checks and the sheets. */
+  /** The materials of one part of a loaded outfit, for the checks. */
   materialsOf(worn: WornPart): readonly string[];
   /**
    * A person in an outfit, or in a wardrobe mixed from several of one body.

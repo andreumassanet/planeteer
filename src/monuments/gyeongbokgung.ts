@@ -291,7 +291,7 @@ const CLOISTER = {
  * **20.9 tall is a floor, not a ceiling, and it was measured rather than
  * chosen.** The hall's lower eave is a hard horizontal whose lip sits at 21.45,
  * and behind that lip the skirt roof keeps climbing to 25.05. Trace a sight line
- * from the contact sheet's own camera — it is a fixed rig, so this is arithmetic
+ * from the quarter view's camera — it is a fixed rig, so this is arithmetic
  * and not taste — over that roof at the half-widths where the gate stands, and it
  * lands at about 19.7 units on the gate's plane. Anything shorter is inside the
  * hall's silhouette and is nine meshes nobody will ever see. The first version
@@ -299,10 +299,10 @@ const CLOISTER = {
  *
  * **And from dead front it is still behind the hall, which is the honest finding
  * and is why the file spends elsewhere.** The gate was rendered with its meshes
- * flagged a different colour to check: in the contact sheet's default
+ * flagged a different colour to check: in the default
  * three-quarter view the courtyard's 26 units of depth swing it clear of the hall
- * and it reads as a stepped two-storey mass on the far wall; with the front-view
- * box ticked, none of it survives. Getting it seen *past* the hall instead of
+ * and it reads as a stepped two-storey mass on the far wall; from the front
+ * view, none of it survives. Getting it seen *past* the hall instead of
  * over it would take a lower eave narrower than 44 units or a gate wider than 55,
  * and the second is what the Forbidden City did. So dead front is carried by the
  * far cloister's wings and by Ilhwamun and Wolhwamun, which stand outboard of the

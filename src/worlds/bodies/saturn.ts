@@ -37,7 +37,6 @@ import { DRAGON_STORM, GREAT_WHITE_SPOT, HEXAGON_SIDE_LAT, SATURN, SPECIES, deck
 import { smoothstep } from '../../system/noise.ts';
 import { unitAt } from '../../sphere.ts';
 import type { Tint } from '../contract.ts';
-import { surfaceRadiusOf } from '../../system/contract.ts';
 import { defineCivilisation, defineWorld } from '../contract.ts';
 import { DRIFTER_BUILDINGS } from './saturn/buildings.ts';
 import { LANDMARKS } from './saturn/landmarks.ts';
@@ -84,9 +83,6 @@ const AIR = 0.6;
  * they let through (the rings' shadow on the deck).
  */
 export const SKY_LAYERS: readonly SkyLayerFactory[] = [(radius) => createSaturnSky(radius, AIR)];
-
-/** The walkable radius the layers are made for. */
-export const SKY_RADIUS = surfaceRadiusOf(SATURN.radiusKm);
 
 /**
  * The storms' heads painted white where they stand — the Great White Spot of

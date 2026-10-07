@@ -98,7 +98,7 @@ export function markerKeyOf(body: string): string {
 /**
  * How close counts as arrived, in world units: about a hundred metres at the
  * scale things are built at (`SCENERY_SCALE`), the width of a landmark's pad.
- * A marker dropped on a sheet at street zoom is a few units off where the
+ * A marker dropped on the map at street zoom is a few units off where the
  * click meant, and this swallows that. **The panel counts real kilometres**
  * — the planet's own scale, 0.4 km a unit on Earth — so it would read about
  * 56 km at the moment this says arrived; the two scales are the world's, not

@@ -4,7 +4,7 @@ import type { Mesh, Monument } from './contract.ts';
 /**
  * Marina Bay Sands.
  *
- * Three things are this building and nothing else on the sheet has any of them.
+ * Three things are this building and no other monument has any of them.
  * Everything in this file serves one of the three:
  *
  * - **Three separate towers standing in a row.** Not two (Petronas), not one.
@@ -36,7 +36,7 @@ import type { Mesh, Monument } from './contract.ts';
  * about 200 m. So the half-diagonal against the height is
  * `hypot(340, 38) / 2 / 200` = **0.86**, against a `MAX_ASPECT` limit of 2.00.
  * This monument needs no crop and no vertical stretch: it is one of the few
- * wide things on the sheet that fits its own shape honestly. What it does not
+ * wide monuments that fits its own shape honestly. What it does not
  * fit is a `footprint`, and that is what picks the tier:
  *
  * | tier | height | radius the true plan needs | cap |
@@ -54,11 +54,11 @@ import type { Mesh, Monument } from './contract.ts';
  *
  * - **Height is this monument's smallest dimension.** The model is 39.7 tall and
  *   **61.3 wide**. Burj Khalifa is 120 x 29, Petronas 70 x 30.3. Framed by
- *   `max(radius, footprint)`, as the contact sheet frames everything, this fills
- *   its cell on the horizontal — which is correct for a building whose roof is
+ *   `max(radius, footprint)`, as a thumbnail frames everything, this fills
+ *   it on the horizontal — which is correct for a building whose roof is
  *   longer than its towers are tall.
  * - **The metres already order it.** 200 m against Petronas's 452 and the Burj's
- *   828, which the sheet files at 70 and 120. Forty units for 200 m is if
+ *   828, which are filed at 70 and 120. Forty units for 200 m is if
  *   anything generous: 200/452 is 0.44 where 40/70 is 0.57.
  * - **Reaching a higher tier would cost the one proportion that names it.**
  *   `landmark`'s 55-unit footprint caps the deck at about 109 units against a
@@ -93,8 +93,8 @@ import type { Mesh, Monument } from './contract.ts';
  *    which is exactly the 0.55-0.66 measured off the photograph, where the
  *    honest cantilever would have given a too-airy 0.82.
  * 3. **Everything is 1.2x deep** — the deck 8.4 units against 38 m (46.7), the
- *    towers 5.6 against 26 m (31). The contact sheet looks down at about 15
- *    degrees, so a plate and three slabs at true width are all seen nearly
+ *    towers 5.6 against 26 m (31). It is seen from about 15 degrees
+ *    up, so a plate and three slabs at true width are all seen nearly
  *    edge-on. *What it broke:* the deck now oversails the towers by 1.4 a side
  *    rather than 2.2, so the "boat wider than what holds it up" margin narrowed;
  *    it is bought back by the top fascia oversailing the layer under it by 0.6,
@@ -127,7 +127,7 @@ import type { Mesh, Monument } from './contract.ts';
  *   the curve is for: the waist at the junction and the flare at the foot.
  * - **The sloping leg is 1.37x too fat** — 2.5 units where the photograph gives
  *   0.18 of the tower width, which is 1.83. At 1.83 it is five pixels in a
- *   monument-sheet cell with ink either side. The void still comes out 4.26 wide,
+ *   260-pixel thumbnail with ink either side. The void still comes out 4.26 wide,
  *   and the void is the read.
  * - **No floor banding.** Fifty-five storeys over 20.4 units is a grey wash. The
  *   only horizontal on each tower is the `slate` band at the junction, which is
@@ -158,14 +158,14 @@ import type { Mesh, Monument } from './contract.ts';
  *   is deliberately not doing what it does on Petronas, where it is the curtain
  *   wall.
  * - **`darkOlive`** for the garden bed and **`green`** for the crowns — the dark
- *   green deck, and the one place on the sheet where a roof is a garden.
+ *   green deck, and the one monument whose roof is a garden.
  * - **`skyBlue`** for the pool, the only saturated colour, 27 units long.
  * - **`tan`** for the plinth, warm, so the ground does not go hueless either.
  *
  * ## Not Petronas
  *
- * Two Asian towers with a horizontal element is the collision risk on this
- * sheet, so: **three** masses against two, a deck **lying across the tops**
+ * Two Asian towers with a horizontal element is the collision risk among
+ * the monuments, so: **three** masses against two, a deck **lying across the tops**
  * against a bridge stitched through the waist, a **cantilever with nothing
  * under it** against a symmetric span, **leaning** slabs against plumb ones,
  * **holes through the bases** against a solid podium, **pale on dark green**
@@ -351,7 +351,7 @@ export const marinaBaySands: Monument = {
      *
      * One prism has one taper, so the section shrinks in height as fast as it
      * shrinks in plan, and a bow built that way comes out as a **sharpened
-     * pencil** — the first two attempts both did, and at monument-sheet size a
+     * pencil** — the first two attempts both did, and at thumbnail size a
      * pencil is what you see. The fix is the one a boatbuilder uses: tilt the
      * axis up by exactly the height the section loses, so the deck line stays
      * level all the way to the stem and the whole taper is spent on the

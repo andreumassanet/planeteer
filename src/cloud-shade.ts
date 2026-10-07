@@ -39,7 +39,7 @@ import { latOf, lonOf } from './sphere.ts';
  * every program would bind a sampler nobody set, which defaults to texture
  * unit 0 and collides there with the shadow map's `sampler2DShadow` — a draw
  * that fails with `INVALID_OPERATION` — and it would reach the traveller's
- * card, the review sheets and the sky. So each factory calls `shadeByClouds`
+ * card and the sky. So each factory calls `shadeByClouds`
  * on what it makes, before anything clones it, and the clones (`fade.ts`'s
  * twins, `woodMaterial`, the player's inkless copy) chain the hook with the
  * rest. The uniforms are this module's, bound by reference, the way
@@ -129,8 +129,8 @@ export const SHADE_SUN: readonly [number, number] = [Math.sin((-1.15 * Math.PI) 
  * The shell the shade is cast into, in units from the planet's radius: from
  * the deepest drawn sea floor to well under the deck's lowest belly (870).
  * Above it a thing is in the cloud or over it — an airliner at its cruise of
- * 1,700 — and below it is not on the planet at all: the traveller's card and
- * the review sheets draw the cast round the origin, with lights of their own.
+ * 1,700 — and below it is not on the planet at all: the traveller's card
+ * draws the cast round the origin, with lights of their own.
  * The edges are `SHADE_BAND_SOFT` wide.
  */
 export const SHADE_BAND: readonly [number, number] = [-400, 880];
@@ -350,9 +350,6 @@ export function cloudLightsChunk(): string {
   return lights;
 }
 
-/** The declarations, for the checks' lint. */
-export const CLOUD_SHADE_GLSL = DECLARATIONS;
-
 // ---------------------------------------------------------------------------
 // The shared uniforms
 // ---------------------------------------------------------------------------
@@ -423,9 +420,6 @@ export function shadeByClouds<T extends THREE.MeshToonMaterial>(material: T): T 
   material.customProgramCacheKey = () => `${baseKey()}|clouds`;
   return material;
 }
-
-/** Whether `material` was opted in, for the checks. */
-export const isShadedByClouds = (material: THREE.Material): boolean => shaded.has(material);
 
 // ---------------------------------------------------------------------------
 // The state, a frame at a time

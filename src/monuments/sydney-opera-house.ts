@@ -31,7 +31,7 @@ import { PROUD } from './contract.ts';
  *   paved apron drawn out to a point at the north: the Broadwalk round the tip
  *   of the headland.
  *
- * So from the harbour (the contact sheet's front view) every northern mouth
+ * So from the harbour (the front view) every northern mouth
  * faces the camera with its glass, and from the north-west (its quarter view)
  * the Concert Hall shows its full profile — which is the view from Kirribilli,
  * the one on every postcard.

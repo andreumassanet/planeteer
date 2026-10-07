@@ -67,7 +67,7 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  * with a wall round it.
  *
  * The wall has a gap in the front for the same reason the Ziggurat of Ur's
- * temenos does. The contact sheet looks from 13.4 degrees, so a 3-unit wall
+ * temenos does. Seen from 13.4 degrees up, so a 3-unit wall
  * hides about twelve units of ground behind it; leaving the gate open is both
  * true and the only way anything at the church's foot is ever seen.
  *

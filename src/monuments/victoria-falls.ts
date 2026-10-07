@@ -39,11 +39,10 @@ import { PROUD } from './contract.ts';
  *
  * **The cutaway, and the arithmetic that forces it.**
  *
- * The contact sheet's quarter camera sits 13.4 degrees above the model (`VIEWS`
- * in `sheets/monuments.ts`, framed at `radius * 1.12 / sin(fov/2)`). Put two walls
- * of equal height 6.8 units apart and look between them from 13.4 degrees: the
- * near rim occludes the far wall down to `6.8 / cos(31.8deg) * tan(13.4deg)`
- * below its own top — **1.9 units of 27**. Not "a bit cramped": the lip, the
+ * The quarter camera sits 13.4 degrees above the model, framed at
+ * `radius * 1.12 / sin(fov/2)`. Put two walls of equal height 6.8 units apart
+ * and look between them from 13.4 degrees: the near rim occludes the far wall
+ * down to `6.8 / cos(31.8deg) * tan(13.4deg)` below its own top — **1.9 units of 27**. Not "a bit cramped": the lip, the
  * water, the gorge floor and the near wall's own inner face are *all* invisible,
  * from both fixed views, and the thumbnail is a mesa with a stripe on it. Nor
  * can it be fixed by scaling, because the occlusion depends only on the gorge's

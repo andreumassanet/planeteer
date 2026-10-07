@@ -2062,9 +2062,9 @@ export function createSettlements(
    * The elevation this cell's terrace is cut to, or null where the town does
    * not pave it.
    *
-   * **`cellLevel` in `grid.ts` is the rule**, and this only reads what `raise`
-   * worked out with it for the whole square before anything was placed
-   * (`townTerraces`): a cell's level is its street's, which depends on the cell
+   * **`townTerraces` in `grid.ts` is the rule**, and this only reads what `raise`
+   * worked out with it for the whole square before anything was placed:
+   * a cell's level is its street's, which depends on the cell
    * across the street, so it is a question about the town rather than about the
    * cell. What the refusals and the fill cost is measured in `survey`, town by
    * town.
@@ -4680,7 +4680,7 @@ export function createSettlements(
     terraces.clear();
     // Every cell's terrace, before anything stands on one: the gates' cells cut
     // to the level the road arriving there climbs to, and every street one level
-    // across its width. `cellLevel` is the one definition, and `roads.ts` asks
+    // across its width. `townTerraces` is the one definition, and `roads.ts` asks
     // it the same question about the gate cells through `gateLevel`.
     for (const [key, level] of townTerraces(grid, townGround, heldGates(slot.place))) terraces.set(key, level);
     yield;

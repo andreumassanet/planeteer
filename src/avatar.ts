@@ -61,7 +61,7 @@ import type { Emote } from '../server/src/limits.ts';
  * plane's seat, the launch's bench, the camera's eye, the crowd — and it is
  * **unchanged**, because those files were built around it. The seated pose puts
  * this character's own hips exactly where `FIGURE.hipY` says a hip is, so
- * `PLANE_SEAT` still seats him. The gait's speeds, strides and `swingLift` stay
+ * every seat built to it still seats him. The gait's speeds, strides and `swingLift` stay
  * too: they are facts about how fast a body of this size moves, and `life.ts`
  * and the fauna kit still read them.
  */

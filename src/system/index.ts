@@ -47,8 +47,6 @@
  */
 
 import type { Body, Decoration, Species } from './contract.ts';
-import { drawnRadiusOf, SUN_DRAWN, systemPosition, validateBody } from './contract.ts';
-import type { Vec3 } from './contract.ts';
 import { heliocentric } from './orbits.ts';
 
 export * from './contract.ts';
@@ -64,7 +62,6 @@ export {
   geocentric,
   heliocentric,
   moonPosition,
-  orbitPath,
   periodOf,
   ringTilt,
   julianDay,
@@ -137,7 +134,6 @@ const orderOf = (body: Body): number =>
   body.orbit === null ? -1 : heliocentric(body.orbit, new Date(0)).r;
 
 export const BODIES: readonly Body[] = bodies.sort((a, b) => orderOf(a) - orderOf(b));
-export const SPECIES: ReadonlyMap<string, Species> = species;
 export const DECORATIONS: readonly Decoration[] = decorations.sort((a, b) => a.id.localeCompare(b.id));
 
 /** The moons with a `Body` of their own, which `BODIES` leaves out. The Moon. */
@@ -157,48 +153,3 @@ export const body = (id: string): Body | undefined =>
 export const decorationsFor = (bodyId: string): readonly Decoration[] =>
   DECORATIONS.filter((part) => part.bodies.length === 0 || part.bodies.includes(bodyId));
 
-/** Whether there is ground to stand on. The menu's own test; see the note above. */
-export const walkable = (body: Body): boolean => body.ground !== null || body.id === 'earth';
-
-/** Where a body is, in the orrery's own frame and units, at an instant. */
-export function positionOf(id: string, date: Date): Vec3 {
-  const found = body(id);
-  if (found === undefined) throw new Error(`no body '${id}'`);
-  if (found.orbit === null) return { x: 0, y: 0, z: 0 };
-  return systemPosition(found.orbit, date);
-}
-
-/** What a body is drawn at in the orrery. The Sun is off the law; see the contract. */
-export const drawnRadius = (body: Body): number =>
-  body.kind === 'star' ? SUN_DRAWN : drawnRadiusOf(body.radiusKm);
-
-/** Everything wrong with the registry, for the check script and the sheets. */
-export function registryProblems(): string[] {
-  const problems = [...REGISTRY_PROBLEMS];
-  const ids = new Set<string>();
-  for (const one of BODIES) {
-    if (ids.has(one.id)) problems.push(`two bodies called '${one.id}'`);
-    ids.add(one.id);
-    for (const problem of validateBody(one)) problems.push(`${one.id}: ${problem}`);
-    if (one.species !== null && !species.has(one.species)) {
-      problems.push(`${one.id} names species '${one.species}' and no file declares it`);
-    }
-    if (one.ground !== null) {
-      const named = new Set<string>();
-      for (const biome of Object.values(one.ground.biomes)) for (const part of biome.parts) named.add(part);
-      const available = new Set(decorationsFor(one.id).map((part) => part.id));
-      for (const part of named) {
-        if (!available.has(part)) problems.push(`${one.id} names decoration '${part}', which cannot stand there`);
-      }
-    }
-  }
-  const claimed = new Set<string>();
-  for (const one of BODIES) {
-    if (one.ground === null) continue;
-    for (const biome of Object.values(one.ground.biomes)) for (const part of biome.parts) claimed.add(part);
-  }
-  for (const part of DECORATIONS) {
-    if (!claimed.has(part.id)) problems.push(`nothing will ever build '${part.id}' — no biome names it`);
-  }
-  return problems;
-}

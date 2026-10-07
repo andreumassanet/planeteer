@@ -737,7 +737,7 @@ export interface SkyState {
 /**
  * Something drawn in the sky's own frame and on its clock, which `update`
  * hands the finished state to at the end of every frame — so the world's
- * loop, the menu's and the menu's review sheet all drive it without knowing
+ * loop and the menu's both drive it without knowing
  * it exists. `night-sky.ts` is the one there is.
  */
 export type SkyLayer = (state: SkyState) => void;

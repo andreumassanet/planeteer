@@ -142,7 +142,7 @@ export const RAMP_GENTLEST = 0.2;
  *
  * **On a band street it is always one of a pair.** A band is paved half by the
  * cell on each side of it, and since 2026-09-13 those two are cut to one level
- * (`cellLevel` in `grid.ts`), and so are the two they climb to — so each half
+ * (`townTerraces` in `grid.ts`), and so are the two they climb to — so each half
  * gets the same ramp or flight and the pair meet at the band's midline as one,
  * the width of the street less `FLIGHT_INSET` at each kerb. Until then each
  * half climbed its own riser, and the two halves of one street took their

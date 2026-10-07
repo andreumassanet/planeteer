@@ -51,7 +51,7 @@ import type { Group, Monument } from './contract.ts';
  * 1. **A light towpath laid against the water's far edge.** Two units of `tan`
  *    on each dike's lip. This is the one element of the ground plan that exists
  *    for the camera rather than for the place, and it is worth more than the
- *    other three together. The sheet looks down at 14 degrees, so a canal — a
+ *    other three together. The camera looks down at 14 degrees, so a canal — a
  *    horizontal surface — keeps a quarter of its width, and a 16-unit channel
  *    comes back four units tall. The towpath puts the model's lightest and
  *    darkest values in contact along the canal's whole length, and it is that
@@ -157,7 +157,7 @@ const BANDS: Array<[number, number, number, boolean]> = [
  * the dike's face and run `PROUD` past its ends so nothing is coplanar.
  *
  * It is the one thing in the ground plan that is not there for the plan's sake.
- * At the sheet's camera a canal is a horizontal surface seen at 14 degrees, so
+ * To the camera a canal is a horizontal surface seen at 14 degrees, so
  * it loses three quarters of its width to foreshortening and a wide dark band
  * comes back as a thin one. A light strip laid directly against the water's far
  * edge puts the model's brightest and darkest values in contact along the whole
@@ -236,7 +236,7 @@ const BAR_DEPTH = 0.45;
 const RAIL_INNER = 0.35;
 const RAIL_WIDTH = 0.5;
 const RIB_WIDTH = 0.5;
-/** Underside of the rail. The hole is 10.3 by 3.0, which is 21 by 6 pixels on the sheet. */
+/** Underside of the rail. The hole is 10.3 by 3.0, which is 21 by 6 pixels in a thumbnail. */
 const BAY_TOP = 3.4;
 
 /**

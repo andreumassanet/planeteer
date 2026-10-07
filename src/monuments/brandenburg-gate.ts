@@ -6,7 +6,7 @@ import type { Mesh, Monument, Object3D } from './contract.ts';
  * ## The one thing this file exists to not be: the Arc de Triomphe
  *
  * Both are city gates, both are `building`, both stand 39.7 units tall out of
- * the tier's 40. If they read alike the sheet has two cards of the same
+ * the tier's 40. If they read alike there are two copies of the same
  * monument, so the difference is worth stating as a table before any geometry:
  *
  * | | Arc de Triomphe | Brandenburg Gate |

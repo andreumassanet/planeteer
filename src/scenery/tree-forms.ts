@@ -46,8 +46,6 @@ export const LEAF_ATLAS = {
   /** A palm frond, stem up the middle. */
   frond: [0.5, 0, 1, 0.5],
 } as const satisfies Record<string, readonly [number, number, number, number]>;
-export type LeafKind = keyof typeof LEAF_ATLAS;
-
 /**
  * The mean linear lightness of the atlas's painted leaves, which a solid crown
  * is drawn at so a tile swapping cards for lumps keeps its colour. The atlas

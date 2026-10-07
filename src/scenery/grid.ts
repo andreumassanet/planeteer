@@ -60,7 +60,7 @@ export const TOWN_PITCH = 12;
  * road climbs onto, which is a hill town's gate.
  *
  * **That is the cut on the cell's own corners and not the wall it shows.** A
- * gate's cells take their group's level (`cellLevel`), which is the highest of
+ * gate's cells take their group's level (`townTerraces`), which is the highest of
  * the cells sharing their street, so a gate cell stands taller than its own cut
  * wherever a partner is higher: the tallest wall a gate cell shows is 43.96, at
  * Sahāranpur, and 1,510 of them show more than 19 (2026-09-13). All but 85 of
@@ -307,7 +307,7 @@ export function isAvenue(grid: TownGrid, col: number, row: number): boolean {
  * over the ground it was cut into: rounding puts the terrace within half a
  * step, 2 units, of that corner, and `GROUND_LIFT` is 3, so the floor clears
  * every corner of its own cell by at least a unit. Which cells are refused, and
- * which are cut to a level higher than their own, is `cellLevel`'s.
+ * which are cut to a level higher than their own, is `townTerraces`'s.
  */
 function terraceLevel(high: number, base: number): number {
   return base + TERRACE_STEP * Math.round((high - base) / TERRACE_STEP);
@@ -629,75 +629,10 @@ function ownLevel(grid: TownGrid, ground: TownGround, col: number, row: number):
 }
 
 /**
- * The level a cell's street group asks for, or null where the town does not
- * pave it: the first half of the one definition, which `townTerraces` finishes
- * for the whole town by making every street's risers climbable (`climbable`).
- * `settlements.ts` paves by `townTerraces`, `gateLevel` is it at a gate, and
- * the road climbs to what it says.
- *
- * **A street is one level across its width, so the cells that share one share a
- * level.** A band street is paved half by the cell on each side of it, and
- * until 2026-09-13 each of the two cut its own terrace off its own corners.
- * Where the hill put them a step apart, a riser ran down the middle of the
- * street lengthways, and the street climbed it by two half-flights of steps,
- * each wherever its own half happened to meet its own riser — which came out
- * all over Madrid as a muddle of steps climbing to different places. A pavement
- * should have no change of level in the middle of it, and one in the middle of
- * a plot leaves a building floating.
- *
- * So a riser goes on the one line in a town that is neither a street nor a
- * plot: **the back of the lot**, where the two cells of a block meet with no
- * street between them — and a building standing across that line already asks
- * for one level under it (`planTown`'s `level`). The cells either side of a
- * band, and the four round a crossing of two bands (`groupOf`), are cut to one
- * level, which puts every street and the two rows of houses facing it on one
- * terrace with the retaining walls behind them; a street crosses a riser only at
- * the back of a block, where the flight spans its whole width. An avenue is a
- * whole cell of street and a group of its own along its length, so where it
- * stands on a different level from the houses beside it the riser is at its
- * kerb, under a house front, and where it meets a band street on another level
- * the flight spans the band.
- *
- * **The group takes the highest of its cells' own levels, never a lower one.**
- * Each own level keeps its paving over every corner of its own cell (see
- * `terraceLevel`), and a cell cut below its own level would have the hill
- * through its pavement; one cut above it only stands taller over the ground on
- * its low side. That is the whole cost of the rule, and it is fill rather than
- * a new kind of face. A cell its own ground refuses stays refused, and does not
- * lower or raise its partners.
- *
- * Measured over the 9,749 built towns (2026-09-13): it deletes **11,403
- * lengthwise risers in 1,259 towns**, and the 13,272 band crossings whose two
- * halves stepped in different places, which was the tangle of stairs. It
- * raises 10,253 of 134,353 paved cells — 9,206 by one step, 907 by two, 140
- * by more — so the tallest wall shown by a cell that is not a gate's goes from
- * 16.95 (Cúcuta) to 29.96 (Guayaquil, raised four steps), and 509 such cells
- * show more than 19. Refusing those instead was measured and not taken: it
- * costs 147 towns cells, and a cell refused is half a street missing.
- *
- * **A gate's cells are always one group**: a gate on an avenue opens onto one
- * cell, and one on a band onto the two cells either side of it, which are
- * partners. Two gates that share a cell — every gate of a square two cells wide,
- * or the pair at a corner of a large one — share its group. So the road and the
- * town ask this one question about the same cells and cannot get two answers,
- * which is what the old gate-by-gate closure in `gateLevel` was for.
- */
-export function cellLevel(grid: TownGrid, ground: TownGround, col: number, row: number): number | null {
-  let level = ownLevel(grid, ground, col, row);
-  if (level === null) return null;
-  for (const [c, r] of groupOf(grid, col, row)) {
-    if (c === col && r === row) continue;
-    const other = ownLevel(grid, ground, c, r);
-    if (other !== null && other > level) level = other;
-  }
-  return level;
-}
-
-/**
  * Every cell of the square and the level it is cut to, null where it is not
- * paved, by `cellKey`: `cellLevel` for the whole town, each cell's own level
- * worked out once rather than once per member of each group, and then every
- * street made climbable (`climbable`). **The one definition** of a terrace.
+ * paved, by `cellKey`: each street's group at one level for the whole town,
+ * each cell's own level worked out once rather than once per member of each
+ * group, and then every street made climbable (`climbable`). **The one definition** of a terrace.
  */
 export function townTerraces(grid: TownGrid, ground: TownGround, held?: ReadonlyMap<number, number>): Map<number, number | null> {
   const own = new Map<number, number | null>();
@@ -734,7 +669,7 @@ export function townTerraces(grid: TownGrid, ground: TownGround, held?: Readonly
  * one `TERRACE_STEP` apart, and a street entering an avenue stands level with
  * it: the lower side is raised, with the rest of its group, until both hold.
  *
- * **Only ever raised**, for `cellLevel`'s reason: a cell cut below its own
+ * **Only ever raised**, for the groups' reason: a cell cut below its own
  * level has the hill through its paving, one raised above it is fill. With no
  * gate held it raises 10,274 of the built world's paved cells, the tallest
  * face a floor shows goes from 44 to 48 units, and every street riser left is

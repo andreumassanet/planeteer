@@ -21,7 +21,7 @@
  * the hoist devices start to crowd.
  */
 import { PALETTE } from './theme.ts';
-import { FLAGS, FLAG_ALIAS, SIMPLIFIED } from './flag-data.ts';
+import { FLAGS, FLAG_ALIAS } from './flag-data.ts';
 
 const TAU = Math.PI * 2;
 
@@ -325,19 +325,6 @@ function resolve(key: string): string {
   return FLAG_ALIAS[key] ?? key;
 }
 
-export function hasFlag(key: string): boolean {
-  return resolve(key) in FLAGS || painterOf(key) !== undefined;
-}
-
-/**
- * True where the field and the main devices are right but a coat of arms has
- * been reduced to a mark. Useful for reporting honest coverage; the contact
- * sheet tags them.
- */
-export function isSimplified(key: string): boolean {
-  return SIMPLIFIED.has(resolve(key));
-}
-
 export interface FlagOptions {
   /** Field colour for the fallback plate. Defaults to bone from the palette. */
   tint?: string;
@@ -429,11 +416,9 @@ export function drawFlagAt(
 
 /**
  * The one every caller wants: paint the flag at the origin of the context, in a
- * `w` by `h` box. Draws no border — the caller owns the ink line, because the
- * HUD chip, the contact sheet and (later) a flagpole texture all want a
- * different one.
+ * `w` by `h` box. Draws no border — the caller owns the ink line.
  */
-export function drawFlag(
+function drawFlag(
   ctx: CanvasRenderingContext2D,
   iso: string,
   w: number,

@@ -31,8 +31,7 @@ import type { Age, Carry, Garment, Hair, Headwear, Look, Pose, Sleeves } from '.
  * the body and the face from `rng.fork('who')` and the clothes from
  * `rng.fork('worn')`, so the two streams cannot interfere however many draws
  * either side makes. The same seed produces *the same person* in Oslo and in
- * Bamako, wearing different clothes. `sameBodyEverywhere` below asserts exactly
- * that, and the review sheet shows it as a row.
+ * Bamako, wearing different clothes.
  *
  * The one place the two touch is hair colour, and it is deliberate and worth
  * being explicit about: `HAIR_FOR` weights hair colour on the **skin tone**, not
@@ -155,7 +154,7 @@ const HAIRSTYLES: readonly Weighted<Hair>[] = [
 
 export interface DressStyle {
   id: RegionId;
-  /** One line for the review sheet. What you would notice on the street. */
+  /** One line: what you would notice on the street. */
   note: string;
   /**
    * The climate this region is assumed to have when nobody says otherwise,
@@ -618,9 +617,6 @@ export const CROWD_MIX: readonly Weighted<string>[] = [
   { item: 'child', weight: 2 },
 ];
 
-/** The part ids `CROWD_MIX` names, for the review sheet's orphan banner. */
-export const PEOPLE_PART_IDS: readonly string[] = CROWD_MIX.map((entry) => entry.item);
-
 // ---------------------------------------------------------------------------
 // Climate
 // ---------------------------------------------------------------------------
@@ -738,9 +734,8 @@ const IDLE_POSES: readonly Weighted<Pose>[] = [
  * and the hair; `worn` draws everything from the wardrobe. Because `Rng.fork`
  * forks from the *original* seed rather than from the current state, adding a
  * draw to either side cannot move the other — which is what makes the claim at
- * the top of this file mechanical rather than aspirational, and what lets the
- * review sheet put the same eight people in two regions and show the same eight
- * faces.
+ * the top of this file mechanical rather than aspirational: the same eight
+ * people in two regions have the same eight faces.
  */
 export function lookFor(rng: Rng, region: string, options: LookOptions = {}): Look {
   const style = dressFor(region);
@@ -828,33 +823,3 @@ export function lookFor(rng: Rng, region: string, options: LookOptions = {}): Lo
   };
 }
 
-/**
- * The independence claim, as a test.
- *
- * Builds the same seed in every region and reports whether the *person* came out
- * identical each time — height, build, age, skin, hair and beard — while the
- * clothes were free to differ. It is here rather than in a test file because the
- * review sheet runs it and prints the answer, which is the only place anyone
- * will look.
- */
-export function sameBodyEverywhere(rng: () => Rng): { same: boolean; regions: number } {
-  const key = (look: Look): string =>
-    [
-      look.height.toFixed(6),
-      look.girth.toFixed(6),
-      look.age,
-      look.skin,
-      look.hairColor,
-      look.hair,
-      look.beard,
-    ].join('|');
-
-  let first: string | null = null;
-  let same = true;
-  for (const id of DRESS_IDS) {
-    const signature = key(lookFor(rng(), id));
-    if (first === null) first = signature;
-    else if (signature !== first) same = false;
-  }
-  return { same, regions: DRESS_IDS.length };
-}

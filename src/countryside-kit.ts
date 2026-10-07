@@ -231,7 +231,7 @@ const hayBale: CountryPart = {
  * 2026-10-01, and the one taken grew by half again under the driver as the
  * fleet built it. A tile merges the look its id decides
  * (`countryside-tile.ts`, `craft/parked.ts`) and the fleet takes it from
- * there; this build, a look off `rng`, is for the kit's own checks and sheets.
+ * there; this build, a look off `rng`, is for the kit's own checks.
  * The craft is 6.6 long and 4.1 wide, so the yard it takes is its half
  * diagonal.
  */

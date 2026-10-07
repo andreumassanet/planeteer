@@ -101,9 +101,6 @@ const LINE_SHARE = 0.85;
 
 /** Whether towns are dressed at all: the A/B, from the console or a check. */
 let enabled = true;
-export function setStreetDressing(on: boolean): void {
-  enabled = on;
-}
 export function streetDressingEnabled(): boolean {
   return enabled;
 }

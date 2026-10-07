@@ -8,7 +8,7 @@ import { buildPerson } from '../people.ts';
  *
  * The file is thin on purpose: every decision is in `people.ts` (the body) and
  * `dress.ts` (who they are and what they wear), and this is the adaptor that
- * lets the registry, the review sheet and `validatePart` see a person as one
+ * lets the registry and `validatePart` see a person as one
  * more part in the kit.
  *
  * **The `person` kind is not a `dwelling` with a low cap.** It has its own row

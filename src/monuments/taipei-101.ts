@@ -4,7 +4,7 @@ import { PROUD as STEP_PROUD } from './contract.ts';
 /**
  * Taipei 101.
  *
- * **Every other tall thing on this sheet narrows as it rises.** Burj Khalifa
+ * **Every other tall monument narrows as it rises.** Burj Khalifa
  * spirals inward through eighteen setbacks, the Empire State steps back four
  * times and telescopes into a mast, Petronas rings in to 53% of its width above
  * floor 60. All three are one mass converging on a point, which is what a
@@ -52,12 +52,12 @@ import { PROUD as STEP_PROUD } from './contract.ts';
  *
  * At 508 m, Taipei 101 is 1.12x Petronas (452 m) and 0.61x Burj Khalifa (828 m).
  *
- * - **Filed `tower` (70 units)** the sheet says it is exactly as tall as
+ * - **Filed `tower` (70 units)** the model says it is exactly as tall as
  *   Petronas and the Empire State. It is 12% taller than one and 15% taller than
- *   the other. **The sheet understates it by at most 15%.**
- * - **Filed `landmark` (120 units)** the sheet says it is 1.71x Petronas, where
+ *   the other. **The model understates it by at most 15%.**
+ * - **Filed `landmark` (120 units)** the model says it is 1.71x Petronas, where
  *   it is 1.12x — an overstatement of 52% — and says it equals the Burj, where
- *   it is 0.61x, an overstatement of 63%. **The sheet overstates it by 52-63%.**
+ *   it is 0.61x, an overstatement of 63%. **The model overstates it by 52-63%.**
  *
  * `tower` is four times more accurate. That is the whole argument and it does
  * not need any taste in it.
@@ -74,7 +74,7 @@ import { PROUD as STEP_PROUD } from './contract.ts';
  *   tenures of the same record cannot be filed at different tiers on the
  *   strength of that record, and Petronas is a `tower`.
  *
- * ## The collision is on the sheet, not on the planet
+ * ## The collision is side by side, not on the planet
  *
  * `empire-state.ts` argued its tier partly from world-unit distance: it and the
  * Statue of Liberty are 20.7 units apart, so their tiers have to agree or the
@@ -86,7 +86,7 @@ import { PROUD as STEP_PROUD } from './contract.ts';
  * building for its tier to be a placement decision.**
  *
  * So the tier here is doing one job and one only: saying how tall this is
- * *relative to the other skyscrapers on the contact sheet*, which are the things
+ * *relative to the other skyscrapers among the monuments*, which are the things
  * it will be read beside. That is exactly the comparison the error arithmetic
  * above measures, and it is why that arithmetic is allowed to decide alone.
  *
@@ -96,10 +96,10 @@ import { PROUD as STEP_PROUD } from './contract.ts';
  * disaster:
  *
  * - The tower is 508 m over a 50.4 m module at its widest: **10.1 : 1**, more
- *   slender than anything else on the sheet including Petronas at 9.8.
+ *   slender than any other monument including Petronas at 9.8.
  * - Worse, and this is the number that decides the file: a module splays 7
  *   degrees over its 33.6 m, which is **4.2 m per side**. At the height's own
- *   scale that is **0.58 units** — and a monument-sheet cell runs about 2.9
+ *   scale that is **0.58 units** — and a thumbnail runs about 2.9
  *   pixels to the unit (`empire-state.ts` measures it: nine bands on a
  *   12.3-unit face at ~4 px each). **0.58 units is 1.7 pixels of splay, which
  *   is the pen.** The eight modules would come back as a straight-sided shaft
@@ -141,7 +141,7 @@ import { PROUD as STEP_PROUD } from './contract.ts';
  *
  * ## Not the other three towers
  *
- * Four skyscrapers on one sheet is the real risk in this file, so every axis of
+ * Four skyscrapers among the monuments is the real risk in this file, so every axis of
  * separation is spent:
  *
  * - **Shape.** The other three converge; this one repeats and splays. Their
@@ -149,7 +149,7 @@ import { PROUD as STEP_PROUD } from './contract.ts';
  * - **Colour.** The Burj and the Empire State are both `bone`; Petronas is
  *   `slate`. All three are grey. This one is **`green`** — 0x91ad78, the closest
  *   entry in the palette to Taipei 101's blue-green curtain wall, and the only
- *   tall thing here with a hue. A green tower on a sheet of grey ones is
+ *   tall thing here with a hue. A green tower among grey ones is
  *   separable before any detail resolves at all.
  * - **The dark is warm, and that is not decoration.** The eight grooves are the
  *   deepest recesses in the model. The note beside `palette` in `contract.ts`

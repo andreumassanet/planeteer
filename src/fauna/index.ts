@@ -23,10 +23,8 @@
  *    measures correctly and does not look like itself is the failure this whole
  *    kit exists to avoid, and it is the one the numbers cannot see.
  */
-import * as THREE from 'three';
-import { KINDS, VARIANTS, extentOf, measure, validateAnimal, variantRng } from './contract.ts';
-import type { Animal, Extent, FaunaContext, FaunaStyle, Measurements } from './contract.ts';
-import { BY_BIOME, FAUNA_STYLES } from './regions.ts';
+import { KINDS,  } from './contract.ts';
+import type { Animal,  } from './contract.ts';
 
 export * from './contract.ts';
 export * from './regions.ts';
@@ -90,113 +88,3 @@ export function animal(id: string): Animal | undefined {
   return ANIMALS.find((entry) => entry.id === id);
 }
 
-/**
- * Every id the two tables name, and whether the kit has it.
- *
- * **Both tables, not one**, and the scenery sheet's own orphan banner is the
- * reason: it decided a part was unbuildable by looking through the region styles
- * alone, and since `biome.ts` arrived there was a second table that places
- * parts — so it declared the entire wild flora unbuildable while it was standing
- * across Africa. This kit has the same two, in the same file, and asks both.
- */
-export function namedByTables(): { known: Set<string>; unknown: string[]; orphans: string[] } {
-  const known = new Set<string>();
-  const unknown: string[] = [];
-  const note = (id: string): void => {
-    if (animal(id)) known.add(id);
-    else if (!unknown.includes(id)) unknown.push(id);
-  };
-  for (const list of Object.values(BY_BIOME)) for (const entry of list) note(entry.item);
-  for (const style of Object.values(FAUNA_STYLES)) for (const entry of style.stock) note(entry.item);
-  const orphans = ANIMALS.filter((entry) => !known.has(entry.id)).map((entry) => entry.id);
-  return { known, unknown, orphans };
-}
-
-/** Builds one variant, or refuses to. */
-export function buildVariant(id: string, ctx: FaunaContext, style: FaunaStyle, variant: number): THREE.Group {
-  const entry = animal(id);
-  if (!entry) throw new Error(`no animal '${id}'`);
-  const group = entry.build(ctx, variantRng(entry, style, variant), style);
-  const problems = validateAnimal(entry, group);
-  if (problems.length > 0) {
-    throw new Error(`animal '${id}' breaks the contract:\n  - ${problems.join('\n  - ')}`);
-  }
-  group.name = `animal:${id}:${style.id}:${variant}`;
-  return group;
-}
-
-export interface AnimalReview {
-  animal: Animal;
-  style: FaunaStyle;
-  groups: THREE.Group[];
-  measurements: Measurements[];
-  extents: Extent[];
-  problems: string[];
-}
-
-/**
- * Builds every variant, measures them, and collects every complaint.
- *
- * The determinism check compares the position buffers **byte for byte** rather
- * than comparing a triangle count and a height, which is the traffic sheet's
- * standard and the reason is theirs: the weaker test misses a part that shuffles
- * a colour, moves a leg or mirrors itself, because none of those changes any of
- * the three.
- */
-export function reviewAnimal(entry: Animal, ctx: FaunaContext, style: FaunaStyle, count = VARIANTS): AnimalReview {
-  const groups: THREE.Group[] = [];
-  const measurements: Measurements[] = [];
-  const extents: Extent[] = [];
-  const problems: string[] = [];
-  const add = (problem: string): void => {
-    if (!problems.includes(problem)) problems.push(problem);
-  };
-
-  for (let variant = 0; variant < count; variant++) {
-    let group: THREE.Group;
-    try {
-      group = entry.build(ctx, variantRng(entry, style, variant), style);
-    } catch (error) {
-      add(`build() threw on variant ${variant}: ${String(error)}`);
-      continue;
-    }
-    for (const problem of validateAnimal(entry, group)) add(`variant ${variant}: ${problem}`);
-    groups.push(group);
-    measurements.push(measure(group));
-    extents.push(extentOf(group));
-  }
-
-  try {
-    const again = entry.build(ctx, variantRng(entry, style, 0), style);
-    const first = groups[0];
-    if (first !== undefined && fingerprint(again) !== fingerprint(first)) {
-      add('build() is not deterministic — same seed, two different models. No Math.random(), no Date.');
-    }
-  } catch (error) {
-    add(`build() threw on its second call: ${String(error)}`);
-  }
-
-  return { animal: entry, style, groups, measurements, extents, problems };
-}
-
-/** Every vertex of a built group in group space, plus the colour it is drawn in. */
-export function fingerprint(group: THREE.Group): string {
-  group.updateMatrixWorld(true);
-  const toLocal = group.matrixWorld.clone().invert();
-  const matrix = new THREE.Matrix4();
-  const vertex = new THREE.Vector3();
-  const parts: string[] = [];
-  group.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-    parts.push(`#${material?.userData.atlasToon ?? 'none'}`);
-    const position = mesh.geometry.getAttribute('position');
-    matrix.multiplyMatrices(toLocal, mesh.matrixWorld);
-    for (let i = 0; i < position.count; i++) {
-      vertex.fromBufferAttribute(position, i).applyMatrix4(matrix);
-      parts.push(`${vertex.x.toFixed(4)},${vertex.y.toFixed(4)},${vertex.z.toFixed(4)}`);
-    }
-  });
-  return parts.join('|');
-}

@@ -122,8 +122,6 @@ export const BIOMES: Record<BiomeId, Biome> = {
   rock: { id: 'rock', color: PALETTE.slate, cover: 0.05, sward: 0.12, plants: ['boulder', 'conifer-tree'] },
 };
 
-export const BIOME_IDS = Object.keys(BIOMES) as BiomeId[];
-
 export interface BiomeSample {
   id: BiomeId;
   /** 0 polar, 1 equatorial, after the height has been taken off it. */

@@ -43,7 +43,7 @@ import type { Group, Object3D, Monument, MonumentContext } from './contract.ts';
  * Loose scoria stands at 30 to 35 degrees. Worked at the model's own plan — a
  * base half-width of 20.6 running in to a rim of 10.6 — true repose gives a run
  * of 10.0 and a rise of **6.0**: a cone six units tall and forty-one wide, which
- * at monument-sheet size is a smear with a hole in it. The model stands at **48
+ * at thumbnail size is a smear with a hole in it. The model stands at **48
  * degrees**, a rise of 11.3, which is a **1.9x vertical exaggeration** — the
  * same factor Sigiriya ships at, and for the same reason: the honest proportion
  * is not the remembered picture.
@@ -62,10 +62,10 @@ import type { Group, Object3D, Monument, MonumentContext } from './contract.ts';
  * You cannot see into the crater, so nothing is spent on it
  * ---------------------------------------------------------------------------
  *
- * The contact sheet looks from 13.4 degrees and 6.8. Over a near rim at z =
+ * The fixed cameras look from 13.4 degrees and 6.8. Over a near rim at z =
  * 11.1 and y = 14.1, the 6.8-degree sightline is already down to y = 12.8 by the
  * time it reaches the axis — below the crater floor. There is no view into this
- * thing from any camera the sheet owns, and no amount of geometry down there
+ * thing from either fixed camera, and no amount of geometry down there
  * would ever be drawn.
  *
  * So the crater is a `ringWall` and a floor disc, and everything else goes into
@@ -76,8 +76,8 @@ import type { Group, Object3D, Monument, MonumentContext } from './contract.ts';
  *   crags stand on the ring at heights from 1.2 to 3.1 with three left out, and
  *   two of those are at 0 and 33 degrees, which leaves 98 degrees of bare ring
  *   turned to the front. A ring of even blocks is battlements; this is a rim.
- * - **The floor disc is `orange` even though the sheet cannot see it.** It costs
- *   one mesh and 48 triangles, and the sheet is not the only camera in this
+ * - **The floor disc is `orange` even though the fixed cameras cannot see it.** It costs
+ *   one mesh and 48 triangles, and they are not the only cameras in this
  *   world: the plane flies at 23,200 units and looks *down*. A vent that glows
  *   from the air is worth 48 triangles.
  *
@@ -107,8 +107,8 @@ import type { Group, Object3D, Monument, MonumentContext } from './contract.ts';
  * ---------------------------------------------------------------------------
  *
  * The Avenue of the Baobabs laid a `green` verge under itself and it is a
- * bright rectangle cut into Madagascar's gold savanna, invisible on a contact
- * sheet that stands every monument on a green disc. That is the test a ground
+ * bright rectangle cut into Madagascar's gold savanna, invisible on the green
+ * disc a model shown alone stands on. That is the test a ground
  * plate has to pass, and Yasur passes it outright: **the Siwi ash plain is a
  * real surface and it is the reason people know this volcano.** It is a grey
  * desert of ejecta with nothing growing on it, it is what the road crosses, and

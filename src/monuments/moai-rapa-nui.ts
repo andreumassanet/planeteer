@@ -134,7 +134,7 @@ const LIP_Z = 3.05;
  * The whole lower face is one block standing out of the head, and the nose lands
  * on top of it. Everything is the same stone, so a feature only reads by the
  * shadow under its own ledge — a mouth cut into a flat panel reads as nothing at
- * all, and a mouth on a jaw that juts reads from across the sheet.
+ * all, and a mouth on a jaw that juts reads from a distance.
  */
 const CHIN_WIDTH = 4.6;
 const CHIN_HEIGHT = 3;

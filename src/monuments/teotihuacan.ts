@@ -30,7 +30,7 @@ import type { Group, Monument, MonumentContext } from './contract.ts';
  * Castillo, as built in `chichen-itza.ts`, is 1.75 and 54.5 degrees. **The full
  * avenue buys the second pyramid by making the first one the same shape as the
  * pyramid it most needs to not be mistaken for.** That is not a trade worth
- * making on a contact sheet where the two cards sit six rows apart.
+ * making.
  *
  * There is a second, independent reason the Moon cannot come. At the one plan
  * scale that lets the Sun pyramid be blunt — 68 units for its 225 m, so 0.302
@@ -54,7 +54,7 @@ import type { Group, Monument, MonumentContext } from './contract.ts';
  * model measures 54.2 of radius, so the summit is *required* to reach 27.1. That
  * leaves base:height at **2.43** where life is 3.46 and El Castillo is 1.75: a
  * third flatter than the pyramid it must not be confused with, on a base two
- * units *wider* and at 70% of its height, which is the comparison the sheet
+ * units *wider* and at 70% of its height, which is the comparison the eye
  * makes.
  *
  * The stretch broke one thing, as stretches do. The pyramid's faces run at 47
@@ -68,7 +68,7 @@ import type { Group, Monument, MonumentContext } from './contract.ts';
  *
  * **And the colour is a separation too, not decoration.** El Castillo is Yucatan
  * limestone and is painted `sand` next door. Teotihuacan is built of dark
- * volcanic rock, so the pyramid is `bark` — the darkest mass on the sheet — and
+ * volcanic rock, so the pyramid is `bark` — the darkest mass among the monuments — and
  * the lime is spent only where it survives in life: the stairway, the cornices,
  * and the floor of the street.
  *
@@ -166,7 +166,7 @@ const PAVING = 0.5;
  * Kerbs down both edges of the paving, and cross-walls across it.
  *
  * **The paving itself cannot carry the avenue and it was a mistake to think it
- * could.** The sheet's cameras sit 13 degrees above the ground, so anything
+ * could.** The fixed cameras sit 13 degrees above the ground, so anything
  * lying flat is foreshortened to 0.23 of its width: a 12.5-unit street is three
  * units of pale smear and disappears at thumbnail size. What reads at 13 degrees
  * is anything standing up. So the street is drawn by its *edges* — two unbroken

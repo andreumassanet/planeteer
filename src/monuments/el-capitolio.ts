@@ -35,7 +35,7 @@ import type { Mesh, Monument } from './contract.ts';
  * **Orientation.** The front faces east onto the Prado. `placement.ts` turns
  * +Z north and +X west, so the model is drawn front-on to +Z and turned a
  * quarter the other way (`rotation.y = -PI / 2`) before it is merged; the
- * contact sheet's front view sees its south end and the quarter view the
+ * front view sees its south end and the quarter view the
  * front.
  *
  * **Colour.** The stone is a pale limestone: walls `cream`, columns and dome

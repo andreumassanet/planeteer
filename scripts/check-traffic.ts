@@ -12,8 +12,8 @@
  * registry cannot be used here.** `import.meta.glob` is a Vite transform and
  * does not exist in Node, so the parts are read off disk and imported by path.
  * The consequence is that a part which the registry would reject — a duplicate
- * id, a file named after the wrong vehicle — is caught by the review sheet and
- * not by this. Both checks are needed and neither subsumes the other.
+ * id, a file named after the wrong vehicle — is caught by the registry in a browser
+ * and not by this. Both checks are needed and neither subsumes the other.
  *
  * `node scripts/check-traffic.ts`, or `pnpm traffic`.
  */

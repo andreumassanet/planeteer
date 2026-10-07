@@ -38,7 +38,7 @@ import type { Group, Mesh, Monument } from './contract.ts';
  * in life, the long axis laid east-west here, at 0.81 units a metre: the wall's
  * midline is 72 by 52 units. **The vertical is stretched 2.3x**, because the
  * wall is 11 m at its highest and the enclosure 89 m long — at true height it
- * is a kerb on the contact sheet, and the `MAX_ASPECT` cap wants the model at
+ * is a kerb at thumbnail size, and the `MAX_ASPECT` cap wants the model at
  * least half as tall as its plan is wide in any case: 21 units of wall against
  * a 39.9-unit radius, 1.9 where 2 is allowed. The wall's thickness is
  * stretched 1.25x, not 2.3x, so the battered courses still read as a wall

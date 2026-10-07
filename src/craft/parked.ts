@@ -133,7 +133,7 @@ export const OPAQUE_GLASS = tone(PALETTE.slate, 0.72);
  * cabin left out, its wheel and needle with it, and its glass painted
  * `OPAQUE_GLASS` in the craft's own material, so it merges with the rest.
  * What a farm's tile draws (`parkedArrays`), and the countryside kit's own
- * build of the same tractor for its checks and sheets.
+ * build of the same tractor for its checks.
  */
 export function unfurnish(group: THREE.Object3D): THREE.Object3D {
   for (const name of ['cabin', 'steer', 'needle']) {

@@ -1,34 +1,27 @@
 import * as THREE from 'three';
 import { modelsFrom, rigFrom } from './kit.ts';
-import { makeRigged, onPalette, paintModel } from './models.ts';
-import type { Model, Paint, Rig, Rigged } from './models.ts';
+import type { Model, Rig } from './models.ts';
 
 /**
  * The space kit at runtime: what `scripts/build-space.ts` wrote under
  * `models/space/`, read back for the other worlds and the title screen.
  *
- * Six static files, each one GLB of many models, loaded whole and only when a
+ * Five static files, each one GLB of many models, loaded whole and only when a
  * caller asks for that group — `buildings` (the colony), `craft` (rovers and
- * ships), `props` (rocks, crystals, clutter), `flora` (alien plants),
- * `planets` (the eleven little worlds for a window) and `interior` (a ship's
- * bridge) — and one file a creature, with its skeleton and the clips it
+ * ships), `props` (rocks, crystals, clutter), `flora` (alien plants) and
+ * `interior` (a ship's bridge) — and one file a creature, with its skeleton and the clips it
  * plays. `manifest.json` lists every model with its group, triangles, size in
  * the pack's units, tags and clips, so a caller can choose before fetching.
  *
  * **Nothing here is in Earth's first load.** Import it with `import()` from
  * the worlds or the title screen; it pulls `kit.ts` and `models.ts` with it,
- * which are already deferred chunks.
- *
- * Colours: every slot keeps the pack's own colour as its default, and
- * `spacePaint` brings it onto the world's palette (`onPalette`), the same
- * nearest-in-CIELAB rule the Earth's kit uses. Pass `'pack'` to keep the
- * pack's colours, or a `Paint` of your own.
+ * which are already deferred chunks. Every slot keeps the pack's own colour;
+ * the caller paints it.
  */
 
 const BASE = `${import.meta.env?.BASE_URL ?? '/'}models/space/`;
 
-export type SpaceGroup = 'buildings' | 'craft' | 'props' | 'flora' | 'planets' | 'interior';
-export const SPACE_GROUPS: readonly SpaceGroup[] = ['buildings', 'craft', 'props', 'flora', 'planets', 'interior'];
+export type SpaceGroup = 'buildings' | 'craft' | 'props' | 'flora' | 'interior';
 
 /** How a creature moves: the crew are astronauts, the rest are the aliens. */
 export type CreatureKind = 'crew' | 'walker' | 'blob' | 'flyer';
@@ -154,7 +147,7 @@ const creatures = new Map<string, Promise<SpaceCreature>>();
 
 /**
  * A creature by id, fetched once and shared. The rig's body takes `material`
- * the first time it is asked for; copies made by `spawnCreature` share it.
+ * the first time it is asked for.
  */
 export function loadCreature(id: string, material: THREE.Material): Promise<SpaceCreature> {
   let pending = creatures.get(id);
@@ -168,57 +161,4 @@ export function loadCreature(id: string, material: THREE.Material): Promise<Spac
     creatures.set(id, pending);
   }
   return pending;
-}
-
-/** The creatures in the manifest, optionally of one kind (`'crew'` for the astronauts). */
-export async function creatureIds(kind?: CreatureKind): Promise<string[]> {
-  const entries = await loadSpaceManifest();
-  return entries.filter((entry) => entry.group === 'creatures' && (kind === undefined || entry.kind === kind)).map((entry) => entry.id);
-}
-
-/** `'palette'` is the world's palette, `'pack'` the pack's own colours. */
-export type SpacePaintMode = 'palette' | 'pack' | Paint;
-
-export function spacePaint(mode: SpacePaintMode = 'palette'): Paint {
-  if (typeof mode === 'function') return mode;
-  if (mode === 'pack') return () => null;
-  return (_slot, original) => onPalette(original);
-}
-
-/** A painted geometry of a static piece, for the world's vertex-coloured toon material (`modelMaterial`). */
-export function paintSpacePiece(piece: SpacePiece, mode: SpacePaintMode = 'palette'): THREE.BufferGeometry {
-  return paintModel(piece.model, spacePaint(mode));
-}
-
-/** A painted, independently animated copy of a creature, its mixer and one action a clip. */
-export function spawnCreature(creature: SpaceCreature, mode: SpacePaintMode = 'palette'): Rigged {
-  return makeRigged(creature.rig, spacePaint(mode));
-}
-
-export interface SpaceKit {
-  pieces: Map<SpaceGroup, Map<string, SpacePiece>>;
-  creatures: Map<string, SpaceCreature>;
-  manifest: SpaceEntry[];
-}
-
-/**
- * Several groups and creatures at once, for a caller that wants a scene's
- * worth: `loadSpaceKit({ groups: ['interior', 'planets'], creatures: await creatureIds('crew') }, material)`.
- */
-export async function loadSpaceKit(
-  want: { groups?: readonly SpaceGroup[]; creatures?: readonly string[] },
-  material: THREE.Material,
-): Promise<SpaceKit> {
-  const entries = await loadSpaceManifest();
-  const groupList = want.groups ?? [];
-  const creatureList = want.creatures ?? [];
-  const [loadedGroups, loadedCreatures] = await Promise.all([
-    Promise.all(groupList.map((group) => loadSpaceGroup(group))),
-    Promise.all(creatureList.map((id) => loadCreature(id, material))),
-  ]);
-  return {
-    pieces: new Map(groupList.map((group, i) => [group, loadedGroups[i]!])),
-    creatures: new Map(creatureList.map((id, i) => [id, loadedCreatures[i]!])),
-    manifest: entries,
-  };
 }

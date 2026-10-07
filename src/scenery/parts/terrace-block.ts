@@ -6,7 +6,7 @@ import type { ScenicPart } from '../contract.ts';
  *
  * The part that makes a *town* rather than a village. Four to seven storeys, a
  * shopfront on the ground floor in a different colour, a mansard or a cornice on
- * top, and two chimney pots. Stand six of these in a row on the sheet and the
+ * top, and two chimney pots. Stand six of these in a row and the
  * street is there; stand six gabled houses in a row and it is still a hamlet.
  *
  * **The ground floor is half the trick.** A five-storey box in one colour is a

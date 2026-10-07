@@ -992,7 +992,7 @@ console.log('\nthe silhouettes — the one thing no table can check');
  * A side elevation, rasterised in world units and drawn in characters.
  *
  * In world units and not normalised into its own box, which is the traffic
- * sheet's finding: *scaled into its own box a bicycle and a four-wheel-drive
+ * kit's finding: *scaled into its own box a bicycle and a four-wheel-drive
  * came out 0.889 alike.* Here the point is different — this is for a person to
  * look at, not for a number — but the reason is the same. A sheep should print
  * smaller than a camel.

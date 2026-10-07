@@ -14,7 +14,7 @@ import { shadeByClouds } from '../cloud-shade.ts';
  * Wednesday are lit and inked identically.
  *
  * Everything else — tiers, footprints, budgets — is enforced mechanically by
- * `validate` below, and shown per monument on the contact sheet.
+ * `validate` below.
  */
 
 const TAU = Math.PI * 2;
@@ -105,8 +105,7 @@ export const MAX_FOOTPRINT = Math.max(...Object.values(TIERS).map((tier) => tier
  * version of it that could. The first Christ the Redeemer here was a post with a
  * crossbar: 236 triangles of a 3,600 budget, and it passed this check with room
  * to spare because a cross fills a box perfectly. Nothing in `validate` can tell
- * you a model is too bare. That judgement is the contact sheet's thumbnail, and
- * it is the reason the contact sheet exists.
+ * you a model is too bare. That judgement is made by eye, at thumbnail size.
  */
 const FILL = 0.6;
 
@@ -276,7 +275,7 @@ export interface MonumentContext {
    * 0.5 to 1.5). The result is a colour `toon` accepts, and `measure` counts it
    * under its *base* colour — tones of one colour are one colour for the
    * budget, because a merged town or tile carries them as vertex bytes for
-   * free and only a monument on the contact sheet pays a material for one.
+   * free and only a monument drawn on its own pays a material for one.
    *
    * This is what a cone needs to read as a tree: three cones in three tones of
    * one green is a conifer, and three cones in one green is a stack of cones.
@@ -376,8 +375,8 @@ const PALETTE_NAMES = new Map<number, string>(
 
 /**
  * Every tone ever made, derived colour -> its palette base, and the factor it
- * was made with. Module-level rather than per context so that a tone made on
- * the review sheet is the same number the world makes, and so `measure` can
+ * was made with. Module-level rather than per context so that a tone made
+ * anywhere is the same number the world makes, and so `measure` can
  * fold it back onto its base without being handed the context.
  */
 const TONE_BASE = new Map<number, number>();
@@ -633,7 +632,7 @@ export interface Measurements {
   colors: number[];
 }
 
-/** Walks a built group once and returns everything both the validator and the contact sheet need. */
+/** Walks a built group once and returns everything the validator needs. */
 export function measure(group: THREE.Group): Measurements {
   group.updateMatrixWorld(true);
   const toLocal = group.matrixWorld.clone().invert();
@@ -704,9 +703,9 @@ const round = (value: number): string => value.toFixed(1);
  * Everything wrong with a monument, in plain English. Empty means it is fine.
  *
  * The one invariant this cannot check is **facing +Z**: no amount of geometry
- * tells you which way a building's front is. That is what the contact sheet's
- * fixed front camera is for — it is the only check done by eye, and it is the
- * only one that has to be.
+ * tells you which way a building's front is. That is checked by eye from the
+ * front — it is the only check done by eye, and it is the only one that has to
+ * be.
  */
 export function validate(monument: Monument, group: THREE.Group): string[] {
   const problems: string[] = [];
@@ -837,8 +836,8 @@ export function validate(monument: Monument, group: THREE.Group): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Two faults that build, typecheck, pass `validate`, and are invisible on the
- * contact sheet unless you happen to spin it.
+ * Two faults that build, typecheck, pass `validate`, and are invisible from a
+ * fixed view unless you happen to spin the model.
  *
  * - **`buried`** — a part sealed inside another part. Charles Bridge's ten piers
  *   were scaled in the axes they would have had *after* their `rotation.y`, but
@@ -850,13 +849,13 @@ export function validate(monument: Monument, group: THREE.Group): string[] {
  *   tree clumps sat over the void, because the rims they were placed on are
  *   yawed planks whose edges do not run along `z`. The probe this uses was
  *   written for it, and the reason nobody saw it is short: invisible from both
- *   fixed views, obvious the moment the sheet spins.
+ *   fixed views, obvious the moment the model spins.
  *
  * The causes do not generalise. The symptoms do, so the symptoms are what get
  * measured, and between them they cover the family: a part buried in a wall, a
  * detail swallowed by its own plinth, a duplicated block, a clump in mid-air.
  *
- * **Both are warnings on the contact sheet and neither is in `validate`**, which
+ * **Both are warnings and neither is in `validate`**, which
  * is a deliberate line and worth defending. Everything `validate` checks is a
  * *fact* — the base is at y = 0 or it is not, the material came from `ctx.toon`
  * or it did not — and `buildMonument` throws on it, so a failure never reaches
@@ -1067,7 +1066,7 @@ export function findFlaws(group: THREE.Group): Flaw[] {
 
     // --- floating ---
     // Joined to the model at no point at all. See the note on `findUnsupported`
-    // for why this, and not "nothing under its base", is what the sheet shows.
+    // for why this, and not "nothing under its base", is what gets flagged.
     if (inner.base < ON_THE_GROUND) continue;
     const reach = inner.box.clone().expandByScalar(TOUCHING);
     if (parts.some((other) => other !== inner && reach.intersectsBox(other.box))) continue;
@@ -1084,18 +1083,18 @@ export function findFlaws(group: THREE.Group): Flaw[] {
 
 /**
  * Parts with nothing directly beneath their base — **an author's tool for their
- * own file, deliberately not on the contact sheet.**
+ * own file, deliberately not a general warning.**
  *
  * This is the probe written for Niagara Falls, taken rather than rewritten. It
  * works by dropping a point below each base corner and asking whether any other
  * part's *oriented* box contains it; oriented is the whole trick, because the
  * rims its tree clumps sat on are yawed planks and against an axis-aligned box
  * every one of them looked supported. It found three clumps over the void that
- * were invisible from both fixed views and obvious the moment the sheet spins,
+ * were invisible from both fixed views and obvious the moment the model spins,
  * and after the fix it reported nothing but the pieces meant to hang.
  *
  * It is exactly right in the hands of someone who knows which of their own parts
- * are supposed to float, and useless as a sheet-wide warning. Measured across
+ * are supposed to float, and useless as a warning on every monument. Measured across
  * the 64 monuments: **249 parts in 31 of them**, and the sample is Arc de
  * Triomphe's relief panels, Alhambra's window mullions, Abu Simbel's carved
  * plaques — detail glued to the *side* of a wall, which has nothing under it and
@@ -1105,8 +1104,8 @@ export function findFlaws(group: THREE.Group): Flaw[] {
  * to have nothing under any of it still leaves 249 parts, and requiring it to be
  * a partial overhang still leaves 225 in 36 monuments.
  *
- * So the sheet shows the strict version — a part joined to the model at no point
- * at all, 6 parts in 3 monuments — and this stays here for the author who is
+ * So `findFlaws` reports the strict version — a part joined to the model at no
+ * point at all, 6 parts in 3 monuments — and this stays here for the author who is
  * looking at one file and can tell a mistake from a plume.
  */
 export function findUnsupported(group: THREE.Group): Flaw[] {
@@ -1146,7 +1145,7 @@ export function findUnsupported(group: THREE.Group): Flaw[] {
   return found;
 }
 
-/** The palette name of a colour, for the contact sheet's caption. */
+/** The palette name of a colour, for a caption. */
 export function paletteName(color: number): string {
   const base = TONE_BASE.get(color);
   if (base !== undefined) return `${paletteName(base)}×${TONE_FACTOR.get(color)}`;

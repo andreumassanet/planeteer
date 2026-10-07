@@ -17,7 +17,7 @@ import { PROUD } from './contract.ts';
  * Four things have to survive when the card is 260 pixels wide:
  *
  * 1. **A level white wall standing straight out of the water**, whose top is
- *    **sawn into teeth**. The serration is the read. Nothing else on this sheet
+ *    **sawn into teeth**. The serration is the read. No other monument
  *    is a long white mass with a jagged top standing in water, and a smooth one
  *    of the same silhouette is a **dam**.
  * 2. **Vertical fracture down its face**, so the wall is made of ice and not of
@@ -35,7 +35,7 @@ import { PROUD } from './contract.ts';
  * four rebuilds to get out of it. All four failures are worth recording, because
  * every one of them looked correct on paper.
  *
- * **1. `skyBlue` is the background.** The contact sheet clears to `SKY_TOP`
+ * **1. `skyBlue` is the background.** The sky behind it is `SKY_TOP`
  * (0x6fc9d8) and the palette's `skyBlue` is 0x3dbbe7; lit by this rig they land
  * within a few points of each other. So a *narrow* `skyBlue` shape with ink
  * around it does not read as a surface — it reads as a **hole in the model with
@@ -96,7 +96,7 @@ import { PROUD } from './contract.ts';
  * of them a lit flat roof with pinnacles standing on it.
  *
  * The arithmetic is worth carrying to any monument that has something behind
- * something. The sheet's quarter camera sits 13.4 degrees up, so a level surface
+ * something. The quarter camera sits 13.4 degrees up, so a level surface
  * hides everything behind it that does not rise 0.238 per unit of depth — and
  * the ray that grazes a wall leaves from its **front** top corner, not its back
  * one, so the top course's own depth is charged first. A twelve-unit course
@@ -125,7 +125,7 @@ import { PROUD } from './contract.ts';
  *   proud shows 0.6 units of its own side face, and a face pointing +X is a full
  *   band darker on the toon ramp than one pointing +Z.
  * - **Yaw.** The front view has no side faces, so the ribs are twisted instead —
- *   Victoria Falls' finding, applied to ice. With the sheet's sun at
+ *   Victoria Falls' finding, applied to ice. With the sun at
  *   (-0.8, 1.25, 0.75) a face turned more than 5.7 degrees toward -X crosses
  *   `dotNL = 0.5`, which is where the four-step ramp changes texel; yaw runs to
  *   +/-0.3 rad, so two ribs in five come out a band brighter than their
@@ -197,7 +197,7 @@ import { PROUD } from './contract.ts';
  * like — twice, once as a single slab and once as an L. It is five reaches now,
  * closing to 12 units against the headland and opening to 33 in the middle
  * before the far corner turns back to 26: the Canal de los Témpanos, with the
- * sheet's own green ground left showing along the near-left shore, which is
+ * green ground left showing along the near-left shore, which is
  * where the walkways are. Three extra meshes, no extra colour, and the dark shape
  * stops being a base and becomes water with a far side.
  *
@@ -244,7 +244,7 @@ import { PROUD } from './contract.ts';
  * the unit a true freeboard is 0.2 to 0.5 units, which on a 260-pixel card is a
  * third of a pixel and simply is not drawn. So the bergs take the same 4.4x as
  * everything else — freeboard 0.6 to 2.1 units against 3.5 to 8 of beam, about
- * four to one — and that is the flattest thing the sheet can actually show. What
+ * four to one — and that is the flattest thing a thumbnail can actually show. What
  * they still carry is the *plan*: 3.5 to 8 units of beam is 35 to 80 m at true
  * scale, a size the eye already knows, and eleven of them scattered along 850 m
  * of face is what tells you the face is 850 m long. That is the whole of what
@@ -404,7 +404,7 @@ const BRASH: ReadonlyArray<{ x0: number; x1: number; out0: number; out1: number;
  * the corner is a bay with a far side. The last two reaches are what they are
  * because of the footprint: at x = 47 a circle of radius 54 leaves only 26 units
  * of z, and the water still has to reach the far end of the ice arm — a berg
- * beached on the sheet's green ground is a worse failure than a shoreline that
+ * beached on the green ground is a worse failure than a shoreline that
  * turns.
  */
 const LAKE: ReadonlyArray<{ x0: number; x1: number; shore: number }> = [
@@ -420,13 +420,13 @@ const LAKE: ReadonlyArray<{ x0: number; x1: number; shore: number }> = [
  * 80 m of beam, which is what gives the wall its size — and `h` takes the model's
  * 4.4x vertical stretch like everything else, because a true freeboard would be
  * 0.2 to 0.5 units and is not drawable on a card. See the scale note: this is the
- * one place the stretch is visibly paid, and four to one is the flattest raft the
- * sheet can show.
+ * one place the stretch is visibly paid, and four to one is the flattest raft a
+ * thumbnail can show.
  *
  * `cap` puts a small tilted block on one: two of eleven, because a berg that has
  * rolled since it calved has a peak and the rest are rafts. Every one of them is
  * clear of the bowed face and inside its reach of the channel, which is what
- * stops a berg from being beached on the sheet's green ground.
+ * stops a berg from being beached on the green ground.
  */
 const BERGS: ReadonlyArray<{
   x: number;
@@ -599,7 +599,7 @@ export const peritoMoreno: Monument = {
     };
 
     // --- the lake -------------------------------------------------------------
-    // A channel, not a rectangle: see LAKE. The sheet's green ground is left
+    // A channel, not a rectangle: see LAKE. The green ground is left
     // showing past the near shore on the left, where the headland comes down to
     // meet it — that is the ground the walkways are on.
     // The water stops `PROUD` inside the model's west and east ends, and the

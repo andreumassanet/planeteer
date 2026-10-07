@@ -38,7 +38,7 @@
  * `AVATAR_HIP` in y. Seated, `sit` puts the cast's own hips at `FIGURE.hipY`
  * over the group's origin, so the hip lands on the seat surface; standing, the
  * soles are at the group's origin, so they land on the floor `AVATAR_HIP`
- * under the seat point. `bodyFrame` below is that rule, and the sheet uses it.
+ * under the seat point.
  */
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { FIGURE } from '../avatar.ts';
@@ -139,11 +139,6 @@ export const AVATAR_HIP = FIGURE.hipY;
  * and two ink outlines meet and read as one wide person.
  */
 export const ABREAST = 2 * HERO.half * 1.2;
-
-/** Where the avatar's group goes for a seat, in the model's frame. */
-export function bodyFrame(seat: Seat): { x: number; y: number; z: number; yaw: number } {
-  return { x: seat.x, y: seat.y - AVATAR_HIP, z: seat.z, yaw: seat.yaw };
-}
 
 /**
  * The boxes a body on this seat fills, in the model's frame, for the checks:

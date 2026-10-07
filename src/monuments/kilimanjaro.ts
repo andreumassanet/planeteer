@@ -29,7 +29,7 @@ import type { Group, Monument, Object3D } from './contract.ts';
  *   it no longer does: 85% of it has gone in a century, so four plates hold the
  *   west and south and one patch is left stranded in the east.
  * - **The flanks change colour twice on the way up.** This is the mountain you
- *   climb through five climates, and nothing else on the sheet has that: dark
+ *   climb through five climates, and no other monument has that: dark
  *   rainforest, pale moorland, bare alpine rock. `FOREST` and `MOOR` are
  *   `PROFILE` heights, so the zones are a change of material and not a decal,
  *   and the tongues are the forest climbing the gullies, which is what keeps
@@ -64,7 +64,7 @@ import type { Group, Monument, Object3D } from './contract.ts';
  * mountain by 2,119 m and the *shorter* model, because the only way a
  * 110-unit-wide silhouette can say "broad" is by being low. 110 x 48 is 2.29
  * wide-to-tall against Fuji's 1.64, 40% flatter, and that difference is the
- * difference between the two mountains, side by side on one contact sheet.
+ * difference between the two mountains, side by side.
  *
  * **Vertical exaggeration: 5.2x, and nothing is cropped.** The massif runs about
  * 60 km east-west by 40 north-south and rises 4,995 m off its plateau: a real

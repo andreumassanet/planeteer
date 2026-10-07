@@ -21,7 +21,7 @@
  * here.** `import.meta.glob` is a Vite transform and does not exist in Node, so
  * the bodies are read off disk and imported by path. The consequence is that a
  * fault the registry would catch — two files exporting the same body — is
- * caught by `registryProblems()` in a browser and not by this. Both are needed.
+ * caught by `REGISTRY_PROBLEMS` in a browser and not by this. Both are needed.
  *
  * `node scripts/check-system.ts`, or `pnpm system`.
  */
@@ -1567,8 +1567,7 @@ for (const part of decorations) {
 }
 
 // Every part must be reachable from some biome, and every biome's named parts
-// must exist. Same pair the scenery sheet's orphan banner checks, and it had to
-// ask *both* tables the day `biome.ts` became a second placer.
+// must exist. It had to ask *both* tables the day `biome.ts` became a second placer.
 {
   const claimed = new Set<string>();
   const known = new Set(decorations.map((p) => p.id));

@@ -8,9 +8,9 @@
  *
  * What it holds a part to, beyond `validatePart`:
  *
- * - **The seed has to do something.** `reviewPart` on the sheet flags a part
- *   whose six variants collapse onto three silhouettes, and so does this — per
- *   region, because a part can be varied in Norway and a rubber stamp in Mali.
+ * - **The seed has to do something.** A part whose six variants collapse onto
+ *   three silhouettes is flagged — per region, because a part can be varied in
+ *   Norway and a rubber stamp in Mali.
  * - **Determinism, byte for byte.** Same seed, two builds, one fingerprint of
  *   every vertex and every colour. A silhouette raster cannot see a stray
  *   `Math.random()` that moves a lobe a tenth of a unit; this can.
@@ -31,7 +31,7 @@
  *   `fightsIn`.
  * - **The tables agree with the files.** Every id a region or a biome names
  *   exists, and every part that is not a person is named by one of them —
- *   otherwise a review sheet that asks the tables asks only half the world.
+ *   otherwise anything that asks the tables asks only half the world.
  *
  * The registry cannot be used here: `import.meta.glob` is a Vite transform and
  * does not exist in Node, so the parts are read off disk and imported by path.
@@ -282,7 +282,7 @@ for (const part of parts) {
       const variety = varietyOf(measurements);
       w.shapes = Math.min(w.shapes, variety.shapes);
       w.palettes = Math.min(w.palettes, variety.palettes);
-      // The sheet's rule, per region: half the variants sharing a silhouette
+      // Per region: half the variants sharing a silhouette
       // is a part that is not really parametric.
       if (variety.shapes * 2 <= variety.samples) {
         const problem = `only ${variety.shapes} distinct silhouettes across ${variety.samples} variants in ${style.id}`;

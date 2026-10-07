@@ -10,7 +10,7 @@ import type { Monument } from './contract.ts';
  * mandala you walk — a very broad, very low stone hill whose *plan changes
  * shape as it rises*. Five square galleries at the bottom, three circular
  * terraces above them, and that switch from square to round is the whole
- * argument of the building. Nothing else on the sheet does it.
+ * argument of the building. No other monument does it.
  *
  * Four things have to survive at thumbnail size, and every unit here is spent
  * on one of them:
@@ -83,7 +83,7 @@ import type { Monument } from './contract.ts';
  *   roughly a third of the real building. They were built to scale first and the
  *   whole crown disappeared behind the top square balustrade — five galleries of
  *   busy horizontal banding will always beat a low disc. The exaggeration buys
- *   the one silhouette nothing else on the sheet has.
+ *   the one silhouette no other monument has.
  *
  * **No `realHeight`, and it is not an omission.** The source list asserts none
  * and it is right not to: the figure depends on whether you count the encased
@@ -234,7 +234,7 @@ export const borobudur: Monument = {
   build(ctx) {
     const { THREE, palette, box, column, taper, strut, ringWall, around } = ctx;
     // Andesite, and cool on purpose: the Castillo is sand, tan and clay, and two
-    // warm stepped pyramids on one sheet are one card printed twice. The three
+    // warm stepped pyramids side by side are one model printed twice. The three
     // greys also do the model's zoning, which matters more than the hue: `band`
     // stripes the square base, `course` belongs to the round crown and to
     // nothing below it, and `stone` is the one thing common to both.

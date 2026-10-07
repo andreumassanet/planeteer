@@ -30,11 +30,11 @@ import { PROUD } from './contract.ts';
  * lie across a river.
  *
  * **Not Big Ben.** They are three miles apart, both Victorian Gothic, both pale
- * stone with pinnacles, and on the same contact sheet, so the differences are
+ * stone with pinnacles, and both in the world, so the differences are
  * deliberate:
  *
  * - **Two towers, not one**, joined at the top. The paired silhouette is the
- *   whole read; nothing else on the sheet has it.
+ *   whole read; no other monument has it.
  * - **Stocky, not slender.** 4:1 against Big Ben's 6.4:1, and the corner
  *   turrets are round shafts standing proud of a square mass rather than flush
  *   piers, so the plan reads as a castle keep and not a chimney.
@@ -58,7 +58,7 @@ import { PROUD } from './contract.ts';
  *   opens* at 2 pixels per unit; the seam is what says it opens *there*.
  * - The **chains**: straight girder segments with a slight upward camber, not a
  *   catenary. That is true to the bridge and it is also the fastest way to tell
- *   it apart from the Golden Gate's parabola three cells away on the sheet.
+ *   it apart from the Golden Gate's parabola.
  *
  * **Traded away.** The roadway does not pass between real tower legs — at this
  * width the legs come out 2 units thick or the deck 5 wide, and neither
@@ -128,7 +128,7 @@ const ABUT_CAP_TOP = 20.5;
  *
  * Straight segments with about 0.6 units of upward camber at the joints — Tower
  * Bridge's chains are stiff girders in tension, not hanging rope, and they bow
- * the opposite way to every cable-stayed thing on the sheet.
+ * the opposite way to every cable-stayed thing among the monuments.
  */
 const CHAIN = [
   { x: 31, y: 30 },

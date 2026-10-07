@@ -36,16 +36,10 @@ export interface WorldKit {
 let kit: WorldKit | null = null;
 const listeners = new Set<(kit: WorldKit) => void>();
 const asked = new Set<string>();
-let failed = false;
 
 /** The kit as far as it has arrived, or null before anything has. */
 export function worldKit(): WorldKit | null {
   return kit;
-}
-
-/** Whether a load was tried and failed: the code-built stand-ins are then for good. */
-export function worldKitFailed(): boolean {
-  return failed;
 }
 
 /**
@@ -106,7 +100,6 @@ export async function prepareWorldKit(spec: WorldSpec): Promise<WorldKit | null>
     for (const group of loadedGroups) for (const [id, piece] of group) pieces.set(id, piece);
     merge({ pieces, creatures: new Map(wantCreatures.map((id, i) => [id, loadedCreatures[i]!])) });
   } catch (error) {
-    failed = true;
     console.warn('worlds: the space kit did not load; the towns and craft are built in code', error);
   }
   return kit;

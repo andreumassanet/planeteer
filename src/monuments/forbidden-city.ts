@@ -68,7 +68,7 @@ import type { Monument } from './contract.ts';
  *
  * - **The Meridian Gate is behind the hall, not in front of it.** On the ground
  *   it is *south* of Taihedian; you walk in through it. Here it stands at -Z. A
- *   monument faces +Z and that is the face the contact sheet and every approach
+ *   monument faces +Z and that is the face the front camera and every approach
  *   judge, and a 13-unit gate wall standing between the camera and the terrace
  *   hides the terrace, its balustrades and its stairs — a third of the read, and
  *   the third that is hardest to get back. Reversed, the gate does what it does

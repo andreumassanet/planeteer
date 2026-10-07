@@ -221,7 +221,7 @@ const DEEP_FACE = 3;
  * The dark plane behind the carving: what the notch between two heads, the shadow
  * under a chin and the gap beside a wig all show. One tone darker than the rock,
  * so a gap reads as depth and never as sky. Kept narrow and close so it does not
- * swing out past the cliff's own edge when the sheet turns the model.
+ * swing out past the cliff's own edge when the model is turned.
  */
 const BACKDROP: readonly [number, number, number, number] = [-36, 36, 40, 94];
 

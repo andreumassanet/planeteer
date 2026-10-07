@@ -5,7 +5,7 @@ import type { Monument } from './contract.ts';
  *
  * The tower is not the hard part of this file. The Eiffel Tower is. Tokyo Tower
  * is an avowed copy of it — square plan, four legs, riveted lattice, thirteen
- * metres taller — and on one contact sheet two brown lattice pylons would read
+ * metres taller — and side by side two brown lattice pylons would read
  * as the same monument printed twice. Everything below is built for the
  * difference that survives at thumbnail size, and every one of them is a
  * difference the real towers have:

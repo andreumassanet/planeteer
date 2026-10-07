@@ -760,8 +760,8 @@ function farTurn(open: boolean, who: string | undefined): boolean {
 }
 
 /**
- * Once a frame, before the first streamer. Without it — a headless check, a
- * review sheet — there is no frame allowance and each streamer is held by
+ * Once a frame, before the first streamer. Without it — a headless check —
+ * there is no frame allowance and each streamer is held by
  * its own slice alone, which is what they did before this existed.
  */
 export function beginFrameBuild(): void {
@@ -781,7 +781,8 @@ export function beginFrameBuild(): void {
 /**
  * Once a frame, after the last streamer: what the frame's building cost,
  * which is what the next frame's far allowance is charged with. A caller that
- * never ends a frame — another world's loop, a sheet — carries no debt.
+ * never ends a frame — another world's loop, a headless check —
+ * carries no debt.
  */
 export function endFrameBuild(): void {
   if (frameBegan >= 0) lastSpan = performance.now() - frameBegan;

@@ -659,9 +659,6 @@ const PITS: readonly { x: number; y: number; z: number; inner: number; outer: nu
   return { x: scratch[0]!, y: scratch[1]!, z: scratch[2]!, inner: 6, outer: 26, depth: 20, edge: Math.cos(30 / SURFACE_RADIUS) };
 });
 
-/** Where the skylights are, for the towns that stand beside them. */
-export const SKYLIGHTS = { marius: { lat: 14.09, lon: -56.81 }, tranquillitatis: { lat: 8.335, lon: 33.222 }, ingenii: { lat: -35.95, lon: 166.06 } } as const;
-
 const skylights: Feature = (dir) => {
   let h = 0;
   for (const p of PITS) {

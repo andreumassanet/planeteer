@@ -81,7 +81,7 @@ import type { Monument } from './contract.ts';
  * strictly the entrance front is the narrow one. It faces +X here instead, and
  * the long 129.5 m elevation faces +Z, because **every setback is on this axis**:
  * seen down the short face the building is a slab that narrows slightly, and
- * seen down the long face it is the wedding cake. The contact sheet's fixed
+ * seen down the long face it is the wedding cake. The fixed
  * front camera should get the silhouette that names the thing. A 34th Street
  * doorway is modelled at the centre of the front so the view has a marked front
  * and a sense of scale.
@@ -263,7 +263,7 @@ export const empireState: Monument = {
 
     // Four strips a face, so the front reads corner pier / slot / pier / slot /
     // wide centre pier / slot / pier / slot / corner pier. Nine bands on a
-    // 12.3-unit face is about 4 pixels each in a monument-sheet cell, which is
+    // 12.3-unit face is about 4 pixels each in a thumbnail, which is
     // the floor: three strips would be a fence, five would be grey.
     // They stop `PROUD` under the shaft's top: level with it, the dark strips'
     // tops and the stone's shared a plane round the crown's foot and flickered.

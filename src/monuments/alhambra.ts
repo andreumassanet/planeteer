@@ -12,7 +12,7 @@ import type { Monument, Mesh } from './contract.ts';
  * muqarnas. It is also a *room*: a rectangle of open sky in the middle of a
  * roofed block, invisible from anywhere except standing inside it. A monument in
  * this world is a solid seen from outside, from a long way off, usually from
- * below, and often at 260 pixels on a contact sheet. Model the Court of the
+ * below, and often at 260 pixels. Model the Court of the
  * Lions and what a player walks up to is the outside of the block containing it,
  * which is a plain wall — the monument would be a beautiful thing you can never
  * see. Worse, the courtyard's entire read is *fine detail*: colonnettes 20 cm
@@ -94,7 +94,7 @@ import type { Monument, Mesh } from './contract.ts';
  * The crenellation is the one thing knowingly drawn oversize — 1.7 units of
  * merlon on a 2.7 pitch, so at the building scale 2.7 m of tooth every 4.3 m
  * against a real 1 to 1.5 m every 2. Half as many teeth, twice the size: on the
- * contact sheet's 260-pixel cell that is four pixels of merlon and two and a
+ * 260-pixel thumbnail that is four pixels of merlon and two and a
  * half of gap, and anything nearer life smears the whole parapet grey.
  *
  * **Why `building`.** The tier question is how far off you should be able to
@@ -117,8 +117,8 @@ import type { Monument, Mesh } from './contract.ts';
  * outcrop looks like and both are neutrals — the hemisphere light's sky colour
  * is blue, so a neutral in shadow here goes cold, and a cold-grey shelf under a
  * red wall reads as a concrete plinth. `brown` fixed the temperature and lost
- * the contrast: against `clay` it sits about one cel band away, so on the
- * contact sheet the ridge merged into the foot of the wall and the stepped
+ * the contrast: against `clay` it sits about one cel band away, so at
+ * thumbnail size the ridge merged into the foot of the wall and the stepped
  * ground stopped existing. `darkOlive` is warm *and* several steps darker, which
  * is what the wooded scarp under the Alhambra looks like from Granada anyway,
  * and it is dark enough that the `green` cypresses in front of it stop
@@ -279,7 +279,7 @@ const CURTAINS: Curtain[] = [
 /**
  * Merlon pitch, width and height.
  *
- * At the contact sheet's 260-pixel cell a 94-unit model gets about 2.7 pixels
+ * In a 260-pixel thumbnail a 94-unit model gets about 2.7 pixels
  * per unit, so a merlon is four pixels of tooth and a gap is two and a half.
  * That is the smallest a crenellation can be and still read as one; halving the
  * pitch to something nearer life turns the whole parapet into a grey smear, and

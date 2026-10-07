@@ -50,7 +50,7 @@ import { PROUD } from './contract.ts';
  * `MAX_ASPECT` of 4. That is why the gate is as tall as it is: shorter and the
  * whole composition is too flat to build.
  *
- * The court's depth is set by the camera. The sheet looks from about 13 degrees
+ * The court's depth is set by the camera. The camera looks from about 13 degrees
  * up, so a rim of height h hides about 4h behind it; the pit's front wall is
  * 1.7 high and the back wall is 10 units behind it, so the heads on the back
  * wall are seen whole, and the stair gap in the front wall shows them to a

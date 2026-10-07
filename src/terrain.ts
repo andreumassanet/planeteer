@@ -1,5 +1,4 @@
 import type { LandRing } from './geo.ts';
-import { MAX_FOOTPRINT } from './monuments/contract.ts';
 import { latOf, lonOf, toUnit, unitAt } from './sphere.ts';
 import { landmarkFrame, planExtent, planGap, planReach, planShape } from './landmark-ground.ts';
 import type { Plan, PlanShape } from './landmark-ground.ts';
@@ -1008,23 +1007,6 @@ function shoreFall(
 export const PAD_MARGIN = 20;
 
 /**
- * Radius of the level ground under a monument that declares no footprint.
- *
- * `placement.ts` asks for the ground once, at the centre, and stands the model
- * on it along the radius — not along the terrain's normal — so the ground under
- * the footprint has to be level, and level about *that* sample. That much is
- * forced. What is not forced is how much ground past the model also has to be
- * level, and the answer is: none of it beyond the margin above.
- *
- * It stays exported and it is still one number for a site that does not say,
- * but `FlattenSite.footprint` is read when it is there, and a fifth of the
- * models are nowhere near the cap: Big Ben declares 10 and the Space Needle
- * 11.3, so today they stand in the middle of 150 units of level ground for a
- * model 20 across. That is the shelf you can see from the air.
- */
-export const FLATTEN_RADIUS = MAX_FOOTPRINT + PAD_MARGIN;
-
-/**
  * How far the skirt takes to reach its full slope, in world units.
  *
  * The pad ends in a break of slope, not a fillet, because that is what a cut
@@ -1431,12 +1413,6 @@ function buildValleys(): void {
     }
   }
   valleyGrid = grid;
-}
-
-/** How many towns opened a valley, for `pnpm check` and the console. */
-export function valleyCount(): number {
-  if (!queried) beginQueries();
-  return valleyRadius?.length ?? 0;
 }
 
 /**

@@ -51,8 +51,8 @@ import { PROUD } from './contract.ts';
  * Pyramids, which stand 400 m away and are 33.6 units tall in their own file.
  *
  * **Aspect: the vertical is exaggerated 1.4x.** The Sphinx is 73 m long and
- * 20 m tall, so 3.65:1 — inside `MAX_ASPECT` on paper, and a dash on the
- * contact sheet. Modelled at 71 long by 27.1 tall it is 2.6:1, and the extra
+ * 20 m tall, so 3.65:1 — inside `MAX_ASPECT` on paper, and a dash at
+ * thumbnail size. Modelled at 71 long by 27.1 tall it is 2.6:1, and the extra
  * height is spent on the neck and the head, where "held high" lives. The body
  * itself keeps its true lowness — 71 long against a 12.4 back is 5.7:1, flatter
  * than the real animal — because that is the proportion that must not move.
@@ -169,7 +169,7 @@ const HIND_PAW_DEPTH = 5.0;
 /**
  * The tail, curling up the creature's right haunch — which is -X, since facing
  * +Z with +Y up puts its right hand on the negative side. That is the far flank
- * from the contact sheet's quarter view, and it is still the correct one.
+ * from the quarter view, and it is still the correct one.
  */
 const TAIL_THICKNESS = 1.3;
 

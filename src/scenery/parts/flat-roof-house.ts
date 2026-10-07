@@ -78,7 +78,7 @@ export const flatRoofHouse: ScenicPart = {
     // A roof stair and a parapet are built by whoever lives there, so they are
     // the two continuous dimensions on an otherwise wholly discrete building —
     // without them six variants in a two-storey region come out as three
-    // silhouettes, which is `reviewPart` saying the seed did nothing.
+    // silhouettes, which is `pnpm scenery` saying the seed did nothing.
     const parapet = PARAPET * rng.range(0.85, 1.2);
     const stairHeight = STAIR * rng.range(0.85, 1.35);
 

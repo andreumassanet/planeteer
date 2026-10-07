@@ -22,7 +22,7 @@ import { PROUD } from './contract.ts';
  * is what a photograph taken from the esplanade contains anyway.
  *
  * **The minaret is put between the wings rather than behind them, and that is a
- * camera decision.** The contact sheet looks from 13.4 degrees up, so a 17-unit
+ * camera decision.** Seen from 13.4 degrees up, so a 17-unit
  * roof hides a band about 70 deep behind it; a minaret standing at the back of
  * the hall would rise out of nothing with its first twenty units missing. Set in
  * the gap between two wings it is seen full height, from the plinth to the

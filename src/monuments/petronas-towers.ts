@@ -8,7 +8,7 @@ import type { Monument } from './contract.ts';
  * one of them:
  *
  * - **Two towers, identical, standing apart.** The silhouette has a *hole* in
- *   it, and nothing else on the sheet does. Every other tall thing here — Burj
+ *   it, and no other monument does. Every other tall thing here — Burj
  *   Khalifa, the Empire State, Big Ben, Pisa — is one mass narrowing upwards;
  *   this one is a mass, a void as wide as the mass, and the same mass again.
  *   The two are the same model translated, not mirrored, because the real pair
@@ -42,8 +42,8 @@ import type { Monument } from './contract.ts';
  *
  * - **452 m against 443 m.** Petronas and the Empire State are the same
  *   building height to within 2%. Empire State filed `tower` at 70 units. Filing
- *   Petronas at `landmark`'s 120 would say on the contact sheet, in the only
- *   language the sheet speaks, that this is 71% taller than the Empire State.
+ *   Petronas at `landmark`'s 120 would say, in the only language a tier
+ *   speaks, that this is 71% taller than the Empire State.
  *   It is 2% taller.
  * - **The record does not separate them either.** The Empire State was the
  *   tallest building on Earth for forty years, Petronas for six. If four decades
@@ -55,14 +55,14 @@ import type { Monument } from './contract.ts';
  *
  * And the twin costs nothing to give up, because **a pair reads bigger than a
  * single at the same height.** At 70 units this model is 30.3 units wide where
- * the Empire State is 30.6 and the Burj 29 — the same footprint on the sheet —
+ * the Empire State is 30.6 and the Burj 29 — the same footprint —
  * but the mass is split in two with a void down the middle, so it occupies its
- * cell more emphatically than either. `tower` is not a demotion here; it is the
+ * frame more emphatically than either. `tower` is not a demotion here; it is the
  * tier at which the pair still out-reads its neighbours.
  *
  * ## Where this lands against `MAX_ASPECT` — nowhere near it, and that is the point
  *
- * The pair is wider than any single tower on this sheet, so the cap is worth
+ * The pair is wider than any single tower among the monuments, so the cap is worth
  * actually computing rather than assuming. Overall width **30.29 units against
  * 70 tall is an aspect of 0.43**, against a cap of 4: nine times of headroom.
  * The binding constraint is the other one — `tower`'s deliberately tight
@@ -75,7 +75,7 @@ import type { Monument } from './contract.ts';
  * ## Plan stretch: 1.3x, uniformly, so every plan ratio survives
  *
  * At true scale each tower is 46 m wide against 452 m tall, **9.8 : 1** — more
- * slender than anything else on the sheet, and every tall thing here has already
+ * slender than any other monument, and every tall thing here has already
  * been fattened for the same reason (Big Ben 8:1 to 6.4:1, Burj 5.3:1 to 4.4:1,
  * Empire State 1.5x on the plan). **The whole plan is scaled by 1.3 against the
  * height** — towers, gap, bridge span and star geometry together — so the
@@ -88,10 +88,10 @@ import type { Monument } from './contract.ts';
  * five piers being the +Z point, the two 45-degree shoulder points and the two
  * silhouette edges. At true scale that is 7.13 units of face over nine bands,
  * 0.79 units each; `empire-state.ts` puts the floor at about 4 px in a
- * monument-sheet cell and measures ~1.4 units to get there. At 1.3x the bands are
+ * thumbnail and measures ~1.4 units to get there. At 1.3x the bands are
  * 1.03 units. Going further would buy another tenth of a unit and start costing
  * the slenderness, which is the other half of what this building looks like:
- * after the stretch it is still **7.6 : 1**, the most slender thing on the sheet.
+ * after the stretch it is still **7.6 : 1**, the most slender monument there is.
  *
  * ## Traded away, and why
  *
@@ -120,7 +120,7 @@ import type { Monument } from './contract.ts';
  *
  * ## Not the other two towers
  *
- * Three tall towers on one sheet is the risk, so the separations are deliberate
+ * Three tall towers among the monuments is the risk, so the separations are deliberate
  * and none of them is subtle: **two masses instead of one**, a **horizontal**
  * element above the base where neither of the others has anything horizontal at
  * all, a **cool slate curtain wall struck with white piers** where both of the
@@ -220,7 +220,7 @@ export const petronasTowers: Monument = {
 
     // Dark vision glass between the piers. `slate` is the only true mid-grey in
     // the palette and it is deliberately not the `bone` that both of the other
-    // tall towers on this sheet are made of.
+    // tall towers are made of.
     const glass = palette.slate;
     // Stainless steel: the eight points, the bands, the bridge and the mast.
     //

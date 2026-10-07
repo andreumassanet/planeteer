@@ -108,8 +108,8 @@ function checkCraft(model: CraftModel): void {
   for (let variant = 0; variant < model.variants; variant++) {
     const group = model.build(variant);
     const where = `${model.id} #${variant}`;
-    // The box, the frame, the matrices, the attributes and the seats: the
-    // same review the sheet prints.
+    // The box, the frame, the matrices, the attributes and the seats:
+    // `reviewCraft`.
     const review = reviewCraft(model, variant, group);
     first ??= review;
     for (const problem of review.problems) fail(`${where}: ${problem}`);

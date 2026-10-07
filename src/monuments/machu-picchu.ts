@@ -24,8 +24,8 @@ import type { Monument } from './contract.ts';
  *   the only dark mass in it, so it holds the whole silhouette.
  *
  * **Why the horn's foot is 44 units across when its summit is a needle.** The
- * first version was a true sugarloaf, 28 wide, and it failed on the contact
- * sheet: narrower than the 36-unit town in front of it, its flanks never reached
+ * first version was a true sugarloaf, 28 wide, and it failed at thumbnail
+ * size: narrower than the 36-unit town in front of it, its flanks never reached
  * the ground, and what was left above the rooftops read as a pointed hat sitting
  * on the last rank of houses. Spreading the foot wider than the town puts two
  * slopes back on the ground either side of it, and the mountain reads as

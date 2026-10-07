@@ -36,7 +36,7 @@ import { PROUD } from './contract.ts';
  * Nothing in the courtyard can be seen, so nothing is spent there
  * ---------------------------------------------------------------------------
  *
- * The contact sheet's quarter camera is 13.4 degrees up, so a rim of height `h`
+ * The quarter view is from 13.4 degrees up, so a rim of height `h`
  * hides about `4h` of depth behind it. The seaward parapet finishes at 19.4 and
  * the fort is only 39 units deep: **everything behind that wall at wall height
  * is gone.** The courtyard is a real void here and it holds one token chapel,

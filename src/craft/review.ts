@@ -1,8 +1,6 @@
 /**
  * One built craft measured against its own declaration and against the body
- * that rides it: what `pnpm craft` asserts and what `/sheets/craft.html` prints
- * under each cell, from one function, so the page and the check cannot tell
- * two stories about the same seat.
+ * that rides it: what `pnpm craft` asserts, in one function.
  *
  * Importable in Node: three and the craft's own files, nothing that draws.
  */

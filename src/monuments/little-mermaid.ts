@@ -116,7 +116,7 @@ import type { Monument, Vector3 } from './contract.ts';
  *
  * - **The handedness of the pose is arranged for the camera, not surveyed.** She
  *   leans on her left hand, draws up her right knee, and her tail spills to her
- *   left-front. The contact sheet's quarter camera sits 45 degrees off her front
+ *   left-front. The quarter camera sits 45 degrees off her front
  *   on her left, so the planted arm, the hair and the fluke are all on the near
  *   side and the knee swings clear on the far one. Stonehenge's file makes the same
  *   admission about its ruin: a monument has to be nameable before it is
@@ -125,7 +125,7 @@ import type { Monument, Vector3 } from './contract.ts';
  *   next to a 15-unit model would be a fact fighting its own picture. The height
  *   of this monument is not a number anyone means when they talk about it.
  * - **The fluke is the weakest of the four at 260 pixels, and it stays that
- *   way.** Rendered at monument-sheet size it reads as *a fan on the end of the
+ *   way.** Rendered at thumbnail size it reads as *a fan on the end of the
  *   tail* from the quarter view and as an ambiguous green mass from dead front.
  *   Three things were tried and are worth not repeating: hanging it to the
  *   waterline, where it landed on `slate` stones at nearly its own value and
@@ -185,7 +185,7 @@ const STONES = [
  * The group still faces +Z — the front of the *outcrop* is +Z, the tail and the
  * knee both open that way — but a seated figure viewed dead on is a blob with
  * its legs pointing at the camera. At -13 degrees her own facing is 45 degrees
- * off the contact sheet's quarter camera (which sits at +32), which is a proper
+ * off the quarter camera (which sits at +32), which is a proper
  * three-quarter, and 13 degrees off the front camera, which is frontal enough
  * for the +Z check to mean something.
  */
@@ -280,7 +280,7 @@ const NECK_Y = 5.95;
 const HEAD_Y = 6.72;
 /**
  * Turned toward her left — toward the planted hand and toward the camera, so
- * the sheet gets her face and not the back of her skull — and bowed. The bow is
+ * the view gets her face and not the back of her skull — and bowed. The bow is
  * the pose's signature and it is why the crown of the model is her hair and not
  * the top of her head.
  */

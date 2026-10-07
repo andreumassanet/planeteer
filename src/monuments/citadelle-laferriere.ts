@@ -17,7 +17,7 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
  *
  * That inverts the real building — the tallest part of the Citadelle is the
  * governor's quarters at the *back* — and it is the same inversion the Terracotta
- * Army had to make, for the same reason. The contact sheet's camera is 13.4
+ * Army had to make, for the same reason. Seen from 13.4
  * degrees up, so a 35-unit prow hides a band about 147 deep behind it: a keep at
  * the rear would be entirely gone whatever it cost. The prow is what every
  * photograph of the place is of, so the prow gets the height, and the rear

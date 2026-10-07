@@ -30,7 +30,7 @@
  *   The pan-Arab, the pan-African and the pan-Slavic families are what that is.
  *   So there is a de-conflict pass over the adjacency, and it moves the
  *   *smaller* country, because the larger one is the one being read. See
- *   `countryColors`.
+ *   `buildCountryColors`.
  *
  * What it comes to (2026-09-08, over the 232 countries `flag-data.ts` has a
  * spec for): **77 move off their flag's own colour and 155 do not, 8 of the 77
@@ -120,7 +120,7 @@ export function toOklab([r, g, b]: RGB): Oklab {
  * The rounding is not a detail: a nudged colour is only ever shipped as three
  * bytes, so the distance that decides whether the nudge was enough has to be
  * measured on the bytes and not on the float that produced them. Every
- * candidate in `countryColors` goes through here before it is judged.
+ * candidate in `buildCountryColors` goes through here before it is judged.
  */
 export function fromOklab({ L, a, b }: Oklab): RGB {
   const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
@@ -919,13 +919,6 @@ const TOUCH_ORIGIN = 20000;
  */
 const STEP_POINTS = 8000;
 
-/** Runs one of the generators below to the end, for a caller with no budget. */
-function drain<T>(steps: Generator<number, T>): T {
-  let step = steps.next();
-  while (!step.done) step = steps.next();
-  return step.value;
-}
-
 /**
  * What each of the three stages costs, as a share of the table.
  *
@@ -937,25 +930,6 @@ function drain<T>(steps: Generator<number, T>): T {
  */
 const STAGE_READ = 106 / 236;
 const STAGE_TOUCH = 70 / 236;
-
-/**
- * Which countries touch which, as a 1-based country index to its neighbours.
- *
- * Two passes, and they answer different questions. The **snap** finds every
- * frontier that is a shared run of vertices, which is all of them but the
- * enclaves. The **containment** finds the enclaves, because a country wholly
- * inside another shares no vertex with it at all: the bake keeps only outer
- * rings, so Natural Earth's South Africa simply covers Lesotho, Italy covers
- * San Marino, and Morocco covers Western Sahara. Both are the same relation —
- * you cannot walk from one to the other without crossing a line — and the
- * second finds **108 ring-in-ring hits over the 1,556 land rings** (2026-09-08),
- * which is 101 pairs of which the snap had already found 99. The two it adds
- * are the two true enclaves on the planet: Lesotho inside South Africa and San
- * Marino inside Italy.
- */
-export function neighbours(world: World): Map<number, number[]> {
-  return drain(walkNeighbours(world));
-}
 
 /**
  * The same scan, in steps a caller can spread over frames.
@@ -1198,7 +1172,7 @@ const CHROMA_TAX = 1.5;
  * Croatia is still Croatia's flag, where a Croatia rotated 40 degrees off red
  * is nothing at all.
  *
- * It is a **last resort and not a price** — see `place` in `countryColors`,
+ * It is a **last resort and not a price** — see `place` in `buildCountryColors`,
  * which exhausts the dominant colour's whole ladder before it looks at the
  * second — and it costs 8 of the 232 countries their first colour (2026-09-08):
  * Afghanistan, Burkina Faso, the Central African Republic, Croatia, Malaysia,
@@ -1230,9 +1204,9 @@ export interface CountryColorTable {
   countries: number;
   pairs: number;
   /**
-   * Wall clock from the first step to the last. For `countryColors` that is
-   * what the table cost; for a caller turning `buildCountryColors` a step at a
-   * time it is how long it took to get round to finishing, which is a different
+   * Wall clock from the first step to the last. Run to the end in one go that
+   * is what the table cost; for a caller turning `buildCountryColors` a step at
+   * a time it is how long it took to get round to finishing, which is a different
    * number and a much larger one — `land-flags.ts` keeps its own.
    */
   buildMs: number;
@@ -1319,35 +1293,6 @@ function candidates(key: string, rank: number): Candidate[] {
 const offers = new Map<string, Candidate[]>();
 
 /**
- * The table: every country's colour, de-conflicted against its neighbours.
- *
- * The walk is **largest country first**, which is the whole of the ordering
- * argument. Keeping the flag's own colour is a privilege and it should go to
- * the countries the eye spends its time on: Russia, Canada, Brazil and China
- * are read from the plane's ceiling and Andorra is not. It is also what makes
- * the result deterministic — the order is a function of the baked outlines and
- * nothing else, so the same country gets the same colour on every machine and
- * in every session, and the ISO code breaks a tie that the areas cannot.
- *
- * **One pass and no repair**, which is worth saying because the obvious second
- * pass was written, measured and taken out: re-placing every country still
- * inside `APART` against *all* of its neighbours rather than only the ones that
- * were down when its turn came changed nothing at all, for the plain reason
- * that there is nothing left to repair — the greedy clears all 323 frontiers on
- * its own (2026-09-08). It went the way the same measurement sent a scoring
- * term that traded cost against clearance: neither earned a line.
- *
- * A country that cannot be separated inside the leash keeps the roomiest colour
- * it found and turns up in `short` rather than being forced somewhere it would
- * stop meaning its flag. `short` is empty today and it is the one number in
- * this file worth watching after a re-bake of `countries.bin`: a frontier that
- * appears in it is two countries the map cannot tell apart.
- */
-export function countryColors(world: World): CountryColorTable {
-  return drain(buildCountryColors(world));
-}
-
-/**
  * The same table, in steps a caller can spend against a frame budget.
  *
  * It is a quarter of a second of work — measured cold, in a fresh process,
@@ -1356,8 +1301,7 @@ export function countryColors(world: World): CountryColorTable {
  * 60 ms on the greedy itself. That is four dropped frames in the middle of a
  * climb if it is done in one, and it is why this is a generator: `land-flags.ts`
  * turns it with a clock in its hand and the whole cost disappears into the fade.
- * `countryColors` is this run to the end, for `pnpm check` and for anything else
- * that is not inside a frame.
+ * Run to the end in one go, it suits anything that is not inside a frame.
  *
  * **Each step yields how far along it is, 0 to 1**, and that is not decoration:
  * a caller that resumes this generator sees the number climb, and a caller that

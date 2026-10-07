@@ -39,7 +39,7 @@ import type { Monument } from './contract.ts';
  * The **emptiness** is the one that needed a decision rather than an argument.
  * The tempting answer, and the brief-shaped one, is a bare white plane with a
  * single bright bead on it: honest about the place, and cheap. **It is rejected,
- * for the reason the contact sheet exists.** At thumbnail size, next to the
+ * for the reason a model is judged at thumbnail size.** At thumbnail size, next to the
  * Colosseum and Christ the Redeemer, a white disc with a dot on it is
  * indistinguishable from a monument whose `build` half-failed, and the registry
  * has no way to tell the two apart. `index.ts` puts it plainly: bare is not
@@ -84,7 +84,7 @@ import type { Monument } from './contract.ts';
  * the proportion the photograph is made of.
  *
  * **The staffs are 3x too thick.** A real flagpole is about 5 cm; at 3.78 units
- * per metre that is 0.19 units, and the contact sheet's 260 px stage works out
+ * per metre that is 0.19 units, and a 260 px thumbnail works out
  * at 6.4 pixels per unit, so a true pole is 1.2 px wide — thinner than the pen
  * `OutlineEffect` would ink it with, which means the ink decides its width and
  * twelve of them come out as identical hairlines. They are 0.56 units (15 cm)
@@ -121,8 +121,8 @@ import type { Monument } from './contract.ts';
  * 1. Meshes. Two blocks per flag is 36 of the tier's 40, which leaves four for
  *    the snow, the pole, the sphere and the marker. There is no version of this
  *    model that survives that.
- * 2. A flag here is 3.5 by 2.4 units, which is about **20 px by 14** on the
- *    contact sheet and a good deal less than that on the planet, where the
+ * 2. A flag here is 3.5 by 2.4 units, which is about **20 px by 14** in a
+ *    thumbnail and a good deal less than that on the planet, where the
  *    whole monument is eight pixels tall at the distance it is built. Twenty by
  *    fourteen is enough for two or three horizontal bands and nowhere near
  *    enough for a saltire, a canton, a crescent, a sun or a maple leaf — so a
@@ -193,7 +193,7 @@ const PER_METRE = 6.8 / 1.8;
 /**
  * The pad. `cream` is `CONTINENT_COLORS.Antarctica`, so on the planet this disc
  * is the same colour as the ice it stands on and the model has no visible edge —
- * the snow simply continues. On the contact sheet, whose ground is `green`, it
+ * the snow simply continues. On a `green` ground it
  * reads as a white field. Both are wanted.
  *
  * `bone` was rendered and rejected, and the trade is worth recording because it
@@ -225,7 +225,7 @@ const SNOW = PAD_HEIGHT;
  * the one turned *away* from the sun, so the bearing has to satisfy two things
  * at once — the shaded flank facing the camera, and the ridge still lying across
  * the view rather than pointing down it. With this scene's sun at
- * (-0.8, 1.25, 0.75) and the sheet's default quarter camera at (0.62, 0.28, 1),
+ * (-0.8, 1.25, 0.75) and the default quarter camera at (0.62, 0.28, 1),
  * that leaves a window about 78 degrees wide, and -0.55 rad sits in the middle
  * of it: the near flank drops from ramp band 3 to band 2 and the ridges run 63
  * degrees across the quarter view and 32 across the front one.

@@ -20,7 +20,7 @@ import type { Monument, Mesh } from './contract.ts';
  *   pyramid roof to 39.8, at the back so the lower towers step down in front.
  * - **The round tower** on the front-right corner, under a conical roof, and
  *   **the five-sided tower** on the east flank, under a five-sided spire. They
- *   are the two shapes no other castle on the sheet has together.
+ *   are the two shapes no other castle among the monuments has together.
  * - **Steep hipped roofs** over the wings, at four different eaves heights, so
  *   no two lines of red tile meet at one level.
  * - **Small windows**, few and scattered, a bartizan on the west wing's front

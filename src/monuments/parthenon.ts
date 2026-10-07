@@ -150,8 +150,8 @@ const CELLA_WALL = 1.6;
  * two flanks are written front to back, so the leading character of each is the
  * bay nearest the viewer.
  *
- * The shape of the ruin is chosen for the two fixed cameras of the contact
- * sheet. The front row is whole, so eight is countable. The right flank — the
+ * The shape of the ruin is chosen for the two fixed cameras, front and
+ * quarter. The front row is whole, so eight is countable. The right flank — the
  * one the quarter view looks along — keeps an unbroken run of nine bays coming
  * forward, then loses four in the middle and picks up again at the far corner:
  * enough intact rhythm to count seventeen positions, and an unmistakable breach.

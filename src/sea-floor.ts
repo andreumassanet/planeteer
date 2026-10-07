@@ -893,9 +893,6 @@ export function podCellOf(kind: 'dolphin' | 'whale', x: number, y: number, z: nu
   return { row, col };
 }
 
-/** The life cache's size, for the console. */
-export const tileMemory = (): number => tiles.size;
-
 /** Forgets every tile's life and every pod, so the next ask works it out again: for the check. */
 export function forgetTiles(): void {
   tiles.clear();

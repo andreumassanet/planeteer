@@ -3276,7 +3276,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     /**
      * The determinism check, which is the one property this file cannot lose.
      *
-     * The scenery sheet builds each variant twice and compares; the same
+     * `pnpm scenery` builds each variant twice and compares; the same
      * argument applies a level up, because a tile draws from a seed per *cell*
      * and a single `Math.random()` anywhere in the chain would give a different
      * wood on every load — and the failure is invisible unless something looks.

@@ -1,5 +1,5 @@
 import { PALETTE } from '../theme.ts';
-import { REGIONS, REGION_IDS, regionFor as sceneryRegionFor, DEFAULT_REGION } from '../scenery/regions.ts';
+import { REGION_IDS, regionFor as sceneryRegionFor, DEFAULT_REGION } from '../scenery/regions.ts';
 import type { RegionId } from '../scenery/regions.ts';
 import type { TrafficStyle } from './contract.ts';
 
@@ -406,14 +406,12 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
 /**
  * Regions the scenery kit has and this table does not.
  *
- * Empty, and the review sheet says so out loud rather than checking. A region
+ * Empty, and listed rather than thrown. A region
  * added next door and forgotten here would otherwise ship as a town with no
  * traffic in it, which looks like a placement bug for as long as it takes
  * somebody to grep.
  */
 export const MISSING_REGIONS: RegionId[] = REGION_IDS.filter((id) => TRAFFIC_STYLES[id] === undefined);
-
-export const TRAFFIC_REGION_IDS = REGION_IDS;
 
 /**
  * The style for a place, through the scenery kit's own resolver.
@@ -463,10 +461,5 @@ export const LEFT_HAND_TRAFFIC: ReadonlySet<string> = new Set([
 
 /** Whether traffic keeps to the left in the country with this `iso`. */
 export const keepsLeft = (iso: string): boolean => LEFT_HAND_TRAFFIC.has(iso);
-
-/** The scenery style beside it, for the review sheet: a car parked at a house. */
-export function sceneryFor(id: RegionId) {
-  return REGIONS[id];
-}
 
 export type { RegionId };

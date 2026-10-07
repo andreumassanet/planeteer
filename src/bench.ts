@@ -107,10 +107,3 @@ export interface Bench {
   key: string;
 }
 
-/**
- * A bench whose base is at `base` (world space) with its +Z along `facing`
- * (unit, tangent to the ground there): the sitter's spot, written into `out`.
- */
-export function sitSpot(base: THREE.Vector3, facing: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-  return out.copy(base).addScaledVector(facing, BENCH_SIT_AHEAD);
-}

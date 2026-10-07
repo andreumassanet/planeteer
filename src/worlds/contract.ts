@@ -435,9 +435,6 @@ export interface Phrasebook {
 /** Which way a building's front faces: the town's middle, or into the wind. */
 export type BuildingYaw = 'centre' | 'wind';
 
-/** Which buildings an alien town is made of. Custom ones go in `extra`. */
-export type BuildingForm = 'dome' | 'spire' | 'pod' | 'stack' | 'arch' | 'bulb' | 'ring';
-
 /**
  * A building of the planet's own, for when the seven forms are not enough.
  * Returns the group standing on `y = 0` and its footprint radius, which is
@@ -945,16 +942,6 @@ export function defineWorld(body: Body, overrides: WorldOverrides = {}): WorldSp
     spawn: overrides.spawn ?? null,
   };
 }
-
-/**
- * How a settlement's built radius follows its population: Earth's law
- * (`radiusFor` in `places.ts`, `0.465 * pop^0.36` in [12, 150]) and for the
- * same reason — a town of a hundred thousand is a few hundred units across at
- * a person's scale. Restated rather than imported because `places.ts` reads
- * `places.bin`; the check holds the two to the same numbers.
- */
-export const settlementRadius = (population: number): number =>
-  Math.min(150, Math.max(12, 0.465 * Math.pow(Math.max(1, population), 0.36)));
 
 /** A civilisation's fields a planet file may leave out; each part merges over the default. */
 export interface CivilisationOverrides {
