@@ -18,6 +18,8 @@ The [MIT licence](LICENSE) covers the source code. The data and the models in
 - **`public/models/*/`**: CC0 1.0 Universal kits by Kenney, Quaternius, Kay
   Lousberg and CreativeTrio, rebuilt by the bake scripts. Each directory's
   `LICENSE.txt` names the packs it was built from.
+- **`public/fonts/`**: [Nunito](https://github.com/googlefonts/nunito) by the Nunito Project Authors,
+  under the [SIL Open Font License 1.1](https://openfontlicense.org); its `LICENSE.txt` carries the full text.
 - **`public/audio/`**: CC0 1.0 Universal sounds from Kenney's Impact Sounds,
   Interface Sounds, Music Jingles and RPG Audio, re-encoded by
   `scripts/build-audio.mjs`; its `LICENSE.txt` names them.

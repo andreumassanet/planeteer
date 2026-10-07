@@ -295,8 +295,6 @@ export interface ShellWorld {
   groundAt(point: THREE.Vector3): number;
   /** The nearest craft in reach to board, or null. */
   craftInReach(): Craft | null;
-  /** Whether a rover with its driver at the wheel is in reach: nothing to take, and `E` says so. */
-  occupiedInReach(): boolean;
   /** Stands the traveller at a place — a town's own arrival when it is in one — and builds the ground there. */
   jumpTo(lat: number, lon: number): void;
   /** Where this visit began. */
@@ -924,11 +922,6 @@ export function createShell(world: ShellWorld): Shell {
         stopTalking();
         player.board(craft);
         cue('ui-confirm');
-      } else if (afoot && walker === null && world.occupiedInReach()) {
-        // Nothing to take, and a rover beside you with its driver at the
-        // wheel: say so, calmly, as Earth does, rather than leave the key
-        // doing nothing.
-        hud.toast('Someone is driving that one', ICON_OF.rover);
       }
     }
 

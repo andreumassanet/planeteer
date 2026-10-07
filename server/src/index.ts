@@ -108,6 +108,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import {
+  BODY_RADII,
   CHAT_HISTORY,
   EMOTE_INTERVAL_MS,
   FLAGS_INTERVAL_MS,
@@ -387,6 +388,11 @@ export class Room extends DurableObject<Env> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    // How many are here, for the Worker's `/count`.
+    if (new URL(request.url).pathname === '/count') {
+      const here = this.ctx.getWebSockets().filter((socket) => attachmentOf(socket) !== null).length;
+      return Response.json({ online: here });
+    }
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
     const query = new URL(request.url).searchParams;
     const key = query.get('key') ?? '';
@@ -863,6 +869,24 @@ export default {
       const body = cleanBody(url.searchParams.get('body'));
       if (body === '') return new Response('No such world', { status: 404 });
       return env.ROOM.get(env.ROOM.idFromName(body)).fetch(request);
+    }
+    if (url.pathname === '/count') {
+      // Everybody connected, on every world: the title's *Play online* says it.
+      // One request to each world's room; a room that is asleep wakes empty.
+      const counts = await Promise.all(
+        Object.keys(BODY_RADII).map(async (world) => {
+          try {
+            const answer = await env.ROOM.get(env.ROOM.idFromName(world)).fetch(new Request('https://room/count'));
+            return ((await answer.json()) as { online: number }).online;
+          } catch {
+            return 0;
+          }
+        }),
+      );
+      return Response.json(
+        { online: counts.reduce((sum, n) => sum + n, 0) },
+        { headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' } },
+      );
     }
     return new Response('atlas peers\n', { headers: { 'content-type': 'text/plain' } });
   },

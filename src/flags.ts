@@ -346,7 +346,7 @@ function drawPlate(p: Painter, label: string, tint: string): void {
   ctx.globalAlpha = 0.45;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `800 ${p.s(0.3).toFixed(1)}px ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif`;
+  ctx.font = `800 ${p.s(0.3).toFixed(1)}px Nunito, ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif`;
   ctx.fillText(label, p.fx(0.5), p.fy(0.54));
   ctx.restore();
 }

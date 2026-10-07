@@ -382,10 +382,6 @@ export interface Menu {
   beforeRender: ((camera: THREE.PerspectiveCamera) => void) | null;
   /** Resolves with where the player wakes up. Safe to await more than once. */
   choose(): Promise<MenuSpawn>;
-  /** How far the world behind the menu has got, 0 to 1, and what it is doing. */
-  progress(fraction: number, label: string): void;
-  /** The world is built: `Start` can stop waiting. */
-  ready(): void;
   /**
    * Dive from wherever the camera is into the chosen town and draw the curtain
    * over the end of it. Resolves once the screen is covered.
@@ -404,9 +400,10 @@ export interface Menu {
   toSystem(): void;
   /**
    * Makes every other world's globe ahead of time, one after another, so
-   * choosing one never waits for it: called while the title is up.
+   * choosing one never waits for it: called under the loading screen, which
+   * waits for it. Resolves once the last is made, or has failed.
    */
-  prepare(): void;
+  prepare(): Promise<void>;
   dispose(): void;
 }
 
@@ -945,7 +942,7 @@ const STYLE = `
 .m-dock-name { font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em; }
 /* The same height as the tag Earth carries, so the row reads as one row. */
 .m-dock-sub {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 20px;
   opacity: 0.58;
@@ -1106,7 +1103,7 @@ const STYLE = `
 }
 .m-row.capital i { background: var(--ui-gold); }
 .m-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.m-row small { margin-left: auto; font-size: 11.5px; font-weight: 700; opacity: 0.5; font-variant-numeric: tabular-nums; }
+.m-row small { margin-left: auto; font-size: 12px; font-weight: 700; opacity: 0.5; font-variant-numeric: tabular-nums; }
 .m-more { padding: 8px 8px 10px; font-size: 11.5px; font-weight: 700; opacity: 0.5; }
 
 /* --- top right: continue and search --------------------------------------- */
@@ -1166,7 +1163,7 @@ const STYLE = `
 .m-result small {
   display: block;
   margin-top: 2px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   opacity: 0.6;
   white-space: nowrap;
@@ -1230,41 +1227,6 @@ const STYLE = `
 .m-select-name { font-size: 23px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
 .m-select-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.62; white-space: nowrap; }
 .m-select .ui-btn { margin-left: auto; }
-.m-select-bar {
-  margin-top: 7px;
-  width: 190px;
-  height: 9px;
-  border: 2px solid var(--ui-ink);
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--ui-cream);
-}
-.m-select-bar i { display: block; height: 100%; background: var(--ui-gold); transition: width 0.4s ease; }
-
-/* --- the world still building --------------------------------------------- */
-.m-progress {
-  position: absolute;
-  right: 24px;
-  bottom: 24px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 10px 14px 10px 12px;
-}
-.m-progress.m-off { transform: translateY(16px); }
-.m-spinner {
-  width: 20px;
-  height: 20px;
-  border: 3px solid var(--ui-cream);
-  border-top-color: var(--ui-ink);
-  border-right-color: var(--ui-gold);
-  border-radius: 50%;
-  animation: ui-spin 0.9s linear infinite;
-}
-.m-progress b { display: block; font-size: 12.5px; font-weight: 800; }
-.m-progress small { display: block; font-size: 11px; font-weight: 600; opacity: 0.6; }
-.m-progress-bar { width: 96px; height: 9px; border: 2px solid var(--ui-ink); border-radius: 999px; overflow: hidden; background: var(--ui-cream); }
-.m-progress-bar i { display: block; height: 100%; width: 0; background: var(--ui-gold); transition: width 0.5s ease; }
 
 /* --- hover card, reticle, pins --------------------------------------------- */
 .m-tip {
@@ -1280,7 +1242,7 @@ const STYLE = `
 }
 .m-tip.on { display: flex; }
 .m-tip b { display: block; font-size: 14.5px; font-weight: 800; letter-spacing: -0.012em; line-height: 1.15; }
-.m-tip small { display: block; margin-top: 1px; font-size: 11.5px; font-weight: 600; opacity: 0.6; }
+.m-tip small { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
 .m-reticle {
   position: absolute;
   left: 50%;
@@ -1386,7 +1348,7 @@ const STYLE = `
 /* The cards fade and do not slide; the pop of the results is a fade too. */
 @media (prefers-reduced-motion: reduce) {
   .atlas-menu .m-fade { transition: opacity 0.2s ease, visibility 0.2s; }
-  .m-brand.m-off, .m-crumbs.m-off, .m-back.m-off, .m-panel.m-off, .m-progress.m-off { transform: none; }
+  .m-brand.m-off, .m-crumbs.m-off, .m-back.m-off, .m-panel.m-off { transform: none; }
   .m-dock.m-off, .m-select.m-off { transform: translateX(-50%); }
   .m-info.m-off { transform: translateY(-46%); }
   .m-dock-item, .m-dock-item:hover, .m-dock-item.hot, .m-dock-item:active { transition: none; transform: none; }
@@ -1571,17 +1533,6 @@ export function createMenu(deps: MenuDeps): Menu {
   const back = h('button', { class: 'ui-btn m-back m-fade m-chrome' }, icon('back', 18), backLabel, kbd('Esc'));
   const select = h('div', { class: 'm-select ui-card m-fade' });
 
-  const progressLabel = h('b', { text: 'Building the world' });
-  const progressSub = h('small', { text: 'starting up' });
-  const progressFill = h('i');
-  const progressPill = h(
-    'div',
-    { class: 'm-progress ui-card m-fade' },
-    h('span', { class: 'm-spinner' }),
-    h('div', {}, progressLabel, progressSub),
-    h('div', { class: 'm-progress-bar' }, progressFill),
-  );
-
   const tipFlag = h('span');
   const tipName = h('b');
   const tipSub = h('small');
@@ -1590,7 +1541,7 @@ export function createMenu(deps: MenuDeps): Menu {
   const reticleLabel = h('span', { class: 'ui-tag gold' });
   const reticle = h('div', { class: 'm-reticle' }, h('i'), reticleLabel);
 
-  root.append(marks, dipLayer, reticle, brand, crumbs, panel, dock, info, back, select, topRight, progressPill, tip);
+  root.append(marks, dipLayer, reticle, brand, crumbs, panel, dock, info, back, select, topRight, tip);
 
   const flag = (key: string, w: number, height: number): HTMLCanvasElement => {
     const canvas = createFlagCanvas(key, w, height);
@@ -1617,8 +1568,6 @@ export function createMenu(deps: MenuDeps): Menu {
   let hoverBody: string | null = null;
   let picked: MenuSite | null = null;
   let chosen: MenuSpawn | null = null;
-  let built = false;
-  let progressFraction = 0;
   let lastTouched = performance.now();
 
   /**
@@ -2294,7 +2243,6 @@ export function createMenu(deps: MenuDeps): Menu {
     // under the title, which holds the menu with neither.
     setOff(select, !(chosen !== null || (open && stage === 'site' && picked !== null && !flying)));
     // Not under the title, which says how far the world is in its own card.
-    setOff(progressPill, built || chosen !== null || held);
     if (flying || !open) closeResults();
     refreshTrail();
   }
@@ -2430,16 +2378,13 @@ export function createMenu(deps: MenuDeps): Menu {
 
   function fillSelect(): void {
     if (chosen !== null) {
-      const waiting = !built;
       select.replaceChildren(
         h(
           'div',
           {},
-          h('div', { class: 'ui-eyebrow', text: waiting ? 'Almost there' : 'Here we go' }),
+          h('div', { class: 'ui-eyebrow', text: 'Here we go' }),
           h('div', { class: 'm-select-name', text: chosen.name === '' ? 'Back where you left off' : `Landing in ${chosen.name}` }),
-          waiting
-            ? h('div', { class: 'm-select-bar' }, h('i', { style: `width: ${(progressFraction * 100).toFixed(0)}%` }))
-            : h('div', { class: 'm-select-sub', text: chosen.region || 'Earth' }),
+          h('div', { class: 'm-select-sub', text: chosen.region || 'Earth' }),
         ),
       );
       return;
@@ -3574,18 +3519,6 @@ export function createMenu(deps: MenuDeps): Menu {
       });
       return choice;
     },
-    progress(fraction, label) {
-      progressFraction = clamp01(fraction);
-      progressSub.textContent = label;
-      progressFill.style.width = `${(progressFraction * 100).toFixed(0)}%`;
-      if (chosen !== null) fillSelect();
-    },
-    ready() {
-      built = true;
-      progressFraction = 1;
-      if (chosen !== null) fillSelect();
-      refreshChrome();
-    },
     depart() {
       // Always onto Earth: a spawn on any other body is that world's to land.
       setBody(home);
@@ -3655,15 +3588,20 @@ export function createMenu(deps: MenuDeps): Menu {
       if (stage !== 'system') backToSystem();
     },
     prepare() {
-      // One at a time, each in a pause of its own, so the system keeps
-      // turning smoothly under the title while the worlds are made.
+      // One at a time, each in a pause of its own, so a frame is never held
+      // by more than one world's build.
       const queue = orrery.bodies.filter((entry) => entry.body.kind !== 'star' && !walkable.has(entry.body.id));
-      const next = (): void => {
-        const entry = queue.shift();
-        if (entry === undefined || disposed) return;
-        void bodyOf(entry).then(() => window.setTimeout(next, 120));
-      };
-      window.setTimeout(next, 300);
+      return new Promise<void>((resolve) => {
+        const next = (): void => {
+          const entry = queue.shift();
+          if (entry === undefined || disposed) {
+            resolve();
+            return;
+          }
+          void bodyOf(entry).then(() => window.setTimeout(next, 40));
+        };
+        window.setTimeout(next, 0);
+      });
     },
     dispose() {
       disposed = true;

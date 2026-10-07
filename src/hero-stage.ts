@@ -83,6 +83,11 @@ export interface HeroStage {
   readonly open: boolean;
   /** Whether the wardrobe has arrived and the hero is standing. */
   readonly ready: boolean;
+  /**
+   * Whether there is nothing left to wait for: the stage is not up, or the
+   * hero and the backdrop's room both stand and the canvas has been shown.
+   */
+  readonly settled: boolean;
   readonly shotName: StageShot;
   show(backdrop: StageBackdrop): void;
   hide(): void;
@@ -1096,6 +1101,9 @@ export function createHeroStage(options: HeroStageOptions): HeroStage {
     },
     get ready() {
       return (stage?.person ?? null) !== null;
+    },
+    get settled() {
+      return !showing || view.classList.contains('drawn');
     },
     get shotName() {
       return current;

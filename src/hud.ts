@@ -383,7 +383,7 @@ const STYLE = `
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 700;
   line-height: 15px;
   color: var(--ui-muted);
@@ -474,7 +474,7 @@ const STYLE = `
 .atlas-found-text { min-width: 0; }
 .atlas-found-note {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
   opacity: 0.8;
@@ -487,7 +487,7 @@ const STYLE = `
 .atlas-destination.arrived { background: var(--ui-gold); }
 .atlas-destination-head { display: flex; align-items: center; gap: 10px; }
 .atlas-destination-name { font-size: 15px; font-weight: 800; letter-spacing: -0.012em; line-height: 1.15; }
-.atlas-destination-sub { margin-top: 2px; font-size: 11.5px; font-weight: 600; opacity: 0.62; }
+.atlas-destination-sub { margin-top: 2px; font-size: 12.5px; font-weight: 600; opacity: 0.62; }
 .atlas-destination-pin {
   display: grid;
   place-items: center;
@@ -633,10 +633,11 @@ body.atlas-hud-hidden .atlas-chat:not(.open) {
 }
 
 /* --- the pause card ------------------------------------------------------------ */
+/* In the upper third, over the sky: the middle of the screen is the traveller. */
 .atlas-pause {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 27%;
   display: flex;
   flex-direction: column;
   align-items: center;

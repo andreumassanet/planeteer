@@ -756,7 +756,6 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     saucers: mapSaucers,
     groundAt,
     craftInReach,
-    occupiedInReach: () => traffic.occupiedNear(player.position),
     jumpTo(lat, lon) {
       if (player.craft !== null) player.leave();
       // Out of a rocket too: on its pad it is a step out; gone up, it is put back.

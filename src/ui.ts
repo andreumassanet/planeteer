@@ -33,7 +33,7 @@
 
 import { PALETTE } from './theme.ts';
 
-export const FONT = 'ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif';
+export const FONT = 'Nunito, ui-rounded, "SF Pro Rounded", "Segoe UI", ui-sans-serif, system-ui, sans-serif';
 
 /**
  * A palette entry as CSS, for a stylesheet or a canvas. The one copy: the maps,
@@ -116,6 +116,7 @@ const STYLE = `
 .ui-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--ui-ink); }
 .ui-btn:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
 .ui-btn.primary { background: var(--ui-gold); }
+.ui-btn:disabled, .ui-btn:disabled:hover, .ui-btn:disabled:active { background: var(--ui-cream); opacity: 0.55; cursor: default; transform: none; box-shadow: 0 4px 0 var(--ui-ink); }
 .ui-btn.quiet { background: var(--ui-cream); }
 .ui-btn.big { font-size: 17px; padding: 13px 22px; border-radius: 13px; }
 .ui-btn.icon { width: 44px; height: 44px; padding: 0; border-radius: 12px; }

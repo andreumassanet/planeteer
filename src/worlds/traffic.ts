@@ -17,7 +17,7 @@
  * driver sits in its seat, a body of the cast held as the traveller sits
  * (`Avatar.sit`, the hands on the wheel), so a rover on the road reads as
  * driven, as Earth's cars do. A driven rover is not the traveller's to take,
- * as no car on Earth's roads is; `E` beside one says so (`occupiedNear`).
+ * as no car on Earth's roads is.
  * Past the reach the seat is empty and nobody looks.
  */
 
@@ -67,8 +67,6 @@ export interface Traffic {
   readonly rovers: readonly TrafficRover[];
   /** Takes a rover off the road for the traveller: it is theirs now, a craft like any other, standing where it stopped. */
   take(craft: Craft): void;
-  /** Whether a driven rover is within its own boarding reach of `point`: what `E` beside one, with nothing to take, answers. */
-  occupiedNear(point: THREE.Vector3): boolean;
   dispose(): void;
 }
 
@@ -255,9 +253,6 @@ export function createTraffic(spec: WorldSpec, roads: Roads, ctx: SceneryContext
       rovers.splice(index, 1);
       group.remove(rover.object);
       craft.speed = 0;
-    },
-    occupiedNear(point) {
-      return rovers.some((rover) => rover.driver !== null && rover.position.distanceTo(point) < rover.craft.reach);
     },
     dispose() {
       for (let i = rovers.length - 1; i >= 0; i--) drop(i);

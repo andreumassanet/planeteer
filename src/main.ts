@@ -130,12 +130,6 @@ function renderDistanceWords(value: number): string {
   return metres < 1000 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1000).toFixed(1)} km`;
 }
 /**
- * How near a moving car has to be, past its own half-length, for `E` with
- * nothing to take to say that somebody is driving it: about the reach `E`
- * asks of a seat.
- */
-const TRAFFIC_BESIDE = AVATAR_HEIGHT * 0.8;
-/**
  * How far another player's horn carries, in units: past this it is not heard.
  * Twice the reach of the traffic's, which is a car kept waiting in the next
  * street; a horn somebody means to be heard is louder.
@@ -198,15 +192,14 @@ const smoothstep = (edge0: number, edge1: number, x: number): number => {
  * Building the land is seconds of synchronous work on the main thread — a
  * triangulation, a refinement pass driven by the relief, and about 112 MB of
  * buffers (on the 1:10m outlines, measured headless on 2026-09-13; `BOOT`
- * below budgets 7.5 s for it in a browser, and says that is a guess).
+ * below budgets 9 s for it in a browser, and says that is a guess).
  * Without a yield between stages the browser never paints any of the messages,
  * so the screen sits on the first one and then jumps straight to the world,
  * which looks exactly like a hang.
  */
 async function stage(label: string): Promise<void> {
   const boot = BOOT[label];
-  if (report !== null) report(WORLD[label] ?? 0, label);
-  else if (boot !== undefined) showBoot(label, boot);
+  if (boot !== undefined) showBoot(label, boot);
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
@@ -219,31 +212,28 @@ async function stage(label: string): Promise<void> {
  * still for all of them. When a stage ends early the next one starts from
  * wherever the bar had got to; when it runs long, the bar waits at 98% of its
  * target rather than claiming work that has not been done.
+ *
+ * **One bar for the whole build**, the towns, the roads, the shaders and the
+ * menu's other worlds included: the screen stays up until the first frame the
+ * player sees is a smooth one (`whenSettled`). The durations were taken on one
+ * desktop on 2026-10-07, about 20 s in all, nine of them the land.
  */
 const BOOT: Record<string, readonly [number, number, number]> = {
-  'reading the outlines': [0.02, 0.2, 1800],
-  'filling the ocean': [0.2, 0.32, 1500],
-  'raising the land': [0.32, 0.8, 7500],
-  'drawing the frontiers': [0.8, 0.86, 700],
-  'setting the weather': [0.86, 0.95, 900],
-  'opening the sky': [0.95, 1, 400],
+  'reading the outlines': [0.01, 0.04, 700],
+  'filling the ocean': [0.04, 0.09, 1100],
+  'raising the land': [0.09, 0.55, 9000],
+  'drawing the frontiers': [0.55, 0.57, 400],
+  'setting the weather': [0.57, 0.6, 600],
+  'opening the sky': [0.6, 0.62, 450],
+  'raising the monuments': [0.62, 0.65, 650],
+  'settling the country': [0.65, 0.67, 450],
+  'laying the roads': [0.67, 0.68, 200],
+  'setting it moving': [0.68, 0.7, 300],
+  'planting the country': [0.7, 0.71, 250],
+  'packing your bag': [0.71, 0.76, 1000],
+  'fuelling the vehicles': [0.76, 0.8, 900],
+  'warming up': [0.8, 1, 4000],
 };
-
-/**
- * And the rest of the build, which happens behind the menu: the share of it
- * done when each stage *starts*, for the pill in the menu's corner.
- */
-const WORLD: Record<string, number> = {
-  'raising the monuments': 0.04,
-  'settling the country': 0.22,
-  'laying the roads': 0.45,
-  'setting it moving': 0.58,
-  'planting the country': 0.76,
-  'packing your bag': 0.94,
-};
-
-/** Where the stages report once the loading screen is gone: the menu's pill. */
-let report: ((fraction: number, label: string) => void) | null = null;
 
 function showBoot(label: string, [from, to, ms]: readonly [number, number, number]): void {
   const text = document.getElementById('loading-stage');
@@ -319,6 +309,61 @@ function smallOrTouch(): boolean {
     return false;
   }
 }
+
+/**
+ * How many travellers the relay holds on every world, from its `/count` beside
+ * the socket's `/ws`; null when it does not answer, or answers nonsense.
+ */
+async function onlineCount(socketUrl: string): Promise<number | null> {
+  try {
+    const url = new URL(socketUrl);
+    url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    url.pathname = url.pathname.replace(/\/ws$/, '/count');
+    url.search = '';
+    const answer = await fetch(url, { cache: 'no-store' });
+    if (!answer.ok) return null;
+    const { online } = (await answer.json()) as { online?: unknown };
+    return typeof online === 'number' && Number.isFinite(online) && online >= 0 ? Math.round(online) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves once `ready` holds and the frames have run smooth for a moment:
+ * `SETTLED_FRAMES` in a row each under `SETTLED_FRAME_MS`. Whatever is left
+ * of the build — a texture upload, a program the warm-up could not reach —
+ * is paid under the loading screen and not in the menu. `SETTLED_MAX_MS` is
+ * the most it waits, for a machine that never runs that smooth and for a
+ * hidden tab, where the browser stops handing out frames at all.
+ */
+function whenSettled(ready: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    let last = start;
+    let smooth = 0;
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    const tick = (now: number): void => {
+      if (done) return;
+      smooth = ready() && now - last < SETTLED_FRAME_MS ? smooth + 1 : 0;
+      last = now;
+      if (smooth >= SETTLED_FRAMES) finish();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    setTimeout(finish, SETTLED_MAX_MS);
+  });
+}
+
+/** How many smooth frames in a row lift the loading screen, how smooth, and the longest it waits. */
+const SETTLED_FRAMES = 20;
+const SETTLED_FRAME_MS = 40;
+const SETTLED_MAX_MS = 8000;
 
 /** Fill the bar, fade the loading screen away, and take it out of the page. */
 function dismissLoading(): void {
@@ -1207,6 +1252,7 @@ async function start(): Promise<void> {
     title = createTitle({
       stage: heroStage,
       online: peersUrl !== '',
+      players: () => onlineCount(peersUrl),
       customise: () => traveller.show(),
       settings: () => frontSettings.show(),
       covered: () => traveller.open || frontSettings.open,
@@ -1218,9 +1264,10 @@ async function start(): Promise<void> {
       title.show();
     }
   }
-  // Every other world's globe made while the title is up, so picking one
-  // on the menu never waits for it.
-  if (!skipMenu) menu.prepare();
+  // Every other world's globe, made under the loading screen, which waits for
+  // the last of them: picking one on the menu never waits, and the menu never
+  // stutters while one is made.
+  const prepared = skipMenu ? Promise.resolve() : menu.prepare();
 
   /**
    * A walkable body's `MenuBody` from `src/system/menu-body.ts`, which reads
@@ -1390,12 +1437,6 @@ async function start(): Promise<void> {
     oceanLights[1]!.intensity = sky.moon.intensity;
     ocean.update(camera.position, oceanLights);
   };
-  dismissLoading();
-  report = (fraction, label) => {
-    menu.progress(fraction, label);
-    title?.progress(fraction, label);
-  };
-
   await stage('raising the monuments');
   // One context for the whole world: monuments and settlements share a material
   // cache, a toon ramp and an outline width, so a house is inked with the same
@@ -1547,22 +1588,6 @@ async function start(): Promise<void> {
    * ahead by its length, from the bottom of its model. A little dimmer than a
    * player's, as they always were.
    */
-  /**
-   * Whether a moving road vehicle is right beside the player: within its own
-   * half-length and `TRAFFIC_BESIDE` of him, which is how near `E` is asked
-   * of a seat. Every one of them has somebody at the wheel (`glazeTraffic`),
-   * and none can be taken.
-   */
-  let besideTraffic = false;
-  const visitBeside = (mesh: THREE.Object3D, halfLength: number): void => {
-    if (!besideTraffic && mesh.position.distanceTo(player.position) < halfLength + TRAFFIC_BESIDE) besideTraffic = true;
-  };
-  function trafficBeside(): boolean {
-    besideTraffic = false;
-    life.eachRoadVehicle(visitBeside);
-    return besideTraffic;
-  }
-
   const visitTraffic = (mesh: THREE.Object3D, halfLength: number, halfWidth: number, vehicle: string, bottom: number): void => {
     const like = LAMPS_LIKE[vehicle];
     const model = like === undefined ? undefined : craftModels.get(like);
@@ -1828,19 +1853,12 @@ async function start(): Promise<void> {
   };
 
   await stage('packing your bag');
-  // Everything the world needs is now standing, so the menu stops being a
-  // loading screen you cannot leave and becomes a choice. `choose` resolves on
-  // a click, on `Enter`, or immediately if the player already picked while the
-  // land was building.
-  menu.ready();
-  title?.ready();
-  report = null;
-  // Every program the streamers will draw with, compiled while the player
-  // chooses, so the first town, landmark or animal is not also a shader link.
+  // Every program the streamers will draw with, compiled under the loading
+  // screen, so the first town, landmark or animal is not also a shader link.
   // The skinned twin is the rigs' own material, a plain `ctx.toon` colour
   // stands for the craft, and the fleet adds its airstrips' and propeller
   // discs'; see `warm.ts`.
-  void warmShaders(
+  const warmed = warmShaders(
     renderer,
     outline,
     scene,
@@ -1849,6 +1867,7 @@ async function start(): Promise<void> {
   )
     .then((ms) => console.log(`shaders warmed in ${Math.round(ms)} ms`))
     .catch((error: unknown) => console.warn('the shader warm-up failed:', error));
+  await stage('fuelling the vehicles');
   // The vehicles' code and models, before the world takes the sky back from
   // the menu below: the menu draws while anything here is awaited, and its
   // frame hides the dome whenever its camera is out past it, so an await
@@ -1886,6 +1905,13 @@ async function start(): Promise<void> {
   const passingSound = (await deferred.passingSound).createPassingSound();
   const passingVoices: Parameters<typeof passingSound.update>[1] = {};
   if (railway !== null) railway.onHorn = (near) => passingSound.horn(audio.bus, near);
+  // The last of the build happens here, under the same screen: the shaders,
+  // the other worlds' globes and the title's bridge and hero. Only then does
+  // the screen lift, and not before the frames have come back smooth.
+  await stage('warming up');
+  await Promise.all([warmed, prepared]);
+  await whenSettled(() => heroStage.settled);
+  dismissLoading();
   const spawn = skipMenu
     ? { body: 'earth', region: '', name: 'here', lat: at[0]!, lon: at[1]! }
     : await menu.choose();
@@ -3144,11 +3170,7 @@ async function start(): Promise<void> {
       else if (player.sitting) player.stand();
       else if (benchOffer !== null) sitDown(benchOffer);
       else if (rocketOffer !== null) boardRocket(rocketOffer);
-      else if (fleet.prompt === null && fleet.current() === null && player.mode === 'foot' && trafficBeside()) {
-        // Nothing to take, and a car beside you with its driver at the wheel:
-        // say so, calmly, rather than leave the key doing nothing.
-        announce('Someone is driving that one', modeIcon('car'));
-      } else fleet.use();
+      else fleet.use();
     }
     // The drawn land round the player, while the ground is near enough to
     // matter: a slice a frame when he has moved on. Not at cruise, where it

@@ -1515,7 +1515,6 @@ async function checkShell(): Promise<void> {
         input,
         groundAt: () => 0,
         craftInReach: () => null,
-        occupiedInReach: () => false,
         jumpTo: () => {},
         home: { lat: 0, lon: 0, name: 'Home' },
         leave: () => left++,

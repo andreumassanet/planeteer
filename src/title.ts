@@ -36,6 +36,9 @@ import type { PlayMode } from './world-host.ts';
 
 export type { PlayMode };
 
+/** How often the title asks the relay how many are online, while it is up. */
+const COUNT_EVERY_MS = 30_000;
+
 /** Where the last choice is kept. */
 export const PLAY_KEY = 'atlas.play.v1';
 
@@ -62,6 +65,8 @@ export interface TitleOptions {
   stage: HeroStage;
   /** Whether there is a relay to play online on. Without one, the button says so and is off. */
   online: boolean;
+  /** How many travellers are online now, on every world; null when the relay does not answer. */
+  players?(): Promise<number | null>;
   /** Opens the creator, which asks this screen to step aside while it is up. */
   customise(): void;
   /** Opens the settings. Omit it and there is no button. */
@@ -83,10 +88,6 @@ export interface Title {
   hide(): void;
   /** Steps aside for the creator, which has the stage while it is up, and comes back. */
   aside(on: boolean): void;
-  /** How far the world behind is built, and what it is doing. */
-  progress(fraction: number, label: string): void;
-  /** The world is built: the line that said so goes. */
-  ready(): void;
   /** The screen is done with for good. */
   dispose(): void;
 }
@@ -149,16 +150,11 @@ const STYLE = `
 .ti-play svg { width: 26px; height: 26px; }
 .ti-play b { display: block; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
 .ti-play small { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 700; opacity: 0.62; }
+.ti-play.peopled small::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--ui-green); border: 1.5px solid var(--ui-ink); vertical-align: 0; }
 .ti-play .ui-tag { visibility: hidden; }
 .ti-play.last .ui-tag { visibility: visible; }
 .ti-row { display: flex; gap: 8px; }
 .ti-row .ui-btn { flex: 1; }
-.ti-build { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; padding-top: 10px; border-top: 1.5px dashed var(--ui-rule); }
-.ti-build[hidden] { display: none; }
-.ti-build span { font-size: 12px; font-weight: 700; opacity: 0.62; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ti-build b { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.ti-build i { grid-column: 1 / -1; display: block; height: 8px; border: 2px solid var(--ui-ink); border-radius: 999px; background: var(--ui-cream); overflow: hidden; }
-.ti-build i::before { content: ''; display: block; height: 100%; width: var(--done, 0%); background: var(--ui-gold); transition: width 0.5s ease; }
 .ti-right { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
 .ti-custom { position: relative; pointer-events: auto; transition: opacity 0.3s ease, transform 0.4s var(--ui-ease); }
 /* Backwards, not both: a fill kept after the rise would outrank the aside rule and leave the button under the creator. */
@@ -207,26 +203,29 @@ export function createTitle(options: TitleOptions): Title {
     });
     return button;
   }
-  const onlineButton = playButton(
-    'online',
-    icon('globe'),
-    'Play online',
-    options.online ? 'Meet the other travellers on the same planet' : 'No server to meet anyone on in this version',
-    true,
-  );
+  const onlineNote = options.online ? 'Meet the other travellers on the same planet' : 'No server to meet anyone on in this version';
+  const onlineButton = playButton('online', icon('globe'), 'Play online', onlineNote, true);
   onlineButton.disabled = !options.online;
+
+  // Who is out there, asked when the screen comes up and again while it stays.
+  const onlineSmall = onlineButton.querySelector('small')!;
+  let counting = 0;
+  function count(): void {
+    window.clearTimeout(counting);
+    if (!showing || !options.online || options.players === undefined) return;
+    void options.players().then((n) => {
+      if (n === null) onlineSmall.textContent = onlineNote;
+      else if (n === 0) onlineSmall.textContent = 'Nobody online right now: be the first';
+      else onlineSmall.textContent = `${n.toLocaleString('en')} ${n === 1 ? 'traveller' : 'travellers'} online now`;
+      onlineButton.classList.toggle('peopled', n !== null && n > 0);
+    });
+    counting = window.setTimeout(count, COUNT_EVERY_MS);
+  }
   const offlineButton = playButton('offline', icon('walk'), 'Play offline', 'Just you and the worlds, nothing sent anywhere', false);
 
   const settingsButton =
     options.settings === undefined ? null : h('button', { class: 'ui-btn', type: 'button' }, icon('gear', 18), 'Settings');
   settingsButton?.addEventListener('click', () => options.settings?.());
-
-  // How far the world behind is: a quiet line at the foot of the card, in
-  // place of the menu's own pill, which this screen would otherwise sit on.
-  const buildLabel = h('span', { text: 'Building the world' });
-  const buildPercent = h('b', { text: '0%' });
-  const buildBar = h('i');
-  const build = h('div', { class: 'ti-build', role: 'status' }, buildLabel, buildPercent, buildBar);
 
   const customButton = h('button', { class: 'ui-btn big ti-custom', type: 'button' }, icon('sparkle', 20), 'Customise');
   customButton.addEventListener('click', () => options.customise());
@@ -242,7 +241,6 @@ export function createTitle(options: TitleOptions): Title {
       onlineButton,
       offlineButton,
       settingsButton === null ? null : h('div', { class: 'ti-row' }, settingsButton),
-      build,
     ),
   );
   const right = h('div', { class: 'ti-right' }, customButton);
@@ -319,12 +317,14 @@ export function createTitle(options: TitleOptions): Title {
     // Again once the column has its size.
     requestAnimationFrame(measure);
     defaultButton().focus({ preventScroll: true });
+    count();
   }
 
   /** Goes; `out` leaves by the bridge's window, into the menu behind, rather than fading where it stands. */
   function hide(out = false): void {
     if (!showing) return;
     showing = false;
+    window.clearTimeout(counting);
     stepped = false;
     root.classList.remove('on', 'aside');
     (document.activeElement as HTMLElement | null)?.blur?.();
@@ -350,15 +350,6 @@ export function createTitle(options: TitleOptions): Title {
         takeStage(false);
         defaultButton().focus({ preventScroll: true });
       }
-    },
-    progress(fraction, label) {
-      const done = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
-      buildLabel.textContent = `Building the world · ${label}`;
-      buildPercent.textContent = `${done}%`;
-      build.style.setProperty('--done', `${done}%`);
-    },
-    ready() {
-      build.hidden = true;
     },
     dispose() {
       hide();
