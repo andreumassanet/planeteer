@@ -56,7 +56,7 @@ async function run() {
     });
     chrome.on('error', reject);
     chrome.on('exit', () => reject(new Error('Chrome exited\n' + stderr)));
-    startupTimer = setTimeout(() => reject(new Error('No DevTools URL\n' + stderr)), 15000);
+    startupTimer = setTimeout(() => reject(new Error('No DevTools URL\n' + stderr)), 45000);
   }).finally(() => clearTimeout(startupTimer));
 
   ws = new WebSocket(wsUrl);

@@ -23,13 +23,13 @@ async function withProfiles(run) {
 }
 
 test('a successful evaluation exits cleanly', () => withProfiles(async env => {
-  const { stdout } = await execute(process.execPath, [driver, '--eval', 'Promise.resolve(42)'], { env, timeout: 20000 });
+  const { stdout } = await execute(process.execPath, [driver, '--eval', 'Promise.resolve(42)'], { env, timeout: 60000 });
   assert.equal(stdout.trim(), '42');
 }));
 
 test('an evaluation error fails the command', () => withProfiles(async env => {
   await assert.rejects(
-    execute(process.execPath, [driver, '--eval', 'Promise.reject(new Error("intentional failure"))'], { env, timeout: 20000 }),
+    execute(process.execPath, [driver, '--eval', 'Promise.reject(new Error("intentional failure"))'], { env, timeout: 60000 }),
     error => error.code === 1 && /EVAL ERROR.*intentional failure/.test(error.stderr),
   );
 }));
@@ -43,7 +43,7 @@ test('a missing browser reports the launch error and cleans its profile', () => 
 
 test('a stalled evaluation times out and closes Chrome', () => withProfiles(async env => {
   await assert.rejects(
-    execute(process.execPath, [driver, '--timeout', '3000', '--eval', 'new Promise(() => {})'], { env, timeout: 10000 }),
+    execute(process.execPath, [driver, '--timeout', '3000', '--eval', 'new Promise(() => {})'], { env, timeout: 30000 }),
     error => error.code === 1 && /timed out after 3000 ms/.test(error.stderr),
   );
 }));
@@ -65,7 +65,7 @@ test('SIGTERM stops the browser and removes its profile', posix, () => withProfi
       child.kill('SIGTERM');
     }
   });
-  const safety = setTimeout(() => child.kill('SIGTERM'), 15000);
+  const safety = setTimeout(() => child.kill('SIGTERM'), 45000);
   try {
     const code = await new Promise((resolve, reject) => {
       child.on('error', reject);

@@ -30,6 +30,7 @@
  * `pnpm maps-check`.
  */
 import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
+import { TIME_SCALE } from './time-scale.ts';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
@@ -51,8 +52,13 @@ const check = (ok: boolean, label: string, detail = ''): void => {
 
 /** The whole bake's ceiling: every world's levels, bytes. */
 const BAKE_LIMIT = 4 * 1024 * 1024;
-/** How far a slice of `pump` may run past its allowance: the dearest single step a tile takes, ms, with room for a loaded machine. */
-const STEP_LIMIT_MS = 25;
+/**
+ * How far a slice of `pump` may run past its allowance: the dearest single
+ * step a tile takes, ms, with room for a loaded machine — and three times
+ * that on CI (`TIME_SCALE`), where a shared runner's pause landed on the
+ * worst of 900 slices at 30 to 48 ms (2026-10-07) and failed the job.
+ */
+const STEP_LIMIT_MS = 25 * TIME_SCALE;
 
 const earth = await loadEarthFeatures();
 const { world, places, settlements } = earth;
