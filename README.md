@@ -37,7 +37,7 @@ same way in every browser, so nothing about the world is sent over the wire.
 ## Getting around
 
 <p align="center">
-  <img src=".github/assets/fly.gif" alt="A light plane taking off from a strip in Jordan, crossing the Jordan valley and the Dead Sea, climbing until the Middle East lies below with every country in its own colour, and the camera pulling back to the whole globe" width="100%">
+  <img src=".github/assets/fly.gif" alt="A light plane taking off from a strip in Jordan, crossing the Jordan valley and the Dead Sea, and climbing to its ceiling until the Middle East lies below with every country in its own colour" width="100%">
 </p>
 
 **Vehicles stand in the world** — cars, bikes, boats, planes, helicopters, a
