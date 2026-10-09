@@ -34,7 +34,7 @@ import { seedOf } from './scenery/random.ts';
 import { regionFor } from './scenery/regions.ts';
 import { GROUND_LIFT, LINE_HALF, RAMP_GRADE, SIDEWALK, asphaltOf, cellKey, groundStyleFor, trodden } from './scenery/ground.ts';
 import { PALETTE } from './theme.ts';
-import { CARRIAGEWAY_HALF, assignGates, gateGlow, gateMouth, gateUsable, gatesOf, groundOf, offsetDirection, streetBand, townFrame, townGrid, townTerraces } from './scenery/grid.ts';
+import { CARRIAGEWAY_HALF, assignGates, inParcel, landmarkParcel, gateGlow, gateMouth, gateUsable, gatesOf, groundOf, offsetDirection, streetBand, townFrame, townGrid, townTerraces } from './scenery/grid.ts';
 import type { Gate, TownGrid, TownGround } from './scenery/grid.ts';
 import { latOf, lonOf, unitAt } from './sphere.ts';
 import { LANDMARK_KEEP, eachLandmarkNear, landmarkGap, planGap, planGapToBox } from './landmark-ground.ts';
@@ -591,8 +591,8 @@ const landmarkUp = new THREE.Vector3();
  * them (`settlements.ts`), and the roads, which knew nothing of landmarks, went
  * on arriving at gates those cells held: Granada's four roads ended in the
  * Alhambra's walls, and the Guggenheim stood across one of Bilbao's two. So a
- * gate is shut where one of its cells is a landmark's — the town's own test,
- * `LANDMARK_KEEP` past the plan over the cell's box — or where the approach
+ * gate is shut where one of its cells is in a landmark's parcel — the town's
+ * own test, `landmarkParcel` in `scenery/grid.ts` — or where the approach
  * out of it passes within `LANDMARK_KEEP` of a plan, and the road goes to the
  * next gate round. The landmarks are the ones registered with
  * `setLandmarks`, which the road bake and `pnpm check` do and the game, whose
@@ -616,13 +616,8 @@ function landmarkAt3(town: Town, up: XYZ): { x: number; z: number } {
 
 /** Whether a landmark at `at` in a town's frame takes one of its gates: see `gateUnderLandmark`. */
 function gateTaken(town: Town, which: Gate, at: { x: number; z: number }, shape: PlanShape): boolean {
-  const grid = town.grid;
-  const half = grid.pitch / 2;
-  for (const [col, row] of which.cells) {
-    const cx = (col - grid.shift) * grid.pitch;
-    const cz = (row - grid.shift) * grid.pitch;
-    if (planGapToBox(shape, cx - half - at.x, cx + half - at.x, cz - half - at.z, cz + half - at.z) < LANDMARK_KEEP) return true;
-  }
+  const parcel = landmarkParcel(town.grid, at.x, at.z, shape);
+  if (parcel !== null && which.cells.some(([col, row]) => inParcel(parcel, col, row))) return true;
   for (let s = 0; s <= APPROACH + 1e-9; s += WATER_PROBE_STEP) {
     if (planGap(shape, which.x + which.outX * s - at.x, which.z + which.outZ * s - at.z) < LANDMARK_KEEP) return true;
   }
@@ -4505,9 +4500,9 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
   const heightHere = new THREE.Vector3();
   const heightLast = new THREE.Vector3();
   const heightLeg = new THREE.Vector3();
+  const heightNearest = new THREE.Vector3();
   const heightFoot = new THREE.Vector3();
   const heightProbe = new THREE.Vector3();
-  const heightNearest = new THREE.Vector3();
   /**
    * The widest the surface can be from a centre line: a whole pavement, the
    * widest bank and its skirt (`ribbonReach`). `crownFall` was enough while
@@ -4516,6 +4511,29 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
    * the buried bank is stood on where the drawn land sags (`setGround`).
    */
   const WIDEST_HALF = ribbonReach(Math.max(...ROAD_CLASSES.map((style) => style.width)) * 0.5);
+
+  const footResult = { away: 0, along: 0, raw: 0 };
+  /**
+   * The foot of `probe` (on the sphere at `PLANET_RADIUS`) on chord `k` of a
+   * path, into `heightFoot`: how far it is across the ground, how far along
+   * the path, and the unclamped share of the chord it falls at.
+   */
+  function chordFoot(path: CoursePath, k: number, probe: THREE.Vector3): typeof footResult {
+    heightLast.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!).multiplyScalar(PLANET_RADIUS);
+    heightHere.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).multiplyScalar(PLANET_RADIUS);
+    heightLeg.subVectors(heightHere, heightLast);
+    const lengthSq = heightLeg.lengthSq();
+    const raw = lengthSq > 1e-9 ? heightFoot.copy(probe).sub(heightLast).dot(heightLeg) / lengthSq : 0;
+    const clamped = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+    // The chord is a straight line through the sphere and the query point is
+    // on its surface, so the distance is measured across the ground: both are
+    // projected back out before they are subtracted.
+    heightFoot.copy(heightLast).addScaledVector(heightLeg, clamped).normalize().multiplyScalar(PLANET_RADIUS);
+    footResult.away = heightFoot.distanceTo(probe);
+    footResult.along = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * clamped;
+    footResult.raw = raw;
+    return footResult;
+  }
 
   function ribbonHeightAt(point: THREE.Vector3): number {
     if (roads.length === 0 || places.length === 0) return 0;
@@ -4528,59 +4546,68 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
       const road = roads[hit]!;
       const style = ROAD_CLASSES[road.cls] ?? ROAD_CLASSES[0]!;
       const path = geometry.path(hit);
-      let nearest = Infinity;
-      let along = 0;
       /**
-       * Whether the point is past one of the ribbon's two ends.
+       * **Every stretch of the road the point is beside, not only the
+       * nearest.** Inside a tight bend a road comes back past itself, and two
+       * of its stretches' sections overlap there: the drawing shows the higher
+       * of the two, and a foot that read only the nearer stood on the lower
+       * one's bank, inside the other's, and walked under its own road. So the
+       * nearest stretch answers, and so does every other stretch whose section
+       * the point stands square across, further along the road than the point
+       * is from the further of the two; the highest answer is the surface, as
+       * it is the surface drawn.
        *
-       * **A drawn ribbon has a flat cap and a distance to a polyline has a round
-       * one**, and the difference is the shoulder's width of ground: without
-       * this a foot would be lifted in a half-disc beyond where the carriageway
-       * stops, which at a gate is the town's own paving. The test is the
-       * unclamped projection onto the first and last chord — before 0 on the
-       * first or past 1 on the last means the point is beyond the cap, whatever
-       * its distance from the line — and the first and last chords are the two
-       * straight approaches, so the cap is the kerb line exactly.
+       * **A drawn ribbon has a flat cap and a distance to a polyline has a
+       * round one**, and the difference is the shoulder's width of ground:
+       * without the cap test a foot would be lifted in a half-disc beyond where
+       * the carriageway stops, which at a gate is the town's own paving. The
+       * test is the unclamped projection onto the first and last chord —
+       * before 0 on the first or past 1 on the last means the point is beyond
+       * the cap, whatever its distance from the line — and the first and last
+       * chords are the two straight approaches, so the cap is the kerb line
+       * exactly.
        */
-      let pastCap = false;
+      const reach = ribbonReach(style.width * 0.5);
       const last = path.count - 1;
-      for (let k = 0; k <= last; k++) {
-        heightHere.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).multiplyScalar(PLANET_RADIUS);
-        if (k > 0) {
-          heightLeg.subVectors(heightHere, heightLast);
-          const lengthSq = heightLeg.lengthSq();
-          let raw = 0;
-          if (lengthSq > 1e-9) raw = heightFoot.copy(heightProbe).sub(heightLast).dot(heightLeg) / lengthSq;
-          const clamped = raw < 0 ? 0 : raw > 1 ? 1 : raw;
-          heightFoot.copy(heightLast).addScaledVector(heightLeg, clamped);
-          // The chord is a straight line through the sphere and the query point
-          // is on its surface, so the distance is measured across the ground:
-          // both are projected back out before they are subtracted.
-          heightFoot.normalize().multiplyScalar(PLANET_RADIUS);
-          const away = heightFoot.distanceTo(heightProbe);
-          if (away < nearest) {
-            nearest = away;
-            along = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * clamped;
-            heightNearest.copy(heightFoot);
-            pastCap = (k === 1 && raw < 0) || (k === last && raw > 1);
-          }
+      // The nearest stretch first, as a foot has always been answered; then
+      // any other stretch whose section the point stands square across.
+      let nearest = Infinity;
+      let nearestAlong = 0;
+      let pastCap = false;
+      for (let k = 1; k <= last; k++) {
+        const foot = chordFoot(path, k, heightProbe);
+        if (foot.away < nearest) {
+          nearest = foot.away;
+          nearestAlong = foot.along;
+          heightNearest.copy(heightFoot);
+          pastCap = (k === 1 && foot.raw < 0) || (k === last && foot.raw > 1);
         }
-        heightLast.copy(heightHere);
       }
-      if (pastCap || nearest >= ribbonReach(style.width * 0.5)) continue;
+      if (pastCap || nearest >= reach) continue;
       const ramp = rampFor(hit);
       if (Number.isNaN(ground)) ground = world.elevationAt(heightDir);
-      const centre = needsCentre(ramp, along, path.length - along) ? world.elevationAt(heightNearest) : ground;
-      const lift = surfaceLift(ramp, style.width * 0.5, along, path.length - along, nearest, ground, centre);
-      // A bridge's deck is a floor from above and a roof from below: a
-      // swimmer or a boat under it (any point off the sea's surface and
-      // under the girder) passes, and one that falls off it falls. A query
-      // made at the sea's own radius, or as a bare direction, is from above.
-      if (onBridge(ramp, along)) {
-        const radius = point.length();
-        if (radius > PLANET_RADIUS + 0.25 && radius < PLANET_RADIUS + ground + lift - 2 * GIRDER) continue;
+      const answer = (along: number, away: number, at: THREE.Vector3): void => {
+        const centre = needsCentre(ramp, along, path.length - along) ? world.elevationAt(at) : ground;
+        const lift = surfaceLift(ramp, style.width * 0.5, along, path.length - along, away, ground, centre);
+        // A bridge's deck is a floor from above and a roof from below: a
+        // swimmer or a boat under it (any point off the sea's surface and
+        // under the girder) passes, and one that falls off it falls. A query
+        // made at the sea's own radius, or as a bare direction, is from above.
+        if (onBridge(ramp, along)) {
+          const radius = point.length();
+          if (radius > PLANET_RADIUS + 0.25 && radius < PLANET_RADIUS + ground + lift - 2 * GIRDER) return;
+        }
+        if (lift > best) best = lift;
+      };
+      answer(nearestAlong, nearest, heightNearest);
+      for (let k = 2; k < last; k++) {
+        const foot = chordFoot(path, k, heightProbe);
+        if (foot.raw < 0 || foot.raw > 1 || foot.away >= reach) continue;
+        // Further along the road than the point is from either stretch: not
+        // the nearest stretch's own section seen from a neighbouring chord.
+        if (Math.abs(foot.along - nearestAlong) <= Math.max(foot.away, nearest) + 1) continue;
+        answer(foot.along, foot.away, heightFoot);
       }
-      if (lift > best) best = lift;
     }
     if (best === -Infinity) return 0;
     // A road is baked dry, but the edge of its crown can hang a fraction of a

@@ -559,15 +559,31 @@ console.log('giving way:');
     // How far the obstacle is outside the vehicle's box, in the box's own frame.
     const local = new Vector3();
     const inverse = new (await import('three')).Matrix4();
-    const outside = (car: Drawn): number => {
+    const outside = (car: Drawn, at = obstacleAt, radius = RADIUS): number => {
       car.updateMatrixWorld(true);
       const geometry = car.geometry!;
       if (geometry.boundingBox === null) geometry.computeBoundingBox();
       const box = geometry.boundingBox!;
-      local.copy(obstacleAt).applyMatrix4(inverse.copy(car.matrixWorld).invert());
+      local.copy(at).applyMatrix4(inverse.copy(car.matrixWorld).invert());
       const dx = Math.max(box.min.x - local.x, 0, local.x - box.max.x);
       const dz = Math.max(box.min.z - local.z, 0, local.z - box.max.z);
-      return Math.hypot(dx, dz) - RADIUS;
+      return Math.hypot(dx, dz) - radius;
+    };
+    /**
+     * What it stopped short of: the obstacle, or a vehicle that stopped for it
+     * first and stands between — then it is queued, and the gap that counts is
+     * the one to the vehicle in front, whose half-width is `QUEUED`.
+     */
+    const QUEUED = 1.2;
+    const stoppedShort = (car: Drawn): number => {
+      let gap = outside(car);
+      for (const other of held.group.children) {
+        if (!other.visible || other.name === chosen || !other.name.startsWith('road:')) continue;
+        if (other.position.distanceTo(obstacleAt) > other.position.distanceTo(car.position) + 1) continue;
+        if (other.position.distanceTo(car.position) > 15) continue;
+        gap = Math.min(gap, outside(car, other.position, QUEUED));
+      }
+      return gap;
     };
     let closest = Infinity;
     let clock = START + 40 * STEP;
@@ -587,7 +603,7 @@ console.log('giving way:');
       // Stopped, before it has waited long enough to think of passing.
       if (frame === 55) {
         restingSpeed = speed;
-        restingGap = outside(car);
+        restingGap = stoppedShort(car);
       }
       if (frame > 60 && speed > 1 && local.z < -1) passed = true;
     }

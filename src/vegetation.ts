@@ -1416,13 +1416,15 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
   }
 
   /** Whether `(x, z)` in the tile's frame is inside a keepout. */
-  const insideKeepout = (keepout: Keepout, x: number, z: number): boolean => {
-    if (keepout.shape !== null) return planGap(keepout.shape, x - keepout.x, z - keepout.z) < MONUMENT_CLEARANCE;
+  const insideKeepout = (keepout: Keepout, x: number, z: number, clearance = MONUMENT_CLEARANCE): boolean => {
+    if (keepout.shape !== null) return planGap(keepout.shape, x - keepout.x, z - keepout.z) < clearance;
     const dx = x - keepout.x;
     const dz = z - keepout.z;
     return dx * dx + dz * dz < keepout.radius * keepout.radius;
   };
   const keepouts: Keepout[] = [];
+  /** How far off a landmark's plan its grass stops: the blades' own lean. */
+  const GRASS_TO_PLAN = 0.4;
 
   /**
    * A stretch of carriageway in the tile's own frame, and how far its verge
@@ -2889,7 +2891,10 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
       for (const keepout of set.keepouts) {
         if (bare) break;
         if (builtHalf[keepout.index]! > 0) continue;
-        if (insideKeepout(keepout, x, z)) bare = true;
+        // The grass grows up to a landmark's plan, not to where the wood stops:
+        // a lawn that ran on to the walls with its blades six units short read
+        // as a cut in the field.
+        if (insideKeepout(keepout, x, z, GRASS_TO_PLAN)) bare = true;
       }
       for (const road of set.roads) {
         if (bare) break;

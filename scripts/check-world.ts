@@ -40,6 +40,7 @@ import type { Place } from '../src/places.ts';
 import { decodeCountries, decodeLakes, decodePlaces, decodeRoads, encodeCountries, encodePlaces, encodeRoads, inflate, packedBend } from '../src/pack.ts';
 import {
   crownFall,
+  ribbonReach,
   carriageEdges,
   dashGives,
   EDGE_KEEP,
@@ -114,7 +115,7 @@ import {
   setSunDirection,
 } from '../src/lights.ts';
 import { BEACON_HEIGHT, DARK, DEFAULT_LOOK, GLOW_SHARE, LOOKS, bakeNight, createLandmarkLights, lookOf } from '../src/landmark-lights.ts';
-import { APRON, buildSetting } from '../src/landmark-setting.ts';
+import { LAMP_OFFSET, buildSetting } from '../src/landmark-setting.ts';
 import { BLOOM_THRESHOLD } from '../src/post.ts';
 import { solarPosition, sunDirection } from '../src/sun.ts';
 import { layRoadside } from '../src/roadside.ts';
@@ -140,7 +141,7 @@ import { biomeAt, biomeSample } from '../src/biome.ts';
 // to measure the mesh against the number `settlements.ts` uses and not against
 // a copy of it. `scenery/ground.ts` is Node-safe; `settlements.ts` is not,
 // because it reaches the kit through an `import.meta.glob` registry.
-import { EDGE_RUN, GROUND_LIFT, KERB_DROP, STREET_GRADE, TERRACE_STEP, cellKey, groundStyleFor, pavementOf } from '../src/scenery/ground.ts';
+import { EDGE_RUN, GROUND_LIFT, KERB_DROP, STREET_GRADE, TERRACE_STEP, cellKey, pavementOf } from '../src/scenery/ground.ts';
 import { regionFor } from '../src/scenery/regions.ts';
 import { EDGE_FOOT, STEP_RISE, buildFloor, edgeSink, flightHeight, flightRect, floorLiftAt, rampGrade } from '../src/scenery/floor.ts';
 import { STEP_UP } from '../src/player.ts';
@@ -205,7 +206,7 @@ const placed: {
   clearance?: number;
   plan?: Plan;
   shore?: true;
-  setting?: 'plaza';
+  setting?: 'plaza' | 'parcel';
   toward?: number;
 }[] = existsSync(monumentsPath)
   ? (JSON.parse(readFileSync(monumentsPath, 'utf8')) as { monuments: typeof placed }).monuments
@@ -1390,7 +1391,7 @@ if (placed.length > 0) {
       // The card's sentence rides the same bake: a note edited in the source
       // and never re-baked is the old sentence on the player's screen.
       if ((got.shore === true) !== shoreList.has(want.id)) stale.push(`${want.id} shore ${String(got.shore)} vs the source's list`);
-      if ((got.setting === 'plaza') !== plazaList.has(want.id)) stale.push(`${want.id} setting ${String(got.setting)} vs the source's plazas`);
+      if ((got.setting !== undefined) !== plazaList.has(want.id)) stale.push(`${want.id} setting ${String(got.setting)} vs the source's plazas`);
       const note = sourceFile.notes?.[want.id];
       if ((got as { note?: string }).note !== note) stale.push(`${want.id} note differs from the source`);
       if (note === undefined) stale.push(`${want.id} has no note in the source`);
@@ -1851,6 +1852,8 @@ if (placed.length > 0) {
     let lampCount = 0;
     let twinError = 0;
     let eiffel: { merged: ReturnType<typeof mergeMeshes>; pieces: MergePiece[]; square: Object3D | null; height?: number } | null = null;
+    /** The first landmark with lamps round it in the country, for the lamps' handover below. */
+    let litSample: { id: string; merged: ReturnType<typeof mergeMeshes>; pieces: MergePiece[]; square: Object3D | null; height?: number } | null = null;
     const edge1 = new Vector3();
     const edge2 = new Vector3();
     const lum = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -1868,13 +1871,14 @@ if (placed.length > 0) {
       let square: Object3D | null = null;
       if (placement.setting === 'plaza') {
         const region = regionFor(placement.iso, continentOf.get(placement.iso) ?? '', placement.lat).id;
-        square = buildSetting(ctx, placement, groundStyleFor(region), region);
+        square = buildSetting(ctx, placement, region);
         if (square !== null) group.add(square);
       }
       const pieces: MergePiece[] = [];
       const merged = mergeMeshes(group, pieces);
       const bake = bakeNight(model.id, placement.height, merged, pieces, square);
       if (model.id === 'eiffel-tower') eiffel = { merged, pieces: [...pieces], square, height: placement.height };
+      if (square !== null && litSample === null) litSample = { id: model.id, merged, pieces: [...pieces], square, height: placement.height };
       const look = lookOf(model.id);
       if (look === null) dark++;
       else if (LOOKS[model.id] !== undefined) styled++;
@@ -1966,7 +1970,7 @@ if (placed.length > 0) {
         const y = bake.tips[t + 1]!;
         if (y < bake.top || y > bake.top + 1.2) beaconProblems.push(`${model.id}'s light hangs at ${y.toFixed(1)} over a top of ${bake.top.toFixed(1)}`);
       }
-      // The square's lamps: at least one, lit, on the paving and at a lamp's height.
+      // The lamps round it: at least one, lit, a stride off the plan and at a lamp's height.
       if (square !== null) {
         plazas++;
         const lamps = bake.lamps.length / 3;
@@ -1975,8 +1979,8 @@ if (placed.length > 0) {
         const plan = planShape(placement);
         for (let l = 0; l < bake.lamps.length; l += 3) {
           const [x, y, z] = [bake.lamps[l]!, bake.lamps[l + 1]!, bake.lamps[l + 2]!];
-          const onPaving = Math.abs(x - plan.cx) <= plan.hx + APRON && Math.abs(z - plan.cz) <= plan.hz + APRON;
-          if (!onPaving || y < 4 || y > 7) lampProblems.push(`${model.id} lamp at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
+          const onRing = Math.abs(x - plan.cx) <= plan.hx + LAMP_OFFSET + 0.5 && Math.abs(z - plan.cz) <= plan.hz + LAMP_OFFSET + 0.5;
+          if (!onRing || y < 4 || y > 7) lampProblems.push(`${model.id} lamp at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
         }
       }
     }
@@ -2019,7 +2023,7 @@ if (placed.length > 0) {
       `red lights on the ${towers.length} lit towers of ${BEACON_HEIGHT} m and over, at their tops, and on nothing else`,
       beaconProblems.length > 0 ? beaconProblems.slice(0, 4).join('; ') : towers.map(([id, n]) => (n > 1 ? `${id} ${n}` : id)).join(', '),
     );
-    check(lampProblems.length === 0 && plazas > 0, 'every landmark\'s square has lit lamps on its paving', lampProblems.length > 0 ? lampProblems.slice(0, 4).join('; ') : `${lampCount} lamps round ${plazas} squares`);
+    check(lampProblems.length === 0 && plazas > 0, 'every landmark in the country with a square has lit lamps round it', lampProblems.length > 0 ? lampProblems.slice(0, 4).join('; ') : `${lampCount} lamps round ${plazas} squares`);
 
     // The twin against the shader's own text, which is the same string the
     // fragment shader compiles, evaluated here as JavaScript.
@@ -2083,15 +2087,25 @@ if (placed.length > 0) {
         `night ${noon.toFixed(2)} at noon, ${midnight.toFixed(2)} at midnight; sparkle at 22:02, 22:30 and 14:02 ${sparkles}, red light ${shown}`,
       );
 
-      // Its lamps handed over as the near lamps want them: within reach,
-      // nearest first, after the ones already in the list.
-      const out = new Float32Array(24 * 4);
-      out.set([0, 0, 0, 0.5]);
-      const viewer = new Vector3().copy(up).multiplyScalar(PLANET_RADIUS + 3);
-      const count = standing.lampsNear(viewer, 170, out, 1);
-      let sorted = count > 1;
-      for (let i = 1; i < count; i++) if (out[i * 4 + 3]! < out[(i - 1) * 4 + 3]! || out[i * 4 + 3]! > 170) sorted = false;
-      check(sorted, 'a square\'s lamps join the near lamps, sorted, after the town\'s', `${count - 1} of the Eiffel Tower's handed over`);
+      // A landmark's lamps handed over as the near lamps want them: within
+      // reach, nearest first, after the ones already in the list. The Eiffel
+      // Tower stands in a parcel of Paris, whose lamps are the town's, so the
+      // first landmark with lamps of its own stands in for it.
+      const litSite = litSample === null ? undefined : monuments.find((m) => m.id === litSample!.id);
+      if (litSample !== null && litSite !== undefined) {
+        const litUp = at(litSite.lat, litSite.lon).normalize();
+        const lamps = createLandmarkLights();
+        const stand = new Object3D();
+        stand.position.copy(litUp).multiplyScalar(PLANET_RADIUS);
+        lamps.stand(litSample.id, litSite, stand, bakeNight(litSample.id, litSample.height, litSample.merged, litSample.pieces, litSample.square));
+        const out = new Float32Array(24 * 4);
+        out.set([0, 0, 0, 0.5]);
+        const viewer = new Vector3().copy(litUp).multiplyScalar(PLANET_RADIUS + 3);
+        const count = lamps.lampsNear(viewer, 170, out, 1);
+        let sorted = count > 1;
+        for (let i = 1; i < count; i++) if (out[i * 4 + 3]! < out[(i - 1) * 4 + 3]! || out[i * 4 + 3]! > 170) sorted = false;
+        check(sorted, 'a landmark\'s lamps join the near lamps, sorted, after the town\'s', `${count - 1} of the ${litSample.id}'s handed over`);
+      } else check(false, 'a landmark\'s lamps join the near lamps, sorted, after the town\'s', 'no landmark in the country has lamps');
 
       if (eiffel !== null) {
         const times: number[] = [];
@@ -4567,8 +4581,10 @@ console.log('\nmade ground');
      * How far a direction stands from a path, across the ground. A probe put a
      * given distance off one section of a course that bends back near itself
      * can be nearer another stretch of the same road, and that stretch's
-     * surface is not this section's shoulder.
+     * surface is not this section's shoulder. `nearestAlong` is left at how
+     * far along the path that nearest point is.
      */
+    let nearestAlong = 0;
     const pathDistance = (path: CoursePath, direction: Vector3): number => {
       let nearest = Infinity;
       for (let k = 1; k < path.count; k++) {
@@ -4577,9 +4593,34 @@ console.log('\nmade ground');
         const lengthSq = chordB.lengthSq();
         const along = lengthSq > 0 ? Math.min(1, Math.max(0, foot.copy(direction).sub(chordA).dot(chordB) / lengthSq)) : 0;
         foot.copy(chordA).addScaledVector(chordB, along).normalize();
-        nearest = Math.min(nearest, foot.distanceTo(direction) * PLANET_RADIUS);
+        const away = foot.distanceTo(direction) * PLANET_RADIUS;
+        if (away < nearest) {
+          nearest = away;
+          nearestAlong = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * along;
+        }
       }
       return nearest;
+    };
+    /**
+     * Whether another stretch of the same road stands square beside a
+     * direction within `reach`, further along the path than either distance:
+     * `ribbonHeightAt` answers the higher of its section and the nearest's,
+     * as the drawing does, so a probe there is not this section's shoulder.
+     */
+    const besideAnother = (path: CoursePath, direction: Vector3, along: number, away: number, reach: number): boolean => {
+      for (let k = 1; k < path.count; k++) {
+        chordA.set(path.xyz[k * 3 - 3]!, path.xyz[k * 3 - 2]!, path.xyz[k * 3 - 1]!);
+        chordB.set(path.xyz[k * 3]!, path.xyz[k * 3 + 1]!, path.xyz[k * 3 + 2]!).sub(chordA);
+        const lengthSq = chordB.lengthSq();
+        if (!(lengthSq > 0)) continue;
+        const raw = foot.copy(direction).sub(chordA).dot(chordB) / lengthSq;
+        if (raw < 0 || raw > 1) continue;
+        foot.copy(chordA).addScaledVector(chordB, raw).normalize();
+        const d = foot.distanceTo(direction) * PLANET_RADIUS;
+        const s = path.s[k - 1]! + (path.s[k]! - path.s[k - 1]!) * raw;
+        if (d < reach && Math.abs(s - along) > Math.max(d, away) + 1) return true;
+      }
+      return false;
     };
     let elsewhere = 0;
 
@@ -4588,6 +4629,7 @@ console.log('\nmade ground');
     let worstCrown = 0;
     let rampSamples = 0;
     let rampRising = 0;
+    const risingAt: string[] = [];
     let offStrip = 0;
     let offWrong = 0;
     let inTown = 0;
@@ -4654,14 +4696,29 @@ console.log('\nmade ground');
           for (let step = 0; step <= 10; step++) {
             const away = (fall * step) / 10;
             off.copy(at).addScaledVector(side, away / PLANET_RADIUS).normalize();
-            if (pathDistance(path, off) < away - 0.1) {
+            // Nearer another stretch by a margin, or by a hair: `ribbonHeightAt`
+            // answers from whichever stretch is nearest, and on the inside of a
+            // bend the two are equidistant along a line. Past that line the
+            // answer is the other stretch's section, which near a gate is a
+            // ramp's higher bank (Huoshilafu-Damusi, 7.6 out at 46.6 of 72: the
+            // nearest point jumps to 58, on gate B's ramp). A probe off its own
+            // section has its nearest point within its own distance of `along`
+            // (the chords lean off the course's tangent by less than a right
+            // angle), so a foot further along than that is another stretch.
+            // And beside another stretch whose section it stands square
+            // across: the foot reads the higher of the two (`besideAnother`).
+            const nearest = pathDistance(path, off);
+            if (nearest < away - 0.1 || Math.abs(nearestAlong - along) > away + 0.1 || besideAnother(path, off, along, away, ribbonReach(half))) {
               elsewhere++;
               continue;
             }
             const lift = alone.ribbonHeightAt(off);
             const value = lift === 0 ? 0 : lift - groundRadius(world, off);
             rampSamples++;
-            if (value > last + 1e-6) rampRising++;
+            if (value > last + 1e-6) {
+              rampRising++;
+              if (risingAt.length < 3) risingAt.push(`${placesRaw[road.a]!.name}-${placesRaw[road.b]!.name} at ${along.toFixed(1)} of ${path.length.toFixed(0)}, ${away.toFixed(2)} out: ${last.toFixed(3)} then ${value.toFixed(3)}`);
+            }
             last = value;
           }
           for (const sign of [1, -1]) {
@@ -4738,7 +4795,8 @@ console.log('\nmade ground');
       rampRising === 0,
       'and the shoulder only ever falls, from the crown to the ground',
       `${rampSamples} samples across the section, ${rampRising} rising; ` +
-        `${elsewhere} probes left out for standing nearer another stretch of the same road`,
+        `${elsewhere} probes left out for standing nearer another stretch of the same road` +
+        (risingAt.length > 0 ? ` (${risingAt.join('; ')})` : ''),
     );
     check(
       offWrong === 0,
@@ -4824,6 +4882,7 @@ console.log('\nmade ground');
     const lowNames: string[] = [];
     let besideOthers = 0;
     let inOther = 0;
+    const otherNames: string[] = [];
     for (let i = 0; i < pruned.length; i += SIDE_STEP) {
       const road = pruned[i]!;
       courseOf(road, placesRaw, course);
@@ -4883,6 +4942,8 @@ console.log('\nmade ground');
             const overOther = radius - othersRoofline([other], vertexAt, world);
             if (sideNearest.distance < other.half - 0.05 && overOther < 4.5 && overOther > -0.5) {
               inOther++;
+              const pair = `${placesRaw[road.a]!.name}-${placesRaw[road.b]!.name}`;
+              if (otherNames.length < 4 && !otherNames.includes(pair)) otherNames.push(pair);
               break;
             }
           }
@@ -4913,7 +4974,8 @@ console.log('\nmade ground');
     check(
       inOther === 0 && besideOthers > 0,
       'and none of it stands in another road’s carriageway where two roads meet, fork or share an approach',
-      `${besideOthers} of ${sideRoads} roads beside another, ${inOther} vertices under 4.5 inside another’s carriageway`,
+      `${besideOthers} of ${sideRoads} roads beside another, ${inOther} vertices under 4.5 inside another’s carriageway` +
+        (inOther > 0 ? ` (${otherNames.join('; ')})` : ''),
     );
     check(
       lampsSeen > 0 && lampsAstray === 0,

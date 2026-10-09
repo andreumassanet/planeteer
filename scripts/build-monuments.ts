@@ -26,9 +26,10 @@ import { latLonOf, toUnit, unitAt } from '../src/sphere.ts';
 import { MAX_FOOTPRINT, createContext } from '../src/monuments/contract.ts';
 import type { Monument } from '../src/monuments/contract.ts';
 import { mergeMeshes } from '../src/merge.ts';
-import { LANDMARK_KEEP, planReach, planShape } from '../src/landmark-ground.ts';
+import { LANDMARK_KEEP, planGapToBox, planReach, planShape, plannedSite, siteGap } from '../src/landmark-ground.ts';
 import type { Plan, PlanShape } from '../src/landmark-ground.ts';
-import { offsetDirection, townFrame } from '../src/scenery/grid.ts';
+import { PARCEL_KEEP, cellCentre, landmarkParcel, offsetDirection, townFrame, townGrid } from '../src/scenery/grid.ts';
+import type { TownGrid } from '../src/scenery/grid.ts';
 import { decodePlaces, inflate } from '../src/pack.ts';
 import { BIGGEST_SETTLEMENT, isShown, radiusOf } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
@@ -178,13 +179,11 @@ interface Placed {
   plan?: Plan;
   /** Stands in or at the water by what it is; the source's `shore`. */
   shore?: true;
-  /** Stands in a paved square of its own; the source's `plazas`. */
-  setting?: 'plaza';
   /**
-   * Which way its square's path leaves, as `atan2(x, z)` in degrees in the
-   * model's frame: towards the nearest built town. Only on a plaza.
+   * Stands in a paved square of its own, the source's `plazas`: `plaza` out
+   * in the country, `parcel` in a block of its town's own cells.
    */
-  toward?: number;
+  setting?: 'plaza' | 'parcel';
 }
 
 const placed: Placed[] = [];
@@ -609,8 +608,10 @@ const takenAt = new Vector3();
  * and the road bake sends those roads to the next gate round.
  */
 const wantedGates = new Map<Place, Set<number>>();
+/** Every pair of built towns the road bake will try to join, for the narrows a bridge may not stand in the way of. */
+const candidateRoads = builtGraph(allPlaces, 'gabriel', MAX_ROAD_LENGTH);
 {
-  const candidates = builtGraph(allPlaces, 'gabriel', MAX_ROAD_LENGTH);
+  const candidates = candidateRoads;
   const given = candidateGates(allPlaces, candidates, world);
   candidates.forEach((edge, i) => {
     for (const [end, gate] of [[edge.a, given[i * 2]!], [edge.b, given[i * 2 + 1]!]] as const) {
@@ -690,6 +691,264 @@ for (let round = 0; round < 4; round++) {
   if (moved.length === 0 && pushed.length === 0) break;
 }
 const seated = [...seatedBy].map(([id, km]) => ({ id, km }));
+
+/**
+ * Where a landmark stands against the towns: **in a parcel of its own, or out
+ * of the town altogether.**
+ *
+ * A landmark used to stand wherever the passes above left it, and a town it
+ * reached wrapped round it cell by cell: the cells under its plan were paved,
+ * the streets ran on into its square and stopped at its kerb, a yard half
+ * under it kept its lawn, and the square the landmark brought with it lay over
+ * all of it at a height of its own. It read as a model dropped on a town. So
+ * now there are two answers and nothing between them:
+ *
+ * - **A landmark that stands in a paved square** (the source's `plazas`) and
+ *   fits in one quarter of its town — between the main streets and the edge,
+ *   so no main street runs into it — is stood in the middle of a block of the
+ *   town's own cells, with at least `PARCEL_KEEP` of ground round its plan and
+ *   less than half a cell more (`landmarkParcel` in `scenery/grid.ts`, which
+ *   the town and the road bake read). The town paves that block as one square
+ *   and keeps the streets round it. Its `setting` becomes `parcel`.
+ * - **Every other landmark that reaches a town** — one too big for a quarter
+ *   of it, a mountain, a ruin, a bridge — is walked out of the town's square
+ *   until its plan is `OUTSIDE_GAP` clear of it, to the nearest spot that is
+ *   dry, in its country and clear of the others, and stands in the country
+ *   beside the town.
+ *
+ * A `shore` landmark is walked out of a town too, but only to a spot with at
+ * least as much water under its plan as it stands in now: the water is what
+ * it is made of (`shoreOutsideNear`).
+ */
+const OUTSIDE_GAP = 10;
+/** How far a landmark may be walked out of a town, in world units, before it is left where it was. */
+const OUTSIDE_REACH = 400;
+
+/** The built towns near a spot: the square of each, in its own frame, and the landmark's point in it. */
+interface Host {
+  place: Place;
+  grid: TownGrid;
+  up: Vector3;
+  across: Vector3;
+  north: Vector3;
+  /** The landmark's point in the town's frame. */
+  x: number;
+  z: number;
+  /** How far the plan is outside the square, 0 or less where it reaches in. */
+  gap: number;
+}
+
+function hostsNear(id: string, lat: number, lon: number, within: number): Host[] {
+  const shape = shapeOf(id);
+  unitAt(lat, lon, takenAt);
+  const near = Math.cos((BIGGEST_SETTLEMENT + planReach(shape) + within) / RADIUS);
+  const out: Host[] = [];
+  for (let i = 0; i < builtTowns.length; i++) {
+    const up = townUnit[i]!;
+    if (up.dot(takenAt) < near) continue;
+    const place = builtTowns[i]!;
+    const grid = townGrid(radiusOf(place));
+    const across = new Vector3();
+    const north = new Vector3();
+    townFrame(up, across, north);
+    const x = takenAt.dot(across) * RADIUS;
+    const z = takenAt.dot(north) * RADIUS;
+    const gap = planGapToBox(shape, -grid.half - x, grid.half - x, -grid.half - z, grid.half - z);
+    if (gap < within) out.push({ place, grid, up, across, north, x, z, gap });
+  }
+  return out;
+}
+
+/** The runs of cells a parcel may take along one axis of a square: one quarter, either side of the main street. */
+function quarters(grid: TownGrid): [number, number][] {
+  const n = grid.cells;
+  if (n < 2) return [];
+  if (n % 2 === 1) {
+    const m = (n - 1) / 2;
+    return m > 0 ? [[0, m - 1], [m + 1, n - 1]] : [];
+  }
+  return [[0, n / 2 - 1], [n / 2, n - 1]];
+}
+
+/** Whether a spot is somewhere a landmark may stand at all: its country, dry, clear of the others, taking no town. */
+function standsAt(point: Placed, lat: number, lon: number, need: number): boolean {
+  return isoOf(world.countryAt(lat, lon)) === point.iso
+    && clearOfOthers(point, lat, lon)
+    && dryTo(lat, lon, point.id, need)
+    && townTaken(point.id, lat, lon) === null;
+}
+
+/** The parcels of a town a landmark fits, nearest `(lat, lon)` first, as spots. */
+function parcelSpots(point: Placed, host: Host, lat: number, lon: number): [number, number][] {
+  const shape = shapeOf(point.id);
+  const grid = host.grid;
+  const span = (half: number): number => Math.ceil((2 * half + 2 * PARCEL_KEEP) / grid.pitch - 1e-9);
+  const w = span(shape.hx);
+  const h = span(shape.hz);
+  const spots: { lat: number; lon: number; d: number }[] = [];
+  const at = new Vector3();
+  const here = unitAt(lat, lon, new Vector3());
+  for (const [a0, a1] of quarters(grid)) {
+    for (const [b0, b1] of quarters(grid)) {
+      for (let c0 = a0; c0 + w - 1 <= a1; c0++) {
+        for (let r0 = b0; r0 + h - 1 <= b1; r0++) {
+          const c1 = c0 + w - 1;
+          const r1 = r0 + h - 1;
+          const x = (cellCentre(grid, c0) + cellCentre(grid, c1)) / 2 - shape.cx;
+          const z = (cellCentre(grid, r0) + cellCentre(grid, r1)) / 2 - shape.cz;
+          const parcel = landmarkParcel(grid, x, z, shape);
+          if (parcel === null || parcel.c0 !== c0 || parcel.c1 !== c1 || parcel.r0 !== r0 || parcel.r1 !== r1) continue;
+          offsetDirection(host.up, host.across, host.north, x, z, at);
+          const spot = latLonOf(at);
+          spots.push({ lat: Number(spot.lat.toFixed(4)), lon: Number(spot.lon.toFixed(4)), d: at.angleTo(here) });
+        }
+      }
+    }
+  }
+  return spots.sort((p, q) => p.d - q.d).map((s) => [s.lat, s.lon]);
+}
+
+/** Whether a spot leaves every town's square `OUTSIDE_GAP` clear of the plan. */
+function outOfTowns(id: string, lat: number, lon: number): boolean {
+  return hostsNear(id, lat, lon, OUTSIDE_GAP).length === 0;
+}
+
+/**
+ * The nearest spot out of every town where the landmark stands, rings out from
+ * where it is: out of every road's way (`inTheWay`) if a spot that is lies
+ * within `WAY_DETOUR` further out than the nearest, and the nearest otherwise.
+ * Further was the Colosseum and St Peter's a hundred kilometres from Rome.
+ */
+const WAY_DETOUR = 40;
+function outsideNear(point: Placed, need: number): [number, number] | null {
+  let fallback: [number, number] | null = null;
+  let until = OUTSIDE_REACH;
+  for (let distance = SEAT_STEP; distance <= until; distance += SEAT_STEP) {
+    const bearings = Math.max(24, Math.ceil((2 * Math.PI * distance) / SEAT_STEP));
+    for (let k = 0; k < bearings; k++) {
+      const [y, x] = step(point.lat, point.lon, distance, (k / bearings) * Math.PI * 2);
+      const lat = Number(y.toFixed(4));
+      const lon = Number(x.toFixed(4));
+      if (!outOfTowns(point.id, lat, lon)) continue;
+      if (!standsAt(point, lat, lon, need)) continue;
+      if (fallback === null) {
+        fallback = [lat, lon];
+        until = Math.min(until, distance + WAY_DETOUR);
+      }
+      if (!inTheWay(point.id, lat, lon)) return [lat, lon];
+    }
+  }
+  return fallback;
+}
+
+const parcelled: { id: string; town: string; km: number }[] = [];
+const walkedOut: { id: string; town: string; km: number }[] = [];
+const leftIn: string[] = [];
+/**
+ * The nearest spot out of every town for a `shore` landmark: one that keeps at
+ * least the water it stands in now under its plan, so walking it off a town
+ * never walks it off its shore.
+ */
+function shoreOutsideNear(point: Placed): [number, number] | null {
+  const wet = Math.min(0, clearance(point.lat, point.lon, point.id, 0));
+  if (wet >= 0) return null;
+  for (let distance = SEAT_STEP; distance <= OUTSIDE_REACH; distance += SEAT_STEP) {
+    const bearings = Math.max(24, Math.ceil((2 * Math.PI * distance) / SEAT_STEP));
+    for (let k = 0; k < bearings; k++) {
+      const [y, x] = step(point.lat, point.lon, distance, (k / bearings) * Math.PI * 2);
+      const lat = Number(y.toFixed(4));
+      const lon = Number(x.toFixed(4));
+      if (isoOf(world.countryAt(lat, lon)) !== point.iso) continue;
+      if (!outOfTowns(point.id, lat, lon)) continue;
+      if (!clearOfOthers(point, lat, lon) || townTaken(point.id, lat, lon) !== null) continue;
+      if (clearance(lat, lon, point.id, 0) > wet) continue;
+      return [lat, lon];
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a spot is on the way of a road the road bake will try to build: the
+ * chord between two towns it joins passing within `ROAD_ROOM` of the plan
+ * (a carriageway's clearance and `LANDMARK_KEEP` past it, and a little). The
+ * road is a curve near that chord, and one that has to go round a landmark goes
+ * the long way or not at all: on the Sacramento delta the Golden Gate took the
+ * crossing Stockton's road to Fairfield was built over, and walked out of San
+ * Francisco onto its neighbours' way it sent two of its roads round it to
+ * cross each other on bridges of their own.
+ */
+const ROAD_ROOM = 16;
+const chordA = new Vector3();
+const chordB = new Vector3();
+function inTheWay(id: string, lat: number, lon: number): boolean {
+  const site = plannedSite({ lat, lon, footprint: footprintOf(id), plan: plans.get(id) });
+  const reach = (site.reach + ROAD_ROOM) / RADIUS;
+  const sample = new Vector3();
+  for (const edge of candidateRoads) {
+    unitAt(allPlaces[edge.a]!.lat, allPlaces[edge.a]!.lon, chordA);
+    if (chordA.dot(site.up as Vector3) < Math.cos(edge.length / RADIUS + reach)) continue;
+    unitAt(allPlaces[edge.b]!.lat, allPlaces[edge.b]!.lon, chordB);
+    // Along the chord a few units at a time, on the straight line between the
+    // two directions, which over a few hundred units is the great circle.
+    const steps = Math.ceil(edge.length / 4);
+    for (let k = 0; k <= steps; k++) {
+      sample.copy(chordA).lerp(chordB, k / steps).normalize();
+      if (sample.dot(site.up as Vector3) < Math.cos(reach)) continue;
+      if (siteGap(site, sample, RADIUS) < ROAD_ROOM) return true;
+    }
+  }
+  return false;
+}
+
+for (const point of placed) {
+  if (shoreIds.has(point.id)) {
+    const hosts = hostsNear(point.id, point.lat, point.lon, OUTSIDE_GAP);
+    if (hosts.length === 0) continue;
+    const spot = shoreOutsideNear(point);
+    const town = hosts.map((host) => host.place.name).join(', ');
+    if (spot === null) {
+      leftIn.push(`${point.id} (${town})`);
+      continue;
+    }
+    walkedOut.push({ id: point.id, town, km: distanceKm(point.lat, point.lon, spot[0], spot[1]) });
+    point.lat = spot[0];
+    point.lon = spot[1];
+    continue;
+  }
+  const hosts = hostsNear(point.id, point.lat, point.lon, OUTSIDE_GAP);
+  if (hosts.length === 0) continue;
+  const was = { lat: point.lat, lon: point.lon };
+  const town = hosts.map((host) => host.place.name).join(', ');
+  // The ground a landmark that has been dry so far keeps; one the coast
+  // never had room for stands no worse than it does.
+  const need = dryTo(point.lat, point.lon, point.id, needOf(point)) ? needOf(point) : 0;
+  let done = false;
+  if (point.setting === 'plaza' && hosts.length === 1) {
+    for (const [lat, lon] of parcelSpots(point, hosts[0]!, point.lat, point.lon)) {
+      // In this town's parcel and no other's.
+      if (hostsNear(point.id, lat, lon, OUTSIDE_GAP).length !== 1) continue;
+      // In a town the town's own floor is the ground round the plan, so only
+      // the parcel has to be dry, not the pad's whole margin.
+      if (!standsAt(point, lat, lon, Math.min(need, PARCEL_KEEP))) continue;
+      point.lat = lat;
+      point.lon = lon;
+      point.setting = 'parcel';
+      parcelled.push({ id: point.id, town, km: distanceKm(was.lat, was.lon, lat, lon) });
+      done = true;
+      break;
+    }
+  }
+  if (done) continue;
+  const spot = outsideNear(point, need);
+  if (spot === null) {
+    leftIn.push(`${point.id} (${town})`);
+    continue;
+  }
+  point.lat = spot[0];
+  point.lon = spot[1];
+  walkedOut.push({ id: point.id, town, km: distanceKm(was.lat, was.lon, spot[0], spot[1]) });
+}
 const spread = placed
   .map((p, i) => ({ id: p.id, km: distanceKm(before[i]!.lat, before[i]!.lon, p.lat, p.lon) }))
   .filter((p) => p.km > 0.05);
@@ -706,30 +965,6 @@ for (const point of placed) {
 }
 for (const id of [...shoreIds, ...plazaIds]) {
   if (!placed.some((point) => point.id === id)) refused.push(`${id}: listed in the source's shore or plazas and not a landmark`);
-}
-
-/**
- * Which way a plaza's path leaves: towards the nearest built town, as
- * `atan2(x, z)` in the model's frame. The town's centre and not its nearest
- * gate, because which gates a town opens is the road bake's to say and the
- * road bake runs after this one.
- */
-{
-  const shown = builtTowns;
-  const town = new Vector3();
-  for (const point of placed) {
-    if (point.setting !== 'plaza') continue;
-    unitAt(point.lat, point.lon, frameUp);
-    townFrame(frameUp, frameAcross, frameNorth);
-    let nearest = Infinity;
-    for (const place of shown) {
-      unitAt(place.lat, place.lon, town);
-      const angle = town.angleTo(frameUp);
-      if (angle >= nearest || angle * RADIUS < 1) continue;
-      nearest = angle;
-      point.toward = Math.round((Math.atan2(town.dot(frameAcross), town.dot(frameNorth)) * 180) / Math.PI);
-    }
-  }
 }
 
 if (refused.length > 0) {
@@ -751,6 +986,16 @@ if (spread.length > 0) {
     console.log(`  ${s.id.padEnd(24)} ${s.km.toFixed(1)} km`);
   }
 }
+
+if (parcelled.length > 0) {
+  console.log(`\nstood in a parcel of their town (${parcelled.length}):`);
+  for (const s of parcelled) console.log(`  ${s.id.padEnd(24)} ${s.town.padEnd(20)} ${s.km.toFixed(1)} km`);
+}
+if (walkedOut.length > 0) {
+  console.log(`\nwalked out of a town into the country beside it (${walkedOut.length}):`);
+  for (const s of walkedOut.sort((a, b) => b.km - a.km)) console.log(`  ${s.id.padEnd(24)} ${s.town.padEnd(20)} ${s.km.toFixed(1)} km`);
+}
+if (leftIn.length > 0) console.log(`\nleft reaching a town, with no spot out of it within ${OUTSIDE_REACH} units: ${leftIn.join(', ')}`);
 
 if (seated.length > 0) {
   console.log(`\nmoved off the coast until the plan and its margin stand on one shelf (${seated.length}):`);

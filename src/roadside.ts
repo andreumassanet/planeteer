@@ -682,6 +682,8 @@ function bridgeParts(out: Roadside, site: RoadsideSite, bridge: readonly [number
     const s = count === 1 ? (from + to) / 2 : from + ((to - from) * k) / count;
     const top = site.top(s);
     stand(site, s, 0, 1, 0);
+    // Nor in another road's way, where one passes beside or under the span.
+    if (site.clear !== undefined && !site.clear(at, Math.max(1.2, top * 0.45))) continue;
     const deck = at.length();
     const bottom = deck - GIRDER;
     // Into the floor under the water, not `PIER_FOOT` under the sea's surface:

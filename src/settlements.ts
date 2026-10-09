@@ -55,7 +55,9 @@ import {
   gatesOf,
   hasThroughStreets,
   inGrid,
+  inParcel,
   isAvenue,
+  landmarkParcel,
   mainStreetHalf,
   OUTSKIRT_MIN_CELLS,
   OUTSKIRT_RING,
@@ -69,7 +71,7 @@ import {
   townGrid,
   townTerraces,
 } from './scenery/grid.ts';
-import type { Gate, GateMouth, TownGrid, TownGround } from './scenery/grid.ts';
+import type { Gate, GateMouth, Parcel, TownGrid, TownGround } from './scenery/grid.ts';
 import { enclosed, freeSpot, pushOut, solidAt, solidField, yawed } from './scenery/solids.ts';
 import type { Solid, SolidField } from './scenery/solids.ts';
 import { hangOverhead } from './scenery/overhead.ts';
@@ -389,6 +391,12 @@ const RESCAN_SHARE = 0.01;
  * town that does not fit this frame is built in the next.
  */
 const BUILD_BUDGET_MS = 3.5;
+
+/** A tree in a landmark's parcel: one every this many units along a side, where there is this much room either side of its line. */
+/** How far the drawn land between two lattice corners can stand over the line joining them, for the edge slope's foot. */
+const DRAWN_BULGE = 1;
+const PARCEL_TREE_STEP = 9;
+const PARCEL_TREE_ROOM = 1.2;
 
 /*
  * Ground kept clear around a monument is `LANDMARK_KEEP` past its plan
@@ -2043,6 +2051,7 @@ export function createSettlements(
   }
 
   const centreDir = new THREE.Vector3();
+  const slopeDir = new THREE.Vector3();
 
   /**
    * The town being raised, as `grid.ts` asks about its ground: the corners
@@ -2072,6 +2081,25 @@ export function createSettlements(
   function terraceAt(col: number, row: number): number | null {
     return terraces.get(cellKey(col, row)) ?? null;
   }
+
+  /**
+   * The parcels the landmarks near the town being built take of its square
+   * (`landmarkParcel`), set with its grid in `squareSteps`: the cells it paves
+   * as one square, with no building and no street through them.
+   */
+  const parcels: Parcel[] = [];
+  /** The landmark each of `parcels` is for, by the same index. */
+  const parcelOwners: Keepout[] = [];
+  const parcelCell = (col: number, row: number): boolean => parcels.some((parcel) => inParcel(parcel, col, row));
+  const parcelAt = (x: number, z: number): boolean => parcelCell(cellIndex(townGridNow, x), cellIndex(townGridNow, z));
+  /** Whether the cells under a rectangle of the town's frame touch a parcel. */
+  const parcelUnder = (x0: number, x1: number, z0: number, z1: number): boolean => {
+    const c0 = cellIndex(townGridNow, x0 + 1e-3);
+    const c1 = cellIndex(townGridNow, x1 - 1e-3);
+    const r0 = cellIndex(townGridNow, z0 + 1e-3);
+    const r1 = cellIndex(townGridNow, z1 - 1e-3);
+    return parcels.some((parcel) => parcel.c0 <= c1 && parcel.c1 >= c0 && parcel.r0 <= r1 && parcel.r1 >= r0);
+  };
 
   /** Rebuilds the tangent frame, the ground origin and the keepouts about `up`. */
   function frameAt(): void {
@@ -2651,6 +2679,7 @@ export function createSettlements(
     if (levels.size === 0) return out;
 
     const blocked = (x: number, z: number): boolean => {
+      if (parcelAt(x, z)) return true;
       for (const keepout of keepouts) {
         if (planGap(keepout.shape, x - keepout.x, z - keepout.z) < keepout.radius) return true;
       }
@@ -2679,9 +2708,21 @@ export function createSettlements(
       band,
       terraces: levels,
       mouths: roadEnds,
+      // The slope round the paving dives under the ground at its foot, and the
+      // ground it must dive under is the land as drawn, which stands up to a
+      // few units off the relief: under the relief alone the drawn land came
+      // up through the slope in a flat patch the width of a cell (Bern,
+      // 2026-10-08). The terraces stay the relief's, which the roads read too.
       cornerGround: (i, j) => {
         const corner = cornerAt(i, j);
-        return corner.sea ? null : corner.elevation;
+        if (corner.sea) return null;
+        if (landProbe === null) return corner.elevation;
+        directionAt(corner.x, corner.z, slopeDir);
+        if (!landProbe.covers(slopeDir)) return corner.elevation;
+        const drawn = landProbe.radiusAt(slopeDir);
+        // And a unit more: the land between two corners a cell apart bulges
+        // over the line between them by up to about that much.
+        return drawn === null ? corner.elevation : Math.max(corner.elevation, drawn - PLANET_RADIUS + DRAWN_BULGE);
       },
       open: (col, row) => !blocked(cellCentre(grid, col), cellCentre(grid, row)),
     });
@@ -3066,8 +3107,15 @@ export function createSettlements(
         return list;
       };
       // A street "on u" runs along z: its lateral axis is u.
-      const alongZ = plaza || crossing ? [] : streetsOn(col, (step) => levels.has(cellKey(col + step, row)));
-      const alongX = plaza || crossing ? [] : streetsOn(row, (step) => levels.has(cellKey(col, row + step)));
+      // A landmark's parcel is one square with no street through it, and the
+      // streets round it whole: a cell of it paves its half of a band only
+      // where the cell across is the town's and not the parcel's.
+      const alongZ = crossing ? []
+        : plaza ? streetsOn(col, (step) => levels.has(cellKey(col + step, row)) && !parcelCell(col + step, row)).filter((street) => street.centre !== 0.5)
+        : streetsOn(col, (step) => levels.has(cellKey(col + step, row)));
+      const alongX = crossing ? []
+        : plaza ? streetsOn(row, (step) => levels.has(cellKey(col, row + step)) && !parcelCell(col, row + step)).filter((street) => street.centre !== 0.5)
+        : streetsOn(row, (step) => levels.has(cellKey(col, row + step)));
       const cutsFor = (streets: { centre: number; half: number }[], lengthwise: boolean, origin: number): number[] => {
         const list = new Set<number>([0, 1]);
         for (const street of streets) {
@@ -3111,12 +3159,15 @@ export function createSettlements(
        * the band from it, or the next cell carries none of it.
        */
       const goesOn = (dc: number, dr: number, street: { centre: number }): boolean => {
-        if (!levels.has(cellKey(col + dc, row + dr))) return false;
-        if (street.centre === 0.5) return true;
+        const nc = col + dc;
+        const nr = row + dr;
+        if (!levels.has(cellKey(nc, nr))) return false;
+        // Into a landmark's parcel only along its edge, where the cell across is the town's.
+        if (street.centre === 0.5) return !parcelCell(nc, nr);
         const step = street.centre === 0 ? -1 : 1;
-        return dc !== 0
-          ? levels.has(cellKey(col + dc, row + step))
-          : levels.has(cellKey(col + step, row + dr));
+        const pc = dc !== 0 ? nc : col + step;
+        const pr = dc !== 0 ? row + step : nr;
+        return levels.has(cellKey(pc, pr)) && !(parcelCell(nc, nr) && parcelCell(pc, pr));
       };
       const endOf = (side: number, dc: number, dr: number, streets: { centre: number; half: number }[]): void => {
         if (roadEnds.has(cellKey(col, row) * 4 + side)) return;
@@ -3210,7 +3261,7 @@ export function createSettlements(
           inside(ta, tb, tc, td, u1, v1, q2);
           inside(ta, tb, tc, td, u0, v1, q3);
           let tint: THREE.Color;
-          if (plaza) tint = plazaColor;
+          if (plaza && roleU === 'yard' && roleV === 'yard') tint = plazaColor;
           else if (crossing) {
             const walk = walkOf(pitch * 0.5) / pitch;
             const edgeU = uc < walk || uc > 1 - walk;
@@ -4147,7 +4198,7 @@ export function createSettlements(
     }
     const fill = cells === 1 ? 1 : 0.83 + 0.12 * urbanity;
 
-    const blocked = (rect: Rect): boolean => keepouts.some((keepout) => keepoutReaches(keepout, rect.x0, rect.x1, rect.z0, rect.z1));
+    const blocked = (rect: Rect): boolean => parcelUnder(rect.x0, rect.x1, rect.z0, rect.z1);
 
     /**
      * The part drawn, then every other part in the mix, largest first.
@@ -4424,6 +4475,63 @@ export function createSettlements(
         plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: room, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
       });
     }
+    // --- a landmark's parcel: a row of the town's own trees round it ---
+    //
+    // On the ground between the plan and the parcel's edge, less the street
+    // band its edge carries, halfway across: a tree every `PARCEL_TREE_STEP`
+    // along each side wherever that ground is wide enough to hold one clear of
+    // the model, drawn from the region's own street trees, so the square reads
+    // as the town's and its trees as the ones the town plants everywhere else.
+    parcels.forEach((parcel, index) => {
+      const owner = parcelOwners[index]!;
+      const shape = owner.shape;
+      const rng = rngFrom(slot.seed, 'parcel', parcel.c0, parcel.r0);
+      // Off the band a side carries where the town goes on past it, and only a
+      // kerb's width off one at the square's edge.
+      const inset = (band: number, col: number, row: number): number =>
+        (inGrid(grid, col, row) && terraceAt(col, row) !== null ? band : 0) + 0.6;
+      const x0 = cellCentre(grid, parcel.c0) - grid.pitch * 0.5 + inset(grid.low[parcel.c0] === 1 ? band : 0, parcel.c0 - 1, parcel.r0);
+      const x1 = cellCentre(grid, parcel.c1) + grid.pitch * 0.5 - inset(grid.high[parcel.c1] === 1 ? band : 0, parcel.c1 + 1, parcel.r0);
+      const z0 = cellCentre(grid, parcel.r0) - grid.pitch * 0.5 + inset(grid.low[parcel.r0] === 1 ? band : 0, parcel.c0, parcel.r0 - 1);
+      const z1 = cellCentre(grid, parcel.r1) + grid.pitch * 0.5 - inset(grid.high[parcel.r1] === 1 ? band : 0, parcel.c0, parcel.r1 + 1);
+      const px0 = owner.x + shape.cx - shape.hx;
+      const px1 = owner.x + shape.cx + shape.hx;
+      const pz0 = owner.z + shape.cz - shape.hz;
+      const pz1 = owner.z + shape.cz + shape.hz;
+      const sides: [number, number, number, number, number][] = [
+        // x, z of the line's start and end, and the room either side of it
+        [x0, (z1 + pz1) * 0.5, x1, (z1 + pz1) * 0.5, (z1 - pz1) * 0.5],
+        [x0, (z0 + pz0) * 0.5, x1, (z0 + pz0) * 0.5, (pz0 - z0) * 0.5],
+        [(x0 + px0) * 0.5, z0, (x0 + px0) * 0.5, z1, (px0 - x0) * 0.5],
+        [(x1 + px1) * 0.5, z0, (x1 + px1) * 0.5, z1, (x1 - px1) * 0.5],
+      ];
+      const seen: [number, number][] = [];
+      for (const [ax, az, bx, bz, room] of sides) {
+        if (room < PARCEL_TREE_ROOM) continue;
+        // A crown spreads over the walk and the street up high, as a street tree's does.
+        const trees = fitting(style.trees, Math.max(room * 2, 3.2));
+        if (trees === null) continue;
+        const id = rng.weighted(trees);
+        const variant = rng.int(VARIANTS);
+        const length = Math.hypot(bx - ax, bz - az);
+        const count = Math.max(1, Math.round(length / PARCEL_TREE_STEP));
+        for (let i = 0; i < count; i++) {
+          const t = (i + 0.5) / count;
+          const x = ax + (bx - ax) * t;
+          const z = az + (bz - az) * t;
+          if (planGap(shape, x - owner.x, z - owner.z) < room * 0.75) continue;
+          if (seen.some(([sx, sz]) => Math.hypot(sx - x, sz - z) < PARCEL_TREE_STEP * 0.6)) continue;
+          const col = cellIndex(grid, x);
+          const row = cellIndex(grid, z);
+          if (!inParcel(parcel, col, row) || terraceAt(col, row) === null) continue;
+          seen.push([x, z]);
+          placed.push({
+            partId: id, variant, scale: rng.spread(0.9, 0.05),
+            plot: { x, z, yaw: rng.unit() * Math.PI * 2, size: room, distance: Math.hypot(x, z), seed: rng.unit() * 0x7fffffff, col, row },
+          });
+        }
+      }
+    });
     placed.push(...(yield* countrysideSteps(slot, grid, style)));
     return { placed };
   }
@@ -4533,7 +4641,7 @@ export function createSettlements(
         const cx = cellCentre(grid, col);
         const cz = cellCentre(grid, row);
         // The floor's own tests (`buildGroundSteps`): a landmark's ground, a block's paving, a lawn at the edge.
-        const plaza = keepouts.some((keepout) => planGap(keepout.shape, cx - keepout.x, cz - keepout.z) < keepout.radius);
+        const plaza = parcelCell(col, row) || keepouts.some((keepout) => planGap(keepout.shape, cx - keepout.x, cz - keepout.z) < keepout.radius);
         const outer = style.yard !== 'earth' && (n < OUTSKIRT_MIN_CELLS || outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING);
         cells[row * n + col] = plaza ? 4 : pavedCells.has(key) ? 2 : outer ? 3 : 1;
       }
@@ -4675,6 +4783,14 @@ export function createSettlements(
      */
     const grid = townGrid(slot.radius);
     townGridNow = grid;
+    parcels.length = 0;
+    parcelOwners.length = 0;
+    for (const keepout of keepouts) {
+      const parcel = landmarkParcel(grid, keepout.x, keepout.z, keepout.shape);
+      if (parcel === null) continue;
+      parcels.push(parcel);
+      parcelOwners.push(keepout);
+    }
     baseElevation = Math.max(0, world.elevationAt(up));
     corners.clear();
     terraces.clear();
@@ -4699,7 +4815,7 @@ export function createSettlements(
     }
     const half = grid.pitch * 0.5;
     yield;
-    const outskirts = outskirtsOf(grid, slot.seed, (col, row) => kept.has(cellKey(col, row)) || keepouts.some((keepout) => {
+    const outskirts = outskirtsOf(grid, slot.seed, (col, row) => kept.has(cellKey(col, row)) || parcelCell(col, row) || keepouts.some((keepout) => {
       const cx = cellCentre(grid, col);
       const cz = cellCentre(grid, row);
       return keepoutReaches(keepout, cx - half, cx + half, cz - half, cz + half);
@@ -4989,7 +5105,7 @@ export function createSettlements(
     // ...and the one thing that can still refuse it is a landmark standing on
     // the spot, which is a settlement that has to stay empty rather than one
     // that failed.
-    const centreClear = keepouts.every((keepout) => planGap(keepout.shape, -keepout.x, -keepout.z) > keepout.radius);
+    const centreClear = !parcelAt(0, 0) && keepouts.every((keepout) => planGap(keepout.shape, -keepout.x, -keepout.z) > keepout.radius);
     if (built.size === 0 && centreClear) {
       // The region's smallest house, which is the one building that cannot
       // fail to fit: this is the case where everything else already did.
@@ -5423,7 +5539,7 @@ export function createSettlements(
         fronts: dressFronts,
         solids: parkedGhosts.length > 0 ? [...solids, ...parkedGhosts] : solids,
         discs,
-        blocked: (x, z) => keepouts.some((keepout) => planGap(keepout.shape, x - keepout.x, z - keepout.z) < keepout.radius),
+        blocked: (x, z) => parcelAt(x, z) || keepouts.some((keepout) => planGap(keepout.shape, x - keepout.x, z - keepout.z) < keepout.radius),
         plotRect: (col, row) => rectOf(grid, band, col, col, row, row),
         seat(x, z, level, into) {
           directionAt(x, z, dressDir);

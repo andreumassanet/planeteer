@@ -24,7 +24,6 @@ import { drawnFootprint, landProbeOf } from './land-probe.ts';
 import type { DrawnFootprint } from './land-probe.ts';
 import { buildSetting } from './landmark-setting.ts';
 import { regionFor } from './scenery/regions.ts';
-import { groundStyleFor } from './scenery/ground.ts';
 
 /**
  * Where a monument stands, as baked by `scripts/build-monuments.ts`.
@@ -71,8 +70,12 @@ export interface Placement {
   plan?: Plan;
   /** Stands in or at the water by what it is, and may overhang it. */
   shore?: true;
-  /** Stands in a paved square of its own; see `landmark-setting.ts`. */
-  setting?: 'plaza';
+  /**
+   * Stands in a square of its own, the source's `plazas`: `parcel` in a block
+   * of its town's cells, which the town paves (`landmarkParcel`), `plaza` in
+   * the country, with a ring of lamps (`landmark-setting.ts`).
+   */
+  setting?: 'plaza' | 'parcel';
   /** Which way the square's path leaves, as `atan2(x, z)` in degrees in the model's frame. */
   toward?: number;
   height?: number;
@@ -533,7 +536,7 @@ export function createMonuments(
     let square: THREE.Group | null = null;
     if (slot.placement.setting === 'plaza') {
       const region = regionFor(slot.placement.iso, continentOf.get(slot.placement.iso) ?? '', slot.placement.lat).id;
-      square = buildSetting(ctx, slot.placement, groundStyleFor(region), region);
+      square = buildSetting(ctx, slot.placement, region);
       if (square !== null) model.add(square);
     }
     const pieces: MergePiece[] = [];

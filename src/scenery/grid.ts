@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
 import { MAX_CUT, SIDEWALK, TERRACE_STEP, cellKey, pavementOf } from './ground.ts';
+import { planGapToBox, planReach } from '../landmark-ground.ts';
+import type { PlanShape } from '../landmark-ground.ts';
 
 /**
  * A town's square: how big it is, the cells it is cut into, where its streets
@@ -293,6 +295,66 @@ export function inGrid(grid: TownGrid, col: number, row: number): boolean {
 /** Whether a cell is street from edge to edge: on an avenue in either direction. */
 export function isAvenue(grid: TownGrid, col: number, row: number): boolean {
   return grid.avenue[col] === 1 || grid.avenue[row] === 1;
+}
+
+/**
+ * How near a landmark's plan a town's cell has to come to be part of the
+ * landmark's parcel, in world units. `build-monuments.ts` stands a landmark it
+ * puts in a town in the middle of a whole number of cells with at least this
+ * much ground between its plan and their edge on every side, and with less
+ * than half a cell more, so the cells this reaches are exactly those.
+ */
+export const PARCEL_KEEP = 6;
+
+/** The cells a landmark in a town takes, inclusive on all four sides. */
+export interface Parcel {
+  c0: number;
+  c1: number;
+  r0: number;
+  r1: number;
+}
+
+/**
+ * The parcel a landmark takes in a town's square: every cell whose box comes
+ * within `PARCEL_KEEP` of its plan, and then the rectangle of cells that holds
+ * them all, so the ground a landmark stands in is a block of the town's own
+ * cells and never a disc cut out of streets and yards. Null where its plan
+ * comes near no cell. `(x, z)` is the landmark's point in the town's frame.
+ *
+ * **One answer for every reader**: the town paves it as one square with no
+ * building and no street through it (`settlements.ts`), the road bake shuts a
+ * gate whose cells it takes (`roads.ts`), and the monuments' bake stands a
+ * landmark so that this rectangle is the one it chose.
+ */
+export function landmarkParcel(grid: TownGrid, x: number, z: number, shape: PlanShape): Parcel | null {
+  let c0 = Infinity;
+  let c1 = -Infinity;
+  let r0 = Infinity;
+  let r1 = -Infinity;
+  const half = grid.pitch * 0.5;
+  // Only the cells the plan's reach can touch are asked.
+  const reach = planReach(shape) + PARCEL_KEEP + grid.pitch;
+  const from = Math.max(0, cellIndex(grid, x - reach));
+  const to = Math.min(grid.cells - 1, cellIndex(grid, x + reach));
+  const fromRow = Math.max(0, cellIndex(grid, z - reach));
+  const toRow = Math.min(grid.cells - 1, cellIndex(grid, z + reach));
+  for (let col = from; col <= to; col++) {
+    const cx = cellCentre(grid, col) - x;
+    for (let row = fromRow; row <= toRow; row++) {
+      const cz = cellCentre(grid, row) - z;
+      if (planGapToBox(shape, cx - half, cx + half, cz - half, cz + half) >= PARCEL_KEEP) continue;
+      if (col < c0) c0 = col;
+      if (col > c1) c1 = col;
+      if (row < r0) r0 = row;
+      if (row > r1) r1 = row;
+    }
+  }
+  return c0 === Infinity ? null : { c0, c1, r0, r1 };
+}
+
+/** Whether a cell is in a parcel. */
+export function inParcel(parcel: Parcel, col: number, row: number): boolean {
+  return col >= parcel.c0 && col <= parcel.c1 && row >= parcel.r0 && row <= parcel.r1;
 }
 
 /**

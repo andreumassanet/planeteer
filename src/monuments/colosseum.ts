@@ -22,11 +22,19 @@ import { PROUD } from './contract.ts';
  *    steps down in brick over three bays. Both are `clay` against the
  *    travertine, which is exactly what they are in every photograph: the only
  *    red on the building.
- * 4. **Up close and from the air: the arena is open to the hypogeum.** Six long
- *    brick walls down the arena's length, the service corridors that were under
- *    the floor, with a stretch of restored timber floor over one end. It is what the
- *    plane sees first, and it is what makes the bowl read as a ruin rather than
- *    a stadium with the seats taken out.
+ * 4. **From the air and from the arena: a bowl of seats round an open
+ *    hypogeum.** The arena has a floor of its own over the whole oval, so
+ *    nothing of the ground shows inside the walls: the restored timber deck
+ *    over the east end, and over the rest the hypogeum laid open, a sunken
+ *    grid of pale stone corridors — the long central gallery down the major
+ *    axis, two more galleries either side of it, cross walls cutting them into
+ *    cells, and the curved service corridor left between the walls' ends and
+ *    the podium. Round it the podium wall with its terrace, then the cavea in
+ *    steps — two ranks of the first maenianum, the balteus wall, the second
+ *    maenianum — under the tall brick back wall, with the vomitoria opening
+ *    as dark doorways in the balteus and a gate at each end of the long
+ *    axis. Seats, not plain rings, are what make the bowl read as an
+ *    amphitheatre from the plane.
  *
  * ## The arches, and what 2,600 triangles buy
  *
@@ -75,10 +83,27 @@ import { PROUD } from './contract.ts';
  *
  * `sand` for the travertine, toned down for the entablature bands and further
  * for the attic, which weathers darkest; `clay` for the brick (buttresses,
- * blocked arches, the ruined core, the hypogeum walls); `brown` and `tan` for
- * the cavea, which is rubble brick and tufa now, not seats; `bark` for the attic
- * windows. What the arches look into is the brick core at 0.6, dark and warm,
- * because a neutral seen through an opening reads as sky.
+ * blocked arches, the brick back wall of the cavea); `bark` for the attic
+ * windows, the vomitoria and the gates. What the arches look into is the brick
+ * core at 0.6, dark and warm, because a neutral seen through an opening reads
+ * as sky. Inside, the cavea alternates travertine and brick from rank to rank,
+ * so each step is a change of colour as well as an ink line; the hypogeum is
+ * travertine walls over a floor of the same stone in shade (`sand` 0.74), never
+ * brick, because brick walls in rows over a darker floor read as beds in a
+ * vegetable plot; and the deck is `apricot` toned down, warm timber, the one
+ * colour in the bowl that is not stone.
+ *
+ * ## The interior, and what is left of the budget for it
+ *
+ * The outside costs 1,896 of the tier's 2,600 triangles, which leaves the
+ * inside 704: five `ringWall`s (the podium and the three ranks at 12 sides,
+ * the back wall at 16, to meet the vault) and 16 boxes. So every ring is a
+ * step that shows: each one runs out under the next, taller one (`LAP`)
+ * rather than up to it, so two polygons turned or sided differently can never
+ * open a slit where a corner of one meets a flat of the other,
+ * and the only faces that are drawn are its tread and its riser. The arena
+ * floor and the deck are boxes, 12 triangles each, whose corners run in under
+ * the cavea; a column of the arena's own oval would have cost 64.
  */
 
 const TAU = Math.PI * 2;
@@ -146,20 +171,51 @@ const VAULT_INNER = INNER_BACK;
 const VAULT_OUTER = 47.6;
 const VAULT_SIDES = 16;
 
-/** The brick core behind the inner arcade: what the arches look into, and the ruin above them. */
-const CORE_INNER = 40;
+/** The brick core behind the inner arcade: what the arches look into, and the cavea's back wall. */
+const CORE_INNER = 36.8;
 const CORE_HEIGHT = 23;
-
-/** Cavea banks, arena outward. Stepped, so each bank is its own ink line from the air. */
-const CAVEA = [
-  { inner: 22, outer: 28, height: 4.0 },
-  { inner: 28, outer: 34, height: 10.5 },
-  { inner: 34, outer: CORE_INNER, height: 17 },
-];
-const RING_SIDES = 16;
 
 /** Arena radius in the circle frame; squashed it is 44 by 36.5, the real 86 by 54 m made rounder. */
 const ARENA = 22;
+/**
+ * The arena floor: the hypogeum's floor, and the least height any of the arena
+ * stands at. Over a unit, because the model is bedded to the lowest of the
+ * drawn land under its plan and the land inside the plan stands up to about
+ * that much over it (`placement.ts`): at 0.3 the ground showed green through
+ * the whole bowl.
+ */
+const PIT_FLOOR = 1.3;
+/** The restored timber deck, over the east end up to this x (the circle frame's -X is east). */
+const DECK_TOP = 3.6;
+const DECK_EDGE = -10;
+/** The hypogeum's walls stop under the deck's top, so the deck's edge is its own ink line. */
+const WALL_TOP = 3.3;
+const WALL = 1.0;
+/** Where the walls end: the curved service corridor runs between here and the podium. */
+const WALL_REACH = 20;
+/** The long walls, either side of the axis: the central gallery is the pair at 2.4. */
+const GALLERIES = [2.4, 7.6, 12.8];
+/** Cross walls, each spanning both galleries on its side, cutting them into cells. */
+const CROSS = [-2, 8];
+
+/** The podium wall and its terrace, round the arena. */
+const PODIUM = { inner: ARENA, top: 5.6 };
+/**
+ * The cavea, arena outward: two ranks of the first maenianum, then the balteus
+ * and the second. Each ring runs `LAP` out under the next, so its outer face
+ * is buried and no corner of two different polygons can open a slit.
+ */
+const CAVEA = [
+  { inner: 24.4, top: 8.0 },
+  { inner: 28.4, top: 10.6 },
+  { inner: 32.6, top: 14.6 },
+];
+const LAP = 1.6;
+const RING_SIDES = 16;
+/** The podium and the cavea: 12 sides, which is what the budget leaves (see the header). */
+const SEAT_SIDES = 12;
+/** Half a side, which puts a flat on each axis: the gate and the vomitoria stand on them. */
+const FLAT_ON_AXES = Math.PI / SEAT_SIDES;
 
 export const colosseum: Monument = {
   id: 'colosseum',
@@ -172,7 +228,7 @@ export const colosseum: Monument = {
   footprint: 52,
 
   build(ctx) {
-    const { THREE, palette, tone, box, column, taper, ringWall } = ctx;
+    const { THREE, palette, tone, box, taper, ringWall } = ctx;
     const travertine = palette.sand;
     const entablature = tone(palette.sand, 0.9);
     const attic = tone(palette.sand, 0.86);
@@ -181,10 +237,10 @@ export const colosseum: Monument = {
     const brick = tone(palette.clay, 0.88);
     const core = tone(palette.clay, 0.6);
     const vaulting = tone(palette.tan, 1.08);
-    const rubble = [tone(palette.tan, 0.92), palette.brown, tone(palette.brown, 0.9)];
-    const pit = tone(palette.brown, 0.58);
-    const hypogeum = tone(palette.clay, 0.78);
-    const deck = tone(palette.brown, 1.18);
+    const seats = [tone(palette.sand, 0.86), tone(palette.clay, 0.8), tone(palette.sand, 0.8)];
+    const stone = tone(palette.sand, 0.97);
+    const pit = tone(palette.sand, 0.74);
+    const timber = tone(palette.apricot, 0.82);
 
     const draft = new THREE.Group();
     // Everything is built as a circle and squashed once, so every radius in the
@@ -316,31 +372,86 @@ export const colosseum: Monument = {
     oval.add(vault);
 
     // What the arches look into, and on the south the ruined upper cavea rising
-    // behind the arcade: one dark ring of brick. Dark and warm, because through
-    // an arch a neutral reads as sky.
+    // behind the arcade; inside, the brick back wall over the top rank of
+    // seats. Dark and warm, because through an arch a neutral reads as sky.
     oval.add(ringWall(CORE_INNER, INNER_BACK, CORE_HEIGHT, core, RING_SIDES));
 
-    // --- the cavea ------------------------------------------------------------
-    CAVEA.forEach((bank, index) => {
-      oval.add(ringWall(bank.inner, bank.outer, bank.height, rubble[index]!, RING_SIDES));
+    // --- the podium and the cavea ---------------------------------------------
+    // The podium and every other rank are turned half a side, so a flat faces
+    // each axis; the ranks between are not, so no two corners line up.
+    {
+      const podium = ringWall(PODIUM.inner, CAVEA[0]!.inner + LAP, PODIUM.top, travertine, SEAT_SIDES);
+      podium.rotation.y = FLAT_ON_AXES;
+      oval.add(podium);
+    }
+    CAVEA.forEach((rank, index) => {
+      const outer = (CAVEA[index + 1]?.inner ?? CORE_INNER) + LAP;
+      const ring = ringWall(rank.inner, outer, rank.top, seats[index]!, SEAT_SIDES);
+      ring.rotation.y = index % 2 === 0 ? FLAT_ON_AXES : 0;
+      oval.add(ring);
     });
 
-    // --- the arena, open to the hypogeum ---
-    oval.add(column(ARENA, 0.3, pit, RING_SIDES));
-
-    // Six corridor walls down the long axis, the middle pair framing the
-    // central gallery. Each is cut to the circle it stands in.
-    for (const z of [-13.4, -8.2, -2.7, 2.7, 8.2, 13.4]) {
-      const wall = box(2 * Math.sqrt(ARENA * ARENA - z * z) - 2, 3.1, 1.0, hypogeum);
-      wall.position.z = z;
-      oval.add(wall);
+    // The vomitoria: two dark doorways in the balteus, the riser of the second
+    // maenianum, at the ends of the short axis. Each stands proud of the
+    // riser's flat, its foot buried in the rank below.
+    {
+      const balteus = CAVEA[2]!;
+      const below = CAVEA[1]!.top;
+      const flat = balteus.inner * Math.cos(FLAT_ON_AXES);
+      for (const turn of [0, Math.PI]) {
+        const door = box(2.6, balteus.top - 1.0 - (below - 0.5), 0.5, unlit);
+        door.position.set(0, below - 0.5, flat - 0.25 + 2 * PROUD);
+        const pivot = new THREE.Group();
+        pivot.rotation.y = turn;
+        pivot.add(door);
+        oval.add(pivot);
+      }
     }
 
-    // A stretch of restored timber floor, over the east end. Its far edge runs
-    // under the podium, which hides it.
-    const floor = box(10, 3.4, 32, deck);
-    floor.position.x = -17;
-    oval.add(floor);
+    // --- the arena ------------------------------------------------------------
+    // One box under the whole oval, its corners running in under the cavea:
+    // the hypogeum's floor, and what keeps the ground out of the bowl.
+    oval.add(box(2 * ARENA + 2, PIT_FLOOR, 2 * ARENA + 2, pit));
+
+    // The restored deck over the east end, its far edge under the podium.
+    {
+      const width = DECK_EDGE + ARENA + 1.5;
+      const deck = box(width, DECK_TOP, 2 * ARENA + 3, timber);
+      deck.position.x = DECK_EDGE - width / 2;
+      oval.add(deck);
+    }
+
+    // The hypogeum: long walls either side of the axis, from under the deck
+    // to the curved corridor at `WALL_REACH`, and cross walls through both
+    // galleries on each side.
+    const reach = (z: number): number => Math.sqrt(WALL_REACH * WALL_REACH - z * z);
+    for (const z of GALLERIES) {
+      const from = DECK_EDGE - 1;
+      const to = reach(z + WALL / 2);
+      for (const side of [-1, 1]) {
+        const wall = box(to - from, WALL_TOP, WALL, stone);
+        wall.position.set((from + to) / 2, 0, side * z);
+        oval.add(wall);
+      }
+    }
+    for (const x of CROSS) {
+      const near = GALLERIES[0]!;
+      const far = GALLERIES[GALLERIES.length - 1]!;
+      for (const side of [-1, 1]) {
+        const wall = box(WALL, WALL_TOP, far - near, stone);
+        wall.position.set(x, 0, (side * (near + far)) / 2);
+        oval.add(wall);
+      }
+    }
+
+    // The two gates at the ends of the long axis: dark doorways standing proud
+    // of the podium's flats. The east one rises out of the deck.
+    for (const side of [-1, 1]) {
+      const flat = PODIUM.inner * Math.cos(FLAT_ON_AXES);
+      const gate = box(0.5, PODIUM.top - 1.0, 4.2, unlit);
+      gate.position.x = side * (flat - 0.25 + 2 * PROUD);
+      oval.add(gate);
+    }
 
     return ctx.merge(draft);
   },
