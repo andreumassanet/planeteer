@@ -512,8 +512,23 @@ console.log('\nthe motion:');
         for (let t = 0; t < 3; t += 1 / 60) motion2.update(1 / 60, { ...AT_REST, engine: true, speed: 30, throttle: 1 });
         if (!(lowered < -0.1)) fail(`${model.id}: a leap does not take the clip's own rise off (${f(lowered, 3)})`);
         if (Math.abs(rig.position.y) > 1e-6) fail(`${model.id}: the rig is still ${f(rig.position.y, 3)} off its place after landing`);
+        // A fall off a height lasts longer than any clip: held in one pose
+        // all the way down, whatever each frame's length, and given back
+        // once it is down. Stepping the clip back and on again each frame
+        // drew two poses in turn, and the fall flickered.
+        let held: [number, number] | null = null;
+        let wander = 0;
+        for (let i = 0; i < 240; i++) {
+          motion2.update(i % 2 === 0 ? 1 / 60 : 1 / 45, { ...AT_REST, engine: true, speed: 30, throttle: 1, grounded: false });
+          if (i < 120) continue;
+          held ??= [rig.position.y, motion2.lift];
+          wander = Math.max(wander, Math.abs(rig.position.y - held[0]), Math.abs(motion2.lift - held[1]));
+        }
+        if (wander > 1e-6) fail(`${model.id}: a long fall does not hold one pose (it wanders ${f(wander, 4)})`);
+        for (let t = 0; t < 3; t += 1 / 60) motion2.update(1 / 60, { ...AT_REST, engine: true, speed: 30, throttle: 1 });
+        if (Math.abs(rig.position.y) > 1e-6) fail(`${model.id}: the rig is still ${f(rig.position.y, 3)} off its place after a long fall`);
         proper(fresh, model.id);
-        extra += `, a leap lowers the rig ${f(-lowered, 2)} under the clip's rise`;
+        extra += `, a leap lowers the rig ${f(-lowered, 2)} under the clip's rise, a fall holds`;
       }
       // Its withers at `WITHERS` of a person, and not the herds' giant.
       const { WITHERS } = await import('../src/craft/horse.ts');

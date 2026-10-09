@@ -167,6 +167,12 @@ const GAIT_EASE = 5;
  */
 export const JUMP_CLIPS = ['Gallop_Jump', 'Jump_toIdle'] as const;
 const JUMP_EASE = 14;
+/**
+ * Seconds a jump clip takes to catch up with a landing that came before its
+ * own: from wherever it is to the hooves' touchdown (`JumpCurve.on`), fast,
+ * rather than in one frame, which from the pose a fall is held in was a pop.
+ */
+const LAND_CATCH = 0.08;
 
 /**
  * A jump clip as measured: the lowest hoof's height over the ground through
@@ -179,6 +185,38 @@ export interface JumpCurve {
   duration: number;
   off: number;
   on: number;
+}
+
+/**
+ * Where a jump clip is held while the horse is still in the air: past the top
+ * of the leap, where the lowest hoof has come down to half its highest — the
+ * forelegs reaching for the ground — so a fall off a height hangs in one pose
+ * for as long as it lasts and the landing, when it comes, is a short step on
+ * to `on`. A clip whose hooves never come down by half before `on` holds at
+ * its last sample off the ground. Measured once a curve.
+ */
+const holds = new WeakMap<JumpCurve, number>();
+function holdOf(curve: JumpCurve): number {
+  const known = holds.get(curve);
+  if (known !== undefined) return known;
+  const last = curve.feet.length - 1;
+  const step = curve.duration / last;
+  const first = Math.max(0, Math.ceil(curve.off / step));
+  const end = Math.min(last, Math.floor(curve.on / step));
+  let top = first;
+  for (let i = first; i <= end; i++) if (curve.feet[i]! > curve.feet[top]!) top = i;
+  const half = curve.feet[top]! / 2;
+  let hold = Math.max(curve.off, curve.on - step);
+  for (let i = top + 1; i <= end; i++) {
+    const a = curve.feet[i - 1]!;
+    const b = curve.feet[i]!;
+    if (b > half) continue;
+    hold = (i - 1 + (a - half) / Math.max(1e-6, a - b)) * step;
+    break;
+  }
+  hold = clamp(hold, curve.off, curve.on);
+  holds.set(curve, hold);
+  return hold;
 }
 
 /** A jump curve's hoof height at `time`, between its samples. */
@@ -416,6 +454,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   function rest(): void {
     lastSpeed = accel = pitch = pitchRate = roll = rollRate = spin = 0;
     lift = 0;
+    if (jumping !== null) jumping.timeScale = 1;
     jumping?.stop();
     jumping = jumpCurve = null;
     jumpWeight = 0;
@@ -505,8 +544,13 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         // Off the ground — a jump, or off a terrace — it leaps: the pack's
         // leap at speed, its standing jump from a stand, from the last frame
         // before the hooves leave the ground. Down again sooner than the clip
-        // is, it goes straight to the landing; still up when the clip lands,
-        // it holds the stretch until it is down.
+        // is, it hurries on to the landing (`LAND_CATCH`); still up when the
+        // clip comes down, it is held at `holdOf` — frozen there by a time scale of
+        // nought, so the mixer draws the same frame every frame — until it is
+        // down. Pulling its time back a little each frame and letting the
+        // mixer step it on, as this did, left it alternating between two
+        // frames either side of the touchdown at 60 frames a second, and a
+        // fall off a mountain flickered all the way down.
         if (!input.grounded && wasGrounded && parts.jumps !== null) {
           const name = pace >= WALK_FROM ? JUMP_CLIPS[0] : JUMP_CLIPS[1];
           const curve = parts.jumps[name] ?? null;
@@ -516,6 +560,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
             action.reset();
             action.setLoop(THREE.LoopOnce, 1);
             action.clampWhenFinished = true;
+            action.timeScale = 1;
             action.play();
             action.time = curve.off;
             jumping = action;
@@ -525,13 +570,21 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         wasGrounded = input.grounded;
         let leaping = false;
         if (jumping !== null && jumpCurve !== null) {
-          if (input.grounded && jumping.time < jumpCurve.on) jumping.time = jumpCurve.on;
-          else if (!input.grounded && jumping.time > jumpCurve.on) jumping.time = jumpCurve.on - 0.02;
+          if (input.grounded) {
+            jumping.timeScale = Math.max(1, (jumpCurve.on - jumping.time) / LAND_CATCH);
+          } else {
+            const hold = holdOf(jumpCurve);
+            if (jumping.time + dt >= hold) {
+              jumping.time = hold;
+              jumping.timeScale = 0;
+            } else jumping.timeScale = 1;
+          }
           leaping = !jumping.paused && jumping.time < jumpCurve.duration - 1e-3;
         }
         jumpWeight += ((leaping ? 1 : 0) - jumpWeight) * approach(JUMP_EASE, dt);
         if (!leaping && jumpWeight < 1e-3) {
           jumpWeight = 0;
+          if (jumping !== null) jumping.timeScale = 1;
           jumping?.stop();
           jumping = jumpCurve = null;
         }

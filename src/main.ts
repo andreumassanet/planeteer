@@ -1971,6 +1971,39 @@ async function start(): Promise<void> {
     });
   await whenSettled(() => heroStage.settled);
   dismissLoading();
+  // **The menu's Earth is built where it is built.** From a country's card
+  // the planet was the bare land — green and flat from above, and a city
+  // under the dive that the menu had never shown. So once the screen has
+  // lifted, the country and town stages run the world's own streamers round
+  // the menu's camera, under the frame's one build allowance, exactly as the
+  // loop does: the towns at their far detail where they stand, the landmarks,
+  // the roads and the wood. The camera itself is the viewer, never nearer the
+  // ground than the menu's own floor, so no town there is built as a near
+  // one; the ones standing when the choice is made are the ones the game
+  // goes on with.
+  let menuStreamFailed = false;
+  {
+    const skyFrame = menu.beforeRender;
+    menu.beforeRender = (camera) => {
+      skyFrame?.(camera);
+      if (menu.body !== 'earth' || (menu.stage !== 'site' && menu.stage !== 'region')) return;
+      const altitude = Math.max(STREAM_FLOOR, camera.position.length() - PLANET_RADIUS);
+      const viewer = camera.position;
+      beginFrameBuild();
+      try {
+        settlements.update(viewer, altitude, camera);
+        monuments.update(viewer, altitude, camera, sky.state.time);
+        roads.update(viewer, altitude, camera);
+        vegetation.update(viewer, altitude, camera);
+        cityLights.update(renderer);
+      } catch (error) {
+        // The menu goes on drawing the bare land rather than nothing.
+        if (!menuStreamFailed) console.error('atlas: the menu\'s streamers failed', error);
+        menuStreamFailed = true;
+      }
+      endFrameBuild();
+    };
+  }
   // A journey from the chat to another world: in by its *Explore*, as soon as
   // the screen lifts.
   if (awayJourney !== null) {
