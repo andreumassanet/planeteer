@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/dusk.gif" alt="The Eiffel Tower and the Arc de Triomphe from above as the sun sets: the light goes amber, then blue, and the tower, the windows and the street lamps come on" width="100%">
+  <img src=".github/assets/dusk.gif" alt="Hagia Sophia in its quarter of Istanbul, above the sea, from the air as the sun sets: the light goes amber, then blue, the mosque is floodlit and the windows and street lamps come on" width="100%">
 </p>
 
 Planeteer is a browser game about going and looking. The planet is generated
