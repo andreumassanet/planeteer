@@ -179,6 +179,8 @@ interface Placed {
 
 export interface CountryNames {
   root: HTMLElement;
+  /** Paint the currently visible names over a photo canvas. */
+  drawTo(context: CanvasRenderingContext2D, scale: number): void;
   /**
    * `fade` is the flag's own; `here` is the 1-based country index under the
    * player, or 0. Every frame, over arrays that were made once.
@@ -304,6 +306,26 @@ export function createCountryNames(world: World, options: NamesOptions = {}): Co
     dispose() {
       abort.abort();
       root.remove();
+    },
+    drawTo(context, scale): void {
+      context.save();
+      context.scale(scale, scale);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.lineJoin = 'round';
+      context.lineWidth = 3;
+      context.strokeStyle = hex(PALETTE.ink);
+      context.fillStyle = hex(PALETTE.cream);
+      context.shadowColor = 'rgba(30, 6, 3, 0.35)';
+      context.shadowBlur = 6;
+      context.shadowOffsetY = 2;
+      for (const placed of kept) {
+        context.globalAlpha = placed.opacity;
+        context.font = `800 ${placed.size}px ${FONT}`;
+        context.strokeText(placed.label.text, placed.x, placed.y);
+        context.fillText(placed.label.text, placed.x, placed.y);
+      }
+      context.restore();
     },
     update(fade: number, camera: THREE.PerspectiveCamera, here: number): void {
       if (fade <= MIN_FADE) {

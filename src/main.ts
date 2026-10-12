@@ -2761,7 +2761,19 @@ async function start(): Promise<void> {
     const place = places.nearest(player.position).place.name;
     const slug = place.normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'somewhere';
     const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
-    canvas.toBlob((blob) => {
+    // The country names are HTML over WebGL, so copy the rendered frame and
+    // paint the same live labels into the downloadable image.
+    const photo = document.createElement('canvas');
+    photo.width = canvas.width;
+    photo.height = canvas.height;
+    const context = photo.getContext('2d');
+    if (context === null) {
+      announce('The photo could not be saved', 'camera');
+      return;
+    }
+    context.drawImage(canvas, 0, 0);
+    names.drawTo(context, canvas.width / innerWidth);
+    photo.toBlob((blob) => {
       if (blob === null) {
         announce('The photo could not be saved', 'camera');
         return;
