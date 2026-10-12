@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { loadCountryFacts } from './country-facts.ts';
 import { labelOf } from './controls.ts';
+import { isTouch, tap } from './touch.ts';
 import { ensureStyle, fold, h, installUi, kbd } from './ui.ts';
 import { rngFrom } from './scenery/random.ts';
 import { ENGLISH_COMPASS, FACTS, fill, languageOf, loadLanguage, meantOf, saidOf } from './phrases.ts';
@@ -179,6 +180,9 @@ const STYLE = `
   color: var(--ui-muted);
 }
 .atlas-bubble .foot .ui-kbd { height: 18px; min-width: 18px; font-size: 10px; margin-right: 4px; }
+/* A finger has no E: the bubble itself is the button that goes on. */
+html.touch-ui .atlas-bubble.on { pointer-events: auto; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+html.touch-ui .atlas-bubble .foot > span:last-child { color: var(--ui-ink); }
 `;
 
 /** How big a town has to be to be called a big city, and how small to be called small. */
@@ -517,6 +521,12 @@ export function createBubble(): Bubble {
   const foot = h('div', { class: 'foot' }, speaks, action);
   const root = h('div', { class: 'atlas-bubble ui-card', role: 'status', 'aria-live': 'polite' }, said, meant, foot);
   document.body.append(root);
+  root.addEventListener('pointerdown', (event) => {
+    if (!isTouch()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    tap('use');
+  });
 
   /** The line's characters, and how many of them are showing. */
   let characters: string[] = [];
@@ -552,7 +562,7 @@ export function createBubble(): Bubble {
       const same = typeof line === 'string' && meantText === line;
       meant.textContent = same ? '' : meantText;
       meant.hidden = same || meantText === '';
-      action.replaceChildren(...(how.action === undefined ? [] : [kbd(labelOf('use')), how.action]));
+      action.replaceChildren(...(how.action === undefined ? [] : [isTouch() ? 'Tap · ' : kbd(labelOf('use')), how.action]));
       root.classList.add('on');
     },
     reveal,

@@ -437,6 +437,10 @@ const ICONS: Record<string, string> = {
   camera: '<path d="M4 8h3.2l1.6-2.5h6.4L16.8 8H20v11H4z"/><circle cx="12" cy="13.2" r="3.4"/>',
   talk: '<path d="M4 5.5h16v10H11l-4.5 4v-4H4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   sparkle: '<path d="M12 3.5c.8 4.4 2.6 6.4 7 7.5-4.4 1.1-6.2 3.1-7 7.5-.8-4.4-2.6-6.4-7-7.5 4.4-1.1 6.2-3.1 7-7.5z"/>',
+  rise: '<path d="M12 19.5V5.5"/><path d="m5.5 11.5 6.5-6.5 6.5 6.5"/>',
+  sink: '<path d="M12 4.5v14"/><path d="m5.5 12.5 6.5 6.5 6.5-6.5"/>',
+  menu: '<path d="M4.5 7h15M4.5 12h15M4.5 17h15"/>',
+  hand: '<path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V5.5a1.5 1.5 0 0 1 3 0V13c0 4-2.5 7.5-6.5 7.5-2.6 0-4-1.3-5.3-3.5L3.6 13.4a1.5 1.5 0 0 1 2.5-1.6L8 14"/>',
 };
 
 /** Solid rather than stroked, because a star drawn in outline reads as unearned. */

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>planeteer · explore the solar system</title>
     <meta name="description" content="Explore the solar system, one world at a time — on foot, by boat and by plane. Inked, cel-shaded planets built from real maps, alone or with friends." />
     <!-- The space the solar system is drawn against, which is also the page's own background. -->
@@ -278,6 +278,16 @@
       @media (max-width: 520px) {
         .l-title { font-size: 64px; }
         .l-progress { width: 260px; }
+      }
+      /* A phone on its side: the globe beside the name, both smaller. */
+      @media (max-height: 520px) and (orientation: landscape) {
+        .l-center { display: grid; grid-template-columns: auto auto; column-gap: 64px; align-items: center; text-align: left; }
+        .l-world { grid-row: span 3; width: 132px; height: 132px; }
+        .l-orbit { inset: -32px; }
+        .l-title { margin-top: 0; font-size: 60px; -webkit-text-stroke-width: 6px; text-shadow: 0 6px 0 var(--ui-ink); }
+        .l-tag { margin-top: 8px; font-size: 14px; }
+        .l-progress { margin-top: 18px; width: 300px; }
+        .l-credit { bottom: max(8px, env(safe-area-inset-bottom)); font-size: 10.5px; padding: 0 16px; }
       }
 
       /*

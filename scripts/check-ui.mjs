@@ -11,6 +11,7 @@ async function check() {
     import('/src/input.ts'), import('/src/settings.ts'), import('/src/map.ts'), import('/src/controls.ts'),
     import('/src/hud.ts'), import('/src/notice.ts'),
   ]);
+  const { press, layoutOf } = await import('/src/touch.ts');
   const [{ createPassport }, { createPassportCard }, { createTraveller }, { DEFAULT_APPEARANCE }, { createTitle, PLAY_KEY }] = await Promise.all([
     import('/src/passport.ts'), import('/src/passport-card.ts'), import('/src/traveller.ts'), import('/src/appearance.ts'),
     import('/src/title.ts'),
@@ -58,6 +59,31 @@ async function check() {
       field.focus();
       ensure(input.state.move.y === 0, 'movement stops in a text field');
       key(field, 'keyup', 'KeyW');
+    });
+    test('a touch button is its key, and the stick steers under the keys', () => {
+      document.activeElement?.blur();
+      press('forward', true);
+      ensure(input.state.move.y === 1, 'a pressed button holds its action');
+      press('forward', false);
+      ensure(input.state.move.y === 0, 'letting go lets go');
+      press('jump', true);
+      ensure(input.state.jump && input.state.climb, 'jump fires once and is held');
+      press('jump', false);
+      input.endFrame();
+      input.touchSink.steer(0.3, 0.4, true);
+      ensure(input.state.move.x === 0.3 && input.state.move.y === 0.4 && input.state.run, 'the stick is analogue and runs');
+      key(window, 'keydown', 'KeyS');
+      ensure(input.state.move.y === -1 && !input.state.run, 'a held key wins over the stick');
+      key(window, 'keyup', 'KeyS');
+      input.touchSink.steer(0, 0, false);
+      ensure(input.state.move.x === 0 && input.state.move.y === 0 && !input.state.run, 'the stick at rest is still');
+    });
+    test('the touch cluster follows the mode', () => {
+      ensure(layoutOf('foot', false, false).buttons.map(b => b.action).join() === 'jump', 'on foot, jump alone');
+      ensure(layoutOf('plane', true, false).buttons.map(b => b.action).join() === 'jump,descend', 'aloft, climb and descend');
+      ensure(!layoutOf('plane', true, false).stickRuns, 'in the air the run key descends, so the stick never runs');
+      ensure(layoutOf('car', false, false).out === 'Get out', 'a driver can get out');
+      ensure(layoutOf('passenger', true, true).out === 'Take the controls', 'a stranded passenger takes the controls');
     });
     test('plaintext editors keep their keys', () => {
       editor.focus();

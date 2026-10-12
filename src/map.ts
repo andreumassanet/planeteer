@@ -479,6 +479,20 @@ const STYLE = `
 @media (max-width: 720px) {
   .atlas-map-foot { display: none; }
 }
+/* A finger has no M to close the map with, and less room for the frame. */
+.atlas-map-close { display: none; top: 30px; right: 30px; }
+html.touch-ui .atlas-map-close { display: grid; position: absolute; }
+html.touch-ui .atlas-map-sheet {
+  inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+html.touch-ui .atlas-map-head { top: 14px; left: 14px; padding: 8px 12px 9px; }
+html.touch-ui .atlas-map-close { top: 14px; right: 14px; }
+html.touch-ui .atlas-map-zoom { right: 14px; bottom: 14px; gap: 8px; }
+html.touch-ui .atlas-map-scale { left: 14px; bottom: 14px; }
+html.touch-ui .atlas-map-foot { display: none; }
+@media (orientation: portrait) {
+  html.touch-ui .atlas-map-legend { display: none; }
+}
 `;
 
 interface SheetTown {
@@ -590,6 +604,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const zoomOut = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Zoom out', text: '−' });
   const locate = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Centre on you' }, icon('walk'));
   const zoomBox = h('div', { class: 'atlas-map-zoom' }, locate, zoomIn, zoomOut);
+  const closeButton = h('button', { class: 'ui-btn icon atlas-map-close', type: 'button', 'aria-label': 'Close the map' }, icon('close'));
 
   const scaleText = h('span');
   const scaleBar = h('b');
@@ -612,7 +627,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const tipSub = h('div', { class: 'atlas-map-tip-sub' });
   const tip = h('div', { class: 'atlas-map-tip ui-card' }, tipFlag, h('div', {}, tipName, tipSub));
 
-  sheet.append(head, zoomBox, scale, foot, tip);
+  sheet.append(head, zoomBox, closeButton, scale, foot, tip);
   root.append(sheet);
 
   const countryName = new Map(world.countries.map((country) => [country.iso, country.name]));
@@ -1583,14 +1598,46 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   const { signal } = events;
 
   let press: { id: number; x: number; y: number; cu: number; cv: number; moved: boolean } | null = null;
+  /** The fingers on the sheet: two of them pinch, about the point between them. */
+  const fingers = new Map<number, { x: number; y: number }>();
+  let pinchSpread = 0;
+  const spread = (): number => {
+    const [a, b] = [...fingers.values()];
+    return a === undefined || b === undefined ? 0 : Math.hypot(a.x - b.x, a.y - b.y);
+  };
 
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
-    press = { id: event.pointerId, x: event.clientX, y: event.clientY, cu, cv, moved: false };
     canvas.setPointerCapture(event.pointerId);
+    if (event.pointerType === 'touch') {
+      fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (fingers.size >= 2) {
+        // A second finger makes it a pinch, and the first one's press no click and no drag.
+        press = null;
+        sheet.classList.remove('drag');
+        pinchSpread = spread();
+        return;
+      }
+    }
+    press = { id: event.pointerId, x: event.clientX, y: event.clientY, cu, cv, moved: false };
   }, { signal });
 
   canvas.addEventListener('pointermove', (event) => {
+    const finger = fingers.get(event.pointerId);
+    if (finger !== undefined) {
+      finger.x = event.clientX;
+      finger.y = event.clientY;
+      if (fingers.size >= 2) {
+        const now = spread();
+        if (pinchSpread > 0 && now > 0) {
+          const [a, b] = [...fingers.values()];
+          zoomAt(now / pinchSpread, (a!.x + b!.x) / 2 - canvasX, (a!.y + b!.y) / 2 - canvasY);
+          busyUntil = performance.now() + SETTLE_MS;
+        }
+        pinchSpread = now;
+        return;
+      }
+    }
     if (press !== null && event.pointerId === press.id) {
       const dx = event.clientX - press.x;
       const dy = event.clientY - press.y;
@@ -1621,6 +1668,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   }, { signal });
 
   const release = (event: PointerEvent): void => {
+    if (fingers.delete(event.pointerId)) pinchSpread = spread();
     if (press === null || event.pointerId !== press.id) return;
     const wasDrag = press.moved;
     press = null;
@@ -1693,7 +1741,8 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
   // A click on a button leaves the focus where it was: a focused button on
   // this dialog would hold every key the plane under the map is flown by
   // (`inputBlocked`), and `Tab` with it.
-  for (const button of [zoomIn, zoomOut, locate, unmark]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
+  for (const button of [zoomIn, zoomOut, locate, unmark, closeButton]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
+  closeButton.addEventListener('click', () => hide(), { signal });
   unmark.addEventListener('click', () => {
     onUnmark();
     marksDirty = true;
@@ -1719,7 +1768,7 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     // The cursor is the whole point of this screen, and pointer lock is
     // holding it. `input.ts` already stops the mouse look the moment the lock
     // goes, so nothing else has to be told.
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
     root.classList.add('on');
     sheet.focus({ preventScroll: true });
     resize();

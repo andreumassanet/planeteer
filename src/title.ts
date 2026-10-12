@@ -92,6 +92,9 @@ export interface Title {
   dispose(): void;
 }
 
+/** When the title is one column, the traveller over the choice: a narrow screen held upright. */
+const STACKED = '(max-width: 860px) and (orientation: portrait)';
+
 const STYLE = `
 .atlas-title {
   position: fixed;
@@ -163,17 +166,48 @@ const STYLE = `
 .atlas-title.aside .ti-left { opacity: 0; transform: translateX(-60px); pointer-events: none; }
 .atlas-title.aside .ti-custom { opacity: 0; transform: translateY(24px); pointer-events: none; }
 @keyframes ti-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-@media (max-width: 860px) {
-  .atlas-title { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding: 24px 16px; gap: 8px; overflow: auto; }
-  .ti-left { order: 2; justify-content: flex-start; gap: 16px; }
-  .ti-right { order: 1; min-height: 300px; }
-  .ti-wordmark { font-size: 72px; -webkit-text-stroke-width: 7px; text-shadow: 0 6px 0 var(--ui-ink); }
-  .ti-tagline { font-size: 16px; margin-top: 10px; }
+/* Upright and narrow: the traveller on top, the choice under them. */
+@media ${STACKED} {
+  .atlas-title {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    gap: 8px;
+    overflow: auto;
+  }
+  .ti-left { order: 2; justify-content: flex-start; gap: 14px; }
+  .ti-right { order: 1; min-height: 240px; }
+  .ti-wordmark { font-size: 60px; -webkit-text-stroke-width: 6px; text-shadow: 0 5px 0 var(--ui-ink); }
+  .ti-tagline { font-size: 15px; margin-top: 8px; }
+  .ti-card { padding: 12px; gap: 9px; max-width: none; }
+  .ti-play { padding: 10px 14px; }
+  .ti-play b { font-size: 18px; }
   .atlas-title { background: linear-gradient(0deg, rgba(4, 6, 14, 0.75) 0%, rgba(4, 6, 14, 0.4) 50%, rgba(4, 6, 14, 0) 70%); }
 }
 @media (max-height: 640px) {
   .ti-wordmark { font-size: 80px; }
   .ti-left { gap: 16px; }
+}
+/*
+ * A phone on its side: the two columns stay, small, the name and the choice
+ * on the left in the height there is and the traveller on the right.
+ */
+@media (max-height: 520px) and (orientation: landscape) {
+  .atlas-title {
+    grid-template-columns: minmax(280px, 360px) 1fr;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    gap: 12px;
+  }
+  .ti-left { gap: 10px; overflow-y: auto; }
+  .ti-wordmark { font-size: 46px; -webkit-text-stroke-width: 5px; text-shadow: 0 4px 0 var(--ui-ink); }
+  .ti-tagline { display: none; }
+  .ti-card { padding: 10px; gap: 7px; }
+  .ti-play { padding: 7px 12px; gap: 10px; }
+  .ti-play svg { width: 22px; height: 22px; }
+  .ti-play b { font-size: 16px; }
+  .ti-play small { font-size: 11.5px; margin-top: 1px; }
+  .ti-row .ui-btn { height: 40px; padding-top: 0; padding-bottom: 0; }
+  .ti-custom { transform: scale(0.85); transform-origin: 50% 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .atlas-title.on .ti-left > *, .atlas-title.on .ti-custom { animation: none; }
@@ -255,7 +289,7 @@ export function createTitle(options: TitleOptions): Title {
   function measure(): void {
     if (!showing || stepped) return;
     const height = innerHeight;
-    if (matchMedia('(max-width: 860px)').matches) {
+    if (matchMedia(STACKED).matches) {
       const below = Math.max(0, height - (right.offsetTop + right.offsetHeight)) + customButton.offsetHeight + 24;
       stage.insets({ left: 0, right: 0, top: 70, bottom: below });
     } else {

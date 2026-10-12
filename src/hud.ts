@@ -60,6 +60,7 @@ import { MOVE, actionOf, boardingHints, capOf, holdFocus, inputBlocked, labelOf,
 import type { Action, HintSet, KeyHint, TravelMode } from './controls.ts';
 import { ensureStyle, h, hex, icon, installUi, kbd } from './ui.ts';
 import type { IconName } from './ui.ts';
+import { isTouch, onTouchChange, tap, type TouchPad } from './touch.ts';
 
 /** The marker panel's line. `navigation.ts` fills it in. */
 export interface DestinationEntry {
@@ -105,6 +106,11 @@ export interface HudOptions {
    * Earth's own (`boardingHints`).
    */
   hints?(mode: TravelMode, airborne: boolean): HintSet | null | undefined;
+  /**
+   * The touch controls (`touch.ts`), which the HUD tells the travel mode and
+   * what `use` does, and puts away with itself. The HUD owns them from here.
+   */
+  touch?: TouchPad;
 }
 
 /** What the frame counter shows: `main.ts`'s rolling `stats`. */
@@ -720,6 +726,136 @@ body.atlas-hud-hidden .atlas-chat:not(.open) {
 .atlas-perf.on { display: flex; }
 .atlas-perf span { opacity: 0.55; font-weight: 700; margin-left: 3px; }
 
+/* --- on a touch screen ------------------------------------------------------ */
+/*
+ * The bar is one button and where you are: the rest of it is in the sheet
+ * that button opens, and the map is the minimap, which a finger can tap. The
+ * keys' row and the prompt give way to the touch controls' own buttons and
+ * pill (\`touch.ts\`), and nothing shows a key cap.
+ */
+.atlas-hud-more { display: none; }
+html.touch-ui .atlas-hud-more { display: grid; }
+html.touch-ui .atlas-hud-bar > .atlas-hud-desk,
+html.touch-ui .atlas-hud-cap,
+html.touch-ui .atlas-hints,
+html.touch-ui .atlas-prompt { display: none; }
+html.touch-ui .atlas-hud-bar {
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  gap: 8px;
+  max-width: calc(100vw - 150px - env(safe-area-inset-left));
+}
+html.touch-ui .atlas-place { min-height: 44px; padding: 4px 12px 4px 8px; }
+html.touch-ui .atlas-place-name { font-size: 15px; }
+html.touch-ui #minimap {
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  transform: scale(0.6);
+  transform-origin: 100% 0;
+  pointer-events: auto;
+}
+html.touch-ui .atlas-side {
+  top: calc(max(10px, env(safe-area-inset-top)) + 136px);
+  left: 12px;
+  right: 12px;
+  width: auto;
+  max-width: 380px;
+  margin: 0 auto;
+}
+html.touch-ui .atlas-found-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+html.touch-ui .atlas-toast { top: calc(max(10px, env(safe-area-inset-top)) + 136px); font-size: 14px; }
+html.touch-ui .atlas-waypoint-label { max-width: 160px; }
+html.touch-ui .atlas-chat:not(.open) {
+  left: max(12px, env(safe-area-inset-left));
+  bottom: calc(env(safe-area-inset-bottom) + 176px);
+  width: min(300px, calc(100vw - 24px));
+}
+html.touch-ui .atlas-chat-log { max-height: min(24vh, 200px); }
+html.touch-ui .atlas-welcome { padding: 14px; }
+html.touch-ui .atlas-welcome-card { padding: 18px 18px 16px; max-height: calc(100% - 8px); overflow-y: auto; }
+html.touch-ui .atlas-welcome-row > span:first-child { min-width: 0; }
+/* Wide enough for the clock beside the badge only on its side. */
+@media (orientation: portrait) {
+  html.touch-ui .atlas-hud-bar > .atlas-clock { display: none; }
+}
+/* A phone on its side: the cards between the badge and the disc, at the top. */
+@media (orientation: landscape) and (max-height: 520px) {
+  html.touch-ui #minimap { transform: scale(0.5); }
+  html.touch-ui .atlas-hud-bar { max-width: calc(100vw - 130px - 330px); }
+  html.touch-ui .atlas-side {
+    top: max(10px, env(safe-area-inset-top));
+    left: auto;
+    right: calc(max(10px, env(safe-area-inset-right)) + 116px);
+    width: 300px;
+    margin: 0;
+  }
+  html.touch-ui .atlas-found-note { -webkit-line-clamp: 2; }
+  html.touch-ui .atlas-toast { top: calc(max(10px, env(safe-area-inset-top)) + 54px); }
+  html.touch-ui .atlas-chat:not(.open) { bottom: calc(env(safe-area-inset-bottom) + 150px); }
+  html.touch-ui .atlas-welcome-card { width: min(640px, 100%); padding: 14px 16px 12px; }
+  html.touch-ui .atlas-welcome-title { font-size: 19px; }
+  html.touch-ui .atlas-welcome-sub { display: none; }
+  html.touch-ui .atlas-welcome-badge { width: 38px; height: 38px; }
+  html.touch-ui .atlas-welcome-list { grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 10px 0 12px; padding-top: 10px; }
+  html.touch-ui .atlas-welcome-row { font-size: 13px; gap: 9px; }
+}
+
+/* The sheet behind the bar's one button: everything else the bar had, and the keys nobody has. */
+.atlas-sheet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  background: rgba(30, 6, 3, 0.4);
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s;
+}
+.atlas-sheet.on { opacity: 1; visibility: visible; }
+/* The chat's standing lines stand over the HUD, so the sheet puts them away while it is up. */
+body:has(.atlas-sheet.on) .atlas-chat:not(.open) { opacity: 0; visibility: hidden; }
+.atlas-sheet-card {
+  width: min(460px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 14px 14px 16px;
+  transform: translateY(24px);
+  transition: transform 0.3s var(--ui-ease);
+}
+.atlas-sheet.on .atlas-sheet-card { transform: none; }
+.atlas-sheet-head { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
+.atlas-sheet-head b { flex: 1; font-size: 18px; font-weight: 800; letter-spacing: -0.015em; }
+.atlas-sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.atlas-sheet-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 74px;
+  padding: 8px 4px;
+  font: 800 12px/1.15 var(--ui-font);
+  text-align: center;
+  white-space: normal;
+}
+.atlas-sheet-tile svg { width: 24px; height: 24px; }
+.atlas-sheet-tile.on { background: var(--ui-gold); }
+@media (orientation: landscape) and (max-height: 520px) {
+  .atlas-sheet { align-items: center; }
+  .atlas-sheet-card { width: min(620px, 100%); }
+  .atlas-sheet-grid { grid-template-columns: repeat(5, 1fr); }
+  .atlas-sheet-tile { min-height: 64px; }
+}
+
 /*
  * Nothing slides for a player who has asked the system for less motion: every
  * card comes and goes where it stands, by its opacity alone. The badge's
@@ -791,9 +927,11 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   settingsCap.classList.add('atlas-hud-cap');
   mapCap.classList.add('atlas-hud-cap');
   passportCap.classList.add('atlas-hud-cap');
-  const settingsButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('gear'), settingsCap);
-  const mapButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('map'), mapCap);
-  const passportButton = h('button', { class: 'ui-btn icon', type: 'button' }, icon('passport'), passportCap);
+  // The three a finger reaches through the sheet instead (`atlas-hud-desk`).
+  const settingsButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('gear'), settingsCap);
+  const mapButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('map'), mapCap);
+  const passportButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('passport'), passportCap);
+  const moreButton = h('button', { class: 'ui-btn icon atlas-hud-more', type: 'button', 'aria-label': 'Menu' }, icon('menu'));
   settingsButton.addEventListener('click', () => options.onSettings?.(), { signal });
   mapButton.addEventListener('click', () => options.onMap?.(), { signal });
   passportButton.addEventListener('click', () => options.onPassport?.(), { signal });
@@ -801,7 +939,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const leaveButton =
     options.leave === undefined
       ? null
-      : h('button', { class: 'ui-btn icon', type: 'button', title: options.leave.label, 'aria-label': options.leave.label }, icon('orbit'));
+      : h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button', title: options.leave.label, 'aria-label': options.leave.label }, icon('orbit'));
   leaveButton?.addEventListener('click', () => options.leave?.run(), { signal });
 
   /* --- the place badge --------------------------------------------------- */
@@ -831,6 +969,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   const bar = h(
     'div',
     { class: 'atlas-hud-bar' },
+    moreButton,
     settingsButton,
     mapButton,
     options.onPassport === undefined ? null : passportButton,
@@ -930,7 +1069,66 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     welcomeCard,
   );
 
-  root.append(bar, h('div', { class: 'atlas-side' }, destination, found), waypoint, hintsCard, toast, prompt, pause, perf, welcomeRoot);
+  /* --- the sheet, on a touch screen ------------------------------------- */
+
+  const sheetClose = h('button', { class: 'ui-btn icon', type: 'button', 'aria-label': 'Close' }, icon('close'));
+  const sheetGrid = h('div', { class: 'atlas-sheet-grid' });
+  const sheetCard = h(
+    'div',
+    { class: 'atlas-sheet-card ui-card' },
+    h('div', { class: 'atlas-sheet-head' }, h('b', { text: 'Menu' }), sheetClose),
+    sheetGrid,
+  );
+  const sheet = h('div', { class: 'atlas-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Menu' }, sheetCard);
+  let sheetOpen = false;
+  unregister.push(registerModal(() => sheetOpen));
+  /** What the sheet offers: the bar's buttons, and what only a key did. */
+  const sheetItems: { glyph: IconName; label: string; run(): void }[] = [
+    { glyph: 'map', label: 'World map', run: () => options.onMap?.() },
+    ...(options.onPassport === undefined ? [] : [{ glyph: 'passport', label: 'Passport', run: () => options.onPassport?.() }]),
+    { glyph: 'talk', label: 'Chat', run: () => tap('chat') },
+    { glyph: 'camera', label: 'Photo', run: () => tap('photo') },
+    { glyph: 'eye', label: 'First person', run: () => tap('view') },
+    { glyph: 'flag', label: 'Borders', run: () => tap('flags') },
+    { glyph: 'hand', label: 'Wave', run: () => tap('wave') },
+    { glyph: 'sparkle', label: 'Dance', run: () => tap('dance') },
+    ...(options.leave === undefined ? [] : [{ glyph: 'orbit', label: options.leave.label, run: () => options.leave?.run() }]),
+    { glyph: 'gear', label: 'Settings', run: () => options.onSettings?.() },
+  ];
+  sheetGrid.replaceChildren(
+    ...sheetItems.map((item) => {
+      const tile = h('button', { class: 'ui-btn atlas-sheet-tile', type: 'button' }, icon(item.glyph), h('span', { text: item.label }));
+      tile.addEventListener('click', () => {
+        closeSheet();
+        item.run();
+      }, { signal });
+      return tile;
+    }),
+  );
+  function openSheet(): void {
+    sheetOpen = true;
+    sheet.classList.add('on');
+  }
+  function closeSheet(): void {
+    if (!sheetOpen) return;
+    sheetOpen = false;
+    sheet.classList.remove('on');
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }
+  moreButton.addEventListener('click', openSheet, { signal });
+  sheetClose.addEventListener('click', closeSheet, { signal });
+  sheet.addEventListener('click', (event) => {
+    if (event.target === sheet) closeSheet();
+  }, { signal });
+  addEventListener('keydown', (event) => {
+    if (sheetOpen && event.code === 'Escape') closeSheet();
+  }, { signal });
+  // The minimap is the map's button on a touch screen, wherever it was put.
+  document.addEventListener('click', (event) => {
+    if (isTouch() && event.target instanceof Element && event.target.closest('#minimap') !== null) options.onMap?.();
+  }, { signal });
+
+  root.append(bar, h('div', { class: 'atlas-side' }, destination, found), waypoint, hintsCard, toast, prompt, pause, perf, welcomeRoot, sheet);
 
   // The placements carry an ISO code and the panel wants a country.
   const countryNames = new Map(world.countries.map((country) => [country.iso, country.name]));
@@ -1146,6 +1344,18 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     welcomeSub.textContent = 'Every country is real. Come down in one and your passport is stamped.';
     const row = (caps: HTMLElement[], text: string): HTMLElement =>
       h('div', { class: 'atlas-welcome-row' }, h('span', {}, ...caps), h('span', { text }));
+    if (isTouch()) {
+      // What a finger does, said with the shapes it will find on the screen.
+      const glyph = (name: IconName): HTMLElement => h('span', { class: 'atlas-hints-badge' }, icon(name));
+      welcomeList.replaceChildren(
+        row([glyph('walk')], 'Drag on the left to walk, further to run'),
+        row([glyph('eye')], 'Drag on the right to look around, pinch to zoom'),
+        row([glyph('car')], 'Walk up to a car, a boat or a plane, and tap to take it'),
+        row([glyph('map')], 'Tap the little map for the whole planet'),
+        row([glyph('menu')], 'The passport, the chat and the settings are in the menu'),
+      );
+      return;
+    }
     welcomeList.replaceChildren(
       row([kbd(labelOf('map'))], 'The whole planet on one map: click anywhere to put a marker there'),
       row([kbd(labelOf('passport'))], 'Your passport, a stamp for every country'),
@@ -1179,6 +1389,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
   }
   relabel();
   unregister.push(onKeyLabels(relabel));
+  unregister.push(onTouchChange(relabel));
 
   // A key of the moment pressed is a key found: the set goes shortly after,
   // and one said `once` is not said again on this device.
@@ -1334,6 +1545,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       if (changed) {
         const own = options.hints?.(next, aloft);
         showHints(own !== undefined ? own : boardingHints(next, aloft, alone));
+        options.touch?.setMode(next, aloft || nextAirborne, alone);
       }
     },
     showKeys(set) {
@@ -1341,6 +1553,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
     },
     setPrompt(label, iconName = 'sparkle') {
       const key = label === null ? null : `${label}|${iconName}`;
+      options.touch?.setUse(label, iconName);
       if (key === promptShown) return;
       promptShown = key;
       prompt.classList.toggle('on', label !== null);
@@ -1423,6 +1636,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       );
     },
     update(countryId, nearby, clockNow, dt, bearing = null) {
+      options.touch?.frame(hidden || welcoming || sheetOpen);
       // The weather, for the clock's icon: asked about once a second, and
       // whatever it says is only ever an icon.
       weatherFor -= dt;
@@ -1520,6 +1734,7 @@ export function createHud(world: World, options: HudOptions = {}): Hud {
       finishWelcome = null;
       welcoming = false;
       document.body.classList.remove('atlas-hud-hidden');
+      options.touch?.dispose();
       root.remove();
     },
   };

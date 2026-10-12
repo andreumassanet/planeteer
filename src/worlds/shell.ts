@@ -44,6 +44,7 @@ import type { Craft } from './craft.ts';
 import type { WorldPlayer } from './player.ts';
 import type { WorldRig } from './camera.ts';
 import type { Input } from '../input.ts';
+import { createTouchPad } from '../touch.ts';
 import type { Frontiers } from './frontiers.ts';
 import { WORLDS, WORLD_IDS } from './registry.ts';
 import { scriptOf, svgOf, writeLine } from './glyphs.ts';
@@ -400,6 +401,7 @@ export function createShell(world: ShellWorld): Shell {
   /* --- the HUD ------------------------------------------------------------ */
 
   const hud = createHud(political, {
+    touch: createTouchPad(input.touchSink, lockTarget),
     surface,
     // Back to the planets, from the bar: the solar system, as a rocket goes.
     leave: { label: 'Solar system', run: () => world.leave() },

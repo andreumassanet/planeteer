@@ -1,11 +1,12 @@
 /**
- * Keyboard and mouse, with pointer lock.
+ * Keyboard, mouse and touch, with pointer lock where the browser offers it.
  *
  * Pointer lock is not a nicety here: without it the cursor reaches the edge of
  * the window and the camera stops turning halfway through a look, which on a
  * planet you orbit constantly is unusable. The game still has to run unlocked
  * (the browser drops the lock on Escape and on every alt-tab), so nothing here
- * depends on holding it: losing the lock only stops the mouse look.
+ * depends on holding it: losing the lock only stops the mouse look. Touch
+ * screens use a joystick and drag-look instead.
  *
  * **And where the lock is refused outright there is a second way to look.** An
  * iframe without `allow-pointer-lock` — a portfolio embed, an itch.io page —
@@ -18,11 +19,12 @@
  * the world's at all.
  */
 import { actionOf, inputBlocked } from './controls.ts';
+import { isTouch, type TouchSink } from './touch.ts';
 
 export interface InputState {
   /** -1..1 each. x = strafe right, y = forward. Already normalised for diagonals. */
   move: { x: number; y: number };
-  /** Mouse delta accumulated since the last frame, in radians. Reading it clears it. */
+  /** Camera delta accumulated since the last frame, in radians. Reading it clears it. */
   look: { x: number; y: number };
   /**
    * Wheel travel accumulated since the last frame, in pixels, positive away
@@ -49,16 +51,19 @@ export interface Input {
    */
   sensitivity: number;
   /**
-   * Whether the mouse is turning the camera right now: the lock is held, or,
+   * Whether the player can turn the camera right now: the lock is held, or,
    * where the lock is refused, the player has clicked into the world and not
-   * left it since. The pause card is up whenever this is false.
+   * left it since, or the controls are a finger's, which never pause. The
+   * pause card is up whenever this is false.
    */
   readonly looking: boolean;
   /** True once the browser has refused the lock and drag-to-look took over. */
   readonly dragging: boolean;
+  /** What the touch controls (`touch.ts`) steer, look and pinch through. */
+  readonly touchSink: TouchSink;
   /**
    * Ask for the mouse. Call it from inside a click: the browser refuses a lock
-   * asked for outside a user gesture.
+   * asked for outside a user gesture. A finger has nothing to lock.
    */
   lock(): void;
   /** When the input was last touched, from `performance.now()`. */
@@ -139,6 +144,8 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
   let engaged = false;
   /** A button is down on the world, in drag mode. */
   let dragHeld = false;
+  /** The touch stick (`touch.ts`): its direction, -1..1, and whether it is pushed past its rim. */
+  const stick = { x: 0, y: 0, run: false };
   let lastActive = performance.now();
   const events = new AbortController();
   const { signal } = events;
@@ -154,15 +161,20 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     // A diagonal must not be faster than a straight line.
     const length = Math.hypot(x, y);
     const scale = length > 1 ? 1 / length : 1;
-    state.move.x = x * scale;
-    state.move.y = y * scale;
-    state.run = actions.has('run');
+    // A held key wins; the stick, which is analogue, steers when none is.
+    const keyed = x !== 0 || y !== 0;
+    state.move.x = keyed ? x * scale : stick.x;
+    state.move.y = keyed ? y * scale : stick.y;
+    state.run = actions.has('run') || (!keyed && stick.run);
     state.climb = actions.has('jump');
     state.dive = actions.has('dive');
   }
 
   function release(): void {
     held.clear();
+    stick.x = 0;
+    stick.y = 0;
+    stick.run = false;
     refresh();
     state.jump = false;
     state.use = false;
@@ -257,6 +269,8 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
   }
 
   function lock(): void {
+    // A finger has nothing to lock: the touch controls look by dragging.
+    if (isTouch()) return;
     if (dragging) engaged = true;
     if (document.pointerLockElement === target) return;
     asking = true;
@@ -347,7 +361,25 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       sensitivity = Number.isFinite(value) && value > 0 ? value : 1;
     },
     get looking() {
-      return document.pointerLockElement === target || (dragging && engaged);
+      return isTouch() || document.pointerLockElement === target || (dragging && engaged);
+    },
+    touchSink: {
+      steer(x, y, run) {
+        stick.x = x;
+        stick.y = y;
+        stick.run = run;
+        refresh();
+        touch();
+      },
+      look(dx, dy) {
+        state.look.x += dx * sensitivity;
+        state.look.y += dy * sensitivity;
+        touch();
+      },
+      zoom(pixels) {
+        state.zoom += pixels;
+        touch();
+      },
     },
     get dragging() {
       return dragging;
@@ -369,7 +401,7 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       release();
       engaged = false;
       dragHeld = false;
-      if (document.pointerLockElement === target) document.exitPointerLock();
+      if (document.pointerLockElement === target && typeof document.exitPointerLock === 'function') document.exitPointerLock();
     },
   };
 }

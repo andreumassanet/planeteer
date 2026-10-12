@@ -82,6 +82,10 @@ export function notice(title: string, text: string, actions: readonly NoticeActi
   );
   root.hidden = false;
   open = true;
-  if (document.pointerLockElement !== null) document.exitPointerLock();
+  // Some mobile browsers do not implement Pointer Lock at all. In those
+  // browsers pointerLockElement is `undefined`, which is still !== null.
+  if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') {
+    document.exitPointerLock();
+  }
   (row.querySelector('.primary') as HTMLButtonElement | null)?.focus({ preventScroll: true });
 }

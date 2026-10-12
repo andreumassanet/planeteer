@@ -64,6 +64,7 @@ import type { Body } from './system/index.ts';
 import { ensureStyle, fold, h, hex, icon, installUi, kbd, km, people } from './ui.ts';
 import { modalOpen } from './controls.ts';
 import { worldDisc } from './world-disc.ts';
+import { isTouch } from './touch.ts';
 
 const DEG = Math.PI / 180;
 const R = PLANET_RADIUS;
@@ -1314,6 +1315,123 @@ const STYLE = `
   .m-info { width: 320px; }
 }
 
+/* --- a phone, either way up ------------------------------------------------- */
+/*
+ * Small, not touch: a narrow desktop window is the same layout problem. A
+ * finger only loses the key caps, which it has no keys for. Everything keeps
+ * clear of the notch and the home bar (\`env(safe-area-inset-*)\`).
+ */
+html.touch-ui .atlas-menu .ui-kbd { display: none; }
+@media (max-width: 700px), (max-height: 520px) {
+  .m-brand { top: max(14px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
+  .m-wordmark { font-size: 34px; -webkit-text-stroke-width: 4px; text-shadow: 0 3px 0 var(--ui-ink); }
+  .m-tagline { margin-top: 6px; font-size: 13px; }
+  .m-crumbs { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); gap: 8px; }
+  .m-trail { height: 42px; }
+  .m-top-right { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); gap: 8px; }
+  .m-search-box { height: 44px; }
+  .m-search-box input { font-size: 16px; }
+  .m-back { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); }
+  .m-dock { bottom: max(4px, env(safe-area-inset-bottom)); gap: 8px; padding: 8px 8px 10px; max-width: 100vw; box-sizing: border-box; }
+  .m-dock-item { width: 74px; gap: 4px; padding: 9px 4px 7px; }
+  .m-dock-item .world-disc { --d: 30px !important; }
+  .m-dock-name { font-size: 12px; }
+  .m-dock-sub { font-size: 10.5px; line-height: 18px; }
+  .m-dock-item .ui-tag { font-size: 9.5px; padding: 2px 6px; }
+  .m-panel { padding: 14px 14px 10px; }
+  .m-panel h2 { font-size: 21px; }
+  .m-panel p { font-size: 12.5px; margin-top: 6px; }
+  .m-panel .ui-btn { margin-top: 10px; }
+  .m-info { padding: 16px 16px 14px; }
+  .m-info h2 { font-size: 26px; }
+  .m-info p { font-size: 13px; }
+  .m-select { min-width: 0; gap: 10px; padding: 9px 9px 9px 12px; bottom: max(12px, env(safe-area-inset-bottom)); }
+  .m-select-name { font-size: 18px; }
+  .m-label { font-size: 11.5px; padding: 4px 8px; }
+}
+/*
+ * Upright: the search across the top, the two ways on side by side over the
+ * dock, and a stage's card a sheet along the bottom, so the globe keeps the
+ * middle of the screen. The column on the right is taken apart for it
+ * (\`display: contents\`) and each of its three placed on its own.
+ */
+@media (max-width: 700px) and (orientation: portrait) {
+  .m-tagline { display: none; }
+  .m-top-right { display: contents; }
+  .m-search { position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 54px); left: 12px; right: 12px; width: auto; }
+  .m-continue, .m-leave { position: absolute; bottom: calc(max(4px, env(safe-area-inset-bottom)) + 124px); }
+  .m-continue { right: 12px; }
+  .m-leave { left: 12px; }
+  .atlas-menu:not([data-stage='system']) .m-continue { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .m-info {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 62px);
+    width: auto;
+    max-height: 46vh;
+    transform: none;
+  }
+  .m-info.m-off { transform: translateY(24px); }
+  .m-facts { gap: 8px 12px; margin-top: 12px; padding-top: 10px; }
+}
+/* On its side: one row of chrome at the top, the dock low, the cards narrow. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .m-tagline { display: none; }
+  /* The way to play and the search along the top right; the way back to the title under the name, where it has room. */
+  .m-top-right { flex-direction: row-reverse; align-items: flex-start; }
+  .m-search { width: min(260px, 34vw); }
+  .m-continue, .m-leave { height: 44px; padding-top: 0; padding-bottom: 0; }
+  .m-leave { position: fixed; top: calc(max(14px, env(safe-area-inset-top)) + 54px); left: max(16px, env(safe-area-inset-left)); }
+  .m-info { right: max(12px, env(safe-area-inset-right)); width: 300px; top: calc(max(12px, env(safe-area-inset-top)) + 56px); max-height: calc(100vh - 56px - 24px); transform: none; }
+  .m-info.m-off { transform: translateX(28px); }
+  .m-facts { gap: 8px 12px; margin-top: 10px; padding-top: 10px; }
+  .m-dock-item { padding: 7px 4px 5px; }
+}
+/*
+ * A country on a small screen is its map and nothing else. The pins are the
+ * choice: no list of its towns, no paragraph on how to choose, no search and
+ * no way back but the crumbs' arrow. Along the bottom one card, which is the
+ * country and its count until a town is picked, and that town and the button
+ * that starts there once one is.
+ */
+@media (max-width: 700px), (max-height: 520px) {
+  .atlas-menu[data-stage='region'] .m-search, .atlas-menu[data-stage='site'] .m-search,
+  .atlas-menu[data-stage='region'] .m-continue, .atlas-menu[data-stage='site'] .m-continue,
+  .m-back { display: none; }
+  .m-panel p, .m-list, .m-more { display: none; }
+  .m-panel {
+    top: auto;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: min(420px, calc(100vw - 24px));
+    max-height: none;
+    padding: 10px 14px;
+  }
+  .m-panel.m-off { transform: translateY(16px); }
+  .m-panel h2 { margin-top: 0; font-size: 19px; }
+  .m-country .ui-flag { width: 36px; height: 24px; }
+  .m-country-sub::after { content: ' · pick one on the map'; }
+  .atlas-menu.picking .m-panel { opacity: 0 !important; visibility: hidden; pointer-events: none !important; }
+  .m-select {
+    left: max(12px, env(safe-area-inset-left));
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: min(420px, calc(100vw - 24px));
+    box-sizing: border-box;
+    flex-wrap: wrap;
+    transform: none;
+  }
+  .m-select.m-off { transform: translateY(16px); }
+  .m-select > div { flex: 1; min-width: 0; }
+  .m-select-sub { white-space: normal; }
+  .m-select .ui-btn { margin-left: 0; width: 100%; justify-content: center; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .m-select { flex-wrap: nowrap; width: auto; max-width: calc(100vw - 24px); }
+  .m-select .ui-btn { width: auto; margin-left: auto; }
+}
+
 /* --- the cut that stands in for a flight --------------------------------- */
 /* With less motion asked for, a flight is a cut, and this is what the cut is
    made under: space, lifted off the new shot in a quarter of a second. */
@@ -2195,6 +2313,7 @@ export function createMenu(deps: MenuDeps): Menu {
     root.classList.toggle('flying', flying);
     root.classList.toggle('chosen', chosen !== null);
     root.classList.toggle('held', held);
+    root.dataset.stage = stage;
     setOff(brand, !(stage === 'system' && settled));
     setOff(dock, !(stage === 'system' && settled));
     setOff(crumbs, !(stage !== 'system' && open));
@@ -2209,7 +2328,9 @@ export function createMenu(deps: MenuDeps): Menu {
     if (leaveButton !== null) setOff(leaveButton, !(stage === 'system' && open));
     // The town picked, or once chosen the landing it is waiting for — never
     // under the title, which holds the menu with neither.
-    setOff(select, !(chosen !== null || (open && stage === 'site' && picked !== null && !flying)));
+    const selecting = chosen !== null || (open && stage === 'site' && picked !== null && !flying);
+    setOff(select, !selecting);
+    root.classList.toggle('picking', selecting);
     // Not under the title, which says how far the world is in its own card.
     if (flying || !open) closeResults();
     refreshTrail();
@@ -2237,7 +2358,7 @@ export function createMenu(deps: MenuDeps): Menu {
     panel.replaceChildren(
       h('div', { class: 'ui-eyebrow', text: `${body.name} · ${body.note}` }),
       h('h2', { text: 'Where do you want to start?' }),
-      h('p', { text: `Drag to turn the globe, then click a ${words.region}. Or type the name of a place in the search.` }),
+      h('p', { text: `Drag to turn the globe, then ${isTouch() ? 'tap' : 'click'} a ${words.region}. Or type the name of a place in the search.` }),
       surpriseButton,
     );
   }

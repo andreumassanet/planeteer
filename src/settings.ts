@@ -54,6 +54,7 @@ import {
 } from './controls.ts';
 import type { Action, Captured } from './controls.ts';
 import { h, icon, installUi, ensureStyle } from './ui.ts';
+import { isTouch } from './touch.ts';
 
 export interface Knob {
   get(): number;
@@ -211,6 +212,7 @@ const STYLE = `
   grid-template-rows: auto minmax(0, 1fr);
   width: min(1040px, 100%);
   height: min(720px, calc(100vh - 48px));
+  height: min(720px, calc(100dvh - 48px));
   padding: 0;
   overflow: hidden;
 }
@@ -466,7 +468,7 @@ const STYLE = `
 
 @media (max-width: 720px) {
   .atlas-settings { padding: 12px; }
-  .atlas-settings-panel { height: calc(100vh - 24px); }
+  .atlas-settings-panel { height: calc(100vh - 24px); height: calc(100dvh - 24px); }
   .atlas-settings-head { padding: 14px 16px; }
   .atlas-settings-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .atlas-settings-rail { flex-direction: row; overflow-x: auto; padding: 10px 12px; border-right: 0; border-bottom: 2.5px solid var(--ui-rule); }
@@ -477,6 +479,17 @@ const STYLE = `
   .atlas-settings-row { grid-template-columns: 1fr; gap: 6px; padding: 8px 0; }
   .atlas-settings-side { justify-content: flex-start; flex-wrap: wrap; }
   .atlas-settings-side .ui-range { width: 160px; }
+}
+/* A phone on its side: the head a line, the rail narrower, the page given the height. */
+@media (max-height: 520px) {
+  .atlas-settings { padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  .atlas-settings-panel { height: 100%; }
+  .atlas-settings-head { padding: 8px 14px; gap: 10px; }
+  .atlas-settings-badge { width: 34px; height: 34px; }
+  .atlas-settings-badge svg { width: 19px; height: 19px; }
+  .atlas-settings-title { font-size: 20px; }
+  .atlas-settings-sub { display: none; }
+  .atlas-settings-rail button { padding-top: 8px; padding-bottom: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .atlas-settings.on .atlas-settings-panel { animation: none; }
@@ -1094,7 +1107,10 @@ export function createSettings(options: SettingsOptions): Settings {
     // problem and not this one's.
     relock = options.lockTarget !== null && document.pointerLockElement === options.lockTarget;
     options.onOpen?.();
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
+    // The keys and the mouse are nothing a finger has: no page for them.
+    tabs.get('controls')!.hidden = isTouch();
+    if (page === 'controls' && isTouch()) turnTo('graphics');
     refresh();
     root.classList.add('on');
     close.focus({ preventScroll: true });
@@ -1113,7 +1129,7 @@ export function createSettings(options: SettingsOptions): Settings {
   // looking at a settings panel with no cursor. A lock taken while the card is
   // up is handed straight back.
   document.addEventListener('pointerlockchange', () => {
-    if (showing && document.pointerLockElement !== null) document.exitPointerLock();
+    if (showing && document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
   }, { signal });
 
   function hide(): void {

@@ -64,6 +64,7 @@ import type { CountryFacts } from './country-facts.ts';
 import { createFlagCanvas } from './flags.ts';
 import { PALETTE } from './theme.ts';
 import { ensureStyle, h, hex, icon, installUi } from './ui.ts';
+import { isTouch } from './touch.ts';
 import type { IconName } from './ui.ts';
 import { CONTINENTS, byContinent, continentOf, stampDateText, worldOf } from './passport.ts';
 import type { Continent, Passport, Stamp, StampMode } from './passport.ts';
@@ -349,6 +350,19 @@ const STYLE = `
 .p-front p { margin: 6px 0 0; max-width: 290px; font-size: 12.5px; font-weight: 600; line-height: 1.5; opacity: 0.75; }
 .p-front .p-bar { width: 240px; }
 .p-tab.holder svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+/*
+ * A phone held upright shows one page at a time (\`single\`): the scaler is
+ * slid so the left or the right page fills the window, a swipe turns, and
+ * each page has both corners. The hint along the book's foot would be cut at
+ * the spine, so the panel says it under the page instead.
+ */
+.p-panel.single .p-fit { overflow: hidden; touch-action: none; }
+.p-panel.single .p-scaler { transition: transform 0.32s var(--ui-ease); }
+.p-panel.single .p-hint { display: none; }
+.p-panel.single.half0 .p-corner.next { right: 50%; }
+.p-panel.single.half1 .p-corner.prev { left: 50%; }
+.p-swipe { display: none; margin-top: 12px; text-align: center; font-size: 12.5px; font-weight: 700; color: rgba(255, 242, 232, 0.82); }
+.p-panel.single .p-swipe { display: block; }
 .p-hint {
   position: absolute;
   left: 0;
@@ -1089,7 +1103,10 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   // edge; only the current chapter's stand up at once.
   const holderTab = h('button', { class: 'p-tab holder', type: 'button', 'aria-label': 'The holder' }, h('b', {}, icon('passport', 14), 'Holder'), h('em', { text: 'ATL' }));
   const tabs = new Map<string, HTMLButtonElement>();
-  holderTab.addEventListener('click', () => turn(0), { signal });
+  holderTab.addEventListener('click', () => {
+    pendingHalf = 1;
+    turn(0);
+  }, { signal });
   const ribbons = h('nav', { class: 'p-ribbons', 'aria-label': 'Bookmarks' }, holderTab);
   // And a planet a chapter down the right edge, once there is more than Earth.
   const worldTabs = new Map<string, HTMLButtonElement>();
@@ -1097,7 +1114,8 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   const hint = h('div', { class: 'p-hint' });
   const scaler = h('div', { class: 'p-scaler' }, h('div', { class: 'p-cover-back' }), ribbons, worlds, book, hint);
   const fit = h('div', { class: 'p-fit' }, scaler);
-  const panel = h('div', { class: 'p-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport', tabindex: '-1' }, fit);
+  const swipe = h('div', { class: 'p-swipe', text: 'Swipe to turn the page · tap outside to close' });
+  const panel = h('div', { class: 'p-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport', tabindex: '-1' }, fit, swipe);
   const tipFlag = h('span');
   const tipName = h('b');
   const tipCapital = h('small');
@@ -1137,7 +1155,10 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
       tab.style.setProperty('--tab', visa.dye);
       tab.addEventListener('click', () => {
         const first = firstPageOf.get(visa.key);
-        if (first !== undefined) turn(spreadOfPage(first));
+        if (first !== undefined) {
+          pendingHalf = first % 2;
+          turn(spreadOfPage(first));
+        }
       }, { signal });
       tabs.set(visa.key, tab);
     }
@@ -1399,6 +1420,12 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   let spread = 0;
   /** Whether the book has been turned since it opened, so a late chapter does not move it. */
   let turned = false;
+  /** On one page at a time (`single`): which of the spread's two is on show, 0 the left. */
+  let half = 0;
+  /** The half the next `turn` lands on, when its caller knows; the left otherwise. */
+  let pendingHalf: number | null = null;
+  /** One page at a time: a phone held upright, where the spread would be too small to read. */
+  const single = (): boolean => isTouch() && innerWidth < innerHeight && innerWidth < 700;
   const spreads = (): number => pages.length / 2;
   /** The spread a page lies open on. */
   const spreadOfPage = (index: number): number => Math.floor(index / 2);
@@ -1488,8 +1515,14 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
       tab.title = `${name} · ${got} stamped`;
     }
     hideTip();
-    previous.hidden = spread === 0;
-    next.hidden = spread >= spreads() - 1;
+    corners();
+  }
+
+  /** The corners, which one page at a time also has between the two halves of a spread. */
+  function corners(): void {
+    const one = single();
+    previous.hidden = spread === 0 && !(one && half === 1);
+    next.hidden = spread >= spreads() - 1 && !(one && half === 0);
   }
 
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
@@ -1508,11 +1541,21 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   function turn(to: number): void {
     settle();
     const target = Math.max(0, Math.min(spreads() - 1, to));
-    if (target === spread) return;
+    const landing = pendingHalf ?? 0;
+    pendingHalf = null;
+    if (target === spread) {
+      if (single() && landing !== half) {
+        half = landing;
+        resize();
+      }
+      return;
+    }
     turned = true;
     const step = target > spread ? 1 : -1;
     const from = spread;
     spread = target;
+    half = landing;
+    if (single()) resize();
     options.onTurn?.(Math.abs(target - from));
     if (calm.matches) {
       showSpread();
@@ -1554,8 +1597,39 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     };
   }
 
-  previous.addEventListener('click', () => turn(spread - 1), { signal });
-  next.addEventListener('click', () => turn(spread + 1), { signal });
+  /** A page on: one page at a time slides to the other half before it turns the leaf. */
+  function stepPage(direction: 1 | -1): void {
+    if (!single()) {
+      turn(spread + direction);
+      return;
+    }
+    settle();
+    if (direction > 0 && half === 0) {
+      half = 1;
+      resize();
+    } else if (direction < 0 && half === 1) {
+      half = 0;
+      resize();
+    } else {
+      pendingHalf = direction > 0 ? 0 : 1;
+      turn(spread + direction);
+    }
+  }
+  previous.addEventListener('click', () => stepPage(-1), { signal });
+  next.addEventListener('click', () => stepPage(1), { signal });
+  // A swipe across the page turns it, where one page is shown at a time.
+  let swipeFrom: { id: number; x: number; y: number } | null = null;
+  fit.addEventListener('pointerdown', (event) => {
+    if (single()) swipeFrom = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  }, { signal });
+  fit.addEventListener('pointerup', (event) => {
+    if (swipeFrom === null || event.pointerId !== swipeFrom.id) return;
+    const dx = event.clientX - swipeFrom.x;
+    const dy = event.clientY - swipeFrom.y;
+    swipeFrom = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) stepPage(dx < 0 ? 1 : -1);
+  }, { signal });
+  fit.addEventListener('pointercancel', () => (swipeFrom = null), { signal });
 
   /* --- what a stamp says -------------------------------------------------- */
 
@@ -1604,8 +1678,23 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   /** The book as large as the window holds it, up to `MAX_SCALE` of its design. */
   function resize(): void {
     const width = sheetWidth();
-    const scale = Math.max(0.3, Math.min(MAX_SCALE, (innerWidth * FIT_WIDTH) / width, (innerHeight * FIT_HEIGHT) / SHEET_H));
+    const one = single();
+    corners();
+    panel.classList.toggle('single', one);
+    panel.classList.toggle('half0', one && half === 0);
+    panel.classList.toggle('half1', one && half === 1);
     scaler.style.width = `${width}px`;
+    if (one) {
+      // A page and a little of the spine, and the planets' room on the right page's side.
+      const shown = BOOK_W / 2 + COVER_PAD + SIDE_ROOM + 12;
+      const x0 = half === 0 ? SHEET_W / 2 + 12 - shown : SHEET_W / 2 - 12;
+      const scale = Math.max(0.3, Math.min(MAX_SCALE, (innerWidth * FIT_WIDTH) / shown, (innerHeight * 0.85) / SHEET_H));
+      scaler.style.transform = `scale(${scale.toFixed(4)}) translateX(${(-x0).toFixed(1)}px)`;
+      fit.style.width = `${Math.round(shown * scale)}px`;
+      fit.style.height = `${Math.round(SHEET_H * scale)}px`;
+      return;
+    }
+    const scale = Math.max(0.3, Math.min(MAX_SCALE, (innerWidth * FIT_WIDTH) / width, (innerHeight * FIT_HEIGHT) / SHEET_H));
     scaler.style.transform = `scale(${scale.toFixed(4)})`;
     fit.style.width = `${Math.round(width * scale)}px`;
     fit.style.height = `${Math.round(SHEET_H * scale)}px`;
@@ -1664,7 +1753,7 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     const target = options.lockTarget ?? null;
     relock = opening.relock ?? (target !== null && document.pointerLockElement === target);
     options.onOpen?.();
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
     // The capitals for the tips; fetched once, and already in hand after the first frontier.
     if (facts === null) {
       void loadCountryFacts()
@@ -1677,9 +1766,11 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     // Open already, where the holder is.
     pages = pagesOf();
     spread = Math.min(spreads() - 1, openingSpread());
+    // On the first spread, the holder's page rather than the notice inside the cover.
+    half = spread === 0 ? 1 : 0;
     showSpread();
     const key = labelOf('passport');
-    hint.textContent = `← → turn the page · ${key} or Esc to close`;
+    hint.textContent = isTouch() ? 'Tap a corner to turn the page · tap outside to close' : `← → turn the page · ${key} or Esc to close`;
     resize();
     addEventListener('resize', resize, { signal });
     if (!root.isConnected) document.body.append(root);
@@ -1689,7 +1780,7 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
 
   // A lock granted while the card is up is handed straight back, as the settings card does.
   document.addEventListener('pointerlockchange', () => {
-    if (showing && document.pointerLockElement !== null) document.exitPointerLock();
+    if (showing && document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
   }, { signal });
 
   function hide(): void {

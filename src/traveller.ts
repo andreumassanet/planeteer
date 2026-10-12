@@ -313,7 +313,24 @@ const STYLE = `
   .cr-tab { width: 66px; height: 56px; }
   .cr-tab[aria-selected='true'] { transform: translateY(-3px); }
   .cr-tab:hover { transform: none; }
-  .cr-views { bottom: auto; top: 14px; }
+  /* In the top corner, clear of the name plate over the traveller's head. */
+  .cr-views { bottom: auto; top: max(12px, env(safe-area-inset-top)); left: 12px; transform: none; align-items: flex-start; }
+  .cr-hint { display: none; }
+  .cr-side { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .cr-foot { gap: 6px; }
+  .cr-foot .ui-btn { padding-left: 10px; padding-right: 10px; gap: 6px; font-size: 13.5px; }
+}
+/* A phone on its side: the column in the height there is, the head a line. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .cr-side { top: max(10px, env(safe-area-inset-top)); bottom: max(10px, env(safe-area-inset-bottom)); left: max(12px, env(safe-area-inset-left)); width: min(440px, 52vw); gap: 8px; }
+  .cr-head h2 { font-size: 24px; -webkit-text-stroke-width: 4px; text-shadow: 0 3px 0 var(--ui-ink); }
+  .cr-head p { display: none; }
+  .cr-rail { width: 66px; gap: 6px; }
+  .cr-tab { height: 58px; }
+  .cr-page { padding: 12px 14px 14px; }
+  .cr-title { font-size: 20px; }
+  .cr-foot .ui-btn { height: 42px; padding-left: 10px; padding-right: 10px; font-size: 13.5px; }
+  .cr-views { bottom: max(10px, env(safe-area-inset-bottom)); }
   .cr-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -682,7 +699,7 @@ export function createTraveller(options: TravellerOptions): Traveller {
     previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const target = options.lockTarget ?? null;
     relock = opening.relock ?? (target !== null && document.pointerLockElement === target);
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
     // Before the stage is touched: the title, if it is up, steps aside on this.
     options.onOpen?.();
     look = fitAppearance(options.appearance.get());
@@ -704,7 +721,7 @@ export function createTraveller(options: TravellerOptions): Traveller {
   // A lock granted while the creator is up — asked for by whatever closed as it
   // opened — is handed straight back, as the settings card does.
   document.addEventListener('pointerlockchange', () => {
-    if (showing && document.pointerLockElement !== null) document.exitPointerLock();
+    if (showing && document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
   });
 
   function hide(): void {

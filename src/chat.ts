@@ -57,6 +57,7 @@ import type { Suggestion } from './chat-core.ts';
 import { cleanName } from './peers.ts';
 import { worldName } from './relay-players.ts';
 import { worldDisc } from './world-disc.ts';
+import { isTouch } from './touch.ts';
 import { latLonOf } from './sphere.ts';
 import type { RelayPlayer } from './relay-players.ts';
 import type { Peers, RelayMessage } from './peers.ts';
@@ -183,6 +184,33 @@ const STYLE = `
 @media (max-width: 1180px) {
   .atlas-chat { bottom: 140px; }
 }
+/*
+ * A finger's chat. Shut, a few short lines over the stick. Open, it goes to
+ * the top of the screen, where the phone's keyboard never covers what is
+ * being typed, with the suggestions under the field rather than over it; and
+ * the field is 16 px, under which iOS zooms the page into it. It sends with
+ * the keyboard's own key and closes when the world is touched.
+ */
+html.touch-ui .atlas-chat .ui-kbd { display: none; }
+html.touch-ui .atlas-chat:not(.open) .atlas-chat-log { max-height: min(18vh, 120px); }
+html.touch-ui .atlas-chat:not(.open) .atlas-chat-line { font-size: 12.5px; padding: 3px 8px 3px 6px; }
+html.touch-ui .atlas-chat.open {
+  top: max(10px, env(safe-area-inset-top));
+  bottom: auto;
+  left: max(10px, env(safe-area-inset-left));
+  right: max(10px, env(safe-area-inset-right));
+  width: auto;
+  max-width: 560px;
+  margin: 0 auto;
+}
+html.touch-ui .atlas-chat.open .atlas-chat-log { max-height: min(26vh, 220px); padding: 6px; }
+html.touch-ui .atlas-chat-form input, html.touch-ui .atlas-chat-ghost { font-size: 16px; }
+html.touch-ui .atlas-chat-form input { height: 36px; }
+html.touch-ui .atlas-chat-suggest { top: calc(100% + 6px); bottom: auto; max-height: min(28vh, 240px); }
+/* While it is open it has the top of the screen to itself: the HUD under it steps out. */
+html.touch-ui .atlas-chat.open .atlas-chat-head { display: none; }
+html.touch-ui body:has(.atlas-chat.open) .atlas-hud > :not(.atlas-toast),
+html.touch-ui body:has(.atlas-chat.open) #minimap { opacity: 0; visibility: hidden; }
 .atlas-chat-log {
   display: flex;
   flex-direction: column;
@@ -191,6 +219,8 @@ const STYLE = `
   overflow: hidden;
   scrollbar-width: thin;
 }
+/* Room under the last line for its drop, which the log's clip would cut off. */
+.atlas-chat:not(.open) .atlas-chat-log { padding-bottom: 4px; }
 .atlas-chat-line {
   display: flex;
   align-items: baseline;
@@ -742,7 +772,7 @@ export function createChat(host: ChatHost): Chat {
     showing = true;
     relock = document.pointerLockElement === host.lockTarget;
     host.onOpen?.();
-    if (document.pointerLockElement !== null) document.exitPointerLock();
+    if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
     root.classList.add('open');
     showCount();
     field.value = text;
@@ -758,7 +788,7 @@ export function createChat(host: ChatHost): Chat {
   // it opened — arrives after `show` has let go of the lock: given back, or
   // the field is typed in with the mouse turning the camera.
   document.addEventListener('pointerlockchange', () => {
-    if (showing && document.pointerLockElement !== null) document.exitPointerLock();
+    if (showing && document.pointerLockElement != null && typeof document.exitPointerLock === 'function') document.exitPointerLock();
   }, { signal: events.signal });
 
   function hide(): void {
@@ -948,7 +978,7 @@ export function createChat(host: ChatHost): Chat {
 
   showCount();
   document.body.append(root);
-  if (peers === null) system(`${labelOf('chat')} to chat · / for commands · playing offline, only you can read this`);
+  if (peers === null) system(`${isTouch() ? '' : `${labelOf('chat')} to chat · `}/ for commands · playing offline, only you can read this`);
 
   return {
     root,

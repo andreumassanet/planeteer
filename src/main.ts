@@ -6,6 +6,7 @@ import { SCENERY_SCALE } from './stature.ts';
 import { groundRadius, landFlagProxy, landFlags, PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from './globe.ts';
 import { drawnRadius, landProbeOf } from './land-probe.ts';
 import { createInput } from './input.ts';
+import { createTouchPad, isTouch } from './touch.ts';
 import { createCameraRig } from './camera.ts';
 import { createPlayer } from './player.ts';
 import type { PlayerEvent } from './player.ts';
@@ -291,27 +292,6 @@ function hasWebGL2(): boolean {
 }
 
 /**
- * A phone, a tablet with nothing but a finger, or a screen too small for the
- * card language. The controls are a keyboard and a mouse, nothing in the world
- * answers a touch, and the HUD, the map and the cards are laid out for a
- * computer's screen — so the player is told so before the world downloads
- * (7.4 MB of data and models on disk, 2026-09-21) and seconds of building
- * freeze the phone, rather than after. `any-pointer: fine` rather than
- * `pointer: fine`, because a tablet with a mouse plugged in has a coarse
- * primary pointer and a fine one as well. Never to an automated browser,
- * whose window may be any size it was given.
- */
-function smallOrTouch(): boolean {
-  if (navigator.webdriver) return false;
-  try {
-    const touch = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
-    return touch || innerWidth < 760 || Math.min(innerWidth, innerHeight) < 480;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Resolves once `ready` holds and the frames have run smooth for a moment:
  * `SETTLED_FRAMES` in a row each under `SETTLED_FRAME_MS`. Whatever is left
  * of the build — a texture upload, a program the warm-up could not reach —
@@ -589,26 +569,15 @@ async function start(): Promise<void> {
   const began = performance.now();
 
   // Before anything heavy is asked for: a browser that cannot draw the world
-  // is told so instead of downloading it, and a touch screen is told honestly
-  // what the controls are and allowed to try anyway.
+  // is told so instead of downloading it.
   if (!hasWebGL2()) {
     notice(
       'planeteer needs WebGL 2',
-      'This browser cannot draw it: WebGL 2 is off or unsupported here. A current Chrome, Edge, Firefox or Safari on a computer will run it, as will turning hardware acceleration back on.',
+      'This browser cannot draw it: WebGL 2 is off or unsupported here. A current Chrome, Edge, Firefox or Safari with hardware acceleration will run it.',
       [reload],
     );
     return;
   }
-  if (smallOrTouch()) {
-    await new Promise<void>((resolve) => {
-      notice(
-        'Made for a large screen',
-        'planeteer is played on a computer, with a keyboard and a mouse. On a phone or a small window it is cramped and slow, and nothing here answers a touch yet.',
-        [{ label: 'Continue anyway', primary: true, escape: true, run: resolve }],
-      );
-    });
-  }
-
   // `?world=<id>` stands you on another world straight away — the Moon, Mars,
   // a giant's cloud deck — with none of Earth loaded: `src/worlds/` makes its
   // own renderer, and leaving reloads without the parameter. One `import()`,
@@ -1957,10 +1926,11 @@ async function start(): Promise<void> {
   const passingVoices: Parameters<typeof passingSound.update>[1] = {};
   if (railway !== null) railway.onHorn = (near) => passingSound.horn(audio.bus, near);
   // The last of the build happens here, under the same screen: the shaders,
-  // the other worlds' globes and the title's bridge and hero. Only then does
-  // the screen lift, and not before the frames have come back smooth.
+  // the other worlds' globes and the title's bridge and hero. On touch devices
+  // the optional globes keep building in the background; waiting for every
+  // one can hold the loading screen for minutes on a phone.
   await stage('warming up');
-  await Promise.all([warmed, prepared]);
+  await Promise.all(isTouch() ? [warmed] : [warmed, prepared]);
   // Every world's towns and nations in one list, for `/goto` and the menu's
   // search: made from geographies the menu has just built, so nearly free.
   everyWorld = await import('./system/gazetteer.ts')
@@ -2462,6 +2432,7 @@ async function start(): Promise<void> {
   // closures over things built a few lines further down, which is safe: they
   // run on a click, long after everything here exists.
   const hud = createHud(world, {
+    touch: createTouchPad(input.touchSink, renderer.domElement),
     onSettings: () => settings.toggle(),
     onMap: () => (map.open ? map.hide() : map.show()),
     // The card for a new country, and the frontier's jingle with it. The
