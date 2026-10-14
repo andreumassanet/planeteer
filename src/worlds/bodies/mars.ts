@@ -2,29 +2,21 @@
  * Mars, walked: the reference world, and the one file every other planet's is
  * shaped like.
  *
- * Everything true about Mars — its relief with Olympus Mons, Hellas and the
- * Valles, its dust map, its fifteen nations, its twenty-four towns and the
- * four-armed Martian — is `src/system/bodies/mars.ts`, and this file only says
- * what it is like to stand there:
+ * What is true about Mars (relief, dust map, nations, towns, the four-armed
+ * Martian) is `src/system/bodies/mars.ts`; this file says what it is like to
+ * stand there.
  *
- * - **The ground** is the system's map plus the walking scale it does not
- *   have: three octaves of bumps, and craters in three size classes from a
- *   pothole to a basin two hundred units deep, **heavier on the ancient
- *   southern highlands than on the young northern plains** — the dichotomy is
- *   the first fact about Mars's surface, so the crater field reads it too.
- * - **The sky** is butterscotch by day and blue round the setting sun, which
- *   is the one thing everybody gets wrong about Mars, and the light is warm.
- * - **The Martians** write in a hooked, looped hand hung from a line, speak low
- *   (the throat of a body half again a person's height), and build domes on
- *   drums, stacked drums and spires — the shapes a low-pressure, cold, dusty
- *   world would make of pressure vessels.
- * - **What lies about**: rocks everywhere, the system's dust drifts, iron
- *   spires, wind-stones and frost fans by biome; dust devils on the plains.
- * - **Drawn from the space kit**: the Martians are the kit's greyling and
- *   alien in their own hides, and their towns are its colony — pods on
- *   cradles joined by tubes, long halls, glass domes, solar arrays — in rows
- *   down the avenues round a hub with a radar on its crown.
- * - **What to take**: the kit's six-wheeled rover, a cargo lander and a saucer.
+ * - The ground is the system's map plus the walking scale it lacks: three
+ *   octaves of bumps and craters in three size classes, heavier on the ancient
+ *   southern highlands than on the young northern plains.
+ * - The sky is butterscotch by day and blue round the setting sun.
+ * - The Martians write in a hooked, looped hand, speak low, and build domes on
+ *   drums, stacked drums and spires.
+ * - Rocks, dust drifts, iron spires, wind-stones and frost fans lie about by
+ *   biome; dust devils cross the plains.
+ * - The Martians are the kit's greyling and alien; their towns are its colony,
+ *   in rows down the avenues round a hub with a radar on its crown.
+ * - The kit's six-wheeled rover, a cargo lander and a saucer are takeable.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -95,9 +87,7 @@ export const WORLD = defineWorld(MARS, {
         { cell: 420, chance: 0.45, radius: [25, 110], depth: 0.16, rim: 0.045, complexAbove: 80 },
         { cell: 2400, chance: 0.35, radius: [250, 900], depth: 0.08, rim: 0.03, complexAbove: 300 },
       ],
-      // The dichotomy: the northern lowlands were resurfaced and keep a
-      // third of the south's craters. The pole of the lowlands is the
-      // system file's (55 N, 160 E).
+      // The northern lowlands were resurfaced and keep a third of the south's craters; their pole is the system file's (55 N, 160 E).
       density: (lat, lon) => 1 - 0.65 * smoothstep(-0.1, 0.55, alignment(lat, lon, 55, 160)),
     },
   },
@@ -162,8 +152,7 @@ export const WORLD = defineWorld(MARS, {
         { item: 'ring', weight: 1 },
       ],
       landmark: 'spire',
-      // Pale walls and strong trims, as a Terran town's are (white walls,
-      // blue roofs): sand on sand was every module the colour of the ground.
+      // Pale walls and strong trims, so a module is not the colour of the ground.
       walls: [PALETTE.white, PALETTE.cream, PALETTE.bone, PALETTE.blush],
       roofs: [PALETTE.crimson, PALETTE.red, PALETTE.clay, PALETTE.steel],
       accents: [PALETTE.skyBlue, PALETTE.gold, PALETTE.crimson],

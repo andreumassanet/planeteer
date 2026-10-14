@@ -2,38 +2,26 @@
  * Neptune's deck at a walker's scale: the storms Voyager 2 photographed in
  * 1989, and the wind written into the cloud.
  *
- * The system file's landforms put the Great Dark Spot, Scooter and the
- * Wizard's Eye on the map at a twenty-fifth of their height, which from orbit
- * is a smudge and on foot is nothing at all. These are the same storms built
- * again in units, so that standing on the rim of the Dark Spot is standing on
- * the edge of something:
+ * The system file puts the Great Dark Spot, Scooter and the Wizard's Eye on the
+ * map at a twenty-fifth of their height, a smudge from orbit and nothing on
+ * foot. These are the same storms built again in units:
  *
- * - **The Great Dark Spot**, 22 S, an oval about 13,000 by 6,600 km — Earth's
- *   own width the long way — drawn as a basin with a flat, slowly swirling
- *   floor and a wall round it. Voyager saw it as a hole: a clear window down
- *   through the methane haze to a deeper, darker layer.
- * - **Its companions**, the bright clouds that sat on its southern edge the
- *   whole time Voyager watched: air forced up over the anticyclone, cooled,
- *   and frozen into methane cirrus, the way a lenticular cloud sits over a
- *   mountain. Here a lumpy white ridge along the south rim.
- * - **Scooter**, the small bright cloud at 42 S that lapped the Dark Spot
- *   every few days, as a raised lens of cloud.
- * - **The Wizard's Eye** (Dark Spot 2), 55 S: a smaller basin with the one
- *   bright core any of these storms had.
- * - **The streaks**: long, thin bands of cirrus along the parallels between
- *   about 20 and 55 degrees either side, fifty kilometres over the deck — the
- *   clouds Voyager caught casting their shadows on the blue below, near 29 N.
- * - **The comb**: everywhere else the deck is drawn out east to west, because
- *   nothing on this planet stays still long enough to be round.
+ * - The Great Dark Spot, 22 S, an oval about 13,000 by 6,600 km, drawn as a
+ *   basin with a flat, slowly swirling floor and a wall round it.
+ * - Its companions, bright cirrus on its southern edge (air forced up over the
+ *   anticyclone), here a lumpy white ridge along the south rim.
+ * - Scooter, the small bright cloud at 42 S, as a raised lens of cloud.
+ * - The Wizard's Eye (Dark Spot 2), 55 S: a smaller basin with a bright core.
+ * - The streaks: long thin bands of cirrus along the parallels between about 20
+ *   and 55 degrees either side, fifty kilometres over the deck.
+ * - The comb: everywhere else the deck is drawn out east to west.
  *
- * The deck's painter colours by latitude only, so none of this changes a
- * colour; the bands in the world file put the darkest blue at the Spot's own
- * latitude and white at its companions', and the toon ramp does the rest
- * where the relief turns.
+ * The deck's painter colours by latitude only, so none of this changes a colour;
+ * the toon ramp does the rest where the relief turns.
  *
- * Every function here is a `Feature`: pure, cheap, units of height. The
- * storms return 0 from one dot product outside their reach, and the two
- * global ones are a pair of value-noise calls apiece.
+ * Every function here is a `Feature`: pure, cheap, units of height. The storms
+ * return 0 from one dot product outside their reach, and the two global ones
+ * are a pair of value-noise calls apiece.
  */
 
 import type { Feature } from '../../contract.ts';
@@ -51,10 +39,7 @@ interface Frame {
   n: readonly [number, number, number];
 }
 
-/**
- * East and north taken as differences of `onSphere` itself rather than
- * written out, so the frame is the project's frame and cannot be its mirror.
- */
+/** East and north taken as differences of `onSphere` itself, so the frame is the project's frame and cannot be its mirror. */
 function frameAt(lat: number, lon: number): Frame {
   const c = onSphere(lat, lon);
   const step = 0.01;
@@ -79,9 +64,7 @@ interface Point {
 
 const dot3 = (p: Point, v: readonly [number, number, number]): number => p.x * v[0] + p.y * v[1] + p.z * v[2];
 
-// ---------------------------------------------------------------------------
-// The Great Dark Spot and its companions
-// ---------------------------------------------------------------------------
+// --- the Great Dark Spot and its companions ---
 
 /** Where Voyager 2 found it in August 1989. Exported for the landmarks and towns that stand on its rim. */
 export const DARK_SPOT = { lat: -22, lon: 15 } as const;
@@ -101,9 +84,8 @@ const darkSpot: Feature = (p) => {
   const v = dot3(p, SPOT.n) / SPOT_B;
   const d = Math.hypot(u, v);
   if (d > 1.5) return 0;
-  // The basin: a floor, and a wall over the last tenth of the oval. The
-  // floor is not flat — it turns, so the noise is sampled along the
-  // anticyclone's own flow, the angle round the centre leading.
+  // The basin: a floor and a wall over the last tenth of the oval. The floor
+  // turns, so the noise is sampled along the anticyclone's own flow.
   const swirl = Math.atan2(v, u) + d * 2.6;
   const floor = fbm(Math.cos(swirl) * 3 + d * 5, Math.sin(swirl) * 3, d * 7, 2) * 18;
   let h = -SPOT_DEPTH * (1 - smoothstep(0.88, 1.0, d)) + floor * (1 - smoothstep(0.7, 1.0, d));
@@ -121,9 +103,7 @@ const darkSpot: Feature = (p) => {
   return h;
 };
 
-// ---------------------------------------------------------------------------
-// Scooter and the Wizard's Eye
-// ---------------------------------------------------------------------------
+// --- Scooter and the Wizard's Eye ---
 
 const SCOOTER = frameAt(-42, -60);
 const SCOOTER_REACH = Math.cos(6 * DEG);
@@ -157,9 +137,7 @@ const wizardsEye: Feature = (p) => {
   return basin + core;
 };
 
-// ---------------------------------------------------------------------------
-// The streaks and the comb
-// ---------------------------------------------------------------------------
+// --- the streaks and the comb ---
 
 /** Units between streaks across the wind, and the length of one along it. */
 const STREAK_ACROSS = RADIUS / 520;
@@ -167,11 +145,11 @@ const STREAK_ALONG = RADIUS / 4200;
 const STREAK_HEIGHT = 26;
 
 /**
- * Cirrus in long thin bands along the parallels: the noise is sampled far
- * finer across the wind (the `y` axis is the pole) than along it, so its
- * zero crossings run east to west, and a crest is laid only where it is near
- * zero — a line, not a hill. A second, coarser noise breaks the lines into
- * lengths, and a mask keeps them to the latitudes Voyager found them in.
+ * Cirrus in long thin bands along the parallels: the noise is sampled far finer
+ * across the wind (the `y` axis is the pole) than along it, so its zero
+ * crossings run east to west, and a crest is laid only near zero (a line, not
+ * a hill). A coarser noise breaks the lines into lengths and a mask keeps them
+ * to the latitudes Voyager found them in.
  */
 const streaks: Feature = (p, lat) => {
   const a = Math.abs(lat);
@@ -189,9 +167,8 @@ const COMB_ALONG = RADIUS / 900;
 
 /**
  * Everywhere: ripples a few units high drawn out along the wind, so the deck
- * underfoot reads as moving east to west even where nothing else is. It is
- * a share of the relief and not the paint, because the deck's colour is
- * flat inside a band and only a turned normal steps the ramp.
+ * reads as moving east to west. It is relief and not paint because the deck's
+ * colour is flat inside a band and only a turned normal steps the ramp.
  */
 const comb: Feature = (p) => 3.2 * fbm(p.x * COMB_ALONG, p.y * COMB_ACROSS, p.z * COMB_ALONG, 2);
 

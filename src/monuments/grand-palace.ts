@@ -3,71 +3,28 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * The Grand Palace and Wat Phra Kaew, Bangkok.
  *
- * **Why Thailand:** mainland South-East Asia had Angkor Wat and Bagan, and both
- * are stone and brick — a temple mountain and a plain of stupas. What the
- * region's living architecture looks like, the steep, layered, upswept roof in
- * orange and green tile with a horn at every gable, was nowhere on the planet.
- * The Grand Palace compound is where every photograph of that roof is taken.
+ * The compound is cropped to the three buildings that name it, each a different
+ * shape, inside one white wall:
+ * 1. The ordination hall of Wat Phra Kaew, front left, long side to the viewer: a
+ *    white hall on a white platform ringed by a colonnade under the Thai roof.
+ * 2. Phra Si Rattana Chedi, back left: the gold bell-shaped stupa on stepped round
+ *    bases with a ringed spire, the tallest thing (37.4 of the tier's 40), behind
+ *    the hall so its spire rises out of the roofs. Ten sides on everything round.
+ * 3. Chakri Maha Prasat, right: a European body under three Thai spired roofs,
+ *    the middle one taller.
+ * Round them, the white crenellated wall (69.6 by 53.6) with a fort at each corner
+ * and a spired gate in front, on a paved court.
  *
- * ---------------------------------------------------------------------------
- * The crop: three buildings inside one white wall
- * ---------------------------------------------------------------------------
+ * The Thai roof is layered in height (a lower `green` skirt over the colonnade
+ * and an upper `orange` roof, the hall's wall between) and in length (at each
+ * gable end the roof steps down in overlapping tiers). Every gable is a steep
+ * triangular prism: upper roof 55 degrees, end tiers 52, skirt 35. Every gable end
+ * carries a `gold` chofa, the horn rising from the apex, as a leaning beam; the
+ * end tiers also carry gilt bargeboards, upturned hooks at the eave corners and a
+ * gilt pediment `PROUD` of the tile. Six horns break the skyline at three heights.
  *
- * The real compound is about 400 by 500 m with dozens of halls. The model keeps
- * the three that name it, each a different shape so the ink draws three
- * silhouettes rather than one roof three times:
- *
- * 1. **The ordination hall of Wat Phra Kaew** (the Temple of the Emerald
- *    Buddha), front left, long side to the viewer: a white hall on a white
- *    platform ringed by a colonnade, under the Thai roof — see below.
- * 2. **Phra Si Rattana Chedi**, back left: the gold bell-shaped stupa in the
- *    Sri Lankan manner, on stepped round bases, with a ringed spire. It is the
- *    tallest thing in the model, as it is the tallest thing over the wall in
- *    life, and it stands *behind* the hall so its spire rises out of the roofs.
- * 3. **Chakri Maha Prasat**, right: the 1882 throne hall, a European body under
- *    three Thai spired roofs, the middle one taller. The contrast of a
- *    Renaissance facade with a Thai skyline is the thing it is known for.
- *
- * Round them, the **white crenellated wall** with a fort at each corner and a
- * spired gate in the front, on a paved court.
- *
- * ---------------------------------------------------------------------------
- * The Thai roof, which is the point
- * ---------------------------------------------------------------------------
- *
- * A Thai temple roof is layered two ways at once, and both are what separate
- * it from the Chinese and Korean roofs already in the world:
- *
- * - **In height**: a lower skirt roof over the colonnade (here `green`, the
- *   colour of the tile margins) and an upper roof over the hall (`orange`), with
- *   the hall's own wall showing between them.
- * - **In length**: at each gable end the roof steps down in overlapping tiers,
- *   so the end of the building is three gables one in front of and below the
- *   other. Here that is the upper roof, an end tier a step lower, and the skirt
- *   in front of both.
- *
- * Every gable is a triangular prism, steep: the upper roof is 55 degrees, the
- * end tiers 52, the skirt 35. Every gable end carries a **chofa**, the slender
- * horn that rises from the apex, as a `gold` beam leaning outward; the end
- * tiers also carry the gilt bargeboards down their rakes and the small upturned
- * hooks at the eave corners, and a gilt pediment standing `PROUD` of the tile.
- * The horns are the single feature by which a Thai roof is named from far off,
- * so there are six of them and they break the skyline at three heights.
- *
- * ---------------------------------------------------------------------------
- * Proportion
- * ---------------------------------------------------------------------------
- *
- * The wall is 69.6 by 53.6 units with a fort on each corner, so the reach is
- * the forts': `hypot(34, 26)` plus a fort's corner, 45.8. The chedi's spire
- * tops out at 37.4, the tier's 40 less a margin. Half-diagonal over height is
- * 1.22 against the 2.0 cap. Against life the plan is squeezed about
- * 6:1 and the heights about 2:1 (the chedi is 40 m, the hall's ridge about
- * 30 m), so the buildings stand closer together and taller in their court than
- * they do — the same trade as every compound in this folder: a palace read from
- * outside its wall is its skyline.
- *
- * The real height is left out of the source: a compound has no one height.
+ * Reach is the forts': 45.8. Half-diagonal over height 1.22. The plan is squeezed
+ * about 6:1 and the heights about 2:1 against life. No `realHeight`.
  */
 
 /** The wall's centre lines and section. */
@@ -89,8 +46,8 @@ const THRONE_X = 18;
 const THRONE_Z = 3;
 
 /**
- * The hall's three roofs: eaves height, half-width, rise, length, and for the
- * end tiers the centre's distance from the hall's centre.
+ * The hall's three roofs: eaves height, half-width, rise, length, and for the end
+ * tiers the centre's distance from the hall's centre.
  */
 const SKIRT = { eaves: 8.6, half: 7.4, rise: 5.2, length: 31 };
 const UPPER = { eaves: 12.2, half: 5.6, rise: 8.0, length: 24.6 };
@@ -144,12 +101,11 @@ export const grandPalace: Monument = {
 
     /**
      * A gable: a triangular prism with its base at `eaves`, `2 * half` wide and
-     * `rise` tall, running `length` along Z (or along X with `alongX`). A
-     * three-sided `column` has its flat face on +Z at the apothem and its apex
-     * at twice that behind, so scaled by `half / sqrt(3)` across and `rise / 3`
-     * deep and laid down a quarter turn about X it is exactly that triangle. The
-     * mesh carries the scale and the pivot the yaw, so the scale is applied in
-     * the prism's own axes (`T * R * S`).
+     * `rise` tall, running `length` along Z (or X with `alongX`). A three-sided
+     * `column` has its flat face on +Z at the apothem and its apex at twice that
+     * behind, so scaled by `half / sqrt(3)` across and `rise / 3` deep and laid
+     * down a quarter turn about X it is that triangle. The mesh carries the scale
+     * and the pivot the yaw (T * R * S).
      */
     const gable = (
       cx: number,

@@ -3,98 +3,47 @@ import type { Mesh, Monument, Vector3 } from './contract.ts';
 /**
  * Pyramids of Giza.
  *
- * **The monument is the necropolis, not the pyramid.** One smooth four-sided
- * taper is the emptiest thing this contract can build and it passes every
- * mechanical check. What names Giza from a thumbnail is the *set*: three tombs
- * of visibly different sizes on a diagonal, the middle one wearing a white cap
- * and standing higher than the biggest; and up close, the little pyramids, the
- * temples and causeways and the rows of tombs that make it a city of the dead.
+ * The monument is the necropolis, not the pyramid. What names Giza from a
+ * thumbnail is the set: three tombs of visibly different sizes on a diagonal,
+ * the middle one wearing a white cap and standing higher than the biggest, and
+ * up close the little pyramids, temples, causeways and rows of tombs.
  *
- * ## Sizes true, spacing compressed, bearing turned
+ * Sizes are true to each other (bases 230, 215 and 103 m, heights 138.5, 136.4
+ * and 61 m as they stand today, on one scale), with slopes steepened to about 58
+ * degrees from 52 so the pyramids out-top the Sphinx (27). The spacing is
+ * compressed: `placement.ts` turns +Z north and +X west and every pyramid is
+ * square with the compass, but at the real spacing the footprint would hold
+ * Khufu only 12 units tall. Turning the diagonal toward the west lets the
+ * squares close face to face: Khafre is 65 degrees west of south of Khufu and
+ * Menkaure 60, at 1.8 times Khafre's distance (life has 2.0), and Khufu's
+ * half-base is 15.6. From the north-north-west (the quarter view) the three
+ * stand side by side, largest to smallest. The plateau supplies the height the
+ * footprint refuses: six units of limestone escarpment, sloped at its rim, and a
+ * bedrock knoll of three more under Khafre, so the smaller pyramid has the
+ * higher summit.
  *
- * `placement.ts` turns +Z north and +X west, and the site is laid out on those
- * axes: every pyramid square with the compass, as the real ones are to within
- * a few minutes of arc.
+ * Khufu is a stepped core in twelve courses with a flat summit, a survey pole,
+ * the entrance under its gable stones, a few courses of white casing and two
+ * boat pits. Khafre has nine courses under a `cream` cap of polished casing on
+ * its top quarter. Menkaure has two courses of red `clay` granite, fallen
+ * blocks and the gash from 1196. The queens' pyramids stand east of Khufu and
+ * south of Menkaure; each king has a mortuary temple against his east face (on
+ * the southern half for Khafre and Menkaure, because of the compressed spacing)
+ * and a causeway. The Western Field of mastabas lies north of Khafre. There is no
+ * Sphinx: `great-sphinx` is its own entry, and Khafre's causeway points at it.
  *
- * - **Sizes are true to each other**: bases 230, 215 and 103 m and heights
- *   138.5, 136.4 and 61 m as they stand today, all on one scale — so Khafre is
- *   0.94 of Khufu's base and 0.98 of its height, and Menkaure 0.45 and 0.44.
- *   The slopes are steepened to about 58 degrees from 52, the previous model's
- *   trade, kept: at the true angle the pyramids are as tall as the Sphinx next
- *   door (27), and the pyramids have to out-top it.
- * - **The spacing is not**, and cannot be. Khufu to Khafre is 475 m in life,
- *   twice Khufu's own base, and Menkaure twice as far; at that spacing
- *   the whole site fits the footprint only with Khufu 12 units tall. Measured
- *   before planning: at the real bearings — Khafre 44 degrees west of south of
- *   Khufu, Menkaure 38 — and with the bases pushed until they nearly touch,
- *   Khufu's half-base cannot pass 12.5. Turning the diagonal toward the west
- *   lets the squares close face to face instead of corner to corner, which is
- *   worth a quarter of the size: here Khafre is 65 degrees west of south of
- *   Khufu and Menkaure 60, at 1.8 times Khafre's distance where life has 2.0,
- *   and Khufu's half-base is 15.6. It is still a diagonal from every side, and
- *   from the north-north-west — the quarter view, which lands
- *   within two degrees of square to the diagonal — the three stand side by
- *   side, largest to smallest, as on every postcard.
- * - **The plateau is part of the model.** It is where the height comes from
- *   that the footprint refuses to give: six units of limestone escarpment under
- *   everything, sloped at its rim rather than a drum, and a bedrock knoll of
- *   three more under Khafre — the real ten metres, exaggerated so the famous
- *   illusion shows: the smaller pyramid has the higher summit.
- *
- * ## What is here
- *
- * - **Khufu**, stripped to its stepped core in twelve courses, with its flat
- *   summit and the survey pole that marks the lost apex; on the north face the
- *   entrance under its pair of gable stones, and along the foot of that face
- *   the few courses of white casing still in place; his two boat pits along
- *   the south face.
- * - **Khafre**, nine courses under the cap of polished casing that still
- *   clings to its top quarter, in `cream`: the single most identifiable detail
- *   on the plateau.
- * - **Menkaure**, its lowest two courses in red Aswan granite, `clay`, with
- *   granite blocks fallen at its foot, and the great vertical gash in its north
- *   face from the demolition attempt of 1196.
- * - **The queens' pyramids**: Khufu's three in a row along his east side, and
- *   Menkaure's three in a row south of his — the eastern one finished as a
- *   true pyramid, the other two left stepped, as they are.
- * - **The temples and causeways**: each king's mortuary temple against his
- *   east face; Khufu's causeway running east off the plateau, Khafre's running
- *   south-east toward the Sphinx and ending at his valley temple, Menkaure's a
- *   stub running east.
- * - **The cemeteries**: the Western Field's grid of mastabas north of Khafre,
- *   and a few of the Eastern beyond Khufu's queens.
- *
- * Where the compressed spacing forced a compromise it is in the temples: Khafre
- * and Menkaure each stand so close to their neighbour's flank that their
- * mortuary temples sit on the southern half of the east face rather than its
- * middle.
- *
- * **No Sphinx.** `great-sphinx` is its own entry in the dataset, 400 m from
- * here; carving it into this model would put two monuments on one card and
- * leave whoever draws that one with nothing to place. Khafre's causeway points
- * at it and stops.
- *
- * **Colour.** `sand` for the limestone core, the courses alternating between
- * it and a tone down so they read as masonry; `cream` for Khafre's casing;
- * `clay` for Menkaure's granite; `tan` for the plateau, as the Sphinx's quarry
- * floor next door is; the temples and causeways a duller `sand`; `brown` for
- * the mastabas; `bark` for the entrance and the boat pits; `steel` for the pole.
- *
- * **Height.** 33.6 to Khafre's point, where the old model was 38.5: its three
- * queens stood north of Khufu and Menkaure's north of him, both on the wrong
- * side, which is what bought its larger pyramids. Here they are where they are,
- * and Khafre's point still clears the Sphinx's 27 by six and a half units.
- *
- * **Budget.** Built as ordinary pieces and drawn by `ctx.merge` as one mesh per
- * colour — the "merging them by material later is a single call" that
- * `contract.ts` made every geometry non-indexed for.
+ * Colour: `sand` for the core with courses alternating a tone down, `cream` for
+ * Khafre's casing, `clay` for the granite, `tan` for the plateau, a duller `sand`
+ * for temples and causeways, `brown` for mastabas, `bark` for entrance and boat
+ * pits, `steel` for the pole. Khafre's point is at 33.6, 6.5 over the Sphinx's 27.
+ * Pieces are built ordinarily and drawn by `ctx.merge` as one mesh per colour.
  */
 
 const PLATEAU_SIDES = 16;
 /**
- * Half-width across the flats, at the foot of the escarpment and at its top.
- * At 16 sides the foot's corners reach 54.96, just inside the footprint; the
- * top's flats contain every pyramid, the farthest corner being 52.4 out.
+ * Half-width across the flats, at the foot of the escarpment and at its top. At
+ * 16 sides the foot's corners reach 54.96, inside the footprint; the top's flats
+ * contain every pyramid (the farthest corner is 52.4 out).
  */
 const PLATEAU_FOOT = 53.9;
 const PLATEAU_TOP = 52.6;
@@ -198,20 +147,17 @@ export const pyramidsOfGiza: Monument = {
     // --- the plateau, with a sloped escarpment rather than a drum's wall ---
     placed(taper(PLATEAU_FOOT, PLATEAU_TOP, PLATEAU, bedrock, PLATEAU_SIDES), 0, 0, 0);
 
-    // The bedrock knoll under Khafre: square with the pyramid, a unit proud of
-    // it at the foot and less at the top, which is all the room Khufu leaves.
+    // The bedrock knoll under Khafre: square with the pyramid, a unit proud at the foot.
     placed(taper(KHAFRE.base + 1.0, KHAFRE.base + 0.4, KNOLL, bedrock, 4), KHAFRE.x, PLATEAU, KHAFRE.z);
 
     // --- the pyramids ---
     const build = (p: Pyramid): void => {
-      // Each course is set back this far from the top of the one below, which
-      // leaves a horizontal ledge for the outline to catch.
+      // Each course is set back from the top of the one below, leaving a ledge for the outline to catch.
       const ledge = p.base * p.ledge;
       const capFrom = p.height * (1 - p.cap);
       const radiusAt = (y: number): number => p.apex + (p.base - p.apex) * (1 - y / p.height);
       for (let i = 0; i < p.courses; i++) {
-        // An exponent under 1 makes the lower courses the tall ones. Equal
-        // courses stripe a pyramid like a ziggurat; these read as masonry.
+        // An exponent under 1 makes the lower courses the tall ones; equal courses stripe it like a ziggurat.
         const y0 = capFrom * (i / p.courses) ** 0.85;
         const y1 = capFrom * ((i + 1) / p.courses) ** 0.85;
         const summit = i + 1 === p.courses && p.cap === 0;
@@ -219,16 +165,13 @@ export const pyramidsOfGiza: Monument = {
         placed(taper(radiusAt(y0), summit ? p.apex : radiusAt(y1) + ledge, y1 - y0, color, 4), p.x, p.ground + y0, p.z);
       }
       if (p.cap > 0) {
-        // Proud of the core by a third of a ledge: the casing is the finished
-        // surface, and the stripped core beneath it is what is set back.
+        // Proud of the core by a third of a ledge: the casing is the finished surface.
         placed(taper(radiusAt(capFrom) + ledge * 1.3, p.apex, p.height - capFrom, casing, 4), p.x, p.ground + capFrom, p.z);
       }
     };
     for (const p of [KHUFU, KHAFRE, MENKAURE, ...KHUFU_QUEENS, ...MENKAURE_QUEENS]) build(p);
 
-    // --- Khufu's north face: the entrance under its gable stones ---
-    // It sits on the first course's ledge, a little east of the centre line as
-    // the real one is, dark and set against the second course's face.
+    // --- Khufu's north face: the entrance under its gable stones, on the first course's ledge, a little east of the centre line ---
     {
       const y = KHUFU.ground + KHUFU.height * (1 / KHUFU.courses) ** 0.85;
       const face = KHUFU.z + KHUFU.apex + (KHUFU.base - KHUFU.apex) * (1 - (y - KHUFU.ground) / KHUFU.height);
@@ -236,7 +179,7 @@ export const pyramidsOfGiza: Monument = {
       const door = box(1.4, 1.3, 1.9, dark);
       placed(door, x, y, face - 0.3);
       for (const side of [1, -1]) {
-        // Leaning back with the course they stand on, their backs on its face.
+        // Leaning back with the course they stand on.
         draft.add(strut(at(x + side * 1.25, y + 1.45, face - 0.2), at(x, y + 2.5, face - 0.55), 0.5, limestone[0]!));
       }
     }
@@ -244,23 +187,20 @@ export const pyramidsOfGiza: Monument = {
     // The survey pole on Khufu's flat summit, standing to the lost apex.
     placed(column(0.12, 1.6, palette.steel, 6), KHUFU.x, KHUFU.ground + KHUFU.height, KHUFU.z);
 
-    // The last of Khufu's casing: a few courses of the white limestone still in
-    // place along the foot of the north face, proud of the stripped core.
+    // The last of Khufu's casing: a few white courses along the foot of the north face.
     placed(box(KHUFU.base * 1.2, 0.9, 1.2, casing), KHUFU.x - 1.0, PLATEAU, KHUFU.z + KHUFU.base - 0.35);
 
-    // His boat pits along the south face: the dark slots the ships were found in.
+    // His boat pits along the south face.
     for (const x of BOAT_PITS) placed(box(8, 0.1, 1.2, dark), x, PLATEAU, KHUFU.z - KHUFU.base - 2.2);
 
-    // Menkaure's red granite casing, fallen and lying where it fell.
+    // Menkaure's red granite casing, fallen where it fell.
     for (const [x, z, yaw] of FALLEN) {
       const block = box(1.5, 0.9, 1.0, granite);
       block.rotation.y = yaw;
       placed(block, x, PLATEAU, z);
     }
 
-    // --- Menkaure's north face: the gash of 1196 ---
-    // A dark slab tilted to the face's slope, its front just proud of the
-    // courses' lips, running up the lower half of the face.
+    // --- Menkaure's north face: the gash of 1196, a dark slab tilted to the face's slope, up the lower half ---
     {
       const slope = Math.atan((MENKAURE.base - MENKAURE.apex) / MENKAURE.height);
       const depth = 1.2;
@@ -273,13 +213,11 @@ export const pyramidsOfGiza: Monument = {
 
     // --- the mortuary temples, each against its king's east face (-X) ---
     placed(box(5, 1.8, 10, ruin), KHUFU.x - KHUFU.base - 2.5, PLATEAU, KHUFU.z);
-    // Khafre's and Menkaure's are pushed to the south half of the face, clear
-    // of the neighbour the compressed spacing stood against it.
+    // Khafre's and Menkaure's are pushed to the south half of the face, clear of the neighbour.
     placed(box(5, 2.0, 10, ruin), KHAFRE.x - KHAFRE.base - 2.5 - 0.6, PLATEAU, -7);
     placed(box(4.5, 1.6, 8, ruin), MENKAURE.x - MENKAURE.base - 2.25, PLATEAU, -19);
 
-    // --- the causeways ---
-    // Khufu's, straight east off the plateau.
+    // --- the causeways: Khufu's, straight east off the plateau ---
     placed(box(10.6, 1.1, 2.6, road), KHUFU.x - KHUFU.base - 5 - 5.3, PLATEAU, KHUFU.z);
     // Khafre's, south-east toward the Sphinx, and the valley temple it ends at.
     {

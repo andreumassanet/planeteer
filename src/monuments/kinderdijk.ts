@@ -4,113 +4,28 @@ import type { Group, Monument } from './contract.ts';
 /**
  * Kinderdijk Windmills.
  *
- * **The monument is the line, not the mill.** One windmill is a windmill;
- * nineteen of them standing in two rows along parallel canals, all alike and all
- * facing one way, is Kinderdijk. So the budget goes on composition rather than
- * on any one mill, and five things have to survive at thumbnail size:
+ * The monument is the line of mills, not one mill: seven of them in two rows
+ * along parallel canals, all alike and facing one way, on a flat green polder
+ * that sits below the water held in the canals. Each mill is a squat octagonal
+ * thatched tower (0.65 across to height) on a brick foot, with a four-sailed
+ * lattice cross that has to read as a frame with gaps. Seven is what the
+ * `building` tier's mesh budget allows (13 meshes a mill).
  *
- * - **The four-sailed lattice cross**, and it has to read as a *frame with gaps*
- *   rather than a solid X. It is the only element that says windmill at all.
- * - **The squat octagonal thatched tower**, tapering upward, dark brown, on a
- *   low brick foot. 8.9 units across the flats against 13.8 of thatch, or 0.65,
- *   which is roughly what a Kinderdijk grondzeiler really is. A tower mill is
- *   half that. Squatness is the difference between this and a lighthouse.
- * - **Every mill facing the same way**, because they do: the caps are turned to
- *   one wind, so seven identical noses point at the viewer.
- * - **The flat green polder with the straight canals through it.**
- * - **The polder sitting *below* the water in the canals**, which is the whole
- *   reason the mills exist. Field 1.2, canal surface 4.3, dike crown 5.4: the
- *   water is held three units above the land it drains, and the front of the
- *   model is the low field with a drainage ditch running out of it.
+ * Still water is `steel`, not `skyBlue`, so it supplies the dark against the
+ * green. A light towpath on each dike's lip puts the lightest and darkest
+ * values in contact along the canal, which is what survives at thumbnail size.
+ * The canals are slots cut into the land and edged on both sides, and a barge
+ * and a footbridge sit as though the water were there.
  *
- * ## Seven mills, and why not five or nine
+ * The plan is distorted: the line is compressed about 3.6x (true spacing needs
+ * six times the footprint), the canals are about half their real width, and the
+ * sail bays are about 2.5x too wide so the gaps survive the ink. The tower's
+ * proportion is untouched.
  *
- * The `building` tier's 110 meshes is the wall this model hits; triangles never
- * come close (1,680 of 2,600). A mill is 13 meshes — foot, tower, cap, and a
- * ten-piece cross — so seven of them are 91, and the ground and its props are
- * 14. Five mills would have bought a second rib in every sail bay and lost the
- * thing the rib was for: at two pixels to the unit, one 11-by-3-unit hole reads
- * and four 3-by-1 holes are a smear. Nine would not fit at any pitch that leaves
- * the crosses clear of each other.
- *
- * The rows are four on the near dike and three on the high dike behind, which is
- * also why the far row is *raised*: Kinderdijk drains in two stages, a low
- * boezem and a high one, and putting the second row three units up on the high
- * dike is both true and the only thing that reliably lifts it clear of the first.
- *
- * ## How still water reads
- *
- * The Golden Temple settled this and the answer is reused: **`steel`, not
- * `skyBlue`**, because water has to supply the dark. It does more work here than
- * in Amritsar, because there is no gold to be bright against — the card is a
- * green field under a cyan sky, and the canals are the only dark in it.
- * `skyBlue` would lay a second sky on the ground.
- *
- * Four things state the water, in order of how much they carry:
- *
- * 1. **A light towpath laid against the water's far edge.** Two units of `tan`
- *    on each dike's lip. This is the one element of the ground plan that exists
- *    for the camera rather than for the place, and it is worth more than the
- *    other three together. The camera looks down at 14 degrees, so a canal — a
- *    horizontal surface — keeps a quarter of its width, and a 16-unit channel
- *    comes back four units tall. The towpath puts the model's lightest and
- *    darkest values in contact along the canal's whole length, and it is that
- *    seam, not the area of water, that survives to 260 pixels.
- * 2. **The temperature split.** The hemisphere light's sky colour is the scene's
- *    blue, so a horizontal neutral goes cool while the vertical faces beside it
- *    stay warm. `steel` lying flat against green banks standing up, with an ink
- *    line between, is what says water — there is no blue pigment anywhere.
- * 3. **It is a slot, cut and edged twice.** The land is one green mass at the
- *    dike crown, the canals are cut 1.1 into it, and the low field beyond the
- *    near bank drops another 3.2. A plate flush with the ground is a stain; a
- *    channel with a lip on both sides is something you are looking into.
- * 4. **Things behave as though it were there.** A barge sits in the near canal
- *    with 1.2 of hull under the surface — pale `brown`, so it reads against the
- *    dark rather than dissolving into it — and a plank footbridge crosses on the
- *    two dike crowns with its deck 0.57 clear of the water.
- *
- * ## What is distorted, and by how much
- *
- * **No crop and no stretch.** At 108.9 units wide and 36.6 tall the model is
- * `halfDiagonal / height = 54.45 / 36.58 = 1.49`, well inside the 2.0 cap, so
- * unlike the Great Wall nothing here is a section stretched vertically to fit.
- * What is distorted is the **plan**, in one consistent direction:
- *
- * - **The line is compressed about 3.6x.** Real mills stand 100 to 150 m apart
- *   along the boezem with a 28 m sail span: a pitch of roughly 4.3 spans. Here
- *   the pitch is 26.6 against a 22.4-unit span, or 1.19. At the true spacing
- *   seven mills would need 700 units of canal, six times the footprint, and the
- *   row would have to be three mills long — which is not a row.
- * - **The canals are narrowed by about half** for the same reason: the near one
- *   is 16.6 units on a 22.4-unit span where life gives about 40 m on 28.
- * - **The sails are 2.5x too wide**, and this is the debt the compression is
- *   paid for with. A bay is 3.9 units deep on an 11.2-unit arm (0.35) where a
- *   real sail is about 2 m on 14 (0.14). At the true width the frame is two
- *   hairlines and the gap closes under the ink, and the gap is the whole point.
- *
- * The proportion that had to survive all of that is the **tower's**, and it is
- * untouched at 0.65.
- *
- * ## The sails
- *
- * Two stocks cross at the hub, offset 0.55 in depth so the ink draws the
- * crossing instead of one fused blob. Each of the four arms carries its bay on
- * the leading side only, which is what a real sail does and what gives the cross
- * a direction of rotation rather than a mirror symmetry. A bay is three pieces —
- * the stock under it, a rail over it, a rib closing the tip — and its fourth
- * side is the *other stock*, which passes right there anyway. One frame, one
- * hole 10.8 by 3.05, two meshes an arm.
- *
- * **The roll differs on every mill and the yaw does not.** That split is the
- * subject: the caps all face one wind, but no two sails are stopped at the same
- * clock position, and seven identical crosses would read as wallpaper rather
- * than as machines. The angles come off a golden-ratio sequence over the cross's
- * own 90 degrees of symmetry — 3, 59, 25, 80, 46, 12 and 67 degrees — which
- * spreads them with no two neighbours close and includes both the upright `+`
- * and the `X`. `Math.random()` is out: the loader builds twice and compares.
- *
- * The windshaft tilts back 0.12 rad, as it does in life. It costs one line and
- * it is the difference between a cross bolted to a wall and a cross on a shaft.
+ * The sails are two stocks offset in depth, each arm carrying its bay on the
+ * leading side only. The roll differs on every mill (a golden-ratio sequence
+ * over the cross's quarter turn, deterministic) while the yaw is shared. The
+ * windshaft tilts back 0.12 rad.
  */
 
 // ---------------------------------------------------------------------------
@@ -129,8 +44,7 @@ const DIKE_TOP = 5.4;
 const HIGH_TOP = 8.6;
 /**
  * Bands start buried in the polder slab. The water and the towpaths start
- * `PROUD` and twice that higher than the grass, because a buried floor still
- * flickers where two of different colours overlap in one plane.
+ * `PROUD` and twice that higher than the grass, so two colours never share a plane.
  */
 const BAND_BASE = 0.6;
 const WATER_BASE = BAND_BASE + PROUD;
@@ -138,9 +52,8 @@ const PATH_BASE = BAND_BASE + PROUD * 2;
 
 /**
  * `[front, back, top, water?]`, front to back. The water bands overlap their
- * dikes by 0.3 rather than meeting them: a shared plane flickers, and the
- * surface should stop exactly under the ink line, not a hair short of it. For
- * the same reason a canal stops `PROUD` short of the dikes' ends at either side.
+ * dikes by 0.3 rather than meeting them, and a canal stops `PROUD` short of the
+ * dikes' ends, so nothing is coplanar.
  */
 const BANDS: Array<[number, number, number, boolean]> = [
   [21.0, 19.5, DIKE_TOP, false], //     the bank you stand on to look across
@@ -153,16 +66,8 @@ const BANDS: Array<[number, number, number, boolean]> = [
 
 /**
  * A towpath along the far bank of each canal: two units of `tan` laid on the
- * dike's own edge, a tenth of a unit proud on top, stepped `PROUD` back from
- * the dike's face and run `PROUD` past its ends so nothing is coplanar.
- *
- * It is the one thing in the ground plan that is not there for the plan's sake.
- * To the camera a canal is a horizontal surface seen at 14 degrees, so
- * it loses three quarters of its width to foreshortening and a wide dark band
- * comes back as a thin one. A light strip laid directly against the water's far
- * edge puts the model's brightest and darkest values in contact along the whole
- * length of the canal, and it is that seam, not the area of water, that carries
- * the canal at 260 pixels. `[front, back, top]`.
+ * dike's edge, stepped `PROUD` back from its face and run `PROUD` past its ends.
+ * `[front, back, top]`.
  */
 const PATHS: Array<[number, number, number]> = [
   [3.4 - PROUD, 1.4, DIKE_TOP + 0.1],
@@ -185,23 +90,9 @@ const NEAR_Z = -1.5;
 const FAR_Z = -22.45;
 const NEAR_X = [-1.5 * PITCH, -0.5 * PITCH, 0.5 * PITCH, 1.5 * PITCH];
 /**
- * The far row, and these are measured numbers rather than a stagger.
- *
- * A half-pitch offset is the obvious answer and it is wrong twice over, because
- * the two cameras hide different things. The quarter view sits out at x = +114,
- * so a row 21 units further back is *sheared* on screen and not merely shrunk: a
- * far mill vanishes behind a near one at `1.115 * near - 13.1`, which is
- * x = -28.0, 1.7 and 31.4. The flat front view shears not at all and hides at
- * `1.115 * near`, which is x = ±14.8. An earlier draft of this file put mills at
- * -27.6, 1.5 and 30.0 — within half a unit of three quarter-view collisions —
- * and rendered seven mills as four silhouettes.
- *
- * These three sit in the gaps of the *union* of both hidden sets, 8.3 units
- * clear of the nearest one in either camera, which is about a tower's width: far
- * enough that a far mill always shows a shoulder past the near one, and it is
- * three units higher besides. Their 30-unit spacing against the near row's 26.6
- * is the same correction, and it is what makes two rows spaced equally in the
- * world *look* equally spaced.
+ * The far row. The offsets are chosen so that in both the front and the quarter
+ * view each far mill shows a shoulder past a near one (8.3 units clear of every
+ * hiding position); the 30-unit spacing against 26.6 corrects the foreshortening.
  */
 const FAR_X = [-37.0, -6.6, 23.1];
 
@@ -209,15 +100,11 @@ const FAR_X = [-37.0, -6.6, 23.1];
 // One mill. Local origin is the dike crown it stands on.
 // ---------------------------------------------------------------------------
 
-/**
- * Brick foot. Half-widths are across the flats: 9.2 wide, on a 9.8-deep dike.
- * Its top stands 0.1 out from the tower's foot: at 4.4 against the tower's
- * 4.45 the two flanks lay a hair apart at one lean and flickered.
- */
+/** Brick foot. Half-widths are across the flats. Its top is 0.1 inside the tower's foot so the flanks do not flicker. */
 const FOOT = { bottom: 4.6, top: 4.55, height: 1.4 };
-/** The thatched octagon: 8.9 across against 13.8 of height. That ratio is the mill. */
+/** The thatched octagon: 8.9 across against 13.8 of height. */
 const TOWER = { bottom: 4.45, top: 2.45, height: 13.8 };
-/** The cap overhangs the tower top by 0.8. That shoulder is what stops the mill being a cone. */
+/** The cap overhangs the tower top by 0.8. */
 const CAP = { bottom: 3.25, top: 1.5, height: 3.0 };
 
 const HUB_Y = FOOT.height + TOWER.height + 1.0;
@@ -232,20 +119,16 @@ const STOCK_DEPTH = 0.5;
 /** Depth between the two stocks, so the crossing reads as two beams and not one. */
 const PLANE_GAP = 0.55;
 const BAR_DEPTH = 0.45;
-/** The bay starts a hair off the hub — the other stock closes that end for free. */
+/** The bay starts a hair off the hub; the other stock closes that end. */
 const RAIL_INNER = 0.35;
 const RAIL_WIDTH = 0.5;
 const RIB_WIDTH = 0.5;
-/** Underside of the rail. The hole is 10.3 by 3.0, which is 21 by 6 pixels in a thumbnail. */
+/** Underside of the rail. */
 const BAY_TOP = 3.4;
 
 /**
- * Sail roll, in radians, for mill `index`.
- *
- * A golden-ratio sequence over the cross's own quarter turn: low-discrepancy, so
- * seven values spread evenly with no two neighbours near each other, and
- * completely deterministic. The 0.06 offset keeps the first mill just off true
- * vertical, because a perfectly upright cross reads as drawn rather than stopped.
+ * Sail roll, in radians, for mill `index`: a golden-ratio sequence over the
+ * cross's quarter turn. The 0.06 offset keeps the first mill just off vertical.
  */
 const rollAt = (index: number): number =>
   0.06 + ((index * 0.618033988749895) % 1) * (Math.PI / 2);
@@ -256,9 +139,7 @@ export const kinderdijk: Monument = {
   iso: 'NLD',
   lat: 51.884,
   lon: 4.64,
-  // No `realHeight`, matching the source list. Nineteen mills stand here and no
-  // height belongs to all of them; and the number that would matter is not a
-  // height at all but the depth of the polder below the water.
+  // No `realHeight`: nineteen mills stand here and no height belongs to all.
   tier: 'building',
   footprint: 55,
 
@@ -310,11 +191,8 @@ export const kinderdijk: Monument = {
     cabin.rotation.y = 0.06;
     group.add(cabin);
 
-    // A plank footbridge from one dike crown to the other, its deck 0.57 clear
-    // of the water. It lands in the gap between two mills, never in front of one.
-    // It is let `PROUD` down into the dike crowns and stops `PROUD` inside the
-    // bank's face at each end, rail and all: level and flush, its top and its
-    // ends shared their planes with the grass and flickered.
+    // A plank footbridge between the dike crowns, its deck 0.57 clear of the
+    // water, sunk `PROUD` into the crowns and stopping `PROUD` inside each bank.
     const span = 20 - PROUD * 2;
     const deck = box(2.4, 0.45, span, oak);
     deck.position.set(-30, DIKE_TOP - 0.45 - PROUD, 11.0);
@@ -339,8 +217,7 @@ export const kinderdijk: Monument = {
       cap.position.y = FOOT.height + TOWER.height;
       body.add(cap);
 
-      // The windshaft's tilt lives on its own group, so the roll below can be
-      // written in the honest plane of the sails.
+      // The windshaft's tilt lives on its own group, so the roll is in the plane of the sails.
       const head = new THREE.Group();
       head.position.set(0, HUB_Y, HUB_Z);
       head.rotation.x = TILT;
@@ -359,9 +236,8 @@ export const kinderdijk: Monument = {
       alongY.position.set(0, -REACH, PLANE_GAP);
       cross.add(alongY);
 
-      // Four bays, each on the leading side of its own arm. Rotating by a
-      // quarter turn carries the bay to the far side of the opposite arm, which
-      // is exactly the rotational symmetry a real cross has.
+      // Four bays, each on the leading side of its arm; a quarter turn carries
+      // the bay to the opposite arm.
       for (let arm = 0; arm < 4; arm++) {
         const sail = new THREE.Group();
         sail.rotation.z = (arm * Math.PI) / 2;

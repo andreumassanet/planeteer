@@ -4,70 +4,33 @@ import { PROUD } from './contract.ts';
 /**
  * Tower Bridge.
  *
- * **The crop, and the stretch.** In life the bridge is 244 m of roadway under
- * 65 m towers — 3.75:1, which squeaks under `MAX_ASPECT` on paper and is a trap
- * in practice: fitting all 244 m inside a 55-unit footprint leaves the towers
- * 27 units apart and about 12 wide, and the two things that name this bridge
- * (the tower pair and the walkways slung between them) come out as a thin
- * ladder. So the length is spent where it earns the most.
+ * Cropped and stretched. In life the roadway is 244 m under 65 m towers
+ * (3.75:1); fitting all of it in a 55-unit footprint would leave the towers 27
+ * units apart and a thin ladder. Everything is at true proportion except the
+ * two side spans, cut to roughly 48% of their real length (tower face to
+ * abutment face from 1.10x the tower height to 0.53x). The approach viaducts
+ * are cut, the deck runs on two units past each abutment so it leaves the frame,
+ * and the suspension chains survive the crop. Every height is then multiplied by
+ * 1.2 against the plan: towers go from 3.3:1 to 4:1, still stockier than Big Ben
+ * at 6.4:1. The result is 108 wide and 48 tall, aspect 2.25, filed `landmark`
+ * for the footprint and mesh budget rather than the height.
  *
- * - **Cropped.** Everything is at true proportion except the two side spans,
- *   which are cut to roughly **48%** of their real length — tower face to
- *   abutment face goes from 1.10x the tower height to 0.53x. The approach
- *   viaducts beyond the abutments are cut entirely, and the deck runs on two
- *   units past each abutment so it reads as leaving the frame rather than
- *   stopping. **The suspension chains survive the crop**, and they had to: the
- *   space between tower and shore is the other half of this bridge's outline,
- *   and an empty gap there is a bridge nobody recognises.
- * - **Stretched.** Every height is then multiplied by **1.2x** against the
- *   plan. The towers go from 3.3:1 to 4:1 (still half of Big Ben's 6.4:1, which
- *   is the point — see below), the main span reads a little narrower than life,
- *   and the road-to-walkway gap gets the room it needs to read as two decks.
+ * Distinct from Big Ben: two towers joined at the top; stocky, with round corner
+ * turrets standing proud of a square mass; a steep pyramid roof (7.8 units over
+ * a 6-unit half-width) ending in a stub finial; and Portland stone and painted
+ * iron (`bone`, `slate`, `skyBlue`, `white`, `steel`) with no gilt and no clock.
+ * The blue is the colour the bridge is named by.
  *
- * Result: 108 wide, 48 tall, an aspect of 2.25. Filed `landmark` for the
- * footprint and the mesh budget, not for the height, exactly as the Golden Gate
- * is — the tier's 120 units of height are unspendable on anything that has to
- * lie across a river.
+ * What carries it: the two towers (four round turrets each, with pointed caps,
+ * above a corbelled cornice); the high-level walkways, a real pair at 30.8 to
+ * 34.9 with a 3.2-unit gap; the bascules, a heavier blue steel deck between the
+ * towers split by a seam on the centreline against the dark hung side spans; and
+ * the chains, straight girder segments with a slight upward camber.
  *
- * **Not Big Ben.** They are three miles apart, both Victorian Gothic, both pale
- * stone with pinnacles, and both in the world, so the differences are
- * deliberate:
- *
- * - **Two towers, not one**, joined at the top. The paired silhouette is the
- *   whole read; no other monument has it.
- * - **Stocky, not slender.** 4:1 against Big Ben's 6.4:1, and the corner
- *   turrets are round shafts standing proud of a square mass rather than flush
- *   piers, so the plan reads as a castle keep and not a chimney.
- * - **A steep pyramid roof**, not a spire: 7.8 units over a 6-unit half-width,
- *   ending in a stub finial rather than a lantern and a gilded flèche.
- * - **Portland stone and painted iron** — `bone`, `slate`, `skyBlue`, `white`,
- *   `steel` — against Big Ben's `sand`, `tan`, `gold`. No gilt anywhere, and no
- *   clock. The blue is the one colour a visitor names this bridge by.
- *
- * **What carries the thumbnail.**
- *
- * - The **two towers**: square masses, four round corner turrets each with its
- *   own pointed cap, steep dark roofs above a corbelled cornice.
- * - The **high-level walkways**: two parallel blue spans at 30.8–34.9, two
- *   thirds of the way up, joining the tower tops well clear of the road. They
- *   are modelled as a real pair with a 3.2-unit gap between them, so the
- *   quarter view gets two and the elevation gets one thick band.
- * - The **bascules**: the deck between the towers is a separate, heavier, blue
- *   steel element split by a seam on the centreline, against the dark hung
- *   roadway of the side spans. Colour and girder depth are what say *this part
- *   opens* at 2 pixels per unit; the seam is what says it opens *there*.
- * - The **chains**: straight girder segments with a slight upward camber, not a
- *   catenary. That is true to the bridge and it is also the fastest way to tell
- *   it apart from the Golden Gate's parabola.
- *
- * **Traded away.** The roadway does not pass between real tower legs — at this
- * width the legs come out 2 units thick or the deck 5 wide, and neither
- * survives. Each tower carries a dark pointed portal on its two end faces
- * instead, with the deck running through hidden inside; from any view that
- * matters the arch is a dark hole where the road enters, which is what it looks
- * like. The engine rooms, the land ties and the lattice inside the chains are
- * gone; the meshes went to the turrets and the window slots, which are what the
- * ink line has to draw.
+ * The roadway does not pass between real tower legs (the legs would be 2 units
+ * thick or the deck 5 wide). Each tower carries a dark pointed portal on its two
+ * end faces instead, with the deck hidden inside. The engine rooms, land ties
+ * and the lattice inside the chains are left out.
  */
 
 // --- plan, in world units. y = 0 is the river. ---
@@ -84,7 +47,7 @@ const EDGE_Z = 3.1;
 // --- elevation ---
 const PIER_TOP = 3.6;
 const PLINTH_TOP = 4.8;
-/** The bascule girders are deeper than the hung side spans, and that is the tell. */
+/** The bascule girders are deeper than the hung side spans. */
 const BASCULE_BASE = 5.2;
 const SIDE_BASE = 5.6;
 const DECK_MID = 6.6;
@@ -124,11 +87,9 @@ const ABUT_TOP = 17;
 const ABUT_CAP_TOP = 20.5;
 
 /**
- * The suspension chain, tower face to abutment top.
- *
- * Straight segments with about 0.6 units of upward camber at the joints — Tower
- * Bridge's chains are stiff girders in tension, not hanging rope, and they bow
- * the opposite way to every cable-stayed thing among the monuments.
+ * The suspension chain, tower face to abutment top: straight segments with
+ * about 0.6 units of upward camber at the joints (the real chains are stiff
+ * girders in tension, not hanging rope).
  */
 const CHAIN = [
   { x: 31, y: 30 },
@@ -169,9 +130,7 @@ export const towerBridge: Monument = {
 
     const group = new THREE.Group();
 
-    // -----------------------------------------------------------------------
-    // The two main towers
-    // -----------------------------------------------------------------------
+    // --- the two main towers ---
     for (const side of [1, -1]) {
       const x = side * TOWER_X;
 
@@ -188,19 +147,15 @@ export const towerBridge: Monument = {
       body.position.set(x, PLINTH_TOP, 0);
       group.add(body);
 
-      // --- the roadway portal, on both end faces ---
-      // A dark reveal with a gable head. The deck runs through the tower hidden
-      // inside; what shows is a pointed hole where the road goes in, which is
-      // the whole of what a real portal reads as at this size.
+      // --- the roadway portal, on both end faces: a dark reveal with a gable head, with the deck hidden inside ---
       for (const face of [1, -1]) {
         const reveal = box(0.8, PORTAL_TOP - PLINTH_TOP, ARCH_W, iron);
         reveal.position.set(x + face * TOWER_HALF_X, PLINTH_TOP, 0);
         group.add(reveal);
 
-        // A three-sided `column` on its side is a gable: apex up, spanning
-        // +/-1.73r across and 3r tall. It is built lying across z and then
-        // swung a quarter turn so it lies across x instead — one wrapper group,
-        // because the two rotations do not compose in a single Euler.
+        // A three-sided `column` on its side is a gable (apex up, +/-1.73r across,
+        // 3r tall). It is built across z and swung a quarter turn by a wrapper
+        // group, since the two rotations do not compose in one Euler.
         const head = new THREE.Group();
         head.rotation.y = face * (Math.PI / 2);
         const gable = column(ARCH_R, 0.8, iron, 3);
@@ -211,8 +166,7 @@ export const towerBridge: Monument = {
         group.add(head);
       }
 
-      // --- string courses. The lower one is flush with the turrets; the upper
-      // one corbels out past them, because the walkways have to look carried.
+      // --- string courses: the lower flush with the turrets, the upper corbelled past them so the walkways look carried ---
       const lower = box(TOWER_HALF_X * 2 + 0.7, 1.1, TOWER_HALF_Z * 2 + 0.7, stone);
       lower.position.set(x, BAND_A, 0);
       group.add(lower);
@@ -221,8 +175,7 @@ export const towerBridge: Monument = {
       gallery.position.set(x, BAND_B, 0);
       group.add(gallery);
 
-      // --- window slots, raised rather than recessed: a shallow recess is
-      // invisible under a cel ramp, a proud dark strip gets its own ink line.
+      // --- window slots, raised rather than recessed: a shallow recess is invisible under a cel ramp ---
       for (const z of [1, -1]) {
         for (const offset of [-2.8, 0, 2.8]) {
           const slot = box(1.7, SLOT_HIGH_TOP - SLOT_HIGH, 0.7, iron);
@@ -236,9 +189,7 @@ export const towerBridge: Monument = {
         }
       }
 
-      // --- corner turrets. Round shafts standing proud of the square mass,
-      // running the full height and breaking through the cornice with their own
-      // caps. This is the silhouette, and it is where the mesh budget went.
+      // --- corner turrets: round shafts proud of the square mass, running the full height and breaking through the cornice with their own caps ---
       for (const sx of [1, -1]) {
         for (const sz of [1, -1]) {
           const tx = x + sx * TURRET_AT_X;
@@ -267,9 +218,7 @@ export const towerBridge: Monument = {
       group.add(finial);
     }
 
-    // -----------------------------------------------------------------------
-    // High-level walkways: two of them, with daylight between
-    // -----------------------------------------------------------------------
+    // --- high-level walkways: two, with daylight between ---
     for (const z of [1, -1]) {
       const girder = box(WALK_SPAN, WALK_TOP - WALK_BASE, WALK_DEPTH, paint);
       girder.position.set(0, WALK_BASE, z * WALK_Z);
@@ -284,14 +233,11 @@ export const towerBridge: Monument = {
       group.add(cap);
     }
 
-    // -----------------------------------------------------------------------
-    // Deck
-    // -----------------------------------------------------------------------
-    // The bascules: two leaves parted by a seam on the centreline, in painted
-    // steel and a third deeper than the roadway either side of them.
-    // Half the seam. 1.6 units wide is far more than a real expansion joint and
-    // that is the point: below about three pixels the split stops existing, and
-    // the split is the whole reason this section of deck is modelled apart.
+    // --- deck ---
+    // The bascules: two leaves parted by a seam on the centreline, in painted steel
+    // and a third deeper than the roadway either side. The seam is half of 1.6
+    // units, far more than a real expansion joint, because below about three
+    // pixels the split stops existing.
     const LEAF_GAP = 0.8;
     const LEAF_INNER = TOWER_X - TOWER_HALF_X;
     const leafLength = LEAF_INNER - LEAF_GAP;
@@ -307,8 +253,7 @@ export const towerBridge: Monument = {
       group.add(road);
     }
 
-    // The hung side spans, running through the towers and two units past the
-    // abutments so the roadway leaves the frame instead of stopping in it.
+    // The hung side spans, running through the towers and two units past the abutments.
     const sideLength = DECK_END - LEAF_INNER;
     for (const side of [1, -1]) {
       const centre = side * (LEAF_INNER + sideLength / 2);
@@ -328,9 +273,7 @@ export const towerBridge: Monument = {
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Abutment towers, where the chains land
-    // -----------------------------------------------------------------------
+    // --- abutment towers, where the chains land ---
     for (const side of [1, -1]) {
       const x = side * ABUT_X;
 
@@ -351,9 +294,7 @@ export const towerBridge: Monument = {
       group.add(cap);
     }
 
-    // -----------------------------------------------------------------------
-    // Chains and hangers
-    // -----------------------------------------------------------------------
+    // --- chains and hangers ---
     for (const side of [1, -1]) {
       for (const z of [1, -1]) {
         for (let i = 1; i < CHAIN.length; i++) {
@@ -370,8 +311,7 @@ export const towerBridge: Monument = {
         }
 
         for (const at of HANGERS) {
-          // `PROUD` inside the railing's faces on each side: 0.45 deep against
-          // its 0.5, the hanger's faces sat 0.025 inside the rail's and flickered.
+          // `PROUD` inside the railing's faces on each side (0.45 deep against its 0.5).
           const hanger = box(0.45, chainY(at) - ROAD_TOP, 0.5 - 2 * PROUD, paint);
           hanger.position.set(side * at, ROAD_TOP, z * EDGE_Z);
           group.add(hanger);

@@ -1,37 +1,28 @@
 /**
- * Venus, walked: the hottest surface in the solar system under the heaviest
- * sky, and the one world here where you never see the Sun.
+ * Venus, walked: the hottest surface in the solar system under the heaviest sky,
+ * and the one world here where you never see the Sun.
  *
- * Everything true about Venus — its relief with Maxwell and Aphrodite, its
- * sulphur, its metal frost, its nations, its towns and the Bathyd — is
- * `src/system/bodies/venus.ts`; this file says what it is like to stand there:
+ * What is true about Venus (relief with Maxwell and Aphrodite, sulphur, metal
+ * frost, nations, towns and the Bathyd) is `src/system/bodies/venus.ts`; this
+ * file says what it is like to stand there.
  *
- * - **The ground** is young. Lava resurfaced the whole planet some half a
- *   billion years ago, so there are only about a thousand craters on it, and
- *   **none smaller than about three kilometres**, because a small impactor is
- *   crushed and burned by ninety-two atmospheres before it reaches the
- *   ground. And they are spread evenly, with no old and young halves the way
- *   Mars has — which is the strangest fact about them, and is why the crater
- *   recipe below has no `density`. What there is instead are the landforms
- *   no other planet has: pancake domes, coronae, tessera, a lava channel
- *   longer than the Nile (`venus/features.ts`); and between them low,
- *   wrinkle-ridged plains of platy basalt.
- * - **The sky** is a gold overcast with no Sun in it, brightest at the
- *   horizon because the air bends light so far that the horizon rises into a
- *   bowl, and the haze closes in at a few hundred units. The light is a dim
- *   apricot and nearly shadowless.
- * - **The Bathyd** write a squat, barred hand that stands on its line, speak
- *   slowly and very low (a sound carries a long way in this air), and build
+ * - The ground is young: lava resurfaced the planet some half a billion years
+ *   ago, so there are only about a thousand craters, none smaller than about
+ *   three kilometres (a small impactor is crushed by ninety-two atmospheres),
+ *   spread evenly with no old and young halves, so the crater recipe below has
+ *   no `density`. Instead there are landforms no other planet has: pancake
+ *   domes, coronae, tessera, a lava channel longer than the Nile
+ *   (`venus/features.ts`), and low wrinkle-ridged plains of platy basalt.
+ * - The sky is a gold overcast with no Sun in it, brightest at the horizon
+ *   because the air bends light into a bowl, with haze closing in at a few
+ *   hundred units. The light is a dim apricot and nearly shadowless.
+ * - The Bathyd write a squat, barred hand, speak slowly and very low, and build
  *   low and round-shouldered (`venus/buildings.ts`) with a sulphur lamp on
- *   everything.
- * - **What lies about**: platy slabs on the plains, galena cubes on the
- *   mountains, sulphur vents on the flows; shimmering heat over the plain and
- *   glints of sulphur in the air.
- * - **Drawn from the space kit**: the Bathyd are the kit's yeti and monkroose,
- *   heavy and in their own violets, slates and greens; their towns are the
- *   kit's low hangars among their own kilns, vaults and pancakes, round the
- *   hearth, with lava trees and orange grass in the yards.
- * - **What to take**: a rover, and a lander or a saucer for the long distances.
+ *   everything. They are the kit's yeti and monkroose; their towns are the
+ *   kit's low hangars among kilns, vaults and pancakes, round a hearth.
+ * - Platy slabs lie on the plains, galena cubes on the mountains, sulphur vents
+ *   on the flows; heat shimmers over the plain and sulphur glints in the air.
+ * - A rover is takeable, and a lander or a saucer for the long distances.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -56,8 +47,7 @@ export const WORLD = defineWorld(VENUS, {
     detail: [
       // Platy, broken basalt underfoot: small and creased.
       { amplitude: 1.1, wavelength: 16, octaves: 3, ridged: 0.55 },
-      // Wrinkle ridges, the plains' one texture: long, low and sharp-crested,
-      // where the cooled lava was squeezed. Mostly ridged.
+      // Wrinkle ridges, the plains' one texture: long, low and sharp-crested. Mostly ridged.
       { amplitude: 4.5, wavelength: 170, octaves: 2, ridged: 0.8 },
       // And the broad swell of the flows themselves.
       { amplitude: 18, wavelength: 1400, octaves: 2, ridged: 0 },
@@ -65,9 +55,7 @@ export const WORLD = defineWorld(VENUS, {
     craters: {
       seed: 'venus',
       classes: [
-        // The common size: 5 to 30 km across, about one per 1,700 units of
-        // lattice, which is the real thousand craters spread over the real
-        // surface. Shallow, because their floors are flooded with lava.
+        // The common size: 5 to 30 km across, about one per 1,700 units of lattice (the real thousand craters spread over the real surface). Shallow, as lava floods their floors.
         { cell: 1700, chance: 0.5, radius: [6, 38], depth: 0.12, rim: 0.04 },
         // The big ones — Mead is 280 km across — with flat floors and peaks.
         { cell: 5200, chance: 0.22, radius: [160, 600], depth: 0.05, rim: 0.025, complexAbove: 200 },
@@ -75,22 +63,18 @@ export const WORLD = defineWorld(VENUS, {
     },
     features: FEATURES,
     padReach: 1.5,
-    // The highlands' towns stand on tesserae and scarps, and a pad cut flat
-    // into a slope there left a cliff round it: the land comes back to it at
-    // a walkable grade instead.
+    // The highlands' towns stand on tesserae and scarps, and a pad cut flat into a slope there left a cliff round it: the land comes back to it at a walkable grade.
     padGrade: 0.35,
   },
   palette: {
     biomes: {
-      // Fresh flows are the darkest ground on the planet; the plains a warm
-      // weathered brown, which the apricot light turns to rust.
+      // Fresh flows are the darkest ground on the planet; the plains a warm weathered brown, which the apricot light turns to rust.
       lava: PALETTE.bark,
       plain: PALETTE.brown,
       crust: PALETTE.clay,
     },
     steep: PALETTE.bark,
-    // Radar-dark: a Venusian crater's floor is smooth lava, the darkest thing
-    // in the Magellan images, and its ejecta the brightest.
+    // Radar-dark: a crater's floor is smooth lava, the darkest thing in the Magellan images, and its ejecta the brightest.
     craterFloor: 0.7,
     ejecta: 1.22,
   },
@@ -99,18 +83,14 @@ export const WORLD = defineWorld(VENUS, {
     zenith: PALETTE.apricot,
     air: 1,
     light: PALETTE.apricot,
-    // About 2% of the sunlight at the top of the clouds reaches the ground —
-    // an overcast winter afternoon on Earth — and a screen cannot show that
-    // and still be played on, so this is dim rather than dark.
+    // About 2% of the sunlight at the cloud tops reaches the ground; a screen cannot show that and still be played on, so this is dim rather than dark.
     exposure: 0.72,
     // No Sun, no stars: the deck is everywhere overhead.
     overcast: true,
   },
   civilisation: defineCivilisation(BATHYD, {
     script: {
-      // Heavy and squat like everything else they make: bars and dots, few
-      // curves, upright, and standing on its line the way a Bathyd stands on
-      // the ground.
+      // Heavy and squat like everything else they make: bars and dots, few curves, upright, standing on its line.
       glyphs: 22,
       strokes: [2, 4],
       loops: 1,
@@ -123,8 +103,7 @@ export const WORLD = defineWorld(VENUS, {
       consonants: 'bdgmnlrwh',
       vowels: 'ouaoe',
     },
-    // Low, slow and level: a throat a barrel wide, in air dense enough that
-    // a low note carries for kilometres.
+    // Low, slow and level: a throat a barrel wide, in air dense enough that a low note carries for kilometres.
     voice: { pitch: [62, 104], pace: [3.2, 4.6], tract: [0.58, 0.74], wander: 0.07 },
     // Every line below is invented, and about true things.
     phrases: {
@@ -179,8 +158,7 @@ export const WORLD = defineWorld(VENUS, {
         { item: 'ring', weight: 1 },
       ],
       landmark: 'hearth',
-      // Pale hulls under dark armour: bark walls on a tan ground under an
-      // overcast read as ink, every building a hole in the town.
+      // Pale hulls under dark armour: bark walls on a tan ground under an overcast read as ink.
       walls: [PALETTE.sand, PALETTE.bone, PALETTE.apricot, PALETTE.blush],
       roofs: [PALETTE.bark, PALETTE.clay, PALETTE.brown, PALETTE.steel],
       accents: [PALETTE.gold, PALETTE.apricot, PALETTE.orange],
@@ -210,16 +188,14 @@ export const WORLD = defineWorld(VENUS, {
   ambient: [
     // Broad gliders riding the soup of an atmosphere.
     { kind: 'fliers', count: 12, color: PALETTE.gold, belly: PALETTE.cream, size: 3.2 },
-    // Not dust devils — the surface wind is a walking pace — but the same
-    // pale columns read as heat shimmer rising off a 464-degree plain.
+    // Not dust devils (the surface wind is a walking pace) but the same pale columns read as heat shimmer off a 464-degree plain.
     { kind: 'dust-devil', count: 3, color: PALETTE.cream },
     // Sulphur glinting in the haze.
     { kind: 'motes', count: 240, color: PALETTE.gold },
     // The haze itself, in sheets: ninety atmospheres of it, lit orange.
     { kind: 'haze', count: 26, color: PALETTE.apricot, size: 120 },
   ],
-  // The super-rotation is a hurricane at the cloud tops and a walking pace
-  // here; it carries the aerostat and the haze west all the same.
+  // The super-rotation is a hurricane at the cloud tops and a walking pace here; it carries the aerostat and the haze west.
   wind: { toward: 270, speed: 5, strength: 0.15 },
   scatter: {
     props: [{ item: 'rock-1', weight: 2 }, { item: 'rock-2', weight: 2 }, { item: 'rock-3', weight: 2 }, { item: 'rock-4', weight: 1 }, { item: 'rock-large-1', weight: 1 }, { item: 'rock-large-2', weight: 1 }, { item: 'rock-large-3', weight: 1 }, { item: 'crystals-large-a', weight: 1 }],

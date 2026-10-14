@@ -3,58 +3,34 @@ import type { Group, Mesh, Monument } from './contract.ts';
 /**
  * Great Zimbabwe — the Great Enclosure.
  *
- * The largest ancient structure south of the Sahara, and the read is two
- * shapes: **a curved dry-stone wall closing on itself**, and **the conical
- * tower** standing inside it. Everything else is what makes those two read
- * as granite laid by hand rather than as a ring and a cone.
+ * The largest ancient structure south of the Sahara. The read is a curved dry-
+ * stone wall closing on itself and the conical tower inside it.
  *
- * ## What is here
+ * - The outer wall: an ellipse of thirty segments in three courses, each set back
+ *   from the one below (thick at the foot, thin at the top, 5 m to about 1.3 m),
+ *   so every ledge is a line for the pen. Low on the north, full height round
+ *   the south-east where the real wall is highest.
+ * - The chevron frieze along the top of the highest stretch: proud struts a tone
+ *   lighter than the wall.
+ * - Three entrances on the northern half, each a gap with rounded ends, wide
+ *   enough for a person of this world (the real ones are about a metre).
+ * - The parallel passage: an inner wall following the outer round the east side,
+ *   from the north entrance to the tower.
+ * - The conical tower at the passage's end, solid, in four courses narrowing to a
+ *   flat top, and the small tower beside it.
+ * - Inside: the low curved wall of an inner enclosure on the west, the daga floors
+ *   of three houses, and trees.
  *
- * - **The outer wall**, an ellipse of thirty segments laid in three courses,
- *   each set back from the one under it, so the wall is battered — thick at
- *   the foot and thin at the top, as the real one is (5 m at the base, about
- *   1.3 m at the top) — and every ledge between courses is a line for the pen.
- *   It is low on the north and rises to its full height round the south-east,
- *   which is where the real wall is highest.
- * - **The chevron frieze** along the top of that highest stretch: the zig-zag
- *   band of set stones that is the site's one decoration, here a row of proud
- *   struts a tone lighter than the wall.
- * - **Three entrances** on the northern half, each a gap whose two ends are
- *   rounded off — the real wall never ends in a corner — and wide enough for
- *   a person of this world to walk through, which the real ones (about a metre)
- *   would not be.
- * - **The parallel passage**: an inner wall following the outer one round the
- *   east side, from beside the north entrance to the tower, with a corridor
- *   between them.
- * - **The conical tower** at the passage's end, solid, in four courses
- *   narrowing to its flat top, and the small tower beside it.
- * - Inside: the low curved wall of an inner enclosure on the west side, the
- *   daga floors of three houses, and trees, because the enclosure is grassed
- *   and the trees are what give the wall something to be taller than.
+ * `placement.ts` turns +Z north and +X west. The plan is an ellipse 89 by 64 m in
+ * life, long axis east-west, at 0.81 units a metre (the wall's midline is 72 by
+ * 52 units). The vertical is stretched 2.3x (21 units of wall against a 39.9
+ * radius, 1.9 where 2 is allowed), but the wall's thickness only 1.25x so the
+ * courses read as a wall and not a ramp. The tower is 19 units tall (2.3x) and 7.2
+ * across (1.55x, so it stays a cone), a little under the wall behind it.
  *
- * ## Sizes, in numbers
- *
- * `placement.ts` turns +Z north and +X west. The plan is an ellipse 89 by 64 m
- * in life, the long axis laid east-west here, at 0.81 units a metre: the wall's
- * midline is 72 by 52 units. **The vertical is stretched 2.3x**, because the
- * wall is 11 m at its highest and the enclosure 89 m long — at true height it
- * is a kerb at thumbnail size, and the `MAX_ASPECT` cap wants the model at
- * least half as tall as its plan is wide in any case: 21 units of wall against
- * a 39.9-unit radius, 1.9 where 2 is allowed. The wall's thickness is
- * stretched 1.25x, not 2.3x, so the battered courses still read as a wall
- * and not as a ramp. The tower is 10 m tall and 5.5 m across at its foot:
- * 19 units tall (the same 2.3x) and 7.2 across (1.55x, so it is still a cone
- * rather than a post). The tower stands a little under the wall behind it,
- * as the real one does.
- *
- * **Colour.** `tan` for the granite, a warm grey that keeps its hue in shade
- * where `bone` would go cold; its courses toned 0.92, 1 and 1.06 from the foot
- * up, so the coursing reads before the ink does. The chevrons at 1.22. The
- * grass a tone of `green`, the house floors `brown`, the trees `green` and
- * `darkOlive` on `bark`.
- *
- * **Budget.** Built as ordinary pieces and drawn by `ctx.merge` as one mesh per
- * colour, like Giza.
+ * Colour: `tan` granite, its courses toned 0.92, 1 and 1.06 from the foot up, the
+ * chevrons 1.22; grass a tone of `green`, house floors `brown`, trees `green` and
+ * `darkOlive` on `bark`. Drawn with `ctx.merge`, one mesh per colour.
  */
 
 const TAU = Math.PI * 2;
@@ -66,9 +42,9 @@ const B = 26;
 /** Thirty segments of 12 degrees of the ellipse's parameter. */
 const SEGMENTS = 30;
 /**
- * The three courses: thickness, and share of the wall's height. Each course's
- * outer face steps back by 0.8 of what it loses and its inner face by 0.2, so
- * the batter is mostly outside, as on the real wall.
+ * The three courses: thickness, and share of the wall's height. Each course's outer
+ * face steps back by 0.8 of what it loses and its inner face by 0.2, so the batter
+ * is mostly outside, as on the real wall.
  */
 const COURSES = [
   { thick: 5.0, share: 0.42, tone: 0.92 },
@@ -141,10 +117,9 @@ export const greatZimbabwe: Monument = {
     };
 
     /**
-     * A run of wall between two parameters: a group on the chord, yawed along
-     * it, local +X along the wall and local -Z outward, with one box a course.
-     * The boxes run past the chord's ends by enough to close the outer corner
-     * at the joint with the next segment.
+     * A run of wall between two parameters: a group on the chord, yawed along it,
+     * local +X along the wall and local -Z outward, one box a course. The boxes run
+     * past the chord's ends to close the outer corner at the next joint.
      */
     const run = (
       phi0: number,

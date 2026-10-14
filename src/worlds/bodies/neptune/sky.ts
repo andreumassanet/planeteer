@@ -2,22 +2,17 @@
  * Neptune's sky: Triton, Proteus and the rings, for `SkySpec.moons` and
  * `SkySpec.layers`.
  *
- * **Triton** goes round the wrong way — the only large moon that does, a
- * captured body on an orbit tipped 157 degrees to the equator — so it rises
- * in the west, slowly, and sets in the east. It is 0.47 degrees across from
- * the deck, nearly the Moon from Earth, and pale pink with its nitrogen frost.
- * **Proteus**, dark and lumpy and near, is 0.26. JPL's radii, distances,
- * periods and inclinations; the epochs are not the almanac's.
+ * Triton goes round the wrong way (an orbit tipped 157 degrees to the equator),
+ * so it rises in the west and sets in the east. It is 0.47 degrees across from
+ * the deck and pale pink; Proteus is 0.26. JPL's radii, distances, periods and
+ * inclinations; the epochs are not the almanac's.
  *
- * **The rings** are the faintest of the four giants': dust, optical depths of
- * a ten-thousandth to a hundredth (Galle, Le Verrier, Lassell, Arago, Adams;
- * de Pater et al., 2018), which no screen would show at all, so they are
- * drawn twenty to forty times deeper than they are and still read as a
- * whisper: a thread at Le Verrier, another at Adams, a broad haze between,
- * all of it brightening steeply looking toward the Sun. In the Adams ring are the
- * **arcs** — Courage, Liberté, Égalité and Fraternité, forty degrees of
- * clumped dust that have kept their order since Voyager — going round with
- * the ring every 10.54 hours, so they cross the sky and are gone.
+ * The rings are the faintest of the four giants' (optical depths of a
+ * ten-thousandth to a hundredth; de Pater et al., 2018), so they are drawn twenty
+ * to forty times deeper than they are and still read as a whisper, brightening
+ * steeply looking toward the Sun. In the Adams ring are the arcs (Courage,
+ * Liberte, Egalite, Fraternite), forty degrees of clumped dust going round with
+ * the ring every 10.54 hours.
  */
 
 import { PALETTE } from '../../../theme.ts';
@@ -44,8 +39,7 @@ export const NEPTUNE_RINGS: readonly ThinRing[] = [
     tau: 0.12,
     color: PALETTE.bone,
     dusty: 0.7,
-    // The arcs, leading to trailing, as spans of the ring at J2000; drawn
-    // about six times deeper than the ring between them, as they are.
+    // The arcs, leading to trailing, as spans of the ring at J2000; drawn about six times deeper than the ring between them.
     arcs: [
       { from: 247, to: 249, tau: 0.6 },
       { from: 255, to: 259, tau: 0.6 },

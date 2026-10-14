@@ -1,35 +1,24 @@
 /**
- * Mercury, walked: a black sky, a sun three times the size of Earth's, and a
- * people who live in the shade.
+ * Mercury, walked: a black sky, a sun two to three times the size of Earth's,
+ * and a people who live in the shade.
  *
- * Everything true about Mercury — its relief, its hot and warm poles, its
- * cold traps, its rays and hollows, its twelve nations and seventeen towns and
- * the Cinder — is `src/system/bodies/mercury.ts`; this file says what it is
- * like to stand there:
+ * What is true about Mercury (relief, hot and warm poles, cold traps, rays and
+ * hollows, nations and towns, the Cinder) is `src/system/bodies/mercury.ts`;
+ * this file says what it is like to stand there.
  *
- * - **The ground** is the most cratered in the inner system after the Moon's,
- *   with one thing the Moon lacks: Mercury's simple craters turn complex at
- *   about 10 km across, half the Moon's size, because its gravity is twice
- *   the Moon's — so here even a crater a walker can cross in a minute grows a
- *   central peak. Over that, the named ground of `mercury/relief.ts`:
- *   Rachmaninoff's ring of peaks, Hokusai, the Spider of Pantheon Fossae and
- *   the lobate scarps, the cliffs the planet raised as it shrank.
- * - **The sky** has no air in it. It is black at noon with the stars out, and
- *   the sun is drawn at its true size for wherever Mercury is on its orbit —
- *   2.1 to 3.2 times the disc seen from Earth — and its light is the harshest
- *   in the system: no haze, no fill, shadows like ink.
- * - **The Cinder** write in a hand of bars and dots that stands on a line,
- *   sing slowly (a day here is 176 of ours, and nobody hurries), and build
- *   mirror over shade (`mercury/buildings.ts`).
- * - **What lies about**: bright ejecta blocks, thrust slabs at the scarps,
- *   melt glass on the hot poles, ice in the cold traps, the blue flakes of
- *   the hollows; and in the air, nothing but the occasional glint of dust
- *   lofted by the solar wind.
- * - **Drawn from the space kit**: the Cinder are the kit's cactoro (its brim
- *   a sunshade) and mushroom king, in their own dark hides; their towns are
- *   pods, tall cylinders and long halls with solar arrays in every yard and
- *   their own parasols among them, round the shade tower in the square.
- * - **What to take**: a rover, a lander and a saucer.
+ * - The ground is heavily cratered, and simple craters turn complex at about
+ *   10 km across (gravity is twice the Moon's), so even a small crater has a
+ *   central peak. Over that sits the named ground of `mercury/relief.ts`.
+ * - The sky has no air: black at noon with the stars out, with the sun drawn at
+ *   its true size for Mercury's place on its orbit (2.1 to 3.2 times Earth's
+ *   disc) and the harshest light in the system.
+ * - The Cinder write in a hand of bars and dots that stands on a line, sing
+ *   slowly (a day is 176 of ours), and build mirror over shade
+ *   (`mercury/buildings.ts`). They are the kit's cactoro and mushroom king.
+ * - Bright ejecta blocks, thrust slabs at the scarps, melt glass on the hot
+ *   poles, ice in the cold traps and the blue flakes of the hollows lie about;
+ *   the air holds only glints of dust lofted by the solar wind.
+ * - A rover, a lander and a saucer are takeable.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -69,8 +58,7 @@ export const WORLD = defineWorld(MERCURY, {
   relief: {
     planetScale: 1,
     detail: [
-      // Regolith: soft at the smallest scale, because a few billion years of
-      // micrometeorites garden the top metres into dust.
+      // Regolith: soft at the smallest scale, gardened into dust by micrometeorites.
       { amplitude: 1.2, wavelength: 18, octaves: 3, ridged: 0.3 },
       { amplitude: 6, wavelength: 220, octaves: 3, ridged: 0.5 },
       { amplitude: 20, wavelength: 1500, octaves: 2, ridged: 0.2 },
@@ -80,18 +68,13 @@ export const WORLD = defineWorld(MERCURY, {
       classes: [
         // Walking-scale pits, simple bowls.
         { cell: 50, chance: 0.5, radius: [2, 9], depth: 0.2, rim: 0.05 },
-        // From about 13 units of radius up, a central peak: Mercury's
-        // simple-to-complex transition is near 10 km across, 25 units.
+        // From about 13 units of radius up, a central peak (simple-to-complex transition near 10 km, 25 units).
         { cell: 300, chance: 0.6, radius: [16, 72], depth: 0.16, rim: 0.05, complexAbove: 26 },
         { cell: 1600, chance: 0.5, radius: [150, 700], depth: 0.08, rim: 0.035, complexAbove: 200 },
       ],
-      // The smooth plains — Caloris's interior and the northern plains round
-      // Borealis Planitia (about 70 N) — are younger lava and keep a little
-      // over a third of the craters the intercrater plains do.
-      //
-      // And the floors of the young named craters keep almost none: the
-      // inner plain of Rachmaninoff is some of the youngest lava on the
-      // planet, and a crater landing inside Hokusai since Hokusai is rare.
+      // The smooth plains (Caloris's interior and the northern plains round Borealis
+      // Planitia, about 70 N) are younger lava and keep a little over a third of the
+      // intercrater plains' craters. The floors of the young named craters keep almost none.
       density: (lat, lon) => {
         const caloris = smoothstep(0.93, 0.975, alignment(lat, lon, 30.5, 170.2));
         const north = smoothstep(55, 68, lat) * (1 - smoothstep(80, 86, lat));
@@ -103,8 +86,7 @@ export const WORLD = defineWorld(MERCURY, {
   },
   palette: {
     steep: PALETTE.steel,
-    // Dark floors and bright, fresh ejecta: Mercury's craters are drawn in
-    // the contrast of space weathering, which darkens everything old.
+    // Dark floors and bright, fresh ejecta: the contrast of space weathering, which darkens everything old.
     craterFloor: 0.78,
     ejecta: 1.26,
   },
@@ -113,9 +95,7 @@ export const WORLD = defineWorld(MERCURY, {
     zenith: PALETTE.ink,
     air: 0,
     light: PALETTE.white,
-    // Seven times Earth's sunlight at the mean distance, ten at perihelion;
-    // the engine's softened law already lifts it to its ceiling, and this is
-    // the glare above that.
+    // Seven times Earth's sunlight at the mean distance, ten at perihelion; the engine's softened law lifts it to its ceiling and this is the glare above that.
     exposure: 1.15,
   },
   civilisation: defineCivilisation(CINDER, {
@@ -132,8 +112,7 @@ export const WORLD = defineWorld(MERCURY, {
       consonants: 'shtlnpf',
       vowels: 'iea',
     },
-    // High and slow, with a wide wander: a sing-song drawl, from a people
-    // whose afternoons last six weeks.
+    // High and slow, with a wide wander: a sing-song drawl.
     voice: { pitch: [250, 360], pace: [3.6, 5], tract: [1.2, 1.45], wander: 0.26 },
     phrases: {
       greet: [
@@ -194,8 +173,7 @@ export const WORLD = defineWorld(MERCURY, {
       walls: [PALETTE.white, PALETTE.bone, PALETTE.cream],
       roofs: [PALETTE.steel, PALETTE.slate, PALETTE.bark],
       accents: [PALETTE.gold, PALETTE.skyBlue, PALETTE.orange],
-      // Dark paving: the town floor is in its buildings' shade and radiates
-      // to the sky like they do; it is also what makes the white read.
+      // Dark paving: the town floor is in its buildings' shade and radiates to the sky; it also makes the white read.
       ground: PALETTE.slate,
       height: 1,
       density: 4,
@@ -219,8 +197,7 @@ export const WORLD = defineWorld(MERCURY, {
   rocks: 10,
   // A rover under a parasol: on the day side, shade is the equipment.
   vehicles: [SUNSHADE_ROVER, 'lander', 'ufo'],
-  // No air, so no devils and no blown dust: only grains lofted off the
-  // ground by the charge the solar wind leaves on it, glinting in the sun.
+  // No air, so no devils: only grains lofted by the charge the solar wind leaves on the ground.
   ambient: [
     { kind: 'motes', count: 70, color: PALETTE.bone },
     // The hollows' bright glaze catching the sun as you pass: a few at a time.

@@ -4,80 +4,31 @@ import type { Monument } from './contract.ts';
 /**
  * St Peter's Basilica.
  *
- * Three things have to survive at thumbnail size, and every trade below was made
- * to protect one of them:
+ * Three things carry it: Michelangelo's ribbed dome on a colonnaded drum under
+ * a lantern, Maderno's wide low façade (giant order, attic with statues), and
+ * Bernini's colonnade of two curved arms round an oval piazza.
  *
- * 1. **Michelangelo's dome** — ribbed, on a tall colonnaded drum, under a
- *    lantern. It is the tallest dome in the world and it is the whole read.
- * 2. **Maderno's façade** — wide, comparatively low, a giant order across it and
- *    an attic with statues above. It is what makes the dome look like it is
- *    receding behind the building, and that famous problem is worth keeping.
- * 3. **Bernini's colonnade** — two curved arms of columns embracing an oval
- *    piazza.
+ * Tier `landmark`: the colonnade needs the 55-unit footprint and the dome the
+ * 120-unit height, which only `landmark` offers together. Heights run at 0.86
+ * units per metre (the cross tip is 136.6 m, 117.6 units) but the basilica's
+ * plan at 0.59, and the piazza is compressed harder (1.85:1 against the
+ * heights), so the arms clear the façade by 14 units a side instead of 63 m.
  *
- * **The colonnade is what chose the tier.** Its oval is 240 m across, so it needs
- * the widest footprint the contract offers, and only `building` and `landmark`
- * have 55. `building` caps the model at 40 units, which would make the tallest
- * dome in the world shorter than the Colosseum's outer wall, so: `landmark`, at
- * 55 and 120. Nothing under a 55-unit footprint can hold the colonnade and a
- * 118-unit dome at once, which is why the plan is squeezed rather than the
- * height.
+ * Cropped:
+ * - The arms run 22 to 158 degrees of the oval and end where the corridors to
+ *   the façade would start.
+ * - 284 Doric columns become 24, twelve an arm, spaced by arc length.
+ * - The 140 statues over the colonnade are gone; 7 of the 13 on the façade
+ *   balustrade stay, as that skyline makes the façade read low and horizontal.
+ * - Nave, transepts and apse are one block 33 units deep (the plan scale would
+ *   want 78), held to where the drum still clears the attic.
+ * - The lantern's sixteen columns are one octagonal drum.
  *
- * **The numbers of the squeeze.** Heights run at 0.86 units per metre — the
- * cross tip is 136.6 m and lands at 117.6. The basilica's *plan* runs at 0.59
- * (the 114.7 m façade is 68 units, the 58.9 m drum is 34.8), so the plan is
- * compressed **1.45:1** against the heights. The piazza is compressed harder,
- * **1.85:1** (the 120 m semi-axis of the oval is 48 units, and the drum's own
- * scale would have made it 71), because at the basilica's scale the arms would
- * reach 71 units out and there is no tier that wide. The consequence is
- * deliberate: the arms clear the façade's edge by 14 units a side instead of the
- * 63 m they clear in life. They still read as arms, and the alternative — one
- * honest scale everywhere — puts the whole complex at 63 units tall, which is
- * half a landmark.
- *
- * **What was cropped, and by how much.**
- *
- * - **The far half of the colonnade, and both corridors.** In life the arms sweep
- *   round the oval and are joined to the façade by two straight converging
- *   corridors across the *piazza retta*. Here the arms run 22°–158° of the oval
- *   and simply die where the corridors would start, a few units in front of the
- *   façade. What is cut is the trapezoid between oval and church, which is
- *   invisible in every photograph anyway because you are standing in it.
- * - **Four rows of columns became one.** 284 Doric columns become 24 — twelve an
- *   arm, spaced by arc length so the rhythm stays even where the oval turns. Four
- *   rows deep would be 4x the mesh count for a depth the outline flattens.
- * - **The 140 statues over the colonnade are gone.** 140 boxes is the whole tier.
- *   The 13 on the façade balustrade stayed, at 7 of 13, because that skyline is
- *   part of what makes the façade read as low and horizontal.
- * - **The nave, the transepts and the apse are one block.** The basilica is 220 m
- *   long; at any scale that keeps the dome fat, its length leaves the footprint
- *   circle. The block is 33 units deep against the 78 the plan scale would want,
- *   so the *depth* is cropped 2.4:1 on top of the plan squeeze. This is the one
- *   crop that costs something real — it pulls the dome forward — so it was held
- *   to the point where the dome's drum still clears the façade's attic with the
- *   nave roof visible between them. The dome recedes; it does not hide. A
- *   monument you cannot see the dome of is not a monument.
- * - **The lantern's own sixteen columns** are one octagonal drum. At 6 units tall
- *   and 110 units up, nothing else survives.
- *
- * **Two departures that are not crops.**
- *
- * - **Twelve ribs where life has sixteen.** Each rib is two struts, because a
- *   single chord under a convex dome sinks inside the shell at mid-height — the
- *   shell bulges 1.5 units above the chord, more than a rib is thick. Twelve
- *   ribs at two struts each is 24 meshes; sixteen would be 32, and the tier has
- *   130. Nobody counts ribs at thumbnail size; they count *ribbed*.
- * - **The shell is twelve-sided and the ribs sit on its twelve creases.** Flat
- *   shading gives each facet its own cel band and the rib inks the join, so the
- *   facet count and the rib count are the same decision.
- *
- * **Colour.** The shell is `slate` and the ribs are `white`, which is not a
- * stylisation: the shell is lead and the ribs are travertine, and that contrast
- * is most of what you recognise the dome by. `slate` is the one cool entry in
- * the model and it is used deliberately, on a large convex sunlit mass rather
- * than in a recess — but the note on `palette` says it loses to blue in shade,
- * so the ribs went from `cream` to `white` to keep drawing the dome's shape
- * across the half of it that turns away from the sun.
+ * The dome has twelve ribs where life has sixteen, each of two struts (a single
+ * chord sinks inside the convex shell by 1.5 units), sitting on the twelve
+ * creases of a twelve-sided shell. The shell is `slate` (lead) and the ribs
+ * `white` (travertine); `white` keeps drawing the dome's shape on its shaded
+ * side.
  */
 
 // --- the piazza floor, an oval slightly wider than the colonnade stands on ---
@@ -150,11 +101,9 @@ export const stPetersBasilica: Monument = {
 
   build(ctx) {
     const { THREE, palette, box, column, taper, strut, ringWall, around } = ctx;
-    // Every entry here is warm, and one of them was chosen twice. The colonnade
-    // is the exact case the note on `palette` describes — a picket of columns
-    // with cyan sky in every gap — so its shafts are `sand` and its cornice
-    // `brown`, not the `bone` a photograph of travertine suggests. `bone` loses
-    // its hue in shade and the arms would have read as a gap in the ground.
+    // Every entry is warm: a colonnade is a picket of columns with sky in every
+    // gap, so its shafts are `sand` and its cornice `brown`, not `bone`, which
+    // loses its hue in shade.
     const travertine = palette.cream;
     const marble = palette.white;
     const trim = palette.tan;
@@ -168,12 +117,9 @@ export const stPetersBasilica: Monument = {
 
     const group = new THREE.Group();
 
-    // -----------------------------------------------------------------------
-    // The piazza
-    // -----------------------------------------------------------------------
+    // --- the piazza ---
 
-    // One disc scaled into an oval: every radius in this file stays an honest
-    // number and the ink still gets a single clean edge round the whole piazza.
+    // One disc scaled into an oval, so every radius stays an honest number.
     const floor = column(1, PAVING.height, paving, 20);
     floor.scale.set(PAVING.a, 1, PAVING.b);
     floor.position.z = PAVING.z;
@@ -187,9 +133,7 @@ export const stPetersBasilica: Monument = {
     pyramidion.position.set(0, PAVING.height + OBELISK.shaft, OVAL.z);
     group.add(pyramidion);
 
-    // -----------------------------------------------------------------------
-    // Bernini's colonnade
-    // -----------------------------------------------------------------------
+    // --- Bernini's colonnade ---
 
     const from = (ARM.from * Math.PI) / 180;
     const to = (ARM.to * Math.PI) / 180;
@@ -198,10 +142,9 @@ export const stPetersBasilica: Monument = {
       z: OVAL.z + OVAL.b * Math.cos(phi),
     });
 
-    // Spacing an ellipse by angle bunches the columns at the ends — the arc
-    // element runs from 22 units per radian at the flank to 47 at the mouth, so
-    // by angle the mouth would be twice as open as the flank. Walk the arc once
-    // and place by length instead.
+    // Spacing an ellipse by angle bunches the columns at the ends (the arc
+    // element runs from 22 units per radian at the flank to 47 at the mouth), so
+    // walk the arc once and place by length.
     const STEPS = 120;
     const table: number[] = [0];
     let previous = at(from);
@@ -230,9 +173,8 @@ export const stPetersBasilica: Monument = {
         group.add(shaft);
       }
 
-      // The entablature is chorded two columns at a time. Across a sixth of the
-      // arc the chord falls under a unit short of the curve, which the cornice's
-      // own depth swallows.
+      // The entablature is chorded two columns at a time; the chord falls under a
+      // unit short of the curve, which the cornice's depth hides.
       for (let bay = 0; bay < ARM.bays; bay++) {
         const a = alongArc(bay / ARM.bays);
         const b = alongArc((bay + 1) / ARM.bays);
@@ -246,9 +188,7 @@ export const stPetersBasilica: Monument = {
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Maderno's façade
-    // -----------------------------------------------------------------------
+    // --- Maderno's façade ---
 
     const facadeDepth = FACADE.front - FACADE.back;
     const facadeZ = (FACADE.front + FACADE.back) / 2;
@@ -261,15 +201,12 @@ export const stPetersBasilica: Monument = {
     wall.position.z = facadeZ;
     group.add(wall);
 
-    // Its back stops `PROUD` inside the wall's: flush, the two colours shared
-    // the plane behind the façade.
+    // Its back stops `PROUD` inside the wall's so the two colours do not share a plane.
     const pedestal = box(FACADE.half * 2 + 1, PEDESTAL_TOP, facadeDepth + 1 - PROUD, trim);
     pedestal.position.z = facadeZ + 0.5 + PROUD / 2;
     group.add(pedestal);
 
-    // The giant order. Free-standing in front of the wall rather than engaged in
-    // it: the ink needs daylight down each side or the eight of them merge into
-    // the marble behind.
+    // The giant order stands in front of the wall so the ink has daylight down each side.
     for (const offset of GIANT_ORDER) {
       for (const side of [1, -1]) {
         const shaft = column(1.6, ORDER_TOP - PEDESTAL_TOP, travertine, 6);
@@ -298,16 +235,13 @@ export const stPetersBasilica: Monument = {
       }
     }
 
-    // The central pediment, standing in front of the attic rather than cut into
-    // it. A four-sided taper is a pyramid; squashed in z it is the triangle, and
-    // the triangle is the whole of what reaches the eye.
+    // The central pediment: a four-sided taper squashed in z is the triangle.
     const pediment = taper(9, 0.5, 5, travertine, 4);
     pediment.scale.z = 3 / 18;
     pediment.position.set(0, ENTABLATURE_TOP, FACADE.front + 2);
     group.add(pediment);
 
-    // The portals: dark panels standing proud of the wall, which the outline
-    // turns into shadowed openings for one mesh each.
+    // The portals: dark panels standing proud of the wall.
     for (const offset of PORTALS) {
       for (const side of offset === 0 ? [1] : [1, -1]) {
         const portal = box(4.5, 10, 1.2, shadow);
@@ -316,9 +250,7 @@ export const stPetersBasilica: Monument = {
       }
     }
 
-    // -----------------------------------------------------------------------
-    // The body, and the dome above it
-    // -----------------------------------------------------------------------
+    // --- the body, and the dome above it ---
 
     const body = box(BODY.half * 2, BODY.top, BODY.depth, travertine);
     body.position.z = BODY.centre;
@@ -347,9 +279,8 @@ export const stPetersBasilica: Monument = {
     drum.position.set(0, TRANSITION.top, DOME_Z);
     group.add(drum);
 
-    // Sixteen buttress columns round the drum. This ring is the second half of
-    // the dome's read: without it the drum is a chimney. Each stops `PROUD`
-    // inside the cornice it runs up into, whose top it would otherwise share.
+    // Sixteen buttress columns round the drum, so it is not a chimney. Each stops
+    // `PROUD` inside the cornice it runs up into.
     const buttresses = around(DRUM.count, () => {
       const shaft = column(DRUM.column, DRUM_CORNICE.top - TRANSITION.top - 0.5 - PROUD, travertine, 8);
       shaft.position.set(0, TRANSITION.top + 0.5, DRUM.ring);
@@ -380,8 +311,7 @@ export const stPetersBasilica: Monument = {
       group.add(section);
     }
 
-    // The ribs. Two struts apiece, because a single chord from springing to
-    // lantern passes a unit and a half *inside* the shell at mid-height.
+    // The ribs, two struts apiece (see the header).
     const creaseFactor = 1 / Math.cos(Math.PI / SHELL_SIDES);
     const shellAt = (y: number) => {
       for (let i = 0; i + 1 < SHELL.length; i++) {
@@ -411,15 +341,12 @@ export const stPetersBasilica: Monument = {
       }
       return rib;
     });
-    // Half a segment, so the ribs land on the shell's creases rather than the
-    // middle of its facets.
+    // Half a segment, so the ribs land on the shell's creases.
     ribs.rotation.y = Math.PI / SHELL_SIDES;
     ribs.position.z = DOME_Z;
     group.add(ribs);
 
-    // -----------------------------------------------------------------------
-    // The lantern
-    // -----------------------------------------------------------------------
+    // --- the lantern ---
 
     const lanternBase = column(4.4, LANTERN.drum - LANTERN.base, trim, 12);
     lanternBase.position.set(0, LANTERN.base, DOME_Z);

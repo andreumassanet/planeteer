@@ -1,23 +1,16 @@
 /**
- * How the Bathyd build: low, heavy and round-shouldered, for ninety-two
- * atmospheres pressing on every wall from outside and nothing much pressing
- * back. (Invented, like the Bathyd; the physics it answers to is not.)
+ * How the Bathyd build (invented): low, heavy and round-shouldered, for ninety-two
+ * atmospheres pressing on every wall from outside. Nothing stands higher than it
+ * must. The three house forms are:
  *
- * Where Mars's towns are domes on drums and needles — the shapes of a thin,
- * cold atmosphere, where height is cheap — nothing here stands higher than
- * it must. The three house forms are:
+ * - pancake: a drum under a dome squashed to a third of its width, buttressed
+ *   on four sides, entered by a tunnel (built like the lava domes);
+ * - kiln: a stepped octagonal mound with a stack on top where sulphur is burned
+ *   for light, the commonest workshop;
+ * - vault: a barrel-vaulted hall on a plinth, ribbed, the meeting house.
  *
- * - **pancake** — a drum under a dome squashed to a third of its width,
- *   buttressed on four sides, entered by a tunnel: the house built *like* the
- *   lava domes, and in the oldest towns built *into* one.
- * - **kiln** — a stepped octagonal mound with a stack on top, where sulphur
- *   is burned for light. It is the commonest workshop.
- * - **vault** — a barrel-vaulted hall on a plinth, ribbed, the meeting house:
- *   an arch is the shape that carries a load the way this air loads a roof.
- *
- * And every town keeps a **hearth** in its square: a stepped base, a short
- * heavy pillar and a ball of burning sulphur in a cage — the light a town is
- * found by under a sky that is the same dim gold at every hour.
+ * Every town keeps a hearth in its square: a stepped base, a short heavy pillar
+ * and a ball of burning sulphur in a cage.
  *
  * Every builder stands on `y = 0` and keeps its footprint under eight units,
  * which is the room `layoutOf` guesses a building needs.
@@ -43,8 +36,7 @@ export function lamp(ctx: SceneryContext, x: number, z: number, height: number, 
 
 /** Half a cylinder lying along x with its flat face on `y = 0`: a barrel vault. */
 function vaultShell(ctx: SceneryContext, radius: number, length: number, color: number): THREE.Mesh {
-  // A cylinder's θ runs round y from +z toward +x; the half from 0 to π is
-  // the +x half, and turned a quarter about z that half is the upper one.
+  // A cylinder's theta runs round y from +z toward +x; the half from 0 to pi is the +x half, and turned a quarter about z it is the upper one.
   const geometry = new THREE.CylinderGeometry(radius, radius, length, 9, 1, false, 0, Math.PI);
   const mesh = new THREE.Mesh(geometry, ctx.toon(color));
   mesh.rotation.z = Math.PI / 2;

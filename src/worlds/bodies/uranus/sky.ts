@@ -2,22 +2,19 @@
  * Uranus's sky: its five major moons and its rings, for `SkySpec.moons` and
  * `SkySpec.layers`.
  *
- * **The moons** go round the equator, which is to say round the sky's
- * strange pole: from Highsun they circle like the Sun does. Radii, distances,
- * periods and inclinations (to Uranus's equator) are JPL's; they orbit in the
- * sense Uranus turns, backwards about the IAU pole, which the engine reads
- * off the sign of `rotationHours`. Ariel is the largest from the deck, 0.40
- * degrees across overhead, then Umbriel 0.28, Miranda 0.26, Titania 0.22 and
- * Oberon 0.16. Umbriel is the dark one. The epochs are not the almanac's.
+ * The moons go round the equator, which is the sky's strange pole, so from
+ * Highsun they circle as the Sun does. Radii, distances, periods and
+ * inclinations (to Uranus's equator) are JPL's; they orbit in the sense Uranus
+ * turns, which the engine reads off the sign of `rotationHours`. Ariel is the
+ * largest from the deck, 0.40 degrees across, then Umbriel 0.28, Miranda 0.26,
+ * Titania 0.22 and Oberon 0.16. The epochs are not the almanac's.
  *
- * **The rings** are thirteen dark threads, and the ten narrow ones found by
- * stellar occultation are here, km from the centre with their widths and
- * normal optical depths (French et al., 1991; Esposito, 2002): the particles
- * are metre-sized and black as charcoal, an albedo of a few percent, and
- * nearly opaque where they are — so from the deck they are a dark line across
- * the sky, the Epsilon ring a few pixels wide and the rest hairlines, at 1.65
- * to 2.02 radii. The dusty Zeta ring inside them and the faint Nu and Mu
- * rings outside are not drawn.
+ * The rings are the ten narrow ones found by stellar occultation: km from the
+ * centre with their widths and normal optical depths (French et al., 1991;
+ * Esposito, 2002). The particles are black as charcoal and nearly opaque, so
+ * from the deck they are a dark line across the sky, the Epsilon ring a few
+ * pixels wide and the rest hairlines, at 1.65 to 2.02 radii. The dusty Zeta
+ * ring inside them and the faint Nu and Mu rings outside are not drawn.
  */
 
 import { PALETTE } from '../../../theme.ts';

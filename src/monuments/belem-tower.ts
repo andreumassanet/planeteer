@@ -4,55 +4,23 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * Belém Tower — Torre de São Vicente, Lisbon, Portugal.
  *
- * A fort of 1514-1519 built on a rock in the Tagus to guard the harbour the
- * Indies fleets sailed from, and the best-known building of the Manueline
- * style. It reads as two masses and the model is those two: a **low bastion
- * running out into the river to a prow**, and a **square tower standing at its
- * landward end**, four storeys over the bastion's terrace. Everything else is
- * what the Manueline adds to a fort, and five of those things carry it:
+ * A Manueline fort of 1514-1519: a low bastion running out to a prow in the
+ * river, and a square tower at its landward end, four storeys over the
+ * bastion's terrace. Carrying the silhouette: round garitas under ribbed
+ * cupolas (four on the bastion, four on the tower top); merlon shields with the
+ * Order of Christ cross (`sand` on `white`, carved not painted); the loggia, a
+ * dark band behind six colonnettes; a rope course on bastion and tower; and the
+ * royal balcony with its armillary spheres.
  *
- * - **The garitas.** Round sentry turrets corbelled out of every corner, each
- *   under a ribbed stone cupola. Four on the bastion and four on the tower top,
- *   and they are the silhouette: without them the tower is a keep.
- * - **The merlons.** Every crenel on the bastion carries a shield with the
- *   cross of the Order of Christ. The cross is carved in the stone, not
- *   painted, so the shields are `sand` on `white` — a change of tone, not a red
- *   dot the building does not have.
- * - **The loggia.** An open arcade on the tower's river face, over the
- *   terrace: a dark band behind six colonnettes, between a floor and a roof
- *   slab. It is the one opening on the building big enough to read as space.
- * - **The rope.** A twisted-rope moulding ties the bastion and the tower at two
- *   heights; here it is a `sand` course on each.
- * - **The royal balcony** on the tower's river face, with the arms between two
- *   armillary spheres over it. Stone, like the crosses.
+ * The front (+Z) is the river. The bastion is a hexagon drawn out 1.2x towards
+ * the prow (a parent carries the scale and a child the turn, so it composes
+ * S * R); its parapet and rope course sit in the same stretched frame. The plan
+ * is squeezed to about 0.8 of the height (the `tower` footprint cap is 28):
+ * 56 units high, 24.9 out, 1,776 triangles of 1,800.
  *
- * ---------------------------------------------------------------------------
- * The front, and the stretch
- * ---------------------------------------------------------------------------
- *
- * The front (+Z) is the river: the prow points at it and the loggia looks over
- * it, which is the view from the water and the one the tower was built to be
- * seen in. The bastion is a hexagon drawn out 1.2x towards the prow (a parent
- * carrying the scale and a child carrying the turn, so it composes `S * R`; see
- * *Modelling* on `T * R * S`); its parapet and rope course sit in the same
- * stretched frame so their faces stay parallel to the walls.
- *
- * The plan is squeezed against the height, and by a lot. The `tower` tier caps
- * the footprint at 28, and the tower's 56 units of height put a true-length
- * bastion past it; the length is kept at about 0.8 of the height. The
- * proportion the building is named by is the tower over its bastion — tall
- * block, low prow — and that one survives; the terrace in front of the tower is
- * shorter than life. Measured on the built model: 56 units high, 24.9 out,
- * 1,776 triangles of the tier's 1,800.
- *
- * ---------------------------------------------------------------------------
- * Water
- * ---------------------------------------------------------------------------
- *
- * None is modelled. A `skyBlue` plate is a coaster the pen inks into a hard
- * ring (see *Monuments* in the traps). The tower is on the source's `shore`
- * list, since it was built standing in the river, so the placement leaves it at
- * the coast and the world's own water comes up to the `tan` plinth.
+ * No water is modelled; a `skyBlue` plate is inked into a hard ring. The tower
+ * is on the source's `shore` list, so the world's water comes up to the `tan`
+ * plinth.
  */
 
 // --- the bastion: a hexagon with a vertex at +Z, stretched along z ---
@@ -212,9 +180,8 @@ export const belemTower: Monument = {
       drum.position.y = drumBase;
       turret.add(drum);
 
-      // Six facets on a cupola read as its ribs, and it runs up to its own
-      // point: a finial and a lookout slit were 112 triangles a turret, and
-      // eight turrets are most of this tier's budget.
+      // Six facets read as the cupola's ribs; a finial and lookout slit cost 112
+      // triangles a turret, and eight turrets are most of the tier's budget.
       const cupola = taper(GARITA_R + 0.15, 0.05, CUPOLA, stone, 6);
       cupola.position.y = drumBase + DRUM;
       turret.add(cupola);

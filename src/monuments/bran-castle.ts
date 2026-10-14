@@ -3,47 +3,23 @@ import type { Monument, Mesh } from './contract.ts';
 /**
  * Bran Castle, Romania.
  *
- * A fortress the Saxons of Brașov raised in 1377-1388 over the pass between
- * Wallachia and Transylvania, on a crag at the mouth of the valley. Its read is
- * the opposite of Malbork's: **small, tall and white, on a rock**. The walls
- * rise straight out of the outcrop, the plan is a knot of towers of different
- * shapes — square, round, five-sided — and every one of them wears a steep red
- * roof, so the silhouette is a cluster of red points over a white mass over
- * brown stone.
+ * Small, tall and white on a rock: a knot of towers of different shapes (square,
+ * round, five-sided), each under a steep red roof, over white walls over a brown
+ * crag. In reading order:
+ * - the rock, half the model's height: two stacked prisms of different side
+ *   counts and yaws, three spurs, two browns and a tan;
+ * - the keep at the back, a square white tower to 31 under a pyramid roof to
+ *   39.8, so the lower towers step down in front;
+ * - the round tower (front-right, conical roof) and the five-sided tower (east
+ *   flank, five-sided spire);
+ * - hipped roofs over the wings at four different eaves heights;
+ * - few small windows, a bartizan on the west wing and two dormers;
+ * - a few firs round the foot (`green` in two tones on `bark` trunks).
  *
- * What has to survive at thumbnail size, in the order the eye finds it:
- *
- * - **The rock.** Half the model's height. Two stacked prisms of different
- *   side counts and yaws, three spurs at the foot, in two browns and a tan, so
- *   it reads as a crag and not as a plinth.
- * - **The keep**, the tallest point: a square white tower to 31 under a steep
- *   pyramid roof to 39.8, at the back so the lower towers step down in front.
- * - **The round tower** on the front-right corner, under a conical roof, and
- *   **the five-sided tower** on the east flank, under a five-sided spire. They
- *   are the two shapes no other castle among the monuments has together.
- * - **Steep hipped roofs** over the wings, at four different eaves heights, so
- *   no two lines of red tile meet at one level.
- * - **Small windows**, few and scattered, a bartizan on the west wing's front
- *   corner and two dormers. Bran has plain walls; the rhythm is the roofs'.
- * - **A few firs** round the foot of the rock, because the castle stands in a
- *   wood on every photograph of it and a bare crag reads as a quarry.
- *
- * ## Colour
- *
- * `white` walls, a tone of it for the corbel bands, `red` toned to 0.85 for the
- * tile, `bark` for the windows. The rock is `brown` in two tones with `tan`
- * spurs; the firs are `green` in two tones on `bark` trunks. No ground plate:
- * the biome comes up to the rock (*Monuments* in the traps).
- *
- * ## Departures, in numbers
- *
- * - **The rock is taller than life against the castle.** The real crag lifts
- *   the walls a few tens of metres over the road and the castle is about as
- *   tall again; here the rock is 13 units under a 27-unit castle, near the
- *   real ratio, and the whole is stretched to fill the tier's 40.
- * - **The courtyard is solid**, roofed at the lowest eaves, for the reason the
- *   other castles give: an open court from the quarter view is a ruin.
- * - **Merged by colour** (`ctx.merge`).
+ * Colour: `white` walls and a tone for the corbel bands, `red` at 0.85 for tile,
+ * `bark` windows. No ground plate. The courtyard is solid, roofed at the lowest
+ * eaves (an open court reads as a ruin). The rock is 13 units under a 27-unit
+ * castle. Merged by colour (`ctx.merge`).
  */
 
 /** Where the castle's walls start: inside the lower rock, under the upper. */
@@ -98,9 +74,8 @@ export const branCastle: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // The rock. The lower prism's top is the castle's first floor; the upper
-    // one rises through the walls, so they come out of the stone at
-    // different heights round the plan.
+    // The rock. The lower prism's top is the castle's first floor; the upper one
+    // rises through the walls.
     // -----------------------------------------------------------------------
     put(taper(19, 14.5, 7, rock, 7), 0, 0, 0, 0.2);
     put(taper(13.5, 11, 6.2, rockDark, 6), 0.6, 7, -0.8, 0.7);

@@ -3,121 +3,43 @@ import type { Monument } from './contract.ts';
 /**
  * Himeji Castle — Shirasagi-jo, the White Heron.
  *
- * **One tower, and everything else is scaffolding for it.** Himeji is not a
- * castle in the European sense of a walled compound you look *at*; it is a
- * single object — the daitenshu, the great keep — that a whole hill was rebuilt
- * to lift into the air. So this file spends 46.9 of its 69.9 units on one stack,
- * 23 on the stone that holds it up, and builds exactly four other things around
- * its foot.
+ * One tower and its scaffolding: 46.9 of 69.9 units on the daitenshu stack, 23 on the
+ * stone that holds it up, and four other things round its foot.
  *
- * What has to survive at thumbnail size, in the order the eye finds it:
+ * What must survive at thumbnail size:
+ * - Five receding storeys, each ringed by its own wide roof. The eave overhang in x
+ *   is 4.6 units on the first level, then 3.7, 2.9, 2.4, 2.2, so the silhouette is
+ *   five grey bars, each shorter than the last, with a white band between. Eave
+ *   half-widths run 12.4, 11.0, 8.0, 6.2, 4.9 (ratios 0.89, 0.73, 0.78, 0.79): a
+ *   constant 0.81 read as a pagoda. A keep has a big lower mass (floors one and
+ *   two carrying the great roof) and then a sharp step in.
+ * - The stone base: 23 of 69.9 units (33%, the real share). Four `taper` courses
+ *   stepping in by 1.6, 0.8, 0.4, 0.15, so the profile is concave (the ogi-no-kobai
+ *   fan slope: near vertical under the keep, flaring hard at the ground).
+ * - Gables set into the roof faces: five chidori-hafu (a pair on the great first
+ *   roof, one on each flank, one on the third) and two curved kara-hafu on the
+ *   second and fourth. White against grey.
+ * - Upturned corners: four struts per roof on all five roofs (twenty meshes).
+ * - A group: two subsidiary keeps (shotenshu) at the front corners, each with its
+ *   own fan-slope base and two-roof stack, and a watariyagura corridor running back
+ *   from each along the main base's flank (two of the real three and four).
  *
- * - **The stack of receding storeys, each ringed by its own wide roof.** Five
- *   levels, and the number that matters at every one of them is the *overhang*:
- *   in x the eave stands 4.6 units clear of the wall it covers on the first
- *   level, then 3.7, 2.9, 2.4, 2.2. That is what makes the silhouette a series
- *   of horizontal wings — five grey bars, each shorter than the last, with a
- *   white band showing between every pair. The bird in the nickname is a heron
- *   with its wings half-spread, and that is a statement about this profile and
- *   nothing else.
- * - **The recession is not uniform, and it took a rebuild to learn that.** Eave
- *   half-widths run 12.4, 11.0, 8.0, 6.2, 4.9 — ratios 0.89, 0.73, 0.78, 0.79.
- *   The first version stepped in by a constant 0.81 all the way up and came out
- *   a **pagoda**: a pagoda's storeys are a geometric series and a keep's are
- *   not. A keep has a big lower mass — floors one and two, nearly the same size,
- *   carrying the great roof — and then a sharp step in for the small floors
- *   above. That one change did more for the read than any amount of ornament.
- * - **The stone base, and its curve.** 23 of the 69.9 units, 33%, which is also
- *   its real share (14.85 m of ishigaki under a 31.5 m keep = 32%). Four `taper`
- *   courses whose half-widths step in by 1.6, then 0.8, then 0.4, then 0.15 —
- *   the deltas shrink, so the profile is **concave**: near vertical where the
- *   keep sits on it and flaring hard at the ground. That is the *ogi-no-kobai*,
- *   the fan slope, and it is the one thing about a Japanese castle base that a
- *   European one never does. A straight batter reads as a plinth; the
- *   accelerating flare reads as a hillside that has been built.
- * - **The gables set into the roof faces.** Five *chidori-hafu*, the triangular
- *   dormers — a pair side by side on the great first roof, one on each of its
- *   flanks, one more on the third — and two *kara-hafu*, the curved ones, on the
- *   second and fourth. White against grey. Without them the five roofs are five
- *   plain trapezoids; this is the ornament, and there is no other.
- * - **The upturned corners.** Four struts per roof running out and up along the
- *   hip line, on all five roofs: twenty meshes, a quarter of the tier's budget,
- *   for the single feature that most says *this roof was built in Japan*.
- * - **It is a group, not a solitary tower.** Two subsidiary keeps
- *   (*shotenshu*) stand at the front corners, each with its own fan-slope base
- *   and its own two-roof stack; a *watariyagura* corridor runs back from each
- *   one down the flank of the main base. In life there are three small keeps and
- *   four corridors closing a courtyard; two of each is what the footprint holds,
- *   and two is enough to say the keep has a family.
+ * Colour: `white` (0xfff2e8) every plastered wall and gable; `steel` (0x575a5e) every
+ * roof, ridge and corner strut; `brown` (0x988165) the stone base (`bone` goes cold
+ * in shade, and `tan` merged with `white`); `bark` the gate, window slots and the
+ * top storey's gallery band; `gold` the two shachihoko (32 triangles).
  *
- * ## Colour
- *
- * `white` (0xfff2e8) is every plastered wall and every gable, and it is doing
- * the naming: this building is famous for being white, and it is white because
- * the fireproofing plaster is carried over the timber *and over the roof tiles'
- * own joints*, which is why the roofs read as grey lines drawn on a white thing
- * rather than as a lid set on top of it. `steel` (0x575a5e) is every roof, ridge
- * and corner strut — the dark blue-grey of the tile.
- *
- * The stone base is `brown` (0x988165), and that is a deliberate refusal of the
- * obvious `bone`. Read the note on `palette` in `contract.ts`: a neutral turned
- * away from the sun keeps its value and loses its hue, and this scene's
- * `HemisphereLight` is sky-blue, so `bone` in shade comes back a cold hueless
- * patch and `slate` comes back frankly blue. A 23-unit battered mass has a shaded
- * face from every angle there is, and a base that reads as a hole is a base that
- * has stopped holding the keep up. `brown` is warm, so its shaded side stays
- * stone — and it was picked over the greyer `tan` by looking at both,
- * where `tan` lit came out within a band of `white` in shade and the base and
- * the plaster started to merge into one cream mass.
- * `bark` is the gate, the window slots and the top storey's gallery band; `gold`
- * is the two *shachihoko*, the dolphin finials on the ridge, and it is 32
- * triangles of the whole model.
- *
- * Five colours: white, grey, warm stone, and two accents. The model is meant to
- * be nameable from that list alone.
- *
- * ## Departures, in numbers
- *
- * - **`tower`, and the whole file follows from that.** `building` would have let
- *   this be built at true proportions — 40 units tall is 0.86 units per metre,
- *   the group's real 60 m spread comes to 52 units, and it all fits inside that
- *   tier's 55-unit footprint with room over. It was rejected. The tier question
- *   is "from how far should a player be able to name it"; the answer for a keep
- *   on a hill above a city is *from across the city*; and at 40 units Himeji
- *   would stand exactly as tall as Neuschwanstein and the Forbidden City and be
- *   filed with them as a third wide palace. `tower` caps the footprint at 28
- *   against 70 units of height precisely so that nothing in it can come out
- *   squat, which is the right constraint for the most vertical thing in Japanese
- *   architecture. The bill is itemised below.
- * - **The keep's own plan is squeezed 1.56x.** At this model's vertical scale
- *   (69.9 units over the real 46.4 m = 1.51 units per metre) the keep's 20 m of
- *   wall would be 30.1 units across; it is 19.3. So the tower stands 2.43 tall
- *   for every 1 wide where life gives 1.58 — **1.54x more slender than the real
- *   building**, and that is the single largest liberty in the file. It is taken
- *   knowingly: what a castle keep is *for* is height, the tier is 70 units of it,
- *   and the alternative was to spend the height allowance on air.
- * - **What that broke, and the fix.** Squeezing the plan under an unchanged
- *   vertical shrinks the overhangs, and the overhang is the whole read. Himeji's
- *   first eave projects about 2 m past the wall, which is 3.0 units at this
- *   scale, and 3 units of eave on a 47-unit tower is a pinstripe. The first
- *   overhang was widened to 4.6 — **1.53x** — and the others in step, so the
- *   wings stay wings. The roofs were therefore squeezed only 1.27x against the
- *   walls' 1.56x, which is why the great roof still hangs clear of the stone
- *   base's foot — 0.7 units in x, 0.6 in z — as it does in life.
- * - **The courtyard spacing is squeezed about 2.0x on top of that.** The tenshu
- *   group is roughly 60 m across in life, 90 units at this scale; here it is
- *   44.7. The small keeps have been pulled in against the great one until their
- *   stone feet run into its own, which is the same move the Forbidden City makes
- *   with its axis and for the same reason — nobody names Himeji by how far apart
- *   its keeps stand, and every photograph taken from the Nishinomaru already
- *   compresses them into one mass.
- * - **Five roofs, not six storeys.** Himeji is six floors inside, seven counting
- *   the basement, and five from outside, because two of the upper floors share a
- *   roof. The model builds the five you can see, which is the number the
- *   silhouette has always had.
- * - **Two small keeps, not three; no Nishinomaru, no Hyakken-roka, no moats, no
- *   82 other buildings.** The complex is 233 hectares. Everything past the
- *   tenshu group is a texture at this size.
+ * Tier `tower`, so nothing can come out squat. Departures:
+ * - The keep's plan is squeezed 1.56x (69.9 units over 46.4 m is 1.51 units per
+ *   metre; its 20 m of wall would be 30.1 units across, it is 19.3), so it stands
+ *   2.43 tall per 1 wide against 1.58, 1.54x more slender than life.
+ * - Overhangs are widened to compensate: the first eave to 4.6 (1.53x) and the
+ *   others in step, so the roofs are squeezed only 1.27x and the great roof hangs
+ *   clear of the stone base's foot (0.7 in x, 0.6 in z).
+ * - The courtyard spacing is squeezed about 2.0x more (44.7 across against 90): the
+ *   small keeps are pulled in until their stone feet meet the great one's.
+ * - Five roofs, as seen from outside (six floors inside). Two small keeps, not
+ *   three; no Nishinomaru, Hyakken-roka, moats or other buildings.
   */
 
 // ---------------------------------------------------------------------------
@@ -125,21 +47,16 @@ import type { Monument } from './contract.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * The keep's plan aspect: it is 1.15 wider across the front than it is deep, and
- * every course of it — base, wall and roof — holds that ratio.
- *
- * It has to be one number because `taper` makes only *regular* prisms, so a
- * rectangular course is a four-sided taper inside a group scaled in x, and the
- * scale is the aspect. The cost is that the hips come out shallower than the
- * long slopes; the front elevation, which is the one that names the building, is
- * right.
+ * The keep's plan aspect: 1.15 wider across the front than deep, held by every
+ * course. `taper` makes only regular prisms, so a rectangular course is a four-sided
+ * taper inside a group scaled in x. The hips come out shallower than the long slopes;
+ * the front elevation is right.
  */
 const ASPECT = 1.15;
 
 /**
- * The keep sits back of centre. The two small keeps take the front of the plan,
- * so the great one gives them the room by moving 5 units into it — which also
- * puts its enormous first roof where it belongs, hanging over them.
+ * The keep sits back of centre: the two small keeps take the front of the plan, so
+ * the great one moves 5 units into it, putting its first roof over them.
  */
 const KEEP_Z = -5;
 
@@ -147,14 +64,10 @@ const KEEP_Z = -5;
 const BASE_TOP = 23;
 
 /**
- * The fan slope, bottom to top: each course's half-width in z where it starts,
- * where it finishes, and how tall it is.
- *
- * The list is the feature. Step in by 1.6, then 0.8, then 0.4, then 0.15 and the
- * profile is concave — near vertical at the top, flaring hard at the foot. Step
- * in by 0.74 four times instead and you have a pyramid, which is what every
- * European castle plinth in this folder already is. The courses also get taller
- * as they rise (5.0, 5.5, 6.0, 6.5), so the flare tightens twice over.
+ * The fan slope, bottom to top: each course's half-width in z where it starts, where
+ * it finishes, and how tall it is. Stepping in by 1.6, 0.8, 0.4, 0.15 makes the
+ * profile concave; four equal steps of 0.74 make a pyramid. The courses also get
+ * taller as they rise (5.0, 5.5, 6.0, 6.5).
  */
 const FAN = [
   { bottom: 11.8, top: 10.2, height: 5.0 },
@@ -164,21 +77,14 @@ const FAN = [
 ];
 
 /**
- * The five storeys, bottom to top. Half-widths in z; x follows by `ASPECT`.
+ * The five storeys, bottom to top. Half-widths in z; x follows by `ASPECT`. `wall` is
+ * the plastered box, `eave` the half-width the roof starts at (wider by 4.0, 3.2, 2.5,
+ * 2.1, 1.9 in z and half again as much in x). The roof is two courses, shallow then
+ * steep (about 28 degrees into 37 reads as gently curving, not a tent).
  *
- * `wall` is the plastered box, `eave` the half-width the roof starts at — always
- * the wider number, by 4.0, 3.2, 2.5, 2.1, 1.9 in z and half again as much in x
- * — and the roof is two courses, shallow then steep, because one course is a
- * pyramid and two are a curve. The kink is the *juzhe* idea reduced to a single
- * bend, and about 28 degrees into 37 is the pair that reads as "gently curving"
- * rather than as a tent.
- *
- * `flare`, `rise` and `thick` are the corner struts, and they are small on
- * purpose: 1.3 out against 1.9 up on the great roof, tapering to 0.75 against
- * 1.05 at the top. A first pass had them at 2.6 out against 2.0 up and the model
- * grew ten dark horizontal prongs — the exposed rafter ends of a pagoda, which
- * is the one building this must not be mistaken for. Short, thin and steep reads
- * as a corner turning up; long and shallow reads as a stick.
+ * `flare`, `rise` and `thick` are the corner struts, small on purpose: 1.3 out against
+ * 1.9 up on the great roof, down to 0.75 against 1.05 (2.6 out against 2.0 up grew ten
+ * dark prongs, a pagoda's rafter ends).
  */
 interface Storey {
   /** Half-width in z of the plastered wall, and how tall it stands. */
@@ -203,29 +109,18 @@ const STOREYS: Storey[] = [
   { wall: 7.8, height: 5.8, eave: 11.0, lower: 1.0, waist: 9.4, upper: 2.2, top: 6.0, flare: 1.2, rise: 1.7, thick: 0.55 },
   { wall: 5.5, height: 5.4, eave: 8.0, lower: 0.8, waist: 6.8, upper: 1.9, top: 4.3, flare: 1.0, rise: 1.4, thick: 0.45 },
   { wall: 4.1, height: 4.6, eave: 6.2, lower: 0.7, waist: 5.2, upper: 1.7, top: 3.2, flare: 0.85, rise: 1.2, thick: 0.4 },
-  // The crowning irimoya. Its upper course is the steepest in the model (47
-  // degrees against 37 below) so the stack finishes on a point rather than
-  // trailing off.
+  // The crowning irimoya: its upper course is the steepest in the model (47
+  // degrees against 37 below), so the stack finishes on a point.
   { wall: 3.0, height: 4.5, eave: 4.9, lower: 0.8, waist: 4.0, upper: 3.1, top: 1.3, flare: 0.75, rise: 1.05, thick: 0.35 },
 ];
 
 /**
- * The two subsidiary keeps, at the front corners, and the corridor running back
- * from each along the flank of the main base.
- *
- * **They are not a mirrored pair, and that is the point.** Himeji's three
- * shotenshu are three different buildings — Inui is three storeys, Higashi and
- * Nishi are two, and they stand at three different distances from the great
- * keep. Build twins and the model turns into a pagoda with two candlesticks; one
- * at 1.0 and one at 0.86, set a little further forward, and the group reads as
- * something that grew.
- *
- * The larger tops out at 27.7, which is 0.40 of the great keep and just under
- * its first eave at 30.8. That ceiling is not taste, it is clearance: anything
- * taller pushes a small roof through the great roof's overhang, and two roof
- * planes crossing at a shallow angle is the one junction the ink cannot make
- * sense of. Their stone feet do run into the main base at ground level, which is
- * exactly what the real ishigaki does where two of them meet.
+ * The two subsidiary keeps, at the front corners, and the corridor running back from
+ * each along the flank of the main base. They are not a mirrored pair (the real three
+ * are three buildings at three distances): one at 1.0 and one at 0.86, set a little
+ * further forward. The larger tops out at 27.7 (0.40 of the great keep, under its first
+ * eave at 30.8) so no small roof pierces the great roof's overhang. Their stone feet
+ * run into the main base at ground level, as the real ishigaki does.
  */
 const SMALL = [
   { x: 16.8, z: 7.6, scale: 1, corridor: 17 },
@@ -241,9 +136,8 @@ export const himejiCastle: Monument = {
   iso: 'JPN',
   lat: 34.839,
   lon: 134.694,
-  // No realHeight: the source list asserts none. The keep is 31.5 m, the keep on
-  // its stone base 46.4 m, and the ridge stands 92 m above sea level; the number
-  // people quote depends on which of those they meant.
+  // No realHeight: the source list gives none (the keep is 31.5 m, on its stone base
+  // 46.4 m).
   tier: 'tower',
   // Set by the larger small keep's skirt corner, at hypot(23.4, 14.2) = 27.4.
   // The great keep and its base reach only 22.5 on their own.
@@ -276,12 +170,9 @@ export const himejiCastle: Monument = {
     };
 
     /**
-     * One rectangular course of the keep — base, wall or roof — stated as
-     * half-widths in z, with x following by `ASPECT`.
-     *
-     * `taper` makes regular prisms only, so the rectangle is a four-sided taper
-     * inside a group scaled in x. Returns the y it finishes at, so courses chain
-     * down the body of `build` in the order they are stacked.
+     * One rectangular course of the keep (base, wall or roof), as half-widths in z
+     * with x following by `ASPECT`: a four-sided taper inside a group scaled in x.
+     * Returns the y it finishes at, so courses chain.
      */
     const course = (bottom: number, top: number, height: number, y: number, color: number): number => {
       const wrap = new THREE.Group();
@@ -293,9 +184,9 @@ export const himejiCastle: Monument = {
     };
 
     /**
-     * The four upturned corners of an eave: a beam running out and up along the
-     * hip line, which is the diagonal of the roof's own plan. It starts a little
-     * inside the eave so it is bedded in the tile rather than stuck on it.
+     * The four upturned corners of an eave: a beam along the hip line, the diagonal
+     * of the roof's plan, starting a little inside the eave so it is bedded in the
+     * tile.
      */
     const corners = (hz: number, y: number, out: number, rise: number, thick: number): void => {
       const hx = hz * ASPECT;
@@ -304,11 +195,8 @@ export const himejiCastle: Monument = {
       const uz = hz / length;
       for (const sx of [1, -1]) {
         for (const sz of [1, -1]) {
-          // The inner end starts *above* the eave line, not below it. Below it —
-          // which is where the obvious `y - 0.35` puts it — the strut hangs in
-          // the air under the overhang instead of being buried in the tile, and
-          // five roofs' worth of that reads as a pagoda's rafter ends rather
-          // than as four corners turning up.
+          // The inner end starts above the eave line, not below it, or the strut
+          // hangs under the overhang like a pagoda's rafter ends.
           const inset = out * 0.9;
           const from = new THREE.Vector3(
             sx * (hx - ux * inset),
@@ -326,19 +214,13 @@ export const himejiCastle: Monument = {
     };
 
     /**
-     * A triangular prism laid on its side: apex up, eaves at `eaves`, ridge
-     * `rise` above them, running along Z — or along X with `alongX`.
-     *
-     * A three-sided `column` on its side is the cheapest gable there is, 12
-     * triangles, but its pitch is fixed at 60 degrees by the prism's own
-     * geometry. So it is built at unit size and the *mesh* carries the scale,
-     * which is legal — only the returned group must have an identity transform —
-     * and lets width and rise be chosen apart. Local axes after the quarter turn
-     * about X: local x stays world x, local y becomes the world run, local z
-     * becomes the world height spanning -1 to +2, hence `scale.set(_, 1, _)`.
-     *
-     * This is both the corridor roofs and, at small sizes with its back end
-     * buried in the tile, the chidori-hafu dormers.
+     * A triangular prism laid on its side: apex up, eaves at `eaves`, ridge `rise`
+     * above them, running along Z (or X with `alongX`). A three-sided `column` has its
+     * pitch fixed at 60 degrees, so it is built at unit size and the mesh carries the
+     * scale (legal: only the returned group needs an identity transform). After the
+     * quarter turn about X: local x is world x, local y the run, local z the height
+     * spanning -1 to +2, hence `scale.set(_, 1, _)`. Used for the corridor roofs and,
+     * small with its back end buried in the tile, the chidori-hafu dormers.
      */
     const gable = (
       cx: number,
@@ -363,13 +245,9 @@ export const himejiCastle: Monument = {
     };
 
     /**
-     * A kara-hafu: the *curved* gable, the one whose bargeboard swells in the
-     * middle and turns back down at the ends.
-     *
-     * An eight-sided taper squashed flat is a hump with rounded shoulders, and a
-     * hump beside four sharp triangles is the whole distinction the pair is for.
-     * Closing it to 0.35 rather than to a point keeps the crown flat, which is
-     * what an ogee does and a cone does not.
+     * A kara-hafu: the curved gable, whose bargeboard swells in the middle and turns
+     * back down at the ends. An eight-sided taper squashed flat, closed to 0.35 rather
+     * than a point so the crown is flat (an ogee, not a cone).
      */
     const karahafu = (y: number, z: number, halfWidth: number, rise: number, depth: number): void => {
       const wrap = new THREE.Group();
@@ -385,8 +263,7 @@ export const himejiCastle: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // The fan slope. Four courses, each stepping in less than the one below, so
-    // the profile accelerates outward on the way down.
+    // The fan slope: four courses, each stepping in less than the one below.
     // -----------------------------------------------------------------------
     let y = 0;
     for (const step of FAN) y = course(step.bottom, step.top, step.height, y, stone);
@@ -408,10 +285,9 @@ export const himejiCastle: Monument = {
       y = course(storey.waist, storey.top, storey.upper, y, tile);
       corners(storey.eave, eaveY, storey.flare, storey.rise, storey.thick);
 
-      // Window slots, on the two storeys big enough to carry a row of them. The
-      // first gets five across the front and one on each flank; the second gets
-      // three. Above that no wall is 13 units across and a slot would be a
-      // speck, so the top storey takes a single dark gallery band instead.
+      // Window slots on the two storeys big enough: five across the front and one on
+      // each flank on the first, three on the second. The top storey takes a single
+      // dark gallery band.
       if (storey === STOREYS[0]) {
         for (const x of [-7, -3.5, 0, 3.5, 7]) {
           slot(x, wallBase + 2.6, KEEP_Z + storey.wall + 0.15, 1.2, 1.7, 'z');
@@ -439,13 +315,9 @@ export const himejiCastle: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // The gables. Everything above this line is trapezoids; these are what stop
-    // the roofs being plain, and they are the only ornament in the model.
-    //
-    // Each runs back level into a rising slope, so the far end buries itself and
-    // only the front shows: the chidori set 0.7 inside their eaves, so they read
-    // as dormers standing on the tile, the kara-hafu 0.2 proud of theirs, so they
-    // read as the eave line itself swelling — which is what an ogee gable is.
+    // The gables, the only ornament. Each runs back level into a rising slope so the
+    // far end buries itself: the chidori are set 0.7 inside their eaves (dormers on
+    // the tile), the kara-hafu 0.2 proud (the eave line swelling).
     // -----------------------------------------------------------------------
     // The paired chidori on the great first roof, and one on each of its flanks.
     for (const x of [-6.2, 6.2]) {
@@ -454,17 +326,14 @@ export const himejiCastle: Monument = {
     for (const side of [1, -1]) {
       gable(side * (STOREYS[0]!.eave * ASPECT - 3.2), KEEP_Z, 5.0, 3.2, 30.4, 3.0, plaster, true);
     }
-    // Then the kara-hafu on the second roof — the most photographed detail on the
-    // south face — a fifth chidori on the third, and a smaller kara-hafu on the
-    // fourth. Triangle, hump, triangle, hump going up: no two roofs in a row
-    // carry the same gable, which is the whole reason there are two kinds.
+    // Then the kara-hafu on the second roof, a fifth chidori on the third, and a
+    // smaller kara-hafu on the fourth: no two roofs in a row carry the same gable.
     karahafu(39.9, KEEP_Z + STOREYS[1]!.eave + 0.2 - 2.8, 5.2, 2.4, 2.8);
     gable(0, KEEP_Z + STOREYS[2]!.eave - 2.7, 4.0, 2.7, 48.3, 2.5, plaster);
     karahafu(55.8, KEEP_Z + STOREYS[3]!.eave + 0.2 - 2.0, 3.2, 1.7, 2.0);
 
     // -----------------------------------------------------------------------
-    // The two small keeps. The same grammar at two fifths the height: fan-slope
-    // foot, white storey, skirt roof, white storey, two-course roof.
+    // The two small keeps: the same grammar at two fifths the height.
     // -----------------------------------------------------------------------
     for (const { x, z, scale: k } of SMALL) {
       const stack = taper(6.2 * k, 5.4 * k, 10.5 * k, stone, 4);
@@ -491,10 +360,8 @@ export const himejiCastle: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // The watariyagura corridors, running back from each small keep along the
-    // flank of the main base. They are kept to the sides on purpose: anything
-    // crossing the front hides the fan slope, which is a third of the read and
-    // the third that is hardest to get back.
+    // The watariyagura corridors, back from each small keep along the flank of the
+    // main base. Kept to the sides: anything across the front hides the fan slope.
     // -----------------------------------------------------------------------
     for (const { corridor: x, scale: k } of SMALL) {
       put(CORRIDOR.half * 2, 9.5 * k, CORRIDOR.length, stone, x, 0, CORRIDOR.z);

@@ -3,91 +3,34 @@ import type { Monument } from './contract.ts';
 /**
  * Saint Basil's Cathedral.
  *
- * Not one building but ten stood on one platform, and that is the whole read: a
- * tented spire in the middle, nine onion domes crowded around it, and no two of
- * the nine alike. Anything that makes them agree — one height, one profile, one
- * colour, a single `around(8, ...)` — turns it straight back into a generic
- * Orthodox church, so nothing here is repeated. The nine are written out one at
- * a time in `CHAPELS`, each with its own body, drum, dome and palette.
+ * Ten buildings on one platform: a tented spire in the middle, nine onion
+ * domes crowded around it, no two alike. The nine are written out one at a
+ * time in `CHAPELS`, each with its own body, drum, dome and palette, because
+ * anything that makes them agree turns it into a generic Orthodox church.
  *
- * What has to survive at thumbnail size:
+ * Four large chapels stand on the axes, four smaller on the diagonals, and a
+ * low annex off-axis at the front left breaks the eight-fold symmetry. Heights
+ * step from 14 (annex) to 29.5 (back chapel) to 39.5 (the tent).
  *
- * - **The cluster.** Four large chapels on the axes, four smaller ones on the
- *   diagonals, and a tenth low annex wedged in off-axis at the front left, which
- *   breaks the eight-fold symmetry the instant you look at it. Heights step from
- *   14 (annex) to 29.5 (the back chapel) to 39.5 (the tent), so the group reads
- *   as a crowd and not as a wall.
- * - **The bulbs.** Every dome springs *narrower* than the drum under it, swells
- *   *past* it inside the first fifth of its height, then closes to a point under
- *   a gilded cross. That overhang is the entire difference between an onion and
- *   a helmet, and it is why a dome here is a list of courses rather than one
- *   `taper` — the same thing the Taj Mahal's dome needs.
- * - **The twist.** Each course of a dome is turned a few degrees against the one
- *   below it. It is not a true helix; you cannot lathe one out of prisms. But
- *   the facet edges step round as they climb and `OutlineEffect` inks every one
- *   of those steps, which is what reads as the spiralled domes.
- * - **The stripes.** A dome's courses cycle through its colour list, so a
- *   two-colour dome comes out banded. It costs nothing: the courses exist for
- *   the profile anyway.
- * - **The tent.** Eleven and a half units of unbroken octagonal spire, the only
- *   straight line in the building, carrying the tenth dome — the gold one — on
- *   its tip.
+ * A dome is a list of courses rather than one `taper`: it springs narrower than
+ * its drum, swells past it within the first fifth of its height, then closes to
+ * a point under a gilded cross. Each course is turned a few degrees against the
+ * one below, so the inked facet edges read as a spiral, and the courses cycle
+ * through the dome's colour list, which gives stripes for free.
  *
- * Filed `building`, which is where the tier list puts a cathedral and where the
- * Taj Mahal already sits. It is 65 m to the Taj's 73; it has no business
- * standing three times taller than it in the world.
+ * Colour: walls are `clay`, the gable under each drum and the white stripes are
+ * `cream`, the tent is `sand` (cream lost its edges among eight cream drums),
+ * the terrace `tan`, the gallery `bone`, slots `bark`, the cornice ring under
+ * the tent `crimson`. The chromatic range is spent on the domes. `violet` is a
+ * liberty: no dome in Moscow is lilac, but one cold surprise does more for "no
+ * two of these match" than a ninth shade of orange.
  *
- * ## Colour, which was the hard decision
+ * Departures: the plan is 14% wider than life (ratio 0.62 against 0.54) so the
+ * domes do not touch, and the domes are fat (0.17 of the height against 0.09),
+ * as in the Taj Mahal. The bell tower is left out because it would read as a
+ * second spire, and the kokoshniki are two plain tapers.
  *
- * The most polychrome building in the set against a palette of twenty-four fixed
- * colours. Resolved in two layers: **hold everything below the domes to a
- * handful of muted entries and spend the whole chromatic range on the domes
- * themselves.** A riot needs
- * something quiet to be a riot against; painting the walls as well would just be
- * noise.
- *
- * - `clay` for every wall. The one entry in the palette that is red brick
- *   without shouting, and the real thing is brick.
- * - `cream` for the gable directly under each drum, for every drum, and for
- *   every white stripe: the limestone detailing, and what makes the coloured
- *   domes read. Only the top gable course is white — with both of them white the
- *   tower grew a pale block as wide as its own dome, and the bulb stopped being
- *   the widest thing up there.
- * - `sand` for the tent, and nothing else. It was `cream` first, and a cream
- *   tent standing among eight cream drums lost its edges: the whole middle of
- *   the building went to one pale mass. One step warmer separates it, and an
- *   ochre tiled tent is what is really up there.
- * - `tan` terrace and `bone` gallery — deliberately drab, so the base never
- *   competes with what it carries — and `bark` for the door and window slots.
- * - `crimson` for the cornice ring under the tent: one strong note below the
- *   domes, tying the brick to the red dome above it.
- * - The domes, in order round the plan: `green` + `cream` spiral (the front one,
- *   the one every photograph is of), `skyBlue` + `cream`, `crimson` + `cream`,
- *   solid faceted `gold`, solid `olive`, `orange` + `cream`, `violet` + `cream`,
- *   `green` + `crimson`, `gold` + `crimson` on the annex, and solid `gold` on
- *   the tip of the tent.
- *
- * `violet` is the one liberty and it is deliberate: no dome in Moscow is lilac.
- * The palette holds no true tile-work colour, and nine domes drawn from its
- * warm reds and golds go to mud at thumbnail size. One cold surprise buys far
- * more of "no two of these match" than a ninth shade of orange would. Every
- * other dome maps to one that is actually up there.
- *
- * ## Departures, in numbers
- *
- * - **The plan is 14% wide.** 65 m tall by about 35 m across in life, a ratio of
- *   0.54; here 39.5 by 24.3, a ratio of 0.62. At true proportions the nine domes
- *   touch and the cluster silhouettes as one lump.
- * - **The domes are fat.** About 6.6 units across on a 39.5-unit building, 0.17
- *   against life's 0.09. The same trade the Taj Mahal makes for the same reason:
- *   at true scale the thing being named is a knob.
- * - **No bell tower.** It stands apart from the cathedral and it is *also*
- *   tent-roofed. In one silhouette it reads as a second spire and halves the
- *   central one.
- * - **The kokoshniki are two plain tapers.** The real stacked gables are ranks
- *   of pointed arches; nothing in the contract subtracts, and eight ranks of
- *   modelled arches would be the whole tier's mesh budget for a band that is
- *   three pixels deep. Two stepped bevels arrive at the same outline.
+ * Tier `building`, with the Taj Mahal.
  */
 
 const DEG = Math.PI / 180;
@@ -103,11 +46,9 @@ const TENT = { bottom: 3.0, top: 0.6, h: 11.6 };
 
 /**
  * The onion, normalised: `r` is a fraction of the dome's belly, `y` a fraction
- * of its height. Both profiles start at about 0.55 — under the drum, so the
- * dome is pinched where it springs — and reach full width by a fifth of the way
- * up, which is the overhang. The five-course profile is for the four big domes;
- * the four-course one for the small ones, where a fifth band would be under a
- * pixel tall.
+ * of its height. Both profiles start at about 0.55 (pinched where the dome
+ * springs) and reach full width by a fifth of the way up. The five-course
+ * profile is for the four big domes, the four-course one for the small ones.
  */
 const ONION_5 = [
   { y: 0.0, r: 0.54 },
@@ -176,8 +117,7 @@ export const stBasilsCathedral: Monument = {
     const gilt = palette.gold;
 
     const group = new THREE.Group();
-    // `THREE` arrives through the context, so the one type this file needs is read
-    // off a value rather than imported: a monument imports nothing but its contract.
+    // `THREE` arrives through the context, so the one type needed is read off a value.
     type Node = Parameters<typeof group.add>[0];
 
     /** A dome, standing on y = 0, ready to be dropped on top of a drum. */
@@ -228,8 +168,7 @@ export const stBasilsCathedral: Monument = {
     upperStep.position.z = 10.3;
     group.add(upperStep);
 
-    // --- the central church. Its brick core is all but buried by the chapels;
-    //     what the eye gets is the tent, so the tent gets the height ---
+    // --- the central church: its brick core is mostly buried by the chapels, so the tent gets the height ---
     let y = DECK;
     const core = column(CORE.r, CORE.h, brick, 8);
     core.position.y = y;
@@ -278,14 +217,7 @@ export const stBasilsCathedral: Monument = {
     crownCross.position.y = y;
     group.add(crownCross);
 
-    /**
-     * The nine, laid out by hand. Read down the columns rather than across: the
-     * body heights, the drums, the dome widths and the colours all disagree on
-     * purpose, and the whole building is that disagreement. The four on the
-     * axes are the tall ones, the four diagonals sit a full storey lower, and
-     * the annex — off-axis at 305 degrees, on its own porch hanging over the
-     * gallery edge — is lower again and half the width of anything else.
-     */
+    /** The nine chapels, laid out by hand. Body heights, drums, dome widths and colours differ on purpose. */
     const CHAPELS: ChapelSpec[] = [
       {
         // Front. Green and white, spiralled: the one every photograph is of.
@@ -316,8 +248,7 @@ export const stBasilsCathedral: Monument = {
         opening: [1.6, 4.6],
       },
       {
-        // Back, and the tallest of the nine, so it clears the front one in a
-        // three-quarter view instead of hiding behind it.
+        // Back, and the tallest of the nine, so it clears the front one in a three-quarter view.
         angle: 180,
         reach: 7.6,
         body: { r: 3.4, h: 11.4, sides: 8 },
@@ -331,8 +262,7 @@ export const stBasilsCathedral: Monument = {
         opening: [1.6, 5.8],
       },
       {
-        // Left. The gold one: eight facets, no twist, no stripe. One dome in the
-        // nine has to hold still or the spirals stop being a variation.
+        // Left. The gold one: eight facets, no twist, no stripe.
         angle: 270,
         reach: 7.6,
         body: { r: 3.22, h: 9.9, sides: 8 },
@@ -346,8 +276,7 @@ export const stBasilsCathedral: Monument = {
         opening: [1.6, 5.0],
       },
       {
-        // The four diagonals: smaller, one gable instead of two, a plain spike
-        // for a cross, and the hardest twists in the building.
+        // The four diagonals: smaller, one gable, a plain spike, the hardest twists.
         angle: 45,
         reach: 7.2,
         body: { r: 2.45, h: 7.6, sides: 6 },
@@ -384,10 +313,8 @@ export const stBasilsCathedral: Monument = {
         cross: { h: 1.02, bar: 0 },
       },
       {
-        // The annex, added over a tomb a generation after the rest and never
-        // pretending otherwise: off the eight-fold rhythm, standing two units
-        // further out than the ring on a porch of its own, and short enough that
-        // its dome sits below every other one.
+        // The annex: off the eight-fold rhythm, two units further out on a porch of
+        // its own, and short enough that its dome sits below every other.
         angle: 305,
         reach: 10.0,
         plinth: 1.9,
@@ -400,9 +327,8 @@ export const stBasilsCathedral: Monument = {
     ];
 
     for (const spec of CHAPELS) {
-      // One pivot per chapel, turned to its angle, everything inside built on
-      // the +Z axis at `reach` — so every number in the table above is a
-      // half-width or a height and none of them is a sine.
+      // One pivot per chapel, turned to its angle, with everything inside built on
+      // the +Z axis at `reach`.
       const pivot = new THREE.Group();
       pivot.rotation.y = spec.angle * DEG;
       group.add(pivot);
@@ -421,9 +347,7 @@ export const stBasilsCathedral: Monument = {
       level += spec.body.h;
 
       spec.gables.forEach(([bottom, top, height], course) => {
-        // Only the course immediately under the drum is limestone. Both of them
-        // white built a pale block as wide as the dome above it, and the bulb
-        // stopped reading as the widest thing on the tower.
+        // Only the course under the drum is limestone; both white built a pale block as wide as the dome.
         stack(taper(bottom, top, height, course === 0 ? brick : stone, spec.body.sides), level);
         level += height;
       });
@@ -437,9 +361,7 @@ export const stBasilsCathedral: Monument = {
       stack(cross(spec.cross.h, spec.cross.bar), level);
 
       if (spec.opening) {
-        // Proud of the wall rather than sunk into it, as the Taj's niches are:
-        // nothing in the contract cuts a hole, and half a unit of dark box picks
-        // up an outline of its own the moment it is inked.
+        // Proud of the wall rather than sunk into it: nothing in the contract cuts a hole.
         const [width, height] = spec.opening;
         const slot = box(width, height, 0.5, shadow);
         slot.position.set(0, DECK + 0.9, spec.reach + spec.body.r + 0.15);

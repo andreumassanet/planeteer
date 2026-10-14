@@ -3,38 +3,18 @@ import type { Monument } from './contract.ts';
 /**
  * Stonehenge.
  *
- * Three things carry it at thumbnail size, and everything in this file serves
- * one of them:
+ * Three things carry it: the lintels joining the uprights (so the surviving arc
+ * reads as one band of stone), the horseshoe of trilithons, half again as tall
+ * as the circle and open towards +Z, and the ruin (five uprights gone, one
+ * stone prone in the breach, two out of plumb, one trilithon snapped). The
+ * great trilithon is whole here, where in life it lost an upright.
  *
- * - **The lintels.** A ring of bare posts is a fence. What makes this Stonehenge
- *   and not a paddock is that the uprights are joined across their tops, so the
- *   surviving arc reads as one continuous band of stone in the air.
- * - **The horseshoe of trilithons**, half again as tall as the circle and open
- *   towards +Z. Without it the model is a circle of identical stones, which is
- *   every other stone ring in Europe.
- * - **The ruin.** Five uprights gone, one stone prone in the breach, two out of
- *   plumb, one trilithon snapped. A closed ring with every lintel in place is a
- *   Victorian folly; the gaps are half the reason the real thing is famous.
- *
- * Two deliberate departures from the real monument:
- *
- * - **It is far less flat than life.** The sarsen circle is 33 m across and
- *   4.9 m to the top of its lintels — a ratio of 6.7, and 4.5 even measured
- *   against the great trilithon. `MAX_ASPECT` is 4, so the true proportion is
- *   not modellable at any size, and the `monument` tier's 14-unit footprint caps
- *   the width before anything else does. So the plan is compressed about 2:1
- *   against the heights. Sizing the other way — true proportions at 14 units
- *   wide — would put the uprights at 3.7 units, barely half the avatar, and
- *   Stonehenge is not a thing you look down at.
- * - **Eighteen uprights, not thirty.** The `monument` tier allows 40 meshes and
- *   the real circle alone is sixty stones. Eighteen bays keep the stone-to-gap
- *   rhythm of the original (roughly 3:2) while leaving meshes for the horseshoe,
- *   which matters more.
- *
- * The ruin is a plausible one rather than a survey: the great trilithon is whole
- * here, where in life it lost an upright. It is the tallest thing in the model
- * and the centre of the silhouette, and a monument has to be nameable before it
- * is accurate.
+ * Deliberate departures:
+ * - The plan is compressed about 2:1 against the heights. The real circle is
+ *   33 m across and 4.9 m high (6.7:1), beyond `MAX_ASPECT`, and the `monument`
+ *   tier caps the width at 14 units.
+ * - Eighteen uprights instead of thirty, to fit the tier's 40 meshes and still
+ *   leave some for the horseshoe; the stone-to-gap rhythm stays near 3:2.
  */
 
 /** How much narrower a stone is at the top. Enough that the ink reads a hewn face, not a wedge. */
@@ -58,11 +38,7 @@ const LEAN = 0.085;
 
 /** Bays whose upright is gone. Two of them adjacent, so the breach is a hole and not a gap. */
 const MISSING = [2, 3, 8, 10, 12];
-/**
- * Bays that still carry the lintel spanning them to the next bay. Five of them
- * run unbroken from 280 degrees round through the front, which is the one
- * stretch of the real circle that never fell; the sixth stands alone.
- */
+/** Bays that still carry the lintel spanning them to the next bay: five run unbroken round the front, the sixth stands alone. */
 const LINTELS = [14, 15, 16, 17, 0, 6];
 /** Uprights out of plumb — never one under a lintel, since those are the ones that held. */
 const LEANING = [5, 13];
@@ -101,10 +77,8 @@ const BLUESTONE_DEPTH = 0.9;
 const BLUESTONE_HEIGHT = 3.6;
 
 /**
- * Deterministic wobble in [-1, 1]: sarsens were dressed by hand and a ring of
- * identical prisms is a fence. The step is the golden angle, so no two nearby
- * bays land on the same value and the ring never falls into a visible pattern.
- * `Math.random()` is forbidden — the loader builds twice and compares.
+ * Deterministic wobble in [-1, 1], stepping by the golden angle so nearby bays
+ * differ. Never `Math.random()`: the loader builds twice and compares.
  */
 const wobble = (index: number, salt: number): number => Math.sin(index * 2.39996 + salt);
 
@@ -114,9 +88,7 @@ export const stonehenge: Monument = {
   iso: 'GBR',
   lat: 51.179,
   lon: -1.826,
-  // No `realHeight`, matching the source list: Stonehenge has no single one.
-  // 4.9 m at the sarsen lintels, 7.3 m at the great trilithon, and picking
-  // either would be asserting a fact the data declines to assert.
+  // No `realHeight`, matching the source list: Stonehenge has no single height.
   tier: 'monument',
   footprint: 14,
 
@@ -129,10 +101,9 @@ export const stonehenge: Monument = {
     const group = new THREE.Group();
 
     /**
-     * One dressed stone. `taper` only makes regular prisms, so a slab is a
-     * square one squashed on its own z: it keeps the top face square to the
-     * ring, which is what a lintel has to land on, and it costs four triangles
-     * over a box to gain a top narrower than the base.
+     * One dressed stone. `taper` only makes regular prisms, so a slab is a square
+     * one squashed on its own z: the top stays square to the ring, which a
+     * lintel needs, and the top is narrower than the base.
      */
     const stone = (width: number, depth: number, height: number, color: number) => {
       const mesh = taper(width / 2, (width / 2) * STONE_TAPER, height, color, 4);
@@ -164,24 +135,20 @@ export const stonehenge: Monument = {
         const upright = stone(
           RING_WIDTH * (1 + 0.09 * wobble(bay, 0)),
           RING_DEPTH,
-          // A stone under a lintel is exactly nominal height: the lintel has to
-          // land flat on it, and the ones that kept theirs are the ones that
-          // never moved.
+          // A stone under a lintel is exactly nominal height, so the lintel lands flat on it.
           holds ? RING_HEIGHT : RING_HEIGHT * (1 + 0.08 * wobble(bay, 1)),
           sarsen,
         );
         upright.position.set(0, BED, RING_RADIUS);
         upright.rotation.y = (holds ? 0.02 : 0.06) * wobble(bay, 2);
-        // Inward, always. Tipped the other way a stone swings its top out past
-        // the footprint, and the ones that lean at all lean into the circle.
+        // Inward, always: tipped the other way a stone swings its top out past the footprint.
         if (LEANING.includes(bay)) upright.rotation.x = -LEAN;
         parts.add(upright);
       }
 
       if (LINTELS.includes(bay)) {
         const lintel = box(LINTEL_LENGTH, LINTEL_HEIGHT, LINTEL_DEPTH, sarsen);
-        // Deeper than the uprights it rests on, so the ink finds a ledge under
-        // it instead of one flat face running from the ground to the sky.
+        // Deeper than the uprights it rests on, so the ink finds a ledge under it.
         lintel.position.set(
           RING_RADIUS * Math.sin(half),
           BED + RING_HEIGHT,
@@ -235,9 +202,7 @@ export const stonehenge: Monument = {
       post.rotation.y = 0.3 * wobble(bay, 6);
       return post;
     });
-    // Half a bay round from the sarsens, so they show through the gaps in the
-    // circle rather than hiding behind its uprights. They are the only colour
-    // in the model that is not sarsen, and they are why it is not monochrome.
+    // Half a bay round from the sarsens, so they show through the gaps in the circle.
     bluestones.rotation.y = half;
     group.add(bluestones);
 

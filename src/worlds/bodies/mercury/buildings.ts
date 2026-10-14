@@ -1,29 +1,21 @@
 /**
- * How the Cinder build: **mirror above, shade below** — invented, and argued
- * from the one physical fact that governs a building on an airless world.
+ * How the Cinder build: mirror above, shade below (invented).
  *
- * With no air, nothing carries heat away by touch; a roof in the sun at 430 C
- * is cooled only by what it reflects and what it radiates. So every made thing
- * here is two layers. The top faces the sun and is a mirror — whitewash and
- * foil, `white` and `gold` — and the underside faces the ground and the black
- * sky and is dark, because a dark surface in shade radiates best. Under that,
- * low and half-sunk, is where somebody lives.
+ * With no air nothing carries heat away by touch, so every made thing is two
+ * layers: a sunward mirror (whitewash and foil, `white` and `gold`) and a dark
+ * underside facing the ground and the black sky, which radiates best. Under
+ * that, low and half-sunk, somebody lives.
  *
- * - **parasol** — a dwelling drum under a mirrored canopy on one mast: the
- *   house of a family, and the commonest thing in a Cinder town;
- * - **heliostat** — a tilted mirror on a frame, turning the light away from a
- *   long house behind it (and toward the town's furnaces, which nobody
- *   will show a visitor);
- * - **burrow** — a mound inside a berm with radiator fins on its back: the
- *   terminator nomads' house, built to be left;
- * - **screen** — a curved white wall throwing a crescent of shade, with two
- *   domes living in it;
- * - **shade tower** — the landmark of every town: parasols stacked up a mast
- *   like a pagoda, so the square under it is in shade at any hour of the
- *   176-day day.
+ * - parasol: a dwelling drum under a mirrored canopy on one mast, the commonest
+ *   house;
+ * - heliostat: a tilted mirror on a frame, turning the light off a long house;
+ * - burrow: a mound inside a berm with radiator fins on its back, the
+ *   terminator nomads' house;
+ * - screen: a curved white wall throwing a crescent of shade, with two domes;
+ * - shade tower: the landmark of every town, parasols stacked up a mast.
  *
- * Every builder stands on `y = 0` and returns its footprint, and none of them
- * reaches past 8.4 units, which is what a layout's guess of 8 can hold.
+ * Every builder stands on `y = 0` and returns its footprint; none reaches past
+ * 8.4 units, which a layout's guess of 8 can hold.
  */
 
 import * as THREE from 'three';
@@ -124,8 +116,7 @@ const burrow: BuildingBuilder = (ctx, rng, style) => {
   const hood = ctx.box(2.3, 0.3, 2.6, PALETTE.white);
   hood.position.set(0, 2.2, r * 0.62);
   group.add(hood);
-  // Radiator fins on the mound's back, edge-on to the sun and broadside to
-  // the sky: the Cinder's frill, built.
+  // Radiator fins on the mound's back, edge-on to the sun and broadside to the sky.
   const fins = rng.between(3, 4);
   for (let k = 0; k < fins; k++) {
     const fin = ctx.box(0.22, 1.6, 2.6, PALETTE.steel);
@@ -190,8 +181,7 @@ const shadeTower: BuildingBuilder = (ctx, rng, style) => {
   const needle = ctx.taper(0.35, 0.04, 4, PALETTE.gold, 5);
   needle.position.y = 2.6 + height;
   group.add(needle);
-  // Benches round the foot, in the shade the tower throws: the square is a
-  // place to sit.
+  // Benches round the foot, in the shade the tower throws.
   for (let k = 0; k < 6; k++) {
     const a = (k / 6) * Math.PI * 2;
     const bench = ctx.box(2.2, 0.7, 0.8, PALETTE.steel);

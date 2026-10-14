@@ -4,145 +4,19 @@ import type { Group, Mesh, Monument, Object3D } from './contract.ts';
 /**
  * Abu Simbel — the Great Temple of Ramesses II.
  *
- * **Four seated figures in a row, and nothing else.** No columns, no order, no
- * plan to read: the monument is one line of colossi twenty metres high, knee to
- * knee across the face of a Nubian sandstone cliff, with a doorway between the
- * middle two small enough that a man walking through it is the scale bar. The
- * temple runs sixty metres back into the rock and none of it shows. What anyone
- * has ever photographed here is a hillside with four giants cut into it.
+ * Four seated colossi in a row across a rock-cut sandstone façade, with a small
+ * doorway between the middle two. The wall plane sits only six units behind the
+ * figures' faces so the row reads as one wall in high relief, not figurines on a
+ * shelf. Above y 49 the wall is a single box tilted 6.6 degrees back; the rock
+ * over the cornice is three irregular wedges.
  *
- * That makes this the second rock-cut façade in the set after `petra.ts`, and
- * the two had to be stopped from becoming the same card. They are not the same
- * problem, and almost nothing transfers:
+ * The second colossus is broken at the waist, with its head and torso lying at
+ * its feet. The crowns are the plumed modius, not the pschent bulb, which does
+ * not hold a skyline at this scale. Nine baboons stand in for the frieze's 22.
  *
- * - Petra is a **hole in a cliff** — a Hellenistic front standing at the back of
- *   a quarried slot, framed by rock on all four sides, and every device in that
- *   file serves the frame. Abu Simbel has no slot. It is the cliff's own face,
- *   dressed flat and leaning back, and the rock is *thinnest* exactly where
- *   Petra's is thickest: five units of jamb beside colossi twenty-one wide,
- *   because here the figures really do run out to the edges. The rock has to
- *   earn its mass somewhere else, and it earns it above.
- * - Petra is **architecture, and vertical**: two stacked orders, six columns
- *   below and four above, a round tholos in a broken pediment, 104 units tall on
- *   68 wide. Abu Simbel is **figures, and horizontal**: the row is 92 wide on 70
- *   tall, and there is not one column, pediment, capital or moulding in this
- *   file. The only round things in it are four crowns and nine baboons.
- * - Petra is rose — `clay`, `salmon`, `blush`. This is Nubian sandstone —
- *   `brown`, `tan`, `sand`, `cream`. The two files share one colour, `bark`, and
- *   only in the dark of a doorway.
- *
- * **Four devices make the figures read as cut *from* the cliff rather than stood
- * against it**, and they are deliberately not Petra's four:
- *
- * 1. **The wall plane sits six units behind their faces.** This is the most
- *    important number in the file. It was ten at first, and ten turned four
- *    colossi quarried out of a cliff into four figurines standing on a shelf:
- *    the gaps between them opened into shadow, the cornice became the shelf
- *    above, and the whole model read as a cabinet with dolls in it. Pull the
- *    wall forward until it is nearly flush with the thrones and the row becomes
- *    one wall in high relief, which is what it is. Nothing else here mattered
- *    half as much.
- * 2. **One sloping plane, not a stack of ledges.** From y 49 up, the wall is a
- *    single box tilted 6.6° back about its own base — a real batter, the thing a
- *    built wall never has, and 4.2 units of recession by the time it reaches the
- *    cornice. It was three set-back courses first, and three horizontal ink
- *    lines under a projecting cornice read as an architrave; a slope has no
- *    courses to be mistaken for. It was then a short tilted box above the crowns
- *    with a flat panel running up behind it, which is worse than either, because
- *    the flat panel stood in front of the slope the whole way and the batter
- *    existed only in this comment. The tilted box *is* the wall now.
- * 3. **The rock spreads as it rises.** Below the cornice the cliff is a jamb
- *    five units wide that narrows and shallows as it climbs; above it the rock
- *    opens out to twenty-two, nineteen and twenty-three, leaning at three
- *    different angles, at three different heights, set back as far as thirty
- *    units. The dressed rectangle is the *smallest* part of the mass, which is
- *    what a face quarried out of a hillside looks like and what a building never
- *    does. The irregularity is load-bearing: two matched blocks at the top
- *    corners read as chimneys, and three upright trapezoids read as dormers.
- * 4. **The one void is the doorway**, and it is made the way Petra makes voids —
- *    by arrangement, never by subtraction. The wall is built as two panels with
- *    a seven-unit slot left between them and a deeper slab five units behind; a
- *    dark panel, a lintel and the niche fill the slot from the terrace to y 52,
- *    and a full-width band closes it above. The opening is 6 units wide against
- *    figures 21 wide and 70 tall, and that ratio is the only thing in the model
- *    that says how big the figures are.
- *
- * And one more, for the half that is missing. **The break is modelled as absence
- * *plus* debris.** `great-sphinx.ts` records the lesson that an absence models as
- * nothing at all — a gap where something should be just looks unfinished. So the
- * second colossus, whose upper half fell in antiquity and lies at its feet in
- * every photograph ever taken here, gets a ragged stump and four pieces on its
- * own base: the head still in its nemes with its face, the `cream` crown, a
- * torso block and a shoulder. The head leans back against the statue's shins
- * rather than lying flat, because a 17-unit block of sandstone face down is a
- * slab; propped at 55° it is a head. The pale crown on the ground is what tells
- * the eye where the missing half went.
- *
- * **Colour is a four-step ramp, ordered by how much rock was cut away**: `brown`
- * for the raw hillside — jambs, the masses above, the ground — `tan` for the
- * dressed façade the figures stand out of, `sand` for the figures themselves,
- * their base and the frieze, `cream` for the crowns. Two tones will not do it,
- * and the thumbnail proves it both ways: figures and wall both `sand` and the
- * colossi dissolve into the wall at 200 px; wall `tan` with the figures ten
- * units in front of it and the wall reads as a hole, which is the exact failure
- * the note on `palette` in `contract.ts` warns about. Three tones a step apart,
- * with the figures pushed forward until they are nearly flush, is what works.
- * The terrace is `brown` too, and that is not laziness: a forecourt in its own
- * colour drew a pale band across the foot of the model, and a pale band under a
- * pale cornice with figures between them is a mantelpiece. The cornice went the
- * same way, from `sand` to `tan` and from six units thick to three and a half —
- * one bright beam straight across the widest part out-shouts four figures
- * however well they are built.
- *
- * **What has to survive at thumbnail size**, in the order the eye should get it:
- * four seated figures side by side, hands flat on their knees, facing dead
- * ahead, filling the façade; the crown and its tall twin plumes, a fifth of
- * each figure's height, carrying the top of the silhouette; the small dark doorway dwarfed
- * between the middle two; the row of small squatting figures along the skyline;
- * and the second figure broken off at the waist.
- *
- * **The crowns.** These four wear the nemes under the double crown of Upper and
- * Lower Egypt. The pschent is a smooth bulb, and a bulb on a headcloth at this
- * scale is a lump: the head loses a third of its height and the row stops
- * reading as crowned at all. So the crown here is the plumed one — a broad
- * modius and two tall feathers splayed four degrees — which is not invented
- * either, it is what the standing Ramesses colossi of the Small Temple a hundred
- * metres north are wearing. Two blades hold a skyline; a bulb does not. It costs
- * three meshes a head and it buys a fifth of the figure. The width of the modius
- * matters as much as the plumes: at 5 units on a 13-unit headcloth it was a knob
- * with two prongs, and a torso that widens into a head that narrows into a crown
- * that narrows again is a cone — four bowling pins in a row. Everything above
- * the shoulders had to stop tapering. The nemes goes 17 to 13 and no further,
- * and the modius is 12.8 across.
- *
- * **Proportion: nothing is cropped and nothing is stretched**, which is unusual
- * enough here to state. The model is 102 wide by 105 high where the real façade
- * is about 35 m by 38 — 0.97 against 0.92, and the difference is only that the
- * hill above the frieze is cut short, because every unit given to the rock up
- * there is a unit taken off the colossi's share of the picture. As built they
- * are 70 of the 105, two thirds, against roughly 20 m of the 33 m dressed face.
- * A colossus is 21 wide on 70 tall, 0.30, against roughly 7 m on 20 m in life:
- * the one proportion slightly off, and it is off because four figures at their
- * true width plus a doorway wide enough to read do not fit inside a footprint
- * whose radius may not pass 55. The half-diagonal is 53.5 against a height of
- * 105, a ratio of 0.51 where 2.0 is the cap, so the aspect rule never came near
- * binding. What is spent instead is **count**: the frieze carries 22 baboons in
- * life and 9 here, because at two meshes each — a hunched six-sided body and a
- * head pushed out in front of it, since one mesh each is a picket fence — the
- * real number would be a third of the whole tier's budget. Also gone, for the
- * same reason: the small standing figures of Ramesses' mother, wife and children
- * beside the colossi's legs, and the relief-carved sides of the thrones.
- *
- * **Tier: `landmark`.** By the tier's own question — from how far should you be
- * able to name it — Abu Simbel answers *from the far shore of the lake*, which
- * is where every photograph is taken from. Mechanically it is the same verdict
- * as Petra, its nearest neighbour in kind: a 38 m rock façade needs the 120-unit
- * ceiling to keep the doorway small enough to be dwarfed and the baboons small
- * enough to be a frieze.
- *
- * No `realHeight`: the source list asserts none, and there is no one height to
- * assert. The colossi are 20 m, the façade about 38, and the temple is 60 m of
- * corridor and hall running the other way entirely.
+ * Colour is a four-step ramp by how much rock was cut away: `brown` raw cliff,
+ * `tan` dressed façade, `sand` figures, `cream` crowns. Tier `landmark`. No
+ * `realHeight`: the source list gives none.
  */
 
 // ---------------------------------------------------------------------------
@@ -151,21 +25,16 @@ import type { Group, Mesh, Monument, Object3D } from './contract.ts';
 
 const CLIFF_HALF = 51;
 /**
- * The back of the model, and with `CLIFF_HALF` the pair that fixes the
- * footprint: the jamb's bottom corners at (±51, -16) reach 53.45 from the axis,
- * which is what `footprint: 54` is sized to. `measure` takes the greatest
- * *horizontal* distance, so depth costs as much as width here.
+/**
+ * The back of the model. With `CLIFF_HALF` it fixes the footprint: the jamb's
+ * bottom corners at (±51, -16) reach 53.45 from the axis (`footprint: 54`).
  */
 const SLAB_BACK = -16;
 /**
- * The two planes of the dressed wall, and the most important pair of numbers in
- * the file. `WALL` is the face the colossi are carved out of and it sits only
- * six units behind their own faces, so the gaps between them are filled almost
- * flush and the row reads as one wall in high relief. It was at -3 first, ten
- * units back, and that gap turned four colossi cut from a cliff into four
- * figurines standing on a shelf — the single worst thing this model did.
- * `WALL_BACK` is the plane the doorway and the niche are cut to, and it exists
- * only so those two have somewhere to be recessed *into*.
+/**
+ * The dressed wall planes. `WALL` is the face the colossi are carved from, six
+ * units behind their faces; `WALL_BACK` is the plane the doorway and niche are
+ * recessed to.
  */
 const WALL = 1;
 const WALL_BACK = -4;
@@ -175,37 +44,23 @@ const JAMB_HALF = 2.5;
 const JAMB_X = CLIFF_HALF - JAMB_HALF;
 
 /**
- * The batter: one box tilted back about its own base, carrying the whole wall
- * from y 49 to the cornice. 6.6 degrees, which is a real pylon's slope and puts
- * the face 4.2 units further back at the cornice than at the colossi's
- * shoulders. It sat above the crowns only at first, from y 76 — and a flat panel
- * ran up behind it to the cornice, so the batter was *entirely hidden inside its
- * own wall* and the model had a device the header claimed and the geometry did
- * not do. There is no flat panel above y 52 now; the tilted box is the wall.
+/**
+ * The batter: one box tilted back about its base, carrying the wall from y 49 to
+ * the cornice. 6.6 degrees puts the face 4.2 units further back at the cornice.
  */
 const BATTER = 0.115;
 const BATTER_Y = 49;
 
 /**
- * The cornice is deliberately thin — three and a half units of a hundred and
- * five, and `tan` rather than `sand`. At six units thick and pale it stopped
- * being a moulding and became a mantelpiece: one bright slab straight across the
- * model with four figures standing under it, which is a fireplace, not a cliff.
- */
+/** The cornice is thin and `tan`: a pale thick slab reads as a mantelpiece. */
 const CORNICE_Y = 86;
 const CORNICE_TOP = 89.5;
 
 /**
- * The rock above the cornice, where the cliff gets its mass back. Each is a
- * wedge narrowing as it rises, leaning its own way, set back between 6 and 30
- * units, and no two share a width, a depth or a top: the skyline steps down from
- * left to right like a hillside. Two matched blocks at the top corners read as
- * chimneys, three upright trapezoids read as dormers, and three *tall* ones over
- * a frieze read as the towers of a castle — all three were tried. Squat is what
- * reads as hill: none of them clears the cornice by more than 18 units, which is
- * also what keeps the colossi at two thirds of the model's height. The middle
- * one is 26 deep, which is what stops the whole top reading as folded card from
- * three quarters on.
+/**
+ * The rock above the cornice. Each wedge narrows as it rises and leans its own
+ * way; no two share a width, depth or top, so the skyline steps down like a
+ * hillside. None clears the cornice by more than 18 units.
  */
 const MASSES: Array<
   [bottom: number, top: number, height: number, depth: number, x: number, z: number, lean: number]
@@ -278,9 +133,7 @@ export const abuSimbel: Monument = {
   build(ctx) {
     const { THREE, palette, box, taper } = ctx;
 
-    // Four tones of one sandstone, ordered by how much of it was cut away. The
-    // ramp is the whole thumbnail: at two tones the figures vanished into the
-    // wall, and at two tones with the wall dark the wall read as a hole.
+    // Four tones of one sandstone, ordered by how much of it was cut away.
     const rock = palette.brown; // the raw hillside: jambs, the masses, the ground
     const wall = palette.tan; // the dressed façade the figures stand out of
     const carved = palette.sand; // the figures themselves, their base, the frieze
@@ -290,8 +143,7 @@ export const abuSimbel: Monument = {
     const group = new THREE.Group();
 
     /**
-     * A block spanning `y0..y1` and `z0..z1`. The file reasons in elevations and
-     * planes rather than in centres and depths, because a façade is an elevation.
+     * A block spanning `y0..y1` and `z0..z1` (a façade is read in elevations).
      */
     const slab = (
       width: number,
@@ -308,10 +160,8 @@ export const abuSimbel: Monument = {
     };
 
     /**
-     * A hewn block that flares or narrows. `taper` only makes regular prisms, so
-     * a four-sided one carries the flare and `scale.z` sets the depth after — the
-     * trick is `moai-rapa-nui.ts`'s. Here it makes the torso, the nemes and the
-     * cavetto cornice, all three of which are trapezoids in elevation.
+     * A hewn block that flares or narrows: a four-sided `taper` with `scale.z`
+     * setting the depth afterwards (the torso, nemes and cavetto cornice).
      */
     const wedge = (
       bottom: number,
@@ -326,11 +176,8 @@ export const abuSimbel: Monument = {
     };
 
     /**
-     * Sets a piece down so its lowest point rests exactly on `floor`, whatever
-     * rotation it was given. The debris is the only thing in the file at an
-     * arbitrary angle, and eyeballing a `position.y` for a tumbled block is how a
-     * monument ends up sunk into its own terrace — `validate` fails the whole
-     * model for a tenth of a unit. This computes it instead.
+     * Sets a piece down so its lowest point rests on `floor`, whatever its
+     * rotation; used for the tumbled debris.
      */
     const restOn = (object: Object3D, floor: number): void => {
       object.updateMatrixWorld(true);
@@ -338,11 +185,7 @@ export const abuSimbel: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The terrace. Cut from the hillside and painted the same `brown`, and
-    //    that is not laziness: a forecourt in its own colour drew a pale band
-    //    right across the foot of the model, and a pale band under a pale
-    //    cornice with the figures between them is a mantelpiece. The only
-    //    horizontal the eye is allowed here is the frieze.
+    // 1. The terrace, in the cliff's own `brown` so no pale band crosses the foot.
     // -----------------------------------------------------------------------
     group.add(slab(TERRACE_HALF * 2, 0, TERRACE_TOP, SLAB_BACK, TERRACE_FRONT, rock));
 
@@ -351,44 +194,34 @@ export const abuSimbel: Monument = {
     //    left between them, one tilted face carrying the wall to the cornice,
     //    two jamb wedges, and the rock that spreads over the top.
     // -----------------------------------------------------------------------
-    // The back slab stops short of the jambs on both sides, so the jamb wedges —
-    // not a rectangle behind them — are what the model's outline is made of.
-    // It is also the rock the doorway and the niche are seen against, and the
-    // two front panels leave the seven-unit slot between them that they live in.
+    // The back slab stops short of the jambs so the jamb wedges form the outline;
+    // the two front panels leave the seven-unit doorway slot between them.
     group.add(slab(96, 0, CORNICE_Y, SLAB_BACK, WALL_BACK, rock));
-    // Each panel's inner end stands 0.2 into the doorway slot, at 3.3: at 3.5
-    // it shared the inner throne's side in another colour, and the figure's
-    // carved pieces stand at 3.4 and 3.6, so 3.3 is the nearest plane clear
-    // of all three by `PROUD`.
+    // Each panel's inner end stands 0.2 into the slot, at 3.3: the nearest plane
+    // clear by `PROUD` of the inner throne's side and its carved pieces (3.4, 3.6).
     const PANEL_IN = 0.2;
     for (const side of [-1, 1]) {
       group.add(slab(44.5 + PANEL_IN, 0, 52, WALL_BACK, WALL, wall, side * (25.75 - PANEL_IN / 2)));
     }
 
-    // A jamb is one wedge, not a stack of courses: it narrows 5.4 to 3.6 and
-    // shallows 20 to 13 over its 88 units, so the cliff leans back and closes in
-    // at the same rate the face above the crowns does.
+    // A jamb is one wedge: it narrows 5.4 to 3.6 and shallows 20 to 13 over 88 units.
     for (const side of [-1, 1]) {
       const jamb = wedge(5.4, 3.6, CORNICE_Y, 20, rock);
       jamb.position.set(side * (CLIFF_HALF - 2.7), 0, -6);
       group.add(jamb);
     }
 
-    // The batter. `box` stands on its base, so rotating about X tips the top
-    // back and leaves the foot where it was. It starts three units below the top
-    // of the wall panels, so no seam opens at the join, and it stops 1.4 short of
-    // the cornice's top edge, so the cornice hides its sawn end. It is also what
-    // closes the doorway slot above the niche: full width, no extra mesh.
+    // The batter. `box` stands on its base, so rotating about X tips the top back.
+    // It starts three units below the wall panels' top (no seam) and stops 1.4
+    // short of the cornice's top edge (the cornice hides the end). It also closes
+    // the doorway slot above the niche.
     const face = box(JAMB_X * 2 - JAMB_HALF * 2, 39, 6, wall);
     face.position.set(0, BATTER_Y, -2);
     face.rotation.x = -BATTER;
     group.add(face);
 
-    // The cavetto cornice: one wedge flaring outward as it rises, which is the
-    // Egyptian profile. Narrower than the cliff so the jambs pass it at the
-    // ends, three and a half units thin, and `tan` rather than `sand` — a pale
-    // beam straight across the widest part of the model out-shouts four figures
-    // no matter how well they are built.
+    // The cavetto cornice: one wedge flaring outward as it rises, narrower than
+    // the cliff so the jambs pass it at the ends.
     const cornice = wedge(90, 96, CORNICE_TOP - CORNICE_Y, 6, wall);
     cornice.position.set(0, CORNICE_Y, 0);
     group.add(cornice);
@@ -408,14 +241,12 @@ export const abuSimbel: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 4. The doorway, and Ra-Horakhty in his niche above it. Both are voids by
-    //    arrangement: the two inner thrones are the jambs, the lintel is the
-    //    head, and what shows between them is a dark panel standing a unit proud
-    //    of the cliff and seven units behind the thrones' fronts.
+    // -----------------------------------------------------------------------
+    // 4. The doorway, and Ra-Horakhty in his niche above it: the inner thrones
+    //    are the jambs, the lintel the head, and a dark panel stands between.
     // -----------------------------------------------------------------------
     group.add(slab(6, TERRACE_TOP, 28, WALL_BACK, WALL_BACK + 1.5, dark));
-    // The lintel stands `PROUD` out of the panels' faces, front and back, now
-    // that their ends reach into the slot beside it.
+    // The lintel stands `PROUD` out of the panels' faces, front and back.
     group.add(slab(9, 28, 32.5, WALL_BACK - PROUD, WALL + PROUD, carved));
 
     // Three meshes, and they are what stops the strip between the middle two
@@ -427,10 +258,8 @@ export const abuSimbel: Monument = {
     group.add(slab(2.4, 45.5, 48.7, -2.8, 0, carved));
 
     // -----------------------------------------------------------------------
-    // 5. The frieze of baboons along the skyline. Two meshes each — a hunched
-    //    six-sided body and a head pushed out in front of it — because one mesh
-    //    each is a picket fence, and squat matters more than tall: at 6 wide by
-    //    7 high they read as animals, at 4.4 by 9 they read as balusters.
+    // 5. The frieze of baboons along the skyline: two meshes each, a hunched
+    //    six-sided body and a forward head.
     // -----------------------------------------------------------------------
     for (let i = 0; i < BABOONS; i++) {
       const baboon = new THREE.Group();
@@ -438,10 +267,8 @@ export const abuSimbel: Monument = {
       body.position.z = 0.4;
       baboon.add(body);
       baboon.add(slab(3.2, 3.8, 7.2, 0.2, 3.8, carved));
-      // Nine identical blocks at an even pitch are crenellations, and the whole
-      // model came out a castle gatehouse. The step is the golden angle, so no
-      // two neighbours land near the same height and the row never falls into a
-      // pattern; `Math.random` is out, the loader builds twice and compares.
+      // The step is the golden angle so neighbours never land at similar heights
+      // (no `Math.random`: the loader builds twice and compares).
       baboon.scale.y = 1 + 0.11 * Math.sin(i * 2.39996);
       baboon.rotation.y = 0.09 * Math.sin(i * 2.39996 + 1.7);
       baboon.position.set((i - (BABOONS - 1) / 2) * BABOON_PITCH, CORNICE_TOP, 0);
@@ -449,9 +276,7 @@ export const abuSimbel: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 6. The colossus. Built once, placed four times, identical every time:
-    //    these four are machine-regular and that regularity is half the subject,
-    //    so unlike the moai there is no per-figure wobble here at all.
+    // 6. The colossus, built once and placed four times (no per-figure wobble).
     // -----------------------------------------------------------------------
     const colossus = (fallen: boolean): Group => {
       const figure = new THREE.Group();
@@ -461,9 +286,7 @@ export const abuSimbel: Monument = {
       figure.add(slab(19, SEAT - 5, SEAT, -3, KNEE_Z, carved));
       for (const side of [-1, 1]) {
         figure.add(slab(7.2, 0, SHIN_TOP, 4.5, KNEE_Z, carved, side * 4.2));
-        // Forearm along the outside of the thigh; hand flat on the knee and
-        // wider than the arm that carries it — that overhang is what makes it a
-        // hand rather than the end of a stick.
+        // Forearm along the thigh; the hand is wider than the arm so it reads as a hand.
         figure.add(slab(3.6, SEAT, SEAT + 3.8, -1, KNEE_Z, carved, side * 8.8));
         figure.add(slab(4.8, SEAT, SEAT + 2.8, KNEE_Z - 5, KNEE_Z + 0.3, carved, side * 8.2));
       }
@@ -477,11 +300,7 @@ export const abuSimbel: Monument = {
         figure.add(shear);
 
         // --- what is lying at its feet, on its own base ---
-        // The head, face and all, still in its nemes: one group, so the two
-        // pieces tumble together. It leans back against the statue's own shins
-        // with the face turned up, which is how it lies in the photographs and,
-        // more to the point, the only attitude in which a 17-unit block of
-        // sandstone still reads as a head — laid flat it is a slab.
+        // The head in its nemes, one group, leaning back against the shins face up.
         const head = new THREE.Group();
         head.add(wedge(17, 13, 14, 10, carved));
         head.add(slab(7, 3, 13.5, 3.6, 7, carved));
@@ -529,27 +348,17 @@ export const abuSimbel: Monument = {
         figure.add(slab(3.6, SEAT, SHOULDER, -2, 4.5, carved, side * 8.6));
       }
 
-      // The nemes is one wedge — the headcloth and both its lappets in a single
-      // solid — 17 wide over shoulders 18 wide, and it must *barely* narrow, 17
-      // to 13. At 16 down to 8.5 the head came to a point, and a torso that
-      // widens into a head that narrows into a crown that narrows again is a
-      // cone: four bowling pins in a row. Egyptian nemes hardly tapers, and that
-      // is the whole reason the head reads as a head.
+      // The nemes is one wedge (headcloth and lappets), 17 wide over 18-wide
+      // shoulders, narrowing only to 13 so the head does not read as a cone.
       const nemes = wedge(17, 13, NEMES_TOP - NEMES_BOTTOM, 10, carved);
       nemes.position.set(0, NEMES_BOTTOM, 0);
       figure.add(nemes);
 
-      // The face stands proud of the cloth that frames it, the beard proud of
-      // the face, and the eyes proud of that — the depth cascade from
-      // `moai-rapa-nui.ts`, the only way a feature reads when the whole head is
-      // one colour. Egyptian statues wear a painted cosmetic line, so here the
-      // eye comes forward as a bar instead of sinking back as a socket.
+      // Face proud of the cloth, beard proud of the face, eyes proud of that: the
+      // depth cascade from `moai-rapa-nui.ts`. The eye is a bar, not a socket.
       figure.add(slab(7, 43.5, 55, 3.4, 7, carved));
       figure.add(slab(2.6, 36.5, 44, 4.6, 7.6, carved));
-      // The two lappets of the headcloth, falling out of the wedge onto the
-      // chest either side of the beard. They are the only thing between the
-      // shoulders and the jaw, and without them the torso is a blank panel and
-      // the head sits on it like a hat on a box.
+      // The headcloth's two lappets fall onto the chest either side of the beard.
       for (const side of [-1, 1]) {
         figure.add(slab(3.4, 36, 47, 3.5, 6.5, carved, side * 5.5));
       }
@@ -557,9 +366,7 @@ export const abuSimbel: Monument = {
         figure.add(slab(1.8, 49.5, 51, 6.5, 7.4, dark, side * 2.1));
       }
 
-      // A broad drum almost as wide as the nemes it sits on. At 5 units against
-      // a 13-unit headcloth it was a knob with two prongs on it, and four heads
-      // in a row came out as rabbits.
+      // A broad modius almost as wide as the nemes (12.8 across).
       const crown = taper(6.4, 5.6, CROWN_TOP - NEMES_TOP, regalia, 8);
       crown.position.set(0, NEMES_TOP, 0);
       figure.add(crown);

@@ -1,18 +1,11 @@
 /**
  * The four Galilean moons in Jupiter's sky, for `SkySpec.moons`.
  *
- * Radii, distances and periods are JPL's; the inclinations are to Jupiter's
- * equator. The epochs are Meeus's mean longitudes at J2000 (*Astronomical
- * Algorithms*, ch. 44), less 157.8 degrees, the ecliptic longitude of
- * Jupiter's equinox (`poleOf`), so Io, Europa, Ganymede and Callisto stand
- * where they really stand, to a few degrees, on any date. The periods are
- * Meeus's rates turned round, so the two agree.
- *
- * From the cloud tops Io is 0.59 degrees across overhead and 0.50 on the
- * horizon — a little larger than the Moon from Earth — Europa 0.31 and 0.27,
- * Ganymede 0.31 and 0.28, Callisto 0.15: four moons, three of them the
- * Moon's size, going round faster than the sky turns under them, with
- * phases.
+ * Radii, distances and periods are JPL's; inclinations are to Jupiter's
+ * equator. The epochs are Meeus's mean longitudes at J2000 (Astronomical
+ * Algorithms, ch. 44), less 157.8 degrees, the ecliptic longitude of Jupiter's
+ * equinox (`poleOf`), so the moons stand where they really stand, to a few
+ * degrees. The periods are Meeus's rates turned round, so the two agree.
  */
 
 import { PALETTE } from '../../../theme.ts';

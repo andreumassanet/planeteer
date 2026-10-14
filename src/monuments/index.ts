@@ -18,61 +18,27 @@ export type { Group, Mesh, Object3D, Vector3 } from './contract.ts';
 /**
  * The registry.
  *
- * **Adding a monument is one file and nothing else.** Drop `taj-mahal.ts` into
- * this folder exporting a `Monument`, and it is in the world. No line to add
- * here, which matters because the monuments are written
- * independently of each other: a registry every file has to append to is a
- * registry every change collides in, and a monument that builds perfectly but
- * was never registered is the one failure nobody notices.
+ * Adding a monument is one file: drop `<id>.ts` (kebab-case) into this folder
+ * exporting a `Monument`, and it is in the world. Anything that exports no
+ * `Monument` lands in `SKIPPED`.
  *
- * The cost of the magic is that a file can go missing silently, so it does not:
- * anything in this folder that exports no `Monument` lands in `SKIPPED`.
- *
- * Adding one, end to end:
- *
- * 1. Create `src/monuments/<id>.ts`, named after the kebab-case id.
- * 2. Import from `./contract.ts` and from nowhere else: the `Monument` type,
- *    plus whichever of `MonumentContext`, `Group`, `Mesh`, `Object3D` and
- *    `Vector3` you need to annotate your own helpers. Export exactly one `const`
- *    typed `Monument`. **There is no `THREE` namespace in a monument file** —
- *    `ctx.THREE` is a value, not a namespace, so `: THREE.Group` will not
- *    compile. Write `: Group` and import the type.
- * 3. Take `iso`, `lat`, `lon` and the height from `scripts/monuments.source.json`
- *    — it is the placement authority and this file must agree with it. Where it
- *    has no `height`, **leave `realHeight` out**: it is optional, over half the
- *    list has none, and inventing one to fill the field is inventing a fact.
- * 4. `build(ctx)` returns a `Group` made only from `ctx` helpers and
- *    `ctx.palette` colours, facing +Z, based at y = 0, inside `footprint`.
- *    Anything that will sit in a recess, a courtyard, a doorway or behind
- *    columns wants a **warm** palette entry: read the note on `palette` in
- *    `contract.ts` for why a `bone` interior comes back reading as a hole, and
- *    why the white you want is `white`, not `bone`.
- * 5. Work out `halfDiagonal / height` before you plan anything: it must be 2 or
- *    under, and it is a half-*diagonal*, so an ordinary rectangular building can
- *    fail it. If the thing is over — a bridge, a wall, a cliff, a temple —
- *    crop to a representative section and **exaggerate the vertical** until it
- *    sits just under `MAX_ASPECT`, as the Golden Gate does at 2.3x. If instead
- *    it is too flat to read at its tier, squeeze the plan, as Stonehenge does at
- *    2:1. Read the note beside `MAX_ASPECT` in `contract.ts` before deciding,
- *    and put the numbers you chose in your file.
- * 6. Passing `validate` means it passes *mechanically*, and that is all it
- *    means: `validate` measures a bounding box, so a stick with a crossbar
- *    passes every check there is. The real gate is how it reads at thumbnail
- *    size. Name the thing from it without a caption, and put it beside the
- *    Eiffel Tower, the Colosseum and Christ the Redeemer — **if yours is
- *    visibly barer than those three, it is not done.**
- *    Chunky and readable beats detailed, because the ink does the drawing; bare
- *    is a different thing from chunky, and it is what underspending looks like.
- *
- *    Optional, and meant to stay optional: a small throwaway z-buffered
- *    software rasterizer — `main.ts`'s four-step ramp and light rig, a couple
- *    of hundred lines — renders one monument at true thumbnail size. It has
- *    changed real decisions: the Petronas piers went from `bone` to `white`
- *    because at that size the eight-pointed plan dissolved into one dark slab,
- *    and Hagia Sophia's buttresses were rebuilt after it showed them reading as
- *    free-standing posts. It is a heavy tool for a small question. Reach for it
- *    when you cannot tell what a shape is doing at 260 pixels — not as a
- *    ritual.
+ * A monument file:
+ * 1. Imports from `./contract.ts` only: the `Monument` type, plus whichever of
+ *    `MonumentContext`, `Group`, `Mesh`, `Object3D` and `Vector3` it needs to
+ *    annotate helpers. It exports one `const` typed `Monument`. There is no `THREE`
+ *    namespace (`ctx.THREE` is a value), so annotate with `Group` and import the type.
+ * 2. Takes `iso`, `lat`, `lon` and the height from `scripts/monuments.source.json`,
+ *    the placement authority. Where the source has no `height`, leave `realHeight` out.
+ * 3. Builds in `build(ctx)` a `Group` made only from `ctx` helpers and `ctx.palette`
+ *    colours, facing +Z, based at y = 0, inside `footprint`. Anything in a recess,
+ *    courtyard or doorway wants a warm palette entry (see `palette` in
+ *    `contract.ts`).
+ * 4. Keeps `halfDiagonal / height` at 2 or under (see `MAX_ASPECT`): crop a long
+ *    thing to a representative section and exaggerate the vertical, or squeeze the
+ *    plan of a flat one.
+ * 5. Passes `validate`, which only measures a bounding box; the real test is how it
+ *    reads at thumbnail size, beside the Eiffel Tower, the Colosseum and Christ the
+ *    Redeemer.
  */
 const MODULES = import.meta.glob<Record<string, unknown>>(
   ['./*.ts', '!./contract.ts', '!./index.ts'],
@@ -111,13 +77,11 @@ for (const path of Object.keys(MODULES).sort()) {
   for (const monument of found) {
     const previous = seen.get(monument.id);
     if (previous !== undefined) {
-      // Two monuments answering to one id means `buildMonument` silently returns
-      // the wrong building. Better to refuse to start.
+      // A duplicate id would make `buildMonument` return the wrong building.
       throw new Error(`duplicate monument id '${monument.id}' in ${previous} and ${path}`);
     }
     seen.set(monument.id, path);
-    // The folder is browsed by hand as often as it is imported; keep the name on
-    // the tin.
+    // The file name must match the id.
     if (!path.endsWith(`/${monument.id}.ts`)) {
       REGISTRY_PROBLEMS.push(`${path} holds '${monument.id}' — the file should be ${monument.id}.ts`);
     }
@@ -132,14 +96,7 @@ export function monument(id: string): Monument | undefined {
   return MONUMENTS.find((entry) => entry.id === id);
 }
 
-/**
- * Builds a monument, or refuses to.
- *
- * The contract is only worth having if something enforces it, and this is the
- * something: a group that fails `validate` never reaches the planet. Throwing
- * beats warning because a monument that floats twelve units above the ground is
- * not a degraded monument, it is a bug that survives to the screenshot.
- */
+/** Builds a monument and throws if the group fails `validate`. */
 export function buildMonument(id: string, ctx: MonumentContext): THREE.Group {
   const entry = monument(id);
   if (!entry) throw new Error(`no monument '${id}'`);

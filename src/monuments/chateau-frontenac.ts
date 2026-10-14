@@ -4,123 +4,28 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * The Château Frontenac — Quebec City, Quebec.
  *
- * **Why Quebec:** Canada had two pins and both were in southern Ontario. The CN
- * Tower at 43.64 N and Niagara Falls at 43.08 N, 120 km apart, and then nothing
- * — no Quebec, no Maritimes, no prairies, no Rockies, no British Columbia, no
- * Arctic — across the second-largest country on the planet. The Frontenac stands
- * on the cliff above the St Lawrence, it is the most photographed hotel on
- * Earth, and it is a **building type this world does not have**: a railway hotel
- * of 1893 pretending to be a castle. Neuschwanstein is a castle. The difference
- * between them is the roofs, and that is what this file spends its budget on.
+ * A railway hotel of 1893 built as a castle: a mass of `clay` brick under a
+ * forest of steep `green` copper roofs (pitches 45 to 55 degrees), one tower
+ * twice as high as anything around it, turrets, dormers and chimneys. Half-
+ * diagonal over height is 0.76 (radius 30.2, height 39.9): no vertical stretch;
+ * the plan is squeezed about 10% (46 by 41) so the roofs read as a crowd.
  *
- * ---------------------------------------------------------------------------
- * The recognised view, and the one crop
- * ---------------------------------------------------------------------------
+ * The central tower is pulled into the plane of the riverfront (0.6 units of
+ * projection past it). Left at z = 0 it would need to clear 24.5 + 0.238 x 13 =
+ * 27.6 at the 13.4-degree camera, and its 29.0 shaft would show only 1.4 units.
  *
- * From the Lévis ferry, or from the Lower Town looking up: a mass of red-brown
- * brick under a **forest of steep green copper roofs**, with one tower standing
- * twice as high as anything around it, dormers all over the slopes, turrets on
- * the corners, and chimneys through the ridges. Six things, and the model builds
- * all six.
+ * `green`, not `olive`: halved (a surface turned from the sun), `green` is
+ * still a roof (72,86,60) and `olive` a murky yellow (85,87,21). Five colours:
+ * `clay` brick, `tan` stone, `green` copper, `bark` windows, `gold` on two
+ * finials. There is one repeating feature per surface so nothing forms a grid:
+ * a row of tall uneven `bark` slots on the walls, no storey bands, and eight
+ * dormers of different widths over four slopes plus two cross-gables. Every
+ * drum and cone is eight-sided (a copper roof should look manufactured).
  *
- * The proportion, worked before anything was planned: the built footprint is
- * roughly 100 by 90 m and the central tower is 79 m, so the true
- * `halfDiagonal / height` is 67 / 79 = **0.85**. The Frontenac is one of the few
- * landmarks in this folder that fits the 2.0 cap as it stands — **no vertical
- * stretch, none needed.** The plan is squeezed about 10% all the same (39.9
- * units for 79 m is 0.505 units per metre, so true would be 50 by 45 and it is
- * built at 46 by 41), for exactly the reason Neuschwanstein squeezed its own by
- * 17%: what is being named here is a *crowd of roofs*, and at true spacing the
- * crowd spreads into a terrace of houses. Measured on the built model: radius
- * 30.2 against height 39.9, `halfDiagonal / height` = **0.76**.
- *
- * ---------------------------------------------------------------------------
- * How far forward the tower goes, which is the one decision that had a number
- * ---------------------------------------------------------------------------
- *
- * In life the central tower rises from the middle of the block, behind the wing
- * that faces the river. Seen in three-quarter view from 13.4 degrees up,
- * so a ridge of height `h` hides everything below `h + 0.238 d` at depth `d`
- * behind it. The riverfront ridge is 24.5 at z = 13; a tower left in the middle
- * of the courtyard at z = 0 would need to clear `24.5 + 0.238 x 13 = 27.6`, and
- * its shaft finishes at 29.0 — **1.4 units of a 26.6-unit shaft would have been
- * visible, 5% of it.** The tower would have read as a roof with a hat on.
- *
- * So the tower is pulled into the plane of the riverfront and given its own 0.6
- * units of projection past it, which is the same move a château makes with a
- * central pavilion anyway. Nothing is lost that a photograph does not already
- * lose: every picture taken from the river shows the tower rising *out of* the
- * front, because the front is what is between you and it.
- *
- * ---------------------------------------------------------------------------
- * Green, not olive
- * ---------------------------------------------------------------------------
- *
- * The palette holds two greens and the choice is not a toss-up. Against `clay`
- * brick (179, 109, 69) they have almost the same value — `green` computes to 159
- * luminance and `olive` to 158 — so the whole difference is hue and saturation,
- * and it lands in the shade. Halve them, which is what a surface turned from the
- * sun does here:
- *
- * ```
- * green  145,173,120  ->  72,86,60    still a green roof
- * olive  171,174, 43  ->  85,87,21    a murky dark yellow
- * ```
- *
- * Every steep roof has a shaded slope from every angle there is, so `olive`
- * would have given the model a set of dark yellow patches where its subject is.
- * `green` is also simply the more honest verdigris: copper patina is a
- * desaturated blue-green and `olive` is a saturated yellow-green, which reads as
- * lichen. Five colours in total — `clay` brick, `tan` stone, `green` copper,
- * `bark` windows, and `gold` on two finials.
- *
- * ---------------------------------------------------------------------------
- * A hundred dormers would be a grid, so there are eight
- * ---------------------------------------------------------------------------
- *
- * Angel Falls' cliff learned that two regular subdivisions of one surface
- * multiply into brickwork, and a hotel is the obvious place to make that mistake
- * twice: storey bands across the walls and window bays down them, dormers evenly
- * spaced along every roof. So there is **one repeating feature per surface and
- * no more.** The walls carry a single row of tall `bark` slots running two
- * storeys, unevenly spaced, and no storey bands at all — the only horizontals
- * are the four cornices and the tower's, which are single lines, not a series.
- * The roofs carry eight dormers of seven different widths spread over four
- * different slopes, plus two projecting cross-gables that break the eaves line
- * outright. Nothing in the model repeats at a regular pitch.
- *
- * The cones follow the same reasoning from the other side. The Space Needle's
- * legs showed that `OutlineEffect` hulls every mesh, so segment count is a
- * choice about what a curve should *read* as: few joints say natural, many say
- * manufactured. Every drum and cone here is eight-sided, because a copper roof
- * is the most manufactured object in this model and should look it.
- *
- * ---------------------------------------------------------------------------
- * Ground: it carries the terrace, and it does not carry the river or the cliff
- * ---------------------------------------------------------------------------
- *
- * **The Dufferin Terrace is modelled and it is right to be.** It is a built
- * boardwalk with a balustrade running the whole river front, it is where every
- * photograph of the hotel is taken from, and a terrace is exactly the case the
- * rule is for: a plaza, a courtyard, a fort's rock, a terrace own their ground.
- * With it goes the building's own `tan` stone base course, two steps of it, so
- * the brick does not start in the dirt.
- *
- * **The cliff and the river are not modelled.** The world flattens a 90-unit pad
- * under every monument, so a cliff would be a wall standing on a lawn; and the
- * St Lawrence would be the same opaque `skyBlue` coaster Mont-Saint-Michel
- * refused, inked into a hard black rim by `OutlineEffect`. Declining to model
- * water is a decision this folder has made before and it is made again here. The
- * biome at 46.81 N, 71.21 W is `boreal` and the ground reads `#665c45`, a dark
- * olive-brown, which is a perfectly good ground for a red brick building to
- * stand on — better than any plate this file could lay under itself.
- *
- * 1,456 triangles of 2,600 and 92 meshes of 110. The mesh budget is the binding
- * one, as it should be for a building whose subject is *how many separate roofs
- * it has*.
- *
- * `realHeight` is 79 m, which is the central tower. The rest of the hotel is
- * about half that.
+ * Modelled: the Dufferin Terrace (a boardwalk with a balustrade) and a two-step
+ * `tan` base course. Not modelled: the cliff (the pad is flat) and the river (an
+ * opaque coaster inked into a rim). Budget: 1,456 triangles, 92 of 110 meshes.
+ * `realHeight` is the central tower, 79 m.
  */
 
 // ---------------------------------------------------------------------------
@@ -135,9 +40,9 @@ const TOWER_HALF = 6.0;
 const TOWER_Z = 13.6;
 
 /**
- * The eight dormers, and the reason they are written out as a table is that the
- * *irregularity* is the feature. Six different widths over four different roofs,
- * and no two gaps equal: `roof` says which slope, `at` is the position along it.
+ * The eight dormers, as a table because the irregularity is the feature: six
+ * widths over four roofs, no two gaps equal. `roof` says which slope, `at` is
+ * the position along it.
  */
 const DORMERS: { roof: 'frontLeft' | 'frontRight' | 'leftWing' | 'rightWing'; at: number; width: number }[] = [
   { roof: 'frontLeft', at: -10.2, width: 2.6 },
@@ -191,20 +96,12 @@ export const chateauFrontenac: Monument = {
 
     /**
      * A pitched roof: eaves at `eaves`, ridge `rise` above them, running along Z
-     * — or along X with `alongX`.
-     *
-     * A three-sided `column` on its side is the cheapest gable there is, 12
-     * triangles, but its pitch is fixed at 60 degrees by the prism's own
-     * geometry and every roof here wants its own angle. So the prism is built at
-     * unit size and the **mesh** carries the scale while the **pivot** carries
-     * the yaw. That order is deliberate: `T * R * S` applies the scale first, in
-     * the prism's own axes, which is where the numbers are meant. Local axes
-     * after the quarter turn about X: local x stays world x, local y becomes the
-     * run, local z becomes the height spanning -1 to +2, hence `scale.set(_, 1,
-     * _)`.
-     *
-     * Pitches here run 45 to 55 degrees. Flatten them and this stops being a
-     * château and becomes a shopping centre.
+     * or along X with `alongX`. A three-sided `column` on its side is the
+     * cheapest gable (12 triangles) but fixed at 60 degrees, so the prism is
+     * built at unit size and the mesh carries the scale while the pivot carries
+     * the yaw (T * R * S applies scale first, in the prism's axes). After the
+     * quarter turn about X: local x is world x, local y is the run, local z is
+     * the height spanning -1 to +2, hence `scale.set(_, 1, _)`.
      */
     const gable = (
       cx: number,
@@ -229,9 +126,8 @@ export const chateauFrontenac: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The Dufferin Terrace, and the stone base under the brick. The two
-    //    things in this model that own their ground — see the note above for
-    //    what deliberately does not get modelled with them.
+    // 1. The Dufferin Terrace and the stone base under the brick, the two things
+    //    here that own their ground.
     // -----------------------------------------------------------------------
     block(-18.0, 18.0, 0, BASE, 18.6, 23.4, stone);
     // The balustrade in three runs with two gaps, not one 36-unit rail: a rail
@@ -244,16 +140,12 @@ export const chateauFrontenac: Monument = {
     block(-20.4, 20.4, 1.0, BASE, -17.4, 19.6, stone);
 
     // -----------------------------------------------------------------------
-    // 2. The riverfront, in two unequal halves either side of the tower. The
-    //    left is taller than the right by a unit — a château is a pile that grew
-    //    and mirroring the two halves would say otherwise.
+    // 2. The riverfront, in two unequal halves either side of the tower (the left
+    //    a unit taller, a pile that grew).
     // -----------------------------------------------------------------------
-    // Both halves run *under* the tower to x = 5 rather than stopping at its
-    // face at 6. Two parallel faces a tenth of a unit apart is the Niagara
-    // failure — `OutlineEffect` hulls each mesh alone, so a face flush with its
-    // neighbour's loses the depth test and draws no ink at all. Everything in
-    // this model that meets another mass either overlaps it outright or stands
-    // clear of it by half a unit; nothing stops just short.
+    // Both halves run under the tower to x = 5 rather than stopping at its face
+    // at 6: a face flush with its neighbour's draws no ink. Everything that meets
+    // another mass overlaps it or stands clear by half a unit.
     //
     // [x0, x1, eaves, rise]
     const FRONT = [
@@ -269,10 +161,8 @@ export const chateauFrontenac: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 3. The wings and the back range, closing a courtyard. Every one is shorter
-    //    than the one in front of it — 24.5, 22.5, 21.0, 19.5 — so the pile
-    //    steps down away from the river, which is both true and the only way the
-    //    back of it is seen at all.
+    // 3. The wings and the back range closing a courtyard, each shorter than the
+    //    one in front (24.5, 22.5, 21.0, 19.5) so the pile steps down from the river.
     // -----------------------------------------------------------------------
     block(-20.0, -9.0, BASE, 16.0, -17.0, 8.0, brick);
     // Its cornice also ends `PROUD` short of the brick's end, both buried in
@@ -288,16 +178,13 @@ export const chateauFrontenac: Monument = {
     gable(0, -12.5, 19.8, 5.0, 14.0, 5.5, copper, true); // ridge 19.5
 
     // -----------------------------------------------------------------------
-    // 4. The central tower. Square, canted at the corners by `tan` quoins, a
-    //    heavy corbelled cornice, and a roof steeper than anything else in the
-    //    model at 55 degrees.
+    // 4. The central tower: square, `tan` quoins at the corners, a corbelled
+    //    cornice and the steepest roof in the model (55 degrees).
     // -----------------------------------------------------------------------
     block(-TOWER_HALF, TOWER_HALF, BASE, 29.0, TOWER_Z - TOWER_HALF, TOWER_Z + TOWER_HALF, brick);
 
-    // Quoins: four vertical strips standing 0.25 proud in both axes. They are
-    // vertical on purpose — the tower already carries three tall window slots,
-    // and a horizontal band added to those would have made the one grid this
-    // file is trying not to draw.
+    // Quoins: four vertical strips 0.25 proud in both axes (vertical, so they do
+    // not make a grid with the window slots).
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         block(sx * 5.45, sx * 6.25, BASE, 29.0, TOWER_Z + sz * 5.45, TOWER_Z + sz * 6.25, stone);
@@ -318,10 +205,8 @@ export const chateauFrontenac: Monument = {
     finial.position.set(0, 39.2, TOWER_Z);
     group.add(finial);
 
-    // The four bartizans at the tower's corners, corbelled out over the cornice
-    // and hugging the roof's own corner: at 5.8 from the axis their shafts stand
-    // just outside the roof's 5.32 half-width at that height, which is what makes
-    // them read as stuck to it rather than as four more chimneys.
+    // The four bartizans at the tower's corners, corbelled out over the cornice;
+    // at 5.8 from the axis their shafts stand just outside the roof's 5.32 half-width.
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         const bx = sx * 5.8;
@@ -342,12 +227,9 @@ export const chateauFrontenac: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 5. The two round corner turrets, and they are deliberately not a pair. The
-    //    big one closes the north end of the riverfront at 32.5 — the second
-    //    tallest point in the model at 33.7 with its finial, and the only thing
-    //    that keeps the tower from standing alone. The small one is 5.2 units
-    //    shorter, a unit further forward and has no finial at all, which is what
-    //    stops the front reading as symmetrical.
+    // 5. The two round corner turrets, deliberately not a pair: the big one
+    //    closes the north end at 32.5 (33.7 with its finial); the small one is
+    //    5.2 shorter, a unit further forward and has no finial.
     // -----------------------------------------------------------------------
     // [x, z, apothem, top of drum, ring height, cone height, finial]
     const TURRETS = [
@@ -355,9 +237,7 @@ export const chateauFrontenac: Monument = {
       { x: 19.5, z: 17.0, r: 2.8, drum: 19.0, cone: 7.4, gilt: false },
     ];
     for (const t of TURRETS) {
-      // The stone foot runs to the ground rather than stopping on the plinth:
-      // the turrets stand outside the plinth's own rectangle, and a drum that
-      // started at 2.4 out there would be a drum hanging in the air.
+      // The stone foot runs to the ground: the turrets stand outside the plinth.
       const foot = column(t.r + 0.3, BASE, stone, 8);
       foot.position.set(t.x, 0, t.z);
       group.add(foot);
@@ -382,11 +262,9 @@ export const chateauFrontenac: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 6. The two cross-gables: projecting bays that break the eaves line from
-    //    the ground up, which is the one roof feature that changes the *wall*
-    //    as well as the slope. Both stop just under the ridge behind them —
-    //    24.2 against 24.5, and 22.8 against 23.0 — so neither becomes the top
-    //    of its own roof.
+    // 6. The two cross-gables: projecting bays that break the eaves line from the
+    //    ground up. Both stop just under the ridge behind them (24.2 against
+    //    24.5, 22.8 against 23.0).
     // -----------------------------------------------------------------------
     block(-15.2, -11.6, BASE, 19.6, 13.0, 20.3, brick);
     gable(-13.4, 16.8, 7.0, 2.4, 19.6, 4.6, copper);
@@ -394,9 +272,8 @@ export const chateauFrontenac: Monument = {
     gable(13.5, 16.6, 7.2, 2.2, 18.4, 4.4, copper);
 
     // -----------------------------------------------------------------------
-    // 7. The dormers. A cheek of brick pushed through the slope with its own
-    //    little copper gable facing out; the back of each one buries itself in
-    //    the roof it stands on, so only the front shows.
+    // 7. The dormers: a brick cheek pushed through the slope with a copper gable
+    //    facing out, its back buried in the roof.
     // -----------------------------------------------------------------------
     for (const d of DORMERS) {
       const half = d.width / 2;
@@ -416,9 +293,7 @@ export const chateauFrontenac: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 8. Three chimneys, through three different ridges at three different
-    //    heights. They cost six meshes and they are the only thing in the model
-    //    that says the roofs are on a building somebody lives in.
+    // 8. Three chimneys, through three ridges at three heights (six meshes).
     // -----------------------------------------------------------------------
     for (const [x, z, foot, height] of [
       [-14.5, -9.0, 21.0, 5.6],
@@ -430,13 +305,10 @@ export const chateauFrontenac: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 9. The windows: one row per face, two storeys tall, and never at an even
-    //    pitch. See the note above on why there are no storey bands to cross
-    //    them with.
+    // 9. The windows: one row per face, two storeys tall, never at an even pitch.
     // -----------------------------------------------------------------------
-    // The riverfront's own wall is mostly taken by the turrets and the two
-    // projecting bays; what is left of it either side of the tower carries two
-    // slots each, which is all the bare brick there is to carry any.
+    // The riverfront wall is mostly taken by the turrets and bays; what is left
+    // either side of the tower carries two slots each.
     for (const x of [-10.4, -8.0]) {
       block(x - 0.7, x + 0.7, 5.0, 15.0, 19.0, 19.45, glass);
     }
@@ -454,12 +326,8 @@ export const chateauFrontenac: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 10. The loggia at the tower's foot, opening onto the terrace: a dark
-    //     recess with three stone piers in front of it and a cornice over. The
-    //     recess is `bark` and not a neutral for the reason set out beside
-    //     `palette` in `contract.ts` — a `bone` or `steel` void behind columns
-    //     comes back reading as a hole in the building rather than as a shadow
-    //     inside it.
+    // 10. The loggia at the tower's foot: a `bark` recess (a neutral void behind
+    //     columns reads as a hole) with three stone piers in front and a cornice.
     // -----------------------------------------------------------------------
     block(-5.2, 5.2, BASE, 8.2, 20.0, 20.5, glass);
     for (const x of [-3.6, 0, 3.6]) {

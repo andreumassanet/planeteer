@@ -1,28 +1,19 @@
 /**
- * The Selenites: the people of the Moon, **entirely invented**, named for the
- * ones H. G. Wells put in its caverns in 1901 and housed where real geology
- * says a people could be housed — the lava tubes. GRAIL's gravity maps allow
- * tubes kilometres wide under the maria, and the orbiters have photographed the
- * skylights where their roofs fell in; in the shade under the Mare
- * Tranquillitatis pit's overhang the temperature holds near 17 °C through a
- * fortnight of day and a fortnight of night (Diviner's measurement, 2022),
- * against +120 and −170 on the surface. So the Selenites live down there and come up to
- * the porch, and a town on this world is a porch.
+ * The Selenites: the people of the Moon, entirely invented, named for the ones
+ * H. G. Wells put in its caverns and housed in the lava tubes, where GRAIL's
+ * gravity maps allow tubes kilometres wide and the temperature under a skylight
+ * overhang holds near 17 C. They live down there and come up to the porch, so a
+ * town on this world is a porch.
  *
- * **The body has an argument, as the Martian's does.** A sixth of a g makes
- * every step a bound, and a bounding animal's problem is not holding itself up
- * but *landing*: so four legs and a low, wide, barrel body, for the same
- * reason the Lunar Module stood on four legs splayed wide and not on two. They
- * come up to a visitor's chest. Four eyes, two pairs: a big pair for the dark
- * of the tubes and the earthlit night, a small pair for the glare of day. A
- * frill at the back of the head, which on a world with no air to carry sound
- * is how they *hear*: they press it to the rock, and talk through the ground.
+ * Their body is built for landing: at a sixth of a g every step is a bound, so
+ * four legs and a low, wide, barrel body, coming up to a visitor's chest. Four
+ * eyes in two pairs (a big pair for the dark, a small pair for the glare of
+ * day) and a frill at the back of the head, which on a world with no air they
+ * press to the rock to hear.
  *
- * **What they make** is in their architecture: heaps of regolith over vaults,
- * which is what a real lunar habitat would be (a metre of soil stops the
- * radiation); collars round the skylights with winches over them; dishes that
- * gather earthlight in the long night; and tall lanterns, because the one
- * colour every Selenite loves is the blue of the planet hanging in their sky.
+ * Their architecture is heaps of regolith over vaults, collars round the
+ * skylights with winches over them, dishes that gather earthlight in the long
+ * night, and tall lanterns in the blue of the planet hanging in their sky.
  */
 
 import * as THREE from 'three';
@@ -56,8 +47,7 @@ export const SELENITE: Species = {
     tail: 0,
     limbR: 0.03,
   },
-  // Warm, pale, the colour of the inside of a shell: on grey ground anything
-  // grey vanishes, and a people who live in the dark have no reason to be dark.
+  // Warm, pale, the colour of the inside of a shell: anything grey vanishes on grey ground.
   hides: [PALETTE.blush, PALETTE.salmon, PALETTE.apricot, PALETTE.cream, PALETTE.sand, PALETTE.pink],
   wears: [
     { item: 'cloak', weight: 4 },
@@ -77,15 +67,12 @@ export const SELENITE: Species = {
   accents: [PALETTE.skyBlue, PALETTE.green, PALETTE.white, PALETTE.gold],
 };
 
-// ---------------------------------------------------------------------------
-// The buildings
-// ---------------------------------------------------------------------------
+// --- the buildings ---
 
 /**
- * The porch over a skylight, which is the middle of every Selenite town: a
- * collar of piled stone round a shaft into the dark, a gantry over it with the
- * winch drum, and four lanterns. The shaft is drawn as a disc of ink, which
- * is what a hole into a lava tube looks like at noon.
+ * The porch over a skylight, the middle of every Selenite town: a collar of
+ * piled stone round a shaft into the dark (drawn as a disc of ink), a gantry
+ * over it with the winch drum, and four lanterns.
  */
 const skylight: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
@@ -125,11 +112,7 @@ const skylight: BuildingBuilder = (ctx, rng, style) => {
   return { group, radius: r + 2.3 };
 };
 
-/**
- * A house: a vault heaped with regolith, a metre of it, which stops the
- * radiation a lunar day pours down. A low mound with a round window in its
- * crown, an entrance porch, and a lamp on a post by the door.
- */
+/** A house: a vault heaped with regolith (which stops radiation), a low mound with a round window in its crown, an entrance porch and a lamp by the door. */
 const mound: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
   const r = rng.range(3.6, 5.2);
@@ -161,9 +144,7 @@ const mound: BuildingBuilder = (ctx, rng, style) => {
 
 /**
  * An earthlight mirror: a dish on a tripod, turned up to catch the light of the
- * full Earth through the fortnight-long night and pour it down a pipe into the
- * tube. The full Earth is forty times brighter in their sky than the full Moon
- * is in ours, and they waste none of it.
+ * full Earth through the fortnight-long night and pour it down a pipe into the tube.
  */
 const mirror: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
@@ -217,14 +198,10 @@ const lantern: BuildingBuilder = (ctx, rng, style) => {
   return { group, radius: 2.5 };
 };
 
-// ---------------------------------------------------------------------------
-// The civilisation
-// ---------------------------------------------------------------------------
+// --- the civilisation ---
 
 export const SELENITES: Civilisation = defineCivilisation(SELENITE, {
-  // Round marks and dots, standing on a line like footprints on the ground:
-  // phases and craters, which is what a people who look up and look down
-  // every day would write with.
+  // Round marks and dots, standing on a line like footprints: phases and craters.
   script: {
     glyphs: 28,
     strokes: [1, 3],
@@ -238,8 +215,7 @@ export const SELENITES: Civilisation = defineCivilisation(SELENITE, {
     consonants: 'lmnwhyb',
     vowels: 'ouoeiu',
   },
-  // High and slow and sing-song: a small throat, and a voice carried through
-  // rock rather than air, which takes its time.
+  // High and slow and sing-song: a small throat, a voice carried through rock.
   voice: { pitch: [240, 340], pace: [3.6, 5], tract: [1.25, 1.5], wander: 0.3 },
   phrases: {
     greet: [

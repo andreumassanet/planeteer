@@ -3,71 +3,36 @@ import type { Mesh, Monument, Vector3 } from './contract.ts';
 /**
  * Eiffel Tower.
  *
- * The silhouette test is the only one that matters at a distance, and for this
- * tower it is four things: **the flared legs, the great arch under the first
- * platform, two decks, and a needle**. Up close it is a fifth, and it is the
- * one the old model had none of: **it is a lattice**. You can see through every
- * part of it, and nothing in it is a slab.
+ * Four things at a distance: the flared legs, the great arch under the first
+ * platform, two decks, and a needle. Up close it is a lattice; nothing is a slab.
  *
- * ## What is here
+ * - Four legs, each a lattice box of four chords springing from four masonry
+ *   piers (sixteen feet). A leg is 8.6 units square at the ground and 4 at the
+ *   second platform; its centre follows the tower's curve while its section
+ *   shrinks, so the outer chord sweeps in faster (the concave flare).
+ * - One X a panel on each leg's two outer faces, five panels a leg (a second
+ *   layer on the inner faces would close the lattice into a fence).
+ * - Four elliptical arches, one a face, springing from the legs' inner chords at
+ *   4.5 to the underside of the first platform.
+ * - The first platform is a ring: a frieze girder, a deck with a square void and
+ *   the gallery round its rim. The second platform has its girder, deck, gallery
+ *   and a smaller upper level where the legs have nearly closed.
+ * - The upper shaft: four chords, a cross a face in each of four panels, a belt
+ *   at each panel line, then the glazed top cabin, terrace, lantern and a white
+ *   mast.
  *
- * - **Four legs, each a lattice box of four chords** springing from four
- *   masonry piers of its own — sixteen feet in all, as there are. A leg is
- *   8.6 units square at the ground (24 m) and 4 at the second platform, and its
- *   centre follows the tower's curve while its section shrinks, so the outer
- *   chord sweeps in faster than the inner one: the concave flare, drawn by
- *   the chords rather than by a single fat strut.
- * - **One X a panel on each leg's two outer faces**, five panels a leg. Only the
- *   outer faces: the inner ones are seen through the outer ones and the arch,
- *   where a second layer of crosses would close the lattice into a fence.
- * - **The four arches**, one a face, springing from the legs' inner chords at
- *   4.5 and reaching the underside of the first platform — elliptical rather
- *   than the old flattened parabola, so the springing is steep and the crown is
- *   round, which is what the arch looks like from the Champ de Mars.
- * - **The first platform is a ring, not a slab.** A frieze girder, a deck with
- *   the square void in its middle, and the gallery round its rim. Standing
- *   under the tower you look straight up through that void into the shaft, and
- *   from the plane it is a square picture frame at a sixth of the height.
- * - **The second platform**, its girder, deck, gallery and the smaller upper
- *   level, where the four legs have nearly closed into one.
- * - **The upper shaft**: four chords, a cross a face in each of four panels,
- *   and a belt at each panel line, up to the glazed top cabin, its terrace, the
- *   lantern, and a white antenna mast.
+ * Colour: three shades of `brown` via `ctx.tone`, darkest at the foot: 0.74 legs,
+ * 0.84 between platforms, 0.94 shaft, 1.02 top; bracing a step lighter than the
+ * chords; piers `tan`; platforms the tower's own brown.
  *
- * ## The three browns
+ * Unlike `tokyo-tower.ts`: one brown, a base 45.6 wide against 31 sweeping in by
+ * half, the great arch, thin decks at 20.7 and 41.8, lattice to 100 and a short
+ * mast.
  *
- * The real tower is painted in three shades of one brown, darkest at the foot,
- * so it reads as one colour against a sky that lightens toward the horizon.
- * That is `ctx.tone` exactly: `brown` at 0.74 for the legs, 0.84 between the
- * first and second platforms, 0.94 for the shaft and 1.02 for the top. The
- * bracing is a step lighter than the chords it sits between, so each panel has
- * two tones in it and the crosses read as lighter members laid over darker
- * ones. The piers are `tan` stone. `darkOlive`, which the old decks wore, is
- * gone: the platforms are the tower's own brown.
- *
- * ## Not the Tokyo Tower
- *
- * `tokyo-tower.ts` is an avowed copy of this tower and says how it stays
- * apart; this file keeps its side of that. One brown against orange-and-white
- * bands. A base 45.6 wide against 31, sweeping in by half before the first
- * platform. The great arch, and sky under it, where Tokyo has a building. Thin
- * decks at 20.7 and 41.8, not a two-storey block at 51. Lattice to 100 and a
- * short mast, not a bare antenna over the top fifth.
- *
- * ## Scale
- *
- * The real tower's heights against 330 m, mapped onto the 120-unit `landmark`
- * tier: first platform 57 m -> 20.7, second 115 m -> 41.8, top 276 m -> 100.4.
- * Widths on the same scale: the 125 m base is 45.6, the first platform 70 m,
- * the second 40 m. Nothing is stretched.
- *
- * ## Budget
- *
- * A strut is twelve triangles and this tower is 232 of them. Everything is
- * built as ordinary pieces and drawn by `ctx.merge` as one mesh per colour — the
- * "merging them by material later is a single call" that `contract.ts` made
- * every geometry non-indexed for — so the mesh cap stops binding and the
- * triangle cap is the one that decides how much lattice there is.
+ * Scale: the real heights against 330 m on the 120-unit `landmark` tier (first
+ * platform 57 m -> 20.7, second 115 m -> 41.8, top 276 m -> 100.4; 125 m base ->
+ * 45.6). Nothing is stretched. A strut is twelve triangles and the tower is 232
+ * of them, drawn with `ctx.merge`, so the triangle cap decides the lattice.
  */
 
 interface Level {
@@ -79,9 +44,9 @@ interface Level {
 }
 
 /**
- * The profile. The legs run to the second platform (index 5); the shaft runs
- * from there to the top platform. The first row starts on the piers, not at 0:
- * a diagonal strut's section dips below its endpoint, and the piers cover it.
+ * The profile. The legs run to the second platform (index 5); the shaft runs from
+ * there to the top. The first row starts on the piers: a diagonal strut's section
+ * dips below its endpoint, and the piers cover it.
  */
 const LEVELS: Level[] = [
   { y: 2.0, w: 22.8, s: 4.3 },
@@ -214,9 +179,9 @@ export const eiffelTower: Monument = {
     }
 
     // --- the four arches, one a face -------------------------------------
-    // Built on the +Z face and turned round. Each point sits on the face's own
-    // plane, z = w(y), and between the legs' inner chords, x = w - 2s: the arch
-    // leans back with the legs rather than standing in front of them.
+    // Built on the +Z face and turned round. Each point sits on the face's plane,
+    // z = w(y), between the legs' inner chords, x = w - 2s, so the arch leans back
+    // with the legs.
     draft.add(
       around(4, () => {
         const face = new THREE.Group();

@@ -3,77 +3,27 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * Gergeti Trinity Church — Kazbegi, Georgia.
  *
- * **Why Georgia:** the Caucasus had nothing. Armenia, Azerbaijan and Georgia are
- * three countries, three alphabets and two of the oldest Christian states on
- * Earth, sitting in the gap between Turkey and Russia, and the world's landmark
- * list stepped straight over them. Tsminda Sameba stands alone at 2,170 m under
- * Kazbek, fourteenth century, and it is the picture everybody has of the country.
+ * Tsminda Sameba at 2,170 m: the shape the other domes (hemispheres) lack. A
+ * Georgian drum is a tall narrow polygonal tower on the crossing capped by a
+ * cone, with four gabled arms leaning against its foot: a spike, not a bubble.
+ * The group is the church, a free-standing bell tower (33 units of vertical
+ * whose open third stage, four posts and a cap, is the only transparency) and
+ * the enclosure wall. Kazbek is not modelled.
  *
- * **And the shape is one this world does not own.** There are three domes in the
- * list — St Peter's, Hagia Sophia and the Taj — and all three are hemispheres.
- * A Georgian drum is not: it is a tall narrow polygonal tower standing on the
- * crossing, capped by a **cone**, with the four gabled arms of the cross leaning
- * against its foot. The silhouette is a spike, not a bubble, and it is shared by
- * every church from Mtskheta to Ani and by nothing else here.
+ * Gables: a gable is a triangular prism on its side. `ctx.column(r, len, c, 3)`
+ * is equilateral (60 degrees, an alpine chalet), and squashing it needs a scale
+ * after the rotation, which T * R * S does not give. So each gable is a yaw
+ * group, a scale group inside it and the rotated prism inside that
+ * (`Ry * Sy * (T * Rx)`). An equilateral triangle of apothem `r` is 3r tall and
+ * 3.4641r wide, so a gable of width `W` and ridge `H` wants `r = W / 3.4641` and
+ * `scale.y = H / (3r)`. The arms ship at a pitch of 53 degrees.
  *
- * ---------------------------------------------------------------------------
- * The gables, and the one transform this contract cannot express directly
- * ---------------------------------------------------------------------------
+ * The model owns its wall and not its ground: inside is grass and loose rock,
+ * which the biome draws. The wall has a gap in front (a 3-unit wall hides about
+ * twelve units of ground behind it at 13.4 degrees).
  *
- * Each arm of the cross is roofed by a pitched gable, and a gable is a
- * triangular prism lying on its side. `ctx.column(r, len, c, 3)` is an
- * equilateral prism extruded along Y, so a quarter turn about X lays it down —
- * and equilateral means a 60-degree pitch, which is an alpine chalet and not a
- * Georgian church. Squashing it wants a scale applied **after** the rotation, and
- * Three composes `T * R * S`, which is the wrong way round: `scale.y` on the
- * rotated prism would flatten it along an axis that is now horizontal.
- *
- * So each gable is three objects — a yaw group, a scale group inside it, and the
- * rotated prism inside that. `Ry * Sy * (T * Rx)` is `S * R` where it matters,
- * `validate` forbids a transform only on the root group, and every determinant
- * is positive. The arithmetic that falls out is worth writing down because it is
- * not obvious: an equilateral triangle of apothem `r` is **3r tall and 3.4641r
- * wide**, so a gable of width `W` and ridge `H` wants `r = W / 3.4641` and
- * `scale.y = H / (3r)`. The four arms ship at a pitch of 53 degrees.
- *
- * ---------------------------------------------------------------------------
- * What is here, what is not, and why the bell tower is
- * ---------------------------------------------------------------------------
- *
- * The church, the free-standing bell tower and the enclosure wall. Nothing else
- * is at Gergeti and nothing else should be.
- *
- * The **bell tower** is not decoration. It is what makes the group read as a
- * monastery rather than as a chapel, it is 33 units of vertical standing well
- * clear of the church, and its top stage is *open* — four posts and a cap, with
- * sky through it — which is the only transparent thing in the model and the
- * cheapest possible contrast against the solid drum beside it.
- *
- * **Kazbek is not modelled.** The mountain behind the church is 5,054 m and 5 km
- * away, and this world already holds Everest, Fuji, Kilimanjaro and Table
- * Mountain. A peak crammed into a 33-unit footprint would be a lump behind a
- * church, and the landmark is the church.
- *
- * ---------------------------------------------------------------------------
- * It owns its wall and not its ground
- * ---------------------------------------------------------------------------
- *
- * `biomeAt` calls the ridge `boreal` and `groundColorAt` paints it `#665c45`, a
- * dark olive-brown. The enclosure wall is here and **the ground inside it is
- * not**: there is no paved court, no plinth apron and no green pad, because
- * there is no paved court at Gergeti — it is grass and loose rock inside a dry
- * stone wall, and the biome already draws grass and loose rock. A model that
- * laid its own floor here would be the Avenue of the Baobabs' green rectangle
- * with a wall round it.
- *
- * The wall has a gap in the front for the same reason the Ziggurat of Ur's
- * temenos does. Seen from 13.4 degrees up, so a 3-unit wall
- * hides about twelve units of ground behind it; leaving the gate open is both
- * true and the only way anything at the church's foot is ever seen.
- *
- * Proportion: 39.6 tall on a 31.8 half-diagonal, **0.80** against the 2.00 cap.
- * No `realHeight` — the source list carries none, and the number people quote is
- * the altitude of the ridge rather than the height of the church.
+ * 39.6 tall on a 31.8 half-diagonal (0.80). No `realHeight`: the quoted figure is
+ * the ridge's altitude.
  */
 
 /** The crossing block: half-width, and the top it carries the drum on. */
@@ -138,9 +88,9 @@ export const gergetiTrinity: Monument = {
     };
 
     /**
-     * A pitched gable, ridge running along +Z before the yaw. See the note
-     * above: an equilateral prism is 3r tall and 3.4641r wide, so the width
-     * picks `r` and the ridge height picks the scale.
+     * A pitched gable, ridge along +Z before the yaw. An equilateral prism is 3r
+     * tall and 3.4641r wide, so the width picks `r` and the ridge height picks
+     * the scale.
      */
     const gable = (
       width: number,
@@ -167,9 +117,8 @@ export const gergetiTrinity: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The plinth and the cross plan. A crossing block with four arms, and the
-    //    crossing is taller than all four so the drum has something to stand on
-    //    that the gables lean against rather than cover.
+    // 1. The plinth and the cross plan: a crossing block with four arms, taller
+    //    than all four so the gables lean against the drum's base.
     // -----------------------------------------------------------------------
     block(-13.6, 13.6, 0, 1.2, -13.6, 13.6, dry);
     block(-CROSSING, CROSSING, 1.2, CROSSING_TOP, -CROSSING, CROSSING, wall);
@@ -185,25 +134,11 @@ export const gergetiTrinity: Monument = {
       );
     }
 
-    // The four gables. Each runs the **whole** way from the middle of the
-    // crossing out to its own arm's end, so the ridge is 12.1 units long against
-    // a 10.1-unit span and reads as a ridge.
-    //
-    // The first build passed the arm's *tip* where the helper wants the run's
-    // *midpoint*, and every gable came out 7 units long, floating 3.5 units past
-    // the end of the wall it was meant to roof with a 1.5-unit gap behind it.
-    // Nothing complained: `validate` measures a bounding box, the gables were
-    // inside it, and a stubby wedge wider than it is long still looks broadly
-    // like a roof. What it actually rendered as was four little pyramids.
-    //
-    // Fixing the length was not enough on its own and the second measurement is
-    // the more useful one. With the arms reaching 11.5 and the crossing half
-    // 6.5, only **5.0 units of ridge stood clear of the crossing block against a
-    // 10.1-unit span** — a wedge wider than it is long is a hip roof whatever
-    // its cross-section is. The arms reach 14.0 now and the eaves dropped from
-    // 12.5 to 10.5, which takes the exposed ridge to 8.1 and the pitch from 42
-    // degrees to 53. The gables read as gables at 260 pixels; at 42 degrees and
-    // 5 units of ridge they read as four small domes round a big one.
+    // The four gables. Each runs the whole way from the middle of the crossing out
+    // to its arm's end (the helper wants the run's midpoint), so the ridge is 12.1
+    // long against a 10.1 span. The arms reach 14.0 and the eaves drop from 12.5
+    // to 10.5, leaving 8.1 units of ridge clear of the crossing and a 53-degree
+    // pitch (at 42 degrees and 5 units of ridge they read as small domes).
     const armLength = ARM_REACH + 0.6;
     const gableWidth = ARM_HALF * 2 + 1.0; // eaves overhang, which is what casts the shade
     const ridge = ARM_RIDGE - ARM_EAVES;
@@ -213,10 +148,8 @@ export const gergetiTrinity: Monument = {
     gable(gableWidth, ridge, armLength, half, ARM_EAVES, 0, Math.PI / 2, roof);
     gable(gableWidth, ridge, armLength, -half, ARM_EAVES, 0, -Math.PI / 2, roof);
 
-    // A blind arch on each arm's gable end, stepped 0.3 proud so it takes its
-    // own ink line. Georgian churches carve one relief cross on the south wall
-    // and nothing else; a row of windows here would be the second regular
-    // subdivision over the first and the walls would read as brick.
+    // A blind arch on each arm's gable end, stepped 0.3 proud so it takes its own
+    // ink line (one relief cross on the south wall; a row of windows would make a grid).
     for (const [x, z, yaw] of [
       [0, ARM_REACH, 0],
       [ARM_REACH, 0, Math.PI / 2],
@@ -234,13 +167,9 @@ export const gergetiTrinity: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 2. The drum. Twelve sides, a cornice that steps out over them, and a cone.
-    //
-    //    Twelve for the drum and twelve for the cone, and it is a choice about
-    //    ink rather than about geometry: a cone at 6 sides reads as a tent and at
-    //    24 as a smooth spike with no facet the cel ramp can step across. Twelve
-    //    is where the sunlit half is three bands wide, which is what makes a
-    //    small cone read as clad stone.
+    // 2. The drum. Twelve sides, a cornice that steps out over them, and a cone
+    //    (also twelve: six reads as a tent, 24 as a smooth spike; twelve gives a
+    //    sunlit half three bands wide).
     // -----------------------------------------------------------------------
     const drum = column(DRUM_R, DRUM_TOP - CROSSING_TOP - 1.1, wall, 12);
     drum.position.y = CROSSING_TOP + 1.1;
@@ -249,17 +178,10 @@ export const gergetiTrinity: Monument = {
     base.position.y = CROSSING_TOP;
     group.add(base);
 
-    // Six windows round the drum, each a surround standing proud of the wall
-    // with a dark slit standing proud of that. `around` builds at angle 0, which
-    // is +Z, and spins the copies — and it returns a group, which has to be
-    // added or the whole row is built and thrown away in silence.
-    //
-    // **Proud and not recessed, and the reason is that nothing here can cut a
-    // hole.** A dark box sunk into the drum is invisible, and `findFlaws` is
-    // right to call it buried. A Georgian drum carries its lights in projecting
-    // carved frames, so the honest version is also the one that renders: 0.55
-    // units of surround, which at this size is a frame you can see the shadow
-    // of.
+    // Six windows round the drum, each a surround proud of the wall with a dark
+    // slit proud of that (0.55 units of surround). Nothing can cut a hole, and a
+    // recessed dark box is buried. `around` builds at angle 0 (+Z) and returns a
+    // group, which has to be added.
     group.add(
       around(6, () => {
         const frame = new THREE.Group();
@@ -285,10 +207,7 @@ export const gergetiTrinity: Monument = {
     block(-1.0, 1.0, CONE_TOP + 1.5, CONE_TOP + 1.9, -0.18, 0.18, metal);
 
     // -----------------------------------------------------------------------
-    // 3. The bell tower. Three stages, and the third is open: four posts and a
-    //    cap with sky between them. It is the only transparency in the model and
-    //    it is what stops a second stone box beside the church from reading as
-    //    a buttress.
+    // 3. The bell tower: three stages, the third open (four posts and a cap).
     // -----------------------------------------------------------------------
     const tower = new THREE.Group();
     tower.position.set(TOWER_X, 0, TOWER_Z);
@@ -313,14 +232,9 @@ export const gergetiTrinity: Monument = {
         tower.add(post);
       }
     }
-    // The bell itself, hanging in the opening. A patch of dark inside a frame of
-    // light stone is what says *belfry* from a distance where the four posts are
-    // two pixels apart — and it flares downward, so the wide end of the `taper`
-    // is the first argument.
-    //
-    // It hangs from a yoke rather than from nothing. A bell suspended in mid-air
-    // is exactly what `findFlaws` calls floating, and it is right: the beam is
-    // one box and the alternative is a model with something hovering in it.
+    // The bell, hanging in the opening: dark inside light stone says belfry from a
+    // distance. It flares downward, so the wide end of the `taper` is the first
+    // argument. It hangs from a yoke (one box) or `findFlaws` calls it floating.
     const yoke = box(TOWER_R * 1.5, 0.7, 0.9, dark);
     yoke.position.y = 24.5;
     tower.add(yoke);
@@ -338,8 +252,7 @@ export const gergetiTrinity: Monument = {
     tower.add(spike);
 
     // -----------------------------------------------------------------------
-    // 4. The enclosure. Three runs and two stubs, with the gate left open in the
-    //    front — see the note above on why the wall is not closed there.
+    // 4. The enclosure: three runs and two stubs, the gate left open in front.
     // -----------------------------------------------------------------------
     for (const side of [-1, 1]) {
       block(side * YARD_X, side * (YARD_X - 1.5), 0, YARD_H, -YARD_Z, YARD_Z, dry);

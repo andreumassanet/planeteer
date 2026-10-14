@@ -3,48 +3,32 @@ import type { Group, Monument, Vector3 } from './contract.ts';
 /**
  * Bayterek Tower — Astana.
  *
- * Built when the capital of Kazakhstan moved from Almaty to Astana, and drawn
- * after a legend: the tree of life, a tall poplar (*bayterek*), in whose crown
- * the bird Samruk lays a golden egg. The whole silhouette is that sentence — a
- * white trunk that narrows, a crown that opens like a basket, and a golden ball
- * held in it. Nothing else on the planet has that outline, so nothing here
- * spends geometry on anything but those three masses.
+ * Drawn after the legend of the tree of life, a poplar in whose crown the bird
+ * Samruk lays a golden egg: a white trunk that narrows, a crown that opens like a
+ * basket, and a golden ball held in it. Nothing else is spent on anything but
+ * those three masses.
  *
- * ## Scale
+ * Scale: 105 m to the top of the sphere on the `tower` tier's 70 units (0.667 units
+ * a metre). The sphere is drawn 15.9 across (radius 7.95), 8% large, so the ball
+ * survives the basket round it at thumbnail size; its centre is at 62, its top at
+ * 69.95. The widest part is the terrace at 14.3 from the axis.
  *
- * 105 m to the top of the sphere, on the `tower` tier's 70 units: 0.667 units a
- * metre. The sphere is 22 m across in life, so 14.7 units; it is drawn 15.9
- * (radius 7.95), **8% large**, because at thumbnail size the ball is the thing
- * the eye names and the white basket round it eats into its edge. Its centre
- * is at 62, which puts its top at 69.95, a hair under the tier.
+ * Eight white ribs, not the real many thinner members: every joint is an ink line
+ * and sixteen would grey out into one pale column.
+ * - The trunk is five struts a rib, flaring at the foot and narrowest about half
+ *   way up, bound by three rings.
+ * - The crown forks every rib into a V at 48 units and joins each branch to its
+ *   neighbour's, twice over, giving a row of diamonds closing in tips round the
+ *   sphere's upper half. The tips stand 0.7 off the glass.
+ * - The core is the lift shaft inside the lattice, a step darker than the ribs so
+ *   the gaps read as depth.
  *
- * Aspect is nothing to worry about: the widest part is the terrace at 14.3
- * units from the axis, 0.20 of the height on the half-diagonal test.
- *
- * ## The lattice
- *
- * Eight white ribs, not the real tower's many thinner members: every rib is a
- * chain of `strut`s and every joint is an ink line, so a bundle of sixteen at
- * this size would grey out into one pale column. Eight stay countable from the
- * front, which is what makes it read as a lattice rather than a pole.
- *
- * - **The trunk** is five struts a rib, flaring at the foot and narrowest about
- *   half way up, bound by three rings that give the white some ink to hold on
- *   to.
- * - **The crown** forks every rib into a V at 48 units and joins each branch to
- *   its neighbour's, twice over, so the basket is a row of diamonds closing in
- *   pointed tips round the sphere's upper half — the shape every photograph of
- *   it has. The tips stand 0.7 units off the glass, so the struts read as
- *   holding the ball rather than piercing it.
- * - **The core** is the lift shaft inside the lattice, a step darker than the
- *   ribs so the gaps between them read as depth and not as sky.
- *
- * Everything is built as pieces and handed back through `ctx.merge`: about a
- * hundred struts would be a hundred meshes against the tier's 80.
+ * Everything is built as pieces and handed back through `ctx.merge`: about a hundred
+ * struts would be a hundred meshes against the tier's 80.
  */
 
 const TOP = 69.95;
-/** Sphere: centre and radius. See the scale note for the 8%. */
+/** Sphere: centre and radius (the radius is 8% over life, see the header). */
 const BALL_R = 7.95;
 const BALL_Y = TOP - BALL_R; // 62.0
 const BALL_SIDES = 12;

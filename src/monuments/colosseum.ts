@@ -4,106 +4,52 @@ import { PROUD } from './contract.ts';
 /**
  * Colosseum.
  *
- * Three things name it from across Rome, and a fourth rewards walking up to it:
+ * Read from across Rome by:
+ * 1. Four storeys, the top one blind: three tiers of arches (Doric, Ionic,
+ *    Corinthian) under a solid attic pierced by small square windows, a quarter
+ *    of the wall's height (10.8 of 38.9). The piers run up it as pilasters.
+ * 2. One side gone: the outer ring stands for 13 bays of 32 across the north
+ *    (146 degrees); elsewhere the inner ring, two storeys of arcade, steps up
+ *    toward the two ends where the outer wall breaks off.
+ * 3. Two `clay` brick buttresses at the break: Stern's (east) a single sloping
+ *    wedge, Valadier's (west) stepping down over three bays.
+ * 4. Inside, a bowl of seats round an open hypogeum: the arena floor over the
+ *    whole oval, a timber deck over the east end, over the rest a sunken grid of
+ *    pale stone corridors (a long central gallery, two more either side, cross
+ *    walls, and the curved service corridor), then the podium wall with its
+ *    terrace and the cavea in steps (two ranks of the first maenianum, the
+ *    balteus, the second maenianum) under the tall brick back wall, with
+ *    vomitoria as dark doorways in the balteus and a gate at each end.
  *
- * 1. **Four storeys, and the top one is blind.** Three tiers of arches under a
- *    solid attic pierced by small square windows. Without the attic it is any
- *    arena; the attic is a quarter of the wall's height (10.8 of 38.9 here, as
- *    in life) and it is what makes the wall look *tall*. The piers run up it as
- *    pilasters and stop under a plain top course, so the crown is one line.
- * 2. **One side is gone.** The outer ring stands for 13 bays of 32 across the
- *    north — 146 degrees, the two fifths of the ring that survive in life — and
- *    everywhere else the building is its inner ring, two storeys of arcade half
- *    the height, stepping up toward the two ends where the outer wall breaks
- *    off. That drop is the whole silhouette: a complete ring reads as a stadium,
- *    or a gasometer.
- * 3. **The two buttresses that hold the break.** Stern's (1807) at the east end
- *    is a single sloping wedge of brick; Valadier's (the 1820s) at the west end
- *    steps down in brick over three bays. Both are `clay` against the
- *    travertine, which is exactly what they are in every photograph: the only
- *    red on the building.
- * 4. **From the air and from the arena: a bowl of seats round an open
- *    hypogeum.** The arena has a floor of its own over the whole oval, so
- *    nothing of the ground shows inside the walls: the restored timber deck
- *    over the east end, and over the rest the hypogeum laid open, a sunken
- *    grid of pale stone corridors — the long central gallery down the major
- *    axis, two more galleries either side of it, cross walls cutting them into
- *    cells, and the curved service corridor left between the walls' ends and
- *    the podium. Round it the podium wall with its terrace, then the cavea in
- *    steps — two ranks of the first maenianum, the balteus wall, the second
- *    maenianum — under the tall brick back wall, with the vomitoria opening
- *    as dark doorways in the balteus and a gate at each end of the long
- *    axis. Seats, not plain rings, are what make the bowl read as an
- *    amphitheatre from the plane.
+ * A bay is two and a half real ones (32 round the ring, 13 standing): 80 arches
+ * on three tiers would be 2,880 triangles of piers alone. At 32 bays an opening
+ * is 5.6 wide by 7.8 (1.4 : 1 against 1.7 : 1). An arch head is a diamond: a
+ * box turned 45 degrees about its depth, centred on the pier, whose lower flanks
+ * chamfer the openings either side; the band above cuts it off 1.5 up, leaving
+ * a flat 2.5 crown. 12 triangles a head, and no buried arc drawn across the
+ * opening. The diamond's face is flush with the pier's, so only its flanks are
+ * inked.
  *
- * ## The arches, and what 2,600 triangles buy
+ * Everything is built as ordinary pieces and drawn with `ctx.merge`, one mesh
+ * per colour (the 56 arcade piers and heads are one draw call).
  *
- * The real building has 80 arches a ring, and **the triangle cap rules that out
- * before the mesh cap is even asked**: a box is 12 triangles, the cheapest closed
- * solid the helpers make, and 80 openings on three tiers is 240 piers — 2,880
- * triangles for the piers alone. So a bay here is two and a half real ones: 32
- * round the ring, 13 of them standing. The count was set by the budget and the
- * arch proportion together. At 32 bays an opening is 5.6 wide and 7.8 to its
- * crown, 1.4 : 1 against the real 1.7 : 1; at 24 it would be 1.1 : 1, which is
- * a doorway, not an arch.
+ * Scale: built as a circle and squashed once (`OVAL`), an ellipse 100 by 83 at
+ * the outer piers and 38.9 to the attic top, vertical 1.5x the plan. The long
+ * axis is X; `placement.ts` turns +Z to north and +X to west, so the standing
+ * arc is on +Z, Stern's buttress at -X and Valadier's at +X.
  *
- * **An arch head is a diamond.** There is no helper that cuts a round hole, so
- * each opening is the gap between two piers, and its head is made by what
- * stands *over the piers*: a box turned 45 degrees about its own depth, centred
- * on the pier, whose two lower flanks rise from the pier's corners at the
- * springing line and chamfer the top corners of the openings either side. The
- * band above cuts the chamfers off 1.5 units up, so each opening ends in a flat
- * crown 2.5 wide with its corners cut — a round arch drawn in five strokes, and
- * at the size the model is read from, a round arch. The diamond's face is flush
- * with the pier's and its upper half falls inside the next storey's pier, so
- * both of those are coplanar and the ink draws neither; the only lines it adds
- * are the two flanks. It costs 12 triangles a head, where a laid prism wants 24
- * and draws its buried lower arc straight across the opening (the wheels
- * `ctx.column` warns about).
+ * Colour: `sand` travertine, toned down for the entablatures and further for the
+ * attic; `clay` brick (buttresses, blocked arches, the cavea's back wall);
+ * `bark` attic windows, vomitoria and gates. Arches look into brick core at 0.6
+ * (a neutral reads as sky). The cavea alternates travertine and brick by rank;
+ * the hypogeum is travertine walls over the same stone in shade (`sand` 0.74),
+ * never brick; the deck is `apricot` toned down.
  *
- * **One mesh a colour.** Everything is built as ordinary helper pieces and then
- * drawn by `ctx.merge` as one mesh per colour, which is the "merging them by
- * material later is a single call" that `contract.ts` built every geometry
- * non-indexed for. The 14 piers and 42 heads of the arcade are 56 pieces of
- * `sand` in one draw call. That is what lets the tones be spent freely: a tone
- * is a colour, and a colour is one draw call, not one per piece.
- *
- * ## Scale and proportion
- *
- * 188 by 156 m on the ground and 48.5 m tall. Built as a circle and squashed
- * once (`OVAL`), an ellipse 100 by 83 units at the outer piers and 38.9 to the
- * attic top: vertical 1.5x the plan, so the arches have room to be arches. The
- * old model was 34 tall with an attic of 3; this one is 4.9 taller and its
- * arcades 2.9 shorter, so the attic is 10.8 — the storey it was missing. The long
- * axis is X, east-west, as it lies in Rome — `placement.ts` turns +Z to north
- * and +X to west, so the standing arc is on +Z facing the Esquiline, Stern's
- * buttress is at -X and Valadier's at +X, all three as they are.
- *
- * ## Colour
- *
- * `sand` for the travertine, toned down for the entablature bands and further
- * for the attic, which weathers darkest; `clay` for the brick (buttresses,
- * blocked arches, the brick back wall of the cavea); `bark` for the attic
- * windows, the vomitoria and the gates. What the arches look into is the brick
- * core at 0.6, dark and warm, because a neutral seen through an opening reads
- * as sky. Inside, the cavea alternates travertine and brick from rank to rank,
- * so each step is a change of colour as well as an ink line; the hypogeum is
- * travertine walls over a floor of the same stone in shade (`sand` 0.74), never
- * brick, because brick walls in rows over a darker floor read as beds in a
- * vegetable plot; and the deck is `apricot` toned down, warm timber, the one
- * colour in the bowl that is not stone.
- *
- * ## The interior, and what is left of the budget for it
- *
- * The outside costs 1,896 of the tier's 2,600 triangles, which leaves the
- * inside 704: five `ringWall`s (the podium and the three ranks at 12 sides,
- * the back wall at 16, to meet the vault) and 16 boxes. So every ring is a
- * step that shows: each one runs out under the next, taller one (`LAP`)
- * rather than up to it, so two polygons turned or sided differently can never
- * open a slit where a corner of one meets a flat of the other,
- * and the only faces that are drawn are its tread and its riser. The arena
- * floor and the deck are boxes, 12 triangles each, whose corners run in under
- * the cavea; a column of the arena's own oval would have cost 64.
+ * Triangles: the outside costs 1,896 of 2,600, leaving 704: five `ringWall`s (the
+ * podium and three ranks at 12 sides, the back wall at 16) and 16 boxes. Each
+ * ring runs out under the next taller one (`LAP`), so only its tread and riser
+ * show and no slit opens between differently sided polygons. The arena floor
+ * and deck are boxes whose corners run in under the cavea.
  */
 
 const TAU = Math.PI * 2;
@@ -179,10 +125,9 @@ const CORE_HEIGHT = 23;
 const ARENA = 22;
 /**
  * The arena floor: the hypogeum's floor, and the least height any of the arena
- * stands at. Over a unit, because the model is bedded to the lowest of the
- * drawn land under its plan and the land inside the plan stands up to about
- * that much over it (`placement.ts`): at 0.3 the ground showed green through
- * the whole bowl.
+ * stands at. Over a unit, because the land inside the plan stands up to about
+ * that much over the model's bedding (`placement.ts`); at 0.3 the ground showed
+ * green through the bowl.
  */
 const PIT_FLOOR = 1.3;
 /** The restored timber deck, over the east end up to this x (the circle frame's -X is east). */
@@ -202,8 +147,7 @@ const CROSS = [-2, 8];
 const PODIUM = { inner: ARENA, top: 5.6 };
 /**
  * The cavea, arena outward: two ranks of the first maenianum, then the balteus
- * and the second. Each ring runs `LAP` out under the next, so its outer face
- * is buried and no corner of two different polygons can open a slit.
+ * and the second. Each ring runs `LAP` out under the next.
  */
 const CAVEA = [
   { inner: 24.4, top: 8.0 },
@@ -243,10 +187,8 @@ export const colosseum: Monument = {
     const timber = tone(palette.apricot, 0.82);
 
     const draft = new THREE.Group();
-    // Everything is built as a circle and squashed once, so every radius in the
-    // file stays one honest number. The scale sits on a group with no rotation
-    // and every piece under it turns inside its own pivot, which composes as
-    // S * R: pieces are yawed first and squashed after, as they must be.
+    // Built as a circle and squashed once. The scale sits on a group with no
+    // rotation and every piece turns inside its own pivot (S * R).
     const oval = new THREE.Group();
     oval.scale.z = OVAL;
     draft.add(oval);
@@ -310,20 +252,17 @@ export const colosseum: Monument = {
 
     // --- where the outer wall breaks off -------------------------------------
     // In a pier's own frame +X is the way the angle grows, so past the east end
-    // (the negative angles) is local -X and past the west end is local +X.
-    // The brick infill starts `PROUD` in front of the piers' back face and stops
-    // `PROUD` under the attic's base: laid flush, its back shared a plane with
-    // the travertine piers and its top with the entablature band, two colours
-    // in one plane that flickered.
+    // (negative angles) is local -X and past the west end local +X. The brick
+    // infill starts `PROUD` in front of the piers' back face and stops `PROUD`
+    // under the attic's base.
     const blockedBack = PIER_BACK + PROUD;
     const blockedTop = ATTIC_BASE - PROUD;
     const blockedWidth = chord(FACE) - PIER_WIDTH + 0.2;
     const blockedAt = ARCH_HALF + PIER_WIDTH / 2;
 
-    // Stern's buttress: one wedge of brick leaning on the east end. A four-sided
-    // taper, thinned through the wall by a parent carrying only scale, so the
-    // result is S * R and the squeeze lands on the radial axis. The last
-    // standing bay has its arches bricked up, as Stern left them.
+    // Stern's buttress: one wedge of brick on the east end, a four-sided taper
+    // thinned through the wall by a parent carrying only scale (S * R). The last
+    // standing bay has its arches bricked up.
     {
       const thin = new THREE.Group();
       thin.scale.z = 0.42;
@@ -349,8 +288,7 @@ export const colosseum: Monument = {
     }
 
     // --- the inner ring: the outside of the south half ------------------------
-    // Piers where the outer ring is gone, with a ragged top that climbs toward
-    // the two ends, where the fallen wall once tied into it.
+    // Piers where the outer ring is gone, with a ragged top that climbs toward the ends.
     const brokenPiers = BAYS - INTACT + 1;
     for (let n = 0; n < brokenPiers; n++) {
       // 0 at either end of the broken arc, 1 in the middle.
@@ -360,25 +298,21 @@ export const colosseum: Monument = {
       radial(pierAngle(HALF_INTACT + n), slab(INNER_PIER, 0, top, INNER_BACK, INNER_FACE, inner));
     }
 
-    // The ground-storey vault over the ambulatory, one full ring: on the south
-    // it is the inner ring's band, standing proud of its piers; on the north it
-    // is the ceiling seen through the arches. Its twin a storey up was cut for
-    // the triangles, and the slot it closed is the open upper ambulatory the
-    // plane really does look down into.
-    // `PROUD` inside the band at top and bottom: it reaches into the outer
-    // bands, and at the band's own height their tops and soffits shared planes.
+    // The ground-storey vault over the ambulatory, one full ring: on the south the
+    // inner ring's band, proud of its piers; on the north the ceiling seen through
+    // the arches. Its twin a storey up was cut for the triangles. `PROUD` inside
+    // the band at top and bottom, so it shares no plane with the outer bands.
     const vault = ringWall(VAULT_INNER, VAULT_OUTER, BAND - 2 * PROUD, vaulting, VAULT_SIDES);
     vault.position.y = bandBottom(STOREYS[0]!) + PROUD;
     oval.add(vault);
 
-    // What the arches look into, and on the south the ruined upper cavea rising
-    // behind the arcade; inside, the brick back wall over the top rank of
-    // seats. Dark and warm, because through an arch a neutral reads as sky.
+    // What the arches look into: on the south the ruined upper cavea behind the
+    // arcade; inside, the brick back wall over the top rank. Dark and warm.
     oval.add(ringWall(CORE_INNER, INNER_BACK, CORE_HEIGHT, core, RING_SIDES));
 
     // --- the podium and the cavea ---------------------------------------------
-    // The podium and every other rank are turned half a side, so a flat faces
-    // each axis; the ranks between are not, so no two corners line up.
+    // The podium and every other rank are turned half a side, so a flat faces each
+    // axis; the ranks between are not, so no two corners line up.
     {
       const podium = ringWall(PODIUM.inner, CAVEA[0]!.inner + LAP, PODIUM.top, travertine, SEAT_SIDES);
       podium.rotation.y = FLAT_ON_AXES;
@@ -392,8 +326,7 @@ export const colosseum: Monument = {
     });
 
     // The vomitoria: two dark doorways in the balteus, the riser of the second
-    // maenianum, at the ends of the short axis. Each stands proud of the
-    // riser's flat, its foot buried in the rank below.
+    // maenianum, at the ends of the short axis, proud of the riser with the foot buried.
     {
       const balteus = CAVEA[2]!;
       const below = CAVEA[1]!.top;
@@ -409,8 +342,7 @@ export const colosseum: Monument = {
     }
 
     // --- the arena ------------------------------------------------------------
-    // One box under the whole oval, its corners running in under the cavea:
-    // the hypogeum's floor, and what keeps the ground out of the bowl.
+    // One box under the whole oval, corners running in under the cavea.
     oval.add(box(2 * ARENA + 2, PIT_FLOOR, 2 * ARENA + 2, pit));
 
     // The restored deck over the east end, its far edge under the podium.
@@ -421,9 +353,8 @@ export const colosseum: Monument = {
       oval.add(deck);
     }
 
-    // The hypogeum: long walls either side of the axis, from under the deck
-    // to the curved corridor at `WALL_REACH`, and cross walls through both
-    // galleries on each side.
+    // The hypogeum: long walls either side of the axis, from under the deck to
+    // the curved corridor at `WALL_REACH`, and cross walls through both galleries.
     const reach = (z: number): number => Math.sqrt(WALL_REACH * WALL_REACH - z * z);
     for (const z of GALLERIES) {
       const from = DECK_EDGE - 1;

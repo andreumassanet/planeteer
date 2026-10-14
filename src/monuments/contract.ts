@@ -5,15 +5,10 @@ import { shadeByClouds } from '../cloud-shade.ts';
 /**
  * The monument contract.
  *
- * Sixty of these are written one file at a time, each with no chance to look at
- * the others. Everything in this file exists to make that produce one world
- * instead of sixty. The rule that does most of the work is short: **a monument
- * may only make materials through `ctx.toon`, and `ctx.toon` only accepts
- * colours from `PALETTE`.** Same ramp, same outline width, same twenty-four
- * colours, so a Colosseum written on Tuesday and a Taj Mahal written on
- * Wednesday are lit and inked identically.
- *
- * Everything else — tiers, footprints, budgets — is enforced mechanically by
+ * Monuments are written one file at a time, so everything here keeps them one
+ * world: a monument may only make materials through `ctx.toon`, and `ctx.toon`
+ * only accepts colours from `PALETTE`. Same ramp, outline width and twenty-four
+ * colours for every monument. Tiers, footprints and budgets are enforced by
  * `validate` below.
  */
 
@@ -24,27 +19,16 @@ const TAU = Math.PI * 2;
 // ---------------------------------------------------------------------------
 
 /**
- * Why monuments are sized by tier and not in metres.
+ * Monuments are sized by tier, not in metres. `PLANET_RADIUS` is 16,000 units for
+ * an Earth of 6,371 km, so a metre is 0.00251 units: true scale puts the Eiffel
+ * Tower at 0.83 units (an eighth of the avatar), and avatar scale at 1,247 units.
+ * Neither plays, so size is chosen by how far away the thing should still be
+ * nameable. A tier fixes the model's height; real height survives only as a
+ * number of metres: the source's `height`, which the info card reads through
+ * `monuments.json`, and `realHeight` here, which `pnpm check` holds equal to it.
  *
- * `PLANET_RADIUS` is 16,000 units for an Earth of 6,371 km, so a metre is
- * 0.00251 units. At that rate:
- *
- * - **True scale.** The Eiffel Tower is 330 m, so 0.83 units — an eighth of the
- *   6.8-unit avatar, who is himself a 2,708 m giant. You would walk past it.
- * - **Avatar scale** (scale the tower by the same factor that makes a 1.8 m
- *   human 6.8 units). The Eiffel Tower becomes 1,247 units: five times the
- *   width of Mallorca, a tenth of the planet's radius, visible from Africa.
- *
- * Neither is a game. So size is chosen by *how far away the thing should still
- * be nameable*, and the four tiers below are that answer. A tier fixes the
- * model's height; real height survives only as a number of metres — the
- * source's `height`, which the info card reads through `monuments.json`, and
- * `realHeight` here, which `pnpm check` holds equal to it.
- *
- * The consequence is deliberate and worth stating plainly: Christ the Redeemer
- * (38 m) and the Eiffel Tower (330 m) are both `landmark`, both 120 units. In
- * metres that is absurd; in the world it is right, because both are things you
- * are meant to spot from out at sea and walk towards.
+ * So Christ the Redeemer (38 m) and the Eiffel Tower (330 m) are both `landmark`,
+ * both 120 units: both are meant to be spotted from out at sea.
  */
 export type MonumentTier = 'monument' | 'building' | 'tower' | 'landmark';
 
@@ -56,30 +40,23 @@ export interface TierSpec {
   /** Hard triangle cap. */
   triangles: number;
   /**
-   * Hard cap on meshes. Draw calls, not triangles, are what sixty monuments in
-   * one scene actually cost, and `OutlineEffect` doubles them: every mesh is
-   * drawn twice, once as itself and once as its inverted hull.
+   * Hard cap on meshes. Draw calls, not triangles, are what many monuments in one
+   * scene cost, and `OutlineEffect` doubles them (itself and its inverted hull).
    */
   meshes: number;
 }
 
 /**
- * The tiers. Pick by the question "from how far should a player be able to name
- * it?", not by metres:
+ * The tiers. Pick by "from how far should a player be able to name it?":
  *
- * - `monument` — you find it by walking into it. A gate, a statue, a fountain,
- *   a stone circle.
- * - `building` — you see it from the far side of the city. An amphitheatre, an
- *   opera house, a palace, a cathedral.
- * - `tower` — the landmark of its city. Big Ben, Pisa, the Statue of Liberty.
- * - `landmark` — the landmark of the planet. Eiffel, Burj Khalifa, Christ the
- *   Redeemer, the Pyramids.
+ * - `monument`: found by walking into it (a gate, a statue, a fountain).
+ * - `building`: seen from the far side of the city (an amphitheatre, a palace).
+ * - `tower`: the landmark of its city (Big Ben, Pisa, the Statue of Liberty).
+ * - `landmark`: the landmark of the planet (Eiffel, Burj Khalifa, the Pyramids).
  *
- * The footprint caps are not decoration. `tower` is capped tighter than
- * `building` *on purpose*: at 70 units tall and 28 wide nothing in that tier can
- * come out squat. It is the contract refusing to let the Arc de Triomphe be
- * filed as a tower — at 70 units tall it would be 63 wide, so it is a
- * `building`, which is also how it reads on the ground.
+ * `tower` is capped tighter than `building` on purpose: at 70 units tall and 28
+ * wide nothing in that tier can come out squat (the Arc de Triomphe would be 63
+ * wide, so it is a `building`).
  */
 export const TIERS: Record<MonumentTier, TierSpec> = {
   monument: { height: 15, footprint: 14, triangles: 900, meshes: 40 },
@@ -89,23 +66,18 @@ export const TIERS: Record<MonumentTier, TierSpec> = {
 };
 
 /**
- * The widest footprint any tier allows, in world units: what a site that
- * declares none is given. `build-monuments.ts` reserves it for a landmark with
- * no model yet, `terrain.ts` caps a pad with it and `pnpm check` reads it for
- * a monument that declares nothing. It was a literal 55 in all four.
+ * The widest footprint any tier allows, in world units: what a site that declares
+ * none is given. `build-monuments.ts` reserves it for a landmark with no model yet,
+ * `terrain.ts` caps a pad with it and `pnpm check` reads it for a monument that
+ * declares nothing.
  */
 export const MAX_FOOTPRINT = Math.max(...Object.values(TIERS).map((tier) => tier.footprint));
 
 /**
- * How much of its tier a model has to fill. Something 4 units tall filed as a
- * `landmark` is a mistake, not a style. Width counts too, so a wide flat thing
- * (a stone circle, a wall) passes on its diameter.
- *
- * **This measures the bounding box, not what is inside it**, and there is no
- * version of it that could. The first Christ the Redeemer here was a post with a
- * crossbar: 236 triangles of a 3,600 budget, and it passed this check with room
- * to spare because a cross fills a box perfectly. Nothing in `validate` can tell
- * you a model is too bare. That judgement is made by eye, at thumbnail size.
+ * How much of its tier a model has to fill. Width counts too, so a wide flat thing
+ * (a stone circle, a wall) passes on its diameter. This measures the bounding box,
+ * not what is inside it: a post with a crossbar fills a box perfectly, so too bare
+ * is judged by eye at thumbnail size.
  */
 const FILL = 0.6;
 
@@ -113,62 +85,35 @@ const FILL = 0.6;
 const FOOTPRINT_FILL = 0.55;
 
 /**
- * Widest a model may be against its own height.
+ * Widest a model may be against its own height. Past this a monument cannot be
+ * built whole (the Golden Gate at 120 units would be 1,440 long), and `footprint`
+ * is a circle with no long axis.
  *
- * Past this a monument cannot be built whole: at the `landmark` tier's 120 units
- * the Golden Gate would be 1,440 long, six Mallorcas. And `footprint` is a
- * circle — it has no long axis to give you even if you wanted one.
+ * It is measured on the half-diagonal: `measure` takes the greatest horizontal
+ * distance any vertex reaches from the Y axis (`hypot(width, depth) / 2` for a
+ * rectangular building), and the test is `2 * radius <= MAX_ASPECT * height`, so
+ * `halfDiagonal / height <= 2` must hold. The Parthenon at true scale is 2.13.
  *
- * **It is measured on the half-diagonal, not the width, so work the number out
- * before you plan rather than after.** `measure` takes the greatest horizontal
- * distance any vertex reaches from the Y axis, which for a rectangular building
- * is `hypot(width, depth) / 2`; the test is
- * `2 * radius <= MAX_ASPECT * height`, so what must hold is
- * `halfDiagonal / height <= 2`. A merely rectangular building can fail a cap
- * that sounds as though it were aimed at bridges: the Parthenon's true
- * half-diagonal against its height is 2.13 where 2.00 is allowed — seven per
- * cent too flat to build honestly — and that came out only after it had been
- * planned at true scale.
- *
- * **The policy is settled; do not invent a different one.** Crop to a
- * representative section, then *exaggerate the vertical* until the crop sits
- * just under the cap, and write in the file what you cropped and by how much you
- * stretched. The Golden Gate keeps its two towers and the span between them,
- * vertical at 2.3x, and reads perfectly. That is not a compromise, it is what
- * every photograph of a bridge already does: the thing that names a suspension
- * bridge is the tower-cable-tower rhythm, never the length of the deck. The
- * Great Wall, Tower Bridge, Sydney Harbour Bridge, Mount Rushmore, the Great
- * Sphinx and Victoria Falls are all this same case.
- *
- * The trade runs the other way just as often. Stonehenge at true proportions
- * inside the `monument` tier's 14-unit footprint gives uprights half the
- * avatar's height, so its *plan* is squeezed about 2:1 against its heights
- * instead.
- *
- * **The rule both obey: a tier is a budget in world units, so when a shape does
- * not fit, distort the axis that carries the least recognition and protect the
- * one that carries the most.** The proportion you would name the thing by is the
- * one that has to survive.
- *
- * And a stretch is never free — it moves a proportion somewhere else, so find
- * where. The Parthenon took 1.30 on the vertical, which put its column shafts at
- * 7.1 diameters: Ionic proportion, on a Doric temple. The shafts had to thicken
- * 15% to stay visibly Doric. Fix what your stretch broke, and write both numbers
- * in the file.
+ * The policy: crop to a representative section, then exaggerate the vertical until
+ * it sits just under the cap, and write in the file what was cropped and by how
+ * much it was stretched (the Golden Gate keeps two towers and the span at 2.3x).
+ * The trade runs the other way too: Stonehenge at true proportions in the
+ * `monument` tier's 14-unit footprint would have uprights half the avatar's
+ * height, so its plan is squeezed about 2:1. A tier is a budget in world units:
+ * distort the axis that carries the least recognition and protect the one that
+ * carries the most. A stretch moves a proportion somewhere else (the Parthenon's
+ * 1.30 gave Ionic shafts of 7.1 diameters, so they were thickened 15%); fix it
+ * and write both numbers in the file.
  */
 export const MAX_ASPECT = 4;
 
 /**
- * The least two faces of different colours may stand apart and face the same
- * way: a trim band's face in front of its wall's, a cornice's top over the
- * roof it caps. **Flush is a z-fight**: two faces in one plane are drawn at
- * one depth, and which colour wins a pixel changes as the camera moves — the
- * Sagrada Familia's whole nave roof flickered between its stone and its
- * cornice. So a trim piece either stands `PROUD` of the face it is laid on or
- * stops `PROUD` short of it; it never shares the plane. `pnpm check` holds
- * every monument to it with the kit's own test (`scripts/z-fight.ts`), which
- * counts two faces nearer than 0.05 as one plane. The kit's `PROUD` is the
- * same number.
+ * The least two faces of different colours may stand apart and face the same way
+ * (a trim band in front of its wall, a cornice over the roof it caps). Flush faces
+ * z-fight, so a trim piece stands `PROUD` of the face it is laid on or stops
+ * `PROUD` short of it. `pnpm check` holds every monument to it with the kit's own
+ * test (`scripts/z-fight.ts`), which counts faces nearer than 0.05 as one plane.
+ * The kit's `PROUD` is the same number.
  */
 export const PROUD = 0.08;
 
@@ -177,66 +122,42 @@ export const PROUD = 0.08;
 // ---------------------------------------------------------------------------
 
 /**
- * The Three types a monument file needs in order to *name* something.
- *
- * A monument imports one module — this one — and builds only through `ctx`. That
- * rule is the whole reason independently written monuments fit together: it is
- * what stops a file quietly reaching for a `MeshStandardMaterial`, a geometry
- * the helpers do not make, or a loader that wants an external asset.
- *
- * It had one cost, and it was not obvious. `ctx.THREE` is a *value*, so there is
- * no `THREE` namespace in scope to write a type against, and the natural
- *
- *     const shell = (ctx: MonumentContext, n: number): THREE.Group => { ... }
- *
- * fails with `TS2503: Cannot find namespace 'THREE'`. Three separate monuments
- * lost a debugging round to that before anyone noticed the pattern, because
- * annotating a helper's return type is the obvious thing to do, and the rule
- * that made the file safe was the rule that forbade it.
- *
- * So the four types worth naming come through here, and the one import stays
- * true:
+ * The Three types a monument file needs in order to name something. A monument
+ * imports this module only and builds through `ctx`, so it cannot reach for a
+ * `MeshStandardMaterial`, an unknown geometry or an external asset. `ctx.THREE` is
+ * a value, so there is no `THREE` namespace to write a type against
+ * (`THREE.Group` fails with TS2503); import the four types instead:
  *
  *     import type { Monument, MonumentContext, Group } from './contract.ts';
  *
- * Four, not the library. These are the return and parameter types of the `ctx`
- * helpers and nothing else; if you find yourself wanting a fifth, you are
- * probably about to build something `ctx` should be building for you.
+ * They are the return and parameter types of the `ctx` helpers and nothing else.
  */
 export type { Group, Mesh, Object3D, Vector3 } from 'three';
 
 /**
- * Everything a monument is allowed to build with.
+ * Everything a monument is allowed to build with. Two conventions:
  *
- * Two conventions run through all of it, and they are the same two the monument
- * itself must obey, which is why there is nothing to remember:
+ * 1. Everything stands on its own base: a helper returns a mesh whose origin is the
+ *    centre of its bottom face, so `mesh.position.y = 12` stands it on a floor at
+ *    12. (`strut` is placed by its two endpoints.)
+ * 2. Flat faces look at +Z: polygonal solids are rotated by half a segment so a
+ *    face, not an edge, points at the front (`column(r, h, c, 4)` would otherwise
+ *    be a diamond).
  *
- * 1. **Everything stands on its own base.** Every helper returns a mesh whose
- *    origin is the centre of its bottom face, so `mesh.position.y = 12` puts it
- *    standing on a floor at 12. (`strut` is the one exception — it is placed by
- *    its two endpoints.)
- * 2. **Flat faces look at +Z.** Polygonal solids are rotated by half a segment
- *    so a face, not an edge, points at the front. Without it `column(r, h, c, 4)`
- *    is a diamond seen from the front, which surprises everyone once.
- *
- * The `radius` arguments are half-widths **across the flats** (the apothem), not
- * circumradii, because that is the number you need when you stack one thing on
- * another. At 8+ sides the difference is under 2%; at 4 it is 41%.
+ * `radius` arguments are half-widths across the flats (the apothem), not
+ * circumradii: the difference is under 2% at 8+ sides and 41% at 4.
  */
 export interface MonumentContext {
-  /**
-   * Passed in rather than imported so every monument provably shares one Three
-   * instance, and so a monument file needs no import but its own types.
-   */
+  /** Passed in so every monument shares one Three instance and needs no import but its types. */
   THREE: typeof THREE;
 
   /**
    * The twenty-four colours, and the only ones a monument may use.
    *
-   * **Anything that will sit in shade wants a warm entry.** A surface turned away
-   * from the sun keeps about half its brightness and shifts five to ten per cent
-   * cooler, and a neutral has no hue left to survive that. Measured off this
-   * scene's own lights, one vertical wall lit and then turned away:
+   * Anything that will sit in shade wants a warm entry. A surface turned from the
+   * sun keeps about half its brightness and shifts five to ten per cent cooler, and
+   * a neutral has no hue left to survive that. Measured on a wall lit and then turned
+   * away:
    *
    * ```
    * bone   143,122,100  ->   76, 68, 58    a dark hueless patch
@@ -246,41 +167,27 @@ export interface MonumentContext {
    * ```
    *
    * Seen through a colonnade with cyan sky in the gaps, the first three read as a
-   * *hole* rather than a wall. That is what happened to the Parthenon's cella
-   * until it moved from `bone` to `tan`, and it is not a fact about the
-   * Parthenon: the `HemisphereLight`'s sky colour is `SKY_TOP`, so it is a fact
-   * about every recess in the world. It matters more than it sounds, because
-   * recesses are how these models get their depth in the first place.
-   *
-   * For a courtyard, a portico, a doorway or anything behind columns: `sand`,
-   * `tan`, `brown`, `clay`, `blush`, `bark`, `darkOlive`. And note `white` is
-   * 0xfff2e8, a *warm* white that holds up at 132,111,88 in shade — wanting white
-   * marble, reach for it or `cream`, never for `bone`.
+   * hole, not a wall (the `HemisphereLight`'s sky colour is `SKY_TOP`). For a
+   * courtyard, portico, doorway or anything behind columns use `sand`, `tan`,
+   * `brown`, `clay`, `blush`, `bark` or `darkOlive`. `white` is 0xfff2e8, a warm white
+   * that holds 132,111,88 in shade: for white marble use it or `cream`, never `bone`.
    */
   palette: typeof PALETTE;
 
   /**
-   * The **only** way to make a material. Nobody calls `new MeshToonMaterial`.
-   * Throws on a colour that is not in `PALETTE`, which is the cheapest possible
-   * moment to catch the one mistake that would break the world's unity.
-   *
-   * Materials are shared between every monument that asks for the same colour.
-   * Do not mutate the one you are handed.
+   * The only way to make a material. Throws on a colour that is not in `PALETTE`.
+   * Materials are shared between every monument that asks for the same colour; do
+   * not mutate the one you are handed.
    */
   toon(color: number): THREE.MeshToonMaterial;
 
   /**
-   * A tone of a palette colour: the same hue, darker or lighter by `factor`
-   * (0.82 is the shadow side of a thing, 1.1 its sunlit one; the range is
-   * 0.5 to 1.5). The result is a colour `toon` accepts, and `measure` counts it
-   * under its *base* colour — tones of one colour are one colour for the
-   * budget, because a merged town or tile carries them as vertex bytes for
-   * free and only a monument drawn on its own pays a material for one.
-   *
-   * This is what a cone needs to read as a tree: three cones in three tones of
-   * one green is a conifer, and three cones in one green is a stack of cones.
-   * Keep tones *of the palette* — a derived colour is never an excuse to invent
-   * a hue.
+   * A tone of a palette colour: the same hue, darker or lighter by `factor` (0.82
+   * is the shadow side of a thing, 1.1 its sunlit one; the range is 0.5 to 1.5). The
+   * result is a colour `toon` accepts, and `measure` counts it under its base
+   * colour: a merged town or tile carries tones as vertex bytes for free, and only
+   * a monument drawn on its own pays a material for one. Three cones in three tones
+   * of one green read as a conifer. Tones stay of the palette.
    */
   tone(color: number, factor: number): number;
 
@@ -290,70 +197,60 @@ export interface MonumentContext {
 
   /**
    * Regular prism, standing on y = 0. `radius` is the half-width across the flats.
-   *
-   * It is a **whole** prism, and `OutlineEffect` inks every silhouette that is
-   * not occluded — including the half you meant to hide. An arch head made from
-   * a `column` laid on its side and left even 0.03 units proud of its jambs gets
-   * the ink line of its *lower* half drawn straight across the opening, and the
-   * arches read as wheels. Charles Bridge's nine did, until its head was made
-   * shallower than the void it sits in so the bottom arc is buried and only the
-   * visible upper arc is inked. Make the head shallower than the wall, never
-   * flush and never proud.
+   * It is a whole prism, and `OutlineEffect` inks every silhouette that is not
+   * occluded, including the half you meant to hide: an arch head made from a
+   * `column` laid on its side and left 0.03 proud of its jambs gets the ink of its
+   * lower half drawn across the opening. Make the head shallower than the wall,
+   * never flush and never proud.
    */
   column(radius: number, height: number, color: number, sides?: number): THREE.Mesh;
 
   /**
-   * Frustum: a prism with a different half-width top and bottom. Pyramids,
-   * plinths, spires, the flared skirt of a robe. `sides` defaults to 4.
+   * Frustum: a prism with a different half-width top and bottom (pyramids, plinths,
+   * spires). `sides` defaults to 4.
    */
   taper(bottom: number, top: number, height: number, color: number, sides?: number): THREE.Mesh;
 
   /**
-   * A square beam between two points, for anything diagonal: lattice bracing,
-   * bridge cables, flying buttresses. Placed absolutely, not by its base.
-   * A vertical strut gets an arbitrary roll about its own axis — use `column`.
+   * A square beam between two points, for anything diagonal. Placed absolutely, not
+   * by its base. A vertical strut gets an arbitrary roll about its own axis; use
+   * `column`.
    */
   strut(from: THREE.Vector3, to: THREE.Vector3, thickness: number, color: number): THREE.Mesh;
 
   /**
-   * An annular prism: a ring with a real hole in it. The only helper that makes
-   * a hole, which is why it exists — cornices, drums, arena walls, balconies.
+   * An annular prism: a ring with a real hole in it. The only helper that makes a
+   * hole (cornices, drums, arena walls, balconies).
    */
   ringWall(inner: number, outer: number, height: number, color: number, sides?: number): THREE.Mesh;
 
   /**
-   * Repeats something around the Y axis. Build the element where it belongs at
-   * angle 0 — that is on the +Z axis, the front — and `around` spins the copies.
-   * Return `null` to leave a gap, which is how a ruin gets its broken side.
+   * Repeats something around the Y axis. Build the element at angle 0 (the +Z
+   * front) and `around` spins the copies. Return `null` to leave a gap.
    */
   around(count: number, make: (index: number, angle: number) => THREE.Object3D | null): THREE.Group;
 
   /**
-   * Every piece of a finished draft, drawn as one mesh per colour.
-   *
-   * The helpers above build non-indexed, faceted geometry precisely so that
-   * pieces of one material can be concatenated (see `meshOf`); this does it,
-   * baking each piece's transform into its vertices and recomputing the flat
-   * normals. What is drawn is identical — `OutlineEffect` pushes each face out
-   * along its own normal whether the faces share a mesh or not — so a model
-   * that needs more pieces than its tier's mesh cap allows can build them all
-   * and hand back this: the cap counts meshes, and triangles are then the only
-   * limit left. A reflected transform would turn a piece inside out silently
-   * once it is baked, so it throws instead. Consumes the draft's geometry.
+   * Every piece of a finished draft, drawn as one mesh per colour. The helpers build
+   * non-indexed, faceted geometry so pieces of one material can be concatenated (see
+   * `meshOf`); this bakes each piece's transform into its vertices and recomputes the
+   * flat normals. The cap counts meshes, so a model needing more pieces than its tier
+   * allows can build them all and hand back this; triangles are then the only limit.
+   * A reflected transform throws instead of turning a piece inside out. Consumes the
+   * draft's geometry.
    */
   merge(draft: THREE.Object3D): THREE.Group;
   /**
-   * The ramp and every material made through this context, freed: for a
-   * context that is let go of, as a walked world's is on leaving it. What was
-   * built with it must be gone first, or it compiles them again.
+   * The ramp and every material made through this context, freed (for a context
+   * that is let go of, as a walked world's is on leaving). What was built with it
+   * must be gone first.
    */
   dispose(): void;
 }
 
 /**
- * Outline width. Screen space, not world space: `OutlineEffect` scales it by
- * distance. Matched to the planet's own 0.005 so a monument is inked with the
- * same pen as the coastline it stands on.
+ * Outline width. Screen space, scaled by `OutlineEffect` with distance; matched to
+ * the planet's own 0.005 so a monument is inked with the coastline's pen.
  */
 const OUTLINE_THICKNESS = 0.005;
 const OUTLINE_COLOR: [number, number, number] = [0.11, 0.02, 0.01];
@@ -361,10 +258,9 @@ const OUTLINE_COLOR: [number, number, number] = [0.11, 0.02, 0.01];
 /** Stamped into `userData` by `toon`, and the thing `validate` looks for. */
 const TOON_MARK = 'atlasToon';
 /**
- * Stamped by `SceneryContext.painted` beside the toon mark: this material's
- * colour is the geometry's `color` attribute, and the toon mark it also carries
- * (white) is only there so every check that asks "did this come from the
- * context?" says yes.
+ * Stamped by `SceneryContext.painted` beside the toon mark: this material's colour
+ * is the geometry's `color` attribute, and its toon mark (white) is there so every
+ * check that asks "did this come from the context?" says yes.
  */
 export const PAINTED_MARK = 'atlasPainted';
 
@@ -374,10 +270,9 @@ const PALETTE_NAMES = new Map<number, string>(
 );
 
 /**
- * Every tone ever made, derived colour -> its palette base, and the factor it
- * was made with. Module-level rather than per context so that a tone made
- * anywhere is the same number the world makes, and so `measure` can
- * fold it back onto its base without being handed the context.
+ * Every tone made: derived colour -> its palette base, and the factor. Module-level
+ * so a tone made anywhere is the same number the world makes, and `measure` can fold
+ * it back onto its base without the context.
  */
 const TONE_BASE = new Map<number, number>();
 const TONE_FACTOR = new Map<number, number>();
@@ -401,8 +296,8 @@ export function tone(color: number, factor: number): number {
   const channel = (shift: number): number =>
     Math.max(0, Math.min(255, Math.round(((color >> shift) & 255) * factor)));
   const derived = (channel(16) << 16) | (channel(8) << 8) | channel(0);
-  // A tone that lands exactly on a palette colour *is* that colour, and a tone
-  // of 1.0 is the base: neither gets registered, so `baseOf` stays honest.
+  // A tone that lands on a palette colour is that colour, and a tone of 1.0 is the
+  // base: neither is registered, so `baseOf` stays honest.
   if (derived === color || PALETTE_COLORS.has(derived)) return derived;
   if (!TONE_BASE.has(derived)) {
     TONE_BASE.set(derived, color);
@@ -412,9 +307,8 @@ export function tone(color: number, factor: number): number {
 }
 
 /**
- * One context for the whole world. Building it once means one toon ramp and one
- * material per colour shared across every monument, so a hundred of them cost a
- * couple of dozen shader programs rather than a couple of thousand.
+ * One context for the whole world: one toon ramp and one material per colour shared
+ * across every monument, so a hundred of them cost a couple of dozen shader programs.
  */
 export function createContext(): MonumentContext {
   const ramp = createToonRamp(4);
@@ -430,28 +324,22 @@ export function createContext(): MonumentContext {
     const cached = materials.get(color);
     if (cached) return cached;
 
-    // Under the deck's shade like everything the sun lights (`cloud-shade.ts`):
-    // the vehicles, the animals and the craft are made through here too.
+    // Under the deck's shade like everything the sun lights (`cloud-shade.ts`).
     const material = shadeByClouds(new THREE.MeshToonMaterial({ color, gradientMap: ramp }));
     material.userData.outlineParameters = { thickness: OUTLINE_THICKNESS, color: OUTLINE_COLOR };
-    // The stamp is the colour *as drawn* — the flatteners in `settlements.ts`
-    // and `vegetation.ts` read it straight into vertex bytes, so a tone has to
-    // survive here. `measure` folds it back with `baseOf` when it counts.
+    // The stamp is the colour as drawn: the flatteners in `settlements.ts` and
+    // `vegetation.ts` read it into vertex bytes, and `measure` folds it back with
+    // `baseOf` when it counts.
     material.userData[TOON_MARK] = color;
     materials.set(color, material);
     return material;
   }
 
   /**
-   * Every geometry goes in non-indexed with recomputed normals, which is the
-   * same trick the land mesh uses and for the same reason: one normal per face,
-   * so each facet of a prism gets its own cel band instead of a smooth sweep
-   * that the ramp cannot step across. `MeshToonMaterial` has no `flatShading`
-   * flag to do it for us — that property exists on Phong and Standard and not
-   * on Toon, which is a half hour anyone can lose.
-   *
-   * It also leaves every monument's geometry in one uniform shape, so merging
-   * them by material later is a single call.
+   * Every geometry goes in non-indexed with recomputed normals (as the land mesh
+   * does), so each facet of a prism gets its own cel band. `MeshToonMaterial` has no
+   * `flatShading` flag. It also leaves every geometry in one shape, so merging by
+   * material is a single call.
    */
   const meshOf = (geometry: THREE.BufferGeometry, color: number): THREE.Mesh => {
     const faceted = geometry.toNonIndexed();
@@ -503,9 +391,8 @@ export function createContext(): MonumentContext {
     },
 
     ringWall(inner, outer, height, color, sides = 24) {
-      // Lathed rather than extruded: a closed rectangular profile spun about Y
-      // is the whole solid — floor, outer wall, ceiling, inner wall — in one
-      // geometry of 4 * sides * 2 triangles, with no triangulation to trust.
+      // Lathed: a closed rectangular profile spun about Y is the whole solid in one
+      // geometry of 4 * sides * 2 triangles.
       const profile = [
         new THREE.Vector2(inner, 0),
         new THREE.Vector2(outer, 0),
@@ -578,37 +465,26 @@ export interface Monument {
   lat: number;
   lon: number;
   /**
-   * Metres — **not** the model's height; see `TIERS`. The info card prints
-   * the source list's `height`, from `monuments.json`, and this is the model's
-   * copy of the same number.
+   * Metres, not the model's height (see `TIERS`). The info card prints the source
+   * list's `height`, from `monuments.json`; this is the model's copy of it, and
+   * `pnpm check` asserts they agree.
    *
-   * **Optional, and omitting it is the right answer whenever the real height is
-   * unknown, disputed or meaningless. Do not invent a number to satisfy the
-   * type.** Over half of `scripts/monuments.source.json` carries no height, and
-   * every one of those is correct to: Stonehenge stands 4.9 m at the sarsen
-   * lintels and 7.3 m at the great trilithon and neither is *the* height; the
-   * Sagrada Familia is not finished; the Great Wall has a length, not a height;
-   * Machu Picchu is a town. A monument with no `realHeight` is an ordinary
-   * monument — the card simply says less about it.
-   *
-   * When it is here it must agree with the source list, because two copies of a
-   * fact are two chances to be wrong — and `pnpm check` asserts that it does.
+   * Optional: omit it whenever the real height is unknown, disputed or meaningless
+   * (over half of `scripts/monuments.source.json` carries none: Stonehenge has two
+   * heights, the Sagrada Familia is unfinished, the Great Wall has a length).
    */
   realHeight?: number;
   tier: MonumentTier;
   /** Radius of the base circle the model must stay inside, in world units. */
   footprint: number;
   /**
-   * Builds the model. Must be deterministic — no `Math.random()`, no `Date` —
-   * because the loader builds twice and compares to catch exactly that.
+   * Builds the model. Must be deterministic (no `Math.random()` or `Date`): the
+   * loader builds twice and compares.
    *
-   * The `Group` it returns:
-   * - faces **+Z**,
-   * - stands with its base at **y = 0**,
-   * - keeps every vertex within `footprint` of the Y axis,
-   * - has an identity transform of its own (position, rotation and scale belong
-   *   to whoever places it on the planet),
-   * - and is made only of meshes whose materials came from `ctx.toon`.
+   * The `Group` it returns faces +Z, stands with its base at y = 0, keeps every
+   * vertex within `footprint` of the Y axis, has an identity transform of its own
+   * (the placer owns position, rotation and scale), and is made only of meshes whose
+   * materials came from `ctx.toon`.
    */
   build(ctx: MonumentContext): THREE.Group;
 }
@@ -700,19 +576,16 @@ export function measure(group: THREE.Group): Measurements {
 const round = (value: number): string => value.toFixed(1);
 
 /**
- * Everything wrong with a monument, in plain English. Empty means it is fine.
- *
- * The one invariant this cannot check is **facing +Z**: no amount of geometry
- * tells you which way a building's front is. That is checked by eye from the
- * front — it is the only check done by eye, and it is the only one that has to
- * be.
+ * Everything wrong with a monument, in plain English. Empty means it is fine. It
+ * cannot check facing +Z (no geometry says which way a building's front is); that
+ * is checked by eye from the front.
  */
 export function validate(monument: Monument, group: THREE.Group): string[] {
   const problems: string[] = [];
   const tier = TIERS[monument.tier];
   if (!tier) {
     // TypeScript rules this out, but the registry finds monuments by shape at
-    // runtime and every check below reads off the tier.
+    // runtime.
     return [`tier '${monument.tier}' is not one of ${Object.keys(TIERS).join(', ')}`];
   }
 
@@ -836,50 +709,24 @@ export function validate(monument: Monument, group: THREE.Group): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Two faults that build, typecheck, pass `validate`, and are invisible from a
- * fixed view unless you happen to spin the model.
+ * Two faults that build, typecheck and pass `validate`, and are invisible from a
+ * fixed view unless the model is spun.
  *
- * - **`buried`** — a part sealed inside another part. Charles Bridge's ten piers
- *   were scaled in the axes they would have had *after* their `rotation.y`, but
- *   Three composes `T * R * S` so the scale landed first and the numbers went on
- *   the wrong axes. Each pier came out narrower than the wall it stood in, so all
- *   ten were sealed inside it and every cutwater the file promised was absent
- *   from the render. Only a deliberate second render found it.
- * - **`floating`** — a part standing on nothing. Three of Niagara Falls' seven
- *   tree clumps sat over the void, because the rims they were placed on are
- *   yawed planks whose edges do not run along `z`. The probe this uses was
- *   written for it, and the reason nobody saw it is short: invisible from both
- *   fixed views, obvious the moment the model spins.
+ * - `buried`: a part sealed inside another part (e.g. piers scaled in the axes they
+ *   would have after `rotation.y`, which Three applies first as T * R * S, so they
+ *   came out narrower than the wall they stood in).
+ * - `floating`: a part standing on nothing (e.g. tree clumps placed on the rims of
+ *   yawed planks whose edges do not run along `z`).
  *
- * The causes do not generalise. The symptoms do, so the symptoms are what get
- * measured, and between them they cover the family: a part buried in a wall, a
- * detail swallowed by its own plinth, a duplicated block, a clump in mid-air.
- *
- * **Both are warnings and neither is in `validate`**, which
- * is a deliberate line and worth defending. Everything `validate` checks is a
- * *fact* — the base is at y = 0 or it is not, the material came from `ctx.toon`
- * or it did not — and `buildMonument` throws on it, so a failure never reaches
- * the planet. These two are *judgements*, and both are provably approximate:
- *
- * - `ringWall` makes an annulus whose box is solid, so the Colosseum's own arena
- *   floor sits inside the box of the cornice above it and is perfectly visible.
- *   That is not a tunable edge case, it is built into a helper.
- * - Hanging is often the whole point. A cantilever, a bridge deck, a plume, an
- *   overhanging cornice; Marina Bay Sands is a deck overhanging by a quarter of
- *   its length. A rule that threw on those would delete them.
- *
- * The floating test is also the strict one for a reason measured rather than
- * guessed. Asking "is anything directly under its base" fires on 249 parts in 31
- * of the 64 monuments, nearly all of them relief panels and mullions glued to
- * the side of a wall, where having nothing underneath is correct. Asking
- * "does it touch the model at all" fires on 6 parts in 3. The looser probe is
- * still worth having in the hands of the file's own author, and is kept as
- * `findUnsupported`.
- *
- * The asymmetry settles it. A missed buried pier costs two hundred triangles; a
- * wrongly rejected monument costs the monument. And a red card that might be
- * wrong teaches everyone to distrust the red cards that are right. So these go in
- * amber beside the budget numbers, where a person decides.
+ * Both are warnings and neither is in `validate`, which checks facts (the base is
+ * at y = 0, the material came from `ctx.toon`) and throws. These are judgements and
+ * approximate: `ringWall` makes an annulus whose box is solid, so an arena floor
+ * inside a cornice's box is visible; and hanging is often the point (a cantilever,
+ * a bridge deck, an overhanging cornice). "Is anything directly under its base"
+ * fires on 249 parts in 31 of 64 monuments, mostly relief panels and mullions on a
+ * wall; "does it touch the model at all" fires on 6 parts in 3, so that is the
+ * test; the looser probe is kept as `findUnsupported` for a file's author. They go
+ * in amber beside the budget numbers, where a person decides.
  */
 export interface Flaw {
   kind: 'buried' | 'floating';
@@ -891,12 +738,9 @@ export interface Flaw {
 }
 
 /**
- * How much of its own bounding box a mesh actually fills.
- *
- * Only a reasonably solid, reasonably axis-aligned part can bury anything, so
- * this is what keeps the buried check honest. A `ringWall` cornice fills about a
- * fifth of its box and a strut on the diagonal even less, and neither can seal
- * anything in the way a wall can.
+ * How much of its own bounding box a mesh fills. Only a reasonably solid, axis-
+ * aligned part can bury anything; a `ringWall` cornice fills about a fifth of its
+ * box and a diagonal strut less.
  */
 const SOLID_ENOUGH = 0.7;
 
@@ -993,11 +837,8 @@ function collect(group: THREE.Group): Part[] {
 }
 
 /**
- * Is this point inside that part's *oriented* box?
- *
- * Oriented, not axis-aligned, and that is the whole trick: the rims the Niagara
- * clumps sat on are yawed planks, and against an axis-aligned box every one of
- * them looked supported.
+ * Is this point inside that part's oriented box? Oriented, not axis-aligned: against
+ * an axis-aligned box every yawed plank looked supported.
  */
 function holds(part: Part, point: THREE.Vector3): boolean {
   const local = point.clone().applyMatrix4(part.inverse);
@@ -1065,8 +906,8 @@ export function findFlaws(group: THREE.Group): Flaw[] {
     }
 
     // --- floating ---
-    // Joined to the model at no point at all. See the note on `findUnsupported`
-    // for why this, and not "nothing under its base", is what gets flagged.
+    // Joined to the model at no point at all (see `findUnsupported` for why this is
+    // what gets flagged and not "nothing under its base").
     if (inner.base < ON_THE_GROUND) continue;
     const reach = inner.box.clone().expandByScalar(TOUCHING);
     if (parts.some((other) => other !== inner && reach.intersectsBox(other.box))) continue;
@@ -1082,31 +923,13 @@ export function findFlaws(group: THREE.Group): Flaw[] {
 }
 
 /**
- * Parts with nothing directly beneath their base — **an author's tool for their
- * own file, deliberately not a general warning.**
- *
- * This is the probe written for Niagara Falls, taken rather than rewritten. It
- * works by dropping a point below each base corner and asking whether any other
- * part's *oriented* box contains it; oriented is the whole trick, because the
- * rims its tree clumps sat on are yawed planks and against an axis-aligned box
- * every one of them looked supported. It found three clumps over the void that
- * were invisible from both fixed views and obvious the moment the model spins,
- * and after the fix it reported nothing but the pieces meant to hang.
- *
- * It is exactly right in the hands of someone who knows which of their own parts
- * are supposed to float, and useless as a warning on every monument. Measured across
- * the 64 monuments: **249 parts in 31 of them**, and the sample is Arc de
- * Triomphe's relief panels, Alhambra's window mullions, Abu Simbel's carved
- * plaques — detail glued to the *side* of a wall, which has nothing under it and
- * is entirely correct. In this vocabulary "rests on its base" is not the normal
- * case, and a warning that fires on half the tree trains everyone to ignore
- * amber. Tightening it does not rescue it: requiring the part to be blocky and
- * to have nothing under any of it still leaves 249 parts, and requiring it to be
- * a partial overhang still leaves 225 in 36 monuments.
- *
- * So `findFlaws` reports the strict version — a part joined to the model at no
- * point at all, 6 parts in 3 monuments — and this stays here for the author who is
- * looking at one file and can tell a mistake from a plume.
+ * Parts with nothing directly beneath their base: an author's tool for their own
+ * file, not a general warning. It drops a point below each base corner and asks
+ * whether any other part's oriented box contains it. It is exact for someone who
+ * knows which of their parts are meant to float, and useless as a warning on every
+ * monument: it fires on 249 parts in 31 of 64 monuments, mostly detail glued to the
+ * side of a wall, and tightening it still leaves 225 in 36. `findFlaws` reports the
+ * strict version (a part joined to the model at no point, 6 parts in 3 monuments).
  */
 export function findUnsupported(group: THREE.Group): Flaw[] {
   const parts = collect(group);
@@ -1128,9 +951,8 @@ export function findUnsupported(group: THREE.Group): Flaw[] {
     const loose = corners.filter(([u, v]) => !probe(u, v)).length;
     if (loose === 0) continue;
 
-    // The 4x4 grid is severity, not detection: a corner in the air under a slab
-    // that is otherwise 90% supported is an overhang; nothing under any of it is
-    // mid-air.
+    // The 4x4 grid is severity, not detection: a corner in the air under an otherwise
+    // 90% supported slab is an overhang; nothing under any of it is mid-air.
     const steps = [0.125, 0.375, 0.625, 0.875];
     let held = 0;
     for (const u of steps) for (const v of steps) if (probe(u, v)) held++;

@@ -4,134 +4,59 @@ import { PROUD } from './contract.ts';
 /**
  * Mount Rushmore.
  *
- * **Four recognisable likenesses at thumbnail size is not on the table**, and
- * chasing it is how this file gets wrecked. In a 96-pixel cell a head is
- * nineteen pixels tall, its nose is one pixel wide and its eye is two. No
- * geometry inside that budget separates Jefferson from Roosevelt. So the target
- * is not four portraits, it is **four heads in a row emerging from a cliff**,
- * which is what anyone actually recognises — including people who cannot name
- * the third president.
+ * Four recognisable likenesses are not possible at thumbnail size, so the target
+ * is four heads in a row emerging from a cliff. A tidy row of busts on a shelf
+ * reads as a war memorial and flat-topped columns as a fortress, so the carving
+ * is unfinished and set into a mountain: granite above and below it, wedges of
+ * uncarved rock between the faces, and a heap of blasted rubble at the foot.
+ * By volume the mountain is most of the model.
  *
- * The failure mode is sharper than the goal: a tidy row of four busts on a shelf
- * is a **war memorial**, and a stack of flat-topped columns under them is a
- * **fortress**. Both were built here before this version. What makes it Rushmore
- * is that the carving is *unfinished and set into a mountain* — granite above
- * it, granite below it, wedges of uncarved rock left standing between the faces,
- * and the whole thing on the heap of rubble the carvers blasted off. By volume
- * the mountain is most of the model; the heads are a band across its upper
- * third.
+ * Nothing can subtract, so every recess is a void by arrangement. The heads sit
+ * in a slot between a field of rock closing over them (`CRAGS`) and a field
+ * rising to meet them (`RIBS`); neither is level. The ribs stand at z = 5..15
+ * while the heads are cut back to a cheek plane of z = 6, so three of the four
+ * heads are cropped by raw granite rather than ending on a clean edge. Nothing
+ * is built behind them: the gaps show one back plane (`BACKDROP`, `steel`) a
+ * tone darker than the rock. Each head grows out of a rough slate shelf whose
+ * top crosses the chin line, and only Washington gets a hint of collar.
  *
- * **Cutting into rock with helpers that only make solids.** Nothing here can
- * subtract, so, as at Petra, every recess is a void by arrangement and four
- * devices do the work:
+ * The mountain is not a wall: every block is a `wedge` that narrows as it rises
+ * (with `OVERLAP` of slop in x so the joint is serrated rather than a crack of
+ * sky), the `MASSES` fill the cliff solid behind the ribs, the `face` values
+ * fall off toward both ends so the cliff is convex in plan, and the whole thing
+ * stands on a scree cone 100 wide against the cliff's 96, stepping in on the way
+ * up.
  *
- * 1. **The heads live in a slot.** A field of rock closes over them (`CRAGS`,
- *    hanging down to y 86–92) and a second field rises to meet them from below
- *    (`RIBS`, topping out at 26–86). Neither is level, and the band between them
- *    is where the faces are. Only Washington's wig grazes the skyline, at the
- *    left end, and only Lincoln's crown breaks the rock line, at the right —
- *    which is what the mountain does at both ends.
- * 2. **Rock in front of the faces.** The ribs stand at z = 5..15 while the heads
- *    are cut back to a cheek plane of z = 6 (times their own scale, plus their
- *    own offset). Four ribs finish in front of the jaw above them — 15 against
- *    Washington's chin at 14.1, 10 against Roosevelt's at 8.8, 13 twice against
- *    Lincoln's beard at 12.3 — so three of the four heads are **cropped by raw
- *    granite** rather than ending on a clean edge. A carving in a cliff is
- *    occluded by its own mountain; a bust on a shelf never is.
- * 3. **Nothing was built behind them.** The gaps between the heads, the notch
- *    under a chin, the dark beside a wig: all of it is one back plane
- *    (`BACKDROP`, in `steel`) a tone darker than the rock. Modelling shoulders
- *    back there would have been modelling four statues.
- * 4. **The carving stops mid-block.** Each head grows out of a rough slate shelf
- *    whose top crosses the chin line, and only Washington gets a hint of collar.
- *    The other three end in the mountain, which is what they do at Keystone.
+ * In one stone colour a feature reads only by the ink under its own ledge, so
+ * the face is a depth cascade off the cheek plane: muzzle 8.4, chin 9.4, brow
+ * 9.4, mouth 9.6, nose tip 11.2 raked back to 8.8 at the root, and the sockets
+ * recessed to 7.2 in `ink`. Each head has one silhouette tag, none on the eye
+ * line: Washington's wig roll (20.5 wide against a 17.5 head), Jefferson's plain
+ * back-swept crown (the highest head), Roosevelt's pince-nez bar of `steel` and
+ * moustache (the deepest-set head), and Lincoln's beard running past the chin
+ * into the rock. Centres at x = -32, -12.5, 7 and 29, chins at y = 61, 64, 60
+ * and 62, depths at z = +3, +1, -1.5 and 0, and scales 1.18, 1.12, 1.09 and
+ * 1.14, so nothing is evenly spaced, level or in one plane.
  *
- * **Why the mountain is not a wall.** The first two versions of this file were a
- * fortress and a pipe organ, and four things fixed it. Every rock block is a
- * `wedge` that narrows as it rises, so the mass leans back and nothing is a
- * parallel-sided pipe — with `OVERLAP` of slop in x, so the narrowing leaves a
- * serrated joint rather than a crack of sky. The `MASSES` fill the cliff solid
- * behind the ribs, so the gaps between ribs show rock and not a black slot. The
- * `face` values fall off toward both ends — 15 at the middle, 5 at the edges —
- * so the cliff is **convex in plan** and its flanks step rather than presenting
- * one wall to a three-quarter view. And the whole thing stands on a **scree cone
- * 100 units wide against the cliff's 96**, with the profile stepping in at ±50,
- * ±47, ±45 and ±43 on the way up. A mass the same width at the top and the
- * bottom is a building.
+ * Colour: `slate` for the mountain (the coolest grey, not a soil colour), `bone`
+ * for the carved granite and the fresh blasting waste in the talus, `steel` for
+ * every gap and the deepest columns, `ink` for the sockets, `darkOlive` for the
+ * ponderosa pines at the foot, which give the heads their scale (about 18 m).
  *
- * **The face, at fifteen pixels.** The moai's lesson applies unchanged: in one
- * stone colour a feature reads only by the ink under its own ledge, so the whole
- * face is a depth cascade off the cheek plane — muzzle 8.4, chin 9.4, brow 9.4,
- * mouth 9.6, nose tip 11.2 raked back to 8.8 at the root, and the sockets
- * *recessed* to 7.2 in the slot between muzzle and brow, in `ink`. That pair of
- * black notches under a lit brow is the strongest signal at this size;
- * everything else exists to make the notch read as a shadow rather than a hole.
- *
- * Distinct silhouettes carry the rest — one tag each, none of them on the eye
- * line, because the eye line is where downsampling does its worst:
- *
- * - **Washington** — the roll of the wig: 20.5 wide against a 17.5 head and
- *   standing a unit proud of the brow. A hat brim, and the only head that is
- *   wider than the skull it sits on.
- * - **Jefferson** — no tag at all, which is his tag: the highest head, and a
- *   plain back-swept crown tapering from 17 to 8.5 where the others are capped.
- * - **Roosevelt** — the pince-nez: one bar of `steel` across both sockets, plus
- *   the moustache. The only dark horizontal in any face, and the deepest-set
- *   head, sitting in its own notch a unit and a half behind the rest.
- * - **Lincoln** — the beard, a mass wider than the jaw running past the chin and
- *   down into the rock. The only head with no chin at all.
- *
- * **Not evenly spaced, not level, not one plane.** Centres at x = -32, -12.5, 7
- * and 29 — gaps of 19.5, 19.5 and 22, so the first three touch as they do on the
- * mountain and Lincoln stands off with a wedge of granite between. Chins at
- * y = 61, 64, 60 and 62; depths at z = +3, +1, -1.5 and 0, Washington forward and
- * Roosevelt deepest; and scales of 1.18, 1.12, 1.09 and 1.14, so no two heads are
- * the same size either.
- *
- * **Colour.** One rock in four weathers. `slate` is the mountain: the coolest
- * grey in the palette and the only one that is not a soil colour — Harney Peak
- * granite is grey with a lilac cast, and `tan` or `brown` would have made this a
- * sandstone butte. `bone` is the carved granite, genuinely paler than the face
- * it was cut from, and the pale boulders in the talus are the blasting waste,
- * which is the same fresh stone. `steel` is what every gap shows — the plane
- * behind the carving, the solid the crags stand out of, and the four crags set
- * furthest back — so colour and depth say the same thing.
- * `ink` is the sockets, the only true black in the model. `darkOlive` is the
- * ponderosa pine at the foot — in every
- * photograph ever taken of the place, and the only thing in frame with a
- * knowable size: a 13-unit tree against a 119-unit mountain puts the heads at
- * about 18 m, which is what they are.
- *
- * **Proportion — the mountain is cropped, the heads are not stretched.** The
- * carving alone is 83 units wide by 34 tall, 2.4:1, which on its own would read
- * as a frieze. Framed by the mountain the model is 100 by 119, and the crop is
- * vertical: from the Grand View Terrace the granite runs six to eight
- * head-heights from talus to summit, and here it runs four. That is the axis
- * carrying least recognition — nobody names Rushmore by how much rock is under
- * it — while the head row's own proportions are untouched. The ridge above and
- * the scree below are each cut roughly in half.
- *
- * **Tier: `landmark`.** By the tier's own question this is a mountainside seen
- * from the road miles out, not something you discover by walking into it; and
- * mechanically, a `building` at 40 units would leave each head 10 units in which
- * to hold a nine-part face, which is where the depth cascade stops resolving.
- *
- * No `realHeight`: the source list asserts none, and Rushmore has no single
- * height to assert. The heads are 18 m and the mountain is 1,745 m above the
- * sea; neither is *the* height of the monument.
+ * The mountain is cropped vertically (four head-heights from talus to summit
+ * where life has six to eight) and the heads are not stretched. Tier `landmark`.
+ * No `realHeight`: the heads and the mountain give different heights.
  */
 
-// ---------------------------------------------------------------------------
-// The mountain
-// ---------------------------------------------------------------------------
+// --- The mountain ---
 
 /** Every rock block runs back to this plane. The mountain has no inside. */
 const BACK = -20;
 
 /**
- * How much each rock block overhangs its slot on either side. Every block
- * narrows as it rises (see `pillar`), and without the overlap two neighbours
- * part company at the top and leave a slit of sky in the middle of a mountain.
+ * How much each rock block overhangs its slot on either side. Blocks narrow as
+ * they rise (see `pillar`), and without the overlap neighbours part company at
+ * the top and leave a slit of sky.
  */
 const OVERLAP = 1.3;
 
@@ -140,9 +65,8 @@ const LEAN = 0.86;
 
 /**
  * The solid of the cliff below the carving: three leaning masses, one behind the
- * other and each narrower than the last, `[x0, x1, top, face]`. They exist so
- * the ribs in front of them have something to be ribs *of* — without them the
- * gaps between ribs are black slots and the mountain reads as a colonnade.
+ * other and each narrower than the last, `[x0, x1, top, face]`, so the gaps
+ * between ribs show rock and not black slots.
  */
 const MASSES: readonly (readonly [number, number, number, number])[] = [
   [-45, 45, 56, 6],
@@ -151,19 +75,14 @@ const MASSES: readonly (readonly [number, number, number, number])[] = [
 ];
 
 /**
- * The vertical joint columns standing on the masses, `[x0, x1, top, face]`.
- * Rushmore's granite breaks this way, and a rib standing 4 units proud of its
- * neighbour hands `OutlineEffect` a seam from the talus to the skyline for free:
- * it is Uluru's fluting, done with eighteen boxes instead of thirty slabs.
- *
- * Two things are encoded in the numbers. The `face` values fall off toward both
- * ends, so the cliff bows forward in the middle instead of presenting a flat
- * side to a three-quarter view; the marked spurs break that envelope on purpose,
- * because they are the ones that crop a jaw. And the tops fall away at both
- * ends, which together with the talus at ±50 is what steps the profile in on the
- * way up. Where two heads touch, the rib between them (80 and 84) sits behind
- * both and only fills; the one at 86 is the visible wedge of uncarved granite,
- * in the one real gap in the row, between Roosevelt and Lincoln.
+ * The vertical joint columns standing on the masses, `[x0, x1, top, face]`. A
+ * rib standing 4 units proud of its neighbour gives the outline a seam from the
+ * talus to the skyline. The `face` values fall off toward both ends so the cliff
+ * bows forward in the middle; the marked spurs break that on purpose, because
+ * they crop a jaw. The tops fall away at both ends, which with the talus at +-50
+ * steps the profile in. Where two heads touch, the rib between them (80 and 84)
+ * sits behind both; the one at 86 is the visible wedge of uncarved granite
+ * between Roosevelt and Lincoln.
  */
 const RIBS: readonly (readonly [number, number, number, number])[] = [
   [-46, -43, 32, 5],
@@ -188,10 +107,9 @@ const RIBS: readonly (readonly [number, number, number, number])[] = [
 
 /**
  * The rock above, hanging over the heads. `[x0, x1, bottom, top, face]`.
- * Contiguous in x on purpose: a gap in this row is a hole in a mountain. The
- * skyline peaks at 119 just left of centre; the two outermost crags run all the
- * way down to the masses and carry the shoulders, which is what stops the whole
- * thing reading as a slab.
+ * Contiguous in x, since a gap in this row is a hole in a mountain. The skyline
+ * peaks at 119 just left of centre; the two outermost crags run down to the
+ * masses and carry the shoulders.
  */
 const CRAGS: readonly (readonly [number, number, number, number, number])[] = [
   [-42, -38, 50, 78, 8],
@@ -218,15 +136,13 @@ const RIDGE_MASS: readonly [number, number, number, number] = [-36, 32, 76, 94];
 const DEEP_FACE = 3;
 
 /**
- * The dark plane behind the carving: what the notch between two heads, the shadow
- * under a chin and the gap beside a wig all show. One tone darker than the rock,
- * so a gap reads as depth and never as sky. Kept narrow and close so it does not
- * swing out past the cliff's own edge when the model is turned.
+ * The dark plane behind the carving, one tone darker than the rock, so a gap
+ * reads as depth and never as sky. Kept narrow and close so it does not swing
+ * out past the cliff's edge when the model is turned.
  */
 const BACKDROP: readonly [number, number, number, number] = [-36, 36, 40, 94];
 
-// --- the talus -------------------------------------------------------------
-
+// --- the talus ---
 /** Two steps of scree, wider than the cliff, which is what makes the foot flare. */
 const CONES: readonly (readonly [number, number, number, number, number])[] = [
   // [base width, top width, base y, height, depth]
@@ -236,27 +152,19 @@ const CONES: readonly (readonly [number, number, number, number, number])[] = [
 
 /**
  * Boulder rows up the cone. `[base y, front z, count, half spread, size]`.
- *
- * **`front` is measured against a face that leans back, and the leaning is what
- * makes the numbers look wrong.** The cone's front face is at z = 19.6 at the
- * grass and z = 13.5 by the top row, so a row set at the same z as the row below
- * it is further *inside* the hill, not further out. The first four values were
- * 18 / 15 / 12 / 9 — a straight taper, which reads as scree receding up the
- * slope and is off by more than the leaning face at every row but the first.
- * Six boulders were sealed inside the cone and drew nothing. Each row now clears
- * the face at its own height by about a unit: proud, not flush, or two coplanar
- * faces would get no ink between them.
+ * `front` is measured against a face that leans back: the cone's front is at z
+ * = 19.6 at the grass and 13.5 by the top row, so each row clears the face at
+ * its own height by about a unit (proud, not flush, or two coplanar faces get
+ * no ink between them).
  */
 const TALUS: readonly (readonly [number, number, number, number, number])[] = [
   [0, 18, 9, 39, 5.2],
   [7, 16.5, 6, 32, 4.8],
   [14, 15, 5, 25, 4.2],
   [21, 12.5, 3, 16, 3.4],
-  // Two rows of two, out on the flanks, so the cliff does not meet the grass on
-  // a clean vertical corner at either end. These two clear the cone sideways
-  // rather than forwards, so it is the spread and not the front that has to
-  // carry them past it: at 38 the upper pair sat just inside a face that is
-  // 42.7 out at their height, and both were buried.
+  // Two rows of two out on the flanks, so the cliff does not meet the grass on a
+  // clean vertical corner. They clear the cone sideways, so it is the spread
+  // that carries them past it.
   [0, 3, 2, 42, 4.6],
   [9, 0, 2, 42, 3.8],
 ];
@@ -270,14 +178,11 @@ const PINES: readonly (readonly [number, number, number])[] = [
   [32, 22, 13.5],
 ];
 
-// ---------------------------------------------------------------------------
-// One head
-// ---------------------------------------------------------------------------
+// --- One head ---
 //
-// Local coordinates: y = 0 is the underside of the chin, which is where the
-// carving disappears into raw granite, and z is measured off the cheek plane at
-// `CHEEK`. Every number below is a depth off that plane, because a depth off
-// that plane is the only thing that draws a feature.
+// Local coordinates: y = 0 is the underside of the chin, where the carving
+// disappears into raw granite, and z is measured off the cheek plane at `CHEEK`.
+// Every number below is a depth off that plane, because that is what draws a feature.
 
 const HEAD_H = 26; // chin to the crown of the skull; the hair goes on top
 const JAW_W = 15;
@@ -286,10 +191,9 @@ const HEAD_D = 17;
 const CHEEK = 6;
 
 /**
- * The cheeks, and the mass the nose and mouth are cut on. It is a wedge, not a
- * box: 10.5 across at the jaw and 15.6 at the cheekbones, so its sides run into
- * the head's own silhouette instead of drawing a rectangle inside the face. A
- * box here — which is what this was first — turns every head into a totem.
+ * The cheeks, and the mass the nose and mouth are cut on: a wedge, 10.5 across
+ * at the jaw and 15.6 at the cheekbones, so its sides run into the head's
+ * silhouette instead of drawing a rectangle in the face.
  */
 const MUZZLE_W = 10.5;
 const MUZZLE_TOP = 15.6;
@@ -299,9 +203,8 @@ const MUZZLE_D = 5;
 const MUZZLE_Z = 8.4;
 
 /**
- * The furthest-forward thing above the nose, and everything about the eye
- * depends on it. Exactly as wide as the two sockets it covers: run it to the
- * full width of the head and it stops being a brow and becomes a visor.
+ * The furthest-forward thing above the nose. Exactly as wide as the two sockets
+ * it covers; wider and it becomes a visor.
  */
 const BROW_W = 13.6;
 const BROW_Y = 15.6;
@@ -317,7 +220,7 @@ const EYE_D = 2.2;
 const EYE_Y = 12.9;
 const EYE_Z = 7.2;
 
-/** Long, and raked back so the root disappears under the brow rather than meeting it. */
+/** Long, and raked back so the root disappears under the brow. */
 const NOSE_W = 5.2;
 const NOSE_NARROW = 0.6;
 const NOSE_Y = 6.3;
@@ -364,9 +267,8 @@ const FACES: readonly Face[] = [
 const HEAD_LIFT = -0.04;
 
 /**
- * Deterministic variation in [-1, 1]. The step is the golden angle, so the talus
- * never falls into a pattern, and `Math.random()` — which the loader would catch,
- * since it builds twice and compares — is not needed.
+ * Deterministic variation in [-1, 1]. The step is the golden angle, so the
+ * talus never falls into a pattern.
  */
 const grain = (index: number, salt: number): number => Math.sin(index * 2.39996 + salt);
 
@@ -393,9 +295,7 @@ export const mountRushmore: Monument = {
     /**
      * A block whose plan is not square: a 4-sided prism carries the flare from
      * `width` at the base to `top` at the crown, and `scale.z` sets the depth
-     * afterwards. The only way to get an un-square slab out of a helper that
-     * only makes regular prisms — and the depth flares with the width, which is
-     * exactly what a leaning rock face wants.
+     * afterwards, so the depth flares with the width like a leaning rock face.
      */
     const wedge = (width: number, top: number, height: number, depth: number, color: number): Mesh => {
       const mesh = taper(width / 2, top / 2, height, color, 4);
@@ -406,7 +306,7 @@ export const mountRushmore: Monument = {
     /**
      * A column of the mountain, spanning `x0..x1` and `y0..y1` and presenting
      * `face` to the front at its base. It narrows and recedes as it rises, and
-     * overhangs its slot so its neighbours never part company.
+     * overhangs its slot so neighbours never part company.
      */
     const pillar = (x0: number, x1: number, y0: number, y1: number, face: number): void => {
       const width = x1 - x0 + OVERLAP * 2;
@@ -424,12 +324,9 @@ export const mountRushmore: Monument = {
       group.add(mesh);
     };
 
-    // -----------------------------------------------------------------------
-    // 1. The mountain, back to front.
-    // -----------------------------------------------------------------------
+    // --- 1. The mountain, back to front ---
 
-    // The plane every gap in the carving shows. One tone darker than the rock,
-    // so a notch between two heads reads as depth and never as sky.
+    // The plane every gap in the carving shows, one tone darker than the rock.
     const [bx0, bx1, by0, by1] = BACKDROP;
     const backdrop = box(bx1 - bx0, by1 - by0, 5, shade);
     backdrop.position.set((bx0 + bx1) / 2, by0, -11.5);
@@ -444,9 +341,7 @@ export const mountRushmore: Monument = {
     for (const [x0, x1, bottom, top, face] of CRAGS) pillar(x0, x1, bottom, top, face);
     for (const [x0, x1, top, face] of RIBS) pillar(x0, x1, 0, top, face);
 
-    // -----------------------------------------------------------------------
-    // 2. The heads.
-    // -----------------------------------------------------------------------
+    // --- 2. The heads ---
 
     const head = (kind: Kind): Group => {
       const face = new THREE.Group();
@@ -467,8 +362,7 @@ export const mountRushmore: Monument = {
         return mesh;
       };
 
-      // The skull: wider at the temples than at the jaw, and three quarters of
-      // it inside the mountain.
+      // The skull: wider at the temples than at the jaw, three quarters of it inside the mountain.
       const skull = wedge(JAW_W, TEMPLE_W, HEAD_H, HEAD_D, stone);
       skull.position.z = CHEEK - (HEAD_D * TEMPLE_W) / JAW_W / 2;
       face.add(skull);
@@ -509,8 +403,7 @@ export const mountRushmore: Monument = {
         crown(17, 8.5, 11, 6.6, 19.4, 7.2); // swept back and up, and the tallest head
       } else if (kind === 'roosevelt') {
         crown(17.4, 11.5, 9, 6, 20, 7.2);
-        // The pince-nez, and its shadow; `PROUD` in front of the brow, whose
-        // face it would otherwise share and flicker in.
+        // The pince-nez and its shadow, `PROUD` in front of the brow's face.
         cut(16.2, 1.4, 2.4, shade, 0, 15, BROW_Z + PROUD);
         cut(8.4, 2.4, 3.4, stone, 0, 4.7, 10.8); // the moustache, which is his mouth
       } else {
@@ -524,8 +417,8 @@ export const mountRushmore: Monument = {
     };
 
     for (const spec of FACES) {
-      // The rough block the carving grows out of. It crosses the chin line, so
-      // no head ends on a clean edge, and it is the mountain's colour.
+      // The rough block the carving grows out of. It crosses the chin line so no
+      // head ends on a clean edge.
       const shelf = (TEMPLE_W / 2 + 3) * spec.scale;
       slab(spec.x - shelf, spec.x + shelf, spec.base - 13, spec.base + 1.5, spec.z + 5.5);
 
@@ -537,12 +430,7 @@ export const mountRushmore: Monument = {
       group.add(carved);
     }
 
-    // -----------------------------------------------------------------------
-    // 3. The talus. Four hundred thousand tonnes came off this mountain and
-    //    none of it was carried away; the heap is still there, and it is half of
-    //    what a photograph of Rushmore contains. It is also what stops the cliff
-    //    standing on a straight edge like a tower.
-    // -----------------------------------------------------------------------
+    // --- 3. The talus: the heap of blasting waste, which stops the cliff standing on a straight edge ---
 
     for (const [width, top, y, height, depth] of CONES) {
       const cone = wedge(width, top, height, depth, rock);
@@ -556,14 +444,12 @@ export const mountRushmore: Monument = {
         const t = count === 1 ? 0 : (i - (count - 1) / 2) / ((count - 1) / 2);
         const scatter = grain(index, 2.7);
         const radius = size * (0.7 + 0.3 * (1 + scatter));
-        // Fresh blasting waste is paler than the weathered face; the rest has
-        // been lying there since 1941.
+        // Fresh blasting waste is paler than the weathered face.
         const tint = grain(index, 4.3);
         const color = tint > 0.5 ? stone : tint < -0.65 ? shade : rock;
-        // A row up the heap stands on a cone, and chunks of two colours there
-        // would share the row's underside plane and flicker where they overlap,
-        // so each colour is sunk its own `PROUD` into the cone. The ground row
-        // stays on y = 0.
+        // A row up the heap stands on a cone, and chunks of two colours would
+        // share the row's underside plane, so each colour is sunk its own
+        // `PROUD` into the cone. The ground row stays on y = 0.
         const sink = y > 0 ? (color === stone ? 0 : color === rock ? PROUD : 2 * PROUD) : 0;
         const chunk = taper(
           radius,

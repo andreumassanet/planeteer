@@ -3,122 +3,29 @@ import type { Group, Monument, Object3D } from './contract.ts';
 /**
  * Mount Kilimanjaro.
  *
- * The second mountain in the set, and every decision here was taken against the
- * first. `mount-fuji.ts` is a symmetrical cone with a concave flank and a snow
- * cape hanging off it; Kilimanjaro is not a cone at all, and the four facts that
- * name it are each the opposite of one of Fuji's.
+ * A massif, not a cone: the flat-topped Kibo in the middle, the shattered horn
+ * of Mawenzi to the east and the broken rim of Shira to the west. The profile
+ * has a shoulder in it (the Saddle bench) so the silhouette is not a haystack,
+ * the summit is a table, and the ice is a set of flat slabs with sheer edges
+ * lying on it rather than a cape down the flanks. The flanks change material
+ * twice on the way up: rainforest, moorland, bare rock.
  *
- * - **It is a massif: three volcanoes in one silhouette.** The great flat Kibo
- *   in the middle, the shattered horn of **Mawenzi** standing out to the east,
- *   the low broken rim of **Shira** to the west. That trio is the read, and it
- *   is why this model is deliberately lopsided where Fuji's file says "the whole
- *   brief for this mountain is symmetry".
- * - **The profile has a shoulder in it, and the summit is a table.** See
- *   `PROFILE`: the flank climbs at 40, 48, 50, 49, 49 degrees, then **lies back
- *   to 34** for the Saddle — the high bench the other two cones stand on — then
- *   stands up again at 55 and 60 for Kibo's own cone before breaking to 27 as it
- *   rolls onto a 27.6-unit plateau. Fuji's climb monotonically from 27 to 70 and
- *   end in a point with a dent in it. A break in slope is the one thing a cone
- *   cannot have, and the whole silhouette turns on it: without the bench this
- *   mountain renders as a haystack, which is exactly what the first version of
- *   this file did.
- * - **The ice is a flat slab lying on the plateau, not a cape down the flanks.**
- *   Kilimanjaro's glaciers end in sheer vertical walls; they do not feather out
- *   into the rock. So the ice is `box`es standing `ICE_THICK` proud of the table
- *   with their own inked cliff edge — and it does not cover the summit, because
- *   it no longer does: 85% of it has gone in a century, so four plates hold the
- *   west and south and one patch is left stranded in the east.
- * - **The flanks change colour twice on the way up.** This is the mountain you
- *   climb through five climates, and no other monument has that: dark
- *   rainforest, pale moorland, bare alpine rock. `FOREST` and `MOOR` are
- *   `PROFILE` heights, so the zones are a change of material and not a decal,
- *   and the tongues are the forest climbing the gullies, which is what keeps
- *   both lines off the horizontal.
- *
- * **Why this is a model and not terrain.** Asked at 3.067 S, 37.355 E,
- * `terrain.ts` returns **129 units** of raw relief — real ground, unlike Fuji's
- * 2.7, because the site sits inside the falloff of the `Ethiopian highlands`
- * range, whose path ends at [-3, 36] a degree and a third to the west. But what
- * it returns is a *ramp*: across the 180 units of the monument pad the relief
- * falls smoothly and monotonically from 163 to 91, and the highest ground within
- * three degrees is 222 units of noise 250 km away at 2.2 S, 35.5 E. There is no
- * summit here, and ridged noise has no way to grow one with a flat top, a
- * caldera and two satellite cones. `placement.ts` flattens a 90-unit pad under
- * every monument in any case. What the site does provide is the one thing that
- * is right: a wide elevated plain, 129 units up, for a mountain that in life
- * stands alone off a 900 m plateau. The plain is the site's; the mountain is
- * this file's.
- *
- * **Tier: `landmark`, and the height deliberately at 40% of the cap.** The
- * recognition question — "from how far should a player be able to name it?" —
- * answers itself: it is the roof of a continent, seen from 150 km away across
- * the Amboseli plain. The arithmetic rules out the rest. `tower` caps the
- * footprint at 28, which cannot hold a massif. `building` — the tier Uluru
- * argues its way into on exactly this kind of reasoning — caps the *height* at
- * 40, and this shape needs more: the table at 44, the Saddle bench 16 below it
- * and Mawenzi's spires standing 14 clear of the flank they rise from are three
- * levels, and squeezed under 40 they collapse into one lumpy ridge.
- *
- * So `landmark`, at 48 units to Uhuru Peak — 71% of Fuji's 67 at the same
- * 110-unit width. The inversion is deliberate: Kilimanjaro is the taller
- * mountain by 2,119 m and the *shorter* model, because the only way a
- * 110-unit-wide silhouette can say "broad" is by being low. 110 x 48 is 2.29
- * wide-to-tall against Fuji's 1.64, 40% flatter, and that difference is the
- * difference between the two mountains, side by side.
- *
- * **Vertical exaggeration: 5.2x, and nothing is cropped.** The massif runs about
- * 60 km east-west by 40 north-south and rises 4,995 m off its plateau: a real
- * half-profile of 30 km to 5 km, 6 : 1, a slope of 9.5 degrees. The `landmark`
- * footprint circle caps the model at 110 wide, so it is 55 out and 48 up,
- * 1.15 : 1 — the vertical stretched 5.2x, the same move as Fuji's 4.5x and the
- * Golden Gate's 2.3x, and `radius / height` lands at 1.14 against the 2.00 the
- * contract allows. The plan is not squeezed to pay for it: `SPREAD` stretches
- * the shield 1.4x east-west against the real massif's 1.5, so the mountain is
- * wide in the axis it is actually wide in, and the two satellites have somewhere
- * to stand.
- *
- * What the stretch broke, and what it cost: at 5.2x the caldera comes out a
- * 4-unit dot. It is 2.4 km on a 60 km base, 0.04 of the width, and it is 17.4
- * units on 110 here, 0.16 — **4x** — with the summit table at 0.25 against a
- * real 0.067, **3.7x**. Both are exaggerated for the reason Fuji's crater is:
- * "flat on top with a hole in it" has to survive being 40 pixels tall, and at
- * true scale it does not survive at all. The cost is paid on the flanks, which
- * come out steeper than 5.2x alone would make them, and that is the trade: a
- * plateau you can see, on a mountain steeper than life, beats a mountain at the
- * right angle with no summit on it.
- *
- * **Colour.** Fuji is slate and white and can be, standing on Japan's olive. In
- * Africa the land is `clay`, so — Uluru's rule, that a landform must not read as
- * a browner lump of its own continent — the rock here is `tan`: the same warmth,
- * far less saturation, and on the contract's warm list, which matters because
- * the caldera is a recess and `bone` and `steel` come back reading as holes when
- * the sun turns off them. Then `darkOlive` for the rainforest belt and `green`
- * for the moorland above it; `bark`, at half tan's luminance, for Mawenzi —
- * whose shattered dykes really are the dark thing in every photograph of the
- * massif — and for the ash on the caldera floor; and `white`, the palette's warm
- * white, for the ice.
+ * Tier `landmark`, 48 units to Uhuru Peak across a 110-unit footprint. That
+ * makes the vertical about 5.2x exaggerated, and the caldera and the ice are
+ * exaggerated further, because a flat top with a hole in it has to survive
+ * being a few pixels tall. The shield is stretched east-west by `SPREAD`, so
+ * the front view carries the massif's real width. The rock is `tan`, a warm
+ * colour that does not read as a browner lump of the clay land, and the
+ * caldera is a recess that must stay on the contract's warm list.
  */
 
 const DEG = Math.PI / 180;
 
 /**
- * East-west stretch of the shield.
- *
- * The massif is 60 km by 40, and this is that 1.5 rounded down: the front
- * silhouette takes the full 110 units of the footprint circle, and the cost is
- * paid where it should be: seen end-on from the north or south the mountain is
- * 78 by 48, 1.63 : 1, which is Fuji's own proportion. That is the honest trade —
- * a circular footprint has one width to give and this mountain spends it on the
- * axis that carries Mawenzi and Shira. The front is the view this model is drawn
- * for, and it is also the view every photograph of Kilimanjaro is taken from.
- *
- * It is applied to a `Group` holding the whole radial shield rather than mesh by
- * mesh, which is what keeps the band stack seamless: one linear map takes the
- * cone to the stretched cone, so anything lying on the first still lies on the
- * second. Slabs rotated inside it are sheared as well as stretched — which cost
- * a revision: sheared *wide* they read as torn paper stuck on the mountain, so
- * everything lying on this flank is narrow and long, and the shear is then free
- * variety instead, and the reason no two ridges here are the same ridge.
+ * East-west stretch of the shield (the massif is about 1.5 times wider than
+ * deep). Applied to a group holding the whole radial shield, so the band stack
+ * stays seamless and anything lying on it is stretched with it. Slabs rotated
+ * inside it are sheared, so everything lying on the flank is narrow and long.
  */
 const SPREAD = 1.4;
 
@@ -126,28 +33,11 @@ const SPREAD = 1.4;
 const SIDES = 24;
 
 /**
- * The profile: half-width **across the flats before the stretch**, at each
- * height. The number in the comment is that width after the stretch — what the
- * front camera sees — and then the slope of the band below it.
- *
- * Read the slopes and not the radii, as on Fuji, but read them for the opposite
- * thing. Fuji's climb without interruption because a cone's do. These climb to
- * 50, **lie back to 34 across the Saddle**, climb again to 60 for Kibo's own
- * cone, and ease to 27 rolling onto the table. Two of those dips are the
- * mountain: the 36 is the bench Mawenzi and Shira stand on, the thing that makes
- * this a massif rather than a hill, and the 34 is the shoulder turning over onto
- * a flat top instead of closing to a point.
- *
- * That bench was 21 degrees in one version and it was too much of a good thing:
- * a 28-degree break at a single seam runs a hard horizontal ring right round
- * the mountain, and the model came back reading as a cornice on a drum — a dam,
- * not a massif. At 34 against its neighbours' 49 and 55 the shoulder is still
- * in the outline and no longer an edge.
- *
- * The roll-over at the top is the same break left deliberately sharp — 52
- * degrees to 27 across one seam. A shoulder easing *onto a plateau* is not a
- * cornice, it is the plateau's own edge, and it is the second half of "flat on
- * top".
+ * The profile: half-width across the flats before the stretch, at each height.
+ * The trailing comment is the width after the stretch and the slope of the band
+ * below. The slopes climb to 50 degrees, lie back to 34 across the Saddle, climb
+ * to 60 for Kibo's own cone and roll onto the summit table at 27. The bench is
+ * where Mawenzi and Shira stand; the sharp roll-over is the plateau's edge.
  */
 const PROFILE = [
   { y: 0, r: 39.0 }, // 54.6 stretched, 54.8 to a corner, inside the 55 footprint
@@ -164,15 +54,9 @@ const PROFILE = [
 ];
 
 /**
- * The two vegetation lines, both `PROFILE` heights so each zone is a band of its
- * own material.
- *
- * The real belts are forest to 2,800 m and moorland to 4,000 m, which against a
- * 900 m plain and a 5,895 m summit is 38% and 62% of the rise. Here they sit at
- * 24% and 47%, the forest pulled down because the model's foot is the mountain's foot and
- * not the farmland twenty kilometres out from it: what has to read is a dark
- * skirt under bare rock, and a forest reaching to mid-height reads as a green
- * mountain.
+ * The two vegetation lines, as `PROFILE` heights so each zone is a band of its
+ * own material. They sit lower than the real belts so the model reads as a dark
+ * skirt under bare rock.
  */
 const FOREST = 11;
 const MOOR = 21;
@@ -182,47 +66,21 @@ const TABLE = 44;
 const RIM_WALL = 1.6;
 const UHURU = 2.4;
 
-/** The caldera, before the stretch: 2.4 km of it at 4x, as the note above explains. */
+/** The caldera, before the stretch. */
 const RIM_INNER = 3.6;
 const RIM_OUTER = 6.2;
 const FLOOR_R = 3.4;
 
-/**
- * How thick the ice stands on the table.
- *
- * The number the whole ice cap turns on, and it began at 1.5 and rendered as a
- * white line. A mountain seen from the plain is seen nearly edge-on, so a slab
- * lying flat on a plateau shows the player its *side* and nothing else — and the
- * side has to carry this mountain's most famous fact. It went 1.5, then 2.7,
- * then this, and each of the first two came back from the renderer as a white
- * *line* on the summit. At 3.4 the ice is 7% of the model's height and stands
- * twice the crater rim beside it: from the front it is a white block on a tan
- * table, which is what a photograph of Kilimanjaro is.
- *
- * It is the most exaggerated number in the file and worth saying so. The real
- * ice walls are 15 to 40 m, which at 104 m to the unit is 0.15 to 0.4, so this
- * is roughly 10x — against the mountain's own 5.2x and the caldera's 4x. The
- * defence is the caldera's, one step stronger: at true thickness the feature
- * does not exist on screen at all, and it is the feature this mountain is named
- * for.
- */
+/** How thick the ice stands on the table; exaggerated so the sheer edge reads from the plain. */
 const ICE_THICK = 3.4;
 
-/**
- * Thickness of a slab lying on the flank against its width. Fuji's number and
- * Fuji's reason: thicker and you see the undersides from the ground.
- */
+/** Thickness of a slab lying on the flank against its width. */
 const SLAB = 0.15;
 
 /**
  * The rainforest climbing the gullies: `[bearing, how far it runs above the
- * treeline, how wide it is at the bottom]`.
- *
- * Nine of them on bearings that are not a division of the circle, because this
- * mountain is not symmetrical and a ring of evenly spaced tongues is the fastest
- * way to say that it is. They run **upward and narrowing** — a forest climbs a
- * sheltered gully and thins as it goes — which is the opposite of Fuji's snow
- * tongues, and it matters that the geometry differs and not only the colour.
+ * treeline, how wide it is at the bottom]`. Uneven bearings, running upward and
+ * narrowing.
  */
 const FOREST_TONGUES: [bearing: number, rise: number, half: number][] = [
   [12, 4.0, 3.4],
@@ -236,7 +94,7 @@ const FOREST_TONGUES: [bearing: number, rise: number, half: number][] = [
   [334, 2.0, 3.6],
 ];
 
-/** The moorland doing the same above its own line, on other bearings again. */
+/** The moorland tongues above its own line. */
 const MOOR_TONGUES: [bearing: number, rise: number, half: number][] = [
   [28, 3.5, 3.2],
   [72, 4.5, 2.6],
@@ -247,22 +105,10 @@ const MOOR_TONGUES: [bearing: number, rise: number, half: number][] = [
 ];
 
 /**
- * The ribs and the barrancos: the radial ridges and the ravines cut between
- * them, as slabs lying along the flank. `[bearing, from, to, half-width, dark]`.
- *
- * They come in two runs, below the Saddle and above it, and **none of them
- * crosses it**. A slab is a straight chord between two heights, so one spanning
- * the bench would bridge it and hang in the air over the terrace — which is the
- * same reason Fuji breaks its ridges into three runs, arrived at from the other
- * end.
- *
- * The ribs also do a job that has nothing to do with geology. A stack of tapers
- * is a stack of *meshes*, `OutlineEffect` inks every one, and the bare upper
- * cone came out banded with horizontal hoops — a lampshade. Nothing was wrong
- * with the profile; the ink was drawing the construction. Ribs crossing the
- * seams break every hoop into arcs, and since a rib is the same `tan` as the
- * rock behind it, all it adds is the vertical line, which is what a scree ridge
- * looks like anyway.
+ * The ribs and the barrancos: radial ridges and the ravines between them, as
+ * slabs lying along the flank. `[bearing, from, to, half-width, dark]`. None
+ * crosses the Saddle (a straight slab would bridge the bench), and the ribs
+ * break the horizontal hoops that the stacked tapers would otherwise ink.
  */
 const LOWER_RIBS: [bearing: number, from: number, to: number, half: number, dark: boolean][] = [
   [4, 14, 26.5, 4.0, false],
@@ -298,12 +144,8 @@ const UPPER_RIBS: [bearing: number, from: number, to: number, half: number, dark
 ];
 
 /**
- * Teeth on the caldera rim: `[bearing, height, half-width]`.
- *
- * Four, not a ring of them — a rim is uneven, not crenellated. Uhuru Peak, the
- * 5,895 m point and the highest thing in the model at 48, is on the south-west,
- * which is the front-left of the fixed camera: the summit of Africa should not
- * be round the back.
+ * Teeth on the caldera rim: `[bearing, height, half-width]`. Uhuru Peak is on
+ * the front-left so the summit of Africa is not round the back.
  */
 const TEETH: [bearing: number, height: number, half: number][] = [
   [318, UHURU, 2.2], // Uhuru Peak
@@ -313,31 +155,10 @@ const TEETH: [bearing: number, height: number, half: number][] = [
 ];
 
 /**
- * The ice, as flat slabs on the table: `[width, depth, x, z, yaw]`.
- *
- * Four overlapping plates make one lopsided icefield over the west and south of
- * the plateau — overlapping, so their union has a stepped edge rather than four
- * separate lids — and one small patch is stranded out east. The fourth sits hard
- * against the plateau's front lip on purpose: ice in the middle of a table is
- * ice the front camera sees end-on across two units of bare rock, and the white
- * has to reach the outline to count. That patch is the
- * point of the arrangement: the ice held the whole summit within living memory,
- * so a cap that covered the table evenly would be telling the wrong century.
- *
- * There was a Furtwängler plate too, lower than the rest on the crater floor.
- * It is gone: the plates below stand 3.4 thick across a caldera that is two
- * thirds of the table's depth, so it was sealed under the Northern Icefield and
- * never on screen. The note in the build where it stood has the numbers.
- *
- * Between them the four plates hold about 60% of the table, all of it west and
- * south, which is both the right shape and — with the stranded patch — the
- * right century. They were half that size in one version and vanished at
- * thumbnail size: against Fuji's cape, which is half of Fuji, an ice cap that
- * is 8% of the silhouette is not a landmark's worth of the most famous ice on
- * the planet.
- *
- * Every corner is kept inside the ellipse the table's 24-gon inscribes, 13.0 by
- * 9.3. A slab that overhangs the plateau is a slab hanging in the air.
+ * The ice, as flat slabs on the table: `[width, depth, x, z, yaw]`. Four
+ * overlapping plates hold the west and south, one patch is left in the east,
+ * and one sits against the front lip so the white reaches the outline. Every
+ * corner stays inside the ellipse the table's 24-gon inscribes (13.0 by 9.3).
  */
 const ICE: [w: number, d: number, x: number, z: number, yaw: number][] = [
   [14.0, 7.4, -2.6, -1.4, 0.06], // the Northern Icefield
@@ -349,21 +170,10 @@ const ICE: [w: number, d: number, x: number, z: number, yaw: number][] = [
 
 /**
  * Mawenzi, offset from `MAWENZI_X, MAWENZI_Z`: `[x, z, half-width at the base,
- * half-width at the top, top height, lean, dark]`.
- *
- * Six spires out of one plug rather than a second cone, because Mawenzi is an
- * eroded core — a horn of shattered rock threaded with dykes — and the one thing
- * it is not is smooth. Every spire starts at 16, below the plug's own top, so
- * what reaches the skyline is only their points: a flat lid up there would be a
- * second summit table, which is the one thing this side of the mountain must not
- * have.
- *
- * It stands at x = 32 against a true 11 km from Kibo's summit, which at this
- * scale would be 20. Pushed out to 17.5 km equivalent, 1.6x, because the notch
- * between the two has to be visible: at true spacing Mawenzi grows straight out
- * of Kibo's flank and the massif reads as one lump. Its summit is at 38 against
- * Kibo's 48 — 79%, where the real pair is 85% — and it stands 14 units clear of
- * the flank it rises from.
+ * half-width at the top, top height, lean, dark]`. Six leaning spires out of one
+ * plug; each starts at 16, below the plug's top, so only their points reach the
+ * skyline. It stands further out than the real spacing so the notch between it
+ * and Kibo is visible.
  */
 const MAWENZI_X = 32;
 const MAWENZI_Z = -2;
@@ -385,39 +195,10 @@ const MAWENZI: [
 ];
 
 /**
- * Shira, as a broken ridge standing on the western shoulder: `[x, z,
- * half-width, height it reaches]`.
- *
- * Shira lost two attempts before this one, in the way Uluru's file describes.
- * As a wedge buried in the west flank it presented a 68-degree escarpment from
- * nearly ground level and read as a butte someone had leaned against the
- * mountain. Raised into a shelf with pinnacles on it, it read as a battlement —
- * and worse, `groundUnder` proved it was cheating: the shelf's outer lip stood
- * 5.8 units past the flank it was supposed to be sitting on, hanging in the air
- * where nothing but the front camera's angle hid it.
- *
- * What it is in life is the remnant rim of the massif's oldest cone, whose
- * western side collapsed — 3,962 m, 61% of the way from the plain to Uhuru. So
- * once the Saddle bench existed the answer was already on the table, in both
- * senses: the bench *is* the Shira Plateau on that side, and Shira is a row of
- * crags standing on it and nothing else. No shelf, no mass of its own: each
- * block's height is given as a **rise above the flank it stands on**, not as a
- * summit height, which is the only way a crest on a slope stays a crest. Given
- * absolute tops instead, the western blocks — standing where the flank is ten
- * units lower — grew into towers, and seven towers in a row is a ruined wall.
- *
- * They also stay **on the bench**, between x = -26 and -32, and not one step
- * further west. A prism standing on a slope shows its whole downhill face, so on
- * the 49-degree flank below the bench every crag came out a rectangle taller than
- * it was wide, and five of those descending the flank read as a staircase of
- * boxes. On the bench's 34 degrees the same crag is six wide and six tall and
- * reads as rock. The mass Shira needs further out is carried by three wide ribs
- * on western bearings in `LOWER_RIBS` instead, which lie *along* the slope and
- * so have no vertical face to give away.
- *
- * The crest descends westward with the shoulder it sits on, 32 down to 26, so
- * Shira tops out at 32 of 48: much the shortest of the three summits, which is
- * right.
+ * Shira, as a broken ridge of crags on the western shoulder: `[x, z,
+ * half-width, height it reaches]`. The height is a rise above the flank the crag
+ * stands on, which keeps a crest a crest on a slope. The crags stay on the bench
+ * (x between -26 and -32), where a prism shows a modest downhill face.
  */
 const SHIRA: [x: number, z: number, half: number, rise: number][] = [
   [-26.0, 2.6, 3.0, 4.6],
@@ -442,15 +223,7 @@ function radiusAt(y: number): number {
 
 /**
  * The inverse: how high the shield's surface is at a pre-stretch radius.
- *
- * This exists because "put a crag on the flank" is not something you can do by
- * eye in a table of coordinates. A block dropped at the height its centre sits
- * at will hang its downhill corners in the air by half its width times the
- * slope, which on a 50-degree flank is most of a block — and from the fixed
- * front camera you cannot see it happen. So nothing on this mountain is placed
- * at a height chosen by hand: `groundUnder` samples the surface all round a
- * piece's footprint and starts it at the lowest, which buries the uphill side
- * and leaves nothing floating on the downhill one.
+ * Pieces are seated with `groundUnder`, never at a height chosen by hand.
  */
 function heightAt(radius: number): number {
   const first = PROFILE[0]!;
@@ -518,15 +291,10 @@ export const kilimanjaro: Monument = {
 
     /**
      * A slab lying along the flank between two heights, standing proud of it.
-     *
-     * This holder is `mount-fuji.ts`'s, and it is the only thing the two files
-     * share: a `taper` stands on +Y, so it is held in a group turned about X
-     * until its +Y runs up the slope, which leaves its +Z along the surface
-     * normal, and squashing that axis by `SLAB` turns a beam into a slab lying
-     * on the mountain rather than a plank nailed to it. `sink` pushes it in —
-     * the chord is straight and the flank is not, so sinking a slab buries its
-     * ends and leaves the belly showing, which is how a ridge comes out of a
-     * slope in the first place.
+     * A `taper` stands on +Y, so it is held in a group turned about X until its
+     * +Y runs up the slope, and squashing the normal axis by `SLAB` makes it a
+     * slab. `sink` pushes it in: the chord is straight and the flank is not,
+     * so the ends bury and the belly shows.
      */
     const flank = (
       fromY: number,
@@ -566,8 +334,7 @@ export const kilimanjaro: Monument = {
     }
 
     // --- the ribs and the barrancos ---
-    // A ravine is a groove, so it is sunk until little but its floor shows; a
-    // rib is meant to stand proud and catch the ink, so it barely sinks at all.
+    // A ravine is sunk until little but its floor shows; a rib barely sinks.
     for (const [bearing, from, to, half, dark] of LOWER_RIBS) {
       const color = dark ? shadow : rock;
       shield.add(onBearing(bearing, flank(from, to, half, half * 0.55, color, dark ? 1.3 : 0.3)));
@@ -578,45 +345,23 @@ export const kilimanjaro: Monument = {
     }
 
     // --- the summit ---
-    // Out of the shield group and into final coordinates: the rim and the floor
-    // carry their own `scale.x` because they are unrotated and take it without
-    // shearing, while the ice slabs are yawed and must not be inside it.
+    // Out of the shield group, in final coordinates: the rim and the floor carry
+    // their own `scale.x`, while the yawed ice slabs must not be sheared.
     const rim = ringWall(RIM_INNER, RIM_OUTER, RIM_WALL, rock, 16);
     rim.position.y = TABLE;
     rim.scale.x = SPREAD;
     group.add(rim);
 
-    // Ash, and dark, which is the only thing that makes the summit read as a
-    // hole rather than a disc from above.
+    // Ash, dark, so the summit reads as a hole from above.
     const floor = column(FLOOR_R, 0.55, shadow, 14);
     floor.position.y = TABLE;
     floor.scale.x = SPREAD;
     group.add(floor);
 
-    // The Reusch Crater's ash cone stood here, and has been taken out. Nothing
-    // that lies on this floor can be seen, and the reason is a number rather
-    // than an oversight: the caldera is 6.2 deep against the table's 9.3, two
-    // thirds of it, so the ice plates have nowhere to lie except across it. The
-    // Northern Icefield spans x -9.6..4.4 and z -5.1..2.3 and the floor spans
-    // x +/-4.76 and z +/-3.4, so the plate covers all of it bar a 0.36-unit
-    // crescent on the east — and it stands 3.4 thick over a cone 0.7 tall. The
-    // cone and the Furtwangler plate that sat beside it were 44 triangles and
-    // two meshes drawing nothing.
-    //
-    // Making the crater read again is an ice decision, not a crater one: the
-    // plates would have to come off the caldera, and `ICE` argues at length for
-    // their present size and lopsidedness. Left for whoever takes that on.
-
     const rimRadius = (RIM_INNER + RIM_OUTER) / 2;
     for (const [bearing, height, half] of TEETH) {
-      // Tapered, not square: a block on a rim is a merlon, a wedge is a rock.
-      //
-      // They start at the table and not on top of the rim, which is the same
-      // lesson as `groundUnder` in a smaller place: a tooth is wider than the
-      // rim it stands on, so perched on the rim's top face it hung a 1.4-unit
-      // lip 1.6 units above the terrace on one side and above the crater floor
-      // on the other. Standing them on the table and letting the rim wall run
-      // through them costs `RIM_WALL` of buried height and nothing else.
+      // Tapered: a block on a rim is a merlon, a wedge is a rock. They start at
+      // the table so the rim wall runs through them and nothing overhangs.
       const tooth = taper(half, half * 0.45, RIM_WALL + height, rock, 5);
       tooth.position.set(
         Math.sin(bearing * DEG) * rimRadius * SPREAD,
@@ -633,28 +378,19 @@ export const kilimanjaro: Monument = {
       slab.rotation.y = yaw;
       group.add(slab);
     }
-    // The Furtwangler plate stood here. See the note where the ash cone was: it
-    // lay on the crater floor, 0.8 thick, wholly under the Northern Icefield's
-    // 3.4 — and it was `ice` on `ice`, so even uncovered it would have had to
-    // read as a step in a white block rather than as a plate of its own.
-
     // --- Mawenzi ---
-    // The plug first, buried to the shoulders in the bench, then the spires out
-    // of it.
+    // The plug, then the spires out of it.
     const plug = taper(7.5, 4.2, 16, shadow, 8);
     plug.position.set(MAWENZI_X, 10, MAWENZI_Z);
     group.add(plug);
 
     for (const [x, z, base, top, y, lean, dark] of MAWENZI) {
-      // A five-sided taper's circumradius is its apothem over cos 36 degrees,
-      // and that is the disc the ground has to be found under.
+      // A five-sided taper's circumradius is its apothem over cos 36 degrees.
       const reach = base / Math.cos(Math.PI / 5);
       const foot = Math.min(16, groundUnder(MAWENZI_X + x, MAWENZI_Z + z, reach));
       const spire = taper(base, top, y - foot, dark ? shadow : rock, 5);
       spire.position.set(MAWENZI_X + x, foot, MAWENZI_Z + z);
-      // Leaned, and each a different way. Mawenzi is the ruin of a volcano cut
-      // through by dykes standing at every angle; six uprights in a row is a
-      // fence.
+      // Leaned, each a different way, like dykes at every angle.
       spire.rotation.z = lean;
       spire.rotation.x = lean * 0.7;
       group.add(spire);
@@ -664,10 +400,7 @@ export const kilimanjaro: Monument = {
     for (const [x, z, half, rise] of SHIRA) {
       const reach = half / Math.cos(Math.PI / 5);
       const foot = groundUnder(x, z, reach);
-      // Blunt, and overlapping their neighbours. Narrow ones stood up as
-      // separate fingers on a slope — standing stones, not a ridge — and it is
-      // the width against the height that decides which of the two a crag reads
-      // as, not the height itself.
+      // Blunt and overlapping so they read as a ridge, not standing stones.
       const crag = taper(half, half * 0.55, surfaceAt(x, z) + rise - foot, rock, 5);
       crag.position.set(x, foot, z);
       group.add(crag);

@@ -3,86 +3,33 @@ import type { Monument } from './contract.ts';
 /**
  * The Great Mosque of Djenne, Mali.
  *
- * The largest mud-brick building in the world, and it looks like no other
- * monument. Four things are the building, and every mesh here pays for one:
+ * The largest mud-brick building in the world. The read:
+ * - Three great tapering towers across the qibla wall, each on a spike with an
+ *   ostrich egg, the middle one proud of the other two.
+ * - A forest of pilasters (ten on the front) so the facade is a rhythm of
+ *   vertical fins; their pinnacles make the roofline a row of spikes.
+ * - The toron: palm-wood bundles in three continuous rows across the wall and
+ *   the towers. They are indivisible (one mesh each, doubled by the outline), 54
+ *   of the 108 meshes; the budget was fixed around them.
+ * - Battered walls and rounded corners: every mass is a `taper`, and each of
+ *   the four corners is a fat eight-sided pier (one blunt cone, not shaft plus
+ *   pinnacle).
  *
- * - **The three great tapering towers**, across the qibla wall, each on a spike
- *   with an ostrich egg on top and the middle one standing proud of the other
- *   two. That trio is the read: get the silhouette of three narrowing masses
- *   with three white dots above them and the thumbnail is already named.
- * - **The forest of pilasters.** Small pointed fins running the whole height of
- *   the wall, between and beside the towers, so the facade is a rhythm of
- *   vertical fins and never a flat plane. Ten of them on the front, and their
- *   pinnacles are what makes the roofline a row of spikes instead of a straight
- *   edge.
- * - **The toron.** Bundles of palm wood sticking straight out of the walls in
- *   regular rows, left in as permanent scaffolding for the annual replastering.
- *   This is the single most identifiable feature of the whole Sudano-Sahelian
- *   style and nothing else in the dataset has it. It is also, at fifty-four of the
- *   model's hundred-and-eight meshes, the most expensive thing in the file — see
- *   the budget below, which was settled before anything else was drawn.
- * - **Battered walls and rounded corners.** It is a sculpted building, hand-
- *   modelled in mud: there is not one plumb wall face or one sharp corner. Every
- *   mass is a `taper`, and each of the four corners is a fat eight-sided pier
- *   that rounds it off.
+ * The crop is the prayer hall and its eastern qibla wall; the courtyard, low
+ * walls and north stair are gone, and the rear wall carries no toron.
  *
- * **The crop.** The complex is a walled square of about 75 m a side; the thing
- * every photograph of it shows is the prayer hall and its eastern qibla wall.
- * That is what is modelled. The courtyard, its low walls and the north stair are
- * gone: they are the compound, not the mosque.
+ * Exaggerations: the plan is squeezed 1.56x (66 units of facade, ratio 1.67,
+ * against 2.6 in life) because the vertical fin rhythm carries the recognition
+ * and a true fin would be 1.5 units in a 102-unit facade. Toron are 3x thick and
+ * 3.7x long (0.62 projecting 2.6), or they are a fifth of a pixel. The front
+ * leans 10 degrees; the flanks lean 4.7, since a mass is one square frustum
+ * scaled to a rectangle and the shallower axis shares the shrink factor; the
+ * corner piers lean 11 along the diagonal so they stay welded to both walls.
  *
- * **What is exaggerated, in numbers.**
+ * Tier `building`. 108 meshes, 1,968 triangles.
  *
- * - *The plan is squeezed 1.56x.* The cropped block is about 50 m of facade over
- *   a 16 m wall on a 3 m platform, so 2.6 wide to tall. At the `building` tier's
- *   39.4 units of height that asks for 102 units of facade; this one is 66, a
- *   ratio of 1.67. Squeezing the plan is the trade the `MAX_ASPECT` note
- *   describes in the other direction: the axis that carries the recognition here
- *   is the *vertical* rhythm of fins and towers, and at true proportions a fin
- *   is 1.5 units wide in a 102-unit facade — under three pixels in a
- *   thumbnail, which is no rhythm at all. The plan is the axis that could
- *   afford to give.
- * - *Toron are 3x thick and 3.7x long.* At this model's scale (22.5 units of
- *   wall for 16 m) a real bundle is 0.21 units thick projecting 0.71; here it is
- *   0.62 projecting 2.6. At true size they are a fifth of a pixel and the wall
- *   comes out blank, which is a different building.
- * - *Batter.* Real Djenne walls lean 5-10 degrees. The front leans 10, at the
- *   top of life. The flanks come out at 4.7 for the reason the Potala's file
- *   records — a mass is one square frustum scaled to a rectangle, so its two
- *   axes share one shrink factor and the shallower axis leans less. The corner
- *   piers lean 11, along the diagonal, so they stay welded to both walls all the
- *   way up instead of peeling off the corner near the top.
- *
- * **Why `building`.** It is what you see from the far side of Djenne, which is
- * the tier's own test, and the tier note lists a cathedral by name. `landmark`
- * would also have been buildable at these proportions but is a claim about the
- * planet, not a town; `tower` caps the footprint at 28 and this thing is broad.
- *
- * **The mesh budget, decided first.** The tier allows 110 meshes and the toron
- * are indivisible — there is no helper that draws two sticks in one mesh, so
- * every peg costs a draw call, doubled by `OutlineEffect`. So the count was
- * fixed before any other decision: **fifty-odd toron**, half the model, and it
- * landed at 54 — arranged as three continuous rows marching across the wall
- * *and* the towers at the same heights, because rows read and density does not.
- * Everything else was then built inside what was left, and two savings paid for
- * those pegs: the corner piers are one blunt cone each rather than a shaft plus
- * a pinnacle
- * (which is also what they look like — the corners of a banco wall are fatter
- * and blunter than the wall fins), and the rear wall carries no toron of its
- * own. Final: 108 meshes, 1,968 triangles, 2 meshes of headroom.
- *
- * **Colour.** `sand` for the banco plaster: a warm ochre that keeps its warmth
- * on the shadow side, which matters because the hemisphere light's sky colour is
- * blue and anything neutral goes cold in it. `brown` for the earth platform, a
- * duller and darker warm. `bark` for the toron and the finial spikes, and that
- * is a deliberate departure from the Potala's stair lesson — there, a stair
- * given a colour of its own read as scaffolding bolted to the facade, and
- * painting it the wall's own colour let the ink outline do the drawing. A toron
- * is the opposite case: it is 0.62 units across, far too small for an outline to
- * draw on its own, and in life it *is* dark palm wood against pale plaster. The
- * rule underneath both is the same one — let the thing be the colour it reads
- * as. A large shape reads by its edge; a small one has to read by its value.
- * `white` for the ostrich eggs, the only bright note and the top of the model.
+ * Colour: `sand` banco plaster, `brown` platform, `bark` toron and finial spikes
+ * (a small shape reads by value, a large one by its edge), `white` ostrich eggs.
  */
 
 const RAD = Math.PI / 180;
@@ -119,15 +66,10 @@ const PARAPET = { y: 24.8, h: 1.1, proud: 0.5 };
 // --- pilasters ------------------------------------------------------------
 
 /**
- * A fin standing against a wall.
- *
- * `waist` and `tip` are fractions of the foot, not units: the whole thing is one
- * prism scaled to a rectangle, exactly as the masses are, so a fin narrows in
- * both axes at once and never comes to a flat-sided point.
- *
- * `point` of 0 means no separate pinnacle — the shaft runs the full height and
- * closes on `tip` by itself. That is the corner piers, and it is one mesh each
- * rather than two.
+ * A fin standing against a wall. `waist` and `tip` are fractions of the foot: the
+ * thing is one prism scaled to a rectangle, so it narrows in both axes at once.
+ * `point` of 0 means no separate pinnacle: the shaft runs the full height and
+ * closes on `tip` (the corner piers, one mesh each).
  */
 interface Pilaster {
   w: number;
@@ -140,14 +82,8 @@ interface Pilaster {
 }
 
 /**
- * The wall fins: six-sided, so they read rounded, and pointed above the parapet.
- *
- * The pinnacle is short and stubby on purpose. The first version ran it 4.2
- * units above a thinner shaft and closed it to a tenth of the foot, and the
- * roofline came out as a palisade of spears — a row of needles that read as a
- * stockade, not as the crown of a mud wall. Djenne's pinnacles are little cones
- * barely taller than they are wide. Halving the point and fattening its tip is
- * what turned the fence back into a building.
+ * The wall fins: six-sided, pointed above the parapet. The pinnacle is short and
+ * stubby, little cones barely taller than wide; a longer one reads as a palisade.
  */
 const FIN: Pilaster = {
   w: 1.05, d: 0.7, sides: 6, shaft: 23.4, waist: 0.74, point: 2.6, tip: 0.26,
@@ -156,18 +92,13 @@ const FIN: Pilaster = {
 const PIER: Pilaster = { w: 1.5, d: 1.5, sides: 8, shaft: 26.6, waist: 1, point: 0, tip: 0.22 };
 
 /**
- * Where the front fins stand, mirrored about the centre line.
- *
- * Five a side and not seven. Seven filled the wall so completely that there was
- * no plaster left between them for a toron to sit on, and the toron are the
- * feature — a fin that crowds one out is spending a mesh to hide two.
+ * Where the front fins stand, mirrored about the centre line. Five a side: seven
+ * leave no plaster for the toron.
  */
 const FRONT_FINS = [7.5, 10.9, 14.3, 26.7, 29.4];
 /**
- * And the flanks, along z, mirrored about both. Three a side rather than two:
- * with the corner piers that is five verticals across a 31-unit flank, and the
- * quarter view is the default view. Two left the back half of
- * the side wall as a blank sloping plane.
+ * And the flanks, along z, mirrored about both. Three a side, which with the
+ * corner piers gives five verticals across the 31-unit flank for the quarter view.
  */
 const FLANK_FINS = [-8.5, 0, 8.5];
 /** The piers stand a little inside the corner so they bulge out of both walls. */
@@ -176,8 +107,8 @@ const CORNER = { x: WALL.w - 0.6, z: WALL.d - 0.6 };
 // --- the three towers -----------------------------------------------------
 
 /**
- * A minaret. It grows out of the qibla wall — its back is buried inside the
- * mass — and closes on a cone, a spike and an egg.
+ * A minaret. It grows out of the qibla wall (its back is buried in the mass) and
+ * closes on a cone, a spike and an egg.
  */
 interface Tower {
   x: number;
@@ -200,10 +131,8 @@ interface Tower {
 }
 
 /**
- * Wider than deep, and the cone on top is short and blunt. Both corrections came
- * off a render: a tower as wide as it was deep read as a round pepper-pot stuck
- * on the roof, and a tall narrow cone finished it off as a rocket. A Djenne
- * minaret is a slab standing in the plane of the wall, closing on a stump.
+ * Wider than deep, with a short blunt cone: a slab standing in the wall's plane
+ * closing on a stump (as deep as wide reads as a pepper-pot).
  */
 const CENTRE_TOWER: Tower = {
   x: 0, z: 14.3, w: 5.6, d: 4, h: 30.6, shrink: 0.68,
@@ -285,8 +214,7 @@ export const djenneMosque: Monument = {
 
     /**
      * One pilaster: a prism scaled to a rectangle, tilted back into the plane of
-     * the wall it belongs to rather than standing plumb against a wall that
-     * leans away from it, then yawed onto whichever face it serves.
+     * its wall, then yawed onto the face it serves.
      */
     const pilaster = (
       spec: Pilaster,

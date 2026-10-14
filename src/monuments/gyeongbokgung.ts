@@ -4,134 +4,55 @@ import { PROUD } from './contract.ts';
 /**
  * Gyeongbokgung — Geunjeongjeon, the Hall of Government by Restraint.
  *
- * **The card this file had to avoid.** A palace hall on a stone terrace inside a
- * walled courtyard with a gate is, in words, the Forbidden City's card exactly,
- * and read side by side the two would be the same drawing twice. So the file is
- * organised around the four things that are *not* the same, and the tier is spent
- * on them to the last mesh:
+ * A palace hall on a terrace in a walled courtyard, built to differ from the
+ * Forbidden City's card in four ways:
+ * - Colour: Korean dancheong. `green` (0x91ad78) on every beam and bracket
+ *   corbel, a `white` line and a `skyBlue` fascia stepping out above it, a row of
+ *   `skyBlue` bracket blocks along the green, over `clay` (0xb36d45) columns, under
+ *   grey-black `steel` roofs (never gold).
+ * - A gentler, longer roof: two `taper` courses at 21 then 31 degrees on both roofs
+ *   (the Forbidden City: 25/33 and 28/35), and an eave overhanging the wall by 5.5
+ *   units on a 10.0 half-width and 8.8 storey (0.63 of the wall's height against
+ *   0.40).
+ * - Painted brackets, so a band and not a shadow: each eave gets three stacked
+ *   courses (`green` corbel, `white` line, `skyBlue` fascia, each stepping 0.25
+ *   further out) plus a row of `skyBlue` blocks proud of the green, one over each
+ *   column. Ten meshes an eave.
+ * - Two tiers of terrace and haetae: the woldae is a two-level granite platform
+ *   with squat posts (2.0 wide, 2.5 tall against a 1.4-thick, 1.5-tall rail), a
+ *   pair of haetae flanking the foot of the lower flight, and the dapdo laid
+ *   between the two flights.
  *
- * - **Colour, which lands before any shape is read.** The Forbidden City is
- *   `red`/`crimson` timber under `gold` tile. Korean *dancheong* is the other
- *   half of the wheel: `green` (0x91ad78, the grey-green of *noerok* pigment) on
- *   every beam and bracket corbel, a `white` line and a `skyBlue` fascia stepping
- *   out above it, and a row of `skyBlue` bracket blocks along the green — over
- *   `clay` (0xb36d45) columns, *seokganju*, an earth red rather than a vermilion,
- *   under `steel` roofs that are **grey-black, never gold**. One thumbnail is
- *   green-and-grey, the other red-and-gold, and nothing else has to be legible
- *   for the two to separate.
- * - **A roof with a gentler, longer curve.** Both roofs are two `taper` courses,
- *   shallow then steep, but the pitches here are **21 then 31 degrees** on both,
- *   against the Forbidden City's 25/33 on its main roof and 28/35 on its skirt.
- *   And the eave overhangs the wall it covers by **5.5 units on a 10.0-unit
- *   half-width and an 8.8-unit storey** — 0.63 of the wall's own height, against
- *   the Chinese hall's 0.40. That is what a *gyeopcheoma* double rafter layer
- *   buys, and it is what makes a Korean hall look like it is sheltering under its
- *   own hat.
- * - **The brackets are painted, so they are a band and not a shadow.** The
- *   Forbidden City spends one `bark` course per eave on its *dougong*, correctly:
- *   Chinese brackets read as the shadow a heavy overhang casts. Korean *gongpo*
- *   are chunkier, stand further out, and are painted, so they must read as a
- *   *decorated band*. Each eave here gets three stacked courses — `green` corbel,
- *   `white` line, `skyBlue` fascia, each stepping 0.25 further out than the one
- *   below — plus a row of `skyBlue` blocks standing proud of the green, one over
- *   each column. Ten meshes an eave for what the Chinese hall does in one, and it
- *   is the most expensive decision in the file.
- * - **Two tiers of terrace, and haetae at the stairs.** The *woldae* is a
- *   two-level granite platform with a balustrade of **squat posts** — 2.0 wide
- *   and 2.5 tall against a 1.4-thick, 1.5-tall rail, so every post stands a head
- *   above the line it sits on, which is what a Korean *dongjaseok* does and what
- *   a Chinese newel does not. A pair of **haetae**, the horned stone beasts, sit
- *   on the paving flanking the foot of the lower flight, and the stone laid
- *   between the two flights is the *dapdo*.
+ * The crop is Geunjeongjeon on its woldae inside its own courtyard: the haengnang
+ * cloister down both sides and across the back, Geunjeongmun in that back run, and
+ * the small gates Ilhwamun and Wolhwamun beside it. Two scales, as for the Forbidden
+ * City: the buildings at 1.47 units per metre (44.0 units of eave, 31.0 deep), the
+ * plan at about 0.5 (the 110 by 130 m courtyard is 60 by 58), foreshortened about 3x.
  *
- * ## The crop, and its two scales
+ * Departures:
+ * - The hall is 12% squatter than life (28.75 units against 32.3) and the terrace
+ *   1.8x taller (7.9 against 4.4), to fit a palace hall in a 40-unit `building`;
+ *   38.85 of 40 are used. The rail is 1.5 and the posts 2.5 (1.7x), or it is a
+ *   pencil line on a wall.
+ * - Geunjeongmun's height is true (20.9 against 38.85, 0.54) and its width is 1.6x
+ *   too wide (a 46-unit lower eave against the hall's 44). 20.9 is a floor, found
+ *   by tracing the quarter view's sight line over the hall's skirt roof to about
+ *   19.7; shorter is inside the hall's silhouette. From dead front it is still
+ *   behind the hall, so that view is carried by the far cloister's wings and the
+ *   two small gates.
+ * - The cloister is held to 8.0 units (the real one is 8.8 at plan scale) so it
+ *   does not cross the lower tier from oblique angles.
  *
- * Gyeongbokgung is 43 hectares and about 330 buildings. What is modelled is one
- * of them — **Geunjeongjeon on its woldae** — inside **its own courtyard**, which
- * is the enclosure this hall is always photographed in and never seen without:
- * the *haengnang* cloister down both sides and across the back, **Geunjeongmun**
- * standing in that back run, and the two small gates beside it, Ilhwamun and
- * Wolhwamun.
+ * Left out: the other 329 buildings, the rank stones (24 meshes for two dotted
+ * lines), and the japsang. The two chwidu ending the main ridge are kept, `bark`
+ * against a `bone` ridge.
  *
- * The crop has two scales. That is the Forbidden City's move, reused here on
- * purpose because it is the correct one and it lands on almost the same number:
- *
- * - **The buildings are at 1.47 units per metre.** Geunjeongjeon's 30 m of eave
- *   is 44.0 units across and its 21 m of depth is 31.0 — one scale, both axes.
- * - **The plan they stand in is at about 0.5.** The real courtyard is roughly
- *   110 m by 130 m; here it is 60 by 58. The enclosure is therefore foreshortened
- *   about **3x against the buildings inside it**, where the Forbidden City's axis
- *   is foreshortened 3.3x.
- *
- * That is what a long lens does, and every photograph of this courtyard is taken
- * with one. Nobody names Gyeongbokgung by how far its gate stands from its hall;
- * at true spacing the gate is a smudge and the paving is the subject.
- *
- * ## Departures, in numbers
- *
- * - **The hall is 12% squatter than life, and the terrace is 1.8x taller.** At
- *   the plan's 1.47 units per metre the hall's 22 m from the woldae surface to
- *   the ridge would be 32.3 units; it is 28.75, so its height runs at 1.31
- *   against its plan's 1.47. The terrace goes the other way: 3 m of real woldae
- *   is 4.4 units at plan scale and it is built at 7.9. Both moves are the same
- *   move. A `building` is 40 units tall, the terrace is a quarter of what makes
- *   this a palace hall rather than a temple, and something had to give it room —
- *   so the hall gave, in the axis a Korean hall can most afford to give, since
- *   long and low is what it is. 38.85 of the 40 units are used.
- * - **What the terrace stretch broke, and the fix.** A 7.9-unit terrace wants a
- *   balustrade in proportion to itself, and a rail at true proportion — about
- *   1 m, so 1.5 units including its posts — came out as a pencil line drawn on a
- *   wall. The rail went to 1.5 alone and the posts to 2.5, which is 1.7x. The
- *   exaggeration landed on the feature that could carry it, because squat is what
- *   those posts already are.
- * - **Geunjeongmun's height is true and its width is not.** It stands 20.9 units
- *   to the hall's 38.85, which is 0.54 — and 14 m against 25.8 m is 0.54, so that
- *   ratio is simply correct. Its lower eave is 46 units wide against the hall's
- *   44, where in life the gate is two thirds of the hall's width: **1.6x too
- *   wide**, and spent deliberately. This is the same bill the Forbidden City paid
- *   on its Meridian Gate and it is paid here for the opposite geometry — see the
- *   note on `GATE`, where the sight line that fixes the number is worked out.
- * - **The cloister is held to 8.0 units where the real haengnang is about 6 m
- *   (8.8 at plan scale, more with its plinth) and stands taller than the woldae.**
- *   It is the only thing between the camera and the terrace across three quarters
- *   of the compass, and at true height it crosses the lower tier from any oblique
- *   angle. Short, it encloses the courtyard and never covers it — the same
- *   compromise the Forbidden City's palace wall makes at 5.8.
- *
- * ## Traded away
- *
- * - **The other 329 buildings** — Gyeonghoeru on its 48 pillars in the lake,
- *   Gwanghwamun and its own haetae, Hyangwonjeong, the whole northern half. Each
- *   costs the courtyard, and the courtyard is the frame.
- * - **The rank stones.** Two rows of twelve *pumgyeseok* line the path from the
- *   gate to the woldae, and nothing else on the planet has them. Twenty-four
- *   meshes is a fifth of the tier for two dotted lines three pixels tall.
- * - **The japsang**, the clay figurines walking down each hip ridge: below a
- *   pixel. The two *chwidu* that terminate the main ridge are kept, because they
- *   break the ridge line, and they are `bark` against a `bone` ridge so they read
- *   as ornaments rather than as more roof.
- *
- * ## Three colour choices worth the words
- *
- * `bark` (0x4a413c) is the ground storey's wall, and it is dark on purpose: what
- * stands behind Geunjeongjeon's columns is a wall of dark latticed doors under an
- * eave overhanging it by two thirds of its own height, so it is genuinely the
- * deepest shade in the model. It is bounded — `tan` podium below, `green`
- * architrave above — so it reads as a recess and not as a hole, and it is what
- * makes the `clay` columns in front of it register at all.
- *
- * The courtyard is `slate` and the woldae `tan`, and that pairing was arrived at
- * the hard way. Paved in `sand` the court came out the same tone as the terrace
- * standing on it and the two tiers stopped reading as lifted at all. Cool ground,
- * warm terrace, light `bone` rail is the ladder, and it takes exactly three steps
- * to get it. `tan` for the terrace rather than the obvious `bone` is the note on
- * `palette` in `contract.ts` being obeyed: a 7.9-unit mass has a shaded face from
- * every angle there is, and a neutral in shade here comes back a cold hole.
- *
- * The main ridge is `bone` where every other roof surface is `steel`. Korean
- * palace ridges are stacked tile bedded in lime and they come back pale in every
- * photograph; at thumbnail size it draws a bright line along the top of the
- * silhouette, which is the one place a dark roof has nothing to give the ink.
+ * Colour choices: `bark` is the ground storey's wall, the deepest shade (behind the
+ * columns, under an eave overhanging by two thirds of its height), bounded by `tan`
+ * podium and `green` architrave so it reads as a recess; the courtyard is `slate`
+ * and the woldae `tan` (in `sand` the tiers stop reading as lifted; a neutral
+ * terrace goes cold in shade); the main ridge is `bone` where every other roof
+ * surface is `steel`, a bright line along the top of the silhouette.
  */
 
 // ---------------------------------------------------------------------------
@@ -139,18 +60,15 @@ import { PROUD } from './contract.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * The hall's plan aspect — 30 m of eave over 21 m of depth. Every course of the
- * hall holds it, because `taper` makes only *regular* prisms: a rectangular
- * course is a four-sided taper inside a group scaled in x, and the scale is the
- * aspect. The cost is that the hips come out shallower than the long slopes; the
- * front elevation, which is the one that names the building, is right.
+ * The hall's plan aspect: 30 m of eave over 21 m of depth. Every course holds it,
+ * since `taper` makes only regular prisms (a four-sided taper inside a group scaled
+ * in x). The hips come out shallower than the long slopes; the front elevation is right.
  */
 const ASPECT = 1.42;
 
 /**
- * The hall and its terrace sit forward of the plan's centre. The gate and the
- * back cloister need the far third, and the stairs and the haetae need somewhere
- * to land in the near third.
+ * The hall and its terrace sit forward of the plan's centre: the gate and the back
+ * cloister need the far third, the stairs and the haetae the near third.
  */
 const AXIS_Z = 3;
 
@@ -168,10 +86,8 @@ const TERRACE = [
 const TERRACE_TOP = 8.6;
 
 /**
- * The rail is low and the posts stand a head above it. That ratio is the whole
- * difference between a Korean stone balustrade and a Chinese one: 2.0 wide and
- * 2.5 tall against a 1.4-thick, 1.5-tall rail, so each post reads as a separate
- * squat block rather than as a bump in a continuous line.
+ * The rail is low and the posts stand a head above it (2.0 wide and 2.5 tall against
+ * a 1.4-thick, 1.5-tall rail), so each post reads as a separate squat block.
  */
 const RAIL = { thick: 1.4, height: 1.5 };
 const POST = { width: 2.0, height: 2.5 };
@@ -187,13 +103,11 @@ const HAETAE = { x: 11.2, z: 25.4, body: 3.0, head: 1.7 };
 // ---------------------------------------------------------------------------
 
 /**
- * The stack, bottom to top, in half-widths along z; x follows by `ASPECT`.
- *
- * The three courses named `gongpo`, `gongpoLine` and `eaveFascia` are one thing:
- * the painted bracket band — `green` corbel, `white` line, `skyBlue` fascia,
- * each stepping 0.25 further out than the one below, with the `skyBlue` blocks
- * of `BRACKET` standing proud of the green. The same four repeat above the
- * clerestory at 0.8 of the size.
+ * The stack, bottom to top, in half-widths along z; x follows by `ASPECT`. The
+ * courses `gongpo`, `gongpoLine` and `eaveFascia` are the painted bracket band
+ * (`green` corbel, `white` line, `skyBlue` fascia, each stepping 0.25 further out,
+ * with the `skyBlue` blocks of `BRACKET` proud of the green). The same four repeat
+ * above the clerestory at 0.8 of the size.
  */
 const HALL = {
   podium: { hz: 13.5, height: 0.9 },
@@ -213,26 +127,16 @@ const HALL = {
 const COLUMNS = { count: 6, radius: 1.15, sideZ: 4.3 };
 
 /**
- * The bracket blocks, one over each column, standing proud of the green corbel.
- *
- * They are `skyBlue` and were `white` first. White blocks on a green band read
- * as a dotted highlight and nothing more; blue ones put the third dancheong
- * colour on the model at a size that survives — 1.7 units on a 44-unit eave is
- * about ten pixels at thumbnail size, where the 0.45-unit blue fascia course is
- * one. The band went from "green with a pale line" to "green, blue and white" on
- * that change alone, and it cost nothing: the meshes were already there.
+ * The bracket blocks, one over each column, proud of the green corbel. `skyBlue`:
+ * white blocks read as a dotted highlight, and 1.7 units on a 44-unit eave is about
+ * ten pixels where the 0.45-unit blue fascia course is one.
  */
 const BRACKET = { width: 1.7, height: 1.5, depth: 1.0 };
 
 /**
  * The two eaves. `hz` is the eave, `mid` the kink, `top` where the course closes.
- *
- * Both roofs run **21 degrees then 31**, where the Forbidden City's main roof is
- * 25 then 33 and its skirt 28 then 35. Two courses rather than one is the *juzhe*
- * idea reduced to a single bend and it is what separates either roof from a
- * pyramid; the four degrees between the two countries' versions of it is the
- * whole of "gentler", and it is worth exactly as much as the overhang and the
- * corner kick that go with it.
+ * Both roofs run 21 degrees then 31; two courses rather than one is the juzhe idea
+ * reduced to a single bend.
  */
 const SKIRT = { hz: 15.5, mid: 12.4, top: 8.5, lower: 1.2, upper: 2.4 };
 const ROOF = { hz: 12.8, mid: 10.6, top: 5.8, lower: 0.85, upper: 2.9 };
@@ -242,20 +146,12 @@ const RIDGE = { width: 17.5, depth: 7.0, height: 1.5 };
 const CHWIDU = { bottom: 1.25, top: 0.8, height: 1.5 };
 
 /**
- * The corner lift, and it is the softness of a **small** kick rather than a
- * shallow one. The first version reasoned that "gentler" meant a lower rise over
- * a longer run — 4.0 out for 1.8 up, against the Forbidden City's 3.2 for 2.2 —
- * and at thumbnail size the eight struts came out as black sticks projecting
- * sideways off the roof, because a nearly horizontal beam silhouetted against
- * the sky is a rod and not a roof. The softness lives instead in the *scale* of
- * the kick: 1.9 out and 1.25 up on a roof whose eave is 22.0 half-widths across,
- * where the Forbidden City spends 3.2 on an eave of 23.5. Half the gesture on
- * nearly the same roof. Each strut starts `out * 2.4` back along the hip line,
- * buried inside the tile, so what emerges is the corner itself turning up.
- *
- * The *long, low* half of the Korean roof is carried where it belongs and where
- * it survives the thumbnail: in the pitches, and in a 5.5-unit overhang on a
- * 10.0-unit half-width.
+ * The corner lift: a small kick (1.9 out and 1.25 up on an eave 22.0 half-widths
+ * across; the Forbidden City spends 3.2 on 23.5), not a shallow one. A long low beam
+ * silhouetted against the sky reads as a rod (4.0 out for 1.8 up did). Each strut
+ * starts `out * 2.4` back along the hip line, buried in the tile, so the corner
+ * itself turns up. The long, low character is carried by the pitches and the 5.5-unit
+ * overhang on a 10.0 half-width.
  */
 const FLARE = { skirtOut: 1.9, skirtRise: 1.25, roofOut: 1.7, roofRise: 1.1, thick: 1.15 };
 
@@ -270,10 +166,9 @@ const CLOISTER = {
   bandHalf: 2.1,
   roofHalf: 2.7,
   /**
-   * The side runs stop at z = 17, short of the woldae's front face at 22.5. Run
-   * to the front edge of the paving they cross the terrace's front corners from
-   * any oblique angle, and those corners carry the haetae, the dapdo and both
-   * flights of stairs.
+   * The side runs stop at z = 17, short of the woldae's front face at 22.5; run to
+   * the paving's front edge they cross the terrace's front corners, which carry the
+   * haetae, the dapdo and both flights of stairs.
    */
   front: 17,
   back: -26.5,
@@ -286,27 +181,13 @@ const CLOISTER = {
 };
 
 /**
- * Geunjeongmun. Two storeys, on the paving, standing forward of the back run.
- *
- * **20.9 tall is a floor, not a ceiling, and it was measured rather than
- * chosen.** The hall's lower eave is a hard horizontal whose lip sits at 21.45,
- * and behind that lip the skirt roof keeps climbing to 25.05. Trace a sight line
- * from the quarter view's camera — it is a fixed rig, so this is arithmetic
- * and not taste — over that roof at the half-widths where the gate stands, and it
- * lands at about 19.7 units on the gate's plane. Anything shorter is inside the
- * hall's silhouette and is nine meshes nobody will ever see. The first version
- * was 19.0 and was exactly that.
- *
- * **And from dead front it is still behind the hall, which is the honest finding
- * and is why the file spends elsewhere.** The gate was rendered with its meshes
- * flagged a different colour to check: in the default
- * three-quarter view the courtyard's 26 units of depth swing it clear of the hall
- * and it reads as a stepped two-storey mass on the far wall; from the front
- * view, none of it survives. Getting it seen *past* the hall instead of
- * over it would take a lower eave narrower than 44 units or a gate wider than 55,
- * and the second is what the Forbidden City did. So dead front is carried by the
- * far cloister's wings and by Ilhwamun and Wolhwamun, which stand outboard of the
- * hall's eave and cost two meshes each.
+ * Geunjeongmun. Two storeys, on the paving, forward of the back run. 20.9 tall is a
+ * floor (see the header): the hall's lower eave lip sits at 21.45 and the skirt roof
+ * behind climbs to 25.05, so a sight line from the quarter view's fixed camera
+ * reaches the gate's plane at about 19.7. In the three-quarter view the courtyard's
+ * 26 units of depth swing it clear of the hall; from the front none of it survives.
+ * Seeing it past the hall would take a lower eave narrower than 44 or a gate wider
+ * than 55.
  */
 const GATE = {
   z: -21,
@@ -336,14 +217,10 @@ const GATE = {
 
 /**
  * Ilhwamun and Wolhwamun, the small gates flanking Geunjeongmun in the same run.
- * Centred at x = 25.0 their roofs reach 29.8, which is 7.8 clear of the hall's
- * 22.0 eave — enough that perspective cannot swallow them at the extra 26 units
- * of depth, which it does to anything nearer than about 27. That margin is the
- * only reason they are here: they carry "this courtyard has gates" in the
- * dead-front view, where Geunjeongmun itself is entirely behind the hall. Two
- * meshes each, a body and a hipped roof, and they top out at 9.0 — a unit above
- * the cloister they sit in, so the far roofline steps up twice before it steps
- * up to the gate.
+ * Centred at x = 25.0 their roofs reach 29.8, 7.8 clear of the hall's 22.0 eave, so
+ * perspective cannot swallow them (it does to anything nearer than about 27). They
+ * carry "this courtyard has gates" in the dead-front view. Two meshes each, a body
+ * and a hipped roof, topping out at 9.0, a unit above the cloister.
  */
 const SIDE_GATE = {
   x: 25.0,
@@ -363,9 +240,8 @@ export const gyeongbokgung: Monument = {
   iso: 'KOR',
   lat: 37.579,
   lon: 126.977,
-  // No realHeight: the source list asserts none, and there is no such number.
-  // Geunjeongjeon is about 25.8 m, Geunjeongmun about 14, Gwanghwamun another
-  // figure again, and the thing itself is a 43-hectare palace.
+  // No realHeight: the source list gives none (Geunjeongjeon about 25.8 m,
+  // Geunjeongmun about 14).
   tier: 'building',
   // The paving's corner, at hypot(30, 29) = 41.72. Everything else is inside it.
   footprint: 42,
@@ -384,10 +260,9 @@ export const gyeongbokgung: Monument = {
     // so a mass with a shaded face from every angle keeps its hue. See the note
     // on `palette` in `contract.ts`: `bone` here would come back a cold hole.
     const bakseok = palette.slate; // the rough grey bakseok paving of the court.
-    // It has to be a third value and a cool one: paved in `sand` the courtyard
-    // came out the same tone as the `tan` woldae standing on it, and the two
-    // tiers stopped reading as lifted at all. Cool ground, warm terrace, light
-    // rail is the ladder, and it only takes three steps to get it.
+    // A third value and a cool one: paved in `sand` the courtyard matched the `tan`
+    // woldae and the tiers stopped reading as lifted. Cool ground, warm terrace,
+    // light rail.
 
     const group = new THREE.Group();
 
@@ -418,9 +293,8 @@ export const gyeongbokgung: Monument = {
 
     /**
      * One course of a hipped roof. `taper` makes regular prisms only, so the
-     * rectangle comes from a group scaled in x by the plan aspect — which is why
-     * the top's x follows from the top's z and cannot be chosen. Returns the top
-     * half-widths so courses chain.
+     * rectangle comes from a group scaled in x by the plan aspect (the top's x
+     * follows from its z). Returns the top half-widths so courses chain.
      */
     const roofCourse = (
       hx: number,
@@ -442,9 +316,8 @@ export const gyeongbokgung: Monument = {
     };
 
     /**
-     * The four corners of an eave: a beam running out and up along the hip line,
-     * which is the diagonal of the roof's own plan. Long out and little up — see
-     * `FLARE`.
+     * The four corners of an eave: a beam running out and up along the hip line, the
+     * diagonal of the roof's plan. Long out and little up (see `FLARE`).
      */
     const flare = (hz: number, y: number, out: number, rise: number): void => {
       const hx = hz * ASPECT;
@@ -464,24 +337,20 @@ export const gyeongbokgung: Monument = {
             y + rise,
             AXIS_Z + sz * (hz + uz * out),
           );
-          // `tile`, not `shade`. A darker strut on a dark roof reads as a black
-          // stick glued to a corner; the same colour as the tile it grows out
-          // of reads as the corner itself turning up, which is the thing.
+          // `tile`, not `shade`: a darker strut on a dark roof reads as a black
+          // stick; the roof's own colour reads as the corner turning up.
           group.add(strut(from, to, FLARE.thick, tile));
         }
       }
     };
 
     /**
-     * A triangular prism laid on its side, apex up, running along Z — or along X
-     * with `alongX`. The cloister roofs, and the cheapest gable there is at 12
-     * triangles.
-     *
-     * A three-sided `column` on its side has its pitch fixed at 60 degrees by its
-     * own geometry, so it is built at unit size and the *mesh* carries the scale,
-     * which is legal — only the returned group must have an identity transform.
-     * Local axes after the quarter turn about X: local x stays world x, local y
-     * becomes the world run, local z becomes the world height spanning -1 to +2.
+     * A triangular prism laid on its side, apex up, running along Z (or X with
+     * `alongX`): the cloister roofs, 12 triangles. A three-sided `column` has its
+     * pitch fixed at 60 degrees, so it is built at unit size and the mesh carries the
+     * scale (legal: only the returned group needs an identity transform). After the
+     * quarter turn about X: local x is world x, local y the run, local z the height
+     * spanning -1 to +2.
      */
     const gable = (
       cx: number,
@@ -505,10 +374,10 @@ export const gyeongbokgung: Monument = {
     };
 
     /**
-     * A slab lying on a slope in the z/y plane: the dapdo, the carved stone laid
-     * between the two flights of each stair. The box's long axis is +Z and its
-     * origin is the centre of its bottom face, so one rotation about X puts its
-     * low end at (y0, z0) and its high end at (y1, z1) exactly.
+     * A slab lying on a slope in the z/y plane: the dapdo, the carved stone between
+     * the two flights of each stair. The box's long axis is +Z and its origin the
+     * centre of its bottom face, so one rotation about X puts its low end at (y0, z0)
+     * and its high end at (y1, z1).
      */
     const dapdo = (y0: number, z0: number, y1: number, z1: number): void => {
       const run = z0 - z1;
@@ -562,9 +431,8 @@ export const gyeongbokgung: Monument = {
       const body = taper(1.95, 1.3, HAETAE.body, ridgeStone, 6);
       body.position.set(side * HAETAE.x, PAVING.height, HAETAE.z);
       group.add(body);
-      // The head sits forward of the body, which is the whole trick: two solids
-      // on one axis are a bollard, and two with the smaller one pushed out over
-      // the paving are an animal crouching towards you.
+      // The head sits forward of the body: two solids on one axis are a bollard,
+      // and a smaller one pushed out over the paving is an animal crouching.
       const head = column(1.15, HAETAE.head, ridgeStone, 6);
       head.position.set(side * HAETAE.x, PAVING.height + HAETAE.body, HAETAE.z + 0.85);
       group.add(head);

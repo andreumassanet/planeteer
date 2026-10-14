@@ -1,11 +1,8 @@
 /**
- * Jupiter's landmarks: three places worth crossing the cloud for.
- *
- * Two of them mark real events at the coordinates they happened at, the way
- * Mars's Viking memorial does; the third is a lookout on the Great Red Spot's
- * wall, where the storm's own relief (`stormRelief` in the system file) puts
- * the crest. What the Floaters built at each is invented; where it stands is
- * not.
+ * Jupiter's landmarks: three places worth crossing the cloud for. Two mark real
+ * events at the coordinates they happened at; the third is a lookout on the
+ * Great Red Spot's wall, where the storm's relief (`stormRelief` in the system
+ * file) puts the crest. What the Floaters built at each is invented.
  */
 
 import * as THREE from 'three';
@@ -16,21 +13,11 @@ import { WALL_AT } from '../../../system/bodies/jupiter.ts';
 import { bag, wheel } from './buildings.ts';
 
 /**
- * The Galileo probe, where it went in on 7 December 1995: 6.5 N, 4.4 W.
- *
- * It came in at 47 km/s behind a heat shield that lost most of its own mass
- * on the way down, opened its parachute, and talked to the orbiter for 58
- * minutes until the pressure reached 23 bar, and then it was crushed and
- * melted somewhere below. By bad luck — or the only luck there is for a thing
- * that has to fall somewhere — it went into a hot spot, one of the clear dry
- * holes along the North Equatorial Belt's edge, which is why it found so much
- * less water than anyone expected. The memorial stands at the bottom of that
- * hole (the system file puts a hot spot exactly here).
- *
- * The Floaters' replica, at about three times the size: the blunt heat shield
- * nose down on a pedestal, the descent module on it, and the parachute held
- * over it on its shroud lines — and two small bags tethered either side, which
- * is how anything is held up here.
+ * The Galileo probe, where it went in on 7 December 1995: 6.5 N, 4.4 W, into a
+ * hot spot (the system file puts one exactly here). The Floaters' replica, at
+ * about three times the size: the blunt heat shield nose down on a pedestal,
+ * the descent module on it, the parachute held over it on its shroud lines, and
+ * two small bags tethered either side.
  */
 const GALILEO: Landmark = {
   id: 'galileo-probe',
@@ -77,8 +64,7 @@ const GALILEO: Landmark = {
       group.add(anchor);
       group.add(ctx.strut(new THREE.Vector3(side * 6.3, 2, 0), new THREE.Vector3(side * 7.5, 15.2, 0), 0.08, PALETTE.white));
     }
-    // Fifty-eight minutes of signal: a ring of fifty-eight notches would be
-    // fifty-eight meshes, so it is one ring and the number is in the name.
+    // Fifty-eight minutes of signal: one ring, with the number in the name.
     const ring = ctx.ringWall(6.4, 7.2, 1.25, PALETTE.gold, 29);
     group.add(ring);
     return group;
@@ -86,14 +72,10 @@ const GALILEO: Landmark = {
 };
 
 /**
- * Spot Watch: a lookout on the crest of the Great Red Spot's wall, due north
- * of the eye, where the storm's collar of wind runs at 150 m/s and its cloud
- * stands highest. From the top you look south across the spiral arms to
- * Calm, the capital in the eye, and north back down to Hollow.
- *
- * A tripod of masts leaning in to a platform ring, a wind wheel for its
- * power, a long glass trained on the eye, and a red bag over all of it —
- * which every Floater reads as "the Spot is this way".
+ * Spot Watch: a lookout on the crest of the Great Red Spot's wall, due north of
+ * the eye, where the collar of wind runs at 150 m/s. A tripod of masts leaning
+ * in to a platform ring, a wind wheel, a long glass trained on the eye, and a
+ * red bag over all of it.
  */
 const SPOT_WATCH: Landmark = {
   id: 'spot-watch',
@@ -152,15 +134,10 @@ const SPOT_WATCH: Landmark = {
 };
 
 /**
- * Fragment G, where the brightest piece of Comet Shoemaker–Levy 9 came down
- * on 18 July 1994, near 44 S, 26 W: twenty-one fragments in a line struck the
- * planet over six days, each leaving a dark scar bigger than Earth that the
- * winds took months to smear away. It was the first collision between two
- * bodies of the solar system anyone had ever watched.
- *
- * The Floaters keep the scar as dark rings on a platform and the comet as it
- * was seen arriving — the other string of pearls — twenty-one beads on stalks
- * in a curving line, the largest in the middle where G was.
+ * Fragment G, where the brightest piece of Comet Shoemaker-Levy 9 came down on
+ * 18 July 1994, near 44 S, 26 W. The Floaters keep the scar as dark rings on a
+ * platform and the comet as twenty-one beads on stalks in a curving line, the
+ * largest in the middle where G was.
  */
 const FRAGMENT_G: Landmark = {
   id: 'fragment-g',
@@ -183,8 +160,7 @@ const FRAGMENT_G: Landmark = {
       const a = -1.1 + t * 2.2;
       const x = Math.sin(a) * 16;
       const z = Math.cos(a) * 16 - 10;
-      // G is the seventh letter, and the fragments were lettered A to W
-      // without I and O; its bead is the seventh and the largest.
+      // G is the seventh letter (the fragments were lettered A to W without I and O); its bead is the seventh and the largest.
       const r = k === 6 ? 1.6 : 0.55 + 0.45 * Math.sin(t * Math.PI);
       const stalk = 2 + Math.sin(t * Math.PI) * 4;
       group.add(ctx.strut(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, stalk, z), 0.1, PALETTE.steel));

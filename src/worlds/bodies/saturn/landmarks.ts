@@ -1,11 +1,9 @@
 /**
- * Saturn's landmarks: four places worth crossing the cloud for.
- *
- * One marks a real event at the coordinates it happened at, the way Mars's
- * Viking memorial does; the other three stand on real features where the
- * deck's own relief (`deckRelief` in the system file) puts them — a corner of
- * the Hexagon's wall, the bottom of the Rose's eye, the top of the Dragon
- * Storm. What the Drifters built at each is invented; where it stands is not.
+ * Saturn's landmarks: four places worth crossing the cloud for. One marks a real
+ * event at the coordinates it happened at; the other three stand on real
+ * features where the deck's relief (`deckRelief` in the system file) puts them:
+ * a corner of the Hexagon's wall, the bottom of the Rose's eye and the top of
+ * the Dragon Storm. What the Drifters built at each is invented.
  */
 
 import * as THREE from 'three';
@@ -16,18 +14,11 @@ import { DRAGON_STORM, HEXAGON, HEXAGON_CORNER_LAT } from '../../../system/bodie
 import { TILT, hoop } from './buildings.ts';
 
 /**
- * Cassini, where its last signal came from: 9.4 N, 53 W, at 11:55 UTC on
- * 15 September 2017, after thirteen years in orbit and twenty-two dives
- * between the planet and its rings. It was sent in on purpose, so that it
- * could never fall on Enceladus or Titan and carry Earth's microbes to an
- * ocean that might have its own.
- *
- * The Drifters' replica, about three times its size: the tall body on a
- * mount, the high-gain dish on top opening to the sky, the gold Huygens probe
- * on its side (Huygens itself went down on Titan in 2005), the three power
- * units, the long magnetometer boom; round the plinth thirteen gold posts,
- * one a year; and over it a halo held on three cables, which is how a Drifter
- * marks a place where someone came down and stayed.
+ * Cassini, where its last signal came from: 9.4 N, 53 W, on 15 September 2017.
+ * The Drifters' replica, about three times its size: the tall body on a mount,
+ * the high-gain dish opening to the sky, the gold Huygens probe on its side, the
+ * three power units and the long magnetometer boom; thirteen gold posts round
+ * the plinth, one a year; and over it a halo held on three cables.
  */
 const CASSINI: Landmark = {
   id: 'cassini',
@@ -99,11 +90,10 @@ const CASSINI: Landmark = {
 };
 
 /**
- * The Sixth Corner Beacon, on the crest of the Hexagon's wall where two of
- * its sides meet (the first corner is at longitude 0 by the system file's
- * snapshot). A six-sided tower banded in sky blue, a lantern, and a flat
- * hexagonal halo at the top — the one ring a Drifter will build with corners,
- * and only here.
+ * The Sixth Corner Beacon, on the crest of the Hexagon's wall where two of its
+ * sides meet (the first corner is at longitude 0 by the system file's
+ * snapshot): a six-sided tower banded in sky blue, a lantern, and a flat
+ * hexagonal halo, the one ring a Drifter builds with corners.
  */
 const SIXTH_CORNER: Landmark = {
   id: 'sixth-corner',
@@ -140,10 +130,9 @@ const SIXTH_CORNER: Landmark = {
 };
 
 /**
- * The Pole Halo, at the bottom of the Rose's eye on the north pole itself.
- * A ring thirty-four units across held over the eye on six masts, the
- * planet's own tilt kept by a smaller ring inside it, and a white post at the
- * exact pole — the one place on Saturn that does not go round.
+ * The Pole Halo, at the bottom of the Rose's eye on the north pole itself: a
+ * ring thirty-four units across held on six masts, the planet's tilt kept by a
+ * smaller ring inside it, and a white post at the exact pole.
  */
 const POLE_HALO: Landmark = {
   id: 'pole-halo',
@@ -186,11 +175,9 @@ const POLE_HALO: Landmark = {
 };
 
 /**
- * The Dragon's Harp, on the top of the Dragon Storm of 2004 in Storm Alley,
- * whose lightning was ten thousand times an Earth storm's and heard on
- * Cassini's radio as crackle. Two masts and a bar strung with nine gold rods:
- * the Drifters say the storm plays it, and when the lightning walks the alley
- * it does.
+ * The Dragon's Harp, on the top of the Dragon Storm of 2004 in Storm Alley: two
+ * masts and a bar strung with nine gold rods, which the Drifters say the storm
+ * plays.
  */
 const DRAGON_HARP: Landmark = {
   id: 'dragon-harp',

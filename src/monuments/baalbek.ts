@@ -3,64 +3,17 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * Baalbek, the Temple of Jupiter — Beqaa, Lebanon.
  *
- * **Why Lebanon:** the Levant had one pin. Petra covers Jordan and everything
- * north of it — Lebanon, Syria, Israel, Palestine — was empty, which is a
- * thousand kilometres of the oldest continuously inhabited coast on Earth with
- * nothing to walk to. Baalbek is the largest Roman temple ever built and the six
- * columns that survive of it are the tallest in the classical world: 19.9 metres
- * of shaft on a podium of stones that nobody has satisfactorily explained the
- * moving of.
+ * A fragment, not a peristyle: the six surviving columns (19.9 m of shaft) in a
+ * line at one edge of an empty platform, entablature still on top and nothing
+ * behind them but sky. The cella is deliberately not modelled; a wall behind the
+ * columns would make it a Parthenon. Only a three-unit stub of the cella's
+ * stylobate wall stands, low enough that the camera looks over it.
  *
- * ---------------------------------------------------------------------------
- * Six columns is not a Parthenon and the difference is what is missing
- * ---------------------------------------------------------------------------
- *
- * The obvious objection to a Roman temple is that this world already has the
- * Parthenon and Persepolis, and a third row of columns is a third row of columns.
- * It is not, and the reason is worth being precise about. **The Parthenon is a
- * complete peristyle — a colonnade all the way round a building — and reads as
- * an enclosure. Baalbek is a fragment.** Fifty-four columns stood here and six
- * are left, standing in a line at one edge of an empty platform with the
- * entablature still on top of them and nothing behind them but sky. What the eye
- * gets is *height and absence*, which is the opposite read, and it is why the
- * cella is deliberately not modelled: put a wall behind these columns and you
- * have built the Parthenon by accident.
- *
- * The other half of the place is the **podium**, and it is not scenery. Its
- * lower courses are single stones of eight hundred tonnes — the trilithon, three
- * stretchers of about nineteen metres each — and the model gives that course its
- * own height and its own three joints so the wall reads as a few colossal blocks
- * rather than as masonry. The columns stand on a cliff of them.
- *
- * ---------------------------------------------------------------------------
- * Nothing is stretched, which almost never happens here
- * ---------------------------------------------------------------------------
- *
- * The columns are 22.5 units from plinth to capital against 19.9 metres, and the
- * podium 12.5 units against about 13: **1.13 and 0.96 units per metre**, so the
- * model is within about a sixth of one uniform scale and carries no vertical
- * exaggeration at all. That is unusual under this contract and it happens for a
- * simple reason — the thing is already tall and narrow, so the `building` tier's
- * 40 units of height and the six-column crop meet without either having to give.
- * Half-diagonal over height: **0.65** against the 2.00 cap, the most slack of
- * any monument written alongside it.
- *
- * What *is* cropped is the plan. The stylobate was 88 by 48 metres and ten
- * columns wide; this is six of them on a platform 38 by 34 units, which is about
- * 35 by 31 metres. The crop is along the temple's own axis and takes the corner
- * away, which is the one direction a photograph of Baalbek never looks.
- *
- * ---------------------------------------------------------------------------
- * The podium is the ground it owns, and there is no apron
- * ---------------------------------------------------------------------------
- *
- * `biomeAt` calls the Beqaa `temperate` and `groundColorAt` paints it `#8fa565`.
- * There is no paved court laid round the foot of this model. The podium is a
- * twelve-unit vertical wall of masonry meeting the ground directly — which is
- * exactly what Baalbek is, a temple standing on a cliff it built for itself —
- * and everything above it is the building. A stone apron would be a second
- * ground, and the shallow camera would show its straight edge before it showed
- * anything else.
+ * The podium is the ground it owns (no apron): five stepped courses, the third
+ * the trilithon, nearly three units tall with three joints. Nothing is
+ * stretched: columns 22.5 units for 19.9 m, podium 12.5 for about 13 m
+ * (half-diagonal over height 0.65). The plan is cropped to six columns on a
+ * 38 by 34 platform.
  */
 
 /** Half-width and half-depth of the podium, and how high it stands. */
@@ -70,9 +23,7 @@ const PODIUM_TOP = 12.5;
 
 /**
  * The podium's courses, as [top of the course, how far it is stepped in from
- * `PODIUM_X`/`PODIUM_Z`]. The third is the trilithon and it is nearly three
- * units tall on its own, because at Baalbek one course really is that much
- * bigger than the others.
+ * `PODIUM_X`/`PODIUM_Z`]. The third is the trilithon, nearly three units tall.
  */
 const COURSES: [top: number, inset: number][] = [
   [2.4, 0.0],
@@ -129,11 +80,8 @@ export const baalbek: Monument = {
 
     // -----------------------------------------------------------------------
     // 1. The podium. Five courses, each stepped in from the one below, so every
-    //    joint is a change of *depth* and gets its own ink line. Flush courses
-    //    in two colours would be paint: `OutlineEffect` hulls each mesh
-    //    separately and a face coplanar with its neighbour's draws nothing,
-    //    which is what turned Niagara's American curtain into one blank
-    //    rectangle.
+    //    joint is a change of depth and gets its own ink line (flush faces draw
+    //    none).
     // -----------------------------------------------------------------------
     let base = 0;
     for (let i = 0; i < COURSES.length; i++) {
@@ -141,9 +89,7 @@ export const baalbek: Monument = {
       const x = PODIUM_X - inset;
       const z = PODIUM_Z - inset;
       if (i === TRILITHON) {
-        // Three stones and not one wall. The joints are the whole point: this
-        // course is what people come to Baalbek to stand in front of, and a
-        // single block would say nothing about why.
+        // Three stones and not one wall: the joints are what Baalbek is known for.
         for (let k = 0; k < 3; k++) {
           const x0 = -x + (k * 2 * x) / 3;
           const x1 = -x + ((k + 1) * 2 * x) / 3;
@@ -165,23 +111,16 @@ export const baalbek: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 2. The stylobate. Two steps in from the podium, which is what puts the
-    //    temple visibly *on* the platform instead of flush with its edge.
+    // 2. The stylobate: two steps in from the podium.
     // -----------------------------------------------------------------------
     block(-17.4, 17.4, PODIUM_TOP, PODIUM_TOP + 0.6, -15.4, 15.4, stone);
     block(-16.6, 16.6, PODIUM_TOP + 0.6, PODIUM_TOP + 1.2, -14.6, 14.6, stone);
     const FLOOR = PODIUM_TOP + 1.2;
 
     // -----------------------------------------------------------------------
-    // 3. The six columns. Plinth, base, shaft, capital — four pieces each, and
-    //    the shaft has ten sides.
-    //
-    //    Ten is a decision about ink rather than about geometry. A ten-sided
-    //    shaft 2.5 units across deviates from a circle by 0.03 units, which is
-    //    nothing; what ten buys is a cel band that steps twice round the shaft
-    //    instead of once, so a column reads as round and not as a post. Eight
-    //    was tried first and the flat facing the sun was wide enough to read as
-    //    a flat.
+    // 3. The six columns: plinth, base, shaft, capital. The shaft has ten sides
+    //    so the cel band steps twice round it and it reads as round (eight left
+    //    a flat wide enough to read as a flat).
     // -----------------------------------------------------------------------
     const first = -((COLUMNS - 1) * SPACING) / 2;
     let capTop = 0;
@@ -209,10 +148,8 @@ export const baalbek: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 4. The entablature. Architrave, frieze and cornice, each at its own depth
-    //    so the three bands are three ink lines. It overhangs the end columns by
-    //    a little, which is what makes it read as a beam carried by them rather
-    //    than as a lid sitting on them.
+    // 4. The entablature: architrave, frieze and cornice, each at its own depth
+    //    (three ink lines), overhanging the end columns slightly.
     // -----------------------------------------------------------------------
     const span = -first + 2.6;
     block(-span, span, capTop, capTop + 1.5, COLUMN_Z - 2.0, COLUMN_Z + 2.0, stone);
@@ -220,14 +157,8 @@ export const baalbek: Monument = {
     block(-span - 0.5, span + 0.5, capTop + 2.6, capTop + 3.4, COLUMN_Z - 2.5, COLUMN_Z + 2.5, stone);
 
     // -----------------------------------------------------------------------
-    // 5. What is left of the temple behind them. A stub of the cella's own
-    //    stylobate wall, three units high and no more.
-    //
-    //    **This is where the model could have gone wrong.** A cella wall at any
-    //    real height would stand behind the columns, fill the gaps between them,
-    //    and turn six columns against sky into a colonnade in front of a
-    //    building — which is the Parthenon. Three units is low enough that the
-    //    camera looks over it from 13.4 degrees and every gap stays open.
+    // 5. The cella stub: three units high, so from 13.4 degrees every gap
+    //    between the columns stays open.
     // -----------------------------------------------------------------------
     for (const side of [-1, 1]) {
       block(side * 11.0, side * 12.6, FLOOR, FLOOR + 3.0, -9.5, 2.5, shadow);
@@ -235,12 +166,8 @@ export const baalbek: Monument = {
     block(-12.6, 12.6, FLOOR, FLOOR + 2.2, -11.1, -9.5, shadow);
 
     // -----------------------------------------------------------------------
-    // 6. Fallen drums. Five of them lying on the platform, which is what an
-    //    empty temple floor actually has on it, and what stops the biggest flat
-    //    area in the model from being flat.
-    //
-    //    A lying prism is a rotation and nothing else — no scale on the same
-    //    object — so `T * R * S` cannot bite here.
+    // 6. Five fallen drums on the platform. A lying prism is a rotation only (no
+    //    scale on the same object).
     // -----------------------------------------------------------------------
     for (const [x, z, roll, len] of [
       [-9.5, -4.0, 0.35, 3.6],
@@ -258,8 +185,7 @@ export const baalbek: Monument = {
       const inner = new THREE.Group();
       inner.rotation.x = Math.PI / 2;
       inner.add(drum);
-      // `column` stands on its own base, so the laid drum has to come back half
-      // its own length to sit centred on the point it was placed at.
+      // `column` stands on its base, so the laid drum comes back half its length.
       drum.position.y = -len / 2;
       lie.add(inner);
       group.add(lie);

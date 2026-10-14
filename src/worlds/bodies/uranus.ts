@@ -1,41 +1,30 @@
 /**
- * Uranus, walked: a pale cyan deck under a sun that never sets, and the one
- * world where the sky is the strange thing and the ground is not.
+ * Uranus, walked: a pale cyan deck under a sun that never sets, where the sky is
+ * the strange thing and the ground is not.
  *
- * Everything true about Uranus — its hood, its collar, its dark spot and its
- * storms, the fifteen towns and the Sidelings — is
- * `src/system/bodies/uranus.ts`. This file says what it is like to stand
- * there:
+ * What is true about Uranus (hood, collar, dark spot and storms, the towns and
+ * the Sidelings) is `src/system/bodies/uranus.ts`; this file says what it is
+ * like to stand there.
  *
- * - **The deck** is the calmest of the four giants: long low swells, small
- *   soft billows, and the faintest banding — a pool of cyan with a few pale
- *   lines drawn through it. North of about 50 degrees it climbs into the
- *   polar hood, and inside the hood it breaks into a field of small round
- *   convective clouds, the "popcorn" Keck found there; the Storm Latitudes
- *   carry the towers of 2014, the Dark Spot is a hollow with its bright
- *   companion beside it, and the night pole is ringed by Voyager's collar.
- * - **The sky does the rest without being told.** The engine turns the sky
- *   by the real pole, 97.77 degrees over, against the real orbit, so in
- *   October 2026 the Sun stands overhead at 73 N and simply goes round: in
- *   Highsun (54 N) it circles all day between about 37 and 71 degrees up and
- *   never sets; at the equator it rolls along the horizon, 17 degrees up at
- *   best and as far down; south of 17 S it does not come up at all. It is a small,
- *   hard point — 19 au away, a nineteenth of the disc Earth sees — over a
- *   sky that is cyan at the horizon, where the methane haze is thickest, and
- *   goes to a dim violet overhead.
- * - **The weight**: 8.69 m/s², 0.89 g, so a jump is nearly the jump at home.
- * - **The Sidelings** write in a backward-leaning hand of bars, zigzags and
- *   dots stood on a line, like frost on a window; speak high, clear and
- *   very slowly; and build in crystal: prism clusters, flat lenses on stalks
- *   held level to the circling Sun, frost spires, and a sunwatch in every
- *   square.
- * - **What moves**: methane snow drifting past the eye, and pale columns of
- *   convection standing up out of the deck.
- * - **Drawn from the space kit**: the Sidelings are the kit's fish and frog,
- *   calm and violet; their platforms carry pods and glass domes among their
- *   crystals and lenses, with spiral trees and blue bushes in the yards.
- * - **What to take**: a saucer and a lander, both of which fly; the rovers
- *   parked on its streets drive its skyways.
+ * - The deck is the calmest of the four giants: long low swells, small soft
+ *   billows and the faintest banding. North of about 50 degrees it climbs into
+ *   the polar hood, which breaks into small round convective clouds (the
+ *   "popcorn"); the Storm Latitudes carry the towers of 2014, the Dark Spot is
+ *   a hollow with its bright companion, and the night pole is ringed by
+ *   Voyager's collar.
+ * - The engine turns the sky by the real pole, 97.77 degrees over, so the Sun
+ *   circles all day: at 54 N it stays between about 37 and 71 degrees up, at the
+ *   equator it rolls along the horizon, and south of 17 S it does not come up.
+ *   It is a small hard point (19 au away) over a sky cyan at the horizon, where
+ *   the methane haze is thickest, and dim violet overhead.
+ * - Gravity is 8.69 m/s2 (0.89 g).
+ * - The Sidelings write in a backward-leaning hand of bars, zigzags and dots,
+ *   speak high, clear and very slowly, and build in crystal: prism clusters,
+ *   flat lenses on stalks held level to the circling Sun, frost spires and a
+ *   sunwatch in every square. They are the kit's fish and frog.
+ * - Methane snow drifts past the eye and pale columns of convection stand up
+ *   out of the deck.
+ * - A saucer and a lander are takeable; the rovers on the streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -52,16 +41,11 @@ import { URANUS_MOONS, uranusRings } from './uranus/sky.ts';
 const SIDELING = SPECIES.find((one) => one.id === 'sideling')!;
 
 /**
- * The bands, equator outward, one entry for each 2.34 degrees.
- *
- * The deck's painter (`terrain.ts`) lays the list from the equator toward the
- * pole across 37.5 degrees and then repeats it, so these sixteen entries are
- * the whole planet three times over. Uranus is the featureless one, and the
- * list says so: cyan, with three pale lines drawn through it — the bright
- * equatorial line some images show, and the faint latitude bands that come
- * up only when an image is stretched. The polar hood's brightness is not
- * here, because the list repeats and the hood is one pole's: it is painted
- * over the bands by `paintDeck` below, with the named clouds.
+ * The bands, equator outward, one entry for each 2.34 degrees. The deck's
+ * painter (`terrain.ts`) lays the list across 37.5 degrees of latitude and
+ * repeats it. Uranus is the featureless one: cyan, with three pale lines. The
+ * polar hood is one pole's, so it is painted over the bands by `paintDeck`
+ * below, with the named clouds.
  */
 const BANDS = [
   PALETTE.white, // 0: the bright equatorial line
@@ -83,11 +67,10 @@ const BANDS = [
 ];
 
 /**
- * The hood and the clouds, painted where they are: the north polar hood a
- * pale cap from about 45 N, brightest over the pole, which is the one thing
- * anybody who has seen Uranus in the last decade knows about it; the 2006
- * Dark Spot deep blue, and every bright cloud (its companion, Berg, the
- * storms of 2014) white, each soft at its edge.
+ * The hood and the clouds, painted where they are: the north polar hood a pale
+ * cap from about 45 N, brightest over the pole; the 2006 Dark Spot deep blue,
+ * and every bright cloud (its companion, Berg, the storms of 2014) white, each
+ * soft at its edge.
  */
 const DEEP = tone(PALETTE.skyBlue, 0.5);
 const CLOUDS = DECK_CLOUDS.map((cloud) => ({
@@ -115,12 +98,10 @@ function paintDeck(dir: { readonly x: number; readonly y: number; readonly z: nu
 
 export const WORLD = defineWorld(URANUS, {
   relief: {
-    // The body has no `ground`, so the whole of the deck's relief — the hood,
-    // the popcorn, the collar and the named clouds — is the one feature below.
+    // The body has no `ground`, so the whole of the deck's relief is the one feature below.
     planetScale: 1,
     detail: [
-      // Billows: soft and small, with only a hint of a crease. The calmest
-      // deck of the four.
+      // Billows: soft and small, with only a hint of a crease.
       { amplitude: 3, wavelength: 130, octaves: 3, ridged: 0.1 },
       // The long slow swell, two kilometres from crest to crest.
       { amplitude: 16, wavelength: 2200, octaves: 2, ridged: 0 },
@@ -139,16 +120,12 @@ export const WORLD = defineWorld(URANUS, {
     churn: { boil: 0.25, speed: 6, wavelength: 360, strength: 0.04 },
   },
   sky: {
-    // Cyan at the horizon, where the light comes through the most methane,
-    // and a dim violet overhead, the most of the day sky a sun this far off
-    // can light.
+    // Cyan at the horizon, where the light comes through the most methane, and a dim violet overhead.
     horizon: PALETTE.skyBlue,
     zenith: PALETTE.slate,
     air: 0.7,
     light: PALETTE.white,
-    // The light at 19 au is a three-hundred-and-seventieth of Earth's and the
-    // sky's softened law gives back a quarter; this takes it to a deck that
-    // reads, still visibly dimmer than Jupiter's.
+    // The light at 19 au is a three-hundred-and-seventieth of Earth's and the sky's softened law gives back a quarter; this takes it to a deck that reads, still dimmer than Jupiter's.
     exposure: 1.8,
     // Five moons going round the sky's strange pole, and a dark thread of
     // rings across it (`uranus/sky.ts`).
@@ -170,9 +147,7 @@ export const WORLD = defineWorld(URANUS, {
       consonants: 'shlnvrz',
       vowels: 'iieau',
     },
-    // High, clear, and the slowest speech of any species: a glass bell with
-    // all the time in the world. The pitch hardly wanders; nothing here is
-    // in a hurry to change its mind.
+    // High, clear, the slowest speech of any species: a glass bell. The pitch hardly wanders.
     voice: { pitch: [210, 300], pace: [2.3, 3.3], tract: [1.05, 1.3], wander: 0.06 },
     phrases: {
       greet: [
@@ -235,17 +210,14 @@ export const WORLD = defineWorld(URANUS, {
         { item: 'ring', weight: 1 },
       ],
       landmark: 'sunwatch',
-      // Frost and quartz for the walls, the deck's own cyan and the violet of
-      // the zenith for the roofs and plinths, and the one warm colour on the
-      // planet — the Sun's gold — for the trim, which is also every town's
-      // beacon. The platform is slate, so a white town reads on a pale deck.
+      // Frost and quartz for the walls, the deck's cyan and the zenith's violet for
+      // the roofs and plinths, and the Sun's gold for the trim (also every town's beacon).
       walls: [PALETTE.white, PALETTE.bone, PALETTE.cream, PALETTE.white],
       roofs: [PALETTE.skyBlue, PALETTE.violet, PALETTE.slate],
       accents: [PALETTE.gold, PALETTE.apricot, PALETTE.skyBlue, PALETTE.violet],
       ground: PALETTE.slate,
       height: 1.1,
-      // Room between the houses, and five avenues out from the sunwatch:
-      // the five big moons, every Sideling will tell you.
+      // Room between the houses, and five avenues out from the sunwatch: the five big moons.
       density: 3.4,
       avenues: 5,
       colony: {
@@ -273,15 +245,12 @@ export const WORLD = defineWorld(URANUS, {
     { kind: 'motes', count: 200, color: PALETTE.white },
     // Columns of convection standing up out of the deck, few and slow.
     { kind: 'dust-devil', count: 3, color: PALETTE.white },
-    // Diamonds: the carbon that rains out of the deep, here and there a
-    // sparkle on the deck, which is a story the Sidelings tell and the
-    // deck obliges.
+    // Diamonds: the carbon that rains out of the deep, a sparkle here and there.
     { kind: 'glint', count: 36, color: PALETTE.white, size: 0.7 },
   ],
   // A steady westward drift over the methane deck.
   wind: { toward: 270, speed: 20, strength: 0.4 },
   landmarks: LANDMARKS,
-  // Longlight, on the hood's rim: the Sun circling high all day, Herschel's
-  // Glass a short walk north, the popcorn field beyond it.
+  // Longlight, on the hood's rim: the Sun circling high all day, Herschel's Glass a short walk north.
   spawn: 'longlight',
 });

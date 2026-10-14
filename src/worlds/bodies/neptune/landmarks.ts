@@ -1,15 +1,12 @@
 /**
- * Neptune's landmarks: five places worth crossing the deck for.
- *
- * Three mark real things — the one spacecraft that has ever been here, the
- * night in 1846 the planet was found by arithmetic, and the ring arcs Voyager
- * named after a revolutionary slogan — and two are lookouts on the storms the
- * feature file draws, the Great Dark Spot and the moon nobody can see from
- * the deck. What the Gale built at each is invented; the events are not.
+ * Neptune's landmarks: five places worth crossing the deck for. Three mark real
+ * things (the one spacecraft that has been here, the discovery of the planet by
+ * arithmetic in 1846, and the ring arcs) and two are lookouts on the storms. What
+ * the Gale built at each is invented.
  *
  * Every one stands on its own levelled platform (`settlements.ts` floats a
- * landmark on a deck exactly as it floats a town), so each builder stands on
- * `y = 0` and keeps inside the radius it declares.
+ * landmark on a deck as it floats a town), so each builder stands on `y = 0` and
+ * keeps inside the radius it declares.
  */
 
 import * as THREE from 'three';
@@ -19,19 +16,11 @@ import { ball, dome } from '../../architecture.ts';
 import { kite, sail, stay } from './buildings.ts';
 
 /**
- * Voyager 2, under the point of its closest approach.
- *
- * On 25 August 1989 it passed 4,950 km over Neptune's north polar region —
- * the closest it came to anything in twelve years — and bent its path down
- * past Triton and out of the plane of the planets for good. It is still the
- * only visitor, and everything anyone knows about the Dark Spot, the
- * companions and the winds is from the week it spent here.
- *
- * The Gale's replica at about three times life size, the booms shortened:
- * the ten-sided bus, the 3.7 m dish open to the sky, the magnetometer boom
- * one way and the power source's three canisters the other, the scan
- * platform on its arm and the golden record on the flank — on a guyed pylon, because here even a memorial is
- * flown rather than stood.
+ * Voyager 2, under the point of its closest approach (25 August 1989, 4,950 km
+ * over the north polar region). The Gale's replica at about three times life
+ * size, the booms shortened: the ten-sided bus, the 3.7 m dish open to the sky,
+ * the magnetometer boom one way and the three power canisters the other, the
+ * scan platform on its arm and the golden record on the flank, on a guyed pylon.
  */
 const VOYAGER: Landmark = {
   id: 'voyager-2',
@@ -92,18 +81,10 @@ const VOYAGER: Landmark = {
 };
 
 /**
- * The Galle Stone: Neptune was found with a pencil.
- *
- * Urbain Le Verrier worked out from the wobble in Uranus's orbit where an
- * unseen planet had to be, and posted the answer to Johann Galle in Berlin;
- * Galle and Heinrich d'Arrest found it on the night the letter arrived, 23
- * September 1846, within one degree of the prediction. It is the only planet
- * discovered by mathematics before anyone looked.
- *
- * The Gale think this is the finest thing anyone has ever done for them, and
- * built a hoop standing on edge — the orbit the arithmetic drew — with a
- * needle through it, a degree off true, pointing at the sky where Earth was
- * that night.
+ * The Galle Stone: Neptune was found with a pencil. Le Verrier calculated where
+ * an unseen planet had to be and Galle found it on 23 September 1846, within a
+ * degree. A hoop standing on edge (the orbit the arithmetic drew) with a needle
+ * through it, a degree off true, pointing at the sky where Earth was that night.
  */
 const GALLE: Landmark = {
   id: 'galle-stone',
@@ -150,16 +131,10 @@ const GALLE: Landmark = {
 };
 
 /**
- * The Arcs: Neptune's rings, laid out on the deck.
- *
- * Five rings — Galle, Le Verrier, Lassell, Arago and Adams, after the people
- * who found or nearly found the planet — and in the outermost, Adams, four
- * clumps of dust that should have spread round it and have not: Liberté,
- * Égalité, Fraternité and Courage. Voyager confirmed them in 1989; they have
- * been fading since, and Liberté may be gone within a century.
- *
- * Five low concentric rings at their true proportions and four standing arcs
- * on the outermost, the tallest Fraternité, the longest arc.
+ * The Arcs: Neptune's rings, laid out on the deck. Five low concentric rings at
+ * their true proportions (Galle, Le Verrier, Lassell, Arago, Adams) and four
+ * standing arcs on the outermost (Liberte, Egalite, Fraternite and Courage),
+ * the tallest Fraternite, the longest arc.
  */
 const ARCS: Landmark = {
   id: 'the-arcs',
@@ -187,8 +162,7 @@ const ARCS: Landmark = {
       ring.position.y = 0.6;
       group.add(ring);
     }
-    // The arcs, as runs of blocks on the Adams ring: Courage, Liberté,
-    // Égalité and Fraternité, leading to trailing, about 40 degrees of it.
+    // The arcs, as runs of blocks on the Adams ring, leading to trailing, about 40 degrees of it.
     const arcs: [number, number, number, number][] = [
       [0.0, 0.04, 2.4, PALETTE.gold],
       [0.12, 0.2, 3.4, PALETTE.orange],
@@ -215,18 +189,10 @@ const ARCS: Landmark = {
 };
 
 /**
- * Triton's Orrery: the moon nobody on the deck can see.
- *
- * Triton is the seventh-largest moon in the solar system and the only big
- * one that goes round its planet **backwards** — 157 degrees inclined, so it
- * is almost certainly a captured dwarf planet from the Kuiper belt — and
- * tides are pulling it slowly down; in a few billion years it will cross the
- * Roche limit and come apart into a ring. Voyager saw nitrogen geysers on it
- * and a pink southern cap. From the 1-bar level, under the haze, it is not
- * there at all, and the Gale built this so the children would believe in it.
- *
- * Neptune on a column, Triton's orbit as a tilted hoop of struts round it,
- * and Triton on the hoop, pink cap and all.
+ * Triton's Orrery: the moon nobody on the deck can see (it goes round Neptune
+ * backwards, 157 degrees inclined, and is hidden by the haze). Neptune on a
+ * column, Triton's orbit as a tilted hoop of struts round it, and Triton on the
+ * hoop, pink cap and all.
  */
 const TRITON: Landmark = {
   id: 'triton-orrery',
@@ -244,8 +210,7 @@ const TRITON: Landmark = {
     const planet = ball(ctx, 4.6, PALETTE.skyBlue, 16);
     planet.position.y = centreY;
     group.add(planet);
-    // The orbit: a ring of struts tilted 23 degrees off the equator (157
-    // reckoned the backwards way), the arrows on it pointing retrograde.
+    // The orbit: a ring of struts tilted 23 degrees off the equator (157 reckoned the backwards way), the arrows pointing retrograde.
     const orbit = 10.5;
     const tilt = 23 * (Math.PI / 180);
     const at = (a: number): THREE.Vector3 =>
@@ -271,14 +236,9 @@ const TRITON: Landmark = {
 };
 
 /**
- * The Companion Overlook, on the Dark Spot's southern rim.
- *
- * The bright companion clouds sat on this edge the whole week Voyager
- * watched, while the Spot itself rolled over every sixteen days or so; when
- * Hubble looked again in 1994 the Spot had gone and nobody saw it go. The
- * Gale built a deck raised on raked legs, a windbreak of three great sails
- * behind it, and a long glass on a pivot, kept trained on the place the Spot
- * used to be by people who are sure it will come back.
+ * The Companion Overlook, on the Dark Spot's southern rim: a deck raised on
+ * raked legs, a windbreak of three great sails behind it and a long glass on a
+ * pivot, trained on the place the Spot used to be.
  */
 const OVERLOOK: Landmark = {
   id: 'companion-overlook',

@@ -1,35 +1,26 @@
 /**
  * Saturn, walked: a cloud deck at the 1-bar level under the rings.
  *
- * Everything true about Saturn — its bands at their latitudes, the Hexagon,
- * the two polar eyes, the White Spots, Storm Alley, the Ribbon, the eighteen
- * towns and the Drifters — is `src/system/bodies/saturn.ts`. This file says
- * what it is like to stand there:
+ * What is true about Saturn (bands at their latitudes, the Hexagon, the polar
+ * eyes, the White Spots, Storm Alley, the Ribbon, the towns and the Drifters) is
+ * `src/system/bodies/saturn.ts`; this file says what it is like to stand there.
  *
- * - **The deck** is banded soft butterscotch and pale gold, paler and quieter
- *   than Jupiter's because a thicker haze lies over it, and it rises into the
- *   world's landmarks: the Hexagon's jet a cloud wall 260 units high round
- *   the north pole, six sides each longer than Earth is wide; the Rose's eye
- *   on the pole inside it; the Southern Eye's double eyewall; the Great White
- *   Spot's head heaped into towers, its tail wavering east; Storm Alley's
- *   white cells; the Ribbon's rippling ridge.
- * - **The weight**: 10.44 m/s², 1.07 g — the giant that weighs what home does.
- * - **The sky** is pale: a cream haze at the horizon, pale gold overhead, the
- *   Sun a small hard point 9.5 au away with a ninetieth of Earth's light. And
- *   **the rings**, arching from horizon to horizon with the Cassini Division
- *   in them and the planet's shadow across them, are `saturn/sky.ts`, a sky
- *   layer; Titan and Rhea keep to their plane (`saturn/moons.ts`).
- * - **The Drifters** write in loops and dots like rings and moons, hung from
- *   nothing; speak high, soft and slow; and build halos, armillaries, hanging
- *   gardens, hooped halls and circle gates on platforms moored to the wind,
- *   round an orrery of their own planet in every square.
- * - **What moves**: ice glinting down out of the rings, and white columns of
- *   rising cloud wandering the deck.
- * - **Drawn from the space kit**: the Drifters are the kit's squidle and pink
- *   blob; their platforms carry glass domes and pods among their halos and
- *   gyres, with swirl trees in the yards, and the big ones a landing pad.
- * - **What to take**: a saucer and a lander, both of which fly; the rovers
- *   parked on its streets drive its skyways.
+ * - The deck is soft butterscotch and pale gold, paler and quieter than
+ *   Jupiter's under a thicker haze, and rises into the landmarks: the Hexagon's
+ *   jet a cloud wall 260 units high round the north pole, the Rose's eye inside
+ *   it, the Southern Eye's double eyewall, the Great White Spot's heaped head,
+ *   Storm Alley's white cells and the Ribbon's ridge.
+ * - Gravity is 10.44 m/s2 (1.07 g).
+ * - The sky is a cream haze at the horizon and pale gold overhead, with the Sun
+ *   a small hard point giving a ninetieth of Earth's light. The rings arch from
+ *   horizon to horizon (`saturn/sky.ts`); Titan and Rhea keep to their plane
+ *   (`saturn/moons.ts`).
+ * - The Drifters write in loops and dots, speak high, soft and slow, and build
+ *   halos, armillaries, hanging gardens, hooped halls and circle gates on
+ *   platforms moored to the wind, round an orrery in every square. They are
+ *   the kit's squidle and pink blob.
+ * - Ice glints down out of the rings and white columns of cloud wander the deck.
+ * - A saucer and a lander are takeable; the rovers on the streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -49,11 +40,8 @@ const DRIFTER = SPECIES.find((one) => one.id === 'drifter')!;
 /**
  * The bands, equator outward, one entry for each 2.34 degrees: the deck's
  * painter lays the list over 37.5 degrees and repeats it, mirrored north and
- * south, so these sixteen put the bright Equatorial Zone to about 9 degrees,
- * its butterscotch edge and the North and South Equatorial Belts' single
- * pale-gold stripe by 16, the Tropical Zone after them and a grey-gold
- * Temperate Belt at the end. Neighbours are near in tone on purpose: Saturn's
- * bands are felt more than seen.
+ * south. Neighbours are near in tone on purpose: Saturn's bands are felt more
+ * than seen.
  */
 const BANDS = [
   PALETTE.cream, // the Equatorial Zone
@@ -79,16 +67,15 @@ const AIR = 0.6;
 /**
  * The rings and the aurora, as the engine's sky draws them (`SkySpec.layers`):
  * made with the walkable radius, updated each frame with the traveller, the
- * Sun, the daylight and the clock, and the Sun's light multiplied by what
- * they let through (the rings' shadow on the deck).
+ * Sun, the daylight and the clock, and the Sun's light multiplied by what they
+ * let through (the rings' shadow on the deck).
  */
 export const SKY_LAYERS: readonly SkyLayerFactory[] = [(radius) => createSaturnSky(radius, AIR)];
 
 /**
- * The storms' heads painted white where they stand — the Great White Spot of
- * 2010, Hubble's of 1990 on the equator, the Dragon in Storm Alley — and the
- * pole inside the hexagon the blue Cassini found there in 2012, when the
- * north came out of its winter.
+ * The storms' heads painted white where they stand (the Great White Spot of
+ * 2010, Hubble's of 1990 on the equator, the Dragon in Storm Alley), and the
+ * pole inside the hexagon blue.
  */
 const HEADS = [
   { ...GREAT_WHITE_SPOT, size: 4.6 },
@@ -121,8 +108,7 @@ const stormAlley = (lat: number): number => Math.exp(-(((lat - DRAGON_STORM.lat)
 
 export const WORLD = defineWorld(SATURN, {
   relief: {
-    // No ground model: the deck's relief — the zones over the belts, the
-    // walls, the eyes and the storms — is the one feature below, in units.
+    // No ground model: the deck's relief is the one feature below, in units.
     planetScale: 1,
     detail: [
       // Billows, softer than Jupiter's: the haze rounds everything off.
@@ -146,12 +132,10 @@ export const WORLD = defineWorld(SATURN, {
   sky: {
     horizon: PALETTE.cream,
     zenith: PALETTE.sand,
-    // Less air than Jupiter's 0.75: a paler, clearer sky, so the rings and
-    // the stars come through at dusk.
+    // Less air than Jupiter's 0.75: a paler, clearer sky, so the rings and stars come through at dusk.
     air: AIR,
     light: PALETTE.cream,
-    // At 9.5 au the sky's softened law gives back 0.36 of Earth's light;
-    // this lifts the deck to about Jupiter's.
+    // At 9.5 au the sky's softened law gives back 0.36 of Earth's light; this lifts the deck to about Jupiter's.
     exposure: 1.5,
     moons: SATURN_MOONS,
     layers: SKY_LAYERS,
@@ -231,9 +215,7 @@ export const WORLD = defineWorld(SATURN, {
         { item: 'bulb', weight: 1 },
       ],
       landmark: 'orrery',
-      // Ice and cream for the walls, butterscotch and gold for the masts and
-      // hoops, cool accents that read on a warm deck; the platform a pale
-      // grey stone, so the town is a disc of light on the cloud.
+      // Ice and cream for the walls, butterscotch and gold for the masts and hoops; the platform pale grey stone.
       walls: [PALETTE.cream, PALETTE.white, PALETTE.bone, PALETTE.blush],
       roofs: [PALETTE.sand, PALETTE.apricot, PALETTE.gold, PALETTE.tan],
       accents: [PALETTE.gold, PALETTE.skyBlue, PALETTE.violet, PALETTE.white],
@@ -264,21 +246,16 @@ export const WORLD = defineWorld(SATURN, {
   ambient: [
     // Sky mantas over the deck.
     { kind: 'fliers', count: 12, color: PALETTE.apricot, belly: PALETTE.white, size: 3.8 },
-    // Ice from the rings: grains drift down out of them all the time (Cassini
-    // measured tonnes a second falling in along the field lines), glinting.
+    // Ice from the rings: grains drift down out of them all the time, glinting.
     { kind: 'motes', count: 190, color: PALETTE.white, fall: 1.4, speed: 0.6 },
     // Columns of rising cloud: the convection that heaps a white storm.
     { kind: 'dust-devil', count: 3, color: PALETTE.cream },
-    // Storm Alley's lightning, which Cassini heard as radio crackle for
-    // months at a time and saw by night once.
+    // Storm Alley's lightning.
     { kind: 'lightning', count: 1, rate: 6, color: PALETTE.white, where: stormAlley },
   ],
   // Saturn's equatorial jet, the fastest wind of the giants after Neptune's.
   wind: { toward: 90, speed: 45, strength: 0.8 },
   landmarks: LANDMARKS,
-  // Keeler, at 24 N in the North Equatorial Belt: the latitude the rings are
-  // widest from, arched over the southern sky from eighteen degrees above the
-  // horizon to fifty. (From Thunderhead at 35 N, on the Great White Spot,
-  // they run from four to thirty-four; from the equator they are a thread.)
+  // Keeler, at 24 N in the North Equatorial Belt: the rings arch over the southern sky from eighteen degrees above the horizon to fifty.
   spawn: 'keeler',
 });

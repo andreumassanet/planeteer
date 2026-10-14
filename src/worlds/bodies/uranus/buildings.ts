@@ -1,29 +1,22 @@
 /**
  * How the Sidelings build (invented): crystals, lenses and frost.
  *
- * Mars builds pressure vessels and Jupiter builds balloons; Uranus's problem
- * is **light**. The Sun at 19 au gives a three-hundred-and-seventieth of what
- * it gives Earth, so a Sideling's first question about any building is what
- * it does with the little that arrives. The answers are the forms below:
+ * The Sun at 19 au gives a three-hundred-and-seventieth of what Earth gets, so
+ * every form below is an answer to what to do with the little light that arrives:
  *
- * - a **crystal** house is a cluster of six-sided prisms on a plinth, each
- *   capped with a point, like a geode stood on end — the prisms carry the
- *   light down into the rooms the way a fibre does;
- * - a **lens** house is a wide, flat, two-sided lens on a stalk, held level so
- *   the Sun circling overhead in the long northern day falls on its whole
- *   face at every hour;
- * - a **frost spire** is a needle of stacked tapering prisms ringed with
- *   collars of frost, the tallest thing in a town and the first to catch the
- *   Sun when it comes back after a forty-two-year night;
- * - and in every square a **sunwatch**: an armillary of two rings on a
- *   prism column with a gold ball in the middle, the instrument that keeps
- *   the calendar on a world where noon lasts a generation.
+ * - a crystal house is a cluster of six-sided prisms on a plinth, each capped
+ *   with a point, like a geode stood on end;
+ * - a lens house is a wide, flat, two-sided lens on a stalk, held level so the
+ *   circling Sun falls on its whole face at every hour;
+ * - a frost spire is a needle of stacked tapering prisms ringed with collars of
+ *   frost, the tallest thing in a town;
+ * - in every square, a sunwatch: an armillary of two rings on a prism column
+ *   with a gold ball in the middle.
  *
- * The kit's rules hold: the context's primitives, palette colours from the
- * style, **everything standing on `y = 0`**, and the footprint returned is the
- * widest thing at any height. The layout spaces buildings for a radius of
- * about eight, so no footprint here passes seven and a half before the plot's
- * own scale.
+ * The kit's rules hold: the context's primitives, palette colours, everything on
+ * `y = 0`, and the footprint returned is the widest thing at any height. The
+ * layout spaces buildings for a radius of about eight, so no footprint passes
+ * seven and a half before the plot's own scale.
  */
 
 import * as THREE from 'three';
@@ -61,9 +54,9 @@ export function diamond(ctx: SceneryContext, radius: number, color: number): THR
 }
 
 /**
- * An upright ring, its plane the `xy` plane, centred at `(0, y, 0)`.
- * `ringWall` extrudes up `y`; a quarter turn about `x` carries that to `+z`,
- * so the ring is pulled back half its thickness to sit on its own plane.
+ * An upright ring, its plane the `xy` plane, centred at `(0, y, 0)`. `ringWall`
+ * extrudes up `y`; a quarter turn about `x` carries that to `+z`, so the ring is
+ * pulled back half its thickness to sit on its own plane.
  */
 export function hoop(ctx: SceneryContext, radius: number, width: number, thickness: number, color: number, sides = 20): THREE.Mesh {
   const ring = ctx.ringWall(radius - width, radius, thickness, color, sides);
@@ -167,10 +160,8 @@ const frostSpire: BuildingBuilder = (ctx, rng, style) => {
 };
 
 /**
- * The square's instrument: a prism column, an armillary of two rings on it
- * and the gold Sun in the middle, and a ring of seven hour-stones — one
- * for each of the seventeen-hour turns a Sideling counts in a week, the
- * week being, they say, as long as anything should be.
+ * The square's instrument: a prism column, an armillary of two rings on it and
+ * the gold Sun in the middle, and a ring of seven hour-stones.
  */
 const sunwatch: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
@@ -185,8 +176,7 @@ const sunwatch: BuildingBuilder = (ctx, rng, style) => {
   group.add(head);
   const centre = 15.4;
   const accent = rng.pick(style.accents);
-  // The meridian ring, upright, and the horizon ring through it at an angle:
-  // the second leans 98 degrees off the first, which is the joke.
+  // The meridian ring, upright, and the horizon ring through it, leaning 98 degrees off the first.
   const meridian = hoop(ctx, 5.2, 0.55, 0.5, accent, 22);
   meridian.position.y += centre;
   group.add(meridian);

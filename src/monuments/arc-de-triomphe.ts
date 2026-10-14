@@ -3,145 +3,30 @@ import type { Monument } from './contract.ts';
 /**
  * Arc de Triomphe.
  *
- * ## Tier: `building`, and the Eiffel Tower is what decides it
+ * Tier `building` (40 tall). The Eiffel Tower is 4.36 world units away on this
+ * planet, inside its 35-unit footprint, so a taller tier would make the arch as
+ * tall as the tower; at 1:3 the parapet (39.8) sits under the tower's second
+ * platform. The footprint is declared tight, 21 (measured reach 20.84, the
+ * crowning cornice's corners).
  *
- * `UNITS_PER_DEGREE` is `PLANET_RADIUS * PI / 180` = **279.25 units per degree**.
- * The two Paris sites in `monuments.source.json` are:
+ * Proportions follow life: width/height 0.90 (36 by 39.8) and depth/width 0.49.
+ * The opening is wider than life (0.48 of the block, 0.64 of the height) so the
+ * piers do not swell into a wall; any more leaves no masonry between the
+ * keystone and the entablature. The head is a true semicircle on the 8.6
+ * half-span. Seen through the 17.6-deep vault the sky is narrower (0.38).
  *
- *     Eiffel Tower  48.8584, 2.2945
- *     Arc           48.8740, 2.2950
+ * Pieces: the great arch (eleven pieces a side and a keystone); the transverse
+ * vault (6.6 wide, 14.9 to its crown) crossing it below the springing; the deep
+ * attic with fourteen shield medallions (five a long face, two a short one);
+ * four sculptural groups of four blocks each, up to the springing; and a roof
+ * terrace with a parapet 0.3 inside the wall line. Left out: archivolt
+ * mouldings, coffering and attic pilasters (the Arc is astylar). The four upper
+ * bas-reliefs are a `tan` field with a `brown` panel proud of it.
  *
- * dlat 0.0156 deg, dlon 0.0005 deg (0.00033 deg of great circle at this
- * latitude), so the separation is
- *
- *     hypot(0.0156, 0.00033) * 279.25 = **4.36 world units**
- *
- * about 1.7 km on the ground. The Eiffel Tower declares a footprint of **35**.
- * This arch is not near the tower on this planet, it is *inside its footprint
- * circle*, four units off its axis — its legs reach eight times further out than
- * the gap between the two sites. `empire-state.ts` reached for the same
- * arithmetic against the Statue of Liberty and found 20.7 units, and called that
- * "on top of each other". This is **4.7x closer than that**. There is no camera
- * anywhere on the Champ de Mars that frames one without the other.
- *
- * So the tier is not a solo judgement, it is a ratio against a 120-unit tower:
- *
- * - **`landmark` (120 tall, 55 footprint)** is absurd twice over. A 50 m arch
- *   would stand exactly as tall as the 330 m tower, and its 55-unit footprint
- *   would reach past the tower's legs on both sides — the arch would enclose the
- *   thing it stands next to.
- * - **`tower` (70 tall, 28 footprint)** is refused by the contract itself, in
- *   the note beside `TIERS`, and the arithmetic is worth redoing because it is
- *   exactly this monument's: the real block is 45 m wide against 50 m tall, so
- *   at 70 units tall it is 63 wide, a corner radius of 34 against a 28-unit cap.
- *   Squeezing the plan to fit would cost the **nearly square block**, which is
- *   the read. And 70 against the tower's 120 puts the arch's parapet above the
- *   Eiffel's second platform (42), which is a picture of Paris nobody has seen.
- * - **`building` (40 tall, 55 footprint)** gives 1:3 against the tower. The
- *   parapet at 39.8 lands just under that second platform and well clear of the
- *   first (20.5), and the arch is the *wider* of the two at the ground — 21
- *   against 35 is close enough that the pair reads as one composition rather
- *   than as a shed beside a mast. In metres 1:3 is a lie (life is 1:6.6, so the
- *   arch is exaggerated 2.2x against its neighbour), but the tier ladder has
- *   four rungs and the alternative is a monument nobody can find.
- * - **`monument` (15 tall, 14 footprint)** fails the other way. At 15 units the
- *   attic band is 2.5 units and the shield medallions are sub-unit, so the two
- *   things the brief says must survive to a thumbnail are the first to go. And
- *   "you find it by walking into it" is the wrong sentence for the thing that
- *   terminates a two-kilometre avenue.
- *
- * **Footprint is declared tight on purpose: 21, not the tier's 55.** The
- * measured reach is 20.84 (the crowning cornice's corners). At 4.36 units apart
- * the two Paris footprints overlap whatever this file declares, so the only
- * thing left to decide is how much of the tower's plan this sits on, and the
- * answer is as little as the geometry allows.
- *
- * ## Proportion, which is the whole job here
- *
- * The shape is one opening in a block, so every number below is a ratio and
- * there is nowhere to hide. Three sources disagreed and all three are recorded:
- *
- * | | life | the read asked for | built |
- * |---|---|---|---|
- * | width / height | 45/50 = 0.90 | nearly square | 36/39.8 = **0.90** |
- * | depth / width | 22/45 = 0.49 | — | 17.6/36 = **0.49** |
- * | opening width / block width | 14.62/45 = 0.325 | about half | 17.2/36 = **0.48** |
- * | opening crown / block height | 29.19/50 = 0.584 | about two thirds | 25.45/39.8 = **0.64** |
- *
- * The plan is life's, exactly. The **opening is opened up well past life**, to
- * within a hair of half, because 0.325 is the failure the brief names: at life's
- * ratio the piers swell to 15 units against a 12-unit hole and it becomes a
- * Roman arch, one of those triumphal arches that is mostly wall.
- *
- * It stops just short of the round number, and the *other* half of the brief is
- * why. Half the width and two thirds the height together — an 18-unit opening
- * crowned at 26.5 — leave **0.4 units** of masonry between the keystone and the
- * entablature at 26.9, and the deep attic, which is the other thing that makes
- * this building itself, would be sitting on nothing. 0.48 and 0.64 keeps both:
- * a 17.2-unit hole in a 36-unit block, with 14.35 units — **36% of the height** —
- * of solid spandrel, entablature and attic above the crown, and 9.4-unit piers,
- * still wide enough to carry a sculptural group with a unit of margin each side.
- *
- * The head is a true semicircle on that half-span (8.6), so the crown follows
- * from the springing rather than being posed independently.
- *
- * A note for whoever measures the render and finds a narrower hole than 0.48:
- * the *silhouette* of the near opening is 0.46 of the block after perspective,
- * but the sky you can actually see through it is 0.38, because the vault is
- * 17.6 units deep and the far opening projects smaller than the near one. Every
- * photograph of the real arch does the same thing. Both were measured, not
- * guessed.
- *
- * ## What is here, and why each piece earns its meshes
- *
- * - **The great arch**, eleven pieces a side and a keystone, cut as described
- *   beside `ARCH_STEPS` below. 25 meshes with its pier.
- * - **The transverse vault**, 6.6 wide and 14.9 to its crown, cut through both
- *   piers along X and opening on the two short faces. It crosses the great vault
- *   below its springing, exactly as in life, so from any three-quarter view you
- *   see daylight through the pier. This is the part that stops the model being a
- *   slab with a hole, and it costs 22 meshes of the 110 — spent deliberately.
- * - **The deep attic**: a plain frieze bracketed by two cornices, then 6.6 units
- *   of blank attic wall carrying **fourteen shield medallions** (five a long
- *   face, two a short one), then the crowning cornice. Hexagonal prisms tipped
- *   on their axis and rolled 30 degrees so a point sits at the bottom.
- * - **Four sculptural groups**, two a long face, filling the pier from a
- *   pedestal at 3.2 up to 16.1 — stopping just under the arch springing, as they
- *   do in life. Each is four overlapping blocks of different heights and
- *   projections rather than one panel: at this size they are masses, and the ink
- *   between the blocks is what makes a mass read as a clump of figures instead
- *   of a buttress.
- * - **The roof terrace**, a low parapet set 0.3 inside the wall line standing on
- *   the cornice, with a darker inset floor between the rails. It is a viewing
- *   platform, so the top has to read as a rim around a flat, not as a cap.
- *
- * ## Traded away
- *
- * - **The archivolt moulding and the coffered vault.** Both are inside the
- *   opening or one unit wide; the ink already draws the arch.
- * - **The attic pilasters between the shields.** The brief asks for a *plain*
- *   frieze and the Arc is astylar — it has no orders anywhere, which is half of
- *   why it looks like nothing else. The shields alone carry the rhythm.
- * - **The four upper bas-reliefs are a framed rectangle each**, a `tan` field
- *   with a `brown` panel proud of it, not figures. Without the frame a lone dark
- *   rectangle high on a blank pier reads as a window, which this building has
- *   none of.
- *
- * ## Colour
- *
- * Three entries, all warm: `sand` for the limestone, `tan` for every moulding
- * (plinth, cornices, parapet, pedestals), `brown` for sculpture, shields and the
- * terrace floor. `bone` is the obvious choice for a pale stone building and is
- * wrong here — it is a neutral grey, and the hemisphere light's sky colour is
- * blue, so every neutral in this scene goes cold in shadow. Paris limestone does
- * not go cold; `sand` keeps it warm on the shaded face.
- *
- * ## Against the budget
- *
- * 97 meshes of 110, 1,332 triangles of 2,600, reach 20.84 of the declared 21,
- * height 39.8 of 40, aspect 1.05 of 4. The triangles were never the constraint —
- * boxes are twelve each — and the meshes nearly were: the two vaults take 47 of
- * the 97 between them, which is the price of holes in a world with no CSG.
+ * Colour: `sand` limestone, `tan` mouldings, `brown` sculpture, shields and
+ * terrace floor. `bone` would go cold in the blue hemisphere light.
+ * Budget: 97 of 110 meshes, 1,332 triangles, aspect 1.05; the two vaults take 47
+ * meshes.
  */
 
 // --- plan, in world units. X across the front, Z through the depth. ---
@@ -197,14 +82,9 @@ interface Band {
 }
 
 /**
- * A semicircular head cut into horizontal courses of equal *angle*.
- *
- * Equal height would be the obvious loop and it is wrong at the top: the last
- * course would leave a flat 40% of the span wide, because near the crown the
- * circle loses width fast and height slowly. Stepping by angle spends the
- * courses where the curve turns, and taking each one's opening at its *mid*
- * angle — rather than at its bottom, which sits outside the circle, or its top,
- * which closes the arch to a point — keeps the staircase centred on the arc.
+ * A semicircular head cut into horizontal courses of equal angle. Stepping by
+ * angle spends the courses where the curve turns, and each course takes its
+ * opening at its mid angle so the staircase stays centred on the arc.
  */
 function archBands(halfSpan: number, springing: number, count: number): Band[] {
   const step = Math.PI / 2 / count;
@@ -220,31 +100,16 @@ function archBands(halfSpan: number, springing: number, count: number): Band[] {
 }
 
 /**
- * The great arch changes stonework halfway up, and this is the one thing in the
- * file that was found by rendering rather than reasoned out.
+ * The great arch changes stonework halfway up. Horizontal courses all the way
+ * would draw a ladder across the top, where the circle is nearly flat, so the
+ * head is cut along whichever axis the curve is not moving in:
  *
- * Cut the whole head into horizontal courses and every joint draws a line from
- * the arc out to the pier — short near the springing, but the topmost course is
- * seven units wide because the circle is nearly flat there. Inked, that is a
- * ladder lying across the top of the opening, and it beat the arch itself for
- * attention at thumbnail size.
+ * - 0 to 45 degrees: horizontal courses (joints at most 2.5 units long).
+ * - 45 to 90 degrees: vertical voussoirs from the arc up to the spandrel top,
+ *   plus a keystone across the middle.
  *
- * So the head is cut along whichever axis the curve is *not* moving in:
- *
- * - **0 to 45 degrees**, where the arc drops 6.1 units while losing 2.5 of
- *   width, horizontal courses. Their joints are at most 2.5 units long.
- * - **45 to 90 degrees**, where it does the reverse, vertical voussoirs running
- *   from the arc up to the spandrel top, plus a keystone across the middle.
- *
- * The joints then radiate from the arch instead of crossing it, which is how
- * arch masonry has always been drawn, and no piece is a sliver.
- *
- * The step is **7.5 degrees**, twelve pieces a side, and that too came off a
- * render. At 15 degrees the front view is fine, because straight on you only
- * read the silhouette — but the quarter view looks *through* the vault at the
- * far face's head as well, and two coarse staircases a depth apart stop being an
- * arch and start being a corbel. Halving the step costs 12 meshes of the 110, and it is the
- * difference between the two views agreeing and not.
+ * The step is 7.5 degrees (twelve pieces a side): at 15 the far face's head,
+ * seen through the vault from the quarter view, reads as a corbel.
  */
 const ARCH_STEPS = 12; // over the quarter circle: 7.5 degrees each
 const ARCH_STEP = Math.PI / 2 / ARCH_STEPS;
@@ -253,10 +118,8 @@ const ARCH_TURN_Y = ARCH_SPRING + ARCH_HALF * Math.sin(Math.PI / 4);
 
 const GREAT_ARCH = archBands(ARCH_HALF, ARCH_SPRING, ARCH_STEPS).slice(0, ARCH_STEPS / 2);
 /**
- * The transverse head stays plain horizontal courses — it is only ever seen
- * through a 6.6-unit tunnel, so the argument above about joints crossing the
- * curve does not apply. Five steps, of which the first is a 0.04-unit sliver and
- * is dropped.
+ * The transverse head stays plain horizontal courses (it is seen through a
+ * 6.6-unit tunnel). Five steps; the first is a 0.04-unit sliver and is dropped.
  */
 const CROSS_ARCH = archBands(CROSS_HALF, CROSS_SPRING, 5);
 
@@ -397,10 +260,9 @@ export const arcDeTriomphe: Monument = {
     terrace.position.y = ROOF;
     group.add(terrace);
 
-    // --- shield medallions. The hexagon is rolled 30 degrees about its own axis
-    //     so a point sits at the bottom, then tipped a quarter turn to face the
-    //     wall it hangs on. Euler order 'XYZ' applies the roll first, which is
-    //     the only reason a single `rotation.set` does both. ---
+    // --- shield medallions: the hexagon is rolled 30 degrees about its axis so a
+    //     point sits at the bottom, then tipped a quarter turn to face its wall.
+    //     Euler order 'XYZ' applies the roll first. ---
     const medallion = (along: number, face: number) => {
       const disc = column(SHIELD_R, SHIELD_OUT, sculpt, 6);
       disc.rotation.set(Math.PI / 2, Math.PI / 6, 0);
@@ -423,9 +285,8 @@ export const arcDeTriomphe: Monument = {
     // --- the four sculptural groups, and the relief panel above each ---
     group.add(around(2, (index) => {
       const face = new THREE.Group();
-      // The Champs-Elysees pair and the Grande Armee pair are different
-      // sculptures; a taller figure on one face and a broader crowd on the other
-      // is enough to stop the four reading as one block stamped out four times.
+      // The two pairs differ (a taller figure on one face, a broader crowd on the
+      // other) so the four do not read as one block stamped four times.
       const tall = index === 0 ? 0.6 : -0.6;
 
       for (const sx of SIDES) {

@@ -1,59 +1,35 @@
 /**
- * Saturn's own sky: the rings, arching from horizon to horizon, and the
- * aurora over the poles. A **sky layer** — one mesh on the sky's unit sphere
- * and a shader — because the engine's sky (`worlds/sky.ts`) draws a sun, the
- * stars and the planets and nothing that belongs to one world only.
+ * Saturn's own sky: the rings, arching from horizon to horizon, and the aurora
+ * over the poles. A sky layer (one mesh on the sky's unit sphere and a shader),
+ * because the engine's sky (`worlds/sky.ts`) draws a sun, the stars and the
+ * planets and nothing that belongs to one world only.
  *
- * ## The rings, where they really are
- *
- * The rings are not painted on the dome; they are **found** there, per pixel:
- * the ray from the eye along the pixel is cut with the ring plane — the
- * equator, `y = 0` in the body-fixed frame the world is drawn in — and the
- * distance of that point from the planet's centre says which ring it is. So
- * the arch is the true one for wherever the traveller stands, with its
- * parallax: from 35 N the inner edge of the C ring stands four degrees over
- * the southern horizon and the outer edge of the A ring thirty-four; from
- * 24 N they are eighteen and fifty; on the equator the rings are edge
- * on, a thread through the zenith; past about 50 degrees the inner rings sink
- * under the horizon and from the Hexagon none of them can be seen at all.
- * All of that falls out of the geometry and none of it is a rule.
+ * Rings. They are found per pixel, not painted: the ray from the eye is cut with
+ * the ring plane (the equator, `y = 0` in the body-fixed frame) and the
+ * distance of that point from the planet's centre says which ring it is. So the
+ * arch is the true one for wherever the traveller stands, with its parallax
+ * (from 35 N the C ring's inner edge is four degrees over the southern horizon
+ * and the A ring's outer edge thirty-four; on the equator the rings are edge on).
  *
  * The radii are NASA's ring fact sheet, kilometres from the centre, divided by
- * the body's own `radiusKm` — the 58,232 km mean radius the deck is drawn at
- * — so they sit at their true distance in space over the drawn sphere (in
- * equatorial radii, which is how they are usually quoted, the C ring is
- * 1.24–1.53, the B 1.53–1.95, the Cassini Division 1.95–2.03 and the A ring
- * 2.03–2.27). Each band carries its **normal optical depth**, and the
- * opacity a pixel sees is `1 - exp(-tau / mu)` for a ray crossing the plane at
- * `mu`, the cosine of its angle to the pole: the B ring is opaque, the C ring
- * and the Cassini Division are veils, and every ring thickens toward the
- * horizon, where a ray crosses it slantwise.
+ * the body's `radiusKm` (the 58,232 km mean radius the deck is drawn at). Each
+ * band carries its normal optical depth, and the opacity a pixel sees is
+ * `1 - exp(-tau / mu)` for a ray crossing the plane at `mu`, the cosine of its
+ * angle to the pole: the B ring is opaque, the C ring and the Cassini Division
+ * are veils, and every ring thickens toward the horizon.
  *
- * And it is lit as rings are lit:
+ * Lighting: from the Sun's side a ring is bright by reflection; from the other
+ * side it glows only where light gets through it (`x e^-x` of its slant depth
+ * to the Sun), so the dense B ring goes dark and the thin C ring and the Cassini
+ * Division shine. The planet's shadow falls across the rings, and their shadow
+ * falls on the planet: `update` returns how much of the Sun reaches the
+ * traveller through them. The edges of the C, B and A rings and the Cassini
+ * Division are inked a pixel wide.
  *
- * - **from the side the Sun is on**, a ring is bright by reflection; seen
- *   **from the other side** it glows only where light gets *through* it —
- *   `x e^-x` of its slant depth to the Sun — so the dense B ring goes dark and
- *   the thin C ring and the Cassini Division shine, which is the inversion
- *   every Cassini picture of the unlit face shows;
- * - **the planet's shadow** falls across them, a dark wedge on the side away
- *   from the Sun, sharpest at dusk and dawn;
- * - and **their shadow falls on the planet**: `update` returns how much of
- *   the Sun reaches the traveller through them, which on the deck is a band of
- *   shade near the equator in the winter hemisphere.
- *
- * The edges of the C, B and A rings and the Cassini Division are inked a
- * pixel wide, the way the pen draws every other edge in this project.
- *
- * ## The aurora
- *
- * Saturn's aurorae are rings of their own, round each pole at about 75
- * degrees and a thousand to two thousand kilometres up. Here they are a shell
- * between those heights, marched in four steps along the ray, folded into
- * curtains that drift, and seen only at night: overhead from the Hexagon, a
- * glow low in the north from the Ribbon, nothing from the tropics. Mostly
- * ultraviolet in life; what the eye would see is the faint pink and violet of
- * hydrogen, and that is what is drawn.
+ * Aurora. Rings of their own round each pole at about 75 degrees, drawn as a
+ * shell between 1,000 and 2,000 km up, marched in four steps along the ray,
+ * folded into curtains that drift, and seen only at night: the faint pink and
+ * violet of hydrogen.
  *
  * Every colour is a `PALETTE` entry, linearised.
  */
@@ -75,10 +51,10 @@ export interface RingBand {
 }
 
 /**
- * The rings, inside out. The B ring is split in three because its optical
- * depth is: thinner at the inner edge, opaque in the core. The Encke Gap is
- * the space between the two pieces of the A ring; the Keeler Gap and the
- * faint D, E and G rings are not drawn. The F ring is a thread 300 km wide.
+ * The rings, inside out. The B ring is split in three because its optical depth
+ * is: thinner at the inner edge, opaque in the core. The Encke Gap is the space
+ * between the two pieces of the A ring; the Keeler Gap and the faint D, E and G
+ * rings are not drawn. The F ring is a thread 300 km wide.
  */
 export const RINGS: readonly RingBand[] = [
   { name: 'C ring', inner: 74658, outer: 92000, tau: [0.05, 0.13], color: PALETTE.tan },
@@ -100,7 +76,7 @@ const RADIUS_KM = SATURN.radiusKm;
  * The rings' normal optical depth at a distance from the centre, in planet
  * radii: the bands above, hard-edged. The shader's version is generated from
  * the same table and softened by a pixel; this one is for the shadow on the
- * traveller and for anyone checking the numbers.
+ * traveller and for checking the numbers.
  */
 export function ringDepth(r: number): number {
   const km = r * RADIUS_KM;
@@ -114,9 +90,9 @@ export function ringDepth(r: number): number {
 
 /**
  * How much direct sunlight reaches a point through the rings, 0 to 1. `p` is
- * the point in planet radii (body-fixed), `sun` the unit vector to the Sun.
- * The ray toward the Sun is cut with the ring plane; if it crosses inside
- * the rings, the light is cut by `exp(-tau / mu0)`.
+ * the point in planet radii (body-fixed), `sun` the unit vector to the Sun. The
+ * ray toward the Sun is cut with the ring plane; if it crosses inside the rings
+ * the light is cut by `exp(-tau / mu0)`.
  */
 export function ringShade(px: number, py: number, pz: number, sun: { x: number; y: number; z: number }): number {
   if (Math.abs(sun.y) < 1e-6) return 1;
@@ -270,8 +246,7 @@ void main() {
   gl_FragColor = vec4(colour, alpha);
 }`;
 
-// The layer's shape is the engine's (`SkyLayer` in `worlds/contract.ts`),
-// re-exported here for whoever imported it from Saturn first.
+// The layer's shape is the engine's (`SkyLayer` in `worlds/contract.ts`), re-exported here.
 export type { SkyLayer, SkyLayerInput } from '../../contract.ts';
 
 /**

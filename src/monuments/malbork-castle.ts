@@ -3,57 +3,25 @@ import type { Monument, Mesh } from './contract.ts';
 /**
  * Malbork Castle, Poland.
  *
- * The Teutonic Order's capital on the Nogat, and the largest brick castle
- * there is. It is not one building but three run together — the High Castle,
- * the Middle Castle with the Grand Master's Palace, and the Lower Castle — and
- * what names it from a distance is a **long, low, dark red mass of brick under
- * steep red roofs, broken by stepped gables and one tall square tower**. No
- * white wall and no grey slate anywhere: that is what keeps it from reading as
- * Neuschwanstein or as any of the other white castles.
+ * The Teutonic Order's brick castle on the Nogat: three castles run together,
+ * read from a distance as a long, low, dark red mass under steep red roofs,
+ * broken by stepped gables and one tall square tower. There is no white wall
+ * and no grey slate, which keeps it from reading as the other white castles.
  *
- * What has to survive at thumbnail size, in the order the eye finds it:
+ * Kept, in the order the eye finds them: the High Castle's main tower (a square
+ * brick shaft to 31, a corbelled parapet, a steep pyramid roof to 39.5 and a
+ * gilt finial), the stepped gables with white plastered blind niches, the Grand
+ * Master's Palace at the east corner of the front, the Gdanisko latrine tower
+ * on its arched bridge, and the crenellated front curtain with its three towers.
  *
- * - **The High Castle's main tower.** A square brick shaft to 31, a corbelled
- *   parapet and a steep pyramid roof to 39.5, with a gilt finial on top. It is
- *   the one vertical, standing 13.5 units over the next-highest ridge.
- * - **The stepped gables.** The High Castle is a quadrangle, and from outside
- *   its north and south wings read as two parallel ridges — an M in section —
- *   each ended east and west by a brick gable in five steps with white
- *   plastered blind niches on its face. Four of those on the High Castle and
- *   one on the Middle Castle's east end: the gables, not the walls, are what
- *   say *Baltic brick Gothic*.
- * - **The Grand Master's Palace**, at the east corner of the front: taller than
- *   the curtain beside it, buttressed with pilasters between tall windows, a
- *   crenellated parapet, slender corbelled turrets on three corners and a
- *   steep hipped roof inside the battlements.
- * - **The Gdanisko tower**, the latrine tower on its arched bridge west of the
- *   High Castle. It is the oddest thing in the plan and the most recognisable
- *   outline from the river side, so the crop keeps it.
- * - **The front curtain**, crenellated, with a corner tower, a gate tower and a
- *   mid tower. It runs along the near face because a wall round a thing is
- *   worth less than a detail on the front of it (*Monuments* in the traps).
+ * Colour: `clay` for every wall with a tone of it for corbels and string
+ * courses, `red` toned to 0.8 for roofs, `white` only for plaster, `tan` for the
+ * footing, `bark` for windows and arches, `gold` for the finial.
  *
- * ## Colour
- *
- * `clay` is every wall, and a tone of it under it for the corbels and string
- * courses. Roofs are `red` toned down to 0.8, the deep tile red against the
- * orange-brown brick. `white` is only the plaster in the gables' blind niches
- * and the frieze on the main tower, which is where Malbork has it. `tan` is the
- * fieldstone footing, `bark` the windows and arches, `gold` the finial.
- *
- * ## Departures, in numbers
- *
- * - **Cropped.** The real complex runs about 600 m north to south; this keeps
- *   the High Castle, the Middle Castle's north wing and the Palace, and drops
- *   the Lower Castle and the outer baileys entirely. The plan is about 76 by
- *   28 units under a 40-unit tower, where the tower really stands near 46 m
- *   against a 250 m front: the vertical is exaggerated about 2.3x against the
- *   plan, because at true proportion the tower is a stub on a long shed.
- * - **The courtyards are solid.** Open courtyards show the back of the far
- *   wing through the gap from the quarter view and read as ruins.
- * - **No moat and no river.** The pad is flat by contract.
- * - **Everything still is merged by colour** (`ctx.merge`): about two hundred
- *   pieces, a handful of meshes.
+ * The complex is cropped to the High Castle, the Middle Castle's north wing and
+ * the Palace, and the tower is exaggerated about 2.3x against the plan. The
+ * courtyards are solid (open ones show the far wing and read as ruins), and
+ * there is no moat. Still pieces are merged by colour (`ctx.merge`).
  */
 
 /** Height of the High Castle's eaves; its two ridges stand 9 over it. */
@@ -86,9 +54,8 @@ export const malborkCastle: Monument = {
     const glass = palette.bark; // windows and arches
     const gilt = palette.gold;
 
-    // The plan is laid out in its own frame and the draft is moved so the
-    // model straddles the Y axis; `merge` bakes the move into the vertices
-    // and hands back a group with an identity transform.
+    // The plan is laid out in its own frame; `merge` bakes the move that
+    // straddles the draft over the Y axis into the vertices.
     const draft = new THREE.Group();
     draft.position.set(7.9, 0, -1.25);
 
@@ -100,10 +67,9 @@ export const malborkCastle: Monument = {
 
     /**
      * A gable roof: a three-sided prism at unit size, scaled on the mesh and
-     * turned on a pivot, as in `neuschwanstein.ts`. The mesh carries rotation
-     * about X and a scale in its own axes (local y is the length, local z the
-     * height), so `T * R * S` puts each number on the axis it names; the pivot
-     * carries only the yaw.
+     * turned on a pivot. The mesh carries rotation about X and a scale in its
+     * own axes (local y is the length, local z the height), so `T * R * S` puts
+     * each number on the axis it names; the pivot carries only the yaw.
      */
     const gable = (
       cx: number,
@@ -128,9 +94,8 @@ export const malborkCastle: Monument = {
     /**
      * A stepped gable closing the end of a roof that runs along X. Five brick
      * steps, 1.2 thick and centred on the wall's end plane, climbing 12% past
-     * the ridge so the end of the block silhouettes in brick and not in tile;
-     * the roof stops 0.3 inside the gable, never in its plane. Three plaster
-     * niches stand on the outer face, 0.3 proud of it.
+     * the ridge; the roof stops 0.3 inside the gable. Three plaster niches
+     * stand 0.3 proud on the outer face.
      */
     const steppedGable = (
       xFace: number,
@@ -145,13 +110,11 @@ export const malborkCastle: Monument = {
       const base = halfWidth + 0.25;
       for (let k = 0; k < steps; k++) {
         const width = 2 * base * (1 - k / steps);
-        // The first step starts `SINK` down inside the wall, so its underside
-        // never shares the roof's plane at the eaves.
+        // The first step starts `SINK` down inside the wall, off the roof's plane.
         const sink = k === 0 ? SINK : 0;
         put(box(1.2, stepHeight + sink, width, brick), xFace, eaves + k * stepHeight - sink, cz);
       }
-      // Pinnacles on the crown and on the ends of the first step: the
-      // budget's share, and where the eye reads a stepped gable's corners.
+      // Pinnacles on the crown and on the ends of the first step.
       put(box(0.7, 1.1, 0.7, brick), xFace, eaves + rise * 1.12, cz);
       for (const side of [-1, 1]) {
         put(box(0.7, 1.1, 0.7, brick), xFace, eaves + stepHeight, cz + side * (base - 0.35));
@@ -167,10 +130,7 @@ export const malborkCastle: Monument = {
       put(facing === 'z' ? box(width, height, 0.5, glass) : box(0.5, height, width, glass), x, y, z);
     };
 
-    // -----------------------------------------------------------------------
-    // The High Castle: x -30..-10, z -10..10. Fieldstone footing half a unit
-    // proud all round, brick to the eaves, two ridges along X.
-    // -----------------------------------------------------------------------
+    // --- The High Castle: x -30..-10, z -10..10; footing half a unit proud, brick to the eaves, two ridges along X ---
     put(box(21, 2, 21, footing), -20, 0, 0);
     put(box(20, HC_EAVES - 2, 20, brick), -20, 2, 0);
     put(box(20.6, 0.6, 20.6, course), -20, 12.2, 0);
@@ -186,9 +146,7 @@ export const malborkCastle: Monument = {
     }
     for (const z of [-5, 5]) slit(-30, 13.6, z, 1.2, 2.6, 'x');
 
-    // -----------------------------------------------------------------------
-    // The main tower, on the High Castle's north-east corner.
-    // -----------------------------------------------------------------------
+    // --- The main tower, on the High Castle's north-east corner ---
     const TX = -10;
     const TZ = -9;
     put(box(7, TOWER_TOP, 7, brick), TX, 0, TZ);
@@ -208,10 +166,7 @@ export const malborkCastle: Monument = {
       slit(TX + side * 3.5, 27, TZ, 1.2, 3.0, 'x');
     }
 
-    // -----------------------------------------------------------------------
-    // The Middle Castle's north wing: x -10..20, z -11..-3, its east end
-    // stepped. Its courtyard face shows over the curtain.
-    // -----------------------------------------------------------------------
+    // --- The Middle Castle's north wing: x -10..20, z -11..-3, its east end stepped ---
     put(box(31, 1.5, 9, footing), 5, 0, -7);
     put(box(30, MW_EAVES - 1.5, 8, brick), 5, 1.5, -7);
     gable(5.15, -7, 30.3, 4.4, MW_EAVES, 7);
@@ -223,9 +178,7 @@ export const malborkCastle: Monument = {
       put(taper(1.3, 0, 1.6, roof, 4), x, MW_EAVES + 2.6, -3.6);
     }
 
-    // -----------------------------------------------------------------------
-    // The Grand Master's Palace: x 19..29, z -3.5..13.8, the front-east corner.
-    // -----------------------------------------------------------------------
+    // --- The Grand Master's Palace: x 19..29, z -3.5..13.8, the front-east corner ---
     const PX = 24;
     const PZ = 5.15;
     const PHX = 5;
@@ -263,10 +216,7 @@ export const malborkCastle: Monument = {
       put(taper(1.3, 0, 3.6, roof, 8), x, 19.5, z);
     }
 
-    // -----------------------------------------------------------------------
-    // The front curtain along z 12.2..13.8, from the High Castle's corner to
-    // the Palace, with three towers.
-    // -----------------------------------------------------------------------
+    // --- The front curtain along z 12.2..13.8, from the High Castle's corner to the Palace, with three towers ---
     const CZ = 13;
     put(box(49.6, 1.2, 2.2, footing), -5.2, 0, CZ);
     put(box(49.5, 8, 1.6, brick), -5.25, 0, CZ);
@@ -290,9 +240,7 @@ export const malborkCastle: Monument = {
     put(box(2.8, 4.6, 0.4, glass), -6, 0, CZ + 3 + 0.1);
     put(box(3.6, 0.6, 0.5, course), -6, 4.6, CZ + 3 + 0.2);
 
-    // -----------------------------------------------------------------------
-    // The Gdanisko tower on its bridge, west of the High Castle.
-    // -----------------------------------------------------------------------
+    // --- The Gdanisko tower on its bridge, west of the High Castle ---
     const GX = -43;
     const GZ = 4;
     put(box(11, 9, 3, brick), -35.5, 0, GZ);

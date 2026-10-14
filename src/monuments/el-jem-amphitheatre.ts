@@ -4,66 +4,31 @@ import { PROUD } from './contract.ts';
 /**
  * Amphitheatre of El Jem — Thysdrus, Tunisia.
  *
- * **Why Tunisia:** the map had the Colosseum, the Parthenon and Baalbek round
- * the Mediterranean and nothing between Morocco and Egypt. El Jem is the third
- * largest amphitheatre the Romans built and, unlike the Colosseum, its outer
- * wall still stands almost all the way round: an olive-country town of
- * one-storey houses with a wall of three arcades rising out of the middle of it.
+ * Unlike the Colosseum it is almost whole, and three things name it:
+ * 1. The ring is whole: all three storeys of arches run right round the oval.
+ * 2. Three storeys and no attic: arcade on arcade on arcade, the top under a
+ *    heavier crowning course, so the wall ends on arches.
+ * 3. One breach on the west side (+X): a wedge cut out of the wall, widest at the
+ *    top and narrowing to a single bay at the ground, with rubble heaped in the
+ *    gap and the broken piers standing as ragged stubs (a V, not a clean cut).
+ *    A pier at the edge of the breach has no head: its flank would be a spike.
  *
- * Three things name it, and they are what separates it from the Colosseum
- * standing a few hundred kilometres north:
+ * A bay costs 84 triangles over three storeys, so the 2,600 cap allows about 26
+ * (a bay is two and a half real ones, the 64 arches a storey being too many). At
+ * 26 an opening is 7.45 wide at the face and 10.35 to the band on the ground
+ * storey, 1.39 : 1; the storeys are tall for it. An arch head is a diamond as in
+ * `colosseum.ts`: a box turned 45 degrees about the radial axis, centred on the
+ * pier at the band's underside; on the top storey its upper half is buried in the
+ * crowning course (`HEAD` plus a margin tall). Everything is drawn with
+ * `ctx.merge`, one mesh a colour.
  *
- * 1. **The ring is whole.** All three storeys of arches run right round the
- *    oval; the Colosseum is two-fifths of an outer ring on a stump. Here the
- *    complete ellipse is the silhouette.
- * 2. **Three storeys and no attic.** Arcade on arcade on arcade, the top one
- *    under a heavier crowning course (the attic that stood over it is lost),
- *    so the wall ends on arches and not on a blind band.
- * 3. **One breach.** On the west side a wedge is cut out of the wall, widest at
- *    the top and narrowing to a single bay at the ground, with rubble heaped in
- *    the gap — the hole opened in 1695 to drive out rebels sheltering inside.
- *    The broken piers stand up out of the gap as ragged stubs, which is what
- *    the breach looks like in every photograph: a V, not a clean cut.
+ * Scale: built as a circle and squashed once (`OVAL`, 122 / 148), 100 by 82 units
+ * at the pier faces and 37.4 to the crowning course, vertical 1.55x the plan.
+ * Half-diagonal about 51 over 37.4 is 1.4. The long axis is X.
  *
- * ## The arches, and the budget
- *
- * The real ring has 64 arches a storey. At a box a pier and a box a band
- * (12 triangles each) plus a turned box a head, a bay costs 84 triangles over
- * three storeys, so the 2,600 cap allows about 26 bays once the bowl is paid
- * for. A bay here is two and a half real ones, the same trade the Colosseum
- * made at 32 — 26 because there is no breach-sized saving: this wall is
- * complete. At 26 an opening is 7.45 wide at the face and 10.35 to the band on
- * the ground storey, 1.39 : 1, which still reads as an arch; the storeys were
- * made tall for it, which is where the vertical stretch below comes from.
- *
- * **An arch head is a diamond**, exactly as in `colosseum.ts`: a box turned 45
- * degrees about the radial axis, centred on the pier at the band's underside,
- * whose lower flanks chamfer the top corners of the openings either side. On
- * the top storey its upper half is buried in the crowning course, which is
- * why that course is `HEAD` plus a margin tall. A pier at the edge of the
- * breach has no head: the flank would stand out over the gap as a spike.
- *
- * **One mesh a colour**: every piece is built as an ordinary helper piece and
- * drawn by `ctx.merge`.
- *
- * ## Scale and proportion
- *
- * 148 by 122 m on the ground and about 36 m tall. Built as a circle and
- * squashed once (`OVAL`, 122 / 148), 100 by 82 units at the pier faces and
- * 37.4 to the top of the crowning course: vertical 1.55x the plan, a little
- * more than the Colosseum's 1.5x, so the storeys have room to be arcades.
- * Half-diagonal about 51 against 37.4 is 1.4, inside the 2.0 cap.
- *
- * The long axis is X. `placement.ts` turns +Z to north and +X to west, so the
- * breach, centred on +X, is on the west side.
- *
- * ## Colour
- *
- * The stone is a golden limestone: `sand`, toned down for the bands and
- * further for the crowning course, which weathers darkest. The cavea is stone
- * too, in tones of `sand` and `tan`. What the arches look into is the
- * substructure at `brown` 0.72, warm and dark, because a neutral seen through
- * an opening reads as sky.
+ * Colour: golden `sand` limestone, toned down for the bands and further for the
+ * crowning course; the cavea in tones of `sand` and `tan`; arches look into the
+ * substructure at `brown` 0.72 (a neutral reads as sky).
  */
 
 const TAU = Math.PI * 2;
@@ -92,9 +57,8 @@ const HEAD = PIER_WIDTH / 2 + CHAMFER;
 const BAND_FACE = 50.35;
 const BAND_BACK = 47.4;
 /**
- * 2.2 and not less: the diamond of the storey below is `2 * (HEAD - BAND)`
- * wide where it leaves the band's top, and that has to stay inside the 4.6
- * pier above it (4.3 here).
+ * 2.2 and not less: the storey below's diamond is `2 * (HEAD - BAND)` wide where
+ * it leaves the band's top, and that must stay inside the 4.6 pier above (4.3).
  */
 const BAND = 2.2;
 /** The crowning course over the top storey, tall enough to bury that storey's heads. */
@@ -166,9 +130,8 @@ export const elJemAmphitheatre: Monument = {
     const rubble = [tone(palette.sand, 0.78), tone(palette.tan, 0.95)];
 
     const draft = new THREE.Group();
-    // Built as a circle and squashed once. The scale sits on a group with no
-    // rotation and every piece turns inside its own pivot below it, which
-    // composes as S * R: yawed first, squashed after.
+    // Built as a circle and squashed once; the scale sits on a rotation-free group
+    // and every piece turns inside its own pivot (S * R).
     const oval = new THREE.Group();
     oval.scale.z = OVAL;
     draft.add(oval);
@@ -242,8 +205,7 @@ export const elJemAmphitheatre: Monument = {
     }
 
     // --- the breach's rubble --------------------------------------------------
-    // Heaped in the one ground-storey bay that is gone, spilling in over the
-    // substructure, with a lower heap against the next pier.
+    // Heaped in the ground-storey bay that is gone, with a lower heap against the next pier.
     {
       const heap = taper(4.6, 1.4, 6.0, rubble[0]!, 5);
       heap.position.z = 45;
@@ -259,8 +221,8 @@ export const elJemAmphitheatre: Monument = {
     });
 
     // --- the arena, and the two galleries under it ----------------------------
-    // The floor survives here, with the long slot over the galleries that cross
-    // under it: a dark strip down the long axis and a shorter one across.
+    // The floor survives, with a long slot over the galleries: a dark strip down
+    // the long axis and a shorter one across.
     oval.add(column(ARENA, 0.3, arena, RING_SIDES));
     const long = box(30, 0.45, 3.0, pit);
     oval.add(long);

@@ -4,44 +4,21 @@ import { PROUD } from './contract.ts';
 /**
  * Statue of Liberty.
  *
- * A figure again, like Christ the Redeemer, and the same warning applies — the
- * validator measures a bounding box, so mass has to be put in on purpose. But
- * where Christ is a symmetric T, **Liberty is entirely asymmetric, and that
- * asymmetry is the read**: one arm goes up and away on its own, the other is
- * folded down behind a slab. Mirroring Christ's method would give a figure that
- * reads as a shrug.
+ * A figure like Christ the Redeemer, but asymmetric: one arm goes up and away
+ * on its own, the other is folded down behind a tablet. Four things carry the
+ * silhouette: the raised right arm (12 units, 19 degrees off vertical, so there
+ * is sky between it and the head), the crown with seven countable rays
+ * (`CROWN_RAYS`), the tablet leaning out of her left side, and the robe's hem,
+ * which ends the pedestal in a plain lip a unit wider so the flare reads.
  *
- * Four things carry the silhouette, in this order:
+ * Tier `tower`: the landmark of New York, not of the planet.
  *
- * 1. **The raised right arm.** Twelve units of tapered arm at 19 degrees off
- *    vertical. The angle is the most reworked number in the file: at 13 degrees
- *    the arm ran up flush against the head and the crown, and the whole thing
- *    read as one green column with a gold dot on it. What makes an arm an arm is
- *    the sky between it and the head.
- * 2. **The crown.** Seven rays, all seven countable from the front — see
- *    `CROWN_RAYS`.
- * 3. **The tablet**, a slab leaning out of her left side on a long diagonal. It
- *    fills the half of the silhouette the raised arm leaves empty.
- * 4. **The robe's hem**, which needs somewhere to be seen. An earlier pedestal
- *    had a balcony parapet around its top, historically right and fatal: the
- *    parapet stood exactly in front of the flare and the figure came out of the
- *    stone as a straight column. The pedestal now ends in a plain lip a unit
- *    wider than the hem, and the flare reads.
+ * Her right hand is at -X: for a group facing +Z with +Y up, right is
+ * `forward x up`, so the torch lands on the viewer's left.
  *
- * `tower` rather than `landmark`: it is the landmark of New York, not of the
- * planet, and at 70 units it stops competing with the Eiffel Tower for
- * attention across the Atlantic.
- *
- * **Her right hand is at -X.** For a group facing +Z with +Y up, right is
- * `forward x up`, which is -X — so the torch lands on the *viewer's* left,
- * where every photograph taken from the front puts it.
- *
- * Traded away, all of it for mesh budget rather than triangles (`OutlineEffect`
- * draws every mesh twice, so 80 meshes is the real ceiling): the broken chain at
- * her feet, the folds on the three rearmost faces of the robe, and the
- * pedestal's true proportion — plinth and fort are 34% of the height here
- * against 51% in life, because accurate leaves the figure a third of the frame
- * and the figure is what is being named.
+ * Left out: the broken chain at her feet and the folds on the three rearmost
+ * faces of the robe. The pedestal is 34% of the height against 51% in life, so
+ * the figure keeps more of the frame.
  */
 
 // --- the vertical stack; the top of one course is the base of the next ---
@@ -52,9 +29,7 @@ const TORCH_TIP = 69.9;
 
 /**
  * Half-width of the robe at each height. The 8.6 hem against a 4.8 waist is a
- * 1.8:1 flare, and unlike Christ's it has a ceiling at the other end: the hem
- * has to stay inside the pedestal's top lip, or the statue reads as standing on
- * a plate too small for her.
+ * 1.8:1 flare; the hem has to stay inside the pedestal's top lip.
  */
 const ROBE = [
   { y: FEET, r: 8.2 }, // hem, proud of the course above so the ink catches it
@@ -73,22 +48,15 @@ const DEPTH = 0.8;
 const SHOULDER_Y = 51.6;
 const SHOULDER_X = 5;
 const ARM_LENGTH = 12;
-/** Off vertical, leaning outward. See the note at the top — this one is load-bearing. */
+/** Off vertical, leaning outward. */
 const ARM_TILT = 0.37;
 /** Where the wrist lands, and therefore where the torch has to stand. */
 const TORCH_X = -(SHOULDER_X + ARM_LENGTH * Math.sin(ARM_TILT));
 
 /**
- * Seven, and they have to still be seven at thumbnail size.
- *
- * Spread over the full circle, one ray points straight down the camera and
- * projects onto the face as a lump. Half a step of offset removes it and, more
- * usefully, spreads the seven tips over seven distinct screen positions: the
- * pair at the sides at full length, two pairs foreshortened, and the rear one
- * standing up dead centre above the head.
- *
- * They are also about a third longer than life against the head. The real
- * proportion vanishes at this size and the crown is not negotiable.
+ * Seven rays, still countable at thumbnail size. Half a step of offset keeps one
+ * from pointing straight down the camera and spreads the tips over seven screen
+ * positions. They are about a third longer than life against the head.
  */
 const CROWN_RAYS = 7;
 const CROWN_Y = 58.1;
@@ -130,20 +98,15 @@ export const statueOfLiberty: Monument = {
     const group = new THREE.Group();
 
     // --- Fort Wood: one low dark mass, eleven points ---
-    // Two rewrites, both of them about the points reading as loose boulders
-    // dropped round the pedestal rather than as a star. Drum and points share a
-    // height and a colour so the outline draws one body; the points are wide
-    // enough to overlap each other where they meet the drum, so the notches
-    // between them stop short instead of cutting all the way in; and the coping
-    // above is **inset**, because an overhanging one hid exactly the ring of
-    // drum that ties the eleven points together.
+    // Drum and points share a height and a colour so the outline draws one body;
+    // the points overlap where they meet the drum, and the coping is inset so it
+    // does not hide the ring of drum that ties them together.
     group.add(taper(15.6, 14.6, 5, rampart, BASTIONS));
     group.add(
       around(BASTIONS, () => {
         const bastion = taper(4.3, 3.7, 5, rampart, 4);
         bastion.position.z = 17.85;
-        // Corner outward, not face outward: a square leaves a scalloped ring,
-        // a diamond leaves points.
+        // Corner outward, not face outward: a diamond leaves points.
         bastion.rotation.y = Math.PI / 4;
         return bastion;
       }),
@@ -151,8 +114,7 @@ export const statueOfLiberty: Monument = {
 
     const coping = ringWall(12, 14.2, 1, trim, BASTIONS);
     coping.position.y = 5;
-    // `ringWall` is lathed and starts on a vertex; the prism helpers start on a
-    // flat. Half a segment lines the two up.
+    // `ringWall` is lathed and starts on a vertex; the prism helpers start on a flat. Half a segment lines them up.
     coping.rotation.y = Math.PI / BASTIONS;
     group.add(coping);
 
@@ -165,10 +127,8 @@ export const statueOfLiberty: Monument = {
     shaft.position.y = 8.6;
     group.add(shaft);
 
-    // The loggia. It costs twelve of eighty meshes and earns them twice: without
-    // it the pedestal is twelve blank units of granite in the middle of the
-    // frame, and the cornice above overhangs the battered shaft by a unit and a
-    // half with visibly nothing holding it up.
+    // The loggia: without it the pedestal is blank granite and the cornice
+    // overhangs the battered shaft with nothing holding it up.
     group.add(
       around(4, () => {
         const face = new THREE.Group();
@@ -185,8 +145,7 @@ export const statueOfLiberty: Monument = {
     cornice.position.y = 20.6;
     group.add(cornice);
 
-    // The lip the statue stands on: wider than the hem all round, which is the
-    // whole reason the flare is visible at all.
+    // The lip the statue stands on, wider than the hem all round so the flare is visible.
     const dais = taper(9, 8.6, 1.7, granite, 4);
     dais.position.y = 22.3;
     group.add(dais);
@@ -204,10 +163,8 @@ export const statueOfLiberty: Monument = {
       body.add(course);
     }
 
-    // Folds. Christ the Redeemer's trick — they carry no colour, they exist so
-    // the outline has something to draw down the robe — but only on the five
-    // faces that can be seen. The rear three would be six draw calls for
-    // nothing, and here that is a tenth of the whole mesh budget.
+    // Folds carry no colour; they give the outline something to draw down the
+    // robe, on the five faces that can be seen.
     const folds = (bottom: number, top: number, thickness: number) =>
       around(SIDES, (index) =>
         index >= 3 && index <= 5
@@ -222,16 +179,13 @@ export const statueOfLiberty: Monument = {
     body.add(folds(25.9, 39.5, 1.8));
     body.add(folds(40.3, 49.6, 1.4));
 
-    // Her right foot steps out from under the hem — the reason the hem is a lip
-    // and not a skirt to the floor. Outside `body`, so the squash does not pull
-    // it back under.
+    // Her right foot steps out from under the hem. Outside `body`, so the squash does not pull it back under.
     const foot = box(2.9, 1.7, 4.8, copper);
     foot.position.set(-1.9, FEET, 6);
     group.add(foot);
 
     // --- shoulders, head, crown ---
-    // Outside `body` for Christ's reason: this horizontal mass is what turns two
-    // limbs into arms rather than sticks pushed into a torso.
+    // Outside `body`: this horizontal mass turns two limbs into arms.
     const shoulders = box(11.8, 3.6, 7.2, copper);
     shoulders.position.y = 48.6;
     group.add(shoulders);
@@ -246,14 +200,12 @@ export const statueOfLiberty: Monument = {
     neck.position.y = 51.8;
     group.add(neck);
 
-    // Two units of neck showing under it, because with the shoulders any higher
-    // the head stopped being a head and became the top course of the torso.
+    // Two units of neck show under the head.
     const head = box(5.6, 6.2, 5, copper);
     head.position.y = 54;
     group.add(head);
 
-    // The band sits low enough to leave skull above it. Level with the crown of
-    // the head it swallowed the whole face and the figure lost its head.
+    // The band sits low enough to leave skull above it.
     const diadem = column(3.05, 1.3, copper, SIDES);
     diadem.position.y = 57.4;
     group.add(diadem);
@@ -271,8 +223,7 @@ export const statueOfLiberty: Monument = {
     // --- the raised right arm ---
     const arm = new THREE.Group();
     arm.position.set(-SHOULDER_X, SHOULDER_Y, 0.2);
-    // A `taper` stands on +Y, so the rotation is the tilt off vertical and
-    // nothing else. A positive Z rotation leans +Y toward -X: outward, her side.
+    // A `taper` stands on +Y, so the rotation is the tilt off vertical. A positive Z rotation leans +Y toward -X.
     arm.rotation.z = ARM_TILT;
     arm.add(taper(2.2, 1.6, ARM_LENGTH, copper, 6));
 
@@ -290,15 +241,13 @@ export const statueOfLiberty: Monument = {
     bowl.position.set(TORCH_X, 65.4, 0.2);
     group.add(bowl);
 
-    // Its top stops `PROUD` under the bowl's rim, whose plane it would share and
-    // flicker in.
+    // Its top stops `PROUD` under the bowl's rim.
     const gallery = ringWall(2.4, 3.1, 0.7 - PROUD, copper, SIDES);
     gallery.position.set(TORCH_X, 66.3, 0.2);
     gallery.rotation.y = Math.PI / SIDES;
     group.add(gallery);
 
-    // Two pieces, because one cone reads as a spike. The bulge is what makes it
-    // a flame, and gold is the only warm note in the whole model.
+    // Two pieces, because one cone reads as a spike; gold is the model's only warm note.
     const flame = taper(1.7, 2.35, 1.3, gold, 6);
     flame.position.set(TORCH_X, 67, 0.2);
     group.add(flame);
@@ -323,11 +272,9 @@ export const statueOfLiberty: Monument = {
     group.add(palm);
 
     // --- the tablet ---
-    // Tilted so its top corner rides up to the shoulder and its bottom corner
-    // sits in the hand: a long diagonal, the only shape that fills the side of
-    // the silhouette the raised arm left empty. Turned off the frontal plane as
-    // well, so its face takes a different cel band from the robe behind it and
-    // does not merge into the body at distance.
+    // Tilted so its top corner rides up to the shoulder and its bottom corner sits
+    // in the hand, and turned off the frontal plane so its face takes a different
+    // cel band from the robe.
     const tablet = new THREE.Group();
     tablet.position.set(7.9, 44.4, 1.7);
     tablet.rotation.set(0, 0.3, -0.34);
@@ -336,9 +283,7 @@ export const statueOfLiberty: Monument = {
     slab.position.y = -3.9;
     tablet.add(slab);
 
-    // The inscription, as two bars. Illegible on purpose: at this size a date is
-    // two dark strokes, and two dark strokes are what say "there is writing on
-    // it", which is all the tablet has to communicate.
+    // The inscription, as two dark bars.
     for (const y of [-0.7, 1]) {
       const line = box(3.3, 0.5, 0.35, rampart);
       line.position.set(0, y, 0.75);

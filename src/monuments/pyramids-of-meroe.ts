@@ -1,54 +1,33 @@
 import type { Mesh, Monument } from './contract.ts';
 
 /**
- * Pyramids of Meroë — the North Cemetery.
+ * Pyramids of Meroe, the North Cemetery.
  *
- * **Not Giza small.** What names Meroë from a thumbnail is what Giza has
- * not: a crowd of narrow, steep pyramids standing close in rows along a ridge,
- * each with a little temple in front of it that is a pylon gateway in
- * miniature, and orange dunes drifting against their feet. Several have lost
- * their tops — Giuseppe Ferlini blew the heads off a number of them in 1834
- * looking for gold — so the skyline is points and stumps, never one shape
- * repeated.
+ * What names Meroe from a thumbnail is what Giza lacks: a crowd of narrow, steep
+ * pyramids standing close in rows along a ridge, each with a little pylon
+ * gateway chapel in front of it, and orange dunes drifting against their feet.
+ * Several have lost their tops (blown off in 1834), so the skyline is points
+ * and stumps, never one shape repeated.
  *
- * ## What is here
+ * Ten pyramids in two rows on the ridge, five on the crest and five smaller ones
+ * east of them, all different sizes. Five end in a point; five are cut off flat
+ * at 50 to 72 percent of their height, with fallen blocks on top. Each is
+ * stepped in five or six courses, toned alternately. Each has its chapel on the
+ * east face: a room against the pyramid and in front of it a pylon of two
+ * battered towers with a doorway between and a proud cornice on each.
  *
- * - **Ten pyramids** in two rows on the ridge, five on the crest and five
- *   smaller ones east of them, sizes all different. Five end in a point, as
- *   the restored ones do; five are cut off flat at 50 to 72 per cent of their
- *   height, with fallen blocks on top.
- * - **Each is stepped**: five or six courses, each set back from the one under
- *   it, toned alternately, so the small steps of the real faces read as
- *   coursing.
- * - **Each has its chapel on its east face**, as the real ones all do: a
- *   room against the pyramid, and in front of it the pylon — two battered
- *   towers with a doorway between them, each tower capped by a proud cornice.
- * - **The ridge** of sandstone they stand on, and **the dunes**, banked
- *   against the ridge's flanks and lapping the pyramids' western feet.
+ * `placement.ts` turns +Z north and +X west, and the rows run north-south, so
+ * the chapels face -X, the sunrise. At 0.7 units a metre the largest pyramid is
+ * 20 m across and 31 m to its point, the tallest at Meroe. Faces are at 72
+ * degrees (the real 68 to 70), so a pyramid reads as a spike and not Giza's
+ * tent. The spacing is compressed: bases stand two or three units apart, which
+ * puts the site in a 48-unit radius against 25 of height, 1.9 against the cap
+ * of 2, with no vertical stretch.
  *
- * ## Sizes, in numbers
- *
- * `placement.ts` turns +Z north and +X west, and the rows run north-south as
- * the real ones do, so the chapels face -X, the sunrise. At 0.7 units a metre
- * the largest pyramid is 20 m across and 31 m tall to its point, which is the
- * tallest at Meroë. The faces are 72 degrees, a little steeper than the real
- * 68 to 70, so a pyramid reads as a spike and not as Giza's tent. **The
- * spacing is compressed**: the real cemetery runs a few hundred metres along
- * its ridge, and here the bases stand two or three units apart. That puts
- * the site in a 48-unit radius against 25 units of height (ridge and tallest
- * point), 1.9 where `MAX_ASPECT` allows 2, with no vertical stretch.
- *
- * **Colour.** `brown` for the weathered sandstone, its courses alternating
- * with a tone 1.08 up; the chapels a tone lighter so they separate from the
- * face they stand against, the pylons lighter again and their cornices
- * lightest; `bark` for the doorways. `sand` for the ridge and `apricot` for
- * the dunes, the orange that every photograph of the place is half made of.
- *
- * **No `realHeight`**: the source list has none for Meroë, a cemetery of
- * some two hundred pyramids, not a height.
- *
- * **Budget.** Built as ordinary pieces and drawn by `ctx.merge` as one mesh per
- * colour, like Giza.
+ * Colour: `brown` for sandstone with courses alternating a tone 1.08 up; chapels
+ * a tone lighter, pylons lighter again, cornices lightest; `bark` for doorways;
+ * `sand` for the ridge; `apricot` for the dunes. No `realHeight`: a cemetery of
+ * some two hundred pyramids has no height. Pieces are drawn by `ctx.merge`.
  */
 
 /** Height over half-base: tan of 72 degrees. */
@@ -148,7 +127,7 @@ export const pyramidsOfMeroe: Monument = {
 
       // --- the courses ---
       for (let i = 0; i < p.courses; i++) {
-        // Lower courses taller, as at Giza: equal ones stripe it like a ziggurat.
+        // Lower courses taller, as at Giza.
         const y0 = standing * (i / p.courses) ** 0.85;
         const y1 = standing * ((i + 1) / p.courses) ** 0.85;
         const last = i + 1 === p.courses;
@@ -173,8 +152,7 @@ export const pyramidsOfMeroe: Monument = {
       const roomHeight = pylonHeight * 0.68;
       const face = p.x - p.base;
       const pylonX = face - length;
-      // The room runs from the pylon into the pyramid, deep enough that its
-      // back is buried under the sloping face all the way up.
+      // The room runs from the pylon into the pyramid, its back buried under the sloping face.
       const back = face + roomHeight / STEEP + 0.4;
       placed(box(back - pylonX, roomHeight, p.base * 1.2, chapelWall), (pylonX + back) / 2, ground, p.z);
 

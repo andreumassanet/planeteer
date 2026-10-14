@@ -1,50 +1,24 @@
 import type { Mesh, Monument } from './contract.ts';
 
 /**
- * The Minaret of Jam — Ghor, Afghanistan.
+ * The Minaret of Jam, Ghor, Afghanistan.
  *
- * A Ghurid minaret of fired brick, raised around 1190 at the meeting of the
- * Hari and Jam rivers, in a gorge so remote that it was barely known outside
- * the valley until the middle of the twentieth century. It stands alone: what
- * it belonged to — a mosque, perhaps the Ghurid summer capital Firuzkuh — is
- * gone or buried, and the picture everybody has of it is one tapering tower
- * between two steep flanks of rock.
+ * A Ghurid minaret of fired brick (about 1190) standing alone between two steep
+ * flanks of a gorge. It is drawn as an octagonal base, a tall first shaft that
+ * narrows by a quarter, two shorter shafts each set back over a corbelled
+ * balcony ring, and a small open lantern. Four diminishing stages read as a
+ * minaret; one long cone would read as a chimney.
  *
- * ## What carries the recognition
+ * The relief strapwork and Kufic inscription are drawn as raised darker
+ * courses, one repeating feature on the surface with no second subdivision. One
+ * turquoise band near the top of the first shaft is the only `skyBlue` and the
+ * only colour on the tower.
  *
- * 1. **The taper, in stages.** An octagonal base, then a tall first shaft that
- *    narrows by a quarter, then two shorter shafts, each set back over a
- *    corbelled balcony ring, and a small open lantern at the top. Four
- *    diminishing stages read as a minaret; one long cone would read as a
- *    chimney.
- * 2. **The bands.** The brick is laid in relief — geometric strapwork and
- *    Kufic inscription — in horizontal courses up the whole shaft. At 260 px
- *    the strapwork is a texture nobody can draw, so it is drawn as what it
- *    reads as from the valley floor: raised darker courses, one repeating
- *    feature on the surface and no second subdivision across it (see the
- *    masonry note in `docs/traps.md`, *Modelling*).
- * 3. **One turquoise band.** Near the top of the first shaft a band of glazed
- *    turquoise tile carries an inscription naming the sultan, Ghiyath al-Din
- *    Muhammad. It is the only colour on the tower and the only `skyBlue` in
- *    this model.
- *
- * ## Scale and the crop
- *
- * 65 m on the `tower` tier's 70 units, 1.077 units a metre, kept for the
- * tower's own heights and widths: the base, about 9 m across in life, is 10.4
- * units between the octagon's flats here (9.7 m, a little generous so the
- * octagon reads as a plinth under the round shaft). Nothing else on the
- * minaret is stretched.
- *
- * The gorge is cropped hard. Its walls rise far higher than the minaret; what
- * is drawn is two spurs of them, 21 and 14 units, either side and a little
- * behind, so the tower stands framed between rock from the front camera
- * without anything in front of it. They are `brown` stepped masses rather than
- * a cliff, because a cliff 70 units tall beside it would be the subject. They
- * set the footprint, 24 units; the half-diagonal against the height is 0.34.
- *
- * The brick is `sand` toned down to a buff, and the relief courses a step
- * darker again: both warm, so the shaded side of the tower keeps its hue.
+ * Scale is 1.077 units a metre on the `tower` tier's 70 units; the base is
+ * slightly generous so the octagon reads as a plinth. The gorge is cropped to
+ * two `brown` stepped spurs (21 and 14 units) either side and a little behind,
+ * so the tower is framed by rock without anything in front of it. The brick is
+ * `sand` toned to a buff and the relief a step darker, both warm.
  */
 
 const TOP = 69.95;

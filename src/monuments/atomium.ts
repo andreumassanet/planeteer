@@ -4,54 +4,17 @@ import type { Group, Monument, Vector3 } from './contract.ts';
 /**
  * Atomium.
  *
- * A unit cell of an iron crystal magnified 165 billion times: nine spheres at
- * the corners and the centre of a cube, joined by twenty tubes. Everything in
- * this file is that sentence turned into arithmetic — there is no styling
- * decision to make, only a rotation to get right.
+ * A unit cell of an iron crystal: nine spheres at the corners and centre of a
+ * cube, joined by twenty tubes. The cube stands on a corner, its body diagonal
+ * vertical: one sphere at the top, one at the bottom, six between on two
+ * triangles 60 degrees out of phase. With edge `a` the rise between levels is
+ * a/sqrt(3), the total a*sqrt(3), the middle ring radius a*sqrt(2/3). Edge tubes
+ * are `a` long and the eight centre-to-corner tubes 0.866 a.
  *
- * **The cube stands on a corner.** Its body diagonal is vertical, and that is
- * the entire silhouette: one sphere at the very top, one at the very bottom, and
- * six in between on two staggered triangles. Miss it and you get a box of balls
- * instead of the diamond everybody recognises.
- *
- * The rotation is not eyeballed. Take the cube with edge vectors on the axes and
- * corners at `a * (i, j, k)`, `i, j, k` in `{0, 1}`; the vertical is
- * `u = (1,1,1)/sqrt(3)`, so a corner's height is `a * (i+j+k) / sqrt(3)` and its
- * distance from the axis is `|p - (p.u)u|`. That gives four levels — one corner,
- * three, three, one — with
- *
- *     rise between levels   a / sqrt(3)        = 0.5774 a
- *     total (body diagonal) a * sqrt(3)        = 1.7321 a
- *     ring radius (both middle levels)         a * sqrt(2/3) = 0.8165 a
- *
- * and the two middle triangles 60 degrees out of phase with each other, because
- * the horizontal part of the corner `(a,0,0)` is proportional to `(2,-1,-1)` and
- * that of `(0,a,a)` to `(-2,1,1)` — exactly antipodal. So the six middle spheres
- * sit on a hexagon of azimuths, which is also why the model's bounding box comes
- * out centred on the Y axis with nothing to correct.
- *
- * Checks that fall out of the same arithmetic, and that the file asserts by
- * construction rather than by trust: every one of the twelve edge tubes is `a`
- * long, and every one of the eight centre-to-corner tubes is
- * `a * sqrt(3) / 2 = 0.866 a`. **The diagonals are the shorter of the two
- * lengths, not the longer.** Half a body diagonal is always less than an edge;
- * a description that says otherwise is remembering a photograph, not measuring
- * a cube.
- *
- * Proportions are the real ones, undistorted. At 102 m the Atomium is 18 m
- * across the spheres and 29 m between their centres, so the whole model is those
- * three numbers times `120 / 102`. Nothing is cropped and nothing is stretched:
- * the half-diagonal against the height is 38.4 / 119.9 = 0.32 where 2.00 is
- * allowed, which is what a tall thing on a circular plan looks like.
- *
- * The only liberty in the geometry is the thickness of the tubes — the one taken
- * with colour is argued for where the colours are chosen, in `build`. At true
- * scale a 3 m tube inside a 102 m monument
- * is 3.5 units across, and at thumbnail size the outline's own ink is nearly as
- * wide as the tube it is drawing, so the lattice greys out. They are 35% fatter
- * here, which still leaves the spheres 4.5 times the diameter of the sticks —
- * the point of the brief, that this reads as balls joined by rods and not as a
- * wireframe, survives with room to spare.
+ * Proportions are real (18 m spheres, 29 m between centres, scaled 120/102); the
+ * half-diagonal over height is 0.32. Tubes are 35% fatter than true so the
+ * lattice does not grey out at thumbnail size; spheres stay 4.5 times their
+ * diameter.
  */
 
 // ---------------------------------------------------------------------------
@@ -76,25 +39,15 @@ const RISE = EDGE / Math.sqrt(3); // 19.70 — one level to the next
 const RING = EDGE * Math.sqrt(2 / 3); // 27.86 — axis to a middle sphere's centre
 
 /**
- * Centre of the lowest sphere. Everything above is measured from here, and what
- * is left below — just under 40 units, 33.8 m in life — is the gap the whole
- * monument is famous for. The bottom sphere hangs a third of the way up; the
- * bipods reach past it to the spheres above.
+ * Centre of the lowest sphere. The gap below it (just under 40 units, 33.8 m in
+ * life) is the gap the monument is known for; the bipods reach past it.
  */
 const BOTTOM_Y = TOP - BALL - DIAGONAL; // 50.22
 
 /**
- * Azimuth of the lower triangle of corners, in radians.
- *
- * Three-fold symmetry cannot put all six middle spheres off the centre line of a
- * front view, so the choice is only which triangle points at the camera — and
- * the two are not equally good. Rendered both: with the lower triangle forward
- * its nearest sphere lands dead on the axis, a third bigger for being closer,
- * and **eclipses the bottom sphere completely**. The diamond loses the point it
- * hangs from, which is the one feature nothing else in this model supplies. Turn
- * it 60 degrees and the sphere that comes forward is an upper one, high enough
- * to clear it, and the near bipod goes round the back where its own sphere hides
- * it. 60 degrees, then.
+ * Azimuth of the lower triangle of corners, in radians. With the lower triangle
+ * facing the camera its nearest sphere lands on the axis and eclipses the bottom
+ * sphere; turned 60 degrees, an upper sphere comes forward instead.
  */
 const PHASE = Math.PI / 3;
 
@@ -105,16 +58,11 @@ const PHASE = Math.PI / 3;
 const BALL_SIDES = 10;
 
 /**
- * The ball has no helper of its own, so it is a stack of six frusta: latitude
- * rings of the unit sphere at 30-degree steps, cones at the poles and four
- * bands between. `taper` takes half-widths across the flats, so each ring is
- * multiplied by `cos(pi / sides)` to put the vertices *on* the sphere rather
- * than outside it — which is what keeps `RING + BALL` the exact footprint.
- *
- * Where two bands meet they share a radius, so each one's hidden cap sits
- * exactly inside the other and only one of the pair is ever front-facing.
- * `OutlineEffect` inks each band separately, and the five faint seams that
- * leaves per ball are welcome: the real spheres are panelled steel.
+ * The ball is a stack of six frusta: latitude rings of the unit sphere at
+ * 30-degree steps, cones at the poles and four bands between. `taper` takes
+ * half-widths across the flats, so each ring is multiplied by `cos(pi / sides)`
+ * to put the vertices on the sphere (that keeps `RING + BALL` the exact
+ * footprint). The faint seams between bands read as panelled steel.
  */
 const SHELL: ReadonlyArray<readonly [number, number]> = [
   [-1, 0],
@@ -164,36 +112,11 @@ export const atomium: Monument = {
     const { THREE, palette, box, column, taper, around } = ctx;
 
     /**
-     * Polished stainless steel, mirror-bright, and nothing in this world is
-     * reflective — so the question is what a mirror ball against a cyan sky
-     * turns into on a four-step ramp. Four candidates, all four rendered at
-     * thumbnail size before choosing:
-     *
-     * - `white` and `cream` are the contract's blessed pale entries and both
-     *   come back ivory. A porcelain Atomium; steel is not warm.
-     * - `slate` is the obedient answer — the one cool neutral with hue left to
-     *   lose in shade, and literally what a mirror ball is, a picture of the sky.
-     *   But it is 40% darker than `bone`, and at 200 pixels that darkness welds
-     *   the nine balls into one lump. The silhouette survives; the *lattice*,
-     *   which is the whole subject, does not.
-     * - `bone` keeps every ball separate and is the only neutral grey here.
-     *
-     * The contract warns off `bone` and the warning is worth taking seriously,
-     * but read what it is warning about: a wall glimpsed *through* a colonnade,
-     * darker than the sky in the gaps, reading as a hole where a surface should
-     * be. There is no such surface here. Every face in this model is the outside
-     * of a convex solid, bounded by its own ink and by lit faces of the same
-     * ball; nothing sits behind a gap pretending to be solid. A dark hueless
-     * patch in the foreground, ringed in ink against bright cyan, reads as the
-     * shaded half of a sphere, which is what it is.
-     *
-     * So: `bone` for the nine spheres. The twenty tubes take `slate` instead,
-     * and that is the same argument running the other way — they are the thin
-     * members, they live in the spheres' shadow and edge-on against sky, and
-     * they are exactly what the warning is about. It also buys the thing the
-     * brief asks for outright: balls and sticks separated by value, countable
-     * rather than smeared. Bright at the top of the ladder, cool in the middle,
-     * dark at the feet.
+     * Steel is mirror-bright and nothing here reflects, so: `bone` for the nine
+     * spheres (`white` and `cream` come back ivory; `slate` welds the balls into
+     * one lump at 200 px). The contract's warning against `bone` is about a wall
+     * seen through a gap; every face here is the outside of a convex solid. The
+     * twenty tubes are `slate`, so balls and sticks separate by value.
      */
     const metal = palette.bone;
     /** The rods: cooler and a step down in value, so twenty of them stay countable. */
@@ -241,11 +164,9 @@ export const atomium: Monument = {
     for (const centre of [bottom, core, top, ...lower, ...upper]) group.add(ball(centre));
 
     // --- the twenty tubes ---
-    // Run centre to centre: both ends finish deep inside their sphere, so no cap
-    // is ever visible and the joint is drawn by the outline where the cylinder
-    // crosses the ball. Each end stops `PROUD` short of the centre: the lift
-    // shaft's caps otherwise lay in the plane of a ball's equator, where two of
-    // its bands meet, and the two colours shared it.
+    // Centre to centre, so no cap shows and the outline draws the joint. Each end
+    // stops `PROUD` short of the centre: the lift shaft's caps would otherwise lie
+    // in the plane of a ball's equator, where two bands (colours) meet.
     const tube = (from: Vector3, to: Vector3) => {
       const along = to.clone().sub(from).normalize();
       const mesh = column(TUBE_R, from.distanceTo(to) - PROUD * 2, rod, TUBE_SIDES);
@@ -267,8 +188,8 @@ export const atomium: Monument = {
     for (const corner of [bottom, top, ...lower, ...upper]) tube(core, corner);
 
     // --- three bipods ---
-    // Each pair rises from the terrace to one of the lower spheres, entering it
-    // below and outboard of its centre so the leg reads as continuing inside.
+    // Each pair rises from the terrace into a lower sphere, below and outboard of
+    // its centre.
     const bipods = around(3, () => {
       const bipod = new THREE.Group();
       const socket = lower[0]!;

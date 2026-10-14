@@ -1,24 +1,20 @@
 /**
  * What lies about on the Moon besides the plain boulder every crust has.
  *
- * They live here and not in `src/system/parts/` for one reason: that directory
- * is checked against the bodies in `src/system/bodies/`, and the Moon is not
- * one of them (the orrery would draw it on top of Earth), so a part only the
- * Moon names would be reported as one nothing builds. The budgets are the
- * system's all the same — 220 triangles, 12 meshes, 4 colours.
+ * They live here and not in `src/system/parts/` because that directory is
+ * checked against the bodies in `src/system/bodies/`, and the Moon is not one
+ * of them. The budgets are the system's all the same: 220 triangles, 12 meshes,
+ * 4 colours.
  *
- * **Nothing here is weathered**, and that is the read: no wind, no water, no
- * frost to round a stone. A lunar boulder is as angular as the day the impact
- * that threw it broke it, so these are boxes and five-sided prisms set at odd
- * angles, never the waisted ventifacts of Mars.
+ * Nothing here is weathered: a lunar boulder is as angular as the day it broke,
+ * so these are boxes and five-sided prisms at odd angles.
  */
 
 import type { Decoration } from '../../../system/contract.ts';
 
 /**
  * A blocky ejecta field: four to seven angular blocks, the largest half buried,
- * the way the rim of a fresh crater is strewn. The commonest thing on the
- * Moon after dust, and the reason the rays are bright: fresh broken rock.
+ * the way the rim of a fresh crater is strewn.
  */
 export const MOON_BLOCKS: Decoration = {
   id: 'moon-blocks',
@@ -42,9 +38,8 @@ export const MOON_BLOCKS: Decoration = {
 
 /**
  * A split boulder, after the one at Station 6 of Apollo 17: a house-sized rock
- * that rolled down the North Massif and broke in two as it stopped, and that
- * Harrison Schmitt was photographed beside. Two halves of one prism with a
- * crack you could walk into, and a scatter of the chips.
+ * broken in two, two halves of one prism with a crack you could walk into and a
+ * scatter of chips.
  */
 export const MOON_SPLIT_ROCK: Decoration = {
   id: 'moon-split-rock',

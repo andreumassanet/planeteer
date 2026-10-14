@@ -1,11 +1,9 @@
 /**
- * Four places on Venus worth the walk, outside any town.
- *
- * Two are real: the landers that reached the surface, kept by the Bathyd
- * where they fell (the keeping is invented; the landers, their dates and
- * their coordinates are not). Two are the Bathyd's own: the Bell on a pancake
- * dome beside Seoritsu, a short walk from the spawn, and the Lantern on
- * Cleopatra's rim, the one tall thing they ever built.
+ * Four places on Venus worth the walk, outside any town. Two are real landers
+ * kept by the Bathyd where they fell (the landers, dates and coordinates are
+ * real); two are the Bathyd's own: the Bell on a pancake dome beside Seoritsu,
+ * a short walk from the spawn, and the Lantern on Cleopatra's rim, the one tall
+ * thing they built.
  */
 
 import * as THREE from 'three';
@@ -31,13 +29,10 @@ function memorial(ctx: SceneryContext, group: THREE.Group, radius: number, lamps
 }
 
 /**
- * Venera 13, 7.5 S 303 E: down on 1 March 1982, east of Phoebe Regio, and
- * alive for 127 minutes at 457 C and 89 atmospheres — long enough to take
- * the first colour photographs of another planet's surface and drill a
- * sample. The landing ring, the pressure sphere, the disc of the drag plate
- * and the antenna on top; the drill arm; and one camera's lens cap, lying
- * where it fell (on Venera 14 a cap landed exactly under the soil probe,
- * which then measured the cap).
+ * Venera 13, 7.5 S 303 E: down on 1 March 1982 and alive for 127 minutes at
+ * 457 C and 89 atmospheres. The landing ring, the pressure sphere, the disc of
+ * the drag plate and the antenna on top; the drill arm; and one camera's lens
+ * cap, lying where it fell.
  */
 const VENERA_13: Landmark = {
   id: 'venera-13',
@@ -81,11 +76,9 @@ const VENERA_13: Landmark = {
 };
 
 /**
- * Venera 7, 5 S 351 E: on 15 December 1970 the first spacecraft to land
- * softly on another planet and send word from its surface — twenty-three
- * minutes of faint signal, because the parachute tore on the way down and
- * the probe hit at 17 m/s and rolled onto its side. So it lies on its side
- * here, the shreds of the canopy beside it.
+ * Venera 7, 5 S 351 E: on 15 December 1970 the first spacecraft to send word
+ * from the surface of another planet. The parachute tore and the probe rolled
+ * onto its side, so it lies on its side here, the shreds of the canopy beside it.
  */
 const VENERA_7: Landmark = {
   id: 'venera-7',
@@ -116,18 +109,16 @@ const VENERA_7: Landmark = {
 };
 
 /**
- * The Lantern of Cleopatra (invented): a tower on the northern rim of
- * Cleopatra crater, the one tall thing the Bathyd ever built, because a
- * crater rim is the one place on Venus where height can be seen from far
- * enough to be worth it. It stands on the outer shoulder of the northern
- * rim, looking down into the bowl. A heavy battered base, a shaft, a gallery, and a
- * ball of sulphur burning in a cage at the top, lit at the frost line.
+ * The Lantern of Cleopatra (invented): a tower on the outer shoulder of the
+ * northern rim of Cleopatra crater, looking down into the bowl, the one tall
+ * thing the Bathyd built because a crater rim is the one place height can be
+ * seen from far. A heavy battered base, a shaft, a gallery and a ball of
+ * sulphur burning in a cage at the top.
  */
 const LANTERN: Landmark = {
   id: 'cleopatra-lantern',
   name: 'Lantern of Cleopatra',
-  // Just outside the crest, where the rim's outer slope is gentle enough to
-  // level: on the crest itself the pad's edge was a drop into the bowl.
+  // Just outside the crest, where the outer slope is gentle enough to level.
   lat: 66.47,
   lon: 7.1,
   radius: 12,
@@ -165,10 +156,8 @@ const LANTERN: Landmark = {
 
 /**
  * The Bell of Seoritsu (invented): a bell cast from the lead frost of Maxwell
- * and hung on the dome beside the town, rung once each sunrise — every 117
- * Earth days, which is how long a day lasts here. In this air a bell's note
- * carries further than on any other world, and the Bathyd say it can be heard
- * in Farra; the physics says they are probably right.
+ * and hung on the dome beside the town, rung once each sunrise (every 117 Earth
+ * days). In this air its note carries further than on any other world.
  */
 const BELL: Landmark = {
   id: 'seoritsu-bell',

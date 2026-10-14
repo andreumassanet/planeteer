@@ -4,65 +4,32 @@ import type { Group, Mesh, Monument, Vector3 } from './contract.ts';
 /**
  * Christ the Redeemer.
  *
- * **A figure on a peak, not a figure on a plinth.** The old model was the
- * statue alone on a 16-unit block, 104 units of figure, and it read as a
- * crucifix standing in a field. Nobody has ever seen it that way: the statue is
- * 30 m on a 700 m granite dome and every picture of it — from the bay, from
- * Sugarloaf, from the beach at Botafogo — is a small white cross on a dark
- * rock over a green forest. So the 120 units are now spent as the view spends
- * them:
+ * A figure on a peak, not on a plinth: the 120 units are spent as the view
+ * spends them.
+ * - 0 to 30: Corcovado's summit, a steep granite dome of four stacked frusta,
+ *   each stepped in and turned so facets never line up, leaning back as the
+ *   ridge runs on behind. Three lower shoulders, four sheer faces leaning with
+ *   the slope, and the forest ringing its feet and climbing its lower third.
+ *   The dome is `steel` in two tones, the forest `green` and `darkOlive`.
+ * - 30 to 33: the terrace, a ring cantilevered a unit past the rock with its
+ *   railing, and the railed square platform the pedestal stands on.
+ * - 33 to 46: the pedestal, also the chapel (a stone block under a cornice, its
+ *   door at the back); 13 units where true scale would give 20.
+ * - 46 to 120: the statue, 74 units for 30 m at true proportion (arms span 68).
+ * The summit is a quarter of the model: a true Corcovado would be 1,750 units.
  *
- * - **0 to 30: Corcovado's summit.** A steep granite dome in four stacked
- *   frusta, each stepped in from the one below and turned so their facets never
- *   line up — rock, not masonry — and leaning back, away from where the
- *   statue looks, as the ridge runs on behind it. Three lower shoulders stand
- *   round it, four sheer faces stand proud of it leaning with its slope, and
- *   the Atlantic forest rings its feet and climbs its lower third. The dome is
- *   `steel` lifted to a mid grey in two tones, the forest `green` and
- *   `darkOlive`.
- * - **30 to 33: the terrace.** The viewing platform in a ring round the top,
- *   cantilevered a unit past the rock with its railing, and the square upper
- *   platform the pedestal stands on, railed too.
- * - **33 to 46: the pedestal**, which is also the chapel: a stone block under a
- *   cornice, with its door on the back.
- * - **46 to 120: the statue**, 74 units for its 30 m — the true proportion, so
- *   the arms span 68 against 74 of height, 28 m against 30.
+ * The figure: a robe flaring from a pinched waist, a body flattened front to
+ * back, shoulders as a mass of their own, arms tapering to open hands. Sleeves
+ * hang under the arms (deepest by the body) so each arm is a wedge, not a
+ * crossbar. The head is bowed eleven degrees; hair to the shoulders and a beard
+ * in a darker tone; a cord at the waist with two ends hanging, the heart in
+ * relief, feet under the hem, and folds on every face of the robe that carry
+ * ink only.
  *
- * **Why a summit and not the mountain.** `footprint` is 48 and the landmark
- * tier is 120 tall. The real Corcovado, at the statue's own scale, would be
- * 1,750 units high; at the tier's scale the statue would be a speck. So this is
- * the crag the statue stands on and no more — thirty units, a quarter of the
- * model — which is enough to read as a peak in silhouette and keeps the figure
- * at five-eighths of the model's height. The statue lost 30 units to it,
- * and the pedestal is 13 units where true scale would make it 20: the chapel is
- * the part nobody names the thing by.
- *
- * **The figure, and what makes it this one rather than a crucifix.** Carried
- * over from the first model: the robe flares from a pinched waist, the body is
- * flattened front to back, the shoulders are a mass of their own and the arms
- * taper to open hands. New:
- *
- * - **The sleeves.** The robe's sleeves hang under the arms from the armpit to
- *   the forearm, deepest nearest the body, so each arm is a thick wedge rather
- *   than a stick — that is the real silhouette, and it is what stops the arms
- *   reading as a crossbar through a post.
- * - **The head is bowed**, eleven degrees forward, looking down at the city.
- * - **Hair to the shoulders and a beard**, in a darker tone of the same stone,
- *   parted over a face with a brow, a nose and eye sockets.
- * - **The cord at the waist**, its two ends hanging down the front, and **the
- *   heart** on the chest, both in relief.
- * - **Feet** under the hem, on the statue's own base.
- * - **Folds** down every face of the robe: they carry no colour, only ink.
- *
- * **Colour.** The statue is soapstone, a pale warm grey-white: `white`, the
- * palette's warm one, because a neutral goes blue in shade and this figure is
- * half in shade from most angles; folds, cord and heart a tone down, hair and
- * beard further. The pedestal and terraces are `bone` concrete, the railings
- * `white`.
- *
- * **Budget.** Built as ordinary pieces and drawn by `ctx.merge` as one mesh per
- * colour — the "merging them by material later is a single call" that
- * `contract.ts` made every geometry non-indexed for.
+ * Colour: the statue is `white` (a neutral goes blue in shade), folds, cord and
+ * heart a tone down, hair and beard further; pedestal and terraces `bone`
+ * concrete, railings `white`. Built as ordinary pieces and drawn with
+ * `ctx.merge`, one mesh per colour.
  */
 
 // --- the summit -------------------------------------------------------------
@@ -88,9 +55,8 @@ const DOME: Frustum[] = [
 const SUMMIT = 30;
 
 /**
- * Lower masses round the dome, as [x, z, bottom, top, height]. The ridge runs on
- * behind. The third stops `PROUD` under the dome's first ledge: level with it,
- * its top and the ledge were two tones of granite in one plane and flickered.
+ * Lower masses round the dome, as [x, z, bottom, top, height]. The third stops
+ * `PROUD` under the dome's first ledge so the two tops do not share a plane.
  */
 const SHOULDERS: [number, number, number, number, number][] = [
   [-17, -15, 13, 7, 15],
@@ -100,8 +66,7 @@ const SHOULDERS: [number, number, number, number, number][] = [
 
 /**
  * Sheer granite faces standing proud of the dome, as [angle, distance, width,
- * height]. Each leans back with the dome's own slope, so it is a cliff in the
- * hillside rather than a wall stood in front of it.
+ * height]. Each leans back with the dome's slope.
  */
 const CLIFFS: [number, number, number, number][] = [
   [0.38, 20.4, 10, 16],
@@ -113,9 +78,8 @@ const CLIFF_BASE = 8;
 const CLIFF_LEAN = 0.26;
 
 /**
- * The forest climbing the dome's lower third, as [angle, height]. These stand
- * half inside the rock at `CLIMB` from the axis, so from outside they are the
- * canopy washing up the slope behind the collar.
+ * The forest climbing the dome's lower third, as [angle, height]: half inside the
+ * rock at `CLIMB` from the axis, so it reads as canopy behind the collar.
  */
 const CLIMBING: [number, number][] = [
   [0.3, 13], [0.95, 11], [1.55, 14], [2.35, 12], [3.9, 12], [4.6, 14], [5.25, 11], [5.85, 13],
@@ -123,9 +87,8 @@ const CLIMBING: [number, number][] = [
 const CLIMB = 27;
 
 /**
- * The forest collar, as [x, z, height]. Blunt crowns, not points: a crown that
- * keeps two thirds of its width at the top is a broadleaf mass, where a point is
- * a spruce, and this is the Tijuca rainforest.
+ * The forest collar, as [x, z, height]. Blunt crowns (a crown keeping two thirds
+ * of its width at the top is a broadleaf mass, a point is a spruce).
  */
 const CLUMPS: [number, number, number][] = [
   [0, 31, 8.5],
@@ -162,9 +125,8 @@ const FEET = 46;
 // --- the statue --------------------------------------------------------------
 
 /**
- * Half-width of the robe at each height, before the front-to-back squash. The
- * hem is 10.5 against a 6.9 waist: 1.5 : 1, gentler than the first model's
- * 2.2, because the sleeves now carry the width the flare used to.
+ * Half-width of the robe at each height, before the front-to-back squash. The hem
+ * is 10.5 against a 6.9 waist (1.5 : 1); the sleeves carry the rest of the width.
  */
 const ROBE = [
   { y: FEET, r: 10.5 }, // hem lip, proud of the course above so the ink catches it
@@ -283,8 +245,8 @@ export const christTheRedeemer: Monument = {
     place(box(3.4, 5.4, 0.5, door), 0, PLATFORM_TOP, -9.75);
 
     // --- the robe ---
-    // Squashed front to back on a group of its own, so every radius above stays
-    // a plain half-width and the folds sit flat on the faces they belong to.
+    // Squashed front to back on its own group, so every radius above stays a
+    // plain half-width and the folds sit flat on their faces.
     const body = new THREE.Group();
     body.scale.z = DEPTH;
     draft.add(body);
@@ -347,18 +309,16 @@ export const christTheRedeemer: Monument = {
       const hand = box(4.4, HAND_LENGTH, 1.8, stone);
       hand.position.y = ARM_LENGTH - 0.3;
       arm.add(hand);
-      // The thumb, forward and up, so the hand reads as open. The arm's quarter
-      // turn sends its local X to world -Y on the right and +Y on the left, so
-      // the thumb's X carries the opposite sign to put it on top both sides.
+      // The thumb, forward and up. The arm's quarter turn sends its local X to
+      // world -Y on the right and +Y on the left, so the thumb's X flips sign.
       const thumb = box(1.1, 2.4, 1.1, stone);
       thumb.position.set(-side * 1.8, ARM_LENGTH + 0.4, 1.0);
       arm.add(thumb);
       draft.add(arm);
 
-      // The sleeves, hanging under the arm: deepest by the body, shallower
-      // along the forearm. Axis-aligned boxes with their tops buried in the
-      // arm, so only the drape shows.
-      // The inner one starts inside the robe's side, which is the armpit.
+      // The sleeves, hanging under the arm, deepest by the body: axis-aligned
+      // boxes with their tops buried in the arm. The inner one starts inside the
+      // robe's side (the armpit).
       place(box(11.2, 7.4, 4.6, fold), side * 12.8, ARM_Y - 8.6, 0);
       place(box(8.6, 4.6, 3.8, fold), side * 22.3, ARM_Y - 5.6, 0);
     }

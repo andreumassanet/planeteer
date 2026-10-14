@@ -4,104 +4,36 @@ import type { Monument } from './contract.ts';
 /**
  * Empire State Building.
  *
- * Four things have to survive to a thumbnail and every part in this file serves
- * one of them:
+ * What must survive to a thumbnail:
+ * - The stepped setbacks: a five-storey base filling the block, then four
+ *   setbacks before the shaft (the 1916 zoning envelope). Nearly all the stepping
+ *   is on the long axis: half-widths 15.3, 12.9, 10.2, 8.1, 6.15 across the front
+ *   against only 7.2 to 5.1 through the depth.
+ * - The vertical ribs: dark window strips with limestone piers between them,
+ *   base course to crown. A tower reads tall because it is striped, not because
+ *   it is thin. Four strips a face give nine bands of about 4 pixels each (three
+ *   would be a fence, five grey).
+ * - The crown: four tight tiers receding to the 86th-floor deck, each with its
+ *   own cornice.
+ * - The mooring mast (a ribbed cone with a lantern) and the antenna, together a
+ *   quarter of the height.
  *
- * - **The stepped setbacks.** A five-storey base filling the whole block, then
- *   the mass stepping back four times before the shaft starts. That envelope is
- *   not styling, it is the 1916 New York zoning law drawn in limestone, and it
- *   is why a New York tower of this decade is shaped like nothing else on the
- *   planet. Nearly all of the stepping is on the long axis — half-widths run
- *   15.3 -> 12.9 -> 10.2 -> 8.1 -> 6.15 across the front and only 7.2 -> 5.1
- *   through the depth — which is what makes the tower look grown out of a slab
- *   rather than simply narrowed.
- * - **The vertical ribs.** Dark window strips with limestone piers between
- *   them, running from the base course to the crown. Big Ben's file records the
- *   lesson and it is worth repeating here because this building depends on it
- *   twice as much: **a tower reads tall because it is striped, not because it
- *   is thin.** Strip the ribs off and what is left is a stack of boxes with
- *   ledges on it.
- * - **The crown**: four tight tiers receding to the 86th-floor deck, each with
- *   its own cornice, so the shaft arrives somewhere instead of stopping.
- * - **The mooring mast and the antenna**, together a quarter of the height.
- *   Nothing else has this: a ribbed metal cone with a lantern on it, then a
- *   needle almost as long again. It is the half of the profile that cannot be
- *   confused with any other skyscraper, and it gets the same care as the shaft.
+ * Tier `tower`: the Statue of Liberty is 20.7 units away (footprint 24, this 18),
+ * so at `landmark` the block would eat the statue; at 70 against 70 they read
+ * as one skyline.
  *
- * ## Tier: `tower`, for the reason `statue-of-liberty.ts` gives, and one more
+ * Aspect is 0.29 at true proportions, so the plan goes out 1.5x instead (30.6 x
+ * 14.4, aspect 0.50) so the ribs stay separable (a true shaft face of 8.2 units
+ * carries about six bands, 12.3 carries nine). The base is stretched 2.7x
+ * (8.35 units, 12% of the height) to read as a storeyed building.
  *
- * Liberty argued `tower` over `landmark` because she is the landmark of New
- * York rather than of the planet. **That reasoning holds here and is stronger,
- * not weaker.** If the Statue of Liberty is a city landmark then an office
- * building three miles away cannot outrank her; nothing about the Empire State
- * says "planet" the way the Pyramids or Christ the Redeemer do. It is the thing
- * that means *New York*, which is the definition of the tier.
+ * The front is the 34th Street elevation, the long 129.5 m face, on +Z, since
+ * every setback is on that axis; a doorway at its centre gives scale. The tower
+ * is centred on the block.
  *
- * The extra reason is arithmetic. `UNITS_PER_DEGREE` is 279, so these two sites
- * are **20.7 units apart** — Liberty declares a footprint of 24 and this one 18.
- * They are not neighbours on this planet, they are on top of each other, and
- * they will be read in one glance. At `landmark` this would be 120 units to her
- * 70 and a 55-unit footprint to her 24: the office block would eat the statue.
- * At 70 against 70 the pair reads as one skyline, which is what New York is.
- *
- * A third check, weaker but pointing the same way: Burj Khalifa is the `landmark`
- * exemplar for "tall building". Filing a 443 m tower at the same 120 units as an
- * 828 m one throws away an ordering the tiers can still express.
- *
- * ## Where this lands against `MAX_ASPECT`, and which way the rule cuts
- *
- * Not the way it cuts for a bridge. At true proportions this model is 20.5 units
- * wide against 69.6 tall, an aspect of **0.29** where the cap is 4 — the ceiling
- * is nowhere in sight. The rule's *other* direction is what applies, the
- * Stonehenge case: distort the axis carrying the least recognition and protect
- * the one carrying the most. For a skyscraper the untouchable axis is obviously
- * the height, and nobody has ever named this building by its floor plate, so
- * **the plan goes out 1.5x**: the block is 129.5 m x 61 m, which would be
- * 20.5 x 9.6 units at the height's own scale of 0.158 units per metre, and is
- * built here at 30.6 x 14.4. Aspect after the stretch is 0.50, still an eighth
- * of the cap.
- *
- * The 1.5x is not taste, it is what the ribs cost. A shaft face at true scale is
- * 8.2 units and carries about six bands of pier and window before they stop
- * being separable at thumbnail size; at 12.3 units it carries nine, which is
- * enough for the striping to read as striping rather than as texture. Big Ben
- * made the same trade in the same direction and said so — 8:1 in life, 6.4:1 in
- * the model, "because a truer tower frames smaller in every view it will ever be
- * seen in and loses the ribs first".
- *
- * **The base is stretched too, and further.** Five storeys is 20 m of 443, or
- * 4.5% of the height; a 3.1-unit band under a 70-unit tower is thinner than the
- * ink around it. The base course, podium and first cornice here occupy 8.35
- * units, **12% of the height, a 2.7x exaggeration**, which is the least that
- * still reads as a storeyed building rather than a plinth.
- *
- * ## The front is the 34th Street elevation, not Fifth Avenue
- *
- * The address is 350 Fifth Avenue and the grand lobby is on the 61 m face, so
- * strictly the entrance front is the narrow one. It faces +X here instead, and
- * the long 129.5 m elevation faces +Z, because **every setback is on this axis**:
- * seen down the short face the building is a slab that narrows slightly, and
- * seen down the long face it is the wedding cake. The fixed
- * front camera should get the silhouette that names the thing. A 34th Street
- * doorway is modelled at the centre of the front so the view has a marked front
- * and a sense of scale.
- *
- * ## Traded away, and why
- *
- * - **Window strips on the side faces of the two upper setback tiers.** They are
- *   3 units tall and heavily foreshortened in every view; the six meshes they
- *   would cost buy the mast its eight ribs instead, which are in the silhouette.
- *   The podium and the first tier keep theirs, and so does the shaft on all four
- *   faces.
- * - **Every opening is rectangular.** No spandrel relief, no Art Deco chevrons,
- *   no aluminium canopy. At the distance this is read from, the piers and the
- *   ink between them are the ornament.
- * - **The mooring mast is one ribbed cone.** The real thing is an airship
- *   gantry with a walkway and a nest of struts. Below about ten pixels it is a
- *   fluted cone with a lantern, which is what is here.
- * - **The tower is centred on the block.** In life it stands toward the Fifth
- *   Avenue end and the setback wings are lopsided. Centred costs nothing to the
- *   read and keeps the model straddling the Y axis honestly.
+ * Simplified: no window strips on the side faces of the two upper tiers (the
+ * mast's eight ribs buy more), every opening rectangular, and the mooring mast
+ * one ribbed cone.
  */
 
 // --- elevation, in tier units. The antenna tip stops just under the ceiling. ---
@@ -126,12 +58,8 @@ const SHAFT_Z = 5.1;
 const LEDGE_OUT = 0.5;
 
 /**
- * How far a dark strip stands out of the wall it is set into.
- *
- * Big Ben's trick, and the reason it is worth copying: a recess this shallow is
- * invisible under a cel ramp, because a four-step gradient map has nothing
- * between "lit" and "lit" to spend on it. A strip standing *proud* gets its own
- * outline for free, and an outline is a hard black line at any distance.
+ * How far a dark strip stands out of the wall it is set into. A recess this
+ * shallow is invisible under a cel ramp; a proud strip gets its own outline.
  */
 const STRIP_OUT = 0.28;
 
@@ -141,11 +69,8 @@ const STRIP_OUT = 0.28;
  * proud all round in the lighter stone.
  *
  * `front` and `side` are the window strips, listed as non-negative offsets and
- * mirrored — a 0 is the centre bay and is not doubled. Each entry is **one
- * mesh**: the strip is a beam driven right through the mass, so it surfaces on
- * both opposite faces and costs half what two slabs would. Nothing of it is
- * visible in between, which is also why the strips of the two directions may
- * cross inside without anyone seeing it.
+ * mirrored (0 is the centre bay and is not doubled). Each entry is one mesh: a
+ * beam driven through the mass, surfacing on both opposite faces.
  */
 const SETBACKS = [
   // The five-storey base, on the whole block. No centre bay: the doorway is there.
@@ -158,11 +83,9 @@ const SETBACKS = [
 const SETBACK_STRIP = 1.3;
 
 /**
- * The crown, floors 81 to 85: four tiers stepping in 0.75 a side across the
- * front and 0.55 through the depth, so the plan converges from the shaft's
- * 1.21 : 1 toward square by the time it reaches the deck. Each tier caps at
- * `capTop`, and every cap is narrower than the one below it — a crown that
- * widens again anywhere has stopped receding and reads as a hat.
+ * The crown, floors 81 to 85: four tiers stepping in 0.75 a side across the front
+ * and 0.55 through the depth. Each tier caps at `capTop`, and every cap is
+ * narrower than the one below it (a crown that widens again reads as a hat).
  */
 const CROWN = [
   { base: SHAFT_TOP, top: 46.0, x: 5.55, z: 4.75, capTop: 46.4 },
@@ -262,11 +185,8 @@ export const empireState: Monument = {
     slab(SHAFT_BASE, SHAFT_TOP, SHAFT_X, SHAFT_Z, stone);
 
     // Four strips a face, so the front reads corner pier / slot / pier / slot /
-    // wide centre pier / slot / pier / slot / corner pier. Nine bands on a
-    // 12.3-unit face is about 4 pixels each in a thumbnail, which is
-    // the floor: three strips would be a fence, five would be grey.
-    // They stop `PROUD` under the shaft's top: level with it, the dark strips'
-    // tops and the stone's shared a plane round the crown's foot and flickered.
+    // wide centre pier / slot / pier / slot / corner pier. They stop `PROUD` under
+    // the shaft's top, or their tops would share a plane with the stone's.
     const stripTop = SHAFT_TOP - PROUD;
     for (const x of mirrored([1.45, 3.95])) {
       acrossFront(SHAFT_BASE, stripTop, x, SHAFT_Z, 1.15);
@@ -275,10 +195,8 @@ export const empireState: Monument = {
       alongSide(SHAFT_BASE, stripTop, z, SHAFT_X, 1.2);
     }
 
-    // The corner piers stand proud of both faces they meet, which puts four
-    // unbroken ink lines up the full height of the shaft and stops the striping
-    // from dissolving where the two ribbed faces turn the corner. They stop at
-    // the crown, as the real ones do.
+    // The corner piers stand proud of both faces they meet, giving four unbroken
+    // ink lines up the shaft. They stop at the crown.
     for (const x of [1, -1]) {
       for (const z of [1, -1]) {
         const pier = box(1.7, SHAFT_TOP - SHAFT_BASE, 1.7, stone);
@@ -294,10 +212,8 @@ export const empireState: Monument = {
     }
     slab(C4_BASE, C4_TOP, 3.3, 3.1, stone);
 
-    // The 86th-floor deck, and the only piece of gold above the doorway. The
-    // building is famous for being lit at the top; one bright band exactly where
-    // the stone ends and the mast begins is the cheapest way to say so, and it
-    // gives the eye a target at the point the silhouette changes character.
+    // The 86th-floor deck, the only gold above the doorway: one bright band where
+    // the stone ends and the mast begins.
     slab(C4_TOP, DECK_TOP, 3.7, 3.5, gilt);
 
     // --- the mooring mast ---
@@ -309,11 +225,9 @@ export const empireState: Monument = {
     cone.position.y = DRUM_TOP;
     group.add(cone);
 
-    // Eight ribs from the deck to just below the lantern. They lean with the
-    // cone rather than standing plumb, which is the whole reason they are
-    // `strut`s: a column here would part company with the mast halfway up and
-    // read as scaffolding. `around(8)` lands one on the centre of each facet,
-    // because the prism helpers put a flat on +Z and so does this.
+    // Eight ribs from the deck to just below the lantern, leaning with the cone
+    // (hence `strut`s). `around(8)` lands one on each facet centre, since the
+    // prism helpers put a flat on +Z.
     group.add(
       around(8, () =>
         strut(
@@ -345,10 +259,8 @@ export const empireState: Monument = {
     mast.position.y = MAST_TOP;
     group.add(mast);
 
-    // Two collars. A bare 1.2-unit stick is a scratch on the sky; two beads on
-    // it are a piece of engineering, and they cost 48 triangles.
-    // The upper one stops `PROUD` short of the mast's top, which it would
-    // otherwise share in another colour.
+    // Two collars on the antenna (a bare 1.2-unit stick is a scratch on the sky).
+    // The upper one stops `PROUD` short of the mast's top.
     for (const [y, radius] of [
       [63.0, 1.0],
       [65.0 - PROUD, 0.85],

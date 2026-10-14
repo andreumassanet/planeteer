@@ -2,86 +2,36 @@ import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
- * The Leaning Tower of Pisa — the campanile of the cathedral, and the only
- * building in the world whose defining feature is a construction fault.
+ * The Leaning Tower of Pisa, the cathedral's campanile.
  *
- * Four things have to survive at thumbnail size, and everything in this file
- * serves one of them:
+ * Four things survive at thumbnail size: the lean, six open arcaded galleries
+ * (rings of slender columns clear of a dark drum, so the shaft is banded
+ * light/dark all the way up), a blind arcade at the ground storey (solid
+ * recesses at nearly twice the pitch of the galleries above), and a belfry set
+ * back on an overhanging cornice. The proportions are the real ones (shaft
+ * width 0.27 of the height); the only exaggeration is the angle, in `LEAN`.
  *
- * - **The lean.** Not a detail, the whole subject. See `LEAN` below for the
- *   angle and why it is not the real one.
- * - **Six open arcaded galleries**, stacked. Each is a ring of slender columns
- *   standing clear of a dark drum, so the gap behind them is a real gap and the
- *   shaft is banded light/dark/light/dark all the way up. This is the tower's
- *   texture and the entire difference between a campanile and a chimney: take
- *   the galleries away and what is left is a factory flue that fell over.
- * - **A blind arcade at the ground storey**, 13.4 units against a gallery's
- *   6.95 — nearly twice the pitch of anything above it. Its arches are *solid*
- *   recesses, not voids, which is what "blind" means and what stops the base
- *   reading as a seventh gallery.
- * - **The belfry**, smaller and set back: its columns stand at 6.3 where the
- *   shaft's stand at 8.0, on a cornice that overhangs them by 2.3. The step is
- *   what makes it a bell chamber rather than the last gallery.
- *
- * The proportions are the real ones. 57 m maps to 68.8 of the `tower` tier's
- * 70, and the shaft is 18.6 wide against that — 0.27, which is exactly the real
- * 15.5 m over 57 m. Nothing here is stretched. The single exaggeration in the
- * file is the angle, and it is declared in one constant.
- *
- * Traded away, and why:
- *
- * - **No arches.** The galleries are square-headed voids with square posts. A
- *   real arcaded head is an extruded shape with a hole, ~130 triangles a bay,
- *   and there are 54 bays here — three times the whole tier's budget for
- *   something two pixels tall. The rhythm of post-gap-post is what the eye gets
- *   at any size, and the outline draws it for free.
- * - **Eight columns a gallery, not thirty.** Thirty is life; six galleries of
- *   thirty is 180 meshes before the ground storey exists, against a cap of 80.
- *   Eight is also the right *rendering* count: across the front of the thumbnail
- *   it puts a post every 11 px, where thirty would be a grey smear.
- * - **The shaft is straight.** The real one is bent — the builders corrected
- *   the tilt twice mid-construction, so it is faintly banana-shaped. A curve
- *   that subtle only muddies the one line that has to be unmistakable.
+ * To stay inside the mesh budget the galleries have square-headed voids with
+ * square posts instead of arches, eight columns a gallery instead of thirty,
+ * and a straight shaft.
  */
 
 const DEG = Math.PI / 180;
 
 /**
- * **The lean: 10 degrees, against the real 3.97. An exaggeration of 2.5x.**
- *
- * At the true angle the top of a 69-unit tower moves 4.5 units sideways — about
- * a quarter of the tower's own width. On a photograph that is plenty, because a
- * photograph has a horizon, a cathedral and a plumb-straight world to measure it
- * against. In a 260-pixel thumbnail on a sky-blue field it reads as a model
- * somebody glued together carelessly, which is the one thing this monument
- * cannot afford to look like.
- *
- * At 10 degrees the top travels 11.3 units on a 9.3-unit base radius: the
- * belfry's centre clears the edge of the foundation, so the tower is visibly
- * *overhanging* rather than merely crooked. That is the threshold worth hitting
- * — past it no viewer can read it as anything but deliberate, and it is still
- * standing rather than toppling.
+ * The lean: 10 degrees, 2.5x the real 3.97. At the true angle the top moves
+ * only 4.5 units, which reads as carelessly glued in a thumbnail. At 10 degrees
+ * the belfry's centre clears the edge of the foundation, so the tower visibly
+ * overhangs.
  */
 const LEAN = 10 * DEG;
 
 /**
- * **Which way it leans, and why it is not the true bearing.**
- *
- * In life the portal is on the north face and the tower leans south: the door
- * and the lean are on opposite sides of the shaft, near enough 180 degrees
- * apart. The contract pins the front to +Z and it is checked from
- * a fixed front camera at (0, 0.12, 1), so a faithful model would tip straight
- * away from that camera — and a tilt along Z projects to *nothing at all* head
- * on. The one feature that must survive would be the one feature the checking
- * view cannot show.
- *
- * So the lean is rotated a quarter turn onto the model's X axis while the portal
- * stays on +Z. +X and not -X because screen-right is +X in both the front and
- * the quarter views, and the tower falls to the right in every photograph ever taken of the
- * piazza: those are shot from the west end, looking east, where south is on the
- * right hand.
- *
- * A rotation of -LEAN about Z tips +Y toward +X, which is that lean.
+ * Which way it leans. In life the tower leans away from the portal, which would
+ * project to nothing from the front camera, so the lean is turned a quarter
+ * onto the X axis while the portal stays on +Z. It falls toward +X, screen
+ * right in the front and quarter views. A rotation of -LEAN about Z tips +Y
+ * toward +X.
  */
 
 // --- elevations, in tower-local units: 0 is the top of the stone platform ---
@@ -106,29 +56,14 @@ const STYLOBATE_H = 1.4;
 const PLATFORM = APRON_H + STYLOBATE_H;
 
 /**
- * **How a leaning tower obeys "base at y = 0, centred on the Y axis".**
+ * Keeping "base at y = 0, centred on the Y axis" for a leaning tower.
  *
- * Tilt the whole thing about its foot and two contract rules break at once: the
- * base disc rolls onto its downhill rim, so the model both dips below the ground
- * and balances on an edge, and the bounding box drifts 5.7 units off the Y axis.
- *
- * Both are fixed here rather than fudged:
- *
- * 1. **The platform does not tilt.** An apron and a stylobate sit flat on the
- *    ground and the shaft is sunk 1.8 units into them, so the tilted foot is
- *    swallowed whole and what meets the ground is a level stone disc. This is
- *    also what Pisa does: the ground storey stands in a sunken basin, deeper on
- *    the side it leans towards.
- * 2. **The whole assembly slides back along -X by `CENTRE_SHIFT`,** so the
- *    bounding box straddles the axis. The foundation ends up uphill of the
- *    placement point and the belfry downhill of it, which is the honest answer
- *    for a building whose top overhangs its own foot by 11 units — there is no
- *    single "where it is" to be more faithful to.
- *
- * The value is measured, not derived: before the shift the model runs from
- * -11.0 (the apron's uphill rim) to +18.25 in x (the belfry cornice's downhill
- * rim), so its centre sits at 3.63. The bounding box does the work rather than
- * the axis of the shaft, which is why this is not simply half the top's travel.
+ * The platform does not tilt: an apron and a stylobate sit flat on the ground
+ * and the shaft is sunk 1.8 units into them, so the tilted foot is hidden and a
+ * level disc meets the ground. The whole assembly then slides back along -X by
+ * `CENTRE_SHIFT` so the bounding box straddles the axis. The value is measured:
+ * before the shift the model spans x = -11.0 (the apron's uphill rim) to +18.25
+ * (the belfry cornice), so its centre sits at 3.63.
  */
 const CENTRE_SHIFT = 3.63;
 
@@ -186,8 +121,7 @@ export const leaningTowerPisa: Monument = {
 
     const group = new THREE.Group();
 
-    // The returned group must keep an identity transform, so the centring slide
-    // lives on a child — the same trick the Colosseum uses for its oval.
+    // The returned group keeps an identity transform, so the centring slide lives on a child.
     const model = new THREE.Group();
     model.position.x = -CENTRE_SHIFT;
     group.add(model);
@@ -210,11 +144,9 @@ export const leaningTowerPisa: Monument = {
     drum.position.y = BURIED;
     tower.add(drum);
 
-    // The blind arcade. The recesses stand a little proud of the wall rather
-    // than sinking into it: a shallow recess vanishes under a cel ramp, while a
-    // raised dark panel gets its own ink line for free. The bay on +Z carries
-    // the portal instead, with its blind arch lifted above the door — which is
-    // both the real elevation and the thing that marks the front.
+    // The blind arcade. The recesses stand a little proud of the wall (a shallow
+    // recess vanishes under the cel ramp). The bay on +Z carries the portal, with
+    // its blind arch lifted above the door.
     tower.add(
       around(BLIND_BAYS, (index) => {
         const bay = new THREE.Group();
@@ -244,12 +176,8 @@ export const leaningTowerPisa: Monument = {
 
     // --- the galleries ---
 
-    // One tapered drum behind all six colonnades, dark, so every gap between
-    // every column has something to be a gap *in front of*. Six separate drums
-    // would cost five meshes for a difference nobody can see; the cornices are
-    // wider than it and hide it everywhere else.
-    // Its ends stop `PROUD` inside the first and the last cornice: level with
-    // them, its floor and its top shared their planes and flickered.
+    // One tapered drum behind all six colonnades, dark, so every gap has
+    // something behind it. Its ends stop `PROUD` inside the first and last cornice.
     const coreFoot = GROUND_TOP + PROUD;
     const coreHead = BELFRY_BASE - PROUD;
     const core = taper(

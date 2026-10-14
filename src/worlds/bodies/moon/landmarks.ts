@@ -1,16 +1,13 @@
 /**
- * What people left on the Moon, where they left it: four Apollo landing
- * sites, the first rover to drive another world, and the first craft on the
- * far side. Every coordinate is the site's published one (the Lunar
- * Reconnaissance Orbiter's re-surveys), and everything at a site is built
- * at a person's scale — **`M` units to the metre, the avatar's own** — so the
- * descent stage stands as tall over a visitor as it stood over the crews.
+ * What people left on the Moon, where they left it: four Apollo landing sites,
+ * the first rover to drive another world, and the first craft on the far side.
+ * Every coordinate is the site's published one, and everything at a site is
+ * built at a person's scale (`M` units to the metre).
  *
  * Each site is levelled on its own pad and paved by the people who keep it
- * (`selenites.ts`): the paving is theirs, and so are the swept footprints.
- * The landmark's wall is a disc six tenths of its radius round the centre,
- * which is the descent stage and its legs; everything else stands between
- * that wall and the pad's edge, where a visitor can walk up to it.
+ * (`selenites.ts`). The landmark's wall is a disc six tenths of its radius
+ * round the centre (the descent stage and its legs); everything else stands
+ * between that wall and the pad's edge, where a visitor can walk up to it.
  */
 
 import * as THREE from 'three';
@@ -48,9 +45,8 @@ function wheel(ctx: SceneryContext, radius: number, width: number, color: number
 }
 
 /**
- * The Lunar Module's descent stage: all that is left at an Apollo site, since
- * the ascent stage flew back up from it. An octagon of gold foil 4.2 m across
- * on four legs whose pads stand 9.4 m apart, the engine bell under it, and the
+ * The Lunar Module's descent stage: an octagon of gold foil 4.2 m across on
+ * four legs whose pads stand 9.4 m apart, the engine bell under it, and the
  * ladder down the front leg with the plaque on it.
  */
 function descentStage(ctx: SceneryContext): Group {
@@ -87,9 +83,7 @@ function descentStage(ctx: SceneryContext): Group {
     pad.position.set(foot.x, 0, foot.z);
     g.add(pad);
   }
-  // The ladder down the front (+z) leg, and the plaque: "Here men from the
-  // planet Earth first set foot upon the Moon, July 1969 A.D. We came in peace
-  // for all mankind." Every descent stage has one.
+  // The ladder down the front (+z) leg, and the plaque every descent stage carries.
   for (const side of [-1, 1]) g.add(ctx.strut(v(side * 0.32, 2.85, 2.25), v(side * 0.32, 0.75, 3.95), 0.07 * M, PALETTE.bone));
   for (let k = 0; k < 6; k++) {
     const t = (k + 0.5) / 6;
@@ -105,10 +99,8 @@ function descentStage(ctx: SceneryContext): Group {
 }
 
 /**
- * A flag on its pole and crossbar. The real ones have almost certainly been
- * bleached white by fifty years of unfiltered sun; these are kept in their
- * colours by the people who repaint them (`selenites.ts` says so). Lying, it is
- * Apollo 11's, which the ascent stage's exhaust blew over at lift-off.
+ * A flag on its pole and crossbar, kept in its colours by the people who
+ * repaint it. Lying, it is Apollo 11's, which the ascent stage's exhaust blew over.
  */
 function flag(ctx: SceneryContext, lying = false): Group {
   const g = new THREE.Group();
@@ -180,11 +172,7 @@ function seismometer(ctx: SceneryContext): Group {
   return g;
 }
 
-/**
- * The Laser Ranging Retroreflector: a hundred corner cubes in a tilted frame.
- * Observatories on Earth still fire lasers at it and time the echo to a few
- * millimetres; it is how anyone knows the Moon is drifting away 3.8 cm a year.
- */
+/** The Laser Ranging Retroreflector: a hundred corner cubes in a tilted frame. */
 function retroreflector(ctx: SceneryContext): Group {
   const g = new THREE.Group();
   g.add(ctx.box(0.65 * M, 0.12 * M, 0.45 * M, PALETTE.bone));
@@ -242,12 +230,9 @@ function alsep(ctx: SceneryContext): Group {
 /**
  * The Lunar Roving Vehicle: 3.1 m long, 1.83 m between the wheels' centres
  * across and 2.29 m along, wire-mesh tyres 0.81 m high under fibreglass
- * fenders, a tube frame with two folding seats of nylon webbing, the control
- * console on its post and the T-handle between the seats, and on the front
- * section the comms box with its mirrored radiator, the TV camera and the
- * umbrella of the high-gain antenna that sent the pictures home. Three were
- * driven (Apollo 15, 16 and 17) and three are still parked; on Apollo 17's,
- * a fender mended with a folded map and tape.
+ * fenders, a tube frame with two folding seats, the control console on its
+ * post and the T-handle between the seats, and on the front section the comms
+ * box, the TV camera and the high-gain antenna.
  */
 function rover(ctx: SceneryContext): Group {
   const g = new THREE.Group();
@@ -261,15 +246,11 @@ function rover(ctx: SceneryContext): Group {
     tube(v(x, 0.52, -0.55), v(x * 0.95, 0.66, -0.25), 0.04);
   }
   for (const z of [-1.45, -0.6, 0.55, 1.45]) tube(v(-0.6, 0.52, z), v(0.6, 0.52, z));
-  // The floor pan low between the rails, where a seated driver's soles,
-  // legs out to the footrest, come down on it (`HERO.drive.sole` under the
-  // seat's 0.66 m).
+  // The floor pan low between the rails, where a seated driver's soles come down on it (`HERO.drive.sole` under the seat's 0.66 m).
   const pan = ctx.box(1.2 * M, 0.03 * M, 1.05 * M, ctx.tone(PALETTE.steel, 0.9));
   pan.position.set(0, 0.4 * M, 0);
   g.add(pan);
-  // The wheels: a wire-mesh tyre (the titanium chevrons as a darker tread),
-  // the hub with its drive motor, the fender arched over the top half, and the
-  // suspension's two arms to the frame.
+  // The wheels: a wire-mesh tyre (the chevrons as a darker tread), the hub with its drive motor, the fender over the top half and two suspension arms.
   const tyre = ctx.tone(PALETTE.steel, 1.15);
   const tread = ctx.tone(PALETTE.steel, 0.78);
   const fender = ctx.tone(PALETTE.slate, 1.2);
@@ -350,8 +331,7 @@ function rover(ctx: SceneryContext): Group {
   dial2.position.set(0.13 * M, 1.04 * M, 0.57 * M);
   dial2.rotation.x = -0.3;
   g.add(dial2);
-  // The front section: the batteries under white dust covers, the comms box
-  // with its mirrored radiator, the TV camera on its post.
+  // The front section: batteries under white dust covers, the comms box with its mirrored radiator, the TV camera on its post.
   for (const x of [-0.32, 0.32]) {
     const battery = ctx.box(0.5 * M, 0.22 * M, 0.55 * M, PALETTE.white);
     battery.position.set(x * M, 0.53 * M, 1.12 * M);
@@ -374,8 +354,7 @@ function rover(ctx: SceneryContext): Group {
   lens.rotation.x = Math.PI / 2;
   lens.position.set(0, 1.46 * M, 1.7 * M);
   g.add(lens);
-  // The high-gain antenna: an umbrella of mesh on its ribs, on a mast, aimed
-  // home; and the low-gain helix beside it.
+  // The high-gain antenna: an umbrella of mesh on its ribs, aimed home; and the low-gain helix beside it.
   tube(v(-0.38, 0.85, 1.35), v(-0.38, 2.0, 1.35), 0.035);
   const dish = new THREE.Group();
   const bowl = dome(ctx, 0.5 * M, ctx.tone(PALETTE.bone, 1.08), 0.32, 14);
@@ -411,21 +390,16 @@ function rover(ctx: SceneryContext): Group {
 }
 
 /**
- * The hand controller between the seats, metres: the real one was a T-handle
- * on a post a little ahead of the seat pans, pushed to drive and leaned to
- * steer, by either crew member. Its crossbar is 0.9 m up and level with the
- * seats' front edge, where the commander's right hand reaches it — the hero's
- * arm is short for his height (`HERO.reach`, 0.22 of a body), and at 0.82 m
- * and 0.25 m ahead of the hip the bar was out of it.
+ * The hand controller between the seats, metres: a T-handle on a post a little
+ * ahead of the seat pans. Its crossbar is 0.9 m up and level with the seats'
+ * front edge, where the commander's right hand reaches it (the hero's arm is
+ * short for his height, `HERO.reach`, and at 0.82 m and 0.25 m ahead of the hip
+ * the bar was out of it).
  */
 const LRV_HANDLE = { x: 0, y: 0.9, z: 0 };
 /** The commander's hip, on the left seat's pan. */
 const LRV_SEAT = { x: 0.33 * M, y: 0.66 * M, z: -0.2 * M };
-/**
- * How the commander sits: the legs out to the footrest, the right hand on
- * the T-handle and the left on the thigh (`WheelGrip.rest`), as the LRV was
- * driven one-handed.
- */
+/** How the commander sits: legs out to the footrest, right hand on the T-handle and left on the thigh (`WheelGrip.rest`). */
 const LRV_POSE: SeatedPose = {
   legs: 'drive',
   wheel: {
@@ -437,11 +411,7 @@ const LRV_POSE: SeatedPose = {
   },
 };
 
-/**
- * The rover again, as a craft to take: the same model the landing sites park,
- * the driver in the commander's seat on the left, at the LRV's own 13 km an
- * hour or a little more, because nobody is counting the battery.
- */
+/** The rover again, as a craft to take: the same model the landing sites park, the driver in the commander's seat on the left. */
 export const LUNAR_ROVER: VehicleSpec = {
   kind: 'rover',
   name: 'the Lunar Roving Vehicle',
@@ -471,12 +441,7 @@ function tracks(ctx: SceneryContext, x: number, z: number, yaw: number, length: 
   return g;
 }
 
-/**
- * Lunokhod 1, the first robot to drive another world: a bathtub on eight
- * wheels with a lid of solar cells that opened by day, steered from the
- * Crimea for ten months from November 1970. Its French reflector was lost
- * for forty years and found again by laser in 2010.
- */
+/** Lunokhod 1, the first robot to drive another world: a bathtub on eight wheels with a lid of solar cells that opened by day. */
 function lunokhod(ctx: SceneryContext): Group {
   const g = new THREE.Group();
   const tub = ctx.taper(0.82 * M, 1.02 * M, 0.75 * M, PALETTE.bone, 12);
@@ -534,11 +499,7 @@ function luna17(ctx: SceneryContext): Group {
   return g;
 }
 
-/**
- * Surveyor 3, which landed in April 1967 and was visited by Apollo 12 in
- * November 1969: Conrad and Bean walked down into its crater and cut off its
- * camera to bring home, so it stands here without one.
- */
+/** Surveyor 3, visited by Apollo 12, whose crew cut off its camera: it stands here without one. */
 function surveyor(ctx: SceneryContext): Group {
   const g = new THREE.Group();
   const mast = ctx.column(0.06 * M, 3.0 * M, PALETTE.bone, 6);
@@ -630,9 +591,8 @@ function yutu(ctx: SceneryContext): Group {
 
 /**
  * The Fallen Astronaut: an aluminium figure 8.5 cm long and a plaque with the
- * names of fourteen astronauts and cosmonauts who had died, left by the crew
- * of Apollo 15 beside their rover. Drawn twice its size, and still the
- * smallest thing on the Moon worth walking to.
+ * names of fourteen astronauts and cosmonauts who had died, left by the crew of
+ * Apollo 15 beside their rover. Drawn twice its size.
  */
 function fallenAstronaut(ctx: SceneryContext): Group {
   const g = new THREE.Group();
@@ -707,9 +667,7 @@ export const TAURUS_LITTROW: Landmark = {
   lat: 20.1908,
   lon: 30.7717,
   radius: APOLLO_RADIUS,
-  // The last rover parked where Cernan left it, aimed so its camera could
-  // film the ascent stage lift off — the first launch from the Moon anyone
-  // saw; there to take, as every craft is.
+  // The last rover parked where Cernan left it, aimed so its camera could film the lift-off; there to take.
   craft: [{ vehicle: LUNAR_ROVER, x: -7.8 * M, z: 4.6 * M, yaw: -2.2 }],
   build(ctx, rng) {
     const g = new THREE.Group();

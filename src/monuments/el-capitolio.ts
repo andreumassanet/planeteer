@@ -4,47 +4,30 @@ import type { Mesh, Monument } from './contract.ts';
 /**
  * El Capitolio, Havana — the capitol on the Paseo del Prado.
  *
- * What has to survive at thumbnail size, in order:
+ * What must survive at thumbnail size, in order:
+ * 1. The dome on its colonnaded drum: a ring of columns under a cornice, an
+ *    attic, a ribbed stone shell and a lantern. The dome ribs are eight, each
+ *    two struts so the rib clears the shell's bulge at mid-height (see
+ *    `st-peters-basilica.ts`).
+ * 2. The length: two long wings (the Senate's and the House's) either side of the
+ *    central block, each fronted by a colonnade (seven columns) between a plain
+ *    end pavilion and the centre, all on one rusticated podium (one block).
+ * 3. The portico and stair: twelve columns under a flat entablature and attic
+ *    with no pediment, a broad flight up the podium, and Zanelli's two bronze
+ *    groups on pedestals either side.
  *
- * 1. **The dome on its colonnaded drum**, a ring of columns under a cornice,
- *    an attic, a ribbed stone shell and a lantern. It is Havana's skyline and
- *    the reason the building is named from across the city.
- * 2. **The length.** Two long wings, the Senate's and the House's, run out
- *    either side of the central block, each fronted by a colonnade between a
- *    plain end pavilion and the centre, all on one rusticated podium. A dome
- *    on a short block is any capitol; a dome over a long low front with its
- *    columns marching the whole way is this one.
- * 3. **The portico and the stair**: a row of columns across the centre (twelve
- *    here), under a flat entablature and attic with no pediment, reached by the broad flight
- *    up the podium, with Zanelli's two bronze groups on pedestals either side
- *    of it.
+ * One scale, no squeeze: 0.435 units a metre, so the 92 m to the lantern's tip is
+ * the `building` tier's 40 and the 207 m front is 88.6 units (half-diagonal 45.5,
+ * 1.14 of the height). `landmark` would need a 2.7:1 squeeze of the plan.
  *
- * **Scale.** One scale throughout and no squeeze: 0.435 units a metre, so the
- * 92 m to the lantern's tip is the `building` tier's 40, and the 207 m front is
- * 88.6 units. That half-length against the wings' depth is a half-diagonal of
- * 45.5, under the 55-unit footprint cap and well inside `MAX_ASPECT` (it is
- * 1.14 of the height, against 2 allowed). `landmark` was weighed and refused:
- * its 120 units would want a 135-unit half-length, so the plan would have had
- * to be squeezed 2.7:1, and the long front is half of what is recognised.
+ * The front faces east onto the Prado. `placement.ts` turns +Z north and +X west,
+ * so the model is drawn front-on to +Z and turned `rotation.y = -PI / 2` before
+ * it is merged.
  *
- * **What was cut.** The podium's rustication is one block; the wings'
- * colonnades are seven columns each, not the full count; the lantern's own
- * columns are one drum; the dome's ribs are eight, each two struts so the rib
- * clears the shell's bulge at mid-height (see `st-peters-basilica.ts`).
- *
- * **Orientation.** The front faces east onto the Prado. `placement.ts` turns
- * +Z north and +X west, so the model is drawn front-on to +Z and turned a
- * quarter the other way (`rotation.y = -PI / 2`) before it is merged; the
- * front view sees its south end and the quarter view the
- * front.
- *
- * **Colour.** The stone is a pale limestone: walls `cream`, columns and dome
- * `white`, cornices and podium `tan` toned light. Everything behind a
- * colonnade is faced in `sand`, the warm recess the note on `palette` asks for,
- * with `bark` windows and doors standing proud of it; the bronzes `darkOlive`
- * for their patina; the finial `gold`.
- *
- * Drawn through `ctx.merge` as one mesh a colour.
+ * Colour: walls `cream`, columns and dome `white`, cornices and podium `tan` toned
+ * light. Everything behind a colonnade is `sand` (a warm recess) with `bark`
+ * windows and doors proud of it; bronzes `darkOlive`; finial `gold`. Drawn
+ * through `ctx.merge`, one mesh a colour.
  */
 
 // --- the podium, the ground storey everything stands on -----------------------

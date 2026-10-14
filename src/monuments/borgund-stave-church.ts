@@ -4,23 +4,8 @@ import { PROUD } from './contract.ts';
 /**
  * Borgund Stave Church — Lærdal, Norway.
  *
- * **Why Norway, and why this rather than a fjord:** Scandinavia had nothing.
- * From Copenhagen's Little Mermaid to Moscow's Saint Basil's the map behind `M`
- * was blank across Norway, Sweden, Finland, Iceland and the whole Arctic, and a
- * fjord is a shape the terrain already makes — `reliefAt` and the shore ramp
- * draw better ones than a monument file could. What the planet cannot generate
- * is a **building made entirely of roofs**, which is what a stave church is:
- * about 1,180, all timber, no nails in the frame, and standing.
- *
- * ---------------------------------------------------------------------------
- * What has to read: the pile
- * ---------------------------------------------------------------------------
- *
- * Nobody names Borgund by a detail. It is a *stack of steeply pitched shingled
- * roofs*, each smaller than the one under it, five deep, with dragon heads
- * pointing off the corners and a spired turret on top — and every one of those
- * words is a silhouette. So the model is built as five stages and each stage is
- * a wall and a roof:
+ * A building made of roofs: five stages, each a wall and a steeply pitched
+ * shingled roof, with dragon heads on the corners and a spired turret.
  *
  *   ambulatory  1.0 -> 10.4   eave 15.9   the open gallery round the foot
  *   nave        1.0 -> 21.0   eave 12.4
@@ -28,41 +13,15 @@ import { PROUD } from './contract.ts';
  *   clerestory 28.4 -> 33.2   eave  6.0
  *   turret     33.2 -> 39.6   eave  3.4
  *
- * The roofs are `taper`s with **four sides**, which puts a flat face at +Z and
- * the corners on the diagonals — which is where the dragon heads have to go.
+ * Roofs are four-sided `taper`s (a flat face at +Z, corners on the diagonals,
+ * where the dragons go). Each big roof is two courses, split at 40% of its
+ * rise, so the ink reads it as shingled; the pitch breaks by about a degree.
  *
- * **Each big roof is two courses, not one.** A roof of one taper is one clean
- * cone and reads as a tent; split at 40% of its rise, `OutlineEffect` draws a
- * line right round it and it reads as *shingled*, which is the whole surface of
- * this building. This is the joint-count rule (few ink lines read as natural,
- * many as manufactured) used in the direction it usually is not: a hand-laid
- * shingle roof is manufactured, so more joints is more true, and the geometric
- * cost is that the pitch breaks by about a degree in the middle.
- *
- * ---------------------------------------------------------------------------
- * Colour: a dark building that still has to have a range
- * ---------------------------------------------------------------------------
- *
- * Borgund is coated in pine tar and is nearly black. Painting it that way gives
- * a 260-pixel cell with one value in it, so the model is laddered across the
- * three warm darks the palette has: `bark` for the shingles, `darkOlive` for the
- * ambulatory's own roof — the one plane the eye needs separated from the rest —
- * and `brown` for the staves, the wall planking and the dragons. All three are
- * on the warm side, which matters more here than anywhere: an ambulatory is a
- * covered walkway and everything inside it is in permanent shade, and the note
- * beside `ctx.palette` says what a neutral does there. The only cool colour in
- * the model is the `slate` stone sill, which is the one part of it that is not
- * wood.
- *
- * The dragons are `brown` against `bark` roofs rather than a bright colour they
- * never had. On the upper stages they are read against the sky, where the ink
- * does the drawing; on the lower ones the value step is what finds them.
- *
- * Proportion: 39.9 tall on a 23.2 half-diagonal, so 0.58 against the 2.0 cap.
- * No stretch — a stave church is genuinely taller than it is wide, which is most
- * of why it looks the way it does. No `realHeight`: the source list carries
- * none, and the figure usually quoted is for the turret of a building that is
- * mostly roof.
+ * The building is nearly black, so it is laddered across three warm darks:
+ * `bark` shingles, `darkOlive` ambulatory roof, `brown` staves, planking and
+ * dragons. The only cool colour is the `slate` stone sill. Half-diagonal 23.2
+ * over height 39.9 is 0.58, unstretched. No `realHeight`: the quoted figure is
+ * for the turret.
  */
 
 /** The stone sill the whole frame stands on. */
@@ -129,16 +88,13 @@ export const borgundStaveChurch: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The sill. A stave church has no foundation to speak of — it stands on
-    //    a low stone footing, and without one the timber grows out of the grass.
+    // 1. The sill: a low stone footing, so the timber does not grow from the grass.
     // -----------------------------------------------------------------------
     block(-SILL, SILL, 0, SILL_TOP, -SILL, SILL, stone);
 
     // -----------------------------------------------------------------------
-    // 2. The ambulatory. A dark walled walk with an arcade of posts standing
-    //    proud of it, open on the front and the two sides, closed at the back.
-    //    The arcade is what tells you the building has a skin you can walk
-    //    inside of, which is what the svalgang is for.
+    // 2. The ambulatory: a dark walled walk with an arcade of posts standing
+    //    proud of it, open on the front and sides, closed at the back.
     // -----------------------------------------------------------------------
     for (const side of [-1, 1]) {
       block(side * AMBULATORY, side * EAVE, SILL_TOP, AMBULATORY_TOP, -EAVE, EAVE, shade);
@@ -148,9 +104,8 @@ export const borgundStaveChurch: Monument = {
     // waist rail, which is the whole difference between a gallery and a wall.
     block(-EAVE, EAVE, AMBULATORY_TOP, 7.0, -EAVE, -AMBULATORY, timber);
 
-    // Corner posts, then three more along the front and two down each side.
-    // Each stands `PROUD` out of the wall's face: flush to within a few
-    // hundredths, the post and the wall under it shared a plane and flickered.
+    // Corner posts, then three more along the front and two down each side, each
+    // `PROUD` out of the wall's face.
     const edge = EAVE - 0.72 + PROUD;
     const posts: [number, number][] = [
       [-edge, -edge],
@@ -174,10 +129,8 @@ export const borgundStaveChurch: Monument = {
     roof(EAVE, 11.8, 7.0, 10.4, skirt, 0.4);
 
     // -----------------------------------------------------------------------
-    // 3. The nave. Its wall is only visible in the band between the gallery's
-    //    eave and its own roof — from a 13.4-degree camera the skirt
-    //    hides everything under about 5.6 — so the planking and the staves are
-    //    spent where they can be seen.
+    // 3. The nave. Its wall shows only between the gallery's eave and its own
+    //    roof (the skirt hides everything under about 5.6 from 13.4 degrees).
     // -----------------------------------------------------------------------
     block(-11.0, 11.0, SILL_TOP, 14.6, -11.0, 11.0, timber);
     // Vertical staves standing proud of the wall: this is the construction the
@@ -191,9 +144,8 @@ export const borgundStaveChurch: Monument = {
     roof(12.4, 8.6, 14.6, 21.0, shingle);
 
     // -----------------------------------------------------------------------
-    // 4. Second stage, clerestory, turret. Each is a short wall and a steeper
-    //    roof than the one below it, which is what makes the pile accelerate
-    //    upward instead of tapering to a cone.
+    // 4. Second stage, clerestory, turret: a short wall and a steeper roof each,
+    //    so the pile accelerates upward.
     // -----------------------------------------------------------------------
     block(-8.0, 8.0, 21.0, 23.6, -8.0, 8.0, timber);
     roof(9.0, 5.8, 23.6, 28.4, shingle);
@@ -212,10 +164,8 @@ export const borgundStaveChurch: Monument = {
       block(side * 2.9, side * 3.2, 33.5, 34.7, -1.0, 1.0, shade);
     }
 
-    // The spire. One taper, not two: at this size a second course on a 4-unit
-    // cone is a ring the eye reads as a fault rather than as a shingle line.
-    // The turret spire: 4.6 tall on a 6.8 base. A stave church's top is a
-    // needle and a blunt cap on it reads as a hat, which is what 3.4 gave.
+    // The spire is one taper (a second course on a 4-unit cone reads as a fault),
+    // 4.6 tall on a 6.8 base: a blunt cap reads as a hat.
     const spire = taper(3.4, 0.28, 4.6, shingle, 4);
     spire.position.y = 35.0;
     group.add(spire);
@@ -227,13 +177,9 @@ export const borgundStaveChurch: Monument = {
     group.add(arm);
 
     // -----------------------------------------------------------------------
-    // 5. The dragons. Eight of them, on the diagonals — the roofs are four-sided
-    //    tapers, so their corners *are* the diagonals — sweeping up and out from
-    //    the ridge ends of the nave roof and the second-stage roof.
-    //
-    //    The pivot carries a rotation and no scale of its own. `T * R * S` puts
-    //    scale first, and a neck scaled in the axes it would have had after its
-    //    yaw is the fault that buried ten of Charles Bridge's piers.
+    // 5. The dragons: eight, on the diagonals, sweeping up and out from the ridge
+    //    ends of the nave and second-stage roofs. The pivot carries a rotation
+    //    and no scale (T * R * S puts scale first).
     // -----------------------------------------------------------------------
     const dragons = new THREE.Group();
     dragons.rotation.y = Math.PI / 4;
@@ -264,12 +210,10 @@ export const borgundStaveChurch: Monument = {
     dragons.add(around(4, () => dragon(8.2, 24.2, 3.2, 3.8, 1.05)));
 
     // -----------------------------------------------------------------------
-    // 6. The west door. Borgund's portal is the most carved thing in Norway and
-    //    none of that survives at 260 pixels; what does is a tall dark opening
-    //    with a heavy frame, under the gallery roof.
+    // 6. The west door: a tall dark opening with a heavy frame under the gallery
+    //    roof. The leaf stands `PROUD` clear of the front posts, which stand
+    //    `PROUD` clear of the wall.
     // -----------------------------------------------------------------------
-    // The leaf stands `PROUD` clear of the front posts' faces, which stand
-    // `PROUD` clear of the wall: nearer, the three shared a plane and flickered.
     block(-1.9, 1.9, SILL_TOP, 6.2, EAVE - 0.4, EAVE + 2 * PROUD, palette.bark);
     for (const side of [-1, 1]) {
       block(side * 1.9, side * 2.8, SILL_TOP, 7.0, EAVE - 0.2, EAVE + 0.45, timber);

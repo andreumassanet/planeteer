@@ -3,44 +3,19 @@ import type { Group, Mesh, Monument } from './contract.ts';
 /**
  * Moai of Rapa Nui.
  *
- * **One moai is a statue; a row of them is Rapa Nui.** The model is an ahu — the
- * stone platform — carrying six figures shoulder to shoulder, all facing the
- * same way, as at Ahu Tongariki. A single giant head would be a bigger model and
- * a worse one: nothing about one moai says *island*, and the thing every
- * photograph of Rapa Nui frames is the line.
+ * An ahu (the stone platform) carrying six figures shoulder to shoulder, all
+ * facing one way, as at Ahu Tongariki: the line is what names the island. The
+ * proportion that names a moai is the head at two fifths of the figure; the
+ * face holds it up with a heavy straight brow shelf over sunk eye sockets, a
+ * long nose standing out further than the brow, thin low lips, a jutting chin
+ * and long ears from crown to jaw. The bodies are legless torsos with arms flat
+ * down the flanks and hands meeting over the belly. Two figures wear a red
+ * `pukao`, the only element that is not grey.
  *
- * The proportion that has to survive at any size is **the head at two fifths of
- * the figure**. It is the whole disguise: at a human 1/7 these read as men in
- * blankets, at 2/5 they can only be moai. Everything else on the face is there
- * to hold that up — a heavy straight brow shelf with the eye sockets sunk in its
- * shadow, a long nose that stands out further than the brow does, thin lips set low,
- * a chin that juts out over the chest, and the long ears running from the crown
- * to the jaw. The bodies are legless torsos ending at the hips, arms flat down
- * the flanks, hands turning in to meet over the belly.
- *
- * Two figures wear a `pukao`, the cylinder of red scoria quarried at Puna Pau
- * and set on the crown. It is the only element that is not grey, so it carries
- * more of the thumbnail than its size deserves — which is why two, not one.
- *
- * **Tier: `building`.** Not `monument`, for two reasons. Mechanically, a face
- * costs nine parts and a body five, so six figures are 84 meshes against the
- * `monument` tier's 40 — the tier cannot hold a row at all, and a row is the
- * subject. And by the tier's own question, an ahu is not something you discover
- * by walking into it: it is a line of standing figures on a bare coast, read
- * from a long way off, which is exactly what `building` is for.
- *
- * **No crop and no stretch.** At 57 units wide and 37 tall the row is 1.5x wider
- * than tall, comfortably inside `MAX_ASPECT`, so unlike the Golden Gate or
- * Stonehenge nothing here is distorted to fit: the figures are 29 units on a
- * 3.8-unit platform, which is close to the real 1:8 of a Tongariki moai to its
- * ahu. What was traded is **count**: Tongariki lines up fifteen, and fifteen
- * would be 210 meshes and figures too narrow to carry a face. Six keeps the
- * rhythm of the row and keeps the faces legible.
- *
- * The other departure is the eyes. The restored moai have inlaid white coral
- * with a scoria pupil; here the socket is a dark block set back under the brow,
- * because at this size the coral would be two white dots and the shadow is what
- * the eye actually reads.
+ * Tier `building`: a face costs nine parts and a body five, so six figures are
+ * 84 meshes, over the `monument` tier's 40. Nothing is cropped or stretched; the
+ * count is reduced from Tongariki's fifteen so the faces stay legible. The eyes
+ * are dark blocks set back under the brow rather than inlaid coral.
  */
 
 // --- the row ---
@@ -55,7 +30,7 @@ const TOPKNOTS = [1, 4];
 /** Per-figure variation, as a fraction either side of nominal. */
 const HEIGHT_RANGE = 0.075;
 const WIDTH_RANGE = 0.06;
-/** Lean and yaw, in radians. Small: they were raised by eye, not knocked about. */
+/** Lean and yaw, in radians. Small: they were raised by eye. */
 const LEAN = 0.02;
 const YAW = 0.03;
 
@@ -68,7 +43,7 @@ const AHU_HEIGHT = AHU_BASE_HEIGHT + AHU_TOP_HEIGHT;
 
 // --- the figure, at nominal size: platform top to crown ---
 const FIGURE_HEIGHT = 29;
-/** The proportion that names a moai. Change nothing else in this file before this. */
+/** The proportion that names a moai. */
 const HEAD_FRACTION = 0.4;
 const HEAD_HEIGHT = FIGURE_HEIGHT * HEAD_FRACTION;
 const TORSO_HEIGHT = FIGURE_HEIGHT - HEAD_HEIGHT;
@@ -131,10 +106,8 @@ const LIP_Y = 1.55;
 const LIP_Z = 3.05;
 
 /**
- * The whole lower face is one block standing out of the head, and the nose lands
- * on top of it. Everything is the same stone, so a feature only reads by the
- * shadow under its own ledge — a mouth cut into a flat panel reads as nothing at
- * all, and a mouth on a jaw that juts reads from a distance.
+ * The whole lower face is one block standing out of the head, with the nose on
+ * top of it. A feature only reads by the shadow under its own ledge.
  */
 const CHIN_WIDTH = 4.6;
 const CHIN_HEIGHT = 3;
@@ -151,12 +124,7 @@ const EAR_DEPTH = 3;
 const EAR_Y = 2.3;
 const EAR_Z = 0.9;
 
-/**
- * The head tips back a few degrees about the jaw line. It is what the moai on
- * the ahu do — they were raised looking out over the settlement, not down at it
- * — and it is worth the two lines because a face tilted up reads as carved
- * while a face square to the front reads as stacked.
- */
+/** The head tips back a few degrees about the jaw line, so the face reads as carved. */
 const HEAD_TILT = -0.06;
 
 /** The pukao overhangs the crown a little and sits forward on it. */
@@ -166,8 +134,7 @@ const PUKAO_Z = 0.3;
 
 /**
  * Deterministic variation in [-1, 1]. The step is the golden angle, so no two
- * neighbours in a row of six land near the same value and the line never falls
- * into a pattern. `Math.random()` is out — the loader builds twice and compares.
+ * neighbours in the row land near the same value.
  */
 const wobble = (index: number, salt: number): number => Math.sin(index * 2.39996 + salt);
 
@@ -177,9 +144,7 @@ export const moaiRapaNui: Monument = {
   iso: 'CHL',
   lat: -27.125,
   lon: -109.277,
-  // No `realHeight`, matching the source list. There are nearly a thousand moai
-  // and no height belongs to all of them: the ahu figures run 4 to 10 m, and the
-  // one still lying in the quarry is 21. Picking one would be inventing a fact.
+  // No `realHeight`: no height belongs to all the moai.
   tier: 'building',
   footprint: 29,
 
@@ -196,8 +161,7 @@ export const moaiRapaNui: Monument = {
     /**
      * A hewn block. `width` and `depth` are at the base and `flare` times that
      * at the top: a square prism carries the flare, and `scale.z` sets the depth
-     * afterwards, which is the only way to get a slab that is not square in plan
-     * out of a helper that only makes regular prisms.
+     * afterwards.
      */
     const slab = (
       width: number,
@@ -211,8 +175,7 @@ export const moaiRapaNui: Monument = {
       return mesh;
     };
 
-    // --- the ahu: two courses, the upper one lighter, so the row stands on a
-    //     ledge instead of growing out of one dark block ---
+    // --- the ahu: two courses, the upper one lighter ---
     group.add(box(AHU_WIDTH, AHU_BASE_HEIGHT, AHU_DEPTH, basalt));
     const terrace = box(AHU_WIDTH - 3, AHU_TOP_HEIGHT, AHU_DEPTH - 1, paving);
     terrace.position.y = AHU_BASE_HEIGHT;
@@ -229,16 +192,14 @@ export const moaiRapaNui: Monument = {
         arm.position.set(side * ARM_X, ARM_Y, ARM_Z);
         figure.add(arm);
 
-        // The outer end rides up to meet the arm, the inner end drops to the
-        // navel, and the two long hands close on each other over the belly.
+        // The outer end rides up to meet the arm, the inner end drops to the navel.
         const hand = box(HAND_WIDTH, HAND_HEIGHT, HAND_DEPTH, stone);
         hand.position.set(side * HAND_X, HAND_Y, HAND_Z);
         hand.rotation.z = side * HAND_TILT;
         figure.add(hand);
       }
 
-      // The head is its own group so every feature below is written against the
-      // jaw line, which is where the proportions are actually reasoned about.
+      // The head is its own group so features are written against the jaw line.
       const head = new THREE.Group();
       head.position.y = TORSO_HEIGHT;
       head.rotation.x = HEAD_TILT;
@@ -284,9 +245,7 @@ export const moaiRapaNui: Monument = {
     // --- the row ---
     for (let index = 0; index < COUNT; index++) {
       const figure = moai(TOPKNOTS.includes(index));
-      // Scaling the figure rather than rebuilding it keeps the head at two
-      // fifths whatever the variation does, and scales x and z together so a
-      // wide moai is a thick one and not a flattened one.
+      // Scaling the figure keeps the head at two fifths; x and z scale together.
       const height = 1 + HEIGHT_RANGE * wobble(index, 0);
       const width = 1 + WIDTH_RANGE * wobble(index, 1);
       figure.scale.set(width, height, width);

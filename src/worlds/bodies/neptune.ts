@@ -2,37 +2,25 @@
  * Neptune, walked: a cloud deck at the 1-bar level thirty times further from
  * the Sun than Earth, in the fastest wind in the solar system.
  *
- * Everything true about Neptune — its radius, its 16.11-hour day, its tilt,
- * the storms at the latitudes Voyager 2 found them, the eight nations and
- * sixteen towns and the Gale who live in them — is
- * `src/system/bodies/neptune.ts`. This file says what it is like to stand
- * there:
+ * What is true about Neptune (radius, day, tilt, the storms at the latitudes
+ * Voyager 2 found them, the nations, towns and the Gale) is
+ * `src/system/bodies/neptune.ts`; this file says what it is like to stand there.
  *
- * - **The deck** is deep blue — methane takes the red out of the sunlight
- *   and leaves the rest — banded darker at the Great Dark Spot's latitude and
- *   white at its companions', and combed east to west everywhere by a wind
- *   that does not stop. The storms are relief (`neptune/features.ts`): the
- *   Dark Spot a basin the size of Earth with a wall round it and white
- *   companion clouds piled on its south rim, Scooter a lens of bright cloud,
- *   the Wizard's Eye a smaller basin with a bright core, and between 20 and
- *   55 degrees either side long thin ridges of cirrus along the parallels.
- * - **The weight**: 11.15 m/s², a seventh more than Earth's, so a jump is a
- *   little shorter than at home and nothing else is very different.
- * - **The sky** is a deep, dim blue with the stars faint through it in the
- *   day, and the Sun a hard white point 30 au away giving about a
- *   nine-hundredth of Earth's light; the sky's law gives back a share and
- *   `exposure` a little more, and no more than that, so the place stays dim.
- * - **The Gale** (invented) write in a raked, zigzag hand that stands on a
- *   line like grass in a gale, speak high and quick in whistles, and build
- *   hulls, fins, sails and kites, all of it tied down (`neptune/buildings.ts`).
- * - **What moves**: methane ice crystals blowing past the eye, and white
- *   updraft columns walking the deck — the convection the companion clouds
- *   are made of.
- * - **Drawn from the space kit**: the Gale are the kit's birb and hywirl at
- *   their own great height, and the kit's modules are drawn large for them,
- *   among their own wind-houses and sail halls.
- * - **What to take**: a saucer and a lander, both of which fly; the rovers
- *   parked on its streets drive its skyways.
+ * - The deck is deep blue (methane takes the red out of the sunlight), banded
+ *   darker at the Great Dark Spot's latitude and white at its companions', and
+ *   combed east to west by a wind that does not stop. The storms are relief
+ *   (`neptune/features.ts`): the Dark Spot a basin with a wall round it and
+ *   white companion clouds on its south rim, Scooter a lens of bright cloud,
+ *   the Wizard's Eye a smaller basin with a bright core, and long thin ridges
+ *   of cirrus along the parallels between 20 and 55 degrees.
+ * - Gravity is 11.15 m/s2.
+ * - The sky is a deep, dim blue with faint stars by day and the Sun a hard
+ *   white point giving about a nine-hundredth of Earth's light.
+ * - The Gale (invented) write in a raked, zigzag hand, speak high and quick in
+ *   whistles, and build hulls, fins, sails and kites, all tied down
+ *   (`neptune/buildings.ts`). They are the kit's birb and hywirl.
+ * - Methane ice crystals blow past the eye and white updraft columns walk the deck.
+ * - A saucer and a lander are takeable; the rovers on the streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -51,14 +39,12 @@ import { NEPTUNE_MOONS, neptuneRings } from './neptune/sky.ts';
 const GALE = SPECIES.find((one) => one.id === 'gale')!;
 
 /**
- * The bands, equator outward, one entry for each 2.34 degrees.
- *
- * The deck's painter lays the list over 37.5 degrees of latitude and repeats
- * it, mirrored north and south. Neptune is one azure, and the bands are only
- * that and the white of the streaks (28 to 33 degrees, where the companions
- * sit); the dark spots are painted where they are by `paintDeck` below, not
- * at their latitude all the way round, which grey bands had done and which
- * turned the whole deck the colour of slate.
+ * The bands, equator outward, one entry for each 2.34 degrees. The deck's
+ * painter lays the list over 37.5 degrees of latitude and repeats it, mirrored
+ * north and south. Neptune is one azure, so the bands are only that and the
+ * white of the streaks (28 to 33 degrees, where the companions sit); the dark
+ * spots are painted where they are by `paintDeck` below (grey bands turned the
+ * whole deck slate).
  */
 const BANDS = [
   PALETTE.skyBlue, // 0: the equatorial blue
@@ -80,11 +66,11 @@ const BANDS = [
 ];
 
 /**
- * The spots, painted where Voyager 2 saw them: the Great Dark Spot a deep blue
- * hole with its bright companions on the southern rim, the Wizard's Eye dark
- * with a white core, the northern spot of 2018 dark, Scooter white. A spot is
- * a disc of `size` degrees in a darker or brighter tone of the deck, soft at
- * its edge; `core` is a white centre.
+ * The spots, painted where Voyager 2 saw them: the Great Dark Spot with its
+ * bright companions on the southern rim, the Wizard's Eye dark with a white
+ * core, the northern spot of 2018 dark, Scooter white. A spot is a disc of
+ * `size` degrees in a darker or brighter tone of the deck, soft at its edge;
+ * `core` is a white centre.
  */
 const DEEP = tone(PALETTE.skyBlue, 0.5);
 const SPOTS = [
@@ -120,8 +106,7 @@ function paintDeck(dir: { readonly x: number; readonly y: number; readonly z: nu
 
 export const WORLD = defineWorld(NEPTUNE, {
   relief: {
-    // The system's map at a twenty-fifth: from orbit the storms are there as
-    // swells; on foot it is the features below that carry them.
+    // The system's map at a twenty-fifth: from orbit the storms are swells; on foot the features below carry them.
     planetScale: 0.04,
     detail: [
       // Billows a walker finds, creased a little where they meet.
@@ -137,23 +122,19 @@ export const WORLD = defineWorld(NEPTUNE, {
     base: PALETTE.skyBlue,
     steep: PALETTE.white,
     bands: BANDS,
-    // Low: the bands on Neptune are clean, the wind smears them along a
-    // parallel rather than across it.
+    // Low: the wind smears the bands along a parallel rather than across it.
     turbulence: 0.3,
-    // The high cirrus — the system's biome over the bright companions —
-    // shows white through the blue.
+    // The high cirrus (the system's biome over the bright companions) shows white through the blue.
     biomes: { cirrus: PALETTE.white },
     biomeBlend: 0.6,
     tint: paintDeck,
-    // The fastest winds in the solar system, and backwards: the deck's
-    // paint streams west.
+    // The fastest winds in the solar system, and backwards: the deck's paint streams west.
     churn: { boil: 0.6, speed: -42, wavelength: 320, strength: 0.12 },
   },
   sky: {
     horizon: PALETTE.skyBlue,
     zenith: PALETTE.slate,
-    // Less than Jupiter's, so a little of the dark shows through overhead
-    // and the brightest stars stay up by day: the light here is that thin.
+    // Less than Jupiter's, so a little of the dark shows through overhead and the brightest stars stay up by day.
     air: 0.62,
     light: PALETTE.white,
     exposure: 1.15,
@@ -234,9 +215,7 @@ export const WORLD = defineWorld(NEPTUNE, {
         { item: 'anchored-lens', weight: 2 },
       ],
       landmark: 'gale-mast',
-      // Hulls pale, so a town reads on the blue; the rigging the dark slate
-      // and steel; the sails and kites the brightest things on the planet,
-      // which is the point of a kite.
+      // Hulls pale, so a town reads on the blue; the rigging dark; the sails and kites the brightest things on the planet.
       walls: [PALETTE.white, PALETTE.bone, PALETTE.cream],
       roofs: [PALETTE.steel, PALETTE.slate],
       accents: [PALETTE.gold, PALETTE.orange, PALETTE.crimson, PALETTE.pink],
@@ -261,8 +240,7 @@ export const WORLD = defineWorld(NEPTUNE, {
     cast: { creatures: [{ item: 'birb', weight: 3 }, { item: 'hywirl', weight: 2 }], visitors: ['astronaut-redpanda', 'astronaut-bee'] },
     crowd: 1.1,
   }),
-  // The system's biomes name these, and they stand on the deck where its
-  // biomes say: ice plumes on the cirrus, drifts in the bands.
+  // The system's biomes name these: ice plumes on the cirrus, drifts in the bands.
   decorations: [ICE_PLUME],
   // Billows of the deck (`BILLOW`), where a crust has its boulders.
   rocks: 14,
@@ -280,7 +258,6 @@ export const WORLD = defineWorld(NEPTUNE, {
   // Westward, and hard: what the Gales lean into and the towns lie to.
   wind: { toward: 270, speed: 40, strength: 1 },
   landmarks: LANDMARKS,
-  // Companion, on the bright ridge over the Great Dark Spot's south rim: the
-  // basin falls away to the north, the Overlook two thousand units along it.
+  // Companion, on the bright ridge over the Great Dark Spot's south rim: the basin falls away to the north.
   spawn: 'companion',
 });

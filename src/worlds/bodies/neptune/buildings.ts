@@ -1,23 +1,17 @@
 /**
- * How the Gale build (invented): hulls, fins, sails and kites, all of it tied
- * down.
+ * How the Gale build (invented): hulls, fins, sails and kites, all tied down.
  *
- * Mars builds pressure vessels and Jupiter builds gas bags. Neptune's problem
- * is neither the air nor the floor: it is the wind, two thousand kilometres an
- * hour at the equator, and every building below is an answer to it. A house
- * is a low teardrop hull with its blunt end to the gale and a fin on its back
- * that keeps it pointing there, on a short pivot so it can swing; a mast flies
- * kites on a tether, because a kite is the one structure that is stronger the
- * harder it blows; a hall is a long hull under a rig of three sails; a store
- * is a lens of cloud-weave held down by a ring of anchors and stays. Nothing
- * stands up straight that does not have to, and everything that does is
- * guyed.
+ * Every building answers the wind. A house is a low teardrop hull with its
+ * blunt end to the gale and a fin on its back that keeps it pointing there, on
+ * a short pivot; a mast flies kites on a tether; a hall is a long hull under a
+ * rig of three sails; a store is a lens of cloud-weave held down by a ring of
+ * anchors and stays. Nothing stands up straight that does not have to, and
+ * everything that does is guyed.
  *
- * The rules are the kit's: the context's primitives, palette colours from the
- * style, **everything standing on `y = 0`**, and the footprint returned is the
- * widest thing at any height, guy lines included, because a stay is as much a
- * wall as a hull. The layout spaces buildings for a radius of about eight, so
- * no footprint here passes seven and a half before the plot's own scale.
+ * The kit's rules apply: the context's primitives, palette colours, everything
+ * on `y = 0`, and the footprint returned is the widest thing at any height,
+ * guy lines included. The layout spaces buildings for a radius of about eight,
+ * so no footprint passes seven and a half before the plot's own scale.
  *
  * The downwind direction of every building is its own `-x`; the fin trails
  * toward it and the kites stream toward it.
@@ -115,9 +109,8 @@ const windHouse: BuildingBuilder = (ctx, rng, style) => {
 
 /**
  * A kite mast: a tapering pole on a stepped footing, three stays, and a train
- * of kites flying off its head on one tether, each smaller and higher than
- * the last. The Gale's prayer flags, and their wind gauge: you can read the
- * gale's strength off the tether's angle.
+ * of kites flying off its head on one tether, each smaller and higher than the
+ * last. The tether's angle reads the gale's strength.
  */
 const kiteMast: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
@@ -158,11 +151,7 @@ function lineColour(style: { roofs: readonly number[] }): number {
   return style.roofs[0]!;
 }
 
-/**
- * A hall: a long hull low to the deck, a gallery of windows along each side,
- * and a rig of three sails standing on its back, the tallest forward. It is
- * where a Gale town keeps its common table and argues about the weather.
- */
+/** A hall: a long hull low to the deck, a gallery of windows along each side and a rig of three sails on its back, the tallest forward. */
 const sailHall: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
   const length = rng.range(9, 11);
@@ -197,9 +186,8 @@ const sailHall: BuildingBuilder = (ctx, rng, style) => {
 
 /**
  * A store: a lens of woven cloud held a body's height off the deck, pulled
- * down on all sides by stays to a ring of anchor posts. Grain does not keep
- * in a jet stream; what the Gale store is the ice they comb out of the
- * cirrus, and it keeps best up in the wind.
+ * down on all sides by stays to a ring of anchor posts. What the Gale store is
+ * the ice they comb out of the cirrus.
  */
 const anchoredLens: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();
@@ -236,10 +224,9 @@ const anchoredLens: BuildingBuilder = (ctx, rng, style) => {
 };
 
 /**
- * The town's centre: the Gale Mast. A tall guyed mast whose head carries a
- * vane — a long fin on a boom that turns the whole crown into the wind — and
- * a ring of small sails round its middle like a collar of feathers. Every
- * town has one and every town claims its own reads the gale truest.
+ * The town's centre: the Gale Mast. A tall guyed mast whose head carries a vane
+ * (a long fin on a boom that turns the crown into the wind) and a ring of small
+ * sails round its middle like a collar of feathers.
  */
 const galeMast: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();

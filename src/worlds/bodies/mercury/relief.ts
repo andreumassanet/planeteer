@@ -1,32 +1,21 @@
 /**
  * Mercury's named ground at walking scale: the features the system's table is
- * too coarse to hold and a traveller would walk to.
+ * too coarse to hold, each at its real coordinates (the system draws Caloris,
+ * Rembrandt and the Rupes as swells a few hundred kilometres wide, invisible on
+ * foot).
  *
- * `system/bodies/mercury.ts` draws Caloris, Rembrandt and the Rupes as swells a
- * few hundred kilometres wide, which is right from orbit and invisible on foot.
- * These are the same planet one scale down, each at its real coordinates:
+ * - named craters: Hokusai's central peak, Kuiper, Tyagaraja's floor of hollows,
+ *   the ice traps of Prokofiev and Chao Meng-Fu, Apollodorus;
+ * - Rachmaninoff, a basin with a second ring of peaks inside its rim;
+ * - Pantheon Fossae, the Spider: troughs radiating from the middle of Caloris;
+ * - the lobate scarps (Enterprise, Discovery): a steep face, a crest and a long
+ *   gentle back, the shape of a thrust fault.
  *
- * - **craters with names** — Hokusai's central peak, Kuiper, Tyagaraja's floor
- *   of hollows, the ice traps of Prokofiev and Chao Meng-Fu, Apollodorus at
- *   the hub of the Spider;
- * - **Rachmaninoff**, a basin with a second ring of peaks standing inside its
- *   rim, which is the skyline a walker will remember;
- * - **Pantheon Fossae**, the Spider: troughs radiating from the middle of
- *   Caloris like cracks in a windscreen, a hundred kilometres long, that you
- *   can walk down into;
- * - **the lobate scarps** — Enterprise, the longest cliff on the planet, and
- *   Discovery — drawn the way a thrust fault is shaped: a steep face on the
- *   side the crust rode over, a crest, and a long gentle back.
- *
- * Every function here is a `Feature`: a pure function of the direction, run
- * per ground vertex, so each begins with one dot product and returns 0 when
- * the point is out of reach. The depths are exaggerated over the real ones by
- * four or five — Hokusai's 34 units are 13.5 km, where a fresh crater its size
- * is about 3 deep — because a world unit is 0.4 km and a true-scale Mercury,
- * walked, is a plain with the craters too shallow to see. The widths are true.
- * A feature's own slope is held to about one and a half in one, and with the
- * planet's relief under it the steepest ground measured was 2.2 (2026-10-01),
- * where the crater field alone reaches 1.8: on a scarp's face, a 55-degree wall.
+ * Every function here is a `Feature`: a pure function of the direction, run per
+ * ground vertex, so each begins with one dot product and returns 0 out of reach.
+ * Depths are exaggerated four or five times over the real ones (a world unit is
+ * 0.4 km, and true-scale craters would be too shallow to see); widths are true.
+ * A feature's own slope is held to about one and a half in one.
  */
 
 import { surfaceRadiusOf } from '../../../system/contract.ts';
@@ -58,13 +47,11 @@ interface CraterShape {
   /** A central peak's height, units; 0 for none. */
   peak: number;
   /**
-   * Out to this share of the rim radius the floor is flooded flat: the
-   * planet's own relief under it is cancelled to its value at the centre, as
-   * lava or impact melt fills a basin to a level. Faded out across the wall.
-   * Only a basin wide enough for its wall to absorb the fade has one: on a
-   * crater a hundred units across the fade and the wall together are a
-   * cliff, and a young crater's floor is kept clear of later craters instead
-   * (`youngFloor` in `bodies/mercury.ts`).
+   * Out to this share of the rim radius the floor is flooded flat: the planet's
+   * relief under it is cancelled to its value at the centre, as lava or impact
+   * melt fills a basin, and faded out across the wall. Only a basin wide enough
+   * for its wall to absorb the fade has one; a young crater's floor is kept
+   * clear of later craters instead (`youngFloor` in `bodies/mercury.ts`).
    */
   flood?: number;
   /** A ring of peaks inside the rim, for a peak-ring basin: its radius as a share of the rim's, and its height. */
@@ -74,8 +61,8 @@ interface CraterShape {
 /**
  * The profile of a complex crater against the distance from its centre, as a
  * share of the rim radius: a flat floor, a wall rising to the rim from 0.62 of
- * the way out, and the ejecta's apron falling as the inverse cube outside, the
- * way it really does, gone by two and a half radii.
+ * the way out, and the ejecta's apron falling as the inverse cube outside, gone
+ * by two and a half radii.
  */
 function profile(c: CraterShape, s: number): number {
   if (s >= 2.6) return 0;
@@ -94,24 +81,20 @@ function crater(c: CraterShape): Feature {
   const [cx, cy, cz] = onSphere(c.lat, c.lon);
   const level = PLANET_RELIEF(c.lat, c.lon);
   const flood = c.flood ?? 0;
-  // The sine of the reach as an angle, against which `1 - dot^2` is compared
-  // so nothing past the apron pays for a square root.
+  // The sine of the reach as an angle, so nothing past the apron pays for a square root.
   const reach = (c.rim * 2.6) / R;
   const reachCos = Math.cos(reach);
   return (d, lat, lon) => {
     const dot = d.x * cx + d.y * cy + d.z * cz;
     if (dot <= reachCos) return 0;
-    // The distance along the ground, as the chord's sine: within a few
-    // degrees of the centre the two agree to a part in a thousand, and the
-    // field stays smooth through the centre, which `acos` would not be.
+    // The distance along the ground, as the chord's sine: close to the centre the two agree and the field stays smooth through it, which `acos` would not.
     const r = R * Math.sqrt(Math.max(0, 1 - dot * dot));
     const s = r / c.rim;
     let h = profile(c, s);
     if (flood > 0 && s < flood + 0.3) h += (level - PLANET_RELIEF(lat, lon)) * (1 - smooth(flood, flood + 0.3, s));
     if (c.peak > 0) h += c.peak * (1 - smooth(0, 0.25, s)) * (0.8 + 0.6 * fbm(d.x * PEAK_GRAIN, d.y * PEAK_GRAIN, d.z * PEAK_GRAIN, 2));
     if (c.ring !== undefined) {
-      // A ring of separate peaks, not a wall: the noise breaks it into
-      // massifs a few dozen units across with saddles between.
+      // A ring of separate peaks, not a wall: the noise breaks it into massifs with saddles between.
       const band = 1 - smooth(0, 0.16, Math.abs(s - c.ring.share));
       if (band > 0) {
         const massif = 0.5 + fbm(d.x * MASSIF_GRAIN, d.y * MASSIF_GRAIN, d.z * MASSIF_GRAIN, 2);
@@ -123,12 +106,10 @@ function crater(c: CraterShape): Feature {
 }
 
 /**
- * The radial troughs of Pantheon Fossae, round Apollodorus.
- *
- * Graben — strips of crust dropped between two faults — about ten units wide
- * and a few deep, radiating from one point near the middle of Caloris for up
- * to two hundred kilometres. There are more than two hundred of them; forty
- * read as the Spider at a walk and keep their spacing wider than a trough.
+ * The radial troughs of Pantheon Fossae, round Apollodorus: graben about ten
+ * units wide and a few deep, radiating from one point near the middle of
+ * Caloris for up to two hundred kilometres. Forty read as the Spider at a walk
+ * and keep their spacing wider than a trough.
  */
 function fossae(lat: number, lon: number): Feature {
   const [cx, cy, cz] = onSphere(lat, lon);
@@ -156,8 +137,7 @@ function fossae(lat: number, lon: number): Feature {
     const theta = Math.atan2(d.x * ax + d.y * ay + d.z * az, d.x * nx + d.y * ny + d.z * nz);
     const f = (theta / (Math.PI * 2)) * COUNT;
     const k = Math.round(f);
-    // Each trough its own length and a little wobble in its bearing, from
-    // its index: wrapped, so the one on the seam at +-180 degrees is one.
+    // Each trough its own length and a little wobble in its bearing, from its index (wrapped, so the one on the seam is one).
     const index = ((k % COUNT) + COUNT) % COUNT;
     const hash = Math.sin(index * 12.9898 + 4.1) * 43758.5453;
     const unit = hash - Math.floor(hash);
@@ -185,13 +165,10 @@ interface ScarpShape {
 
 /**
  * A lobate scarp along a great-circle arc: the signed distance from the trace,
- * bowed into lobes, mapped through a thrust fault's section.
- *
- * The section is the asymmetric one MESSENGER's altimetry shows on every
- * scarp it crossed: from the low ground a face that rises the whole height in
- * a few kilometres, a crest, and a back that falls away over ten times that.
- * The ends taper over the last quarter of the length, because a fault dies out
- * into the plain rather than stopping at a wall.
+ * bowed into lobes, mapped through a thrust fault's section. The section is
+ * asymmetric, as MESSENGER's altimetry shows: from the low ground a face that
+ * rises the whole height in a few kilometres, a crest, and a back that falls
+ * away over ten times that. The ends taper over the last quarter of the length.
  */
 function scarp(s: ScarpShape): Feature {
   const a = onSphere(s.from[0], s.from[1]);
@@ -253,9 +230,7 @@ export const NAMED_CRATERS: readonly CraterShape[] = [
 ];
 
 export const SCARPS: readonly ScarpShape[] = [
-  // About 1,000 km and 3 km high, through its published centre (37.6 S,
-  // 75.4 E) and on across Rembrandt's floor, which it cuts. The run of the
-  // trace is approximate; the centre is not.
+  // About 1,000 km and 3 km high, through its published centre (37.6 S, 75.4 E) and on across Rembrandt's floor. The trace is approximate.
   { name: 'Enterprise Rupes', from: [-44.5, 66.5], to: [-28.5, 86.5], height: 60, face: 70, back: 620, side: 1 },
   // About 650 km and 1.5 km high, in the old southern highlands.
   { name: 'Discovery Rupes', from: [-58, -45], to: [-48.5, -32], height: 38, face: 48, back: 400, side: -1 },

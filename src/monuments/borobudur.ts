@@ -4,97 +4,26 @@ import type { Monument } from './contract.ts';
 /**
  * Borobudur.
  *
- * The trap this file exists to avoid is being read as a second Chichen Itza.
- * Both are stepped stone pyramids and there the resemblance stops: El Castillo
- * is a steep square cone with a temple on the summit, and Borobudur is a
- * mandala you walk — a very broad, very low stone hill whose *plan changes
- * shape as it rises*. Five square galleries at the bottom, three circular
- * terraces above them, and that switch from square to round is the whole
- * argument of the building. No other monument does it.
+ * A broad, low mandala whose plan changes shape as it rises: five square
+ * galleries stepping in by 2.5 units each, then three plain 20-gon discs (the
+ * top square gallery is left 1.6 wider than the first disc, a circle inside a
+ * square). Not a second Chichen Itza: that is a steep cone with a temple.
  *
- * Four things have to survive at thumbnail size, and every unit here is spent
- * on one of them:
+ * Pieces: 36 bell stupas in three rings (16/12/8, half the real counts, spaced
+ * 6.4 to 6.5 apart so the rings read), a great stupa 12.2 wide at the summit,
+ * and four axial stairways with a dark gate at each level (one tapered mesh per
+ * gate, wider than the stair so its edges read as jambs). The stupas are not
+ * perforated and have no finial.
  *
- * - **Square below, circular above.** Five square galleries stepping in by 2.5
- *   units each, then three plain discs. The discs are 20-gons where everything
- *   under them is a 4-gon, and the top square gallery is left 1.6 units wider
- *   than the first disc so its four corners stand out empty around it: a circle
- *   inside a square, which is the plan of the whole building in one join.
- * - **The ring of bells.** The perforated stupas standing in concentric circles
- *   on those terraces are the most photographed thing in Indonesia, and they get
- *   36 of this model's 104 meshes without argument. Three rings, and the rings
- *   have to read as rings: the radii are set against the counts so neighbours
- *   sit 6.4 to 6.5 units apart on all three, which is what makes them scan as
- *   one system seen in perspective rather than three scatterings.
- * - **The great stupa**, alone at the centre and the top, 12.2 units wide
- *   against the small bells' 3.0. Without it the summit is a pincushion.
- * - **Four stairways cutting through every terrace, gated at each level.** They
- *   run on the axes, they project through every balustrade they cross, and each
- *   crossing is marked by a dark gate. The gates, not the treads, are what says
- *   "stairway" on this building.
+ * Each gallery is two meshes: a solid body whose top is the corridor floor and a
+ * hollow square parapet half a unit proud of the wall below, in the darkest grey
+ * to stand for the corridor's shadow.
  *
- * **The galleries are corridors, not steps.** This is the detail that separates
- * Borobudur from a wedding cake and it costs exactly two meshes a level: a solid
- * body whose top face is the corridor floor, plus a hollow square parapet
- * standing at that floor's outer edge, half a unit proud of the wall below it.
- * The corridor's *inner* wall is the next gallery's body rising behind the gap.
- * So every terrace edge draws two ink lines with a shadow between them, which is
- * what a walled gallery looks like and what a single stepped-back ledge does
- * not. The parapets take the darkest of the three greys for the same reason: at
- * this size the corridor itself is 1.1 units wide and will not be seen into, so
- * the shadow it should be casting is painted on instead.
- *
- * **Why `building`, at 30 of that tier's 40 units.** The tier question is "from
- * how far should a player be able to name it", and Borobudur answers it the way
- * Angkor Wat does: from across the site, over the trees. It is horizontal, it
- * sits in a plain, and 120 landmark units spent on something three times wider
- * than tall buys a pagoda. Within the tier the model is deliberately short of
- * the 40-unit ceiling, because the ceiling is a budget and *flatness is the read
- * here*: at 40 tall over this base the aspect would be 2.55, and the Castillo's
- * is 2.48, so the two cards would collapse into each other. At 30 it is 3.39 —
- * 37% flatter than the Castillo, 2.8 units wider than it, and three quarters of
- * its height. The contract's fill check passes on the diameter, as it is
- * written to for exactly this kind of shape.
- *
- * Five trades, with their numbers:
- *
- * - **The plan is squeezed 1.46x against the height.** In life the base is about
- *   123 m square and the summit about 35 m up, so corner to corner over height
- *   is near 5.0 — `MAX_ASPECT` is 4 and will not take it. Here it is 3.39. The
- *   squeeze goes into the plan rather than the height because the *sequence*
- *   square-square-square-round-round-round is what names this building, and that
- *   sequence lives on the vertical axis.
- * - **36 stupas, not 72.** Exactly half of each real ring: 32/24/16 becomes
- *   16/12/8. At full count the outer ring's bells would stand 3.3 units apart
- *   and be 3.2 wide — touching — and the ring would fill in to a solid collar.
- *   Half the count is what leaves daylight between them.
- * - **The stupas are not perforated and have no finial.** The lattice that gives
- *   them their name is well under a pixel at this size; a second mesh for a
- *   finial on each would cost 36 more of a 110 budget. One eight-sided taper per
- *   stupa keeps the bell silhouette, which is all that survives anyway.
- * - **A gate is one dark tapered mesh.** Jambs and a lintel would be three each,
- *   sixty for the twenty gates, more than half the tier. Instead each gate is
- *   wider than the stair at its foot — so its edges read as jambs standing clear
- *   on both sides — and closes to a point, which is the kala crown. Dark, so it
- *   reads as an opening the moment the ink lands, the same trick Angkor Wat uses
- *   on its doorways.
- * - **The round section is taller than life.** The three circular terraces and
- *   the crowning stupa are 14.8 of these 30 units, half the model, against
- *   roughly a third of the real building. They were built to scale first and the
- *   whole crown disappeared behind the top square balustrade — five galleries of
- *   busy horizontal banding will always beat a low disc. The exaggeration buys
- *   the one silhouette no other monument has.
- *
- * **No `realHeight`, and it is not an omission.** The source list asserts none
- * and it is right not to: the figure depends on whether you count the encased
- * hidden foot at the bottom and the reconstructed crown at the top, and 34.5,
- * 35 and 42 m all circulate for that reason. Two copies of a disputed fact are
- * two chances to be wrong.
- *
- * **There is no front to mark.** Borobudur is a mandala and its symmetry is the
- * point, so unlike the Castillo — whose serpent heads sit on the north stairway
- * only, because that is where they are — nothing here distinguishes one face.
- * The +Z stairway is the eastern approach by convention.
+ * Tier `building`, 30 of 40 units: flatness is the read (aspect 3.39 against the
+ * Castillo's 2.48). The plan is squeezed 1.46x against the height, and the round
+ * section is taller than life (14.8 of 30 units) or it vanishes behind the top
+ * balustrade. No `realHeight`: 34.5, 35 and 42 m all circulate. There is no
+ * front; the +Z stairway is the eastern approach by convention.
  */
 
 // --- the base ---------------------------------------------------------------
@@ -126,11 +55,8 @@ const SQUARE_TOP = FOOT_TOP + RISE * GALLERIES;
 
 // --- the three circular terraces --------------------------------------------
 /**
- * Twenty sides against the galleries' four, and each disc stands 0.7 to 0.8
- * taller than the ring of bells in front of it, so its wall clears them and the
- * three read as three steps rather than one mound. Roundness is the whole
- * argument up here, which is why it is the one place in the model paying for
- * twenty sides.
+ * Twenty sides against the galleries' four. Each disc stands 0.7 to 0.8 taller
+ * than the ring of bells in front of it, so the three read as three steps.
  */
 const CIRCLE_SIDES = 20;
 const CIRCLES = [
@@ -141,11 +67,9 @@ const CIRCLES = [
 
 /**
  * One ring of bells per terrace. `ring` is the radius the stupas stand on: 16.6,
- * 12.3 and 8.2 against counts of 16, 12 and 8 put neighbours 6.5, 6.4 and 6.4
- * apart, so all three rings read at one rhythm. Each ring is also tucked six to
- * eight tenths inside its own terrace's rim and four tenths clear of the wall
- * behind it, which is the margin that keeps the bells standing on a terrace
- * rather than embedded in one.
+ * 12.3 and 8.2 for counts of 16, 12 and 8 put neighbours 6.5, 6.4 and 6.4 apart.
+ * Each ring sits six to eight tenths inside its terrace's rim and four tenths
+ * clear of the wall behind it.
  */
 const STUPA_SIDES = 8;
 const STUPAS = [
@@ -155,15 +79,11 @@ const STUPAS = [
 ];
 
 /**
- * The great stupa: drum, bell, dome, finial. Four meshes, 5.8 units tall and
- * 12.2 across, against small bells 2.0 to 2.2 tall and 2.8 to 3.0 across. The
- * size difference is the hierarchy and it has to be obvious.
- *
- * The recession accelerates — 0.9 of radius lost per unit of height over the
- * bell, 1.3 over the dome, 1.0 in the finial's first tenth — so the profile
- * closes as a dome rather than running out to the cone that a constant taper
- * gives. `dark` puts the darker course on the drum and the finial, bracketing
- * the pale dome instead of leaving one smooth lump.
+ * The great stupa: drum, bell, dome, finial. Four meshes, 5.8 tall and 12.2
+ * across against small bells 2.0 to 2.2 tall and 2.8 to 3.0 across. The
+ * recession accelerates (0.9 of radius lost per unit of height over the bell,
+ * 1.3 over the dome, 1.0 in the finial's first tenth) so it closes as a dome;
+ * `dark` puts the darker course on the drum and finial.
  */
 const GREAT_SIDES = 12;
 const GREAT = [
@@ -187,25 +107,19 @@ const rampZ = (y: number): number => FACE_Z + RAMP_SET - SLOPE * (y - FACE_Y);
 const RAMP_Y0 = 4.2;
 const RAMP_Y1 = 14.1;
 /**
- * The ramp is a square beam laid along the slope, so its climbing face is
- * offset from its centreline both up and out. These two are that offset, and
- * every step nose and gate below is hung off the face rather than the line —
- * placing them on the centreline buries them.
+ * The ramp is a square beam laid along the slope, so its climbing face is offset
+ * from its centreline up and out by these two; every step nose and gate hangs
+ * off the face, not the line.
  */
 const RAMP_N = Math.hypot(1, SLOPE);
 const RAMP_UP = (STAIR_W / 2) * (SLOPE / RAMP_N);
 const RAMP_OUT = (STAIR_W / 2) / RAMP_N;
 
 /**
- * A step nose halfway up each gallery. This is the Castillo's lesson bought
- * cheaply: a smooth ramp reads as a ramp, so the axis needs marks finer than the
- * terraces it crosses. A nose every 2.6 units, offset 1.3 from a gate every 2.6,
- * gives the stairway an element every 1.3 units — half the terrace pitch — for
- * six meshes a side, where a stack of treads fine enough to say the same costs
- * eight on its own.
- *
- * `NOSE_H` is set against `NOSE_D`: any shallower and the nose's outer lip lifts
- * off the sloping face it is supposed to be cut into.
+ * A step nose halfway up each gallery: a nose every 2.6 units, offset 1.3 from
+ * a gate every 2.6, gives the stairway an element every 1.3 units for six
+ * meshes a side. `NOSE_H` is set against `NOSE_D`: shallower and the nose's
+ * outer lip lifts off the sloping face.
  */
 const NOSE_W = STAIR_W + 1.6;
 const NOSE_H = 1.7;
@@ -233,11 +147,8 @@ export const borobudur: Monument = {
 
   build(ctx) {
     const { THREE, palette, box, column, taper, strut, ringWall, around } = ctx;
-    // Andesite, and cool on purpose: the Castillo is sand, tan and clay, and two
-    // warm stepped pyramids side by side are one model printed twice. The three
-    // greys also do the model's zoning, which matters more than the hue: `band`
-    // stripes the square base, `course` belongs to the round crown and to
-    // nothing below it, and `stone` is the one thing common to both.
+    // Andesite, cool on purpose (the Castillo is warm). `band` stripes the square
+    // base, `course` belongs to the round crown, `stone` is common to both.
     const stone = palette.bone;
     const band = palette.steel;
     const course = palette.slate;
@@ -247,10 +158,9 @@ export const borobudur: Monument = {
     const group = new THREE.Group();
 
     /**
-     * A hollow square ring — the only helper that makes a hole. `ringWall` is
-     * lathed and starts on a vertex, so at four sides it comes out as a diamond
-     * with its corners on the axes; half a segment of yaw squares it up, and the
-     * radii are then corners, not flats.
+     * A hollow square ring, the only helper that makes a hole. `ringWall` is
+     * lathed and starts on a vertex, so at four sides it is a diamond; half a
+     * segment of yaw squares it up, and the radii are then corners.
      */
     const parapet = (halfIn: number, halfOut: number, height: number, y: number): void => {
       const ring = ringWall(halfIn * Math.SQRT2, halfOut * Math.SQRT2, height, band, 4);
@@ -340,9 +250,8 @@ export const borobudur: Monument = {
           nose.position.set(0, middle + RAMP_UP - NOSE_H, rampZ(middle) + RAMP_OUT);
           stair.add(nose);
 
-          // And the gate at the top of it, where the stair breaks the parapet.
-          // Solving back through the offset is what puts the gate's foot exactly
-          // on the face at the parapet's own height.
+          // The gate at the top, where the stair breaks the parapet: solved back
+          // through the offset so its foot lands on the face at the parapet's height.
           const top = galleryBase(i) + RISE;
           // Its foot is sunk `PROUD` into the gallery: standing on the floor,
           // its underside shared a plane with the parapet's and flickered.

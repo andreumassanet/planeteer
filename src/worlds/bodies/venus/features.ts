@@ -1,17 +1,12 @@
 /**
- * The landforms of Venus a person walks over, as `Feature`s: the walking
- * scale the system's map is too coarse to hold.
+ * The landforms of Venus a person walks over, as `Feature`s: the walking scale
+ * the system's map is too coarse to hold. Every centre is a real one, from the
+ * Magellan radar maps. The vertical scale is not: the planet is drawn about
+ * thirty times taller than it is (`reliefBudget` in `system/ground.ts`), since a
+ * truly 750 m pancake dome would be two units on a sixty-unit plate.
  *
- * Every centre is a real one, from the Magellan radar maps. What is *not*
- * real is the vertical scale: the whole planet is drawn about thirty times
- * taller than it is (`reliefBudget` in `system/ground.ts`), and a pancake dome
- * that is truly 750 metres high on a 25-kilometre base would be two units on
- * a sixty-unit plate here — a stain, not a landform. So each one says what it
- * really is and what it is drawn as.
- *
- * Each is a dot product and an early return first, because a feature runs
- * once per ground vertex; the trigonometry only happens inside its reach.
- * And each keeps its steepest slope under about 60 degrees, which is the
+ * Each is a dot product and an early return first, because a feature runs once
+ * per ground vertex. Each keeps its steepest slope under about 60 degrees, the
  * check's tear test (a rise of 0.1 over 0.05 units) with a margin.
  */
 
@@ -36,21 +31,15 @@ const dotOf = (d: Vec, c: readonly number[]): number => d.x * c[0]! + d.y * c[1]
 /** Units along the ground from a cosine: the chord, which is the arc to a part in a million here. */
 const unitsOf = (dot: number): number => R * Math.sqrt(Math.max(0, 2 - 2 * dot));
 
-// ---------------------------------------------------------------------------
-// Seoritsu Farra: the pancake domes
-// ---------------------------------------------------------------------------
+// --- Seoritsu Farra: the pancake domes ---
 
 /**
- * The seven pancake domes on the eastern edge of Alpha Regio, the most
- * photographed landform on Venus after Maxwell: lava so thick and sticky it
- * did not run but slumped, and cooled into flat-topped cakes about 25 km
- * across and 750 m high, cracked across the top and pitted in the middle.
- *
- * Drawn 45 to 90 units across the top and 11 to 16 high, with a flank as
- * steep as the tear test allows — the steepness is the whole look, and it is
- * what `palette.steep` paints. Two carry towns (Seoritsu and Farra, in
- * `system/bodies/venus.ts`) and one carries the Bell; those three have no
- * central pit, because a town's pad would only fill it in again.
+ * The seven pancake domes on the eastern edge of Alpha Regio: lava so thick it
+ * slumped into flat-topped cakes about 25 km across and 750 m high, cracked
+ * across the top and pitted in the middle. Drawn 45 to 90 units across the top
+ * and 11 to 16 high, with a flank as steep as the tear test allows (what
+ * `palette.steep` paints). Two carry towns (Seoritsu and Farra) and one the Bell;
+ * those three have no central pit, which a town's pad would fill in.
  */
 const DOMES = [
   { lat: -30.0, lon: 11.8, r: 90, h: 16, pit: false }, // Seoritsu
@@ -72,8 +61,7 @@ const pancakes: Feature = (d) => {
     const dot = dotOf(d, dome.c);
     if (dot < dome.cos) continue;
     const t = unitsOf(dot) / dome.r;
-    // A faintly convex top, a slumped edge, and the pit where the last lava
-    // drained back down the vent.
+    // A faintly convex top, a slumped edge, and the pit where the last lava drained back down the vent.
     let lift = dome.h * (1 - 0.06 * t * t) * (1 - smooth(0.72, 1.02, t));
     if (dome.pit) lift -= dome.h * 0.35 * (1 - smooth(0, 0.14, t));
     h += lift;
@@ -81,19 +69,14 @@ const pancakes: Feature = (d) => {
   return h;
 };
 
-// ---------------------------------------------------------------------------
-// Aine Corona
-// ---------------------------------------------------------------------------
+// --- Aine Corona ---
 
 /**
- * Aine Corona, 59 S 164 E: a crown of ridges about 200 km across, the mark
- * of a plume of hot mantle that pushed the crust up into a dome and let it
- * sag back, leaving a raised rim, a moat outside it and fractures running out
- * from the middle like the spokes of a wheel. Coronae are found nowhere but
- * Venus, and there are hundreds of them.
- *
- * Drawn 500 units across with a 24-unit rim, a 9-unit moat, a low swell in
- * the middle (where Aine stands) and twenty-four radial grooves.
+ * Aine Corona, 59 S 164 E: a crown of ridges about 200 km across, where a plume
+ * pushed the crust up and let it sag back, leaving a raised rim, a moat outside
+ * it and fractures running out like spokes. Drawn 500 units across with a
+ * 24-unit rim, a 9-unit moat, a low swell in the middle and twenty-four radial
+ * grooves.
  */
 const AINE = { c: at(-59, 164), ring: 250 };
 const AINE_REACH = cosOf(AINE.ring + 210);
@@ -118,24 +101,20 @@ const corona: Feature = (d) => {
   let h = 24 * Math.exp(-ring * ring) - 9 * Math.exp(-moat * moat) + 7 * (1 - smooth(0, AINE.ring * 0.8, u));
   if (u < AINE.ring * 0.9) {
     const bearing = Math.atan2(dotOf(d, AINE_NORTH), dotOf(d, AINE_EAST));
-    // Cubed rather than sharper: a crease's slope is its power times its
-    // spoke count over the distance out, and near the middle that is steep.
+    // Cubed rather than sharper: a crease's slope is its power times its spoke count over the distance out, steep near the middle.
     const fold = 1 - Math.abs(Math.sin(bearing * 12));
     h -= 2.5 * fold * fold * fold * smooth(70, 130, u) * (1 - smooth(AINE.ring * 0.7, AINE.ring * 0.9, u));
   }
   return h;
 };
 
-// ---------------------------------------------------------------------------
-// Cleopatra
-// ---------------------------------------------------------------------------
+// --- Cleopatra ---
 
 /**
- * Cleopatra, 65.8 N 7.1 E, on the eastern flank of Maxwell Montes: a
- * 105-kilometre double-ring crater two and a half kilometres deep, and so
- * clean that for years it was argued to be a volcano. Drawn 132 units to the
- * rim with a floor 42 down, a peak ring inside it and a low apron of ejecta
- * outside. The Lantern stands on its northern rim.
+ * Cleopatra, 65.8 N 7.1 E, on the eastern flank of Maxwell Montes: a 105-km
+ * double-ring crater. Drawn 132 units to the rim with a floor 42 down, a peak
+ * ring inside and a low apron of ejecta outside. The Lantern stands on its
+ * northern rim.
  */
 const CLEOPATRA = { c: at(65.8, 7.1), r: 132 };
 const CLEOPATRA_REACH = cosOf(CLEOPATRA.r * 2.3);
@@ -149,15 +128,12 @@ const cleopatra: Feature = (d) => {
   return -42 * (1 - smooth(0.55, 1, t)) + 16 * Math.exp(-rim * rim) + 9 * Math.exp(-peak * peak) + 4 * (t > 1 ? 1 - smooth(1, 2.2, t) : 1);
 };
 
-// ---------------------------------------------------------------------------
-// Maat Mons
-// ---------------------------------------------------------------------------
+// --- Maat Mons ---
 
 /**
- * Maat Mons, 0.5 N 194.6 E: the tallest volcano on Venus, eight kilometres
- * over the mean radius, and young enough that its flows show no craters at
- * all. Drawn as a shield 380 units in radius and 110 tall over Atla Regio's
- * rise, with a summit caldera; Maat stands on its northern flank.
+ * Maat Mons, 0.5 N 194.6 E: the tallest volcano on Venus. Drawn as a shield 380
+ * units in radius and 110 tall over Atla Regio's rise, with a summit caldera;
+ * Maat stands on its northern flank.
  */
 const MAAT = { c: at(0.5, -165.4), r: 380, h: 110, caldera: 45 };
 const MAAT_REACH = cosOf(MAAT.r);
@@ -171,17 +147,13 @@ const maat: Feature = (d) => {
   return MAAT.h * Math.pow(Math.max(0, 1 - t), 1.6) - 28 * (1 - smooth(0.5, 1.1, u / MAAT.caldera)) + 5 * Math.exp(-lip * lip);
 };
 
-// ---------------------------------------------------------------------------
-// Baltis Vallis
-// ---------------------------------------------------------------------------
+// --- Baltis Vallis ---
 
 /**
- * Baltis Vallis: a channel one to three kilometres wide and **6,800 km
- * long**, longer than the Nile, cut by a lava so fluid it ran like water —
- * the longest channel known anywhere in the solar system. Its whole course
- * would circle a fifth of this world; what is drawn is the 2,500-km stretch
- * through Atalanta Planitia, between 25 N 152 E and 46 N 170 E, 18 units wide
- * and 5 deep between low levees, meandering. Baltis stands on its bank.
+ * Baltis Vallis: a lava channel 6,800 km long, the longest known in the solar
+ * system. What is drawn is the 2,500-km stretch through Atalanta Planitia,
+ * between 25 N 152 E and 46 N 170 E, 18 units wide and 5 deep between low
+ * levees, meandering. Baltis stands on its bank.
  */
 const BALTIS = (() => {
   const a = at(25, 152);
@@ -215,17 +187,12 @@ const baltis: Feature = (d) => {
   return h * fade;
 };
 
-// ---------------------------------------------------------------------------
-// Tessera
-// ---------------------------------------------------------------------------
+// --- Tessera ---
 
 /**
- * Tessera: Venus's oldest ground, a highland folded and then cracked across
- * the folds, so that from orbit it looks like a tiled floor (*tessera* is
- * Greek for a tile). Alpha Regio is the type locality, Ovda Regio the
- * largest, Fortuna Tessera the one beside Maxwell. Drawn as two crossing sets
- * of creased ridges, 34 and 21 units apart — creases, because a four-band
- * ramp only steps where a normal turns.
+ * Tessera: Venus's oldest ground, a highland folded and then cracked across the
+ * folds. Drawn as two crossing sets of creased ridges, 34 and 21 units apart
+ * (creases, because a four-band ramp only steps where a normal turns).
  */
 const TESSERAE = [
   { c: at(-25.5, 4.5), extent: 8.5 },

@@ -2,41 +2,19 @@ import { PROUD } from './contract.ts';
 import type { Monument } from './contract.ts';
 
 /**
- * Elizabeth Tower — the clock tower at Westminster, which everybody calls Big
- * Ben after the bell hanging inside it.
+ * Elizabeth Tower — the clock tower at Westminster (Big Ben, after its bell).
  *
- * A square tower with a circle on it is nearly right and completely
- * forgettable, so four things carry this one and every part in the file serves
- * one of them:
+ * Four things carry it. Vertical stripes: each face is corner pier / dark slot
+ * / rib / dark slot / corner pier, repeated by the clock stage's corner shafts,
+ * the belfry posts and the spire's pinnacles. A clock stage wider than the
+ * shaft, corbelled out on a flare. The spire (27% of the height), dark and
+ * gilded along its four ridges. The belfry openings, real gaps between four
+ * posts.
  *
- * - **Vertical stripes.** The tower reads tall because it is striped, not
- *   because it is thin. Each face is corner pier / dark slot / rib / dark slot
- *   / corner pier, and that five-band rhythm is picked up again by the clock
- *   stage's corner shafts, the belfry posts and the spire's pinnacles, so one
- *   line runs from the pedestal to the sky. A smooth box of these proportions
- *   is a chimney.
- * - **A clock stage wider than the shaft**, corbelled out on a flare. Without
- *   the step the dials look stuck on; with it they look carried.
- * - **The spire**, 27% of the height, dark against the stone and gilded along
- *   its four ridges. It is most of the character and it is the part a plain
- *   tower has none of.
- * - **The belfry openings** between the two: real gaps between four posts
- *   rather than painted-on panels, which is a dark band with light corners at
- *   any size and costs nine meshes.
- *
- * Traded away, and why:
- *
- * - **The louvres are square-headed.** Arched heads need an extruded shape with
- *   a hole, and the belfry is a dark band the moment it is in shadow.
- * - **The inscription is a plain gilt course.** DOMINE SALVAM FAC REGINAM
- *   NOSTRAM VICTORIAM PRIMAM is illegible below about a metre away; the band it
- *   sits on is not.
- * - **It is stockier than life.** The real tower is 96 m over a 12 m square,
- *   8:1. Across the corner piers this one is 6.4:1, because a truer tower
- *   frames smaller in every view it will ever be seen in and loses the ribs
- *   first.
- * - **The hands are kept**, at 12 triangles each. They are the difference
- *   between a clock and a porthole, which is the entire building.
+ * Simplified: square-headed louvres (the belfry is a dark band in shadow), a
+ * plain gilt course for the inscription, and hands kept at 12 triangles each.
+ * Stockier than life (6.4:1 across the corner piers against 8:1) so the ribs
+ * survive at distance.
  */
 
 // --- elevation, in tier units. The spire tip is the `tower` ceiling. ---
@@ -103,8 +81,7 @@ export const bigBen: Monument = {
 
     /**
      * `around` spins a face to the four sides; this puts a copy on the four
-     * corners instead, square with the tower rather than turned to the
-     * diagonal. Every vertical accent on the building uses one or the other.
+     * corners instead, square with the tower rather than turned to the diagonal.
      */
     const atCorners = (make: (x: number, z: number) => ReturnType<typeof box>) => {
       const corners = new THREE.Group();
@@ -138,9 +115,8 @@ export const bigBen: Monument = {
       }),
     );
 
-    // One rib and two window slots per face. The slots stand a little proud
-    // rather than sinking in: a recess this shallow is invisible under a cel
-    // ramp, while a raised dark strip gets its own ink line for free.
+    // One rib and two window slots per face. The slots stand a little proud: a
+    // recess this shallow is invisible under a cel ramp, a raised strip gets ink.
     group.add(
       around(4, () => {
         const bay = new THREE.Group();
@@ -205,10 +181,8 @@ export const bigBen: Monument = {
         plate.position.z = PROUD;
         face.add(plate);
 
-        // Ten past ten. Both hands straight up would collapse into one stroke;
-        // a V is what a clock looks like when it is eight pixels across.
-        // Rotating a face about Y keeps its handedness as seen from outside, so
-        // all four tell the same time rather than mirroring at the back.
+        // Ten past ten (a V, not two hands collapsing into one stroke). Rotating
+        // a face about Y keeps its handedness, so all four tell the same time.
         const pointer = (length: number, width: number, clockwise: number) => {
           const arm = box(width, length, 0.32, hand);
           arm.position.z = 1.05;
@@ -256,11 +230,10 @@ export const bigBen: Monument = {
     spire.position.y = SPIRE_BASE;
     group.add(spire);
 
-    // Lucarnes. A gable is a triangular prism, not a pyramid: a four-sided
-    // `taper` puts its point in the middle of the roof, where the spire simply
-    // swallows it. A three-sided `column` laid on its side has the point over
-    // the front wall where a gable's belongs, and costs four triangles less.
-    // After the quarter turn it occupies x +/- 1.73r, y -r to +2r, z 0 to depth.
+    // Lucarnes. A gable is a triangular prism: a three-sided `column` laid on its
+    // side puts the point over the front wall (a four-sided `taper` would put it
+    // mid-roof, inside the spire). After the quarter turn it occupies
+    // x +/- 1.73r, y -r to +2r, z 0 to depth.
     group.add(
       around(4, () => {
         const lucarne = column(GABLE_R, GABLE_DEPTH, iron, 3);

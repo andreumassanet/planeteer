@@ -1,21 +1,16 @@
 /**
  * How the Floaters build (invented): membranes, bladders, rings and spokes.
  *
- * Mars builds pressure vessels — domes on drums — because its problem is
- * keeping air in. Jupiter's problem is the opposite of a foundation: there is
- * no ground, the platform a town stands on is itself held up, and anything
- * heavy here falls for a very long time. So nothing below is massive. A house
- * is a light gondola hung under its own gas bag; a workshop is a wheel of
- * spokes turning in the wind; a hall is three sails of membrane on a mast; a
- * granary is a bunch of small bladders on stalks, like grapes. Every one of
- * them is mostly air with a line drawn round it, which is what the pen is
- * best at.
+ * Nothing is massive: a house is a light gondola hung under its own gas bag, a
+ * workshop a wheel of spokes turning in the wind, a hall three sails of
+ * membrane on a mast, a granary a bunch of small bladders on stalks. Every one
+ * is mostly air with a line drawn round it.
  *
- * The rules are the kit's: the context's primitives, palette colours from the
- * style, **everything standing on `y = 0`**, and the footprint returned is the
- * widest thing at any height — a bag overhead is as much a wall as a gondola
- * at the foot. The layout spaces buildings for a radius of about eight, so no
- * footprint here passes seven and a half before the plot's own scale.
+ * The kit's rules apply: the context's primitives, palette colours, everything
+ * standing on `y = 0`, and the footprint returned is the widest thing at any
+ * height (a bag overhead is as much a wall as a gondola). The layout spaces
+ * buildings for a radius of about eight, so no footprint passes seven and a
+ * half before the plot's own scale.
  */
 
 import * as THREE from 'three';
@@ -33,7 +28,7 @@ function bag(ctx: SceneryContext, radius: number, color: number, squash: number,
 /**
  * An upright ring with spokes: a ring wall turned on its side. `ringWall`
  * extrudes up `y`; a quarter turn about `x` carries `y` to `+z`, so the ring is
- * pulled back half its thickness to be centred on its own plane.
+ * pulled back half its thickness to centre it.
  */
 function wheel(ctx: SceneryContext, group: THREE.Group, radius: number, hubY: number, spokes: number, rim: number, spoke: number, turn: number): void {
   const thickness = 0.7;
@@ -77,7 +72,7 @@ const bladder: BuildingBuilder = (ctx, rng, style) => {
   const body = bag(ctx, r, skin, squash);
   body.position.y = centre;
   group.add(body);
-  // A band round the bag's waist: the seam it was sewn along.
+  // A band round the bag's waist: the seam.
   const seam = ctx.ringWall(r * 0.97, r * 1.04, 0.45, rng.pick(style.accents), 12);
   seam.position.y = centre - 0.22;
   group.add(seam);
@@ -89,8 +84,7 @@ const bladder: BuildingBuilder = (ctx, rng, style) => {
     group.add(ctx.strut(low, high, 0.14, ctx.tone(wall, 0.6)));
   }
   if (rng.chance(0.5)) {
-    // A steering fin on the bag's lee side: a bag that is moored still wants
-    // to point into the wind.
+    // A steering fin on the lee side: a moored bag still wants to point into the wind.
     const fin = ctx.roof(0.3, r * 0.9, r * 0.6, 0.1, rng.pick(style.accents));
     fin.position.set(0, centre + r * squash * 0.55, -r * 0.55);
     group.add(fin);
@@ -116,8 +110,7 @@ const windWheel: BuildingBuilder = (ctx, rng, style) => {
   const turn = rng.range(0, Math.PI);
   for (let k = 0; k < vanes; k++) {
     const a = turn + (k / vanes) * Math.PI * 2;
-    // An arm at the hub turned so its +y runs out along the spoke: a turn of
-    // `a - pi/2` about z carries (0, 1) to (cos a, sin a).
+    // An arm at the hub turned so its +y runs out along the spoke: a turn of `a - pi/2` about z carries (0, 1) to (cos a, sin a).
     const arm = new THREE.Group();
     arm.position.set(0, hubY, 0.45);
     arm.rotation.z = a - Math.PI / 2;
@@ -144,8 +137,7 @@ const sail: BuildingBuilder = (ctx, rng, style) => {
   const turn = rng.range(0, Math.PI);
   for (let k = 0; k < fins; k++) {
     const a = turn + (k / fins) * Math.PI * 2;
-    // A sail is a thin slab, wide at the foot and leaning in to the mast:
-    // the outer edge a strut from the foot to the head, the slab between.
+    // A sail is a thin slab, wide at the foot and leaning in to the mast.
     const fin = ctx.roof(0.18, reach, tall * 0.78, 0.05, k % 2 === 0 ? skin : ctx.tone(skin, 0.88));
     fin.position.set(Math.cos(a) * reach * 0.5, 0, -Math.sin(a) * reach * 0.5);
     fin.rotation.y = a + Math.PI / 2;
@@ -221,10 +213,10 @@ const canopy: BuildingBuilder = (ctx, rng, style) => {
 };
 
 /**
- * The middle of every town: the mooring mast the whole platform is tied to.
- * A tapering mast ringed in collars, a horizontal wheel of spokes near the top
- * with guy lines down to the platform's edge, and the town's great bag riding
- * over all of it. Ten units of footprint before its plot's scale.
+ * The middle of every town: the mooring mast the platform is tied to. A
+ * tapering mast ringed in collars, a horizontal wheel of spokes near the top
+ * with guy lines down to the platform's edge, and the town's great bag over
+ * all of it. Ten units of footprint before its plot's scale.
  */
 const mooringMast: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();

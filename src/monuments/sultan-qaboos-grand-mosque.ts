@@ -1,56 +1,26 @@
 import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 
 /**
- * The Sultan Qaboos Grand Mosque — Muscat.
+ * The Sultan Qaboos Grand Mosque, Muscat.
  *
- * **Why Oman:** the Arabian peninsula had the Burj Khalifa and nothing else;
- * between Dubai and the Horn of Africa the map was empty. Oman's principal
- * mosque, opened in 2001 in the Bawshar district of Muscat, is the repair, and
- * it gives the peninsula a building of its own tradition beside a skyscraper.
+ * Three things carry it: the pointed dome over the prayer hall, on a drum
+ * pierced by windows and finished with a gold finial; five minarets (one main
+ * at 39.9 units and four flanking at 21.6, close to the real two-to-one), each
+ * an octagonal shaft with a balcony and pointed cap; and the arcaded courtyard
+ * in front of the hall, its outer walls a run of pointed arches, entered
+ * through a tall portal.
  *
- * ---------------------------------------------------------------------------
- * What carries it at thumbnail size
- * ---------------------------------------------------------------------------
+ * The layout keeps the real arrangement: the hall at the back (-Z) and the
+ * courtyard in front. The four flanking minarets stand at the platform's
+ * corners and the main one beside the hall, where the dome does not hide it.
  *
- * - **The dome** over the prayer hall, pointed rather than bulbous, on a drum
- *   pierced by windows, and finished with a gold finial. It is the one gold
- *   mass on the model.
- * - **Five minarets**: one main minaret, about 91.5 m, and four flanking ones,
- *   about 45.5 m, each an octagonal shaft with a balcony and a pointed cap.
- *   Here the main one is 39.9 units and the four are 21.6, close to the real
- *   ratio of two to one.
- * - **The arcaded courtyard** (the riwaq) in front of the prayer hall, its
- *   outer walls a run of pointed arches, entered through a tall portal.
+ * The plan is compressed (42 by 45 units) and the dome is relatively larger
+ * than in life (0.69 of the main minaret's height against 0.55), because at
+ * the true ratio it is lost behind the arcade from the front. The courtyard
+ * floor is never seen and carries nothing.
  *
- * ---------------------------------------------------------------------------
- * The layout, and what was moved
- * ---------------------------------------------------------------------------
- *
- * The real complex is a long walled platform with the prayer hall at its qibla
- * end and the courtyard before it. That arrangement is kept: the hall is at the
- * back (-Z) and the courtyard in front, so the front camera looks across the
- * arcade, over the court, at the dome. The four flanking minarets stand at the
- * four corners of the platform, and the main minaret beside the hall where the
- * hall meets the courtyard's left arcade — a composition choice, so that it is
- * seen full height and not hidden behind the dome.
- *
- * The plan is compressed: the real platform is several hundred metres long and
- * here it is 42 by 45. The dome is relatively larger than in life (its top is
- * 27.6 units against a 40-unit minaret, about 0.69, where the real 50 m dome
- * against the 91.5 m minaret is 0.55), because at the true ratio the dome is
- * lost behind the arcade from the front.
- *
- * Proportion: the furthest vertex is a plinth corner at 31.1 units, on a
- * height of 39.9 — a half-diagonal of 0.78 against the cap of 2. 2,464
- * triangles of the tier's 2,600.
- *
- * The arcade hides a band about four times its height behind it from the
- * quarter camera, so the courtyard floor is never seen and carries nothing; the
- * arches are on the outer faces, where they are.
- *
- * Colours: the walls are the pale sandstone of the building, `sand`; the trim
- * and balconies `white`; the dome and the finials `gold`; the arch recesses
- * `brown`, warm because they are in shade all day.
+ * Colours: `sand` walls, `white` trim and balconies, `gold` dome and finials,
+ * `brown` arch recesses (warm, as they are in shade all day).
  */
 
 /** The platform: two courses, and the level everything stands on. */
@@ -74,9 +44,8 @@ const RIWAQ_START = -6.6;
 const RIWAQ_TOP = TOP + 5;
 
 /**
- * Half-widths up the dome from its springing. Widest a little above the base,
- * then closing to a point: the swell is slight, which is what separates this
- * dome from an onion.
+ * Half-widths up the dome from its springing: widest a little above the base,
+ * then closing to a point. The slight swell separates it from an onion.
  */
 const DOME = [
   { y: 0, r: 6.4 },
@@ -142,9 +111,7 @@ export const sultanQaboosGrandMosque: Monument = {
         [half, y0, y1],
         [half * 0.62, y1, y1 + half * 0.7],
       ];
-      // The tip course only where an arch is big enough for it to show: on
-      // the two portals. At the arcade's size two courses already read as a
-      // point, and the third was 400 triangles over the run.
+      // The tip course only on the two portals; at the arcade's size two courses already read as a point.
       if (half >= 1.5) courses.push([half * 0.25, y1 + half * 0.7, y1 + half * 1.15]);
       for (const [h, a, b] of courses) {
         if (along === 'x') block(at - h, at + h, a, b, face - out * 0.1, face + out * proud, recess);
@@ -152,21 +119,15 @@ export const sultanQaboosGrandMosque: Monument = {
       }
     };
 
-    // -----------------------------------------------------------------------
     // 1. The platform, two courses.
-    // -----------------------------------------------------------------------
     block(-PLINTH_X, PLINTH_X, 0, 1.0, PLINTH_Z0, PLINTH_Z1, plinthLow);
     block(-PLINTH_X + 0.6, PLINTH_X - 0.6, 1.0, TOP, PLINTH_Z0 + 0.6, PLINTH_Z1 - 0.6, plinthHigh);
 
-    // -----------------------------------------------------------------------
-    // 2. The prayer hall: the block, a cornice round its roof, a tall portal
-    //    on its courtyard face, and arches along its front and sides.
-    // -----------------------------------------------------------------------
+    // 2. The prayer hall: the block, a cornice, a tall portal and arches along its front and sides.
     block(-HALL_X, HALL_X, TOP, HALL_TOP, HALL_BACK, HALL_FRONT, stone);
     block(-HALL_X - 0.4, HALL_X + 0.4, HALL_TOP, ROOF_TOP, HALL_BACK - 0.4, HALL_FRONT + 0.4, trim);
 
-    // The portal (pishtaq) rises over the roof line, with a white frame round
-    // its arch and a white coping.
+    // The portal (pishtaq) rises over the roof line, with a white frame and coping.
     const portalFront = HALL_FRONT + 0.8;
     block(-5, 5, TOP, 15, HALL_FRONT, portalFront, stoneLight);
     block(-5.3, 5.3, 15, 15.6, HALL_FRONT - 0.2, portalFront + 0.3, trim);
@@ -178,9 +139,7 @@ export const sultanQaboosGrandMosque: Monument = {
       for (const z of [-18.6, -14.8, -11.0]) arch('z', z, side * HALL_X, side, 1.1, TOP + 0.8, TOP + 5.6);
     }
 
-    // -----------------------------------------------------------------------
-    // 3. The drum, its windows, and the dome.
-    // -----------------------------------------------------------------------
+    // 3. The drum, its windows and the dome.
     const dome = new THREE.Group();
     dome.position.set(0, 0, DOME_Z);
     draft.add(dome);
@@ -188,8 +147,7 @@ export const sultanQaboosGrandMosque: Monument = {
     const drum = column(6.6, 2.8, stone, 12);
     drum.position.y = ROOF_TOP;
     dome.add(drum);
-    // Six windows on alternate faces of the twelve; `around` puts a face, not
-    // an edge, on +Z, so each panel lands on a flat.
+    // Six windows on alternate faces of the twelve; `around` puts a face on +Z, so each panel lands on a flat.
     dome.add(
       around(12, (i) => {
         if (i % 2 === 1) return null;
@@ -218,16 +176,12 @@ export const sultanQaboosGrandMosque: Monument = {
     spire.position.y = crown + 0.7;
     dome.add(spire);
 
-    // -----------------------------------------------------------------------
-    // 4. The courtyard: arcades on three sides, a coping along their tops,
-    //    pointed arches on their outer faces, and the entrance portal.
-    // -----------------------------------------------------------------------
+    // 4. The courtyard: arcades on three sides, a coping, arches on the outer faces and the entrance portal.
     block(-RIWAQ_OUT, RIWAQ_OUT, TOP, RIWAQ_TOP, RIWAQ_IN, RIWAQ_OUT, stone);
     for (const side of [-1, 1]) {
       block(side * RIWAQ_IN, side * RIWAQ_OUT, TOP, RIWAQ_TOP, RIWAQ_START, RIWAQ_IN, stone);
     }
-    // The copings stop inside the corner minarets' bases rather than at their
-    // faces, so no end shares a plane with a base.
+    // The copings stop inside the corner minarets' bases so no end shares a plane with a base.
     block(-18.8, 18.8, RIWAQ_TOP, RIWAQ_TOP + 0.5, RIWAQ_IN - 0.3, RIWAQ_OUT + 0.3, trim);
     for (const side of [-1, 1]) {
       block(side * (RIWAQ_IN - 0.3), side * (RIWAQ_OUT + 0.3), RIWAQ_TOP, RIWAQ_TOP + 0.5, RIWAQ_START - 0.15, 18.8, trim);
@@ -247,10 +201,7 @@ export const sultanQaboosGrandMosque: Monument = {
     block(-3, 3, TOP, 10, gateFront - 0.1, gateFront + 0.1, trim);
     arch('x', 0, gateFront + 0.1, 1, 2.0, TOP, TOP + 5.8);
 
-    // -----------------------------------------------------------------------
-    // 5. The minarets: a square base to above the arcade, a white coping,
-    //    octagonal shafts, corbelled balconies, a lantern and a gold cap.
-    // -----------------------------------------------------------------------
+    // 5. The minarets: a square base, a white coping, octagonal shafts, corbelled balconies, a lantern and a gold cap.
     const stack = (x: number, z: number, parts: [Mesh, number][]): void => {
       let y = TOP;
       for (const [mesh, rise] of parts) {
@@ -275,9 +226,7 @@ export const sultanQaboosGrandMosque: Monument = {
       [taper(0.25, 0.04, 1.1, gilt, 4), 1.1],
     ]);
 
-    // The four flanking minarets, at the platform's corners: one balcony each,
-    // without the main minaret's coping and corbels, which the budget could
-    // not carry four times over.
+    // The four flanking minarets, at the corners: one balcony each, without the main one's coping and corbels.
     for (const [x, z] of [
       [-18.8, 19.6],
       [18.8, 19.6],

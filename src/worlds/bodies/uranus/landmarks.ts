@@ -1,11 +1,9 @@
 /**
- * Uranus's landmarks: four places worth crossing the haze for.
- *
- * Each honours something true — the man who found the planet, the one
- * machine that has visited it, the diamonds thought to fall inside it, and
- * the Sun's strange path round its pole — and stands where the deck's own
- * story puts it (`deckRelief` in the system file). What the Sidelings built
- * at each is invented; what it remembers is not.
+ * Uranus's landmarks: four places worth crossing the haze for. Each honours
+ * something true (the man who found the planet, the one machine that has visited
+ * it, the diamonds thought to fall inside it, the Sun's strange path round its
+ * pole) and stands where the deck's own story puts it (`deckRelief` in the
+ * system file). What the Sidelings built at each is invented.
  */
 
 import * as THREE from 'three';
@@ -16,17 +14,10 @@ import { crystal, diamond } from './buildings.ts';
 
 /**
  * Herschel's Glass, on the rim of the hood a short walk north of Longlight.
- *
- * William Herschel found Uranus on 13 March 1781 from the garden of his house
- * in Bath, with a seven-foot reflector whose mirror he had ground and
- * polished himself, and took it at first for a comet. He wanted to call it
- * *Georgium Sidus*, George's Star, after his king; the rest of astronomy
- * would not have it. It was the first planet found that nobody in antiquity
- * had known.
- *
- * The Sidelings' monument is that telescope three times over, in brass and
- * wood on its A-frame stand, its tube aimed up the sky at about where the Sun
- * stands at noon, ringed by thirteen crystals for the thirteenth of March.
+ * William Herschel found Uranus on 13 March 1781 with a seven-foot reflector he
+ * had made himself. The Sidelings' monument is that telescope three times
+ * over, in brass and wood on its A-frame stand, its tube aimed at about where
+ * the Sun stands at noon, ringed by thirteen crystals for the thirteenth of March.
  */
 const HERSCHEL: Landmark = {
   id: 'herschel-glass',
@@ -42,8 +33,7 @@ const HERSCHEL: Landmark = {
     step.position.y = 0.8;
     group.add(step);
     const top = 1.6;
-    // The stand: two A-frames of timber either side of the tube, with a
-    // crossbar between their heads that the tube rocks on.
+    // The stand: two A-frames of timber either side of the tube, with a crossbar the tube rocks on.
     const pivot = new THREE.Vector3(0, top + 9.5, 0);
     for (const side of [-1, 1]) {
       const head = new THREE.Vector3(side * 2.4, pivot.y, 0);
@@ -52,8 +42,7 @@ const HERSCHEL: Landmark = {
       group.add(ctx.strut(new THREE.Vector3(side * 3.4, top + 3.2, -3.0), new THREE.Vector3(side * 3.4, top + 3.2, 3.0), 0.3, PALETTE.bark));
     }
     group.add(ctx.strut(new THREE.Vector3(-2.6, pivot.y, 0), new THREE.Vector3(2.6, pivot.y, 0), 0.4, PALETTE.steel));
-    // The tube, its foot (the mirror end) low and behind, its mouth up and
-    // ahead: a group turned about `x`, so the tube's own `+y` leans toward +z.
+    // The tube, its foot low and behind, its mouth up and ahead: a group turned about `x`, so its own `+y` leans toward +z.
     const tube = new THREE.Group();
     tube.position.copy(pivot);
     tube.rotation.x = 0.62;
@@ -87,18 +76,11 @@ const HERSCHEL: Landmark = {
 };
 
 /**
- * The Pole Dial, at the north pole itself.
- *
- * At a pole of Uranus the Sun neither rises nor sets through a whole season:
- * in the 2020s it hangs some sixty degrees up the sky and simply goes round,
- * once every 17 hours 14 minutes, at the same height. So the shadow of a
- * gnomon here does not swing across a dial like a garden sundial's — it
- * sweeps the whole circle, evenly, at one length, and the only thing that
- * changes it is the season, over decades. The Sidelings built the dial
- * anyway, because a people who wait should know how long they have waited.
- *
- * A frost spire for the gnomon, a dial floor round it, and seventeen hour
- * stones outside the wall, one for each hour of the turn.
+ * The Pole Dial, at the north pole itself. There the Sun neither rises nor sets
+ * through a whole season: it hangs some sixty degrees up and goes round once
+ * every 17 hours 14 minutes, so a gnomon's shadow sweeps the whole circle at one
+ * length. A frost spire for the gnomon, a dial floor round it, and seventeen hour
+ * stones outside the wall.
  */
 const POLE_DIAL: Landmark = {
   id: 'pole-dial',
@@ -144,16 +126,10 @@ const POLE_DIAL: Landmark = {
 
 /**
  * The Diamond Well, on the equator a walk east of Gloaming, in the Long Dusk.
- *
- * Thousands of kilometres under the deck, the pressure is thought to strip the
- * hydrogen off methane and squeeze the carbon left into diamond, which sinks
- * through the hot slush of the mantle like hail. It has been made to happen
- * for a split second in a laboratory (with lasers, at SLAC, in 2017), and
- * nobody has seen it here. The Sidelings say they hear it.
- *
- * A well-head with nothing under it but the haze, a tripod of crystal struts
- * over it, and three diamonds hung from the tripod, the lowest the size of a
- * person — which in the equator's low sun throw long glints across the deck.
+ * Deep under the deck the pressure is thought to squeeze carbon into diamond
+ * that sinks like hail. A well-head with nothing under it but the haze, a tripod
+ * of crystal struts over it, and three diamonds hung from the tripod, the
+ * lowest the size of a person, which throw long glints across the deck.
  */
 const DIAMOND_WELL: Landmark = {
   id: 'diamond-well',
@@ -199,18 +175,10 @@ const DIAMOND_WELL: Landmark = {
 
 /**
  * The Voyager Beacon, on the south collar beside the town named for it.
- *
- * Voyager 2 is the only thing from Earth that has ever been to Uranus. It
- * passed on 24 January 1986, 81,500 km from the cloud tops, with the south
- * pole turned toward the Sun, and in the weeks round that day found ten new
- * moons, two new rings, a magnetic field tipped 59 degrees off the spin axis,
- * and a planet that looked, to the dismay of everyone watching, almost
- * perfectly blank. Then it went on to Neptune and did not come back.
- *
- * The collar is in its forty-two-year night now, and the Sidelings of
- * Voyager keep a beacon lit for it there: the probe at about twice its size —
- * ten-sided bus, the big dish, the long magnetometer boom and the power
- * boom — on a plinth, ringed with lanterns.
+ * Voyager 2, the only visitor, passed on 24 January 1986, 81,500 km from the
+ * cloud tops. The Sidelings keep a beacon lit for it: the probe at about twice
+ * its size (ten-sided bus, big dish, magnetometer boom and power boom) on a
+ * plinth, ringed with lanterns.
  */
 const VOYAGER: Landmark = {
   id: 'voyager-beacon',

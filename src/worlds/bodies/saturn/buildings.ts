@@ -1,21 +1,17 @@
 /**
- * How the Drifters build (invented): rings, halos and spokes, held up on
- * masts thinner than anyone else would dare.
+ * How the Drifters build (invented): rings, halos and spokes, held up on thin
+ * masts.
  *
- * Mars builds pressure vessels and Jupiter builds balloons; Saturn's people
- * build **the thing they look at every day of their lives**. The rings fill a
- * third of their sky, so everything here is a ring of some kind — a halo hung
- * from a mast-head, an armillary of two rings round a pod, three planters
- * stacked on a stem, a hall roofed with a hoop instead of a lid, a gate that is
- * a circle standing on its edge. And every ring that is not level is tilted
- * at the planet's own **26.7 degrees**, which is how far the rings are tipped
- * to the Sun at the height of summer and the one number every Drifter knows.
+ * The rings fill a third of their sky, so everything here is a ring of some
+ * kind: a halo hung from a mast-head, an armillary of two rings round a pod,
+ * three planters stacked on a stem, a hall roofed with a hoop, a gate that is a
+ * circle on its edge. Every ring that is not level is tilted at the planet's
+ * own 26.7 degrees.
  *
- * The rules are the kit's: the context's primitives, palette colours from the
- * style, **everything standing on `y = 0`**, and the footprint returned is the
- * widest thing at any height — a halo overhead is as much a wall as a door at
- * the foot. The layout spaces buildings for a radius of about eight, so no
- * footprint here passes seven before the plot's own scale.
+ * The kit's rules apply: the context's primitives, palette colours, everything
+ * on `y = 0`, and the footprint returned is the widest thing at any height. The
+ * layout spaces buildings for a radius of about eight, so no footprint passes
+ * seven before the plot's own scale.
  */
 
 import * as THREE from 'three';
@@ -107,8 +103,7 @@ const gyre: BuildingBuilder = (ctx, rng, style) => {
 
   const outer = rng.range(4.8, 5.5);
   const yaw = rng.range(0, Math.PI);
-  // Tipped about z inside a turned parent: the tilt in the ring's own frame,
-  // the heading in the town's, so the two rotations never share an axis.
+  // Tipped about z inside a turned parent: the tilt in the ring's own frame, the heading in the town's, so the two never share an axis.
   const tipped = new THREE.Group();
   tipped.position.y = middle;
   tipped.rotation.y = yaw;
@@ -119,9 +114,7 @@ const gyre: BuildingBuilder = (ctx, rng, style) => {
   small.rotation.x = -TILT;
   tipped.add(small);
   group.add(tipped);
-  // Two stays from the base, one to each ring's low side, so the armillary
-  // is held and not floating: the big ring dips on its -x side, the small one
-  // on its -z side, both before the yaw.
+  // Two stays from the base, one to each ring's low side, so the armillary is held (the big ring dips on its -x side, the small on its -z, before the yaw).
   const Y = new THREE.Vector3(0, 1, 0);
   const lows = [
     new THREE.Vector3(-(outer - 0.3) * Math.cos(TILT), -(outer - 0.3) * Math.sin(TILT), 0),
@@ -247,12 +240,10 @@ const gate: BuildingBuilder = (ctx, rng, style) => {
 };
 
 /**
- * The middle of every town: the Orrery. A needle with the planet on it at
- * half height and its rings round it, tipped at the tilt, the B ring wide and
- * the A ring outside a gap where the Cassini Division is; and two halos higher
- * up the needle, for the moons. Every Drifter town is built round a model of
- * the thing it stands on. Six and a half units of footprint before its plot's
- * scale.
+ * The middle of every town: the Orrery. A needle with the planet on it at half
+ * height and its rings round it, tipped at the tilt, the B ring wide and the A
+ * ring outside a gap for the Cassini Division; and two halos higher up for the
+ * moons. Six and a half units of footprint before its plot's scale.
  */
 const orrery: BuildingBuilder = (ctx, rng, style) => {
   const group = new THREE.Group();

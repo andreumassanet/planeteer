@@ -4,120 +4,51 @@ import type { Monument } from './contract.ts';
 /**
  * Hagia Sophia.
  *
- * The hard part of this one is not the building, it is the Taj Mahal. Both are
- * domed, both have four minarets, and side by side two thumbnails of "dome plus
- * four corner spikes" is one card printed twice. So every decision here is made
- * against that: the two buildings must be nameable side by side, from the
- * silhouette, with the captions covered.
+ * Domed with four minarets like the Taj Mahal, so every decision is made to keep
+ * the two nameable side by side from the silhouette:
+ * 1. The dome is a saucer: 20.0 wide rising 6.0 (rise/span 0.30 against the Taj's
+ *    0.76), every course narrower than the one below, and as wide as the core block
+ *    (20.8), so the dome is the nave.
+ * 2. No drum: the dome sits on 2.8 units of cornice and window ring directly on the
+ *    walls (the Taj has 4.9 of drum).
+ * 3. Two half-domes on the long axis: dome at 32.3, half-domes cresting at 23.5,
+ *    mass at 15.1; three steps down on one axis only.
+ * 4. The minarets over-top the dome: 35.4 to 39.4 against a dome finial at 35.2.
+ * 5. Warm ochre stone and lead-grey domes, against white marble.
+ * The mass below is heavy: a long rectangle with eight unequal flank buttresses, a
+ * low narthex at one end and a polygonal apse at the other.
  *
- * The five things they actually disagree about, all of them true of the real
- * buildings and all of them built here in numbers:
+ * What must survive at thumbnail size:
+ * - The cascade: dome, half-dome, roof, stepping down twice on the long axis.
+ * - The ring of light: a dark `bark` band round the dome's foot, twelve piers
+ *   rather than forty windows.
+ * - Eight buttresses, four a side, no two the same height: 5.2 wide, projecting 2.2,
+ *   in the wall's own `clay` (3.6 wide in `tan` read as a fence of posts).
+ * - Four minarets that do not match: Mehmed II's brick (SE, shortest, thinnest, one
+ *   balcony, `clay`), Bayezid II's (NE, one balcony, `bone`), Sinan's stone pair on
+ *   the west (thickest, two balconies, `cream`).
  *
- * 1. **The dome is a saucer, not an onion.** The Taj's is 12.7 wide and rises
- *    9.6 — rise/span 0.76, and it *swells past* its drum on the way up. This one
- *    is 20.0 wide and rises 6.0 — rise/span 0.30, two and a half times shallower,
- *    and every course is narrower than the one below it. It is also the widest
- *    thing on the roof rather than a crown perched on it: 20.0 across a core
- *    block 20.8 across, so the dome *is* the nave.
- * 2. **There is no drum.** The Taj lifts its dome on 4.9 units of drum above a
- *    roof terrace. Here the dome sits on 2.8 units of cornice and window ring
- *    directly on the walls — the low-slung look is that missing drum, not the
- *    dome's own profile.
- * 3. **Two half-domes on the long axis.** The Taj has none, and this is the
- *    profile that names the building: dome at 32.3, half-domes cresting at 23.5
- *    to left and right, mass at 15.1. Three steps down, on one axis only, so the
- *    building has a long side and a short side where the Taj is square.
- * 4. **The minarets over-top the dome.** The Taj's stop at 27.3 of its 39.6, a
- *    deliberate two-thirds so nothing competes with the crown. Istanbul's are
- *    ~60 m against a 55 m crown, so here they run 35.4 to 39.4 against a dome
- *    finial at 35.2. The silhouette is inverted, which is the single fastest
- *    read at thumbnail size.
- * 5. **Warm ochre stone and lead-grey domes**, against the Taj's white marble.
- *    Different card colour before you have looked at the shape at all.
+ * Departures:
+ * - The dome is flattened to 62% of its true rise (31 m span by 15 m, 0.48; here
+ *   0.30), though 11% fatter against its crown height (0.62, 0.56 in life).
+ * - The plan is squeezed 15% across the short axis (53.6 x 41.6, 1.29 against 1.12).
+ * - The half-domes are whole domes with their inner halves buried (nothing
+ *   subtracts): radius 10.4 centred on the core block's face at x = +/-10.4, so the
+ *   landward half is inscribed in the block (half-widths 10.4 by 10.8). The apse
+ *   conch is a cone on the apse drum.
+ * - No exedrae (eight more dome stacks, 250 triangles). The tympanum windows
+ *   stand proud of the wall, half a unit, as the Taj's recesses do. The flank has
+ *   a second pair of windows inboard of the buttresses.
  *
- * And the mass below is heavy where the Taj's is delicate: a long rectangle with
- * eight unequal flank buttresses, a low narthex on one end and a polygonal apse
- * on the other, so no two elevations match.
+ * Colour: `clay` for the ochre stone (walls, buttresses, minaret pedestals,
+ * Mehmed's minaret), `brown` at grade, `bone` cornices and balconies, `cream`
+ * Sinan's minarets, `slate` the great lead shells, `steel` the aisle roofs and
+ * minaret caps, `bark` every opening, `gold` finials. Shells are cool and
+ * everything under them warm. All three shells share `slate` (a darker `steel` beside
+ * `clay` reads as a void); the `bone` cornice at each half-dome's springing
+ * separates them.
  *
- * ## What has to survive at thumbnail size
- *
- * - **The cascade.** Dome, then half-dome, then roof, stepping down twice on the
- *   long axis. Lose it and this is any domed mosque.
- * - **The ring of light.** A dark band of forty windows around the dome's foot,
- *   which is the one thing everyone knows about the interior and is visible from
- *   outside as a shadowed collar. Twelve piers across a `bark` band; forty would
- *   be forty meshes and the tier has 110 for the whole building.
- * - **The buttresses.** Eight, four a side, no two the same height. They are why
- *   the building reads as heavy rather than as a pavilion.
- * - **Four minarets that do not match.** They were added over 120 years by three
- *   builders and it shows: Mehmed II's brick one (SE, shortest and thinnest, one
- *   balcony, `clay`), Bayezid II's (NE, one balcony, `bone`), and Sinan's stone
- *   pair on the west (thickest, two balconies each, `cream`). Every dimension
- *   differs — pedestal, shaft, balcony count, cap, total height.
- *
- * ## Departures, in numbers
- *
- * - **The dome is flattened to 62% of its true rise.** In life it spans 31 m and
- *   rises about 15 m (0.48); here 20.0 and 6.0 (0.30). At the true rise it reads
- *   as a hemisphere on a box — a Pantheon, not a Hagia Sophia. The building is
- *   *perceived* as shallow-domed because the dome is enormous relative to what
- *   holds it up, and flattening is how you buy that perception back at 200 px.
- * - **The dome is 11% fatter than life** against its own crown height (0.62
- *   here, 0.56 in life), for the same reason the Taj's is fat: the thing being
- *   named must not come out a knob.
- * - **The plan is squeezed 15% across the short axis.** 82 x 73 m in life, a
- *   ratio of 1.12; here 53.6 x 41.6, a ratio of 1.29. The long axis carries the
- *   cascade and had to survive intact, so the short one paid.
- * - **The half-domes are whole domes with their inner halves buried.** Nothing
- *   in the contract subtracts. Each is a full revolution of radius 10.4 centred
- *   on the core block's own face at x = +/-10.4, so its landward half is exactly
- *   inscribed in the core block (half-widths 10.4 by 10.8) and never surfaces.
- *   The crown lands on the block's top edge, which is where a half-dome meets
- *   the great arch anyway. The apse conch is the same idea one step cheaper: a
- *   cone on the apse drum, its landward half inside the lower mass.
- * - **No exedrae.** The real half-domes are each carried on two smaller
- *   semi-domes, a fourth step in the cascade. Eight more dome stacks is 250
- *   triangles and 8 meshes, and at thumbnail size they close up into the
- *   shoulder blocks that stand in for them here.
- * - **The tympanum windows stand proud of the wall** rather than sinking into
- *   it, the same departure the Taj's recesses make and for the same reason: a
- *   dark panel half a unit off the wall reads as an opening the moment the
- *   outline inks it, at a third of the meshes.
- *
- * ## Colour
- *
- * Eight entries. `clay` for all the ochre-red stone — walls, buttresses, the
- * minaret pedestals and Mehmed's brick minaret — `brown` at grade, `bone` for
- * cornices and balconies, `cream` for Sinan's two marble minarets, `slate` for
- * the great lead shells, `steel` for the darker lead of the aisle roofs and the
- * minaret caps, `bark` for every opening, `gold` for the finials. The one rule
- * held throughout: the shells are cool and everything under them is warm, so the
- * cascade separates from the mass at any size.
- *
- * ## Three things the render changed
- *
- * Everything above is what the drawing wanted. These three are what looking at
- * it actually forced, and each was wrong in a way no measurement catches:
- *
- * - **The buttresses were a fence.** Eight piers 3.6 wide projecting 3.3 from the
- *   wall, in `tan` so they would read as a later addition, came out as a
- *   colonnade of posts standing in front of the building — and with four minaret
- *   pedestals in the same stone, twelve free-standing verticals across one
- *   elevation. Now they are 5.2 wide, project 2.2, and are the wall's own `clay`.
- *   They stopped being sticks and became mass the moment the contrast went: the
- *   outline was already drawing them, and the colour was drawing them twice.
- * - **A darker lead on the half-domes read as a hole.** `steel` beside `clay` at
- *   this size is not a second grey, it is a void, and the cascade turned into a
- *   dome with two bites out of it. All three shells share `slate`; what separates
- *   them is the `bone` cornice at each half-dome's springing, which exists for
- *   nothing else.
- * - **The flank was a blank red field.** The buttresses cover the bays the first
- *   pair of windows sat in, so there is now a second pair inboard of them, under
- *   the tympanum.
- *
- * Filed `building`: 55 m, a cathedral, and the tier where the Taj (73 m) and
- * Saint Basil's (65 m) already sit. Not over `MAX_ASPECT` — 59.7 wide by 39.4
- * tall is 1.52 — so nothing is cropped.
+ * Filed `building`: 59.7 wide by 39.4 tall is 1.52, so nothing is cropped.
  */
 
 // --- grade. Low: the real building has no plinth, only a stylobate course ---
@@ -132,9 +63,8 @@ const CORNICE_TOP = LOWER.top + CORNICE.height;
 const AISLE_ROOF = { height: 1.1, inner: 10.8, outer: 17.0 };
 
 /**
- * The nave. It runs from grade to the dome's cornice as one block; everything
- * below `CORNICE_TOP` is inside the lower mass and never seen. That is what lets
- * the half-domes be whole domes: their inner halves live in here.
+ * The nave, from grade to the dome's cornice as one block. Everything below
+ * `CORNICE_TOP` is inside the lower mass, which lets the half-domes be whole domes.
  */
 const CORE = { halfX: 10.4, halfZ: 10.8, top: 23.5 };
 
@@ -142,10 +72,9 @@ const CORE = { halfX: 10.4, halfZ: 10.8, top: 23.5 };
 const SHOULDER = { inner: 10.4, outer: 20.9, lowZ: 11.6, highZ: 10.6, mid: 16.2 };
 
 /**
- * The half-domes. Springing at 17.0, crowning at 23.5 — exactly the core's top,
- * so each one dies against the block instead of poking through it. Radius 10.4
- * is the core's own half-width; centred on its face, the landward half is
- * inscribed in the block.
+ * The half-domes. Springing at 17.0, crowning at 23.5, exactly the core's top, so
+ * each dies against the block. Radius 10.4 is the core's half-width; centred on its
+ * face, the landward half is inscribed in the block.
  */
 const HALF_SPRING = 17.0;
 const HALF_R = 10.4;
@@ -163,9 +92,8 @@ const WINDOWS = { radius: 9.8, height: 2.0, piers: 12, pierRadius: 9.6 };
 const DOME_SPRING = CORE.top + DOME_RING.height + WINDOWS.height;
 
 /**
- * The shell. Every course narrower than the last — the opposite of the Taj's
- * onion, which swells past its drum before it closes. Rise 6.0 on a span of
- * 20.0: an ellipse flattened to 62% of the real dome's rise.
+ * The shell. Every course narrower than the last (the Taj's onion swells past its
+ * drum). Rise 6.0 on a span of 20.0.
  */
 const DOME = [
   { y: 0, r: 10.0 },
@@ -183,9 +111,8 @@ const APSE = { x: 21.8, radius: 4.6, top: 13.0, conch: 3.2 };
 const SIDE_APSE = { x: 20.6, z: 8.8, radius: 2.4, top: 12.2, conch: 2.0 };
 
 /**
- * The flank buttresses, four a side, and the two flanks do not agree. Written
- * out as tops rather than heights because what matters is the stagger against
- * the cornice at 15.1 and the core's top at 23.5.
+ * The flank buttresses, four a side, and the two flanks differ. Written as tops, for
+ * the stagger against the cornice at 15.1 and the core's top at 23.5.
  */
 const BUTTRESS = { half: 2.6, depth: 3.4, center: 15.8 };
 const SOUTH_BUTTRESSES: Array<[number, number]> = [
@@ -276,9 +203,8 @@ export const hagiaSophia: Monument = {
     for (const side of [1, -1]) {
       const cx = side * CORE.halfX;
 
-      // A cornice at the springing. Without it the half-dome runs straight into
-      // the shoulder below and the whole roof silhouettes as one lump instead of
-      // as the second step of the cascade.
+      // A cornice at the springing, so the half-dome reads as the second step of
+      // the cascade and not one lump with the shoulder below.
       const springing = column(HALF_R + 0.3, 0.6, trim, 12);
       springing.position.set(cx, HALF_SPRING - 0.6, 0);
       group.add(springing);
@@ -426,12 +352,10 @@ export const hagiaSophia: Monument = {
     group.add(alem);
 
     /**
-     * The four minarets, written out one at a time because they do not match.
-     * Each row is [bottom half-width, top half-width, height, colour, sides];
-     * the heights sum to the tip, and the four sums are 39.4, 39.0, 37.2 and
-     * 35.4. Six sides on the shafts rather than eight for the same reason the
-     * Taj gives: at a metre and a half across, the extra facets cost triangles
-     * the tier needs elsewhere and the ink already draws the taper.
+     * The four minarets, one at a time because they do not match. Each row is
+     * [bottom half-width, top half-width, height, colour, sides]; the heights sum to
+     * the tip (39.4, 39.0, 37.2 and 35.4). Six sides on the shafts, not eight, as at
+     * the Taj.
      */
     type Course = [number, number, number, number, number];
     const sinan = (petek: number): Course[] => [

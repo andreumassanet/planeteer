@@ -4,79 +4,23 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * Angel Falls — Salto Ángel, Canaima, Venezuela.
  *
- * **Why Venezuela:** the northern half of South America was empty. Machu Picchu
- * and Perito Moreno are both in the far south of the continent and Christ the
- * Redeemer is on its Atlantic edge; Venezuela, Colombia, Ecuador, Guyana,
- * Suriname and the whole Guiana Shield had nothing. Angel Falls is 979 m, the
- * tallest waterfall on Earth by a factor of two, and it comes off the side of a
- * tepui — a flat-topped sandstone table two billion years old.
+ * The 979 m waterfall off the Auyán-tepui, tier `landmark` (far taller than
+ * wide, so the aspect cap costs nothing: 45.7 against 119.4).
  *
- * ---------------------------------------------------------------------------
- * Why `landmark` when Victoria and Niagara are both `building`
- * ---------------------------------------------------------------------------
+ * The cliff is five bands stepped back in depth as well as colour, so each band
+ * gets its own ink line (coplanar meshes get none); the colours run as a
+ * gradient, dark at the foot. Two spurs flank the fall to give the rock a plan.
+ * The top band overhangs and is `darkOlive`, like the scrub-covered rim.
  *
- * Because the tier is a question about distance, and the answer is different.
- * Victoria Falls is 108 m and Niagara 51; this is 979, nine times one and
- * nineteen times the other, and the whole reason anybody goes is that it is too
- * tall to photograph from the ground. At 120 units it stands beside Everest,
- * Fuji and Kilimanjaro, which is the company it keeps in life.
- *
- * It is also the tier the *shape* wants. `MAX_ASPECT` measures the half-diagonal
- * against the height, and this is the one landmark in the world whose problem is
- * the opposite of a bridge's: it is far taller than it is wide, so the cap that
- * forces the Golden Gate into a crop costs this nothing at all. 45.7 against
- * 119.4 is 0.38.
- *
- * ---------------------------------------------------------------------------
- * The cliff is five bands and not one slab, and the reason is ink
- * ---------------------------------------------------------------------------
- *
- * A 112-unit wall of one colour is the single largest blank area any monument in
- * this world could produce, and `OutlineEffect` would draw exactly one line
- * round the whole of it. That is Niagara's American curtain again — *two
- * coplanar meshes get no ink between them* — so the strata are stepped in
- * **depth** as well as in colour, each band standing a little further back than
- * the one under it. Every band then gets its own line the full width of the
- * cliff, which is what a sandstone escarpment looks like, and it costs nothing:
- * five boxes instead of one.
- *
- * **Five and not seven, and the colours run as a gradient and not an
- * alternation.** Seven bands swapping back and forth between two browns, with
- * five vertical ribs over them, divided the face into a six-by-four grid and the
- * whole cliff rendered as *brickwork*. What replaced the ribs is two spurs — the
- * ridges that flank the real amphitheatre — which give the rock a plan instead
- * of a texture.
- *
- * The top band overhangs and is `darkOlive`. A tepui's rim is undercut and its
- * plateau is covered in scrub, and both facts are doing work here — the
- * overhang gives the strongest ink line in the model and the dark cap stops a
- * 120-unit rock ending in a bare edge against the sky.
- *
- * ---------------------------------------------------------------------------
- * The water, and the one thing about it that is not obvious
- * ---------------------------------------------------------------------------
- *
- * Angel Falls **does not reach the bottom as water.** The free drop is 807 m and
- * the fall atomises into mist long before it lands, which is why every
- * photograph of it fades out two thirds of the way down. So the ribbon is five
- * boxes that get **wider and further forward** as they fall — 2.6 to 5.6 units
- * across, and 3.2 to 7.0 units clear of the rock — and then stops at y = 26 into
- * a bank of `cream` haze. A ribbon of constant width running into a pool would
- * be a different waterfall.
- *
- * Stepping it forward is the same coplanar rule as the strata, used for the
- * opposite purpose: the ribbon has to *separate* from the cliff, and it only
- * does so if each of its five sections has its own silhouette.
- *
- * The fall is off-centre, at x = -7. It is in life — it comes over one notch in
- * the Auyán-tepui's rim — and a waterfall down the middle of a symmetrical cliff
- * reads as a drawing rather than as a place.
+ * The water never reaches the bottom: five boxes grow wider (2.6 to 5.6) and
+ * stand further forward (3.2 to 7.0) as they fall, ending at y = 26 in a bank
+ * of `cream` haze. The fall is off-centre at x = -7, as on the real rim.
  */
 
 /**
  * The cliff, band by band: [top of the band, half-width, how far forward its
- * face stands]. Read the third column down — 6.0 to 0.4 — and that is the
- * batter, and then the last row steps back out, which is the undercut rim.
+ * face stands]. The third column falls 6.0 to 0.4 (the batter), then the last
+ * row steps back out for the undercut rim.
  */
 const STRATA: [top: number, half: number, front: number][] = [
   [26, 42.0, 4.6],
@@ -88,10 +32,7 @@ const STRATA: [top: number, half: number, front: number][] = [
 
 /**
  * The two spurs that frame the fall: [top, half-width of the spur, how far
- * forward of the band behind it]. Angel Falls comes off the back of an
- * amphitheatre with a ridge down either side of it, and *that* is what gives a
- * cliff depth — not the vertical ribs the first build used, which divided the
- * face into a four-by-six grid of rectangles and read as brickwork.
+ * forward of the band behind it].
  */
 const SPURS: [top: number, half: number, out: number][] = [
   [24, 5.6, 4.4],
@@ -152,10 +93,7 @@ export const angelFalls: Monument = {
     // -----------------------------------------------------------------------
     // 1. The cliff.
     // -----------------------------------------------------------------------
-    // Bottom to top: dark at the foot where a gorge this deep never sees the
-    // sun, lighter as it rises. A **gradient** and not an alternation — six
-    // bands that swap back and forth read as stripes painted on, and stripes
-    // plus ribs read as a totem pole.
+    // Bottom to top: dark at the foot, lighter as it rises (a gradient, not stripes).
     const bandColor = [deep, rock, dry, dry, rim];
     let base = 0;
     for (let i = 0; i < STRATA.length; i++) {
@@ -165,9 +103,8 @@ export const angelFalls: Monument = {
       base = top;
     }
 
-    // The two spurs. Each is three courses standing proud of the wall behind
-    // it, tapering as it rises, so the cliff has a plan as well as an elevation
-    // and the fall sits in a recess between them.
+    // The two spurs: three courses each, standing proud of the wall and tapering,
+    // so the fall sits in a recess.
     let spurBase = 0;
     for (const [top, half, out] of SPURS) {
       for (const side of [-1, 1]) {
@@ -213,9 +150,7 @@ export const angelFalls: Monument = {
     // under the plateau's: flush, the water and the scrub shared a plane.
     block(FALL_X - 2.4, FALL_X + 2.4, 104, 112 - PROUD, 0.4, 3.2, water);
 
-    // A second, seasonal cascade off the right-hand rim. Auyán-tepui carries a
-    // dozen of these after rain and one of them is what keeps this cliff from
-    // reading as a wall with a single decal on it.
+    // A second, seasonal cascade off the right-hand rim.
     block(23.6, 25.4, 74, 104, 1.0, 2.0, spray);
     block(23.2, 26.0, 56, 74, 2.0, 3.4, water);
 
@@ -225,13 +160,9 @@ export const angelFalls: Monument = {
     block(FALL_X - 8.4, FALL_X + 7.2, 12, 24, 6.6, 12.4, spray);
 
     // -----------------------------------------------------------------------
-    // 3. The foot. Talus, jungle and the river — the Churún runs out of the
-    //    bottom of this and it is the only way anyone gets here.
-    //
-    //    Everything down here is kept **low**: at 13.4 degrees a mass 20 units
-    //    tall with its front at z = 22 hides the cliff behind it to y = 24, and
-    //    the fall stops at 26. Two units more of jungle would have eaten the
-    //    bottom of the waterfall.
+    // 3. The foot: talus, jungle and the river. Kept low: a mass 20 units tall
+    //    with its front at z = 22 would hide the cliff to y = 24, and the fall
+    //    stops at 26.
     // -----------------------------------------------------------------------
     block(-38, 34, 0, 4.0, 5.0, 22.0, rock);
     block(-19, 12, 1.0, 2.2, 14.0, 27.0, pool);

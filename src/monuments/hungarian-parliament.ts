@@ -4,48 +4,30 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * The Hungarian Parliament Building — Országház, Budapest, Hungary.
  *
- * Imre Steindl's Gothic Revival parliament, built 1885-1904 along the Pest bank
- * of the Danube: 268 m long, 123 m deep, the dome 96 m high. Seen from the
- * river or from Buda it is a **long white front under red roofs, a ribbed dome
- * in the middle and a crowd of spires everywhere else**, and the model is those
- * three things in that order of cost:
+ * Imre Steindl's Gothic Revival parliament (1885-1904), 268 m long, 123 m deep, the
+ * dome 96 m high: a long white front under red roofs, a ribbed dome in the middle
+ * and a crowd of spires. In order of cost:
+ * - The dome: a sixteen-sided drum with eight tall windows and a ring of pinnacles
+ *   round its foot, ribbed in white, two stages of ogive and a lantern with its
+ *   spire. The only curve and the only thing reaching the tier's ceiling.
+ * - The two chamber halls either side, each a steep gabled roof with a spire at
+ *   every corner and a rose window in the river gable.
+ * - The river front: a long range broken by a central projection, two pavilions and
+ *   two end pavilions under pyramid roofs with four pinnacles each; between them
+ *   buttresses rising into pinnacles, with tall windows in the bays (buttress,
+ *   window, buttress, no storey bands).
  *
- * - **The dome**, on a sixteen-sided drum with eight tall windows and a ring of
- *   pinnacles round its foot, ribbed in white, two stages of ogive and a
- *   lantern with its spire. It is the only curve and the only thing that
- *   reaches the tier's ceiling.
- * - **The two chamber halls** either side of it, each a steep gabled roof with
- *   a spire at every corner and a rose window in the gable that looks at the
- *   river. They are what make the skyline a skyline rather than a dome on a
- *   bar.
- * - **The river front**: a long range broken by a central projection, two
- *   pavilions and two end pavilions under pyramid roofs, each with four
- *   pinnacles; between them buttresses rising past the eaves into pinnacles,
- *   with tall windows in the bays. One rhythm per surface — buttress, window,
- *   buttress — and no storey bands across it.
+ * Crop: at 40 units the dome's 96 m is 0.42 units a metre, making the true plan 112
+ * by 51 (half-diagonal 61.6, past the 55 footprint). The length is nearly true (2.5
+ * against 2.8 in life, front over dome height) and the depth squeezed to about 35 of
+ * 51. Half-diagonal about 52.6, set by the plinth's corners; 2,072 triangles of 2,600.
  *
- * ---------------------------------------------------------------------------
- * The crop
- * ---------------------------------------------------------------------------
+ * The ranges' roofs are pitched at 0.6 of an equilateral gable (a parent carrying the
+ * scale over a child carrying the turn); at full pitch they stood above the pavilions
+ * meant to break them. The chamber halls keep the full pitch.
  *
- * At the `building` tier's 40 units the dome's 96 m is 0.42 units a metre,
- * which makes the true plan 112 by 51 and its half-diagonal 61.6: past the
- * tier's 55-unit footprint. The length is kept nearly true — the length of the
- * front against the dome's height is what the building is known by, and it is
- * 2.5 here against 2.8 in life — and the depth is squeezed to about 35 of 51,
- * because the back half of the building is behind the front from every view
- * but straight down. Measured on this layout the half-diagonal is about 52.6,
- * set by the plinth's corners, and the model 2,072 triangles of 2,600.
- *
- * The roofs of the ranges are pitched at 0.6 of an equilateral gable (a parent
- * carrying the scale over a child carrying the turn, so the pitch is a true
- * vertical scale); at full pitch they stood higher than the pavilions meant to
- * break them. The chamber halls keep the full pitch, which is what they look
- * like.
- *
- * The front (+Z) is the Danube front. The river is not modelled: the building
- * stands in a paved square of its own (the source's `plazas`), which is
- * Kossuth Square on the land side and stands in for the embankment here.
+ * The front (+Z) is the Danube front. The river is not modelled: the building stands
+ * in a paved square of its own (the source's `plazas`).
  */
 
 // --- levels ---

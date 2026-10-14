@@ -4,62 +4,32 @@ import type { Mesh, Monument, Vector3 } from './contract.ts';
 /**
  * Chichen Itza — El Castillo, the pyramid of Kukulcan.
  *
- * A smooth four-sided taper is *almost* this building and reads as nothing, so
- * everything here serves the one distinction that matters: this is a staircase
- * of terraces, not a ramp. What carries it:
+ * A staircase of terraces, not a ramp:
+ * 1. Nine terraces, each a steep panelled wall (leaning in 19 degrees; the whole
+ *    rises at about 55) under a moulding, with a tread two units deep.
+ * 2. Recessed panels either side of each stair, darker than their frames,
+ *    standing just proud of the wall and tilted to its slope: two per half-face
+ *    on the lower four terraces, one above, fifty-two in all.
+ * 3. Four stairways running out beyond the foot, gentler than the faces, between
+ *    balustrades. 18 steps on the restored faces (two a terrace, riser 1.75), 9
+ *    on the others; the real 91 would be a grey smear.
+ * 4. The feathered serpent: the north stair's balustrades end in two serpent
+ *    heads with open jaws, and two serpent columns split the north portico into
+ *    three doorways. They say which way is north.
+ * 5. Two faces restored (north and west, which are +Z and +X since
+ *    `placement.ts` turns +Z north and +X west), two as found: those get a coarse
+ *    stair, broken balustrades, fallen stone and grass on the ledges.
+ * 6. The temple on a plinth: a doorway a face, a three-bay portico on the north,
+ *    a medial moulding, a frieze with two masks a face, and a cornice.
  *
- * 1. **Nine terraces, each a steep panelled wall under a moulding**, with a
- *    tread two units deep behind the lip. The walls lean in 19 degrees and the
- *    pyramid as a whole rises at about 55, so the profile is a stair of ledges with
- *    a hard ink line under every moulding — nine of them.
- * 2. **The recessed panels.** Every terrace wall is divided into panels either
- *    side of the stair, darker than their frames and standing just proud of the
- *    wall (a recess the pen can draw has to be a step), tilted to lie on the
- *    wall's own slope. Two a half-face on the lower four terraces and one above,
- *    fifty-two in all: a terrace is panelled masonry, not a stripe.
- * 3. **Four stairways**, each running out beyond the foot of the pyramid and
- *    rising a little gentler than its faces, as the real ones do, between two
- *    balustrades.
- * 4. **The feathered serpent.** The north stair's balustrades end at the
- *    ground in two serpent heads with open jaws, and the north portico of the
- *    temple is split into three doorways by two serpent columns, heads on the
- *    floor. With four near-identical faces, these are what say which way is
- *    north.
- * 5. **Two faces restored, two as found.** The north and west faces were
- *    rebuilt last century; the south and east were left as the excavators
- *    found them. So the panels and the fine stairs are on +Z and +X — north and
- *    west, since `placement.ts` turns +Z north and +X west — and the other two
- *    get a coarse stair with its balustrades broken off, fallen stone at the
- *    foot and grass on the ledges. It is also the postcard: every photograph
- *    of El Castillo is taken from the north-west, looking at the two restored
- *    faces.
- * 6. **The temple**, on a plinth: walls with a doorway a face, the three-bay
- *    portico on the north, a medial moulding, a frieze with two masks a face,
- *    and a cornice.
+ * Tier `building`: the real ratio (55 m across, 30 m tall) at 120 units would
+ * need a radius past the landmark footprint ceiling. At 40 tall and 70 across it
+ * keeps its proportions.
  *
- * **Why `building` and not `landmark`.** The real thing is 55 m across and 30 m
- * tall, a ratio of 1.8. At the landmark tier's 120 units that base wants a
- * 110-unit radius — twice that tier's own footprint ceiling — so it could only
- * be filed there by being made steep, and a steep Castillo is somebody else's
- * pyramid. At 40 tall and 70 across it keeps its proportions, and 40 units is
- * the right answer to "from how far should you be able to name it": from across
- * the site, over the trees, which is exactly how you meet it.
- *
- * **The steps.** 91 a stair in life. Here 18 on the restored faces — two a
- * terrace, a riser of 1.75 — and 9 on the others. Eighteen draws the stair as
- * a fine ribbed band against terraces twice as coarse, which is the look; 91
- * would draw it as a grey smear of ink.
- *
- * **Colour.** Limestone is `tan` lifted to a light grey-beige, not `sand`: the
- * Castillo is grey stone, not yellow. Mouldings and stairs a tone lighter,
- * because they are the faces that catch the sun; panels a tone darker, because
- * they are the ones in shade. `bark` for the temple's interior and the serpents'
- * mouths, `green` and `darkOlive` for the grass on the unrestored faces.
- *
- * **Budget.** Built as ordinary pieces and drawn by `ctx.merge` as one mesh per
- * colour — the "merging them by material later is a single call" that
- * `contract.ts` made every geometry non-indexed for — so the triangle cap is
- * the only one that binds.
+ * Colour: `tan` lifted to a grey-beige (not yellow `sand`); mouldings and stairs
+ * a tone lighter, panels a tone darker; `bark` for the temple interior and the
+ * serpents' mouths; `green` and `darkOlive` for the grass. Built as pieces and
+ * drawn with `ctx.merge`, one mesh per colour, so only the triangle cap binds.
  */
 
 // --- the body -------------------------------------------------------------
@@ -90,10 +60,9 @@ const PANEL_GAP = 0.9;
 /** Panels are about this long; each half-face gets as many as fit. */
 const PANEL_LENGTH = 11;
 /**
- * How far a panel's face stands off the wall: 0.22, not the 0.08 that is the
- * least the pen can draw, because the wall is a slope inside its own bounding
- * box. At 0.22 the panel's foot clears that box, so the burial
- * probe — which only knows boxes — sees a relief rather than a part sealed in.
+ * How far a panel's face stands off the wall: 0.22, not the 0.08 minimum the pen
+ * can draw, because the wall is a slope inside its own bounding box; at 0.22 the
+ * panel's foot clears that box and the burial probe sees a relief.
  */
 const PANEL_PROUD = 0.22;
 
@@ -181,10 +150,9 @@ export const chichenItza: Monument = {
         const rise = BODY / steps;
         for (let k = 0; k < steps; k++) {
           const nose = stairZ(k * rise);
-          // Deep enough to bury itself behind the moulding above: only the
-          // tread and its riser are ever seen.
-          // The last one stops `PROUD` under the summit: flush, its tread and
-          // the top moulding shared a plane in two tones and flickered.
+          // Deep enough to bury itself behind the moulding above. The last one
+          // stops `PROUD` under the summit so its tread does not share a plane
+          // with the top moulding.
           const height = k === steps - 1 ? rise - PROUD : rise;
           face.add(placed(box(STAIR_HALF * 2, height, STEP_DEPTH, stair), 0, k * rise, nose - STEP_DEPTH / 2));
         }
@@ -199,9 +167,9 @@ export const chichenItza: Monument = {
           const footZ = railZ(RAIL_FOOT) - 0.65;
           face.add(placed(box(RAIL + 0.8, RAIL_FOOT + 0.4, 4.6, rail), x * RAIL_X, 0, footZ));
 
-          // Kukulcan: the north stair's balustrades end in serpent heads, jaws
-          // open, facing out over the plaza. Five blocks: the head, the upper
-          // jaw and its brow, the lower jaw, and the dark of the mouth between.
+          // Kukulcan: the north stair's balustrades end in serpent heads facing out
+          // over the plaza. Five blocks: head, upper jaw and brow, lower jaw, the
+          // dark of the mouth.
           if (side === 0) {
             const snout = footZ + 2.3;
             face.add(placed(box(3.2, 2.9, 3.0, rail), x * RAIL_X, 0, snout + 1.1));

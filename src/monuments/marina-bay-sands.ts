@@ -4,195 +4,58 @@ import type { Mesh, Monument } from './contract.ts';
 /**
  * Marina Bay Sands.
  *
- * Three things are this building and no other monument has any of them.
- * Everything in this file serves one of the three:
+ * Three things are this building: three separate towers in a row (two full-height
+ * slots of sky between them), each tower leaning and splitting low down into an
+ * asymmetric A-frame (one leg vertical, one splayed, a triangular hole between),
+ * and the SkyPark, a boat-shaped deck lying across all three tops and overhanging
+ * the far end by a quarter of its length with nothing under it. The overhang
+ * gets a pointed prow; the deck carries a row of trees down one edge and a pool
+ * down the other. Proportions were measured off a bay photograph and the 2009
+ * construction shot, in fractions of a tower's top width.
  *
- * - **Three separate towers standing in a row.** Not two (Petronas), not one.
- *   Two full-height slots of sky cut through the middle of the silhouette, and
- *   the towers do not touch anywhere below the deck.
- * - **Each tower leans, and splits low down into two legs.** The slab is not a
- *   vertical rectangle: its far edge stands almost plumb while its near edge
- *   rakes outward as it rises, so the tower is a card tipped toward the prow and
- *   widest where it meets the deck. Below the junction it opens into an
- *   asymmetric A-frame — one leg vertical, one splayed — with a triangular hole
- *   through it: 11 units of open height above the plinth and 4.3 wide at the
- *   foot, on a model 39.6 tall.
- * - **The SkyPark: one boat lying across all three tower tops, overhanging the
- *   far end by a quarter of its length with nothing under it.** This is the
- *   read. Three towers with a flat slab on top is a housing estate. Three towers
- *   with a hull balanced across them, sticking 15.3 units out into the air over
- *   an empty plinth, is Marina Bay Sands. The overhang gets a pointed prow; the
- *   deck carries a row of trees down one edge and a long pool down the other.
+ * Tier `building`: at true proportions the deck is 340 m long and 38 m wide, so
+ * the true plan needs a radius of 34.2, which only `building` admits. Height is
+ * the smallest dimension (39.6 tall, about 61 wide), and the deck being longer
+ * than the towers are tall is the impression, so nothing is taken off the
+ * horizontal. The metre is `UNIT`, anchored on the deck.
  *
- * The elevation was measured off two photographs rather than recalled — the
- * Wikimedia bay view (finished, dusk) and the 2009 construction shot, which is
- * the only common view where the podium does not bury the A-frames. Every
- * proportion quoted below as "measured" is off the construction shot, in
- * fractions of a tower's top width.
+ * Deliberate stretches: the deck is 2.4x too thick (a plank otherwise); the
+ * cantilever is a quarter of the length rather than 19.4%, which closes the gaps
+ * between towers to 0.65 of a tower, the photographed rhythm; everything is 1.2x
+ * deep, seen from 15 degrees up; the trees are 1.9x, alternating big and small
+ * and shifted across the bed so the row does not become a comb; the raking edge
+ * goes to 11.2 degrees (the photograph gives 6.2) and the plumb edge gets 2.6
+ * degrees so the whole card tips. Because one prism has one `scale.z`, depth
+ * narrows with width, so the vertical leg is set to 4.2 deep, between the two.
  *
- * ## Tier: `building`, and the tiers decide it before taste gets a vote
+ * Left out: the podium (a 1.2-unit plinth instead, which still joins the three
+ * towers at the bottom without eating the void), the curve of the raking leg
+ * (straight keeps the waist and the flare), and floor banding. The splayed leg
+ * is 1.37x too fat to keep it visible at thumbnail size.
  *
- * At true proportions the SkyPark is 340 m long, 38 m wide, and its top sits at
- * about 200 m. So the half-diagonal against the height is
- * `hypot(340, 38) / 2 / 200` = **0.86**, against a `MAX_ASPECT` limit of 2.00.
- * This monument needs no crop and no vertical stretch: it is one of the few
- * wide monuments that fits its own shape honestly. What it does not
- * fit is a `footprint`, and that is what picks the tier:
- *
- * | tier | height | radius the true plan needs | cap |
- * |---|---|---|---|
- * | `landmark` | 120 | 102.7 | 55 |
- * | `tower` | 70 | 59.9 | 28 |
- * | `building` | 40 | **34.2** | **55** |
- *
- * Only `building` admits it. This is the Arc de Triomphe case the contract
- * already names — "at 70 units tall it would be 63 wide, so it is a
- * `building`" — except twice as pronounced: at 70 units tall this would be 120
- * wide, and at 120 it would be 205.
- *
- * Three further reasons it is the right answer and not a demotion:
- *
- * - **Height is this monument's smallest dimension.** The model is 39.7 tall and
- *   **61.3 wide**. Burj Khalifa is 120 x 29, Petronas 70 x 30.3. Framed by
- *   `max(radius, footprint)`, as a thumbnail frames everything, this fills
- *   it on the horizontal — which is correct for a building whose roof is
- *   longer than its towers are tall.
- * - **The metres already order it.** 200 m against Petronas's 452 and the Burj's
- *   828, which are filed at 70 and 120. Forty units for 200 m is if
- *   anything generous: 200/452 is 0.44 where 40/70 is 0.57.
- * - **Reaching a higher tier would cost the one proportion that names it.**
- *   `landmark`'s 55-unit footprint caps the deck at about 109 units against a
- *   height of 120 — 0.91 : 1, where life is **1.70 : 1**. The SkyPark being
- *   *longer than the towers are tall* is the whole impression; the contract says
- *   to distort the axis carrying the least recognition, and here nothing may
- *   come off the horizontal. The model keeps 1.83 : 1 (61.2 over 33.4).
- *
- * ## Where the model lands
- *
- * Radius **30.9** of a declared 31 footprint — 56% of `building`'s 55, and 100%
- * of its own. Aspect `2 * 30.9 / 39.65` = **1.56** of 4, half-diagonal against
- * height **0.78** of 2. Height 39.6 of 40, 908 triangles of 2,600, 55 meshes of
- * 110.
- *
- * ## The five stretches, and what each one broke
- *
- * The metre is `61.2 / 340` = 0.18 units, anchored on the deck because the deck
- * is the dimension this monument is made of. A stretch is never free, so:
- *
- * 1. **The deck is 2.4x too thick** — 3.4 units where 8 m of structure scales to
- *    1.44. Two earlier passes at 2.4 and 2.8 both came out as a plank: at 61
- *    units long, a hull needs a section you can see the steps in.
- *    *What it broke:* the towers paid for it. At 33.4 units they are 185 m of a
- *    real 194 — 4% short — which moves deck-to-tower from the true 1.75 : 1 to
- *    1.83 : 1. That is the right pocket to take it from, because the ratio it
- *    hurts is the one that was already comfortably on the right side of 1.
- * 2. **The cantilever is a quarter, not 19.4%** — 15.3 units where 66 of 340 m
- *    gives 11.9. *What it broke:* nothing, and this is the rare one that paid
- *    for itself. Pushing the towers 3.4 units back off the prow closed the gaps
- *    between them from 8.3 to **6.6 against a 10.16 tower**, a ratio of 0.65 —
- *    which is exactly the 0.55-0.66 measured off the photograph, where the
- *    honest cantilever would have given a too-airy 0.82.
- * 3. **Everything is 1.2x deep** — the deck 8.4 units against 38 m (46.7), the
- *    towers 5.6 against 26 m (31). It is seen from about 15 degrees
- *    up, so a plate and three slabs at true width are all seen nearly
- *    edge-on. *What it broke:* the deck now oversails the towers by 1.4 a side
- *    rather than 2.2, so the "boat wider than what holds it up" margin narrowed;
- *    it is bought back by the top fascia oversailing the layer under it by 0.6,
- *    which puts an ink line along the gunwale.
- * 4. **The trees are 1.9x** — 2.05 units of crown where 6 m scales to 1.08.
- *    *What it broke:* at 2.05 the crowns are 60% of the deck's own thickness, so
- *    a regular row turned the SkyPark into a comb — it did, in the first render.
- *    They alternate big/small and shift 0.45 across the bed, and sit 4.3 apart,
- *    so the row reads as planting rather than as machined teeth.
- * 5. **The lean is exaggerated** — the raking edge goes to 11.2 degrees where
- *    the photograph measures 6.2, and the plumb edge is given 2.6 degrees where
- *    the building's is 0, so that the whole card tips instead of merely flaring.
- *    *What it broke:* the slab's waist is now 0.69 of its top where life is 0.75,
- *    and because one prism has one `scale.z`, the depth narrows with the width —
- *    5.6 at the deck, 3.89 at the waist. The vertical leg was therefore set to
- *    4.2 deep, between the two, so the step at the junction reads as the leg
- *    being slimmer than the mass it carries, which is true, instead of reading
- *    as a mistake.
- *
- * ## Traded away, and why
- *
- * - **The podium is gone.** In life the mall and casino wrap the tower bases and
- *   bury the A-frames; that is precisely why the finished bay photograph does
- *   not show them and the construction photograph does. The gap through each
- *   tower is in the brief and the podium is not, so the base is a 1.2-unit
- *   plinth — 3% of the height — which still does Petronas's job of making three
- *   towers one object at the bottom without eating the void.
- * - **The legs are straight.** The real raking leg is a curve, and a curve costs
- *   a mesh per segment on three towers. The straight line keeps the two things
- *   the curve is for: the waist at the junction and the flare at the foot.
- * - **The sloping leg is 1.37x too fat** — 2.5 units where the photograph gives
- *   0.18 of the tower width, which is 1.83. At 1.83 it is five pixels in a
- *   260-pixel thumbnail with ink either side. The void still comes out 4.26 wide,
- *   and the void is the read.
- * - **No floor banding.** Fifty-five storeys over 20.4 units is a grey wash. The
- *   only horizontal on each tower is the `slate` band at the junction, which is
- *   a real event: the level-23 truss floor where the two legs lock together.
- *
- * ## Colour: pale under dark green
- *
- * Everything above the ground is one pale material and one dark one, which is
- * what the building looks like and also what survives being turned away from the
- * sun. Reading the contract's shade table: `bone` and `slate` and `steel` all go
- * hueless in shade, and this model is *made* of surfaces that will sit in shade
- * — the whole soffit of a 15-unit cantilever, and the inner cheeks of three
- * A-frame voids seen against cyan sky. Those are exactly the "reads as a hole
- * rather than a wall" case, so:
- *
- * - **`white`** (0xfff2e8, and warm — it holds at 132,111,88 turned away) for
- *   the boat: its top two layers, the bow, the stern and the concrete blades up
- *   both edges of every tower. It is the brightest thing in the model, as the
- *   SkyPark is in every photograph.
- * - **`cream`** for the three towers *and for the hull's bottom two layers*, so
- *   the belly of the boat is the same pale material as the thing holding it up
- *   and only the top of the hull lifts to white. That is what the daylight
- *   photograph shows, and it is what makes the four stacked layers read as one
- *   curved section rather than as four boxes. One step under `white`, so the
- *   deck still sits *on* the towers instead of merging with them.
- * - **`slate`** twice only, and both times as a line: the junction band across
- *   each tower, and the plinth's cornice. It is the model's only mid-dark and it
- *   is deliberately not doing what it does on Petronas, where it is the curtain
- *   wall.
- * - **`darkOlive`** for the garden bed and **`green`** for the crowns — the dark
- *   green deck, and the one monument whose roof is a garden.
- * - **`skyBlue`** for the pool, the only saturated colour, 27 units long.
- * - **`tan`** for the plinth, warm, so the ground does not go hueless either.
- *
- * ## Not Petronas
- *
- * Two Asian towers with a horizontal element is the collision risk among
- * the monuments, so: **three** masses against two, a deck **lying across the tops**
- * against a bridge stitched through the waist, a **cantilever with nothing
- * under it** against a symmetric span, **leaning** slabs against plumb ones,
- * **holes through the bases** against a solid podium, **pale on dark green**
- * against dark glass on white steel, and no spire of any kind. Squinting,
- * Petronas is a capital H and this is a low, long boat on three tilted stilts.
+ * Colour: `white` for the boat's top layers, bow, stern and the blades up the
+ * tower edges; `cream` for the towers and the hull's bottom two layers, one step
+ * under white so the deck sits on the towers; `slate` only as a line (the
+ * junction band and the plinth cornice); `darkOlive` and `green` for the garden;
+ * `skyBlue` for the pool; `tan` for the plinth. The model's shaded surfaces (the
+ * soffit and the A-frame voids) are all warm, since neutrals go hueless in shade.
+ * It differs from Petronas by having three masses, a deck on top, a cantilever,
+ * leaning slabs and holes through the bases.
  */
 
-// ---------------------------------------------------------------------------
-// Scale. One metre, fixed by the deck, and everything measured against it.
-// ---------------------------------------------------------------------------
-
-/**
- * The metre, anchored on the SkyPark's 340 m rather than on the towers, because
- * the deck is the dimension this monument is made of and the one every other
- * number is checked against. 0.18 units per metre exactly.
- */
+// --- Scale: one metre, fixed by the deck ---
+/** The metre, anchored on the SkyPark's 340 m: 0.18 units per metre. */
 const UNIT = 61.2 / 340;
 
 /** Underside of the SkyPark: the top of the towers. */
 const DECK_BASE = 33.4;
-/** Deck thickness, 2.4x life — see stretch 1. */
+/** Deck thickness, 2.4x life. */
 const DECK_DEPTH = 3.4;
 const DECK_TOP = DECK_BASE + DECK_DEPTH;
 
 /** 340 m. Half of it either side of the axis, which is what centres the model. */
 const DECK_HALF = (340 * UNIT) / 2;
-/** 38 m at 1.2x — see stretch 3. It also leaves the pool and the bed room. */
+/** 38 m at 1.2x. It also leaves the pool and the bed room. */
 const DECK_HALF_WIDTH = 4.2;
 
 /** Where the hull's parallel body ends and the bow begins. */
@@ -200,20 +63,12 @@ const BOW_BASE = 24;
 /** And where the blunt stern rounds off. */
 const STERN_BASE = -27.6;
 
-/**
- * The prow face of the tower nearest the bow. Everything from here to +30.6 is
- * deck over air: **a quarter of the deck's length**, which is the whole point.
- */
+/** The prow face of the tower nearest the bow; from here to +30.6 the deck is over air. */
 const CANTILEVER = 15.3;
 
 const PLINTH_TOP = 1.2;
 
-// ---------------------------------------------------------------------------
-// The tower, in offsets from the centre of its slab where it meets the deck.
-// Fractions in the comments are of `TOWER_HALF * 2`, measured off the 2009
-// construction photograph.
-// ---------------------------------------------------------------------------
-
+// --- The tower, in offsets from the centre of its slab where it meets the deck ---
 /** Half the slab at the deck: 10.16 wide, which is 56 m — true scale. */
 const TOWER_HALF = 5.08;
 /** Depth there, 1.2x life; it narrows with the width down to the waist. */
@@ -253,8 +108,7 @@ const FIN_DEPTH = 5.8;
 
 /**
  * Tower centres. The bow-most tower's slab ends exactly on `CANTILEVER`, the
- * stern-most 2.2 units inside the deck's tail, and the two gaps come out at
- * 6.61 — 0.65 of a tower, which is the photographed rhythm. See stretch 2.
+ * stern-most 2.2 units inside the deck's tail, and the two gaps come out at 6.61.
  */
 const TOWER_GAP = 6.61;
 const TOWER_PITCH = TOWER_HALF * 2 + TOWER_GAP;
@@ -264,7 +118,7 @@ const TOWER_X = [
   CANTILEVER - TOWER_HALF,
 ];
 
-/** Trees: 16 crowns 3.4 apart, stopping where the bow narrows under them. */
+/** Trees: crowns evenly spaced along the bed, stopping where the bow narrows under them. */
 const TREE_COUNT = 12;
 const TREE_FIRST = -24.5;
 const TREE_PITCH = 4.3;
@@ -295,19 +149,12 @@ export const marinaBaySands: Monument = {
     const group = new THREE.Group();
 
     /**
-     * A slab standing between two points, leaning and tapering with them.
-     *
-     * The half-widths are **horizontal**, which is the number you actually want
-     * when you are matching an elevation; a tilted prism measures its own across
-     * its axis, hence the cosine. `bury` extends it past both ends along the
-     * axis, because a tilted prism's end caps are cut square to the axis and
-     * have to finish inside something else — the hull, the truss band, the
-     * plinth — or the slanted cut shows. The two ends bury by different amounts
-     * because they finish inside different things, and the splayed leg's foot
-     * has only the plinth's 1.2 units to hide in before it is through the floor.
-     *
-     * One prism has one `scale.z`, so the depth narrows in step with the width.
-     * That is the taper the towers wanted anyway.
+     * A slab standing between two points, leaning and tapering with them. The
+     * half-widths are horizontal; a tilted prism measures its own across its
+     * axis, hence the cosine. `bury` extends it past both ends along the axis,
+     * because a tilted prism's end caps are cut square to the axis and have to
+     * finish inside something else (the hull, the truss band, the plinth). One
+     * prism has one `scale.z`, so the depth narrows in step with the width.
      */
     const leaning = (
       footX: number,
@@ -343,19 +190,12 @@ export const marinaBaySands: Monument = {
     };
 
     /**
-     * A hull end: a prism laid along X so it narrows in plan *and* in section at
-     * once, which is what makes a bow a bow rather than a wedge. Rotating a
-     * `taper` by a quarter turn about Z sends its axis down +X (or -X) and
-     * leaves its flats on the top, the bottom and the two sides; `scale.x`
-     * becomes the vertical, and it tapers in the same ratio as the plan.
-     *
-     * One prism has one taper, so the section shrinks in height as fast as it
-     * shrinks in plan, and a bow built that way comes out as a **sharpened
-     * pencil** — the first two attempts both did, and at thumbnail size a
-     * pencil is what you see. The fix is the one a boatbuilder uses: tilt the
-     * axis up by exactly the height the section loses, so the deck line stays
-     * level all the way to the stem and the whole taper is spent on the
-     * underside rising out of the water. `rise` is that lift.
+     * A hull end: a prism laid along X so it narrows in plan and in section at
+     * once. A quarter turn about Z sends a `taper`'s axis down +X (or -X) and
+     * leaves its flats on the top, bottom and sides. Because the section would
+     * shrink in height as fast as in plan (a sharpened pencil), the axis is
+     * tilted up by `rise`, the height the section loses, so the deck line stays
+     * level to the stem and the taper is spent on the underside.
      */
     const hullEnd = (
       baseX: number,
@@ -376,10 +216,7 @@ export const marinaBaySands: Monument = {
       return mesh;
     };
 
-    // -----------------------------------------------------------------------
-    // The plinth. It stops at 16.8 so that the last 13.8 units of deck — 23% of
-    // its length — have nothing whatever underneath them.
-    // -----------------------------------------------------------------------
+    // --- The plinth; it stops at 16.8, so the last 13.8 units of deck have nothing under them ---
     const plinthMin = -29.6;
     const plinthMax = 16.8;
     const plinthWidth = plinthMax - plinthMin;
@@ -387,20 +224,16 @@ export const marinaBaySands: Monument = {
     plinth.position.set((plinthMin + plinthMax) / 2, 0, 0);
     group.add(plinth);
 
-    // Its top stops `PROUD` under the plinth's: flush, the two colours shared
-    // the plinth's whole top as one plane and flickered.
+    // Its top stops `PROUD` under the plinth's.
     const cornice = box(plinthWidth + 0.5, 0.28, 10.7, truss);
     cornice.position.set((plinthMin + plinthMax) / 2, PLINTH_TOP - 0.28 - PROUD, 0);
     group.add(cornice);
 
-    // -----------------------------------------------------------------------
-    // The three towers.
-    // -----------------------------------------------------------------------
+    // --- The three towers ---
     for (const centre of TOWER_X) {
       const tower = new THREE.Group();
 
-      // The slab: plumb on the far edge, raking on the near one, so the card
-      // tips toward the bow and is widest where the deck lands on it.
+      // The slab: plumb on the far edge, raking on the near one, so the card tips toward the bow.
       const waistCentre = (WAIST_MIN + WAIST_MAX) / 2;
       const waistHalf = (WAIST_MAX - WAIST_MIN) / 2;
       tower.add(
@@ -418,13 +251,10 @@ export const marinaBaySands: Monument = {
         ),
       );
 
-      // The concrete blades up both edges. Slightly proud in z, so each one
-      // takes its own ink line down the face instead of vanishing into it, and
-      // stepped out past the slab's edge in x: level with it, the blade's outer
-      // face lay 0.03 to 0.05 off the glass's and the two flickered. The raking
-      // side steps twice as far, because `leaning` measures a width square to
-      // its own lean and the slab's raking face stands a hair inside
-      // `WAIST_MAX`; each blade clears the glass by 0.11 to 0.13.
+      // The concrete blades up both edges, slightly proud in z so each takes its
+      // own ink line, and stepped out past the slab's edge in x. The raking side
+      // steps twice as far, because the slab's raking face stands a hair inside
+      // `WAIST_MAX`.
       for (const side of [-1, 1] as const) {
         const waistEdge = side < 0 ? WAIST_MIN : WAIST_MAX;
         const topEdge = side * TOWER_HALF;
@@ -467,8 +297,7 @@ export const marinaBaySands: Monument = {
         ),
       );
 
-      // Level 23: the truss floor that locks the two legs together, and the one
-      // horizontal line anywhere on the tower.
+      // Level 23: the truss floor that locks the two legs together.
       const band = box(BAND_MAX - BAND_MIN, BAND_TOP - BAND_BASE, BAND_DEPTH, truss);
       band.position.set((BAND_MIN + BAND_MAX) / 2, BAND_BASE, 0);
       tower.add(band);
@@ -477,14 +306,9 @@ export const marinaBaySands: Monument = {
       group.add(tower);
     }
 
-    // -----------------------------------------------------------------------
-    // The SkyPark. Three stacked layers give the hull its section: a narrow
-    // keel, a shoulder, and the wide top fascia that is the edge you see from
-    // the ground. The bow and the stern continue that section to a point and to
-    // a blunt tail.
-    // -----------------------------------------------------------------------
-    // The body runs 0.4 past both ends, so the two tilted end caps finish
-    // inside it rather than showing as slanted cuts.
+    // --- The SkyPark: a narrow keel, a shoulder and the wide top fascia, with a
+    // bow and a blunt stern continuing the section. The body runs 0.4 past both
+    // ends so the tilted end caps finish inside it. ---
     const bodyMin = STERN_BASE - 0.4;
     const bodyMax = BOW_BASE + 0.4;
     const bodyWidth = bodyMax - bodyMin;
@@ -509,9 +333,7 @@ export const marinaBaySands: Monument = {
       hullEnd(STERN_BASE, -DECK_HALF, DECK_HALF_WIDTH, 2.4, DECK_DEPTH / 2, midDeck, concrete),
     );
 
-    // -----------------------------------------------------------------------
-    // On top: the garden down the far edge, the pool down the near one.
-    // -----------------------------------------------------------------------
+    // --- On top: the garden down the far edge, the pool down the near one ---
     const gardenBed = box(48, 0.45, 2.6, bed);
     gardenBed.position.set(-1, DECK_TOP, TREE_Z);
     group.add(gardenBed);
@@ -522,16 +344,14 @@ export const marinaBaySands: Monument = {
       trunk.position.set(x, DECK_TOP + 0.45, TREE_Z);
       group.add(trunk);
 
-      // Alternating crowns, so twelve identical cones do not come out as a
-      // comb. Deterministic on the index: no `Math.random` anywhere near this.
+      // Alternating crowns, deterministic on the index.
       const big = i % 2 === 0;
       const crown = taper(big ? 1.15 : 0.95, big ? 0.5 : 0.42, big ? 2.05 : 1.7, leaf, 6);
       crown.position.set(x, DECK_TOP + 0.8, TREE_Z + (big ? -0.2 : 0.25));
       group.add(crown);
     }
 
-    // 150 m of infinity pool: a pale surround with the water standing proud of
-    // it, so the ink draws the coping and the blue reads as a separate surface.
+    // 150 m of infinity pool: a pale surround with the water standing proud of it.
     const poolCentre = -4.5;
     const poolPad = box(28.2, 0.34, 3.4, concrete);
     poolPad.position.set(poolCentre, DECK_TOP, 1.9);

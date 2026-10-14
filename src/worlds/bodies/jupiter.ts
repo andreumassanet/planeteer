@@ -1,33 +1,24 @@
 /**
- * Jupiter, walked: a cloud deck at the 1-bar level, and the one world where
- * the ground is weather.
+ * Jupiter, walked: a cloud deck at the 1-bar level, where the ground is weather.
  *
- * Everything true about Jupiter — its belts and zones at their latitudes, the
- * storms with their walls and spiral arms, the fourteen towns and the Floaters
- * — is `src/system/bodies/jupiter.ts`. This file says what it is like to stand
- * there:
+ * What is true about Jupiter (belts and zones at their latitudes, the storms,
+ * the fourteen towns and the Floaters) is `src/system/bodies/jupiter.ts`; this
+ * file says what it is like to stand there.
  *
- * - **The deck** is banded in Jupiter's own order from the equator out —
- *   cream Equatorial Zone, rust Equatorial Belts, the white Tropical Zones,
- *   the tan Temperate Belts — torn along each edge by the turbulence the jets
- *   leave, and it rises and falls with the storms: the Great Red Spot is a
- *   wall three hundred units high round a raised plateau wound with three
- *   spiral arms, Oval BA and the eight Pearls are smaller walls, the hot spots
- *   are holes, and the poles are packed with Juno's cyclones.
- * - **The weight**: 24.79 m/s², two and a half Earths, and a jump is a hop.
- * - **The sky** is pale: hydrogen scatters blue overhead the way nitrogen does
- *   on Earth, the ammonia haze turns the horizon cream, and the Sun is a small
- *   hard point 5.2 au away, giving a twenty-seventh of Earth's light.
- * - **The Floaters** write in looped, dotted glyphs hung from a line, speak
- *   low and slow through a throat the size of a balloon, and build in
- *   membranes, bladders, rings and spokes on platforms moored in the wind.
- * - **What moves**: ammonia ice crystals drifting past the eye, and white
- *   columns of rising cloud wandering the deck.
- * - **Drawn from the space kit**: the Floaters are the kit's drifter and glub,
- *   floating; their platforms carry pods and glass hangars among their own
- *   bladders and wind wheels, with floating trees in the yards.
- * - **What to take**: a saucer and a lander, both of which fly; the rovers
- *   parked on its streets drive its skyways.
+ * - The deck is banded in Jupiter's own order from the equator out, torn along
+ *   each edge by turbulence, and rises and falls with the storms: the Great Red
+ *   Spot is a wall three hundred units high round a raised plateau, Oval BA and
+ *   the Pearls are smaller walls, the hot spots are holes, and the poles are
+ *   packed with cyclones.
+ * - Gravity is 24.79 m/s2, so a jump is a hop.
+ * - The sky is pale (hydrogen scatters blue, ammonia haze turns the horizon
+ *   cream) and the Sun is a small hard point giving a twenty-seventh of Earth's
+ *   light.
+ * - The Floaters write in looped, dotted glyphs, speak low and slow, and build
+ *   in membranes, bladders, rings and spokes on platforms moored in the wind.
+ *   They are the space kit's drifter and glub, floating.
+ * - Ammonia ice drifts past the eye and white columns of cloud wander the deck.
+ * - A saucer and a lander are takeable; the rovers on the streets drive its skyways.
  */
 
 import { PALETTE } from '../../theme.ts';
@@ -44,15 +35,11 @@ import { GALILEANS } from './jupiter/moons.ts';
 const FLOATER = SPECIES.find((one) => one.id === 'floater')!;
 
 /**
- * The bands, equator outward, one entry for each 2.34 degrees.
- *
- * The deck's painter (`terrain.ts`) lays `bands` from the equator toward the
- * pole so that the whole list spans 37.5 degrees of latitude and then
- * repeats, mirrored north and south — so sixteen entries are sixteen steps of
- * 2.34 degrees, chosen to put Jupiter's own bands where they are: the
- * Equatorial Zone to 7, the Equatorial Belts to about 18, the Tropical Zone
- * to 24, the Temperate Belt to 33, the Temperate Zone after it. Past 37.5 the
- * pattern comes round again, which is not Jupiter but is at least banded.
+ * The bands, equator outward, one entry for each 2.34 degrees. The deck's
+ * painter (`terrain.ts`) lays them from the equator toward the pole so the list
+ * spans 37.5 degrees of latitude and then repeats, mirrored north and south:
+ * the Equatorial Zone to 7, the Equatorial Belts to about 18, the Tropical Zone
+ * to 24, the Temperate Belt to 33, the Temperate Zone after it.
  */
 const BANDS = [
   PALETTE.cream, // 0: the Equatorial Zone
@@ -75,10 +62,9 @@ const BANDS = [
 
 /**
  * The storms painted over the bands, by the same table the deck is raised by
- * (`stormRelief`): the Great Red Spot red, fading through salmon into the zone
- * round it; the ovals and the Pearls white; the hot spots the dark blue-grey of
- * a hole into clear air; the polar cyclones steel. And past about 55 degrees
- * the bands give way to the poles' grey-blue haze, which is what Juno saw.
+ * (`stormRelief`): the Great Red Spot red fading through salmon into its zone;
+ * the ovals and Pearls white; the hot spots dark blue-grey; the polar cyclones
+ * steel. Past about 55 degrees the bands give way to the poles' grey-blue haze.
  */
 const stormHit: StormHit = { storm: null, e: Infinity };
 const HOLE = tone(PALETTE.slate, 0.55);
@@ -108,13 +94,11 @@ function paintDeck(dir: { readonly x: number; readonly y: number; readonly z: nu
 
 export const WORLD = defineWorld(JUPITER, {
   relief: {
-    // The body has no `ground` (see `JUPITER_GROUND` in the system file), so
-    // the whole of the deck's relief — the zones over the belts and the
-    // storms — is the one feature below, in units already.
+    // The body has no `ground` (see `JUPITER_GROUND` in the system file), so the
+    // deck's whole relief is the one feature below, in units already.
     planetScale: 1,
     detail: [
-      // Billows: the small heaps of cloud a foot finds, soft with a little
-      // crease where they meet, which is where the cel ramp steps.
+      // Billows: small heaps of cloud, with a little crease where they meet.
       { amplitude: 4, wavelength: 110, octaves: 3, ridged: 0.25 },
       // Swells a kilometre or two long, the deck's slow roll.
       { amplitude: 24, wavelength: 1500, octaves: 2, ridged: 0 },
@@ -129,8 +113,7 @@ export const WORLD = defineWorld(JUPITER, {
     bands: BANDS,
     turbulence: 0.35,
     tint: paintDeck,
-    // The jets run east and west in turn; on the deck the drift is a slow
-    // eastward roll under the boil.
+    // The jets run east and west in turn; on the deck the drift is a slow eastward roll.
     churn: { boil: 0.4, speed: 14, wavelength: 300, strength: 0.06 },
   },
   sky: {
@@ -138,8 +121,7 @@ export const WORLD = defineWorld(JUPITER, {
     zenith: PALETTE.skyBlue,
     air: 0.75,
     light: PALETTE.cream,
-    // The light at 5.2 au is a twenty-seventh of Earth's and the sky's own law
-    // already gives back half; this is the rest of the way to a deck that reads.
+    // The light at 5.2 au is a twenty-seventh of Earth's and the sky's law gives back half; this is the rest.
     exposure: 1.3,
     moons: GALILEANS,
   },
@@ -157,8 +139,7 @@ export const WORLD = defineWorld(JUPITER, {
       consonants: 'mwlbhvn',
       vowels: 'ouoa',
     },
-    // A throat the size of a balloon: low, slow, and warbling as the bag
-    // breathes.
+    // A throat the size of a balloon: low, slow, warbling as the bag breathes.
     voice: { pitch: [62, 112], pace: [3.2, 4.8], tract: [0.52, 0.7], wander: 0.3 },
     phrases: {
       greet: [
@@ -215,9 +196,7 @@ export const WORLD = defineWorld(JUPITER, {
         { item: 'pod', weight: 1 },
       ],
       landmark: 'mooring-mast',
-      // Membranes pale, bags warm, trim the bright colours of a Floater's
-      // harness; the platform a woven raft of tan, so a town reads on a cream
-      // zone and a rust belt alike.
+      // Membranes pale, bags warm, trim bright; the platform a woven tan raft, so a town reads on cream and rust alike.
       walls: [PALETTE.cream, PALETTE.blush, PALETTE.bone, PALETTE.white],
       roofs: [PALETTE.salmon, PALETTE.apricot, PALETTE.pink, PALETTE.violet],
       accents: [PALETTE.gold, PALETTE.skyBlue, PALETTE.crimson, PALETTE.orange],
@@ -247,19 +226,16 @@ export const WORLD = defineWorld(JUPITER, {
   ambient: [
     // Sky mantas over the deck.
     { kind: 'fliers', count: 14, color: PALETTE.salmon, belly: PALETTE.cream, size: 4.2 },
-    // Ammonia ice: the white of the zones is these, a few microns each,
-    // drawn a good deal bigger.
+    // Ammonia ice: the white of the zones, drawn a good deal bigger than its microns.
     { kind: 'motes', count: 170, color: PALETTE.white },
     // Columns of rising cloud: the convection that makes a zone a zone.
     { kind: 'dust-devil', count: 5, color: PALETTE.cream },
-    // Lightning in the belts, where the water clouds below convect: Galileo
-    // and Juno saw it in the brown belts and almost never in the white zones.
+    // Lightning in the belts, where the water clouds below convect (seen in the brown belts, almost never in the white zones).
     { kind: 'lightning', count: 1, rate: 7, color: PALETTE.white, where: (lat) => 1 - zoneAt(lat) },
   ],
   // The jets: Jupiter's belts and zones run east and west in alternate bands; here the deck runs east.
   wind: { toward: 90, speed: 30, strength: 0.6 },
   landmarks: LANDMARKS,
-  // Hollow, on the Red Spot's northern flank: the storm's wall stands on the
-  // southern horizon, Spot Watch on its crest four thousand units away.
+  // Hollow, on the Red Spot's northern flank: the storm's wall stands on the southern horizon.
   spawn: 'hollow',
 });

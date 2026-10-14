@@ -4,62 +4,20 @@ import { PROUD } from './contract.ts';
 /**
  * African Renaissance Monument — Dakar, Senegal.
  *
- * **Why Senegal:** West Africa's Atlantic coast had Elmina and nothing north
- * of it before Morocco. On the higher of the two Mamelles hills over the
- * Cap-Vert peninsula stands a bronze family 49 m tall, unveiled in 2010 for the
- * fiftieth anniversary of independence: the tallest statue in Africa, and the
- * one thing on the skyline of Dakar you can see from the sea.
+ * A 49 m bronze family (man, woman, child) on the higher Mamelles hill. The
+ * group strides along +X (`placement.ts` turns +X to west, out to sea, as the
+ * real child points), so the contract's +Z front is their profile.
  *
- * ---------------------------------------------------------------------------
- * The front is the group's profile, as for the Genghis Khan statue
- * ---------------------------------------------------------------------------
+ * The man stands upright, the woman is swept along at a slant, and the child
+ * sits on his raised hand pointing forward: one wedge leaning into the wind.
+ * Limbs are struts placed by their endpoints. There is no bronze in the
+ * palette: `clay` at 0.78 is the lit metal, `clay` at 0.6 the cloth and the
+ * sides turned from the sun.
  *
- * The figures stride towards the Atlantic, and seen head-on a striding group
- * is a column. So they walk along +X — `placement.ts` turns +X to west, which
- * is where the real child points, out to sea — and the contract's +Z front is
- * their side. The woman is on the near (+Z) side, the man's right, and the
- * child is held up on his far (left) arm, so from the front all three read.
- *
- * ---------------------------------------------------------------------------
- * What has to survive at 260 pixels
- * ---------------------------------------------------------------------------
- *
- * **The diagonal.** The man stands upright and strides; the woman beside him
- * is swept along at a slant, her head at his shoulder and her feet trailing
- * far behind, her free arm flung back and her dress streaming; the child,
- * seated on the man's raised hand above his head, points forward. Read as one
- * mass it is a wedge leaning into the wind with a finger at its tip, and that
- * wedge is the monument. Everything is struts placed by their endpoints, so
- * every limb is exactly the line it is in the bronze.
- *
- * **The hill.** Like Christ the Redeemer, this is a figure on a summit, not on
- * a block, and the hill is how it reads from Dakar: a dry volcanic knoll with
- * two spurs, scrub and a couple of baobabs, a pale terrace on the top, the pedestal (a
- * building with exhibition halls inside) and the long straight stair up the
- * landward side. The stair is ten flights for the real 198 steps, each a
- * block bedded in the slope, so its edge is a staircase in silhouette.
- *
- * **The bronze.** There is no bronze in the palette. `clay` taken down to
- * 0.78 is a dark warm copper, and every part the sun turns away from or that
- * is cloth — the man's trousers, the woman's dress and hair — is `clay` at
- * 0.6, a material split rather than shading (the same split the Genghis Khan
- * statue makes between lit steel and `slate`).
- *
- * ---------------------------------------------------------------------------
- * Proportion
- * ---------------------------------------------------------------------------
- *
- * Tier `tower`, 70 units. 0 to 17 is the hill, 17 to 18.4 the terrace, 18.4
- * to 23.4 the pedestal and 23.4 to 69.5 the statue: 46 units for its 49 m,
- * so a metre of bronze is 0.94 units and the figure is at true proportion.
- * The real hill is about 100 m high, which at that rate would be 95 units on
- * its own; 17 is enough to make it a summit and keeps the statue at two
- * thirds of the model. The man's head is at 57, the child's at 67.5 and his
- * pointing hand the top of the model, as in the bronze.
- *
- * The plan is kept small on purpose — a hill 38 across — because the site is
- * on a narrow peninsula and a landmark is moved inland until its plan is on
- * dry land. Half-diagonal 20.2 against 69.5 is 0.29, well inside the 2.0 cap.
+ * Tier `tower`, 70 units: 0 to 17 hill, 17 to 18.4 terrace, 18.4 to 23.4
+ * pedestal, 23.4 to 69.5 statue (0.94 units a metre, true proportion). The hill
+ * is kept small (38 across) so the plan stays on dry land after a landmark is
+ * moved inland. The stair is ten flights for the real 198 steps.
  */
 
 /** The hill: three frusta, each stepped in half a unit, with different side counts so no facets line up. */
@@ -74,10 +32,8 @@ const TERRACE_TOP = SUMMIT + 1.4;
 const PEDESTAL_TOP = TERRACE_TOP + 5;
 
 /**
- * The stair, up the landward (-X) slope: flight k's front edge and its top.
- * Ten flights from the foot of the hill to the terrace, each block running
- * back under the next and its bottom `STEP_DEPTH` down, which is under the
- * slope at every flight (checked against the three frusta's profiles).
+ * The stair up the landward (-X) slope: flight k's front edge and its top. Each
+ * block runs back under the next and `STEP_DEPTH` down, below the slope.
  */
 const FLIGHTS = 10;
 const FLIGHT_RUN = 1.15;
@@ -89,8 +45,8 @@ const STEP_DEPTH = 5;
 
 /**
  * Scrub on the slopes, as [angle in degrees from +Z, radius, base]. None on the
- * stair's side. Each base is half a unit under the slope, and no top lands on
- * 6.0, the first frustum's ledge: a bush's top there was two colours in one plane.
+ * stair's side. No top lands on 6.0, the first frustum's ledge (two colours in
+ * one plane).
  */
 const SCRUB: [number, number, number][] = [
   [10, 16, 3.9],
@@ -157,9 +113,7 @@ export const africanRenaissanceMonument: Monument = {
     HILL.forEach((frustum, index) => {
       place(taper(frustum.bottom, frustum.top, frustum.height, ground[index]!, frustum.sides), 0, frustum.base, 0);
     });
-    // Two spurs pushing out of the lower slope, so the hill is a knoll and
-    // not a turned cone. Tall enough to stand out of it: the slope is already
-    // 6 units up where they stand.
+    // Two spurs pushing out of the lower slope, so the hill is a knoll.
     for (const [degrees, radius, height] of [
       [24, 14.5, 8.5],
       [150, 14.5, 7.5],
@@ -199,9 +153,7 @@ export const africanRenaissanceMonument: Monument = {
       place(box(STAIR_HEAD - front, top - bottom, STAIR_WIDTH, paving), (front + STAIR_HEAD) / 2, bottom, 0);
     }
 
-    // The pedestal: a building, its door at the head of the stair, a band of
-    // windows down its side and a band round it at mid-height. The figures'
-    // feet and the trailing dress are all on its top, which is why it is long.
+    // The pedestal: door at the head of the stair, a window band and a mid-height band.
     place(box(14, PEDESTAL_TOP - TERRACE_TOP, 8, pedestal), -0.5, TERRACE_TOP, 0);
     place(box(14.6, 0.8, 8.6, trim), -0.5, TERRACE_TOP + 2.6, 0);
     // Both openings stand clear of the wall by more than `PROUD`.

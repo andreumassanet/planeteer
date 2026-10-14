@@ -4,76 +4,38 @@ import type { Monument } from './contract.ts';
 /**
  * The Potala Palace, Lhasa.
  *
- * Four things are the building, and every mesh in this file pays for one of
- * them:
+ * Four things are the building. The battered walls: every wall leans inward as
+ * it rises, which is what makes Tibetan architecture unmistakable (plumb walls
+ * give a white barracks with a red block on it), so every mass is a `taper` and
+ * the batter is exaggerated. The two-colour composition: a deep red block
+ * standing inside a larger white one that continues far below it, so the Red
+ * Palace starts at y = 12 and stands five units behind the White Palace's front
+ * face and emerges from the white mass instead of sitting on it like a hat. Flat
+ * roofs with gold pavilions: nothing comes to a point except the five gilded
+ * roofs over the Red Palace, and every parapet stops a quarter-unit short of the
+ * wall top so the whitewashed deck shows. Rows of small dark windows: 72 of the
+ * 104 meshes are `ink` trapezoids, wider at the bottom and tilted onto the
+ * sloping wall, and a regular grid of them says how big the wall is.
  *
- * - **The battered walls.** Every wall leans inward as it rises, and that lean
- *   is the single thing that makes Tibetan architecture unmistakable. It is also
- *   the commonest way this building is drawn wrong: give the Potala plumb walls
- *   and you have drawn a white barracks with a red block on it. So there is not
- *   one vertical wall face in the model — every mass is a `taper` — and the
- *   batter is deliberately exaggerated (numbers below).
- * - **The two-colour composition.** A deep red block standing *inside* a much
- *   larger white one that wraps around it and continues far below it. Red in
- *   white is the read. It is why the Red Palace starts at y = 12, seven units
- *   below the height at which it first becomes visible, and stands five units
- *   behind the White Palace's front face: it has to emerge from the white mass,
- *   not sit on top of it like a hat.
- * - **Flat roofs, and gold pavilions on them.** Nothing here comes to a point
- *   except the five gilded roofs over the Red Palace. Every parapet is a band
- *   that stops a quarter-unit short of the wall top, so the whitewashed deck
- *   still shows behind it — flat everywhere else is what makes those five read.
- * - **Rows of small dark windows.** Seventy-two of the model's 104 meshes are
- *   windows, and that is the right split. Each is one `ink` trapezoid, wider at
- *   the bottom, tilted onto the sloping wall rather than standing plumb against
- *   it: the black trapezoidal surround *is* the Tibetan window, and a regular
- *   grid of them is the only thing telling you how big the wall behind it is.
- *   Take them away and the model is three white lumps of unknowable size.
+ * Tier `building`: the visible mass is about 300 m across and 117 m tall, which
+ * at `landmark` would need a plan squeezed nearly 3x. At `building` the true
+ * ratio fits (40 tall, 97 across, aspect 2.58 against 4).
  *
- * **Why `building` and not `landmark`.** The visible mass is about 300 m across
- * and 117 m tall — 2.6 wide to tall. At `landmark` that is unbuildable: 120
- * units tall wants 312 across, the tier's footprint stops at 55 (110 across), so
- * the only way to file the Potala there is to squeeze its plan by nearly 3x,
- * which turns the broad white cliff into a tower and destroys the exact
- * proportion the building is recognised by. At `building` the true ratio fits
- * with room to spare — 40 tall, 97 across, aspect 2.58 against the cap of 4 —
- * and the tier note lists "a palace" by name. From across Lhasa is where you
- * meet this one.
+ * Exaggerated: the batter (podium 19 degrees, White Palace 17, Red Palace 10,
+ * 2 to 2.5x life, since an honest 8 degrees is three pixels). A mass is one
+ * square frustum scaled to a rectangle, so its z faces batter by `atan(tan(deg)
+ * * depth / width)`, 7.5 degrees on the podium and 5.9 on the Red Palace, near
+ * life. Windows are 2.6 units tall where scale asks for 0.5 (about 5x). Two
+ * window rows on the White Palace and three on the Red stand in for thirteen
+ * storeys.
  *
- * **What is exaggerated, in numbers.**
- *
- * - *Batter.* Real walls lean 6-9 degrees off vertical. Here the podium leans
- *   19, the White Palace 17, the Red Palace 10 — 2 to 2.5x life. In a 260-pixel
- *   thumbnail an honest 8 degrees is three pixels of lean across
- *   the whole facade and simply is not there. The *side* walls are not
- *   exaggerated and land near life: a mass is one square frustum scaled to a
- *   rectangle, so its z faces batter by `atan(tan(deg) * depth / width)` — 7.5
- *   degrees on the podium, 5.9 on the Red Palace. The axis that carries the
- *   recognition gets the exaggeration; the axis that does not, keeps the truth.
- * - *Windows.* 2.6 units tall where the model's own scale (40 units for 117 m)
- *   asks for 0.5. About 5x. A window at true scale is a fifth of a pixel here,
- *   so the choice is an exaggerated window or a blank wall, and a blank wall is
- *   a different building.
- * - *Storeys.* Two window rows on the White Palace and three on the Red stand in
- *   for thirteen. The rows carry the texture; their count does not.
- *
- * **The stairs are part of the building.** Marpo Ri is not modelled — the ground
- * under every monument is flattened to a 90-unit pad — but the great switchback
- * zigzag up the front wall belongs to the palace and is half of how it is drawn.
- * It went through one bad version worth recording: 3 units thick, in `bone`
- * against the white wall, with a rail beside it — it read as grey scaffolding
- * bolted across the facade and buried two rows of windows. What fixed it was
- * painting it the same white as the wall and letting the ink outline and a dark
- * rail along its top edge do the drawing. The zigzag is a *line*; a line given a
- * colour of its own and drawn 3 units thick stops being one.
- *
- * Traded away: the Snow Village and the outer walls at the foot (they are the
- * hill, not the palace); the seven gold roofs cut to five, because two more at
- * this size are two more blobs and not two more roofs; the gold medallions on
- * the benma frieze, smaller at 0.3 units than the ink outline that would draw
- * them; and the White Palace's asymmetry reduced to the east wing standing 1.1
- * units taller and slightly wider than the west, which is as much asymmetry as
- * survives a thumbnail.
+ * The switchback stair belongs to the palace. It is painted the same white as
+ * the wall, and the ink outline and a dark rail along its top edge draw it (a
+ * 3-unit `bone` stair read as scaffolding). Marpo Ri, the Snow Village and the
+ * outer walls are not modelled; the seven gold roofs are cut to five; the gold
+ * medallions on the benma frieze are smaller than their ink outline; and the
+ * White Palace's asymmetry is reduced to an east wing 1.1 units taller and
+ * slightly wider than the west.
  */
 
 const RAD = Math.PI / 180;
@@ -93,13 +55,9 @@ interface Mass {
 }
 
 /**
- * Top over bottom.
- *
- * A mass is one `taper` built on a unit square and scaled to a rectangle, so its
- * two axes necessarily share a single shrink factor. That is not a limitation to
- * work around — it is why the sides come out right. With `w` much larger than
- * `d`, one factor gives the front the exaggerated lean it needs to read and the
- * flanks a gentle one close to life.
+ * Top over bottom. A mass is one `taper` built on a unit square and scaled to a
+ * rectangle, so its two axes share one shrink factor: with `w` much larger than
+ * `d`, the front gets the exaggerated lean and the flanks a gentle one near life.
  */
 const shrinkOf = (m: Mass): number => 1 - (Math.tan(m.deg * RAD) * m.h) / m.w;
 
@@ -115,16 +73,14 @@ const faceX = (m: Mass, y: number): number => m.x + m.w * shrinkAt(m, y);
 const tiltZ = (m: Mass): number => Math.atan((Math.tan(m.deg * RAD) * m.d) / m.w);
 const tiltX = (m: Mass): number => m.deg * RAD;
 
-// --- the masses -----------------------------------------------------------
+// --- the masses ---
 
-/** The great white podium. The widest thing here, and what sets the footprint. */
+/** The great white podium: the widest thing here, and what sets the footprint. */
 const PODIUM: Mass = { x: 0, z: 0, w: 48.5, d: 17.5, y: 0, h: 8, deg: 19 };
 /**
- * The White Palace proper. It starts at 7.5, half a unit *inside* the podium,
- * because two stacked frusta meeting exactly would put a down-facing cap and an
- * up-facing cap in the same plane and z-fight across the whole terrace. Every
- * mass in this file is seated the same way, and every band is sunk into the mass
- * it caps for the same reason.
+ * The White Palace proper. It starts at 7.5, half a unit inside the podium,
+ * because stacked frusta meeting exactly would put two caps in one plane. Every
+ * mass is seated the same way, and every band is sunk into the mass it caps.
  */
 const BODY: Mass = { x: 0, z: 0, w: 44, d: 16, y: 7.5, h: 11, deg: 17 };
 /** The Red Palace: buried in the white to y = 18.5, and set back 5 behind its face. */
@@ -137,7 +93,7 @@ const EAST: Mass = { x: 27.4, z: -1.5, w: 13.2, d: 11.5, y: 17.8, h: 10.6, deg: 
 const DECK_LIP = 0.25;
 const BAND_PROUD = 0.75;
 
-// --- the gilded roofs -----------------------------------------------------
+// --- the gilded roofs ---
 
 /** The Red Palace's roof, and the level the pavilions are seated just under. */
 const DECK = RED.y + RED.h;
@@ -167,9 +123,9 @@ const PAVILIONS: Pavilion[] = [
 /** Every roof and finial is seated this far into the thing below it, never on it. */
 const SEAT = 0.15;
 
-// --- windows --------------------------------------------------------------
+// --- windows ---
 
-/** Top half-width over bottom. This ratio *is* the Tibetan window. */
+/** Top half-width over bottom: this ratio is the Tibetan window. */
 const WIN_TAPER = 0.68;
 /** How far the surround stands off the wall — enough for the ink line, no more. */
 const WIN_PROUD = 0.3;
@@ -183,8 +139,7 @@ const PODIUM_XS = [-39, -30, 30, 39];
 const WING_FRACTIONS = [-0.72, -0.27, 0.27, 0.72];
 const RED_XS = [-10.8, -5.4, 0, 5.4, 10.8];
 
-// --- the zigzag stair -----------------------------------------------------
-
+// --- the zigzag stair ---
 /** Lower flight climbing left, upper flight climbing back right off the landing. */
 const FLIGHT_A = { x0: 26, y0: 1.6, x1: -6, y1: 7.2 };
 const FLIGHT_B = { x0: -9, y0: 7.4, x1: 16, y1: 12.8 };
@@ -211,14 +166,12 @@ export const potalaPalace: Monument = {
     const benma = palette.bark; // the dark frieze along every parapet
     const gild = palette.gold; // the five roofs and the cornice under them
     const dark = palette.ink; // window surrounds and the one doorway
-    // The ramps are whitewashed like everything else, which is what they are in
-    // life; they are drawn by their own ink outline and by the dark rail on top,
-    // not by being a different colour stuck onto the wall.
+    // The ramps are whitewashed like the rest; the ink outline and the dark rail draw them.
     const stair = lime;
 
     const group = new THREE.Group();
 
-    /** One battered mass. A square frustum scaled to its rectangle — see `shrinkOf`. */
+    /** One battered mass: a square frustum scaled to its rectangle (see `shrinkOf`). */
     const mass = (m: Mass, color: number): void => {
       const wrap = new THREE.Group();
       wrap.add(taper(1, shrinkOf(m), m.h, color, 4));
@@ -229,9 +182,7 @@ export const potalaPalace: Monument = {
 
     /**
      * A parapet band round a mass, standing proud of the wall and stopping below
-     * the wall's own top so the pale deck behind it still shows. A band flush
-     * with the top would make every roof in the model dark, and the flat white
-     * roofs are half of why the gold ones read.
+     * its top so the pale deck behind it shows; flush, every roof would be dark.
      */
     const band = (m: Mass, top: number, height: number, color: number, proud: number): void => {
       const y = top - height;
@@ -251,8 +202,7 @@ export const potalaPalace: Monument = {
 
     /**
      * One window: an `ink` trapezoid, wider at the bottom, tilted into the plane
-     * of the wall it belongs to instead of standing plumb and half-sinking into
-     * a wall that leans away from it.
+     * of the wall it belongs to.
      */
     const opening = (
       x: number,
@@ -300,8 +250,7 @@ export const potalaPalace: Monument = {
     // --- the red palace ---
     mass(RED, red);
     band(RED, 34, 1.2, benma, 0.65);
-    // The gilt cornice. Its top stops below the Red Palace's own cap, which stays
-    // the deck the pavilions stand on.
+    // The gilt cornice. Its top stops below the Red Palace's cap, which stays the deck the pavilions stand on.
     band(RED, 34.9, 0.9, gild, 0.45);
 
     // --- the two wings ---
@@ -354,20 +303,17 @@ export const potalaPalace: Monument = {
       const foot = new THREE.Vector3(flight.x0, flight.y0, rampZ(flight.y0));
       const head = new THREE.Vector3(flight.x1, flight.y1, rampZ(flight.y1));
       group.add(strut(foot, head, RAMP, stair));
-      // Riding the ramp's top edge rather than sitting beside it: a rail below
-      // the ramp would hang its mitred end under y = 0 at the foot of a flight.
+      // Riding the ramp's top edge: a rail below it would hang its mitred end under y = 0.
       const lift = new THREE.Vector3(0, RAMP / 2, 0.15);
       group.add(strut(foot.clone().add(lift), head.clone().add(lift), RAIL, benma));
     }
 
-    // A flight is cut on the diagonal at the bottom and needs something to land
-    // on; the real stairway ends in a block too.
+    // A flight is cut on the diagonal at the bottom and needs something to land on.
     const kerb = box(3.6, 1.6, 4.2, stair);
     kerb.position.set(FLIGHT_A.x0 + 0.4, 0, rampZ(0) - 0.5);
     group.add(kerb);
 
-    // The switchback platform. Small on purpose: at the size it wanted to be it
-    // welded the two flights into one wedge and the zigzag stopped bending.
+    // The switchback platform, small so the two flights do not weld into one wedge.
     const landing = box(5.4, 2.6, 3.2, stair);
     landing.position.set(-9.5, 5.8, rampZ(7.3) - 0.3);
     group.add(landing);
@@ -376,8 +322,7 @@ export const potalaPalace: Monument = {
     const porch = box(6, 2.8, 2.6, stair);
     porch.position.set(PORCH_X, 12.8, faceZ(BODY, 12.8) + 1.3);
     group.add(porch);
-    // On a sill `PROUD` over the porch's foot: level with it, the door's
-    // underside and the porch's shared a plane in two colours.
+    // On a sill `PROUD` over the porch's foot, off the porch's underside plane.
     const doorway = box(2.2, 2.1, 0.8, dark);
     doorway.position.set(PORCH_X, 12.8 + PROUD, faceZ(BODY, 12.8) + 2.5);
     group.add(doorway);

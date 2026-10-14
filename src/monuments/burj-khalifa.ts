@@ -4,54 +4,23 @@ import type { Monument } from './contract.ts';
 /**
  * Burj Khalifa.
  *
- * A tapering spike passes every check in `validate` and is not this building —
- * it is any building. Three things are the Burj and everything in this file
- * serves one of them:
+ * Three things make it the Burj and not any tapering spike:
+ * - The Y plan: three wings buttressing a hexagonal core (a flat faces each
+ *   wing), so the silhouette changes from every bearing.
+ * - The spiral of setbacks: each setback shortens one wing and the next goes to
+ *   the next wing, so the two edges of the silhouette notch at different
+ *   heights. Each is capped with a dark `steel` ledge overhanging by 0.15.
+ * - The spire: 20 of the 120 units, in three lengths (half-width
+ *   2.05, 1.05, 0.45, 0.10), above a shaft already bare for 12 units.
  *
- * - **The Y plan.** Three wings buttressing a hexagonal core. It is why the
- *   tower never reads as a box and why it looks like a different silhouette
- *   from every bearing: from the front you get one wing end-on as a narrow
- *   spine with two more splaying away behind it, and the mass is triangular
- *   rather than rectangular all the way up.
- * - **The spiral of setbacks.** The wings do not step back together. Each
- *   setback shortens **one** wing, and the next one goes to the next wing, so
- *   the steps wind up around the tower and the left and right edges of the
- *   silhouette are notched at *different* heights. That asymmetry is the whole
- *   trick — a tower whose two edges step together is a wedding cake, and a
- *   smooth taper is a cone. Every setback is capped with a dark `steel` ledge
- *   overhanging by 0.15, because at thumbnail size the shoulder is carried by
- *   the ink line, not by the 1.5-unit step itself.
- * - **The spire.** 20 units of the 120, a sixth, in three lengths that go
- *   2.05 -> 1.05 -> 0.45 -> 0.10 half-width. Above the last wing the shaft is
- *   already bare for 12 units, so a third of the model is needle. That is the
- *   proportion that holds the record and it is the first thing an honest
- *   silhouette has to give up room for.
- *
- * Traded away, and why:
- *
- * - **Six setbacks per wing, not nine — 18 in total against the real 27.** This
- *   is the one number worth arguing about. The wings have 10.3 units of reach
- *   to give away between the ground and the crown. Spread over 27 steps that is
- *   0.38 units each: at the size a `landmark` is actually read from, under a
- *   pixel, and the silhouette comes back as a smooth cone with some noise on
- *   it. At 18 the steps average 1.7 units and the outline is visibly serrated,
- *   which is what the setbacks are *for*. Fewer than 18 and the spiral stops
- *   reading as a spiral, because you need several turns of it.
- * - **The wing tips are octagonal, not round.** Eight sides is the cheapest
- *   count that keeps the nose exactly `half` wide (any multiple of four does;
- *   ten does not), so the wing's flanks and its tip line up to the unit.
- * - **It is stockier than life.** The real tower is 828 m over about 156 m
- *   across the wing tips, 5.3:1. This one is 120 over 27.6, 4.4:1. The
- *   slenderness is part of the building, so it is only stretched by 20%, but
- *   at a true 5.3 the setbacks lose a quarter of their depth and go under the
- *   ink line.
- * - **No curtain-wall mullions except a raised rib down each wing flank on the
- *   bottom four tiers.** The vertical fluting is real and it is invisible past
- *   about thirty units; the ribs are there for the walk-up, not the thumbnail.
- * - **The podium is a round plaza with three arms**, not the actual mall and
- *   lake. It is also load-bearing for the contract: the Y is lopsided in z (one
- *   wing forward, two back), and without a symmetric plate under it the model's
- *   bounding box sits 2.4 units off the Y axis and `validate` rejects it.
+ * Simplified: six setbacks per wing (18, not the real 27), because 27 steps of
+ * 0.38 units fall under a pixel and give a smooth cone; octagonal wing tips (the
+ * cheapest count that keeps the nose exactly `half` wide); stockier than life
+ * (4.4:1 against 5.3:1, or the setbacks lose a quarter of their depth); raised
+ * ribs on the wing flanks of the bottom four tiers only. The podium is a round
+ * plaza with three arms; the plate is symmetric because the Y is lopsided in z
+ * (one wing forward, two back) and the bounding box would sit 2.4 units off the
+ * axis.
  */
 
 // --- elevation ---
@@ -68,8 +37,8 @@ const TIERS = 6;
 const STAGGER = 1 / WINGS;
 /**
  * Bends the ladder of setback heights. Below 1 the steps crowd towards the top,
- * which is what leaves the base tier tall (22-32 units, staggered per wing) and
- * the upper ones an even ~10.
+ * leaving the base tier tall (22-32 units, staggered per wing) and the upper
+ * ones an even ~10.
  */
 const CURVE = 0.72;
 
@@ -105,12 +74,10 @@ const ARM_REACH = 12.2;
 const ARM_FLARE = 1.3;
 
 /**
- * Height of wing `wing`'s `tier`-th setback.
- *
- * The three wings share one ladder offset by a third of a rung, so the global
- * order of the 18 setbacks going up is wing 0, 1, 2, 0, 1, 2, ... — the spiral.
- * The last rung lands exactly on `WING_TOP`, and only wing 2 gets there: the
- * three wings die off at 81.6, 84.8 and 88, which is what makes the crown lean.
+ * Height of wing `wing`'s `tier`-th setback. The wings share one ladder offset by
+ * a third of a rung, so the order going up is wing 0, 1, 2, 0, 1, 2... The last
+ * rung lands on `WING_TOP` and only wing 2 reaches it: the wings end at 81.6,
+ * 84.8 and 88, which makes the crown lean.
  */
 function setback(wing: number, tier: number): number {
   const rungs = TIERS + (WINGS - 1) * STAGGER;
@@ -153,9 +120,8 @@ export const burjKhalifa: Monument = {
     podium.position.y = PLAZA_HEIGHT;
     group.add(podium);
 
-    // --- the buttressed core, one taper the whole way up. Buried in the wings
-    //     for the first sixty units and the only thing left by ninety. A
-    //     hexagon rotated so a flat faces each wing, not a corner. ---
+    // --- the buttressed core, one taper the whole way up, buried in the wings
+    //     for the first sixty units. A hexagon rotated so a flat faces each wing. ---
     group.add(taper(CORE_BOTTOM, CORE_TOP, SHAFT_TOP, glass, 6));
 
     // --- the three wings ---
@@ -163,8 +129,7 @@ export const burjKhalifa: Monument = {
       around(WINGS, (wing) => {
         const arm = new THREE.Group();
 
-        // The podium's arm, level with the podium block, turning the round
-        // plaza into a Y before the tower even starts.
+        // The podium's arm, level with the podium block.
         const flare = halfAt(0) + ARM_FLARE;
         const skirt = box(flare * 2, PODIUM_HEIGHT, ARM_REACH, podiumColor);
         skirt.position.set(0, PLAZA_HEIGHT, ARM_REACH / 2);
@@ -173,16 +138,13 @@ export const burjKhalifa: Monument = {
         let base = 0;
         for (let tier = 0; tier < TIERS; tier++) {
           const top = setback(wing, tier);
-          // The tier keeps the width it had at its own base and gives it up all
-          // at once at the ledge. Stepped, never tapered: a tapered wing is a
-          // cone with a Y section and loses the shoulders.
+          // The tier keeps its base width and gives it up at the ledge: stepped,
+          // never tapered.
           const half = halfAt(base);
           const reach = reachAt(base);
           const depth = reach - half;
-          // Every tier over the first starts `PROUD` up inside the ledge below
-          // it, and its back end runs `PROUD` past the axis: flush, its foot
-          // shared the ledge's underside and its back end the ledge's and the
-          // podium arm's, each in another colour.
+          // Every tier over the first starts `PROUD` up inside the ledge below it,
+          // and its back end runs `PROUD` past the axis, so no faces are coplanar.
           const foot = tier === 0 ? base : base + PROUD;
           const rise = top - foot;
 

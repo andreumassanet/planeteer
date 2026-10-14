@@ -3,64 +3,22 @@ import type { Group, Monument, MonumentContext } from './contract.ts';
 /**
  * The Chocolate Hills, Carmen, Bohol.
  *
- * **Why the Philippines:** the archipelago had no landmark at all, and the
- * Chocolate Hills are the one thing in it that is on every map of the country
- * and on Bohol's provincial seal. At least 1,260 limestone mounds, most 30 to
- * 50 m high, stand on about 50 square kilometres of plain; they are grassed
- * and nearly treeless, and the grass dries brown in the dry season, which is
- * the name.
+ * A crop of the field: twenty-three ordinary mounds round one larger one, the
+ * hill the viewing deck stands on, with its stair and pavilion. What names the
+ * place is repetition of one shape on a visibly flat plain.
  *
- * ---------------------------------------------------------------------------
- * What has to survive: many, alike, on a flat
- * ---------------------------------------------------------------------------
+ * Mounds vary a little in size (apothem 4.0 to 4.6, height 5.0 to 6.7) and tone,
+ * and each is turned about its axis so no two facets lie in one plane. Each is
+ * three seven-sided `taper` courses (a flared foot, a steeper middle, a rounded
+ * top). Slopes are 50 to 60 degrees against the real 30 to 40, since a field of
+ * true-slope mounds is a field of bumps. Laid out on a sunflower spiral from
+ * 10.5 to 21.5 units out; the crop reaches 27 units (about 54 across) and the
+ * pavilion tops out near 15.3. Half-diagonal over height is 1.8.
  *
- * One cone is a hill and a dozen cones of every size is a mountain range. What
- * names this place is **repetition of one shape** — dozens of mounds so alike
- * they look made, packed close on a plain that is visibly flat between them.
- * So the model is a crop of the field: twenty-three ordinary mounds round one
- * larger one, the hill the viewing deck stands on, with its stair and its
- * pavilion — the deck at the Chocolate Hills Complex is where every
- * photograph of the field is taken from.
- *
- * The mounds vary a little in size (apothem 4.0 to 4.6, height 5.0 to 6.7) and
- * in tone, and each is turned a little about its own axis so no two
- * mounds' facets lie in one plane; in nothing else; a field of identical cones would read as a
- * pattern, a field of different ones as ordinary hills.
- *
- * ---------------------------------------------------------------------------
- * The profile, and the slope it is exaggerated to
- * ---------------------------------------------------------------------------
- *
- * Each mound is three seven-sided `taper` courses: a short flared foot, a
- * steeper middle, a rounded top — the Hershey's-kiss profile the hills are
- * always compared to. Seven sides for the Pitons' reason: few joints read as
- * ground, many as masonry.
- *
- * Real mounds stand at roughly 30 to 40 degrees. These are 50 to 60 on their
- * courses, about tan 1.5x against life, which is the Pitons' trade again: from
- * the deck or the road the mounds are seen from their own height, and at their
- * true slope a field of them is a field of bumps.
- *
- * ---------------------------------------------------------------------------
- * Scale and colour
- * ---------------------------------------------------------------------------
- *
- * Laid out on a sunflower spiral in a ring round the deck hill, from 10.5 to
- * 21.5 units out, so the gaps between them are even without being a grid. The
- * crop reaches 27 units, so it is about 54 across; the deck pavilion tops out
- * near 15.3. Half-diagonal over height is 1.8 against the 2.0 cap. In metres
- * the crop is roughly 1 km of a field 7 km across, and the mounds are packed
- * about twice as close as they stand.
- *
- * One colour a mound, never banded by height: the Pitons found that a dark
- * course at the foot reads as shadow. Two thirds are `brown` in three tones,
- * the dry-season hills; the rest a raised `darkOlive`, the greener ones. The
- * plain under them is rice paddy, six thin plates in greens at different
- * heights, so every edge between two of them is a step the ink draws and no
- * two tops share a plane; the trees are clumps on the flat between the
- * mounds, never on them, because the mounds are grassland.
- *
- * The source carries no height: the hills are a field of mounds, not one.
+ * One colour a mound, never banded: two thirds `brown` in three tones (dry
+ * season), the rest a raised `darkOlive`. The plain is six thin rice-paddy
+ * plates in greens at different heights (each edge is a step the ink draws);
+ * trees are clumps on the flat, never on the mounds. No `realHeight`.
  */
 
 /** How many ordinary mounds stand round the deck hill. */
@@ -119,10 +77,9 @@ function mounds(): Mound[] {
       yaw: hash(i, 6) * ((Math.PI * 2) / 7),
     });
   }
-  // Two mounds whose feet overlap must not put a course top at one height: the
-  // flat caps between courses would be two colours in one plane where the
-  // feet cross. Each mound is raised in small steps until its course tops
-  // stand `LEVEL_GAP` clear of every earlier neighbour's.
+  // Two mounds whose feet overlap must not put a course top at one height (two
+  // colours in one plane). Each mound is raised in small steps until its course
+  // tops stand `LEVEL_GAP` clear of every earlier neighbour's.
   const levels = (m: Mound): number[] => {
     const out: number[] = [];
     let y = 0;
@@ -172,8 +129,8 @@ export const chocolateHills: Monument = {
     const draft = new THREE.Group();
 
     // -----------------------------------------------------------------------
-    // 1. The plain: six paddies round the centre, each turned to its own
-    //    bearing, each top at its own height.
+    // 1. The plain: six paddies round the centre, each turned to its own bearing
+    //    with its own top height.
     // -----------------------------------------------------------------------
     const PADDY_TOPS = [0.2, 0.45, 0.28, 0.53, 0.36, 0.61];
     for (let i = 0; i < 6; i++) {
@@ -209,10 +166,9 @@ export const chocolateHills: Monument = {
     const deckTop = 0.24;
     mound(0, 0, DECK_RADIUS, DECK_HEIGHT, hills[1]!, deckTop, 0);
 
-    // The stair up its front face. A seven-sided taper has a flat face on +Z
-    // at its apothem, so a beam along that face's centre line lies on it; each
-    // flight is one course, set 0.2 out so it stands on the slope. The first
-    // starts 0.45 up, where the beam's own thickness keeps it above y = 0.
+    // The stair up its front face. A seven-sided taper has a flat face on +Z at its
+    // apothem; each flight is one course, set 0.2 out. The first starts 0.45 up so
+    // the beam stays above y = 0.
     const knees: [number, number][] = [[0, DECK_RADIUS]];
     PROFILE.forEach(([next, share], course) => {
       const [lastY] = knees[knees.length - 1]!;

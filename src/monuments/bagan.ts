@@ -3,61 +3,16 @@ import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
 /**
  * Bagan — the Ananda Temple and two of the plain's stupas.
  *
- * **Why Myanmar:** mainland South-East Asia had exactly one landmark, Angkor
- * Wat, and nothing at all north or west of it — Myanmar, Thailand, Laos,
- * Vietnam. Bagan is 3,500 temples standing on 40 square kilometres of dry plain
- * and it is the largest thing of its kind anywhere.
+ * The model is the Ananda (the corn-cob spire) with two bare-brick stupas
+ * beside it at x = ±34, not behind it: a 39-unit temple hides a band about 160
+ * deep at the 13.4-degree camera. The temple is stretched about 1.5x vertically
+ * (38.4 on a 46-unit square against 51 m on 88 m) but keeps the real 40% base,
+ * 60% spire split. Half-diagonal 42.7 over height 38.4 is 1.11; the temple alone
+ * reaches 25.
  *
- * ---------------------------------------------------------------------------
- * The crop, and why it is three buildings and not one
- * ---------------------------------------------------------------------------
- *
- * Angkor is already in the world as a single temple mountain, so building Bagan
- * as one temple would have produced a second one of those. What Bagan actually
- * is, and what every photograph of it is of, is **a plain with temples scattered
- * across it at different sizes** — so the model is the Ananda, which is the one
- * with the corn-cob spire everyone knows, with two bare-brick stupas standing
- * out on either side.
- *
- * They are placed **beside** it and not behind it, and that is the 13.4-degree
- * camera again: a 39-unit temple hides a band about 160 deep behind itself, and
- * a stupa at the back would be entirely gone. Set out at x = ±34 they are clear
- * of the temple's own mass — checked by walking the camera ray back from each of
- * them, which leaves the temple's 23-unit platform at z = 32, past its front
- * edge.
- *
- * ---------------------------------------------------------------------------
- * The sikhara is seven courses and the profile is the whole point
- * ---------------------------------------------------------------------------
- *
- * A Burmese temple spire is a *sikhara*, and its silhouette is concave: it
- * leaves the terraces almost vertically and then bends in hard near the top.
- * Seven four-sided `taper`s, with the half-width falling
- *
- *     10.0  9.2  8.3  7.2  5.9  4.5  3.1  1.8
- *
- * do that — the decrement grows from 0.8 to 1.3 all the way up, which is what
- * makes it a corn cob rather than a cone. Seven ink lines up a spire is the
- * *manufactured* end of the joint-count rule (few ink lines read as natural,
- * many as manufactured), and it is right here for the same reason it is right
- * at the Registan: this is a plastered brick surface laid in receding string
- * courses and it is meant to read as one.
- *
- * The top half is `gold`. Ananda's sikhara and hti really are gilded, and it is
- * also the one thing that lifts a white temple off a pale sky.
- *
- * ---------------------------------------------------------------------------
- * Proportion
- * ---------------------------------------------------------------------------
- *
- * The Ananda is 51 m tall on a 88 m square — 0.58. Here it is 38.4 on a 46-unit
- * square, 0.85, so the temple alone is stretched about 1.5x vertically, which is
- * the tier doing what the tier does. What is *not* stretched is the split
- * between the terraces and the spire: the real one is roughly 40% base and 60%
- * spire and so is this one, and that ratio is what a Burmese temple is.
- *
- * Half-diagonal 42.7 against height 38.4 is 1.11, inside the 2.0 cap, and the
- * whole of that reach is the two stupas — the temple by itself is 25.
+ * The sikhara is seven four-sided tapers with half-widths
+ * 10.0 9.2 8.3 7.2 5.9 4.5 3.1 1.8: the decrement grows from 0.8 to 1.3, giving
+ * the concave corn-cob profile. The top half is `gold`, as on the real spire.
  */
 
 /** The stepped terraces: [top of the course, half-width]. */
@@ -111,9 +66,8 @@ export const bagan: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The terraces. Five of them, each with a `tan` cornice a hand's width
-    //    proud of the course above, so every step has its own ink line rather
-    //    than one long stair of flush faces.
+    // 1. The terraces: five, each with a `tan` cornice proud of the course above
+    //    so every step has its own ink line.
     // -----------------------------------------------------------------------
     let base = 0;
     for (const [top, half] of TERRACES) {
@@ -137,13 +91,9 @@ export const bagan: Monument = {
     }
 
     // -----------------------------------------------------------------------
-    // 2. The four porches. Ananda's plan is a Greek cross and the porches are
-    //    the arms of it; each is a projecting hall with a dark arched doorway,
-    //    two stepped pediment courses and a small gilded finial.
-    //
-    //    Built once on the +Z axis and spun by `around`, which is what `around`
-    //    is for and is also the only way four identical arms can be guaranteed
-    //    identical.
+    // 2. The four porches, the arms of the Greek cross: a projecting hall with a
+    //    dark arched doorway, two stepped pediment courses and a gilded finial.
+    //    Built once on +Z and spun by `around`.
     // -----------------------------------------------------------------------
     group.add(
       around(4, () => {
@@ -164,9 +114,7 @@ export const bagan: Monument = {
         cap.position.set(0, 16.2, 19.1);
         porch.add(cap);
 
-        // The doorway. Nothing in the contract cuts a hole, so it is a dark
-        // panel half sunk in the wall with a second course over it — which at
-        // 260 pixels is the same drawing as an arch.
+        // The doorway: a dark panel half sunk in the wall with a second course over it.
         const door = box(4.4, 7.6, 1.4, shade);
         door.position.set(0, 0.8, 24.2);
         porch.add(door);
@@ -187,9 +135,7 @@ export const bagan: Monument = {
       group.add(course);
     }
 
-    // The bell and the lotus over it, then the hti — the tiered iron umbrella
-    // that finishes every stupa in Burma, here three discs of falling size on a
-    // mast, which is what it looks like from further away than arm's length.
+    // The bell and the lotus over it, then the hti: three discs of falling size on a mast.
     const bell = taper(2.4, 1.5, 2.0, gild, 8);
     bell.position.y = SIKHARA_TOP;
     group.add(bell);
@@ -207,25 +153,18 @@ export const bagan: Monument = {
     const spike = taper(0.45, 0.08, 3.2, gild, 6);
     spike.position.y = y - 0.7;
     group.add(spike);
-    // The mast the discs are threaded on. Without it the middle disc touches
-    // nothing at all and `findFlaws` calls it floating, which it is: an hti is
-    // an umbrella on a pole and the pole was missing.
+    // The mast the discs are threaded on (without it the middle disc floats).
     block(-0.3, 0.3, SIKHARA_TOP + 2.0, y - 0.7, -0.3, 0.3, gild);
 
     // -----------------------------------------------------------------------
-    // 4. Two stupas out on the plain, bare brick and never plastered. A Burmese
-    //    zedi is a *bell* — widest low, with a long concave shoulder — so it is
-    //    four courses that narrow faster as they rise, and the reverse of that
-    //    order would give a cooling tower.
+    // 4. Two bare-brick stupas: a bell of four courses narrowing faster as they
+    //    rise (the reverse order gives a cooling tower).
     // -----------------------------------------------------------------------
     for (const side of [-1, 1]) {
       const x = side * 34;
       const z = -2;
 
-      // Three square plinths, then the bell. The plinths matter more than they
-      // look: without them a stupa is a cone, and a cone is a slag heap. Every
-      // zedi on the plain stands on a stack of square terraces and it is the
-      // corner between the square and the round that says what it is.
+      // Three square plinths, then the bell; without the plinths a stupa is a cone.
       let at = 0;
       for (const [half, rise, color] of [
         [7.6, 1.7, old],

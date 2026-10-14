@@ -3,108 +3,41 @@ import type { Group, Mesh, Monument } from './contract.ts';
 /**
  * Terracotta Army.
  *
- * **One warrior is a statue in a museum; a pit full of them in formation is the
- * Terracotta Army.** So this model spends almost everything it owns on count. Of
- * the `building` tier's 110 meshes, **95 are people and 12 are earth** — 48
- * standing in the ranks, 41 of those still with a head, plus three torsos face
- * down on the floor and three heads off them — and most of what follows is the
- * arithmetic of that split.
+ * A pit full of warriors in formation, so the model spends nearly all its
+ * meshes on count. Of the `building` tier's 110 meshes, 95 are people (48
+ * standing in the ranks, 41 of them with a head, plus three torsos face down
+ * and three heads off them) and 12 are earth. A warrior is two meshes and 36
+ * triangles: a six-sided tapered body flattened to 0.72 in Z, and a box for the
+ * head, which is the site's own subject because the broken end has lost it.
+ * They are 7.2 units tall against the 6.8-unit avatar, so a player stands among
+ * figures his own size; the head is 1/6 of the figure rather than 1/7.5.
  *
- * **How cheap a warrior is: two meshes, 36 triangles.** A six-sided tapered body
- * — flattened to 0.72 in Z, so the shoulders are wider than the chest is deep —
- * and a box for the head. One mesh per man was the tempting answer, because it
- * buys ninety figures instead of forty-eight; it is also a rank of fence posts.
- * The head is the whole difference between a peg and a standing man, it is about
- * 4 px on a thumbnail, and it is not decoration here but the
- * site's own subject, because the figures at the broken end are precisely the
- * ones that have lost it. So two meshes, and the size of the army falls out as
- * `(110 - earth - wreckage) / 2`.
+ * y = 0 is the underside of the pit floor (the floor is at 0.8), because
+ * `validate` rejects any vertex below zero. The surrounding earth is positive
+ * mass and a player arrives on the pit floor at the mouth of the corridors.
  *
- * Where this parts company with the moai, the other row-of-figures card in the
- * set: a moai's head is two fifths of it and that disguise is the whole point,
- * while these are **men** — 7.2 units against the 6.8-unit avatar, so a player
- * who walks in stands among figures his own size, which no other monument here
- * can say. The head is 1/6 of the figure rather than a human 1/7.5, the smallest
- * cheat that survives the ink at thumbnail size.
+ * Crop and distortion: pit 1 is 230 m by 62 m, which would be 870 units long.
+ * True scale is kept for the men (1.9 m), the 1.15 m between ranks and the
+ * 4.9 m back bank. The plan across the corridors is squeezed about 2.5x: three
+ * of eleven corridors, two files each instead of four, partitions 0.8 m
+ * thick instead of 2.5. Vertically, at 13 degrees a rim of height h hides a
+ * band 4.2h deep, so a true 5 m rim would hide the pit; the side rims are 8.2
+ * (a rail you look over) and the partitions stand 5.2 above the floor, so every
+ * rank's head and shoulders clear the wall crest. The back bank (18.5, 4.9 m)
+ * is the tallest thing and sets the tier's height; shallower and the model
+ * would pass `MAX_ASPECT` (65 across, 3.5x wider than tall).
  *
- * # Where y = 0 is, and why
+ * Tier `building`: 40 meshes is a dozen warriors. Meshes are the binding
+ * constraint (height 18.5 of 40, about 1,900 of 2,600 triangles).
  *
- * **y = 0 is the underside of the pit floor**, so the excavation floor is at 0.8
- * and every grain of earth is *above* it. The alternative — y = 0 at the
- * surrounding ground, with the pit dug down into it — is not on offer:
- * `validate` rejects any vertex below zero, and the entire subject of this
- * monument is below ground. Putting the floor at the bottom turns the
- * surrounding earth from a hole into positive mass, which is exactly what an
- * excavation edge is once you are standing in it: a bank over your head. It also
- * settles the visit. A player arrives **on the pit floor**, at the mouth of the
- * corridors, at eye level with the front rank. The pit still reads as sunk from
- * outside, but it reads that way because of the rim and the bank, not because of
- * where the origin sits.
- *
- * # The crop, and what is distorted
- *
- * Pit 1 is 230 m by 62 m, 5 m deep, eleven corridors, some six thousand figures.
- * At the avatar's scale (6.8 units to 1.8 m, so 3.8 units per metre) it would be
- * 870 units long — twelve times this tier's whole footprint. Kept at true scale:
- * the men (1.9 m), the 1.15 m between ranks, and the 4.9 m depth of the bank at
- * the back. Squeezed: **the plan across the corridors, by about 2.5x.** Three
- * corridors of the eleven, two files to a corridor instead of four, and earth
- * partitions 0.8 m thick instead of 2.5. What survives that squeeze is the
- * density of the formation, which is the thing being drawn; what is given away
- * is how much elbow room the ranks had, which no photograph of the place shows
- * you anyway.
- *
- * The other distortion is vertical, and it is forced by the camera. **It is
- * seen from 7 deg and 13 deg above the horizon, and at 13
- * deg a rim of height h hides a band 4.2h deep behind it.** A rim at the true
- * 5 m (19 units) hides the entire pit: the monument becomes a lump of earth with
- * a slot in it. So the side rims are trimmed to 8.2 — head height, a rail you
- * look over — and the rammed-earth partitions stand 5.2 above the floor, which
- * puts every rank's head and shoulders above the wall crest. In the real pit
- * those walls stood a good half-metre over the tallest man. This is the trade
- * the `MAX_ASPECT` note describes, in its other direction: protect the
- * proportion that names the thing (files of figures between parallel walls) and
- * give away the one that does not (how far the diggers had to climb down). The
- * true depth survives at the back bank, which is also the tallest thing here and
- * therefore the height the tier measures.
- *
- * # Tier
- *
- * **`building`.** By the tier's own question — from how far should a player be
- * able to name it — a pit is not a `landmark`: you cannot see a hole from out at
- * sea. It is a walled excavation the size of a city block, read on approach,
- * which is what `building` is for. Mechanically it is also the only tier that
- * fits: `monument` caps at 40 meshes, and 40 meshes is a dozen warriors, which
- * is a museum vitrine and not an army. Nothing here is near the height cap (18.5
- * of 40) or the triangles (~1,900 of 2,600); the binding constraint from the
- * first line to the last is **meshes**.
- *
- * At 65 units across and 18.5 tall the model is 3.5x wider than tall, just
- * inside `MAX_ASPECT` — and that is why the back bank is 18.5 and not 12. A
- * shallower one puts the whole thing over the limit, and the honest way to buy
- * height in a pit is the earth it was cut into.
- *
- * # Colour
- *
- * Warm earths throughout, on purpose. A neutral grey — which is what unpigmented
- * terracotta actually is — reads **cold** in this scene, because the hemisphere
- * light's sky colour is blue and half of this model is a shaded pit floor lit
- * mostly by that. So `clay` for the figures; `sand` for the floor **and** the
- * partitions, which are one material because that is the truth of the place —
- * the same loess, swept flat or beaten into walls — and because the brightest
- * earth in the palette behind every rank is what makes the figures read at
- * thumbnail size; `tan` for the loose spoil, `brown` for cut faces, and
- * `darkOlive` for ground nobody has touched: the topsoil caps, the front kerb
- * and the bank. That last split doubles as a code the eye reads without being
- * told — **dark earth is undisturbed, light earth has been dug** — and it leaves
- * the figures sitting between the two in value, so they never disappear against
- * either the floor they stand on or the bank behind them.
+ * Colour is warm earths throughout (a neutral grey reads cold under the blue
+ * hemisphere light): `clay` figures; `sand` floor and partitions (the same loess
+ * swept flat or beaten into walls); `tan` spoil; `brown` cut faces; `darkOlive`
+ * for undisturbed ground (topsoil caps, front kerb, bank). Dark earth is
+ * undisturbed, light earth has been dug, and the figures sit between in value.
  */
 
-// ---------------------------------------------------------------------------
-// The pit, in plan. Corridors run along Z, away from the viewer, because that is
-// the composition of every photograph of the place.
-// ---------------------------------------------------------------------------
+// --- the pit, in plan: corridors run along Z, away from the viewer, as in every photograph ---
 
 const CORRIDORS = 3;
 const CORRIDOR_WIDTH = 5.9;
@@ -119,13 +52,10 @@ const FLOOR_BACK_Z = -22;
 
 /**
  * The partitions. `WALL_HEIGHT` is measured from y = 0, so they stand 5.2 above
- * the floor against figures 7.2 tall — see above for why the crests are kept
- * below the heads. The batter is what eroded rammed earth does; because the
- * helper flares X and Z together it also ramps the ends down, which is what the
- * unexcavated stubs of these walls look like in any case. Kept very mild (0.93),
- * and the walls end level with the front rank: at 0.78, and running on into the
- * apron, those end ramps are pale blank wedges standing in front of the army,
- * and they take the eye off it.
+ * the floor against figures 7.2 tall. The batter is mild (0.93); because the
+ * helper flares X and Z together it ramps the ends down too, like the real
+ * unexcavated stubs, and the walls end level with the front rank so those ramps
+ * are not blank wedges in front of the army.
  */
 const WALL_HEIGHT = 6;
 const WALL_LENGTH = 36;
@@ -157,10 +87,9 @@ const BANK_BATTER = 0.78;
 const BANK_Z = -24.5;
 
 /**
- * The earth still standing inside the pit, in two steps down from the bank. They
- * bury the ends of the partitions — which is why the walls need no ruined
- * variant of their own — and their lit top faces are what keeps the dark mass at
- * that end from going flat.
+ * The earth still standing inside the pit, in two steps down from the bank.
+ * They bury the ends of the partitions, and their lit tops keep the dark mass
+ * at that end from going flat.
  */
 const STEPS: readonly (readonly [z: number, depth: number, height: number])[] = [
   [-20.8, 4.6, 11],
@@ -174,9 +103,7 @@ const HEAP_DEPTH = 4.6;
 const HEAP_X = -8.9;
 const HEAP_Z = -11.2;
 
-// ---------------------------------------------------------------------------
-// The formation
-// ---------------------------------------------------------------------------
+// --- the formation ---
 
 const RANKS = 8;
 const RANK_PITCH = 4.4;
@@ -208,12 +135,9 @@ const LEAN = 0.06;
 
 /**
  * Torsos face down on the apron, in front of the first rank: [x, z, yaw, length
- * fraction]. **They are here rather than at the ruined back end because at 13
- * deg the back end is behind eight ranks of standing men and cannot be seen.**
- * On the apron they lie on the brightest surface in the model, right at the
- * bottom of the frame, and they are what tells you this is a dig and not a
- * parade ground. The back end keeps the other half of the wreckage — the
- * headless ranks leaning where the earth still holds them.
+ * fraction]. At 13 degrees the back end is hidden behind eight ranks, so the
+ * wreckage is on the brightest surface at the bottom of the frame, where it
+ * says this is a dig.
  */
 const FALLEN: readonly (readonly [x: number, z: number, yaw: number, length: number])[] = [
   [-7.6, 18.9, 0.6, 0.74],
@@ -228,10 +152,8 @@ const LOOSE_HEADS: readonly (readonly [x: number, z: number, yaw: number])[] = [
 ];
 
 /**
- * Deterministic variation in [-1, 1]. The step is the golden angle, so
- * neighbours in a rank never land on the same value and the formation never
- * falls into a visible pattern. `Math.random()` is out: the loader builds twice
- * and compares.
+ * Deterministic variation in [-1, 1], stepping by the golden angle so
+ * neighbours differ. Never `Math.random()`: the loader builds twice and compares.
  */
 const wobble = (index: number, salt: number): number => Math.sin(index * 2.39996 + salt);
 
@@ -241,9 +163,7 @@ export const terracottaArmy: Monument = {
   iso: 'CHN',
   lat: 34.385,
   lon: 109.278,
-  // No `realHeight`, matching the source list. The site has no height: the pit
-  // is 5 m deep and the men standing in it are 1.8 to 2 m, and neither number is
-  // the height of the Terracotta Army.
+  // No `realHeight`: the site has no single height.
   tier: 'building',
   footprint: 34,
 
@@ -259,9 +179,8 @@ export const terracottaArmy: Monument = {
 
     /**
      * A bank of earth: a square frustum carries the batter, then `scale.z` sets
-     * the length. It is the only way to get a slab that is not square in plan
-     * out of a helper that makes regular prisms, and the reason every bank here
-     * ramps down at its ends as well as leaning in at its sides.
+     * the length, which is how a slab that is not square in plan comes out of a
+     * helper that makes regular prisms (so every bank also ramps down at its ends).
      */
     const bank = (
       width: number,
@@ -302,8 +221,7 @@ export const terracottaArmy: Monument = {
     kerb.position.z = KERB_Z;
     group.add(kerb);
 
-    // --- the far end: the bank the dig has not reached, and the earth still
-    //     standing in the corridors in front of it ---
+    // --- the far end: the bank the dig has not reached, and the earth still standing in front of it ---
     const bluff = bank(BANK_WIDTH, BANK_HEIGHT, BANK_DEPTH, undug, BANK_BATTER);
     bluff.position.z = BANK_Z;
     group.add(bluff);
@@ -319,10 +237,9 @@ export const terracottaArmy: Monument = {
     group.add(heap);
 
     /**
-     * One warrior, standing on y = 0 and facing +Z — which is where the army
-     * faces, out through the mouth of the pit. The head is a separate mesh so
-     * `OutlineEffect` inks it apart from the shoulders: at thumbnail size that
-     * one line is what makes the silhouette a man and not a post.
+     * One warrior, standing on y = 0 and facing +Z, out through the mouth of the
+     * pit. The head is a separate mesh so the outline inks it apart from the
+     * shoulders.
      */
     const warrior = (index: number, headed: boolean): Group => {
       const figure = new THREE.Group();
@@ -351,16 +268,14 @@ export const terracottaArmy: Monument = {
         for (let rank = 0; rank < RANKS; rank++) {
           index++;
           const z = FRONT_RANK_Z - rank * RANK_PITCH;
-          // The damage is not regular: the last rank has gone entirely, the one
-          // before it about half, and which half is the wobble's business.
+          // The damage is irregular: the last rank has gone, the one before about half.
           const broken = rank > BROKEN_RANK || (rank === BROKEN_RANK && wobble(index, 5) > 0);
           const figure = warrior(index, !broken);
           figure.position.set(x + JITTER * wobble(index, 1), FLOOR, z + JITTER * wobble(index, 2));
           figure.rotation.y = YAW * wobble(index, 4);
           if (broken) {
-            // Sunk 0.4 into the floor plate and out of true: these are the ones
-            // the earth is still holding. Nothing reaches below y = 0 — that is
-            // what the floor's 0.8 of thickness is for.
+            // Sunk 0.4 into the floor plate and out of true: the ones the earth still
+            // holds. Nothing reaches below y = 0.
             figure.position.y = FLOOR - 0.4;
             figure.rotation.z = LEAN * wobble(index, 6);
             figure.rotation.x = LEAN * wobble(index, 7);
@@ -374,8 +289,7 @@ export const terracottaArmy: Monument = {
     for (const [x, z, yaw, length] of FALLEN) {
       const pivot = new THREE.Group();
       pivot.rotation.y = yaw;
-      // Laid on its front: `scale.z` flattened the chest, and after the quarter
-      // turn about X that flattening is what lets the torso lie low on the floor.
+      // Laid on its front: `scale.z` flattened the chest, and after the quarter turn about X that lets the torso lie low.
       const torso = taper(BODY_HEM, BODY_SHOULDER, BODY_HEIGHT * length, terracotta, 6);
       torso.scale.z = BODY_FLATTEN;
       torso.rotation.x = Math.PI / 2;

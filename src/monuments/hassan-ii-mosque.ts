@@ -4,54 +4,21 @@ import { PROUD } from './contract.ts';
 /**
  * The Hassan II Mosque — Casablanca.
  *
- * **Why Morocco:** north-west Africa was empty. Egypt had three landmarks and
- * Mali one, and between Cairo and Djenné — Morocco, Algeria, Tunisia, Libya,
- * Mauritania, the whole Maghreb and the Atlantic coast — there was nothing at
- * all. Casablanca's mosque is the obvious repair and it is also the tallest
- * minaret in the world, 210 m, which is a thing this planet is short of: the
- * `tower` tier had eight members and six of them were in Europe, Japan or the
- * United States.
+ * The tallest minaret in the world (210 m) and two bays of the prayer hall either
+ * side of it (the 200 m hall is cropped; the tier's footprint cap is 28). The
+ * minaret is put between the wings, not behind: from 13.4 degrees a 17-unit roof
+ * hides a band about 70 deep, so a minaret at the back would lose its first twenty
+ * units.
  *
- * ---------------------------------------------------------------------------
- * The crop: a minaret and two wings of the hall
- * ---------------------------------------------------------------------------
+ * Green on white: `cream` marble, `green` (0x91ad78) tile, `gold` the jamour, and
+ * `brown` for the two arcade recesses (horseshoe arches into a colonnade that
+ * never sees the sun; a neutral would read as a hole). The shaft's interlaced
+ * lattice is a green panel down each face with eight `cream` lozenges standing 0.25
+ * proud, boxes yawed 45 degrees about Z.
  *
- * The prayer hall is 200 m long and holds twenty-five thousand people. At this
- * tier that is a slab 6 units high and 300 long, and the tier's footprint cap is
- * 28 — so the hall is cropped to the two bays either side of the minaret, which
- * is what a photograph taken from the esplanade contains anyway.
- *
- * **The minaret is put between the wings rather than behind them, and that is a
- * camera decision.** Seen from 13.4 degrees up, so a 17-unit
- * roof hides a band about 70 deep behind it; a minaret standing at the back of
- * the hall would rise out of nothing with its first twenty units missing. Set in
- * the gap between two wings it is seen full height, from the plinth to the
- * jamour, which is the only view of it worth having.
- *
- * ---------------------------------------------------------------------------
- * Two colours and one rule
- * ---------------------------------------------------------------------------
- *
- * Everything about this building is **green on white**: emerald zellij on white
- * marble, and a green tiled roof over it. `cream` is the marble, `green`
- * (0x91ad78) is the tile, `gold` is the jamour, and the two arcade recesses are
- * `brown` — because they are horseshoe arches into a colonnade that never sees
- * the sun, and the note beside `ctx.palette` is unambiguous about what a neutral
- * does in a recess.
- *
- * The lattice is the one thing that could not be built literally. The real shaft
- * carries an interlaced *darj-w-ktaf* over its whole height, which at 260 pixels
- * is a texture and not a geometry. What is built instead is a green panel down
- * each face with eight `cream` lozenges standing 0.25 proud of it — boxes yawed
- * 45 degrees about Z, which is a rotation and nothing else, so `T * R * S` has
- * nothing to get wrong. At thumbnail size that reads as a patterned band, which
- * is the honest answer.
- *
- * Proportion: 69.4 units tall on a 26.6 half-diagonal, 0.38 against the 2.0 cap.
- * The real minaret is 210 m over a hall 25 m high, a ratio of 8.4; here it is
- * 69.4 over 17.4, which is 4.0 — the hall is **twice as tall as it should be**
- * relative to its tower, deliberately, because a hall at true relative height
- * would be 8 units and would read as a kerb.
+ * 69.4 tall on a 26.6 half-diagonal (0.38). The hall is twice as tall as it should
+ * be relative to the tower (69.4 over 17.4, 4.0 against 8.4), or it would be an 8-unit
+ * kerb.
  */
 
 /** The shaft: half-width, and the two ends of it. */
@@ -101,17 +68,15 @@ export const hassanIiMosque: Monument = {
     };
 
     // -----------------------------------------------------------------------
-    // 1. The esplanade. The mosque is built out over the Atlantic on a platform
-    //    and is approached across it; two courses of paving are what say so.
+    // 1. The esplanade: two courses of paving for the platform over the Atlantic.
     // -----------------------------------------------------------------------
     block(-22.6, 22.6, 0, 0.8, -9, 14, stone);
     block(-21.2, 21.2, 0.8, 1.6, -8.2, 13.2, marble);
 
     // -----------------------------------------------------------------------
-    // 2. The two wings of the prayer hall, and the arcade along the front of
-    //    them. Four horseshoe arches to a wing: a horseshoe is a round head that
-    //    is *wider than its opening*, so each is a dark panel with a two-course
-    //    head whose lower course is the widest thing in it.
+    // 2. The two wings of the prayer hall and the arcade along their front: four
+    //    horseshoe arches a wing, each a dark panel with a two-course head whose
+    //    lower course is the widest (a horseshoe is wider than its opening).
     // -----------------------------------------------------------------------
     for (const side of [-1, 1]) {
       block(side * WING_IN, side * WING_OUT, 1.6, WING_TOP, -8, 12.6, marble);
@@ -122,24 +87,20 @@ export const hassanIiMosque: Monument = {
         // round it were two colours a hair apart and flickered.
         block(x - 1.05, x + 1.05, 2.6, 8.0, 11.6, 12.6 + PROUD, shade);
         block(x - 1.35, x + 1.35, 8.0, 9.6, 11.6, 12.6 + PROUD, shade);
-        // A green voussoir band over each arch. It is the only tile at eye
-        // level and it is what makes the arcade read as Moroccan rather than
-        // Roman.
+        // A green voussoir band over each arch, the only tile at eye level.
         block(x - 1.6, x + 1.6, 9.6, 10.4, 11.9, 12.9, tile);
       }
     }
 
-    // The hipped green roof, in three courses. Each is narrower *and* shallower
-    // than the one under it, so `OutlineEffect` finds all three: a roof built as
-    // one slab is a lid, and coplanar faces get no ink between them at all.
+    // The hipped green roof in three courses, each narrower and shallower than the
+    // one below, so the outline finds all three (one slab is a lid).
     block(-22.2, 22.2, WING_TOP, 14.6, -8.6, 13.2, tile);
     block(-20.6, 20.6, 14.6, 16.1, -7.4, 11.8, tile);
     block(-18.8, 18.8, 16.1, 17.4, -5.9, 10.1, tile);
 
     // -----------------------------------------------------------------------
-    // 3. The minaret. A square shaft, a gallery, a lantern, a cap, and the
-    //    jamour — three gilded spheres on a spike, which is what finishes every
-    //    minaret in the Maghreb and is the one gold on the model.
+    // 3. The minaret: a square shaft, a gallery, a lantern, a cap and the jamour
+    //    (three gilded spheres on a spike), the one gold on the model.
     // -----------------------------------------------------------------------
     block(-5.4, 5.4, 1.6, 4.6, -5.4, 5.4, stone);
     block(-SHAFT, SHAFT, 4.6, SHAFT_TOP, -SHAFT, SHAFT, marble);
@@ -151,13 +112,11 @@ export const hassanIiMosque: Monument = {
       block(side * SHAFT, side * (SHAFT + 0.3), 11, 40, -2.8, 2.8, tile);
     }
     //
-    // A lozenge is a four-sided `column` spun half a turn about its own axis and
-    // then laid on its face: `rotation.set(PI/2, PI/4, 0)` is Euler order XYZ, so
-    // the spin happens first and puts a *corner* where the flat face was, and the
-    // quarter turn about X then lays the prism against the wall. Two rotations
-    // and no scale, which is the only arrangement `T * R * S` cannot get wrong —
-    // and a `box` yawed 45 degrees would have been wrong anyway, because `ctx.box`
-    // stands on y = 0 and rotates about its own foot, not its centre.
+    // A lozenge is a four-sided `column` spun half a turn about its axis and then
+    // laid on its face: `rotation.set(PI/2, PI/4, 0)` (Euler XYZ) puts a corner
+    // where the flat was and the quarter turn about X lays the prism against the
+    // wall. Two rotations and no scale; a yawed `box` would be wrong, since
+    // `ctx.box` rotates about its foot.
     for (let i = 0; i < 8; i++) {
       const y = 12.6 + i * 3.5;
       for (const [x, z, yaw] of [
@@ -191,9 +150,8 @@ export const hassanIiMosque: Monument = {
     cap.position.y = 58.2;
     group.add(cap);
 
-    // The jamour: three balls of falling size on a spike. `column` at eight
-    // sides is the only sphere this contract makes, and at this distance it is
-    // the right one.
+    // The jamour: three balls of falling size on a spike (`column` at eight sides is
+    // the only sphere this contract makes).
     let y = 61.8;
     for (const [radius, rise] of [
       [1.55, 1.6],
@@ -210,8 +168,8 @@ export const hassanIiMosque: Monument = {
     group.add(spike);
 
     // -----------------------------------------------------------------------
-    // 4. The doors. One in the minaret's own foot and one in each wing, all
-    //    horseshoe-headed, because the arch is the thing the building repeats.
+    // 4. The doors: one in the minaret's foot and one in each wing, all horseshoe-
+    //    headed.
     // -----------------------------------------------------------------------
     block(-1.5, 1.5, 1.6, 6.4, SHAFT, SHAFT + 0.35, dark);
     block(-1.85, 1.85, 6.4, 7.7, SHAFT, SHAFT + 0.35, dark);

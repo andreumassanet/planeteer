@@ -1,12 +1,11 @@
 /**
  * Titan and Rhea in Saturn's sky, for `SkySpec.moons`.
  *
- * Radii, distances, periods and inclinations (to Saturn's equator) are
- * JPL's. Titan is 0.25 degrees across from the deck, half the Moon from
- * Earth and orange with its haze; Rhea, nearer and smaller, 0.19 and grey
- * ice. Both go round in the ring plane, so from the deck they keep to the
- * line the arch of the rings tends to, beyond its outer edge. The epochs are not the almanac's:
- * a fixed place at J2000, the same for every visitor.
+ * Radii, distances, periods and inclinations (to Saturn's equator) are JPL's.
+ * Titan is 0.25 degrees across from the deck and orange with its haze; Rhea is
+ * 0.19 and grey. Both go round in the ring plane, so from the deck they keep to
+ * the line the arch of the rings tends to, beyond its outer edge. The epochs are
+ * not the almanac's: a fixed place at J2000, the same for every visitor.
  */
 
 import { PALETTE } from '../../../theme.ts';

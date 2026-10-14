@@ -1,7 +1,6 @@
 /**
  * Mercury's landmarks: five places outside any town worth the walk, each at a
- * real coordinate. What stands there is invented — the Cinder's — and each
- * one says something true about the place it stands on.
+ * real coordinate. What stands there is invented.
  */
 
 import * as THREE from 'three';
@@ -11,17 +10,11 @@ import { ball, dome } from '../../architecture.ts';
 import { PALETTE } from '../../../theme.ts';
 
 /**
- * MESSENGER, where it came down: 30 April 2015, out of fuel after four years
- * in orbit, at 54.4 N, 149.9 W, near Janáček crater, at 3.9 km a second. It
- * left a crater about 16 m across, which is the berm here.
- *
- * The probe stands as it flew, on a plinth: the box of its body, the curved
- * ceramic-cloth **sunshade** that kept it at room temperature a few hundred
- * kilometres over the hottest ground in the system, the two solar panels
- * (two-thirds mirror, to reject the heat), and the magnetometer boom. The
- * Cinder have read the shade as the point of it. They keep it under a parasol
- * of their own, ringed with mirror posts, and call it the Guest Who Brought Its
- * Own Shade — the shrine is invented, the impact site is not.
+ * MESSENGER, where it came down on 30 April 2015 at 54.4 N, 149.9 W, near
+ * Janacek crater; its impact crater (about 16 m across) is the berm here. The
+ * probe stands as it flew, on a plinth: the body box, the curved sunshade, the
+ * two solar panels and the magnetometer boom, under a parasol of the Cinder's
+ * own, ringed with mirror posts.
  */
 const MESSENGER: Landmark = {
   id: 'messenger',
@@ -86,11 +79,9 @@ const MESSENGER: Landmark = {
 };
 
 /**
- * The Apollodorus Observatory, at the hub of the Spider (30.6 N, 163.0 E):
- * the 41 km crater the troughs of Pantheon Fossae radiate from. A dish laid
- * face up at the black sky, which is the best sky in the inner system, and a
- * ring of heliostats round it turning the sun off the instruments. Invented;
- * the crater and its troughs are real, and you walk out of it along one.
+ * The Apollodorus Observatory, at the hub of the Spider (30.6 N, 163.0 E): a
+ * dish laid face up at the black sky and a ring of heliostats round it. You
+ * walk out of the crater along one of the troughs.
  */
 const APOLLODORUS: Landmark = {
   id: 'apollodorus',
@@ -140,12 +131,9 @@ function addHeliostats(ctx: SceneryContext, group: THREE.Group, count: number, d
 }
 
 /**
- * The Ray Beacon, on Hokusai's floor at the foot of its central peak (the
- * crater is at 57.8 N, 16.8 E; a pad on the peak itself would plane its top
- * into a cliff, so it stands where the floor is flat): a white needle
- * with mirror vanes at the top, which flashes the sun across the rays for a
- * hundred kilometres. Hokusai's rays run more than a thousand; from up here
- * you can see them go. Invented, on a real peak.
+ * The Ray Beacon, on Hokusai's floor at the foot of its central peak (57.8 N,
+ * 16.8 E; a pad on the peak would plane its top into a cliff): a white needle
+ * with mirror vanes at the top that flashes the sun across the rays.
  */
 const HOKUSAI: Landmark = {
   id: 'hokusai-beacon',
@@ -179,11 +167,8 @@ const HOKUSAI: Landmark = {
 
 /**
  * The Prokofiev Ice Works, on the floor of the largest of the north's cold
- * traps (85.7 N, 62.7 W): a crater 112 km across whose floor has not seen the
- * sun in three billion years, where MESSENGER's neutron spectrometer and the
- * radar from Arecibo both found water ice. A headframe over the shaft, the
- * winding wheel, the cut blocks stacked to go south. The mine is invented;
- * the ice is very probably there.
+ * traps (85.7 N, 62.7 W), where water ice has been detected: a headframe over
+ * the shaft, the winding wheel and cut blocks stacked to go south.
  */
 // Forty units off the crater's centre, on the flattest of its floor.
 const PROKOFIEV: Landmark = {
@@ -236,12 +221,9 @@ const PROKOFIEV: Landmark = {
 };
 
 /**
- * The Noon Stone, at 0 N 0 E: a hot pole. At every other perihelion the sun
- * stands directly overhead here, at its closest and fastest, and the ground
- * takes two and a half times the noon of the warm poles — the hottest place on
- * the hottest planet's surface. The Cinder mark it with a mirror dais and a
- * gnomon whose shadow vanishes at that noon, and nobody stays. Invented, on
- * the real hot pole.
+ * The Noon Stone, at 0 N 0 E: a hot pole, where at every other perihelion the
+ * sun stands overhead at its closest. A mirror dais and a gnomon whose shadow
+ * vanishes at that noon.
  */
 const NOON_STONE: Landmark = {
   id: 'noon-stone',
@@ -259,8 +241,7 @@ const NOON_STONE: Landmark = {
     const gnomon = ctx.taper(1.1, 0.25, 16, PALETTE.bark, 4);
     gnomon.position.y = 0.8;
     group.add(gnomon);
-    // Twelve hour stones, for a day of 176 Earth days: each one fourteen and
-    // a half days apart.
+    // Twelve hour stones for a day of 176 Earth days, fourteen and a half days apart.
     for (let k = 0; k < 12; k++) {
       const a = (k / 12) * Math.PI * 2;
       const stone = ctx.box(0.8, k % 3 === 0 ? 1.8 : 1.0, 0.8, k % 3 === 0 ? PALETTE.gold : PALETTE.bone);

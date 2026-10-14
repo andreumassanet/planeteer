@@ -4,72 +4,22 @@ import type { Monument } from './contract.ts';
 /**
  * Angkor Wat.
  *
- * Four things have to survive at thumbnail size and every unit here is spent on
- * one of them:
+ * What has to read at thumbnail size: the quincunx (four corner towers and a
+ * taller centre), the lotus-bud profile of the towers, three stepped terraces,
+ * and the tiered galleries running round each (wall, dark overhanging eave,
+ * ridge). Tier `building`: the temple is wider than tall (39 by 96).
  *
- * - **The quincunx.** Four towers on the corners of a square, one taller in the
- *   middle. It is on the Cambodian flag and it is the whole read.
- * - **The lotus bud.** Not a cone: a stack of receding storeys, each stepping in
- *   behind the flared lip of the one below, the recession accelerating until the
- *   profile closes to a point. `PRASAT` is that curve, written once and used at
- *   two sizes so all five towers are the same building.
- * - **The stepped rectangular terraces** the towers rise from — three of them,
- *   each smaller and each carrying its own gallery.
- * - **The long low galleries with their tiered roofs**, running the whole way
- *   round every terrace: wall, a dark overhanging eave, then the ridge. Three
- *   concentric rings, and they are what makes this a temple-city rather than
- *   five towers on a wedding cake.
- *
- * **Why `building`.** The tier question is "from how far should you be able to
- * name it", and the answer is: from the far end of the causeway, across the
- * moat, over the trees. Not from out at sea — Angkor Wat is horizontal, and it
- * hides inside its own forest until you are through the outer wall. `landmark`
- * would also be arithmetically legal (a 96-unit width passes that tier's fill
- * check on width alone), but a tier is a budget in world units, and 120 of them
- * spent vertically on something three times wider than tall buys a pagoda. 39
- * tall by 96 wide is the shape; `building` is the tier that has it.
- *
- * Four deliberate departures, with their numbers:
- *
- * - **The quincunx is spread 1.6x.** In life the inner gallery that carries the
- *   four corner towers is about 60 m across a 187 m front — 0.32 of the width.
- *   Here it is 37 units across 72, or 0.51. At the true ratio the corner towers
- *   stand inside the central tower's own width and the five read as one lumpy
- *   mass, which is exactly what the flag's silhouette avoids by being a drawing
- *   rather than a photograph.
- * - **The quincunx is a rectangle, 37 x 28, not a square.** The only distortion
- *   in this file that exists purely for the camera, and it earns it twice.
- *   Head-on, the front pair stands 6.9 units clear of the centre tower on each
- *   side. At the default three-quarter view (32 degrees off
- *   axis) the five project to five distinct screen positions — 0, +-8.4,
- *   +-23.1 — where a square plan of the same area would put the inner pair at
- *   +-5.2, inside the centre tower's own 6.8 half-width, and hide two of the
- *   five behind it.
- * - **The vertical is exaggerated about 1.6x, and the terraces pay for it.** In
- *   life the central tower stands 65 m over a 187 m front, a ratio of 0.35; here
- *   39.4 over 72, or 0.55. The three terraces together are only 11.5 units of
- *   the 39.4 — deliberately squat, because a terrace tall enough to be
- *   proportionate swallows the gallery standing on it. Each gallery roof now
- *   clears the terrace behind it by three to four units, which is the gap that
- *   makes three rings read as three rings instead of one stepped mound.
- * - **The plan is turned across the approach.** The enclosure is 187 m wide and
- *   215 m deep along the western causeway; here it is 72 wide and 63 deep, so
- *   the broad face is the one you meet. A 1.3x swap of a ratio nobody could name
- *   in exchange for a front elevation that fills a square thumbnail.
- *
- * Traded away, and why:
- *
- * - **The moat and the outer wall.** The moat is 190 m of water outside a 1,025
- *   x 802 m enclosure — around this model it would be a ring some 80 units out,
- *   half again this tier's whole footprint ceiling, holding nothing but a speck
- *   in the middle. The western causeway survives as the porch and the two
- *   flights of steps on +Z, which is enough to say which way the temple faces.
- * - **The colonnades are one dark band, not pillars.** A pillar every three
- *   units along four sides of the outer gallery alone is about sixty meshes,
- *   more than half this tier. A single course in shadow under the eaves reads as
- *   the same thing the moment the ink lands on it, for four.
- * - **No bas-reliefs, no naga balustrades, no libraries.** All three live at a
- *   scale below one pixel here.
+ * Deliberate departures:
+ * - The quincunx is spread 1.6x and is a 37 x 28 rectangle, so the five towers
+ *   project to distinct screen positions at the default three-quarter view.
+ * - The vertical is exaggerated about 1.6x (central tower 39.4 over a 72 front);
+ *   the three terraces total only 11.5 units, so each gallery roof clears the
+ *   terrace behind it by three to four units.
+ * - The plan is turned across the approach (72 wide, 63 deep) so the broad face
+ *   is the one you meet.
+ * - No moat or outer wall; the causeway is the +Z porch and its two flights of
+ *   steps. The colonnades are one dark band, and there are no bas-reliefs,
+ *   balustrades or libraries.
  */
 
 // --- the three terraces. Half-widths: x across the front, z along the approach.
@@ -84,12 +34,9 @@ const MIDDLE_TOP = 6.6;
 const UPPER_TOP = 11.5;
 
 /**
- * The three galleries, outermost first. `hx`/`hz` are the *centreline* of the
- * ring and `thick` the wall. The roof is two courses on top: a dark eave that
- * overhangs the wall by half a unit each side — the shadow line an overhang
- * actually casts, and the cheapest tier boundary there is — then the ridge,
- * inset again. That is the corbelled vault reduced to the two ink lines that
- * survive at this size.
+ * The three galleries, outermost first. `hx`/`hz` are the centreline of the ring
+ * and `thick` the wall. The roof is a dark eave overhanging the wall by half a
+ * unit each side, then the inset ridge: the corbelled vault as two ink lines.
  */
 const GALLERIES = [
   { hx: 33, hz: 28.5, base: OUTER_TOP, wall: 5.2, thick: 3.6, eaves: 0.9, ridge: 2.2 },
@@ -106,20 +53,11 @@ const COLONNADE = { base: 3.6, height: 2.2, proud: 0.4 };
  * The lotus bud, as fractions of one tower's radius and height:
  * `[bottom radius, top radius, height]` per storey.
  *
- * Three properties do all the work, and the first two are the difference between
- * this and a cone. **Every storey flares slightly outward** (top wider than
- * bottom), and **the next storey starts well inside that lip** — a step of 0.08
- * to 0.20 of the radius, which on the central tower is up to 1.1 units of ledge
- * for the outline to draw. The first version of this file stepped in by 0.07
- * with the storeys tapering inward, and the thumbnail came out as five smooth
- * cones: the tiers were there in the numbers and invisible on the screen.
- *
- * The third property is the bud, and it is what stops the tiers reading as a
- * spire. The recession accelerates — the radius falls at 0.54 per unit of height
- * over the body, 0.91 over the storeys, 2.8 over the last tenth — so the profile
- * curves inward and closes *short*, on a blunt point about a fifth of the radius
- * wide. The version before this one ran the same tiers out to a needle and the
- * five towers came out as rockets.
+ * Each storey flares outward and the next starts well inside that lip (a step
+ * of 0.08 to 0.20 of the radius), so the outline draws a ledge per tier. The
+ * recession accelerates (0.54 per unit of height over the body, 0.91 over the
+ * storeys, 2.8 over the last tenth), closing on a blunt point about a fifth of
+ * the radius wide; a needle reads as a rocket.
  */
 const PRASAT: Array<[number, number, number]> = [
   [1, 1.03, 0.26], // the sanctuary body, all but vertical
@@ -152,9 +90,8 @@ const CENTRE_TOWER = { plinth: 7.6, plinthHeight: 3.5, radius: 6.6, height: 24.4
 
 /**
  * The four gopuras that break each side of the outer gallery. `along` is the
- * length of the pavilion along the wall it sits on; the depth across the wall is
- * fixed so the pavilion lands exactly on the terrace edge behind it, whose
- * coordinate is `terrace`.
+ * pavilion's length along its wall; its depth is fixed so it lands on the edge
+ * of the terrace behind it, whose coordinate is `terrace`.
  */
 const GOPURA_DEPTH = 6;
 const GOPURAS = [
@@ -187,10 +124,8 @@ export const angkorWat: Monument = {
     const group = new THREE.Group();
 
     /**
-     * A rectangular ring of four boxes. The two long sides run the full width and
-     * the two short ones fill between them, so the corners are a lap joint rather
-     * than a mitre — the ink lands on the seam and draws the corner for free,
-     * which is the same trick the Colosseum's attic uses.
+     * A rectangular ring of four boxes. The long sides run the full width and the
+     * short ones fill between, so the ink draws the corner lap joint.
      */
     const ring = (
       halfX: number,
@@ -289,9 +224,7 @@ export const angkorWat: Monument = {
       body.position.set(gopura.x, OUTER_TOP, gopura.z);
       group.add(body);
 
-      // The doorway sits half in, half out of the outer face: a dark panel a
-      // third of a unit proud is a shadowed opening the moment it is inked, and
-      // it costs one mesh where a real jamb costs three.
+      // The doorway is a dark panel a third of a unit proud of the outer face.
       const doorWidth = gopura.alongX ? gopura.door : 0.7;
       const doorDepth = gopura.alongX ? 0.7 : gopura.door;
       const door = box(doorWidth, gopura.height * 0.62, doorDepth, shadow);
@@ -313,9 +246,8 @@ export const angkorWat: Monument = {
       group.add(upper);
     }
 
-    // --- the causeway porch on +Z, and the steps down off the terrace ---
-    // Sunk `PROUD` into the terrace, top unmoved: its underside shared the
-    // terrace's plane with the two dark doorways standing on it.
+    // Sunk `PROUD` into the terrace, top unmoved, so its underside does not share
+    // the terrace's plane with the two doorways standing on it.
     const porch = box(13, 6 + PROUD, 6.6, wallStone);
     porch.position.set(0, OUTER_TOP - PROUD, 33.3);
     group.add(porch);

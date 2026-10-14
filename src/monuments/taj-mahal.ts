@@ -3,33 +3,21 @@ import type { Monument } from './contract.ts';
 /**
  * Taj Mahal.
  *
- * Four things have to survive at thumbnail size and everything here serves one
- * of them: the onion dome on its drum, the four minarets standing clear of the
- * building, the iwan — the tall pointed arch — on every face, and the plinth
- * the whole thing floats on. Drop any one and what is left is a generic mosque.
+ * Four things carry it: the onion dome on its drum, the four minarets standing
+ * clear of the building, the iwan (the tall pointed arch) on every face, and
+ * the plinth it floats on.
  *
- * Four deliberate departures from the real building:
+ * Deliberate departures:
+ * - The dome is fat (0.44 of the block's width against 0.31 in life), or the
+ *   crown would be a knob.
+ * - The chamfered corners are engaged octagonal towers, each crowned by its
+ *   chattri, because nothing in the contract subtracts.
+ * - Recesses are dark panels standing proud of the wall: one mesh instead of the
+ *   three a truly enclosing frame costs, over twenty openings.
+ * - The flanking niches are plain slots, not arches.
  *
- * - **The dome is fat.** In life it is 17.7 m across a 57 m block, a ratio of
- *   0.31. Here it is 0.44. At the true ratio the crown is nine units wide in a
- *   ninety-unit frame and reads as a knob, and the onion is the thing being
- *   named.
- * - **The chamfered corners are engaged octagonal towers.** A chamfer is a cut
- *   and nothing in the contract subtracts. A pilaster at each corner, crowned by
- *   its chattri, arrives at the same outline from outside.
- * - **The recesses stand proud of the wall instead of sinking into it.** Same
- *   reason. A dark panel half a unit off the marble reads as a shadowed opening
- *   the moment the outline inks it, and costs one mesh where the marble frame
- *   that would truly enclose it costs three — over twenty openings, that is the
- *   difference between fitting the tier and not.
- * - **The flanking niches are plain slots, not arches.** Arched heads on all
- *   eight would be sixteen more meshes than the tier has left, and they sit far
- *   enough from the eye that only their rhythm survives anyway.
- *
- * The minarets stand as far out on the plinth as they fit. That is not
- * decoration: seen from the front they need daylight between them and the corner
- * towers or the four of them merge into the block, and four units is what that
- * takes.
+ * The minarets stand as far out on the plinth as they fit (four units clear),
+ * so daylight shows between them and the corner towers.
  */
 
 // --- the terrace: three steps, so the ink catches each one ---
@@ -54,10 +42,9 @@ const DRUM_CAP = { radius: 6, height: 0.7 };
 const DOME_BASE = ROOF_TOP + DRUM.height + DRUM_CAP.height;
 
 /**
- * Half-widths up the onion, measured from the springing. It swells past the
- * drum below it before it closes: that overhang is the whole difference between
- * an onion and a helmet, and it is the reason the profile is a list rather than
- * one `taper`.
+ * Half-widths up the onion, from the springing. It swells past the drum below
+ * before it closes (the difference between an onion and a helmet), which is why
+ * the profile is a list rather than one `taper`.
  */
 const DOME = [
   { y: 0, r: 5.3 },
@@ -125,14 +112,12 @@ export const tajMahal: Monument = {
     const towers = around(4, () => {
       const corner = new THREE.Group();
 
-      // Fat, and set well inside the corner it replaces. A slender one reads as
-      // a fifth minaret standing in front of the tomb rather than as part of it.
+      // Fat, and set well inside the corner it replaces: a slender one reads as a fifth minaret.
       const shaft = column(3.3, CORNICE_TOP - PLINTH_TOP, marble, 8);
       shaft.position.set(0, PLINTH_TOP, CORNER);
       corner.add(shaft);
 
-      // The small blind arch each chamfer carries. One dark rectangle is all of
-      // it that reaches the eye from where a corner is ever seen.
+      // The small blind arch each chamfer carries: one dark rectangle.
       const blind = box(3, 8.5, 0.5, shadow);
       blind.position.set(0, PLINTH_TOP + 1, CORNER + 3.4);
       corner.add(blind);
@@ -197,9 +182,7 @@ export const tajMahal: Monument = {
     neck.position.y = DOME_TOP;
     group.add(neck);
 
-    // --- the gilded finial. Five units of the forty, and the only warm colour
-    //     above the terrace. Held to a fifth of the dome's own height: a longer
-    //     one is truer to the drawing and reads, at this size, as an aerial ---
+    // --- the gilded finial: five units of the forty, held to a fifth of the dome's height (longer reads as an aerial) ---
     const lotus = taper(1.45, 0.75, 1.2, gilt, 8);
     lotus.position.y = FINIAL_BASE;
     group.add(lotus);
@@ -225,10 +208,9 @@ export const tajMahal: Monument = {
       frame.position.set(0, PLINTH_TOP, front);
       face.add(frame);
 
-      // The arch is drawn on the frame rather than through it: a jamb panel and
-      // two tapering courses, all in shadow. The tapers are square prisms, so
-      // they are flattened in z or the pointed head becomes a pyramid buried
-      // half-way into the tomb.
+      // The arch is drawn on the frame rather than through it: a jamb panel and two
+      // tapering courses, all in shadow. The tapers are flattened in z, or the
+      // pointed head becomes a pyramid buried in the tomb.
       const mouth = front + PISHTAQ.depth / 2 + 0.25;
 
       const jamb = box(ARCH.half * 2, ARCH.jamb, 0.6, shadow);
@@ -245,8 +227,7 @@ export const tajMahal: Monument = {
       head.position.set(0, PLINTH_TOP + ARCH.jamb + ARCH.shoulder, mouth);
       face.add(head);
 
-      // The blind niches either side. They carry no shape of their own; their
-      // job is to stop eight units of blank marble reading as a warehouse wall.
+      // The blind niches either side, so eight units of marble do not read as a blank wall.
       for (const side of [1, -1]) {
         const niche = box(3.2, 8.6, 0.6, shadow);
         niche.position.set(side * 10.5, PLINTH_TOP + 0.6, BLOCK.half + 0.35);
@@ -262,10 +243,7 @@ export const tajMahal: Monument = {
       const tower = new THREE.Group();
       let y = PLINTH_TOP;
 
-      // Base, three storeys pinched by two balconies, and a chattri. Six sides
-      // rather than eight all the way up: at this thickness the extra facets
-      // cost a third of the tier's triangles and buy nothing the ink does not
-      // already do.
+      // Base, three storeys pinched by two balconies, and a chattri. Six sides, not eight.
       const stack: Array<[number, number, number, number]> = [
         [2.35, 2.35, 1.7, marble], // base
         [1.75, 1.6, 7, marble],

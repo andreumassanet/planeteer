@@ -4,70 +4,28 @@ import { PROUD } from './contract.ts';
 /**
  * The Genghis Khan Equestrian Statue — Tsonjin Boldog, Mongolia.
  *
- * **Why Mongolia:** it is 1.5 million square kilometres between Russia and China
- * and there was nothing on it — nor on Kazakhstan, Kyrgyzstan, Turkmenistan or
- * anywhere else in the interior of Asia. Fifty kilometres east of Ulaanbaatar
- * there is a 40 m stainless-steel horseman standing on a drum of thirty-six
- * columns in an otherwise empty valley, which is the largest equestrian statue
- * in the world and the only thing in the country you can see from a long way
- * off. It is also the world's first **horse**: sixty-five landmarks and not one
- * animal among them.
+ * A 40 m stainless-steel horseman on a drum of thirty-six columns, the world's
+ * largest equestrian statue.
  *
- * ---------------------------------------------------------------------------
- * The front of this monument is the horse's flank, deliberately
- * ---------------------------------------------------------------------------
+ * The front is the horse's flank: a horse seen head-on is a post with ears. The
+ * three-quarter view sits 31.8 degrees round from +Z, so a horse along X is seen
+ * 31.8 degrees off broadside (length foreshortened to 0.85) and side-on from the
+ * front. Christ the Redeemer makes the same choice for its arms.
  *
- * The contract asks a model to face +Z, and for a building that means the
- * façade. For an equestrian statue it has to mean **the profile**, because a
- * horse seen head-on is a post with ears. The three-quarter view sits
- * 31.8 degrees round from +Z, so a horse whose long axis runs along X is seen
- * 31.8 degrees off broadside — its length foreshortened to 0.85 — and in the
- * front view it is exactly side-on. Any other choice loses the animal.
+ * - The drum: 30 m across under a 40 m statue, a third of the total height. Sixteen
+ *   columns rather than thirty-six, which would be 1.6 units apart and inked as
+ *   one grey band.
+ * - The horse's line: deep chest, level back, high croup, a neck leaving the
+ *   shoulder at about 50 degrees, four legs straight down (the only pose whose
+ *   feet all reach the plinth).
+ * - The silver: `bone` in full light, and every part turned from the sun
+ *   (belly, underside of the neck, saddle, mane, tail) is `slate`, a material
+ *   split rather than shading. The whip is `gold`, the one warm note, carrying
+ *   the eye to the top.
  *
- * Christ the Redeemer settled the same argument the same way: its arms run along
- * X and its front is the chest, because the T is the silhouette.
- *
- * ---------------------------------------------------------------------------
- * What has to survive at 260 pixels
- * ---------------------------------------------------------------------------
- *
- * Three things, and none of them is detail.
- *
- * **The drum.** It is 30 m across under a 40 m statue — a third of the total
- * height and almost as wide as the horse is long — and it is what makes the
- * thing monumental rather than merely large. Sixteen columns round it rather
- * than the real thirty-six: at this size thirty-six columns are 1.6 units apart
- * and `OutlineEffect` draws them as one grey band, where sixteen read as a
- * colonnade. That is the joint-count rule (few ink lines read as natural, many
- * as manufactured) in its usual direction, and the count was chosen by what the
- * ink can resolve.
- *
- * **The horse's line.** Deep chest, level back, high croup, and a neck that
- * leaves the shoulder at about 50 degrees. Four legs straight down, which is
- * both what the statue does and the only pose whose feet all reach the plinth.
- *
- * **The silver.** The real thing is 250 tonnes of mirror-polished stainless
- * steel, and `bone` is the pale neutral of the twenty-four. It is used here in
- * the one place the palette note says it is safe — a large object in full light —
- * and every part of it that turns away from the sun is `slate` instead: the
- * belly, the underside of the neck, the saddle, the mane and the tail. That is
- * not shading, it is a *material* split, and it is what keeps the figure from
- * going hueless where the light leaves it.
- *
- * The whip is `gold`. Genghis is holding a golden whip because of the legend the
- * site is built on — he found one here — and it is the one warm note against the
- * silver and the one thing carrying the eye to the top of the model.
- *
- * ---------------------------------------------------------------------------
- * Proportion
- * ---------------------------------------------------------------------------
- *
- * Real: a 10 m base under a 40 m statue, 1:4. Here: 21.0 under 47.5, 1:2.3. The
- * base is a third taller than it should be relative to the figure, which is the
- * tier's doing — at true proportion the drum is 14 units, thinner than the
- * horse's own body is deep, and a colonnade cannot be read in it at all.
- *
- * Half-diagonal 18.8 against 68.5 is 0.27, well inside the 2.0 cap.
+ * Proportion: 21.0 of base under 47.5 of statue (1:2.3 against 1:4 in life; true
+ * proportion leaves a drum too thin to read a colonnade). Half-diagonal 18.8
+ * over 68.5 is 0.27.
  */
 
 /** The drum: its plinth, its wall, its colonnade and the slab the horse stands on. */
@@ -137,11 +95,8 @@ export const genghisKhanStatue: Monument = {
         return post;
       }),
     );
-    // A shadow wall behind the colonnade, so the gaps between the columns are
-    // gaps and not sky. Sixteen posts standing against nothing read as a fence —
-    // and the wall has to be **dark**, not merely a shade cooler: at `slate`
-    // against `cream` posts the whole storey rendered as one smooth band of drum
-    // and the colonnade was not there at all.
+    // A shadow wall behind the colonnade so the gaps are gaps and not sky. It
+    // must be dark (`slate` against `cream` posts rendered the storey as one band).
     const backing = column(DRUM - 3.4, COLONNADE - DRUM_TOP, dark, 16);
     backing.position.y = DRUM_TOP;
     group.add(backing);
@@ -163,9 +118,8 @@ export const genghisKhanStatue: Monument = {
       [-6.6, 2.1, 1.25],
       [-6.6, -2.1, 1.25],
     ] as const) {
-      // The shank stops `PROUD` inside the gaskin and the hoof stands `PROUD`
-      // over the deck: flush, each top shared a plane with a face of another
-      // colour and flickered.
+      // The shank stops `PROUD` inside the gaskin and the hoof stands `PROUD` over
+      // the deck, so no tops share a plane with a face of another colour.
       const leg = taper(thickness, thickness * 0.72, BELLY - DECK - 1.0 - PROUD, under, 6);
       leg.position.set(x, DECK, z);
       group.add(leg);
@@ -229,9 +183,8 @@ export const genghisKhanStatue: Monument = {
     group.add(tail);
 
     // -----------------------------------------------------------------------
-    // 3. The rider. A Mongol *deel* is a long coat that flares over the saddle,
-    //    so the figure is a taper and not a cylinder — the flare is what stops
-    //    him reading as a bollard on a horse.
+    // 3. The rider. A Mongol deel flares over the saddle, so the figure is a taper
+    //    and not a cylinder.
     // -----------------------------------------------------------------------
     const saddle = box(6.6, 1.4, 7.2, under);
     saddle.position.set(1.2, BACK, 0);

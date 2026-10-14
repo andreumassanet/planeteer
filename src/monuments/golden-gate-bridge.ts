@@ -3,62 +3,45 @@ import type { Monument } from './contract.ts';
 /**
  * Golden Gate Bridge.
  *
- * **Land to land, compressed.** The bridge is 2.7 km of roadway under a 227 m
- * tower — 12:1 — and `footprint` is a circle, which has no long axis to spend on
- * a long thing. What is here is the whole crossing, shortened: both towers on
- * their piers, the main span between them, the main cable diving from the
- * saddles to within a rope's height of the deck at mid-span and rising again,
- * the comb of suspenders, and at each end a side span that lands on a headland.
- * There the truss meets a rock cliff whose flat top is at the truss's own level,
- * the roadway runs on over it between two grassed hills, the side cable runs
- * down into a concrete anchorage on the bluff, one block a cable outside the
- * road, and the road then tilts down an earth embankment to the ground at the
- * plan's end. The embankment's other slope runs under the side span to the
- * tower's pier as a rocky shore, so nothing is left standing on the air: the
- * deck rests on the piers and the cliffs, and every cliff, hill, embankment and
- * ramp stands on y = 0. Cut: the approach viaducts, Fort Point, and most of the
- * side spans' length.
+ * The whole crossing, shortened (2.7 km of roadway under a 227 m tower is 12:1,
+ * and `footprint` is a circle): both towers on their piers, the main span, the
+ * main cable diving from the saddles to within a rope's height of the deck at
+ * mid-span, the comb of suspenders, and at each end a side span landing on a
+ * headland. There the truss meets a rock cliff whose flat top is at the truss's
+ * level, the roadway runs on over it between two grassed hills, the side cable
+ * runs down into a concrete anchorage one block a cable outside the road, and the
+ * road tilts down an earth embankment to the ground at the plan's end. The
+ * embankment's other slope runs under the side span to the tower's pier as a
+ * rocky shore; every cliff, hill, embankment and ramp stands on y = 0. Cut: the
+ * approach viaducts, Fort Point, most of the side spans' length.
  *
- * The crossing is also stretched vertically. In life a tower stands 0.13 of the
- * main span above the deck; here it stands 0.43 (23.2 units over a 54-unit
- * span, as drawn), because the headlands take a third of the width and the model may be
- * no more than `MAX_ASPECT` (4) times wider than tall. All of the exaggeration
- * went into the vertical, because everything that names this bridge — the sag,
- * the portals, the suspenders — lives there. The deck is kept low, at 0.24 of
- * the tower's height (0.30 in life), so the ramps down the headlands are short.
- * The cable is fattened about fivefold for the same reason the towers are
- * tall: true to scale it is a fifth of a unit and simply is not drawn.
+ * Stretched vertically: the tower stands 0.43 of the main span above the deck
+ * (23.2 units over a 54-unit span) against 0.13 in life, since the headlands
+ * take a third of the width and the model may be no more than `MAX_ASPECT` (4)
+ * wider than tall. The deck is kept low, 0.24 of the tower's height (0.30 in
+ * life), so the headland ramps are short. The cable is about five times its true
+ * thickness, or it is not drawn.
  *
- * Filed `landmark` for the footprint and the mesh budget, not for the height. At
- * 109 units long and 30 tall it fills its tier on length, which is the case the
- * contract has in mind when it says a wall passes on its diameter. A suspension
- * bridge cannot be tall; this one has to be long. It is turned to run north and
- * south, as the real one does from San Francisco to Marin, so its plan is 25 by
- * 109: the hills either side of the road are what widen it past the deck. It
- * crosses nothing in this world, as Tower Bridge does not: it stands on dry land
- * out of its town, its headlands the ground at both ends.
-
- * **Colour.** International Orange is a vermilion, hue around 7deg. `red`
- * (0xec3f1c) sits at 10deg; `orange` (0xe56202) at 25deg, which is a traffic
- * cone; `clay` has the hue and none of the saturation. So `red` on everything
- * structural — towers, truss, cables, ropes — broken only by the grey of the
- * roadway and the concrete of the piers and anchorages, which is the only place
- * the real bridge breaks it either. The headlands are brown rock, tan earth and
- * green hills, so the orange stops where the land begins.
+ * Filed `landmark` for the footprint and mesh budget: 109 long and 30 tall fills
+ * the tier on length. It runs north and south, as the real one does, so the plan
+ * is 25 by 109. It crosses nothing: it stands on dry land with the headlands as
+ * the ground at both ends.
  *
- * **Traded away.** The stiffening truss is a solid beam rather than a chord-and-
- * diagonal lattice: reading a truss 72 units long and 2 deep needs about
- * thirty struts, and they buy nothing the ink line along its edge does not
- * already give. The meshes went into suspenders instead, which are the feature
- * that says *suspension* bridge.
+ * Colour: International Orange is a vermilion (hue about 7deg); `red` (10deg) is
+ * closest (`orange` at 25deg is a traffic cone, `clay` lacks saturation). `red`
+ * on everything structural, broken only by the grey roadway and the concrete
+ * piers and anchorages. Headlands are brown rock, tan earth and green hills.
+ *
+ * The stiffening truss is a solid beam (a lattice would need about thirty
+ * struts); the meshes went into suspenders.
  */
 
 /** Half the main span. The towers stand here; the side spans run on past them. */
 const TOWER_X = 27;
 
 /**
- * Where each headland's cliff stands, and so where the deck's truss ends: the
- * side span lands on the rock here and the roadway carries on over it.
+ * Where each headland's cliff stands, and so where the deck's truss ends: the side
+ * span lands on the rock here and the roadway carries on over it.
  */
 const BLUFF_X = 36;
 /** The back of the bluff's flat top, where the roadway starts down to the ground. */
@@ -73,9 +56,8 @@ const ROAD_HALF = 2.6;
 const RAIL_Z = 3.3;
 
 /**
- * Where the cables, the ropes and the tower legs sit across the bridge: at the
- * edge of the deck, so the roadway passes clear between the legs. That gap is
- * the portal, and the portal is why the towers are not goalposts.
+ * Where the cables, ropes and tower legs sit across the bridge: at the edge of the
+ * deck, so the roadway passes clear between the legs (the portal).
  */
 const CABLE_Z = 4.3;
 
@@ -111,9 +93,7 @@ const SIDE_SAG = 0.8;
 
 /**
  * The tower legs, bottom to top. Each segment starts narrower than the one below
- * it ended: that step is the Art Deco setback, and the ledge it leaves is what
- * the outline draws. Without them the leg is one long extrusion and the tower
- * loses its second most recognisable feature after the portals.
+ * ended: the Art Deco setback, whose ledge the outline draws.
  */
 const LEG = [
   { base: PIER_TOP, top: 12.7, bottom: 1.5, head: 1.39 },
@@ -123,9 +103,8 @@ const LEG = [
 ];
 
 /**
- * The horizontal cross-bracing. One below the deck, then five up the tower, and
- * the openings they leave get shorter with height — 3.9, 3.2, 2.5, 1.9 over the
- * roadway's own 4.8 — which is the rhythm you actually recognise the tower by.
+ * The horizontal cross-bracing: one below the deck, then five up the tower. The
+ * openings get shorter with height (3.9, 3.2, 2.5, 1.9 over the roadway's 4.8).
  */
 const PORTALS = [
   { base: 3, height: 1 },
@@ -188,8 +167,7 @@ export const goldenGateBridge: Monument = {
     const at = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
     // --- deck ---
-    // The truss spans from cliff to cliff; the roadway runs on over the bluffs
-    // to the top of each ramp.
+    // The truss spans cliff to cliff; the roadway runs on over the bluffs to the top of each ramp.
     const truss = box(BLUFF_X * 2, TRUSS_TOP - TRUSS_BASE, DECK_HALF * 2, paint);
     truss.position.y = TRUSS_BASE;
     group.add(truss);
@@ -198,9 +176,8 @@ export const goldenGateBridge: Monument = {
     road.position.y = TRUSS_TOP;
     group.add(road);
 
-    // The railings carry no mass; they are here so the deck ends in an ink line
-    // rather than a bare edge, which is what stops it reading as a plank. They
-    // stop where the bridge does, at the cliff.
+    // The railings carry no mass; they give the deck an ink line instead of a bare
+    // edge. They stop at the cliff.
     for (const side of [1, -1]) {
       const rail = box(BLUFF_X * 2, 0.7, 0.4, paint);
       rail.position.set(0, TRUSS_TOP, side * RAIL_Z);
@@ -240,13 +217,11 @@ export const goldenGateBridge: Monument = {
     }
 
     // --- the headlands ---
-    // Each end lands on land. A cliff of rock stands where the truss ends, its
-    // flat top at the truss's own level so the roadway runs straight on; an
-    // embankment under the road's ramp falls from the back of that top to the
-    // ground at the plan's end, and its front slope runs down under the side
-    // span to the tower's pier as a rocky shore. Two hills either side of the
-    // road rise over the deck, the way the headlands do over the real
-    // approaches, and a lower shoulder of scree steps down behind each.
+    // A cliff stands where the truss ends, its flat top at the truss's level; an
+    // embankment under the ramp falls from the back of that top to the ground,
+    // and its front slope runs under the side span to the tower's pier. Two hills
+    // either side of the road rise over the deck, with a lower scree shoulder
+    // behind each.
     const run = RAMP_FOOT - BLUFF_BACK;
     const fall = TRUSS_TOP;
     const slope = Math.atan2(fall, run);
@@ -256,11 +231,10 @@ export const goldenGateBridge: Monument = {
       bluff.position.x = side * (BLUFF_X + BLUFF_BACK) / 2;
       group.add(bluff);
 
-      // A three-sided prism laid on its side is a gable: its ridge under the
-      // back edge of the bluff's top, one slope under the ramp, the other under
-      // the side span. Apothem 1, so the triangle is 2 * sqrt(3) wide and 3
-      // tall before it is scaled; scale goes on the prism's own axes, before
-      // the rotation lays it down (`T * R * S`).
+      // A three-sided prism on its side is a gable: ridge under the back edge of
+      // the bluff's top, one slope under the ramp, the other under the side span.
+      // Apothem 1 gives 2 * sqrt(3) wide by 3 tall before scaling; the scale goes
+      // on the prism's own axes, before the rotation lays it down (T * R * S).
       const embankment = column(1, embankmentHalfZ * 2, earth, 3);
       embankment.scale.set(run / Math.sqrt(3), 1, fall / 3);
       embankment.rotation.x = Math.PI / 2;
@@ -313,10 +287,8 @@ export const goldenGateBridge: Monument = {
         }
       }
 
-      // A rope at every joint of the cable, skipping mid-span, where on the real
-      // bridge the cable comes down and touches the deck, and the towers, where
-      // there is a tower already. On the side spans both joints fall over the
-      // truss, short of the cliff.
+      // A rope at every joint of the cable, skipping mid-span (the cable touches the
+      // deck) and the towers. On the side spans both joints fall over the truss.
       const rope = (x: number) => {
         const hanger = box(ROPE_THICKNESS, cableY(x) - TRUSS_TOP, ROPE_THICKNESS, paint);
         hanger.position.set(x, TRUSS_TOP, z);

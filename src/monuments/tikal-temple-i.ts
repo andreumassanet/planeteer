@@ -2,55 +2,36 @@ import { PROUD } from './contract.ts';
 import type { Mesh, Monument } from './contract.ts';
 
 /**
- * Tikal Temple I — the Temple of the Great Jaguar, on the east side of the
- * Great Plaza.
+ * Tikal Temple I, the Temple of the Great Jaguar, on the east side of the Great
+ * Plaza.
  *
- * Its nearest neighbour among the monuments is El Castillo (`chichen-itza.ts`), so what
- * matters is what Tikal is and Chichen is not:
+ * It is kept distinct from El Castillo (`chichen-itza.ts`) in four ways:
+ * 1. Steep: the body rises at about 76 degrees over nine terraces, and the
+ *    model is 40 tall on a 25-unit base (El Castillo is 40 on 70), as the real
+ *    47 m temple stands on a base of about 30 m.
+ * 2. The roof comb: a stepped crest on the temple's back half, as tall as the
+ *    temple under it, once bearing a giant enthroned king.
+ * 3. Inset corners: each terrace is two crossing frusta and two crossing
+ *    aprons, a plus in plan, so each arris has eighteen re-entrant corners.
+ * 4. One stair and no balustrades, up the west face, then three more steps up
+ *    the temple's platform to a doorway under a wooden lintel. Seventeen steps
+ *    (not the real hundred) so that no step top shares a plane with a
+ *    terrace's apron (the nearest miss is 0.16).
  *
- * 1. **Steep.** El Castillo rises at about 55 degrees and is wider than it is
- *    tall; Temple I is a tower of terraces. The body here rises at about 76
- *    degrees over its nine terraces and the whole model is 40 tall on a
- *    25-unit base, where El Castillo is 40 on 70. At true proportions the 47 m
- *    temple stands on a base of about 30 m, and that is what this keeps.
- * 2. **The roof comb.** The temple on the summit carries a stepped crest of
- *    masonry on its back half, as tall as the temple under it, which once
- *    bore a giant figure of the enthroned king. A third of the model's height
- *    is temple and comb, and it is the silhouette everyone knows from the
- *    photographs taken across the plaza from Temple II.
- * 3. **Inset corners.** Every Petén terrace steps in at its corners, so each
- *    one here is two crossing frusta and two crossing aprons, a plus in plan:
- *    eighteen re-entrant corners down each arris instead of one straight edge,
- *    which is what separates this masonry from a smooth stepped cone.
- * 4. **One stair, no balustrades**, running up the west face over the
- *    terraces, then three more steps up the temple's own platform to a single
- *    doorway under a wooden lintel. Seventeen steps, not the real flight's
- *    hundred: seventeen because no step top then shares a plane with a
- *    terrace's apron (the nearest miss is 0.16), and a shared plane in two
- *    tones is a z-fight.
+ * Orientation: the stair faces west onto the Great Plaza, but `placement.ts`
+ * turns +Z north and +X west, so the model is drawn with its stair on +Z and
+ * turned a quarter (`rotation.y = PI / 2`) before it is merged.
  *
- * **Orientation.** `placement.ts` turns +Z north and +X west, and the stair
- * faces west onto the Great Plaza, so the model is drawn with its stair on +Z
- * and turned a quarter (`rotation.y = PI / 2`) before it is merged. The front
- * view therefore sees its north flank in profile, which is the
- * terraced arris and the comb, and its quarter view sees the stair.
+ * Scale: 0.85 units a metre, 47 m at 40. Body 24.75 (nine terraces of 2.75),
+ * platform to 27, temple to 33, comb to 40. Tier `building`: at the `tower`
+ * tier's 70 units the base would be past that tier's 28-unit footprint.
  *
- * **Scale.** One scale throughout, 0.85 units a metre: 47 m is the comb's top
- * at 40. Body 24.75 (nine terraces of 2.75), the temple's platform to 27, the
- * temple to 33, the comb to 40. `building` and not `tower`, for Chichen's
- * reason inverted: at the tower tier's 70 units the base would want a 26-unit
- * half-width and a 37-unit half-diagonal, past that tier's 28-unit footprint,
- * and the only way in would be to steepen a pyramid that is already steep.
- *
- * **Colour.** Grey limestone is `tan` lifted, as at Chichen, with the aprons
- * and the stair a tone lighter because they catch the sun; the comb a tone
- * darker, because it is the weathered, lichened part; `bark` for the doorway
- * and `brown` for its sapodilla lintel; grass on the unrestored rear ledges.
- *
- * Drawn through `ctx.merge` as one mesh a colour.
+ * Colour: `tan` lifted for the limestone, aprons and stair a tone lighter, the
+ * comb a tone darker (weathered), `bark` doorway, `brown` sapodilla lintel,
+ * grass on the unrestored rear ledges. Drawn through `ctx.merge`.
  */
 
-// --- the body ---------------------------------------------------------------
+// --- the body ---
 const TERRACES = 9;
 const TALUD = 2.1;
 const APRON = 0.65;
@@ -70,7 +51,7 @@ const CORNER = 1.5;
 const bottomOf = (terrace: number): number => BASE - INSET * terrace;
 const SUMMIT = bottomOf(TERRACES - 1) - LEAN + LIP;
 
-// --- the stair --------------------------------------------------------------
+// --- the stair ---
 const STEPS = 17;
 const STAIR_HALF = 3.2;
 const STAIR_FOOT = BASE + 3.5;
@@ -79,7 +60,7 @@ const stairZ = (y: number): number => STAIR_FOOT - ((STAIR_FOOT - STAIR_HEAD) * 
 /** Deep enough that the back of every step is buried in the terraces behind it. */
 const STEP_DEPTH = 4.5;
 
-// --- the temple on the summit -------------------------------------------------
+// --- the temple on the summit ---
 /** Two tiers of platform, the second set back. */
 const PLATFORM = [
   { half: 5.4, z: -0.4, top: BODY + 1.25 },
@@ -124,7 +105,7 @@ export const tikalTempleI: Monument = {
     const grass = [palette.green, palette.darkOlive];
 
     const draft = new THREE.Group();
-    // The stair is drawn on +Z and the whole is turned to face west; see above.
+    // The stair is drawn on +Z and the whole is turned to face west.
     const site = new THREE.Group();
     site.rotation.y = Math.PI / 2;
     draft.add(site);
@@ -138,9 +119,8 @@ export const tikalTempleI: Monument = {
     for (let i = 0; i < TERRACES; i++) {
       const bottom = bottomOf(i);
       const y = i * TERRACE;
-      // The arm running across x is full width in x and stepped in in z, and
-      // the other the reverse. No rotation on either, so the scale lands on
-      // the axes it is written in.
+      // The arm running across x is full width in x and stepped in in z, and the
+      // other the reverse; no rotation on either, so the scale lands on its axes.
       const narrow = (bottom - CORNER) / bottom;
       const across = placed(taper(bottom, bottom - LEAN, TALUD, stone, 4), 0, y, 0);
       across.scale.set(1, 1, narrow);
@@ -157,8 +137,7 @@ export const tikalTempleI: Monument = {
     const rise = BODY / STEPS;
     for (let k = 0; k < STEPS; k++) {
       const nose = stairZ(k * rise);
-      // The last stops `PROUD` under the summit, whose apron it would share a
-      // plane with.
+      // The last stops `PROUD` under the summit, whose apron it would share a plane with.
       const height = k === STEPS - 1 ? rise - PROUD : rise;
       placed(box(STAIR_HALF * 2, height, STEP_DEPTH, stair), 0, k * rise, nose - STEP_DEPTH / 2);
     }
@@ -172,8 +151,7 @@ export const tikalTempleI: Monument = {
     const front = PLATFORM[0]!.z + PLATFORM[0]!.half;
     const landing = (FLOOR - BODY) / 3;
     for (let k = 0; k < 3; k++) {
-      // Each tread a little further back and `PROUD` short of the level it
-      // arrives at, so no tread top is a platform's top in another tone.
+      // Each tread a little further back and `PROUD` short of the level it arrives at.
       placed(box(STAIR_HALF * 1.6, landing * (k + 1) - PROUD, 0.7, stair), 0, BODY, front + 0.7 * (2 - k) + 0.35);
     }
 
@@ -195,9 +173,8 @@ export const tikalTempleI: Monument = {
       placed(box(tier.half * 2, tier.top - base, tier.depth, comb), 0, base, COMB_BACK + tier.depth / 2);
       base = tier.top;
     }
-    // What is left of the enthroned king on the comb's west face: the throne
-    // on the first tier, his body and his headdress on the second. Each panel
-    // stands proud of its tier's face.
+    // What is left of the enthroned king on the comb's west face: the throne on
+    // the first tier, his body and headdress on the second, each panel proud of its tier.
     const faceOf = (tier: number): number => COMB_BACK + COMB[tier]!.depth;
     placed(box(4.4, 1.0, 0.5, relief), 0, CORNICE_TOP + 0.5, faceOf(0) + 0.25);
     placed(box(2.2, 1.3, 0.5, relief), 0, CORNICE_TOP + 1.7, faceOf(0) + 0.25);
