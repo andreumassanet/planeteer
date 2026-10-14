@@ -5,8 +5,7 @@ import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
  * Umbrella acacia: a bole forking into two or three limbs under a flat crown
- * of fine leaves (`tree-forms.ts`), which is the savanna's one shape. Kenney's
- * plateau tree until 2026-09-28.
+ * of fine leaves (`tree-forms.ts`), the savanna's one shape.
  */
 
 const FOOTPRINT = 6.4;

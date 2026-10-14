@@ -2,30 +2,18 @@ import { PROUD, STOREY, TONES } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
- * Stilt house — Southeast Asia.
+ * Stilt house: Southeast Asia.
  *
- * The whole part is one idea: **the gap under the floor**. A house standing on
- * posts has daylight beneath it, and at any distance that band of dark is what
- * separates it from every other small building in the kit. It is also the only
- * part whose most important feature is an absence, which is why the posts are
- * long enough to be obvious — a full storey, not a plinth.
+ * The whole part is one idea, the gap under the floor: a band of dark daylight
+ * that separates it from every other small building in the kit. The posts are
+ * a full storey, not a plinth, so the absence is obvious.
  *
- * The roof is the other half. `southeast-asia` sets a pitch of 1.0 and a hip
- * chance of 0.25, so these come out steep and gabled, and the ridge is carried
- * past the gable ends by 0.8 units on each side — the projecting ridge is a real
- * feature of Batak and Toraja roofs and it is the cheapest way to stop a steep
- * gable reading as an A-frame tent. A darker ridge cap runs the length of it.
- *
- * **The wall is two boards, not one.** A timber house is built out of a lower
- * course and an upper course and they weather differently; here that is one
- * extra box in a darker tone, and it is what stops the room reading as a crate
- * balanced on sticks. The band under the eaves is darker again — the same
- * shadow every part in this kit now draws rather than waits for the sun to
- * give it.
- *
- * The ladder is two struts and is invisible past 60 units. It is here because
- * it is the thing you see when you are standing next to one, and standing next
- * to one is what the avatar does.
+ * The roof is steep (`southeast-asia` sets a pitch of 1.0 and a hip chance of
+ * 0.25) with the ridge carried 0.8 units past the gable ends on each side, as
+ * Batak and Toraja roofs do, which stops a steep gable reading as an A-frame
+ * tent. The wall is two boards, a lower and an upper course in a darker tone,
+ * and the band under the eaves is darker again. The ladder is two struts,
+ * invisible past 60 units, there for when the avatar stands next to one.
  */
 
 const POST = 0.42;

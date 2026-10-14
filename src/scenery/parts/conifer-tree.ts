@@ -5,8 +5,7 @@ import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
  * Conifer: a spire, and tiers of drooping boughs of needles round it, fewer
- * and shorter up it (`tree-forms.ts`); far off, a stack of cones. A Kenney
- * pine until 2026-09-28.
+ * and shorter up it (`tree-forms.ts`); far off, a stack of cones.
  */
 
 const FOOTPRINT = 5.3;

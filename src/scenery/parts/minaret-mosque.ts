@@ -2,34 +2,23 @@ import { DOOR_HEAD, DOOR_JAMB, PROUD, STOREY, TONES, doorPaint } from '../contra
 import type { ScenicPart } from '../contract.ts';
 
 /**
- * Minaret mosque — the civic building of the Maghreb, the Middle East, the Sahel
+ * Minaret mosque: the civic building of the Maghreb, the Middle East, the Sahel
  * and South Asia.
  *
- * Two marks and no more: **a dome and a shaft**. Everything else on this model
- * is the plinth they stand on. At the distance a civic building earns its budget
- * — you are outside the town, looking at it — a dome beside a vertical is the
- * whole of the recognition, and the hall under them is a pale rectangle.
+ * Two marks and no more: a dome and a shaft. At the distance a civic building
+ * earns its budget a dome beside a vertical is the whole of the recognition,
+ * and the hall under them is a pale rectangle.
  *
- * The dome is `ctx.dome` at three rings. It is a lathed quarter-ellipse rather
- * than a hemisphere because a mosque dome is taller than half a sphere, and
- * because a squashed ball reads as a bubble. Three bands of ink up the profile
- * read as a dome; six read as a beach ball. It sits on a drum with a darker
- * collar round the foot of it, which is what stops the dome growing out of the
- * roof — the same ledge the round hut's thatch needs.
+ * The dome is `ctx.dome` at three rings, a lathed quarter-ellipse (taller than
+ * a hemisphere; three bands of ink read as a dome, six as a beach ball) on a
+ * drum with a darker collar round its foot. The minaret carries a balcony ring
+ * two thirds of the way up, since a vertical needs one horizontal to be a
+ * tower, and its shaft is two tones, darker below the balcony: an eight-sided
+ * column in one flat colour takes one cel band for its whole height.
  *
- * The minaret carries a balcony ring two thirds of the way up. Without it the
- * shaft is a chimney — the same failure the church tower has, solved the same
- * way, because a vertical needs one horizontal to be a tower. **The shaft is
- * two tones**, darker below the balcony and lighter above it: an eight-sided
- * column in one flat colour takes one cel band for its whole 24 units, which is
- * the tallest smooth grey thing the kit could build.
- *
- * **The arcade is the redesign's addition and it is two meshes.** A mosque hall
- * meets its courtyard in a row of arches, and here that is one `panes` plate
- * row of piers standing proud of the render, with a row of dark openings behind
- * them, `lit` low because a hole with a lamp behind it is a dimmer claim than a
- * window. Four piers and three arches for 46 triangles, and the pale rectangle
- * of the hall front has a rhythm on it.
+ * The arcade is two meshes: a `panes` plate row of piers standing proud of the
+ * render with a row of dark openings behind them, `lit` low. Four piers and
+ * three arches for 46 triangles give the hall front a rhythm.
  */
 
 export const minaretMosque: ScenicPart = {
@@ -60,9 +49,8 @@ export const minaretMosque: ScenicPart = {
     const hallHeight = STOREY * rng.range(1.5, 2);
 
     group.add(box(hallWidth + 0.6, 0.45, hallDepth + 0.6, course));
-    // `PROUD` taller than the band it wears, for the flat-roof house's reason:
-    // level with it, the band's closed top and the hall's roof were one plane in
-    // two colours and the roof z-fought, 26.6 u² a build (2026-09-13). The
+    // `PROUD` taller than the band it wears: level with it, the band's closed top
+    // and the hall's roof would be one plane in two colours and z-fight. The
     // extra stands inside the crown's ring, where nothing can see it.
     const hall = box(hallWidth, hallHeight + PROUD, hallDepth, wall);
     hall.position.y = 0.45;

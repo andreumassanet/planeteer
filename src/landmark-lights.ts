@@ -2,35 +2,25 @@
  * The landmarks at night: which are floodlit and how, what on them shines of
  * its own, and where their red lights and their squares' lamps stand.
  *
- * **The sun is real, so about half of all visits to a landmark happen after
- * dark**, and until 2026-09-30 every one of them was a moonlit blue
- * silhouette with its own plaza's lamps out, standing in a town whose windows,
- * lamps and headlights all stopped at its feet. The destinations of the game
- * were the darkest things in it. What is here makes a landmark at night what it
- * is in the photograph everybody has of it: the warmest, most readable mass in
- * the frame.
+ * Three kinds of light, none of them a light in the renderer's sense
+ * (`lights.ts` says why there must be none):
  *
- * Three kinds of light, and none of them is a light in the renderer's sense —
- * `lights.ts` says why there must be none:
- *
- * - **The floodlight**, a wash evaluated per fragment from four bytes a vertex
+ * - The floodlight: a wash evaluated per fragment from four bytes a vertex
  *   (`atlasFlood`: the height, the landmark's strength, the style, how cool),
  *   tinting the surface's own colour and capped under the bloom. Its look is
- *   `DEFAULT_LOOK` unless `LOOKS` says otherwise, and `DARK` lists what is
- *   not floodlit at all.
- * - **Lit parts**, the few things on a landmark that shine rather than being
- *   shone on — Big Ben's dials, Liberty's torch, Yasur's vent, the Space
- *   Needle's bead, the Empire State's gilt deck, and every plaza's lamp heads —
- *   as the two `atlasLit` bytes a town's windows carry.
- * - **Red aviation lights** on every landmark of `BEACON_HEIGHT` or more that
- *   is not dark, at the tips the bake finds in the model's own geometry.
+ *   `DEFAULT_LOOK` unless `LOOKS` says otherwise, and `DARK` lists what is not
+ *   floodlit at all.
+ * - Lit parts: the few things on a landmark that shine rather than being shone
+ *   on (Big Ben's dials, Liberty's torch, a volcano's vent, every plaza's lamp
+ *   heads), as the two `atlasLit` bytes a town's windows carry.
+ * - Red aviation lights on every landmark of `BEACON_HEIGHT` or more that is
+ *   not dark, at the tips the bake finds in the model's own geometry.
  *
- * **Adding a monument is still one file and nothing else** (`monuments/index.ts`):
- * the default is a warm floodlight from the ground, normalised to the model's
- * own colours, and it is right for a building nobody has thought about. The
- * table is exceptions. `pnpm check` holds it to the registry — no stray ids, no
- * id both dark and styled, nothing taller than the tallest building on Earth
- * left lit — and every model, the defaulted ones included, to the bytes' rules.
+ * Adding a monument is one file (`monuments/index.ts`): the default is a warm
+ * floodlight from the ground normalised to the model's own colours, and the
+ * tables here are exceptions. `pnpm check` holds them to the registry (no stray
+ * ids, no id both dark and styled, nothing taller than the tallest building on
+ * Earth left lit) and every model to the bytes' rules.
  */
 import * as THREE from 'three';
 import type { Merged, MergePiece } from './merge.ts';
@@ -60,12 +50,10 @@ export interface Look {
   /** For `crown`: the height, as a fraction of the model's, the lit crown starts at. */
   from: number;
   /**
-   * The palette colours on this model that shine of themselves, and how
-   * brightly as a share of a window (`glowBytes`). **Only small parts**: a
-   * colour that is most of a model makes it a lantern, and `pnpm check` holds
-   * every glow to `GLOW_SHARE` of the model's surface. Measured on 2026-09-30
-   * the five here are 0.4 to 2.9% of theirs, where `gold` is 20% of the
-   * Forbidden City and `white` 55% of the Golden Temple.
+   * The palette colours on this model that shine of themselves, and how brightly
+   * as a share of a window (`glowBytes`). Only small parts: a colour that is most
+   * of a model makes it a lantern, and `pnpm check` holds every glow to
+   * `GLOW_SHARE` of the model's surface.
    */
   glow: Partial<Record<keyof typeof PALETTE, number>>;
   /** Red lights on its tips: absent is by height (`BEACON_HEIGHT`). */
@@ -79,19 +67,12 @@ export interface Look {
 export const DEFAULT_LOOK: Readonly<Look> = { style: 'ground', tint: 0, strength: 1, from: 0, glow: {} };
 
 /**
- * What is not floodlit, and it is two lists in one. **Nature**: nobody lights a
- * mountain, a glacier or a waterfall's gorge, and the ones that are lit sometimes
- * (Table Mountain's face, which Cape Town floods on some nights) are left dark
- * here rather than lit every night. **And the places people keep dark on
- * purpose**, which are real facts and were checked rather than remembered on
- * 2026-09-30: the Taj Mahal is not floodlit and is seen at night by moonlight,
- * on the five nights round the full moon; Angkor Wat's lighting has been
- * proposed since 2009 and refused (the temples close at sunset); Sigiriya
- * opens only on moonlit nights and the lit pictures of it are renders;
- * Kinderdijk's mills are lit one week a year; and the ruins in open country
- * (Stonehenge, Machu Picchu, Nan Madol, the moai, Ur, the Citadelle) stand in
- * the dark they stand in; Tikal's temple, in its national park, was added on
- * 2026-10-04 on that ground and was not checked that day. The Terracotta Army is indoors.
+ * What is not floodlit, in two groups. Nature: nobody lights a mountain, a
+ * glacier or a gorge. And places kept dark on purpose: the Taj Mahal is seen
+ * at night by moonlight, Angkor Wat's temples close at sunset, Sigiriya opens
+ * only on moonlit nights, Kinderdijk's mills are lit one week a year, the
+ * ruins in open country stand in the dark they stand in, and the Terracotta
+ * Army is indoors.
  */
 export const DARK: ReadonlySet<string> = new Set([
   'angel-falls',
@@ -125,18 +106,17 @@ export const DARK: ReadonlySet<string> = new Set([
 /**
  * The exceptions, and only them.
  *
- * - **Lit all over** (`whole`): the Eiffel Tower, whose sodium lamps sit inside
- *   the lattice and turn its brown gold (`FLOOD_GOLD`, and a third over the
- *   normalised strength, because gold is what the tower is at night) — and
- *   its sparkle — and Tokyo Tower, whose Landmark Light is the same sodium on
+ * - Lit all over (`whole`): the Eiffel Tower, whose sodium lamps sit inside
+ *   the lattice and turn it gold (`FLOOD_GOLD`, a third over the normalised
+ *   strength) and make it sparkle; Tokyo Tower, lit in the same sodium on
  *   orange paint. Cool: the glass and steel towers lit by their own LEDs and
  *   the Atomium's spheres.
- * - **Lit at the top** (`crown`): the Empire State, famous for it; Christ the
- *   Redeemer and Rushmore's faces, lit over a dark mountain.
- * - **Cool floods**: Liberty's pale green is lit white, and so are the Opera
- *   House's sails and Niagara (in colours, in life: white here).
- * - **Lit parts**: see `Look.glow`. Mount Yasur is not floodlit — it is a
- *   volcano — and its vent is the one light it has.
+ * - Lit at the top (`crown`): the Empire State; Christ the Redeemer and
+ *   Rushmore's faces, lit over a dark mountain.
+ * - Cool floods: Liberty's pale green is lit white, and so are the Opera
+ *   House's sails and Niagara.
+ * - Lit parts: see `Look.glow`. Mount Yasur is a volcano, not floodlit; its
+ *   vent is the one light it has.
  */
 export const LOOKS: Readonly<Record<string, Partial<Look>>> = {
   'eiffel-tower': { style: 'sparkle', tint: -1, strength: 1.3 },
@@ -226,9 +206,9 @@ function colourName(piece: MergePiece): string {
  * the vertices it already has, cached with its geometry (`placement.ts`).
  *
  * `square` is the plaza `landmark-setting.ts` built round it, merged into the
- * same buffer: it takes no floodlight of its own — its lamps light it, per
- * pixel, as a town's floor is lit — and its lamp heads are found by the mark
- * the setting puts on them. `height` is the source's metres, for the beacons.
+ * same buffer: it takes no floodlight of its own (its lamps light it, per
+ * pixel, as a town's floor is lit) and its lamp heads are found by the mark the
+ * setting puts on them. `height` is the source's metres, for the beacons.
  */
 export function bakeNight(id: string, height: number | undefined, merged: Merged, pieces: readonly MergePiece[], square: THREE.Object3D | null): NightBake {
   const position = merged.position;
@@ -382,17 +362,14 @@ export interface LandmarkLights {
 }
 
 /**
- * The night's marks of the standing landmarks — their plaza lamps and their
- * red lights — kept in world space as they are raised, re-seated and dropped,
- * so a frame costs nothing unless one moved.
+ * The night's marks of the standing landmarks (their plaza lamps and red
+ * lights), kept in world space as they are raised, re-seated and dropped, so a
+ * frame costs nothing unless one moved.
  *
- * **The sparkle keeps the civil clock and not the sun's**, and it is the only
- * light here that does: the Eiffel Tower sparkles for the first five minutes
- * of every hour after dark by the clocks in Paris, a thing a player standing
- * at the Trocadéro at nine can catch — and on solar time it would start at ten
- * past (`atlasSolarHour` has the argument for the windows, which is the other
- * way round). It reads `sky.state.time`, not the wall clock, so
- * `atlas.sky.setRate` runs it too.
+ * The Eiffel Tower's sparkle keeps the civil clock rather than the sun's: it
+ * sparkles for the first five minutes of every hour after dark by the clocks in
+ * Paris. It reads `sky.state.time`, not the wall clock, so `atlas.sky.setRate`
+ * runs it too.
  */
 export function createLandmarkLights(): LandmarkLights {
   const beacons = createBeacons();

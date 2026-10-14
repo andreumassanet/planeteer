@@ -1,49 +1,31 @@
 /**
  * What time it is where you are standing.
  *
- * **The honest options were two and this file takes the harder one.** Local
- * *solar* time is free — the longitude divided by fifteen — needs no data at
- * all, and agrees exactly with the sky, which is already showing the real sun.
- * It is also not what anybody means by "what time is it in Mallorca": Spain
- * keeps Central European time at a longitude that is barely east of Greenwich,
- * so a solar clock there reads nearly two hours behind every watch on the
- * island. A clock that disagrees with the player's own wrist is a bug however
- * defensible its arithmetic.
+ * Local solar time is free (longitude over fifteen) but disagrees with the
+ * player's own wrist: Spain keeps Central European time barely east of
+ * Greenwich, so a solar clock there reads nearly two hours behind. So this is
+ * civil time, with the platform doing the rules: `Intl.DateTimeFormat` carries
+ * the full IANA offsets and daylight-saving transitions in every browser and in
+ * Node, and only the zone names are shipped. They come from GeoNames' own zone
+ * for every town (baked into `places.bin`, which the chip reads) and, for ground
+ * whose nearest town is across a border, a table here of country to zone,
+ * split by meridians where a country holds several.
  *
- * So it is civil time, and the way to get civil time right without shipping a
- * database is to ship the *names* and let the platform do the rest.
- * `Intl.DateTimeFormat` carries the full IANA rules — the offsets, the daylight
- * saving transitions, the historical changes, and updates to all three — in
- * every browser and in Node. The names come from two places: GeoNames' own zone
- * for every town, baked into `places.bin`, which is what the chip reads; and,
- * for ground whose nearest town is across a border, a table here of country to
- * zone name, split by meridians where a country holds several. Neither is
- * timezone logic — the platform does all of that.
- *
- * The fallback is deliberate rather than an error path, the way the weather
- * is: where there is no zone for a place, or the platform
- * cannot resolve one, the clock falls back to **local mean solar time from the
- * longitude**. That is never absent, never wrong about the sky, and at worst an
- * hour or two from the civil answer.
+ * Where there is no zone for a place, or the platform cannot resolve one, the
+ * clock falls back to local mean solar time from the longitude: never absent,
+ * never wrong about the sky.
  */
 
 /**
- * Country to IANA zone.
+ * Country to IANA zone, one entry per country in `countries.bin`, keyed on
+ * `ADM0_A3`. Countries wide enough to hold several zones are decided by
+ * longitude in `zoneFor` instead.
  *
- * One entry per country in `countries.bin`, keyed on the same `ADM0_A3` the
- * flags and the outlines use. The countries wide enough to hold several zones
- * are not in here — they are in `zoneFor` below, because a longitude decides
- * them and a table cannot.
- *
- * Seven of the entries are not countries and are here because 1:10m draws them
- * as their own admin-0 features, and a player standing on one still wants a
- * clock. They take the zone of whoever actually keeps time on the ground: the
- * two British base areas on Cyprus and the buffer zone between them read
- * Nicosia, Guantanamo Bay reads Havana, the Baikonur Cosmodrome reads Moscow
- * under its lease rather than Kazakhstan's own UTC+5, Bir Tawil — claimed by
- * nobody — takes Khartoum from the side of the 22nd parallel it lies on, and
- * the Southern Patagonian Ice Field, where Chile and Argentina have never drawn
- * the line, takes Santiago.
+ * Seven entries are not countries but 1:10m admin-0 features where a player
+ * still wants a clock; they take the zone of whoever keeps time on the ground:
+ * the British base areas on Cyprus and their buffer zone read Nicosia,
+ * Guantanamo Bay Havana, Baikonur Moscow (under its lease), Bir Tawil Khartoum
+ * and the Southern Patagonian Ice Field Santiago.
  */
 const ZONES: Record<string, string> = {
   ABW: 'America/Aruba', AFG: 'Asia/Kabul', AGO: 'Africa/Luanda', AIA: 'America/Anguilla',
@@ -111,19 +93,12 @@ const ZONES: Record<string, string> = {
 };
 
 /**
- * The zone under a point, from the country and the meridians alone.
- *
- * **This is the fallback, not the clock.** The chip reads the zone GeoNames
- * gives the nearest built town whenever that town stands in the country you are
- * standing in — see `clockAt` — because a zone boundary is a province line and
- * a longitude cannot follow one: this table put Calgary on Vancouver's time,
- * Kazan an hour ahead of Moscow and Indianapolis on Chicago's. What is left for
- * it is ground whose nearest town is across a border, and there the meridians
- * below are the real boundaries rounded to something a coastline-accurate globe
- * can honour. The places the old bands were worst — the antimeridian ends of
- * Russia and the United States, Indiana and Kentucky, Arizona, Alberta, the
- * Volga, Yakutia, Mato Grosso, Kasaï and north-west Mexico — are corrected to
- * the nearest box that holds them, and `pnpm check` reads both paths.
+ * The zone under a point, from the country and the meridians alone. This is the
+ * fallback, not the clock: `clockAt` prefers the zone GeoNames gives the nearest
+ * built town when it stands in the same country, because a zone boundary is a
+ * province line and a longitude cannot follow one. What is left is ground whose
+ * nearest town is across a border; the meridians are the real boundaries rounded
+ * to something a coastline-accurate globe can honour. `pnpm check` reads both paths.
  */
 export function zoneFor(iso: string, lon: number, lat: number): string | null {
   switch (iso) {
@@ -148,8 +123,7 @@ export function zoneFor(iso: string, lon: number, lat: number): string | null {
       if (lon >= -118.5) return 'America/Edmonton';
       return 'America/Vancouver';
     case 'RUS':
-      // Chukotka east of the antimeridian, which the first band used to read
-      // as Kaliningrad: ten hours out.
+      // Chukotka east of the antimeridian.
       if (lon < 0) return 'Asia/Anadyr';
       if (lon < 22) return 'Europe/Kaliningrad';
       if (lon < 50) return 'Europe/Moscow';
@@ -229,13 +203,7 @@ function solarClock(now: Date, lon: number): string {
   return `${pad(Math.floor(wrapped / 60))}:${pad(wrapped % 60)}`;
 }
 
-/**
- * A `HH:MM` for a zone, falling back to the sun.
- *
- * The formatter is cached per zone because it is rebuilt every time otherwise
- * and this is called on a clock tick; constructing one is far more expensive
- * than using it.
- */
+/** A formatter per zone, cached because constructing one is far more expensive than using it and this runs on a clock tick. */
 const formatters = new Map<string, Intl.DateTimeFormat | null>();
 
 function formatterFor(zone: string): Intl.DateTimeFormat | null {
@@ -249,10 +217,8 @@ function formatterFor(zone: string): Intl.DateTimeFormat | null {
         hour12: false,
       });
     } catch {
-      // A platform with no time zone data at all, or one older than the name
-      // — `Europe/Kyiv` and `America/Ciudad_Juarez` are 2022 — which is a
-      // worse clock and not a broken one. Same shape as the `localStorage`
-      // guards.
+      // A platform with no time zone data, or one older than the name
+      // (`Europe/Kyiv` is 2022): a worse clock, not a broken one.
       formatter = null;
     }
     formatters.set(zone, formatter);
@@ -261,14 +227,10 @@ function formatterFor(zone: string): Intl.DateTimeFormat | null {
 }
 
 /**
- * The time where you stand.
- *
- * `nearest` is the nearest built town, and **its own zone is the answer when it
- * stands in the country you are standing in**: GeoNames names the zone of every
- * row, and a town is on the right side of every province line by construction.
- * Across a border the town's zone says nothing about this side of it, so the
- * country and the meridians decide (`zoneFor`), and at sea — no country — the
- * sun does.
+ * The time where you stand as `HH:MM`. `nearest` is the nearest built town, and
+ * its own zone is the answer when it stands in the country you are standing in
+ * (a town is on the right side of every province line by construction). Across
+ * a border the country and the meridians decide (`zoneFor`), and at sea the sun does.
  */
 export function clockAt(
   now: Date,

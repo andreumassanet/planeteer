@@ -5,18 +5,14 @@ import { AVATAR_HEIGHT } from '../../stature.ts';
 
 /**
  * A bench on a town's pavement, beside a lamp, its back to the houses and its
- * face to the street — somewhere to sit and watch the town go by, and `E`
- * beside it does (`Player.sitOn`).
+ * face to the street; `E` beside it sits (`Player.sitOn`).
  *
- * **Placed by `settlements.ts` and by nothing else**, like `street-lamp`: the
- * town knows where its kerbs and its building lines are, and a region's
- * `scatter` list would hand it to a yard. The model is `bench.ts`'s, the one
- * the countryside's are built from, because its seat is the sitting clip's
- * and a bench a body floats over or sinks into is worse than none. So the
- * instance carries no scale: the variety is the length and the back.
- *
- * Six boxes and three colours at most — 72 triangles against the `scatter`
- * kind's 110.
+ * Placed by `settlements.ts` and by nothing else, like `street-lamp`, since the
+ * town knows where its kerbs and building lines are. The model is `bench.ts`'s,
+ * the one the countryside's are built from, because its seat is the sitting
+ * clip's. The instance carries no scale; the variety is the length and the
+ * back. Six boxes and three colours at most: 72 triangles against the
+ * `scatter` kind's 110.
  */
 export const streetBench: ScenicPart = {
   id: 'street-bench',

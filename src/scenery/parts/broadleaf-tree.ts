@@ -5,13 +5,9 @@ import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
  * Broadleaf tree: a round crown of leaf clusters over a leaning bole, built in
- * code (`tree-forms.ts`) — and, in the north, a birch: a pale slender bole
- * with small clusters stacked up it, which is what a broadleaf is there.
- *
- * Until 2026-09-28 it was one of Kenney's Nature Kit trees, and before
- * 2026-09-17 lobes and tapers built here; the history is in git. What
- * survives is the declaration: the height range, the footprint every wood
- * keeps its spacing by, and the colours a region paints.
+ * code (`tree-forms.ts`); in the north, a birch: a pale slender bole with small
+ * clusters stacked up it. The declaration carries the height range, the
+ * footprint every wood keeps its spacing by, and the colours a region paints.
  */
 
 const FOOTPRINT = 7.4;

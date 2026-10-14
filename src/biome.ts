@@ -2,27 +2,16 @@ import { PALETTE } from './theme.ts';
 import { fbm, oceanDistance, MAX_RELIEF } from './terrain.ts';
 
 /**
- * What the ground *is*, as opposed to whose it is.
+ * What the ground is made of, as opposed to whose it is: the second half of the
+ * pair `terrain.ts` started. `reliefAt` says how high the ground is, `biomeAt`
+ * says what it is. Both are pure functions of a point and the one definition of
+ * what they answer; the land mesh takes its colour from here, the vegetation its
+ * density and species, and a settlement the colour of its own dirt, so they
+ * cannot disagree (a forest of pines on a sand dune).
  *
- * **The land used to be coloured by country and that is why the world felt
- * uniform.** `paletteFor` in `globe.ts` gave every ring one flat colour off a
- * continent table, so the whole of Spain was one green, the whole of Algeria one
- * clay, and walking two hundred kilometres changed nothing you could see. A
- * political map is a fine thing to look at from orbit and it is the wrong thing
- * to stand on.
- *
- * So this file is the second half of the pair `terrain.ts` started: `reliefAt`
- * says how high the ground is, `biomeAt` says what it is made of. Both are pure
- * functions of a point, both are the ONE definition of what they answer, and
- * everything downstream reads them rather than deciding for itself — the land
- * mesh takes its colour from here, the vegetation takes its density and its
- * species from here, and a settlement takes the colour of its own dirt from
- * here. Two of those disagreeing is a forest of pines on a sand dune.
- *
- * The model is the schoolbook one — temperature against moisture — because it
- * is the smallest one that produces the Sahara, the Amazon, the taiga and the
- * steppe from three lines of arithmetic and no data file. What it costs is the
- * cases those three lines cannot know: see `Known misses` below.
+ * The model is the schoolbook one, temperature against moisture: the smallest
+ * that produces the Sahara, the Amazon, the taiga and the steppe from a few
+ * lines of arithmetic. See "Known misses" below for what it cannot know.
  */
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -34,15 +23,10 @@ const smoothstep = (edge0: number, edge1: number, x: number): number => {
 };
 
 /**
- * How much of the temperature range the full height of the relief spends.
- *
- * The planet is 1:400 and the relief is compressed with it: `MAX_RELIEF` is 680
- * units, which is 272 km if you take the scale literally and obviously is not.
- * What it *stands for* is about 8 km of real mountain, so the honest conversion
- * is a ratio and not a distance — the top of the tallest range gives up as much
- * warmth as 8 km of real air does, which at 6.5 degrees a kilometre is around
- * 52 degrees and is most of the way from the equator to the pole. That is why
- * Kilimanjaro has a white top three degrees off the equator.
+ * How much of the temperature range the full height of the relief spends. The
+ * relief's `MAX_RELIEF` stands for about 8 km of real mountain, which at 6.5
+ * degrees a kilometre is around 52 degrees: most of the way from the equator to
+ * the pole, so Kilimanjaro has a white top three degrees off the equator.
  */
 const LAPSE = 0.78;
 
@@ -66,49 +50,21 @@ export interface Biome {
   id: BiomeId;
   /** The ground itself, before any country tint. */
   color: number;
-  /**
-   * How much grows here, 0 to 1.
-   *
-   * Read by the vegetation scatter as a *probability per plot*, not as a
-   * spacing: a desert with 0.04 is not a forest with wider gaps, it is a desert
-   * with the occasional thing alive in it.
-   */
+  /** How much grows here, 0 to 1: the vegetation scatter's probability per plot, not a spacing. */
   cover: number;
-  /**
-   * How thick the grass under your feet is, 0 to 1: the density the grass's
-   * blades thin by (`vegetation.ts`'s `grass`, drawn by `grass.ts`). A second number and not `cover`,
-   * because they are two questions — the taiga is 0.72 of trees on a thin floor
-   * of moss, and a grassland is 0.22 of trees in grass to the knee.
-   */
+  /** How thick the grass under your feet is, 0 to 1 (`vegetation.ts`'s `grass`). Separate from `cover`: taiga is mostly trees on thin moss, grassland mostly grass. */
   sward: number;
   /**
-   * The scenic parts that belong here, most likely first. Ids from
-   * `src/scenery/parts/`; an id that does not exist is skipped, so this table
-   * may name a plant before anyone has built it.
-   *
-   * **Order is load-bearing.** `vegetation.ts` reads the list with geometric
-   * weights — 1, 0.45, 0.20, 0.09 — so the first entry is most of what you see
-   * and the fourth is the one you notice once an hour. Reordering a list is a
-   * change to what a biome looks like, not a tidy-up.
-   *
-   * The list is per *biome* and not per region, which is a deliberate limit and
-   * a wrong one in at least one place: a saguaro is American and this table
-   * will put one in the Sahara. Gating a species by region is `regions.ts`'s
-   * job, not this file's — biome says what grows, region says whose it is —
-   * and nothing does it yet.
+   * The scenic parts that belong here, most likely first (ids from
+   * `src/scenery/parts/`; an unknown id is skipped). Order matters:
+   * `vegetation.ts` weights the list 1, 0.45, 0.20, 0.09. The list is per biome,
+   * not per region, so a saguaro can land in the Sahara; gating a species by
+   * region is `regions.ts`'s job.
    */
   plants: readonly string[];
 }
 
-/**
- * The table.
- *
- * Colours come out of `PALETTE` and nowhere else — the 24 from folio-2025 that
- * the whole world is painted with. Picking a "realistic" sand or a "realistic"
- * green off a colour wheel is the fastest way to make one mesh look like it
- * came from a different project, which is the exact problem the palette was
- * adopted to solve.
- */
+/** The table. Colours come from `PALETTE` only, so the ground matches the rest of the world. */
 export const BIOMES: Record<BiomeId, Biome> = {
   ice: { id: 'ice', color: PALETTE.white, cover: 0, sward: 0, plants: [] },
   tundra: { id: 'tundra', color: PALETTE.bone, cover: 0.12, sward: 0.35, plants: ['shrub', 'boulder', 'grass-tuft'] },
@@ -130,35 +86,18 @@ export interface BiomeSample {
   moisture: number;
   /** How far above the shelf this point is, in world units. Passed straight through. */
   elevation: number;
-  /**
-   * How continental the place is, 0 on the coast to 1 deep inland: the ocean
-   * distance through `INTERIOR`, which the moisture already spends. Published
-   * so the weather's seasons read the same continent the biome does.
-   */
+  /** How continental the place is, 0 on the coast to 1 deep inland (the ocean distance through `INTERIOR`); the weather's seasons read the same value. */
   continental: number;
-  /**
-   * Permanent snow, 0 to 1: how far the warmest month here is under the
-   * snowline (`snowlineAt`). Past a half the ground *is* snow and the id is
-   * `ice`; under it `groundShade` whitens the ground by this much, so a
-   * snowline is a margin and not a contour.
-   */
+  /** Permanent snow, 0 to 1 (`snowlineAt`). Past a half the id is `ice`; under it `groundShade` whitens the ground by this much. */
   snow: number;
 }
 
 /**
- * How cold a place is, in degrees Celsius: the climate the weather is drawn
- * from and the snowline is cut by.
- *
- * **A second temperature beside `warmth`, and on purpose.** `warmth` is a
- * classifier's axis, fitted so that the taiga and the tundra land where they
- * should, and read as degrees it puts France at zero. The weather needs a
- * number a thermometer would agree with — whether a cloud rains or snows is a
- * question about zero Celsius — so this is the mean annual temperature at sea
- * level off a table of knots (the real zonal means, rounded), less the lapse
- * rate for the height.
- *
- * The south is colder than the north at the same latitude in the table because
- * it is on the Earth: the Southern Ocean and the Antarctic ice keep it so.
+ * Mean annual temperature at sea level in degrees Celsius, by latitude: the
+ * real zonal means, rounded. A second temperature beside `warmth`, which is a
+ * classifier axis and read as degrees puts France at zero; the weather needs a
+ * number a thermometer would agree with (rain or snow is a question about zero).
+ * The south is colder than the north at the same latitude, as on the Earth.
  */
 const TEMPERATURE_KNOTS_NORTH: readonly [number, number][] = [
   [0, 27], [10, 26.5], [20, 24.5], [30, 19], [40, 13.5], [50, 9], [60, 3], [70, -7], [80, -15], [90, -20],
@@ -168,22 +107,13 @@ const TEMPERATURE_KNOTS_SOUTH: readonly [number, number][] = [
 ];
 export const TEMPERATURE_KNOTS = { north: TEMPERATURE_KNOTS_NORTH, south: TEMPERATURE_KNOTS_SOUTH };
 
-/**
- * Degrees Celsius lost per world unit of height.
- *
- * The relief's full `MAX_RELIEF` stands for about 8 km of real mountain (see
- * `LAPSE`), so a unit of height is 11.8 m of air, and the standard lapse rate
- * of 6.5 degrees a kilometre makes it 0.076 degrees a unit.
- */
+/** Degrees Celsius lost per world unit of height: `MAX_RELIEF` stands for 8 km at the standard 6.5 degrees a kilometre. */
 export const LAPSE_PER_UNIT = (6.5 * 8) / MAX_RELIEF;
 
 /**
- * Half the swing between the warmest month and the coldest, in degrees.
- *
- * A degree in the tropics, where the sun is overhead twice a year and the
- * seasons are the rains, rising to about seventeen past sixty degrees; and the
- * middle of a continent swings more than its coast, because the sea is a heat
- * store and the land is not. `continental` is `BiomeSample.continental`.
+ * Half the swing between the warmest month and the coldest, in degrees: about a
+ * degree in the tropics, rising to seventeen past sixty degrees, and more in a
+ * continent's middle than on its coast. `continental` is `BiomeSample.continental`.
  */
 export function seasonalSwing(lat: number, continental: number): number {
   return (
@@ -192,11 +122,7 @@ export function seasonalSwing(lat: number, continental: number): number {
   );
 }
 
-/**
- * `seasonalSwing`'s numbers, exported because the ground shader restates the
- * function in GLSL (`GROUND_WEATHER_GLSL` in `globe.ts`) and has to be built
- * from the same ones.
- */
+/** `seasonalSwing`'s numbers, exported because the ground shader restates it in GLSL (`globe/ground-weather.ts`). */
 export const SWING = { tropics: 1, range: 16, from: 15, to: 65, coast: 0.45 } as const;
 
 function knotAt(knots: readonly [number, number][], a: number): number {
@@ -217,38 +143,25 @@ export function meanTemperature(lat: number, elevation: number): number {
 }
 
 /**
- * Where the snow never goes, and it is the **warmest month** that says so.
- *
- * A glacier survives where the summer cannot melt what the winter laid, so the
- * line is the summer isotherm near freezing rather than a mean: the mean alone
- * put northern Siberia, at minus fourteen, under permanent ice, where it is
- * tundra that thaws every July. `SNOWLINE_SUMMER` is that isotherm, three
- * degrees under zero, with a margin of `SNOWLINE_MARGIN` either side over which
- * the ground goes from speckled to white. Where it lands on `terrain.ts`'s
- * ranges with `ARID_SNOWLINE` below (2026-09-25, `pnpm weather`): about
- * 2,850 m in the Alps, 3,650 m in the Rockies, 4,700 m on the wet equator in
- * the Andes, 5,050 m in the Himalaya and 1,600 m in the Scandes — each within
- * a few hundred metres of the real line. It turns 4.3% of the land to `ice`
- * that `warmth` had left bare, most of it Antarctica's coast and the Arctic
- * islands.
+ * Where the snow never goes, by the warmest month: a glacier survives where the
+ * summer cannot melt what the winter laid, so the line is the summer isotherm
+ * near freezing rather than a mean (the mean put Siberia under ice). The margin
+ * is the band over which the ground goes from speckled to white.
  */
 export const SNOWLINE_SUMMER = -3;
 export const SNOWLINE_MARGIN = 1.5;
 
 /**
- * **And a dry range holds no ice however cold it is**, because a glacier is fed
- * by snowfall and the desert sends none: the real line stands near 6,000 m in
- * the Atacama against 4,800 on the wet equator. So dryness raises the line by
- * this many degrees for every unit of moisture under `ARID_FROM`; without it
- * the Atacama came out an ice cap (2026-09-25).
+ * A dry range holds no ice however cold it is, since a glacier is fed by
+ * snowfall: dryness raises the line by this many degrees for every unit of
+ * moisture under `ARID_FROM`.
  */
 const ARID_SNOWLINE = 30;
 const ARID_FROM = 0.45;
 
 /**
- * The snowline's factor for a place, 0 to 1. `ragged` is a noise in [0, 1]
- * that moves the line by two degrees either way, so it follows the relief's
- * shoulders rather than a contour; `moisture` is the biome's.
+ * The snowline's factor for a place, 0 to 1. `ragged` is a noise in [0, 1] that
+ * moves the line by two degrees either way; `moisture` is the biome's.
  */
 export function snowlineAt(lat: number, elevation: number, continental: number, ragged: number, moisture: number): number {
   const summer =
@@ -260,19 +173,10 @@ export function snowlineAt(lat: number, elevation: number, continental: number, 
 }
 
 /**
- * Moisture by latitude alone: the Hadley cells, as a table.
- *
- * Wet on the equator where the air rises, dry at the horse latitudes where it
- * comes back down, wet again at the polar front, dry at the poles because cold
- * air holds nothing. That one term is most of the world's deserts — the Sahara,
- * Arabia, the Kalahari, the Australian interior, northern Mexico and the
- * Atacama all sit in the same two bands, which is not a coincidence and is why
- * a lookup this crude gets this far.
- *
- * A table of knots rather than a cosine because the real curve is not
- * symmetric about its trough: the dry belt is narrow and deep and the wet belt
- * either side of it is broad and shallow, and a cosine fitted to the trough
- * puts the Sahel in Ireland's rainfall.
+ * Moisture by latitude alone: the Hadley cells as a table. Wet on the equator,
+ * dry at the horse latitudes (most of the world's deserts), wet at the polar
+ * front, dry at the poles. A table of knots rather than a cosine because the dry
+ * belt is narrow and deep and the wet belts broad and shallow.
  */
 export const MOISTURE_KNOTS: readonly [number, number][] = [
   [0, 0.95],
@@ -298,38 +202,18 @@ export function zonalMoisture(lat: number): number {
   return MOISTURE_KNOTS[MOISTURE_KNOTS.length - 1]![1];
 }
 
-/**
- * Mean temperature falls roughly linearly with latitude, not as a cosine.
- *
- * This was `cos(lat) ** 0.8` first, and it put Finland and central Siberia in
- * the same band as France: the cosine is still 0.45 at 63 degrees where the
- * real mean annual temperature has gone from +27 to about -10. The straight
- * line through those two ends — 27 degrees at the equator, six tenths of a
- * degree lost per degree of latitude — reproduces the taiga, the tundra and the
- * treeline within a few degrees each, which no amount of tuning the exponent
- * did.
- */
+/** Warmth falls linearly with latitude (a cosine puts Finland in France's band). */
 const WARMTH_PER_DEGREE = 1 / 86.7;
 
-/**
- * How continental a place is, 0 on the coast to 1 at `INTERIOR` degrees from
- * the sea: the one reading of `oceanDistance` this file makes, exported so the
- * weather's seasons and the ground shader's snow read the same continent.
- */
+/** How continental a place is, 0 on the coast to 1 at `INTERIOR` degrees from the sea; shared with the weather and the ground shader. */
 export function continentalityAt(lat: number, lon: number): number {
   return smoothstep(1.5, INTERIOR, oceanDistance(lat, lon));
 }
 
 /**
- * The classifier.
- *
- * `elevation` is the relief above the shelf in world units — what `reliefAt`
- * returns, not the radius. `prepareTerrain` has to have run, because the
- * continentality term reads the coast field.
- *
- * It fills `target` rather than returning a new object: the land mesh calls this
- * once per triangle, which is 770,000 times in a single build, and an allocation
- * there is a garbage collection in the middle of the loading screen.
+ * The classifier. `elevation` is the relief above the shelf in world units (what
+ * `reliefAt` returns); `prepareTerrain` must have run. It fills `target` rather
+ * than allocating, since the land mesh calls it once per vertex.
  */
 export function biomeAt(
   x: number,
@@ -340,37 +224,21 @@ export function biomeAt(
   elevation: number,
   target: BiomeSample,
 ): BiomeSample {
-  // Cooler towards the poles and cooler with height, and the second term is the
-  // one that puts snow on a mountain in the tropics.
+  // Cooler towards the poles and with height.
   const warmth = clamp(
     1 - Math.abs(lat) * WARMTH_PER_DEGREE - (elevation / MAX_RELIEF) * LAPSE,
     0,
     1,
   );
 
-  // Three terms, and the noise is the smallest of them on purpose: it is there
-  // so that a biome boundary is a ragged line rather than a latitude, not so
-  // that the map is a surprise.
-  //
-  // Continentality is damped near the equator, which is not a fudge: the ITCZ
-  // rains on the tropics wherever they are, so the middle of the Amazon is not
-  // dry the way the middle of Asia is. Without the damping the rainforest came
-  // out as savanna for the same reason the Gobi is a desert.
-  //
-  // And it is damped again by cold, which is the other half of the same
-  // correction: what a place needs is not rainfall but rainfall against
-  // evaporation. Central Siberia gets less rain than Madrid and is covered in
-  // forest, so a model that reads the interior of a continent as dry without
-  // asking how cold it is turns the taiga into a prairie — which is exactly
-  // what this did before the term went in.
+  // Zonal moisture less continentality, plus a small noise so a biome boundary
+  // is ragged rather than a latitude. Continentality is damped near the equator
+  // (the ITCZ rains on the tropics wherever they are) and by cold (what matters
+  // is rainfall against evaporation: Siberia is drier than Madrid and forested).
   const tropicness = 0.35 + 0.65 * smoothstep(6, 22, Math.abs(lat));
   const thirst = 0.35 + 0.65 * warmth;
-  // **The ocean and not the water**, and the difference is two continents wide.
-  // `shoreDistance` counts a lake as a shore, which is right for the ramp the
-  // land builds down to it and wrong here: with lakes in that field, Iowa came
-  // out temperate rather than grassland and the Sahel temperate rather than
-  // savanna, because Lake Michigan and Lake Volta are inside `INTERIOR` of
-  // both. Continentality is distance from the sea; see `oceanField`.
+  // Distance from the ocean, not from any water: counting lakes would make Iowa
+  // and the Sahel read as coastal (see `oceanField` in `terrain/coast-field.ts`).
   const continental = continentalityAt(lat, lon);
   const ragged = fbm(x * 3.1, y * 3.1, z * 3.1, 2);
   const moisture = clamp(
@@ -380,8 +248,7 @@ export function biomeAt(
     0,
     1,
   );
-  // The same noise that frays the biome edges frays the snowline: one more
-  // `fbm` here is 770,000 of them in a land build.
+  // The same noise frays the snowline: one more `fbm` per vertex is expensive.
   const snow = snowlineAt(lat, elevation, continental, ragged, moisture);
 
   target.warmth = warmth;
@@ -390,10 +257,9 @@ export function biomeAt(
   target.continental = continental;
   target.snow = snow;
 
-  // Order matters and it is the order the real world decides in: cold beats
-  // everything, then bare rock, then dryness, then how warm what is left is.
-  // The snowline is cold too, and it is what puts a white top on the Alps,
-  // the Rockies and the Andes, where `warmth` alone never reached `ice`.
+  // Order matters: cold beats everything, then bare rock, then dryness, then how
+  // warm what is left is. The snowline puts white tops on ranges that `warmth`
+  // alone never took to `ice`.
   if (warmth < 0.08 || snow > 0.5) target.id = 'ice';
   else if (elevation > MAX_RELIEF * 0.62) target.id = 'rock';
   else if (warmth < 0.17) target.id = 'tundra';
@@ -406,38 +272,20 @@ export function biomeAt(
   return target;
 }
 
-/**
- * Known misses, against 25 named places in `pnpm check`.
+/*
+ * Known misses, against the named places in `pnpm check`: a zonal model has no
+ * mountains and no continents, only latitudes and a distance to the sea.
  *
- * Twenty-one land where they should and are asserted. The four that do not are
- * printed there as known misses, with the ground they really are — they used to
- * be asserted as the wrong answer, which is a check that fails on the fix.
- * They, and one more the named places do not sample, are the same kind of
- * failure — **a zonal model has no mountains and no continents, only latitudes
- * and a distance to the sea** — and each would need a term this file has
- * deliberately not got:
+ * - The Atacama comes out steppe (a rain shadow needs wind and range direction).
+ * - The Empty Quarter comes out savanna (Arabia is narrow, so continentality
+ *   barely fires; the subtropical high dries it).
+ * - The Serengeti comes out tropical (East Africa is dry at the equator).
+ * - The Kazakh steppe comes out temperate (the interior's drying is scaled by
+ *   warmth, which is what keeps the taiga a forest).
+ * - The east coasts of the subtropics (Florida, south-east China, south-east
+ *   Brazil) come out savanna where they are wet forest.
  *
- * - **The Atacama** comes out steppe rather than desert. It is dry because the
- *   Andes wring the air out before it arrives, and a rain shadow needs to know
- *   which way the wind blows over which range.
- * - **The Empty Quarter** comes out savanna. Arabia is narrow, so the
- *   continentality term barely fires, and what actually dries it is sitting
- *   dead under the subtropical high.
- * - **The Serengeti** comes out tropical. East Africa is dry at the equator
- *   where the model says it must be wet.
- * - **The Kazakh steppe** comes out temperate. The drying of a continent's
- *   interior is scaled by how warm it is — which is what keeps the taiga a
- *   forest — and at 48 degrees the steppe reads as cold enough to keep its
- *   water, when what dries it is being the middle of the largest landmass
- *   there is.
- * - **The east coasts of the subtropics**, which no named place samples —
- *   Florida, the south-east of China, south-east Brazil — come out savanna
- *   where they are wet forest. Trade winds make the east of a
- *   continent wetter than the west at the same latitude, and "which side of a
- *   landmass" is not something a latitude knows.
- *
- * All five are visible from orbit and none of them is visible standing on the
- * ground, which is the trade this file is making. Add a term only with the
+ * All are visible from orbit and none from the ground. Add a term only with the
  * measurement that shows it pays.
  */
 

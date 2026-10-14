@@ -1,0 +1,492 @@
+// The land mesh: each ring's surface at its height plus the relief, a smooth
+// normal and a biome colour a vertex, and a vertical wall dropping to the sea
+// under every boundary. The surface and `world.elevationAt` are the same sum,
+// so a foot lands on what is drawn.
+
+import * as THREE from 'three';
+import { ShapeUtils } from 'three';
+import type { World } from '../geo.ts';
+import { insideRing } from '../geo.ts';
+import { detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt } from '../terrain.ts';
+import type { FlagLayer, LandFlagData, RingSpan } from '../land-flags.ts';
+import { latOf, lonOf } from '../sphere.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, onSphere } from './planet.ts';
+import { densify, sagFor } from './tessellation.ts';
+import { refine, retriangulate, steinerPoints } from './delaunay.ts';
+import type { Lake, LakePlan } from './lakes.ts';
+import { clampLat, lakesOf, planLakes, subtractLake } from './lakes.ts';
+import { groundShade, paletteFor } from './ground-color.ts';
+import { WALL_SHADE, landFlags, toonMaterial } from './materials.ts';
+
+/** How far the coastal wall sinks below sea level, hiding the seam with the ocean sphere. */
+const EMBED = 25;
+
+/**
+ * Thinnest triangle worth keeping, world units: its area over its longest edge,
+ * which is its own height. Positions are float32 (about a thousandth of a unit
+ * at this radius), so the normal of a sliver is rounding error. Height, not
+ * area, tells a sliver from a small triangle: the mesh's finest legitimate
+ * triangle is a hundred times this.
+ */
+const MIN_TRIANGLE_HEIGHT = 0.05;
+
+/** A ring's surface, smoothed: what `emit` writes a corner from. */
+interface Smooth {
+  /** The corners of the triangle being emitted, as indices into the ring's points. */
+  a: number;
+  b: number;
+  c: number;
+  /** A normal and a colour a point, as the buffer stores them. */
+  normals: Int8Array;
+  colors: Uint8Array;
+  /** Points under this index are on the ring's outline or a hole's. */
+  boundary: number;
+  /** Pairs of (offset in the normal buffer, point index) written for outline points. */
+  seams: number[];
+  /** The raised points, whose coordinates key the seams. */
+  keys: THREE.Vector3[];
+}
+
+/**
+ * A summed normal as three signed bytes, scaled by 127 (`normalized: true`
+ * divides a signed byte by 127, so 128 would clip), falling back to the
+ * sphere's own up where the sum is nothing.
+ */
+function packNormal(x: number, y: number, z: number, up: THREE.Vector3, into: Int8Array, i: number): void {
+  let length = Math.hypot(x, y, z);
+  if (length < 1e-9) {
+    x = up.x;
+    y = up.y;
+    z = up.z;
+    length = 1;
+  }
+  into[i * 3] = Math.round((x / length) * 127);
+  into[i * 3 + 1] = Math.round((y / length) * 127);
+  into[i * 3 + 2] = Math.round((z / length) * 127);
+}
+
+/** Everything the per-ring passes share. Normals and colours are bytes, positions floats. */
+interface LandBuild {
+  positions: number[];
+  normals: number[];
+  colors: number[];
+  /** Which triangles belong to which ring; see `RingSpan` in `land-flags.ts`. */
+  spans: RingSpan[];
+  palette: THREE.Color[];
+  plan: LakePlan;
+  /** The summed face normals at every ring-boundary point, by the point. */
+  seamNormals: Map<string, [number, number, number]>;
+  /** Every ring's smoothing record, for the seams' second pass. */
+  seamsOf: Smooth[];
+  /** What the splice could not pair up, and what dropping triangles cost instead. */
+  unpaired: number;
+  droppedFaces: number;
+  emit: (
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    c: THREE.Vector3,
+    facing: THREE.Vector3,
+    color: THREE.Color,
+    smooth?: Smooth,
+  ) => void;
+}
+
+/** Appends triangles to the build's buffers, flipping each if its normal disagrees with `facing`. */
+function createEmitter(build: Pick<LandBuild, 'positions' | 'normals' | 'colors'>): LandBuild['emit'] {
+  const { positions, normals, colors } = build;
+  const edge1 = new THREE.Vector3();
+  const edge2 = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  return (a, b, c, facing, color, smooth) => {
+    normal.crossVectors(edge1.subVectors(b, a), edge2.subVectors(c, a));
+    // Degenerate triangles draw nothing but carry a meaningless normal
+    // (Antarctica's ring runs along latitude -90, where every point is the same
+    // point). Twice the area over the longest edge is the triangle's height.
+    const longest = Math.sqrt(Math.max(
+      edge1.lengthSq(),
+      edge2.lengthSq(),
+      b.distanceToSquared(c),
+    ));
+    const length = normal.length();
+    if (length < MIN_TRIANGLE_HEIGHT * longest) return;
+    const flipped = normal.dot(facing) < 0;
+    const second = flipped ? c : b;
+    const third = flipped ? b : c;
+    positions.push(a.x, a.y, a.z, second.x, second.y, second.z, third.x, third.y, third.z);
+    if (smooth !== undefined) {
+      // The surface's own normals and colours, a vertex each, in the order the
+      // corners were just written.
+      const order = flipped ? [smooth.a, smooth.c, smooth.b] : [smooth.a, smooth.b, smooth.c];
+      for (const i of order) {
+        const at = normals.length;
+        normals.push(smooth.normals[i * 3]!, smooth.normals[i * 3 + 1]!, smooth.normals[i * 3 + 2]!);
+        colors.push(smooth.colors[i * 3]!, smooth.colors[i * 3 + 1]!, smooth.colors[i * 3 + 2]!);
+        if (i < smooth.boundary) smooth.seams.push(at, i);
+      }
+      return;
+    }
+    // The winding decides the sign: emitting `a, c, b` reverses the cross
+    // product, and the normal has to be the one the emitted triangle has.
+    const scale = length > 0 ? ((flipped ? -127 : 127) / length) : 0;
+    const nx = Math.round(normal.x * scale);
+    const ny = Math.round(normal.y * scale);
+    const nz = Math.round(normal.z * scale);
+    const r = Math.round(color.r * 255);
+    const g = Math.round(color.g * 255);
+    const b8 = Math.round(color.b * 255);
+    for (let v = 0; v < 3; v++) {
+      normals.push(nx, ny, nz);
+      colors.push(r, g, b8);
+    }
+  };
+}
+
+/** How one ring deals with each lake it touches. */
+interface RingCuts {
+  /** The coastline, with every spliced lake taken out of it. */
+  points: number[][];
+  /** Lakes wholly inside the ring, cut as holes. */
+  holes: Lake[];
+  /** Lakes that could not be paired; their triangles are dropped instead. */
+  drops: Lake[];
+}
+
+/**
+ * Takes the lakes out of a ring's coastline before anything is built. A splice
+ * changes the outline itself, so it happens on the raw points before `densify`:
+ * two countries sharing a border through a lake then hand `densify` the same
+ * ends and get the same subdivision.
+ */
+function cutLakes(build: LandBuild, index: number): RingCuts {
+  let points = build.plan.land[index]!.points;
+  const holes: Lake[] = [];
+  const drops: Lake[] = [];
+  for (const { lake, cut } of build.plan.cuts[index]!) {
+    if (cut.kind === 'hole') {
+      holes.push(lake);
+      continue;
+    }
+    if (cut.kind === 'unpaired') {
+      build.unpaired++;
+      drops.push(lake);
+      continue;
+    }
+    // Asked again against the coastline as it now stands: two lakes on one ring
+    // are two cuts, and the second must see what the first did.
+    const again = subtractLake(points, lake);
+    if (again.kind === 'splice') points = again.contour;
+    else if (again.kind === 'hole') holes.push(lake);
+    else if (again.kind === 'unpaired') {
+      build.unpaired++;
+      drops.push(lake);
+    }
+  }
+  return { points, holes, drops };
+}
+
+/** A ring's triangulated surface, as indices into `unit` / `relief`. */
+interface RingSurface {
+  outline: number[][];
+  holeOutlines: number[][][];
+  /** Contour points then each hole's: the ring's boundary vertices come first. */
+  boundary: number;
+  unit: THREE.Vector3[];
+  relief: number[];
+  triangles: number[][];
+}
+
+/** Triangulates a ring: ear clipper, Delaunay with interior points, relief refinement, a final flip pass. Null when it yields nothing. */
+function triangulateRing(build: LandBuild, cuts: RingCuts): RingSurface | null {
+  const { holes, drops } = cuts;
+  const outline = densify(cuts.points);
+  const holeOutlines = holes.map((lake) => lake.outline);
+  const contour = outline.map(([lon, lat]) => new THREE.Vector2(lon!, lat!));
+
+  let faces: number[][];
+  try {
+    faces = ShapeUtils.triangulateShape(
+      contour,
+      holeOutlines.map((hole) => hole.map(([lon, lat]) => new THREE.Vector2(lon!, lat!))),
+    );
+  } catch {
+    return null;
+  }
+  if (faces.length === 0) return null;
+
+  // The vertex list earcut indexed: the contour, then each hole in turn.
+  const all = holeOutlines.length === 0 ? outline : outline.concat(...holeOutlines);
+  const unit = all.map(([lon, lat]) => onSphere(lon!, lat!, new THREE.Vector3()));
+  // The same points in the plane they were triangulated in, where `refine`
+  // takes its midpoints.
+  const lonLat = all.flatMap(([lon, lat]) => [lon!, lat!]);
+  faces = retriangulate(unit, lonLat, faces, steinerPoints([outline, ...holeOutlines]), undefined, true);
+  const relief = unit.map((p) => reliefAt(p.x, p.y, p.z));
+  const scratch = new THREE.Vector3();
+  // A second flip pass after the refinement, which leaves fans of needles. A
+  // new edge must pass the test `refine` put every other edge to.
+  let triangles = retriangulate(unit, lonLat, refine(unit, lonLat, relief, faces), [], (a, b) => {
+    onSphere((lonLat[a * 2]! + lonLat[b * 2]!) * 0.5, (lonLat[a * 2 + 1]! + lonLat[b * 2 + 1]!) * 0.5, scratch);
+    const pad = Math.max(flattenWeightAt(scratch.x, scratch.y, scratch.z), detailWeightAt(scratch.x, scratch.y, scratch.z));
+    return Math.abs(reliefAt(scratch.x, scratch.y, scratch.z) - (relief[a]! + relief[b]!) * 0.5) <= sagFor(pad);
+  });
+
+  // The fallback for a lake that could not be spliced: drop the faces on the
+  // water. The shore is ragged at the refinement's edge length.
+  if (drops.length > 0) {
+    const before = triangles.length;
+    triangles = triangles.filter(([a, b, c]) => {
+      // From `unit`, not `all`: `refine` grew the vertex array.
+      scratch.copy(unit[a!]!).add(unit[b!]!).add(unit[c!]!).normalize();
+      const lat = latOf(scratch.y);
+      const lon = lonOf(scratch.x, scratch.z);
+      return !drops.some((lake) => insideRing(lake.points, lon, clampLat(lat)));
+    });
+    build.droppedFaces += before - triangles.length;
+  }
+  return { outline, holeOutlines, boundary: all.length, unit, relief, triangles };
+}
+
+/**
+ * Emits a ring's surface with the area-weighted mean normal of the faces round
+ * each vertex and the biome's colour at its own point. A continuous light on
+ * flat faces would show a hard crease the size of each triangle.
+ *
+ * A ring's outline is shared with its neighbour, and each side would average
+ * only its own faces, leaving a seam of light along every frontier. Boundary
+ * vertices therefore keep their sums in `seamNormals`, keyed by the raised point
+ * (both rings raise it from the same numbers, so the key is exact), and are
+ * rewritten once every ring is in.
+ */
+function emitSurface(
+  build: LandBuild,
+  surface: RingSurface,
+  raised: THREE.Vector3[],
+  tint: THREE.Color,
+): void {
+  const { unit, relief, triangles, boundary } = surface;
+  const { seamNormals } = build;
+  const edge1 = new THREE.Vector3();
+  const edge2 = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const ground = new THREE.Color();
+  const count = raised.length;
+  const vertexNormals = new Float32Array(count * 3);
+  for (const [a, b, c] of triangles as [number, number, number][]) {
+    const pa = raised[a]!;
+    const pb = raised[b]!;
+    const pc = raised[c]!;
+    normal.crossVectors(edge1.subVectors(pb, pa), edge2.subVectors(pc, pa));
+    // Outward, whichever way the triangulator wound it; the length is twice
+    // the area, which is the weight.
+    if (normal.dot(unit[a]!) < 0) normal.negate();
+    for (const i of [a, b, c]) {
+      vertexNormals[i * 3] = vertexNormals[i * 3]! + normal.x;
+      vertexNormals[i * 3 + 1] = vertexNormals[i * 3 + 1]! + normal.y;
+      vertexNormals[i * 3 + 2] = vertexNormals[i * 3 + 2]! + normal.z;
+    }
+  }
+  for (let i = 0; i < boundary; i++) {
+    const p = raised[i]!;
+    const key = `${p.x},${p.y},${p.z}`;
+    const sum = seamNormals.get(key);
+    if (sum === undefined) seamNormals.set(key, [vertexNormals[i * 3]!, vertexNormals[i * 3 + 1]!, vertexNormals[i * 3 + 2]!]);
+    else {
+      sum[0] += vertexNormals[i * 3]!;
+      sum[1] += vertexNormals[i * 3 + 1]!;
+      sum[2] += vertexNormals[i * 3 + 2]!;
+    }
+  }
+  const smooth: Smooth = {
+    a: 0,
+    b: 0,
+    c: 0,
+    normals: new Int8Array(count * 3),
+    colors: new Uint8Array(count * 3),
+    boundary,
+    seams: [],
+    keys: raised,
+  };
+  const used = new Uint8Array(count);
+  for (const [a, b, c] of triangles as [number, number, number][]) used[a] = used[b] = used[c] = 1;
+  for (let i = 0; i < count; i++) {
+    if (used[i] === 0) continue;
+    packNormal(vertexNormals[i * 3]!, vertexNormals[i * 3 + 1]!, vertexNormals[i * 3 + 2]!, unit[i]!, smooth.normals, i);
+    const u = unit[i]!;
+    groundShade(u.x, u.y, u.z, relief[i]!, tint, ground);
+    smooth.colors[i * 3] = Math.round(ground.r * 255);
+    smooth.colors[i * 3 + 1] = Math.round(ground.g * 255);
+    smooth.colors[i * 3 + 2] = Math.round(ground.b * 255);
+  }
+  for (const [a, b, c] of triangles as [number, number, number][]) {
+    smooth.a = a;
+    smooth.b = b;
+    smooth.c = c;
+    build.emit(raised[a]!, raised[b]!, raised[c]!, unit[a]!, ground, smooth);
+  }
+  build.seamsOf.push(smooth);
+}
+
+/**
+ * One quad per boundary edge, dropping to `base`. The outline was densified
+ * before triangulating, so these edges are exactly the boundary of the surface
+ * above, relief included, since the wall is built from the raised points.
+ * `boundaries` lists `[start, length]` runs of the ring's vertices: the
+ * coastline first, then each lake rim this ring owns.
+ */
+function emitWalls(
+  build: LandBuild,
+  surface: RingSurface,
+  raised: THREE.Vector3[],
+  tint: THREE.Color,
+  boundaries: [number, number][],
+): void {
+  const { unit, relief } = surface;
+  const base = PLANET_RADIUS - EMBED;
+  const scratch = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+  const outward = new THREE.Vector3();
+  const cliff = new THREE.Color();
+  for (const [start, count] of boundaries) {
+    for (let n = 0; n < count; n++) {
+      const i = start + n;
+      const j = start + ((n + 1) % count);
+      const topA = raised[i]!;
+      const topB = raised[j]!;
+      const baseA = scratch.copy(unit[i]!).multiplyScalar(base).clone();
+      const baseB = unit[j]!.clone().multiplyScalar(base);
+
+      // Rings are wound with the land on the right of a -> b, so outward is
+      // cross(up, b - a) on a right-handed planet; a lake rim is wound so the
+      // same sign points at the water. The reverse builds every wall facing
+      // inland, where it is invisible.
+      up.copy(unit[i]!);
+      dir.subVectors(topB, topA);
+      outward.crossVectors(up, dir).normalize();
+
+      // The wall is the ground above it a shade down; taking the shade from the
+      // biome rather than the country makes a Saharan coast a sand cliff and a
+      // Norwegian one grey.
+      groundShade(up.x, up.y, up.z, relief[i]!, tint, cliff).multiplyScalar(WALL_SHADE);
+
+      build.emit(topA, baseA, baseB, outward, cliff);
+      build.emit(topA, baseB, topB, outward, cliff);
+    }
+  }
+}
+
+/** Builds one land ring's surface and walls into the shared buffers; a ring that triangulates to nothing is skipped. */
+function buildRing(build: LandBuild, index: number): void {
+  const ring = build.plan.land[index]!;
+  const cuts = cutLakes(build, index);
+  const surface = triangulateRing(build, cuts);
+  if (surface === null) return;
+  const { unit, relief, outline, holeOutlines } = surface;
+
+  // The shelf comes from the ring, the relief from the point: exactly the sum
+  // `world.elevationAt` returns.
+  const height = PLANET_RADIUS + ring.height;
+  const raised = unit.map((p, i) => p.clone().multiplyScalar(height + relief[i]!));
+  const tint = build.palette[ring.country - 1]!;
+
+  // Where this ring's triangles start, so `land-flags.ts` can find them again:
+  // the buffer is grouped as a ring's surface, then its wall, then the next ring.
+  const surfaceFrom = build.positions.length / 9;
+  emitSurface(build, surface, raised, tint);
+
+  const wallFrom = build.positions.length / 9;
+  const boundaries: [number, number][] = [[0, outline.length]];
+  let cursor = outline.length;
+  cuts.holes.forEach((lake, k) => {
+    const length = holeOutlines[k]!.length;
+    if (build.plan.wallOwner.get(lake) === ring) boundaries.push([cursor, length]);
+    cursor += length;
+  });
+  emitWalls(build, surface, raised, tint, boundaries);
+
+  build.spans.push({
+    ring,
+    surface: [surfaceFrom, wallFrom],
+    wall: [wallFrom, build.positions.length / 9],
+  });
+}
+
+/** Rewrites every boundary vertex with the mean over every ring that shares the point. */
+function resolveSeams(build: LandBuild): void {
+  const scratch = new THREE.Vector3();
+  const packed = new Int8Array(3);
+  for (const smooth of build.seamsOf) {
+    for (let k = 0; k < smooth.seams.length; k += 2) {
+      const at = smooth.seams[k]!;
+      const i = smooth.seams[k + 1]!;
+      const p = smooth.keys[i]!;
+      const sum = build.seamNormals.get(`${p.x},${p.y},${p.z}`)!;
+      packNormal(sum[0], sum[1], sum[2], scratch.copy(p).normalize(), packed, 0);
+      build.normals[at] = packed[0]!;
+      build.normals[at + 1] = packed[1]!;
+      build.normals[at + 2] = packed[2]!;
+    }
+  }
+}
+
+/**
+ * The land, built from the country outlines themselves: a surface at the ring's
+ * height plus its relief, and a vertical cliff dropping to the sea. The visible
+ * coast and `countryAt` are the same data, so a monument snapped to the shore
+ * lands on the shore you can see.
+ *
+ * Normals and colours are bytes: position as Float32 is needed this far from the
+ * origin, but a unit normal and a palette colour lose a quarter of a degree at
+ * eight bits, and this is the largest buffer in the project.
+ */
+export function buildLand(world: World): THREE.Mesh {
+  // Idempotent, and normally already done by `loadWorld`: a mesh built against
+  // a different terrain than the one the player walks on is the failure this
+  // arrangement exists to prevent.
+  prepareTerrain(world.rings, UNITS_PER_DEGREE, (lat, lon) => world.countryAt(lat, lon) !== 0);
+
+  const lakes = lakesOf(world);
+  const plan = planLakes(world, lakes);
+  const buffers = { positions: [] as number[], normals: [] as number[], colors: [] as number[] };
+  const build: LandBuild = {
+    ...buffers,
+    spans: [],
+    palette: paletteFor(world),
+    plan,
+    seamNormals: new Map(),
+    seamsOf: [],
+    unpaired: 0,
+    droppedFaces: 0,
+    emit: createEmitter(buffers),
+  };
+
+  for (let index = 0; index < plan.land.length; index++) buildRing(build, index);
+  resolveSeams(build);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(build.positions, 3));
+  // Non-indexed: the surface carries a smooth normal a vertex and the walls a
+  // flat one a face, which an index could not share.
+  geometry.setAttribute('normal', new THREE.Int8BufferAttribute(build.normals, 3, true));
+  geometry.setAttribute('color', new THREE.Uint8BufferAttribute(build.colors, 3, true));
+  geometry.computeBoundingSphere();
+
+  const mesh = new THREE.Mesh(geometry, toonMaterial());
+  mesh.name = 'land';
+  // Receives the sun's shadows and never casts them: a shadow pass over the
+  // whole land is a second draw of the planet.
+  mesh.receiveShadow = true;
+  // Where every ring's triangles are and the shade its wall took, which is all
+  // `land-flags.ts` needs to paint a flag over them.
+  mesh.userData['landFlags'] = { spans: build.spans, wallShade: WALL_SHADE } satisfies LandFlagData;
+  mesh.userData['flags'] = (): Promise<FlagLayer> => landFlags(world, mesh);
+  // What the lakes cost and what the splice could not do, for `pnpm check`.
+  mesh.userData['lakes'] = {
+    count: lakes.length,
+    holes: plan.cuts.reduce((n, cuts) => n + cuts.filter((c) => c.cut.kind === 'hole').length, 0),
+    splices: plan.cuts.reduce((n, cuts) => n + cuts.filter((c) => c.cut.kind === 'splice').length, 0),
+    unpaired: build.unpaired,
+    droppedFaces: build.droppedFaces,
+  };
+  return mesh;
+}

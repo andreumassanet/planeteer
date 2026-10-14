@@ -5,33 +5,20 @@ import type { RegionStyle } from './contract.ts';
  * Region to style: the table that stops Japan looking like Morocco.
  *
  * `countryAt` is exact and every ring already carries `iso` and `continent`, so
- * this needs no lookup, no raster and no new data — only a decision about the
- * *shape* of the table. It is three levels, and the third is the point:
+ * a style needs no lookup, only a table of three levels:
  *
- * 1. **`ISO_REGIONS`** — a country to a style. Sparse on purpose. About a
- *    hundred entries carry nearly all the world's population and nearly all of
- *    its recognisable building.
- * 2. **`CONTINENT_REGIONS`** — the fallback, and the reason this is a table
- *    rather than a lookup. There are 242 features in the baked data and there
- *    will never be 242 authored styles, so the interesting question is not
- *    "which countries are covered" but "what does an uncovered one get". Every
- *    continent has an answer, so every country on the planet resolves to a
- *    style and none of them resolves to nothing.
- * 3. **`POLAR_LATITUDE`** — one rule, applied everywhere, that beats fifteen
- *    per-country splits. Northern Canada, northern Russia, Greenland, Svalbard,
- *    Alaska and Tromso are all treeless and all get the same answer from one
- *    line, without `CAN` having to be two entries.
+ * 1. `ISO_REGIONS`: a country to a style. Sparse on purpose; about a hundred
+ *    entries carry nearly all the world's population and recognisable building.
+ * 2. `CONTINENT_REGIONS`: the fallback. There will never be an authored style
+ *    for every one of the 242 features, so every continent has an answer and
+ *    no country resolves to nothing.
+ * 3. `POLAR_LATITUDE`: one rule applied everywhere (northern Canada, northern
+ *    Russia, Greenland, Svalbard, Alaska and Tromso are all treeless) instead
+ *    of per-country splits.
  *
- * A style is data, not code: colours, a roof pitch, a storey range and weighted
- * lists of part ids. That is enough to make thirteen visibly different places
- * out of sixteen parts, and it means adding a fourteenth is an entry here rather
- * than a file anywhere.
- *
- * **What is deliberately missing.** Africa gets two styles where it should have
- * four or five, and every large country is one style from end to end — Chile is
- * the Atacama and Patagonia under one entry. Both are the same kind of gap and
- * both are fixed the same way, by adding rows. Neither is fixed by making the
- * mechanism cleverer.
+ * A style is data: colours, a roof pitch, a storey range and weighted lists of
+ * part ids. Africa has two styles where it deserves four or five, and every
+ * large country is one style end to end; both are fixed by adding rows.
  */
 export type RegionId =
   | 'nordic'
@@ -524,14 +511,10 @@ export const REGIONS: Record<RegionId, RegionStyle> = {
 
 /**
  * Country to style. Codes are `iso` as the bake writes it: real ISO A3 where
- * Natural Earth has one, `ADM0_A3` where it left `-99`. Both are unique and
- * `pnpm check` asserts it, which is why a table can be keyed on them at all —
- * an earlier fallback collided and put the Norwegian flag over Nicosia.
- *
- * **Only codes that exist in the current bake are listed.** Monaco, the Vatican,
- * Gibraltar, Macao and the Maldives are all real countries with real ISO codes
- * and none of them is a feature at any scale this project has read, so an entry
- * for them would be a line that can never fire.
+ * Natural Earth has one, `ADM0_A3` where it left `-99`; `pnpm check` asserts
+ * they are unique. Only codes that exist in the current bake are listed, so
+ * Monaco, the Vatican, Gibraltar, Macao and the Maldives (no feature at any
+ * scale this project reads) have no entry.
  */
 export const ISO_REGIONS: Record<string, RegionId> = {
   // Nordic
@@ -658,25 +641,15 @@ export function regionFor(iso: string, continent: string, lat: number): RegionSt
 export const REGION_IDS = Object.keys(REGIONS) as RegionId[];
 
 /**
- * Species that only grow where they are from.
+ * Species that only grow where they are from. `BIOMES[id].plants` in `biome.ts`
+ * is per biome and a biome has no continent, so the desert list is one list for
+ * the Sonoran and the Sahara both, and a saguaro would stand outside Timbuktu.
  *
- * **`BIOMES[id].plants` in `biome.ts` is per biome and a biome has no
- * continent.** That is the right split — climate decides what *kind* of thing
- * grows and this table has no business restating it — but it means the desert
- * list is one list for the Sonoran and the Sahara both, and a saguaro is
- * American. Left alone, `vegetation.ts` stands one outside Timbuktu.
- *
- * So the join happens here, in the layer that already knows whose ground it is,
- * and it is a gate rather than a second table of what grows: an id that is not
- * named below grows wherever its biome puts it, and an id that is named grows in
- * the listed regions and nowhere else. Two definitions of *what grows where*
- * would be a pine forest on a sand dune; one definition plus a range map is what
- * a flora actually is.
- *
- * Only the cases where the mistake is recognisable are worth an entry. An
- * umbrella acacia deliberately has none: the same shape stands in the cerrado
- * and the Australian interior, and gating it to Africa would empty two savannas
- * to fix a nuance nobody can see.
+ * This is a gate rather than a second table of what grows: an id not named here
+ * grows wherever its biome puts it, and a named id grows in the listed regions
+ * and nowhere else. Only the cases where the mistake is recognisable get an
+ * entry; the umbrella acacia has none, since the same shape stands in the
+ * cerrado and the Australian interior.
  */
 export const NATIVE_TO: Record<string, readonly RegionId[]> = {
   cactus: ['north-america', 'latin-america'],

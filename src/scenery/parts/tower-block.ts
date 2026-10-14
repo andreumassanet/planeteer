@@ -2,43 +2,28 @@ import { PROUD, STOREY, TONES } from '../contract.ts';
 import type { Mesh, ScenicPart } from '../contract.ts';
 
 /**
- * Tower block — the tallest thing the kit is allowed to build.
+ * Tower block: the tallest thing the kit is allowed to build.
  *
- * Capped at seven storeys and about 31 units, which is deliberate and is the one
- * rule in this file worth stating twice: **nothing generated may reach the
- * `building` monument tier's 40 units.** A city here is a mat of fabric with a
- * modelled landmark standing out of it, and the moment a procedural slab can
- * out-top the Colosseum, the tier system that keeps sixty-five monuments
- * coherent has been repealed by accident. The Empire State is a monument. This
- * is the block next to it.
+ * Capped at seven storeys and about 31 units: nothing generated may reach the
+ * `building` monument tier's 40 units. A city here is a mat of fabric with a
+ * modelled landmark standing out of it, and a procedural slab that out-tops the
+ * Colosseum would repeal the tier system by accident.
  *
- * **This part is the reason the kit was re-authored.** It was a box with a
- * `ctx.rim` of glazing round it a floor — a real ring, one mesh, closing at the
- * corners — and the arithmetic was right and the picture was wrong: at Palma,
- * from the ground, six towers read as *orange slabs with black stripes on
- * them*. A band a floor is a stripe. A stripe is not a window, and in a world
- * whose ink is black, a dark horizontal band is read as ink before it is read
- * as glass.
+ * In a world whose ink is black, a dark horizontal band is read as ink before
+ * it is read as glass, so a band of glazing a floor looks like stripes. What
+ * replaces it:
  *
- * Five things replaced it, and only one of them is geometry:
- *
- * - **The glass is panes, not a band**, and it is `slate` toned down rather
- *   than a warm dark — a window is the sky reflected. Four panes a face, one
- *   mesh a face, six triangles.
- * - **The floors are marked by a band of the wall's own colour**, a shade
- *   darker and standing `PROUD`, wrapping all four faces. That is the
- *   horizontal the eye was reading in the glazing, given back as a *building*
- *   line instead of a hole.
- * - **The ground floor is darker and taller**, in the wall's own shade, glazed
- *   between piers and under a canopy in the trim colour. A tower that meets the
- *   ground in the same colour it meets the sky in has no bottom — and one that
- *   meets it in a whole storey of saturated trim is a paint job, which is what
- *   the note beside `podium` is about.
- * - **A service core runs the full height in a darker tone**, off-centre, so
- *   the facade is two masses and not one. It is one box.
- * - **Balconies**, three thin plates on the sunny side, merged into one mesh.
- *   They are the only thing on the model that breaks the prism, and they are
- *   what tells you people live in it.
+ * - The glass is panes in `slate`, not a warm dark: four panes a face, one mesh
+ *   a face, six triangles.
+ * - The floors are marked by a band of the wall's own colour, a shade darker
+ *   and standing `PROUD`, wrapping all four faces: the horizontal as a
+ *   building line instead of a hole.
+ * - The ground floor is darker and taller in the wall's own shade, glazed
+ *   between piers under a canopy in the trim colour.
+ * - A service core runs the full height in a darker tone, off-centre, so the
+ *   facade is two masses. It is one box.
+ * - Balconies, three thin plates on the sunny side merged into one mesh, the
+ *   only thing that breaks the prism.
  */
 
 /**
@@ -70,14 +55,10 @@ export const towerBlock: ScenicPart = {
     const band = tone(wall, TONES.cap);
     const core = tone(wall, TONES.eave);
     const light = tone(wall, TONES.light);
-    // The lobby storey is the largest single area on the model — 4.4 to 5.1
-    // units of it, wrapped round all four faces — so it is a *tone of the wall*
-    // and not the trim colour. Built out of `style.trim` it was a band of
-    // Mediterranean `skyBlue` five units tall at the foot of every tower in
-    // Palma: the loudest thing in the frame, on the fabric rather than on the
-    // landmark, which is the one thing scenery may not be. The trim keeps the
-    // canopy and the entrance surround, where it is an accent the size of a
-    // door and reads as one.
+    // The lobby storey is the largest single area on the model, so it is a tone of
+    // the wall and not the trim colour: in trim it would be a band of saturated
+    // colour five units tall at the foot of every tower, on the fabric rather
+    // than on the landmark. The trim keeps the canopy and the entrance surround.
     const podium = tone(wall, TONES.eave);
     const accent = tone(trim, TONES.cap);
 
@@ -111,9 +92,8 @@ export const towerBlock: ScenicPart = {
     // --- the lobby: a glazed front under a canopy ---
     // It runs across the foot of the core, which stands `PROUD * 2` off the
     // wall, so the glass is a `PROUD` in front of the core and the jambs a
-    // `PROUD` in front of the glass. At `PROUD * 2` both lay on the core's own
-    // face and the lit entrance z-fought it wherever they crossed: 4.3 u² a
-    // build, on every build (2026-09-13).
+    // `PROUD` in front of the glass; at `PROUD * 2` both lay on the core's own
+    // face and z-fought it.
     const front = depth / 2;
     const jambs = panes(5, width * 0.035, podiumHeight * 0.6, width * 0.145, accent, PROUD * 4);
     jambs.position.set(0, 0.4 + podiumHeight * 0.14, front + PROUD * 2);
@@ -145,7 +125,7 @@ export const towerBlock: ScenicPart = {
         group.add(glass);
       }
       // The floor line, wrapping all four faces. This is the horizontal the eye
-      // was reading in the old glazing bands, moved onto the building.
+      // reads in a glazing band, drawn as a building line instead of a hole.
       const line = box(width + PROUD * 2, 0.26, depth + PROUD * 2, band);
       line.position.y = sill - 0.5;
       group.add(line);

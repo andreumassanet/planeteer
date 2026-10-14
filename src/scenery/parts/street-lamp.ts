@@ -6,74 +6,47 @@ import { PALETTE } from '../../theme.ts';
 /**
  * Street lamp.
  *
- * **The one part in the kit whose reason for existing is what it looks like at
- * night, and it is deliberately not a window.** A lit window is interior light
- * escaping a building, so it is on the *houses* — and a village is mostly not
- * houses. Measured on the floor `settlements.ts` lays: a median town is nine
- * parts on a core of eleven paved cells, so most of what a night town shows you
- * is street, yard and square, and with windows alone all of it is dark. The lamp
- * is what puts light in the gaps, which is what a settlement seen from a
- * thousand units up actually is.
+ * The part whose reason for existing is how it looks at night. A lit window is
+ * interior light escaping a building, but most of a village is street, yard and
+ * square, and with windows alone all of it is dark; the lamp puts light in the
+ * gaps. It is `scatter` rather than a kind of its own because it is the
+ * cheapest thing in the kit after a grass tuft: 52 triangles at the worst
+ * variant, three meshes, two colours.
  *
- * It is `scatter` rather than a kind of its own because the kind table prices a
- * part by what it costs, and this is the cheapest thing in the kit after a grass
- * tuft: **52 triangles at the worst variant, three meshes, two colours**, against
- * the kind's caps of 90, 8 and 3. What it is *not* is a thing a region's
- * `scatter` list may hand to a plot — see the note on placement below.
+ * - Height 4.8 to 5.8 units (1.25 to 1.47 storeys), under the `scatter` cap of
+ *   6 and the kit's 7.6-unit two-storey eaves: a lamp that clears a doorway
+ *   and stands below a roof. See `LOW`.
+ * - A head 0.52 to 0.72 across: 15 pixels at 40 units and 5 at 120, a bright
+ *   dot at conversational distance and gone by the far end of a street. Past
+ *   120 units the mass of the windows carries a town at night, and past 4,000
+ *   `lights.ts`'s point field does.
+ * - Six sides on the column and four on the head: the count is chosen for ink,
+ *   not chord error. A lantern is a box.
  *
- * **Three numbers, and each is a read rather than a measurement of a real lamp.**
- *
- * - **Height 4.8 to 5.8 units** — 1.25 to 1.47 storeys, which is 3.8 to 4.4 m of
- *   real column, written in `STOREY`s because the contract asks parts to be
- *   authored in them rather than converted from metres. It has to stay under the
- *   `scatter` kind's 6-unit cap, and the tallest build measures 5.83. Against
- *   the kit's 7.6-unit two-storey eaves that is a lamp that clears a doorway and
- *   stands below a roof, which is the relation the eye checks. See `LOW`.
- * - **A head 0.52 to 0.72 across.** At 40 units that is 15 pixels and at 120 it is 5,
- *   which is the range `LEGIBLE_AT` gives for anything this small — so the lamp
- *   is a *bright dot* at conversational distance and gone by the far end of a
- *   street. That is the correct falloff: past 120 units what carries a town at
- *   night is the mass of its windows, and past 4,000 it is `lights.ts`'s point
- *   field. Three scales, three pieces of geometry, and none of them is asked to
- *   do another's job.
- * - **Six sides on the column and four on the head.** The column's chord error
- *   at six sides is 0.02 units on a 0.16 radius — a fiftieth of the pen — so the
- *   count is chosen for ink and not for geometry, which is the rule the Space
- *   Needle's legs established. Four on the head because a lantern is a box.
- *
- * **Nothing in `regions.ts` names it and nothing should.** `settlements.ts`
- * places it directly, on the street lattice it has already cut, because a lamp
- * belongs to a *carriageway* and the region tables place things on *plots* —
- * exactly the distinction `Vehicle.size` had to be invented for over in
- * `src/traffic/`. It is the fourth table that can build a part, after
- * `regions.ts`, `BIOMES[id].plants` and `CROWD_MIX`.
+ * Nothing in `regions.ts` names it: `settlements.ts` places it directly on the
+ * street lattice, because a lamp belongs to a carriageway and the region tables
+ * place things on plots.
  */
 
 /**
- * How tall a column is, in storeys, both ends included.
- *
- * **A range and not a number, because a number was caught.** With a fixed
- * height the only thing the seed could change was which of two caps went on
- * top, and the silhouette count measured the result exactly right: *only 2
- * distinct silhouettes across 6 variants — the seed is barely doing anything*.
- * A lamp is three shapes stacked, so the variety has to come from their
- * proportions; there is nothing else to vary. 1.25 to 1.47 storeys is 3.8 to 4.4
- * m, and the top of the range plus the tallest cap is 5.83 against the `scatter`
+ * How tall a column is, in storeys, both ends included. A range because a
+ * lamp is three shapes stacked, so with a fixed height the seed could only
+ * change which cap went on top and the silhouette check would find two distinct
+ * silhouettes across six variants. 1.25 to 1.47 storeys is 3.8 to 4.4 m, and
+ * the top of the range plus the tallest cap is 5.83 against the `scatter`
  * kind's 6-unit ceiling.
  */
 const LOW = STOREY * 1.25;
 const HIGH = STOREY * 1.47;
 
 /**
- * **A town built from the City Kits gets the kit's own lamps** (2026-09-17):
- * Kenney's curved and square standards from City Kit (Roads), 92 and 60
- * triangles, their columns in the region's trim and their bulbs lit, where
- * the kit builds a region's houses or towers. Elsewhere the lantern below
- * stays, which suits a medina and a stilt village better than a highway light. The arm reaches `ARM` from the
- * column over the street — `settlements.ts` turns each lamp to face its street
- * (`Ground.lampYaws`) — so the footprint is the arm's and not the column's.
- * Quaternius's Victorian standards were the prettier and are 1,028 and 2,486
- * triangles, a town's thirty lamps as heavy as its buildings.
+ * A town built from the City Kits gets the kit's own lamps: Kenney's curved and
+ * square standards from City Kit (Roads), 92 and 60 triangles, their columns
+ * in the region's trim and their bulbs lit. Elsewhere the lantern below stays,
+ * which suits a medina and a stilt village better than a highway light. The
+ * arm reaches `ARM` from the column over the street (`settlements.ts` turns
+ * each lamp to face its street, `Ground.lampYaws`), so the footprint is the
+ * arm's and not the column's.
  */
 const KIT_LAMPS = ['lamp-curved', 'lamp-square'];
 const ARM = 1.9;

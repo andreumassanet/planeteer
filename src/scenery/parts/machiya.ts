@@ -2,39 +2,21 @@ import { PROUD, STOREY, TONES } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
- * Machiya — the East Asian townhouse.
- *
- * This part exists to answer the question the whole kit is for: a house in Japan
- * must not be a house in Morocco. Put this beside `flat-roof-house` and
- * nothing about them is shared except the palette they draw from.
- *
- * Three proportions do the work, and all three are the opposite of the gabled
+ * Machiya: the East Asian townhouse, the part that makes a house in Japan not
+ * a house in Morocco. Three proportions, all the opposite of the gabled
  * house's:
  *
- * - **The eaves are enormous** — 1.7 units of overhang on a 5.7-unit frontage,
- *   nearly a third of the width on each side, where a European roof gets 0.9.
- *   Under a low sun that overhang is a hard shadow line across the whole front,
- *   and it is the single most Japanese thing a small building can have. It is
- *   drawn as well as lit: the band under the eaves is the darkest tone on the
- *   building, because a shadow that only exists when the sun is on that face is
- *   a shadow that is missing half the day.
- * - **The pitch is shallow and the roof is hipped** (`east-asia` sets 0.45 and
- *   0.85), so the roof is a wide dark lid rather than a triangle. A darker
- *   ridge cap lies along the top of it — the *munagawara* — which is a real
- *   detail and one more ink line on the edge that names the shape.
- * - **The plan is deep, not wide.** A machiya is an *unagi no nedoko*, an eel's
- *   bed: narrow to the street and long back. Depth runs 1.45 to 1.95 times the
- *   frontage here, which is also why it reads as a terrace when several stand in
- *   a row.
+ * - The eaves are enormous: 1.7 units of overhang on a 5.7-unit frontage,
+ *   where a European roof gets 0.9. The band under the eaves is the darkest
+ *   tone on the building, drawn rather than lit.
+ * - The pitch is shallow and the roof hipped (`east-asia` sets 0.45 and 0.85),
+ *   a wide dark lid with a darker ridge cap (the *munagawara*).
+ * - The plan is deep, not wide: narrow to the street and long back, 1.45 to
+ *   1.95 times the frontage, which also reads as a terrace in a row.
  *
- * **The lattice is now bars, and that is the one thing the redesign bought that
- * could not have been bought before.** The *koshi* used to be a single dark
- * band, on the argument that a lattice bar is half a pixel at 120 units. It is
- * — but `panes` draws a whole row in *one mesh*, so seven bars in front of a lit
- * recess are fourteen triangles and no draw calls, and at 40 units, which is
- * where the avatar stands, they are the front of the building. The recess
- * behind them is glass and is `lit`, so at night a machiya street is a row of
- * glowing slots behind timber.
+ * The lattice (*koshi*) is bars: `panes` draws a row in one mesh, so seven bars
+ * in front of a lit recess are fourteen triangles and no draw calls, and at 40
+ * units they are the front of the building. The recess is glass and `lit`.
  */
 
 const EAVES = 1.7;
@@ -119,8 +101,7 @@ export const machiya: ScenicPart = {
 
     // The entrance, off to one side as a machiya's is, inside the corner post;
     // the koshi fills the rest of the front, from the other post to a hand's
-    // width short of the door's jamb. The lattice used to be centred and ran
-    // through the entrance on every width this part draws.
+    // width short of the door's jamb.
     const side = rng.sign();
     const doorWidth = 1.1;
     const jambWidth = 0.16;

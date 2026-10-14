@@ -1,39 +1,20 @@
 /**
- * What a model is to a body walking round it, read off its own triangles.
+ * What a model is to a body walking round it, read off its own triangles: the
+ * walls of a monument, a barn or a windmill, which have no declared plan box.
  *
- * A town's buildings are solid because the town knows each one's plan box
- * (`settlements.ts`). A monument, a barn or a windmill has no plan box: it is a
- * merged soup of triangles, and a box round the whole of it would wall off the
- * space under the Arc de Triomphe and between the Eiffel Tower's legs, which is
- * the space anybody walking up to either wants to be in. So the footprint is
- * measured, not declared: **what occupies the band a person's body moves
- * through**, from the knee to the crown, over whatever the person would be
- * standing on there.
+ * The footprint is what occupies the band a body moves through (`KNEE` to
+ * `HEAD`) over whatever the body would stand on there:
  *
- * - **The floor first.** Every face that looks up (`UP_FACING`) and is no
- *   higher than a person (`HEAD`) is something to stand on: a plinth, a step, a
- *   plaza's paving. A cell of the grid takes the highest such face over its
- *   centre. Anything higher than a person is walked under, never onto — the
- *   roof of a passage, the vault of an arch — so a gate's passage stays a
- *   passage.
- * - **Then the band.** Every face is sampled finely inside the slab the bands
- *   can reach, and a sample from `KNEE` to `HEAD` over its cell's floor marks
- *   the cell as occupied. Under the knee is a step, which the foot's own rule
- *   climbs or refuses (`STEP_UP` in `player.ts`); over the head is walked
- *   under. A staircase is a run of floors each a riser above the last, and
- *   none of its risers is in its own cell's band, so it climbs.
- * - **Then the hollows.** A space the grid's edge cannot reach through empty
- *   cells is the inside of something — a tower's hollow shell, a sealed
- *   chamber — and one smaller than `POCKET_AREA` is filled, so a body put
- *   inside it is freed to the outside rather than to the inside of the wall.
- *   A walled courtyard bigger than that stays open.
- * - **Then rectangles**, each run of occupied cells merged with the identical
- *   run on the row before it, so a wall is one rectangle and a round tower a
- *   stack of them, and every rectangle carries the height of the tallest thing
- *   over it, which is what the camera needs.
+ * - the floor: the highest up-facing face no higher than `HEAD` over each cell;
+ *   anything higher is walked under, so an arch's passage stays open;
+ * - the band: every other face sampled finely, marking cells it reaches
+ *   between knee and head over their floor;
+ * - the hollows: a sealed space smaller than `POCKET_AREA` is filled, so a body
+ *   inside is freed outward;
+ * - rectangles: runs of occupied cells merged row to row, each carrying the
+ *   height of the tallest geometry over it for the camera.
  *
- * Pure, deterministic and allocation-heavy: it runs once per model, and the
- * caller caches the answer.
+ * Pure and deterministic; it runs once per model and the caller caches it.
  */
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { disc } from './solids.ts';
@@ -196,15 +177,24 @@ function standable(p: ArrayLike<number>, o: number): boolean {
   return length > 1e-12 && ny / length >= UP_FACING;
 }
 
-/**
- * Measures a triangle soup — a merged buffer's `position`, three vertices a
- * triangle, `y` up — into the rectangles a body cannot enter.
- *
- * `floors` asks for the standing surface as well, which a monument uses and a
- * barn does not.
- */
-export function occupancyOf(position: ArrayLike<number>, floors = false, cellSize = OCCUPANCY_CELL): Occupancy {
-  const count = Math.floor(position.length / 9);
+/** The grid a model is measured on, with one empty cell round its edge. */
+interface Lattice {
+  minX: number;
+  minZ: number;
+  cell: number;
+  cols: number;
+  rows: number;
+  cells: number;
+}
+
+function cellOf(g: Lattice, x: number, z: number): number {
+  const c = Math.min(g.cols - 1, Math.max(0, Math.floor((x - g.minX) / g.cell)));
+  const r = Math.min(g.rows - 1, Math.max(0, Math.floor((z - g.minZ) / g.cell)));
+  return r * g.cols + c;
+}
+
+/** The lattice over a soup's ground shadow, coarsened past `MAX_CELLS`; null for an empty soup. */
+function latticeOf(position: ArrayLike<number>, count: number, cellSize: number): Lattice | null {
   let minX = Infinity;
   let minZ = Infinity;
   let maxX = -Infinity;
@@ -217,34 +207,27 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
     if (z < minZ) minZ = z;
     if (z > maxZ) maxZ = z;
   }
-  if (count === 0 || !Number.isFinite(minX)) {
-    return { rects: new Float32Array(0), floor: null, cells: 0, cell: cellSize };
-  }
+  if (count === 0 || !Number.isFinite(minX)) return null;
   let cell = cellSize;
   while (Math.ceil((maxX - minX) / cell + 1) * Math.ceil((maxZ - minZ) / cell + 1) > MAX_CELLS) cell *= 1.5;
-  // One empty cell round the edge, so the flood that finds the hollows starts
-  // outside everything.
+  // One empty cell round the edge, so the hollow flood starts outside everything.
   minX -= cell;
   minZ -= cell;
   const cols = Math.ceil((maxX - minX) / cell) + 2;
   const rows = Math.ceil((maxZ - minZ) / cell) + 2;
-  const cells = cols * rows;
-  const indexOf = (x: number, z: number): number => {
-    const c = Math.min(cols - 1, Math.max(0, Math.floor((x - minX) / cell)));
-    const r = Math.min(rows - 1, Math.max(0, Math.floor((z - minZ) / cell)));
-    return r * cols + c;
-  };
+  return { minX, minZ, cell, cols, rows, cells: cols * rows };
+}
 
-  // --- the floor ----------------------------------------------------------
-  const floor = new Float32Array(cells).fill(NaN);
+/** The highest up-facing face under `HEAD` over each cell's centre, `NaN` where none. */
+function floorPass(position: ArrayLike<number>, count: number, g: Lattice): Float32Array {
+  const { minX, minZ, cell, cols, rows } = g;
+  const floor = new Float32Array(g.cells).fill(NaN);
   for (let t = 0; t < count; t++) {
     const o = t * 9;
     const ax = position[o]!, ay = position[o + 1]!, az = position[o + 2]!;
     const bx = position[o + 3]!, by = position[o + 4]!, bz = position[o + 5]!;
     const cx = position[o + 6]!, cy = position[o + 7]!, cz = position[o + 8]!;
     if (Math.min(ay, by, cy) > HEAD) continue;
-    // The face's normal, `(b - a) x (c - a)`; its y over its length is how
-    // much it looks up.
     const ux = bx - ax, uy = by - ay, uz = bz - az;
     const vx = cx - ax, vy = cy - ay, vz = cz - az;
     const nx = uy * vz - uz * vy;
@@ -257,7 +240,6 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
     const c1 = Math.min(cols - 1, Math.ceil((Math.max(ax, bx, cx) - minX) / cell - 0.5));
     const r0 = Math.max(0, Math.floor((Math.min(az, bz, cz) - minZ) / cell - 0.5));
     const r1 = Math.min(rows - 1, Math.ceil((Math.max(az, bz, cz) - minZ) / cell - 0.5));
-    // The projected triangle's signed area, for barycentrics.
     const det = ux * vz - uz * vx;
     if (Math.abs(det) < 1e-12) continue;
     let covered = false;
@@ -282,39 +264,35 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
     if (!covered) {
       const y = (ay + by + cy) / 3;
       if (y <= HEAD) {
-        const k = indexOf((ax + bx + cx) / 3, (az + bz + cz) / 3);
+        const k = cellOf(g, (ax + bx + cx) / 3, (az + bz + cz) / 3);
         const known = floor[k]!;
         if (!(y <= known)) floor[k] = y;
       }
     }
   }
+  return floor;
+}
 
-  // --- the band -------------------------------------------------------------
-  // A floor under a person's height marks nothing in its own cells — the
-  // floor there is at least as high as it — so only the rest is sampled:
-  // walls, ceilings, slopes too steep to stand on, and floors over a head.
-  const occupied = new Uint8Array(cells);
-  const fine = cell * 0.5;
-  /**
-   * A face on a cell's edge — a wall at a whole unit, which is most of them —
-   * belongs to the cell on its inside, not to whichever the rounding gives:
-   * every sample is taken a hair behind its face, along the face's inward
-   * normal, and a hair towards the face's own middle, which is what keeps a
-   * sample on the face's side edge — a box's corner — off the cell beyond
-   * it. Without it a box measured half a cell long on its `+x` and `+z`
-   * sides and true on the others.
-   */
+/**
+ * The cells something occupies between `KNEE` and `HEAD` over their floor.
+ * Standable faces are skipped (they mark nothing in their own cells). Each
+ * sample is nudged a hair behind its face and towards its middle, so a wall
+ * on a cell edge belongs to the cell on its inside.
+ */
+function bandPass(position: ArrayLike<number>, count: number, g: Lattice, floor: Float32Array): Uint8Array {
+  const occupied = new Uint8Array(g.cells);
+  const fine = g.cell * 0.5;
   let inX = 0;
   let inZ = 0;
   let midX = 0;
   let midZ = 0;
   const mark = (x: number, y: number, z: number): void => {
-    const k = indexOf(x + inX + (midX - x) * 1e-4, z + inZ + (midZ - z) * 1e-4);
+    const k = cellOf(g, x + inX + (midX - x) * 1e-4, z + inZ + (midZ - z) * 1e-4);
     const f = floor[k]!;
     const base = f === f ? f : 0;
     if (y > base + KNEE && y < base + HEAD) occupied[k] = 1;
   };
-  const behind = cell * 1e-3;
+  const behind = g.cell * 1e-3;
   for (let t = 0; t < count; t++) {
     const o = t * 9;
     if (standable(position, o)) continue;
@@ -343,8 +321,12 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
       );
     }
   }
+  return occupied;
+}
 
-  // --- the hollows ----------------------------------------------------------
+/** Fills every sealed hollow smaller than `POCKET_AREA`: a space the lattice's edge cannot reach. */
+function fillHollows(g: Lattice, occupied: Uint8Array): void {
+  const { cols, rows, cells } = g;
   const reached = new Uint8Array(cells);
   const queue = new Int32Array(cells);
   let head = 0;
@@ -371,7 +353,7 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
     if (r < rows - 1) into(from + cols);
   };
   while (head < tail) spread(queue[head++]!, seed);
-  const pocketCells = POCKET_AREA / (cell * cell);
+  const pocketCells = POCKET_AREA / (g.cell * g.cell);
   for (let k = 0; k < cells; k++) {
     if (occupied[k] === 1 || reached[k] === 1) continue;
     // One sealed hollow, gathered; `reached` marks it so it is gathered once.
@@ -388,8 +370,14 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
     }
     if (tail <= pocketCells) for (let i = 0; i < tail; i++) occupied[queue[i]!] = 1;
   }
+}
 
-  // --- rectangles -----------------------------------------------------------
+/**
+ * The occupied cells as rectangles, `(x, z, hx, hz, top)` with `top` at
+ * `HEAD`: each run of a row merged with the identical run on the row before.
+ */
+function mergeRects(g: Lattice, occupied: Uint8Array): { rects: number[]; taken: number } {
+  const { minX, minZ, cell, cols, rows } = g;
   const rects: number[] = [];
   /** Open rectangles by the run they are extending: first column, last column, first row. */
   let open: { c0: number; c1: number; r0: number }[] = [];
@@ -424,10 +412,14 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
     for (const run of open) close(run, r - 1);
     open = next;
   }
+  return { rects, taken };
+}
 
-  // The tops: the highest corner of every face whose shadow on the ground
-  // meets the rectangle. Generous over a slope — the whole face's top, not
-  // its height over the rectangle — which errs the camera's way.
+/**
+ * Raises each rectangle's top to the highest corner of every face whose ground
+ * shadow meets it: generous over a slope, which errs the camera's way.
+ */
+function raiseTops(position: ArrayLike<number>, count: number, rects: number[]): void {
   for (let t = 0; t < count; t++) {
     const o = t * 9;
     const x0 = Math.min(position[o]!, position[o + 3]!, position[o + 6]!);
@@ -441,12 +433,27 @@ export function occupancyOf(position: ArrayLike<number>, floors = false, cellSiz
       rects[i + 4] = y;
     }
   }
+}
 
+/**
+ * Measures a triangle soup (a merged buffer's `position`, three vertices a
+ * triangle, `y` up) into the rectangles a body cannot enter. `floors` asks for
+ * the standing surface as well.
+ */
+export function occupancyOf(position: ArrayLike<number>, floors = false, cellSize = OCCUPANCY_CELL): Occupancy {
+  const count = Math.floor(position.length / 9);
+  const g = latticeOf(position, count, cellSize);
+  if (g === null) return { rects: new Float32Array(0), floor: null, cells: 0, cell: cellSize };
+  const floor = floorPass(position, count, g);
+  const occupied = bandPass(position, count, g, floor);
+  fillHollows(g, occupied);
+  const { rects, taken } = mergeRects(g, occupied);
+  raiseTops(position, count, rects);
   return {
     rects: Float32Array.from(rects),
-    floor: floors ? { minX, minZ, cell, cols, rows, height: floor } : null,
+    floor: floors ? { minX: g.minX, minZ: g.minZ, cell: g.cell, cols: g.cols, rows: g.rows, height: floor } : null,
     cells: taken,
-    cell,
+    cell: g.cell,
   };
 }
 

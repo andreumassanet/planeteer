@@ -9,40 +9,30 @@ import { latOf, lonOf } from './sphere.ts';
 /**
  * The floor of the sea, as a pure function of the world.
  *
- * **Until this file the sea had no bottom.** The water was an opaque sphere at
- * `PLANET_RADIUS` and the only depth it had was a colour: a ramp from shoal to
- * abyss by distance from land (`ocean.ts`). This is the depth itself — how far
- * under the surface the sand, the reef and the kelp stand — and it is the one
- * definition of it: the seabed mesh is laid on it, a diver and a submarine are
- * floored by it, the corals and the fish are placed against it, and the water
- * over it is as clear as it is shallow.
+ * The depth itself, the one definition of it: the seabed mesh is laid on it, a
+ * diver and a submarine are floored by it, the corals and fish are placed
+ * against it, and the water over it is as clear as it is shallow.
  *
- * **It is a function of the distance to the nearest coast, and of nothing
- * else that moves.** This planet has no bathymetry, and the colour ramp already
- * made the call that distance from land is most of what decides the look of a
- * sea; the floor follows the same law, so the water is pale exactly where it is
- * shallow. The profile is the one a real coast has in section: a sandy shelf
- * falling gently from the beach, a reef flat where the corals grow, a reef edge
- * where it drops away, and the deep. Two slow noises break it up — one
- * stretches or squeezes the whole profile, so some coasts shelve for a long
- * way and some drop off at once, and one lays bumps and hollows on it in
- * proportion to its depth.
+ * It is a function of the distance to the nearest coast and of nothing else that
+ * moves, since the planet has no bathymetry and the colour ramp already treats
+ * distance from land as what decides a sea's look. The profile is a real coast
+ * in section: a sandy shelf falling gently from the beach, a reef flat where the
+ * corals grow, a reef edge where it drops away, and the deep. Two slow noises
+ * break it up: one stretches or squeezes the whole profile, so some coasts
+ * shelve a long way and some drop off at once, and one lays bumps and hollows on
+ * it in proportion to its depth.
  *
- * **The distance is exact, not a field.** `terrain.ts` owns two coast fields
- * and neither answers this: `shoreDistance` is zero everywhere at sea, and the
- * fine shore index stops at the shore ramp's 130 units. So the coastline is
- * indexed here again, from `coastEdges` — the same segments the shallows lay
- * their surf along — with the distance *along* the shore kept on each segment,
- * because the surf is a phase running down the beach and the water drawn here
- * has to carry it on where the ribbon hands over.
+ * The distance is exact, not a field: `terrain.ts`'s coast fields do not answer
+ * this (the coarse one is zero at sea, the fine one stops at the shore ramp), so
+ * the coastline is indexed here from `coastEdges`, with the distance along the
+ * shore kept on each segment because the surf is a phase running down the beach
+ * and the water drawn here has to carry it on where the ribbon hands over.
  *
- * **The distance is unsigned, and that is safe rather than lazy.** A point on
- * land a few units from the coast gets the same shallow depth a point in the
- * water does, and nothing is wrong: the lowest ground on the planet is
- * `SHORE_LIP`, four units *over* the sea, and the shallowest floor is
- * `MIN_DEPTH` under it, so a seabed under land is always under the land and
- * never seen. What does need the side — whether a coral or a fish is in the
- * water at all — asks `countryAt`.
+ * The distance is unsigned, which is safe: a point on land a few units from the
+ * coast gets the same shallow depth as one in the water, and the lowest ground
+ * is `SHORE_LIP` over the sea while the shallowest floor is `MIN_DEPTH` under
+ * it, so a seabed under land is never seen. What needs the side (whether a coral
+ * or a fish is in the water) asks `countryAt`.
  */
 
 const DEG = Math.PI / 180;
@@ -463,7 +453,7 @@ export interface Cruiser {
 // ---------------------------------------------------------------------------
 
 /**
- * The floor is cut into tiles on a **cube sphere**, fixed to the planet: six
+ * The floor is cut into tiles on a cube sphere, fixed to the planet: six
  * faces, each `TILES_PER_FACE` tiles square, each tile `TILE_QUADS` quads
  * square, the angles equalised (`tan` of the face coordinate) so a quad is
  * within a few percent of `TILE_UNITS / TILE_QUADS` everywhere. Fixed to the

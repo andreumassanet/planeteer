@@ -1,34 +1,15 @@
 /**
- * What a town's buildings are to something moving among them: footprints a
- * body cannot walk into, and a volume a camera cannot see through.
+ * Walls for a body moving in the plane: footprints a body cannot walk into,
+ * and a roof height a camera cannot see through.
  *
- * **Until this existed a town was a floor and nothing else.** The player stood
- * on `madeHeightAt` and walked straight through every house in the world. A
- * building is now a wall, and only a wall — the solids have no roof a foot can
- * stand on. The jump (8.5 units, `JUMP_HEIGHT` in `player.ts`) clears a small
- * house, and the point is walls, not rooftops to hop across, so to a body a
- * footprint is infinitely tall and `top` is the camera's alone.
+ * Coordinates are a town's tangent frame (`x` along `across`, `z` along
+ * `north`, world units from its centre), the frame `madeHeightAt` reads the
+ * floor in; the caller turns a displacement back as `x * across + z * north`.
+ * A footprint is an oriented rectangle or a disc. To a body a footprint is
+ * infinitely tall; `top` is the camera's alone.
  *
- * **The frame is the town's own tangent frame**, and it is the same one
- * `madeHeightAt` reads the floor in: `x` along the town's `across` axis and `z`
- * along its `north`, both in world units from its centre —
- * `dir.dot(floor.across) * PLANET_RADIUS`. Over a town the sphere is a plane to
- * well under a hair: the tangent coordinate of a point 150 units out differs
- * from its arc length by `r^3 / 6R^2`, 0.002 units. The caller turns a
- * displacement back into the world as `x * across + z * north`.
- *
- * **A footprint is an oriented rectangle**, because that is what a building part
- * is from above. Its first axis is `(cos, sin)` in `(x, z)` and its second is
- * `(-sin, cos)`; `yawed` builds one from a Three `rotation.y`, whose sign is the
- * opposite way round and is the one mistake this record invites. **Or a
- * disc** (`disc`), which is what a trunk and a boulder are: `round`, with its
- * radius in `hx` and `hz` both.
- *
- * Everything here is pure and allocation-free after `solidField`, so the same
- * code runs in the player's frame and in `scripts/check-solids.ts`, and it is
- * deterministic: every query walks the solids in index order, whatever the grid
- * handed it, so an answer does not depend on the cell size (the check asserts
- * that it does not).
+ * Pure and allocation-free after `solidField`. Every query walks solids in
+ * index order whatever the grid, so answers do not depend on the cell size.
  */
 
 export interface Solid {
@@ -47,13 +28,7 @@ export interface Solid {
   round: boolean;
 }
 
-/**
- * The solids of one town and a uniform grid over them.
- *
- * Everything but `solids` is the index and its scratch, exposed because this
- * file's functions take the field rather than hide it in a closure — which is
- * what lets a town keep one per floor and the check build two and compare.
- */
+/** The solids of one town, a uniform grid over them, and query scratch. */
 export interface SolidField {
   readonly solids: readonly Solid[];
   /** The grid: its origin, its far corner, its cell and its shape. */
@@ -78,58 +53,32 @@ export interface SolidField {
   mark: number;
 }
 
-/**
- * The grid's cell, in units: about one plot.
- *
- * A body's query box is 2.6 units across, so it touches at most four cells, and
- * a house lands in one to four. The grid is an index and not a rule — a query
- * sorts what it finds back into index order — so this moves the cost and never
- * the answer.
- */
+/** The grid's cell, in units: about one plot. Moves the cost of a query, never its answer. */
 const SOLID_CELL = 16;
 /** Cells a side, at most. A field wider than 64 cells gets wider cells instead. */
 const MAX_SIDE = 64;
 
 /**
- * Penetration below this is contact, not overlap.
- *
- * A body pushed out of a wall rests at exactly its radius from it, and the next
- * query measures that as a penetration of a few ulps. Counting it as a hit would
- * report a wall with no normal to slide along; a ten-thousandth of a unit is
- * invisible on a 3.77-unit person and well clear of the arithmetic.
+ * Penetration below this is contact, not overlap: a body pushed out rests at
+ * its radius, and the next query must not report that as a hit with no normal.
  */
 const TOUCH = 1e-4;
 
 /**
- * How many walls `pushOut` resolves, one at a time and deepest first.
- *
- * A flat wall takes one and the corner of two walls two; the rest is headroom
- * for the end of an alley and for a wedge between two rotated houses, which
- * converges rather than settles. Anything still overlapping after that is not
- * a contact but a body *inside* a building — spawned there, or a town raised
- * around it — and that is `freeSpot`'s case, not this one's.
+ * How many walls `pushOut` resolves, one at a time and deepest first. A body
+ * still overlapping after that is inside a building, which is `freeSpot`'s case.
  */
 const PUSH_ROUNDS = 8;
 
-/**
- * How far past its radius `freeSpot` puts a body.
- *
- * The search runs on the footprints grown by the radius, so its answers sit on
- * their edges; a hundredth of a unit more is what keeps a point on an edge
- * clear under `pushOut`'s own test instead of in contact with it.
- */
+/** How far past its radius `freeSpot` puts a body, so its answer is clear under `pushOut`'s test. */
 const SKIN = 0.01;
 /** Slack on `freeSpot`'s inside test, so a candidate on an edge counts as on it. */
 const EDGE = 1e-9;
 
 /**
- * A footprint from a Three yaw, which is how every part in a town is placed.
- *
- * `rotation.y = yaw` takes local `+x` to `(cos yaw, -sin yaw)` in `(x, z)` — the
- * rotation about `+y` is counter-clockwise seen from above, and from above `+z`
- * points *down* the page. So the first axis is `(cos yaw, -sin yaw)` and the
- * record's `sin` is `-sin(yaw)`. Writing `Math.sin(yaw)` there mirrors every
- * rotated house about its own centre, and a square house hides it.
+ * A footprint from a Three yaw. `rotation.y = yaw` takes local `+x` to
+ * `(cos yaw, -sin yaw)` in `(x, z)`, so the record's `sin` is `-sin(yaw)`;
+ * the other sign mirrors every rotated house about its centre.
  */
 export function yawed(x: number, z: number, yaw: number, hx: number, hz: number, top: number): Solid {
   return { x, z, cos: Math.cos(yaw), sin: -Math.sin(yaw), hx, hz, top, round: false };
@@ -239,11 +188,8 @@ export function solidField(solids: readonly Solid[], cell: number = SOLID_CELL):
 }
 
 /**
- * Every solid whose bounding box meets a query box, into `into`, ascending.
- *
- * The sort is what makes the grid an index rather than a rule: a solid in four
- * cells is met in whatever order the cells are walked, and resolving walls in a
- * different order gives a different answer at a corner.
+ * Every solid whose bounding box meets a query box, into `into`, ascending:
+ * sorted so the answer does not depend on the order the cells are walked.
  */
 function gather(f: SolidField, into: Int32Array, x0: number, z0: number, x1: number, z1: number): number {
   if (f.cols === 0 || x1 < f.minX || x0 > f.maxX || z1 < f.minZ || z0 > f.maxZ) return 0;
@@ -290,13 +236,9 @@ const sep = { x: 0, z: 0 };
 
 /**
  * The displacement that takes a circle out of one footprint, into `sep`, and
- * how deep it was; 0 when they do not overlap by more than `TOUCH`.
- *
- * Outside the rectangle the push is along the line from its nearest point,
- * which is the true contact normal and is what rounds a corner. With the
- * centre inside there is no nearest point, so it leaves by the side it is
- * nearest — the axis of least penetration. `slide` keeps a moving body out of
- * that second case altogether; it is for a body that was *put* inside.
+ * how deep it was; 0 when they do not overlap by more than `TOUCH`. Outside the
+ * rectangle the push runs from its nearest point; with the centre inside, out
+ * by the side of least penetration.
  */
 function separate(s: Solid, x: number, z: number, radius: number): number {
   const dx = x - s.x;
@@ -351,24 +293,15 @@ function separate(s: Solid, x: number, z: number, radius: number): number {
 }
 
 /**
- * Pushes a circle out of every solid it overlaps.
+ * Pushes a circle out of every solid it overlaps. `out` receives the total
+ * displacement in `(x, z)`; returns whether anything was hit.
  *
- * `out` receives the total displacement in `(x, z)` — not the new position —
- * and the return is whether anything was hit.
- *
- * **One wall at a time, the deepest first, and the order is the fix for a
- * snag.** Resolving them in index order let a house's corner push first where
- * its facade meets the next house's, and a body sliding along a terrace was
- * knocked sideways at every party wall — measured, it lost a quarter of its
- * speed along a flat street front. Along any flat facade the face under the
- * body is at least as deep as a neighbour's corner on the same line, so taking
- * the deepest first leaves the corner clear and the seam is not there. What
- * this cannot do is decide which way out of a *cluster* is nearest from inside
- * it — two terraced houses bounce a body between them — and that is
- * `freeSpot`, which `slide` asks whenever a frame hit anything.
+ * One wall at a time, the deepest first: along a facade the face under the
+ * body is deeper than a neighbour's corner on the same line, so a body sliding
+ * along a terrace is not snagged at each party wall.
  *
  * `over`, a radius from the planet's centre, leaves out every solid whose roof
- * is at or under it: what a craft in the air asks, which a roof passes under.
+ * is at or under it: a craft in the air passes over a roof.
  */
 export function pushOut(
   field: SolidField,
@@ -426,12 +359,9 @@ export function solidAt(field: SolidField, x: number, z: number, margin = 0): So
 }
 
 /**
- * Whether a point at `height` — a radius from the planet's centre — is inside
- * some footprint and under that solid's roof. The camera's question.
- *
- * Every containing solid is asked, not the first: a porch in front of a tower
- * is a low solid inside a tall one's reach, and the point above the porch's
- * roof is still inside the tower.
+ * Whether a point at `height` (a radius from the planet's centre) is inside
+ * some footprint and under that solid's roof: the camera's question. Every
+ * containing solid is asked, since a low porch may stand inside a tower.
  */
 export function enclosed(field: SolidField, x: number, z: number, height: number): boolean {
   const count = gather(field, field.found, x, z, x, z);
@@ -465,17 +395,12 @@ function offer(field: SolidField, px: number, pz: number, x: number, z: number, 
 }
 
 /**
- * The nearest clear point among the solids in `field.near[0 .. count)`, or none
- * within `reach`.
+ * The nearest clear point among the solids in `field.near[0 .. count)`, or
+ * none within `reach`, into `best`.
  *
- * The free space is what is left outside the footprints grown by the body's
- * radius, and the nearest point of it to one inside is on the boundary of that
- * union: the foot of a perpendicular on some edge, the nearest point of some
- * grown disc, or a vertex — a rectangle's corner, or where two boundaries
- * cross. So those are the candidates, and the nearest one that is clear of
- * everything is the answer. Every candidate inside `reach` comes from a
- * boundary inside it, which is why gathering only the solids that reach the
- * disc is enough.
+ * The nearest free point lies on the boundary of the union of grown
+ * footprints: a perpendicular foot on an edge, a grown disc's nearest point,
+ * a corner, or where two boundaries cross. Those are the candidates.
  */
 function nearestExit(field: SolidField, count: number, x: number, z: number, grow: number, reach: number): void {
   const corners = field.corners;
@@ -611,16 +536,12 @@ function crossing(field: SolidField, round: Solid, px: number, pz: number, rx: n
 
 /**
  * The nearest point to `(x, z)` where a circle of `radius` overlaps nothing,
- * written to `out` as a position; false, and `out` untouched, when `(x, z)` is
- * already clear.
+ * written to `out`; false, and `out` untouched, when `(x, z)` is already clear.
  *
- * It searches the footprints grown by the radius as **rectangles** (and discs),
- * not as the rounded shapes a circle really sweeps round a corner, so beside a
- * convex corner the answer can be up to `radius * (sqrt 2 - 1)` — 0.3 units
- * for the avatar — further out than it had to be. Exact on every flat, and a point it returns is always
- * clear. The disc it looks in doubles from four radii until it holds an answer,
- * so a body inside one house costs one round and a body inside a city block a
- * few; it is called only when a frame hit something.
+ * Footprints are grown as rectangles rather than rounded shapes, so beside a
+ * convex corner the answer can be up to `radius * (sqrt 2 - 1)` further out
+ * than needed; a returned point is always clear. The search disc doubles from
+ * four radii until it holds an answer.
  */
 export function freeSpot(
   field: SolidField,
@@ -663,11 +584,7 @@ export interface Body {
   vz: number;
 }
 
-/**
- * What a moving body asks of the world. `player.ts` answers it through the
- * settlements, which find the town and hand over to `pushOut` and `freeSpot`;
- * the check answers it with one field directly.
- */
+/** What a moving body asks of the world: `player.ts` answers through the settlements, the check with one field. */
 export interface Walls {
   /** `pushOut`'s contract: the displacement in `push`, and whether anything was hit. */
   collide(x: number, z: number, radius: number, push: { x: number; z: number }): boolean;
@@ -676,24 +593,12 @@ export interface Walls {
 }
 
 /**
- * The longest sub-step, as a fraction of the body's radius.
- *
- * **One step a frame tunnels.** At `RUN_SPEED` (20) and the 0.1 s `main.ts`
- * caps a frame at, a step is 2 units against a body 1.44 across — 1.35 at the
- * run of 13.5 earlier on 2026-09-24, 9 against
- * 2.6 while a person was 6.8 units and the run 90, until 2026-09-24 — and a body
- * that starts in front of a wall and ends behind it was never inside it to be
- * pushed. The distance from a point to a rectangle changes no faster than the
- * point moves, so a clear body that steps half its radius is at worst half its
- * radius into anything: its centre is still outside, the push is along the
- * true contact normal, and no wall is thin enough to cross.
+ * The longest sub-step, as a fraction of the body's radius. A clear body that
+ * steps half its radius is at worst half its radius into anything, so its
+ * centre stays outside and it cannot tunnel through a wall.
  */
 export const STEP_FRACTION = 0.5;
-/**
- * A ceiling on the sub-steps, so a runaway speed costs a bounded frame. 32
- * steps of half the body's radius, 0.36, is 11.5 units, against the 2 the
- * fastest foot covers in the longest frame (20.8 against 9 before 2026-09-24).
- */
+/** A ceiling on the sub-steps, so a runaway speed costs a bounded frame; well over a run's longest frame. */
 export const MAX_STEPS = 32;
 
 const push = { x: 0, z: 0 };
@@ -702,16 +607,10 @@ const spot = { x: 0, z: 0 };
 /**
  * Moves a body by its velocity for `dt`, sliding along every wall it meets.
  *
- * Sub-steps no longer than `STEP_FRACTION` of the radius, and at least one even
- * standing still — a town raised around a body that is not moving has to push
- * it out too. After each push the component of the velocity *into* the wall is
- * removed and the rest kept, which is the whole difference between sliding
- * along a facade and sticking to it; the velocity is changed in place, so the
- * caller's own motion comes back without the part the wall took.
- *
- * If anything was hit, the end of the frame is asked `freeSpot`: a body the
- * pushes could not clear — spawned in a house, or terraced between two — is put
- * on the nearest clear spot now rather than ground out over many frames.
+ * Sub-steps of at most `STEP_FRACTION` of the radius, and at least one even
+ * standing still. After each push the velocity's component into the wall is
+ * removed in place. If anything was hit, `freeSpot` places a body the pushes
+ * could not clear.
  *
  * Returns `'clear'` if nothing was touched, `'slid'` if a wall took some of the
  * move, and `'freed'` if the body had to be put somewhere else.

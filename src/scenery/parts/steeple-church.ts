@@ -1,41 +1,170 @@
 import { PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
-import type { ScenicPart } from '../contract.ts';
+import type { Group, RegionStyle, Rng, SceneryContext, ScenicPart } from '../contract.ts';
 
 /**
- * Steeple church — the civic building of Europe, the Americas and Oceania.
+ * Steeple church: the civic building of Europe, the Americas and Oceania.
  *
- * A settlement's one `civic` part decides what the whole place *is*, and that is
- * why the kind gets twice a dwelling's budget for one instance per village. A
- * hundred gabled houses could be anywhere on Earth. A hundred gabled houses with
- * a spire in the middle are a European village, and the spire is about forty
- * meshes of the four hundred on screen.
+ * A settlement's one `civic` part decides what the whole place is, which is why
+ * the kind gets twice a dwelling's budget for one instance a village. A hundred
+ * gabled houses could be anywhere on Earth; with a spire in the middle they are
+ * a European village. The spire is the only thing in the kit that reaches 30
+ * units, so it is the only thing visible over the roofs from outside; the nave
+ * beneath is deliberately plain.
  *
- * The proportion that has to hold is **the spire against everything else**. It
- * is the only thing in the kit that reaches 30 units, so it is the only thing
- * visible over the roofs from outside the village — which is precisely the job.
- * The nave beneath it is deliberately plain: at the distance the spire is doing
- * its work, the nave is four pixels of wall.
+ * Eight sides on the spire: four reads as a wedge from the diagonal, sixteen
+ * has facets under a pixel and goes back to a smooth grey cone. The count is
+ * chosen by how many ink lines you want to see.
  *
- * Eight sides on the spire, not four and not sixteen. Four reads as a wedge from
- * the diagonal; sixteen has facets under a pixel and goes back to being a smooth
- * grey cone, which the four-step ramp cannot band. The same reasoning as the
- * Space Needle's legs, and the same answer: pick the count by how many ink lines
- * you want to see.
- *
- * **What the redesign added is masonry, which is entirely tones.** The plinth
- * is a darker course of the same stone; a string course runs round the nave and
- * the tower at the same height, which is what ties two masses into one
- * building; the band under the eaves is the roof's shadow, drawn; the cornice
- * over the belfry is a lighter tone, because a cornice is the one part of a
- * tower the sun always finds. **The spire is two tones**, dark at the foot and
- * light at the tip, for the reason the conifer is three: an eight-sided cone in
- * one flat colour takes one cel band down its whole length and reads as a
- * smooth grey spike. And the belfry louvres and the nave lancets are `panes`
- * rows — five bars and three lights for six triangles a face, where four boxes
- * used to cost forty-eight.
+ * The masonry is tones: the plinth a darker course of the same stone; a string
+ * course round the nave and the tower at the same height, which ties two
+ * masses into one building; the band under the eaves, the roof's shadow, drawn;
+ * a lighter cornice over the belfry; a two-tone spire, dark at the foot and
+ * light at the tip. The belfry louvres and nave lancets are `panes` rows: five
+ * bars and three lights for six triangles a face.
  */
 
 const SPIRE_SIDES = 8;
+
+/** The colours and dimensions a church's tower and front are laid against. */
+interface Church {
+  stone: number;
+  tile: number;
+  dark: number;
+  course: number;
+  shade: number;
+  cornice: number;
+  ridgeTile: number;
+  spireFoot: number;
+  woodwork: number;
+  naveWidth: number;
+  naveDepth: number;
+  naveHeight: number;
+  towerWidth: number;
+  towerHeight: number;
+  spireHeight: number;
+  stringY: number;
+  naveZ: number;
+}
+
+/** The west tower: belfry, parapet and the two-tone spire. */
+function addTower(ctx: SceneryContext, group: Group, c: Church): void {
+  const { box, panes, rim, taper, column } = ctx;
+  const { stone, tile, dark, course, cornice, spireFoot, woodwork, towerWidth, towerHeight, spireHeight, stringY } = c;
+  const tower = box(towerWidth, towerHeight, towerWidth, stone);
+  tower.position.y = 0.5;
+  group.add(tower);
+  const towerBase = box(towerWidth + 0.4, 0.5, towerWidth + 0.4, course);
+  group.add(towerBase);
+  const towerString = box(towerWidth + PROUD * 2, 0.22, towerWidth + PROUD * 2, cornice);
+  towerString.position.y = stringY;
+  group.add(towerString);
+
+  // Belfry openings on all four faces: three dark lights behind a mullion,
+  // one `panes` row a face. Two dark marks near the top are what stop the
+  // tower reading as a chimney, and a row of them says *belfry*.
+  const belfryY = 0.5 + towerHeight - 3;
+  for (const [dx, dz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    const louvre = panes(3, towerWidth * 0.16, 1.9, towerWidth * 0.04, dark);
+    louvre.rotation.y = dx !== 0 ? (dx * Math.PI) / 2 : dz > 0 ? 0 : Math.PI;
+    louvre.position.set((dx * (towerWidth / 2 + PROUD)), belfryY, dz * (towerWidth / 2 + PROUD));
+    group.add(louvre);
+  }
+
+  const parapet = box(towerWidth + 0.55, 0.5, towerWidth + 0.55, cornice);
+  parapet.position.y = 0.5 + towerHeight;
+  group.add(parapet);
+  const merlons = rim(towerWidth + 0.35, towerWidth + 0.35, 0.3, 0.45, course);
+  merlons.position.y = 1 + towerHeight;
+  group.add(merlons);
+
+  // The spire in two tones: a lead skirt at the foot and a lighter shaft
+  // above it. One flat colour down eight sides takes one cel band and reads
+  // as a grey spike; see the conifer.
+  const skirt = spireHeight * 0.34;
+  const foot = taper(towerWidth * 0.52, towerWidth * 0.36, skirt, spireFoot, SPIRE_SIDES);
+  foot.position.y = 1 + towerHeight;
+  group.add(foot);
+  const spire = taper(towerWidth * 0.36, 0.12, spireHeight - skirt, tile, SPIRE_SIDES);
+  spire.position.y = 1 + towerHeight + skirt;
+  group.add(spire);
+
+  const finial = column(0.13, 0.9, woodwork, 4);
+  finial.position.y = 1 + towerHeight + spireHeight;
+  group.add(finial);
+}
+
+/** The door and west window, a porch or an apse, and the nave lancets. */
+function addFront(ctx: SceneryContext, rng: Rng, style: RegionStyle, group: Group, c: Church): void {
+  const { box, panes, lit, taper, roof, windows } = ctx;
+  const { stone, tile, dark, course, cornice, naveWidth, naveDepth, naveHeight, towerWidth, naveZ } = c;
+  const face = towerWidth / 2;
+  const door = ctx.door({
+    width: 1.7,
+    height: 3,
+    leaf: doorPaint(rng, style, stone),
+    frame: cornice,
+    sill: 0.5,
+    step: course,
+  });
+  door.position.set(0, 0, face);
+  group.add(door);
+
+  const west = windows({
+    count: 1,
+    width: towerWidth * 0.4,
+    height: 1.7,
+    panes: 2,
+    frame: cornice,
+    glass: dark,
+    strength: 0.7,
+  });
+  west.position.set(0, 4.5, face);
+  group.add(west);
+
+  // A porch or an apse, so no two churches in the world have the same plan.
+  if (rng.chance(0.55)) {
+    const apse = taper(naveWidth * 0.42, naveWidth * 0.36, naveHeight * 0.8, stone, 6);
+    apse.position.set(0, 0.5, naveZ - naveDepth / 2 - naveWidth * 0.06);
+    group.add(apse);
+    const cone = taper(naveWidth * 0.46, 0.1, STOREY * 0.8, tile, 6);
+    cone.position.set(0, 0.5 + naveHeight * 0.8, apse.position.z);
+    group.add(cone);
+  } else {
+    const porchWidth = naveWidth * 0.5;
+    const side = rng.sign();
+    // `PROUD` under the string course: the porch roof reaches back into the
+    // nave, and its underside and the string's would be one plane where it
+    // crossed the string's ledge.
+    const porchHeight = naveHeight * 0.62 - PROUD;
+    const porch = box(porchWidth, porchHeight, 2.2, stone);
+    porch.position.set((side * (naveWidth + porchWidth)) / 2, 0.5, naveZ + naveDepth * 0.24);
+    group.add(porch);
+    const porchRoof = roof(2.8, porchWidth + 0.6, 1.1, 2.8, tile);
+    porchRoof.rotation.y = Math.PI / 2;
+    porchRoof.position.set(porch.position.x, 0.5 + porchHeight, porch.position.z);
+    group.add(porchRoof);
+  }
+
+  // The nave lancets: a painted frame row and a lit light row a side. Two
+  // meshes and twelve triangles a flank; at 120 units a lancet is a mark.
+  for (const side of [-1, 1]) {
+    const bays = 3;
+    const gap = naveDepth * 0.26 - 0.9;
+    const surround = panes(bays, 0.9, 2.4, gap, cornice);
+    surround.rotation.y = (side * Math.PI) / 2;
+    surround.position.set((side * naveWidth) / 2 + side * PROUD, 0.5 + naveHeight * 0.3, naveZ);
+    group.add(surround);
+    const light = lit(panes(bays, 0.62, 2.1, gap + 0.28, dark), 0.7);
+    light.rotation.y = (side * Math.PI) / 2;
+    light.position.set((side * naveWidth) / 2 + side * PROUD * 2, 0.5 + naveHeight * 0.3 + 0.15, naveZ);
+    group.add(light);
+  }
+}
 
 export const steepleChurch: ScenicPart = {
   id: 'steeple-church',
@@ -45,7 +174,7 @@ export const steepleChurch: ScenicPart = {
   note: 'Nave, west tower, a two-tone spire and a string course. The one building that names a European village.',
 
   build(ctx, rng, style) {
-    const { THREE, box, panes, tone, lit, column, taper, rim, roof, windows } = ctx;
+    const { THREE, box, tone, roof } = ctx;
     const group = new THREE.Group();
 
     const stone = rng.pick(style.walls);
@@ -94,11 +223,8 @@ export const steepleChurch: ScenicPart = {
 
     const naveRise = STOREY * 0.9;
     // The roof runs 0.4 past the nave at the back, and at the front it stops
-    // `PROUD` inside the face of the tower it butts into. Run 0.4 past at both
-    // ends, its front gable fell anywhere from 0.05 in front of that face to
-    // 0.12 behind it, and on towers near four units wide within a hair of it,
-    // where the two z-fought from across a valley: 3.1 u² a build in the
-    // pairs under 0.02 apart (2026-09-13).
+    // `PROUD` inside the face of the tower it butts into, or the two would
+    // z-fight from a distance.
     const roofBack = naveZ - naveDepth / 2 - 0.4;
     const roofFront = Math.min(naveZ + naveDepth / 2 + 0.4, towerWidth / 2 - PROUD);
     const roofLength = roofFront - roofBack;
@@ -112,118 +238,12 @@ export const steepleChurch: ScenicPart = {
     ridgeCap.position.set(0, 0.5 + naveHeight + naveRise - 0.1, roofZ);
     group.add(ridgeCap);
 
-    // --- the tower ---
-    const tower = box(towerWidth, towerHeight, towerWidth, stone);
-    tower.position.y = 0.5;
-    group.add(tower);
-    const towerBase = box(towerWidth + 0.4, 0.5, towerWidth + 0.4, course);
-    group.add(towerBase);
-    const towerString = box(towerWidth + PROUD * 2, 0.22, towerWidth + PROUD * 2, cornice);
-    towerString.position.y = stringY;
-    group.add(towerString);
-
-    // Belfry openings on all four faces: three dark lights behind a mullion,
-    // one `panes` row a face. Two dark marks near the top are what stop the
-    // tower reading as a chimney, and a row of them says *belfry*.
-    const belfryY = 0.5 + towerHeight - 3;
-    for (const [dx, dz] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const) {
-      const louvre = panes(3, towerWidth * 0.16, 1.9, towerWidth * 0.04, dark);
-      louvre.rotation.y = dx !== 0 ? (dx * Math.PI) / 2 : dz > 0 ? 0 : Math.PI;
-      louvre.position.set((dx * (towerWidth / 2 + PROUD)), belfryY, dz * (towerWidth / 2 + PROUD));
-      group.add(louvre);
-    }
-
-    const parapet = box(towerWidth + 0.55, 0.5, towerWidth + 0.55, cornice);
-    parapet.position.y = 0.5 + towerHeight;
-    group.add(parapet);
-    const merlons = rim(towerWidth + 0.35, towerWidth + 0.35, 0.3, 0.45, course);
-    merlons.position.y = 1 + towerHeight;
-    group.add(merlons);
-
-    // The spire in two tones: a lead skirt at the foot and a lighter shaft
-    // above it. One flat colour down eight sides takes one cel band and reads
-    // as a grey spike; see the conifer.
-    const skirt = spireHeight * 0.34;
-    const foot = taper(towerWidth * 0.52, towerWidth * 0.36, skirt, spireFoot, SPIRE_SIDES);
-    foot.position.y = 1 + towerHeight;
-    group.add(foot);
-    const spire = taper(towerWidth * 0.36, 0.12, spireHeight - skirt, tile, SPIRE_SIDES);
-    spire.position.y = 1 + towerHeight + skirt;
-    group.add(spire);
-
-    const finial = column(0.13, 0.9, woodwork, 4);
-    finial.position.y = 1 + towerHeight + spireHeight;
-    group.add(finial);
-
-    // --- the front: a door under an arch, on steps, with a light over it ---
-    const face = towerWidth / 2;
-    const door = ctx.door({
-      width: 1.7,
-      height: 3,
-      leaf: doorPaint(rng, style, stone),
-      frame: cornice,
-      sill: 0.5,
-      step: course,
-    });
-    door.position.set(0, 0, face);
-    group.add(door);
-
-    const west = windows({
-      count: 1,
-      width: towerWidth * 0.4,
-      height: 1.7,
-      panes: 2,
-      frame: cornice,
-      glass: dark,
-      strength: 0.7,
-    });
-    west.position.set(0, 4.5, face);
-    group.add(west);
-
-    // A porch or an apse, so no two churches in the world have the same plan.
-    if (rng.chance(0.55)) {
-      const apse = taper(naveWidth * 0.42, naveWidth * 0.36, naveHeight * 0.8, stone, 6);
-      apse.position.set(0, 0.5, naveZ - naveDepth / 2 - naveWidth * 0.06);
-      group.add(apse);
-      const cone = taper(naveWidth * 0.46, 0.1, STOREY * 0.8, tile, 6);
-      cone.position.set(0, 0.5 + naveHeight * 0.8, apse.position.z);
-      group.add(cone);
-    } else {
-      const porchWidth = naveWidth * 0.5;
-      const side = rng.sign();
-      // `PROUD` under the string course, whose height it used to share: the
-      // porch roof reaches back into the nave, and its underside and the
-      // string's were one plane where it crossed the string's ledge.
-      const porchHeight = naveHeight * 0.62 - PROUD;
-      const porch = box(porchWidth, porchHeight, 2.2, stone);
-      porch.position.set((side * (naveWidth + porchWidth)) / 2, 0.5, naveZ + naveDepth * 0.24);
-      group.add(porch);
-      const porchRoof = roof(2.8, porchWidth + 0.6, 1.1, 2.8, tile);
-      porchRoof.rotation.y = Math.PI / 2;
-      porchRoof.position.set(porch.position.x, 0.5 + porchHeight, porch.position.z);
-      group.add(porchRoof);
-    }
-
-    // The nave lancets: a painted frame row and a lit light row a side. Three
-    // bays used to be six boxes; this is two meshes and twelve triangles a
-    // flank, and at 120 units a lancet is a mark, not a reveal.
-    for (const side of [-1, 1]) {
-      const bays = 3;
-      const gap = naveDepth * 0.26 - 0.9;
-      const surround = panes(bays, 0.9, 2.4, gap, cornice);
-      surround.rotation.y = (side * Math.PI) / 2;
-      surround.position.set((side * naveWidth) / 2 + side * PROUD, 0.5 + naveHeight * 0.3, naveZ);
-      group.add(surround);
-      const light = lit(panes(bays, 0.62, 2.1, gap + 0.28, dark), 0.7);
-      light.rotation.y = (side * Math.PI) / 2;
-      light.position.set((side * naveWidth) / 2 + side * PROUD * 2, 0.5 + naveHeight * 0.3 + 0.15, naveZ);
-      group.add(light);
-    }
+    const church: Church = {
+      stone, tile, dark, course, shade, cornice, ridgeTile, spireFoot, woodwork,
+      naveWidth, naveDepth, naveHeight, towerWidth, towerHeight, spireHeight, stringY, naveZ,
+    };
+    addTower(ctx, group, church);
+    addFront(ctx, rng, style, group, church);
 
     return group;
   },

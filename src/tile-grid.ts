@@ -4,20 +4,16 @@
  * cells, so what a tile holds and what the plan put there are one grid and
  * cannot disagree about where a cell ends.
  *
- * Latitude spanned by the *coarsest* tile, in degrees, and the number of levels
- * under it.
+ * The grid is a quadtree in latitude and longitude: the levels nest, so the
+ * boundary between two of them is never a seam (the same ground covered twice,
+ * or a gap). A level-`L` tile is exactly the four level-`L-1` tiles under it,
+ * because the latitude step halves and the longitude cell count doubles at
+ * every step down.
  *
- * The grid is a quadtree in latitude and longitude, and it has to be one rather
- * than four independent grids for a reason that is invisible until you look at a
- * hillside: if the levels did not nest, the boundary between two of them would
- * be a seam — the same ground covered twice, or a gap with nothing in it, in a
- * ring around the viewer that moves as you walk. Nesting makes the cover exact.
- * A level-`L` tile is exactly the four level-`L-1` tiles under it, because the
- * latitude step halves and the longitude cell count doubles at every step down.
- *
- * 5 degrees and four levels put the finest tile at 0.625 degrees, which is 174
- * world units — about two thirds of the distance at which a house stops being
- * legible, and small enough that frustum culling has something to throw away.
+ * `ROOT_STEP` is the latitude spanned by the coarsest tile, in degrees, and
+ * `LEVELS` the number of levels. 5 degrees and four levels put the finest tile
+ * at 0.625 degrees, 174 world units: small enough that frustum culling has
+ * something to throw away.
  */
 export const ROOT_STEP = 5;
 export const LEVELS = 4;
@@ -95,8 +91,7 @@ export const MONUMENT_CLEARANCE = 6;
  * And round a standing plane's or balloon's field (`fleet.ts`), past the
  * field's own radius and the plant's own spread: open grass between the tip
  * and the first trunk, so the aircraft reads as standing in a clearing rather
- * than parked against a hedge. It was 3, which left a balloon's envelope, 7.3
- * of its 8-unit field, under four units from the nearest canopy; 6 is a body
- * and a half more.
+ * than parked against a hedge: a balloon's envelope fills 7.3 of its 8-unit
+ * field, so 6 keeps the nearest canopy more than a body clear of it.
  */
 export const FIELD_CLEARANCE = 6;

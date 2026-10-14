@@ -2,37 +2,22 @@ import { PROUD, TONES } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
- * Round hut — thatched, and the reason Sub-Saharan Africa does not look like
- * anywhere else in the kit.
+ * Round hut: thatched, and the reason Sub-Saharan Africa does not look like
+ * anywhere else in the kit. It is the only part with no straight walls: a
+ * cylinder under a cone is unmistakable next to a street of boxes.
  *
- * It is the only part with no straight walls, which is most of why it works: at
- * 26 pixels a cylinder under a cone is unmistakable next to a street of boxes,
- * and no colour choice could have done that.
+ * - The cone overhangs the wall by 0.7 units, so the ink finds a ledge and the
+ *   roof separates from the wall.
+ * - The thatch is two cones and the wall is two tones: a dark skirt at the
+ *   eaves under a lighter crown is the overhang's shadow, drawn; a darker
+ *   course round the foot is where a mud wall is rained on. Tones cost no
+ *   colour (`measure` folds them onto their base).
+ * - Ten sides: a facet is an ink line, and past about twelve the facets are
+ *   under a pixel and the cone goes back to a grey blur under a four-step ramp.
  *
- * Three decisions worth writing down:
- *
- * - **The cone overhangs the wall by 0.7 units.** Without the overhang the wall
- *   and the roof share one silhouette and the hut reads as a single tapered
- *   lump. With it, the ink finds a ledge and the roof separates — the same trick
- *   Stonehenge's lintels use to stop the ring reading as one band of stone.
- * - **The thatch is two cones and the wall is two tones**, which is what the
- *   redesign bought and what it was bought with. A dark skirt at the eaves
- *   under a lighter crown *is* the overhang's shadow, drawn instead of lit, and
- *   a darker course round the foot is where a mud wall is rained on. Neither
- *   costs a colour: they are tones, and `measure` folds them onto their base.
- * - **Ten sides, not twelve and not twenty-four.** `OutlineEffect` hulls every
- *   mesh separately and a facet is an ink line: past about twelve the facets are
- *   under a pixel and the cone goes back to being smooth, which under a
- *   four-step ramp is a grey blur. This part used to spend twelve, and the two
- *   facets it gave back paid for the second tone on both the wall and the
- *   thatch — a 10-sided piece is 40 triangles against 48, four of them, and the
- *   extra cone and the base course are 80. Ten still reads as *drawn*, and the
- *   silhouette of a hut is a circle either way.
- *
- * The doorway is `ink` by way of `style.glass` — a small dark rectangle on a
- * curved wall, which is the one detail that survives to any distance because it
- * is the only dark thing on a pale hut. It is `lit` at half strength, because a
- * hole with a fire behind it is a dimmer claim than a window; see `ctx.lit`.
+ * The doorway is `ink` by way of `style.glass`, a small dark rectangle on a
+ * curved wall, the one detail that survives to any distance. It is `lit` at
+ * half strength: a hole with a fire behind it is a dimmer claim than a window.
  */
 
 const SIDES = 10;

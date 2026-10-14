@@ -5,8 +5,7 @@ import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
  * Palm: a curving ringed trunk and a head of drooping fronds (`tree-forms.ts`),
- * fronds in the region's foliage on a brown or tan trunk. A Kenney palm until
- * 2026-09-28.
+ * fronds in the region's foliage on a brown or tan trunk.
  */
 
 const FOOTPRINT = 7.4;

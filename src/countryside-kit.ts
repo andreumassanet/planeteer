@@ -17,23 +17,21 @@ import { PALETTE } from './theme.ts';
  * silo of a farmstead, the mills and the turbines, a lighthouse, the wayside
  * cross and its cousins round the world, a camp, a jetty, a cairn.
  *
- * **Not scenic parts, and the difference is the contract.** A part in
- * `scenery/parts/` is a thing a town builds dozens of, so it is held to six
- * variants a region that must not share a silhouette, and to its kind's caps.
- * Nothing here is built more than a handful of times in view: a lighthouse is
- * one on a headland, a wayside cross one at a bend. So a piece is built once a
- * region and a variant (`VARIANTS` below, three) and the rules that matter are
- * the ones that are about the *world* rather than about a street of copies:
- * the palette through `ctx.toon`, tones rather than flat boxes, `PROUD`
- * between two colours that would share a plane, standing on y = 0 and facing
- * +Z, and a triangle cap a piece (`PIECE_TRIANGLES`), which `pnpm country`
- * holds every build to.
+ * These are not scenic parts. A part in `scenery/parts/` is a thing a town
+ * builds dozens of, so it is held to six variants a region that must not share
+ * a silhouette, and to its kind's caps. Nothing here is built more than a
+ * handful of times in view, so a piece is built once a region and a variant
+ * (`COUNTRY_VARIANTS`, three) and the rules are about the world rather than a
+ * street of copies: the palette through `ctx.toon`, tones rather than flat
+ * boxes, `PROUD` between two colours that would share a plane, standing on
+ * y = 0 and facing +Z, and a triangle cap a piece (`PIECE_TRIANGLES`), which
+ * `pnpm country` holds every build to.
  *
  * The farmhouse is not here: it is the region's own dwelling out of the scenic
  * kit (`countryside.ts` asks for one), which is what makes a farm in Japan a
  * machiya and one in Mali a round hut without a line of code saying so.
  *
- * **A rotor is not part of its tower.** Sails, blades and a windpump's wheel
+ * A rotor is not part of its tower. Sails, blades and a windpump's wheel
  * turn, and a merged tile cannot move (see `countryside-motion.ts`), so a part
  * with a rotor says where its hub is (`rotor`) and draws none; `buildRotor`
  * makes the wheel on its own, facing +Z with its hub at the origin, for the
@@ -225,15 +223,12 @@ const hayBale: CountryPart = {
 };
 
 /**
- * A tractor, parked in its yard: **the fleet's own** (`craft/cars.ts`,
- * Kenney's, Car Kit, CC0), which anybody can drive off, and **at the fleet's
- * own size**. It stood at the traffic's width (0.70 of the craft) until
- * 2026-10-01, and the one taken grew by half again under the driver as the
- * fleet built it. A tile merges the look its id decides
- * (`countryside-tile.ts`, `craft/parked.ts`) and the fleet takes it from
- * there; this build, a look off `rng`, is for the kit's own checks.
- * The craft is 6.6 long and 4.1 wide, so the yard it takes is its half
- * diagonal.
+ * A tractor, parked in its yard: the fleet's own (`craft/cars.ts`, Kenney's
+ * Car Kit, CC0), at the fleet's own size, which anybody can drive off. A tile
+ * merges the look its id decides (`countryside-tile.ts`, `craft/parked.ts`)
+ * and the fleet takes it from there; this build, a look off `rng`, is for the
+ * kit's own checks. The craft is 6.6 long and 4.1 wide, so the yard it takes is
+ * its half diagonal.
  */
 const tractor: CountryPart = {
   id: 'tractor',

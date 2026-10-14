@@ -1,25 +1,19 @@
 /**
  * What stands round a landmark in the country: a ring of lamps on the grass.
  *
- * **A landmark in a town stands in a parcel of the town's own cells**, and the
- * town paves it, keeps its streets round it and plants its own trees there
- * (`landmarkParcel` in `scenery/grid.ts`, `settlements.ts`); nothing here is
- * built for one. **A landmark out of every town stands on the ground**, whatever
- * the ground is, with the grass coming up to its walls and the wood a few
- * strides off. It used to stand in a square of its own instead — a slab of
- * paving grown past its plan, a kerb, a path, trees in planters — and the
- * square was its own made surface laid on the drawn land at one height, which
- * that land, flat under a pad only to a unit or so, came up through; and its
- * trees were cones of the monument kit's, not the world's.
+ * A landmark in a town stands in a parcel of the town's own cells, which the
+ * town paves, keeps its streets round and plants (`landmarkParcel` in
+ * `scenery/grid.ts`, `settlements.ts`); nothing here is built for one. A
+ * landmark out of every town stands on the ground, with the grass up to its
+ * walls and the wood a few strides off.
  *
- * So the landmarks the source lists in `plazas` and that stand in the country
- * (`setting: 'plaza'` in `monuments.json`) keep only the lamps: posts round the
+ * The landmarks the source lists in `plazas` that stand in the country
+ * (`setting: 'plaza'` in `monuments.json`) get only the lamps: posts round the
  * plan, `LAMP_OFFSET` past its edge and at most `SPACING` apart, each standing
- * from `POST_FOOT` under the ground so a post meets the land wherever the land
- * is drawn. They are lit after dark, their heads burning and their light pooling
- * per pixel, as a town's street lamps do (`landmark-lights.ts`), which finds
- * them by the `atlasLit` mark on each head. They are built from the monument
- * context's own primitives and merged into the monument's mesh
+ * from `POST_FOOT` under the ground so a post meets the land wherever it is
+ * drawn. They are lit after dark like a town's street lamps
+ * (`landmark-lights.ts` finds them by the `atlasLit` mark on each head), built
+ * from the monument context's primitives and merged into the monument's mesh
  * (`placement.ts`), so they cost no draw call and stand and fall with it.
  */
 import * as THREE from 'three';

@@ -6,20 +6,14 @@ import type { Weighted } from './random.ts';
 /**
  * Where the parts go.
  *
- * Kept apart from the geometry on purpose, and it is the seam the whole kit
- * turns on. A part answers "what does a house look like"; this answers "where
- * are the houses". Neither knows how the result reaches the screen — a drawer
- * can add the groups as they are, merge a whole settlement by material, or hand
- * the transforms to an `InstancedMesh` per variant, and none of those choices
- * reaches back into either file.
+ * Kept apart from the geometry: a part answers "what does a house look like",
+ * this answers "where are the houses". Neither knows how the result reaches the
+ * screen (groups added as they are, a settlement merged by material, or
+ * transforms handed to an `InstancedMesh` per variant).
  *
- * **Layout is also where repetition actually shows.** A part can vary perfectly
- * and still read as wallpaper if it is placed on a lattice: the two failures
- * already recorded in this repo — Mont-Saint-Michel's identical gables reading
- * as a cog wheel, Everest's evenly spaced glaciers reading as a paper crown —
- * are both about spacing, not about the element. So the three levers here are
- * position jitter, plot size, and *alignment*, and the last one is the one that
- * is easy to get wrong in both directions: yaw drawn uniformly makes a village
+ * Layout is also where repetition shows. A part can vary perfectly and still
+ * read as wallpaper if it is placed on a lattice, so the three levers here are
+ * position jitter, plot size, and alignment: yaw drawn uniformly makes a village
  * of debris, yaw snapped to a grid makes a barracks.
  */
 
@@ -37,14 +31,11 @@ export interface Plot {
   /** Stable, and derived from the cell — not from a counter. See `random.ts`. */
   seed: number;
   /**
-   * The cell this plot came out of.
-   *
-   * Carried rather than recoverable, because the jitter is one-way: a plot may
-   * wander 0.38 of a pitch from its cell, so `round(x / pitch)` names the wrong
-   * cell for about a fifth of them. `settlements.ts` lays the ground and the
-   * streets on this same lattice — a street runs along a *cell boundary*, and a
-   * cell is paved because a building came out of it — so the two have to agree
-   * about which cell a house belongs to or the house stands in the road.
+   * The cell this plot came out of. Carried rather than recoverable, because the
+   * jitter is one-way: a plot may wander 0.38 of a pitch from its cell, so
+   * `round(x / pitch)` names the wrong cell for about a fifth of them.
+   * `settlements.ts` lays the ground and the streets on this same lattice, so the
+   * two must agree which cell a house belongs to or the house stands in the road.
    */
   col: number;
   row: number;
@@ -62,22 +53,12 @@ export interface PlotOptions {
   /** 0 leaves yaw free, 1 snaps every building square to the same street. */
   alignment?: number;
   /**
-   * How much room a plot has, as a fraction of the pitch, low and high.
-   *
-   * **It is an option because tying it to the pitch is what made the pitch
-   * un-tunable, and that cost the world its density.** The finding was once
-   * written down as a flat law — *shrinking the pitch makes it worse, not
-   * better, because `plots` sizes a plot at `pitch * [0.5, 0.88]` and a
-   * narrower pitch fits fewer houses* — and the law is true only while these
-   * two numbers are one number. What a settlement wants is a **fine lattice
-   * with the same plots on it**: the room a plot has to offer is set by the
-   * parts that stand in it, which are authored at `SCENERY_SCALE` and do not
-   * care what the lattice is, while how many plots a disc holds goes as the
-   * square of the pitch. Pass a wider fraction with a tighter pitch and the
-   * absolute plot sizes are unchanged to the last unit — see `PLOT_PITCH` in
-   * `settlements.ts`, which does exactly that and buys 1.4 times the cells.
-   *
-   * The default is the pair `hamlet` has always used.
+   * How much room a plot has, as a fraction of the pitch, low and high. It is an
+   * option because the room a plot has to offer is set by the parts that stand in
+   * it (authored at `SCENERY_SCALE`), while how many plots a disc holds goes as
+   * the square of the pitch: a wider fraction with a tighter pitch leaves the
+   * absolute plot sizes unchanged and buys more cells (see `PLOT_PITCH` in
+   * `settlements.ts`). The default is the pair `hamlet` uses.
    */
   plot?: readonly [number, number];
 }
@@ -146,36 +127,23 @@ export interface HamletOptions {
   /** Plots inside this get a building; outside it, greenery. */
   core?: number;
   /**
-   * A part's footprint radius, by id.
-   *
-   * Passed in rather than looked up so this file never imports the registry —
-   * `index.ts` imports *this*, and a cycle between a layout and a registry is
-   * the kind that only shows up as an undefined at load time.
-   *
-   * Without it a 8.4-unit terrace block lands on a 6-unit plot and interpenetrates
-   * its neighbour, which is what the first version of this did.
+   * A part's footprint radius, by id. Passed in rather than looked up so this
+   * file never imports the registry: `index.ts` imports this, and a cycle
+   * between the two only shows up as an undefined at load time. Without it a
+   * large terrace block lands on a small plot and interpenetrates its neighbour.
    */
   footprintOf?: (id: string) => number;
 }
 
 /**
- * A settlement, provisionally.
+ * A provisional settlement, for putting forty houses down: repetition is
+ * invisible in a single house and obvious in forty. Its rules:
  *
- * **This is a stand-in.** The real one belongs with the populated-places data
- * that has not been baked yet, where a city's population decides its radius and
- * how much of it is `block` rather than `dwelling`. What it is for today is
- * putting forty houses down: repetition is invisible in a single house and
- * obvious in forty, and the rules it uses are the ones the real builder will
- * want anyway.
- *
- * The three that matter:
- *
- * - **One civic building, at the centre, and it decides the whole read.** A
- *   village of houses is a village anywhere; a village of houses with a minaret
- *   over it is somewhere.
- * - **Buildings in the core, greenery outside it**, graded by distance rather
- *   than switched, so the edge of the settlement dissolves instead of ending.
- * - **The variant is drawn from the plot's own seed**, so a plot keeps its house
+ * - One civic building at the centre, which decides the whole read: a village
+ *   with a minaret over it is somewhere.
+ * - Buildings in the core, greenery outside it, graded by distance so the edge
+ *   dissolves instead of ending.
+ * - The variant is drawn from the plot's own seed, so a plot keeps its house
  *   when the part library grows.
  */
 export function hamlet(

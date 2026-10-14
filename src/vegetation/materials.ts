@@ -1,0 +1,50 @@
+/** The toon materials every tile on the planet shares. */
+import * as THREE from 'three';
+import { LUSH_GLSL } from '../globe.ts';
+import { shadeByClouds } from '../cloud-shade.ts';
+import { createToonRamp } from '../theme.ts';
+import { MACHINE_BED } from '../craft/parked.ts';
+import { VARNISH_GLSL } from '../gloss.ts';
+
+/**
+ * One material for every tile. Colour rides on the vertices and the cel ramp is
+ * the coastline's, so a wood steps through the same four bands and follows the
+ * sun into night.
+ */
+export function foliageMaterial(): THREE.MeshToonMaterial {
+  const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) });
+  // Every tile carries `outlineNormal`.
+  material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal: true };
+  // The leaves take the land's own painted green (`atlasLush`), so a wood is the colour of its meadow.
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${LUSH_GLSL}`)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = atlasLush(diffuseColor.rgb);');
+  };
+  material.customProgramCacheKey = () => 'atlas-foliage';
+  // Applied before `woodMaterial` and `machineWood` chain it, and `fadeTwin` clones it.
+  return shadeByClouds(material);
+}
+
+/**
+ * A near tile's wood material, taught its vehicles: a vertex whose wind
+ * carries `MACHINE_BED` in its third byte keeps its colour rather than the
+ * land's green and takes the craft's varnish, so a farm's tractor is drawn as
+ * the one driven off.
+ */
+export function machineWood(material: THREE.MeshToonMaterial): THREE.MeshToonMaterial {
+  const inner = material.onBeforeCompile.bind(material);
+  const key = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    inner(shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vAtlasMachine;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n  vAtlasMachine = step(${((MACHINE_BED - 0.5) / 255).toFixed(4)}, aWind.z);`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vAtlasMachine;')
+      .replace('diffuseColor.rgb = atlasLush(diffuseColor.rgb);', 'if (vAtlasMachine < 0.5) diffuseColor.rgb = atlasLush(diffuseColor.rgb);')
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n  if (vAtlasMachine > 0.5) ${VARNISH_GLSL}`);
+  };
+  material.customProgramCacheKey = () => `${key}|machine`;
+  return material;
+}

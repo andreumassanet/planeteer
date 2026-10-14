@@ -4,8 +4,7 @@ import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
  * Shrub: two to four clusters of leaf cards on the ground (`tree-forms.ts`)
- * in the region's foliage; far off, a few soft lumps. One of Kenney's bushes
- * until 2026-09-28.
+ * in the region's foliage; far off, a few soft lumps.
  */
 
 const FOOTPRINT = 2.5;

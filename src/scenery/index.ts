@@ -64,37 +64,25 @@ export {
 export type { DressStyle, LookOptions } from './dress.ts';
 
 /**
- * The registry.
+ * The registry. Adding a part is one file and nothing else: drop `windmill.ts`
+ * into `parts/` exporting a `ScenicPart` and it is in the kit, in `pnpm
+ * scenery`, and available to every region table that names it. Only part files
+ * may live in `parts/`, since the glob treats every file there as a part.
  *
- * Same trick as the monument registry and for the same reason: **adding a part
- * is one file and nothing else.** Drop `windmill.ts` into `parts/` exporting a
- * `ScenicPart` and it is in the kit, in `pnpm scenery`, and available to every region
- * table that names it.
- *
- * The parts live in their own folder rather than beside the contract, so the
- * glob needs no exclusion list — which is the small difference from
- * `src/monuments/index.ts`, where four support files have to be spelled out and
- * a fifth would silently be treated as a monument.
- *
- * Writing one, end to end:
+ * Writing one:
  *
  * 1. `src/scenery/parts/<id>.ts`, named after the kebab-case id.
  * 2. Import from `../contract.ts` and nowhere else. There is no `THREE`
- *    namespace in a part file — `ctx.THREE` is a value — so annotate helpers
- *    with the re-exported `Group`, `Mesh`, `Object3D` and `Vector3` types.
- * 3. `build(ctx, rng, style)` returns **one variant**: facing +Z, based at
- *    y = 0, inside `footprint`, coloured only out of `style` through `ctx.toon`.
- *    Every choice comes from `rng`; anything from `Math.random()` or `Date` is
- *    caught by `pnpm scenery`, which builds each variant twice and compares.
- * 4. Decide what varies between *variants* (roofs, storeys, chimneys — anything
- *    structural) and what is left to the *instance* (position, yaw, a uniform
- *    scale). The line is not stylistic: see `VARIANTS` in the contract for why
- *    per-instance geometry cannot be drawn efficiently at all.
+ *    namespace in a part file (`ctx.THREE` is a value), so annotate helpers with
+ *    the re-exported `Group`, `Mesh`, `Object3D` and `Vector3` types.
+ * 3. `build(ctx, rng, style)` returns one variant: facing +Z, based at y = 0,
+ *    inside `footprint`, coloured only out of `style` through `ctx.toon`. Every
+ *    choice comes from `rng`; `pnpm scenery` builds each variant twice and
+ *    compares.
+ * 4. Structural variety (roofs, storeys, chimneys) is a variant; position, yaw
+ *    and a uniform scale are left to the instance (see `VARIANTS`).
  *
- * Judge it at 120 units before 40: a part that only works close up is a part
- * nobody will ever see working. And look for the thing one copy cannot show,
- * which is the only failure that matters here — nine of them in a row that
- * read as one house copied nine times.
+ * Judge it at 120 units before 40, and look at nine of them in a row.
  */
 const MODULES = import.meta.glob<Record<string, unknown>>('./parts/*.ts', { eager: true });
 

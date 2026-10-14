@@ -1,52 +1,37 @@
 import { DOOR_HEAD, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
-import type { ScenicPart } from '../contract.ts';
+import type { Group, Rng, RegionStyle, SceneryContext, ScenicPart } from '../contract.ts';
 
 /**
- * Gabled house — the workhorse of the kit.
+ * Gabled house: the workhorse of the kit.
  *
  * A box, a pitched roof, a chimney. Eight of the fourteen regions build most of
- * their fabric out of this one part, and they do not look alike, which is the
- * whole argument for a style table: what changes between Bergen and Brisbane is
- * the roof pitch, the wall colour and whether the roof is hipped, not the
- * building. Falu red under a 0.95 pitch is Nordic; cream under 0.45, hipped, is
- * an Australian bungalow; the geometry is identical.
+ * their fabric out of this part, and what changes between Bergen and Brisbane
+ * is the roof pitch, the wall colour and whether the roof is hipped, not the
+ * building. Every element carries two or three tones of its own colour and
+ * every join steps `PROUD` so the pen finds it:
  *
- * **What this part used to be is the argument for what it is now.** It was one
- * box, one roof, one chimney and *one black window band a floor* — and a black
- * band a floor is a stripe, so a street of them read as slabs with stripes on.
- * The fix was not triangles. It was that every element carries two or three
- * tones of its own colour and every join steps `PROUD` so the pen finds it:
+ * - a base course a shade darker than the wall, standing proud of it;
+ * - a shadow band under the eaves, the darkest tone on the building;
+ * - a ridge cap in a darker tile, one more ink line along the most useful edge
+ *   a small building has;
+ * - windows with frames and panes, a lighter rendered surround, shutters on
+ *   about half of them;
+ * - a door set into a frame over a step, in a bay of its own, and a chimney
+ *   with a cap.
  *
- * - a **base course** a shade darker than the wall and standing proud of it, so
- *   the house sits on the ground instead of ending at it;
- * - a **shadow band under the eaves**, the darkest tone on the building,
- *   because the overhang's own shadow is the thing that says *overhang*;
- * - a **ridge cap** in a darker tile, which is both a real roof detail and one
- *   more ink line along the single most useful edge a small building has;
- * - **windows with frames and panes** instead of a band — a lighter rendered
- *   surround, two slate panes, shutters on about half of them;
- * - a **door set into a frame, over a step**, in a bay of its own, and a
- *   **chimney with a cap**.
+ * Four masses carry it at the distance it is seen (see `LEGIBLE_AT`): the
+ * pitch of the roof, the overhang of the eaves, the chimney breaking the ridge
+ * line, and the annex (a lean-to, a porch or an L-wing). The tones are what it
+ * is under 120 units and the masses are what it is over.
  *
- * Four masses still carry it at the distance it is actually seen (see
- * `LEGIBLE_AT`): the pitch of the roof, the overhang of the eaves, the chimney
- * breaking the ridge line, and the annex — a lean-to, a porch or an L-wing —
- * that stops a row of these reading as one extruded shape. The tones are what
- * it is under 120 units and the masses are what it is over.
- *
- * **The L-wing is cut out of the plan rather than added to it**, which is the
- * one thing in this file that is not obvious. A wing bolted onto the back of a
- * full-depth house reached 8.7 units against a 7.4 footprint, and widening the
- * declaration would hand the layout a house a fifth bigger than the plot it
- * reserves — the trap `Vehicle.size` already paid for in `src/traffic/`. So a
- * wing shortens the main block by its own depth: same bounding box, an L in
- * plan, and a stepped silhouette that the full-depth variants do not have.
+ * The L-wing is cut out of the plan rather than added to it: a wing bolted
+ * onto a full-depth house would exceed the declared footprint, so a wing
+ * shortens the main block by its own depth, keeping the same bounding box.
  *
  * What varies between variants: storeys, plan, which way the ridge runs, hipped
- * or gabled, the annex, whether the top storey is a lighter tone, a chimney or
- * not, shutters or not, and four colours out of the style. What is left to the
- * instance: position, yaw, and under a tenth of scale. The line between those
- * two is not taste — see `VARIANTS`.
+ * or gabled, the annex, a lighter top storey, a chimney, shutters, and four
+ * colours out of the style. The instance gets position, yaw and under a tenth
+ * of scale (see `VARIANTS`).
  */
 
 /** How far the roof projects past the wall on every side. */
@@ -58,24 +43,133 @@ const EAVE_BAND = 0.34;
 /** Leaves the chimney room under the `dwelling` kind's 16-unit cap. */
 const CEILING = 13.6;
 /**
- * The shortest a house may come out, against the kind's 5-unit floor.
- *
- * A one-storey house under a Maghreb roof — pitch 0.15, so 0.66 of rise on a
- * 7-unit span — measured 4.9 and failed the floor, which is the check saying
- * that a box with a lid on it is a shed and not a dwelling. The storey count is
- * derived from this rather than clamped after the fact, so a house that would
- * have been too short is built with a second floor instead of being stretched.
+ * The shortest a house may come out, against the kind's 5-unit floor. A
+ * one-storey house under a shallow roof would be a shed, so the storey count is
+ * derived from this rather than clamped after the fact.
  */
 const FLOOR = 5.6;
 /**
- * Framed windows this many floors up, and painted ones above.
- *
- * A reveal is ten triangles and a painted frame is two. Two floors of reveals
- * and a shuttered ground floor is 100 of the part's 264, which is what the
- * budget will carry; a third floor of them is not, and at the height of a third
- * floor nobody is close enough to see into it anyway.
+ * Framed windows this many floors up, and painted ones above. A reveal is ten
+ * triangles and a painted frame is two; two floors of reveals and a shuttered
+ * ground floor is 100 of the part's 264, which the budget will carry.
  */
 const FRAMED_FLOORS = 2;
+
+/** The facts about a house the windows and the annex are laid against. */
+interface House {
+  wall: number;
+  tile: number;
+  surround: number;
+  course: number;
+  woodwork: number;
+  width: number;
+  depth: number;
+  front: number;
+  storeys: number;
+  annex: number;
+  wingDepth: number;
+  bay: number;
+  doorX: number;
+  doorWidth: number;
+  doorHeight: number;
+}
+
+const WINDOW_WIDTH = 1.35;
+const WINDOW_HEIGHT = 1.5;
+
+/** A row of windows a floor on the front, and a bare pane row stepped round the other walls. */
+function addWindows(ctx: SceneryContext, rng: Rng, group: Group, h: House): void {
+  const { panes, lit, windows } = ctx;
+  const { surround, woodwork, storeys, doorX, bay, front, width } = h;
+  const windowWidth = WINDOW_WIDTH;
+  const windowHeight = WINDOW_HEIGHT;
+  // `windows` merges the frames of a row into one mesh and the shutters into
+  // another, and leaves the glass one mesh a window, so the town lights this
+  // house's rooms one at a time. The back gets a bare pane row: one mesh, one
+  // room, four triangles, and nobody stands behind a house.
+  const shutters = rng.chance(0.45) ? woodwork : undefined;
+  // Which wall the second row of a floor goes on, stepped by floor, so a house
+  // is not two blank flanks: a one-storey house shows a flank or a back, and a
+  // three-storey house shows all three. It costs no extra row.
+  const firstSide = rng.between(0, 2);
+  for (let floor = 0; floor < storeys; floor++) {
+    const sill = COURSE + floor * STOREY + STOREY * 0.38;
+    const framed = floor < FRAMED_FLOORS;
+    const ground = floor === 0;
+    const row = windows({
+      count: ground ? 1 : 2,
+      width: windowWidth,
+      height: windowHeight,
+      frame: surround,
+      spread: bay,
+      shutters: ground ? shutters : undefined,
+      reveal: framed ? undefined : 0,
+    });
+    row.position.set(ground ? -doorX : 0, sill, front);
+    group.add(row);
+
+    const side = (firstSide + floor) % 3;
+    const away = lit(panes(2, windowWidth, windowHeight, windowWidth * 0.8, ctx.glass));
+    if (side === 0) {
+      away.rotation.y = Math.PI;
+      away.position.set(0, sill, -front - PROUD);
+    } else {
+      const face = side === 1 ? 1 : -1;
+      away.rotation.y = (face * Math.PI) / 2;
+      away.position.set((face * width) / 2 + face * PROUD, sill, 0);
+    }
+    group.add(away);
+  }
+}
+
+/** The annex that keeps a row of these from reading as one extruded shape: a lean-to, a porch or an L-wing. */
+function addAnnex(ctx: SceneryContext, rng: Rng, style: RegionStyle, group: Group, h: House): void {
+  const { box, panes, roof } = ctx;
+  const { wall, tile, woodwork, width, depth, front, storeys, annex, wingDepth, doorX, doorWidth, doorHeight } = h;
+  if (annex === 1) {
+    // A lean-to against one flank.
+    const side = rng.sign();
+    const leanWidth = 1.9;
+    const leanDepth = depth * rng.range(0.42, 0.55);
+    const leanHeight = STOREY * 0.85;
+    const lean = box(leanWidth, leanHeight, leanDepth, wall);
+    lean.position.set(side * (width / 2 + leanWidth / 2), COURSE, rng.jitter() * depth * 0.1);
+    group.add(lean);
+
+    const leanRoof = roof(leanDepth + 0.5, leanWidth + 0.5, 0.85, leanDepth + 0.5, tile);
+    leanRoof.rotation.y = Math.PI / 2;
+    leanRoof.position.set(lean.position.x, COURSE + leanHeight, lean.position.z);
+    group.add(leanRoof);
+  } else if (annex === 2) {
+    // A porch over the door: two posts and a pent roof. It is the one annex
+    // that reads from the front, which is the side a street sees. Its eaves
+    // clear the door's head.
+    const porchDepth = 1.5;
+    const porchHeight = COURSE + doorHeight + DOOR_HEAD + 0.3;
+    const posts = panes(2, 0.24, porchHeight, doorWidth + 0.9, woodwork, 0.24);
+    posts.position.set(doorX, 0, front + porchDepth - 0.12);
+    group.add(posts);
+    const canopy = roof(doorWidth + 1.5, porchDepth + 0.5, 0.55, doorWidth + 1.5, tile);
+    canopy.position.set(doorX, porchHeight, front + porchDepth * 0.5);
+    group.add(canopy);
+  } else if (annex === 3) {
+    // The L-wing: a lower mass at right angles across the back, taken out of
+    // the main block's depth rather than added behind it.
+    const wingWidth = width * rng.range(0.5, 0.62);
+    const wingHeight = STOREY * (storeys > 1 ? 1.55 : 1) + COURSE - 0.2;
+    const side = rng.sign();
+    const at = side * (width / 2 - wingWidth / 2);
+    const behind = -depth / 2 - wingDepth / 2 + 0.2;
+    const wing = box(wingWidth, wingHeight, wingDepth + 0.4, wall);
+    wing.position.set(at, 0, behind);
+    group.add(wing);
+    const wingRise = Math.min(style.pitch * (wingWidth / 2 + 0.5), 2.6);
+    const wingRoof = roof(wingDepth + 1.4, wingWidth + 1, wingRise, wingDepth + 1.4, tile);
+    wingRoof.rotation.y = Math.PI / 2;
+    wingRoof.position.set(at, wingHeight, behind);
+    group.add(wingRoof);
+  }
+}
 
 export const gabledHouse: ScenicPart = {
   id: 'gabled-house',
@@ -85,7 +179,7 @@ export const gabledHouse: ScenicPart = {
   note: 'One to three storeys under a pitched roof, with a base course, an eave band and framed windows.',
 
   build(ctx, rng, style) {
-    const { THREE, box, panes, tone, lit, roof, windows } = ctx;
+    const { THREE, box, tone, roof } = ctx;
     const group = new THREE.Group();
 
     const wall = rng.pick(style.walls);
@@ -183,8 +277,6 @@ export const gabledHouse: ScenicPart = {
     // door under the other. Laid out anywhere else, the door, its frame and a
     // shuttered window shared the wall on every narrow variant and crossed.
     const front = depth / 2;
-    const windowWidth = 1.35;
-    const windowHeight = 1.5;
     const bay = width / 2.6;
     const doorSide = rng.sign();
     const doorX = (doorSide * bay) / 2;
@@ -201,94 +293,11 @@ export const gabledHouse: ScenicPart = {
     door.position.set(doorX, 0, front);
     group.add(door);
 
-    // --- the windows ---
-    // `windows` merges the frames of a row into one mesh and the shutters into
-    // another, and leaves the glass one mesh a window, so the town lights this
-    // house's rooms one at a time. The back gets a bare pane row: one mesh, one
-    // room, four triangles, and nobody stands behind a house.
-    const shutters = rng.chance(0.45) ? woodwork : undefined;
-    // Which wall the second row of a floor goes on, stepped by floor. A house
-    // with all its glazing on the front and the back has two blank flanks, and
-    // a street of them is a corridor of blank walls — but a fourth row costs
-    // four triangles on every house in the world, and the worst variant
-    // measured 260 of 264 before the door took a window's bay (2026-09).
-    // Stepping the one row it does have round the building is free: a
-    // one-storey house shows a flank or a back, and a three-storey house
-    // shows all three.
-    const firstSide = rng.between(0, 2);
-    for (let floor = 0; floor < storeys; floor++) {
-      const sill = COURSE + floor * STOREY + STOREY * 0.38;
-      const framed = floor < FRAMED_FLOORS;
-      const ground = floor === 0;
-      const row = windows({
-        count: ground ? 1 : 2,
-        width: windowWidth,
-        height: windowHeight,
-        frame: surround,
-        spread: bay,
-        shutters: ground ? shutters : undefined,
-        reveal: framed ? undefined : 0,
-      });
-      row.position.set(ground ? -doorX : 0, sill, front);
-      group.add(row);
-
-      const side = (firstSide + floor) % 3;
-      const away = lit(panes(2, windowWidth, windowHeight, windowWidth * 0.8, ctx.glass));
-      if (side === 0) {
-        away.rotation.y = Math.PI;
-        away.position.set(0, sill, -front - PROUD);
-      } else {
-        const face = side === 1 ? 1 : -1;
-        away.rotation.y = (face * Math.PI) / 2;
-        away.position.set((face * width) / 2 + face * PROUD, sill, 0);
-      }
-      group.add(away);
-    }
-
-    // --- the annex, which is what the silhouette is actually made of ---
-    if (annex === 1) {
-      // A lean-to against one flank.
-      const side = rng.sign();
-      const leanWidth = 1.9;
-      const leanDepth = depth * rng.range(0.42, 0.55);
-      const leanHeight = STOREY * 0.85;
-      const lean = box(leanWidth, leanHeight, leanDepth, wall);
-      lean.position.set(side * (width / 2 + leanWidth / 2), COURSE, rng.jitter() * depth * 0.1);
-      group.add(lean);
-
-      const leanRoof = roof(leanDepth + 0.5, leanWidth + 0.5, 0.85, leanDepth + 0.5, tile);
-      leanRoof.rotation.y = Math.PI / 2;
-      leanRoof.position.set(lean.position.x, COURSE + leanHeight, lean.position.z);
-      group.add(leanRoof);
-    } else if (annex === 2) {
-      // A porch over the door: two posts and a pent roof. It is the one annex
-      // that reads from the front, which is the side a street sees.
-      // Its eaves clear the door's head, which they used to cut across.
-      const porchDepth = 1.5;
-      const porchHeight = COURSE + doorHeight + DOOR_HEAD + 0.3;
-      const posts = panes(2, 0.24, porchHeight, doorWidth + 0.9, woodwork, 0.24);
-      posts.position.set(doorX, 0, front + porchDepth - 0.12);
-      group.add(posts);
-      const canopy = roof(doorWidth + 1.5, porchDepth + 0.5, 0.55, doorWidth + 1.5, tile);
-      canopy.position.set(doorX, porchHeight, front + porchDepth * 0.5);
-      group.add(canopy);
-    } else if (annex === 3) {
-      // The L-wing: a lower mass at right angles across the back, taken out of
-      // the main block's depth rather than added behind it.
-      const wingWidth = width * rng.range(0.5, 0.62);
-      const wingHeight = STOREY * (storeys > 1 ? 1.55 : 1) + COURSE - 0.2;
-      const side = rng.sign();
-      const at = side * (width / 2 - wingWidth / 2);
-      const behind = -depth / 2 - wingDepth / 2 + 0.2;
-      const wing = box(wingWidth, wingHeight, wingDepth + 0.4, wall);
-      wing.position.set(at, 0, behind);
-      group.add(wing);
-      const wingRise = Math.min(style.pitch * (wingWidth / 2 + 0.5), 2.6);
-      const wingRoof = roof(wingDepth + 1.4, wingWidth + 1, wingRise, wingDepth + 1.4, tile);
-      wingRoof.rotation.y = Math.PI / 2;
-      wingRoof.position.set(at, wingHeight, behind);
-      group.add(wingRoof);
-    }
+    const house: House = {
+      wall, tile, surround, course, woodwork, width, depth, front, storeys, annex, wingDepth, bay, doorX, doorWidth, doorHeight,
+    };
+    addWindows(ctx, rng, group, house);
+    addAnnex(ctx, rng, style, group, house);
 
     return group;
   },

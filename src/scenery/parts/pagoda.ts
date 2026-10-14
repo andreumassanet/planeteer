@@ -2,36 +2,20 @@ import { DOOR_JAMB, PROUD, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
- * Pagoda — the civic building of East and Southeast Asia.
+ * Pagoda: the civic building of East and Southeast Asia.
  *
- * The recognition is **the stack of eaves**, and it is a rhythm rather than a
- * shape: three to five roofs, each a little smaller and a little closer to the
- * one above it than the one below. Get the taper wrong and it is a wedding cake;
- * get it right and it reads at any distance, because a repeated horizontal is
- * the one pattern the eye resolves long after it has lost the detail.
+ * The recognition is the stack of eaves, a rhythm rather than a shape: three to
+ * five roofs, each a little smaller and closer to the one above it than the one
+ * below. Each roof projects 1.3 units past its own tier, so from the ground the
+ * tiers disappear and you see only the roofs. An evenly spaced repeat is right
+ * here because every member is a different size, so the spacing reads as
+ * perspective rather than as a pattern.
  *
- * The overhang does the rest. Each roof projects 1.3 units past its own tier,
- * which at the top tier is nearly the width of the tier itself — so from the
- * ground the tiers disappear and you see only the roofs, which is exactly what
- * you see in life.
- *
- * This is the one place in the kit where an *evenly spaced* repeat is right, and
- * it is worth saying why, given "evenly spaced glaciers read as a paper crown"
- * is a lesson already paid for in this repo. A crown is a ring of identical
- * things at identical spacing seen all at once. This is a vertical series where
- * every member is a different size, so the spacing is read as perspective, not
- * as a pattern. The rule is about identical repeats, not about repeats.
- *
- * **The tones follow the conifer's rule and for the conifer's reason.** A stack
- * of identical roofs in one flat tile colour takes the same cel band on the same
- * side at every tier, so the eye sees one object with horizontal lines drawn on
- * it. Graded from a dark eave at the foot to a light one at the crown, the same
- * geometry reads as a tower standing in its own shade. Under each roof is a
- * darker soffit band — an eave this deep casts the largest shadow on the model
- * and half the day the sun is not on the face that would show it — and along
- * each ridge a darker cap. The ground tier gets a lit lattice behind timber
- * bars, one `panes` row each, which is what a lantern-lit hall looks like from
- * outside at night.
+ * Tones are graded from a dark eave at the foot to a light one at the crown (a
+ * stack of identical roofs in one flat colour takes the same cel band at every
+ * tier and reads as one object with lines on it). Under each roof is a darker
+ * soffit band, and along each ridge a darker cap. The ground tier gets a lit
+ * lattice behind timber bars, one `panes` row each.
  */
 
 const TIER_TAPER = 0.84;
@@ -126,9 +110,8 @@ export const pagoda: ScenicPart = {
 
     // --- the ground-floor hall: a door between two lit lattices ---
     // Two screens lantern-lit behind timber bars, one either side of the door.
-    // The bars are the only thing on this model an avatar standing in front of
-    // it is close enough to resolve. One screen across the middle used to run
-    // behind the door's leaves.
+    // The bars are the only thing an avatar standing in front is close enough
+    // to resolve.
     const face = groundWidth / 2;
     const floor = 0.86;
     const doorWidth = groundWidth * 0.2;

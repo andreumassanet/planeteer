@@ -11,21 +11,21 @@ import { WIND, WIND_GLSL } from './wind.ts';
 /**
  * The near wood's two materials and the texture its leaves are cut from.
  *
- * **The leaves are cards**: quads with a painted cluster of leaves on them,
+ * The leaves are cards: quads with a painted cluster of leaves on them,
  * alpha-tested, both faces drawn, lit by the crown's normal rather than their
  * own (`tree-forms.ts` puts it on every corner). The painting is done here, at
  * runtime, on a canvas — bezier leaves in greys, a needle bough, a palm frond —
  * so there is no asset to ship and the colour is the vertex's: the region's
  * green, shaded by where in the crown the card hangs.
  *
- * **The light is the reference's**: the diffuse ramp read with a wrap, so a
+ * The light is the grass's: the diffuse ramp read with a wrap, so a
  * card half turned from the sun is not in shade; the light through a leaf seen
  * against the sun, strongest at the crown's rim where the leaves are thinnest;
  * and a little of the sky at a grazing angle. The land's green (`atlasLush`),
  * the ground's weather — snow lies on a crown's top as on a roof — and the
  * near lamps and headlights at night, like the grass under it.
  *
- * **The wind is the grass's** (`wind.ts`): one clock, one strength, one
+ * The wind is the grass's (`wind.ts`): one clock, one strength, one
  * direction and the same gust fronts. A tree bends from its root as the square
  * of the height (the trunk, its limbs and its leaves together, so a card never
  * leaves its twig), sways across the wind on a slower beat, and its cards
@@ -41,13 +41,13 @@ import { WIND, WIND_GLSL } from './wind.ts';
 
 /** The height `aWind.x` is a share of: the tallest plant a near tile draws, with room. */
 export const WIND_REACH = 48;
-/** Units of sideways give per unit of height squared: the reference's 0.0035 a square metre, in units. */
+/** Units of sideways give per unit of height squared: 0.0035 a square metre, in units. */
 const SWAY = 0.0023;
-/** How far a leaf flutters, in units per unit of the reference's metres. */
+/** How far a leaf flutters, in units per unit of a metre of the reference figure. */
 const FLUTTER = 1.3;
 /** Wrap on the leaves' diffuse term: a card half turned from the sun still takes it. */
 const WRAP = 0.55;
-/** The light through a leaf seen against the sun, times its own colour: the reference's `#f4f08a` at 1.2. */
+/** The light through a leaf seen against the sun, times its own colour: `#f4f08a` at 1.2. */
 const TRANSLUCENT = new THREE.Color('#f4f08a').multiplyScalar(1.2);
 /** The atlas's side, in texels. */
 const ATLAS_SIZE = 1024;

@@ -1,23 +1,16 @@
 /**
- * Degrees of latitude and longitude to a direction from the planet's centre,
- * and back — the one conversion this project has, written once.
+ * Degrees of latitude and longitude to a direction from the planet's centre, and
+ * back: the one conversion this project has.
  *
  * `x = cos(lat) cos(lon)`, `y = sin(lat)`, `z = -cos(lat) sin(lon)`, and so
- * `lon = atan2(-z, x)`. **The `-` on z is not a taste**: without it east lands
- * where west belongs and the whole planet is mirrored, self-consistently — the
- * countries, the monuments, the pins and the pads all agree with each other and
- * only disagree with the world, so nothing on the ground can tell. This repo
- * shipped that three times, and when this file was made (2026-09-21) the
- * formula was written out by hand 59 times — 53 in `src/`, 6 in the scripts —
- * any one of which could have been the fourth.
+ * `lon = atan2(-z, x)`. The minus on z matters: without it east lands where west
+ * belongs and the whole planet is mirrored, self-consistently, so nothing on the
+ * ground can tell. `pnpm check` holds this file to the textbook formula and to
+ * two facts about the Earth, and fails on a conversion written out by hand
+ * anywhere else in `src/` (the GLSL, which cannot import, is the one exception).
  *
  * A leaf that imports nothing, so the hot loops in `terrain.ts`, the maps and
- * the Node-run bakes and checks can all reach it without dragging `globe.ts`
- * in. `globe.ts`'s `onSphere`, `geo.ts`'s `toLatLon` and `cartography.ts`'s
- * `toUnit` are this file under the names their callers already knew. `pnpm
- * check` holds every one of them to the textbook formula and to two facts about
- * the Earth, and fails on a conversion written out by hand anywhere else in
- * `src/` (the GLSL, which cannot import, is the exception it knows about).
+ * the Node-run bakes and checks can reach it without dragging `globe.ts` in.
  */
 
 const DEG = Math.PI / 180;
@@ -44,8 +37,8 @@ export function unitAt<T extends XYZ>(lat: number, lon: number, target: T): T {
 }
 
 /**
- * The same, into three consecutive slots of a flat array from `at` — a typed
- * array of directions, or a plain one.
+ * The same, into three consecutive slots of a flat array from `at` (a typed
+ * array of directions, or a plain one).
  */
 export function toUnit(lat: number, lon: number, out: { [index: number]: number }, at = 0): void {
   const c = Math.cos(lat * DEG);
@@ -55,7 +48,7 @@ export function toUnit(lat: number, lon: number, out: { [index: number]: number 
 }
 
 /**
- * Latitude in degrees of a **unit** vector, from its `y` alone. Clamped, because
+ * Latitude in degrees of a unit vector, from its `y` alone. Clamped, because
  * a normalised vector's `y` rounds past 1 near a pole and `asin` of that is NaN.
  */
 export function latOf(y: number): number {

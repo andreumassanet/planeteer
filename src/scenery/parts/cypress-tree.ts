@@ -5,8 +5,7 @@ import { solidTree, treeForm } from '../tree-forms.ts';
 
 /**
  * Cypress: the Mediterranean's dark flame, small clusters of fine leaves
- * stacked tight up a short bole (`tree-forms.ts`). Kenney's cone tree drawn
- * narrow until 2026-09-28; no pack in the style had a cypress.
+ * stacked tight up a short bole (`tree-forms.ts`).
  */
 
 const FOOTPRINT = 3.1;

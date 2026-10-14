@@ -6,11 +6,11 @@ import type { Paint } from '../../models.ts';
  * Traffic light: Kenney's from City Kit (Roads) (CC0), 212 triangles, its post
  * in the region's trim and its three lamps lit after dark.
  *
- * **Placed by `settlements.ts` and by nothing else**, like `street-lamp`: four
- * of them, one on each pavement corner of a city's middle crossing, each
- * facing the traffic that comes in by the street beside it, in a region built
- * from the City Kits and a place over `TOWER_URBANITY`. The model's lamps face
- * its local -x, which is the direction `Ground.signals` turns.
+ * Placed by `settlements.ts` and by nothing else, like `street-lamp`: four of
+ * them, one on each pavement corner of a city's middle crossing, each facing
+ * the traffic that comes in by the street beside it, in a region built from the
+ * City Kits and a place over `TOWER_URBANITY`. The model's lamps face its local
+ * -x, which is the direction `Ground.signals` turns.
  */
 
 /** A lamp's swatch is saturated; the post and the housing are greys. */

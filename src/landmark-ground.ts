@@ -1,29 +1,20 @@
 /**
  * The ground a landmark takes: its plan, and what keeps off it.
  *
- * **A landmark was a disc, and the disc was the platform.** Every question the
- * world asked about a monument's ground — how much the relief is levelled, what
- * a town leaves unbuilt, where a tree may not grow — was asked of one circle,
- * the model's declared `footprint`, which is the radius the contract holds its
- * *furthest* vertex to. For a square model that is a fair answer. For most of
- * them it is not: the Alhambra is 94 units long and 18 deep and stood in the
- * middle of a level disc 136 across; Tower Bridge, the Charles Bridge and the
- * Brandenburg Gate are a line with a circle of empty ground round it. What a
- * player saw was the circle, not the building.
+ * A landmark carries its plan: the box its model's own triangles stand in, in
+ * the model's north-up frame, measured by `build-monuments.ts` when it bakes
+ * the placement (`plan` in `monuments.json`). How much the relief is levelled,
+ * what a town leaves unbuilt and where a tree may not grow are all distances
+ * from the ground that box and the footprint's disc both hold (see
+ * `PlanShape`). A site with no plan (a landmark with no model yet, or a
+ * hand-written site) falls back to the disc of its footprint, which is the same
+ * function with a box of no bounds.
  *
- * So a landmark carries its **plan**: the box its model's own triangles stand
- * in, in the model's own north-up frame, measured by `build-monuments.ts` when
- * it bakes the placement (`plan` in `monuments.json`). Everything here is a
- * distance from the ground that box and the footprint's disc both hold (see
- * `PlanShape`), and a site with no plan — a landmark with no model yet, or a
- * hand-written site — falls back to the old disc of its footprint, which is
- * the same function with a box of no bounds.
- *
- * **The frame is the town's** (`townFrame` in `scenery/grid.ts`) **and the
- * model's** (`placement.ts`): `x` along `up x north`, `z` along north, both on
- * the tangent plane at the landmark. A direction `p` on the unit sphere is at
- * `(R p.across, R p.north)` there, which is exact to the tenth of a unit out to
- * a thousand units at this radius and is what `settlements.ts` already does.
+ * The frame is the town's (`townFrame` in `scenery/grid.ts`) and the model's
+ * (`placement.ts`): `x` along `up x north`, `z` along north, both on the tangent
+ * plane at the landmark. A direction `p` on the unit sphere is at
+ * `(R p.across, R p.north)` there, which is accurate to a tenth of a unit out to
+ * a thousand units at this radius.
  *
  * Node-safe and free of Three, so the bakes, the checks and `terrain.ts` read
  * it as they are.
@@ -47,21 +38,17 @@ export interface LandmarkSite {
 
 /**
  * Ground kept clear round a landmark's plan, in world units: no building, no
- * gate, no carriageway. Eight is a street and its two pavements — what a town
- * leaves between the landmark and its first house, and a road between the
- * landmark and its kerb.
+ * gate, no carriageway. Eight is a street and its two pavements.
  */
 export const LANDMARK_KEEP = 8;
 
 /**
  * A plan as the ground it holds: the box, and the footprint's disc about the
- * landmark's own point. **The model is inside both** — the box by measurement,
- * the disc by contract — so the ground it stands on is their intersection,
- * and that is tighter than either: a square box's corners are empty wherever
- * the model is round (the Colosseum, Mount Fuji), and the disc is empty
- * wherever it is long (the Alhambra, every bridge). A site with no plan has an
- * unbounded box, and its ground is the disc alone, which is what every
- * landmark's was.
+ * landmark's own point. The model is inside both (the box by measurement, the
+ * disc by contract), so its ground is their intersection: tighter than either,
+ * since a square box's corners are empty where the model is round and the disc
+ * is empty where it is long. A site with no plan has an unbounded box, and its
+ * ground is the disc alone.
  */
 export interface PlanShape {
   cx: number;
@@ -287,19 +274,18 @@ const ARRIVAL_TURNS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6].map((k) => (k * 
  * A point on the unit sphere carried out of every landmark plan it is within
  * `clearance` of, written into `out` (which may be `p`); true when it moved.
  *
- * **A body put down inside a model has no way out.** A monument's walls are
- * measured off its own triangles from outside (`scenery/occupancy.ts`), so
- * the push-out that frees a body from a building never fires from inside a
- * dome or a tower, and a town's own point — where the menu, `/goto` and a
- * link all arrive — can fall inside its landmark's plan: New York's is eight
- * units off the Statue of Liberty's. So every arrival is asked here first.
+ * A body put down inside a model has no way out: a monument's walls are
+ * measured from outside (`scenery/occupancy.ts`), so the push-out never fires
+ * from inside a dome or tower, and a town's own point (where the menu, `/goto`
+ * and a link arrive) can fall inside its landmark's plan. Every arrival is
+ * asked here first.
  *
  * The point is walked out along a ray from the landmark's own point, straight
  * away from it first and then turned a twelfth of a circle at a time, until
- * `planGap` clears `clearance`. The first ray whose end is clear of every
- * plan and that `accept` takes (dry ground, for a caller that has the land)
- * wins; else the first clear of every plan; else straight out, and the next
- * plan it is in is cleared in turn, up to four rounds.
+ * `planGap` clears `clearance`. The first ray whose end is clear of every plan
+ * and that `accept` takes (dry ground, for a caller that has the land) wins;
+ * else the first clear of every plan; else straight out, and the next plan it
+ * is in is cleared in turn, up to four rounds.
  */
 export function clearOfPlans(
   p: XYZ,
