@@ -2,7 +2,7 @@ import type { Vehicle } from '../contract.ts';
 
 /**
  * Sailing dinghy: Kenney's `boat-sail-a` (Watercraft Kit, CC0), fitted by
- * length to the code dinghy's 4.62 and sitting `SINK` into the water.
+ * length to 4.62 and sitting `SINK` into the water.
  */
 const MODEL = 'boat-sail-a';
 const SINK = 0.35;

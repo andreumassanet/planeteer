@@ -1,13 +1,10 @@
 import type { Vehicle } from '../contract.ts';
 
 /**
- * Bicycle: Quaternius's `SquareFrameBicycle` (Public Transport, CC0), fitted by
- * length to the 2.5 the code bicycle was. The pack's handlebars make it 0.26
- * as wide as it is long, so it is 0.64 across the bars.
- *
- * The one road vehicle that keeps its rider, and the mount is measured off the
- * model rather than carried over: the saddle's top is 0.481 of the length up
- * and 0.161 behind the middle, the bars 0.541 up and 0.253 ahead.
+ * Bicycle: Quaternius's `SquareFrameBicycle` (Public Transport, CC0), fitted
+ * by length. The only road vehicle that keeps its rider; the mount is measured
+ * off the model (saddle top 0.481 of the length up and 0.161 behind the
+ * middle, bars 0.541 up and 0.253 ahead).
  */
 const MODEL = 'bicycle';
 const LENGTH = 2.5;

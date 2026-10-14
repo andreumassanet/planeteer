@@ -1,25 +1,22 @@
 /**
  * A rocket on its pad: the way off a world.
  *
- * Walk up to one, `E` gets in, and **`Space` held** lights it: the engine
- * coughs and builds, smoke rolls out across the pad, the ground shakes, and
- * when the ignition is full the clamps let go and it climbs — slowly, then
- * faster, the flame and a column of smoke under it — with the camera on the
- * ground beside the pad watching it go, until it is high enough that the
- * curtain comes down and the world hands you back to the solar system. Let
- * go of `Space` before the ignition is full and it dies down again; `E` gets
- * out at any moment before it leaves the pad.
+ * Walk up to one, `E` gets in, and `Space` held lights it: the engine coughs
+ * and builds, smoke rolls out across the pad, the ground shakes, and when the
+ * ignition is full the clamps let go and it climbs, with the camera on the
+ * ground beside the pad watching it go, until the curtain comes down and the
+ * world hands you back to the solar system. Let go of `Space` before the
+ * ignition is full and it dies down again; `E` gets out at any moment before it
+ * leaves the pad.
  *
- * **Nobody owns one and none is ever used up.** A launch is the player's own:
+ * Nobody owns one and none is ever used up: a launch is the player's own,
  * nothing goes on the wire, and the rocket that left is back on its pad the
- * next time the world is built — which, for whoever launched it, is the next
- * visit. Online, every player sees every pad full. The ones nobody boards
- * launch on their own now and then (`autolaunch`), which is the sight a pad
- * is there for: a column of smoke going up beyond the next town.
+ * next time the world is built. The ones nobody boards launch on their own now
+ * and then (`autolaunch`).
  *
- * Code-built, as the monuments are — primitives on the world's ramp, inked —
- * and drawn in separate meshes, because it moves; the pad and the tower beside
- * it stay. The exhaust is `effects.ts`'s puffs (`Effects.plume`), the sound is
+ * Code-built, as the monuments are (primitives on the world's ramp, inked) and
+ * drawn in separate meshes, because it moves; the pad and the tower beside it
+ * stay. The exhaust is `effects.ts`'s puffs (`Effects.plume`), the sound is
  * synthesised here: a roar of filtered noise over a low rumble, crackle on
  * top, rising with the thrust and falling away with the distance.
  */
@@ -167,12 +164,10 @@ function part(pieces: Piece[], geometry: THREE.BufferGeometry, color: number, x:
 }
 
 /**
- * An assembly — the vehicle, or the pad and its tower — as one mesh a
- * colour: its pieces merged by colour once a ramp (`Kit.assemblies`), and
- * every rocket drawing the same few shapes. Piece by piece a rocket was 24
- * meshes, 48 draws with the ink's pass; Earth stands several within sight of
- * a crowded delta's airstrips, and merged it is 9. A merged mesh is still
- * hulled per triangle, so every piece keeps its line.
+ * An assembly (the vehicle, or the pad and its tower) as one mesh a colour:
+ * its pieces merged by colour once a ramp (`Kit.assemblies`), and every rocket
+ * drawing the same few shapes. A merged mesh is still hulled per triangle, so
+ * every piece keeps its line.
  */
 function assemble(kit: Kit, gradientMap: THREE.Texture, key: string, make: () => Piece[]): THREE.Group {
   let colours = kit.assemblies.get(key);
@@ -352,8 +347,7 @@ interface Roar {
 
 /**
  * Two seconds of the roar's noise, made once a context and shared by every
- * roar: 96,000 random samples on the main thread each time one came into
- * earshot was a stall, and every frame while it was being rebuilt.
+ * roar: rebuilding it each time one came into earshot would stall.
  */
 const noises = new WeakMap<BaseAudioContext, AudioBuffer>();
 function noiseBuffer(context: AudioContext): AudioBuffer {
@@ -438,6 +432,70 @@ export function watchHeading(up: THREE.Vector3, toward: THREE.Vector3, out: THRE
 
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 
+/** The sound of one rocket: started when it comes into earshot, let go when it falls silent or its output changes. */
+function createRoarTrack(): { follow(sound: RocketSound | null, power: number, near: number, manned: boolean, flicker: number): void; silence(): void } {
+  let roar: Roar | null = null;
+  let roarOn: RocketSound | null = null;
+  function silence(): void {
+    if (roar !== null) stopRoar(roar);
+    roar = null;
+    roarOn = null;
+  }
+  return {
+    silence,
+    follow(sound, power, near, manned, flicker) {
+      // By its context and node: Earth's frame hands a new object each time,
+      // and by identity the roar would be torn down and started again every
+      // frame.
+      if (!sameSound(sound, roarOn)) silence();
+      if (power > 0 && near > 0 && sound !== null) {
+        if (roar === null) {
+          roar = startRoar(sound);
+          roarOn = sound;
+        }
+        const now = sound.context.currentTime;
+        const loud = power * near * near * (manned ? 1 : 0.7);
+        roar.gain.gain.setTargetAtTime(0.55 * loud, now, 0.12);
+        roar.low.frequency.setTargetAtTime(160 + 900 * power * near, now, 0.2);
+        roar.crackle.gain.setTargetAtTime(0.35 * power * flicker, now, 0.05);
+        roar.rumble.gain.setTargetAtTime(0.5 * power, now, 0.2);
+      } else if (roar !== null && (power === 0 || near === 0)) silence();
+    },
+  };
+}
+
+const lensEye = new THREE.Vector3();
+const lensAim = new THREE.Vector3();
+const lensShake = new THREE.Vector3();
+
+/** The lens on the ground beside the pad, watching a rocket `height` up climb. */
+function watchLens(
+  camera: THREE.PerspectiveCamera,
+  dt: number,
+  pad: { position: THREE.Vector3; side: THREE.Vector3; ahead: THREE.Vector3; up: THREE.Vector3 },
+  height: number,
+  power: number,
+): void {
+  const { position, side, ahead, up } = pad;
+  // Off the tower's side, rising slower than the rocket so it climbs up the
+  // frame and away.
+  lensEye.copy(position)
+    .addScaledVector(side, ROCKET_HEIGHT * WATCH_SIDE)
+    .addScaledVector(ahead, ROCKET_HEIGHT * WATCH_AHEAD)
+    .addScaledVector(up, H * 1.6 + Math.min(height * 0.22, ROCKET_HEIGHT * 3));
+  lensAim.copy(position).addScaledVector(up, height + ROCKET_HEIGHT * 0.5);
+  const reach = H * 0.05 * power;
+  lensShake.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(reach);
+  camera.position.copy(lensEye).add(lensShake);
+  camera.up.copy(up);
+  camera.lookAt(lensAim);
+  // Wider as it climbs, so it stays in the frame longer.
+  const fov = 50 + Math.min(16, height / 20);
+  camera.fov += (fov - camera.fov) * Math.min(1, dt * 3);
+  camera.near = 0.5;
+  camera.updateProjectionMatrix();
+}
+
 /**
  * A rocket standing at `at` (on the ground) with `up` its world's up there,
  * its porthole and its tower turned by `heading` (a tangent).
@@ -470,14 +528,10 @@ export function createRocket(at: THREE.Vector3, up: THREE.Vector3, heading: THRE
   let manned = false;
   let emptyFor = 0;
   let passenger: THREE.Object3D | null = null;
-  let roar: Roar | null = null;
-  let roarOn: RocketSound | null = null;
+  const roar = createRoarTrack();
   const carry = new Float64Array(2);
   const seat = new THREE.Vector3();
   const mouth = new THREE.Vector3();
-  const eye = new THREE.Vector3();
-  const aim = new THREE.Vector3();
-  const shake = new THREE.Vector3();
 
   function place(): void {
     vehicle.position.y = height;
@@ -485,11 +539,7 @@ export function createRocket(at: THREE.Vector3, up: THREE.Vector3, heading: THRE
   }
   place();
 
-  function silence(): void {
-    if (roar !== null) stopRoar(roar);
-    roar = null;
-    roarOn = null;
-  }
+  const silence = roar.silence;
 
   const rocket: Rocket = {
     object,
@@ -569,42 +619,11 @@ export function createRocket(at: THREE.Vector3, up: THREE.Vector3, heading: THRE
 
       const away = listener.distanceTo(mouth);
       const near = Math.max(0, 1 - away / EARSHOT);
-      // By its context and node: Earth's frame hands a new object each time,
-      // and by identity the roar was torn down and started again every frame
-      // — fifty chains overlapping, none of them ever reaching its level.
-      if (!sameSound(sound, roarOn)) silence();
-      if (power > 0 && near > 0 && sound !== null) {
-        if (roar === null) {
-          roar = startRoar(sound);
-          roarOn = sound;
-        }
-        const now = sound.context.currentTime;
-        const loud = power * near * near * (manned ? 1 : 0.7);
-        roar.gain.gain.setTargetAtTime(0.55 * loud, now, 0.12);
-        roar.low.frequency.setTargetAtTime(160 + 900 * power * near, now, 0.2);
-        roar.crackle.gain.setTargetAtTime(0.35 * power * flicker, now, 0.05);
-        roar.rumble.gain.setTargetAtTime(0.5 * power, now, 0.2);
-      } else if (roar !== null && (power === 0 || near === 0)) silence();
+      roar.follow(sound, power, near, manned, flicker);
     },
     frame(camera, dt) {
-      // On the ground beside the pad, off the tower's side, rising slower than
-      // the rocket so it climbs up the frame and away.
-      eye.copy(position)
-        .addScaledVector(side, ROCKET_HEIGHT * WATCH_SIDE)
-        .addScaledVector(ahead, ROCKET_HEIGHT * WATCH_AHEAD)
-        .addScaledVector(upward, H * 1.6 + Math.min(height * 0.22, ROCKET_HEIGHT * 3));
-      aim.copy(position).addScaledVector(upward, height + ROCKET_HEIGHT * 0.5);
       const power = state === 'flying' ? Math.max(0, 1 - height / 500) : ignition * 0.6;
-      const reach = H * 0.05 * power;
-      shake.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(reach);
-      camera.position.copy(eye).add(shake);
-      camera.up.copy(upward);
-      camera.lookAt(aim);
-      // Wider as it climbs, so it stays in the frame longer.
-      const fov = 50 + Math.min(16, height / 20);
-      camera.fov += (fov - camera.fov) * Math.min(1, dt * 3);
-      camera.near = 0.5;
-      camera.updateProjectionMatrix();
+      watchLens(camera, dt, { position, side, ahead, up: upward }, height, power);
     },
     reset() {
       silence();

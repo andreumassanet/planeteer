@@ -1,9 +1,8 @@
 import type { Vehicle } from '../contract.ts';
 
 /**
- * Pickup: Kenney's `truck` (Car Kit, CC0), an open bed behind a cab. The code
- * pickup stood a rider in the bed; the asset's bed is shallow enough that the
- * seated envelope would stand proud of it, and nothing here needs one.
+ * Pickup: Kenney's `truck` (Car Kit, CC0), an open bed behind a cab. The bed is
+ * too shallow to hold a seated rider, so it has no mount.
  */
 const MODEL = 'truck';
 

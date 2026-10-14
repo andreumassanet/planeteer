@@ -1,16 +1,8 @@
 /**
- * The llama. The Andes, and nowhere else on the planet — `RANGE` gives it
- * `latin-america` alone, which is the only entry in this kit whose range is a
- * mountain range rather than a continent.
- *
- * It reaches its ground through the *biome* rather than through a country: the
- * high Andes come back `rock` and `steppe` from `biomeAt`, and both of those
- * carry a llama. The pair is the mechanism the fauna is built on — the climate
- * says a llama could live here, the region says only the Andes may.
- *
- * Everything about the silhouette is above the shoulder: a neck two thirds of
- * the standing height, a small head on top of it, and the ears. A llama is a
- * sheep's body carrying a giraffe's arrangement.
+ * The llama: the Andes only (`RANGE` gives it `latin-america`, and the high
+ * Andes come back `rock` and `steppe` from `biomeAt`, both of which carry it).
+ * The silhouette is above the shoulder: a neck two thirds of the standing
+ * height, a small head and long ears.
  */
 import { buildAnimal } from '../body.ts';
 import { coatFor, atFaunaScale } from '../contract.ts';
@@ -38,7 +30,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     barrelWidth: 0.37 * s,
     chestFore: 0.98,
 
-    // Two thirds of the standing height, and nearly upright. This is the animal.
+    // Two thirds of the standing height, nearly upright.
     neckLength: 0.62 * s,
     neckRise: 1.16,
     neckThick: 0.14 * s,
@@ -46,8 +38,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     headDepth: 0.16 * s,
     headWidth: 0.12 * s,
     muzzle: 0.78,
-    // The bananas. Longer than the head is deep, and they are half of what
-    // separates a llama from a small pale horse at any distance at all.
+    // Banana ears, longer than the head is deep.
     ear: 0.17 * s,
     earFlare: 0.36,
 

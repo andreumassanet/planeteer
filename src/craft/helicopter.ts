@@ -2,22 +2,18 @@
  * The helicopter: a light two-by-two, a bubble cabin on skids, a tail boom and
  * a two-bladed rotor.
  *
- * **Built round four seated bodies**, as the plane is: two abreast forward and
- * two behind, the floor a sole-to-hip under the hips, the cabin's roof a crown
- * and more over them. **The bubble is glass you see through** (since
- * 2026-10-04): the belly is a tub, a well cut into the fuselage to the waist
+ * Built round four seated bodies, as the plane is: two abreast forward and two
+ * behind, the floor a sole-to-hip under the hips, the cabin's roof a crown and
+ * more over them. The belly is a tub, a well cut into the fuselage to the waist
  * as the plane's cockpit is, and over it an open arch of see-through glass
- * from the waist up (`canopyGlass`), so the four inside are seen and see out.
- * Inside, an instrument console between the front seats, a cyclic by the
- * pilot's knee and a collective by his hip (`cabin.ts`). What reads from
- * outside is still the silhouette — the bubble forward, the boom thinning aft
- * to a fin and a tail rotor, the skids, and the rotor, which is most of the
- * machine's width.
+ * from the waist up (`canopyGlass`). Inside, an instrument console between the
+ * front seats, a cyclic by the pilot's knee and a collective by his hip
+ * (`cabin.ts`).
  *
- * **What turns.** The rotor is a `'rotor'` about +Y on its mast, and the tail
- * rotor a `'tail'` about +X on the fin's left side; the motion spins them up
- * when somebody is at the controls, winds them down when nobody is, and puts a
- * pale disc where the blades sweep at speed, as it does for a propeller.
+ * The rotor is a `'rotor'` about +Y on its mast, and the tail rotor a `'tail'`
+ * about +X on the fin's left side; the motion spins them up when somebody is at
+ * the controls, winds them down when nobody is, and puts a pale disc where the
+ * blades sweep at speed, as it does for a propeller.
  *
  * Skids on y = 0; one metre is the body's own, `AVATAR_HEIGHT / 1.75`.
  */
@@ -218,10 +214,9 @@ function buildHelicopter(variant: number): THREE.Group {
 /**
  * The bubble: an open arch of glass from the waist on one side over the roof
  * to the waist on the other, from the rear bulkhead to the nose, where it
- * closes on a small cap. Built as faces, not as a loft, because a loft is a
- * closed solid and a closed bubble would put a sheet of glass across the
- * cabin at the waist; glass has no ink and is drawn both sides, so which way
- * it is wound does not matter.
+ * closes on a small cap. Built as faces, not as a loft, because a closed loft
+ * would put a sheet of glass across the cabin at the waist; glass has no ink
+ * and is drawn both sides, so the winding does not matter.
  */
 /** The bubble's sections, aft to fore: an arch each, from the waist on one side over the roof to the other. */
 function canopyStations(waist: number): { z: number; ring: [number, number][] }[] {
@@ -247,10 +242,9 @@ function canopyStations(waist: number): { z: number; ring: [number, number][] }[
 }
 
 /**
- * The bubble's frame: a bar along each of its two middle arches and one
- * down its spine, in the paint, just outside the glass — what makes a
- * see-through bubble read as a canopy from the seat and from the chase
- * camera, where glass alone is a sheen with no edges.
+ * The bubble's frame: a bar along each of its two middle arches and one down
+ * its spine, in the paint, just outside the glass, so the canopy reads from
+ * the seat and from the chase camera.
  */
 function canopyFrame(waist: number, colour: number): THREE.Group {
   const { strut } = craftContext();

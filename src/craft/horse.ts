@@ -2,39 +2,27 @@
  * The horse you can ride: Quaternius's horse (Ultimate Animated Animals, CC0),
  * the herds' own rig, saddled, with a seat on its back.
  *
- * **It is the herds' horse, at the herds' size.** The rig and the coats are
- * the herds' (`fauna/parts/horse.ts`), and so is the scale (`rigScale`):
- * fitted by its length, as the herds once were, a horse's back stood 1.28
- * bodies up, a saddle at a person's crown, which is a draught horse under a
- * child. A horse's withers are 1.6 m against a 1.75 m person, 0.91 of him,
- * and a horse somebody sits on reads by that ratio before it reads by
- * anything else; so the rig is scaled until the top of its back is `WITHERS`
- * of `AVATAR_HEIGHT`, a little over life, since the rider's legs have to reach
- * down its sides, and the herds' horses stand at the same number. What makes it a craft is a
- * saddle and a seat: the seat is found on the rig itself — on the back a
- * third of the way from the forelegs to the hind legs, in the hollow behind
- * the withers where a saddle sits, never on the withers or the neck — and the
- * saddle is laid there, its seat on the hip.
+ * The rig, coats and scale (`rigScale`) are the herds' (`fauna/parts/horse.ts`):
+ * the rig is scaled until the top of its back is `WITHERS` of `AVATAR_HEIGHT`
+ * (a little over life, since the rider's legs must reach down its sides). The
+ * seat is found on the rig itself, on the back a third of the way from the
+ * forelegs to the hind legs, in the hollow behind the withers.
  *
- * **The saddle is fitted to the barrel it sits on.** The rig's own cross
- * sections under it are measured at rest and each one wrapped in the
- * smallest superellipse that holds all its vertices (`Barrel`), so a cloth,
- * a seat, a girth and a flap laid a few hundredths out from it lie on the
- * horse rather than through it or over it: a saddle cloth down both flanks,
- * a leather seat over it rising to a pommel in front and a cantle behind, a
- * girth round the belly, and a stirrup on a leather down each side, where the
- * rider's feet are.
+ * The saddle is fitted to the barrel: the rig's cross sections under it are
+ * measured at rest and each wrapped in the smallest superellipse that holds
+ * its vertices (`Barrel`), so a cloth, a seat, a girth and a flap laid a few
+ * hundredths out from it lie on the horse, with a stirrup on a leather down
+ * each side.
  *
- * **It jumps.** `Space` sends it up (`player.ts`), and the motion plays the
- * pack's `Gallop_Jump` for a leap at speed and `Jump_toIdle` from a standstill
+ * `Space` sends it up (`player.ts`), and the motion plays the pack's
+ * `Gallop_Jump` for a leap at speed and `Jump_toIdle` from a standstill
  * (`craft/motion.ts`), both baked for it (`pnpm kit`).
  *
- * **It walks and gallops.** The rig is a child named `'rig'` carrying its
- * skinned body and its mixer, and the motion plays it (`craft/motion.ts`):
- * idle standing, the walk clip under a trot, the gallop over it, each at the
- * rate that keeps the hooves from sliding. The saddle and the seats ride the
- * back as it rises and falls, through the bone under the saddle, which is
- * named on the rig (`userData.back`) for the motion to follow.
+ * The rig is a child named `'rig'` carrying its skinned body and its mixer,
+ * which the motion plays: idle standing, the walk clip under a trot, the
+ * gallop over it, each at the rate that keeps the hooves from sliding. The
+ * saddle and the seats ride the back through the bone under the saddle
+ * (`userData.back`).
  *
  * Six coats, by variant: bay, chestnut, black, grey, dun and palomino.
  */
@@ -55,7 +43,7 @@ import { assemble, craftContext, finish, soupOf } from './build.ts';
 
 const H = AVATAR_HEIGHT;
 
-/** The top of the back under the saddle, as a share of `AVATAR_HEIGHT`: the herds' horse's, see above. */
+/** The top of the back under the saddle, as a share of `AVATAR_HEIGHT`. */
 export { WITHERS };
 
 /** Coat, the belly's and the mane's, tail's and hooves': the six a riding stable has. */
@@ -178,11 +166,9 @@ const OFF_THE_GROUND = 0.15;
 
 /**
  * The pack's jumps lift the whole horse, which a ridden one must not do: the
- * player's own jump already lifts it (`player.ts`), and the two together are
- * twice the leap. So each jump clip is measured once, here, for how high its
- * lowest hoof is through it, and the motion lowers the rig by that as it plays
- * (`craft/motion.ts`): the legs gather and stretch as the pack drew them, and
- * the height is the player's.
+ * player's own jump already lifts it (`player.ts`). So each jump clip is
+ * measured once for how high its lowest hoof is through it, and the motion
+ * lowers the rig by that as it plays (`craft/motion.ts`).
  */
 function measureJumps(rig: Rig, k: number): Record<string, JumpCurve> {
   const { holder } = fitted(rig, 0, k);
@@ -344,17 +330,11 @@ function onSection(section: Section, theta: number, out: number, into: THREE.Vec
 }
 
 /**
- * A shell laid over the barrel: a grid of `thetas` round it by `zs` along
- * it, its inside `inner(theta, z)` off the surface and its outside
- * `outer(theta, z)` off it, closed at all four edges, and underneath where
- * `under` says. The underside lies on the horse, in the hundredths between
- * the barrel and the section that holds it, but the cloth's flaps stand off
- * the flanks the section rounds past, and from the saddle or a low lens the
- * open shell showed the culled inside of every face, which read as nothing
- * there; so the cloth's inside is a face of its own, looking in. The seat's
- * lies on the cloth and the girth's on the belly, and nothing sees them.
- * Each triangle is wound to face the way its face looks — out, in, or along
- * the edge it closes.
+ * A shell laid over the barrel: a grid of `thetas` round it by `zs` along it,
+ * its inside `inner(theta, z)` off the surface and its outside `outer(theta, z)`
+ * off it, closed at all four edges, and underneath where `under` says. The
+ * cloth's flaps stand off the flanks, so its inside is a face of its own,
+ * looking in. Each triangle is wound to face the way its face looks.
  */
 function shell(
   sections: (z: number) => Section,

@@ -3,25 +3,20 @@
  * (`player.ts`): a ram-air canopy over the head, its cells a gradient from a
  * gold centre to crimson tips, on fans of lines to the two hands.
  *
- * **A wing, not a row of boxes.** Each cell is a closed shell through three
- * ribs that stand on radii of the arc the span is bent round, so neighbours
- * share a rib exactly and leave no wedge between them; the section is an
- * airfoil, thick and blunt at the nose and thin at the tail, and the rib in
- * the middle of a cell is a little deeper than the two at its ends, which is
- * the pillow every ram-air cell blows up into and gives the pen one line a
- * rib. Each shell's winding is checked by its signed volume (`signedVolume`),
- * as every lofted shell in this world is.
+ * Each cell is a closed shell through three ribs that stand on radii of the
+ * arc the span is bent round, so neighbours share a rib exactly; the section is
+ * an airfoil, and the middle rib of a cell is a little deeper than its ends
+ * (the pillow every ram-air cell blows up into). Each shell's winding is
+ * checked by its signed volume (`signedVolume`).
  *
- * **The lines end in the hands.** The body under it holds the toggles at
- * `CHUTE_GRIP` (`avatar.ts`'s `skydive` puts each hand there), so the canopy,
- * its lines and the hands are one figure; the whole hangs from the grip, and
- * opening it out and swinging it in a turn are both about that point
+ * The lines end in the hands. The body under it holds the toggles at
+ * `CHUTE_GRIP` (`avatar.ts`'s `skydive` puts each hand there), and opening the
+ * canopy out and swinging it in a turn are both about that point
  * (`openCanopy`), as `player.ts` swings the body.
  *
- * **Built like a craft and drawn like one**: merged into one soup with the
- * colour on the vertices (`build.ts`), so the canopy is one draw call and one
- * hull. It hangs in the player's own frame, soles at the origin, +Z the way
- * the body faces, and its chord runs along it: a canopy flies forward.
+ * Merged into one soup with the colour on the vertices (`build.ts`): one draw
+ * call and one hull. It hangs in the player's own frame, soles at the origin,
+ * +Z the way the body faces, and its chord runs along it.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -31,18 +26,16 @@ import { assemble, craftContext, signedVolume, soupOf } from './build.ts';
 const H = AVATAR_HEIGHT;
 /**
  * Where each hand holds its toggle, in the player's frame, the left hand's
- * (+X is the body's left; the right is mirrored): at the height of the
- * brow, a little ahead of the face and outside the shoulders, which the
- * cast's arm reaches with the elbow bent (`pnpm craft` holds both wrists on
- * it). At 1.04 of the height, the first guess, the arm was straight and still
- * 0.24 short.
+ * (+X is the body's left; the right is mirrored): at the height of the brow, a
+ * little ahead of the face and outside the shoulders, which the cast's arm
+ * reaches with the elbow bent (`pnpm craft` holds both wrists on it).
  */
 export const CHUTE_GRIP: readonly [number, number, number] = [0.13 * H, 0.95 * H, 0.04 * H];
 /**
- * How far a toggle comes down at a full turn: the hand on the turn's side
- * pulls its steering line from the brow to the chest, and a little forward
- * (a quarter of it). `avatar.ts`'s `skydive` moves the hand and
- * `openCanopy` the line, by this one number.
+ * How far a toggle comes down at a full turn: the hand on the turn's side pulls
+ * its steering line from the brow to the chest, and a little forward (a
+ * quarter of it). `avatar.ts`'s `skydive` moves the hand and `openCanopy` the
+ * line, by this one number.
  */
 export const CHUTE_PULL = 0.22 * H;
 /** How many cells the canopy is, and the arc they lie on: its radius, and its half-angle. */
@@ -206,8 +199,7 @@ interface Toggle {
 export const CANOPY_OPENING = 0.6;
 /**
  * The canopy breathing in flight: its span and its depth swell and ease by
- * these shares, out of step, at `BREATH_RATE` Hz; a ram-air wing is a bag
- * of air the wind keeps topping up, never a rigid shell.
+ * these shares, out of step, at `BREATH_RATE` Hz.
  */
 const BREATH_SPAN = 0.012;
 const BREATH_DEPTH = 0.03;
@@ -248,23 +240,19 @@ export function openCanopy(canopy: THREE.Object3D, seconds: number, lean: number
 
 /**
  * Out of an aircraft in flight: a fall, and a canopy the jump key opens and
- * stows as often as wanted — until `CHUTE_FORCED` over the ground, where it
+ * stows as often as wanted, until `CHUTE_FORCED` over the ground, where it
  * opens by itself and stays open to the ground.
  *
  * Falling, the body comes down at `FREEFALL_RATE` of its height over the
- * ground a second, never slower than `FREEFALL_MIN` — a real fall's terminal
- * speed would take a minute from cruise height, and this takes a quarter of
- * that from the ceiling — and `W` dives it head down, `FREEFALL_DIVE` faster.
- * The movement keys track it across the ground as they walk a body, towards
- * the camera's way, up to `FREEFALL_TRACK`, and it faces where the camera
- * looks.
+ * ground a second, never slower than `FREEFALL_MIN`, and `W` dives it head
+ * down, `FREEFALL_DIVE` faster. The movement keys track it across the ground
+ * towards the camera's way, up to `FREEFALL_TRACK`, and it faces where the
+ * camera looks.
  *
- * Under the canopy it sinks at `CHUTE_SINK` and glides ahead at
- * `CHUTE_GLIDE`, each with a share of the height over the ground on top
- * (`CHUTE_SINK_RATE`, `CHUTE_GLIDE_RATE`), so a canopy opened at cruise
- * height comes down in a minute rather than ten; `W` flies it faster and
- * steeper and `S` slower and flatter by `CHUTE_PACE`, and `A` and `D` turn it
- * at `CHUTE_TURN`.
+ * Under the canopy it sinks at `CHUTE_SINK` and glides ahead at `CHUTE_GLIDE`,
+ * each with a share of the height over the ground on top (`CHUTE_SINK_RATE`,
+ * `CHUTE_GLIDE_RATE`); `W` flies it faster and steeper and `S` slower and
+ * flatter by `CHUTE_PACE`, and `A` and `D` turn it at `CHUTE_TURN`.
  */
 export const FREEFALL_RATE = 0.35;
 export const FREEFALL_MIN = 30;
@@ -280,14 +268,13 @@ export const CHUTE_TURN = 1.2;
 /** How far the canopy swings with a turn, radians; how fast it opens is `CANOPY_OPENING`. */
 export const CHUTE_SWING = 0.35;
 /**
- * The body under a canopy is a pendulum hung from the hands: it swings out
- * past a turn's bank and back, and lags a change of pace — back as the wing
- * surges, forward as it brakes, `CHUTE_SURGE` radians for each unit a second
- * squared up to `CHUTE_SURGE_MAX` — at a period of `CHUTE_PERIOD` seconds,
- * damped to `CHUTE_DAMPING` of critical so a turn rings two or three times.
- * Under it all a slow sway (`CHUTE_SWAY`, radians) keeps it from hanging
- * dead still; the legs trail the swing by `CHUTE_TRAIL` of its angle and
- * `CHUTE_TRAIL_RATE` of its rate (`Avatar.skydive`).
+ * The body under a canopy is a pendulum hung from the hands: it swings out past
+ * a turn's bank and back, and lags a change of pace (back as the wing surges,
+ * forward as it brakes, `CHUTE_SURGE` radians for each unit a second squared up
+ * to `CHUTE_SURGE_MAX`) at a period of `CHUTE_PERIOD` seconds, damped to
+ * `CHUTE_DAMPING` of critical. A slow sway (`CHUTE_SWAY`, radians) keeps it
+ * from hanging dead still; the legs trail the swing by `CHUTE_TRAIL` of its
+ * angle and `CHUTE_TRAIL_RATE` of its rate (`Avatar.skydive`).
  */
 export const CHUTE_PERIOD = 2.4;
 export const CHUTE_DAMPING = 0.22;

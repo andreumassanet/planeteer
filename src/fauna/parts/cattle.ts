@@ -1,16 +1,8 @@
 /**
- * Cattle. The animal most of the world's grazing actually is.
- *
- * This project refused to build a quadruped with the sentence *a bad cow is worse
- * than no cow*, so this is the file that sentence is about. It is the kit's
- * baseline in the literal sense: it stands in nine of the ten biomes that carry
- * anything at all, and the camel, the llama and the reindeer say *where you are*
- * only because a cow is what you would otherwise be looking at.
- *
- * One shape covers the dairy cow, the beef cow and the zebu, and the lever is
- * the hump — seeded, never absent, because a feature that moves the bounding box
- * has to be always there or small and this one is neither. A European cow gets a
- * withers you would call a wither; a Sahelian one gets a fist of muscle over it.
+ * Cattle: the baseline grazing animal, standing in nine of the ten biomes that
+ * carry anything. One shape covers the dairy cow, the beef cow and the zebu;
+ * the lever is the seeded hump, from a European withers to a Sahelian fist of
+ * muscle.
  */
 import { buildAnimal } from '../body.ts';
 import { coatFor, atFaunaScale } from '../contract.ts';
@@ -20,15 +12,8 @@ import { PALETTE } from '../../theme.ts';
 const P = PALETTE;
 
 /**
- * Coats.
- *
- * Solid colours only, and the reason is the ink rather than the palette: a
- * Friesian's patches would be a second mesh laid flush on the barrel, which is
- * the coplanar trap word for word — `OutlineEffect` hulls each mesh separately,
- * so a patch flush with the hide loses the depth test and draws as a colour
- * blotch with no line round it. A patched cow wants the barrel *built* in two
- * pieces, which is 24 triangles for a mark that is four pixels across at the
- * distance a herd is seen. It is not built.
+ * Coats, solid colours only: a patch laid flush on the barrel would be
+ * coplanar and draw with no ink line round it.
  */
 const COATS: Coat[] = [
   { color: P.brown, weight: 6 },
@@ -40,10 +25,8 @@ const COATS: Coat[] = [
 ];
 
 const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
-  // One uniform draw over the whole beast, so the declared box moves by 5% and
-  // the proportions inside it do not. A herd's variety is per instance — yaw and
-  // a baked scale — and per variant in the features, never in a stretch that
-  // would make one cow a different animal.
+  // One uniform scale over the whole beast: the box moves by 5%, the
+  // proportions do not.
   const s = rng.spread(1, 0.05);
   const coat = coatFor(rng, style, COATS);
   return {
@@ -61,8 +44,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     headDepth: 0.30 * s,
     headWidth: 0.23 * s,
     muzzle: 0.86,
-    // Straight out sideways, which is a cow's one unmistakable feature from the
-    // front and the only thing that tells her from a small horse at 30 pixels.
+    // Straight out sideways, which tells a cow from a small horse.
     ear: 0.21 * s,
     earFlare: 1.28,
 
@@ -97,8 +79,7 @@ export const cattle: Animal = {
   gait: 'walk',
   note: 'The world\'s baseline grazer: nine biomes, every region, a seeded zebu hump.',
   // Quaternius's cow, and its bull as the darker one in five (Ultimate Animated
-  // Animals, CC0). The muzzle takes the belly's colour, which is the blush a
-  // cow's nose is.
+  // Animals, CC0). The muzzle takes the belly's colour.
   rigs: [
     { id: 'cow', weight: 4, back: 1.4, slots: { Main: 'coat', Main_Light: 'under', Muzzle: 'under', Hooves: 'point', Horns: P.bone, Eye_Black: P.ink, Eye_White: P.white } },
     { id: 'bull', weight: 1, back: 1.5, slots: { Main: 'coat', Main_Light: 'under', Muzzle: 'point', Hooves: 'point', Horns: P.bone, Eye_Black: P.ink, Eye_White: P.white } },

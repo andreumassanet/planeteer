@@ -1,39 +1,34 @@
 /**
  * Earth's rockets: a pad beside half the airstrips, and the rocket on it.
  *
- * **Which strips keep one is a pure function of the places**, as the fleet's
- * sites are (`fleet.ts`): a town whose plane found a strip keeps a pad when
- * its index rolls under `PAD_SHARE` (`keepsRocket`, seeded by the place and
- * never by `Math.random`), and the pad stands where the first of a fixed list
- * of spots beside that strip is clear (`PAD_SPOTS`). So every client puts the
- * same pad by the same strip with nothing on the wire, and a town whose spots
- * are all taken has no rocket rather than one forced onto a road.
+ * Which strips keep one is a pure function of the places, as the fleet's sites
+ * are (`fleet.ts`): a town whose plane found a strip keeps a pad when its
+ * index rolls under `PAD_SHARE` (`keepsRocket`, seeded by the place), and the
+ * pad stands where the first of a fixed list of spots beside that strip is
+ * clear (`PAD_SPOTS`). Every client puts the same pad by the same strip with
+ * nothing on the wire, and a town whose spots are all taken has no rocket.
  *
- * **Where**: off the strip's right-hand side — the windsock stands on its
- * left (`SOCK_OFF` in `fleet.ts`) — at the middle first and then out towards
- * either end, the far side after that, behind the plane's stand, and a pad's
- * width further out last. A spot is clear when the pad's disc (`PAD_KEEP`,
- * the rocket's own `ROCKET_CLEAR`) is clear of every field the fleet keeps
- * (its own strip's discs too, which is what keeps it beside the strip rather
- * than on it), of every town's disc, road and landmark by `PAD_MARGIN` more,
- * of the railway, of the water, and far enough from every other town's strip
- * that no two pads can meet (`PAD_RIVAL`); and on ground the drum under the
- * deck can stand on (`PAD_GRADE`, `PAD_FALL`).
+ * Spots: off the strip's right-hand side (the windsock stands on its left,
+ * `SOCK_OFF` in `fleet.ts`), at the middle first and then out towards either
+ * end, the far side after that, behind the plane's stand, and a pad's width
+ * further out last. A spot is clear when the pad's disc (`PAD_KEEP`, the
+ * rocket's `ROCKET_CLEAR`) is clear of every field the fleet keeps, of every
+ * town's disc, road and landmark by `PAD_MARGIN` more, of the railway, of the
+ * water, and far enough from every other town's strip that no two pads can
+ * meet (`PAD_RIVAL`); and the ground under it is one the drum can stand on
+ * (`PAD_GRADE`, `PAD_FALL`).
  *
- * **What is taken stays taken**: `PadIndex.fieldsNear` answers the pads as
- * discs, and `main.ts` joins it to the fleet's and the railway's fields
- * (`joinFields` in `rails.ts`), so the wood, the countryside and the herds
- * keep off a pad by the test they keep off an airstrip by. The railway is the
- * one thing that does not yield to a pad: `rails.bin` is baked against the
- * fleet's fields alone, so a pad keeps off the line instead.
+ * `PadIndex.fieldsNear` answers the pads as discs, and `main.ts` joins it to
+ * the fleet's and the railway's fields (`joinFields` in `rails.ts`), so the
+ * wood, the countryside and the herds keep off a pad as they do an airstrip.
+ * The railway does not yield to a pad: `rails.bin` is baked against the fleet's
+ * fields alone, so a pad keeps off the line instead.
  *
- * **The rocket is `rocket.ts`'s**, the same model, pad, tower, ignition,
- * smoke, sound, curtain and unmanned launches the other worlds stand on their
- * towns' corners. What is Earth's here is the streaming — built near the
- * player inside the frame's build allowance and dissolved in and out
- * (`fade.ts`), as the airstrips are drawn — the walls, and seating the pad on
- * the drawn land (`land-probe.ts`), a knee of grass over the highest ground
- * under it (`PAD_LIFT`).
+ * The rocket itself is `rocket.ts`'s. What is Earth's here is the streaming
+ * (built near the player inside the frame's build allowance and dissolved in
+ * and out, `fade.ts`), the walls, and seating the pad on the drawn land
+ * (`land-probe.ts`), a knee of grass over the highest ground under it
+ * (`PAD_LIFT`).
  */
 import * as THREE from 'three';
 import type { World } from './geo.ts';
@@ -74,23 +69,23 @@ export const keepsRocket = (place: number): boolean => rngFrom('fleet-rocket', p
 export const PAD_KEEP = ROCKET_CLEAR;
 /**
  * How much further than `PAD_KEEP` a pad keeps off a town's disc, a road's
- * verge and a landmark: what stands just outside each — a town's edge slope
- * and the trees round it, the poles and posts beside a road.
+ * verge and a landmark: what stands just outside each (a town's edge slope and
+ * the trees round it, the poles and posts beside a road).
  */
 export const PAD_MARGIN = 8;
 /**
- * How steep the ground under a pad may be, and how far it may fall across
- * the pad's disc (the relief's four probes `gradeAt` takes at `PAD_RADIUS`).
- * The drum under the deck reaches `PAD_FOOT` under its seat and the seat is
+ * How steep the ground under a pad may be, and how far it may fall across the
+ * pad's disc (the relief's four probes `gradeAt` takes at `PAD_RADIUS`). The
+ * drum under the deck reaches `PAD_FOOT` under its seat and the seat is
  * `PAD_LIFT` over the highest drawn ground, so a fall of half what is left
- * leaves the other half for the mesh, which strays up to a unit and a half
- * off the relief on a tenth of the land (`land-probe.ts`).
+ * leaves the other half for the mesh, which strays from the relief
+ * (`land-probe.ts`).
  */
 export const PAD_GRADE = Math.tan(8 * DEG);
 /**
  * A knee of grass (`grass.ts`) the deck stands over the highest drawn ground
- * under it: the grass grows on any ground the probe keeps, and a deck seated
- * flush on the high side had blades through its rim.
+ * under it: a deck seated flush on the high side would have blades through its
+ * rim.
  */
 export const PAD_LIFT = AVATAR_HEIGHT * 0.3;
 export const PAD_FALL = (PAD_FOOT - PAD_LIFT) / 2;
@@ -308,18 +303,13 @@ export function createPadIndex(source: PadSource): PadIndex {
 // ---- the rockets standing ------------------------------------------------------
 
 /**
- * How near a pad has to be to be built, and how far it may go before it is
- * put away, units from the player: an airstrip's reach (`STRIP_REACH` in
- * `fleet.ts`), because the rocket is the tallest thing on that field and is
- * seen with it from a climbing plane.
+ * How near a pad has to be to be built, and how far it may go before it is put
+ * away, units from the player: an airstrip's reach (`STRIP_REACH` in
+ * `fleet.ts`), because the rocket is the tallest thing on that field.
  */
 const PAD_BUILD = 1400;
 const PAD_DROP = PAD_BUILD * 1.15;
-/**
- * The most rockets standing at once, the nearest: nine meshes each, eighteen
- * draws with the ink. Round Beijing ten pads are within `PAD_BUILD`
- * (2026-10-04), and the furthest of them is a speck in the haze.
- */
+/** The most rockets standing at once, the nearest: nine meshes each, eighteen draws with the ink. */
 const MAX_STANDING = 4;
 /** How far the player moves, or how long passes, before the pads near him are asked again. */
 const RESCAN_MOVE = 40;
@@ -328,9 +318,8 @@ const RESCAN_SECONDS = 1;
 const BUILD_MS = 1;
 /**
  * How often a pad nobody is at launches on its own, on average, seconds a
- * pad. The worlds' is 240 with three or four pads in sight from a town; on
- * Earth one or two stand within reach at most, so half that, and a smoke
- * column goes up beyond a city every couple of minutes from a plane over it.
+ * pad. The worlds' is 240; on Earth one or two pads stand within reach at
+ * most, so half that.
  */
 const AUTO_LAUNCH = 120;
 /** Nearer than this to the player a pad waits for him rather than launching: the worlds' `AUTO_QUIET`. */
@@ -393,6 +382,129 @@ interface Standing {
   onRelief: boolean;
 }
 
+/**
+ * The pad's seat radius: `PAD_LIFT` over the highest drawn ground under the pad,
+ * the drum reaching down to the rest — or, where the drawn land falls
+ * further across the pad than the drum reaches, as high as the drum still
+ * meets the lowest of it, the uphill rim sunk rather than a gap under the
+ * downhill one. The relief's where the probe has not gathered.
+ */
+const seatUp = new THREE.Vector3();
+const seatNorth = new THREE.Vector3();
+const seatAcross = new THREE.Vector3();
+const seatGround = new THREE.Vector3();
+const seatFootprint: DrawnFootprint = { centre: 0, lowest: 0, highest: 0 };
+
+function padSeat(world: World, probe: ReturnType<typeof landProbeOf> | null, pad: LaunchPad): { radius: number; onRelief: boolean } {
+  let onRelief = false;
+  seatUp.copy(pad.at);
+  seatNorth.set(0, 1, 0).projectOnPlane(seatUp);
+  if (seatNorth.lengthSq() < 1e-8) seatNorth.set(1, 0, 0).projectOnPlane(seatUp);
+  seatNorth.normalize();
+  seatAcross.crossVectors(seatUp, seatNorth).normalize();
+  let lowest: number;
+  let highest: number;
+  if (probe !== null && drawnFootprint(probe, seatUp, seatAcross, seatNorth, PAD_RADIUS, seatFootprint) === 'drawn') {
+    lowest = seatFootprint.lowest;
+    highest = seatFootprint.highest;
+    onRelief = false;
+  } else {
+    onRelief = true;
+    // The relief's ground (`groundRadius`, the shelf and all) under the
+    // middle and the same ring of eight `drawnFootprint` takes.
+    lowest = highest = groundRadius(world, seatGround.copy(seatUp).multiplyScalar(PLANET_RADIUS));
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4;
+      seatGround
+        .copy(seatUp)
+        .addScaledVector(seatAcross, (Math.cos(angle) * PAD_RADIUS) / PLANET_RADIUS)
+        .addScaledVector(seatNorth, (Math.sin(angle) * PAD_RADIUS) / PLANET_RADIUS)
+        .normalize()
+        .multiplyScalar(PLANET_RADIUS);
+      const radius = groundRadius(world, seatGround);
+      if (radius < lowest) lowest = radius;
+      if (radius > highest) highest = radius;
+    }
+  }
+  return { radius: Math.min(highest + PAD_LIFT, lowest + PAD_FOOT - 0.25), onRelief };
+}
+
+/** The pads and towers of the rockets standing, as walls and as things to get into. */
+function createWalls(standing: ReadonlyMap<string, Standing>): Pick<LaunchPads, 'offer' | 'collide' | 'freeSpotNear' | 'blocksSight'> {
+  const offset = new THREE.Vector3();
+  const unit = new THREE.Vector3();
+  const north = new THREE.Vector3();
+  const free = new THREE.Vector3();
+  const freePush = new THREE.Vector3();
+
+  /** Where `point` is against a rocket's axis: its height over the pad, and the way and distance out from the axis. */
+  function against(entry: Standing, point: THREE.Vector3): number {
+    const base = entry.rocket.position;
+    unit.copy(base).normalize();
+    offset.copy(point).sub(base);
+    const height = offset.dot(unit);
+    offset.addScaledVector(unit, -height);
+    return height;
+  }
+
+  /**
+   * The pads and their towers as walls, from a body's height under the deck
+   * to the tower's top — an aircraft too, which meets nothing else of a
+   * rocket's field: a disc of `ROCKET_WALL` round the rocket's axis, which
+   * holds the tower, the tank and the vehicle, and leaves a step of the
+   * deck's rim outside it.
+   */
+  function collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean {
+    push.set(0, 0, 0);
+    let hit = false;
+    for (const entry of standing.values()) {
+      const height = against(entry, point);
+      if (height < -AVATAR_HEIGHT * 2 || height > WALL_TOP) continue;
+      const d = offset.length();
+      const min = ROCKET_WALL + radius;
+      if (d >= min) continue;
+      if (d > 1e-6) push.addScaledVector(offset, (min - d) / d);
+      else push.add(north.set(0, 1, 0).projectOnPlane(point).setLength(min));
+      hit = true;
+    }
+    if (hit) push.projectOnPlane(unit.copy(point).normalize());
+    return hit;
+  }
+
+  return {
+    offer(point) {
+      let best: { rocket: Rocket; gap: number } | null = null;
+      for (const entry of standing.values()) {
+        if (entry.rocket.state !== 'parked') continue;
+        const height = against(entry, point);
+        if (height < -AVATAR_HEIGHT || height > AVATAR_HEIGHT * 2) continue;
+        const d = offset.length();
+        if (d < ROCKET_REACH && (best === null || d - ROCKET_WALL < best.gap)) best = { rocket: entry.rocket, gap: d - ROCKET_WALL };
+      }
+      return best;
+    },
+    collide,
+    freeSpotNear(point, radius, out) {
+      free.copy(point);
+      let moved = false;
+      for (let round = 0; round < 4; round++) {
+        if (!collide(free, radius, freePush)) break;
+        free.add(freePush.setLength(freePush.length() + 0.01)).setLength(point.length());
+        moved = true;
+      }
+      if (moved) out.copy(free);
+      return moved;
+    },
+    blocksSight(point) {
+      for (const entry of standing.values()) {
+        const height = against(entry, point);
+        if (height > -1 && height < WALL_TOP && offset.length() < ROCKET_WALL) return true;
+      }
+      return false;
+    },
+  };
+}
+
 export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
   const { world, pads, gradientMap } = options;
   const group = new THREE.Group();
@@ -407,61 +519,12 @@ export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
   let scanAge = Infinity;
   let riding: Standing | null = null;
   const stats = { standing: 0, retiring: 0, wanted: 0, pending: 0, launches: 0, nearestMoving: Infinity };
-  const up = new THREE.Vector3();
-  const north = new THREE.Vector3();
-  const across = new THREE.Vector3();
   const seatAt = new THREE.Vector3();
-  const ground = new THREE.Vector3();
-  const footprint: DrawnFootprint = { centre: 0, lowest: 0, highest: 0 };
-  const offset = new THREE.Vector3();
   const unit = new THREE.Vector3();
-  const free = new THREE.Vector3();
-  const freePush = new THREE.Vector3();
-
-  /**
-   * The pad's seat: `PAD_LIFT` over the highest drawn ground under the pad,
-   * the drum reaching down to the rest — or, where the drawn land falls
-   * further across the pad than the drum reaches, as high as the drum still
-   * meets the lowest of it, the uphill rim sunk rather than a gap under the
-   * downhill one. The relief's where the probe has not gathered.
-   */
-  let seatedOnRelief = false;
-  function seatOf(pad: LaunchPad): number {
-    up.copy(pad.at);
-    north.set(0, 1, 0).projectOnPlane(up);
-    if (north.lengthSq() < 1e-8) north.set(1, 0, 0).projectOnPlane(up);
-    north.normalize();
-    across.crossVectors(up, north).normalize();
-    let lowest: number;
-    let highest: number;
-    if (probe !== null && drawnFootprint(probe, up, across, north, PAD_RADIUS, footprint) === 'drawn') {
-      lowest = footprint.lowest;
-      highest = footprint.highest;
-      seatedOnRelief = false;
-    } else {
-      seatedOnRelief = true;
-      // The relief's ground (`groundRadius`, the shelf and all) under the
-      // middle and the same ring of eight `drawnFootprint` takes.
-      lowest = highest = groundRadius(world, ground.copy(up).multiplyScalar(PLANET_RADIUS));
-      for (let i = 0; i < 8; i++) {
-        const angle = (i * Math.PI) / 4;
-        ground
-          .copy(up)
-          .addScaledVector(across, (Math.cos(angle) * PAD_RADIUS) / PLANET_RADIUS)
-          .addScaledVector(north, (Math.sin(angle) * PAD_RADIUS) / PLANET_RADIUS)
-          .normalize()
-          .multiplyScalar(PLANET_RADIUS);
-        const radius = groundRadius(world, ground);
-        if (radius < lowest) lowest = radius;
-        if (radius > highest) highest = radius;
-      }
-    }
-    return Math.min(highest + PAD_LIFT, lowest + PAD_FOOT - 0.25);
-  }
 
   function build(pad: LaunchPad): Standing {
-    const seat = seatOf(pad);
-    seatAt.copy(pad.at).multiplyScalar(seat);
+    const seated = padSeat(world, probe, pad);
+    seatAt.copy(pad.at).multiplyScalar(seated.radius);
     const rocket = createRocket(seatAt, pad.at, pad.heading, gradientMap);
     rocket.object.name = pad.id;
     group.add(rocket.object);
@@ -471,7 +534,7 @@ export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
       if ((object as THREE.Mesh).isMesh === true) meshes.push(object as THREE.Mesh);
     });
     for (const mesh of meshes) fader.in(mesh);
-    return { pad, rocket, meshes, onRelief: seatedOnRelief };
+    return { pad, rocket, meshes, onRelief: seated.onRelief };
   }
 
   function retire(entry: Standing): void {
@@ -517,39 +580,7 @@ export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
     }
   }
 
-  /** Where `point` is against a rocket's axis: its height over the pad, and the way and distance out from the axis. */
-  function against(entry: Standing, point: THREE.Vector3): number {
-    const base = entry.rocket.position;
-    unit.copy(base).normalize();
-    offset.copy(point).sub(base);
-    const height = offset.dot(unit);
-    offset.addScaledVector(unit, -height);
-    return height;
-  }
-
-  /**
-   * The pads and their towers as walls, from a body's height under the deck
-   * to the tower's top — an aircraft too, which meets nothing else of a
-   * rocket's field: a disc of `ROCKET_WALL` round the rocket's axis, which
-   * holds the tower, the tank and the vehicle, and leaves a step of the
-   * deck's rim outside it.
-   */
-  function collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean {
-    push.set(0, 0, 0);
-    let hit = false;
-    for (const entry of standing.values()) {
-      const height = against(entry, point);
-      if (height < -AVATAR_HEIGHT * 2 || height > WALL_TOP) continue;
-      const d = offset.length();
-      const min = ROCKET_WALL + radius;
-      if (d >= min) continue;
-      if (d > 1e-6) push.addScaledVector(offset, (min - d) / d);
-      else push.add(north.set(0, 1, 0).projectOnPlane(point).setLength(min));
-      hit = true;
-    }
-    if (hit) push.projectOnPlane(unit.copy(point).normalize());
-    return hit;
-  }
+  const walls = createWalls(standing);
 
   return {
     group,
@@ -558,17 +589,6 @@ export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
       return riding?.rocket ?? null;
     },
     standing: () => [...standing.values()].map((entry) => entry.rocket),
-    offer(point) {
-      let best: { rocket: Rocket; gap: number } | null = null;
-      for (const entry of standing.values()) {
-        if (entry.rocket.state !== 'parked') continue;
-        const height = against(entry, point);
-        if (height < -AVATAR_HEIGHT || height > AVATAR_HEIGHT * 2) continue;
-        const d = offset.length();
-        if (d < ROCKET_REACH && (best === null || d - ROCKET_WALL < best.gap)) best = { rocket: entry.rocket, gap: d - ROCKET_WALL };
-      }
-      return best;
-    },
     board(rocket, body) {
       for (const entry of standing.values()) {
         if (entry.rocket !== rocket || rocket.state !== 'parked') continue;
@@ -608,9 +628,9 @@ export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
           if (rocket.autolaunch()) stats.launches++;
         }
         if (entry.onRelief && rocket.state === 'parked' && probe !== null && probe.covers(entry.pad.at)) {
-          const seat = seatOf(entry.pad);
-          entry.onRelief = seatedOnRelief;
-          rocket.position.setLength(seat);
+          const seated = padSeat(world, probe, entry.pad);
+          entry.onRelief = seated.onRelief;
+          rocket.position.setLength(seated.radius);
           rocket.object.position.copy(rocket.position);
         }
         rocket.update(dt, mine && frame.hold, frame.listener, frame.effects, frame.sound);
@@ -624,25 +644,7 @@ export function createLaunchPads(options: LaunchPadsOptions): LaunchPads {
     frame(camera, dt) {
       riding?.rocket.frame(camera, dt);
     },
-    collide,
-    collideAloft: collide,
-    freeSpotNear(point, radius, out) {
-      free.copy(point);
-      let moved = false;
-      for (let round = 0; round < 4; round++) {
-        if (!collide(free, radius, freePush)) break;
-        free.add(freePush.setLength(freePush.length() + 0.01)).setLength(point.length());
-        moved = true;
-      }
-      if (moved) out.copy(free);
-      return moved;
-    },
-    blocksSight(point) {
-      for (const entry of standing.values()) {
-        const height = against(entry, point);
-        if (height > -1 && height < WALL_TOP && offset.length() < ROCKET_WALL) return true;
-      }
-      return false;
-    },
+    ...walls,
+    collideAloft: walls.collide,
   };
 }

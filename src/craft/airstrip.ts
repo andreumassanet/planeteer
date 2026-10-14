@@ -1,38 +1,32 @@
 /**
  * A light aircraft's airstrip: how big it is, where each point of it is, and
- * how it is drawn — a mown strip laid on the land and a windsock beside it.
+ * how it is drawn: a mown strip laid on the land and a windsock beside it.
  *
- * **Which way it runs is `fleet.ts`'s**: its search chooses the heading, and
- * `stripPoint` here lays the strip from the plane's site and that heading for
- * the search, the keepouts, the drawing and the check alike. **What it stands
- * on is the caller's**: `surface` answers the
- * drawn land's radius along a direction, because the land mesh is up to a unit
- * and a half off the relief it was laid between, and a flat ribbon draped on
- * the relief comes and goes under the grass in patches as wide as a triangle.
+ * Which way it runs is `fleet.ts`'s: its search chooses the heading, and
+ * `stripPoint` lays the strip from the plane's site and that heading for the
+ * search, the keepouts, the drawing and the check alike. What it stands on is
+ * the caller's: `surface` answers the drawn land's radius along a direction,
+ * because the land mesh is up to a unit and a half off the relief and a flat
+ * ribbon draped on the relief would come and go under the grass.
  *
- * **The strip is a mark on the ground, not a thing on it**, so it is drawn the
- * way a road is: no ink hull (an outline round it would make it read as tape
- * laid over the world), the world's own ramp, `STRIP_LIFT` over the land and
- * pushed forward in depth by `polygonOffset` so the land between two of its
- * rows never shows through. Its colour is the land's own under it, a shade
- * lighter and yellower where the grass is mown, and bare earth where the
- * ground has no sward to mow. **The grass grows on it, mown** (`stripCover`,
- * which `vegetation.ts` bakes the grass from and this draws from): a quarter
- * of the field's height (`STRIP_MOWN`), in lanes `STRIP_LANE` wide along the
- * strip a tone either side of its colour, as a mower leaves them; none on the
- * worn track down the middle (`STRIP_TRACK`) where the wheels roll, drawn
- * earth, nor under the threshold's white boards at either end. A row of
- * white-painted tyres marks each edge. The drawn lanes and the grown ones are
- * the same lanes, so the ground between the short blades is their colour.
+ * The strip is a mark on the ground, drawn the way a road is: no ink hull, the
+ * world's ramp, `STRIP_LIFT` over the land and pushed forward in depth by
+ * `polygonOffset`. Its colour is the land's own under it, a shade lighter and
+ * yellower where the grass is mown, and bare earth where there is no sward.
+ * The grass grows on it, mown (`stripCover`, which `vegetation.ts` bakes the
+ * grass from and this draws from): a quarter of the field's height
+ * (`STRIP_MOWN`), in lanes `STRIP_LANE` wide a tone either side of its colour;
+ * none on the worn track (`STRIP_TRACK`) where the wheels roll, nor under the
+ * threshold's white boards. A row of white-painted tyres marks each edge. The
+ * drawn lanes and the grown ones are the same lanes.
  *
  * The boards, the tyres and a pair of fuel drums by the windsock are one
  * merged, inked mesh in the craft's material (`stripMarks`), a child of the
  * strip that goes when the strip's geometry is disposed.
  *
- * **The windsock is the one part that moves**: a pole and a striped sock on a
- * pivot, both from the craft's own pieces and material, inked, and a `'rotor'`
- * turning about +Y in the sense of `CraftModel.build` — the sock swings round
- * its pole. It is its own small mesh, and only the near ones are turned.
+ * The windsock is the one part that moves: a pole and a striped sock on a
+ * pivot, inked, and a `'rotor'` turning about +Y in the sense of
+ * `CraftModel.build`. It is its own small mesh, and only the near ones turn.
  */
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
@@ -44,32 +38,22 @@ import { assemble, craftContext, lathe, soupOf } from './build.ts';
 const H = AVATAR_HEIGHT;
 
 /**
- * **A plane's field is an airstrip**, because a plane's field is where it
- * takes off. From standing, the run opens the throttle to a quarter past
- * `PLANE_ROTATE` (84 units a second) over `PLANE_RUN_TIME` (1.6 s), which
- * reaches rotation after 2.6 s and 136 units; the wheels then leave the
- * ground at no climb, and the climb builds over `PLANE_VERTICAL_TIME`. A disc
- * ten units wide round the parked plane put that run through whatever stood
- * past it — a wood, most often. So the site is a strip: `STRIP_LENGTH` ahead
- * of the plane's origin (the run and sixty units to spare) and `STRIP_BACK`
- * behind it (its own half-length and a little), on a heading the search
- * chooses (`fleet.ts`) so that all of it is land, no steeper than
- * `PLANE_GRADE` over `STRIP_HALF` either side, and clear of every town, road
- * and landmark.
+ * A plane's field is an airstrip, because it is where it takes off. The run
+ * opens the throttle to a quarter past `PLANE_ROTATE` over `PLANE_RUN_TIME`,
+ * reaching rotation after 2.6 s and 136 units; the climb then builds over
+ * `PLANE_VERTICAL_TIME`. So the site is a strip: `STRIP_LENGTH` ahead of the
+ * plane's origin (the run and sixty units to spare) and `STRIP_BACK` behind
+ * it, on a heading the search chooses (`fleet.ts`) so that all of it is land,
+ * no steeper than `PLANE_GRADE` over `STRIP_HALF` either side, and clear of
+ * every town, road and landmark.
  *
- * **The length is what this world has room for.** Towns stand closer here than
- * on the Earth, and a strip has to fit between them: on twenty rings and nine
- * headings, 260 units found one for 874 of the 1,186 towns that keep a plane
- * and 200 units for 1,016 (2026-09-24, without `STRIP_CLEAR`, which costs
- * eleven), which is why the run was made shorter rather than the strip
- * longer.
+ * The length is what the world has room for: a strip has to fit between
+ * towns, and a shorter one finds a site for more of them.
  *
- * `STRIP_HALF` is the ground kept to itself — 2.5 of the plane's 13.9-unit
- * span across, so a take-off that wanders off the centre line keeps its
- * wingtips out of the trees — and `STRIP_DRAWN` the mown strip drawn down the
- * middle of it, a span and three quarters wide. The wood keeps off
- * `STRIP_APPROACH` more past the far end, where the plane is still climbing
- * through the height of a tree; nothing else is asked of that ground.
+ * `STRIP_HALF` is the ground kept to itself (2.5 of the plane's 13.9-unit span
+ * across, so a wandering take-off keeps its wingtips out of the trees) and
+ * `STRIP_DRAWN` the mown strip drawn down the middle of it. The wood keeps off
+ * `STRIP_APPROACH` more past the far end, where the plane is still climbing.
  */
 export const STRIP_LENGTH = 200;
 export const STRIP_BACK = 12;
@@ -112,8 +96,8 @@ const DRAWN_FROM = -STRIP_BACK - STRIP_END;
 const DRAWN_TO = STRIP_LENGTH + STRIP_END;
 /**
  * Half the worn track down the centre line: the light plane's main wheels
- * stand 2.08 units either side of its own (`lightPlaneModel`, measured
- * 2026-09-28), and a take-off wanders.
+ * stand 2.08 units either side of its own (`lightPlaneModel`), and a take-off
+ * wanders.
  */
 export const STRIP_TRACK = 2.8;
 /** A mown lane, along the strip: two a side between the track and the edge. */
@@ -174,12 +158,10 @@ export const STRIP_SWARD = 0.4;
 /**
  * The strip's colour from the land's under it: lighter, a little towards the
  * palette's olive and a sixth of the way to its sand where there is grass to
- * mow — cut short and dry, or it is lost in the field — and half way to the
- * palette's brown where there is none. `sward` is `biome.ts`'s share of the
- * ground under grass, 0 to 1. The drawn strip is this under its middle, and
- * the mown grass on it is this at each blade (`vegetation.ts`), so the ground
- * between the blades is theirs. A third of the way to the sand before the
- * grass grew on it, when the strip was all there was to see.
+ * mow, and half way to the palette's brown where there is none. `sward` is
+ * `biome.ts`'s share of the ground under grass, 0 to 1. The drawn strip is
+ * this under its middle, and the mown grass on it is this at each blade
+ * (`vegetation.ts`).
  */
 export function stripColor(ground: THREE.Color, sward: number, out: THREE.Color): THREE.Color {
   out.copy(ground);
@@ -283,14 +265,12 @@ export function stripsMeet(a: StripSite, b: StripSite, half: number): boolean {
 }
 
 /**
- * What the grass is at a point of a strip, **the one answer the grass and the
- * drawing share**: -1 off it (the strip grown by `margin` all round, for the
- * blades' own lean past its edge); 0 where it is bare — the worn track down
- * the middle and the threshold's boards, each grown by `bare` — and otherwise
- * the tone of the mown lane it is in, `LANE_LIGHT` or `LANE_DARK`, which
- * multiplies the strip's colour (`stripColor`). Lanes alternate outward from
- * the track, the left side a lane out of step with the right, as a mower
- * going up one side and down the other leaves them.
+ * What the grass is at a point of a strip, the one answer the grass and the
+ * drawing share: -1 off it (the strip grown by `margin` all round); 0 where it
+ * is bare (the worn track and the threshold's boards, each grown by `bare`);
+ * otherwise the tone of the mown lane it is in, `LANE_LIGHT` or `LANE_DARK`,
+ * which multiplies the strip's colour (`stripColor`). Lanes alternate outward
+ * from the track, the left side a lane out of step with the right.
  */
 export function stripCover(site: StripSite, direction: THREE.Vector3, margin: number, bare: number): number {
   if (!stripAt(site, direction)) return -1;
@@ -405,14 +385,12 @@ const markBasis = new THREE.Matrix4();
 
 /**
  * What marks a strip out, as one merged, inked mesh in the craft material:
- * the threshold's boards at either end (laid over the bare ground the grass
- * leaves them, `stripCover`), a white tyre every `TYRE_EVERY` units just
- * inside each edge, and two fuel drums by the windsock. Each stands on
- * `surface` in the strip's own frame — up the ground's, +Z down the strip —
- * the boards and the tyres bedded `BEDDED` under the drawn strip, the drums
- * a little into the turf; the frame is `makeBasis(side, up,
- * ahead)` with `side = up x ahead`, a rotation, and `soupOf` asserts it.
- * 1,152 triangles a strip, 896 of them the tyres (2026-09-28).
+ * the threshold's boards at either end, a white tyre every `TYRE_EVERY` units
+ * just inside each edge, and two fuel drums by the windsock. Each stands on
+ * `surface` in the strip's own frame (up the ground's, +Z down the strip), the
+ * boards and tyres bedded `BEDDED` under the drawn strip, the drums a little
+ * into the turf; the frame is `makeBasis(side, up, ahead)` with
+ * `side = up x ahead`, a rotation, and `soupOf` asserts it.
  */
 function stripMarks(site: StripSite, surface: (direction: THREE.Vector3) => number, origin: THREE.Vector3): THREE.Group {
   if (markParts === null) {

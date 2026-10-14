@@ -1,18 +1,13 @@
 /**
- * What stands still somewhere until somebody takes it: a town's parked car,
- * a bicycle in a town's rack, a farm's tractor. Merged into the buffer it
- * stands in (`settlements.ts`, `countryside-tile.ts`), and the fleet's own
- * vehicle (`fleet.ts`) the moment anybody takes it.
+ * What stands still somewhere until somebody takes it: a town's parked car, a
+ * bicycle in a town's rack, a farm's tractor. Merged into the buffer it stands
+ * in (`settlements.ts`, `countryside-tile.ts`), and the fleet's own vehicle
+ * (`fleet.ts`) the moment anybody takes it.
  *
- * **The one drawn still and the one taken are the same model, built the same
- * way from the same id.** Until 2026-09-28 a town parked the traffic kit's
- * vehicle and the fleet drew the craft in its place: a saloon became the
- * hatchback, an ambulance the van, and the colour was read off the town that
- * stood, so a car taken in another session, or by somebody else, or whose
- * town was not built here, came back in the craft's own paint. What stands
- * now is the craft itself (`parkedModel`), in the variant the fleet picks
- * for that id (`fleetVariant`) and the body colour the id decides (the town's
- * `parkedPaint`): nothing is remembered and nothing is sent.
+ * The one drawn still and the one taken are the same model, built the same way
+ * from the same id: the craft itself (`parkedModel`), in the variant the fleet
+ * picks for that id (`fleetVariant`) and the body colour the id decides (the
+ * town's `parkedPaint`). Nothing is remembered and nothing is sent.
  *
  * The models are built here off the scenery kit's registry rather than taken
  * from the fleet, because a town parks its cars before the fleet has loaded:
@@ -33,10 +28,10 @@ import { bicycleModel } from './cycles.ts';
 import { buildPartCraft } from './traffic-craft.ts';
 
 /**
- * Where a vehicle the countryside stands (a farm's tractor) starts counting
- * in the `<place>` of an id: past every place there is (29,651), so a site's
- * id and a field's never meet, and under the relay's six digits with the
- * finest tile cell's number added (`countryVehicleId`).
+ * Where a vehicle the countryside stands (a farm's tractor) starts counting in
+ * the `<place>` of an id: past every place there is, so a site's id and a
+ * field's never meet, and under the relay's six digits with the finest tile
+ * cell's number added (`countryVehicleId`).
  */
 export const COUNTRY_VEHICLES = 300_000;
 
@@ -89,15 +84,12 @@ export type ParkedArrays = Merged & { glass?: Merged };
  * A craft's look as one buffer, at `scale` about its base: what a town or a
  * tile merges where it stands. Every mesh's geometry is dropped once read.
  *
- * **Glazed or opaque.** A closed craft carries a cabin and see-through glass
- * (`Inside` in `build.ts`), and the buffer it is merged into is one material
- * that cannot be see-through. `glazed` hands the glass back apart, as its
- * own buffer, for the caller to draw in the glass's material over a cabin
- * merged with the rest — a town does, so a parked car with nobody in it
- * reads as empty. Otherwise the cabin is left out, its wheel and needle with
- * it, and the glass is painted the opaque slate every window in the world
- * was until 2026-10-04 (`OPAQUE_GLASS`): a farm's tractor in a field, seen
- * from a road, needs no seat drawn inside it.
+ * A closed craft carries a cabin and see-through glass (`Inside` in
+ * `build.ts`), and the buffer it is merged into is one material that cannot be
+ * see-through. `glazed` hands the glass back apart, as its own buffer, for the
+ * caller to draw in the glass's material over a cabin merged with the rest.
+ * Otherwise the cabin is left out, its wheel and needle with it, and the glass
+ * is painted opaque slate (`OPAQUE_GLASS`).
  */
 export function parkedArrays(model: CraftModel, variant: number, paint: number | undefined, scale = 1, glazed = false): ParkedArrays {
   const group = model.build(variant, paint);
@@ -132,8 +124,6 @@ export const OPAQUE_GLASS = tone(PALETTE.slate, 0.72);
  * A built craft as a buffer that cannot carry glass stands it, in place: its
  * cabin left out, its wheel and needle with it, and its glass painted
  * `OPAQUE_GLASS` in the craft's own material, so it merges with the rest.
- * What a farm's tile draws (`parkedArrays`), and the countryside kit's own
- * build of the same tractor for its checks.
  */
 export function unfurnish(group: THREE.Object3D): THREE.Object3D {
   for (const name of ['cabin', 'steer', 'needle']) {
@@ -155,9 +145,8 @@ export function unfurnish(group: THREE.Object3D): THREE.Object3D {
 }
 
 /**
- * The mark a still vehicle's vertices carry in a buffer's light bytes, which
- * a window never has (a vertex with no light has no bedtime either): the
- * town's material paints a vertex so marked the way the craft's material
- * does, and not as a wall. See `MACHINE_GLSL`.
+ * The mark a still vehicle's vertices carry in a buffer's light bytes, which a
+ * window never has: the town's material paints a vertex so marked the way the
+ * craft's material does, and not as a wall. See `MACHINE_GLSL`.
  */
 export const MACHINE_BED = 255;

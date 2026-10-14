@@ -1,12 +1,7 @@
 /**
- * What a vehicle you can take is, as three halves of the game read it.
+ * What a vehicle you can take is, as three parts of the game read it.
  *
- * **Nobody owns a vehicle any more.** They stand about the world — cars at the
- * ends of a town's roads, boats off a coastal town, light aircraft beside the
- * big cities, the odd balloon, and bicycles, motorbikes, tuk-tuks, jeeps,
- * buses, jet skis, sailboats, horses, tractors and helicopters where each
- * makes sense, and a yellow submarine off a few big harbours — and you walk
- * up to one and take it. Where you
+ * Vehicles stand about the world and you walk up to one and take it; where you
  * leave it is where it stays, for everyone. Three files meet here and each
  * reads only this one of the others:
  *
@@ -18,12 +13,12 @@
  *   `fleet.ts`'s own local one for a world with no relay, the relay's
  *   (`fleet-sync.ts`) when there is one.
  *
- * **Frames.** A model is built facing +Z with +Y up, centred in X and Z, its
- * wheels or keel or skids on `y = 0` — or, for a water craft, its waterline on
- * `y = 0` with `draft` of hull below it. World units throughout, at the scale
+ * Frames: a model is built facing +Z with +Y up, centred in X and Z, its
+ * wheels or keel or skids on `y = 0` (for a water craft, its waterline on
+ * `y = 0` with `draft` of hull below it). World units throughout, at the scale
  * the model is drawn: nothing downstream scales a model or a seat.
  *
- * **A pose on the wire** is nine numbers, `[x, y, z, fx, fy, fz, ux, uy, uz]`:
+ * A pose on the wire is nine numbers, `[x, y, z, fx, fy, fz, ux, uy, uz]`:
  * where the model's origin is, relative to the planet's centre, then its +Z
  * and its +Y as unit vectors. The up is sent because an aircraft banks and a
  * boat rolls; everything else can take it as the planet's normal.
@@ -73,9 +68,8 @@ export const isAirKind = (kind: CraftKind): boolean => kind === 'plane' || kind 
 /**
  * The horn each kind sounds when its driver presses the horn key (`horn` in
  * `controls.ts`), as `audio.ts` synthesises it and the relay passes it on
- * (`HONKS`); null where there is none, which is everything that flies. A
- * bicycle rings a bell and a horse snorts (its wire name is still `whinny`),
- * and a hull of any size has the one horn a boat has.
+ * (`HONKS`); null where there is none (everything that flies). A bicycle rings
+ * a bell and a horse snorts (its wire name is `whinny`).
  */
 export const HORN_OF: Readonly<Record<CraftKind, Honk | null>> = {
   car: 'car',
@@ -98,13 +92,9 @@ export const HORN_OF: Readonly<Record<CraftKind, Honk | null>> = {
 
 /**
  * How each kind lights the road ahead after dark: how many headlamps it
- * carries and how bright each is, a car's being 1. Where the lamps are is
- * the model's own (`CraftModel.lamps`, found on the model it is built from),
- * so a lamp is always on the thing that carries it; this says only whether
- * they are lit and how much. A car, a van, a jeep, a bus and a tractor have
- * two at their front corners; a motorbike or a scooter one on its headset, a
- * tuk-tuk the one on its apron, and a bicycle one small dim lamp on its head
- * tube. A horse, a boat, anything that flies, and a submarine have none.
+ * carries and how bright each is, a car's being 1. Where the lamps are is the
+ * model's own (`CraftModel.lamps`); this says only whether they are lit and
+ * how much. A horse, a boat, anything that flies, and a submarine have none.
  */
 export const HEADLIGHTS_OF: Readonly<Record<CraftKind, { count: number; strength: number }>> = {
   car: { count: 2, strength: 1 },
@@ -142,12 +132,8 @@ export interface Seat {
    */
   pose: 'sit' | 'stand' | 'ride';
   /**
-   * Whether a body on it is drawn. Every seat of every craft is shown since
-   * 2026-10-04, when the closed ones got glass you can see through and a
-   * cabin to sit in (`cabin.ts`): until then a closed cab's seats were
-   * hidden, because its windows were opaque slate and a body there could
-   * only put its head through the roof at some angle. Kept, for a seat that
-   * some day has to hide again, and because the relay's peers read it.
+   * Whether a body on it is drawn. Every seat is shown; kept for a seat that
+   * may have to hide, and because the relay's peers read it.
    */
   shown: boolean;
   /**
@@ -210,11 +196,8 @@ export interface CraftModel {
   lamps?: readonly Lamp[];
   /**
    * Inside a closed cabin, the covers over the road wheels where they come up
-   * into it (`roadCabin` in `cabin.ts`), as boxes in the model's frame: the
-   * pack's wheels are a third of a car's width each, so a rear passenger's
-   * outer hip and a driver's outer foot go into one, under the window line
-   * and under the dashboard where nothing of them is seen. What a body on a
-   * seat may share with the model there is not counted against it
+   * into it (`roadCabin` in `cabin.ts`), as boxes in the model's frame. What a
+   * body on a seat may share with the model there is not counted against it
    * (`review.ts`).
    */
   arches?: readonly { min: readonly [number, number, number]; max: readonly [number, number, number] }[];
@@ -271,8 +254,7 @@ export interface FleetLink {
   /**
    * The vehicle has gone under (`FOUNDER_TIME` in `vehicles.ts`) with this
    * client holding its seat 0: every seat in it is emptied and it is back at
-   * its site, for everyone, at once — it is out of sight under the water, so
-   * nobody watches it go.
+   * its site, for everyone, at once.
    */
   sink(vehicle: string): void;
   /** Called with a vehicle's id whenever its entry in `moved` changes. */
@@ -312,12 +294,12 @@ export type PlayerState = (typeof PLAYER_STATES)[number];
  * vehicle, and the craft that stands in for each once taken: the kit's
  * hatchback and saloon become the hatchback, its SUV the jeep, its panel van
  * and minibus the van, its pickups the pickup, and the bus, the tractor, the
- * bicycle, the scooter and the rickshaw their own. What is left — a lorry, a
- * hand-cart — stays parked, and stays solid.
+ * bicycle, the scooter and the rickshaw their own. What is left (a lorry, a
+ * hand-cart) stays parked and solid.
  *
  * The craft is larger than the vehicle it replaces, a car by a third, because
  * the kit's are fitted to a lane and a craft to the person inside it
- * (`cars.ts`); the bus is the one drawn at the traffic's own size.
+ * (`cars.ts`); the bus is drawn at the traffic's own size.
  */
 export const PARKED_CRAFT: Readonly<Record<string, string>> = {
   hatchback: 'hatchback',
@@ -354,10 +336,8 @@ export const LAMPS_LIKE: Readonly<Record<string, string>> = {
 /**
  * The traffic kit's vehicles a town parks at `RIDE_SCALE` rather than at the
  * traffic's own section, so the one somebody gets on is the size it stood at:
- * the scooter and the auto-rickshaw, whose craft are those same parts at that
- * scale. A car is not grown to its craft, which is a third larger by design
- * (`cars.ts`): at that size two would not pass in a town's street, and it
- * stands at a kerb among the traffic's cars.
+ * the scooter and the auto-rickshaw. A car is not grown to its craft (two
+ * would not pass in a town's street).
  */
 export const PARKED_AT_RIDE_SCALE: ReadonlySet<string> = new Set(['scooter', 'auto-rickshaw']);
 

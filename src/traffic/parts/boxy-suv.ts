@@ -2,8 +2,7 @@ import type { Vehicle } from '../contract.ts';
 
 /**
  * SUV: Kenney's `suv` and `suv-luxury` (Car Kit, CC0), one or the other a
- * variant. Both are 1.50 wide in the pack; fitted to 2.44 the plain one is 4.41
- * long with its spare wheel on the tailgate, the luxury one 4.64.
+ * variant, both fitted to 2.44 wide.
  */
 export const boxySuv: Vehicle = {
   id: 'boxy-suv',

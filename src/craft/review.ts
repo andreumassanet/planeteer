@@ -24,8 +24,7 @@ export interface SeatReview {
   /**
    * The first surface under the hip (seated) or the soles (standing), less
    * where it should be: 0 is a hip on its pan or soles on their floor. Null on
-   * a seat that hides its body (`Seat.shown` false), which no craft has had
-   * since every closed one got a cabin (2026-10-04).
+   * a seat that hides its body (`Seat.shown` false).
    */
   under: number | null;
   /** The roof over the crown, or null when nothing is over the head. */

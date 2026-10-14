@@ -1,24 +1,21 @@
 /**
  * Keyboard, mouse and touch, with pointer lock where the browser offers it.
  *
- * Pointer lock is not a nicety here: without it the cursor reaches the edge of
- * the window and the camera stops turning halfway through a look, which on a
- * planet you orbit constantly is unusable. The game still has to run unlocked
- * (the browser drops the lock on Escape and on every alt-tab), so nothing here
- * depends on holding it: losing the lock only stops the mouse look. Touch
- * screens use a joystick and drag-look instead.
- *
- * **And where the lock is refused outright there is a second way to look.** An
- * iframe without `allow-pointer-lock` — a portfolio embed, an itch.io page —
- * rejects every request, and until this existed it left the player with a
- * camera they could not turn at all. After the first refusal the mouse looks
- * while a button is held: drag to look, which is what every map on the web
- * already taught everyone.
+ * Pointer lock keeps the cursor from reaching the edge of the window and
+ * stopping the camera halfway through a look. The game still runs unlocked (the
+ * browser drops the lock on Escape and on every alt-tab), so nothing depends on
+ * holding it: losing the lock only stops the mouse look. Where the lock is
+ * refused outright (an iframe without `allow-pointer-lock`) the mouse looks
+ * while a button is held instead. Touch screens use a joystick and drag-look.
  *
  * The bindings are `controls.ts`'s, and so is the answer to whether a key is
- * the world's at all.
+ * the world's at all. The keys live in `input/keyboard.ts`, the mouse in
+ * `input/pointer.ts`, over the state in `input/core.ts`.
  */
-import { actionOf, inputBlocked } from './controls.ts';
+import { inputBlocked } from './controls.ts';
+import { createInputCore } from './input/core.ts';
+import { listenToKeys } from './input/keyboard.ts';
+import { listenToMouse } from './input/pointer.ts';
 import { isTouch, type TouchSink } from './touch.ts';
 
 export interface InputState {
@@ -78,274 +75,11 @@ export interface InputOptions {
   onLockRefused?(): void;
 }
 
-/** Radians of camera rotation per pixel of mouse movement. */
-const SENSITIVITY = 0.0024;
-/**
- * Chrome delivers one enormous delta on the frame the pointer is locked, and
- * again when the lock is regained after alt-tab. Nothing a hand does produces
- * this in a single event, so the event is dropped rather than clamped: clamped,
- * it still snaps the camera a quarter turn.
- *
- * **Only inside `LOCK_SETTLE` of the lock changing.** The filter used to be on
- * all the time, and a mouse event is not a hand's movement, it is a frame's
- * worth of it: at 20 frames a second a fast flick is two hundred pixels an
- * event, so on exactly the machines that were already struggling a quick turn
- * was thrown away whole and the camera stuck. The jump the filter exists for
- * comes with the lock, so the filter does too.
- */
-const MAX_DELTA = 200;
-const LOCK_SETTLE = 100;
-/**
- * How soon after a release Chrome refuses a new lock as too soon, with margin:
- * about a second in Chrome's own implementation, which is not specified.
- */
-const RELOCK_COOLDOWN = 1500;
-/** A wheel "line", in the pixels a trackpad reports directly. */
-const WHEEL_LINE = 33;
-
-/** What `input.ts` does with each of the actions it owns. */
-const HELD: Partial<Record<string, string>> = {
-  forward: 'up',
-  back: 'down',
-  left: 'left',
-  right: 'right',
-  run: 'run',
-  jump: 'jump',
-  descend: 'dive',
-  use: 'use',
-  view: 'view',
-};
-
-/** Actions that fire once per physical press rather than while held. */
-const EDGES = new Set(['jump', 'use', 'view']);
-
 export function createInput(target: HTMLElement, options: InputOptions = {}): Input {
-  const state: InputState = {
-    move: { x: 0, y: 0 },
-    look: { x: 0, y: 0 },
-    zoom: 0,
-    run: false,
-    jump: false,
-    climb: false,
-    dive: false,
-    use: false,
-    view: false,
-  };
-
-  // Track physical keys independently: W and ArrowUp can both hold forward,
-  // and releasing either must leave the other pressed.
-  const held = new Map<string, string>();
-  let sensitivity = 1;
-  /** Until when a mouse delta over `MAX_DELTA` is the lock's jump rather than a hand. */
-  let settleUntil = 0;
-  /** The lock was refused and a held button looks instead. */
-  let dragging = false;
-  /** In drag mode: the player has clicked into the world. */
-  let engaged = false;
-  /** A button is down on the world, in drag mode. */
-  let dragHeld = false;
-  /** The touch stick (`touch.ts`): its direction, -1..1, and whether it is pushed past its rim. */
-  const stick = { x: 0, y: 0, run: false };
-  let lastActive = performance.now();
-  const events = new AbortController();
-  const { signal } = events;
-
-  const touch = (): void => {
-    lastActive = performance.now();
-  };
-
-  function refresh(): void {
-    const actions = new Set(held.values());
-    const x = (actions.has('right') ? 1 : 0) - (actions.has('left') ? 1 : 0);
-    const y = (actions.has('up') ? 1 : 0) - (actions.has('down') ? 1 : 0);
-    // A diagonal must not be faster than a straight line.
-    const length = Math.hypot(x, y);
-    const scale = length > 1 ? 1 / length : 1;
-    // A held key wins; the stick, which is analogue, steers when none is.
-    const keyed = x !== 0 || y !== 0;
-    state.move.x = keyed ? x * scale : stick.x;
-    state.move.y = keyed ? y * scale : stick.y;
-    state.run = actions.has('run') || (!keyed && stick.run);
-    state.climb = actions.has('jump');
-    state.dive = actions.has('dive');
-  }
-
-  function release(): void {
-    held.clear();
-    stick.x = 0;
-    stick.y = 0;
-    stick.run = false;
-    refresh();
-    state.jump = false;
-    state.use = false;
-    state.view = false;
-    state.look.x = 0;
-    state.look.y = 0;
-    state.zoom = 0;
-  }
-
-  addEventListener('keydown', (event) => {
-    touch();
-    // Leave the browser's own shortcuts alone. `Ctrl` was the second descend
-    // key until 2026-10-01, and with the throttle open that was `Ctrl+W`.
-    if (event.metaKey || event.altKey || event.ctrlKey) return;
-    // Nor the settings card's slider, nor a search box: see `inputBlocked`.
-    if (inputBlocked(event)) {
-      release();
-      return;
-    }
-    const bound = actionOf(event.code);
-    const action = bound === undefined ? undefined : HELD[bound];
-    if (action === undefined) {
-      // Escape leaves drag mode the way it leaves the lock.
-      if (event.code === 'Escape') engaged = false;
-      return;
-    }
-    event.preventDefault();
-    // A modal or a lost window focus may have released this key. An old
-    // auto-repeat must not start moving again without a fresh press.
-    if (event.repeat && !held.has(event.code)) return;
-    // The edge fires once per physical press: `repeat` would otherwise make a
-    // held Space into a jump every frame the key auto-repeats.
-    if (EDGES.has(action) && !event.repeat && !held.has(event.code)) {
-      state[action as 'jump' | 'use' | 'view'] = true;
-    }
-    held.set(event.code, action);
-    refresh();
-  }, { signal });
-
-  addEventListener('keyup', (event) => {
-    touch();
-    // **macOS sends no keyup for a key released while Cmd is down**, so
-    // Cmd+Tab away with `W` held and the player walks north for ever. Letting
-    // go of Cmd is the one event that is sure to arrive, so it lets go of
-    // everything.
-    if (event.code === 'MetaLeft' || event.code === 'MetaRight') {
-      release();
-      return;
-    }
-    if (!held.delete(event.code)) return;
-    if (!inputBlocked(event)) event.preventDefault();
-    refresh();
-  }, { signal });
-
-  // Without this a key held while the window loses focus never gets its keyup,
-  // and you come back to the tab already running north.
-  addEventListener('blur', () => {
-    release();
-    engaged = false;
-    dragHeld = false;
-  }, { signal });
-
-  addEventListener('focusin', (event) => {
-    if (inputBlocked(event)) release();
-  }, { signal });
-
-  /** When the lock was last let go of: Escape, alt-tab, a card taking the mouse. */
-  let releasedAt = -Infinity;
-  /**
-   * A request of this file's own is waiting for its answer. **Only those
-   * count**: the map and the settings ask for the lock back as they close, and
-   * closed with Escape — which the browser does not count as a user gesture —
-   * their request is refused for a reason that says nothing about the page.
-   */
-  let asking = false;
-
-  /**
-   * A request came back refused. **Chrome refuses one asked for too soon after
-   * Escape released the last** — about a second — and that refusal says
-   * nothing about the page, so it is ignored. Any other says the page may not
-   * have the lock at all (an iframe without `allow-pointer-lock`), and from
-   * then on a held button looks. Being wrong here is cheap: a click still asks
-   * for the lock, and a lock that is granted is used.
-   */
-  function refused(): void {
-    if (!asking) return;
-    asking = false;
-    if (dragging || performance.now() - releasedAt < RELOCK_COOLDOWN) return;
-    dragging = true;
-    engaged = true;
-    options.onLockRefused?.();
-  }
-
-  function lock(): void {
-    // A finger has nothing to lock: the touch controls look by dragging.
-    if (isTouch()) return;
-    if (dragging) engaged = true;
-    if (document.pointerLockElement === target) return;
-    asking = true;
-    if (typeof target.requestPointerLock !== 'function') {
-      refused();
-      return;
-    }
-    try {
-      // Chrome returns a promise that rejects with every refusal, and fires
-      // `pointerlockerror` as well; both land in `refused`, and the first one
-      // answers the request. An unhandled rejection there is noise, not news.
-      const request: unknown = target.requestPointerLock();
-      if (request instanceof Promise) request.catch(refused);
-    } catch {
-      refused();
-    }
-  }
-
-  document.addEventListener('pointerlockerror', refused, { signal });
-
-  target.addEventListener('mousedown', (event) => {
-    touch();
-    if (!dragging) return;
-    engaged = true;
-    dragHeld = true;
-    settleUntil = performance.now() + LOCK_SETTLE;
-    // Keep a drag from selecting the HUD's text or starting a native drag.
-    event.preventDefault();
-  }, { signal });
-  addEventListener('mouseup', () => {
-    dragHeld = false;
-  }, { signal });
-  // A right-drag looks too, and should not open a menu at the end of it.
-  target.addEventListener('contextmenu', (event) => {
-    if (dragging) event.preventDefault();
-  }, { signal });
-
-  target.addEventListener('click', () => {
-    lock();
-  }, { signal });
-
-  document.addEventListener('mousemove', (event) => {
-    touch();
-    const locked = document.pointerLockElement === target;
-    if (!locked && !(dragging && dragHeld)) return;
-    if (
-      performance.now() < settleUntil &&
-      (Math.abs(event.movementX) > MAX_DELTA || Math.abs(event.movementY) > MAX_DELTA)
-    ) return;
-    state.look.x += event.movementX * SENSITIVITY * sensitivity;
-    state.look.y += event.movementY * SENSITIVITY * sensitivity;
-  }, { signal });
-
-  /**
-   * The wheel, as pixels. Trackpads send dozens of small events and a mouse a
-   * few large ones, and the camera reads the sum rather than the count, so
-   * both come out as the same zoom for the same travel.
-   */
-  target.addEventListener('wheel', (event) => {
-    touch();
-    const unit = event.deltaMode === 1 ? WHEEL_LINE : event.deltaMode === 2 ? innerHeight : 1;
-    state.zoom += event.deltaY * unit;
-  }, { signal, passive: true });
-
-  document.addEventListener('pointerlockchange', () => {
-    touch();
-    asking = false;
-    settleUntil = performance.now() + LOCK_SETTLE;
-    if (document.pointerLockElement === target) return;
-    releasedAt = performance.now();
-    state.look.x = 0;
-    state.look.y = 0;
-  }, { signal });
-
-  addEventListener('wheel', touch, { signal, passive: true });
+  const core = createInputCore(target);
+  const { state, stick, events, fields, touch, refresh, release } = core;
+  listenToKeys(core);
+  const { lock } = listenToMouse(core, options);
 
   return {
     get state() {
@@ -355,13 +89,13 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       return state;
     },
     get sensitivity() {
-      return sensitivity;
+      return fields.sensitivity;
     },
     set sensitivity(value: number) {
-      sensitivity = Number.isFinite(value) && value > 0 ? value : 1;
+      fields.sensitivity = Number.isFinite(value) && value > 0 ? value : 1;
     },
     get looking() {
-      return isTouch() || document.pointerLockElement === target || (dragging && engaged);
+      return isTouch() || document.pointerLockElement === target || (fields.dragging && fields.engaged);
     },
     touchSink: {
       steer(x, y, run) {
@@ -372,8 +106,8 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
         touch();
       },
       look(dx, dy) {
-        state.look.x += dx * sensitivity;
-        state.look.y += dy * sensitivity;
+        state.look.x += dx * fields.sensitivity;
+        state.look.y += dy * fields.sensitivity;
         touch();
       },
       zoom(pixels) {
@@ -382,10 +116,10 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       },
     },
     get dragging() {
-      return dragging;
+      return fields.dragging;
     },
     get lastActive() {
-      return lastActive;
+      return fields.lastActive;
     },
     lock,
     endFrame() {
@@ -399,8 +133,8 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
     dispose() {
       events.abort();
       release();
-      engaged = false;
-      dragHeld = false;
+      fields.engaged = false;
+      fields.dragHeld = false;
       if (document.pointerLockElement === target && typeof document.exitPointerLock === 'function') document.exitPointerLock();
     },
   };

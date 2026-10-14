@@ -1,21 +1,7 @@
 /**
- * The sheep. The smallest thing in the kit, and therefore the one the pixel
- * arithmetic is actually about.
- *
- * A sheep is **1.3 m nose to tail**, which was 4.9 world units and 15 pixels at
- * 300 while the animals were at avatar scale — two above the gull that
- * `life.ts`'s traps call *a bird*, and the measurement that said nothing in this
- * kit needs the monument crop. Since 2026-09-24 it is 1.65 units, 5 pixels at
- * 300 and 15 at 100, and still no smaller than the gull, which came down with
- * it.
- *
- * At 15 pixels a sheep is a pale lozenge with a dark head and four dark stalks,
- * and that is exactly what one is. So the whole budget goes on the fleece — an
- * offset second mass over the barrel, 24 triangles, without which the silhouette
- * is a shaved animal — and on the contrast between `coat` and `face`. There are
- * no horns: an ewe has none, most flocks are ewes, and 48 triangles of ram's
- * curl would be a mark two pixels across at the distance a flock is seen. The
- * curl is in `body.ts` and nothing in the kit calls for it yet.
+ * The sheep, the smallest animal in the kit. Read as a pale lozenge with a dark
+ * head and legs, so the budget goes on the fleece (an offset second mass) and
+ * the contrast between `coat` and `face`. No horns: most of a flock is ewes.
  */
 import { buildAnimal } from '../body.ts';
 import { coatFor, atFaunaScale } from '../contract.ts';
@@ -43,8 +29,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     barrelWidth: 0.36 * s,
     chestFore: 0.92,
 
-    // Barely a neck. A sheep's head comes almost straight off its shoulders and
-    // giving it one is the fastest way to build a small goat.
+    // Barely a neck: the head comes almost straight off the shoulders.
     neckLength: 0.28 * s,
     neckRise: 0.34,
     neckThick: 0.16 * s,
@@ -73,8 +58,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
 
     coat,
     under: coat,
-    // The dark head and dark legs. On a 15-pixel animal this is the only mark
-    // there is, and it is the whole difference between a sheep and a stone.
+    // The dark head and dark legs.
     point: P.bark,
     face: coat === P.bark ? P.bone : P.bark,
   };

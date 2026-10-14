@@ -1,30 +1,14 @@
 /**
- * The registry.
+ * The animal registry: every `Animal` exported from a file in `parts/`.
  *
- * The same trick as the monument, scenery and traffic registries and for the
- * same reason: **adding an animal is one file and nothing else.** Drop `goat.ts`
- * into `parts/` exporting an `Animal` and it is in the kit, in the check, and
- * available to every table that names it.
- *
- * Writing one, end to end:
- *
- * 1. `src/fauna/parts/<id>.ts`, named after the kebab-case id.
- * 2. Import from `../contract.ts` and `../body.ts` and nowhere else.
- * 3. Export a `shape(rng, style)` returning proportions **in metres**, and an
- *    `Animal` whose `build` is `buildAnimal(ctx, shape(rng, style), { kind:
- *    'stand' }).group`. The pose is the placer's, not the part's — see the note
- *    on `Animal`.
- * 4. Declare `size` as `[length, width, height]` in **world units** and mean it.
- *    `validateAnimal` holds every variant to it from both sides, and the number
- *    to put there is the one `pnpm fauna` prints: build first, declare second.
- * 5. Add it to `BY_BIOME` in `regions.ts` — a climate, never a country — and to
- *    `RANGE` only if it would be wrong somewhere.
- * 6. Run `pnpm fauna`. Read the **silhouette** before the table: an animal that
- *    measures correctly and does not look like itself is the failure this whole
- *    kit exists to avoid, and it is the one the numbers cannot see.
+ * A part lives in `parts/<id>.ts`, imports only from `../contract.ts` and
+ * `../body.ts`, exports a `shape(rng, style)` in metres and an `Animal` whose
+ * `build` is `buildAnimal(ctx, shape(rng, style), { kind: 'stand' }).group`.
+ * Its `size` is in world units (the one `pnpm fauna` prints), and it is listed
+ * in `BY_BIOME` in `regions.ts` (and `RANGE` only if it would be wrong somewhere).
  */
-import { KINDS,  } from './contract.ts';
-import type { Animal,  } from './contract.ts';
+import { KINDS } from './contract.ts';
+import type { Animal } from './contract.ts';
 
 export * from './contract.ts';
 export * from './regions.ts';
@@ -65,8 +49,7 @@ for (const path of Object.keys(MODULES).sort()) {
   for (const entry of found) {
     const previous = seen.get(entry.id);
     if (previous !== undefined) {
-      // A biome table names animals by id, so two under one id means a whole
-      // climate silently builds the wrong one. Refuse to start.
+      // Biome tables name animals by id, so a duplicate would build the wrong one.
       throw new Error(`duplicate animal id '${entry.id}' in ${previous} and ${path}`);
     }
     seen.set(entry.id, path);

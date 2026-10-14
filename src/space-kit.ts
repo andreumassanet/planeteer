@@ -7,16 +7,14 @@ import type { Model, Rig } from './models.ts';
  * `models/space/`, read back for the other worlds and the title screen.
  *
  * Five static files, each one GLB of many models, loaded whole and only when a
- * caller asks for that group — `buildings` (the colony), `craft` (rovers and
- * ships), `props` (rocks, crystals, clutter), `flora` (alien plants) and
- * `interior` (a ship's bridge) — and one file a creature, with its skeleton and the clips it
- * plays. `manifest.json` lists every model with its group, triangles, size in
- * the pack's units, tags and clips, so a caller can choose before fetching.
+ * caller asks for that group (`buildings`, `craft`, `props`, `flora`,
+ * `interior`), and one file a creature, with its skeleton and clips.
+ * `manifest.json` lists every model with its group, triangles, size in the
+ * pack's units, tags and clips, so a caller can choose before fetching.
  *
- * **Nothing here is in Earth's first load.** Import it with `import()` from
- * the worlds or the title screen; it pulls `kit.ts` and `models.ts` with it,
- * which are already deferred chunks. Every slot keeps the pack's own colour;
- * the caller paints it.
+ * Nothing here is in Earth's first load: import it with `import()` from the
+ * worlds or the title screen. Every slot keeps the pack's own colour; the
+ * caller paints it.
  */
 
 const BASE = `${import.meta.env?.BASE_URL ?? '/'}models/space/`;

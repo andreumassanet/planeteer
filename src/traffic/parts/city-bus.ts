@@ -1,13 +1,9 @@
 import type { Vehicle } from '../contract.ts';
 
 /**
- * City bus: Quaternius's `Bus` (Public Transport, CC0). It is grey and white in
- * the pack, so the paint names the bodywork (`Top`, `Bottom`, `Material`).
- *
- * Fitted to the 3.3 a bus may be wide it is 7.73 long, half the 14.76 the code
- * bus was, because the pack draws a bus as a toy; `KINDS.heavy.minLength` came
- * down to 7.5 for it. The pack's `SchoolBus` was tried as a variant and is 22%
- * taller at the same width, which no one declared box can hold.
+ * City bus: Quaternius's `Bus` (Public Transport, CC0). The pack paints it grey
+ * and white, so the paint names the bodywork slots. Fitted by width it is
+ * 7.73 long, which is why `KINDS.heavy.minLength` is 7.5.
  */
 const MODEL = 'bus';
 const BODY = /^(Top|Bottom|Material)$/;

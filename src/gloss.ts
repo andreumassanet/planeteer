@@ -7,27 +7,24 @@ const GLOSS_SPECULAR = 0.35;
 const GLOSS_SKY = 0.7;
 
 /**
- * A varnish for painted machines: the sky caught along a car's flanks and
- * the sun's highlight on its roof and glass.
+ * A varnish for painted machines: the sky caught along a car's flanks and the
+ * sun's highlight on its roof and glass.
  *
- * The toon model has no specular term at all — its outgoing light is diffuse
- * and emission — and a car lit only by its diffuse is a painted block of wood,
- * which is what a toy is and not what a vehicle is. So the varnish is added as
- * emission after the lights: a Schlick fresnel toward the hemisphere light's
- * sky colour, which is what makes a surface read as glossy from any angle, and
- * a broad Blinn-Phong lobe for each directional light, the sun's highlight.
+ * The toon model has no specular term, so a car lit only by its diffuse is a
+ * painted block of wood. The varnish is added as emission after the lights: a
+ * Schlick fresnel toward the hemisphere light's sky colour, which reads as
+ * glossy from any angle, and a broad Blinn-Phong lobe for each directional
+ * light, the sun's highlight.
  *
- * How glossy a vertex is comes from its colour, because the models carry no
- * other channel for it: glass (the slate-blue the kit paints every pane) is a
- * mirror, near-black (tyres, trim, rubber) is matte, and paint is between.
- * The highlight is not shadowed — the shadow term is gone by this point — and
- * a car in a building's shade keeps a faint highlight, which nobody reads as
- * wrong. A cloud's shade is the sun itself gone, and there the highlight goes
- * with it (`atlasCloud`, on a material under the deck's shade: `cloud-shade.ts`).
+ * How glossy a vertex is comes from its colour, since the models carry no
+ * other channel: glass (the slate-blue the kit paints every pane) is a mirror,
+ * near-black (tyres, trim) is matte, and paint is between. The highlight is
+ * not shadowed, and it goes with the sun under a cloud's shade (`atlasCloud`,
+ * `cloud-shade.ts`).
  *
- * A block of its own, after `<lights_fragment_end>`: what a material that
- * draws a still vehicle among other things (a town's, a wood's) runs for its
- * vehicles' vertices only, so a parked car is varnished as the one driven off.
+ * It is a block of its own after `<lights_fragment_end>`, so a material that
+ * draws a still vehicle among other things (a town's, a wood's) varnishes the
+ * vehicles' vertices only.
  */
 export const VARNISH_GLSL = /* glsl */ `
   {

@@ -2,10 +2,8 @@ import type { Vehicle } from '../contract.ts';
 
 /**
  * Minibus: Quaternius's `Ambulance` (Public Transport, CC0) with the ambulance
- * painted out. A tall box body behind a short cab is what a marshrutka or a
- * matatu is, and the pack's model is the only van-sized vehicle with side
- * windows in either kit. Its body is grey and white in the pack, so the paint
- * names the bodywork (`White`, `Material`) rather than finding it by colour.
+ * painted out: a tall box behind a short cab, with side windows. The pack
+ * paints it grey and white, so the paint names the bodywork slots.
  */
 const MODEL = 'ambulance';
 const BODY = /^(White|Material|Red)$/;

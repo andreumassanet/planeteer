@@ -1,48 +1,30 @@
 /**
  * The inside of a closed vehicle: glass you can see through, a lining for the
- * shell, and a cabin to sit in — floor, seats, dashboard, steering wheel,
- * instruments, a mirror — built in code on the world's ramp and inked, as the
- * monuments are, because no CC0 pack has an interior that fits the outside of
- * the Kenney and Quaternius vehicles it would have to go into.
+ * shell, and a cabin to sit in (floor, seats, dashboard, steering wheel,
+ * instruments, a mirror), built in code on the world's ramp and inked.
  *
- * **Why every window was opaque, and what changed.** A closed shell seen
- * through a hole is its own far wall from behind: single-sided, that face is
- * not drawn, and the ink hull — the shell's back faces pushed out — is all
- * that is. So a window cut in a car showed a black blob where its far side
- * was, which is why glass in this world was `slate` and nothing inside was
- * ever seen. What fixes it is not the glass but a **lining**: every face of
- * the shell that looks into the cabin is copied, turned to face in and set
- * `LINER_INSET` inside it (`liner`). From within, and from outside through a
- * window, what is seen of the far wall is the lining's front, which writes
- * depth a little nearer than the shell's hull and so hides it; and the
- * lining's own hull falls only on its silhouettes — the pillars, the door
- * tops, the edge of the roof — which is where a comic draws the lines of a
- * car's inside. The first-person eye, inside the shell, is inside the
- * lining too, and the same holds: no screen of ink, and the ink kept.
+ * Lining: a closed shell seen through a window is its own far wall from
+ * behind, and single-sided that face is not drawn, leaving only the ink hull.
+ * So every face of the shell that looks into the cabin is copied, turned to
+ * face in and set `LINER_INSET` inside it (`liner`). Seen from within, or
+ * through a window, the lining's front writes depth nearer than the shell's
+ * hull and hides it, and its own hull falls only on silhouettes (pillars, door
+ * tops, the roof edge).
  *
- * **The glass is then free to be glass** (`glassMaterial`): the window's own
- * triangles, taken out of the shell and drawn tinted and see-through, both
- * sides, with no ink of their own — a pane is the frame's to outline — and
- * **writing no depth**. A pane that wrote depth would hide every hull behind
- * it from the outline pass, which runs after the fills: the driver seen
- * through a side window would lose his outline, and from the driver's seat
- * so would every car, house and tree seen through the windscreen. With the
- * lining there to hide the far wall, nothing behind the glass needs hiding.
+ * Glass (`glassMaterial`): the window's own triangles, tinted, see-through,
+ * double-sided, with no ink and no depth write. A pane that wrote depth would
+ * hide every hull behind it from the outline pass.
  *
- * **Sized off the shell, not written down** (`probeOf`): the floor is laid
- * over the shell's own bottom, the dashboard runs forward until it meets the
- * windscreen and the bonnet, the seats are as wide as the shell lets them be,
- * so the same code furnishes a hatchback, a van, a bus, a tractor's cab and a
- * town's traffic. The body that sits in it is `HERO` (`body.ts`), seated with
- * the legs to the pedals (`HERO.drive`), which is what decides where the
- * dashboard's underside, the wheel and the firewall may go.
+ * Sizes come off the shell (`probeOf`): the floor sits over the shell's bottom,
+ * the dashboard runs forward to the windscreen and bonnet, the seats are as
+ * wide as the shell allows. The body that sits in it is `HERO` (`body.ts`),
+ * seated with the legs to the pedals (`HERO.drive`).
  *
- * **Nothing here knows which vehicle it furnishes.** `liner` takes any shell
- * and a rule, `probeOf` any soup, `roadCabin` any shell with its windscreen
- * and its seats, and `seatPieces`, `wheelPart`, `instrumentPanel` and `stick`
- * any seat: the helicopter, the submarine, the launch and the plane are
- * furnished from the same pieces, and so can any other closed craft be —
- * the other worlds' pressurised rover and their lander's canopy among them.
+ * Nothing here knows which vehicle it furnishes: `liner` takes any shell,
+ * `probeOf` any soup, `roadCabin` any shell with its windscreen and seats, and
+ * `seatPieces`, `wheelPart`, `instrumentPanel` and `stick` any seat. The
+ * helicopter, submarine, launch, plane and the other worlds' craft use the
+ * same pieces.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -66,16 +48,10 @@ export { GLASS_OPACITY, GLASS_TINT, glassMaterial } from './build.ts';
 export const isGlassMaterial = (material: THREE.Material): boolean => material.userData.atlasGlass === true;
 
 /**
- * How near a vehicle nobody is riding is drawn glazed and driven: its windows
- * see-through, a cabin inside and a driver at the wheel — Earth's road
- * traffic (`glazeTraffic`, `life.ts`) and the other worlds' rovers
- * (`worlds/traffic.ts`). Past it the vehicle is its plain build, opaque
- * slate glass and nobody in it, which is what it was everywhere until
- * 2026-10-04: a driver is the cast's seated body and some seven hundred
- * triangles, a lining and a front row some six hundred more, and at a
- * hundred and twenty units a driver behind tinted glass is a few pixels. Not
- * scaled by the detail knob: it answers whether the inside can be seen, not
- * how far the world is built.
+ * How near a vehicle nobody is riding is drawn glazed and driven: windows
+ * see-through, a cabin inside and a driver at the wheel (`glazeTraffic`,
+ * `life.ts`; `worlds/traffic.ts`). Past it the vehicle is its plain build with
+ * opaque slate glass and nobody in it. Not scaled by the detail knob.
  */
 export const CABIN_REACH = 120;
 
@@ -175,10 +151,9 @@ export function probeOf(soups: readonly Soup[]): ShellProbe {
 // ---------------------------------------------------------------------------
 
 /**
- * How far inside the shell its lining stands: a fiftieth of a body, enough
- * that the lining's fill is nearer the eye than the shell's hull at any
- * angle the cabin is seen from, and too little to read as a thickness at a
- * window's edge.
+ * How far inside the shell its lining stands: enough that the lining's fill
+ * is nearer the eye than the shell's hull at any angle, too little to read as
+ * a thickness at a window's edge.
  */
 export const LINER_INSET = 0.02 * H;
 
@@ -192,7 +167,7 @@ export interface LinerRule {
 /**
  * The lining of a shell: every kept triangle copied, wound the other way,
  * its normal and its ink's normal turned to face in, and every corner moved
- * `LINER_INSET` in along the shell's **welded** normal — the mean of every
+ * `LINER_INSET` in along the shell's welded normal — the mean of every
  * face that meets at that point — so the lining stays closed where the shell
  * has a crease, as an inset along each face's own normal would not.
  * `inset` is `LINER_INSET` but where a shell has been cut open (a canopy's
@@ -329,10 +304,9 @@ export function seatPieces(seat: Seat, floor: number, base: number, headrest = t
 
 /**
  * What a driver holds: a car's wheel, a bus's broad flat one, a tractor's
- * upright one. Each is a `WheelGrip` about the driver's hip — measured
- * against the hero's own arms, which are short for his height (the cast's
- * shoulder to wrist is 0.22 of a body, `HERO.reach`), so the wheel is near
- * the chest — and every one clears the knees (`HERO.drive.kneeTop`).
+ * upright one. Each is a `WheelGrip` about the driver's hip, near the chest
+ * (the hero's arms are short, `HERO.reach`), and clears the knees
+ * (`HERO.drive.kneeTop`).
  */
 export const WHEELS = {
   car: { centre: [0, 0.3 * H, 0.25 * H], tilt: (28 * Math.PI) / 180, radius: 0.08 * H, spread: 1.5 },
@@ -343,10 +317,9 @@ export const WHEELS = {
 export type WheelKind = keyof typeof WHEELS;
 
 /**
- * The wheel's turn at full lock, radians: a real car's goes round a turn and
- * more each way; this one a quarter turn, which reads as a hard turn from the
- * seat and keeps the spokes where the eye can follow them. The hands go with
- * it only as far as `WHEEL_HOLD` (`cast.ts`) and slide past.
+ * The wheel's turn at full lock, radians: a quarter turn, which reads as a
+ * hard turn from the seat and keeps the spokes followable. The hands follow
+ * only as far as `WHEEL_HOLD` (`cast.ts`) and slide past.
  */
 export const WHEEL_LOCK = 1.6;
 
@@ -467,6 +440,151 @@ const TOE_ROOM = 0.05 * H;
 const KEEP_IN = 0.03 * H;
 
 /**
+ * The covers over the road wheels where they come up into the cabin (the pack's
+ * wheels are each a third of the car's width): each runs from the floor to over
+ * the tyre between its inner face and the shell's side, so a rear passenger's
+ * outer hip and a driver's outer foot go into one, under the window line and the
+ * dashboard, where nothing of them is seen (`CraftModel.arches`).
+ */
+function addWheelArches(group: THREE.Group, spec: RoadCabinSpec, firewall: number): CabinBox[] {
+  const { tone } = craftContext();
+  const { probe } = spec;
+  const arches: CabinBox[] = [];
+  for (const arch of spec.wheels) {
+    const from = Math.max(spec.rear, arch.z - arch.radius - 0.02 * H);
+    const to = Math.min(firewall, arch.z + arch.radius + 0.02 * H);
+    if (to - from < 0.05 * H) continue;
+    const archStations: Station[] = [];
+    const steps = 6;
+    const inner = arch.inner - 0.02 * H;
+    let top = -Infinity;
+    let outer = inner;
+    for (let i = 0; i <= steps; i++) {
+      const z = from + ((to - from) * i) / steps;
+      const dz = z - arch.z;
+      const over = arch.y + Math.sqrt(Math.max(0, arch.radius * arch.radius - dz * dz)) + 0.03 * H;
+      const y = Math.max(spec.floor + 0.02 * H, over);
+      const wall = probe.wall(Math.min(y, spec.floor + 0.1 * H), z, arch.side) - KEEP_IN;
+      const out = Math.max(inner + 0.03 * H, Number.isFinite(wall) ? wall : inner + 0.03 * H);
+      top = Math.max(top, y);
+      outer = Math.max(outer, out);
+      archStations.push({
+        z,
+        ring: [
+          [arch.side * inner, spec.floor - 0.01 * H],
+          [arch.side * out, spec.floor - 0.01 * H],
+          [arch.side * out, y],
+          [arch.side * inner, y],
+        ],
+      });
+    }
+    group.add(loft(archStations, tone(spec.trim, 0.85)));
+    // What it hides is the whole tyre's top, under the bonnet too, where the
+    // cover itself stops at the firewall.
+    const x0 = arch.side * inner;
+    const x1 = arch.side * Math.max(outer, arch.inner + 2 * arch.radius);
+    arches.push({
+      min: [Math.min(x0, x1), arch.y - arch.radius, arch.z - arch.radius - 0.03 * H],
+      max: [Math.max(x0, x1), Math.max(top, arch.y + arch.radius + 0.03 * H), arch.z + arch.radius + 0.03 * H],
+    });
+  }
+  return arches;
+}
+
+/**
+ * The full kit: the instrument hood with its dials, the dashboard's trim,
+ * vents and radio, a centre console with a gear lever (not under a driver who
+ * sits on the axis, as a tractor's does) and a mirror under the header rail.
+ * The speedometer's needle is added to `turning`.
+ */
+function addFullKit(
+  group: THREE.Group,
+  spec: RoadCabinSpec,
+  turning: Turning[],
+  face: number,
+  top: number,
+  half: (y: number, z: number, least: number) => number,
+): void {
+  if (!spec.full) return;
+  const { box, strut, column, tone } = craftContext();
+  const { probe } = spec;
+  const driver = spec.seats[0]!;
+  // The binnacle: a hood standing on the dashboard's top over two dials,
+  // the speedometer with its needle and a second for the revs, where the
+  // eye sees them through the wheel's upper half.
+  // Standing proud of the dashboard's top, so the dials clear the wheel's boss.
+  const dialY = top + 0.012 * H;
+  const hood = box(0.2 * H, 0.06 * H, 0.06 * H, tone(spec.dash, 0.6));
+  hood.position.set(driver.x, dialY - 0.035 * H, face + 0.025 * H);
+  group.add(hood);
+  const brow = box(0.2 * H, 0.012 * H, 0.07 * H, tone(spec.dash, 0.5));
+  brow.position.set(driver.x, dialY + 0.025 * H, face + 0.02 * H);
+  group.add(brow);
+  // A trim strip across the dashboard's face, from door to door, under the vents.
+  const strip = box(2 * half(top - 0.09 * H, face, 0.1 * H), 0.014 * H, PROUD, tone(PALETTE.tan, 1.1));
+  strip.position.set(0, top - 0.095 * H, face - PROUD * 0.5);
+  group.add(strip);
+  const dialRadius = 0.026 * H;
+  for (const [i, dx] of [0.05 * H, -0.05 * H].entries()) {
+    const dial = column(dialRadius, PROUD * 2, PALETTE.cream, 12);
+    // A column stands up +Y; a quarter turn about X faces its bottom cap at the driver.
+    dial.rotation.x = Math.PI / 2;
+    dial.position.set(driver.x + dx, dialY, face - 0.005 * H - PROUD);
+    group.add(dial);
+    if (i === 0) turning.push(needlePart(new V(driver.x + dx, dialY, face - 0.005 * H - PROUD * 1.6), dialRadius * 0.85));
+    else {
+      const needle = box(dialRadius * 0.12, dialRadius * 0.8, PROUD * 0.4, PALETTE.red);
+      needle.rotation.z = 0.9;
+      needle.position.set(driver.x + dx, dialY, face - 0.005 * H - PROUD * 1.6);
+      group.add(needle);
+    }
+  }
+  // Air vents on the dashboard's face — one by each door and two in the
+  // middle — and the radio between the middle two.
+  const ventY = top - 0.06 * H;
+  for (const x of [driver.x + Math.sign(driver.x) * 0.16 * H, 0.05 * H, -0.05 * H, -driver.x - Math.sign(driver.x) * 0.16 * H]) {
+    const vent = box(0.075 * H, 0.035 * H, PROUD, tone(spec.dash, 0.5));
+    vent.position.set(x, ventY, face - PROUD * 0.5);
+    group.add(vent);
+    for (let k = 0; k < 2; k++) {
+      const slat = box(0.07 * H, 0.004 * H, PROUD * 0.6, tone(spec.dash, 1.2));
+      slat.position.set(x, ventY + (0.01 + k * 0.013) * H, face - PROUD * 1.1);
+      group.add(slat);
+    }
+  }
+  const radio = box(0.09 * H, 0.05 * H, PROUD, PALETTE.ink);
+  radio.position.set(0, ventY - 0.075 * H, face - PROUD * 0.5);
+  group.add(radio);
+  const display = box(0.06 * H, 0.018 * H, PROUD * 0.6, PALETTE.skyBlue);
+  display.position.set(0, ventY - 0.055 * H, face - PROUD * 1.1);
+  group.add(display);
+  if (Math.abs(driver.x) > HERO.half) {
+    const consoleTop = driver.y + 0.05 * H;
+    const consoleLength = face - (driver.z - 0.05 * H);
+    const middle = box(0.05 * H, consoleTop - spec.floor, consoleLength, tone(spec.dash, 0.95));
+    middle.position.set(0, spec.floor, driver.z - 0.05 * H + consoleLength / 2);
+    group.add(middle);
+    const leverFoot = new V(0, consoleTop, driver.z + 0.2 * H);
+    const knob = new V(0, consoleTop + 0.08 * H, driver.z + 0.18 * H);
+    group.add(strut(leverFoot, knob, 0.012 * H, PALETTE.steel));
+    const ball = box(0.03 * H, 0.03 * H, 0.03 * H, PALETTE.ink);
+    ball.position.copy(knob).add(new V(0, -0.005 * H, 0));
+    group.add(ball);
+  }
+  // The mirror, on a short stalk from the header rail, high in the middle
+  // of the windscreen: a frame and its glass, which faces the driver.
+  const mirrorAt = new V(0, spec.header.y - 0.04 * H, spec.header.z - 0.03 * H);
+  const roof = probe.ceiling(0, mirrorAt.y, mirrorAt.z);
+  if (Number.isFinite(roof)) group.add(strut(new V(0, roof - KEEP_IN * 0.5, mirrorAt.z), mirrorAt.clone().add(new V(0, 0.02 * H, 0)), 0.01 * H, tone(spec.dash, 0.6)));
+  const mirror = box(0.11 * H, 0.03 * H, 0.012 * H, tone(spec.dash, 0.6));
+  mirror.position.copy(mirrorAt);
+  group.add(mirror);
+  const pane = box(0.095 * H, 0.02 * H, PROUD * 0.5, PALETTE.skyBlue);
+  pane.position.set(mirrorAt.x, mirrorAt.y + 0.005 * H, mirrorAt.z - 0.006 * H - PROUD * 0.25);
+  group.add(pane);
+}
+
+/**
  * The inside of a road vehicle, fitted to its shell: the floor, every seat, a
  * dashboard from the driver's knees forward to the windscreen and on under
  * the bonnet to a firewall ahead of the toes, a steering wheel on its column,
@@ -474,7 +592,7 @@ const KEEP_IN = 0.03 * H;
  * console with a gear lever, and a mirror under the header rail.
  */
 export function roadCabin(spec: RoadCabinSpec): RoadCabin {
-  const { box, strut, column, tone } = craftContext();
+  const { strut, tone } = craftContext();
   const { probe } = spec;
   const driver = spec.seats[0]!;
   const group = new THREE.Group();
@@ -517,51 +635,7 @@ export function roadCabin(spec: RoadCabinSpec): RoadCabin {
   dashStations.push({ z: firewall, ring: rect(half(top, firewall, 0.1 * H), spec.floor, top) });
   group.add(loft(dashStations, tone(spec.dash, 0.8)));
 
-  // --- the wheel arches: the pack's wheels are each a third of the car's
-  // width, and their tops come up inside the shell beside the seats and under
-  // the dashboard. Each is covered, from the floor to over the tyre, between
-  // its inner face and the shell's side; a rear passenger's outer hip and a
-  // driver's outer foot go into one, under the window line and the
-  // dashboard, where nothing of them is seen (`CraftModel.arches`).
-  const arches: CabinBox[] = [];
-  for (const arch of spec.wheels) {
-    const from = Math.max(spec.rear, arch.z - arch.radius - 0.02 * H);
-    const to = Math.min(firewall, arch.z + arch.radius + 0.02 * H);
-    if (to - from < 0.05 * H) continue;
-    const archStations: Station[] = [];
-    const steps = 6;
-    const inner = arch.inner - 0.02 * H;
-    let top = -Infinity;
-    let outer = inner;
-    for (let i = 0; i <= steps; i++) {
-      const z = from + ((to - from) * i) / steps;
-      const dz = z - arch.z;
-      const over = arch.y + Math.sqrt(Math.max(0, arch.radius * arch.radius - dz * dz)) + 0.03 * H;
-      const y = Math.max(spec.floor + 0.02 * H, over);
-      const wall = probe.wall(Math.min(y, spec.floor + 0.1 * H), z, arch.side) - KEEP_IN;
-      const out = Math.max(inner + 0.03 * H, Number.isFinite(wall) ? wall : inner + 0.03 * H);
-      top = Math.max(top, y);
-      outer = Math.max(outer, out);
-      archStations.push({
-        z,
-        ring: [
-          [arch.side * inner, spec.floor - 0.01 * H],
-          [arch.side * out, spec.floor - 0.01 * H],
-          [arch.side * out, y],
-          [arch.side * inner, y],
-        ],
-      });
-    }
-    group.add(loft(archStations, tone(spec.trim, 0.85)));
-    // What it hides is the whole tyre's top, under the bonnet too, where the
-    // cover itself stops at the firewall.
-    const x0 = arch.side * inner;
-    const x1 = arch.side * Math.max(outer, arch.inner + 2 * arch.radius);
-    arches.push({
-      min: [Math.min(x0, x1), arch.y - arch.radius, arch.z - arch.radius - 0.03 * H],
-      max: [Math.max(x0, x1), Math.max(top, arch.y + arch.radius + 0.03 * H), arch.z + arch.radius + 0.03 * H],
-    });
-  }
+  const arches = addWheelArches(group, spec, firewall);
 
   // --- the seats
   for (const [i, seat] of spec.seats.entries()) {
@@ -575,85 +649,7 @@ export function roadCabin(spec: RoadCabinSpec): RoadCabin {
   group.add(strut(centre.clone().addScaledVector(axle, 0.02 * H), centre.clone().addScaledVector(axle, DASH_FACE - wheel.centre[2] + 0.05 * H), 0.025 * H, PALETTE.steel));
   const turning: Turning[] = [wheelPart(wheel, centre, PALETTE.bark)];
 
-  if (spec.full) {
-    // The binnacle: a hood standing on the dashboard's top over two dials,
-    // the speedometer with its needle and a second for the revs, where the
-    // eye sees them through the wheel's upper half.
-    // Standing proud of the dashboard's top, so the dials clear the wheel's boss.
-    const dialY = top + 0.012 * H;
-    const hood = box(0.2 * H, 0.06 * H, 0.06 * H, tone(spec.dash, 0.6));
-    hood.position.set(driver.x, dialY - 0.035 * H, face + 0.025 * H);
-    group.add(hood);
-    const brow = box(0.2 * H, 0.012 * H, 0.07 * H, tone(spec.dash, 0.5));
-    brow.position.set(driver.x, dialY + 0.025 * H, face + 0.02 * H);
-    group.add(brow);
-    // A trim strip across the dashboard's face, from door to door, under the vents.
-    const strip = box(2 * half(top - 0.09 * H, face, 0.1 * H), 0.014 * H, PROUD, tone(PALETTE.tan, 1.1));
-    strip.position.set(0, top - 0.095 * H, face - PROUD * 0.5);
-    group.add(strip);
-    const dialRadius = 0.026 * H;
-    for (const [i, dx] of [0.05 * H, -0.05 * H].entries()) {
-      const dial = column(dialRadius, PROUD * 2, PALETTE.cream, 12);
-      // A column stands up +Y; a quarter turn about X faces its bottom cap at the driver.
-      dial.rotation.x = Math.PI / 2;
-      dial.position.set(driver.x + dx, dialY, face - 0.005 * H - PROUD);
-      group.add(dial);
-      if (i === 0) turning.push(needlePart(new V(driver.x + dx, dialY, face - 0.005 * H - PROUD * 1.6), dialRadius * 0.85));
-      else {
-        const needle = box(dialRadius * 0.12, dialRadius * 0.8, PROUD * 0.4, PALETTE.red);
-        needle.rotation.z = 0.9;
-        needle.position.set(driver.x + dx, dialY, face - 0.005 * H - PROUD * 1.6);
-        group.add(needle);
-      }
-    }
-    // Air vents on the dashboard's face — one by each door and two in the
-    // middle — and the radio between the middle two.
-    const ventY = top - 0.06 * H;
-    for (const x of [driver.x + Math.sign(driver.x) * 0.16 * H, 0.05 * H, -0.05 * H, -driver.x - Math.sign(driver.x) * 0.16 * H]) {
-      const vent = box(0.075 * H, 0.035 * H, PROUD, tone(spec.dash, 0.5));
-      vent.position.set(x, ventY, face - PROUD * 0.5);
-      group.add(vent);
-      for (let k = 0; k < 2; k++) {
-        const slat = box(0.07 * H, 0.004 * H, PROUD * 0.6, tone(spec.dash, 1.2));
-        slat.position.set(x, ventY + (0.01 + k * 0.013) * H, face - PROUD * 1.1);
-        group.add(slat);
-      }
-    }
-    const radio = box(0.09 * H, 0.05 * H, PROUD, PALETTE.ink);
-    radio.position.set(0, ventY - 0.075 * H, face - PROUD * 0.5);
-    group.add(radio);
-    const display = box(0.06 * H, 0.018 * H, PROUD * 0.6, PALETTE.skyBlue);
-    display.position.set(0, ventY - 0.055 * H, face - PROUD * 1.1);
-    group.add(display);
-    // A centre console between the front seats, and a gear lever on it; not
-    // under a driver who sits on the axis, as a tractor's does.
-  }
-  if (spec.full && Math.abs(driver.x) > HERO.half) {
-    const consoleTop = driver.y + 0.05 * H;
-    const consoleLength = face - (driver.z - 0.05 * H);
-    const middle = box(0.05 * H, consoleTop - spec.floor, consoleLength, tone(spec.dash, 0.95));
-    middle.position.set(0, spec.floor, driver.z - 0.05 * H + consoleLength / 2);
-    group.add(middle);
-    const leverFoot = new V(0, consoleTop, driver.z + 0.2 * H);
-    const knob = new V(0, consoleTop + 0.08 * H, driver.z + 0.18 * H);
-    group.add(strut(leverFoot, knob, 0.012 * H, PALETTE.steel));
-    const ball = box(0.03 * H, 0.03 * H, 0.03 * H, PALETTE.ink);
-    ball.position.copy(knob).add(new V(0, -0.005 * H, 0));
-    group.add(ball);
-  }
-  if (spec.full) {
-    // The mirror, on a short stalk from the header rail, high in the middle
-    // of the windscreen: a frame and its glass, which faces the driver.
-    const mirrorAt = new V(0, spec.header.y - 0.04 * H, spec.header.z - 0.03 * H);
-    const roof = probe.ceiling(0, mirrorAt.y, mirrorAt.z);
-    if (Number.isFinite(roof)) group.add(strut(new V(0, roof - KEEP_IN * 0.5, mirrorAt.z), mirrorAt.clone().add(new V(0, 0.02 * H, 0)), 0.01 * H, tone(spec.dash, 0.6)));
-    const mirror = box(0.11 * H, 0.03 * H, 0.012 * H, tone(spec.dash, 0.6));
-    mirror.position.copy(mirrorAt);
-    group.add(mirror);
-    const pane = box(0.095 * H, 0.02 * H, PROUD * 0.5, PALETTE.skyBlue);
-    pane.position.set(mirrorAt.x, mirrorAt.y + 0.005 * H, mirrorAt.z - 0.006 * H - PROUD * 0.25);
-    group.add(pane);
-  }
+  addFullKit(group, spec, turning, face, top, half);
   return { still: soupOf(group), turning, firewall, arches };
 }
 

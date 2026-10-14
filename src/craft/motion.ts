@@ -3,26 +3,21 @@
  * springs, the wheels turning and steering, the propeller and the rotors, a
  * bicycle's crank, a horse's legs and back, a moored hull on the swell.
  *
- * **None of it is the pose.** Where a vehicle is and which way it faces is the
- * player's (`player.ts`) or the wire's (`fleet.ts`, `fleet-sync.ts`), and
- * everything here is a child transform under it that nobody else reads: a
- * car's body pitching as it brakes moves no wheel off the road and no seat
- * off the wire. So it is the same for a vehicle you drive and one somebody
- * else does — theirs is handed the speed and turn its poses imply
- * (`fleet.ts`), yours the ones you are driving at — and a parked one is simply
- * handed nothing and eases back to rest.
+ * None of it is the pose. Where a vehicle is and which way it faces belongs to
+ * the player (`player.ts`) or the wire (`fleet.ts`, `fleet-sync.ts`); everything
+ * here is a child transform under it that nobody else reads. A driven vehicle
+ * and another player's are treated alike, and a parked one is handed nothing
+ * and eases back to rest.
  *
- * **The parts are the model's own.** `CraftModel.build` names what turns —
- * `'wheel'` about +X, `'prop'` about +Z — and everything else is moved into a
- * `'sprung'` group under the model the first time it is asked for here: the
- * body, the propeller on its nose, and the seat frames `fleet.ts` hangs on it,
- * so a passenger drawn in a moored launch rides its swell. The wheels stay
- * where the model put them, on the ground, which is what reads as suspension.
+ * `CraftModel.build` names what turns (`'wheel'` about +X, `'prop'` about +Z);
+ * everything else is moved into a `'sprung'` group under the model on first
+ * use: the body, the propeller on its nose, and the seat frames `fleet.ts`
+ * hangs on it. The wheels stay where the model put them.
  *
- * Every transform here is a rotation about a point and a small translation,
- * so no matrix under a vehicle can come out reflected; `motionOf` asserts it
- * once all the same, because an inked part with a reflected matrix is a solid
- * blob of ink. Nothing allocates after the first call for a model.
+ * Every transform is a rotation about a point plus a small translation, so no
+ * matrix can come out reflected; `motionOf` asserts it once anyway, because an
+ * inked part with a reflected matrix is a solid blob of ink. Nothing allocates
+ * after the first call for a model.
  */
 import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
@@ -88,20 +83,17 @@ export const AT_REST: Readonly<MotionInput> = { speed: 0, turnRate: 0, steering:
 
 /**
  * A car's body on its springs: radians of pitch per unit a second squared of
- * acceleration, and of roll per unit a second squared of the turn's lateral
- * pull, each with its stop. Flat out from standing (`CAR_ACCELERATION_TIME`,
- * 1.3 s to 45) is 35 units a second squared at the start, a squat of two
- * degrees; the brake (`CAR_BRAKE_TIME`, 0.45 s) is a hundred, and dives to the
- * stop. The hardest turn at the road speed pulls about 34, a roll of three.
+ * acceleration, and of roll per unit a second squared of lateral pull, each
+ * with its stop.
  */
 const PITCH_PER_ACCEL = 0.001;
 const MAX_PITCH = 0.05;
 const ROLL_PER_PULL = 0.0015;
 const MAX_ROLL = 0.06;
 /**
- * The springs: stiffness and damping of a second-order follow, which is what
- * gives a body the small overshoot a car has and an ease does not — about one
- * and a half cycles a second, damped to half a swing.
+ * The springs: stiffness and damping of a second-order follow, giving the
+ * small overshoot a car has (about one and a half cycles a second, damped to
+ * half a swing).
  */
 const SPRING = 90;
 const DAMPING = 9;
@@ -118,10 +110,9 @@ const STANDING = 0.3;
 /**
  * The propeller, in radians a second: ticking over on the ground, and at full
  * power; how fast it spins up and down, per second; and the most it is drawn
- * turning. A two-bladed propeller looks the same every half turn, so past half
- * a turn in two frames it seems to slow and run backwards: the blades are
- * drawn at no more than `PROP_DRAWN`, and past `DISC_FROM` a pale disc comes
- * up in the arc they sweep, which is what a propeller at speed looks like.
+ * turning. A two-bladed propeller looks the same every half turn, so the
+ * blades are drawn at no more than `PROP_DRAWN` and past `DISC_FROM` a pale
+ * disc comes up in the arc they sweep.
  */
 const PROP_IDLE = 14;
 /** A helicopter's rotor at full power, radians a second: slower than a propeller, and the tail's faster. */
@@ -169,8 +160,7 @@ export const JUMP_CLIPS = ['Gallop_Jump', 'Jump_toIdle'] as const;
 const JUMP_EASE = 14;
 /**
  * Seconds a jump clip takes to catch up with a landing that came before its
- * own: from wherever it is to the hooves' touchdown (`JumpCurve.on`), fast,
- * rather than in one frame, which from the pose a fall is held in was a pop.
+ * own, from wherever it is to the hooves' touchdown (`JumpCurve.on`).
  */
 const LAND_CATCH = 0.08;
 
@@ -189,11 +179,10 @@ export interface JumpCurve {
 
 /**
  * Where a jump clip is held while the horse is still in the air: past the top
- * of the leap, where the lowest hoof has come down to half its highest — the
- * forelegs reaching for the ground — so a fall off a height hangs in one pose
- * for as long as it lasts and the landing, when it comes, is a short step on
- * to `on`. A clip whose hooves never come down by half before `on` holds at
- * its last sample off the ground. Measured once a curve.
+ * of the leap, where the lowest hoof has come down to half its highest, so a
+ * long fall hangs in one pose until the landing steps on to `on`. A clip whose
+ * hooves never come down by half before `on` holds at its last sample off the
+ * ground. Measured once a curve.
  */
 const holds = new WeakMap<JumpCurve, number>();
 function holdOf(curve: JumpCurve): number {
@@ -359,9 +348,7 @@ const discGeometry = (): THREE.CircleGeometry => (disc ??= new THREE.CircleGeome
 let discFill: THREE.MeshBasicMaterial | null = null;
 /**
  * The swept disc's one material. It is see-through and writes no depth, so it
- * has no ink hull: a see-through fill shows its whole hull through itself.
- * One material for every disc, at one opacity — the one of the nearest plane
- * running, which is the only one near enough to see it on.
+ * has no ink hull. One material for every disc, at one opacity.
  */
 export function discMaterial(): THREE.MeshBasicMaterial {
   if (discFill !== null) return discFill;
@@ -380,6 +367,198 @@ export function discMaterial(): THREE.MeshBasicMaterial {
 /** Clamp and the time-step-free ease every file here writes the same way. */
 const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
 const approach = (rate: number, dt: number): number => 1 - Math.exp(-rate * dt);
+
+/** A ridden or grazing horse's rig: its gaits blended by speed, the jumps, and the saddle's rise and fall. */
+interface HorseMotion {
+  /** How far the back has risen over its rest height. */
+  readonly lift: number;
+  /** Whether the rig is still easing: not idle, or mid-jump. */
+  readonly busy: boolean;
+  update(dt: number, input: MotionInput): void;
+  rest(): void;
+}
+
+function createHorseMotion(group: THREE.Object3D, model: CraftModel, parts: Parts, rigged: NonNullable<Parts['rig']>): HorseMotion {
+  const idle = rigged.actions.get('Idle') ?? null;
+  const walk = rigged.actions.get('Walk') ?? null;
+  const gallop = rigged.actions.get('Gallop') ?? walk;
+  const gaits = [idle, walk, gallop];
+  const weights = [1, 0, 0];
+  const length = model.size[0];
+  const gallopPace = gallop !== null ? (GALLOP_STRIDE * length) / Math.max(0.1, gallop.getClip().duration) : length;
+  const backAt = new THREE.Vector3();
+  let backRest = 0;
+  const backY = (): number => {
+    if (parts.back === null) return 0;
+    rigged.root.updateMatrixWorld(true);
+    parts.back.getWorldPosition(backAt);
+    return group.worldToLocal(backAt).y;
+  };
+  /** The jump playing, its curve, and how much of the body it has. */
+  let jumping: THREE.AnimationAction | null = null;
+  let jumpCurve: JumpCurve | null = null;
+  let jumpWeight = 0;
+  let wasGrounded = true;
+  let lift = 0;
+  for (const [i, action] of gaits.entries()) {
+    if (action === null) continue;
+    action.reset().play();
+    action.setEffectiveWeight(weights[i]!);
+  }
+  rigged.mixer.update(0);
+  group.updateMatrixWorld(true);
+  backRest = backY();
+
+  return {
+    get lift() {
+      return lift;
+    },
+    get busy() {
+      return weights[0]! < 0.999 || jumping !== null;
+    },
+    rest() {
+      lift = 0;
+      if (jumping !== null) jumping.timeScale = 1;
+      jumping?.stop();
+      jumping = jumpCurve = null;
+      jumpWeight = 0;
+      wasGrounded = true;
+      if (parts.holder !== null) parts.holder.position.y = 0;
+    },
+    update(dt, input) {
+      const speed = input.speed;
+      const pace = Math.abs(speed);
+      // Off the ground it leaps: the pack's leap at speed, or its standing
+      // jump from a stand, from the last frame before the hooves leave the
+      // ground. Down again sooner than the clip, it hurries on to the landing
+      // (`LAND_CATCH`); still up when the clip comes down, it is held at
+      // `holdOf` by a time scale of zero, so the mixer draws the same frame
+      // every frame until it is down.
+      if (!input.grounded && wasGrounded && parts.jumps !== null) {
+        const name = pace >= WALK_FROM ? JUMP_CLIPS[0] : JUMP_CLIPS[1];
+        const curve = parts.jumps[name] ?? null;
+        const action = rigged.actions.get(name) ?? null;
+        if (curve !== null && action !== null) {
+          if (jumping !== null && jumping !== action) jumping.stop();
+          action.reset();
+          action.setLoop(THREE.LoopOnce, 1);
+          action.clampWhenFinished = true;
+          action.timeScale = 1;
+          action.play();
+          action.time = curve.off;
+          jumping = action;
+          jumpCurve = curve;
+        }
+      }
+      wasGrounded = input.grounded;
+      let leaping = false;
+      if (jumping !== null && jumpCurve !== null) {
+        if (input.grounded) {
+          jumping.timeScale = Math.max(1, (jumpCurve.on - jumping.time) / LAND_CATCH);
+        } else {
+          const hold = holdOf(jumpCurve);
+          if (jumping.time + dt >= hold) {
+            jumping.time = hold;
+            jumping.timeScale = 0;
+          } else jumping.timeScale = 1;
+        }
+        leaping = !jumping.paused && jumping.time < jumpCurve.duration - 1e-3;
+      }
+      jumpWeight += ((leaping ? 1 : 0) - jumpWeight) * approach(JUMP_EASE, dt);
+      if (!leaping && jumpWeight < 1e-3) {
+        jumpWeight = 0;
+        if (jumping !== null) jumping.timeScale = 1;
+        jumping?.stop();
+        jumping = jumpCurve = null;
+      }
+      jumping?.setEffectiveWeight(jumpWeight);
+      const want = pace < WALK_FROM ? 0 : pace < GALLOP_FROM ? 1 : 2;
+      const ease = approach(GAIT_EASE, dt);
+      for (let i = 0; i < 3; i++) {
+        weights[i]! += ((i === want ? 1 : 0) - weights[i]!) * ease;
+        gaits[i]?.setEffectiveWeight(weights[i]! * (1 - jumpWeight));
+      }
+      if (walk !== null) walk.timeScale = clamp(pace / (WALK_PACE * length), 0.5, 2.2);
+      if (gallop !== null && gallop !== walk) gallop.timeScale = clamp(pace / gallopPace, 0.6, 1.8);
+      const moving = pace > 0.01 || input.moored || weights[0]! < 0.999 || jumping !== null;
+      if (moving) {
+        rigged.mixer.update(dt);
+        // The clip's own rise taken back off, so the height is the jump's.
+        if (parts.holder !== null) parts.holder.position.y = jumping !== null && jumpCurve !== null ? -feetAt(jumpCurve, jumping.time) * jumpWeight : 0;
+        lift = backY() - backRest;
+        parts.sprung.position.y += lift;
+      }
+    },
+  };
+}
+
+/** The propellers and rotors: spun up while the engine runs, wound down when it stops, a pale disc drawn where the blades sweep at speed. */
+interface SpinMotion {
+  readonly spin: number;
+  update(dt: number, input: MotionInput): void;
+  rest(): void;
+}
+
+function createSpinMotion(parts: Parts): SpinMotion {
+  let spin = 0;
+  /** Each propeller's drawn angle. */
+  let propAngle = 0;
+  return {
+    get spin() {
+      return spin;
+    },
+    rest() {
+      spin = 0;
+    },
+    update(dt, input) {
+      const speed = input.speed;
+    const spinning = parts.props.length + parts.rotors.length + parts.tails.length;
+    if (spinning > 0) {
+      const full = parts.rotors.length > 0 ? ROTOR_FULL : PROP_FULL;
+      const wanted = !input.engine ? 0 : input.grounded ? PROP_IDLE + (full - PROP_IDLE) * clamp(Math.abs(speed) / ROLL_SCALE, 0, 1) : full;
+      spin += (wanted - spin) * approach(PROP_EASE, dt);
+      if (!input.engine && spin < 0.05) spin = 0;
+      propAngle = (propAngle + Math.min(spin, PROP_DRAWN) * dt) % (Math.PI * 2);
+      const sweep = clamp((spin - DISC_FROM) / (DISC_FULL - DISC_FROM), 0, 1);
+      let d = 0;
+      for (const prop of parts.props) {
+        prop.rotation.z = propAngle;
+        parts.discs[d++]!.visible = sweep > 0;
+      }
+      for (const rotor of parts.rotors) {
+        rotor.rotation.y = propAngle;
+        parts.discs[d++]!.visible = sweep > 0;
+      }
+      for (const tail of parts.tails) {
+        tail.rotation.x = (propAngle * TAIL_RATE) % (Math.PI * 2);
+        parts.discs[d++]!.visible = sweep > 0;
+      }
+      if (sweep > 0) discMaterial().opacity = DISC_OPACITY * sweep;
+    }
+    },
+  };
+}
+
+/** The wheels roll on the ground at the speed it passes under them, and the front pair turns with the wheel; off the ground they keep still. */
+function rollWheels(parts: Parts, input: MotionInput, dt: number): void {
+  if (input.grounded) {
+    for (let i = 0; i < parts.wheels.length; i++) {
+      const wheel = parts.wheels[i]!;
+      wheel.rotation.order = 'YXZ';
+      wheel.rotation.x += (input.speed * dt) / parts.radii[i]!;
+      // +Y turns +Z to the left, and the wheel's positive is to the right.
+      if (parts.steered[i]) wheel.rotation.y += (-input.steering * STEER_LOCK - wheel.rotation.y) * approach(12, dt);
+    }
+  }
+}
+
+/** Whether anything steered (wheels, steering wheel, needle) is still off its rest. */
+function isDeflected(parts: Parts, wheelTurn: number): boolean {
+  for (let i = 0; i < parts.wheels.length; i++) if (parts.steered[i] && Math.abs(parts.wheels[i]!.rotation.y) > 1e-3) return true;
+  if (Math.abs(wheelTurn) > 1e-3) return true;
+  for (const needle of parts.needles) if (Math.abs(needle.rotation.z - NEEDLE_REST) > 1e-3) return true;
+  return false;
+}
 
 /**
  * The motion of a built vehicle, made on the first ask and kept on the group:
@@ -400,43 +579,12 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   /** How far the bicycle goes for one turn of its crank. */
   const gearing = model.gearing ?? 0;
   let crank = 0;
-  let lift = 0;
   /** The steering wheel's turn, and the speed the needle reads at its stop. */
   let wheelTurn = 0;
   const needleFull = ROAD_HANDLING[kind]?.boost ?? 40;
   for (const needle of parts.needles) needle.rotation.z = NEEDLE_REST;
-  // The horse's clips, their weights and their rates.
-  const rigged = parts.rig;
-  const idle = rigged?.actions.get('Idle') ?? null;
-  const walk = rigged?.actions.get('Walk') ?? null;
-  const gallop = rigged?.actions.get('Gallop') ?? walk;
-  const gaits = [idle, walk, gallop];
-  const weights = [1, 0, 0];
-  const length = model.size[0];
-  const gallopPace = gallop !== null ? (GALLOP_STRIDE * length) / Math.max(0.1, gallop.getClip().duration) : length;
-  const backAt = new THREE.Vector3();
-  let backRest = 0;
-  const backY = (): number => {
-    if (parts.back === null || rigged === null) return 0;
-    rigged.root.updateMatrixWorld(true);
-    parts.back.getWorldPosition(backAt);
-    return group.worldToLocal(backAt).y;
-  };
-  /** The jump playing, its curve, and how much of the body it has. */
-  let jumping: THREE.AnimationAction | null = null;
-  let jumpCurve: JumpCurve | null = null;
-  let jumpWeight = 0;
-  let wasGrounded = true;
-  if (rigged !== null) {
-    for (const [i, action] of gaits.entries()) {
-      if (action === null) continue;
-      action.reset().play();
-      action.setEffectiveWeight(weights[i]!);
-    }
-    rigged.mixer.update(0);
-    group.updateMatrixWorld(true);
-    backRest = backY();
-  }
+  const horse = parts.rig === null ? null : createHorseMotion(group, model, parts, parts.rig);
+  const rotors = createSpinMotion(parts);
 
   let lastSpeed = 0;
   let accel = 0;
@@ -444,22 +592,14 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   let pitchRate = 0;
   let roll = 0;
   let rollRate = 0;
-  let spin = 0;
   let time = 0;
-  /** Each propeller's drawn angle. */
-  let propAngle = 0;
   let settling = false;
   const phase = (group.id * 2.39996) % (Math.PI * 2);
 
   function rest(): void {
-    lastSpeed = accel = pitch = pitchRate = roll = rollRate = spin = 0;
-    lift = 0;
-    if (jumping !== null) jumping.timeScale = 1;
-    jumping?.stop();
-    jumping = jumpCurve = null;
-    jumpWeight = 0;
-    wasGrounded = true;
-    if (parts.holder !== null) parts.holder.position.y = 0;
+    lastSpeed = accel = pitch = pitchRate = roll = rollRate = 0;
+    rotors.rest();
+    horse?.rest();
     parts.sprung.position.set(0, 0, 0);
     parts.sprung.rotation.set(0, 0, 0);
     for (const wheel of parts.wheels) wheel.rotation.y = 0;
@@ -479,7 +619,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       return crank;
     },
     get lift() {
-      return lift;
+      return horse?.lift ?? 0;
     },
     get steer() {
       return wheelTurn;
@@ -537,87 +677,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       offset.set(0, parts.pivotY, 0).applyEuler(euler);
       parts.sprung.position.set(-offset.x, parts.pivotY - offset.y + heave, -offset.z);
 
-      // A horse: its gaits blended by its speed, each at the rate its legs
-      // cover the ground at, and the saddle on its back as it rises and falls.
-      if (rigged !== null) {
-        const pace = Math.abs(speed);
-        // Off the ground — a jump, or off a terrace — it leaps: the pack's
-        // leap at speed, its standing jump from a stand, from the last frame
-        // before the hooves leave the ground. Down again sooner than the clip
-        // is, it hurries on to the landing (`LAND_CATCH`); still up when the
-        // clip comes down, it is held at `holdOf` — frozen there by a time scale of
-        // nought, so the mixer draws the same frame every frame — until it is
-        // down. Pulling its time back a little each frame and letting the
-        // mixer step it on, as this did, left it alternating between two
-        // frames either side of the touchdown at 60 frames a second, and a
-        // fall off a mountain flickered all the way down.
-        if (!input.grounded && wasGrounded && parts.jumps !== null) {
-          const name = pace >= WALK_FROM ? JUMP_CLIPS[0] : JUMP_CLIPS[1];
-          const curve = parts.jumps[name] ?? null;
-          const action = rigged.actions.get(name) ?? null;
-          if (curve !== null && action !== null) {
-            if (jumping !== null && jumping !== action) jumping.stop();
-            action.reset();
-            action.setLoop(THREE.LoopOnce, 1);
-            action.clampWhenFinished = true;
-            action.timeScale = 1;
-            action.play();
-            action.time = curve.off;
-            jumping = action;
-            jumpCurve = curve;
-          }
-        }
-        wasGrounded = input.grounded;
-        let leaping = false;
-        if (jumping !== null && jumpCurve !== null) {
-          if (input.grounded) {
-            jumping.timeScale = Math.max(1, (jumpCurve.on - jumping.time) / LAND_CATCH);
-          } else {
-            const hold = holdOf(jumpCurve);
-            if (jumping.time + dt >= hold) {
-              jumping.time = hold;
-              jumping.timeScale = 0;
-            } else jumping.timeScale = 1;
-          }
-          leaping = !jumping.paused && jumping.time < jumpCurve.duration - 1e-3;
-        }
-        jumpWeight += ((leaping ? 1 : 0) - jumpWeight) * approach(JUMP_EASE, dt);
-        if (!leaping && jumpWeight < 1e-3) {
-          jumpWeight = 0;
-          if (jumping !== null) jumping.timeScale = 1;
-          jumping?.stop();
-          jumping = jumpCurve = null;
-        }
-        jumping?.setEffectiveWeight(jumpWeight);
-        const want = pace < WALK_FROM ? 0 : pace < GALLOP_FROM ? 1 : 2;
-        const ease = approach(GAIT_EASE, dt);
-        for (let i = 0; i < 3; i++) {
-          weights[i]! += ((i === want ? 1 : 0) - weights[i]!) * ease;
-          gaits[i]?.setEffectiveWeight(weights[i]! * (1 - jumpWeight));
-        }
-        if (walk !== null) walk.timeScale = clamp(pace / (WALK_PACE * length), 0.5, 2.2);
-        if (gallop !== null && gallop !== walk) gallop.timeScale = clamp(pace / gallopPace, 0.6, 1.8);
-        const moving = pace > 0.01 || input.moored || weights[0]! < 0.999 || jumping !== null;
-        if (moving) {
-          rigged.mixer.update(dt);
-          // The clip's own rise taken back off, so the height is the jump's.
-          if (parts.holder !== null) parts.holder.position.y = jumping !== null && jumpCurve !== null ? -feetAt(jumpCurve, jumping.time) * jumpWeight : 0;
-          lift = backY() - backRest;
-          parts.sprung.position.y += lift;
-        }
-      }
+      horse?.update(dt, input);
 
-      // The wheels roll on the ground at the speed it passes under them, and
-      // the front pair turns with the wheel; off the ground they keep still.
-      if (input.grounded) {
-        for (let i = 0; i < parts.wheels.length; i++) {
-          const wheel = parts.wheels[i]!;
-          wheel.rotation.order = 'YXZ';
-          wheel.rotation.x += (speed * dt) / parts.radii[i]!;
-          // +Y turns +Z to the left, and the wheel's positive is to the right.
-          if (parts.steered[i]) wheel.rotation.y += (-input.steering * STEER_LOCK - wheel.rotation.y) * approach(12, dt);
-        }
-      }
+      rollWheels(parts, input, dt);
 
       // The steering wheel turns with the front wheels, eased the same way, and
       // comes back to the middle as they do; the needle reads the speed.
@@ -639,43 +701,15 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         for (const part of parts.cranks) part.rotation.x = crank;
       }
 
-      // The propeller: ticking over on the ground, flat out in the air, and
-      // winding down when the engine stops. A rotor spins the same way, at its
-      // own full rate, and a tail rotor faster than the rotor it answers.
-      const spinning = parts.props.length + parts.rotors.length + parts.tails.length;
-      if (spinning > 0) {
-        const full = parts.rotors.length > 0 ? ROTOR_FULL : PROP_FULL;
-        const wanted = !input.engine ? 0 : input.grounded ? PROP_IDLE + (full - PROP_IDLE) * clamp(Math.abs(speed) / ROLL_SCALE, 0, 1) : full;
-        spin += (wanted - spin) * approach(PROP_EASE, dt);
-        if (!input.engine && spin < 0.05) spin = 0;
-        propAngle = (propAngle + Math.min(spin, PROP_DRAWN) * dt) % (Math.PI * 2);
-        const sweep = clamp((spin - DISC_FROM) / (DISC_FULL - DISC_FROM), 0, 1);
-        let d = 0;
-        for (const prop of parts.props) {
-          prop.rotation.z = propAngle;
-          parts.discs[d++]!.visible = sweep > 0;
-        }
-        for (const rotor of parts.rotors) {
-          rotor.rotation.y = propAngle;
-          parts.discs[d++]!.visible = sweep > 0;
-        }
-        for (const tail of parts.tails) {
-          tail.rotation.x = (propAngle * TAIL_RATE) % (Math.PI * 2);
-          parts.discs[d++]!.visible = sweep > 0;
-        }
-        if (sweep > 0) discMaterial().opacity = DISC_OPACITY * sweep;
-      }
+      rotors.update(dt, input);
 
-      let steered = false;
-      for (let i = 0; i < parts.wheels.length; i++) if (parts.steered[i] && Math.abs(parts.wheels[i]!.rotation.y) > 1e-3) steered = true;
-      if (Math.abs(wheelTurn) > 1e-3) steered = true;
-      for (const needle of parts.needles) if (Math.abs(needle.rotation.z - NEEDLE_REST) > 1e-3) steered = true;
+      const steered = isDeflected(parts, wheelTurn);
       settling =
         input.engine ||
         input.moored ||
-        (rigged !== null && (weights[0]! < 0.999 || jumping !== null)) ||
+        (horse !== null && horse.busy) ||
         steered ||
-        spin > 0 ||
+        rotors.spin > 0 ||
         Math.abs(speed) > 0.01 ||
         Math.abs(pitch) + Math.abs(roll) + Math.abs(pitchRate) + Math.abs(rollRate) > 1e-4;
     },

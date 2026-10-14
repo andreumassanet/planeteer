@@ -1,24 +1,21 @@
 /**
  * The submarine: a little yellow two-seater for the reef, eight and a half
- * metres of it, of the kind that takes tourists down off a harbour — a round hull, a conning tower with a
- * hatch and a periscope, a bubble of a viewport at the bow, portholes down the
- * sides, dive planes and a rudder, and a screw astern.
+ * metres of it, of the kind that takes tourists down off a harbour: a round
+ * hull, a conning tower with a hatch and a periscope, a bubble viewport at the
+ * bow, portholes down the sides, dive planes and a rudder, and a screw astern.
  *
- * **A cabin you see out of** (since 2026-10-04): the two seats are inside the
- * hull, one behind the other under the tower, and the hull is lined inside
- * (`liner` in `cabin.ts`) and open at the bow, where the dome is see-through
- * glass — the viewport the whole boat is built round. A floor, two seats and
- * a console ahead of the front one; from outside, whoever is aboard is seen
- * through the dome, and from the front seat the reef is seen through it.
- * The seats are sized round the seated hero, so the hull's crown clears his.
+ * The two seats are inside the hull, one behind the other under the tower; the
+ * hull is lined inside (`liner` in `cabin.ts`) and open at the bow, where the
+ * dome is see-through glass. A floor, two seats and a console ahead of the
+ * front one; whoever is aboard is seen through the dome from outside. The
+ * seats are sized round the seated hero, so the hull's crown clears his.
  *
- * **What turns** is the screw, a `'prop'` about +Z, which the motion spins
- * with the throttle as it does a propeller's.
+ * The screw is a `'prop'` about +Z, which the motion spins with the throttle.
  *
- * **Waterline at y = 0**, with the tower and the top of the hull out of the
- * water and `draft` of it under, as it floats on the surface; under way below
- * it, the whole of it is under (`player.ts` takes it down). One metre is the
- * body's own, `AVATAR_HEIGHT / 1.75`.
+ * Waterline at y = 0, with the tower and the top of the hull out of the water
+ * and `draft` of it under as it floats on the surface; under way below it, the
+ * whole of it is under (`player.ts` takes it down). One metre is the body's
+ * own, `AVATAR_HEIGHT / 1.75`.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';

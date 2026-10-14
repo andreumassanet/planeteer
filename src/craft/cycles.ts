@@ -2,25 +2,22 @@
  * The two-wheelers built in code: a bicycle and a motorbike, each round the
  * hero astride it.
  *
- * **Built from the rider out, as the launch is.** A bicycle is three points a
- * body puts on it — a saddle under the hip, a crank the feet go round, bars
- * the hands hold — and the frame is only the tubes between them and the two
- * axles. So the hip is put where a leg nearly straight reaches the lower pedal
- * (`HERO.legs`), the crank's axle ahead of and under it at a seat tube's rake,
- * and the bars where an arm reaches from the shoulders with the elbows a
- * little bent; the wheels are the size a wheel is against a 1.75 m person,
- * under the whole of it. The motorbike is the same three points closer
- * together: pegs for the feet, a seat lower and further back, bars higher.
+ * Built from the rider out. A bicycle is three points a body puts on it (a
+ * saddle under the hip, a crank the feet go round, bars the hands hold) and the
+ * frame is the tubes between them and the two axles. The hip is put where a
+ * nearly straight leg reaches the lower pedal (`HERO.legs`), the crank's axle
+ * ahead of and under it at a seat tube's rake, and the bars where an arm
+ * reaches with the elbows a little bent. The motorbike is the same three
+ * points closer together: pegs for the feet, a lower seat further back, higher
+ * bars.
  *
- * **What turns.** Each wheel is a `'wheel'` about its axle, a tyre as a torus
- * round a hub and four spokes, so it reads as rolling where a disc would read
- * as a coin; the bicycle's chainring, cranks and pedals are one `'crank'`
+ * Each wheel is a `'wheel'` about its axle, a tyre as a torus round a hub and
+ * four spokes; the bicycle's chainring, cranks and pedals are one `'crank'`
  * about the bottom bracket, which the motion turns by the gearing and the
- * rider's feet follow round (`CraftMotion.phase`).
+ * rider's feet follow (`CraftMotion.phase`).
  *
- * **Scale.** One metre of a real bicycle is `AVATAR_HEIGHT / 1.75` units here,
- * the body's own metre: a person is drawn larger than the buildings
- * (`STATURE`), and so is whatever he rides.
+ * One metre of a real bicycle is `AVATAR_HEIGHT / 1.75` units, the body's own
+ * metre.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -76,8 +73,8 @@ const FRONT_AXLE = 0.62 * M;
 const BARS = { y: BIKE_HIP + 0.1 * H, z: 0.28 * M };
 /**
  * The lamp on the head tube, every bicycle's: its axis's height, where it
- * starts and how long it is, lying along +Z. Under the basket on the ones
- * that carry one. Where its glass is is the bicycle's headlamp (`lamps`).
+ * starts and how long it is, lying along +Z. Where its glass is is the
+ * bicycle's headlamp (`lamps`).
  */
 const BIKE_LAMP = { y: BIKE_HIP - 0.1 * M, z: FRONT_AXLE - 0.1 * M, radius: 0.05 * M, length: 0.07 * M };
 /** How far the bicycle goes for a turn of the pedals: a middle gear, about seven metres. */
@@ -221,17 +218,12 @@ export function bicycleModel(): CraftModel {
 // ---------------------------------------------------------------------------
 
 /**
- * A standard roadster, the one every country rides to work: an upright seat,
- * a teardrop tank in front of it, the engine hung under the tank where it can
- * be seen, a round headlamp on the fork, and the exhaust down the right side.
- *
- * **What makes it read as a motorbike and not a bicycle with a box on it** is
- * the one continuous line along its top — the tank running into the seat and
- * the seat into the tail — and the mass low between the wheels: a finned
- * cylinder over a crankcase, the exhaust header curling under it into a
- * silencer. The rest is what the pen draws at a few metres: fat tyres on cast
- * wheels, a disc on the front one; mudguards hugging both; fork legs with their
- * clamps; twin shocks; mirrors on stalks; pegs, a side stand, a number plate.
+ * A standard roadster: an upright seat, a teardrop tank in front of it, the
+ * engine hung under the tank where it can be seen, a round headlamp on the
+ * fork, and the exhaust down the right side. It reads as a motorbike by the
+ * one continuous line along its top (tank into seat into tail) and the mass
+ * low between the wheels (a finned cylinder over a crankcase, the exhaust
+ * header curling under it into a silencer).
  */
 const MOTO_WHEEL = 0.31 * M;
 const MOTO_REAR = -0.72 * M;
@@ -302,18 +294,15 @@ function mudguard(group: THREE.Group, y: number, z: number, radius: number, widt
   }
 }
 
-function buildMotorbike(variant: number, body?: number): THREE.Group {
-  const ctx = craftContext();
-  const { strut, box, column, tone } = ctx;
-  const paint = body ?? MOTO_PAINTS[((variant % MOTO_PAINTS.length) + MOTO_PAINTS.length) % MOTO_PAINTS.length]!;
-  const metal = PALETTE.steel;
-  const chrome = PALETTE.bone;
-  const group = new THREE.Group();
+type CraftContext = ReturnType<typeof craftContext>;
 
-  // The frame: a backbone from the headstock under the tank to the seat, a
-  // down tube round the front of the engine and under it to the swing arm's
-  // pivot, and a rail a side back under the seat.
-  const pivot = new V(0, 0.34 * M, -0.24 * M);
+/** The swing arm's pivot. */
+const MOTO_PIVOT = new V(0, 0.34 * M, -0.24 * M);
+
+/** The frame: a backbone from the headstock under the tank to the seat, a down tube round the front of the engine and under it to the swing arm's pivot, and a rail a side back under the seat. */
+function addMotoFrame(group: THREE.Group, ctx: CraftContext): void {
+  const { strut } = ctx;
+  const metal = PALETTE.steel;
   const seatNode = new V(0, 0.74 * M, -0.22 * M);
   const cradle = new V(0, 0.12 * M, 0.2 * M);
   group.add(strut(STOCK, seatNode, 0.06 * M, metal));
@@ -323,9 +312,13 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
   for (const side of [-1, 1]) {
     group.add(strut(new V(side * 0.07 * M, seatNode.y, seatNode.z), new V(side * 0.08 * M, 0.7 * M, -0.9 * M), 0.035 * M, metal));
   }
+}
 
-  // The engine: a crankcase low between the wheels, a finned cylinder leaning
-  // forward out of it up under the tank, a round cover on either side.
+/** The engine: a crankcase low between the wheels, a finned cylinder leaning forward out of it up under the tank, a round cover on either side; and the exhaust. */
+function addMotoEngine(group: THREE.Group, ctx: CraftContext): void {
+  const { strut, box, column, tone } = ctx;
+  const metal = PALETTE.steel;
+  const chrome = PALETTE.bone;
   const crankcase = box(0.28 * M, 0.24 * M, 0.44 * M, metal);
   crankcase.position.set(0, 0.14 * M, 0.02 * M);
   group.add(crankcase);
@@ -364,9 +357,13 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
   const silencerTo = new V(-0.18 * M, 0.38 * M, MOTO_REAR - 0.14 * M);
   group.add(strut(silencerFrom, silencerTo, 0.1 * M, chrome));
   group.add(strut(silencerTo, silencerTo.clone().add(new V(0, 0.012 * M, -0.05 * M)), 0.075 * M, PALETTE.ink));
+}
 
-  // The tank, the one big shape in the side view: a teardrop lofted aft to
-  // fore, sitting on the backbone, a filler cap on its crown.
+/** The tank, the seat, the side panels, the tail cowl and the number plate. */
+function addMotoBodywork(group: THREE.Group, ctx: CraftContext, paint: number): void {
+  const { strut, box, column, tone } = ctx;
+  const metal = PALETTE.steel;
+  const chrome = PALETTE.bone;
   const tank = loft(
     [
       { z: -0.14 * M, ring: octagon(0.11 * M, 0.74 * M, 0.88 * M, 0.5) },
@@ -428,23 +425,31 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
   for (const side of [-1, 1]) {
     group.add(strut(new V(side * 0.14 * M, PILLION_HIP - 0.06 * M, PILLION_Z + 0.08 * M), new V(side * 0.12 * M, PILLION_HIP - 0.04 * M, PILLION_Z - 0.28 * M), 0.025 * M, chrome));
   }
+}
 
-  // The swing arm to the rear axle, a shock a side up to the rails, the chain
-  // guard on the left, and the mudguard hugging the back of the rear wheel.
+/** The swing arm to the rear axle, a shock a side up to the rails, the chain guard on the left, and the rear mudguard. */
+function addMotoRear(group: THREE.Group, ctx: CraftContext, paint: number): void {
+  const { strut, box, tone } = ctx;
+  const metal = PALETTE.steel;
+  const chrome = PALETTE.bone;
   for (const side of [-1, 1]) {
     const x = side * 0.1 * M;
-    group.add(strut(new V(x, pivot.y, pivot.z), new V(x, MOTO_WHEEL, MOTO_REAR), 0.05 * M, metal));
+    group.add(strut(new V(x, MOTO_PIVOT.y, MOTO_PIVOT.z), new V(x, MOTO_WHEEL, MOTO_REAR), 0.05 * M, metal));
     group.add(strut(new V(side * 0.12 * M, 0.72 * M, -0.62 * M), new V(side * 0.12 * M, 0.36 * M, -0.62 * M), 0.06 * M, PALETTE.gold));
     group.add(strut(new V(side * 0.12 * M, 0.76 * M, -0.62 * M), new V(side * 0.12 * M, 0.56 * M, -0.62 * M), 0.04 * M, chrome));
   }
   const guard = box(0.02 * M, 0.06 * M, 0.42 * M, tone(PALETTE.steel, 1.2));
-  guard.position.set(0.14 * M, MOTO_WHEEL + 0.02 * M, (pivot.z + MOTO_REAR) / 2);
-  guard.rotation.x = Math.atan2(pivot.y - MOTO_WHEEL, pivot.z - MOTO_REAR) * 0.5;
+  guard.position.set(0.14 * M, MOTO_WHEEL + 0.02 * M, (MOTO_PIVOT.z + MOTO_REAR) / 2);
+  guard.rotation.x = Math.atan2(MOTO_PIVOT.y - MOTO_WHEEL, MOTO_PIVOT.z - MOTO_REAR) * 0.5;
   group.add(guard);
   mudguard(group, MOTO_WHEEL, MOTO_REAR, MOTO_WHEEL + 0.035 * M, 0.16 * M, -1.7, -0.3, 3, paint);
+}
 
-  // The fork: two legs raked from the clamps to the axle, chrome above and
-  // the sliders dark below, the clamps across them, and the front mudguard.
+/** The fork: two legs raked from the clamps to the axle, chrome above and the sliders dark below, the clamps across them, and the front mudguard. */
+function addMotoFork(group: THREE.Group, ctx: CraftContext, paint: number): void {
+  const { strut, box } = ctx;
+  const metal = PALETTE.steel;
+  const chrome = PALETTE.bone;
   const rake = new V(0, MOTO_WHEEL - STOCK.y, MOTO_FRONT - STOCK.z);
   for (const side of [-1, 1]) {
     const x = side * 0.09 * M;
@@ -460,9 +465,13 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
     group.add(clamp);
   }
   mudguard(group, MOTO_WHEEL, MOTO_FRONT, MOTO_WHEEL + 0.03 * M, 0.14 * M, -0.6, 0.9, 4, paint);
+}
 
-  // The headlamp in its bowl ahead of the clamps, the clocks over them, the
-  // bars on a riser with dark grips and levers, and a mirror either side.
+/** The headlamp in its bowl ahead of the clamps, the clocks, the bars on a riser with grips, levers and mirrors, and the pegs, pedals and side stand. */
+function addMotoControls(group: THREE.Group, ctx: CraftContext): void {
+  const { strut, box, column } = ctx;
+  const metal = PALETTE.steel;
+  const chrome = PALETTE.bone;
   const bowl = column(0.1 * M, 0.08 * M, chrome, 10);
   bowl.rotation.x = Math.PI / 2;
   bowl.position.set(0, 0.9 * M, 0.5 * M);
@@ -506,6 +515,19 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
     group.add(strut(new V(side * 0.18 * M, PEG.y + 0.01 * M, PEG.z + 0.02 * M), new V(side * 0.18 * M, PEG.y + 0.04 * M, PEG.z + 0.2 * M), 0.02 * M, metal));
   }
   group.add(strut(new V(0.12 * M, 0.2 * M, -0.12 * M), new V(0.24 * M, 0.02 * M, -0.06 * M), 0.025 * M, metal));
+}
+
+function buildMotorbike(variant: number, body?: number): THREE.Group {
+  const ctx = craftContext();
+  const paint = body ?? MOTO_PAINTS[((variant % MOTO_PAINTS.length) + MOTO_PAINTS.length) % MOTO_PAINTS.length]!;
+  const group = new THREE.Group();
+
+  addMotoFrame(group, ctx);
+  addMotoEngine(group, ctx);
+  addMotoBodywork(group, ctx, paint);
+  addMotoRear(group, ctx, paint);
+  addMotoFork(group, ctx, paint);
+  addMotoControls(group, ctx);
 
   return assemble('motorbike', [soupOf(group)], [
     { name: 'wheel', at: new V(0, MOTO_WHEEL, MOTO_REAR), soup: motoWheelSoup(false) },

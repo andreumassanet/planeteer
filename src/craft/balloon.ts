@@ -2,31 +2,23 @@
  * The balloon: a hot-air balloon round a basket that four people stand in, the
  * one a town keeps and the ones that drift over it (`air-traffic.ts`).
  *
- * **The envelope is an inverted pear**, one lathe profile from the mouth to the
- * crown: narrow at the mouth, flaring through the throat, widest a little over
- * half way up and rounding over to a flat-ish crown — the shape every drawing
- * of a hot-air balloon has, where a lathe of a few rings reads as a mushroom.
- * It is sewn in `GORES` gores, each its own lathe so a gore is one colour, and
- * each gore cut into three zones up its height so a scheme can paint a band
- * round the equator or a skirt of colour at the throat. A load tape stands
- * `PROUD` over every seam from the mouth to the crown cap, and the crown wears
- * a cap over the parachute valve. Under the mouth hangs the scoop, a short
- * double-walled skirt round the burner's flame, and inside the mouth a dark
- * disc says the envelope is open.
+ * The envelope is an inverted pear, one lathe profile from the mouth to the
+ * crown, sewn in `GORES` gores, each its own lathe so a gore is one colour and
+ * cut into three zones up its height so a scheme can paint a band round the
+ * equator or a skirt at the throat. A load tape stands `PROUD` over every seam
+ * and the crown wears a cap over the parachute valve. Under the mouth hangs
+ * the scoop, a short double-walled skirt round the burner's flame, and inside
+ * the mouth a dark disc says the envelope is open.
  *
- * Its size is not a real balloon's. The basket is sized from the four heroes
- * it holds, two by two with an elbow's room, and the envelope is four and a
- * half baskets across where a real one is about twelve: a real balloon over a
- * basket this size would be forty units across and fifty tall, and it was
- * chosen to read as a balloon at a glance rather than as a gasometer.
+ * Its size is not a real balloon's: the basket is sized from the four heroes
+ * it holds, and the envelope is four and a half baskets across (a real one is
+ * about twelve) so it reads as a balloon at a glance.
  *
- * **The basket is woven**: a floor and four walls, ribs of a darker weave
- * standing proud of each wall, a band round the middle and a padded leather
- * rim round the top. **Standing seats**: the four stand on the basket's floor,
- * which is `AVATAR_HIP` under each seat's hip point (see `body.ts`); the rim
- * comes to a standing body's chest, so from the chase camera four heads and
- * pairs of shoulders show over it. The burner is on a frame over their heads,
- * and the flying wires run from that frame's corners up to the mouth.
+ * The basket is woven: a floor and four walls, ribs of a darker weave proud of
+ * each wall, a band round the middle and a padded rim round the top. The four
+ * stand on the floor, `AVATAR_HIP` under each seat's hip point (`body.ts`); the
+ * rim comes to a standing body's chest. The burner is on a frame over their
+ * heads, and the flying wires run from that frame's corners up to the mouth.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -114,15 +106,19 @@ const SEATS: readonly Seat[] = [
   { x: -ACROSS, y: FLOOR + AVATAR_HIP, z: -DEEP, yaw: 0, pose: 'stand', shown: true },
 ];
 
-function buildBalloon(variant: number): THREE.Group {
-  const { box, strut, column, tone } = craftContext();
-  const scheme = SCHEMES[((variant % SCHEMES.length) + SCHEMES.length) % SCHEMES.length]!;
-  const group = new THREE.Group();
+/** The basket's four corners, where the burner frame's uprights stand and the flying wires start. */
+const CORNERS = [
+  [1, 1],
+  [1, -1],
+  [-1, -1],
+  [-1, 1],
+] as const;
+/** How far in from the centre the uprights stand, just inside the basket. */
+const POST = INNER - 0.02 * H;
 
-  // ---- the basket ---------------------------------------------------------
-  // Hollow: a floor and four walls, each wall its own piece so the corners are
-  // ink lines, ribs of a darker weave up each wall, a band round its middle
-  // and a padded rim round the top.
+/** The basket: a floor and four walls, each wall its own piece so the corners are ink lines, ribs of a darker weave up each wall, a band round the middle and a padded rim round the top. */
+function addBasket(group: THREE.Group, ctx: ReturnType<typeof craftContext>): void {
+  const { box, tone } = ctx;
   const wicker = tone(PALETTE.apricot, 0.78);
   const weave = tone(PALETTE.apricot, 0.62);
   const leather = tone(PALETTE.brown, 0.62);
@@ -169,28 +165,21 @@ function buildBalloon(variant: number): THREE.Group {
       group.add(bar);
     }
   }
+}
 
-  // ---- the burner ---------------------------------------------------------
-  // Four uprights straight up from the basket's corners — outside every
-  // standing body, which a raked one would cross at the head — to a frame over
-  // their heads, two bars across it to the burners in the middle.
-  const corners = [
-    [1, 1],
-    [1, -1],
-    [-1, -1],
-    [-1, 1],
-  ] as const;
-  const post = INNER - 0.02 * H;
-  for (const [dx, dz] of corners) {
-    group.add(strut(new V(dx * post, RIM, dz * post), new V(dx * post, FRAME, dz * post), 0.03 * H, PALETTE.steel));
+/** The burner: four uprights straight up from the basket's corners, outside every standing body, to a frame over their heads with two bars across it to the burners in the middle. */
+function addBurner(group: THREE.Group, ctx: ReturnType<typeof craftContext>): void {
+  const { strut, column } = ctx;
+  for (const [dx, dz] of CORNERS) {
+    group.add(strut(new V(dx * POST, RIM, dz * POST), new V(dx * POST, FRAME, dz * POST), 0.03 * H, PALETTE.steel));
   }
   for (let i = 0; i < 4; i++) {
-    const [ax, az] = corners[i]!;
-    const [bx, bz] = corners[(i + 1) % 4]!;
-    group.add(strut(new V(ax * post, FRAME, az * post), new V(bx * post, FRAME, bz * post), 0.03 * H, PALETTE.steel));
+    const [ax, az] = CORNERS[i]!;
+    const [bx, bz] = CORNERS[(i + 1) % 4]!;
+    group.add(strut(new V(ax * POST, FRAME, az * POST), new V(bx * POST, FRAME, bz * POST), 0.03 * H, PALETTE.steel));
   }
-  for (const [ax, az] of corners.slice(0, 2)) {
-    group.add(strut(new V(ax * post, FRAME, az * post), new V(-ax * post, FRAME, -az * post), 0.025 * H, PALETTE.steel));
+  for (const [ax, az] of CORNERS.slice(0, 2)) {
+    group.add(strut(new V(ax * POST, FRAME, az * POST), new V(-ax * POST, FRAME, -az * POST), 0.025 * H, PALETTE.steel));
   }
   // Twin burners side by side under one coil.
   for (const side of [-1, 1]) {
@@ -201,8 +190,11 @@ function buildBalloon(variant: number): THREE.Group {
   const coil = column(0.13 * H, 0.04 * H, PALETTE.gold, 10);
   coil.position.y = FRAME + 0.03 * H;
   group.add(coil);
+}
 
-  // ---- the envelope -------------------------------------------------------
+/** The envelope, its load tapes, crown cap, mouth disc, scoop and flying wires. */
+function addEnvelope(group: THREE.Group, ctx: ReturnType<typeof craftContext>, scheme: Scheme): void {
+  const { strut, tone } = ctx;
   const base = MOUTH_Y;
   const point = (k: number): [number, number] => [PROFILE[k]![0] * RADIUS, PROFILE[k]![1] * TALL];
   const zoneOf = (k: number): 0 | 1 | 2 => (k < ZONES[0] ? 0 : k < ZONES[1] ? 1 : 2);
@@ -275,13 +267,13 @@ function buildBalloon(variant: number): THREE.Group {
 
   // The flying wires: two from each corner of the frame up to the mouth, on
   // the seams either side of the corner's own bearing.
-  for (const [dx, dz] of corners) {
+  for (const [dx, dz] of CORNERS) {
     const bearing = Math.atan2(dx, dz);
     for (const off of [-1, 1]) {
       const a = bearing + (off * Math.PI) / GORES;
       group.add(
         strut(
-          new V(dx * post, FRAME, dz * post),
+          new V(dx * POST, FRAME, dz * POST),
           new V(Math.sin(a) * mouth * 0.97, base - 0.01 * H, Math.cos(a) * mouth * 0.97),
           0.016 * H,
           PALETTE.bark,
@@ -289,6 +281,15 @@ function buildBalloon(variant: number): THREE.Group {
       );
     }
   }
+}
+
+function buildBalloon(variant: number): THREE.Group {
+  const ctx = craftContext();
+  const scheme = SCHEMES[((variant % SCHEMES.length) + SCHEMES.length) % SCHEMES.length]!;
+  const group = new THREE.Group();
+  addBasket(group, ctx);
+  addBurner(group, ctx);
+  addEnvelope(group, ctx, scheme);
 
   return assemble('balloon', [soupOf(group)]);
 }

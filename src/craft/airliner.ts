@@ -2,23 +2,18 @@
  * The airliner and the airship: the two things in the sky nobody can take.
  *
  * Both fly overhead on `air-traffic.ts`'s timetable and are never boarded, so
- * neither is a `CraftModel` — there is no seat to size them round, and no
- * `CraftKind` to handle them. They are built the way every craft is (the
+ * neither is a `CraftModel`. They are built the way every craft is (the
  * monument context's pieces, lofted shells, one merged buffer and one turning
  * part a propeller) and handed back as a plain group facing +Z with +Y up,
  * centred on the middle of the fuselage or the envelope.
  *
- * **The scale is the traffic's, not the body's.** A vehicle in this world is
- * `SCENERY_SCALE` times `PLACED_SECTION` a metre (1.71 units), and so are
- * these: a narrow-body 38 m long is 65 units from nose to tail cone, and a
- * 58 m airship is 99. Up at the airliner's cruise (`air-traffic.ts`) that is
- * two or three degrees of the lens straight overhead, which is what a real one
- * is at ten kilometres; the light plane, built round four seated heroes, is a
- * toy against it, as it is against a real one.
+ * The scale is the traffic's, not the body's: a metre is `SCENERY_SCALE` times
+ * `PLACED_SECTION` (1.71 units), so a narrow-body 38 m long is 65 units and a
+ * 58 m airship is 99, two or three degrees of the lens straight overhead at
+ * the airliner's cruise (`air-traffic.ts`).
  *
- * **Opaque and inked**, like every other craft: the windows are a band of
- * slate toned down, never black, and every trim laid on the skin stands
- * `PROUD` of it.
+ * Opaque and inked, like every other craft: the windows are a band of toned
+ * slate and every trim laid on the skin stands `PROUD` of it.
  */
 import * as THREE from 'three';
 import { SCENERY_SCALE } from '../stature.ts';

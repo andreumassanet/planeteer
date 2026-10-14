@@ -1,21 +1,17 @@
 /**
  * The sailboat: a day-sailer for two, a mainsail and a jib on one mast.
  *
- * **The launch's recipe with a different boat on it** (`launch.ts`): a hull
- * lofted from the seats outwards with the cockpit cut into the same loft, so
- * the gunwales, the bulkheads and the transom are one piece and one ink line;
- * seats a sole-to-hip over the cockpit floor; a sheer waist-deep on a seated
- * body. What makes it a sailboat is over it: a mast a little ahead of the
- * cockpit, a boom a head clear of the seated crew, and two sails, each a thin
- * slab so the pen draws round it, the main from the boom to the masthead and
- * the jib from the stem to two thirds up the mast. A fin keel under the hull
- * is what it stands on in the check and what `draft` is.
+ * The launch's recipe (`launch.ts`): a hull lofted from the seats outwards
+ * with the cockpit cut into the same loft; seats a sole-to-hip over the
+ * cockpit floor; a sheer waist-deep on a seated body. Over it: a mast a little
+ * ahead of the cockpit, a boom a head clear of the seated crew, and two sails,
+ * each a thin slab so the pen draws round it. A fin keel under the hull is
+ * what `draft` is.
  *
- * The two sit in line on the centreline — the helm aft at the tiller and the
- * crew forward — because a day-sailer is narrower than a runabout and two
- * abreast would put an elbow through a gunwale.
+ * The two sit in line on the centreline, the helm aft at the tiller and the
+ * crew forward, because a day-sailer is too narrow for two abreast.
  *
- * **Waterline at y = 0**, the keel's fin `draft` under it.
+ * Waterline at y = 0, the keel's fin `draft` under it.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';

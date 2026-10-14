@@ -2,40 +2,25 @@
  * The light plane: a chunky low-wing tourer with one open cockpit for four,
  * two abreast in two rows, a propeller on the nose and three wheels on y = 0.
  *
- * **Open, and that was first forced and is now chosen.** It was built when
- * this world had no glass you could see through: a see-through fill that
- * writes no depth shows its whole ink hull through itself, and an opaque
- * canopy hides the four people it exists to carry. So the cockpit is a well
- * in the fuselage, like the old floatplane's, with a low screen ahead of it
- * that stops under the seated eyes. Since 2026-10-04 a closed craft can have
- * glass (`cabin.ts`) and the screen is glass; the cockpit stays open because
- * an open tourer is what this one is, and from the overhead camera a canopy
- * would only lay a sheen over the four heads. The front row has a row of
- * dials each and a yoke over the knees, for the eye in first person.
+ * The cockpit is a well in the fuselage with a low glass screen ahead of it
+ * that stops under the seated eyes; a canopy would only lay a sheen over the
+ * four heads from the overhead camera. The front row has a row of dials each
+ * and a yoke over the knees, for the eye in first person.
  *
- * **Low wing, and the reason is the map camera.** The plane is looked at from
- * overhead for most of a flight — the whole globe fits the lens at the ceiling —
- * and a high wing would sit between that camera and every head in the cockpit.
- * With the wing under the floor, all four read from above, which is the
- * framing this model is for: the old floatplane's seat was measured at 40 px
- * from overhead and at none from astern, and this one is built for the
- * overhead.
+ * The wing is low because the plane is looked at from overhead for most of a
+ * flight, and a high wing would sit between that camera and every head.
  *
- * **Tricycle gear**, so the fuselage stands level on the ground and the seats
- * are level with it: a taildragger sits nose-high and every seat would be tipped
- * back by the same angle, which the seated pose does not know about. The main
- * wheels wear spats, which are what make a small plane look like a toy rather
- * than a trainer.
+ * Tricycle gear, so the fuselage stands level and the seats with it (a
+ * taildragger sits nose-high and tips every seat back). The main wheels wear
+ * spats.
  *
- * **Every size falls out of the four bodies.** The floor is the hero's shin
- * under the hip; the coaming a ninth of a body over the hip, so the chest,
- * shoulders and head of every passenger are out in the air; the fuselage two
- * bodies abreast with an elbow's room; the rows a pack, a seat back and a knee
- * apart; the panel ahead of the front toes. The flying surfaces are then sized
- * to look right against that fuselage, not against a real aeroplane, which
- * would want a wing twice this span: 13.9 across on a fuselage 12.0 long from
- * spinner to rudder (2026-09-24, `pnpm craft`), it is the stubby, cheerful
- * proportion of a toy, which is the register.
+ * Every size falls out of the four bodies: the floor is the hero's shin under
+ * the hip; the coaming a ninth of a body over the hip, so the chest, shoulders
+ * and head are out in the air; the fuselage two bodies abreast with an elbow's
+ * room; the rows a pack, a seat back and a knee apart; the panel ahead of the
+ * front toes. The flying surfaces are sized to look right against that
+ * fuselage: 13.9 across on a fuselage 12.0 long, the stubby proportion of a
+ * toy.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -134,13 +119,15 @@ function wingPanel(side: 1 | -1, chord: number, thick: number, span: number, lif
   return mesh;
 }
 
-function buildPlane(variant: number): THREE.Group {
-  const ctx = craftContext();
-  const { box, strut, taper, column, tone } = ctx;
-  const [paint, wingColour, trim] = PAINTS[((variant % PAINTS.length) + PAINTS.length) % PAINTS.length]!;
-  const group = new THREE.Group();
+type CraftContext = ReturnType<typeof craftContext>;
 
-  // ---- the fuselage -------------------------------------------------------
+/** Where the cowl's top stands, just over the coaming. */
+const COWL_TOP = COAMING + 0.05 * H;
+/** Where the wing's root sits along the fuselage. */
+const WING_Z = FRONT + 0.1 * H;
+
+/** The fuselage as three lofts that meet with a small overlap, so each joint is an ink line: the cockpit section with the well cut into it, the cowl forward, the tail cone aft. */
+function addFuselage(group: THREE.Group, paint: number, trim: number): void {
   // Three lofts that meet with a small overlap, so each joint is an ink line —
   // the panel lines of a real one: the cockpit section with the well cut into
   // it, the cowl forward, the tail cone aft.
@@ -153,12 +140,11 @@ function buildPlane(variant: number): THREE.Group {
   ].map((s) => ({ z: s.z, ring: flatBottom(s.ring, HALF * 0.72) }));
   group.add(loft(cockpit, paint));
 
-  const cowlTop = COAMING + 0.05 * H;
   group.add(
     loft(
       [
-        { z: WELL_FORE, ring: octagon(HALF * 0.99, BELLY + 0.005 * H, cowlTop) },
-        { z: WELL_FORE + 0.26 * H, ring: octagon(HALF * 0.93, BELLY + 0.03 * H, cowlTop - 0.01 * H) },
+        { z: WELL_FORE, ring: octagon(HALF * 0.99, BELLY + 0.005 * H, COWL_TOP) },
+        { z: WELL_FORE + 0.26 * H, ring: octagon(HALF * 0.93, BELLY + 0.03 * H, COWL_TOP - 0.01 * H) },
         { z: NOSE, ring: octagon(HALF * 0.68, BELLY + 0.1 * H, HUB_Y + 0.17 * H, 0.5) },
       ],
       paint,
@@ -169,8 +155,8 @@ function buildPlane(variant: number): THREE.Group {
   group.add(
     loft(
       [
-        { z: WELL_FORE + 0.02 * H, ring: octagon(HALF * 0.99 + PROUD, BELLY - PROUD * 0.5, cowlTop + PROUD) },
-        { z: WELL_FORE + 0.09 * H, ring: octagon(HALF * 0.97 + PROUD, BELLY + 0.01 * H - PROUD * 0.5, cowlTop + PROUD) },
+        { z: WELL_FORE + 0.02 * H, ring: octagon(HALF * 0.99 + PROUD, BELLY - PROUD * 0.5, COWL_TOP + PROUD) },
+        { z: WELL_FORE + 0.09 * H, ring: octagon(HALF * 0.97 + PROUD, BELLY + 0.01 * H - PROUD * 0.5, COWL_TOP + PROUD) },
       ],
       trim,
     ),
@@ -208,7 +194,11 @@ function buildPlane(variant: number): THREE.Group {
     );
   }
 
-  // ---- the cockpit --------------------------------------------------------
+}
+
+/** The cockpit: floor, panel, four seats, the front seats' instruments and yokes, and the low screen on the cowl. Returns the screen, which is drawn as glass. */
+function addCockpit(group: THREE.Group, ctx: CraftContext, trim: number): THREE.Group {
+  const { box, strut, tone } = ctx;
   // The floor, the panel on the forward bulkhead, and four seats whose pans
   // are exactly at the hip and whose backs stand behind the pack.
   const floor = box(HALF * 2 - WALL * 2.4, PROUD, WELL_FORE - WELL_AFT - 0.02 * H, PALETTE.bark);
@@ -229,10 +219,9 @@ function buildPlane(variant: number): THREE.Group {
   }
 
   // An instrument panel standing on the coaming before each front seat, its
-  // dials facing the seat, high enough to be seen from it over the knees —
-  // on the bulkhead under the coaming it was under the eye's view — and each
-  // front seat's yoke on its column out of it. The pilot's is held and turns
-  // with the ailerons (`YOKE`, a `'steer'`); the other is still.
+  // dials facing the seat, high enough to be seen from it over the knees, and
+  // each front seat's yoke on its column out of it. The pilot's is held and
+  // turns with the ailerons (`YOKE`, a `'steer'`); the other is still.
   for (const seat of SEATS.slice(0, 2)) {
     group.add(instrumentPanel(seat, 0.36 * H, 0.3 * H, WELL_FORE - FRONT - 0.05 * H, PALETTE.steel, 3));
     const hub = new V(seat.x + YOKE.centre[0], seat.y + YOKE.centre[1], seat.z + YOKE.centre[2]);
@@ -250,30 +239,34 @@ function buildPlane(variant: number): THREE.Group {
   }
 
   // A low screen on the cowl, raked back, its top edge a third of a body over
-  // the hip: under the seated eyes, so the front row looks over it — and
-  // through it, since 2026-10-04, when it became glass (`glassMaterial`).
+  // the hip: under the seated eyes, so the front row looks over it (glass,
+  // `glassMaterial`).
   const screen = new THREE.Group();
   const front = box(HALF * 1.7, 0.2 * H, PROUD, PALETTE.slate);
-  front.position.set(0, cowlTop - 0.01 * H, WELL_FORE + 0.08 * H);
+  front.position.set(0, COWL_TOP - 0.01 * H, WELL_FORE + 0.08 * H);
   front.rotation.x = -0.6;
   screen.add(front);
   const frame = box(HALF * 1.74, 0.02 * H, 0.03 * H, trim);
-  frame.position.set(0, cowlTop - 0.01 * H + 0.2 * H * Math.cos(0.6), WELL_FORE + 0.08 * H - 0.2 * H * Math.sin(0.6));
+  frame.position.set(0, COWL_TOP - 0.01 * H + 0.2 * H * Math.cos(0.6), WELL_FORE + 0.08 * H - 0.2 * H * Math.sin(0.6));
   group.add(frame);
 
-  // ---- the flying surfaces ------------------------------------------------
+  return screen;
+}
+
+/** Wings, tailplane, fin and rudder. */
+function addFlyingSurfaces(group: THREE.Group, ctx: CraftContext, paint: number, wingColour: number, trim: number): void {
+  const { box } = ctx;
   // The wing hangs under the cabin floor, its root inside the fuselage.
   const chord = 0.7 * H;
   const span = 1.8 * H;
-  const wingZ = FRONT + 0.1 * H;
   for (const side of [1, -1] as const) {
     const wing = wingPanel(side, chord, 0.13 * H, span, 0.05, wingColour);
     // Its top a hair under the cabin floor, so no part of it shows in the well.
-    wing.position.set(0, BELLY - 0.035 * H, wingZ);
+    wing.position.set(0, BELLY - 0.035 * H, WING_Z);
     group.add(wing);
     // A tip in the trim colour, proud of the wing's end.
     const tip = box(0.05 * H, 0.07 * H, chord * 0.5, trim);
-    tip.position.set(side * (span + 0.02 * H), BELLY - 0.035 * H + span * 0.05 - 0.035 * H, wingZ - chord * 0.1);
+    tip.position.set(side * (span + 0.02 * H), BELLY - 0.035 * H + span * 0.05 - 0.035 * H, WING_Z - chord * 0.1);
     group.add(tip);
 
     const tailplane = wingPanel(side, 0.36 * H, 0.05 * H, 0.62 * H, 0.02, wingColour);
@@ -309,7 +302,11 @@ function buildPlane(variant: number): THREE.Group {
     ),
   );
 
-  // ---- the undercarriage --------------------------------------------------
+}
+
+/** The three wheels (the nose and main ones turn), their spats and legs. Returns the turning parts, the yoke first. */
+function addUndercarriage(group: THREE.Group, ctx: CraftContext, paint: number): Turning[] {
+  const { strut, column } = ctx;
   const turning: Turning[] = [];
   turning.push(wheelPart(YOKE, new V(SEATS[0]!.x + YOKE.centre[0], SEATS[0]!.y + YOKE.centre[1], SEATS[0]!.z + YOKE.centre[2]), PALETTE.ink));
   // A tyre and a hub cap about the axle, which is X through the origin: a
@@ -330,7 +327,7 @@ function buildPlane(variant: number): THREE.Group {
     return w;
   };
   const mainX = HALF + 0.12 * H;
-  const mainZ = wingZ - 0.12 * H;
+  const mainZ = WING_Z - 0.12 * H;
   for (const side of [-1, 1]) {
     turning.push({ name: 'wheel', at: new V(side * mainX, MAIN_WHEEL, mainZ), soup: soupOf(wheel(MAIN_WHEEL, 0.07 * H)) });
     // The spat: a teardrop over the top of the wheel, open underneath where
@@ -355,7 +352,12 @@ function buildPlane(variant: number): THREE.Group {
   turning.push({ name: 'wheel', at: new V(0, NOSE_WHEEL, noseZ), soup: soupOf(wheel(NOSE_WHEEL, 0.06 * H)) });
   group.add(strut(new V(0, NOSE_WHEEL, noseZ), new V(0, BELLY + 0.14 * H, noseZ - 0.08 * H), 0.045 * H, PALETTE.steel));
 
-  // ---- the propeller ------------------------------------------------------
+  return turning;
+}
+
+/** The propeller: its own part, spinning about +Z. */
+function propeller(ctx: CraftContext, trim: number): Turning {
+  const { box, taper } = ctx;
   // Its own part, spinning about +Z: a spinner and two blades. The blade tip
   // clears the ground by a nose wheel's radius.
   const prop = new THREE.Group();
@@ -375,7 +377,18 @@ function buildPlane(variant: number): THREE.Group {
     arm.add(b, tip);
     prop.add(arm);
   }
-  turning.push({ name: 'prop', at: new V(0, HUB_Y, NOSE + 0.005 * H), soup: soupOf(prop) });
+  return { name: 'prop', at: new V(0, HUB_Y, NOSE + 0.005 * H), soup: soupOf(prop) };
+}
+
+function buildPlane(variant: number): THREE.Group {
+  const ctx = craftContext();
+  const [paint, wingColour, trim] = PAINTS[((variant % PAINTS.length) + PAINTS.length) % PAINTS.length]!;
+  const group = new THREE.Group();
+  addFuselage(group, paint, trim);
+  const screen = addCockpit(group, ctx, trim);
+  addFlyingSurfaces(group, ctx, paint, wingColour, trim);
+  const turning = addUndercarriage(group, ctx, paint);
+  turning.push(propeller(ctx, trim));
 
   return assemble('light-plane', [soupOf(group)], turning, { glass: [painted(soupOf(screen), GLASS_TINT)] });
 }

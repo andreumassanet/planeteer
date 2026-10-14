@@ -1,20 +1,14 @@
 /**
  * What every craft is built with and what it is handed over as.
  *
- * **A craft is drawn as one buffer, plus one buffer a turning part.** The pieces
- * are built the way every code-built thing in this world is — through the
- * monument context's `box`, `strut`, `taper`, one toon material a colour, faceted
- * — and then reduced by `mergeMeshes` (`src/merge.ts`) to flat arrays with the
- * colour on the vertices and the ink's normal beside the fill's, exactly as a
- * town, a wood tile and a mover are. So a plane of forty pieces is one draw
- * call and one hull, its propeller a second, and a car its body and four
- * wheels. The material is the movers' own recipe: vertex colours on the
- * world's four-band ramp, the world's pen, the hull riding `outlineNormal`.
+ * A craft is drawn as one buffer, plus one buffer per turning part. Pieces are
+ * built through the monument context's `box`, `strut`, `taper` (one toon
+ * material a colour, faceted) and reduced by `mergeMeshes` (`src/merge.ts`) to
+ * flat arrays with the colour on the vertices and the ink's normal beside the
+ * fill's, as a town or a mover is.
  *
- * **Two colours meeting in one merged mesh are only a problem when they share a
- * plane.** A merged buffer has no draw order, so a face painted over a face is
- * a z-fight that shows only when the camera moves; every piece laid on another
- * here stands proud of it by `PROUD` or more, as the scenery contract asks.
+ * A merged buffer has no draw order, so a piece laid on another stands proud
+ * of it by `PROUD` or more (the scenery contract), or the two z-fight.
  */
 import * as THREE from 'three';
 import { varnish } from '../gloss.ts';
@@ -32,8 +26,7 @@ export const PROUD = 0.08;
 let context: MonumentContext | null = null;
 /**
  * One monument context for every craft, made on first use. `createContext`
- * registers its ramp with `theme.ts` so the moods repaint it, so it is made
- * once and not once per build.
+ * registers its ramp with `theme.ts`, so it is made once, not once per build.
  */
 export function craftContext(): MonumentContext {
   context ??= createContext();
@@ -62,10 +55,9 @@ export function craftMaterial(): THREE.MeshToonMaterial {
 
 let matte: THREE.MeshToonMaterial | null = null;
 /**
- * The cabin's material: the craft's, without the varnish. The varnish gives a
- * painted body the sky at a glancing angle, and a dashboard seen from the
- * seat is all glancing angle — it came out the hemisphere's lilac whatever it
- * was painted. A cabin is cloth, plastic and leather, and matte.
+ * The cabin's material: the craft's, without the varnish, which gives a
+ * painted body the sky at a glancing angle (a dashboard seen from the seat is
+ * all glancing angle). Matte.
  */
 export function cabinMaterial(): THREE.MeshToonMaterial {
   if (matte !== null) return matte;
@@ -78,29 +70,19 @@ export function cabinMaterial(): THREE.MeshToonMaterial {
   return matte;
 }
 
-/**
- * How much of what is behind it a pane lets through: about a quarter, so a
- * car still reads as having windows and the driver behind them reads as a
- * person from the chase camera, not as a shadow behind a blue panel.
- */
+/** How much of what is behind it a pane lets through: about a quarter. */
 export const GLASS_OPACITY = 0.24;
 
-/**
- * The glass's colour: the world's window slate (`GLASS_TONE` in the scenery
- * contract), lightened where the opaque panes were darkened, because what is
- * behind it now shows through and darkens it.
- */
+/** The glass's colour: the scenery contract's window slate (`GLASS_TONE`), lightened because what is behind it shows through. */
 export const GLASS_TINT = tone(PALETTE.slate, 1.4);
 
 let glass: THREE.MeshToonMaterial | null = null;
 
 /**
- * The one material every see-through pane of a craft is drawn with: its
- * colours are its vertices', on the craft's own ramp, both sides lit,
- * blended, writing no depth (see the head of `cabin.ts`), and **no ink** —
- * `outlineParameters.visible` false, so the outline pass leaves it out. It
- * casts no shadow either: a car's shadow with its windows lighter in it is
- * what a real one throws.
+ * The one material every see-through pane of a craft is drawn with: vertex
+ * colours on the craft's ramp, both sides lit, blended, no depth write (see
+ * the head of `cabin.ts`), no ink (`outlineParameters.visible` false) and no
+ * shadow.
  */
 export function glassMaterial(): THREE.MeshToonMaterial {
   if (glass !== null) return glass;
@@ -124,23 +106,17 @@ export function glassMaterial(): THREE.MeshToonMaterial {
   return glass;
 }
 
-/**
- * How much of a pane's opacity is left for the eye inside the ride
- * (`faintGlass`): a third, so the windscreen is a faint sheen over the road
- * and not a blue filter over the whole view.
- */
+/** How much of a pane's opacity is left for the eye inside the ride (`faintGlass`). */
 export const INSIDE_GLASS = 0.35;
 
 const faint = new WeakMap<THREE.Material, THREE.Material>();
 /**
- * A ride's see-through glass, faint, for the eye inside it — Earth's seats
- * (`player.ts`) and the walked worlds' (`worlds/camera.ts`) alike: each mesh
- * whose material is glass (`atlasGlass`, every pane in `glassMaterial`; or
- * `atlasFaint`, a craft's own glass such as the saucer's dome) is given a
+ * A ride's see-through glass, faint, for the eye inside it (`player.ts`,
+ * `worlds/camera.ts`): each mesh whose material is glass (`atlasGlass`, or
+ * `atlasFaint` for a craft's own glass such as the saucer's dome) is given a
  * copy of its material at `INSIDE_GLASS` of its opacity, kept per material,
- * and its own back after (`on` false) — the swap `inkless` makes for the
- * ink. The copy of a material that is not the shared glass goes when its
- * source does.
+ * and its own back after (`on` false). The copy of a material that is not the
+ * shared glass goes when its source does.
  */
 export function faintGlass(group: THREE.Object3D, on: boolean): void {
   group.traverse((part) => {
@@ -192,9 +168,9 @@ export function soupOf(group: THREE.Object3D): Soup {
 /**
  * A turning part: its soup, built about its own axle at the origin, and where
  * that axle is. A steering wheel (`'steer'`) and a speedometer's needle
- * (`'needle'`) turn about their own +Z, which `tilt` — a turn about X, forward
- * and down — stands at the angle the column or the dial is at; the motion
- * turns them about that axle and leaves the tilt alone (`craft/motion.ts`).
+ * (`'needle'`) turn about their own +Z, which `tilt` (a turn about X) stands at
+ * the angle of the column or dial; the motion turns them about that axle and
+ * leaves the tilt alone (`craft/motion.ts`).
  */
 export interface Turning {
   name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank' | 'steer' | 'needle';
@@ -255,10 +231,9 @@ function meshOf(soups: readonly Soup[], name: string, material: THREE.Material =
 }
 
 /**
- * What a closed craft carries besides its shell: the see-through glass, and
- * the cabin — the shell's lining, the floor, the seats, the dashboard — each
- * its own mesh so that a buffer that cannot carry glass (a farm's tile,
- * `parkedArrays`) can leave the cabin out and paint the glass opaque.
+ * What a closed craft carries besides its shell: the see-through glass and
+ * the cabin (lining, floor, seats, dashboard), each its own mesh so a buffer
+ * that cannot carry glass (`parkedArrays`) can leave the cabin out.
  */
 export interface Inside {
   glass?: readonly Soup[];
@@ -267,22 +242,18 @@ export interface Inside {
 
 /**
  * The finished craft: the still soups as one mesh named `'body'`, each
- * turning part as a group of its own name at its axle holding its mesh, and
- * a closed craft's `Inside`: its cabin as a mesh named `'cabin'` in the same
- * material, and its see-through glass as a mesh named `'glass'` in the
- * glass's own (`glassMaterial`), casting no shadow. Every matrix in the
- * result is asserted proper — a reflection here renders the craft as a solid
- * blob of ink, and an ordinary `Mesh` would hide it.
+ * turning part as a group of its own name at its axle holding its mesh, and a
+ * closed craft's cabin as a mesh named `'cabin'` plus its glass as `'glass'`
+ * (no shadow). Every matrix in the result is asserted proper: a reflection
+ * renders the craft as a solid blob of ink.
  */
 export function assemble(name: string, still: readonly Soup[], turning: readonly Turning[] = [], inside: Inside = {}): THREE.Group {
   const group = new THREE.Group();
   group.name = name;
   group.add(meshOf(still, 'body'));
   if (inside.cabin !== undefined && inside.cabin.some((soup) => soup.position.length > 0)) {
-    // The cabin takes no shadow: the shell over it would put the whole inside
-    // in its own shade, and a dashboard and seats in the ramp's darkest band
-    // read as one dark block through the glass and from the seat. It still
-    // casts one, onto the people in it, as the shell does.
+    // The cabin takes no shadow, or the shell over it would put the whole
+    // inside in shade. It still casts one onto the people in it.
     const cabin = meshOf(inside.cabin, 'cabin', cabinMaterial());
     cabin.receiveShadow = false;
     group.add(cabin);
@@ -333,21 +304,15 @@ const shoelace = (ring: readonly (readonly [number, number])[]): number => {
 
 /**
  * A closed shell through a run of sections, every section with the same number
- * of points, and a cap on each end.
+ * of points, and a cap on each end. A section may be concave (the open
+ * cockpit of the launch and the plane) and a point may coincide with its
+ * neighbour, which is how a well closes into a deck; the collapsed triangles
+ * are dropped by `assemble`.
  *
- * It is `vehicles.ts`'s `shell` with any section rather than a rectangle,
- * because a hull, a fuselage, a wing and a wheel pant are all rounder than a box
- * and the one fault that made the old craft ugly was that they were boxes. A
- * section may be concave — the open cockpit of the launch and the plane is a U
- * with the well cut into its top — and a point may coincide with its neighbour,
- * which is how a well closes into a deck between two stations; the triangles
- * that collapse are dropped by `assemble`.
- *
- * **Which way round it is wound is checked, not trusted**: every section is put
- * anticlockwise before the quads are laid, each cap is turned to face out along
- * z, and then the signed volume of the whole shell must come out positive
- * (`assertOutward`, the same test `vehicles.ts` runs). A shell wound inside out
- * turns its hull front-facing and draws as a solid blob of ink.
+ * Winding is checked: every section is put anticlockwise, each cap faces out
+ * along z, and the signed volume of the shell must come out positive
+ * (`assertOutward`, as in `vehicles.ts`), or the hull would turn
+ * front-facing and draw as a solid blob of ink.
  */
 export function loft(stations: readonly Station[], color: number, openFore = false): THREE.Mesh {
   if (stations.length < 2) throw new Error('loft: needs two stations');
@@ -419,12 +384,7 @@ function assertOutward(p: readonly number[]): void {
   if (!(volume > 0)) throw new Error(`loft: the shell is wound inside out (6V = ${volume.toFixed(3)})`);
 }
 
-/**
- * A rounded box section: flat top and bottom, the four corners cut by
- * `chamfer` of the smaller of the half-width and half-height. Eight points,
- * which is as round as the pen lets a fuselage be before the joints between
- * facets start reading as panel lines.
- */
+/** A rounded box section: flat top and bottom, the four corners cut by `chamfer` of the smaller of the half-width and half-height. Eight points. */
 export function octagon(half: number, bottom: number, top: number, chamfer = 0.35): [number, number][] {
   const c = Math.min(half, (top - bottom) / 2) * chamfer;
   return [
@@ -441,13 +401,13 @@ export function octagon(half: number, bottom: number, top: number, chamfer = 0.3
 
 /**
  * An open well's section: an outer skin from the keel up to a sheer on either
- * side, a wall `wall` thick, and a floor at `floor` inside it. Nine points, the
- * same nine whether or not the well is open, so a station with `decked` set
- * closes it into a flat deck at the sheer and the loft between an open and a
- * decked station is a bulkhead.
+ * side, a wall `wall` thick, and a floor at `floor` inside it. Nine points
+ * whether or not the well is open, so a station with `decked` set closes it
+ * into a flat deck at the sheer and the loft between an open and a decked
+ * station is a bulkhead.
  *
  * `chine` is where the bottom turns up into the side; `keel` the bottom on the
- * centreline. A flat-bottomed fuselage gives the keel and the chine one height.
+ * centreline. A flat-bottomed fuselage gives them one height.
  */
 export interface WellSection {
   keel: number;
@@ -506,11 +466,7 @@ export type CraftDraft = Omit<CraftModel, 'size'>;
 /**
  * The finished model: centred in X and Z on its own box, as the contract's
  * frame asks, with the seats moved by the same amount, and `size` read off the
- * built box rather than written down. A plane is longer ahead of its seats than
- * behind them and a car's cabin is not in its middle, so each file builds about
- * whatever origin its own arithmetic wanted and this puts the box's middle on
- * the axis. The turning parts are direct children and move with it, so a
- * caller that finds them by name finds them where they are.
+ * built box. The turning parts are direct children and move with it.
  */
 export function finish(draft: CraftDraft): CraftModel {
   const box = new THREE.Box3().setFromObject(draft.build(0));
@@ -531,9 +487,7 @@ export function finish(draft: CraftDraft): CraftModel {
           })),
         }),
     // The paint goes through with the variant: a town's parked car taken
-    // over is built in the colour it was parked in. Until 2026-09-28 this
-    // passed the variant alone, so every car taken from a kerb came out in
-    // its variant's colour instead, whatever it had stood there in.
+    // over is built in the colour it was parked in.
     build(variant, paint) {
       const group = draft.build(variant, paint);
       for (const child of group.children) {

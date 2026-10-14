@@ -1,31 +1,12 @@
 import type { Vehicle } from '../contract.ts';
 
 /**
- * Hot-air balloon.
+ * Hot-air balloon: the only part off the ground, and by far the largest, at
+ * true scale against the houses below.
  *
- * The one thing in the kit that is not on the ground, and by a long way the
- * largest: **20 units across against a two-storey house's 7.** That is not an
- * exaggeration, it is what a balloon is — a 16 m envelope beside a 6 m house —
- * and it is the clearest evidence that the kit's scale decision is the right one,
- * because at `SCENERY_SCALE` the balloon comes out enormous *and correct*
- * against the village under it without a single number being nudged.
- *
- * **The envelope is one lathe and the segment count is a deliberate reversal of
- * the usual answer.** The joint-count rule: few joints say natural, many say
- * manufactured. A balloon is the most manufactured object here — it is a sewn
- * assembly of panels — so it gets *twelve* sides where a boulder gets an
- * icosahedron, and the four profile rings read as panel courses rather than as
- * facets on a rock. The gores would be better still and cannot be had: a gore is
- * a mesh, and twelve alternating meshes is twelve draw calls for something there
- * will only ever be one of in the sky at a time, which is a trade worth making
- * for a monument and not for a kit part.
- *
- * The skirt is a second, cooler colour at the throat. It is doing the work a
- * gore pattern would: one horizontal ink line across the envelope, in a place
- * where the eye expects the balloon to change.
- *
- * The basket carries the only `stand` mount besides the pickup's bed, and it is
- * the easy case — nothing above the rider but sky.
+ * The envelope is two stacked lathes of twelve sides: a skirt in a second,
+ * cooler colour at the throat and the crown above it, offset so the joint gets
+ * an ink line. The basket carries a `stand` mount.
  */
 
 export const hotAirBalloon: Vehicle = {
@@ -36,10 +17,7 @@ export const hotAirBalloon: Vehicle = {
   note: 'Twelve sides on purpose: a balloon is sewn, and few joints would read as rock.',
 
   mounts: [
-    // The basket is 1.50 across at its narrowest variant and a standing rider's
-    // elbows span 1.46. It fits by four hundredths of a unit, which is the
-    // tightest clearance anywhere in the kit and is why the basket has a floor
-    // on its width rather than a free range.
+    // The narrowest basket (1.50) only just clears a standing rider's elbows (1.46).
     { x: 0, y: 0.28, z: 0, yaw: 0, pose: 'stand', headroom: Infinity, legroom: 0, beam: 1.5, hats: true },
   ],
 
@@ -55,9 +33,7 @@ export const hotAirBalloon: Vehicle = {
 
     const basketWidth = rng.range(1.5, 1.8);
     const basketHeight = rng.range(1.2, 1.4);
-    // `box` already stands on y = 0 — the monument context's convention. Lifting
-    // it by half its height is what made the first balloon float clear of the
-    // ground by 0.63.
+    // `box` already stands on y = 0.
     group.add(box(basketWidth, basketHeight, basketWidth * 0.86, wicker));
 
     const mouth = rng.range(2.4, 2.9);
@@ -67,13 +43,9 @@ export const hotAirBalloon: Vehicle = {
     const skirtH = tall * 0.34;
     const crownH = tall - skirtH;
 
-    // Two closed lathes stacked, and the joint between them is the point. A
-    // single lathe would be one blank curve twenty units across — the largest
-    // flat area anything in this project has, and a flat area with no joint in
-    // it renders as a blank patch, as Niagara's curtain did. The crown's foot
-    // is pulled in to 0.94 of the skirt's shoulder so the two are not flush:
-    // flush, `OutlineEffect` gives the joint no line at all and the second
-    // colour is a painted band rather than a course.
+    // Two closed lathes stacked; one would be a blank curve twenty units
+    // across. The crown's foot is pulled in to 0.94 of the skirt's shoulder so
+    // the two are not flush and the outline draws the joint.
     const skirt = lathe(
       [
         [0, 0],
@@ -103,8 +75,7 @@ export const hotAirBalloon: Vehicle = {
     crown.position.y = mouthY + skirtH - 0.06;
     group.add(crown);
 
-    // Four ropes from the basket to the mouth ring. Thin enough to be pure ink,
-    // and they are what turns two stacked shapes into one object.
+    // Four ropes from the basket to the mouth ring.
     for (const [dx, dz] of [
       [1, 1],
       [1, -1],

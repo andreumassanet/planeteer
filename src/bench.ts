@@ -1,25 +1,22 @@
 /**
  * A bench, and sitting on one: how high its seat is, how deep, where the
  * sitter's feet go, and the one model every bench in the world is built from
- * — the countryside's by a road or a lighthouse (`countryside-kit.ts`) and a
- * town's on its pavements (`scenery/parts/street-bench.ts`). A station's
- * bench under its canopy is its own model, sat on by the same numbers
- * (`railway.ts`, `benchesNear`).
+ * (the countryside's by a road or a lighthouse in `countryside-kit.ts`, a
+ * town's on its pavements in `scenery/parts/street-bench.ts`). A station's
+ * bench is its own model, sat on by the same numbers (`railway.ts`,
+ * `benchesNear`).
  *
- * **The seat is the clip's, not the other way round.** Sitting is the cast's
- * `Sit` clip (`retarget-clips.ts`), which the library authored on a chair, so
- * its thighs rest on thin air at the height of one. Measured off the skinned
- * mesh of both bodies at the clip's first frame (2026-09-25, in the pack's own
- * metres on a body of 1.87): the underside of the thighs lies at 0.49 over the
- * root from the back of the seat to just short of the knee, the back of the
- * hips 0.33 behind the root, and the knees bend 0.1 in front of it. As a share
- * of the body those are `SIT_SEAT`, `SIT_BACK` below, and every number here is
- * derived from them and `AVATAR_HEIGHT`, so a bench is sat on by whatever size
- * a person is.
+ * The seat is the clip's, not the other way round. Sitting is the cast's `Sit`
+ * clip (`retarget-clips.ts`), authored on a chair, so its thighs rest on thin
+ * air at the height of one. Off the skinned mesh at the clip's first frame (in
+ * the pack's metres on a body of 1.87), the underside of the thighs lies at
+ * 0.49 over the root from the back of the seat to just short of the knee, the
+ * back of the hips 0.33 behind the root, and the knees bend 0.1 in front of
+ * it. Those are the shares `SIT_SEAT` and `SIT_BACK` below; everything else is
+ * derived from them and `AVATAR_HEIGHT`, so a bench suits any size of person.
  *
- * **Nothing here knows about a town or a field.** A bench is a base on the
- * ground and a yaw; `sitSpot` turns that into where a body's root goes and the
- * way it faces, which is what `Player.sitOn` takes.
+ * A bench is a base on the ground and a yaw; `sitSpot` turns that into where a
+ * body's root goes and the way it faces, which is what `Player.sitOn` takes.
  */
 import * as THREE from 'three';
 import type { SceneryContext } from './scenery/contract.ts';
@@ -33,9 +30,8 @@ const SIT_BACK = 0.1765;
 /**
  * The eyes of a body in the `Sit` clip over its root, as a share of its
  * height: the standing eye (0.93, `camera.ts`) less how far the head comes
- * down. Measured off the skinned cast at `AVATAR_HEIGHT` (2026-09-25): the head
- * bone 0.18 of the body lower than in the idle on the man, 0.24 on the woman,
- * 0.21 between them. What first person on a bench looks from.
+ * down (0.18 of the body on the man, 0.24 on the woman, 0.21 between them).
+ * What first person on a bench looks from.
  */
 export const SIT_EYE = 0.72;
 

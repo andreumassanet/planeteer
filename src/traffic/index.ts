@@ -1,14 +1,5 @@
 import * as THREE from 'three';
-import {
-  KINDS,
-  
-  
-  
-  
-  
-  
-  
-} from './contract.ts';
+import { KINDS } from './contract.ts';
 import type { Extent, Measurements, TrafficStyle, Variety, Vehicle } from './contract.ts';
 
 export {
@@ -64,33 +55,14 @@ export { TRAFFIC_STYLES, MISSING_REGIONS, trafficFor } from './regions.ts';
 export type { RegionId } from './regions.ts';
 
 /**
- * The registry.
+ * The vehicle registry: every `Vehicle` exported from a file in `parts/`.
  *
- * Same trick as the monument and scenery registries and for the same reason:
- * **adding a vehicle is one file and nothing else.** Drop `tram.ts` into
- * `parts/` exporting a `Vehicle` and it is in the kit, in `pnpm traffic`, and
- * available to every region table that names it.
- *
- * Writing one, end to end:
- *
- * 1. `src/traffic/parts/<id>.ts`, named after the kebab-case id.
- * 2. Import from `../contract.ts` and nowhere else. There is no `THREE`
- *    namespace in a part file — `ctx.THREE` is a value — so annotate helpers
- *    with the re-exported `Group`, `Mesh`, `Object3D` and `Vector3` types.
- * 3. `build(ctx, rng, style)` returns **one variant**: facing +Z, based at
- *    y = 0 (the waterline for a craft), centred on its own origin, coloured only
- *    out of `style` through `ctx.toon`.
- * 4. Declare `size` as `[length, width, height]` and mean it. It is the contract
- *    with whoever puts the thing on a road, and `validateVehicle` holds every
- *    variant to it from both sides — too big fails, and so does comfortably too
- *    small, because a placer that reserves nine units for a six-unit van refuses
- *    lanes the van fits.
- * 5. Declare `mounts` if a rider would be visible on it. A car's driver is
- *    behind glass at every distance a car is seen from and does not need one; a
- *    bicycle with nobody on it is a ghost.
- *
- * Judge it at a kerb beside a house before you judge it alone: a vehicle alone
- * is a model, and a vehicle on a street is the thing that will be shipped.
+ * A part lives in `parts/<id>.ts`, imports only from `../contract.ts` (use
+ * `ctx.THREE` and the re-exported `Group`, `Mesh`, `Object3D`, `Vector3`
+ * types), and builds one variant facing +Z, based at y = 0 (the waterline for
+ * a craft), centred on its origin, coloured from `style` through `ctx.toon`.
+ * Its declared `size` is held to the built variants from both sides, and it
+ * declares `mounts` wherever a rider would be visible.
  */
 const MODULES = import.meta.glob<Record<string, unknown>>('./parts/*.ts', { eager: true });
 
@@ -125,8 +97,7 @@ for (const path of Object.keys(MODULES).sort()) {
   for (const vehicle of found) {
     const previous = seen.get(vehicle.id);
     if (previous !== undefined) {
-      // A region table names vehicles by id, so two under one id means a street
-      // silently builds the wrong one. Refuse to start.
+      // Region tables name vehicles by id, so a duplicate would build the wrong one.
       throw new Error(`duplicate vehicle id '${vehicle.id}' in ${previous} and ${path}`);
     }
     seen.set(vehicle.id, path);

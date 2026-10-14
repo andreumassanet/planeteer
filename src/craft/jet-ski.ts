@@ -2,17 +2,15 @@
  * The jet ski: a hull a little longer than a body, a saddle along its back, a
  * steering pod ahead of it, and two people astride.
  *
- * **Built from the rider out.** A jet ski is ridden like a motorbike on the
- * water — astride a long saddle, the feet in a well either side of it, the
- * hands on bars at the top of a pod — so the saddle's top is the hip, the
- * wells' floor is where the soles rest, and the bars are where an arm reaches.
- * Everything else is hull: a vee under the water that rises into the bow, the
- * deck the wells are cut into, a rubbing strake in a second colour, the pod,
- * and the nozzle astern where the jet comes out, which is what the wake and
- * the rooster tail of spray leave from (`effects.ts`).
+ * Built from the rider out, like a motorbike on the water: the saddle's top is
+ * the hip, the wells' floor is where the soles rest, and the bars are where an
+ * arm reaches. Everything else is hull: a vee under the water that rises into
+ * the bow, the deck the wells are cut into, a rubbing strake in a second
+ * colour, the pod, and the nozzle astern where the wake and the rooster tail
+ * of spray leave from (`effects.ts`).
  *
- * **Waterline at y = 0**, the keel `draft` under it; one metre is the body's
- * own, `AVATAR_HEIGHT / 1.75`.
+ * Waterline at y = 0, the keel `draft` under it; one metre is the body's own,
+ * `AVATAR_HEIGHT / 1.75`.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';

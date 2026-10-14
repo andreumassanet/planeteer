@@ -1,14 +1,7 @@
 /**
- * The camel, because the desert wants camels.
- *
- * One shape covers the dromedary and the Bactrian, because at the distance a
- * herd is seen the second hump is two pixels and everything else about them is
- * the same animal: the long rising neck, the small head, the narrow slab of a
- * body, and legs that are half the standing height.
- *
- * **It is the one animal in the kit that does not walk.** `gait: 'pace'` moves
- * both legs on one side together, which is what a camel does and what makes it
- * roll — and it costs one field in this file and not one triangle. See `GAITS`.
+ * The camel. One shape covers the dromedary and the Bactrian: the long rising
+ * neck, the small head, the narrow body and legs half the standing height.
+ * It paces (`gait: 'pace'`), both legs on one side together, which makes it roll.
  */
 import { buildAnimal } from '../body.ts';
 import { coatFor, atFaunaScale } from '../contract.ts';
@@ -17,7 +10,7 @@ import { PALETTE } from '../../theme.ts';
 
 const P = PALETTE;
 
-/** Every camel is a shade of the ground it stands on, which is the whole point of one. */
+/** Every camel is a shade of the ground it stands on. */
 const COATS: Coat[] = [
   { color: P.sand, weight: 6, pale: true },
   { color: P.tan, weight: 5, pale: true },
@@ -30,21 +23,18 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
   const s = rng.spread(1, 0.05);
   const coat = coatFor(rng, style, COATS);
   return {
-    // 1.9 m at the shoulder, and the hump takes it past two. A camel is the
-    // only animal here taller than the 1.8 m person the scale is built on.
+    // 1.9 m at the shoulder; the hump takes it past two.
     withers: 1.88 * s,
     croup: 1.76 * s,
     bodyLength: 1.58 * s,
     barrelDepth: 0.80 * s,
-    // Narrow. A camel seen head on is a plank, and the narrowness is half of
-    // why it reads as a camel from any angle at all.
+    // Narrow: head on, a camel is a plank.
     barrelWidth: 0.50 * s,
     chestFore: 1.0,
 
     neckLength: 1.02 * s,
-    // Steep. A camel's neck is an S and this rig has one joint, so the rise is
-    // set where the *head height* lands right rather than where the base angle
-    // does: 0.95 rad puts the head at 2.5 m, which is where a camel's is.
+    // The rig's neck has one joint where a camel's is an S, so the rise is set
+    // for the head height: 0.95 rad puts the head at 2.5 m.
     neckRise: 0.95,
     neckThick: 0.20 * s,
     headLength: 0.48 * s,
@@ -68,8 +58,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     tailTuft: 0.15 * s,
     horns: 'none',
     hornSize: 0,
-    // The shoulder ruff, which is what stops a camel reading as a smooth sack
-    // on stilts. Small: 0.18 of the barrel, not a fleece.
+    // The shoulder ruff; small, 0.18 of the barrel, not a fleece.
     fleece: 0.18,
 
     coat,

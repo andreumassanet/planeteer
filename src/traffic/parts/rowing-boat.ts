@@ -2,9 +2,8 @@ import type { Vehicle } from '../contract.ts';
 
 /**
  * Rowing boat: Kenney's `boat-row-small` (Watercraft Kit, CC0), oars out. The
- * oars make it 1.16 as wide as it is long, so it is fitted to the 3.5 a craft
- * may be wide and comes out 3.02 long, and it sits `SINK` into the water: y = 0
- * is the waterline for a craft (`KindSpec.draft`).
+ * oars make it wider than long, so it is fitted to a craft's 3.5 width and
+ * sits `SINK` into the water (y = 0 is the waterline, see `KindSpec.draft`).
  */
 const MODEL = 'boat-row-small';
 const SINK = 0.3;

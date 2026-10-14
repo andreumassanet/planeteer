@@ -1,13 +1,8 @@
 import type { Vehicle } from '../contract.ts';
 
 /**
- * Saloon: Kenney's `sedan` (Car Kit, CC0), fitted by length to 4.55 and so
- * 2.68 wide, near the top of what a car may be.
- *
- * The `sedan-sports` body was tried first, because fitted to a lane width it
- * came out longer; from the side it was 0.900 the same shape as the hatchback,
- * which is `SAME_SHAPE` exactly. The plain sedan is taller and boxier, which is
- * what tells a family saloon from a hatch at a hundred units.
+ * Saloon: Kenney's `sedan` (Car Kit, CC0), fitted by length to 4.55. Taller and
+ * boxier than the hatchback, so the two stay under `SAME_SHAPE` from the side.
  */
 const MODEL = 'sedan';
 

@@ -1,28 +1,24 @@
 /**
  * Every vehicle model that can be taken, by id.
  *
- * The road craft off the traffic kit's baked models — the hatchback, the van,
- * the jeep, the pickup, the tractor and the bus — are the traffic's Kenney and
- * Quaternius vehicles at a person's size (`cars.ts`); the scooter and the
- * tuk-tuk are the traffic's own code-built parts, likewise (`traffic-craft.ts`);
- * the bicycle, the motorbike, the launch, the jet ski, the sailboat, the
- * submarine, the plane, the helicopter and the balloon are built in code round the hero's own
- * seated, standing and astride body (`body.ts`), because no CC0 pack has one
- * with room in it for him; and the horse is the herds' own rig, saddled
- * (`horse.ts`).
+ * The road craft (hatchback, van, jeep, pickup, tractor, bus) are the
+ * traffic's Kenney and Quaternius vehicles at a person's size (`cars.ts`); the
+ * scooter and tuk-tuk are the traffic's own code-built parts, likewise
+ * (`traffic-craft.ts`); the bicycle, motorbike, launch, jet ski, sailboat,
+ * submarine, plane, helicopter and balloon are built in code round the hero's
+ * own seated, standing and astride body (`body.ts`); and the horse is the
+ * herds' own rig, saddled (`horse.ts`).
  *
- * `loadCraft` fetches the traffic kit's file and the horse's rig, which the
- * world has usually fetched already, so the browser's cache answers them;
- * `craftFrom` is the same thing handed the models, which is how the headless
- * check builds them from disk.
+ * `loadCraft` fetches the traffic kit's file and the horse's rig; `craftFrom`
+ * is the same thing handed the models, which is how the headless check builds
+ * them from disk.
  */
 import type { CraftModel } from './contract.ts';
 import type { Model, Rig } from '../models.ts';
-// Static, and not a dynamic import inside `loadCraft`: this file is itself
-// reached only through a deferred import (`main.ts`), so the kit's reader
-// adds nothing to the world's first load — while a page that awaits
+// Static, not a dynamic import inside `loadCraft`: this file is itself reached
+// only through a deferred import (`main.ts`), and a page that awaits
 // `loadCraft` at its top level, with the reader in a chunk that imports back
-// from the page's own, waits on itself for ever.
+// from the page's own, would wait on itself for ever.
 import { loadModels, loadRig } from '../kit.ts';
 import { buildCars } from './cars.ts';
 import { buildPartCraft } from './traffic-craft.ts';

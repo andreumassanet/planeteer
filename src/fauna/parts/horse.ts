@@ -1,12 +1,6 @@
 /**
- * The horse. The steppe's animal, and the one the world already had a monument
- * to before it had the animal: `monuments.source.json` picked the Genghis Khan
- * Equestrian Statue for *the steppe, and the world's first horse*.
- *
- * What tells a horse from a cow at 30 pixels is three things and none of them
- * is the head: the **crest** along the neck, the **tail of hair** rather than a
- * rope with a switch on it, and a body that is longer than it is tall where a
- * cow is nearly square. All three are in the table.
+ * The horse, the steppe's animal. Told from a cow by the crest along the neck,
+ * a tail of hair rather than a switch, and a body longer than it is tall.
  */
 import { buildAnimal } from '../body.ts';
 import { coatFor, atFaunaScale } from '../contract.ts';
@@ -17,11 +11,9 @@ import { PERSON_METRES } from '../../stature.ts';
 const P = PALETTE;
 
 /**
- * The top of a horse's back under the saddle, over the ground, as a share of
- * `AVATAR_HEIGHT`. A horse's withers are 1.6 m against a 1.75 m person, 0.91
- * of him, and this is a little over life, since a rider's legs have to reach
- * down its sides. The herds' horse and the ridden one (`craft/horse.ts`) are
- * both fitted to it, so they are one size.
+ * The top of a horse's back under the saddle, as a share of `AVATAR_HEIGHT`:
+ * a little over life so a rider's legs reach down its sides. The herds' horse
+ * and the ridden one (`craft/horse.ts`) are both fitted to it.
  */
 export const WITHERS = 0.95;
 
@@ -37,8 +29,7 @@ const COATS: Coat[] = [
 const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
   const s = rng.spread(1, 0.05);
   const coat = coatFor(rng, style, COATS);
-  // Mane, tail and legs. A dark-pointed bay is the commonest horse there is,
-  // and on a dark coat the points go pale instead, which is a grey or a dun.
+  // Mane, tail and legs: dark points on a bay, pale ones on a dark coat.
   const point = coat === P.bark || coat === P.brown ? P.steel : P.bark;
   return {
     withers: 1.54 * s,
@@ -51,7 +42,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     neckLength: 0.72 * s,
     neckRise: 0.62,
     neckThick: 0.22 * s,
-    // Long and narrow, which is the one part of a horse's head that reads.
+    // Long and narrow.
     headLength: 0.60 * s,
     headDepth: 0.28 * s,
     headWidth: 0.17 * s,
@@ -71,8 +62,7 @@ const shape = (rng: Rng, style: FaunaStyle): AnimalShape => {
     humpAt: 0,
     mane: rng.range(0.12, 0.16) * s,
     tail: 0.62 * s,
-    // Nearly as long as the dock it hangs from: a horse's tail is hair, and the
-    // silhouette is a fall rather than a switch.
+    // Nearly as long as the dock it hangs from: a fall of hair.
     tailTuft: 0.46 * s,
     horns: 'none',
     hornSize: 0,
@@ -93,8 +83,7 @@ export const horse: Animal = {
   gait: 'walk',
   note: 'Steppe and grassland everywhere. The crest and the tail are what read.',
   // Quaternius's horse, and its donkey one in five (Ultimate Animated Animals,
-  // CC0). The mane is the shape's point colour, which is what makes a bay a bay.
-  // The donkey's back is 1.2 m, a head under the horse's.
+  // CC0). The mane is the shape's point colour. The donkey's back is 1.2 m.
   rigs: [
     { id: 'horse', weight: 4, back: WITHERS * PERSON_METRES, slots: { Main: 'coat', Main_Dark: 'dark', Main_Light: 'light', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_White: P.white, Eye_Black: P.ink } },
     { id: 'donkey', weight: 1, back: 1.2, slots: { Main: 'coat', Main_Light: 'under', Main_Dark: 'point', Hair: 'point', Hooves: 'point', Muzzle: 'point', Eye_Dark: P.ink, Eye_White: P.white } },

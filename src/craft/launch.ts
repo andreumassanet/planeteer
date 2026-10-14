@@ -2,35 +2,27 @@
  * The launch: an open runabout for four, the helm and three passengers, all of
  * them seen.
  *
- * **Code-built, and built round the four people in it.** Kenney's speedboats
- * were the other candidate and they are good boats, but their cockpits are
- * modelled at the pack's toy scale — a bench a hand deep, a screen at the knee
- * — and a seat is not something a model fitted from outside can be made to
- * have. So the hull is lofted here from the seats outwards:
+ * Code-built round the four people in it; the hull is lofted from the seats
+ * outwards:
  *
- * - **The seat surface is the sole plus the hero's sole-to-hip**, so a seated
- *   body's shoes are on the cockpit floor, not through it or over it.
- * - **Two abreast** (`ABREAST`), and the inside of the hull clears the outer
- *   elbow by more than a fifth of a body, so nobody's arm is through a gunwale.
- * - **Two rows a pack, a seat back and a knee apart** (`ROW_PITCH`), so the
- *   rear passengers' knees clear the front seats' backs.
- * - **The foredeck's bulkhead is ahead of the front toes**, and the sheer is a
- *   twelfth of a body over the hip: waist-deep, so from the chase camera and
- *   from above four heads and four pairs of shoulders read over the gunwales.
+ * - The seat surface is the sole plus the hero's sole-to-hip, so a seated
+ *   body's shoes are on the cockpit floor.
+ * - Two abreast (`ABREAST`), and the inside of the hull clears the outer elbow
+ *   by more than a fifth of a body.
+ * - Two rows a pack, a seat back and a knee apart (`ROW_PITCH`).
+ * - The foredeck's bulkhead is ahead of the front toes, and the sheer is a
+ *   twelfth of a body over the hip, so four heads and four pairs of shoulders
+ *   read over the gunwales.
  *
- * **Why the old one was ugly, in one line: it was boxes.** Its hull was a
- * rectangular section lofted along a plan, which from any angle is a tray. This
- * one's section turns at a chine and flares to the sheer, its keel rises into
- * the stem and its sheer sweeps up to a bow higher than the transom, which is
- * the whole silhouette of a small powerboat; the well is cut into the same loft
- * (`well` in `build.ts`) so the gunwales, the bulkheads and the transom are one
- * piece with one ink line round it. The details are the ones that read at the
- * chase distance: a rubbing strake in a second colour under the sheer, a
- * wraparound screen, a wheel, an outboard. Chunky rather than sleek — a beam of
- * 0.9 bodies on a hull a little over two long, L/B 2.3 where a real runabout
- * is nearer 2.6 — because this world draws its made things a little toy.
+ * The section turns at a chine and flares to the sheer, the keel rises into
+ * the stem and the sheer sweeps up to a bow higher than the transom; the well
+ * is cut into the same loft (`well` in `build.ts`) so the gunwales, bulkheads
+ * and transom are one piece with one ink line round it. Details that read at
+ * the chase distance: a rubbing strake in a second colour under the sheer, a
+ * wraparound screen, a wheel, an outboard. Chunky rather than sleek: a beam of
+ * 0.9 bodies on a hull a little over two long.
  *
- * **Waterline at y = 0**, the keel `draft` under it.
+ * Waterline at y = 0, the keel `draft` under it.
  */
 import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
@@ -72,8 +64,7 @@ const KEEL = -0.14 * H;
  * waterline. The chine is where the bottom turns up, and the topsides flare out
  * from it to the sheer. The keel rises into the stem over the last three
  * stations and the sheer sweeps up a quarter of a body to meet it, so the bow
- * is raked and stands higher than the transom: that sweep is the silhouette of
- * a small powerboat, and a flat sheer is a tray.
+ * is raked and stands higher than the transom.
  */
 const HULL: readonly (Omit<WellSection, 'floor' | 'wall'> & { z: number })[] = [
   { z: TRANSOM, keel: KEEL * 0.7, chineHalf: HALF * 0.78, chineY: -0.01 * H, sheerHalf: HALF * 0.92, sheerY: SHEER - 0.03 * H, decked: true },
@@ -170,9 +161,7 @@ function buildLaunch(variant: number): THREE.Group {
   // A wraparound in three panes, raked back off the foredeck just ahead of the
   // bulkhead. Its top edge is a third of a body over the sheer: over the
   // seated knees, under the seated eyes, so the helmsman looks over it and the
-  // chase camera sees four heads above it.
-  // Glass since 2026-10-04 (`glassMaterial`): the helmsman sees the bow
-  // through it, and from outside the dashboard behind it shows.
+  // chase camera sees four heads above it. Glass (`glassMaterial`).
   const panes = new THREE.Group();
   const screenFoot = sheerAt(WELL_FORE + 0.05 * H);
   const screenTall = 0.24 * H;

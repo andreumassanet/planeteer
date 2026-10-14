@@ -1,29 +1,25 @@
 /**
- * The horn held for as long as its key is, here and for everyone who hears
- * it: the driver's side (`createHornKey`) and the listeners' (`createHornChorus`).
+ * The horn held for as long as its key is, here and for everyone who hears it:
+ * the driver's side (`createHornKey`) and the listeners' (`createHornChorus`).
  *
- * **The wire says when a horn starts and when it stops, and the stop can be
- * lost.** So a held horn says it is still held every `HONK_REFRESH_MS`, and a
+ * The wire says when a horn starts and when it stops, and the stop can be
+ * lost. So a held horn says it is still held every `HONK_REFRESH_MS`, and a
  * listener that hears nothing for `HONK_HOLD_MS` lets it go by itself; a
  * driver who leaves (`bye`) is let go at once. What goes out is what
- * `spendHonk` allows, the same function the relay passes it by, so nothing
- * the game sends is dropped on the way for pacing — a start refused because
- * the last one was too recent is simply sent a few frames later, while the
- * key is still down.
+ * `spendHonk` allows, the same function the relay passes it by, so a start
+ * refused for pacing is sent a few frames later, while the key is still down.
  *
- * Neither half touches the audio or the socket: they are handed a way to
- * sound a horn and a way to send, so `pnpm input` drives both with a clock.
+ * Neither half touches the audio or the socket: they are handed a way to sound
+ * a horn and a way to send, so `pnpm input` drives both with a clock.
  */
 import { HONK_HOLD_MS, HONK_REFRESH_MS, HONK_TAP_MS, freshHonk, spendHonk } from '../server/src/limits.ts';
 import type { Honk } from '../server/src/limits.ts';
 
 /**
- * How each voice is played. A held one — a car's, a bus's, a boat's, a
- * motorbike's electric horn — sounds for as long as the key is down and stops
- * when it comes up. The others are struck: a bicycle's bell rings once, a
- * tuk-tuk's bulb is squeezed once and a horse snorts once, a press, however
- * long the key is held, and pressing again is what sounds them again. A bell
- * struck twice a press (`ring-ring`) read as a doubled key.
+ * How each voice is played. A held one (a car's, a bus's, a boat's, a
+ * motorbike's electric horn) sounds for as long as the key is down. The others
+ * are struck once per press, however long the key is held: a bicycle's bell, a
+ * tuk-tuk's bulb, a horse's snort.
  */
 export const HORN_HELD: Readonly<Record<Honk, boolean>> = {
   car: true,

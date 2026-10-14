@@ -3,44 +3,30 @@ import * as THREE from 'three';
 /**
  * Soft shapes: the smooth primitives a body is built from.
  *
- * ## Why a person is not built from the kit's prisms
+ * Everything else in this world is faceted on purpose, one normal per face so
+ * each plane takes its own cel band. A body built the same way is a toy: a
+ * hexagonal drum for a head, five-sided tubes for arms. A person is smooth
+ * masses (an egg of a head, locks of hair, a jacket that hangs) under the same
+ * lighting: one sun, a stepped ramp, an ink line.
  *
- * Everything else in this world is faceted on purpose — a house is a box, a
- * roof is a wedge, and one normal per face gives each plane its own cel band. A
- * body built the same way is a **Roblox figure**: a hexagonal drum for a head,
- * five-sided tubes for arms and bricks for feet, which is what the avatar was
- * until 2026-09-15, and it looked worse than Roblox. The reference this
- * project's form is taken from, messenger.abeto.co, draws its people as smooth
- * masses — an egg of a head, locks of hair, a jacket that hangs, trainers with
- * a sole — under exactly this world's lighting: one sun, a stepped ramp, an ink
- * line.
+ * Smooth normals do not undo the cel look. `theme.ts` builds every ramp with
+ * `NearestFilter`, so the light is quantised to four bands whatever the normal
+ * does; a smooth normal field only decides the shape of the boundary between
+ * two bands. On a facet it is the facet's edge, so a six-sided arm reads as six
+ * planks; on a smooth surface it is a curve. Smooth normals also make the ink
+ * continuous: `OutlineEffect` pushes each vertex out along its normal, and
+ * with shared normals the hull is one closed skin a pen-width outside the body.
  *
- * **Smooth normals do not undo the cel look, and the ramp is why.** `theme.ts`
- * builds every ramp with `NearestFilter`, so the light is quantised to four
- * bands whatever the normal does; a smooth normal field only decides the
- * *shape* of the boundary between two bands. On a facet the boundary is the
- * facet's edge, which is why a six-sided arm reads as six planks. On a smooth
- * surface it is a curve, which is the whole look of a cel-shaded character.
- * The old avatar file's claim that a smooth normal "sweeps continuously" was
- * true of its capsules only because they had no geometry worth stepping across.
+ * Every shape here:
  *
- * **And it is what makes the ink continuous.** `OutlineEffect` pushes each
- * vertex out along its normal. With one normal per face the hull comes apart at
- * every corner into slabs, and on a thin limb those slabs are most of what you
- * see; with shared normals the hull is one closed skin a pen-width outside the
- * body, which is a line.
- *
- * ## What every shape here promises
- *
- * - It comes out **non-indexed**, like every other geometry in the world, so
- *   every merge path (`mergeBones`, `mergeGroup`, the settlement `flatten`)
- *   reads it unchanged — but its normals were computed on the *welded* surface
- *   first, so they are smooth.
- * - It is wound **outward**, and that is checked rather than trusted: the signed
- *   volume must be positive or the builder throws. A shell wound inside out
- *   renders as a solid ink blob (`assertOutward` in `vehicles.ts` has the story).
- * - Its material comes from the caller's `toon`, so it carries the colour stamp
- *   the merges read and the ramp the moods repaint. There is no body material.
+ * - comes out non-indexed like every other geometry in the world, so every
+ *   merge path reads it unchanged, but with normals computed on the welded
+ *   surface first, so they are smooth;
+ * - is wound outward, checked rather than trusted: the signed volume must be
+ *   positive or the builder throws, since a shell wound inside out renders as a
+ *   solid ink blob (`assertOutward` in `vehicles.ts`);
+ * - takes its material from the caller's `toon`, so it carries the colour
+ *   stamp the merges read and the ramp the moods repaint.
  */
 
 /** A profile point for `lathe`: `[radius, y]`, bottom to top. */
@@ -115,14 +101,12 @@ function signedVolume(geometry: THREE.BufferGeometry): number {
 const scratch = new THREE.Vector3();
 
 /**
- * The lathe, written out rather than taken from `LatheGeometry`, for one reason:
- * Three's duplicates the seam and the poles, so its welded normals crease down
- * the back of every shape. Here the ring wraps its own indices and a pole is one
- * vertex.
+ * The lathe, written out rather than taken from `LatheGeometry`: Three's
+ * duplicates the seam and the poles, so its welded normals crease down the back
+ * of every shape. Here the ring wraps its own indices and a pole is one vertex.
  *
- * Angle 0 is **+Z**, the way a body faces, so a vertex of the ring sits on the
- * centre line of the face and not a half-segment off it — which is what lets an
- * eye be placed on the surface by arithmetic.
+ * Angle 0 is +Z, the way a body faces, so a vertex of the ring sits on the
+ * centre line of the face and an eye can be placed on the surface by arithmetic.
  */
 function latheGeometry(profile: readonly Ring[], options: SoftOptions = {}): THREE.BufferGeometry {
   const sides = options.sides ?? 10;

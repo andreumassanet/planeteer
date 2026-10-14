@@ -3,19 +3,16 @@
  * auto-rickshaw (`traffic/parts/`), drawn at the size of the person who rides
  * them.
  *
- * **They are the traffic's own parts, built by the traffic's own context**, so
- * a scooter somebody rides off is the scooter the town had parked — the same
- * step-through floor, the same top box on half of them — only larger. The
- * kit builds a vehicle round its rider (`RIDER_HEIGHT`, a seated crowd body);
- * this builds it round the hero, so every length in it is multiplied by the
- * one ratio of the two, `AVATAR_HEIGHT / RIDER_HEIGHT`, and the part's mounts
- * — the saddle, the bench, the footrest and the bars it already publishes for
- * the crowd — become the craft's seats by the same multiplication.
+ * They are the traffic's own parts, built by the traffic's own context, so a
+ * scooter somebody rides off is the scooter the town had parked, only larger.
+ * The kit builds a vehicle round its rider (`RIDER_HEIGHT`); this builds it
+ * round the hero, so every length is multiplied by `AVATAR_HEIGHT /
+ * RIDER_HEIGHT`, and the part's mounts (saddle, bench, footrest, bars) become
+ * the craft's seats by the same multiplication.
  *
- * **The wheels are found as they are made.** The part asks its context for
- * `wheel(...)`; the context handed to it here names what it returns, and each
- * named mesh is taken out of the body and handed over as a `'wheel'` about its
- * own axle, so the motion can turn it.
+ * The part asks its context for `wheel(...)`; the context handed to it here
+ * names what it returns, and each named mesh is taken out of the body and
+ * handed over as a `'wheel'` about its own axle, so the motion can turn it.
  */
 import * as THREE from 'three';
 import { createTrafficContext, rngFrom } from '../traffic/contract.ts';
@@ -93,9 +90,8 @@ function partSoups(spec: PartSpec, style: TrafficStyle): { still: Soup; wheels: 
 
 /**
  * The part's headlamps at the hero's scale: every mesh it marks lit
- * (`ctx.lit`, which the part keeps out of its merge for the purpose) that
- * stands in the front half of it, at the middle of its glass across and up
- * and at its front face. A tail-lamp is behind the middle and is left out.
+ * (`ctx.lit`, which the part keeps out of its merge) that stands in the front
+ * half of it, at the middle of its glass across and up and at its front face.
  */
 function partLamps(spec: PartSpec, style: TrafficStyle): Lamp[] {
   const built = spec.part.build(context(), rngFrom(spec.part.id, 'craft'), style);

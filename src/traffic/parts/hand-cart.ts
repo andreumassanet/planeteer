@@ -1,24 +1,11 @@
 import type { Vehicle } from '../contract.ts';
 
 /**
- * Hand-cart.
+ * Hand-cart: a tray on two large wheels with shafts running forward, tipped
+ * down onto its shafts as a parked cart stands, so its profile is a wedge.
  *
- * A tray on two large wheels with shafts running forward, and it stands where
- * it was left: **tipped down onto its shafts**, which is what a parked cart
- * does and what makes its profile a wedge instead of a rectangle. Level, it
- * would be a low box on wheels and indistinguishable from a trailer.
- *
- * The cheapest vehicle in the kit and the one carrying the most weight in five
- * region tables. There is no engine anywhere in it, which is the point: a road
- * whose traffic is all motorised is a road in one part of the world, and the
- * Maghreb, the Sahel, South Asia, Eastern Europe and Latin America all put a
- * hand-cart on the same street as a pickup.
- *
- * **No mount.** A cart is pulled, not ridden, and a person *pulling* something
- * is a standing pose with the hands at the shaft ends — a `grip` without a
- * seat, which the mount contract has no shape for and which belongs to whoever
- * poses the crowd rather than here. The shaft ends are at `(+-0.34, 0.62, +L/2)`
- * if anyone wants them.
+ * No mount: a cart is pulled, not ridden. The shaft ends are at
+ * `(+-0.34, 0.62, +L/2)`.
  */
 
 export const handCart: Vehicle = {
@@ -33,10 +20,8 @@ export const handCart: Vehicle = {
     const { THREE, solid, strut, ringWall, column, blob, tone } = ctx;
     const V = THREE.Vector3;
     const group = new THREE.Group();
-    // Everything goes in an inner frame so the whole cart can be slid back onto
-    // its own origin at the end. The shafts reach a unit and a half past the
-    // tray and nothing else does, so a cart built about its axle sits half a
-    // unit off-centre — which a placer would read as a cart parked in the ditch.
+    // Built in an inner frame that is slid back onto the origin at the end: the
+    // shafts reach well past the tray, so a cart built about its axle is off-centre.
     const cart = new THREE.Group();
     group.add(cart);
 
@@ -49,9 +34,7 @@ export const handCart: Vehicle = {
     const bed = rng.range(1.5, 1.7);
     const wide = rng.range(1.1, 1.3);
 
-    // Two cart wheels, and they are spoked: an iron band round a felloe, six
-    // spokes and a hub. A solid disc on a cart reads as a coin at any
-    // distance, and the spokes are the one mark that says *hand-built*.
+    // Two spoked wheels: an iron band, six spokes and a hub.
     for (const x of [-0.78, 0.78]) {
       const rim = ringWall(radius - 0.08, radius, 0.12, rubber, 12);
       rim.rotation.z = Math.PI / 2;
@@ -69,10 +52,8 @@ export const handCart: Vehicle = {
     }
     cart.add(strut(new V(-0.78, radius, -0.1), new V(0.78, radius, -0.1), 0.1, metal));
 
-    // The tray, tipped nose-down. `aftRise` lifts the back edge, which is the
-    // tip — done in the geometry rather than as a rotation on the mesh, because
-    // a rotated mesh that also wanted a scale is the T*R*S trap and this file
-    // would rather not have the option.
+    // The tray, tipped nose-down by `aftRise` in the geometry rather than by a
+    // mesh rotation.
     const tip = rng.range(0.26, 0.34);
     const tray = solid({
       color: timber,
@@ -97,8 +78,7 @@ export const handCart: Vehicle = {
       cart.add(plank);
     }
 
-    // The shafts. Long, thin, and they reach the ground — which is what makes
-    // the cart read as *parked* rather than as floating in mid-haul.
+    // The shafts, reaching the ground.
     for (const side of [-1, 1]) {
       cart.add(
         strut(
@@ -110,11 +90,8 @@ export const handCart: Vehicle = {
       );
     }
 
-    // Always loaded. An empty cart and a full one differ by 0.24 of height,
-    // which is most of the drift a declared box is allowed — and a cart with
-    // nothing on it is a cart nobody has a reason to have left there.
-    // The load as sacks, three lumps in two tones of one colour, lying with
-    // the tray's tip.
+    // Always loaded (an empty cart would fall outside its declared height):
+    // three sacks in two tones of one colour, lying with the tray's tip.
     const sackHeight = rng.range(0.44, 0.52);
     const sackRun = bed * rng.range(0.5, 0.8);
     for (let i = 0; i < 3; i++) {
@@ -125,9 +102,7 @@ export const handCart: Vehicle = {
       cart.add(sack);
     }
 
-    // Slide the frame so the model straddles its own origin, measured rather
-    // than guessed: the shaft length, the tray length and the wheel radius all
-    // vary between variants and so does the offset they produce.
+    // Centre the frame on the origin, measured since every dimension varies.
     const box3 = new THREE.Box3().setFromObject(cart);
     cart.position.z = -(box3.min.z + box3.max.z) / 2;
 

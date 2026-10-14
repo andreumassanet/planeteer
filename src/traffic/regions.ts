@@ -6,35 +6,17 @@ import type { TrafficStyle } from './contract.ts';
 /**
  * What is on the road, region by region.
  *
- * **This table is the point of the whole directory.** Eighteen vehicles is a
- * kit; a *mix* is a place. The parts are shared — a minibus is a minibus on
- * three continents — and what makes a Malian road not a Norwegian one is which
- * of them is on it and how often, which costs nothing but weights. The scenery
- * kit learned the same thing the other way round: eight of its fourteen regions
- * build most of their fabric out of one `gabled-house` and do not look alike.
- *
- * Keyed on `RegionId` from `scenery/regions.ts` and resolved through the same
- * `regionFor(iso, continent, lat)`, so the whole project has exactly one answer
- * to "whose ground is this". Adding a region there and forgetting it here is
- * caught by `MISSING_REGIONS` below rather than by a village of no traffic.
- *
- * Two things the weights are actually saying, both of which are worth more than
- * the geometry that carries them:
- *
- * - **The two-wheeler is the world's vehicle and the car is not.** A scooter
- *   outweighs every car put together in the Mediterranean, Southeast Asia and
- *   sub-Saharan Africa, and that one weight does more for those roads than any
- *   model would.
- * - **A used white pickup is the same object on four continents.** So the
- *   regional signal in `paint` is *saturation* rather than hue: an Alpine street
- *   is silver, white and dark red; a Sahelian one is white, white and white.
+ * The parts are shared across regions; a place is told by its mix and weights.
+ * Keyed on `RegionId` and resolved through the scenery kit's `regionFor`, so
+ * there is one answer to whose ground a point is. Two-wheelers dominate many
+ * regions, and paint varies by saturation more than hue.
  */
 
 const P = PALETTE;
 
-/** Tyres, sills, bumpers. Every region's, because a tyre is a tyre. */
+/** Tyres, sills, bumpers, shared by every region. */
 const RUBBER = [P.bark, P.steel, P.darkOlive] as const;
-/** Glass, warm darks. A windscreen catching the sky is `skyBlue`, used sparingly. */
+/** Glass, warm darks. */
 const GLAZING = [P.bark, P.darkOlive, P.slate] as const;
 
 export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
@@ -403,56 +385,33 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
   },
 };
 
-/**
- * Regions the scenery kit has and this table does not.
- *
- * Empty, and listed rather than thrown. A region
- * added next door and forgotten here would otherwise ship as a town with no
- * traffic in it, which looks like a placement bug for as long as it takes
- * somebody to grep.
- */
+/** Regions the scenery kit has and this table lacks; expected to be empty. */
 export const MISSING_REGIONS: RegionId[] = REGION_IDS.filter((id) => TRAFFIC_STYLES[id] === undefined);
 
-/**
- * The style for a place, through the scenery kit's own resolver.
- *
- * There is deliberately no second `ISO_REGIONS` in this directory. A country
- * whose houses are Maghrebi and whose traffic is Mediterranean would be a
- * second opinion about where a border is, and the project has one.
- */
+/** The style for a place, through the scenery kit's own region resolver. */
 export function trafficFor(iso: string, continent: string, lat: number): TrafficStyle {
   const region = sceneryRegionFor(iso, continent, lat);
   return TRAFFIC_STYLES[region.id as RegionId] ?? TRAFFIC_STYLES[DEFAULT_REGION];
 }
 
 /**
- * The countries that drive on the left, by the `iso` the country bake writes
- * (`ISO_A3`, or Natural Earth's `ADM0_A3` where there is none).
- *
- * **A country and not a region**, which is why it is a set here and not a
- * field on `TrafficStyle`: the side of the road is a law, and the regions cut
- * across it — southern Africa keeps left and the rest of `sub-saharan` keeps
- * right, Suriname and Guyana keep left beside Brazil. Everything absent keeps
- * right, which is two thirds of the world's countries and most of its roads.
- *
- * Checked against the list of left- and right-hand traffic jurisdictions,
- * 2026-09-21. Kept even where the bake draws nothing, so the list reads as
- * the law and not as an inventory: Macao and the Maldives are too small for
- * the outlines today.
+ * Countries that drive on the left, by the `iso` the country bake writes
+ * (`ISO_A3`, or `ADM0_A3` where there is none). A per-country set rather than
+ * a region field, because regions cut across the law. Everything absent keeps
+ * right. Countries too small to draw are listed anyway.
  */
 export const LEFT_HAND_TRAFFIC: ReadonlySet<string> = new Set([
   // Europe: Britain and Ireland, the Crown dependencies, the two sovereign
   // base areas, Cyprus north and south, Malta.
   'GBR', 'IRL', 'IMN', 'JEY', 'GGY', 'WSB', 'ESB', 'CYP', 'CYN', 'MLT',
-  // Asia. Myanmar changed to the right in 1970 and is not here.
+  // Asia. Myanmar keeps right.
   'JPN', 'IND', 'PAK', 'BGD', 'LKA', 'NPL', 'BTN', 'MDV', 'THA', 'MYS', 'SGP', 'IDN', 'BRN', 'TLS', 'HKG', 'MAC',
   // Africa: the south and the east. Rwanda, Burundi, Somalia and Somaliland keep right.
   'ZAF', 'LSO', 'SWZ', 'BWA', 'NAM', 'ZWE', 'ZMB', 'MWI', 'MOZ', 'TZA', 'KEN', 'UGA', 'MUS', 'SYC', 'SHN',
   // The Americas: the Caribbean's British and US islands, Guyana, Suriname, the Falklands.
   'AIA', 'ATG', 'BHS', 'BRB', 'BMU', 'CYM', 'DMA', 'GRD', 'JAM', 'MSR', 'KNA', 'LCA', 'VCT', 'TTO', 'TCA', 'VGB', 'VIR',
   'GUY', 'SUR', 'FLK',
-  // Oceania. Samoa changed to the left in 2009; Vanuatu, New Caledonia and
-  // the US and French islands keep right.
+  // Oceania. Vanuatu, New Caledonia and the US and French islands keep right.
   'AUS', 'NZL', 'PNG', 'FJI', 'SLB', 'TON', 'WSM', 'KIR', 'TUV', 'NRU', 'NIU', 'COK', 'NFK', 'PCN',
   'IOA', 'CSI', 'ATC', 'HMD',
   // The British and Australian territories in the southern oceans.
