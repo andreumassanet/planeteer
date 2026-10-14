@@ -1,0 +1,151 @@
+import { OCEAN_COLOR } from '../theme.ts';
+import { hex } from '../ui.ts';
+
+/** The map overlay's stylesheet, installed once. */
+export const STYLE = `
+.atlas-map {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  background: var(--ui-paper);
+  transition: opacity 0.16s ease, visibility 0.16s;
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+}
+.atlas-map.on { opacity: 1; visibility: visible; pointer-events: auto; }
+.atlas-map-sheet:focus { outline: none; }
+.atlas-map-sheet {
+  position: absolute;
+  inset: 14px;
+  border: 3px solid var(--ui-ink);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 5px 0 var(--ui-ink);
+  background: ${hex(OCEAN_COLOR)};
+  cursor: grab;
+  touch-action: none;
+}
+.atlas-map-sheet.drag { cursor: grabbing; }
+.atlas-map-sheet.point { cursor: pointer; }
+.atlas-map canvas { display: block; width: 100%; height: 100%; }
+.atlas-map canvas.atlas-map-marks { position: absolute; inset: 0; pointer-events: none; }
+.atlas-map .ui-card { position: absolute; }
+.atlas-map-head {
+  top: 30px;
+  left: 30px;
+  padding: 10px 16px 12px;
+  pointer-events: none;
+}
+.atlas-map-head .ui-btn { pointer-events: auto; margin-top: 10px; }
+.atlas-map-head .ui-btn[hidden] { display: none; }
+.atlas-map-title {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+.atlas-map-legend {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 2px solid var(--ui-rule);
+  display: grid;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.atlas-map-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 7px;
+  border: 1.5px solid var(--ui-ink);
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+.atlas-map-zoom {
+  position: absolute;
+  right: 30px;
+  bottom: 30px;
+  display: grid;
+  gap: 10px;
+}
+.atlas-map-zoom .ui-btn { font-size: 22px; font-weight: 800; }
+.atlas-map-scale {
+  left: 30px;
+  bottom: 30px;
+  padding: 7px 12px 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.atlas-map-scale b {
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border: 2px solid var(--ui-ink);
+  border-top: 0;
+}
+.atlas-map-foot {
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.atlas-map-foot span { display: inline-flex; align-items: center; gap: 6px; }
+.atlas-map-foot .quiet { opacity: 0.6; }
+.atlas-map-tip {
+  display: none;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 13px 8px 9px;
+  transform: translate(-50%, calc(-100% - 12px));
+  max-width: 300px;
+  pointer-events: none;
+  z-index: 1;
+}
+.atlas-map-tip.on { display: flex; }
+.atlas-map-tip-name {
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.atlas-map-tip-sub {
+  margin-top: 1px;
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+.atlas-map-tip-sub b { font-weight: 800; opacity: 0.85; }
+@media (max-width: 720px) {
+  .atlas-map-foot { display: none; }
+}
+/* A finger has no M to close the map with, and less room for the frame. */
+.atlas-map-close { display: none; top: 30px; right: 30px; }
+html.touch-ui .atlas-map-close { display: grid; position: absolute; }
+html.touch-ui .atlas-map-sheet {
+  inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+html.touch-ui .atlas-map-head { top: 14px; left: 14px; padding: 8px 12px 9px; }
+html.touch-ui .atlas-map-close { top: 14px; right: 14px; }
+html.touch-ui .atlas-map-zoom { right: 14px; bottom: 14px; gap: 8px; }
+html.touch-ui .atlas-map-scale { left: 14px; bottom: 14px; }
+html.touch-ui .atlas-map-foot { display: none; }
+@media (orientation: portrait) {
+  html.touch-ui .atlas-map-legend { display: none; }
+}
+`;

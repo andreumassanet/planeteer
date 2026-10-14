@@ -1,14 +1,10 @@
 /**
  * The world map's coast and frontiers, thinned to the zoom they are drawn at.
  *
- * **The sheet traced every point of every ring it could see, on every redraw.**
- * The outlines are 188,507 points in 2,875 rings (2026-09-25), and at the
- * world's own zoom every one of them is on the screen: a drag redraws the
- * sheet every frame, and each of those frames walked all of them to throw
- * four in five away as closer than a pixel to the last. The tile painter did
- * the same to fill its land mask, for a tile 256 pixels across.
- *
- * So each ring is thinned **once per band of zoom**, lazily, the first time a
+ * Tracing every point of every ring on each redraw is too slow: the outlines
+ * are about 188,000 points in 2,900 rings, and at the world's own zoom most are
+ * closer than a pixel to the last. So each ring is thinned once per band of
+ * zoom, lazily, the first time a
  * band is asked for: level `k` keeps a point only where it is `OUTLINE_STEP /
  * 2^k` of the sheet from the last one kept, which is under a pixel at every
  * zoom the level serves (`outlineLevelFor`); the last level is the source

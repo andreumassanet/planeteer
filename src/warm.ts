@@ -4,31 +4,23 @@ import type { OutlineEffect } from './outline.ts';
 /**
  * Every shader the world will draw with, compiled while the menu is up.
  *
- * **Three compiles a program the first time something drawn with it is on the
- * screen, synchronously, inside that frame** — so the first town, the first
- * wood, the first landmark and the first animal each arrived with a hitch the
- * size of a link, and on Windows, where ANGLE translates every program to
- * HLSL first, the worst of it. The menu is seconds of a player choosing where
- * to go with the world already built underneath, which is exactly the time
- * this wants.
+ * Three compiles a program synchronously the first time something drawn with it
+ * is on screen, so the first town, wood, landmark and animal each arrived with a
+ * hitch the size of a link (worst on Windows, where ANGLE translates every
+ * program to HLSL first). The menu is seconds of a player choosing where to go
+ * with the world already built underneath.
  *
- * So each streamer hands over a **proxy**: one triangle drawn with its own
- * material, carrying the attributes its real buffers carry, compiled against
- * the real scene — its lights, its fog, its shadow — through
- * `renderer.compileAsync`, and its ink hull through the effect's own
- * `compileAsync`, which is the half three cannot see: the hull is a material
- * the effect makes, and a program three has never been shown. Programs are
- * shared between materials by source and parameters, so one proxy stands for
- * every material of its kind — the skinned twin below is the program every
- * person and every animal will use, whichever material instance they get —
- * and a streamer that fades (`fade.ts`) hands over its dissolving twin too,
- * fill and hull, so the first thing to fade in is not the first to compile.
+ * Each streamer hands over a proxy: one triangle drawn with its own material,
+ * carrying the attributes its real buffers carry, compiled against the real
+ * scene (its lights, fog and shadow) through `renderer.compileAsync`, and its
+ * ink hull through the effect's own `compileAsync`, since the hull is a material
+ * the effect makes. Programs are shared between materials by source and
+ * parameters, so one proxy stands for every material of its kind, and a
+ * streamer that fades (`fade.ts`) hands over its dissolving twin too.
  *
- * What is not covered, and why: the shadow pass's depth programs, which three
- * builds inside `WebGLShadowMap` during a render and exposes no way to compile
- * (they are a handful of tiny programs). The land's flagged program, which
- * `globe.ts` switches to on the first climb, is handed over by `main.ts` as
- * `landFlagProxy`.
+ * Not covered: the shadow pass's depth programs, which three builds inside
+ * `WebGLShadowMap` during a render and offers no way to compile. The land's
+ * flagged program is handed over by `main.ts` as `landFlagProxy`.
  */
 export interface Warmable {
   /** One mesh for each program this module draws with; see `proxyOf`. */
@@ -37,9 +29,9 @@ export interface Warmable {
 
 /**
  * One triangle drawn with `material`, with the attributes a merged buffer in
- * this world carries — position, normal, a three-channel colour and the ink's
- * normal — so it asks three for the same program the real buffer will. A
- * skinned one is bound to a skeleton of one bone.
+ * this world carries (position, normal, a three-channel colour and the ink's
+ * normal) so it asks three for the same program the real buffer will. A skinned
+ * one is bound to a skeleton of one bone.
  */
 export function proxyOf(material: THREE.Material, skinned = false): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
@@ -68,8 +60,7 @@ export function proxyOf(material: THREE.Material, skinned = false): THREE.Mesh {
 
 /**
  * Compiles every proxy's program, fill and hull, against `scene`, and throws
- * the proxies away. Resolves with how long the whole thing took, which is time
- * the menu spent and a frame did not.
+ * the proxies away. Resolves with how long it took.
  */
 export async function warmShaders(
   renderer: THREE.WebGLRenderer,
@@ -88,10 +79,9 @@ export async function warmShaders(
   const camera = new THREE.PerspectiveCamera();
   const inked = new THREE.Group();
   try {
-    // The fills first: `compileAsync` takes what it compiles synchronously, so
-    // the proxies can move on to the hulls straight after — but only those
-    // that have one. A road or a blade of grass has no ink, and its hull would
-    // be a program compiled for nothing.
+    // The fills first: `compileAsync` takes what it compiles synchronously, so the
+    // proxies can move on to the hulls straight after, but only those that have
+    // one (a road or a blade of grass has no ink).
     const fills = renderer.compileAsync(holder, camera, scene);
     for (const proxy of [...holder.children]) {
       const material = (proxy as THREE.Mesh).material as THREE.Material;

@@ -8,10 +8,8 @@
  *
  * **Nothing in the initial graph may import this**, and that is the one rule
  * this file has that the other three registries do not. Earth is the detailed
- * one, its first load is 244 KB of code over ten chunks, and the bundle trap
- * measured what a module in the initial graph costs: it is fetched *and parsed*
- * before `start()` runs, so at 250 KB/s the twelve-chunk version did not ask for
- * the first byte of data until 1,709 ms. Everything here belongs behind an
+ * one, and a module in the initial graph is fetched and parsed before
+ * `start()` runs, delaying the first byte of data. Everything here belongs behind an
  * `import()` fired when a body other than Earth is chosen — the shape
  * `main.ts`'s `deferred` block already uses, and after `loadWorld` rather than
  * at the top of `start()`, because that is when the network is idle and the

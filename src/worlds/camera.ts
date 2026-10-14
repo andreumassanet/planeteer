@@ -1,13 +1,12 @@
 /**
- * The lens on another world: **Earth's own rig** (`camera.ts`), not a copy.
+ * The lens on another world: Earth's own rig (`camera.ts`), not a copy.
  *
- * A walked world is the same game, so it is framed by the same camera: the
- * same lens, the chase on the pivot, the wheel, `V`, the walls, and the swing
- * that brings the view round behind a body walking away from it — the part a
- * restated rig had left out, so walking backwards on Mars walked out of the
- * frame. What is this file's own is the seam: the traveller as the rig reads
- * a body (`CameraSubject`), and the near and far planes, which on Earth
- * `main.ts` sets from Earth's radius and here follow the world's.
+ * A walked world is the same game, so it is framed by the same camera: the same
+ * lens, the chase on the pivot, the wheel, `V`, the walls, and the swing that
+ * brings the view round behind a body walking away from it. What is this file's
+ * own is the seam: the traveller as the rig reads a body (`CameraSubject`), and
+ * the near and far planes, which on Earth `main.ts` sets from Earth's radius and
+ * here follow the world's.
  */
 
 import * as THREE from 'three';
@@ -122,12 +121,12 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
     setBodyVisible(visible) {
       if (traveller !== null) traveller.avatar.group.visible = traveller.craft !== null ? !traveller.craft.closed : visible;
     },
-    // In the seat's eye the body is drawn and its head folded away, as on
-    // Earth (`Player.setCockpit`, `Avatar.setHeadless`): the eye is inside
-    // the head, and looks down on its own arms on the wheel and its knees
-    // under the dashboard. And the craft's glass is all but cleared, as
-    // Earth's is (`faintGlass`): from inside, a dome or a windscreen at its
-    // outside tint was a blue filter over the whole view.
+    // In the seat's eye the body is drawn and its head folded away, as on Earth
+    // (`Player.setCockpit`, `Avatar.setHeadless`): the eye is inside the head, and
+    // looks down on its own arms on the wheel and its knees under the dashboard.
+    // The craft's glass is all but cleared, as Earth's is (`faintGlass`): from
+    // inside, a dome or a windscreen at its outside tint would be a blue filter
+    // over the whole view.
     setCockpit(on) {
       inCockpit = on;
       if (fainted !== null) faintGlass(fainted, false);

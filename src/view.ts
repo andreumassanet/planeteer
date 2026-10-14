@@ -1,91 +1,46 @@
 import * as THREE from 'three';
 
 /**
- * What the camera can see, as one object the three streamers share.
+ * What the camera can see, shared by the streamers.
  *
- * Every streamer in this project admitted work by **distance from the player**,
- * and a radius is a sphere: it pays for the three hundred degrees behind you and
- * — the half nobody had looked at — for the ground *underneath* you when you are
- * in the air. Measured over boreal Finland before this file existed, with the
- * resident set counted against the camera's own frustum:
- *
- * ```
- *   altitude   vegetation on screen        settlements on screen
- *   15         21 of 44 tiles, 51% of tris  8 of 47 towns
- *   500        18 of 45,          43%       9 of 48
- *   1,200      12 of 30,          42%       4 of 48
- *   3,000       6 of 18,          22%       0 of 48
- *   6,000       0 of 0                      0 of 48, 127,670 triangles
- * ```
- *
- * The last row is the whole argument. At 6,000 units up the settlement streamer
- * was holding its full budget of forty-eight towns and **not one of them was on
- * the screen**: nearest-first ordering spends the entire budget on the ring
- * directly below the plane, which is exactly the part of the world the camera is
- * not pointed at. The vegetation was not there at all, because its range is a
- * radius from the player and at 6,000 up the nearest ground is 6,000 away.
- *
- * So this file answers two questions and they are separate:
- *
- * - **Is it on the screen?** The frustum, widened by a margin.
- * - **Is it near enough to be worth its detail?** That stays where it was, in
- *   each streamer, because only the streamer knows what it is placing.
+ * Admitting work by distance from the player pays for the ground behind and
+ * underneath the camera, which in the air is most of it. This file answers two
+ * separate questions: is a sphere on screen (the frustum, widened by a margin),
+ * and is it near enough to be worth its detail (left to each streamer, which
+ * knows what it places).
  */
 
 const DEG = Math.PI / 180;
 
 /**
- * How much wider than the lens the admitting frustum is, and why the two axes
- * are not the same number.
+ * How much wider than the lens the admitting frustum is, per axis.
  *
- * The margin buys the time to build something *before* it is on the screen, so
- * it is sized by how fast the frame sweeps across the world on that axis — and
- * the two axes are nothing alike. **Yaw is fast**: a mouse turn is the one
- * motion that puts a whole new hemisphere in front of you, so it gets 18
- * degrees, which at a brisk 120 degrees a second is 150 ms — about nine frames,
- * and nine frames of `BUILD_BUDGET_MS` is six or seven tiles. **Pitch is slow**:
- * the camera's elevation is driven by altitude in flight and by a clamped mouse
- * on foot, and it never sweeps.
- *
- * And pitch is where a wide margin costs the most, which is the second half of
- * it. At 6,000 units up the bottom of the frame meets the ground 1,500 units
- * ahead and the ground *directly below the plane* sits 14 degrees below that
- * edge — so a symmetric 20 degree margin admits the whole disc under the
- * aircraft, which is both the nearest ground on the planet and completely off
- * the screen. Nearest-first ordering then spends the budget on it. That is the
- * radius bug coming back through the margin, and 8 degrees of pitch is what
- * shuts the door on it.
- *
- * **A cone was tried first and this is why it is not a cone.** One sqrt against
- * a sphere is cheaper than six dot products and it needs no near or far plane —
- * but a cone that circumscribes the frustum has to reach the frame's *corner*,
- * 47 degrees at 16:9 against a vertical half-angle of 27.5, and that excess is
- * not spread evenly over the view: it bulges above and below the frame, which at
- * altitude is precisely where the near ground is. Measured, same scene, 6,000
- * units over Finland: the circumscribing cone left **94 settlements resident and
- * 1 on the screen**. The planes are worth their five extra dot products.
+ * The margin buys time to build before something is on screen, so it follows
+ * how fast the frame sweeps the world on each axis. Yaw is fast (a mouse turn
+ * can bring a new hemisphere in front), so it gets 18 degrees. Pitch is slow,
+ * and a wide pitch margin is costly: in the air the ground directly below the
+ * aircraft is the nearest and is off screen, so a wide margin would admit it
+ * and nearest-first ordering would spend the budget on it. Eight degrees keeps
+ * it out. Six planes are used rather than a bounding cone, whose excess at the
+ * frame's corner bulges above and below the frame where the near ground is.
  */
 const ADMIT_YAW = 18 * DEG;
 const ADMIT_PITCH = 8 * DEG;
 
 /**
- * And how much wider again the frustum that *keeps* things standing is.
- *
- * One boundary is a switch: a viewer turning slowly past it builds and disposes
- * the same tile on alternate scans. The gap between admitting and keeping is the
- * hysteresis, and it has to be comfortably larger than the turn that triggers a
- * rescan — `RESCAN_TURN` is 8 degrees in both streamers.
+ * How much wider again the frustum that keeps things standing is. The gap
+ * between admitting and keeping is the hysteresis against building and
+ * disposing the same tile on alternate scans; it must exceed the turn that
+ * triggers a rescan (`RESCAN_TURN`, 8 degrees in both streamers).
  */
 const KEEP_YAW = 12 * DEG;
 const KEEP_PITCH = 8 * DEG;
 
 export interface ViewCone {
   /**
-   * False until a camera has been aimed at it, and then everything is admitted.
-   *
-   * A streamer must work with no camera — `check-world.ts` has none, and neither
-   * does the first frame — and the honest default is the behaviour this file
-   * replaced: a plain radius. Never a frustum with a guessed direction.
+   * False until a camera has been aimed at it; until then everything is
+   * admitted, because a streamer must work with no camera (headless checks, the
+   * first frame).
    */
   active: boolean;
   /** Where the view starts: the camera, not the player. */
@@ -103,13 +58,10 @@ export interface ViewCone {
 }
 
 /**
- * A widened copy of a camera's frustum.
- *
- * The widening is applied to the half-angles rather than to the fov, because
- * `fov` is vertical and `aspect` couples the two: adding degrees to the fov adds
- * proportionally more to the horizontal, which is the opposite of what the
- * asymmetry above is for. Taking the tangents apart, widening each, and putting
- * them back as a fov and an aspect keeps the two margins independent.
+ * A widened copy of a camera's frustum. The widening is applied to the
+ * half-angles rather than to the fov, because `fov` is vertical and `aspect`
+ * couples the two; widening the tangents separately keeps the margins
+ * independent.
  */
 function widen(
   target: THREE.PerspectiveCamera,
@@ -135,20 +87,12 @@ function widen(
 /**
  * A view that also always admits what is close, whatever it is pointed at.
  *
- * `nearAlways` is measured from the camera and it is the answer to the mouse
- * flick: a flick is 180 degrees in a tenth of a second and no margin covers it,
- * so inside this radius the streamer behaves exactly as it did before this file
- * — a plain disc. Spinning on the spot therefore cannot empty the ground you are
- * standing on. It is a per-streamer number because a settlement's is the width
- * of a town and a vegetation tile's is the level-0 ring.
- *
- * From the air it costs nothing at all, because it is a sphere around a camera
- * that is thousands of units above any ground.
+ * `nearAlways` is measured from the camera, so spinning on the spot cannot
+ * empty the ground you stand on. It is per streamer because a settlement's is
+ * the width of a town and a vegetation tile's is the level-0 ring.
  */
 export function createViewCone(nearAlways: number | (() => number)): ViewCone {
-  // A function, not just a number, because the detail knob moves what this is
-  // sized against: it holds the level-0 ring and the knob multiplies where that
-  // ring stops. A value captured once would silently stop matching.
+  // A function, because the detail knob moves what this is sized against.
   const near = typeof nearAlways === 'function' ? nearAlways : (): number => nearAlways;
   const apex = new THREE.Vector3();
   const axis = new THREE.Vector3(0, 0, -1);
@@ -214,131 +158,59 @@ export function createViewCone(nearAlways: number | (() => number)): ViewCone {
 }
 
 /**
- * How far a streamer reaches, given how high the camera is.
- *
- * Every `rangeFor` in this project used to return a radius around the *player*
- * and compare it against a distance to a point on the *ground*. Standing up that
- * is the same thing. In the air it is not, and the error is the altitude itself:
- * at 6,000 units up, vegetation's 4,200 radius could not reach the ground at all
- * and the field simply switched off — not because a forest at 6,000 units is not
- * worth drawing, but because the budget had been spent on empty sky.
- *
- * So a range is two numbers now. `reach` is how far along the ground the thing
- * being placed is still worth placing, which is a question about the thing, and
- * the slant distance the streamer actually compares against is the hypotenuse.
+ * How far a streamer reaches, given how high the camera is. `reach` is how far
+ * along the ground the thing is worth placing; the slant distance a streamer
+ * compares against is the hypotenuse of that and the altitude.
  */
 export function slantRange(altitude: number, reach: number): number {
   return Math.hypot(altitude, reach);
 }
 
 /**
- * How far along the ground the horizon is, from a given height.
- *
- * The same `sqrt(2 R h)` `main.ts` uses for the fog, in one place so that a
- * streamer's reach and the haze that hides it cannot drift apart.
+ * How far along the ground the horizon is from a given height: the same
+ * `sqrt(2 R h)` the fog uses, so a streamer's reach and its haze agree.
  */
 export function horizonAt(altitude: number, planetRadius: number): number {
   return Math.sqrt(2 * planetRadius * Math.max(0, altitude));
 }
 
-// ---------------------------------------------------------------------------
-// The knob
-// ---------------------------------------------------------------------------
-
 /**
  * How far the world is built, as one number every streamer multiplies by.
  *
- * **It exists because the honest default is not knowable from one machine.** The
- * headroom here measured 4.7 M streamed triangles and 263 draw calls in 1.11 ms,
- * sixteen times what the budgets admitted — and the only conclusion that could
- * be drawn from one GPU was "probably fine, unverified elsewhere", which is how
- * a project ends up shipping a timid default to nobody's benefit. A knob turns
- * that from a guess into a setting: the default can be generous because the
- * number that does not suit a machine can come down without editing a file.
- *
- * What it scales, and the exponents are not decoration:
- *
- * - **Reach, linearly.** It is a radius, and a radius is what the knob means.
- * - **Triangle budgets and resident caps, as the square.** Doubling a radius
- *   quadruples the ground inside it, so a budget that grew linearly would
- *   silently clip the reach it had just been asked to double — the cap would
- *   bind first and the knob would stop doing anything past about 1.5.
- * - **The apparent-size floors, inversely.** These are what make a distant thing
- *   vanish, so a reach that grew without them buys only *large* things further
- *   away. Floored at `MIN_PIXELS_FLOOR`, below which a settlement really is a
- *   smudge with an ink line round it and a tree really is one dark pixel.
- * - **Vegetation's `REFINE`, linearly**, which is the lever that actually
- *   matters: it is how far the *fine* levels reach, so it is what puts dense
- *   trees at a distance rather than a thin scatter of them.
- * - **The build budget, as the square root.** Trebling the reach multiplies the
- *   cold build by about nine and a fill that takes four seconds reads as broken;
- *   but milliseconds of building are milliseconds of frame, so this one is
- *   deliberately the slowest-growing of them.
- *
- * At 1 the world is what it was before the knob existed. The default is 0.5
- * and that is temporary; see `DETAIL_KEY`.
+ * - Reach scales linearly.
+ * - Triangle budgets and resident caps scale as the square: the ground inside
+ *   a radius goes as its square.
+ * - Apparent-size floors scale inversely, down to `MIN_PIXELS_FLOOR`.
+ * - Vegetation's `REFINE` scales linearly; it sets how far the fine levels reach.
+ * - The build budget scales as the square root: milliseconds of building are
+ *   milliseconds of frame.
  */
 /**
- * **The key is versioned and the default is deliberately low, and both are
- * temporary.**
- *
- * The value persists, so moving the default alone would change nothing for
- * anyone who has already run the world once — the stale 3 in their store would
- * win. Bumping the key retires every existing value exactly once, which is what
- * makes a change of default actually reach a machine.
- *
- * 0.5 is lighter than the world was before the knob existed: 9 resident
- * vegetation tiles and 75,088 triangles against detail 1's 39 and 284,540, and
- * the fog closes at 963 units. It is set there because the world was built on a
- * machine running several browser windows at once, and a window that costs a
- * quarter of a millisecond is a window that can be left open. **It is not a
- * judgement about the right default** — the measured headroom is sixteen times
- * what these budgets admit, and the range above is meant to be spent.
- * `atlas.detail(3)` is the world this was tuned for. **Since 2026-09-21 it is
- * only where a machine starts**: the automatic knob (`sampleFrame`) moves it
- * from there by what the frames say, and remembers where it got to.
- *
- * **v3 since 2026-10-04**, when the haze began to open linearly with the knob
- * (`detailFog`): a 2 kept from before meant a haze 1.4 times the default's and
- * means 4 times it now, so every kept value is retired once and a machine
- * starts again at the default, under the automatic knob.
+ * Storage key for the knob. It is versioned: bumping it retires every stored
+ * value once, so a new default reaches machines that already ran the world.
+ * The default is only a starting point; the automatic knob (`sampleFrame`)
+ * moves it by what the frames say and remembers where it got to. The haze
+ * opens linearly with the knob (`detailFog`).
  */
 const DETAIL_KEY = 'atlas.detail.v3';
 export const DETAIL_MIN = 0.25;
 /**
- * The top of the knob is where the budgets stop keeping up with the haze.
- *
- * With the haze linear the ground inside it goes as the square of the knob,
- * and so do the triangle budgets, so up to here what is set is what is drawn.
- * Past it `vegetation.ts`'s `MAX_TRIANGLES` — a memory ceiling, not a frame
- * one — would bind first and a higher setting would push the haze out over a
- * wood that had stopped growing: that is a setting that does nothing, so the
- * slider ends here instead. 3 puts the haze on foot at about 4,600 units, six
- * times the default's.
+ * The top of the knob. Past it `vegetation.ts`'s `MAX_TRIANGLES` (a memory
+ * ceiling) would bind before the haze, so a higher setting would do nothing.
  */
 export const DETAIL_MAX = 3;
 export const DETAIL_DEFAULT = 0.5;
 
 /**
- * The floor under every apparent-size test, in pixels.
- *
- * The knob divides those floors, and without a stop it would divide them to
- * nothing: at detail 6 a settlement's 8 px becomes 1.3, which is a town rendered
- * as a single dark speck — geometry paid for and read as dirt. This is the point
- * past which the knob stops buying *more things* and starts buying only *further
- * things*, which is the honest way for it to run out.
+ * The floor under every apparent-size test, in pixels. Without it the knob
+ * would divide the floors toward nothing and a town would render as a speck.
  */
 const MIN_PIXELS_FLOOR = 3.5;
 
 const clampDetail = (value: number): number =>
   Math.min(DETAIL_MAX, Math.max(DETAIL_MIN, Number.isFinite(value) ? value : DETAIL_DEFAULT));
 
-/**
- * Reading a corrupt or absent store must not cost you the world.
- *
- * A private window, cleared site data or storage switched off is a worse
- * session and not a broken one.
- */
+/** A corrupt or absent store (private window, cleared site data) falls back to the default. */
 let current = clampDetail(
   (() => {
     try {
@@ -351,14 +223,9 @@ let current = clampDetail(
 );
 
 /**
- * Bumped on every change, so a streamer can notice without a subscription.
- *
- * A callback would have to be unregistered and would run inside whatever frame
- * the knob was turned in; a version is one integer compared against a remembered
- * one at the top of `update`, which is where every streamer already decides
- * whether to rescan. Turning the knob has to force that rescan outright — the
- * movement and turn thresholds cannot see it, and the reach may not have moved
- * far enough to trip the range test either.
+ * Bumped on every change, so a streamer can notice without a subscription: it
+ * compares one integer at the top of `update`, where it already decides
+ * whether to rescan. Turning the knob forces that rescan.
  */
 let version = 0;
 
@@ -383,45 +250,27 @@ function applyDetail(value: number): number {
   try {
     localStorage.setItem(DETAIL_KEY, String(current));
   } catch {
-    // Not being able to remember is a worse session, not a broken one.
+    // Storage unavailable: carry on without remembering.
   }
   return current;
 }
 
-// ---------------------------------------------------------------------------
-// The knob, turned by the frame rate
-// ---------------------------------------------------------------------------
-
 /**
- * **The default was never a judgement about the right detail, and this is what
- * replaces it with one.** `DETAIL_DEFAULT` is 0.5 because it was set on a
- * machine shared by several browser windows; on the machine the world is
- * actually played on, the frame itself says how much it can afford. So, while
- * `auto` is on, every frame hands in two numbers — the interval since the last
- * one and the milliseconds `main.ts` spent inside it — and every
- * `AUTO_WINDOW_MS` the knob moves one `AUTO_STEP` if the window says so:
+ * The automatic knob. While `auto` is on, every frame hands in the interval
+ * since the last one and the milliseconds `main.ts` spent inside it, and every
+ * `AUTO_WINDOW_MS` the knob moves one `AUTO_STEP`:
  *
- * - **Down** when frames are being dropped: the median interval over a
- *   quarter longer than the display's own period, or the 95th percentile over
- *   1.6 of it. The period is the fastest tenth of the intervals at the best
- *   the session has seen, which on a vsynced display is the refresh, whatever
- *   it is.
- * - **Up** when nothing is dropped and the work is under half the period at
- *   the 95th percentile — the CPU has the room, and the GPU is not the thing
- *   holding the interval up. On a vsynced display the interval alone can never
- *   show headroom, which is why the work is measured at all.
+ * - down when frames are dropped: the median interval over a quarter above the
+ *   display's period, or the 95th percentile over 1.6 of it (the period is the
+ *   fastest tenth of the intervals, at the best the session has seen);
+ * - up when nothing is dropped and the 95th-percentile work is under half the
+ *   period.
  *
- * Two windows in a row have to agree before it moves, a step is followed by
- * `AUTO_SETTLE_MS` of not listening (the rescan and the builds a step causes
- * are not what the step should be judged on), and after a step down it will
- * not step back up to the detail it left for `AUTO_COOLDOWN_MS`: a machine
- * that could not hold a detail should not be dragged back to it the moment
- * the lower one has given it room, which is an oscillation. It never
- * leaves `[AUTO_MIN, AUTO_MAX]`, and the first `AUTO_WARMUP_MS` after arrival
- * are the cold fill, which says nothing about the machine.
- *
- * A manual `setDetail` — the keys, the slider — turns it off: the player has
- * taken the knob. `setAutoDetail(true)` gives it back. Both are remembered.
+ * Two windows in a row must agree before it moves. A step is followed by
+ * `AUTO_SETTLE_MS` of not listening, and after a step down it does not step
+ * back up to that detail for `AUTO_COOLDOWN_MS`. It stays within
+ * `[AUTO_MIN, AUTO_MAX]` and ignores the first `AUTO_WARMUP_MS` (the cold
+ * fill). `setDetail` turns it off; `setAutoDetail(true)` gives it back.
  */
 const AUTO_KEY = 'atlas.detail.auto';
 const AUTO_MIN = DETAIL_MIN;
@@ -483,7 +332,7 @@ export function setAutoDetail(on: boolean): boolean {
   try {
     localStorage.setItem(AUTO_KEY, on ? '1' : '0');
   } catch {
-    // Not being able to remember is a worse session, not a broken one.
+    // Storage unavailable: carry on without remembering.
   }
   return on;
 }
@@ -524,11 +373,10 @@ export function sampleFrame(intervalMs: number, workMs: number): void {
   if (now - windowBegan < AUTO_WINDOW_MS || intervals.length < 30) return;
   intervals.sort(ascending);
   works.sort(ascending);
-  // The display's period is the fastest the frames have gone, not the fastest
-  // this window went: a machine at 30 frames a second on a 60 Hz display has
-  // every interval at 33 ms, and a period read off that window alone would
-  // call it smooth. It relaxes upward slowly, for a window dragged to a
-  // slower screen.
+  // The display's period is the fastest interval seen over the session, not
+  // this window's: a machine at 30 frames a second on a 60 Hz display would
+  // otherwise call 33 ms smooth. It relaxes upward slowly, for a window dragged
+  // to a slower screen.
   const fastest = quantile(intervals, 0.1);
   displayPeriod = displayPeriod === 0 ? fastest : Math.min(fastest, displayPeriod + (fastest - displayPeriod) * 0.05);
   const period = Math.max(4, displayPeriod);
@@ -569,11 +417,9 @@ export function sampleFrame(intervalMs: number, workMs: number): void {
 }
 
 /**
- * A frame that is not a measure of this machine — the map's sheet over an
- * undrawn world, or the loop deliberately idling at half rate on the pause
- * card — throws the window away instead of feeding it: at 30 frames a second
- * on purpose, every interval reads as a dropped frame, and a tab left on the
- * pause card for two minutes stepped the knob down to its floor.
+ * A frame that is not a measure of this machine (the map over an undrawn
+ * world, the pause card's half-rate loop) is thrown away instead of fed in,
+ * or it would read as dropped frames.
  */
 export function skipFrame(): void {
   windowBegan = performance.now();
@@ -588,61 +434,33 @@ export const detailArea = (count: number): number => Math.round(count * current 
 export const detailPixels = (pixels: number): number => Math.max(MIN_PIXELS_FLOOR, pixels / current);
 
 /**
- * A count cap — resident settlements, resident tiles — which is a *draw call*
- * budget and not a triangle one, so it grows more slowly than the ground does.
- *
- * The square is right for triangles because the ground inside a radius goes as
- * the square. It is wrong for meshes: measured on foot in Finland with the caps
- * squared, detail 6 held **2,288 settlements and 4.15 M triangles**, and the
- * frame went to 14 ms on 615 draw calls — the count cap had stopped binding long
- * before the triangle budget did, and what it bought was meshes the frustum then
- * threw away. `1.5` keeps the cap in front of the budget without it being the
- * thing that decides the frame.
+ * A count cap (resident settlements, tiles). It is a draw-call budget rather
+ * than a triangle one, so it grows as the knob to the power 1.5 instead of the
+ * square, which keeps it in front of the triangle budget without deciding the
+ * frame.
  */
 export const detailCount = (count: number): number => Math.round(count * current ** 1.5);
 
 /**
- * Milliseconds of building a frame.
- *
- * **This is the one that must not grow the way the others do, and the
- * measurement is blunt about it.** Three streamers each take an independent
- * slice of the frame — 3.5 ms for the settlements, 3 for the roads, 2.5 for the
- * vegetation — and each checks its allowance *before* starting a build rather
- * than during, so one big town lands on top of it. With the allowance growing as
- * the square root, detail 3 put 15.6 ms of building into a frame that has 16.7,
- * and the worst single update measured **54.5 ms**: a visible hitch, at the
- * default, which is worse than anything the extra reach buys.
- *
- * So it grows as the fourth root and stops at 1.4. The cost is that a cold fill
- * at detail 3 takes about three seconds of walking rather than two, and a fill
- * is a thing that gets better on its own while a hitch is a thing you feel.
+ * Milliseconds of building a frame. Each streamer checks its allowance before
+ * starting a build, so one big town lands on top of it; this grows as the
+ * fourth root and stops at 1.4, because a slower cold fill is better than a
+ * hitch.
  */
 export const detailBuild = (ms: number): number => ms * Math.min(1.4, current ** 0.25);
 
-// ---------------------------------------------------------------------------
-// The frame's building, shared
-// ---------------------------------------------------------------------------
-
 /**
- * Milliseconds of a frame every streamer together may spend, from the moment
- * `main.ts` calls `beginFrameBuild` — building, scanning and whatever else
- * runs between the streamers — and it does **not** move with the knob.
- *
- * **Each streamer used to take its own slice and check it before starting a
- * build**: 3.5 for the settlements, 3 for the roads, 2.5 for the vegetation,
- * 1.5 for the sward and 2 for the movers, 10.5 ms together at detail 0.5 (the
- * slices scale by `detailBuild`), and each could overshoot by a whole build on
- * top of it. Five independent overshoots in one frame is the hitch. The
- * slices stay, as each streamer's cap on itself; this is the frame's cap on
- * all of them, so after one streamer's long build the rest wait a frame.
+ * Milliseconds of a frame every streamer together may spend, counted from
+ * `beginFrameBuild`. It does not move with the knob. Each streamer keeps its
+ * own slice as a cap on itself; this is the frame's cap on all of them, so
+ * after one long build the rest wait a frame.
  */
 const FRAME_BUILD_MS = 8;
 /**
- * How much of it work the player is not standing in may use, so that near
- * work served later in the frame always has the rest. The order is the order
- * `main.ts` updates in: the town under your feet, the road under them, the
- * near wood, the grass, what moves — and far work of any of them only out of
- * this.
+ * How much of it work the player is not standing in may use, so near work
+ * served later in the frame has the rest. The order is `main.ts`'s update
+ * order: the town under your feet, the road, the near wood, the grass, what
+ * moves.
  */
 const FAR_BUILD_MS = 4;
 /**
@@ -660,19 +478,11 @@ let frameBegan = -1;
  * that started far work, and not yet paid back; far work waits while there is
  * any.
  *
- * **An allowance checked before a build is overshot by the whole build**, and
- * from the air every build is far: a town is about ten milliseconds of plots
- * and buffers on the machine this was measured on, so a share that let one
- * start whenever it had a moment left put ten into *every* frame of a flight —
- * 8 to 12 ms a frame of settlements alone, banked round 2,000 units over Paris
- * (headless, 2026-10-04). The overrun is carried now: what a frame that
- * started far work spent past `FRAME_BUILD_MS` is owed, a frame that owes
- * starts no far work, and every frame pays back `FAR_BUILD_MS` of it. Far work
- * then costs about its share *on average*, which is what the share meant, and
- * the towns at the horizon arrive at that pace and dissolve in as they always
- * did. A far build that fits inside the frame — a wood tile, a road — owes
- * nothing and is not slowed at all, and near work never waits on it: the
- * ground under the foot is the reason the allowance exists.
+ * An allowance checked before a build is overshot by the whole build, and from
+ * the air every build is far, so the overrun is carried: a frame that owes
+ * starts no far work and every frame pays back `FAR_BUILD_MS`. Far work then
+ * costs about its share on average. A far build that fits inside the frame
+ * owes nothing, and near work never waits on it.
  */
 let farDebt = 0;
 /** Milliseconds `endFrameBuild` measured for the last frame's streamers; negative when it was not called. */
@@ -681,27 +491,13 @@ let lastSpan = -1;
 let farStarted = false;
 
 /*
- * **Far work served in order starves the end of the queue, and in the air all
- * work is far.** `FIRST_BUILD_MS` lets every streamer start one *near* build
- * whatever the frame has spent; nothing did the same for far work, and from a
- * plane there is no near work at all. So the towns, first in the frame's
- * order, took the far share every frame they had a town pending — which, at
- * 1,500 units a second with a horizon of thirty thousand, is every frame — and
- * the roads and the wood behind them never built: banked over France at 2,100
- * units up, 0 wood tiles standing with 202 to 462 pending and 0 or 1 roads
- * with 78 to 499 pending, at every detail from 2 to 6, the towns' queue never
- * empty (headless, 2026-10-04). Raising the knob added towns and nothing else.
- *
- * So far work that names itself (`who`) takes turns, in the order it was
- * refused: while any named streamer is waiting, only the one waiting longest
- * may start far work, and a streamer served goes to the back of the line the
- * next time it is refused. And once a frame, whoever's turn it is may start
- * one far build even when the frame's far share is already spent, as
- * `FIRST_BUILD_MS` lets near work: the wood is last in the frame's order and
- * the scans ahead of it alone can spend the share, so without that a turn
- * would be a turn at a closed door. What it costs is bounded by `farDebt`,
- * which no forced start escapes. A streamer alone with far work builds as
- * much of it as the frame allows, as before.
+ * Far work that names itself (`who`) takes turns, in the order it was refused:
+ * while any named streamer is waiting, only the one waiting longest may start
+ * far work, and a streamer served goes to the back of the line. Once a frame
+ * the streamer whose turn it is may start one far build even when the far
+ * share is spent (`FAR_FORCED_MS`), bounded by `farDebt`. Without turns the
+ * first streamer in the frame's order takes every far share and the later ones
+ * starve. A streamer alone with far work builds as much as the frame allows.
  */
 /** Named streamers refused far work and not served since, longest waiting first. */
 const farWaiting = new Set<string>();
@@ -709,17 +505,14 @@ const farWaiting = new Set<string>();
 let farForced = false;
 /**
  * Who asked for far work last frame: a streamer whose queue has emptied stops
- * asking, and must stop being waited for, or the line would stand still
- * behind nobody for ever.
+ * being waited for.
  */
 const farAsked = new Set<string>();
 
 /**
  * The streamer served far work this frame, and until when a forced start lets
- * it go on: its next asks are part of the same turn — the wood plans the
- * country under a tile in steps, each one an ask — and are judged by the
- * share, or for a forced start by `FAR_FORCED_MS`, the far twin of
- * `FIRST_BUILD_MS`.
+ * it go on: its next asks are part of the same turn and are judged by the
+ * share, or by `FAR_FORCED_MS` after a forced start.
  */
 let farHolder: string | null = null;
 let farHeldUntil = 0;
@@ -760,9 +553,8 @@ function farTurn(open: boolean, who: string | undefined): boolean {
 }
 
 /**
- * Once a frame, before the first streamer. Without it — a headless check —
- * there is no frame allowance and each streamer is held by
- * its own slice alone, which is what they did before this existed.
+ * Once a frame, before the first streamer. Without it (a headless check) there
+ * is no frame allowance and each streamer is held by its own slice.
  */
 export function beginFrameBuild(): void {
   // Charged only for a frame that started far work: a frame that overran on
@@ -779,19 +571,15 @@ export function beginFrameBuild(): void {
 }
 
 /**
- * Once a frame, after the last streamer: what the frame's building cost,
- * which is what the next frame's far allowance is charged with. A caller that
- * never ends a frame — another world's loop, a headless check —
- * carries no debt.
+ * Once a frame, after the last streamer: records what the frame's building
+ * cost, which charges the next frame's far allowance. A caller that never ends
+ * a frame carries no debt.
  */
 export function endFrameBuild(): void {
   if (frameBegan >= 0) lastSpan = performance.now() - frameBegan;
 }
 
-/**
- * The most the far work can owe, in milliseconds: one hitch of a frame is not
- * a reason to leave the horizon unbuilt for a second.
- */
+/** The most far work can owe, in milliseconds. */
 const FAR_DEBT_CAP = 40;
 
 /** Whether the frame has room left for one more build, near or far. */
@@ -803,9 +591,9 @@ export function frameOpen(near: boolean): boolean {
 
 /**
  * `frameOpen` for work counted per frame rather than timed: the first near
- * item of the frame always goes (`done` is how many this caller has done), for
- * the reason `FIRST_BUILD_MS` gives, and the rest wait for the allowance. Far
- * work named by `who` takes turns with the other named streamers (`farTurn`).
+ * item of the frame always goes (`done` is how many this caller has done) and
+ * the rest wait for the allowance. Far work named by `who` takes turns
+ * (`farTurn`).
  */
 export function frameOpenFor(done: number, near: boolean, who?: string): boolean {
   if (near) return done === 0 || frameOpen(true);
@@ -814,17 +602,9 @@ export function frameOpenFor(done: number, near: boolean, who?: string): boolean
 
 /**
  * How long into its own slice a streamer may still start its first near build
- * of the frame when the frame's allowance is already spent.
- *
- * **The frame's allowance is served in order, and in order starves the end of
- * the queue.** With towns and roads first, a view with dozens of towns in
- * reach spent every frame's 8 ms before the wood and the herds were asked: on
- * a software renderer, 56 seconds after arriving over San Diego the wood had 4
- * tiles and 9 near ones pending against the 16 the per-streamer slices had
- * built, and no herd stood at all (2026-09-21). So every streamer with near
- * work starts one build a frame whatever the frame has spent — the worst frame
- * is then one build per streamer, which is exactly what the separate slices
- * cost before this allowance existed — and only the rest waits its turn.
+ * of the frame when the frame's allowance is spent. Every streamer with near
+ * work starts one build a frame, or those late in the frame's order (the wood,
+ * the herds) would starve behind a queue of towns.
  */
 const FIRST_BUILD_MS = 1;
 
@@ -842,24 +622,11 @@ export function mayBuild(began: number, share: number, near: boolean, who?: stri
 }
 
 /**
- * How far the haze should let you see, given how far the streamers now build.
- *
- * **This is the half of the knob that makes the other half visible.**
- * `main.ts` closes the fog at about 1.35 horizons; a knob that admits geometry
- * at eight thousand while the haze closes at fourteen hundred spends the frame
- * on a wall. So the fog opens with the knob.
- *
- * **Linearly, since 2026-10-04, and anchored at the default.** It opened as the
- * square root until then — a judgement that a haze pulled out with the
- * geometry reads as an airless diagram — and the price of that judgement was a
- * setting that did not look like one: a step of `]` is a quarter more reach
- * and a ninth more visible distance, so the setting was moved and nothing on
- * the screen seemed to change, which is what it was reported as. Now the haze
- * is the reach's: every step is a quarter further, the reach and the haze keep
- * the proportion they have at `DETAIL_DEFAULT` — the world the haze was tuned
- * under, which is unchanged, since `SQRT2 * 0.5` is the square root of the
- * default — and the air still recedes because the haze is still there; it is
- * only as far as the setting says.
+ * How far the haze should let you see, given how far the streamers build.
+ * `main.ts` closes the fog at about 1.35 horizons, so geometry admitted past
+ * that would be spent on a wall. The haze opens linearly with the knob,
+ * anchored at the default, so a step of the knob changes the visible distance
+ * in the same proportion as the reach.
  */
 export const detailFog = (spread: number): number => spread * Math.SQRT1_2 * detailScale();
 
@@ -873,18 +640,10 @@ export function detailScale(): number {
 }
 
 /**
- * Where the haze closes, in world units along the ground.
- *
- * `main.ts` owns the fog and always has; this is the same arithmetic in the one
- * place a *streamer* can reach it, so that reach and haze cannot drift apart —
- * and they had already drifted. At detail 6 on foot the vegetation reached
- * 10,945 units while the fog closed at 4,719: two and a third times the geometry
- * for a band nobody can see through, which is the knob spending the frame on a
- * wall in the other direction from the one that was fixed first.
- *
- * Capping a reach at this is the honest ceiling. It binds on the ground, where
- * the haze is close, and it does not bind in the air, where `spread` opens with
- * altitude and the fog runs to tens of thousands.
+ * Where the haze closes, in world units along the ground: `main.ts`'s fog
+ * arithmetic in the one place a streamer can reach it, so reach and haze
+ * cannot drift apart. Capping a reach at this binds on the ground, where the
+ * haze is close, and not in the air, where it opens with altitude.
  */
 export function fogFar(altitude: number, planetRadius: number): number {
   const horizon = horizonAt(altitude, planetRadius);
@@ -916,18 +675,13 @@ export function weatherHazeAt(altitude: number): number {
 }
 
 /**
- * **How much of the clear-air haze the weather leaves, and it is the only
- * thing besides the knob that moves `fogFar`.** 1 is clear air; fog, rain and
- * snow take it down to `WEATHER_HAZE_MIN`, set by `weather-view.ts` a few times a
- * second and eased there over seconds. Here and not in `main.ts` because the
- * streamers cap their reach on `fogFar`: a fog that closed the haze without
- * telling them would leave them building a town nobody can see, and one that
- * does tell them is the cheapest frame the world draws.
- *
- * It lets go between `HAZE_LIFT`'s two altitudes — the handed-over altitude
- * `main.ts` gives every streamer — so a plane climbs out of the murk into
- * the clear, and the planet from orbit is never fogged by the weather at the
- * player's feet.
+ * How much of the clear-air haze the weather leaves: 1 is clear air, fog, rain
+ * and snow lower it to `WEATHER_HAZE_MIN`. `weather-view.ts` sets it a few
+ * times a second. It lives here because streamers cap their reach on `fogFar`;
+ * a fog that closed the haze without telling them would leave them building
+ * towns nobody can see. It lets go between `HAZE_LIFT`'s two altitudes, so a
+ * plane climbs out of the murk and the planet from orbit is never fogged by
+ * the weather at the player's feet.
  */
 let weatherHaze = 1;
 export const WEATHER_HAZE_MIN = 0.28;

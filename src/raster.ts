@@ -13,10 +13,6 @@
  * winding rule and four sub-scanlines a row, exact coverage across each one,
  * which is the anti-aliasing a 256-pixel map tile needs and no more.
  *
- * Measured on 2026-10-04 (Node 24, this machine, loaded): a tile of 1,900
- * building boxes filled and inked, 3,800 paths, in 9 to 12 ms; a 256-pixel
- * square filled, 0.05 ms.
- *
  * Coordinates are pixels, `y` down, the centre of the top-left pixel at
  * (0.5, 0.5). A path is any number of closed polygons; `fill` paints their
  * union under the nonzero rule and empties the path. **Every polygon is turned

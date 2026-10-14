@@ -1,42 +1,31 @@
 /**
- * Narrow rings in a sky: a sky layer (`SkyLayer` in `contract.ts`) for the
- * ring systems that are a handful of threads rather than Saturn's sheet —
- * Uranus's dark, narrow, nearly opaque ringlets and Neptune's faint dusty
- * ones with their arcs. Saturn's own (`bodies/saturn/sky.ts`) is the same
- * idea with more in it.
+ * Narrow rings in a sky: a sky layer (`SkyLayer` in `contract.ts`) for the ring
+ * systems that are a handful of threads rather than Saturn's sheet: Uranus's
+ * dark, narrow, nearly opaque ringlets and Neptune's faint dusty ones with their
+ * arcs. Saturn's own (`bodies/saturn/sky.ts`) is the same idea with more in it.
  *
- * ## Where
+ * Where: per pixel, the ray from the eye is cut with the ring plane (the
+ * equator, `y = 0` in the body-fixed frame) and the distance of that point from
+ * the planet's centre says which ring it is, so the arch is the true one for
+ * wherever the traveller stands, behind the planet where the planet is in the
+ * way, and gone below the horizon from high latitudes.
  *
- * As Saturn's: per pixel, the ray from the eye is cut with the ring plane —
- * the equator, `y = 0` in the body-fixed frame — and the distance of that
- * point from the planet's centre says which ring it is, so the arch is the
- * true one for wherever the traveller stands, behind the planet where the
- * planet is in the way, and gone below the horizon from high latitudes.
+ * How thin: a ring two kilometres wide forty thousand away is a tenth of a
+ * pixel. Each band is therefore box-filtered over the pixel's own footprint in
+ * radius (`fwidth`): what a pixel shows is the fraction of it the band covers
+ * times the band's depth, so a thread too thin to see is a faint line a pixel
+ * wide, the same total darkness as the real one spread over what a screen can
+ * draw.
  *
- * ## How thin
+ * How lit: from the Sun's side a ring is lit by reflection, from the other by
+ * what passes through it; a dusty ring (`dusty` toward 1) brightens steeply
+ * looking toward the Sun, the forward scattering that made Neptune's rings stand
+ * out in Voyager's look back. The planet's shadow crosses them. And by day the
+ * air between the eye and the rings washes them toward the haze.
  *
- * A ring two kilometres wide forty thousand away is a tenth of a pixel. Each
- * band is therefore **box-filtered over the pixel's own footprint** in radius
- * (`fwidth`): what a pixel shows is the fraction of it the band covers times
- * the band's depth, so a thread too thin to see is a faint line a pixel
- * wide, the same total darkness as the real one spread over what a screen
- * can draw — and Uranus's sky is the Epsilon ring, three pixels wide
- * overhead, with eight hairlines inside it.
- *
- * ## How lit
- *
- * From the Sun's side a ring is lit by reflection, from the other by what
- * passes through it; a dusty ring (`dusty` toward 1) brightens steeply
- * looking toward the Sun, the forward scattering that made Neptune's rings
- * stand out in Voyager's departing look back. The planet's shadow crosses
- * them. And by day the air between the eye and the rings washes them toward
- * the haze.
- *
- * ## Arcs
- *
- * A band may be clumped into arcs (Neptune's Adams ring): each arc is a span
- * of longitude in a frame that goes round at the band's own `period`, so the
- * arcs keep their order and orbit the planet, and the sky turns under them.
+ * Arcs: a band may be clumped into arcs (Neptune's Adams ring): each arc is a
+ * span of longitude in a frame that goes round at the band's own `period`, so
+ * the arcs keep their order and orbit the planet, and the sky turns under them.
  */
 
 import * as THREE from 'three';

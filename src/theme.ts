@@ -7,11 +7,10 @@ THREE.ShaderChunk.gradientmap_pars_fragment = THREE.ShaderChunk.gradientmap_pars
   'texture2D( gradientMap, coord ).rgb',
 );
 
-// Aerial perspective, not a wall of haze: the fog still closes to nothing at
-// `fog.far`, where every streamer's reach ends and must stay hidden, but it
-// comes in along a curve, so the middle distance — the street ahead, the next
-// field — keeps its colour and the haze gathers where the eye expects it, far
-// off. Every material that draws with fog reads this one chunk.
+// Aerial perspective rather than a wall of haze: the fog still closes to
+// nothing at `fog.far`, where every streamer's reach ends, but it comes in
+// along a curve so the middle distance keeps its colour and the haze gathers
+// far off. Every material that draws with fog reads this one chunk.
 THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(
   'float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );',
   'float fogFactor = pow( smoothstep( fogNear, fogFar, vFogDepth ), 1.6 );',
@@ -19,9 +18,8 @@ THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(
 
 /**
  * Palette lifted from `static/palette.png` in Bruno Simon's folio-2025: 24
- * colours, one per band of a 128x4 texture. His whole site is painted with
- * these. Reusing them solves this project's hardest problem up front, which is
- * making hundreds of monuments built by different hands look like one world.
+ * colours, one per band of a 128x4 texture. Sharing one palette makes
+ * monuments built by different hands look like one world.
  */
 export const PALETTE = {
   slate: 0x7c7691,
@@ -51,9 +49,8 @@ export const PALETTE = {
 } as const;
 
 /**
- * Base colour per continent. Handing out random colours per country turned the
- * planet into an unreadable mosaic; this way each continent reads as one mass
- * and internal borders show up only as a shift in tint.
+ * Base colour per continent. Each continent reads as one mass and internal
+ * borders show up only as a shift in tint.
  */
 export const CONTINENT_COLORS: Record<string, number> = {
   Europe: PALETTE.green,
@@ -75,27 +72,19 @@ export const FOG_COLOR = 0xc8d7e1;
 
 /**
  * The mosaic: how far one cell of a surface may stray from the colour the
- * surface was given, as a multiplier on RGB.
+ * surface was given, as a multiplier on RGB. A random factor per facet
+ * (`[0.92, 1.045]` on land, `[0.95, 1.04]` on water, as in the reference) is
+ * what makes the ground a soft mosaic rather than a flat fill. Read by the land
+ * mesh's shader (`globe.ts`, per hex cell), a town's paving
+ * (`scenery/ground.ts`, per cell on the CPU) and the water sphere (`ocean.ts`,
+ * per face at build); none of them restates the number.
  *
- * The reference this look is chasing paints every triangle of its planet the
- * biome's colour times a random factor — `[0.92, 1.045]` on land, `[0.95,
- * 1.04]` on water, read from its code and not guessed — and that is the whole
- * of what makes its ground a soft mosaic of facets rather than a flat fill.
- * Three things here read these and none of them restates the number: the land
- * mesh's shader (`globe.ts`, per hex cell), a town's paving (`scenery/ground.ts`,
- * per cell on the CPU) and the water sphere (`ocean.ts`, per face at build).
- *
- * **A multiplier on RGB and never a change of saturation**, because a darker
- * *and greyer* patch of ground is what a shadow looks like in this style, and
- * the eye files it as one — see the road trap in `scenery/ground.ts`. Scaling
- * all three channels keeps the hue and moves only the lightness.
- *
- * The land's top is 1.045 and its bottom 0.93: asymmetric on purpose, since a
- * cell can go paler by less than it can go darker before a green reads as
- * bleached. The span here — 11.5% across the whole range — stays below the
- * contrast between neighbouring lighting bands:
- * the mosaic is meant to be a texture on a band, and a tone that stepped the
- * band by itself would read as a second lighting.
+ * It scales all three channels, never the saturation: a darker and greyer
+ * patch reads as a shadow in this style. The land's range is asymmetric (a cell
+ * can go paler by less than it can go darker before a green reads as
+ * bleached), and the whole span stays below the contrast between neighbouring
+ * lighting bands so the mosaic stays a texture on a band and never reads as a
+ * second lighting.
  */
 export const MOSAIC_LAND: readonly [number, number] = [0.93, 1.045];
 export const MOSAIC_WATER: readonly [number, number] = [0.97, 1.03];
@@ -105,11 +94,9 @@ export const MOSAIC_WATER: readonly [number, number] = [0.97, 1.03];
  * elevation where you stand and blends between the three below.
  *
  * Night is a second art direction, not a lower number. The style rests on a
- * directional light stepping across the ramp, so a night made by dimming
- * everything flattens the light and the cel bands disappear — the exact failure
- * the palette exists to avoid. What changes instead is *which* light does the
- * stepping (the moon), what colour the steps are, and how deep the darkest one
- * cuts.
+ * directional light stepping across the ramp, so dimming everything would
+ * flatten it. What changes instead is which light does the stepping (the
+ * moon), the colour of the steps, and how deep the darkest one cuts.
  */
 export interface Mood {
   /** Sky dome: zenith, horizon, and the warm band around the sun's bearing. */
@@ -119,14 +106,10 @@ export interface Mood {
   /** How much of `skyGlow` the sun's own bearing gets. 0 at noon and midnight. */
   glow: number;
   /**
-   * How much of the Milky Way the look allows, 0 to 1: the gain on the band
-   * the dome paints (`sun.ts`). **Not the stars**, which it was until
-   * 2026-09-30, when it was the density of dots hashed into the dome: the
-   * stars are points now (`night-sky.ts`) and come out by the twilight ladder,
-   * brightest first, whatever this says — a mood is keyed at three moments of
-   * the day, and a star field that came up at a quarter strength all at once
-   * at sunset was the thing the ladder replaced. `sun.ts` multiplies this by
-   * the ladder, the weather and the moon, so it is the art's share only.
+   * How much of the Milky Way the look allows, 0 to 1: the gain on the band the
+   * dome paints (`sun.ts`). The stars are points (`night-sky.ts`) and come out by
+   * the twilight ladder whatever this says; `sun.ts` multiplies this by the
+   * ladder, the weather and the moon, so it is the art's share only.
    */
   stars: number;
   fog: number;
@@ -136,46 +119,35 @@ export interface Mood {
   hemisphereGround: number;
   hemisphereIntensity: number;
   /**
-   * The sun, dimmed and reddened by the air it arrives through.
-   *
-   * It is one star and it does not change, so this is a lie — but it is the
-   * same lie the fog and the ambient tell, and it is told for the same reason:
-   * these three describe the air around *you*, not the light in space. Without
-   * it a dawn is bright. `MeshToonMaterial` samples its ramp at
-   * `dot(n, l) * 0.5 + 0.5`, so ground lit edge-on at sunrise lands in the
-   * middle of the ramp and takes 73% of full sunlight — the terminator is drawn
-   * across the *unlit* half of the ramp, which is no use to anyone standing on
-   * the lit side of it. `sun.ts` puts the full 2.6 back as you climb, because
-   * from orbit there is no air to attenuate anything and the day side must read
-   * as day.
+   * The sun, dimmed and reddened by the air it arrives through. The sun does not
+   * change, but like the fog and the ambient this describes the air around you,
+   * not the light in space; without it a dawn is bright, because
+   * `MeshToonMaterial` samples its ramp at `dot(n, l) * 0.5 + 0.5` and ground
+   * lit edge-on lands mid-ramp and takes 73% of full sunlight. `sun.ts` puts the
+   * full 2.6 back as you climb, since from orbit there is no air and the day side
+   * must read as day.
    */
   sun: number;
   sunIntensity: number;
   moon: number;
   moonIntensity: number;
   /**
-   * The darkest band of the ramp, and what tints it.
-   *
-   * This is the single number that decides whether a night side exists at all.
-   * `MeshToonMaterial` maps every angle onto the ramp, so a surface facing
-   * *away* from a light still receives `rampShadow` of it — at the old day value of
-   * 0.45 the far side of the planet gets 45% of full sunlight and there is no
-   * night to fly over, only a dimmer day. Dropping it is what carves the
-   * terminator, and it is safe to drop precisely because ambient and hemisphere
-   * fill are not routed through the ramp: they hold the daylight shadows up.
+   * The darkest band of the ramp, and what tints it. This decides whether a night
+   * side exists at all: a surface facing away from a light still receives
+   * `rampShadow` of it, so at 0.45 the far side of the planet would get 45% of
+   * full sunlight. Dropping it carves the terminator, and is safe because
+   * ambient and hemisphere fill are not routed through the ramp.
    */
   rampShadow: number;
   rampShadowTint: readonly [number, number, number];
   rampLightTint: readonly [number, number, number];
   /**
-   * Curve of the bands between the shadow and the light, 1 being even steps.
-   *
-   * It is 1 in all three moods and only `sun.ts` ever raises it, from the air.
-   * `MeshToonMaterial` spends half its ramp on the unlit hemisphere, so with
-   * even steps the first band past the terminator is 39% of full sun and the
-   * day/night line seen from the plane's ceiling is a soft two-step gradient
-   * rather than a line. Bending the low bands down sharpens it where the ramp
-   * is no longer being asked to describe the shape of anything.
+   * Curve of the bands between the shadow and the light, 1 being even steps. It
+   * is 1 in all three moods; only `sun.ts` raises it, from the air.
+   * `MeshToonMaterial` spends half its ramp on the unlit hemisphere, so with even
+   * steps the first band past the terminator is 39% of full sun and the
+   * day/night line from the plane's ceiling is a soft gradient. Bending the low
+   * bands down sharpens it.
    */
   rampGamma: number;
 }
@@ -207,9 +179,8 @@ export const DAY_MOOD: Mood = {
 };
 
 /**
- * Sunrise and sunset, and the reason the transition is keyed at three points
- * rather than two: a straight day-to-night blend passes through a muddy grey
- * halfway, which is the one thing every dawn is not.
+ * Sunrise and sunset. The transition is keyed at three points rather than two
+ * because a straight day-to-night blend passes through a muddy grey.
  */
 export const TWILIGHT_MOOD: Mood = {
   skyTop: 0x4a5c96,
@@ -234,17 +205,11 @@ export const TWILIGHT_MOOD: Mood = {
 };
 
 /**
- * Night. The cool tint is weighted to the dark end of the ramp — shadows go
- * blue, highlights stay near neutral — so that the sunlit hemisphere still
- * reads as sunlit when you are standing in the dark and looking at it from the
- * plane's ceiling. Tinting the whole ramp turned the day side of the planet
- * blue, which is a strange thing to see from a night flight.
- *
- * **Darker since 2026-09-25**: the moon from 0.9 to 0.6, the fill and the sky
- * light to about two thirds and the ramp's floor from 0.08 to 0.05. A street
- * at midnight read as dusk; the moon still gives the ramp a direction to step
- * across, and the lamps, the windows and a car's headlights are now what you
- * see by.
+ * Night. The cool tint is weighted to the dark end of the ramp (shadows go
+ * blue, highlights stay near neutral) so the sunlit hemisphere still reads as
+ * sunlit when seen from the plane's ceiling at night. The moon (0.6), the fill
+ * and the ramp's floor are low: the moon gives the ramp a direction to step
+ * across, and the lamps, windows and headlights are what you see by.
  */
 export const NIGHT_MOOD: Mood = {
   skyTop: 0x0d1430,
@@ -269,43 +234,22 @@ export const NIGHT_MOOD: Mood = {
 };
 
 /**
- * What the light becomes on the way up, and it is **not** `NIGHT_MOOD`.
+ * What the light becomes on the way up. It is not `NIGHT_MOOD`: every number
+ * there is a ground number, describing what a person standing outside at
+ * midnight can see. From the plane's ceiling the same moon (0.9 in the mood
+ * the numbers were first set in) made the night side 59% as bright as the day
+ * side, so there was no terminator to look at.
  *
- * The climb already blended towards the night mood, on the argument the day/night
- * section makes: ambient fill and a raised ramp floor are the *air* around you,
- * they are correct standing in the Sahara at noon, and from the ceiling they
- * light the night hemisphere as flatly as the day one. The argument was right
- * and the target was wrong, because **every number in `NIGHT_MOOD` is a ground
- * number** — it describes what a person standing outside at midnight can see,
- * and from two hundred kilometres up nobody is standing in it.
+ * The moon is two thirds of that, and the one directional light left for the
+ * ramp to step across, so it is reduced here rather than removed: from orbit
+ * its job is to give the dark side a shape, not to read by, and a quarter of
+ * its ground strength does that. The ramp floor is the other lever: the climb
+ * restores the sun to its full 2.6 while relying on `rampShadow` to hide it,
+ * so 0.08 of it lands on every surface facing away; 0.03 is 8% of daylight.
  *
- * Measured before this existed, at the ceiling over 40N 100E, same camera, the
- * same ground at local noon and at local midnight: **150.6 against 89.2 of mean
- * luminance, a contrast of 1.69.** A night side 59% as bright as the day side is
- * not a night, and there is no terminator in it to look at. Taking each light
- * out in turn against that 89.2:
- *
- * ```
- *   the moon           -36.3    NIGHT_MOOD.moonIntensity 0.9 (0.6 since 2026-09-25)
- *   the sun's ramp floor -12.4  rampShadow 0.08 x sunIntensity 2.6 = 0.21
- *   ambient              -3.2
- *   hemisphere           -1.4
- * ```
- *
- * **The moon is two thirds of it**, and that is the number `NIGHT_MOOD` is least
- * able to give up: on the ground it is the whole reason night is a second look
- * rather than a dimmer, because it is the one directional light left for the
- * four-band ramp to step across. So it is not removed here, it is *reduced* —
- * from orbit the moon's job is to give the dark side a shape, not to let you
- * read by it, and a quarter of its ground strength does the first without the
- * second. The ramp floor is the other lever and it is the subtler one: the climb
- * restores the sun to its full 2.6 while relying on `rampShadow` to hide it, so
- * 0.08 of a 2.6 sun is 21% of full daylight landing on every surface facing
- * away. At 0.03 it is 8%.
- *
- * The sky is deliberately absent from this record. It keeps the *local* colours
- * all the way up, because what is left of it from the ceiling is the halo around
- * the limb — and at dawn that halo is the dawn.
+ * The sky is absent on purpose. It keeps the local colours all the way up,
+ * because what is left of it from the ceiling is the halo round the limb, and
+ * at dawn that halo is the dawn.
  */
 export interface OrbitLook {
   ambient: number;
@@ -337,13 +281,7 @@ export const ORBIT_LOOK: OrbitLook = {
   rampShadow: 0.03,
   /**
    * Curve of the bands between the shadow and the light; only the climb raises
-   * it above 1.
-   *
-   * `MeshToonMaterial` spends half its ramp on the unlit hemisphere, so with
-   * even steps the first band past the terminator is 39% of full sun and the
-   * day/night line from the ceiling is a soft two-step gradient rather than a
-   * line. Bending the low bands down sharpens it where the ramp is no longer
-   * being asked to describe the shape of anything.
+   * it above 1, which sharpens the day/night line seen from the ceiling.
    */
   rampGamma: 1.8,
   rampShadowTint: NIGHT_MOOD.rampShadowTint,
@@ -352,38 +290,30 @@ export const ORBIT_LOOK: OrbitLook = {
 
 /**
  * Every ramp ever handed out, so the mood can rewrite all of them at once.
- *
- * The ramps are made in five places — the land, the monument context, the
- * avatar, the boat, the plane — and each is a separate 4x1 texture. Keeping the
- * list here means night is a property of the theme rather than something every
- * one of those files has to be taught about, and a ramp created later (a
- * monument that streams in after dusk) is born with the mood already on it.
+ * Night is then a property of the theme, and a ramp created later (a monument
+ * that streams in after dusk) is born with the mood already on it.
  */
 const ramps: THREE.DataTexture[] = [];
 let rampMood: Mood = DAY_MOOD;
 
 /**
- * Texels in a ramp. The ramp used to be four texels read with a nearest
- * filter, which is what stepped the light into cel bands; it is a smooth
- * curve now, sampled linearly, and 64 texels hold it to under a byte.
+ * Texels in a ramp. It is a smooth curve sampled linearly; 64 texels hold it
+ * to under a byte.
  */
 const RAMP_TEXELS = 64;
 
 /**
  * Where the light gives out, on the ramp's own axis (`dot(n, l) * 0.5 + 0.5`).
- *
- * 0.5 would be Lambert's terminator, a surface exactly edge-on to the sun. A
- * little under it is a wrapped diffuse: the light reaches a few degrees past
- * the edge and dies there softly, which is what a painted hill does and a
- * lit sphere does not. 0.4 is a wrap of 0.2.
+ * 0.5 would be Lambert's terminator; a little under it is a wrapped diffuse
+ * (0.4 is a wrap of 0.2), so the light dies softly past the edge as a painted
+ * hill's does.
  */
 const RAMP_TERMINATOR = 0.4;
 
 /**
  * The light over the ramp: nothing past the terminator, all of it facing the
  * sun, and between them a curve half way from linear to an ease, so the
- * shoulder of a hill turns over gently rather than creasing where it leaves
- * the light.
+ * shoulder of a hill turns over gently.
  */
 function rampLight(t: number): number {
   const x = Math.min(1, Math.max(0, (t - RAMP_TERMINATOR) / (1 - RAMP_TERMINATOR)));
@@ -409,12 +339,10 @@ function writeRamp(texture: THREE.DataTexture, mood: Mood): void {
 
 /**
  * The light ramp every lit surface shares. `MeshToonMaterial` uses it as a
- * lookup table from the angle to the sun to the light received, which is what
- * lets the whole world change its light — the moods, the night, the climb —
- * by rewriting a few textures rather than every material.
- *
- * `steps` is the number of cel bands the ramp was once cut into; it is kept
- * for the callers and no longer read, because the light is continuous.
+ * lookup table from the angle to the sun to the light received, so the whole
+ * world changes its light (the moods, the night, the climb) by rewriting a few
+ * textures rather than every material. `steps` is kept for the callers and not
+ * read.
  */
 export function createToonRamp(_steps = 4): THREE.DataTexture {
   const texture = new THREE.DataTexture(new Uint8Array(RAMP_TEXELS * 4), RAMP_TEXELS, 1);

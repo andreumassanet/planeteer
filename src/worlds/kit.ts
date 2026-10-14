@@ -3,19 +3,18 @@
  * kept for every world after, and asked for synchronously by the towns, the
  * crowd, the craft and the ground's scatter.
  *
- * `space-kit.ts` reads the files; this module decides **which** files a world
- * needs (`prepareWorldKit`), holds what has arrived (`worldKit`), tells the
- * streamers when it does (`onWorldKit`), and knows the pieces well enough to
- * place them before they arrive: how big each is drawn (`PIECES`), how many
- * triangles it costs, and how its slots are painted in a civilisation's
- * colours (`buildingPaint`, `creaturePaint`). The layout of a town is a pure
- * function of the world and the town, so it reads this table and never the
- * loaded models.
+ * `space-kit.ts` reads the files; this module decides which files a world needs
+ * (`prepareWorldKit`), holds what has arrived (`worldKit`), tells the streamers
+ * when it does (`onWorldKit`), and knows the pieces well enough to place them
+ * before they arrive: how big each is drawn (`PIECES`), how many triangles it
+ * costs, and how its slots are painted in a civilisation's colours
+ * (`buildingPaint`, `creaturePaint`). The layout of a town is a pure function of
+ * the world and the town, so it reads this table and never the loaded models.
  *
- * **Headless there is no fetch**: a check hands the kit in with
- * `provideWorldKit`, read off disk, and without it everything that would draw
- * a kit piece draws its code-built stand-in (`settlements.ts`, `craft.ts`),
- * which is what `scripts/check-worlds.ts` measures.
+ * Headless there is no fetch: a check hands the kit in with `provideWorldKit`,
+ * read off disk, and without it everything that would draw a kit piece draws its
+ * code-built stand-in (`settlements.ts`, `craft.ts`), which is what
+ * `scripts/check-worlds.ts` measures.
  */
 
 import * as THREE from 'three';
@@ -334,10 +333,9 @@ export interface Coat {
 
 /**
  * How much of a member's coat goes over the pack's own colour of a slot. The
- * whole coat, as it was, took a cute pink squid to a slate-grey one and every
- * creature of a world to one flat colour, which read as toys; at this share
- * the species' colours still tell its people apart from the next world's and
- * the pack's own design shows through them.
+ * whole coat would take every creature of a world to one flat colour, which
+ * reads as toys; at this share the species' colours still tell its people apart
+ * from the next world's and the pack's own design shows through them.
  */
 const COAT_SHARE = 0.58;
 const coated = (original: THREE.Color, hex: number, factor: number): THREE.Color => onPalette(original).lerp(toned(hex, factor), COAT_SHARE);

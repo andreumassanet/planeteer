@@ -1,65 +1,37 @@
 /**
  * The night sky: the Bright Star Catalogue and the five planets the eye can
- * find, where they really are tonight.
+ * find, where they really are.
  *
- * **What it is.** 8,404 stars of V 6.5 or brighter (`scripts/build-stars.ts`),
- * turned under the Earth by sidereal time and precession (`celestial.ts`), and
- * Mercury, Venus, Mars, Jupiter and Saturn at their true geocentric places and
- * almanac magnitudes (`system/orbits.ts`, the same difference the menu's
- * planet cards read). One `THREE.Points` of 8,409 directions, one draw call,
- * drawn at infinity just after the dome. The Milky Way is not here: it is a
- * glow, not points, and the dome paints it (`sun.ts`).
+ * 8,404 stars of V 6.5 or brighter (`scripts/build-stars.ts`), turned under
+ * the Earth by sidereal time and precession (`celestial.ts`), and Mercury,
+ * Venus, Mars, Jupiter and Saturn at their geocentric places and almanac
+ * magnitudes (`system/orbits.ts`). One `THREE.Points` of 8,409 directions, one
+ * draw call, drawn at infinity just after the dome. The Milky Way is a glow
+ * and the dome paints it (`sun.ts`). There are no constellation lines or
+ * names, and no real moon: the lantern in `sun.ts` stays a lighting decision.
  *
- * **What it is not, on purpose.** No constellation lines and no names — the
- * sky here is looked at, not labelled, as the menu's "Where to look tonight"
- * already decided — no light pollution, and **no real moon**: the lantern in
- * `sun.ts` stays exactly what it is, a decision about the light (see
- * `MOON_OFFSET` there), and against these stars it still sits in the zodiac,
- * within nine degrees of the ecliptic. What the stars take from it is a local
- * glare and a share of the night's depth, which is `sun.ts`'s business.
+ * Every star is a soft round dot, two pixels wide at its faintest and five at
+ * its brightest, with a wider glow drawn inside its own sprite for the few
+ * dozen that earn one. Its colour is its B-V as a blackbody's, a little more
+ * saturated than an eye would see it. Brightness compresses the real range (a
+ * first-magnitude star is about thirty times a sixth-magnitude one, not a
+ * hundred). The peak stays under 0.85 of luminance for every star at every
+ * moment, twinkle included: the bloom's bright pass runs at a quarter
+ * resolution with a threshold of 0.92, and a two-pixel dot above that would
+ * blink in and out of it as the camera turned. The halos are drawn here so
+ * the bloom never has to.
  *
- * # Painted, and still the sky
+ * Each star is dimmed and reddened by the air along its line of sight
+ * (`EXTINCTION` magnitudes per airmass, the Rozenberg airmass, 40 at the
+ * horizon). It twinkles by an amount that grows with the airmass, on the real
+ * clock and never the sky's (a time-lapse must not strobe), never for a
+ * planet, never from above the air and never when reduced motion is asked
+ * for, and it is lost near the sun's and the moon's bearings. All of this is
+ * multiplied by `1 - space`, the dome's fade to orbit.
  *
- * The world is soft light and atmosphere, and a photograph's sky — a
- * thousand hard white pixels — fights it. So every star is a soft round dot,
- * two pixels wide at its faintest and five at its brightest, with a wider
- * glow drawn inside its own sprite for the few dozen that earn one (in full
- * for Sirius, Canopus, Venus and Jupiter); its colour is its own B-V as a
- * blackbody's, a little more saturated than an eye would see it, so Betelgeuse
- * and Antares read orange and Rigel and Spica blue at a glance; and how bright
- * it is compresses the real range — a first-magnitude star is about thirty
- * times a sixth-magnitude one here, peak by width squared, not a hundred — so
- * the faint stars are a texture and not a noise, and the bright ones are the
- * shapes of the constellations. **The peak is held under 0.85 of luminance**
- * for every star at every moment, twinkle included: the bloom's bright pass
- * runs at a quarter of the resolution (`post.ts` halves the buffer and
- * `UnrealBloomPass` halves it again) with a threshold of 0.92, and a
- * two-pixel dot above that would blink in and out of it as the camera turned.
- * The halos are drawn here so the bloom never has to.
- *
- * # Where the air comes in
- *
- * Each star is dimmed and reddened by the air along its own line of sight —
- * `EXTINCTION` magnitudes per airmass, the Rozenberg airmass, which is 40 at
- * the horizon — so the constellations sink into a warm haze rather than being
- * cut by the ground; it twinkles by an amount that grows with that airmass,
- * on the real clock and never the sky's (a time-lapse must not strobe),
- * never for a planet, never from above the air and never for somebody who
- * has asked their system for less motion; and it is lost near the sun's and
- * the moon's bearings. Every one of those is multiplied by `1 - space`, the
- * dome's own fade to orbit: the upward direction and the horizon are the
- * camera's, and far from the Earth they would dim a cone of sky round the
- * planet for no reason.
- *
- * # What it costs
- *
- * Measured headless on 2026-09-30: 8,404 directions, magnitudes and colours
- * are 161 KB of vertex buffer, uploaded once; the file is 43.1 KB gzipped and
- * decodes in a few milliseconds. The buffer is sorted by magnitude, so the
- * draw is a prefix of it — the stars brighter than the limit — and a day sky
- * draws the five planets' vertices and nothing else. One program, compiled by
- * `main.ts` before the points join the scene, so the first dusk is not also a
- * shader link.
+ * The buffer is sorted by magnitude, so the draw is a prefix of it (the stars
+ * brighter than the limit) and a day sky draws only the planets' vertices. One
+ * program, compiled by `main.ts` before the points join the scene.
  */
 
 import * as THREE from 'three';
@@ -71,9 +43,9 @@ import { apparentMagnitude, geocentric } from './system/orbits.ts';
 import type { OrbitId } from './system/orbits.ts';
 
 /**
- * The planets, in the order the buffer holds them — first, ahead of the
+ * The planets, in the order the buffer holds them: first, ahead of the
  * catalogue, so hiding them is starting the draw five vertices later. Their
- * colours are the ones every observer describes, as sRGB: Mars's orange,
+ * colours (sRGB) are the ones every observer describes: Mars's orange,
  * Saturn's pale gold, Jupiter's and Venus's cream, Mercury's grey.
  */
 const PLANETS: readonly (readonly [OrbitId, number])[] = [
@@ -86,8 +58,7 @@ const PLANETS: readonly (readonly [OrbitId, number])[] = [
 
 /**
  * Seconds of sky time a planet's position and magnitude are kept for. Mercury
- * moves fastest against the stars, about two degrees a day at its quickest,
- * which is five arcseconds a minute — a tenth of a pixel. At the 60x
+ * moves fastest, about five arcseconds a minute, a tenth of a pixel. At 60x
  * time-lapse this is once a second.
  */
 const PLANET_REFRESH = 60;
@@ -95,17 +66,14 @@ const PLANET_REFRESH = 60;
 /**
  * The buffer height every size below is stated at, in pixels. A star is a
  * fixed share of the screen's height, so a 4K screen does not shrink the sky
- * to specks, and a narrow lens does not magnify it: a point source has no
- * size to magnify.
+ * and a narrow lens does not magnify it.
  */
 const REFERENCE_HEIGHT = 900;
 
 /**
  * Width of a star's dot, full width at half maximum in reference pixels: a
  * sixth-magnitude star is `WIDTH_FAINT`, and every magnitude brighter is
- * `10^WIDTH_PER_MAG` wider, up to `WIDTH_MAX`. The dome's hashed dots were 1
- * to 2.5 pixels on the same 900-pixel reference, so the faint end is where
- * the old sky was and only the bright end has grown.
+ * `10^WIDTH_PER_MAG` wider, up to `WIDTH_MAX`.
  */
 const WIDTH_FAINT = 1.9;
 const WIDTH_PER_MAG = 0.055;
@@ -114,8 +82,7 @@ const WIDTH_MAX = 5;
 /**
  * Brightness at the centre of the dot, in the scene's linear units: a
  * sixth-magnitude star is `PEAK_FAINT`, every magnitude brighter is
- * `10^PEAK_PER_MAG` more, and nothing passes `PEAK_MAX` — see the header for
- * why that number and not a higher one.
+ * `10^PEAK_PER_MAG` more, and nothing passes `PEAK_MAX` (see the header).
  */
 const PEAK_FAINT = 0.06;
 const PEAK_PER_MAG = 0.19;
@@ -123,20 +90,18 @@ const PEAK_MAX = 0.85;
 
 /**
  * No dot narrower than this many device pixels. A pixel-wide point crawls as
- * the camera turns — it lands on one pixel and then between two — and at 1.5
- * the Gaussian always covers enough of them that its sum hardly changes. A
- * star narrowed below it is widened to it with its peak lowered to keep its
- * light, so the floor makes nothing brighter.
+ * the camera turns; at 1.5 the Gaussian always covers enough pixels that its
+ * sum hardly changes. A narrowed star keeps its light by lowering its peak, so
+ * the floor makes nothing brighter.
  */
 const FLOOR_PX = 1.5;
 
 /**
- * The glow round the brightest: none for a star fainter than magnitude 2
- * (`HALO_FROM`, counted as magnitudes brighter than sixth, like every size
- * here), all of `HALO` of the peak by -1.5 (`HALO_TO`, Sirius), and
- * `HALO_RADIUS` reference pixels to fall to a third, 15% wider for every
- * magnitude past the start, so Venus's is a third wider than Sirius's.
- * Painted into the sprite, so the bloom's threshold is never crossed.
+ * The glow round the brightest: none fainter than magnitude 2 (`HALO_FROM`,
+ * counted as magnitudes brighter than sixth), all of `HALO` of the peak by -1.5
+ * (`HALO_TO`, Sirius), and `HALO_RADIUS` reference pixels to fall to a third,
+ * 15% wider per magnitude past the start. Painted into the sprite, so the
+ * bloom's threshold is never crossed.
  */
 const HALO = 0.2;
 const HALO_FROM = 4;
@@ -144,30 +109,28 @@ const HALO_TO = 7.5;
 const HALO_RADIUS = 3.5;
 
 /**
- * Magnitudes of extinction per airmass in V, and the same for the three
- * channels — the blue lost fastest, which is why a star low over the sea is
- * gold. 0.2 is a clear night at a good site near the sea — a mountain
- * observatory has 0.12, a hazy coast 0.3 — and the channels are its spread
- * across the spectrum, V's own in the middle. Relative to the zenith, so the
- * limit the ladder states is the zenith's.
+ * Magnitudes of extinction per airmass in V, and per channel (the blue is lost
+ * fastest, which is why a star low over the sea is gold). 0.2 is a clear night
+ * at a good site near the sea; the channels are its spread across the
+ * spectrum. Relative to the zenith, so the limit the ladder states is the
+ * zenith's.
  */
 const EXTINCTION = 0.2;
 const EXTINCTION_RGB: readonly [number, number, number] = [0.13, 0.2, 0.34];
 
 /**
  * How much a star's brightness wavers: `TWINKLE_HIGH` of it overhead and
- * `TWINKLE_LOW` by twelve airmasses, five degrees up, where a bright star
- * flashes. Between 2.5 and 6 times a second.
+ * `TWINKLE_LOW` by twelve airmasses (five degrees up), between 2.5 and 6
+ * times a second.
  */
 const TWINKLE_HIGH = 0.06;
 const TWINKLE_LOW = 0.3;
 
 /**
  * Magnitudes lost looking toward the sun (falling off as the eighth power of
- * the cosine, a third of it thirty degrees away) and toward the lantern moon
- * (the six-hundredth: a third at three degrees and nothing past six). The sun's
- * is what makes the first stars of a dusk come out opposite the sunset; the
- * moon's is what clears a disc of sky round it, as a bright moon does.
+ * the cosine) and toward the lantern moon (the six-hundredth). The sun's makes
+ * the first stars of a dusk come out opposite the sunset; the moon's clears a
+ * disc of sky round it.
  */
 const SUN_GLARE = 2.5;
 const MOON_GLARE = 3.5;
@@ -180,18 +143,15 @@ const LIMIT_SOFTNESS = 0.5;
 
 /**
  * The limit while the menu shows the system: the diagram's back cloth, calm
- * enough that the planets on their rings are the busiest thing in it, with
- * every constellation still there. The planets' points go too, since the
- * orrery draws the planets themselves.
+ * enough that the planets on their rings are the busiest thing in it. The
+ * planets' points go too, since the orrery draws the planets themselves.
  */
 const MENU_LIMIT = 5;
 
 /**
  * A blackbody's colour through a B-V: Ballesteros' temperature for the index
  * and Mitchell Charity's sRGB for the temperature (D65 white), sampled into a
- * table at the colour indices of the classes — O and B blue-white, A white,
- * the Sun faintly warm, K peach, M orange, the carbon stars past 2 a deep
- * orange.
+ * table at the colour indices of the classes.
  */
 const COLOR_KNOTS: readonly (readonly [number, number])[] = [
   [-0.33, 0x9bb2ff],
@@ -212,9 +172,9 @@ const COLOR_KNOTS: readonly (readonly [number, number])[] = [
 ];
 
 /**
- * How much further than a blackbody's the colours are pushed, around their
- * own luminance. The eye sees a star's colour faintly and a painting says it;
- * 1 is the table as measured.
+ * How much further than a blackbody's the colours are pushed, around their own
+ * luminance. The eye sees a star's colour faintly and a painting says it; 1 is
+ * the table as measured.
  */
 const COLOR_SATURATION = 1;
 
@@ -329,9 +289,9 @@ export interface NightSky {
   /** In the world's scene from `main.ts`. `points.visible` is the A/B switch. */
   points: THREE.Points;
   /**
-   * While the menu is up: the limit held at `MENU_LIMIT` and the planets'
-   * points hidden, because the orrery draws the planets. `main.ts` clears it
-   * when the world takes the sky back.
+   * While the menu is up: the limit held at `MENU_LIMIT` and the planets' points
+   * hidden, because the orrery draws the planets. `main.ts` clears it when the
+   * world takes the sky back.
    */
   menu: boolean;
   /** Hand to `Sky.attach`: it reads the finished sky every frame. */
@@ -371,8 +331,8 @@ export function createNightSky(catalogue: StarCatalogue, sky: Sky): NightSky {
   for (let s = 0; s < catalogue.count; s++) {
     const i = planets + s;
     // The catalogue's frame is the J2000 sky laid out as the world lays out a
-    // globe (`celestial.ts`): a declination is a latitude and a right
-    // ascension a longitude, and `toUnit` is the one conversion.
+    // globe (`celestial.ts`): a declination is a latitude and a right ascension a
+    // longitude, and `toUnit` is the one conversion.
     toUnit(catalogue.dec[s]!, catalogue.ra[s]!, positions, i * 3);
     magnitudes[i] = catalogue.mag[s]!;
     colorOf(catalogue.color[s]!, tints, i * 3, scratch, other);
@@ -407,15 +367,15 @@ export function createNightSky(catalogue: StarCatalogue, sky: Sky): NightSky {
     vertexShader,
     fragmentShader,
     blending: THREE.AdditiveBlending,
-    // In the opaque list, straight after the dome's 1000, so what is drawn
-    // over the sky is drawn over the stars too — clouds, water, the planet.
+    // In the opaque list, straight after the dome's 1000, so what is drawn over
+    // the sky is drawn over the stars too.
     transparent: false,
     depthWrite: false,
     depthTest: true,
     fog: false,
   });
   // A `Points` in the ink pass would be drawn twice, additively; see
-  // `outline.ts`'s note on the city lights.
+  // `outline.ts`.
   material.userData.outlineParameters = { visible: false };
 
   const points = new THREE.Points(geometry, material);

@@ -30,8 +30,6 @@ export const IRON_SPIRE: Decoration = {
     // **A stack of weathered blocks, not a cone.** Each section narrows only
     // a little, sits a little off the one under it and leans, so the outline
     // is a ragged column of rock; one rock's colour, a shade apart a block.
-    // Until 2026-10-02 every section tapered by up to 40% in alternating
-    // colours, and a field of them read as traffic cones.
     let y = 0;
     let width = base;
     let x = 0;

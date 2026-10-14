@@ -1,34 +1,33 @@
 /**
  * Where one nation of a walked world ends and the next begins, drawn on its
- * ground: the walked worlds' twin of Earth's `borders.ts`, and with it the
- * other half of the map layer (`B`), whose first half is the nations' colour
- * laid over the tiles (`Ground.political`).
+ * ground: the walked worlds' twin of Earth's `borders.ts`, and the other half
+ * of the map layer (`B`), whose first half is the nations' colour laid over the
+ * tiles (`Ground.political`).
  *
- * **The lines are `geography.frontiers`, never the rings' edges.** A ring of
+ * The lines are `geography.frontiers`, never the rings' edges. A ring of
  * another world can be cut along the equator or a quarter meridian to keep it
- * inside one tile of the sphere (`system/geography.ts`), and that cut is not
- * a border; each frontier is listed once, the line two nations share, so a
- * border is drawn once and its dashes are one pattern.
+ * inside one tile of the sphere (`system/geography.ts`), and that cut is not a
+ * border; each frontier is listed once, the line two nations share, so a border
+ * is drawn once and its dashes are one pattern.
  *
- * What it looks like follows Earth's, for Earth's reasons:
+ * What it looks like follows Earth's:
  *
- * - **A dashed ink line, and nothing else.** No band of shade either side: a
- *   dark patch on the ground in a world of one hard sun is read as shadow.
- * - **A width that grows with the range**, held at a few pixels from the air
- *   so a frontier reads the same from three thousand units as from three
- *   hundred: a uniform against an `across` attribute, never a rebuilt mesh.
- * - **No depth test from the air**, so no hill or roof hides the map, with
- *   the far side of the planet cut by the vertex's own horizon test instead.
+ * - A dashed ink line, and nothing else. No band of shade either side: a dark
+ *   patch on the ground in a world of one hard sun is read as shadow.
+ * - A width that grows with the range, held at a few pixels from the air so a
+ *   frontier reads the same from three thousand units as from three hundred: a
+ *   uniform against an `across` attribute, never a rebuilt mesh.
+ * - No depth test from the air, so no hill or roof hides the map, with the far
+ *   side of the planet cut by the vertex's own horizon test instead.
  *
- * And where Earth's is drawn only from the air, a walked world's is there on
- * foot too, **faint**: a thin dashed line across the dust, depth-tested, which
- * is the one thing on the ground that says the ground has owners. A world
- * with no sea has no coast to read a country's edge off.
+ * Where Earth's is drawn only from the air, a walked world's is there on foot
+ * too, faint: a thin dashed line across the dust, depth-tested, which is the
+ * one thing on the ground that says the ground has owners.
  *
  * Built a frontier at a time, the nearest first, inside a few milliseconds a
  * frame: a frontier is densified to a sample every dozen units or so (more on a
  * giant, where the whole is millions of units long) and each sample is lifted
- * onto the drawn ground (`Terrain.groundAt`), which is a few microseconds.
+ * onto the drawn ground (`Terrain.groundAt`).
  */
 
 import * as THREE from 'three';

@@ -1,29 +1,20 @@
 /**
  * Somewhere to go: the one marker the player puts on the world map.
  *
- * Click anywhere on the map behind `M` — land, sea, a town or a landmark's
- * pin — and that point is the marker; click it again, or the map's *Clear
- * marker*, and it is gone. It is the player's own and nobody else's: nothing
- * in the world picks a destination for you, and nothing counts what you have
- * reached. It is kept on this device (`MARKER_KEY`), so it is still there
- * after a reload.
+ * Click anywhere on the map behind `M` (land, sea, a town or a landmark's
+ * pin) and that point is the marker; click it again, or the map's *Clear
+ * marker*, and it is gone. It is the player's own, kept on this device
+ * (`MARKER_KEY`) across reloads. It points and never flies: the plane's travel
+ * model is that speed rides altitude, so crossing an ocean is a climb and
+ * arriving is a descent.
  *
- * It points and it never flies you. **Why there is no autopilot**: the
- * plane's whole design is that speed rides altitude, so crossing an ocean
- * *is* a climb and arriving *is* a descent. Hand that to an autopilot and the
- * one interaction the travel model was built around turns into a loading
- * screen with scenery.
+ * Three guidance marks answer three questions: the minimap's violet wedge says
+ * which way, the panel under it says how far (real kilometres), and the
+ * waypoint says where, tracked in 3D and clamped to the screen edge when the
+ * planet is in the way (`navigation/waypoint.ts`).
  *
- * The guidance is three things that answer three different questions. The
- * minimap's violet wedge says *which way*. The panel under it says *how far*,
- * in real kilometres, because the outlines are real. And the waypoint says
- * *where*, tracked in 3D and clamped to the screen edge when the planet is in
- * the way — from the ceiling that is a label sitting on the actual continent,
- * which no 180-pixel disc in the corner can be.
- *
- * **Reaching it puts it away**: within `ARRIVE_RANGE` of it and not in the air,
- * the panel says *Arrived* and the marker is cleared, because a marker you
- * are standing on has nothing left to say.
+ * Reaching it puts it away: within `ARRIVE_RANGE` of it and not in the air,
+ * the panel says *Arrived* and the marker is cleared.
  */
 import * as THREE from 'three';
 import { EARTH_KM } from './cartography.ts';
@@ -32,6 +23,7 @@ import type { Hud } from './hud.ts';
 import type { Minimap } from './minimap.ts';
 import type { PlanetSurface } from './planet.ts';
 import { unitAt } from './sphere.ts';
+import { placeWaypoint } from './navigation/waypoint.ts';
 
 /** As much of the player as this reads. `player.ts` owns the rest. */
 interface Traveller {
@@ -90,37 +82,29 @@ export interface Navigation {
 /** Where the device keeps the marker. */
 export const MARKER_KEY = 'atlas.marker.v1';
 
-/** Where the device keeps a body's marker: Earth's is `MARKER_KEY`, as it always was. */
+/** Where the device keeps a body's marker: Earth's is `MARKER_KEY`. */
 export function markerKeyOf(body: string): string {
   return body === 'earth' ? MARKER_KEY : `atlas.marker.${body}.v1`;
 }
 
 /**
- * How close counts as arrived, in world units: about a hundred metres at the
- * scale things are built at (`SCENERY_SCALE`), the width of a landmark's pad.
- * A marker dropped on the map at street zoom is a few units off where the
- * click meant, and this swallows that. **The panel counts real kilometres**
- * — the planet's own scale, 0.4 km a unit on Earth — so it would read about
- * 56 km at the moment this says arrived; the two scales are the world's, not
- * a slip of this constant's, and the last stretch says *Here* (`HERE_RANGE`).
+ * How close counts as arrived, world units: about a hundred metres at the
+ * scale things are built at, the width of a landmark's pad. The panel counts
+ * real kilometres (the planet's own scale), so it reads far larger than this
+ * at the moment of arrival; the last stretch says *Here* (`HERE_RANGE`).
  */
 const ARRIVE_RANGE = 140;
 
 /**
- * Inside this, in world units, the panel says *Here* instead of a distance.
- * Counted in real kilometres the last stretch reads 170 to 56 km on Earth: a
- * number that tells someone in sight of the place that they are far from it,
- * and from the air, where nothing arrives, tens of kilometres over the place
- * itself. Three times `ARRIVE_RANGE` is a short walk on foot and a moment
- * from the plane.
+ * Inside this, world units, the panel says *Here* instead of a distance: a
+ * number in real kilometres tells someone in sight of the place that they are
+ * far from it. A short walk on foot, a moment from the plane.
  */
 const HERE_RANGE = ARRIVE_RANGE * 3;
 
 /**
- * How high above the site the waypoint floats, in world units.
- *
- * A pin hovers over the thing it marks rather than sitting in it, and 90 units
- * clears the tallest monument the contract allows without reading as a balloon.
+ * How high above the site the waypoint floats, world units: it hovers over
+ * what it marks and clears the tallest monument the contract allows.
  */
 const WAYPOINT_RISE = 90;
 /**
@@ -129,14 +113,6 @@ const WAYPOINT_RISE = 90;
  * its waypoint until it is reached, since there is nothing else to see there.
  */
 const MARKER_DEADZONE = 260;
-/**
- * How far inside the viewport an off-screen marker is pinned, in CSS pixels:
- * enough for the pin and a short label. A label can be up to 240 wide, which
- * this does not cover, so the HUD slides a long one along to keep it on the
- * screen rather than this pinning every marker 120 pixels in.
- */
-const MARKER_MARGIN = 84;
-
 /** The device's store, if the browser will hand it over at all. */
 function deviceStorage(): NavigationOptions['storage'] {
   try {
@@ -204,9 +180,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
       return;
     }
     unitAt(next.lat, next.lon, site);
-    // The ground is asked once, here: the relief does not move, and a
-    // point-in-polygon query per frame behind a HUD label would be an absurd
-    // price for a label.
+    // The ground is asked once, here: the relief does not move.
     const ground = groundAt(site);
     anchor.copy(site).multiplyScalar(ground);
     floating.copy(site).multiplyScalar(ground + WAYPOINT_RISE);
@@ -219,105 +193,6 @@ export function createNavigation(options: NavigationOptions): Navigation {
     if (kept !== null) set(kept, false);
   } catch {
     // A store that refuses a read is a map with no marker on it.
-  }
-
-  /**
-   * Puts the marker on screen.
-   *
-   * Two cases and they share a code path. If the destination is on the near side
-   * of the planet the marker sits over it. If the planet is in the way, the
-   * point projected is the horizon crossing on the great circle towards it —
-   * which is where the destination genuinely is, as far as the eye can follow —
-   * and it is marked there when that is in the frame, clamped to the screen
-   * edge with its tip pointing on when it is not. That
-   * is the whole reason to compute a horizon point rather than hide the marker:
-   * from the ceiling, "just over that limb" is a real and useful answer.
-   */
-  function place(camera: THREE.PerspectiveCamera, km: number | null): void {
-    const cam = camera.position;
-    const length = cam.length();
-    if (length < 1e-6) return;
-    const cx = cam.x / length;
-    const cy = cam.y / length;
-    const cz = cam.z / length;
-    // Clamped so a camera grazing the surface still has a horizon to speak of.
-    const cosHorizon = RADIUS / Math.max(length, RADIUS + 1);
-
-    const tx = site.x;
-    const ty = site.y;
-    const tz = site.z;
-    const dot = tx * cx + ty * cy + tz * cz;
-
-    if (dot >= cosHorizon) {
-      scratch.copy(floating);
-    } else {
-      // Tangent of the great circle at the camera's subpoint, pointing at the
-      // destination. Undefined at the exact antipode, where no direction is more
-      // right than any other; drop the marker rather than invent one.
-      let ax = tx - dot * cx;
-      let ay = ty - dot * cy;
-      let az = tz - dot * cz;
-      const along = Math.hypot(ax, ay, az);
-      if (along < 1e-6) {
-        hud.trackDestination(km, null, 0, 0);
-        return;
-      }
-      ax /= along;
-      ay /= along;
-      az /= along;
-      const phi = Math.acos(Math.min(1, cosHorizon));
-      const c = Math.cos(phi);
-      const s = Math.sin(phi);
-      scratch.set(cx * c + ax * s, cy * c + ay * s, cz * c + az * s).multiplyScalar(RADIUS);
-    }
-
-    // The rig moves the camera every frame but only the render updates its
-    // matrices, and this runs before the render: without this the marker trails
-    // the view by a frame, which at 3,400 units a second is visible.
-    camera.updateMatrixWorld();
-    scratch.project(camera);
-    // Behind the camera the perspective divide is by a negative w, which flips
-    // both axes. Flipping them back leaves a direction that is still correct,
-    // which is all a clamped marker needs.
-    const behind = scratch.z > 1;
-    const width = innerWidth;
-    const height = innerHeight;
-    let x = (scratch.x * 0.5 + 0.5) * width;
-    let y = (0.5 - scratch.y * 0.5) * height;
-    if (behind) {
-      x = width - x;
-      y = height - y;
-    }
-
-    // **On the screen is on the screen, beyond the horizon or not.** The first
-    // version sent everything beyond the horizon to the edge, along the line
-    // from the middle of the screen to the horizon point — and facing the
-    // destination that line is a few pixels long and points wherever the head
-    // last nodded, so the marker sat pinned to the top edge and flipped to the
-    // bottom: looking that way, it went up, or somewhere stranger. Now a
-    // horizon point in the frame is marked where it is, which is where the
-    // destination lies beyond; the tip points down at it, as it points down at
-    // the ground when the landmark is in sight.
-    const inside = !behind
-      && x >= MARKER_MARGIN && x <= width - MARKER_MARGIN
-      && y >= MARKER_MARGIN && y <= height - MARKER_MARGIN;
-    if (inside) {
-      hud.trackDestination(km, x, y, Math.PI / 2);
-      return;
-    }
-
-    const midX = width / 2;
-    const midY = height / 2;
-    let dx = x - midX;
-    let dy = y - midY;
-    if (Math.abs(dx) < 1e-4 && Math.abs(dy) < 1e-4) {
-      dx = 0;
-      dy = 1;
-    }
-    const halfW = Math.max(1, midX - MARKER_MARGIN);
-    const halfH = Math.max(1, midY - MARKER_MARGIN);
-    const reach = Math.min(halfW / Math.max(Math.abs(dx), 1e-6), halfH / Math.max(Math.abs(dy), 1e-6));
-    hud.trackDestination(km, midX + dx * reach, midY + dy * reach, Math.atan2(dy, dx));
   }
 
   return {
@@ -347,7 +222,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
       }
       const reach = anchor.distanceTo(position);
       if (marker.landmark && reach < MARKER_DEADZONE) hud.trackDestination(km, null, 0, 0);
-      else place(camera, km);
+      else placeWaypoint(hud, camera, km, RADIUS, site, floating, scratch);
     },
     dispose() {
       disposed = true;

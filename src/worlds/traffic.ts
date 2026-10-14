@@ -1,24 +1,23 @@
 /**
  * The traffic on another world's roads, as Earth's roads have theirs
- * (`life.ts`): a few of the world's own rovers driving the carriageway round
- * the traveller, on the right of it, at their own steady speeds, giving way
- * to the traveller and to each other, their headlights burning after dark.
+ * (`life.ts`): a few of the world's own rovers driving the carriageway round the
+ * traveller, on the right of it, at their own steady speeds, giving way to the
+ * traveller and to each other, their headlights burning after dark.
  *
- * Near and capped, as everything that moves is: at most `MOST` at once,
- * started out of sight `SPAWN_FROM` to `SPAWN_TO` units away on a road the
- * traveller is near, and let go past `DROP_PAST`. A rover that reaches a
- * town's gate drives into the town and is gone, as a car turning off is; one
- * the traveller is watching turns round instead.
+ * Near and capped, as everything that moves is: at most `MOST` at once, started
+ * out of sight `SPAWN_FROM` to `SPAWN_TO` units away on a road the traveller is
+ * near, and let go past `DROP_PAST`. A rover that reaches a town's gate drives
+ * into the town and is gone, as a car turning off is; one the traveller is
+ * watching turns round instead.
  *
- * Each is a craft (`createCraft`), the world's own rover at its own size,
- * driven along `Roads.place`, glazed and furnished as the one the traveller
- * takes is (`cockpit.ts`). **Near, someone is at the wheel** (since
- * 2026-10-04): within `CABIN_REACH` — Earth's traffic's (`cabin.ts`) — a
- * driver sits in its seat, a body of the cast held as the traveller sits
- * (`Avatar.sit`, the hands on the wheel), so a rover on the road reads as
- * driven, as Earth's cars do. A driven rover is not the traveller's to take,
- * as no car on Earth's roads is.
- * Past the reach the seat is empty and nobody looks.
+ * Each is a craft (`createCraft`), the world's own rover at its own size, driven
+ * along `Roads.place`, glazed and furnished as the one the traveller takes is
+ * (`cockpit.ts`). Near, someone is at the wheel: within `CABIN_REACH` (Earth's
+ * traffic's, `cabin.ts`) a driver sits in its seat, a body of the cast held as
+ * the traveller sits (`Avatar.sit`, the hands on the wheel), so a rover on the
+ * road reads as driven, as Earth's cars do. A driven rover is not the
+ * traveller's to take, as no car on Earth's roads is. Past the reach the seat
+ * is empty and nobody looks.
  */
 
 import * as THREE from 'three';
@@ -206,44 +205,46 @@ export function createTraffic(spec: WorldSpec, roads: Roads, ctx: SceneryContext
   }
 
   const others: THREE.Vector3[] = [];
+
+  /** One step of one rover: its speed against what is ahead, its place along the road, its driver. Drops it at a gate. */
+  function step(rover: Driving, index: number, dt: number, traveller: THREE.Vector3, blockers: readonly THREE.Vector3[]): void {
+    others.length = 0;
+    for (const one of blockers) others.push(one);
+    for (const other of rovers) if (other !== rover && other.road === rover.road && other.way === rover.way) others.push(other.position);
+    const gap = blockedBy(rover, others);
+    const want = gap < STOP_SHORT ? 0 : gap < LOOK_AHEAD ? rover.cruise * ((gap - STOP_SHORT) / (LOOK_AHEAD - STOP_SHORT)) : rover.cruise;
+    rover.speed += Math.max(-BRAKE * dt, Math.min(PULL * dt, want - rover.speed));
+    rover.s += rover.speed * rover.way * dt;
+    const length = roads.lengthOf(rover.road);
+    if (rover.s <= 6 || rover.s >= length - 6) {
+      // At a gate: into the town and gone, unless the traveller is watching.
+      if (rover.position.distanceTo(traveller) > SEEN_WITHIN) {
+        drop(index);
+        return;
+      }
+      rover.way = rover.way === 1 ? -1 : 1;
+      rover.s = Math.min(length - 7, Math.max(7, rover.s));
+    }
+    pose(rover);
+    // Someone at the wheel while it is near enough to be seen there, held as
+    // the traveller sits (`Avatar.sit`): the legs to the pedals, the hands on
+    // the wheel, which stands still on a road that is the rover's to follow.
+    const away = rover.position.distanceTo(traveller);
+    if (away < CABIN_REACH) seat(rover);
+    else if (away > CABIN_REACH * DRIVER_HYSTERESIS) unseat(rover);
+    if (rover.driver !== null) {
+      rover.driver.group.position.copy(rover.craft.seat);
+      rover.driver.sit(dt, rover.craft.pose ?? undefined, 0);
+    }
+  }
+
   return {
     group,
     rovers,
     update(dt, traveller, blockers) {
       for (let i = rovers.length - 1; i >= 0; i--) if (rovers[i]!.position.distanceTo(traveller) > DROP_PAST) drop(i);
       if (rovers.length < MOST && rng.unit() < dt * 1.5) spawn(traveller);
-      for (let i = rovers.length - 1; i >= 0; i--) {
-        const rover = rovers[i]!;
-        others.length = 0;
-        for (const one of blockers) others.push(one);
-        for (const other of rovers) if (other !== rover && other.road === rover.road && other.way === rover.way) others.push(other.position);
-        const gap = blockedBy(rover, others);
-        const want = gap < STOP_SHORT ? 0 : gap < LOOK_AHEAD ? rover.cruise * ((gap - STOP_SHORT) / (LOOK_AHEAD - STOP_SHORT)) : rover.cruise;
-        rover.speed += Math.max(-BRAKE * dt, Math.min(PULL * dt, want - rover.speed));
-        rover.s += rover.speed * rover.way * dt;
-        const length = roads.lengthOf(rover.road);
-        if (rover.s <= 6 || rover.s >= length - 6) {
-          // At a gate: into the town and gone, unless the traveller is watching.
-          if (rover.position.distanceTo(traveller) > SEEN_WITHIN) {
-            drop(i);
-            continue;
-          }
-          rover.way = rover.way === 1 ? -1 : 1;
-          rover.s = Math.min(length - 7, Math.max(7, rover.s));
-        }
-        pose(rover);
-        // Someone at the wheel while it is near enough to be seen there,
-        // held as the traveller sits (`Avatar.sit`): the legs to the pedals,
-        // the hands on the wheel, which stands still on a road that is the
-        // rover's to follow.
-        const away = rover.position.distanceTo(traveller);
-        if (away < CABIN_REACH) seat(rover);
-        else if (away > CABIN_REACH * DRIVER_HYSTERESIS) unseat(rover);
-        if (rover.driver !== null) {
-          rover.driver.group.position.copy(rover.craft.seat);
-          rover.driver.sit(dt, rover.craft.pose ?? undefined, 0);
-        }
-      }
+      for (let i = rovers.length - 1; i >= 0; i--) step(rovers[i]!, i, dt, traveller, blockers);
     },
     take(craft) {
       const index = rovers.findIndex((one) => one.craft === craft);

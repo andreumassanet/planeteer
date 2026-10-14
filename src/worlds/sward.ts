@@ -1,21 +1,20 @@
 /**
  * What covers another world's ground underfoot, as Earth's grass covers its
  * land: Earth's own grass (`grass.ts`), drawn by the same rings and the same
- * blades round the camera, asked of this world's ground instead of Earth's.
- * Without it the ground was a flat painted floor from the walker's eye; with
- * it the ground has a nap, catches the light and moves in the wind.
+ * blades round the camera, asked of this world's ground instead of Earth's, so
+ * the ground has a nap, catches the light and moves in the wind.
  *
  * What grows is the world's own: a short, stiff growth in the ground's own
- * colour — a regolith's grit on an airless crust, a hardier tuft where there
- * is air — sparse and ankle-high on the Moon and Mercury, thicker on Mars,
- * low and dark on Venus (`SWARDS`). Never on a cloud deck, which has no
- * ground to grow from, nor where the world keeps bare (`Terrain.bareAt`):
- * a town's levelled square, a road and its banks, a rocket's pad.
+ * colour (a regolith's grit on an airless crust, a hardier tuft where there is
+ * air), sparse and ankle-high on the Moon and Mercury, thicker on Mars, low and
+ * dark on Venus (`SWARDS`). Never on a cloud deck, which has no ground to grow
+ * from, nor where the world keeps bare (`Terrain.bareAt`): a town's levelled
+ * square, a road and its banks, a rocket's pad.
  *
- * The answers are `GrassGround`'s, which is all `grass.ts` asks of a planet:
- * the drawn ground's height (`Terrain.groundAt`, the finest tile's triangle,
- * which is what is drawn round the camera), its colour (`Terrain.sample`),
- * how thick and how tall.
+ * The answers are `GrassGround`'s, which is all `grass.ts` asks of a planet: the
+ * drawn ground's height (`Terrain.groundAt`, the finest tile's triangle, which
+ * is what is drawn round the camera), its colour (`Terrain.sample`), how thick
+ * and how tall.
  */
 
 import * as THREE from 'three';

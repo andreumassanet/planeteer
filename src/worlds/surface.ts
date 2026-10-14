@@ -3,23 +3,21 @@
  * that the HUD, the minimap, the world map and the navigation are handed in
  * place of Earth's globe.
  *
- * Everything here reads the world's one definitions and restates none of
- * them: the radius is the terrain's own, the ground's colour and relief are
+ * Everything here reads the world's one definitions and restates none of them:
+ * the radius is the terrain's own, the ground's colour and relief are
  * `terrain.ts`'s `sample` and `heightAt`, and the political map is
  * `system/geography.ts`'s. Earth's paper is painted from `groundColorAt`; a
- * world's is painted from exactly the colour its tiles are built with, so
- * the map and the ground agree the way Earth's do.
+ * world's is painted from exactly the colour its tiles are built with, so the
+ * map and the ground agree the way Earth's do.
  *
- * ## Which edges are frontiers
- *
- * Earth's `coastEdges` steps off each ring edge and asks whether the other
- * side is sea. A walked world has no sea, and its rings carry a second kind
- * of edge Earth's do not: `geography.ts` keeps every ring inside one tile of
- * the sphere, so a nation that crosses the equator or a quarter meridian is
- * two rings joined along a straight lattice line. That line is not a border
- * and must not be drawn as one. So an edge is a frontier when it lies on one
- * of `geography.frontiers` — the lines two nations actually share, each
- * listed once — and **2**, *not an edge*, otherwise, which `map.ts` leaves
+ * Which edges are frontiers: Earth's `coastEdges` steps off each ring edge and
+ * asks whether the other side is sea. A walked world has no sea, and its rings
+ * carry a second kind of edge Earth's do not: `geography.ts` keeps every ring
+ * inside one tile of the sphere, so a nation that crosses the equator or a
+ * quarter meridian is two rings joined along a straight lattice line, which is
+ * not a border and must not be drawn as one. So an edge is a frontier when it
+ * lies on one of `geography.frontiers` (the lines two nations actually share,
+ * each listed once) and 2, "not an edge", otherwise, which `map.ts` leaves
  * undrawn as it does a ring's run along a pole. There is no 1: nothing here is
  * a coast.
  */

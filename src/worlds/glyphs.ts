@@ -2,34 +2,26 @@
  * Invented scripts: a set of glyphs per species, and a line of English written
  * in them.
  *
- * **Pure and deterministic**, like everything else a world is: a glyph is a
- * path in a 10 x 14 box, generated stroke by stroke from the species'
- * `ScriptStyle` and a seed, and the same style always gives the same script.
- * Nothing here touches the DOM — `svgOf` returns markup as a string — so
- * `scripts/check-worlds.ts` can hold every script to its rules in Node: no two
- * glyphs of a script alike, and no two species sharing a glyph.
+ * Pure and deterministic, like everything else a world is: a glyph is a path in
+ * a 10 x 14 box, generated stroke by stroke from the species' `ScriptStyle` and
+ * a seed, and the same style always gives the same script. Nothing here touches
+ * the DOM (`svgOf` returns markup as a string), so `scripts/check-worlds.ts`
+ * can hold every script to its rules in Node: no two glyphs of a script alike,
+ * and no two species sharing a glyph.
  *
- * ## What makes a script read as a script
+ * What makes a script read as a script, each a parameter rather than a hope:
  *
- * Random strokes in a box read as scribble. Four things make them read as
- * writing, and each is a parameter rather than a hope:
+ * - A small inventory, reused. 12 to 36 glyphs, so a line repeats its letters
+ *   the way a real one does and the eye finds a system.
+ * - One hand. Every glyph of a script is drawn from the same few stroke kinds
+ *   at the same weights and the same slant, so they are visibly siblings.
+ * - A line. A script with `line: 'top'` draws a bar across every word, joined;
+ *   one with `'base'` stands on a line.
+ * - Words. Glyphs are grouped, the groups spaced, and the same English word is
+ *   always the same group, so a phrase said twice is written twice the same.
  *
- * - **A small inventory, reused.** 12 to 36 glyphs, so a line repeats its
- *   letters the way a real one does — the eye finds the repeats and decides
- *   there is a system.
- * - **One hand.** Every glyph of a script is drawn from the same few stroke
- *   kinds at the same weights and the same slant, so they are visibly
- *   siblings: a script of loops and dots and a script of bars and zigzags are
- *   two scripts, not one with noise.
- * - **A line.** Devanagari hangs from a bar, Latin stands on one. A script with
- *   `line: 'top'` draws a bar across every word, joined, which is the strongest
- *   single signal of writing there is.
- * - **Words.** Glyphs are grouped, the groups spaced, and the same English
- *   word is always the same group, so a phrase said twice is written twice
- *   the same.
- *
- * The *sound* of a glyph is a syllable from the style's consonants and vowels;
- * a line's transliteration is what the babble voice says (`voice.ts`'s
+ * The sound of a glyph is a syllable from the style's consonants and vowels; a
+ * line's transliteration is what the babble voice says (`voice.ts`'s
  * `planSpeech` reads it like any other line), so what you hear has as many
  * syllables as what you see has glyphs.
  */

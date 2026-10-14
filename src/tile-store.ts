@@ -10,7 +10,7 @@
  * **Optional, everywhere.** Every open, read and write is wrapped: a private
  * window, blocked site data or a full disk turns this into a store that holds
  * nothing, and the map paints what it would have read. A tile is a PNG of
- * 20 to 90 KB (2026-10-04); `MAX_TILES` of them is a few tens of megabytes at
+ * 20 to 90 KB; `MAX_TILES` of them is a few tens of megabytes at
  * the most, and the oldest go first past it.
  */
 

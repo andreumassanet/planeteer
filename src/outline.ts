@@ -4,70 +4,32 @@ import { dissolveGLSL } from './fade.ts';
 /**
  * The ink: the scene drawn a second time with the back faces of every mesh
  * pushed out along their normals, so each silhouette comes back as a black
- * line. This is a fork of Three's own `OutlineEffect`
- * (`examples/jsm/effects/OutlineEffect.js`), same technique and the same
- * `userData.outlineParameters` contract, so every material in the project keeps
- * the pen it already had.
+ * line. A fork of Three's `OutlineEffect`
+ * (`examples/jsm/effects/OutlineEffect.js`) with the same
+ * `userData.outlineParameters` contract.
  *
- * **What changed is one line of the vertex shader, and it is the line that
- * decides whether this world can be inhabited.** Settlements, trees and rocks
- * are tens of thousands of objects, which means `InstancedMesh`, and the stock
- * effect is broken for it. `gl_Position` comes out of `<project_vertex>`, which
- * *does* apply `instanceMatrix`; the point the hull is pushed away from was
- * then rebuilt as `projectionMatrix * modelViewMatrix * vec4(transformed -
- * normal, 1.0)` — *without* it. Subtracting two points that live in different
- * spaces gives a direction with no relation to the surface, identical for every
- * vertex of an instance: the hull stops expanding and starts sliding.
+ * Differences from upstream:
  *
- * The slide is bounded by the thickness, so it is never an explosion across the
- * screen. What it moves is *depth*, and 0.005 of normalised device space is an
- * enormous distance out where the objects are: the hull lands either behind the
- * surface it is copying, where nothing of it is ever drawn, or in front of it,
- * where it swallows the object whole. Both are the same defect with opposite
- * signs. Measured in this scene, six instanced boxes beside six ordinary ones
- * of the same geometry and the same material, counting ink pixels over each
- * box: ordinary 1.9–3.9%, instanced **0–0.5%**. How much of the line survives
- * depends on where the instance sits — none of it in that measurement, a
- * fraction of it in others — which is the tell that the direction is arbitrary
- * rather than merely offset. With the fix the instanced row measures the
- * ordinary row's own figure, whatever that figure is, in every placement
- * tested. The world as it already stands renders byte for byte the same as it
- * did under the stock effect: a full-frame diff at Mallorca and at the Eiffel
- * Tower is zero pixels.
+ * - Instancing. The stock hull rebuilds the point it is pushed away from
+ *   without `instanceMatrix`, so for an `InstancedMesh` the hull slides instead
+ *   of expanding and most of the line disappears. The inset here goes through
+ *   the same projection as the fill. The material the effect generates lives in
+ *   a closure with no accessor, hence a fork.
+ * - A vertex transform. A material that moves its own vertices in
+ *   `onBeforeCompile` owes the hull the same movement, or the hull is drawn
+ *   for geometry that is no longer there and shows as the whole old shape in
+ *   solid ink. `outlineParameters.transform` hands the effect the GLSL the
+ *   material displaces with (see `OutlineTransform`).
+ * - Skinning: the four chunks every skinned material includes, in
+ *   `MeshToonMaterial`'s order. All are `#ifdef USE_SKINNING`, so other hulls
+ *   compile to the same program. The inset stays exact because skinning is
+ *   affine.
  *
- * **Why a fork and not a patch.** The material the effect generates lives in a
- * closure — there is no accessor, no `onBeforeCompile`, nothing to reach it
- * with. Correcting it from outside means monkey-patching a private variable,
- * which is worse than owning the file.
- *
- * **The second thing that changed is a hook, and it is the same defect one step
- * further out.** `instanceMatrix` was a transform the fill applied and the hull
- * did not; a material that moves its own vertices in `onBeforeCompile` is
- * exactly that again, except that three has no name for it and cannot pass it
- * on. The hull is built from the `position` attribute, so a fill that displaces
- * `transformed` renders inside a silhouette drawn for geometry that is no longer
- * there — and because the hull is `BackSide` and expanded, the mismatch does not
- * come out as a line in the wrong place but as the *whole* of the old shape,
- * painted solid ink, standing over the new one. `outlineParameters.transform`
- * hands the effect the same GLSL the material displaces with, so the two
- * silhouettes are the same silhouette. It is a general contract and not a cloud:
- * anything that writes `transformed` in a vertex shader owes the pen the same
- * function, and the deck is merely the first thing in this world to do it.
- *
- * **Skinning came back on 2026-09-16**, when the people became skinned meshes:
- * the four chunks every skinned material includes, in `MeshToonMaterial`'s own
- * order. All four are `#ifdef USE_SKINNING`, which three defines for any
- * material drawn on a `SkinnedMesh`, so every other hull compiles to the same
- * program it did. The inset below is still exact, because skinning is affine:
- * `transformed` and `objectNormal` have both been through the same bones.
- *
- * What was left behind, because nothing here uses it: morph targets,
- * displacement maps, clipping planes, the keep-alive cache and its 60-frame
- * eviction (a `WeakMap` does that job for free), the per-object
- * `onBeforeRender` swap — redundant once there is exactly one outline material
- * per source material — and the VR entry point. `BatchedMesh` stays
- * unsupported, as it is upstream: `<project_vertex>` reads a `batchingMatrix`
- * that only `<batching_vertex>` declares.
+ * Left out because nothing here uses it: morph targets, displacement maps,
+ * clipping planes, the keep-alive cache (a `WeakMap` does that job), the
+ * per-object `onBeforeRender` swap and the VR entry point. `BatchedMesh` is
+ * unsupported, as upstream: `<project_vertex>` reads a `batchingMatrix` that
+ * only `<batching_vertex>` declares.
  */
 
 const vertexShader = /* glsl */ `
@@ -108,9 +70,7 @@ void main() {
   // to a point that, once instanceMatrix is in, sits ~16000 units from the
   // origin. gl_Position is built one matrix at a time. Matching that keeps the
   // two points we are about to subtract on the same operation order, so their
-  // float32 error is common-mode. Measured, it is worth 5e-7 of NDC z against
-  // the 5.8e-3 that separates a box's own front and back faces: not the
-  // difference between right and wrong here, just one less asymmetry.
+  // float32 error is common-mode.
   // (Comments in here stay ASCII: the GLSL source character set is.)
   vec4 reference = projectionMatrix * ( modelViewMatrix * inset );
 
@@ -127,24 +87,15 @@ void main() {
 /**
  * The hull's vertex shader, with a material's own vertex transform spliced in.
  *
- * **Without a transform this returns the string above unchanged**, character for
- * character, which is the point: every material in the world that does not ask
- * for one compiles the program it has always compiled, so "nothing else moved"
- * is a property of the source rather than a result someone has to keep
- * re-measuring.
- *
- * With one, three lines move. The declaration goes in beside `outlineThickness`
- * — it brings its own uniforms, so the hook is a function and not a fixed set of
- * parameters this file would have to know the meaning of. `transformed` is then
- * passed through it before `<project_vertex>`, which is what puts the hull on
- * the same silhouette as the fill. And the *inset* point is passed through it
- * too, before the assignment overwrites `transformed`: that is the half that is
- * easy to leave out and it is the half `instanceMatrix` was already the lesson
- * about. `normalize(pos - reference)` subtracts two points, so both have to have
- * been through the same map or the direction the hull expands along is the
- * normal of a shape that is not on the screen — the same class of mistake as
- * subtracting two points in different spaces, just with a different transform
- * missing.
+ * Without a transform this returns the string above unchanged, so every
+ * material that does not ask for one compiles the program it always did. With
+ * one, three things move: the declaration goes in beside `outlineThickness`
+ * (it brings its own uniforms, so the hook is a function rather than a fixed
+ * set of parameters); `transformed` is passed through it before
+ * `<project_vertex>`; and the inset point is passed through it too, before the
+ * assignment overwrites `transformed`. `normalize(pos - reference)` subtracts
+ * two points, so both must have been through the same map or the hull expands
+ * along the normal of a shape that is not on the screen.
  */
 function hullVertexShader(transform?: string): string {
   if (transform === undefined) return vertexShader;
@@ -190,16 +141,14 @@ void main() {
  * A vertex transform the source material applies, handed to the hull so it
  * applies the same one.
  *
- * `declaration` is GLSL that must define **`vec3 atlasVertex(vec3 p)`** and
- * declare whatever uniforms it reads. The source material is expected to call
- * that same function on `transformed` in its own `onBeforeCompile` — which is
- * why this carries the GLSL rather than a name: the two shaders share one string
- * and one uniform object, so they cannot drift into disagreeing about a
- * silhouette. Anything else is two copies of an equation, which is the failure
- * this project sees more than any other.
+ * `declaration` is GLSL that must define `vec3 atlasVertex(vec3 p)` and
+ * declare whatever uniforms it reads. The source material calls that same
+ * function on `transformed` in its own `onBeforeCompile`; the two shaders
+ * share one string and one uniform object, so they cannot disagree about a
+ * silhouette.
  *
- * `uniforms` are held **by reference**, not cloned, so the fill and the hull
- * read the same values on the same frame with nothing to synchronise.
+ * `uniforms` are held by reference, not cloned, so the fill and the hull read
+ * the same values on the same frame.
  */
 export interface OutlineTransform {
   declaration: string;
@@ -217,16 +166,15 @@ export interface OutlineParameters {
   visible?: boolean;
   /**
    * Push the hull out along a geometry's `outlineNormal` attribute instead of
-   * its `normal`. For shading that keeps hard creases — a low-poly character —
-   * where the creased normals would split the hull at every crease. **Read
-   * once**, like `transform`; every geometry drawn with the material must carry
-   * the attribute.
+   * its `normal`. For shading that keeps hard creases (a low-poly character),
+   * where creased normals would split the hull at every crease. Read once, like
+   * `transform`; every geometry drawn with the material must carry the attribute.
    */
   outlineNormal?: boolean;
   /**
-   * See `OutlineTransform`. **Read once**, when this material's hull is first
-   * built, because it is compiled into the program — the same rule `fog` and
-   * `toneMapped` already follow. Its uniforms are live; the GLSL is not.
+   * See `OutlineTransform`. Read once, when this material's hull is first built,
+   * because it is compiled into the program (as `fog` and `toneMapped` are). Its
+   * uniforms are live; the GLSL is not.
    */
   transform?: OutlineTransform;
   /**
@@ -256,13 +204,11 @@ const BASIS_SAMPLES = 64;
  * Pixels of projected radius under which a mesh gets no hull, and the factor
  * it has to grow past that before it gets one back. 0 turns it off.
  *
- * **A pen line round something a few pixels across is not a line, it is the
- * thing's whole area in ink** — the screen-space pen this file draws is a
- * constant width, so below a few pixels the hull covers the fill and a
- * distant wood tile or house reads as a dark speck. It is also a second draw
- * call for every such mesh. So a mesh whose bounding sphere projects under
- * this radius is left out of the ink pass, and it has to reach a third more
- * again before it is put back, so one sitting on the line does not flicker.
+ * The pen is a constant screen-space width, so below a few pixels the hull
+ * covers the fill and a distant wood tile or house reads as a dark speck; it
+ * is also a second draw call per mesh. A mesh whose bounding sphere projects
+ * under this radius is left out of the ink pass and must grow by a third
+ * before it is put back, so one sitting on the line does not flicker.
  */
 const THIN_INK_PIXELS = 4;
 const THIN_INK_HYSTERESIS = 1.3;
@@ -287,9 +233,8 @@ export class OutlineEffect {
   private readonly color: THREE.Color;
   private readonly alpha: number;
 
-  // One outline material per source material, both ways. Weak on purpose: a
-  // material that goes out of scope takes its outline with it, which is the
-  // whole of the eviction logic the upstream version needs 50 lines for.
+  // One outline material per source material, both ways. Weak, so a material
+  // that goes out of scope takes its outline with it.
   private readonly outlines = new WeakMap<THREE.Material, THREE.ShaderMaterial>();
   private readonly sources = new WeakMap<THREE.Material, THREE.Material>();
   /** Instance matrices already judged, by the attribute version they were judged at. */
@@ -318,14 +263,11 @@ export class OutlineEffect {
     if (!this.enabled) return;
 
     // The second pass redraws the same frame: it must not clear what the first
-    // one left, must not let anything move between the two, and must not redo
-    // the shadow maps or paint the background over the image.
+    // left, must not let anything move between the two, and must not redo the
+    // shadow maps or paint the background over the image.
     //
-    // The first pass, unlike upstream, is left on the renderer's own autoClear.
-    // `OutlineEffect` forces it to `this.autoClear`, which its constructor never
-    // assigns — so the base pass never clears, and it only looks right because
-    // the browser wipes the drawing buffer between frames anyway. Same pixels,
-    // one less thing that is true by accident.
+    // The first pass is left on the renderer's own autoClear; upstream forces it
+    // to a field its constructor never assigns.
     const autoClear = renderer.autoClear;
     const shadows = renderer.shadowMap.enabled;
     const autoUpdate = scene.matrixWorldAutoUpdate;
@@ -335,8 +277,8 @@ export class OutlineEffect {
     scene.matrixWorldAutoUpdate = false;
     scene.background = null;
 
-    // The pixel test's camera, for `THIN_INK_PIXELS`: CSS pixels, because the
-    // pen is a width on the page and not a count of samples.
+    // The pixel test's camera, for `THIN_INK_PIXELS`: CSS pixels, because the pen
+    // is a width on the page and not a count of samples.
     const perspective = camera as THREE.PerspectiveCamera;
     if (THIN_INK_PIXELS > 0 && perspective.isPerspectiveCamera === true) {
       renderer.getSize(this.size);
@@ -345,10 +287,9 @@ export class OutlineEffect {
     } else this.focal = 0;
     this.thinSkipped = 0;
 
-    // In a `finally`, because a throw anywhere in the pass — a shader that will
-    // not link, a geometry disposed under a mesh — would otherwise leave every
-    // mesh in the scene wearing its hull and the scene's matrices frozen: a
-    // world permanently in ink, for one object's error. `swapOut` restores
+    // In a `finally`, because a throw anywhere in the pass (a shader that will not
+    // link, a geometry disposed under a mesh) would otherwise leave every mesh
+    // wearing its hull and the scene's matrices frozen. `swapOut` restores
     // whatever `swapIn` reached and leaves the rest alone.
     try {
       scene.traverse(this.swapIn);
@@ -367,14 +308,12 @@ export class OutlineEffect {
 
   /**
    * Compiles the hull of everything under `objects` against `targetScene`'s
-   * lights and fog, without drawing it — `warm.ts`'s half of the warm-up that
-   * three cannot do on its own, because the hulls are materials this effect
-   * makes and three has never been shown them.
+   * lights and fog without drawing it: `warm.ts`'s half of the warm-up, since
+   * three has never been shown the hull materials.
    *
    * The swap is undone before this returns; the promise only waits for the
-   * programs, which outlive it. The shadow map is off for the compile exactly
-   * as it is for the ink pass, because whether it is on is part of a program's
-   * key and a hull compiled with it on is a program the pass never uses.
+   * programs. The shadow map is off for the compile as it is for the ink pass,
+   * because whether it is on is part of a program's key.
    */
   compileAsync(objects: THREE.Object3D, camera: THREE.Camera, targetScene: THREE.Scene): Promise<unknown> {
     const renderer = this.renderer;
@@ -397,21 +336,12 @@ export class OutlineEffect {
    * Objects hidden for the ink pass because they are not meshes and asked not to
    * be drawn in it. Cleared by `swapOut`.
    *
-   * **The pass renders the whole scene a second time, so anything the hull
-   * cannot replace is simply drawn twice — and for an *additive* object that is
-   * not a redundancy, it is double brightness.** `src/lights.ts`'s city lights
-   * are a `Points` with `AdditiveBlending`; measured over the Ruhr, the same
-   * frame gave the brightest lights `(253, 253, 199)` through one pass and
-   * `(255, 255, 238)` through two — the second copy pushes the blue channel up
-   * by 39 and takes an amber sodium light to white. It looks like a colour
-   * mistake in the light and it is an arithmetic one in the pass.
-   *
-   * A mesh never showed this because the second pass *replaces* its material
-   * with the hull, which draws behind it. Anything that is not a mesh — points,
-   * lines, sprites — keeps its own material and accumulates. So the ink pass
-   * honours `outlineParameters.visible === false` for those too, by leaving them
-   * out of it entirely, which is what "no outline" can only mean for something
-   * that was never going to be hulled.
+   * The pass renders the whole scene a second time, so anything the hull cannot
+   * replace is drawn twice, and for an additive object (the city lights, a
+   * `Points` with `AdditiveBlending`) that doubles the brightness. A mesh does
+   * not show this because the second pass replaces its material with the hull.
+   * Points, lines and sprites keep their own material, so the pass honours
+   * `outlineParameters.visible === false` for them by leaving them out.
    */
   private readonly hidden: THREE.Object3D[] = [];
 
@@ -441,40 +371,23 @@ export class OutlineEffect {
   /**
    * Warns once about instance matrices built from a reflected basis.
    *
-   * `makeBasis(east, up, north)` has determinant -1, because X cross Y is Z and
-   * east cross up is *minus* north. A reflection reverses the winding, and
-   * three decides front from back on the object's own matrix without ever
-   * looking at the per-instance one — so the outward faces of the hull stop
-   * being culled and the object comes back as a solid blob of ink.
+   * `makeBasis(east, up, north)` has determinant -1 (X cross Y is Z, but east
+   * cross up is minus north). A reflection reverses the winding, and three
+   * decides front from back on the object's own matrix without looking at the
+   * per-instance one, so the hull's outward faces stop being culled and the
+   * object comes back as a solid blob of ink. An ordinary `Mesh` cannot show
+   * this, because `setFromRotationMatrix` repairs the basis.
    *
-   * **An ordinary `Mesh` cannot show you this.** `setFromRotationMatrix` can
-   * only carry a proper rotation, so the same wrong basis is silently repaired
-   * on its way into a quaternion. Side by side, the ordinary row looks right
-   * and the instanced row is destroyed, which is exactly the shape of an
-   * afternoon lost to blaming the renderer.
+   * A warning and not a throw: this runs inside the frame loop, and an exception
+   * would abandon the pass with every mesh still wearing its outline material.
    *
-   * A warning and not a throw: this runs inside the frame loop, and an
-   * exception here would abandon the pass with every mesh in the scene still
-   * wearing its outline material and `matrixWorldAutoUpdate` off — a world
-   * permanently in ink, which is worse than the one object it was reporting.
-   *
-   * The check is a sample, because the error is systematic: one basis function
-   * builds every instance in a kit, so a stride through the array finds it, and
-   * a hundred thousand houses must not pay a determinant each per frame.
-   *
-   * **It is keyed on `instanceMatrix.version`, and checking once per mesh would
-   * be worse than not checking at all.** Three fills a new `InstancedMesh` with
-   * *identity* matrices, not with zeros — measured, after this check first
-   * shipped and silently passed everything. A one-shot check therefore reads
-   * determinant +1 from a mesh nobody has written to yet, marks it clean, and
-   * never looks again, which is precisely what a kit that allocates the mesh
-   * and streams its matrices in afterwards does. The version bumps on
-   * `needsUpdate`, so the sample is retaken exactly when the data changes, and
-   * costs one integer compare per instanced mesh on every other frame.
-   *
-   * A determinant of exactly zero is a slot nobody has filled — a kit may park
-   * unused instances there — so it is skipped, and a mesh with nothing readable
-   * is left unjudged rather than passing by default.
+   * It samples, because the error is systematic (one basis function builds every
+   * instance in a kit) and a hundred thousand houses must not pay a determinant
+   * each per frame. It is keyed on `instanceMatrix.version`: three fills a new
+   * `InstancedMesh` with identity matrices, so a one-shot check would pass a mesh
+   * whose matrices are streamed in afterwards. A determinant of exactly zero is
+   * an unfilled slot and is skipped; a mesh with nothing readable is left
+   * unjudged.
    */
   private checkInstanceBasis(mesh: THREE.InstancedMesh): void {
     const version = mesh.instanceMatrix.version;
@@ -492,8 +405,8 @@ export class OutlineEffect {
     }
     if (read === 0) return;
     this.basisVersion.set(mesh, version);
-    // Once per mesh, not once per rewrite: a kit that restreams its matrices
-    // every frame would otherwise fill the console with the same sentence.
+    // Once per mesh, not once per rewrite, so a kit that restreams its matrices
+    // every frame does not fill the console.
     if (reflected === 0 || this.basisWarned.has(mesh)) return;
     this.basisWarned.add(mesh);
     console.warn(
@@ -508,9 +421,8 @@ export class OutlineEffect {
 
   /**
    * Whether a mesh projects under `THIN_INK_PIXELS` of radius, with the
-   * hysteresis. A mesh with no bounding sphere yet — a skinned body that never
-   * culls, anything three has not had to cull — is never thin: the test is a
-   * saving, and a missing line is the worse mistake.
+   * hysteresis. A mesh with no bounding sphere yet (a skinned body that never
+   * culls) is never thin: the test is a saving, and a missing line is worse.
    */
   private isThin(mesh: THREE.Mesh): boolean {
     const instanced = mesh as THREE.InstancedMesh;
@@ -553,10 +465,9 @@ export class OutlineEffect {
     if (outline === undefined) {
       const parameters = source.userData.outlineParameters as OutlineParameters | undefined;
       outline = this.createMaterial(parameters?.transform, parameters?.outlineNormal === true, parameters?.dissolve);
-      // Copied once, not per frame: these three are baked into the compiled
-      // program, so changing one later needs a `needsUpdate` anyway. `fog` is
-      // declared on the concrete materials rather than on the base class, hence
-      // the read through a shape.
+      // Copied once, not per frame: these three are baked into the compiled program.
+      // `fog` is declared on the concrete materials rather than the base class,
+      // hence the read through a shape.
       outline.fog = (source as { fog?: boolean }).fog === true;
       outline.toneMapped = source.toneMapped;
       outline.premultipliedAlpha = source.premultipliedAlpha;

@@ -1,21 +1,19 @@
 /**
- * Alien architecture: seven buildings in code, and a town is a draw from them
- * at a style's weights and colours.
+ * Alien architecture: seven buildings in code, and a town is a draw from them at
+ * a style's weights and colours.
  *
- * The scenery kit's rule holds here unchanged: **every building is built from
- * the context's primitives, in palette colours, standing on `y = 0`**, and a
- * town is merged into one mesh (`settlements.ts`), so a building is priced in
- * triangles and never in draw calls. What differs from Earth's kit is that
- * nothing here imitates a building anyone has seen — the forms are chosen to
- * read as *made by someone else*: domes on drums, needles ringed in bands,
- * pods on stilts, stacked drums, gates with nothing behind them, onion bulbs
- * on stalks, and walled rings.
+ * The scenery kit's rule holds here unchanged: every building is built from the
+ * context's primitives, in palette colours, standing on `y = 0`, and a town is
+ * merged into one mesh (`settlements.ts`), so a building is priced in triangles
+ * and never in draw calls. Nothing here imitates a building anyone has seen: the
+ * forms are chosen to read as made by someone else: domes on drums, needles
+ * ringed in bands, pods on stilts, stacked drums, gates with nothing behind them,
+ * onion bulbs on stalks, and walled rings.
  *
  * A planet that wants its own adds a `BuildingBuilder` to
  * `ArchitectureStyle.extra` and names it in `forms`; `buildForm` looks there
- * first. Every builder returns the **footprint radius** with the group, which
- * is the wall the player is pushed out of and the room the layout leaves
- * round it.
+ * first. Every builder returns the footprint radius with the group, which is the
+ * wall the player is pushed out of and the room the layout leaves round it.
  */
 
 import * as THREE from 'three';

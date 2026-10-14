@@ -52,7 +52,7 @@
  * ## So: two scales, and they are two views
  *
  * **The surface scale is not compressed at all and is not a choice.** The
- * avatar is 3.77 units (6.8 until 2026-09-24) and stands for a real 1.75 m
+ * avatar is 3.77 units and stands for a real 1.75 m
  * person on every world, so
  * the kilometres per unit is fixed at Earth's 0.398 everywhere, so a body's
  * walkable radius is its *real* radius divided by that. Mars comes out at 8,514
@@ -141,12 +141,7 @@ export const KM_PER_UNIT = EARTH_RADIUS_KM / PLANET_RADIUS;
  * knowing before anyone proposes normalising it: a lap of Mars at a run is
  * `2 pi * 8514 / RUN_SPEED` = **45 minutes** against Earth's 1.4 hours, and of
  * Jupiter's 1-bar level about 15.5 hours. Mercury is 32 minutes' run. That
- * range is real and it is the point. (At the run of 20 units a second since
- * late on 2026-09-24; 66 minutes, 2.1 hours, 23 hours and 48 minutes at the
- * 13.5 earlier that day, and 89 minutes, 2.8 hours, 31 hours and an hour at the 10 it was
- * earlier that day; they were 9.9 minutes, 18.6, 3.4 hours and seven minutes at the 90 of
- * 2026-09-13, and 6.9, 12.9, 2.4 hours and five at the 130 before it; the
- * ratios between them did not move.)
+ * range is real and it is the point. (At a run of 20 units a second.)
  *
  * **This is declared and not yet wired.** `PLANET_RADIUS` is a module constant
  * in `globe.ts` that everything derives from, and making it per-body is that
@@ -201,9 +196,8 @@ export const apparentPixels = (drawnRadius: number, distance: number): number =>
  *
  * `orbits.ts` works in the J2000 ecliptic: +x at the vernal equinox, +z at the
  * ecliptic north pole, right-handed. `globe.ts` puts north at +y and `geo.ts`
- * reads longitude as `atan2(-z, x)`, because this planet was mirrored for
- * months and the repair was to choose one hand and hold it everywhere that
- * converts — which is one file, `sphere.ts`, since 2026-09-21. Mapping `(x, y, z) -> (x, z, -y)` lands ecliptic north
+ * reads longitude as `atan2(-z, x)`, so one hand is held everywhere that
+ * converts — in `sphere.ts`. Mapping `(x, y, z) -> (x, z, -y)` lands ecliptic north
  * on the world's north pole and — this is the part worth checking rather than
  * believing — **carries ecliptic longitude to world longitude unchanged**:
  * ecliptic longitude 90 is `(0, 1, 0)`, which arrives at `(0, 0, -1)`, whose

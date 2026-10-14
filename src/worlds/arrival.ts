@@ -1,24 +1,21 @@
 /**
- * Where a traveller comes down on a walked world, and where the craft stand
- * that are waiting there: pure functions of a town's layout, so the world and
+ * Where a traveller comes down on a walked world, and where the craft that wait
+ * there stand: pure functions of a town's layout, so the world and
  * `scripts/check-worlds.ts` ask the same question and get the same answer.
  *
- * **One rule, and it is Earth's: never somewhere weird.** Earth lands a
- * traveller in the town picked on the menu's globe, on its ground, clear of
- * every wall. Here a town is chosen in the planet's region stage
- * (`WorldArrival.settlement`) and the traveller stands on its own arrival
- * (`settlements.ts`'s `arrivalOf`: its first avenue, a little out from the
- * square) looking in at the square. Anything else — *Continue* from a place
- * remembered, `/goto`, the map's *join* — that falls inside a town is taken to
+ * The rule is Earth's: never somewhere weird. A traveller lands in the town
+ * picked in the planet's region stage (`WorldArrival.settlement`), on its own
+ * arrival (`arrivalOf` in `settlements.ts`: its first avenue, a little out from
+ * the square), looking in at the square. Anything else (*Continue* from a place
+ * remembered, `/goto`, the map's *join*) that falls inside a town is taken to
  * that town's arrival too; ground outside every town is stood on as found.
  *
- * `?world=<id>` with no `&site=` lands at the **capital**: the town the
- * world's own file names as its spawn, else its most populous.
+ * `?world=<id>` with no `&site=` lands at the capital: the town the world's own
+ * file names as its spawn, else its most populous.
  *
- * And where what waits at the other towns stands: the rocket's pad off a
- * corner of the square (`padOf`), and at some of them a saucer off another
- * (`ufoParkingOf`) — each asked of the town and of a probe of what is round
- * it, so the world and the check ask the same question.
+ * Where what waits at the other towns stands: the rocket's pad off a corner of
+ * the square (`padOf`), and at some of them a saucer off another
+ * (`ufoParkingOf`), each asked of the town and of a probe of what is round it.
  */
 
 import type { WorldSpec } from './contract.ts';
@@ -68,7 +65,7 @@ export function siteAt(sites: readonly Site[], radius: number, dir: { x: number;
  */
 export function parkingOf(site: Site, k: number, flies: boolean): { x: number; z: number; ahead: { x: number; z: number } } {
   if (site.town !== null && !flies) {
-    // **A grid town parks its craft on its main streets**, in the middle of
+    // A grid town parks its craft on its main streets, in the middle of
     // the carriageway a few cells out — east, west, north, never the south,
     // where the traveller comes in — a cell past the craft parked at the kerb.
     const town = site.town;

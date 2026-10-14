@@ -1,14 +1,14 @@
 /**
- * A walked world as the menu draws it: **its own ground**, the very tiles the
- * world is walked on (`tiles.ts` over `terrain.ts`), drawn at the orrery's
- * size — so the planet you pick on the menu is the planet you land on, as
- * Earth's is, and not a painted ball standing in for it.
+ * A walked world as the menu draws it: its own ground, the very tiles the world
+ * is walked on (`tiles.ts` over `terrain.ts`), drawn at the orrery's size, so
+ * the planet you pick on the menu is the planet you land on, as Earth's is, and
+ * not a painted ball standing in for it.
  *
  * Still and upright, as Earth's land is in the menu: the pole on +Y and
- * longitude 0 on +X, which is the frame the regions' rings, the frontiers and
- * a click on the globe are all in. No decorations: from the menu's distance
- * the quadtree never splits past its six faces, and nothing lying about on
- * the ground would show.
+ * longitude 0 on +X, which is the frame the regions' rings, the frontiers and a
+ * click on the globe are all in. No decorations: from the menu's distance the
+ * quadtree never splits past its six faces, and nothing lying about on the
+ * ground would show.
  */
 
 import * as THREE from 'three';

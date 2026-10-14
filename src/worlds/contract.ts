@@ -2,16 +2,16 @@
  * The other worlds, walked: what a planet declares so that the engine in this
  * directory can put a person on it.
  *
- * `src/system/` says what a body **is** — its orbit, its radius, its gravity,
+ * `src/system/` says what a body is — its orbit, its radius, its gravity,
  * its nations, its towns and its people — and draws it in the orrery. This
- * directory says what it is **like to stand on**: how rough the ground is under
+ * directory says what it is like to stand on: how rough the ground is under
  * a foot, how many craters and how big, what colour the sky is at noon, what
  * the buildings look like, what the people say and in what script. Everything
  * here is a pure function of the body's id and the records below, so two
  * visitors on the same world see the same crater in the same place and the
  * same alien says the same thing to both.
  *
- * **Nothing in Earth's first load imports this directory.** `main.ts` reaches it
+ * Nothing in Earth's first load imports this directory. `main.ts` reaches it
  * through one `import('./worlds/index.ts')`, fired when a body other than Earth
  * is chosen (the menu's *Explore*, or `?world=<id>`), and `scripts/check-worlds.ts`
  * walks the static graph of `main.ts` to hold that.
@@ -20,15 +20,15 @@
  *
  * # To add a planet (or flesh out one of the bare ones)
  *
- * One world is **two files of its own and nothing shared**:
+ * One world is two files of its own and nothing shared:
  *
- * 1. **`src/system/bodies/<id>.ts`** — the `Body`: the true numbers, the `look`
+ * 1. `src/system/bodies/<id>.ts` — the `Body`: the true numbers, the `look`
  *    colours, a `GroundModel` (`makeGround` in `system/ground.ts` builds one
  *    from a table), its `nations` (caps), its `settlements` and its `SPECIES`
  *    (a `Morph` each). This is the file the orrery and the menu already read,
  *    and `node scripts/check-system.ts` validates it. A giant's `ground` may
  *    stay `null`: the cloud deck below needs none.
- * 2. **`src/worlds/bodies/<id>.ts`** — exports `WORLD: WorldSpec`, built with
+ * 2. `src/worlds/bodies/<id>.ts` — exports `WORLD: WorldSpec`, built with
  *    `defineWorld(BODY, { ... })` so every field left out takes the default.
  *    `src/worlds/bodies/mars.ts` is the reference and fills every field; the
  *    others start bare and walkable.
@@ -45,12 +45,12 @@
  *   scenery context does not have;
  * - the noise in `src/system/noise.ts` (`fbm`, `ridged`, `onSphere`,
  *   `alignment`, `smoothstep`, `clamp`) for a `Feature`;
- * - `PALETTE` from `src/theme.ts` — **the only colours**: every colour a spec
+ * - `PALETTE` from `src/theme.ts` — the only colours: every colour a spec
  *   names must be a palette entry, which `check-worlds.ts` asserts;
  * - `Decoration`s from `src/system/parts/` (import the ones the biomes name);
  * - a custom building as a `BuildingBuilder` in `architecture.extra`, built
  *   from `SceneryContext`'s primitives (`box`, `column`, `taper`, `ringWall`,
- *   `strut`, `roof`; **`box` and every prism stand on `y = 0`**); a part
+ *   `strut`, `roof`; `box` and every prism stand on `y = 0`); a part
  *   wrapped in `ctx.lit` glows after dark, as does any colour in
  *   `architecture.glow`;
  * - the space kit (`public/models/space/`, ids in its `manifest.json`): the
@@ -74,7 +74,7 @@
  * The person is the same person on every world, so a world unit is Earth's
  * 0.398 km everywhere and a body's walkable radius is `surfaceRadiusOf` of its
  * real one: Mars 8,514 units, Jupiter's 1-bar level 175,600. Every length below
- * is in **world units** unless it says otherwise; a person is `AVATAR_HEIGHT`,
+ * is in world units unless it says otherwise; a person is `AVATAR_HEIGHT`,
  * 3.77. The ground mesh is drawn in tiles whose vertices are stored relative to
  * the tile's own centre, so a vertex at Jupiter's radius is as exact as one on
  * Mercury: the camera-relative difference is taken in the double-precision
@@ -156,7 +156,7 @@ export interface DetailRecipe {
  * A special landform, as a function: units of height to add at a point.
  *
  * `dir` is the unit vector (this project's frame, `sphere.ts`), `lat`/`lon` in
- * degrees. **Pure and cheap**: it runs once per ground vertex, about a
+ * degrees. Pure and cheap: it runs once per ground vertex, about a
  * thousand times per tile. Prefer an early `return 0` from a dot product over
  * anything trigonometric.
  */
@@ -206,8 +206,8 @@ export type GroundTint = (dir: { readonly x: number; readonly y: number; readonl
 
 /**
  * How a cloud deck's paint moves. Two motions, both in the shader and neither
- * moving a vertex: the **boil**, light and shade swelling in place along each
- * vertex's own phase, and the **drift**, a wave train running along the
+ * moving a vertex: the boil, light and shade swelling in place along each
+ * vertex's own phase, and the drift, a wave train running along the
  * parallels at the deck's wind speed (westward is negative).
  */
 export interface Churn {

@@ -3,95 +3,78 @@ import { SKY_DISTANCE } from './sun.ts';
 import { DAY_MOOD } from './theme.ts';
 
 /**
- * Light shafts at a low sun: the crepuscular rays, the "god rays" through a
- * gap in the clouds, a wood, a ridge, a line of masts or a town's roofs at
- * dawn and at dusk.
+ * Light shafts at a low sun: crepuscular rays through a gap in the clouds, a
+ * wood, a ridge or a town's roofs at dawn and dusk.
  *
- * **Depth alone, and the scene is never drawn again.** `post.ts` already
+ * The pass uses depth alone and never draws the scene again. `post.ts` already
  * resolves the depth of every frame for its ambient occlusion, and everything
- * that can hide the sun is in it: the land and the sea, the towns, the leaf
- * cards (alpha-tested, so a crown writes depth with its holes in it) and the
- * cloud deck (alpha to coverage, so it writes depth where it is drawn). The
- * sky is not in it — the dome draws last and pins itself to the far plane, and
- * both discs hang at `SKY_DISTANCE` — so a pixel further than half that is
- * sky and everything nearer is in the way (`SHAFT_SKY`). Three's own god-rays
- * example draws the scene a second time for a mask, which on this scene is
- * millions of triangles for one effect; and a volumetric pass marched through
- * the shadow map would see nothing the rays are about, because the map covers
- * 170 units round the player and the land never casts into it (`sun.ts`).
+ * that can hide the sun is in it (land, sea, towns, alpha-tested leaf cards,
+ * the cloud deck's alpha to coverage). The sky is not in it: the dome pins
+ * itself to the far plane and both discs hang at `SKY_DISTANCE`, so a pixel
+ * further than half that is sky and everything nearer is in the way
+ * (`SHAFT_SKY`).
  *
- * So the pass is screen space, GPU Gems 3 chapter 13 at a quarter of the
- * buffer: a mask of open sky round the sun on the screen, blurred toward the
- * sun twice — coarse taps the whole way, then fine ones over one coarse step,
- * which is `SHAFT_TAPS` squared samples for twice `SHAFT_TAPS` reads — and
- * laid over the frame as light in the air before the tone map, so AgX rolls
- * it off like any other highlight and the bloom never sees it.
+ * The pass is screen space (GPU Gems 3, chapter 13) at a quarter of the
+ * buffer: a mask of open sky round the sun, blurred toward the sun twice
+ * (coarse taps the whole way, then fine ones over one coarse step, which is
+ * `SHAFT_TAPS` squared samples for twice `SHAFT_TAPS` reads), and laid over the
+ * frame as light in the air before the tone map, so AgX rolls it off like any
+ * other highlight and the bloom never sees it.
  *
- * **Light in the air, not a filter.** What a shaft is, is the air between the
- * eye and the thing seen being lit, and how much of it there is scales with
- * how far away that thing is: the rays show over the far hills and the sky
- * between trunks, not on the trunk beside you or the hero's back
- * (`SHAFT_AIR`). And nothing within `SHAFT_NEAR` of the lens casts one, which
- * is where the hero stands: his silhouette against a low sun throwing rays
- * across half the frame is the look this pass must never have.
+ * A shaft is lit air between the eye and the thing seen, so its strength scales
+ * with how far away that is: rays show over far hills and between distant
+ * trunks, not on the trunk beside you (`SHAFT_AIR`). Nothing within
+ * `SHAFT_NEAR` of the lens casts one, which is where the hero stands, or his
+ * silhouette against a low sun would throw rays across half the frame.
  *
- * This file is the model — when there are shafts and where the sun is on the
- * screen, both pure and checked headless in `scripts/check-weather.ts` — and
- * the two programs; `post.ts` runs them.
+ * This file is the model (when there are shafts and where the sun is on the
+ * screen, both pure and checked headless in `scripts/check-weather.ts`) and the
+ * two programs; `post.ts` runs them.
  */
 
 /**
  * Degrees of sun elevation the shafts rise over: none from a sun four degrees
- * under the horizon, full from one a degree over it. Twilight rays fan up
- * from a sun that has already set — the sky round it is still lit and the
- * clouds and the ridge still cut it into rays — so the fade starts under the
- * horizon rather than at it.
+ * under the horizon, full from one a degree over it. Twilight rays still fan
+ * up from a sun that has set, so the fade starts under the horizon.
  */
 export const SHAFT_RISE: readonly [number, number] = [-4, 1];
 
 /**
- * Degrees the shafts fall from full to `SHAFT_FLOOR` over as the sun climbs.
- * A low sun is a long path through the air and the rays are its whole look; a
- * high one leaves a little, which is the rays through a canopy seen looking
- * up at midday.
+ * Degrees the shafts fall from full to `SHAFT_FLOOR` over as the sun climbs. A
+ * low sun is a long path through the air; a high one leaves a little, like
+ * rays through a canopy at midday.
  */
 export const SHAFT_HIGH: readonly [number, number] = [6, 35];
 export const SHAFT_FLOOR = 0.35;
 
 /**
- * The overcast band the shafts go out over: the band the cast shadow went out
- * over until the deck's shade (`cloud-shade.ts`) took the sun off the ground a
- * pixel at a time. The shadow now fades on the sun's own cut (`sunCut` in
- * `sun.ts`), which under a deck is only a little of the rain's gloom; the rays
- * stay on the overcast, the sky's grey, because a ray needs open sky round the
- * sun and the shade on the ground says nothing about the sky. A whole deck with
- * no rain reads only 0.3 (`weather-view.ts`), which keeps its rays: where the
+ * The overcast band the shafts go out over. They follow the sky's grey rather
+ * than the sun's cut (`sunCut` in `sun.ts`), because a ray needs open sky round
+ * the sun and the shade on the ground says nothing about the sky. A whole deck
+ * with no rain reads only 0.3 (`weather-view.ts`) and keeps its rays: where the
  * deck is solid the mask already says so.
  */
 export const SHAFT_OVERCAST: readonly [number, number] = [0.3, 0.8];
 
 /**
- * Mist is what the rays are made of, up to a point: a morning haze makes them
- * stronger by up to `SHAFT_MIST_GAIN`, and a fog that hides the sun takes them
- * away over this band.
+ * Mist is what the rays are made of, up to a point: a morning haze strengthens
+ * them by up to `SHAFT_MIST_GAIN`, and a fog that hides the sun takes them away
+ * over this band.
  */
 export const SHAFT_MIST: readonly [number, number] = [0.7, 1];
 export const SHAFT_MIST_GAIN = 0.5;
 
 /**
- * How far past the frame's edge the sun can be and still cast rays into it,
- * in normalised device coordinates on the larger axis: full to 1.1, none by
- * 1.8. A sun just over the top of the frame, or under its bottom at dusk while
- * you look at the clouds, still lights the air in it.
+ * How far past the frame's edge the sun can be and still cast rays into it, in
+ * normalised device coordinates on the larger axis: full to 1.1, none by 1.8.
  */
 export const SHAFT_EDGE: readonly [number, number] = [1.1, 1.8];
 
 /**
- * Units past which a pixel is sky. **Derived, not chosen**: the discs hang at
- * `SKY_DISTANCE` and the dome at the far plane, and the furthest ground ever in
- * view is 35,800 units off (the far limb from the plane's ceiling, `sun.ts`),
- * so half of `SKY_DISTANCE` is past the one and short of the other with room
- * either side. If `SKY_DISTANCE` or the ceiling moves, `pnpm weather` says so.
+ * Units past which a pixel is sky. The discs hang at `SKY_DISTANCE` and the
+ * dome at the far plane, and the furthest ground in view is 35,800 units off
+ * (the far limb from the plane's ceiling, `sun.ts`), so half of `SKY_DISTANCE`
+ * is past one and short of the other. If either moves, `pnpm weather` says so.
  */
 export const SHAFT_SKY = SKY_DISTANCE / 2;
 
@@ -99,22 +82,19 @@ export const SHAFT_SKY = SKY_DISTANCE / 2;
  * Nothing nearer the lens than the hero casts a ray: open up to this multiple
  * of his distance from it (`Post.shafts.subject`), wholly counted from the
  * second. On foot he stands 12 to 14 units in front of the camera
- * (`WALK_FRAMING` in `camera.ts`), and a low sun behind his head threw his
- * whole silhouette down the frame as a dark fan. In your own eyes he is the
- * eye's height away and the cut is nothing.
+ * (`WALK_FRAMING` in `camera.ts`); in first person the cut is nothing.
  */
 export const SHAFT_NEAR: readonly [number, number] = [1.1, 1.6];
 /**
- * Units past which the hero's distance stops pushing the cut out: from far
- * back or from the plane's circuit he is a speck, and what stands near him
- * should cast.
+ * Units past which the hero's distance stops pushing the cut out: from far back
+ * or from the plane's circuit he is a speck, and what stands near him should
+ * cast.
  */
 export const SHAFT_NEAR_MOST = 80;
 
 /**
- * Units of air in front of a pixel over which its shaft light comes in: none
- * on something this near, all of it from the second on. See the note on the
- * file: the light is the air's, and there is little air in front of the hero.
+ * Units of air in front of a pixel over which its shaft light comes in: none on
+ * something this near, all of it from the second on.
  */
 export const SHAFT_AIR: readonly [number, number] = [40, 1500];
 
@@ -126,25 +106,23 @@ export const SHAFT_TAPS = 24;
 
 /**
  * Weight kept per coarse tap on the way to the sun. None is lost: the glow's
- * share of the way already thins a ray as it leaves the sun — a pixel twice as
- * far from it has half as many of its taps inside `SHAFT_RADIUS` — so a decay
- * on top would only shorten the rays. Kept as a knob for tuning against a
- * frame (`atlas.post.shaftUniforms.uDecay`).
+ * falloff already thins a ray as it leaves the sun, so a decay on top would
+ * only shorten the rays. A knob for tuning (`atlas.post.shaftUniforms.uDecay`).
  */
 export const SHAFT_DECAY = 1;
 
 /**
  * The shape of the light, as two powers: of the glow an open sky would give
- * (`reach`: under 1 carries the rays further from the sun), and of the share
- * of it that gets through (`contrast`: over 1 darkens a half-lit ray more than
- * a lit one, which is what makes a ray read as a ray rather than as haze).
+ * (`reach`: under 1 carries the rays further from the sun), and of the share of
+ * it that gets through (`contrast`: over 1 darkens a half-lit ray more than a
+ * lit one, so a ray reads as a ray rather than haze).
  */
 export const SHAFT_SHAPE: readonly [number, number] = [0.75, 2];
 
 /**
  * How soft a ray's edge is: the fine blur spreads its taps across the ray by
- * this share of the distance to the sun, so an edge straight through the sun
- * is a penumbra that widens away from it rather than a ruled line.
+ * this share of the distance to the sun, so an edge through the sun is a
+ * penumbra that widens away from it.
  */
 export const SHAFT_SOFT = 0.15;
 
@@ -177,9 +155,8 @@ const smoothstep = (a: number, b: number, x: number): number => {
 
 /**
  * How strong the shafts are, 0 to about 1.3: 1 is a clear sky and a sun under
- * `SHAFT_HIGH`'s first degree. Everything in it is a fade, so a day scrubbed
- * at any rate never pops — `pnpm weather` walks one at Palma in two-second
- * steps through `sun.ts` itself.
+ * `SHAFT_HIGH`'s first degree. Everything in it is a fade, so a scrubbed day
+ * never pops; `pnpm weather` walks one at Palma through `sun.ts` itself.
  */
 export function shaftStrength(input: ShaftInput): number {
   if (input.underwater) return 0;
@@ -198,13 +175,13 @@ export interface ShaftCamera {
 }
 
 /**
- * Where the sun is on the screen, and how much of it counts: writes its
- * texture coordinates into `outUv` and returns 1 while it is inside the frame,
- * fading to 0 by `SHAFT_EDGE` outside it, and 0 behind the camera.
+ * Where the sun is on the screen, and how much of it counts: writes its texture
+ * coordinates into `outUv` and returns 1 while it is inside the frame, fading
+ * to 0 by `SHAFT_EDGE` outside it, and 0 behind the camera.
  *
  * A direction, not a point: `dir` goes through the view's rotation only
- * (`w = 0`), which is what a sun at infinity is. The camera's matrices are as
- * of its last render. Nothing allocates.
+ * (`w = 0`), as a sun at infinity does. The camera's matrices are as of its last
+ * render. Nothing allocates.
  */
 export function sunOnScreen(camera: ShaftCamera, dir: { x: number; y: number; z: number }, outUv: { x: number; y: number }): number {
   const v = camera.matrixWorldInverse.elements;
@@ -230,7 +207,7 @@ export function sunOnScreen(camera: ShaftCamera, dir: { x: number; y: number; z:
 /**
  * The shafts' light: the sun's colour and brightness as the mood and the
  * weather have left them, over its full-day intensity, so a dusk's rays are
- * the dusk's orange and a greyed sun's are grey. Written into `out`.
+ * orange and a greyed sun's are grey. Written into `out`.
  */
 export function shaftLight(sun: THREE.DirectionalLight, out: THREE.Color): THREE.Color {
   return out.copy(sun.color).multiplyScalar(sun.intensity / DAY_MOOD.sunIntensity);
@@ -246,11 +223,11 @@ float shaftDistance(float depth) {
 
 /**
  * The mask, at a quarter of the buffer: how much of the pixel is open sky, as
- * four depth taps spread over its 4x4 block of the full buffer — one tap would
- * flicker on every leaf, wire and dithered cloud rim as it crosses a quarter
- * texel — times a falloff round the sun on the screen; and in green the
- * falloff alone, what the pixel would give if nothing stood in the way. Both
- * go through the same blurs, so the grade can tell a ray from a glow.
+ * four depth taps over its 4x4 block of the full buffer (one tap would flicker
+ * on every leaf, wire and dithered cloud rim) times a falloff round the sun on
+ * the screen; and in green the falloff alone, what the pixel would give if
+ * nothing stood in the way. Both go through the same blurs, so the grade can
+ * tell a ray from a glow.
  */
 export const SHAFT_MASK_FRAGMENT = /* glsl */ `
 uniform sampler2D tDepth;
@@ -277,9 +254,9 @@ void main() {
 
 /**
  * One radial blur toward the sun: `SHAFT_TAPS` taps, `uStep` of the way to it
- * apart, each `uDecay` of the last, started a per-pixel fraction of a step
- * along (interleaved gradient noise, the AO's) so the steps are a fine static
- * grain and not a stack of ghost copies of every occluder.
+ * apart, each `uDecay` of the last, started a per-pixel fraction of a step along
+ * (interleaved gradient noise, the AO's) so the steps are a fine static grain
+ * and not a stack of ghost copies of every occluder.
  */
 export const SHAFT_BLUR_FRAGMENT = /* glsl */ `
 uniform sampler2D tInput;

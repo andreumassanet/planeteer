@@ -34,7 +34,7 @@ import { unitAt } from '../sphere.ts';
 
 /**
  * The one place a JavaScript `Date` becomes an astronomical epoch is
- * `celestial.ts`, since the night sky (2026-09-30): the sidereal time in the
+ * `celestial.ts`: the sidereal time in the
  * first load needs it, and importing it from here would have carried this
  * whole table into that load with it. Re-exported, so nothing that asked this
  * file for it has to know.

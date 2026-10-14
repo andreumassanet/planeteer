@@ -2,20 +2,14 @@
  * Craters, as a field: how high the ground is lifted or dug at a point, by
  * every crater whose reach covers it.
  *
- * A crater generator that *placed* craters — a list, sorted, indexed — would
- * be a second data structure the tiles, the foot and the check all had to
- * agree about. This is the other shape: **a pure function of the point**. Each
- * face of the cube-sphere (`cube.ts`) is cut into square cells about `cell`
- * units on a side (one lattice a size class); each cell holds at most one
- * crater, and its centre, radius, depth and age are a hash of the face and
- * the cell. A point asks the 3 x 3 cells round its own, on every face it
- * faces, and sums what they say. Two tiles that share an edge ask the same
- * cells about the same points, so the seam is exact; the foot asks the same
- * cells as the mesh it stands on; and nothing is stored.
- *
- * It was a lattice of cubes in space first, 27 of them a class a point, and
- * a third of a tile's build went on hashing cubes that held nothing; the faces
- * are nine a class, and on a face's edge eighteen.
+ * A pure function of the point, so the tiles, the foot and the check never have
+ * to agree about a list. Each face of the cube-sphere (`cube.ts`) is cut into
+ * square cells about `cell` units on a side (one lattice a size class); each
+ * cell holds at most one crater, and its centre, radius, depth and age are a
+ * hash of the face and the cell. A point asks the 3 x 3 cells round its own, on
+ * every face it faces, and sums what they say. Two tiles that share an edge ask
+ * the same cells about the same points, so the seam is exact; the foot asks the
+ * same cells as the mesh it stands on; and nothing is stored.
  *
  * ## The profile
  *
@@ -31,10 +25,10 @@
  * crater past `complexAbove` keeps a flat floor at 70% of its depth and grows a
  * central peak, which is what a big fresh crater on any rocky body has.
  *
- * Every crater also carries an **age** from its hash: an old one is shallower
- * and its rim softer, so a field of them reads as a history rather than as a
- * stamp repeated. Overlapping craters sum, which is what overprinting looks
- * like from the ground.
+ * Every crater also carries an age from its hash: an old one is shallower and
+ * its rim softer, so a field of them reads as a history rather than as a stamp
+ * repeated. Overlapping craters sum, which is what overprinting looks like from
+ * the ground.
  */
 
 import type { CraterClass, CraterRecipe } from './contract.ts';

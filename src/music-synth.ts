@@ -1,27 +1,23 @@
 /**
  * The music's struck and plucked instruments, rendered into sample arrays.
  *
- * **A plucked string cannot be an oscillator.** What makes a guitar a guitar
- * is a spectrum that starts bright and darkens as it rings, the high partials
- * dying first, and an oscillator through a closing filter is a synthesiser
- * imitating that. The Karplus–Strong loop *is* it: a burst of noise the length
- * of one period, circulating through a delay and a gentle low-pass, loses its
- * top every trip round exactly as a string does. The same goes for a bar or a
- * bell, whose partials are not harmonics at all — a marimba bar's second mode
- * is near 4x its first, a metallophone's near 2.76x — so those are a handful
- * of decaying sinusoids at the instrument's own ratios.
+ * A plucked string is not an oscillator: its spectrum starts bright and
+ * darkens as it rings. The Karplus-Strong loop does that naturally: a burst of
+ * noise one period long, circulating through a delay and a gentle low-pass,
+ * loses its top every trip round as a string does. Bars and bells have
+ * inharmonic partials (a marimba bar's second mode is near 4x its first, a
+ * metallophone's near 2.76x), so those are a handful of decaying sinusoids at
+ * the instrument's own ratios.
  *
- * **Rendered, not run live.** Web Audio has no delay short enough for a
- * feedback loop of one period without an `AudioWorklet`, and a worklet is a
- * second file to fetch and a thread per context. So each note is rendered once
- * into a `Float32Array`, at a sample rate chosen for the instrument, and cached
- * by the engine; a note is then one buffer source and one gain. This file is
- * pure arithmetic with no Web Audio in it, so `scripts/check-music.ts` runs
- * every renderer under Node.
+ * Each note is rendered once into a `Float32Array` at a sample rate chosen for
+ * the instrument and cached by the engine, because Web Audio has no delay short
+ * enough for a one-period feedback loop without an `AudioWorklet`. A note is
+ * then one buffer source and one gain. This file is pure arithmetic with no
+ * Web Audio in it, so `scripts/check-music.ts` runs every renderer under Node.
  *
- * **Every render is normalised to one peak and ends in silence**: the loudness
- * of a note is the engine's velocity and never an accident of its pitch, and a
- * buffer that stops mid-ring clicks.
+ * Every render is normalised to one peak and ends in silence, so loudness is
+ * the engine's velocity and not an accident of pitch, and a buffer that stops
+ * mid-ring does not click.
  */
 
 /** A string, for the Karplus–Strong loop. */
@@ -106,14 +102,12 @@ function finish(out: Float32Array<ArrayBuffer>, sampleRate: number, peak = 0.9):
 }
 
 /**
- * One plucked note.
- *
- * The loop is the textbook one with the two refinements every usable version
- * has. **A fractional delay**: a period of 44.1 samples cannot be a delay of
- * 44, or a string at 1 kHz is a quarter-tone flat, so the remainder is a
- * first-order all-pass (Jaffe and Smith, 1983). **A decay independent of
- * pitch**: the loss per trip is set from the time to fall 60 dB, or a low
- * string would ring for ten seconds and a high one for a tenth.
+ * One plucked note: the textbook loop with two refinements. A fractional delay
+ * (a period of 44.1 samples cannot be a delay of 44, or a string at 1 kHz is a
+ * quarter-tone flat), done with a first-order all-pass (Jaffe and Smith, 1983);
+ * and a decay independent of pitch, with the loss per trip set from the time to
+ * fall 60 dB, or a low string would ring for ten seconds and a high one for a
+ * tenth.
  */
 export function renderPluck(spec: PluckSpec, frequency: number, sampleRate: number, seed = 1): Float32Array<ArrayBuffer> {
   const total = Math.max(1, Math.floor(sampleRate * spec.length));
@@ -133,9 +127,9 @@ export function renderPluck(spec: PluckSpec, frequency: number, sampleRate: numb
   // is the rest of the loss per period, to reach -60 dB at `t60`.
   const rho = Math.pow(0.001, 1 / Math.max(0.05, t60 * frequency));
 
-  // The excitation: a burst of noise, darkened by the pick, and notched where
-  // the string was plucked — a comb at `position` of the length is what a
-  // finger that far from the bridge does to the partials.
+  // The excitation: a burst of noise, darkened by the pick and notched where the
+  // string was plucked (a comb at `position` of the length, as a finger that far
+  // from the bridge does to the partials).
   const line = new Float32Array(length);
   const noise = noiseFrom(seed + Math.round(frequency * 16));
   const pole = 0.05 + 0.9 * (1 - spec.bright);
@@ -174,9 +168,9 @@ export function renderPluck(spec: PluckSpec, frequency: number, sampleRate: numb
     apIn = filtered;
     apOut = y;
     if (spec.buzz > 0) {
-      // The jawari: a string grazing a curved bridge is clipped on one side
-      // only, which feeds the upper partials back in on every trip — the
-      // sitar's shimmer that brightens where a plain string would darken.
+      // The jawari: a string grazing a curved bridge is clipped on one side only,
+      // which feeds the upper partials back in on every trip, brightening where a
+      // plain string would darken.
       if (y > threshold) y = threshold + (y - threshold) * (1 - spec.buzz);
     }
     line[index] = y;

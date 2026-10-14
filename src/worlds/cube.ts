@@ -4,15 +4,14 @@
  *
  * A latitude-longitude grid would pinch at the poles and a geodesic one has no
  * square children; a cube projected onto the sphere has neither problem and its
- * tiles split into four exactly. The face coordinates are **warped by a
- * tangent** (`u' = tan(u pi / 4)`) before the projection, which brings the
- * largest cell down from 1.8 times the smallest to 1.4.
+ * tiles split into four exactly. The face coordinates are warped by a tangent
+ * (`u' = tan(u pi / 4)`) before the projection, which brings the largest cell
+ * down from 1.8 times the smallest to 1.4.
  *
  * Every face is laid so that `uAxis x vAxis` is its outward normal, so a grid
- * wound `(i, j) -> (i+1, j) -> (i+1, j+1)` is counter-clockwise from outside —
- * front-facing — on all six. That is the one fact about the cube the tiles
- * cannot get wrong without the ground vanishing, and `check-worlds.ts` asserts
- * it on every face rather than trusting this comment.
+ * wound `(i, j) -> (i+1, j) -> (i+1, j+1)` is counter-clockwise from outside
+ * (front-facing) on all six. The tiles cannot get that wrong without the ground
+ * vanishing, and `check-worlds.ts` asserts it on every face.
  */
 
 /** Quads along a tile's edge. 32 is 2,048 triangles a tile and a 33x33 grid. */

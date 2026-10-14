@@ -8,31 +8,24 @@ import { unitAt } from './sphere.ts';
 /**
  * The weather, as a pure function of where and when.
  *
- * **Nothing about it is sent, stored or random**: `weatherAt(lat, lon,
- * elevation, time)` is the whole model, so every client on the relay that asks
- * about the same place at the same instant gets the same rain, and scrubbing
- * `atlas.sky.setTime` scrubs the weather with the sun. What draws it —
- * the rain and snow round the camera, the lightning, the wet and the snow on
- * the ground, the sky's grey — is `weather-view.ts`, which asks this a few
- * times a second and eases between the answers.
+ * Nothing about it is sent, stored or random: `weatherAt(lat, lon, elevation,
+ * time)` is the whole model, so every client asking about the same place and
+ * instant gets the same rain, and scrubbing `atlas.sky.setTime` scrubs the
+ * weather with the sun. `weather-view.ts` draws it, asking a few times a second.
  *
- * **The clouds are the weather, not a picture of it.** The cover here is the
- * deck's own coverage field (`coverageAt` in `clouds.ts`) read at the point
- * under you through the deck's turn at that instant, so where the deck has a
- * bank there is cloud, and where the bank is deepest — the tall middle the
- * deck builds as a tower — is where it rains. Walk out from under a bank and
- * the rain stops at the same edge the sky shows. The deck turns about a tilted
- * axis once every 19 hours, so the weather drifts with it and a front passes.
+ * The clouds are the weather: the cover is the deck's own coverage field
+ * (`coverageAt` in `clouds.ts`) read at the point under you through the deck's
+ * turn at that instant, and it rains where the bank is deepest. The deck turns
+ * about a tilted axis once every 19 hours, so a front passes.
  *
- * **What the deck cannot know is the climate**, and the rest of this file is
- * that: whether a deep bank rains at all is its moisture — `biomeAt`'s, the
- * same number that made the ground a desert or a forest — shifted by the
- * season (the rain belt follows the sun, and South Asia's monsoon is a term of
- * its own) and by a slow field of fronts that wanders over days, so a wet
- * place has dry spells and the Sahara keeps its cloud and not its rain.
- * Whether it falls as rain or snow is the temperature — `biome.ts`'s mean,
- * the season's swing, the hour's, the height's lapse — and whether it is a
- * storm is how deep the bank is and how warm the air, or how strong the front.
+ * The rest is the climate the deck cannot know. Whether a deep bank rains at
+ * all is its moisture (`biomeAt`'s, the number that made the ground a desert or
+ * a forest), shifted by the season (the rain belt follows the sun, and South
+ * Asia's monsoon is a term of its own) and by a slow field of fronts that
+ * wanders over days. Whether it falls as rain or snow is the temperature:
+ * `biome.ts`'s mean, the season's swing, the hour's and the height's lapse.
+ * Whether it is a storm is how deep the bank is and how warm the air, or how
+ * strong the front.
  */
 
 export type WeatherKind = 'clear' | 'cloudy' | 'fog' | 'drizzle' | 'rain' | 'storm' | 'snow';
@@ -107,11 +100,10 @@ export function seasonOf(timeMs: number): number {
 }
 
 /**
- * The same phase as an angle, radians: 0 at the height of the northern
- * summer, a quarter turn at the height of its autumn (mid-October), a half at
- * the depth of its winter. `seasonOf` is its cosine; its sine tells autumn
- * (+) from spring (-), which the cosine alone cannot — the falling leaves in
- * `ambient.ts` read it.
+ * The same phase as an angle, radians: 0 at the height of the northern summer,
+ * a quarter turn at the height of its autumn (mid-October), a half at the depth
+ * of its winter. Its sine tells autumn (+) from spring (-), which the cosine
+ * alone cannot; the falling leaves in `ambient.ts` read it.
  */
 export function seasonTurn(timeMs: number): number {
   return (2 * Math.PI * (timeMs / DAY_MS - SUMMER_PEAK_DAY)) / YEAR_DAYS;
@@ -124,18 +116,17 @@ function solarHour(timeMs: number, lon: number): number {
 }
 
 /**
- * How far the rain belt swings with the sun, in degrees of latitude. The ITCZ
- * wanders about this far either side of the equator over a year, and it is
- * what gives the Sahel and the savannas their one wet season.
+ * How far the rain belt swings with the sun, in degrees of latitude: the ITCZ
+ * wanders about this far either side of the equator over a year, giving the
+ * Sahel and the savannas their one wet season.
  */
 const ITCZ_SWING = 7;
 
 /**
  * The monsoon, as a box and a season: South and South-East Asia wetter by this
  * much at the height of the northern summer and drier by `MONSOON_DRY` in its
- * winter. The one regional term in the model, because it is the one climate
- * a latitude cannot give — Mumbai gets four-fifths of its year's rain in four
- * months.
+ * winter. The one regional term, because it is the one climate a latitude
+ * cannot give.
  */
 const MONSOON_WET = 0.42;
 const MONSOON_DRY = 0.3;
@@ -149,7 +140,7 @@ function monsoonAt(lat: number, lon: number, season: number): number {
 
 /**
  * The fronts: a slow field that wanders through itself over days, so a wet
- * climate has its dry spells. Its span is several banks wide, so a front is a
+ * climate has dry spells. Its span is several banks wide, so a front is a
  * region having a wet week rather than one cloud having a bad hour.
  */
 const FRONT_FREQUENCY = 2.2;
@@ -218,7 +209,7 @@ export function weatherAt(
   biomeAt(unit.x, unit.y, unit.z, lat, lon, elevation, climate);
 
   // The deck overhead: the point under you, turned back into the deck's own
-  // frame, which is where its field was evaluated when it was built.
+  // frame, where its field was evaluated.
   deckTurn(timeMs, turn);
   drift.copy(unit).applyQuaternion(turn.invert());
   const coverage = coverageAt(drift.x, drift.y, drift.z);
@@ -346,10 +337,10 @@ export function classify(target: WeatherSample): WeatherSample {
 
 /**
  * A place to start a strike from, and whether one is due: the lightning as a
- * pure function of the clock, so everybody under the same storm sees the same
- * bolt. The sky is cut into cells of `STRIKE_CELL` degrees and the clock into
- * `STRIKE_SLOT_MS` slots; each cell rolls once a slot, and a roll under
- * `STRIKE_ODDS` times the storm at the point it names is a strike there.
+ * pure function of the clock. The sky is cut into cells of `STRIKE_CELL` degrees
+ * and the clock into `STRIKE_SLOT_MS` slots; each cell rolls once a slot, and a
+ * roll under `STRIKE_ODDS` times the storm at the point it names is a strike
+ * there.
  */
 export const STRIKE_CELL = 1.5;
 export const STRIKE_SLOT_MS = 2000;

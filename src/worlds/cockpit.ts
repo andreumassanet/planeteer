@@ -1,47 +1,40 @@
 /**
- * The inside of the other worlds' closed craft — the space kit's pressurised
- * rovers and its lander — built by **Earth's own cabin code**, not a copy of
- * it: the same see-through glass, the same lining, the same seats, dashboard,
- * wheel and instruments (`craft/cabin.ts`), laid off the kit model's own shell
- * as Earth's cars are laid off theirs (`craft/cars.ts`).
+ * The inside of the other worlds' closed craft (the space kit's pressurised
+ * rovers and its lander), built by Earth's own cabin code: the same
+ * see-through glass, lining, seats, dashboard, wheel and instruments
+ * (`craft/cabin.ts`), laid off the kit model's own shell as Earth's cars are
+ * laid off theirs (`craft/cars.ts`).
  *
- * **Why the driver was hidden, and what changed.** Until 2026-10-04 a closed
- * kit craft hid its pilot (`KitCraft.closed`): its windows were the pack's
- * near-black, painted slate, and a body sat in its hull poked out through
- * the roof, because the craft were fitted by length and not by the head of
- * the person in them. Now each is fitted the way an Earth car is — by
- * whether a seated crown clears its roof — and glazed: the window triangles
- * come out of the shell and are drawn in `glassMaterial` (blended, both
- * sides, writing no depth, no ink), and what hides the far wall's ink hull
- * through a window is the lining (`liner`), never the glass. So the driver
- * is seen from outside, and `V` in the seat looks out through the glass.
+ * Each craft is fitted the way an Earth car is, by whether a seated crown
+ * clears its roof, and glazed: the window triangles come out of the shell and
+ * are drawn in `glassMaterial` (blended, both sides, writing no depth, no ink),
+ * and what hides the far wall's ink hull through a window is the lining
+ * (`liner`), never the glass. So the driver is seen from outside, and `V` in the
+ * seat looks out through the glass.
  *
  * Two shapes of inside:
  *
- * - **A cab** (the rovers): Quaternius's rovers are a car's shape, a cab with
- *   a windscreen and side windows, and `insideOf` furnishes them as it does a
- *   hatchback — the front row laid under the roof, the dashboard to the
- *   windscreen, the wheel on its column. Their glass is the pack's darkest
- *   slot (`isPane`, the near-black `craftPaint` read as a window), and their
- *   side windows are a little smaller, as a share of a model whose height is
- *   its mast, than `WINDOW_AREA` admits (`CAB_PANE_AREA`). The front row goes
- *   as far forward as the roof lets a seated head (`frontRow`): the cab's
- *   roof is raised only over its front.
- * - **A canopy** (the lander): Quaternius's Rae the Red Panda is a sealed
- *   fuselage with a glass bubble on its back, the bubble a fifth of a body
- *   deep over the fuselage's top. So the hull under the bubble is **cut
- *   away** — every triangle of the shell that has the glass straight over it
- *   and stands higher than the glass's own lowest edge — and the pilot sits
- *   in the fuselage with the head up in the bubble, at the yoke, a panel of
- *   instruments ahead (`roadCabin` with one seat on the axis), the cockpit
- *   closed behind the seat by a bulkhead so the eye does not look down the
- *   unlined fuselage.
+ * - A cab (the rovers): a car's shape, with a windscreen and side windows,
+ *   furnished by `insideOf` as a hatchback is: the front row laid under the
+ *   roof, the dashboard to the windscreen, the wheel on its column. Their glass
+ *   is the pack's darkest slot (`isPane`), and their side windows are a little
+ *   smaller, as a share of a model whose height is its mast, than `WINDOW_AREA`
+ *   admits (`CAB_PANE_AREA`). The front row goes as far forward as the roof lets
+ *   a seated head (`frontRow`): the cab's roof is raised only over its front.
+ * - A canopy (the lander): a sealed fuselage with a glass bubble on its back,
+ *   the bubble a fifth of a body deep over the fuselage's top. The hull under
+ *   the bubble is cut away (every triangle of the shell that has the glass
+ *   straight over it and stands higher than the glass's own lowest edge) and the
+ *   pilot sits in the fuselage with the head up in the bubble, at the yoke, a
+ *   panel of instruments ahead (`roadCabin` with one seat on the axis), the
+ *   cockpit closed behind the seat by a bulkhead so the eye does not look down
+ *   the unlined fuselage.
  *
  * Built once a model and a length (`cockpitOf`), in the craft's fitted frame
- * — the model centred over its box, standing on `y = 0`, facing +Z, scaled by
- * `k` — which is `kitModel`'s (`craft.ts`) before its legs lift it; and
- * **throws** where no seated body fits, so a length that cannot hold the
- * person fails `scripts/check-worlds.ts` rather than seating them in the roof.
+ * (the model centred over its box, standing on `y = 0`, facing +Z, scaled by
+ * `k`), which is `kitModel`'s before its legs lift it. Throws where no seated
+ * body fits, so a length that cannot hold the person fails
+ * `scripts/check-worlds.ts` rather than seating them in the roof.
  */
 
 import * as THREE from 'three';
@@ -110,14 +103,13 @@ const FLOOR_OVER = 0.03 * H;
 const HEAD_ROOM = 0.03 * H;
 
 /**
- * How far inside a cut-open hull its lining stands: a quarter of
- * `LINER_INSET`. The cut leaves open edges all round the cockpit, and along
- * one the welded normal the lining is set in by leans across the edge, so
- * at the full inset the lining stood off the rim it lines and the seated eye
- * saw a sliver of the hull's back, and its ink, round the bubble (8% of what
- * it saw of the hull, measured on the lander); at a quarter, under a
- * percent. The lining's fill is still nearer the eye than the hull's ink,
- * which is pushed out from the hull and away from anyone inside it.
+ * How far inside a cut-open hull its lining stands: a quarter of `LINER_INSET`.
+ * The cut leaves open edges all round the cockpit, and along one the welded
+ * normal the lining is set in by leans across the edge, so at the full inset the
+ * lining stands off the rim it lines and the seated eye sees a sliver of the
+ * hull's back, and its ink, round the bubble. The lining's fill is still nearer
+ * the eye than the hull's ink, which is pushed out from the hull and away from
+ * anyone inside it.
  */
 const CUT_INSET = LINER_INSET / 4;
 
@@ -344,9 +336,8 @@ function canopy(model: Model, k: number): Cockpit {
   const fore = Math.max(cabin.firewall, box.max.z + 0.05 * H);
   const bulkhead = (from: number): Soup => {
     const stations: Station[] = [];
-    // Its edge follows the hull's section at seven heights, as wide as the
-    // hull lets it be at each: one width for the whole height left a gap
-    // beside it where the fuselage bellies out.
+    // Its edge follows the hull's section at seven heights, as wide as the hull
+    // lets it be at each, so no gap is left where the fuselage bellies out.
     const steps = 6;
     let top = 0;
     for (const z of [from, from + thick]) top = Math.max(top, probe.ceiling(0, floor + 0.05 * H, z) - 0.01 * H);
@@ -356,8 +347,8 @@ function canopy(model: Model, k: number): Cockpit {
       for (let i = 0; i <= steps; i++) {
         const y = floor - 0.02 * H + ((top - floor + 0.02 * H) * i) / steps;
         const at = Math.min(Math.max(y, floor + 0.01 * H), top - 0.01 * H);
-        // The hull's own sides, not the glass: the bubble's skirt comes down
-        // inside the hull's cheeks, and a width taken to it left a gap.
+        // The hull's own sides, not the glass: the bubble's skirt comes down inside the
+        // hull's cheeks.
         const half = Math.min(hull.wall(at, z, 1), hull.wall(at, z, -1)) - 0.01 * H;
         if (Number.isFinite(half) && half > 0.05 * H) last = half;
         side.push([last, y]);

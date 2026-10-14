@@ -21,8 +21,7 @@
  *   basalt and basalt swept bare, and they have been the primary observable
  *   about this planet for two hundred years.
  * - **The species is a `Morph`, not a re-skin.** Four arms, three eyes, a
- *   crest, and half again the height of the 6.8-unit avatar of before
- *   2026-09-24 (see `people` below) — because 0.38 g is the one
+ *   crest, and half again the height of the avatar (see `people` below) — because 0.38 g is the one
  *   physical fact about Mars that a body could be expected to answer to.
  */
 
@@ -410,8 +409,8 @@ const SETTLEMENTS: readonly Settlement[] = [
  * **0.38 g is the fact a body could answer to**, and it answers in the
  * direction everything about low gravity does: a skeleton doing the same job
  * can be longer and thinner, because what a leg has to resist is weight. So the
- * height is one and a half times a person's — 10.2 units against the 6.8 a
- * person was until 2026-09-24, scaled with them by `BODY_SCALE` — with the
+ * height is one and a half times a person's — 1.5 times the avatar's height,
+ * scaled by `BODY_SCALE` — with the
  * legs at half the height rather than 0.44 and the limbs a third narrower.
  *
  * **Five heads and not four.** The avatar is exactly four heads, which is the
