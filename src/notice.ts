@@ -1,24 +1,16 @@
 /**
- * A card over everything, for the few things the player has to be told before
- * or instead of the world: no WebGL 2, a touch screen, a lost graphics context,
- * a failure. **Built from `index.html`'s own markup and tokens rather than from
- * `ui.ts`**, because the first two are asked before anything is downloaded and
- * the last can be a download that failed — `ui.ts` is in the HUD's chunk, and a
- * card that needs a chunk to say the chunks did not arrive says nothing.
- *
- * Its own module, imported statically by `main.ts` so it stays in the first
- * chunk, and so that `pnpm ui` can open it on the page's real markup without
- * booting the world.
+ * A card over everything, for what the player must be told before or instead
+ * of the world: no WebGL 2, a lost graphics context, a failure. It uses
+ * `index.html`'s own markup and styles rather than `ui.ts`, because it may
+ * have to report that the chunks holding `ui.ts` failed to download. Kept in
+ * the first chunk, and testable on the page's markup without the world.
  */
 import { holdFocus, registerModal } from './controls.ts';
 
 export interface NoticeAction {
   label: string;
   primary?: boolean;
-  /**
-   * `Esc` presses it: the way out of a card that only says something — never
-   * a reload, which `Esc` taking would be a lost world for a reflex.
-   */
+  /** `Esc` presses it. Only for a dismissal, never a reload. */
   escape?: boolean;
   run(): void;
 }
@@ -28,16 +20,13 @@ let onEscape: (() => void) | null = null;
 
 let open = false;
 registerModal(() => open);
-// And the focus with the keys: `Tab` walked out of the card onto the controls
-// behind it while it was still up. Added as this module loads, before any
-// other card's listener, which is what lets the card over everything answer
-// `Tab` first when another card is up under it (`holdFocus`).
+// Keeps `Tab` inside the card. Registered as the module loads, before any
+// other card's listener, so this card answers first when another is open under it.
 addEventListener('keydown', (event) => {
   const card = document.getElementById('notice');
   if (open && card !== null) holdFocus(event, card);
   if (open && event.code === 'Escape' && onEscape !== null) {
-    // The card's alone: closed by it, the screen behind would otherwise take
-    // the same key as its own `Esc` the moment the card stopped holding it.
+    // Stopped here, or the screen behind would take the same `Esc` once the card closes.
     event.preventDefault();
     event.stopImmediatePropagation();
     onEscape();
@@ -47,13 +36,14 @@ addEventListener('keydown', (event) => {
 /** Whether a notice is up. */
 export const noticeOpen = (): boolean => open;
 
+/** Shows the card with `actions` as its buttons; each closes it before running. */
 export function notice(title: string, text: string, actions: readonly NoticeAction[]): void {
   const root = document.getElementById('notice');
   const heading = document.getElementById('notice-title');
   const body = document.getElementById('notice-text');
   const row = document.getElementById('notice-actions');
   if (root === null || heading === null || body === null || row === null) {
-    // Nowhere to put it, which is only possible if `index.html` lost it.
+    // Only if `index.html` lost the markup.
     alert(`${title}\n\n${text}`);
     return;
   }
@@ -67,8 +57,7 @@ export function notice(title: string, text: string, actions: readonly NoticeActi
       button.className = action.primary === true ? 'n-btn primary' : 'n-btn';
       button.textContent = action.label;
       const press = (): void => {
-        // Back to the world, like the welcome card: nothing opened this one,
-        // so there is no control to hand the focus back to.
+        // Nothing opened this card, so there is no control to return focus to.
         button.blur();
         root.hidden = true;
         open = false;
@@ -82,8 +71,7 @@ export function notice(title: string, text: string, actions: readonly NoticeActi
   );
   root.hidden = false;
   open = true;
-  // Some mobile browsers do not implement Pointer Lock at all. In those
-  // browsers pointerLockElement is `undefined`, which is still !== null.
+  // Browsers without Pointer Lock report `undefined` here, hence `!=`.
   if (document.pointerLockElement != null && typeof document.exitPointerLock === 'function') {
     document.exitPointerLock();
   }

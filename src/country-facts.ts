@@ -1,19 +1,16 @@
 /**
  * What a person would say about a country: its capital, how many live there,
  * how big it is, what they speak, what they pay with and which continent it is
- * on. The townsfolk read it (`talk.ts`); a card that named the country as you
- * crossed into it read it too, until 2026-10-01.
+ * on. The townsfolk read it (`talk.ts`).
  *
  * Baked by `scripts/build-country-info.mjs` from GeoNames' `countryInfo.txt`
- * (CC BY 4.0, credited with the places) into `public/data/countries-info.json`,
- * keyed by the same `iso` the outlines, the flags and the clock use. 228 of the
- * 239 drawn features have a row; the eleven that do not are not countries —
- * bases, buffer zones, unclaimed or unrecognised ground — and answer `null`
- * rather than a neighbour's facts.
+ * (CC BY 4.0) into `public/data/countries-info.json`, keyed by the same `iso`
+ * the outlines, the flags and the clock use. Features that are not countries
+ * (bases, buffer zones, unclaimed ground) have no row and answer `null` rather
+ * than a neighbour's facts.
  *
- * **Not in the first load.** It is 10 KB gzipped of something nothing needs
- * until the first conversation, so it is fetched then and kept: every call
- * after the first resolves from the same promise.
+ * Not in the first load: it is fetched on the first conversation and kept, and
+ * every call after the first resolves from the same promise.
  */
 import { DATA_URL } from './pack.ts';
 

@@ -1,31 +1,18 @@
 /**
- * The card language every overlay speaks, written once.
+ * The card language every overlay speaks, written once: the tokens, the card, the
+ * button, the key cap, the switch, the slider, the segmented control, the focus
+ * ring and the icons the start menu, the HUD, the settings panel and the world
+ * map are built from, and the two one-liners every canvas and stylesheet needs,
+ * `hex` and `FONT`.
  *
- * **Four files used to restate it** — `index.html`, `hud.ts`, `map.ts` and
- * `menu.ts` each carried their own copy of the cream card with the 3 px ink
- * rim and the hard 5 px drop, and their own `kbd`. They agreed because they
- * were copied on the same afternoon, which is not the same thing as agreeing.
- * This file is the one definition of the pieces the start menu, the HUD, the
- * settings panel and the world map are built from: the tokens, the card, the
- * button, the key cap, the switch, the slider, the segmented control, the
- * focus ring and the icons — and of the two one-liners every canvas and
- * stylesheet here needs, `hex` and `FONT`.
+ * The look is the world's own. The world is inked (`OutlineEffect` draws a black
+ * line round every mesh and the fills are flat cel bands), so the UI is inked
+ * too: flat fills from `PALETTE`, a solid ink rim and a hard shadow with no blur.
  *
- * The look is the world's own. The world is inked — `OutlineEffect` draws a
- * black line round every mesh and the fills are flat cel bands — so the UI is
- * inked too: flat fills from `PALETTE`, a solid ink rim, and a *hard* shadow
- * with no blur, which is what a sticker on a comic panel has and what a
- * soft-shadowed glass card would never have.
- *
- * **The icons are code, not files.** The world does ship external assets now —
- * the people, the vehicles, the animals, the plants and many of the near
- * towns' buildings are CC0 models from Kenney, Quaternius, KayKit and others,
- * baked into `public/models/` with their licences beside them — but an icon is
- * not worth a request: each is a few SVG strokes on a 24-unit grid, drawn in
- * the ink's own weight so an icon on a button reads as the same pen as the
- * button's rim, and stroked in `currentColor` so it takes its button's colour.
- * The two that are geometry rather than strokes — the gear and the star — are
- * generated rather than typed, so their teeth and points are exact.
+ * The icons are code, not files: each is a few SVG strokes on a 24-unit grid,
+ * drawn in the ink's own weight and stroked in `currentColor` so it takes its
+ * button's colour. The gear and the star are generated rather than typed, so
+ * their teeth and points are exact.
  *
  * `index.html` restates the tokens once, for the loading screen, because it
  * paints before this module has been fetched. Nothing else may.

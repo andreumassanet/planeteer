@@ -28,7 +28,7 @@ import { PALETTE } from './theme.ts';
  * `server/src/limits.ts`), and `decodeAppearance` is the one reader, so a
  * code from a newer client — a longer one, or an index past the end of a
  * table this build has — decodes to what this build can draw rather than to
- * nothing. **The tables are append-only for that reason**: an index is what
+ * nothing. The tables are append-only for that reason: an index is what
  * is stored and sent, so a reordered table redresses every traveller.
  */
 
@@ -43,8 +43,8 @@ export type Slot = Exclude<PartName, 'pack'>;
 export const SLOTS: readonly Slot[] = ['head', 'top', 'bottom', 'feet'];
 
 /**
- * Every part a body can wear, by slot. Named off an offline render of each
- * part (2026-09-24). Append-only: see the note at the top.
+ * Every part a body can wear, by slot, named for what it looks like.
+ * Append-only: see the note at the top.
  */
 export const WARDROBE: Readonly<Record<BodyKind, Readonly<Record<Slot, readonly Choice[]>>>> = {
   man: {
@@ -206,9 +206,8 @@ const cloth = (color: number): number => CLOTH.indexOf(color);
 
 /**
  * The hero before anyone has chosen: the man in the crimson hoodie that
- * nobody else in the world wears, now in jeans and dark trainers where he
- * had shorts, and with the pack's own rucksack in gold where he had one
- * built in code.
+ * nobody else in the world wears, in jeans and dark trainers, with a gold
+ * rucksack.
  */
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   body: 'man',

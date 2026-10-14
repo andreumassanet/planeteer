@@ -1,32 +1,24 @@
 /**
  * Voices: the babble a townsperson speaks a line in, and the chat's blip.
  *
- * **Nobody here says real words aloud, and that is the style rather than a
- * shortcut.** A line is in the country's own language with the English under
- * it, in thirty-odd languages; a recorded or synthesised reading of each would
- * be megabytes and a text-to-speech engine besides, and it would still be the
- * wrong voice for a comic-book world. What the games this world's look comes
- * from do instead is babble: a blip a syllable, pitched and timed like
- * speech, that says *somebody is talking, and this is how they sound* and
- * leaves the words to the bubble. So each syllable of the line as written is
- * one short vowel sound — the vowel it actually has where the script says
- * (`a`, `e`, `i`, `o`, `u` shaped by two formant filters), a character's
- * worth where it does not — the pitch wandering a little and rising into a
- * question or falling at a full stop, and the bubble types the line out in
- * step with it.
+ * Nobody says real words aloud: a line is in the country's own language in
+ * thirty-odd languages, and recorded or synthesised speech for each would be
+ * megabytes and the wrong voice for a comic-book world. Instead each syllable
+ * of the line as written is one short vowel sound (the vowel it actually has
+ * where the script says, shaped by two formant filters; a character's worth
+ * where it does not), the pitch wandering a little, rising into a question and
+ * falling at a full stop, and the bubble types the line out in step with it.
  *
- * **Who is talking is heard.** The pitch, the pace and the size of the
- * throat are drawn from the person's key, inside the range of who they are:
- * a child high and quick, an old man low and slow, a grump lower and
- * clipped, a chatterbox quicker. The same person sounds the same on every
- * visit.
+ * Who is talking is heard: pitch, pace and throat size are drawn from the
+ * person's key inside the range of who they are (a child high and quick, an
+ * old man low and slow, a grump lower and clipped, a chatterbox quicker), so
+ * the same person sounds the same on every visit.
  *
- * **Cheap by construction.** An utterance is one oscillator, one noise source
- * for the consonants and four filters and gains, whatever its length: every
- * syllable is a point on their automation timelines, written once when the
- * line starts, so nothing runs per frame and nothing is made per syllable.
- * `planSpeech` is the pure half — the syllables, their times and their
- * pitches — which `scripts/check-chat.ts` holds to its rules under Node.
+ * An utterance is one oscillator, one noise source for the consonants and four
+ * filters and gains whatever its length: every syllable is a point on their
+ * automation timelines, written once when the line starts. `planSpeech` is
+ * the pure half (syllables, times, pitches), held to its rules by
+ * `scripts/check-chat.ts` under Node.
  */
 import { rngFrom } from './scenery/random.ts';
 
@@ -145,15 +137,14 @@ function vowelOf(char: string): number {
 }
 
 /**
- * A line as the syllables it is spoken in. Pure: the same text, voice and
- * seed give the same speech.
+ * A line as the syllables it is spoken in. Pure: the same text, voice and seed
+ * give the same speech.
  *
  * In an alphabet with vowels a syllable ends where a vowel is followed by a
  * consonant; in a script written a syllable a character, each character is
- * one; in the others — an abjad, an abugida — every two letters are. Words
- * are parted by a breath and sentences by a pause, and the last three
- * syllables before a `?` rise and before a `.` fall; a `!` is said higher and
- * louder throughout.
+ * one; in the others (an abjad, an abugida) every two letters are. Words are
+ * parted by a breath and sentences by a pause; the last three syllables before
+ * a `?` rise and before a `.` fall; a `!` is said higher and louder throughout.
  */
 export function planSpeech(text: string, voice: Voice, seed: string): Speech {
   const chars = Array.from(text);

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>planeteer · explore the solar system</title>
     <meta name="description" content="Explore the solar system, one world at a time — on foot, by boat and by plane. Inked, cel-shaded planets built from real maps, alone or with friends." />
-    <!-- The space the solar system is drawn against, which is also the page's own background. -->
+    <!-- The page background, the colour of space behind the solar system. -->
     <meta name="theme-color" content="#04060e" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta property="og:type" content="website" />
@@ -18,10 +18,9 @@
     <link rel="preload" href="/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin />
     <style>
       /*
-       * Nunito, the one face of every card and label, carried rather than asked of
-       * the system: a rounded face was always the intent, and only a Mac had one
-       * (`SF Pro Rounded`); Linux drew Noto Sans and Windows Segoe UI. One variable
-       * file a script, fetched only when a page shows a character in its range.
+       * Nunito, the UI's one typeface, shipped with the page because few systems
+       * have a rounded face. One variable file per script, each fetched only when
+       * a character in its range is shown.
        */
       @font-face {
         font-family: 'Nunito';
@@ -63,11 +62,7 @@
         src: url('/fonts/nunito-latin.woff2') format('woff2-variations');
         unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
       }
-      /*
-       * The tokens, restated once for the loading screen: it has to paint before
-       * `src/ui.ts` has been fetched, and `ui.ts` is the one definition of them
-       * everywhere else.
-       */
+      /* The UI tokens, repeated here so the loading screen paints before `src/ui.ts` loads; keep them in step. */
       :root {
         --ui-ink: #1e0603;
         --ui-paper: #fff2e8;
@@ -87,19 +82,15 @@
         position: fixed;
         top: 24px;
         right: 24px;
-        /* Pointer lock is requested by clicking the canvas underneath. Without
-           this the minimap swallows the click and mouse look never engages. */
+        /* Clicks go through to the canvas, which requests pointer lock. */
         pointer-events: none;
       }
 
       /*
-       * The loading screen. **Every animation on it is a transform or an
-       * opacity, and that is the whole design constraint**: building the land
-       * is several seconds of synchronous work on the main thread, and only
-       * the compositor keeps running through it. So the globe turns, the plane
-       * circles and the clouds drift while the page is otherwise frozen, and
-       * the progress bar moves because `main.ts` hands it a target and a
-       * duration and lets a CSS transition run there — see `stage()`.
+       * The loading screen. Every animation is a transform or an opacity, so it
+       * keeps running on the compositor while the main thread builds the land;
+       * the bar is a CSS transition towards each stage's target
+       * (`stage` in `src/app/boot.ts`).
        */
       #loading {
         position: fixed;
@@ -176,8 +167,7 @@
         position: absolute;
         inset: 0;
         border-radius: 50%;
-        /* A cel terminator, not a gradient: a hard-edged inner shadow is the
-           one band of night this style would draw on a planet. */
+        /* A hard-edged terminator, as the cel shading would draw it. */
         box-shadow: inset -30px -16px 0 rgba(13, 20, 48, 0.42), inset 9px 8px 0 rgba(255, 242, 232, 0.2);
       }
       .l-orbit {
@@ -223,8 +213,7 @@
         background: var(--ui-paper);
         box-shadow: 0 4px 0 var(--ui-ink);
       }
-      /* The fill is a full-width bar slid in from the left, so its stripes are
-         never squashed the way a scaled bar's would be. */
+      /* A full-width bar slid in from the left, so its stripes are never squashed. */
       #loading-fill {
         position: absolute;
         inset: 0;
@@ -252,11 +241,8 @@
         color: rgba(255, 242, 232, 0.82);
       }
       #loading-percent { font-variant-numeric: tabular-nums; color: var(--ui-paper); font-weight: 800; }
-      /* GeoNames is CC BY 4.0 and the licence asks for a credit somewhere a
-         player sees it. This is that place, and the settings panel is the other.
-         The star catalogue is the CDS's to hand out on the same condition, an
-         acknowledgement. Natural Earth is public domain and is named for good
-         manners. */
+      /* Credits: GeoNames (CC BY 4.0) and the CDS star catalogue require one where
+         players see it (the settings card has the other); Natural Earth is public domain. */
       .l-credit {
         position: absolute;
         left: 0;
@@ -291,13 +277,9 @@
       }
 
       /*
-       * The notice: a card over everything, for what the player has to be told
-       * before or instead of the world — no WebGL 2, a small or touch screen, a lost
-       * context, a failure (`notice` in `main.ts`). It is here and not in
-       * `ui.ts` for the reason the tokens above are: the first two are said
-       * before anything is downloaded, and the last may be a download that
-       * failed. It restates the card and the button of `ui.ts`, and nothing
-       * else may.
+       * The notice card (`src/notice.ts`), styled here rather than in `ui.ts`
+       * because it may have to report that the UI's chunks failed to load. It
+       * repeats `ui.ts`'s card and button styles.
        */
       #notice {
         position: fixed;
@@ -357,8 +339,7 @@
             </svg>
           </div>
           <div class="l-globe">
-            <!-- Two copies of one world, slid left by one copy's width and then
-                 round again: a rotating globe for the price of a transform. -->
+            <!-- Two copies of one map, slid left by one copy's width and looped: a turning globe from a transform. -->
             <div class="l-strip l-land">
               <svg viewBox="0 0 400 200" preserveAspectRatio="none">
                 <g stroke="#1e0603" stroke-width="3.2" stroke-linejoin="round">

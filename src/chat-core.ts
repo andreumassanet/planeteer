@@ -245,6 +245,7 @@ interface FoldedEntry {
   via?: string;
   country?: boolean;
 }
+
 const foldedIndex = new WeakMap<Gazetteer, FoldedEntry[]>();
 
 function indexOf(gazetteer: Gazetteer): FoldedEntry[] {
@@ -299,11 +300,10 @@ function splitQualifier(query: string, gazetteer: Gazetteer): { name: string; is
 /**
  * The order both `/goto` and its suggestions rank by: how well the name
  * matches (whole, start, a word's start, inside); on a whole name a country
- * first ("Georgia" is the country); a town's own name before a name folded
- * into a bigger one, because the host's population is not the alias's — a
- * suburb of Bogotá called Madrid outweighed Madrid by Bogotá's; then the
- * country the player stands in, so `/goto Toledo` from Spain is Spain's; then
- * the bigger place.
+ * first ("Georgia" is the country); a town's own name before a name folded into
+ * a bigger one (the host's population is not the alias's); then the country the
+ * player stands in, so `/goto Toledo` from Spain is Spain's; then the bigger
+ * place.
  */
 function rank(prefer: string | undefined) {
   const folded = (entry: FoldedEntry): number => Number(entry.via !== undefined && entry.country !== true);

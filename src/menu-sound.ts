@@ -4,7 +4,7 @@
  * the stages, and a low hum of space under the solar system that thins as
  * the camera comes down to a country and is gone by the time the town is.
  *
- * **The same voice as the world's interface.** A choice, a pick, a way back
+ * The same voice as the world's interface. A choice, a pick, a way back
  * and the start are `audio.ts`'s recorded cues (`ui-click`, `ui-toggle`,
  * `ui-close`, `ui-confirm`), so the menu and the settings card click alike;
  * only what no recording could follow is synthesised here — the tick, which
@@ -12,12 +12,12 @@
  * whose length is the flight's, and the hum, which has to fade with the
  * stage rather than stop.
  *
- * **Nothing sounds before the first gesture**, the browser's rule: the menu's
+ * Nothing sounds before the first gesture, the browser's rule: the menu's
  * first click is the one that opens the context (`main.ts` offers every
  * pointer and key press to `unlock`), so that click itself is silent and
  * everything after it is heard. Until then every call here returns at once.
  *
- * **The settings hold it as they hold the world.** Everything goes through
+ * The settings hold it as they hold the world. Everything goes through
  * the effects' master (`audio.bus`), so the Sound slider and its switch move
  * it; the hum is music rather than an effect, so it is also scaled by the
  * music's own volume and is silent while the music is off.

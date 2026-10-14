@@ -1,14 +1,7 @@
 /**
- * A world's little painted ball, as the menu's dock shows it: Earth its ocean
- * and a continent, the Sun its gold, every other body its own three tones
- * (`Body.look`), Saturn with its ring. The chat and `Tab` put the same ball
- * beside a player on another world, where its nations' banners would mean
- * nothing to anyone.
- *
- * It reads the walkable bodies (`walkableBody`), so it is imported only by
- * what is itself out of Earth's first load: the menu, the chat, the player
- * list; and through `geography.ts`, not the registry's `import.meta.glob`,
- * so the headless checks that build a world's shell can load it too.
+ * A world's small painted ball, as the menu's dock shows it, also used by
+ * the chat and the player list beside a player on another world. It reads
+ * the walkable bodies, so only modules outside Earth's first load import it.
  */
 import { walkableBody } from './system/geography.ts';
 import { OCEAN_COLOR, PALETTE } from './theme.ts';

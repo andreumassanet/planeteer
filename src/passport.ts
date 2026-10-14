@@ -1,32 +1,26 @@
 /**
- * The passport: every country you have set foot in, stamped on the day you
- * arrived and at the town you came in by, and every town you have walked into;
- * and which continent's pages each country's stamp belongs on (`continentOf`).
+ * The passport's book: every country you have set foot in, stamped on the day
+ * you arrived and at the town you came in by, and every town you have walked
+ * into; and which continent's pages each country's stamp belongs on
+ * (`continentOf`). The card that shows it is `passport-card.ts`.
  *
- * **A stamp is an arrival, not a flight over.** The HUD's arrival card is the
- * one debounced answer to *which country is this* — a country has to hold for
- * a second, the sea for three — and it fires from the plane as readily as on
- * foot. So an arrival only names a *candidate*; the stamp is taken on the
- * first frame after it with the traveller down on the ground or the water in
- * that same country: walking, swimming, driving, sailing, or a plane that has
- * landed. Fly over France and land in Spain and the book has Spain; land in
- * France on the way and it has both. See `observe`.
+ * A stamp is an arrival, not a flight over. The HUD's arrival card names a
+ * candidate country (it must hold for a second, the sea for three); the stamp
+ * is taken on the first frame after it with the traveller down on the ground or
+ * the water in that same country (walking, swimming, driving, sailing, or a
+ * plane that has landed). See `observe`.
  *
- * **This half is data and nothing else**, so a headless check can hold its
- * one promise — what is written is what is read back, and a book that has
- * been damaged, hand-edited or written by an older build reads as the stamps
- * it can still vouch for rather than as an exception. The card that shows it
- * is `passport-card.ts`.
+ * This half is data only, so a headless check can hold its promise: what is
+ * written is what is read back, and a damaged, hand-edited or older book reads
+ * as the stamps it can still vouch for rather than throwing.
  *
- * **It lives on this device**, in `localStorage` under `PASSPORT_KEY`, every
- * read and write wrapped: a private window, a full quota or a blocked store
- * leaves a passport that works for the session and forgets on reload. Nothing
- * of it is sent to the other players.
+ * The book lives on this device in `localStorage` under `PASSPORT_KEY`, every
+ * read and write wrapped; when storage is unavailable it works for the page and
+ * forgets on reload. Nothing is sent to other players.
  *
- * **One book for every world.** A nation of another planet is stamped under
- * its namespaced code, `mars:tharsis`, beside Earth's ADM0 codes, and a town
- * walked into there is `mars:tharsis:Name`; the card turns them into a chapter
- * a world (`passport-card.ts`). An older book reads as it always did.
+ * One book for every world: a nation of another planet is stamped under its
+ * namespaced code, `mars:tharsis`, beside Earth's ADM0 codes, and a town walked
+ * into there is `mars:tharsis:Name`.
  */
 
 /** How you were travelling when the stamp was taken: `controls.ts`'s `TravelMode`. */
@@ -91,6 +85,7 @@ export function worldOf(iso: string): string {
   const colon = iso.indexOf(':');
   return colon < 0 ? 'earth' : iso.slice(0, colon);
 }
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A string field, trimmed and capped, or null. */

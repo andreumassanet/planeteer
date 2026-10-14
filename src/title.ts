@@ -1,33 +1,16 @@
 /**
- * The title screen: the first thing after the loading card, standing in front
- * of the planet menu (`menu.ts`, which it holds while it is up) with the solar
- * system turning behind it.
+ * The title screen, in front of the planet menu (which it holds while up).
  *
- * On the left the name of the game and how to play — **online**, on the relay
- * (`peers.ts`), or **offline**, where no socket is ever opened and everything
- * runs on this machine — and, while the world is still being built behind
- * it, how far along that is. On the right the traveller themselves, large, on
- * the hero's stage (`hero-stage.ts`): idling on the bridge of a small ship
- * (`bridge.ts`), the solar system outside its window, turning a little
- * towards the pointer and by hand when dragged, their name on a plate over
- * their head with a pencil to change it, and *Customise* under them.
+ * On the left, the game's name and the choice of how to play: online on the
+ * relay (`peers.ts`) or offline, where no socket is opened. On the right, the
+ * traveller on the hero stage (`hero-stage.ts`): the bridge of a small ship
+ * whose window shows the menu's orrery behind the transparent canvas, the
+ * name plate, and *Customise*. Choosing flies the camera out through the
+ * window into the menu. *Customise* shares the stage rather than opening a
+ * card: this screen steps aside (`aside`) while the creator is open.
  *
- * The window is the menu itself: the orrery the planet menu draws keeps
- * turning behind the stage's transparent canvas, and the room covers all of
- * it but the glass. Choosing how to play flies the camera out through the
- * window (`stage.leave`), so the bridge slides away and the solar system it
- * was looking at is the menu that takes over.
- *
- * *Customise* does not open a card over this one. The creator
- * (`traveller.ts`) shares the stage: this screen steps aside (`aside`), the
- * creator's column comes in from the left, and the camera walks up to the
- * hero; when it closes the camera walks back and this screen returns.
- *
- * It owns nothing but the choice. The look is `avatar.ts`'s, the name is
- * `peers.ts`'s (kept on this device until there is a connection to send it
- * on), the creator and the settings are the caller's; the mode it hands back
- * is remembered (`PLAY_KEY`) so the next visit starts on the same button, and
- * a `?at=` link that skips this screen plays the remembered way.
+ * It owns only the choice, remembered under `PLAY_KEY` so the next visit (and
+ * a `?at=` link that skips this screen) plays the same way.
  */
 import { holdFocus } from './controls.ts';
 import type { HeroStage } from './hero-stage.ts';
@@ -188,10 +171,7 @@ const STYLE = `
   .ti-wordmark { font-size: 80px; }
   .ti-left { gap: 16px; }
 }
-/*
- * A phone on its side: the two columns stay, small, the name and the choice
- * on the left in the height there is and the traveller on the right.
- */
+/* A phone on its side: two small columns, the choice on the left and the traveller on the right. */
 @media (max-height: 520px) and (orientation: landscape) {
   .atlas-title {
     grid-template-columns: minmax(280px, 360px) 1fr;
@@ -215,13 +195,9 @@ const STYLE = `
 }
 `;
 
-export function createTitle(options: TitleOptions): Title {
-  installUi();
-  ensureStyle('atlas-title', STYLE);
+/** The title's two columns: the play buttons and settings on the left, *Customise* on the right. */
+function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
   const stage = options.stage;
-
-  let chosen: PlayMode | null = storedPlayMode();
-
   function playButton(mode: PlayMode, glyph: SVGSVGElement, label: string, note: string, primary: boolean): HTMLButtonElement {
     const button = h(
       'button',
@@ -240,21 +216,6 @@ export function createTitle(options: TitleOptions): Title {
   const onlineNote = options.online ? 'Meet the other travellers on the same planet' : 'No server to meet anyone on in this version';
   const onlineButton = playButton('online', icon('globe'), 'Play online', onlineNote, true);
   onlineButton.disabled = !options.online;
-
-  // Who is out there, asked when the screen comes up and again while it stays.
-  const onlineSmall = onlineButton.querySelector('small')!;
-  let counting = 0;
-  function count(): void {
-    window.clearTimeout(counting);
-    if (!showing || !options.online || options.players === undefined) return;
-    void options.players().then((n) => {
-      if (n === null) onlineSmall.textContent = onlineNote;
-      else if (n === 0) onlineSmall.textContent = 'Nobody online right now: be the first';
-      else onlineSmall.textContent = `${n.toLocaleString('en')} ${n === 1 ? 'traveller' : 'travellers'} online now`;
-      onlineButton.classList.toggle('peopled', n !== null && n > 0);
-    });
-    counting = window.setTimeout(count, COUNT_EVERY_MS);
-  }
   const offlineButton = playButton('offline', icon('walk'), 'Play offline', 'Just you and the worlds, nothing sent anywhere', false);
 
   const settingsButton =
@@ -280,6 +241,31 @@ export function createTitle(options: TitleOptions): Title {
   const right = h('div', { class: 'ti-right' }, customButton);
   const root = h('div', { class: 'atlas-title', role: 'dialog', 'aria-label': 'planeteer' }, left, right);
 
+  return { onlineNote, onlineButton, offlineButton, customButton, left, right, root };
+}
+
+export function createTitle(options: TitleOptions): Title {
+  installUi();
+  ensureStyle('atlas-title', STYLE);
+  const stage = options.stage;
+
+  let chosen: PlayMode | null = storedPlayMode();
+  const { onlineNote, onlineButton, offlineButton, customButton, left, right, root } = titleLayout(options, (mode) => choose(mode));
+
+  // Who is out there, asked when the screen comes up and again while it stays.
+  const onlineSmall = onlineButton.querySelector('small')!;
+  let counting = 0;
+  function count(): void {
+    window.clearTimeout(counting);
+    if (!showing || !options.online || options.players === undefined) return;
+    void options.players().then((n) => {
+      if (n === null) onlineSmall.textContent = onlineNote;
+      else if (n === 0) onlineSmall.textContent = 'Nobody online right now: be the first';
+      else onlineSmall.textContent = `${n.toLocaleString('en')} ${n === 1 ? 'traveller' : 'travellers'} online now`;
+      onlineButton.classList.toggle('peopled', n !== null && n > 0);
+    });
+    counting = window.setTimeout(count, COUNT_EVERY_MS);
+  }
   function markLast(): void {
     onlineButton.classList.toggle('last', chosen === 'online' && options.online);
     offlineButton.classList.toggle('last', chosen === 'offline');

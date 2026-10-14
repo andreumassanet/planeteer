@@ -1,52 +1,19 @@
 /**
  * What the townsfolk say, in the language of the country they live in: the
- * shape of it, and which language a country speaks. The words themselves are
- * one file a language under `phrases/`.
+ * line keys, the shape of a language file, and which language a country
+ * speaks. The lines themselves are one lazily loaded module per language under
+ * `phrases/`.
  *
- * ## One file a language, fetched when somebody first speaks it
+ * Every line is a pair: what is said, and what it means in English. English
+ * writes a bare string, which is its own meaning. `check-people.ts` holds each
+ * language to `MIN_VARIANTS` per key and both halves to the same placeholders.
  *
- * Thirty-one languages of lines and a table of facts for every country is far
- * more text than anybody hears in one visit, so a language is its own module
- * (`LOADERS`) and `talk.ts` imports the one the country speaks on the first
- * conversation there. This file is small and rides with `talk.ts`, which the
- * world's first load does not carry either.
- *
- * ## Every line carries its own translation
- *
- * A line is a pair, what is said and what it means in English, written
- * together. A language is therefore free to say what its own speakers would
- * say — its own number of greetings, its own idioms, a proverb of its own —
- * rather than a translation of the English table line for line. English
- * writes a bare string, which is its own meaning. `pnpm people` holds every
- * language to `MIN_VARIANTS` under every key, and the said and meant halves
- * to the same placeholders.
- *
- * ## Templates that never inflect a name
- *
- * A name dropped into a sentence has to survive the grammar round it, and most
- * of the world's grammars decline, mutate or agree with a noun. So every
- * template puts a name where it stays as the source spells it: as the subject
- * of a nominal sentence (*{country} — прекрасная страна*), in apposition to a
- * common noun that takes the case instead (*в город {town}*, *στην πόλη
- * {town}*, *ve městě {town}*), behind a postposition or particle that does not
- * change (*{town}へようこそ*, *{town} में*), or set off by a colon or a comma
- * (*{country} : un beau pays*). Korean's particles depend on the last sound of
- * the word before them, so no Korean particle follows a placeholder; Turkish
- * suffixes harmonise, so no Turkish suffix does either. A direction is a whole
- * phrase in each language (`compass`), with its own preposition, because
- * *al norte*, *au nord*, *nördlich von hier* and *к северу отсюда* have
- * nothing in common but the north.
- *
- * A country's facts (`FACTS`) are written in the same language as the
- * templates that carry them, by the same rule: a dish, a festival or a sport
- * is a phrase in the form every one of that language's templates for it can
- * take unchanged. A placeholder that opens a sentence is capitalised by
- * `fill`, so a fact is written as it would stand mid-sentence.
- *
- * The speakers are strangers of either sex, so a line never agrees with its
- * speaker or its listener where the language would make it choose: Polish
- * asks *Skąd jesteś?* and never *Byłeś tam?*, Thai leaves off *ครับ* and
- * *ค่ะ*, and a Russian says *вы не отсюда* rather than *не местный*.
+ * Templates never inflect a name: a placeholder stands where the language
+ * leaves it as spelled (the subject of a nominal sentence, in apposition to a
+ * common noun that takes the case, before an invariant particle, or after a
+ * colon or comma). Facts are written in the form every template for them can
+ * take unchanged, as they would stand mid-sentence; `fill` capitalises one
+ * that opens a sentence. No line agrees with the speaker's or listener's sex.
  */
 
 /** Every line a person can say, by what it is about. */
@@ -113,10 +80,9 @@ const MOST: readonly LineKey[] = ['chat', 'childChat'];
 const MORE: readonly LineKey[] = ['welcome', 'bye', 'hot', 'cold', 'mild', 'grumpyChat', 'elderChat', 'chattyChat'];
 
 /**
- * The fewest variants a language may have under a key: enough that three
- * people in one square do not say the same sentence — six for the small talk
- * every conversation reaches for, five for the welcome, the weather and the
- * goodbye, four for the rest.
+ * The fewest variants a language may have under a key, so that people in one
+ * square rarely repeat each other: six for small talk, five for the welcome,
+ * weather and goodbye, four for the rest.
  */
 export const MIN_VARIANTS: Readonly<Record<LineKey, number>> = Object.fromEntries(
   LINE_KEYS.map((key) => [key, MOST.includes(key) ? 6 : MORE.includes(key) ? 5 : 4]),
@@ -185,9 +151,8 @@ export const ENGLISH_COMPASS: Language['compass'] = [
 ];
 
 /**
- * Every language, English first, as the import that fetches it: one literal
- * import a language, so the bundler splits each into a chunk of its own and
- * Node's checks load them the same way.
+ * Every language, English first. One literal `import()` per language so the
+ * bundler gives each its own chunk and Node's checks load them the same way.
  */
 export const LOADERS: Readonly<Record<string, () => Promise<{ default: Language }>>> = {
   en: () => import('./phrases/en.ts'),
@@ -239,15 +204,12 @@ export function loadLanguage(code: string): Promise<Language> {
 }
 
 /**
- * What each country speaks to a stranger, by its outline code, as `[language,
- * ISO 3166 alpha-2]`; the second is what `Intl.DisplayNames` names the country
- * by in that language. Mostly GeoNames' first language for the country
- * (`countries-info.json`), and where it is not the one a person in the street
- * would greet you in, the one they would: Hindi in India, where GeoNames puts
- * English first; Swahili in Kenya; Russian in Belarus, Kazakhstan and
- * Kyrgyzstan; French in Cameroon, Haiti and Luxembourg. A country not listed
- * is spoken to in English, which is what a traveller would try there; its
- * facts are in `phrases/en.ts`.
+ * The language each country speaks to a stranger, by outline code, as
+ * `[language, ISO 3166 alpha-2]` (the alpha-2 is for `Intl.DisplayNames`).
+ * Mostly GeoNames' first language, overridden where people in the street would
+ * greet you in another (Hindi in India, Swahili in Kenya, Russian in Belarus,
+ * Kazakhstan and Kyrgyzstan, French in Cameroon, Haiti and Luxembourg).
+ * Unlisted countries get English, with facts in `phrases/en.ts`.
  */
 export const SPOKEN: Readonly<Record<string, readonly [string, string]>> = {
   // Spanish
@@ -291,11 +253,9 @@ export const SPOKEN: Readonly<Record<string, readonly [string, string]>> = {
 };
 
 /**
- * Countries that are spoken to but have no facts, each for its reason: nobody
- * lives in the French Southern Territories, and Northern Cyprus and Western
- * Sahara are disputed, where a line about what the country is proud of would
- * be taking a side. A conversation there says nothing about the country's
- * dishes and festivals, which is all a missing entry ever costs.
+ * Countries with no facts: the French Southern Territories are uninhabited,
+ * and Northern Cyprus and Western Sahara are disputed, where a line about
+ * national pride would take a side.
  */
 export const WITHOUT_FACTS: ReadonlySet<string> = new Set(['ATF', 'CYN', 'ESH']);
 
@@ -317,11 +277,9 @@ export const PLACEHOLDER_PATTERN = /\{([a-zA-Z]+)\}/g;
 const SENTENCE_OPENS = /(?:^|[.!?。！？]\s+|[¡¿]|(?:^|[.!?:]\s+)[“"«„「『]\s*)$/u;
 
 /**
- * A template with its placeholders filled in. Each value is set off in
- * Unicode's first-strong isolates, so a Latin name in an Arabic sentence
- * keeps its own direction and does not drag the punctuation after it across
- * the line. A value that opens a sentence gets a capital, by `locale`'s own
- * rules, so a fact is written the way it stands mid-sentence.
+ * A template with its placeholders filled in. Each value is wrapped in
+ * first-strong isolates so a Latin name in a right-to-left sentence keeps its
+ * own direction. A value that opens a sentence is capitalised by `locale`.
  */
 export function fill(
   template: string,
