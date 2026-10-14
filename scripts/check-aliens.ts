@@ -1,33 +1,25 @@
 /**
- * The other worlds as the space kit draws them, headless: the colonies, the
- * people, the craft and what lies about, against the kit read off disk.
+ * The other worlds built with the space kit read off disk, headless.
  *
  *   node scripts/check-aliens.ts          # every world
  *   node scripts/check-aliens.ts mars     # one
  *
- * `check-worlds.ts` builds the worlds without the kit — there is no fetch in
- * Node, so every kit piece is its code-built stand-in there — and this is the
- * other half: the kit handed in (`provideWorldKit`) the way the browser's
- * `prepareWorldKit` would have fetched it, and then:
+ * `check-worlds.ts` builds the worlds with code-built stand-ins (Node has no
+ * fetch for the kit); this hands the kit in through `provideWorldKit` and checks:
  *
- * - **The kit's table.** `PIECES` and `SCATTER` in `src/worlds/kit.ts` are
- *   the layout's knowledge of the pieces before they arrive; each is held to
- *   `manifest.json` (size, triangles, where its middle is). Every slot
- *   `CREATURE_SLOTS` paints is a slot the creature has.
- * - **Who lives where.** Every world's cast is creatures the kit has, its
- *   visitors are crew, and no two worlds share a creature: a people is
- *   recognisably its world's.
- * - **The colonies.** Every town built from the kit, deterministically,
- *   inside `colonyBudget`; no two buildings inside each other, none on an
- *   avenue, every row module's door to its avenue, windows that glow.
- * - **The people.** A town peopled with the traveller standing in it: the
- *   walkers the species' height, playing their clips, never inside a wall in
- *   a minute of walking; spoken to, they wave. The crew at a spaceport.
- * - **The craft.** Every vehicle a world names built from the kit where it
- *   asks for one, the seat inside the model, driven two seconds without
- *   going under the ground.
- * - **The ground's scatter.** The kit's props and plants on a few tiles, in
- *   budget.
+ * - The kit table: `PIECES` and `SCATTER` in `worlds/kit.ts` match
+ *   `manifest.json` (size, triangles, centre); every slot `CREATURE_SLOTS`
+ *   paints exists on the creature.
+ * - Casts: each world's creatures exist in the kit, visitors are crew, and no
+ *   two worlds share a creature.
+ * - Colonies: every town builds deterministically within `colonyBudget`, with
+ *   no overlapping buildings, nothing on an avenue, doors facing the avenue
+ *   and glowing windows.
+ * - People: walkers are the species' height, play their clips, never enter a
+ *   wall in a minute of walking, and wave when spoken to; crew at spaceports.
+ * - Craft: every named vehicle builds, its seat is inside the model, and two
+ *   seconds of driving never go underground.
+ * - Scatter: props and plants on a few tiles stay in budget.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

@@ -1,45 +1,35 @@
 /**
  * `pnpm seated`: what stands on the ground, against the ground that is drawn.
  *
- * The land is a mesh of flat triangles laid between points of `reliefAt`, up
- * to seven units off it (`land-probe.ts`), and a town's floor is a surface of
- * its own (`floorLiftAt`). Nothing about a thing standing a unit in the air or
- * a trunk sunk to the knees shows in a table of what was built, and without
- * the ink it is the first thing an eye finds. So this builds what the game
- * builds headless round named places — flat farmland, a hillside, a hill
- * town, a coast, a forest — and measures every placed thing's base against
- * the drawn surface under it:
+ * The land mesh is up to seven units off `reliefAt` (`land-probe.ts`), and a
+ * town's floor is a surface of its own (`floorLiftAt`). This builds what the
+ * game builds round named places (farmland, a hillside, a hill town, a coast,
+ * a forest) and measures every placed thing's base against the drawn surface:
  *
- * - **the wood**: every plant of the two finest tiles round each place
- *   (`vegetation.sample`'s seats), its base against the drawn land under its
- *   middle and under a ring round it: a tree's lowest side may not float, a
- *   rock or a bush (which follows the slope) its middle may not;
- * - **the countryside's pieces** in those tiles, over their footprint;
- * - **the trees round a town's edge** (`settlements.recordSeats`) and **the
- *   herds** (`life.recordSeats`), the same way;
- * - **what dresses a near town's streets** (`scenery/street-dressing.ts`,
- *   through `settlements.recordSeats`): each piece's base against the town's
- *   floor under it (`madeHeightAt`), and each painted mark `DECAL_LIFT` over it;
- * - **what can be taken standing still** — a town's parked cars and the
- *   bicycles in its racks, against its floor, and a farm's tractor among the
- *   countryside's pieces — and that each is merged as the vehicle the fleet
- *   drives off (`craft/parked.ts`): the same colours as the fleet builds from
- *   its id, and marked for the material to paint as the craft's is;
- * - **the landmarks**, raised by `placement.ts`, over their plan;
- * - **the grass**: the fine and the coarse field baked round each place and
- *   round its nearest built town exactly as `grass.ts` bakes them, and blades
- *   laid by the shader's own rule (`grassLookup`, restated here as the
- *   witness): none on a street, a pavement or paving of a standing town, few
- *   where the grass's own rule grows none, and every root on the surface under
- *   it — a lawn's floor, an edge slope or the drawn land;
- * - **the airstrips**: the grass on each mown to `STRIP_MOWN`, none on its
- *   worn track, rooted on the drawn strip, and the field tall beside it;
- * - **the camps**: no grass over a camp's fire and short round it.
+ * - the wood: plants of the two finest tiles (`vegetation.sample`), checked
+ *   under their middle and a ring round it (a tree's lowest side may not
+ *   float; a rock or bush, which follows the slope, its middle may not);
+ * - countryside pieces in those tiles, over their footprint;
+ * - trees round a town's edge (`settlements.recordSeats`) and herds
+ *   (`life.recordSeats`);
+ * - street dressing (`scenery/street-dressing.ts`) against the town floor
+ *   (`madeHeightAt`), and each painted mark `DECAL_LIFT` over it;
+ * - parked cars, racked bicycles and farm tractors, against their floor, and
+ *   each merged as the vehicle the fleet would drive off (`craft/parked.ts`):
+ *   same colours as the fleet builds from its id, and marked for painting;
+ * - landmarks (`placement.ts`), over their plan;
+ * - grass: the fine and coarse fields baked round each place and its nearest
+ *   town as `grass.ts` bakes them, and blades laid by the shader's rule
+ *   (`grassLookup`, restated here as the witness): none on a street, pavement
+ *   or paving, few where the rule grows none, every root on the surface;
+ * - airstrips: grass mown to `STRIP_MOWN`, none on the worn track, rooted on
+ *   the strip, tall beside it;
+ * - camps: no grass over the fire, short round it.
  *
- * What fails: a share of floating things of a kind over the thresholds below.
- * It prints the distribution per kind, and an `?at=` for the worst of each.
- * What it cannot fix is printed too: the land mesh has cracks, a step of a few
- * units between two faces along a line, and a blade laid across one floats.
+ * Fails when the floating share of any kind exceeds the thresholds below.
+ * Prints the distribution per kind and an `?at=` for the worst of each,
+ * including what cannot be fixed here: cracks in the land mesh, where a blade
+ * across one floats.
  *
  *   node scripts/check-seated.ts        or   pnpm seated
  */
@@ -69,14 +59,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FLOAT = 0.15;
 /**
  * The share of plants (and animals), of pieces (and landmarks) and of blades
- * that may float, over every place. 0 of each floated on 2026-09-28, and
- * 0.07% of the blades: the coarse field's five-unit texels across a hill
- * town's embankment, and the land's cracks. Before, 13% of the trees, 29% of
- * the rocks and bushes, 43% of the trees round a town's edge, 16% of the
- * pieces and 56% of the landmarks (seated on the relief); and laid by the
- * field's old rule (the coarse field under the fine where the fine grew none,
- * a texel's reach past a kerb, a height between a lawn and the street), 1.7%
- * of the blades, 501 of them a unit up, and 1,007 on paving.
+ * that may float, over every place. The blade allowance covers the coarse
+ * field's five-unit texels across a hill town's embankment and the land
+ * mesh's cracks.
  */
 const MAX_FLOATING_PLANTS = 0.005;
 const MAX_FLOATING_PIECES = 0.02;
@@ -124,10 +109,9 @@ const land = buildLand(world);
 console.log(`the land: ${(land.geometry.getAttribute('position').count / 3).toLocaleString()} triangles in ${Date.now() - started} ms`);
 const probe = landProbeOf(land);
 
-// The towns, the wood, the herds and the landmarks reach the registries of
-// the scenery, the traffic, the fauna and the monuments, each an eager
-// `import.meta.glob`, which is a Vite transform: the one call is rewritten
-// into the static imports Vite would have made, as `check-country.ts` does.
+// The towns, wood, herds and landmarks import part registries built with an
+// eager `import.meta.glob` (a Vite transform); this hook rewrites each into
+// the static imports Vite would produce.
 {
   const registries = ['/src/scenery/index.ts', '/src/traffic/index.ts', '/src/fauna/index.ts'];
   registerHooks({
@@ -656,9 +640,9 @@ for (const where of WHERE) {
 
 // --- the landmarks ----------------------------------------------------------------------
 //
-// Each raised by `placement.ts` as the world raises it, with the land probe
-// gathered round it, and its base held against the drawn land under its
-// middle and a ring at seven tenths of its footprint.
+// Each raised by `placement.ts` with the land probe gathered round it, its
+// base held against the drawn land under its plan (or a ring at seven tenths
+// of its footprint).
 const landmarks = tally();
 {
   const { createMonuments } = await import('../src/placement.ts');
@@ -727,13 +711,11 @@ check(bladesPaved <= MAX_PAVED_BLADES, 'no blade on a street, a pavement, paving
 
 // --- the airstrips -----------------------------------------------------------------
 //
-// A strip is grass mown short (`craft/airstrip.ts`'s `stripCover`, which the
-// grass is baked from and the strip is drawn from): the planes nearest the
-// places above, the ground probed under each, and the grass asked on a
-// lattice over the strip and along two lines a few units outside its edges,
-// where the field goes on as grass. On the strip no blade stands taller than
-// `STRIP_MOWN` of the field's, none on the worn track down its middle, and
-// every one roots on the drawn strip, `STRIP_LIFT` over the land.
+// A strip is mown grass (`stripCover` in `craft/airstrip.ts`). For the planes
+// nearest each place, grass is sampled on a lattice over the strip and along
+// two lines just outside it: on the strip no blade is taller than `STRIP_MOWN`
+// of the field's, none stands on the worn track, and every one roots on the
+// drawn strip, `STRIP_LIFT` over the land.
 console.log('\nthe airstrips:');
 {
   const planes: FleetSite[] = [];
@@ -811,11 +793,9 @@ console.log('\nthe airstrips:');
 
 // --- the camps -----------------------------------------------------------------
 //
-// A camp's fire is a ring of stones a unit across, and grass as tall as the
-// field grows hides it: the ground a piece wears (`Countryside.trodden`)
-// keeps the grass off the fire and its trampled earth and short round it.
-// The nearest camp to each place, and the grass asked at its fire, on a
-// ring at two units and on one at three and a half.
+// The ground a camp wears (`Countryside.trodden`) keeps grass off its fire and
+// short round it. Asked at the nearest camp to each place: at the fire, and on
+// rings at 2 and 3.5 units.
 console.log('\nthe camps:');
 {
   const planner = wood.countryside!;

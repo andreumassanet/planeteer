@@ -1,29 +1,22 @@
 /**
- * The countryside between the towns, headless: what `countryside.ts` plans
- * and what `vegetation.ts` builds of it.
+ * The countryside headless: what `countryside.ts` plans and what
+ * `vegetation.ts` builds from it. A plan is a pure function of the baked world
+ * and one tile-grid cell.
  *
- * A plan is a pure function of the baked world and one cell of the tile grid,
- * so this asks it the questions a player would find the answers to by walking:
+ * - Determinism: planners asked in order and backwards agree bit for bit.
+ * - Keepouts: nothing inside a town's country, a landmark's plan, a
+ *   carriageway or an airfield; only jetties and boats over water; no field on
+ *   ground too steep to plough, nothing on scree.
+ * - Density: in sample boxes of named farmland, paddy, mill, desert and
+ *   mountain country the region's kinds appear, and something planned stands
+ *   within a two-minute walk of almost any open point.
+ * - The kit: every piece builds in every region and variant, on the palette,
+ *   under its triangle cap, with no NaN and no reflected matrix.
+ * - Herds: `occupied` is true on every piece and field, false well away.
+ * - Tiles: the vegetation streamer, built headless, merges the plans the same
+ *   way twice, with consistent winding, within its budgets.
  *
- * - **Determinism.** Two planners, one asked in order and one backwards, give
- *   the same pieces, fields and fences bit for bit.
- * - **It yields to what is built.** No piece, field or fence inside a built
- *   town's country, a landmark's footprint, a carriageway or a plane's or a
- *   balloon's field; nothing but a jetty or a boat over water; no field on
- *   ground steeper than it may be ploughed, nothing on scree.
- * - **There is something to see.** Over sample boxes in named farmland,
- *   paddy, mill, desert and mountain country, the kinds a region is known for
- *   are there, and from almost any point of open country something planned
- *   stands within the distance you walk in two minutes.
- * - **The kit.** Every piece builds in every region and variant, on the
- *   palette, under its triangle cap, with no NaN and no reflected matrix.
- * - **The herds keep off it.** `occupied` answers yes on every piece and
- *   field, and no well away from them.
- * - **The tiles.** The vegetation streamer, built headless, merges the plans
- *   into its tiles the same way twice, every triangle wound the way its
- *   normals face, and holds its budgets.
- *
- * It prints where to go and look: an `?at=` for each kind in each box.
+ * Prints an `?at=` for each kind in each box, for looking.
  *
  *   node scripts/check-country.ts        or   pnpm country
  */
@@ -418,7 +411,7 @@ console.log('\nsomething to see:');
   }
   const share = seen / Math.max(1, points);
   check(share > 0.9, 'in farmland, something planned stands within two minutes\' walk of nearly every point', `${(share * 100).toFixed(1)}% of ${points}`);
-  // And everywhere else, for the record: the wild is emptier on purpose.
+  // Elsewhere, for the record: the wild is emptier by design.
   const shares: string[] = [];
   for (const box of BOXES.filter((b) => !b.expect.includes('farm'))) {
     let here = 0;
@@ -492,9 +485,8 @@ console.log('\nthe kit:');
 
 console.log('\nthe tiles:');
 {
-  // `vegetation.ts` reaches the scenery registry, an eager `import.meta.glob`,
-  // which is a Vite transform: the one call is rewritten into the static
-  // imports Vite would have made, as `check-fleet.ts` does.
+  // `vegetation.ts` imports the scenery registry's eager `import.meta.glob`
+  // (a Vite transform), rewritten here into the static imports Vite would make.
   const scenery = resolve(here, '../src/scenery');
   registerHooks({
     load(url, context, nextLoad) {
@@ -533,8 +525,8 @@ console.log('\nthe tiles:');
     }
   }
   check(deterministic === tiles, 'every tile over the boxes builds the same twice, countryside and all', `${deterministic} of ${tiles}`);
-  // Every triangle wound the way its normals face: a field wound the wrong way
-  // is invisible from above, and a wall wound the wrong way is a blob of ink.
+  // Every triangle wound the way its normals face: a field wound wrong is
+  // invisible from above, and a wall wound wrong inks as a blob.
   {
     let triangles = 0;
     let inverted = 0;

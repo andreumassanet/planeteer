@@ -1,20 +1,17 @@
 /**
- * `pnpm ground`: the ground a body stands on, against the ground that is drawn.
+ * `pnpm ground`: the ground a body stands on against the ground that is drawn.
  *
- * The land is a mesh of flat triangles laid between points of `reliefAt`, and
- * a foot, a wheel and the lens stand on it through `land-probe.ts`'s local
- * index (`drawnRadius`). This builds the real mesh and holds that to a witness
- * built here and nowhere else — every surface triangle bucketed by latitude
- * and longitude and asked by its own ray — and then drives the real player
- * controller over coasts, lakes' shores, hillsides and towns, before (on the
- * relief) and after (on the probe), and sets vehicles down on slopes.
+ * The land is flat triangles between samples of `reliefAt`; feet, wheels and
+ * the camera stand on it through `land-probe.ts` (`drawnRadius`). This builds
+ * the real mesh, checks the probe against an independent witness (every
+ * surface triangle bucketed by latitude and longitude and ray-cast), then
+ * walks the real player over coasts, lake shores, hillsides and towns and sets
+ * vehicles down on slopes.
  *
- * What fails:
- * - the probe disagreeing with the witness anywhere it says it covers;
- * - a player swimming where land is drawn under him, or on foot under the
- *   drawn surface, or under the sea's line on land: the coast's fall-through;
- * - a foot off the drawn surface by more than `FOOT_TOLERANCE` on a walk;
- * - a vehicle set down with a wheel in the ground, or none on it, or mirrored.
+ * Fails on: the probe disagreeing with the witness; a player swimming over
+ * drawn land, under the drawn surface, or below sea level on land; a foot more
+ * than `FOOT_TOLERANCE` off the surface on a walk; a vehicle with a wheel in
+ * the ground, none on it, or mirrored.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -485,32 +482,22 @@ console.log('\nvehicles on slopes');
 // --- the roads on the drawn land, and wheels driven onto them -----------------
 
 /**
- * The ribbon's section against the drawn land, and a wheeled vehicle driven
+ * The ribbon's section against the drawn land, and wheeled vehicles driven
  * from the field onto the carriageway.
  *
- * **The section**: every `ROAD_EVERY`th road, laid at the near band's span
- * the way the streamer lays it (`ribbonSection`), its bank's feet held under
- * the drawn land — a foot over it is a gap under the ribbon's edge — and its
- * crown's edges over it. Until 2026-09-28 the foot was laid 1.5 under the
- * relief and stood over the drawn land on 6.56% of sections, worst 9.6.
+ * Section: every `ROAD_EVERY`th road laid as the streamer lays it
+ * (`ribbonSection`), its bank's feet under the drawn land (a foot over it is a
+ * gap under the ribbon's edge) and its crown's edges over it.
  *
- * **The drive**: from 26 units off the road's middle, and off each ramp into
- * a built town, square to it and at 45 degrees, a car, a bicycle and a bus,
- * throttle held; each must reach the carriageway. A made surface a wheel
- * stands on is `ribbonHeightAt` over `drawnRadius`, as `main.ts` hands the
- * player both (`Roads.setGround`). Until 2026-09-28 the bank was stood on
- * only where it stood over the relief, and where the drawn land sagged under
- * the relief that was a step of the sag at the bank's toe: 262 of 2,744 such
- * drives never reached the carriageway (every 300th road, four vehicles, six
- * angles, walking and running). A drive whose vehicle stops inside a built
- * town's disc is left out and counted: the town's floor, which would be
- * there, is not built here. So is a start whose straight way to the road
- * crosses water, a field across an inlet from the bank (North Port's, since
- * the re-bake of 2026-10-04): no wheel crosses the sea, and that drive asks
- * nothing of the bank.
+ * Drive: a car, a bicycle and a bus start 26 units off the road's middle and
+ * off each ramp into a town, square and at 45 degrees, throttle held, and must
+ * reach the carriageway, standing on `ribbonHeightAt` over `drawnRadius` as
+ * `main.ts` wires them (`Roads.setGround`). Drives that stop inside a town's
+ * disc (its floor is not built here) or whose straight path to the road
+ * crosses water are skipped and counted.
  *
- * **And a wall is still a wall**: a four-unit terrace riser laid across the
- * carriageway ahead stops the car, and a kerb's 0.4 does not.
+ * Walls: a four-unit terrace riser across the carriageway stops the car; a
+ * 0.4 kerb does not.
  */
 console.log('\nthe roads on the drawn land');
 {

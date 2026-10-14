@@ -89,9 +89,7 @@ async function run() {
     if (message.sessionId !== sessionId) return;
     const { method, params } = message;
     if (method === 'Network.requestWillBeSent') requests.set(params.requestId, params.request.url);
-    // A request the page cancelled on purpose (a streamer dropping a fetch it
-    // no longer wants) is not a failure, and is logged apart so no check reads
-    // it as one.
+    // A request the page cancelled on purpose is logged apart, not as a failure.
     if (method === 'Network.loadingFailed') logs.push((params.canceled ? 'NETCANCEL ' : 'NETFAIL ') + (requests.get(params.requestId) ?? '?') + ' ' + params.errorText);
     if (method === 'Network.responseReceived' && params.response.status >= 400) logs.push('HTTP ' + params.response.status + ' ' + params.response.url);
     if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') requests.delete(params.requestId);
@@ -171,12 +169,10 @@ async function stopped(ms) {
 }
 
 /**
- * Closes this Chrome and waits until nothing of it is left to write into the
- * profile. Waiting for the browser's own process was not that: its helpers
- * could still be writing into `Default/` while the profile was removed, and
- * `rmSync` failed with ENOTEMPTY on a run that had passed. So the browser is
- * asked to close first, which stops the helpers and lets them flush, then the
- * whole group is terminated and finally killed if it does not go.
+ * Closes this Chrome and waits until nothing of it can still write into the
+ * profile. The browser's helpers outlive its main process, so the browser is
+ * asked to close first (letting helpers flush), then the whole group is
+ * terminated, then killed.
  */
 async function closeChrome() {
   if (!chrome?.pid) return;
@@ -195,9 +191,8 @@ async function closeChrome() {
 }
 
 /**
- * Removes the profile, retrying what a closing browser can still hold briefly.
- * A profile that cannot be removed is reported and not thrown: it is not the
- * run's result, and a run that passed used to exit 1 because of it.
+ * Removes the profile, retrying while a closing browser still holds it. A
+ * failure is reported, not thrown: it is not the run's result.
  */
 function removeProfile() {
   try {

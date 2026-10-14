@@ -1,51 +1,34 @@
 /**
- * What the relay accepts as a position and a speed, how far a driven vehicle
- * may go between two poses, and what a chat line may be and how often.
+ * Bounds the relay enforces: positions, speeds, how far a driven vehicle may
+ * move between poses, and what a chat line, gesture, horn or flag may be.
  *
- * The relay is bundled on its own and cannot import the game, whose constants
- * live beside Three and the DOM, so the few it bounds are restated here — and
- * restated loosely, as bounds rather than copies: a limit a little over the
- * game's own is a relay that drops a legitimate player the day the plane is
- * tuned. `scripts/check-world.ts` imports this file beside `src/vehicles.ts`
- * and fails if the game has outgrown any of them, so tuning the plane past a
- * margin is a failed check rather than a silent one.
- *
- * No imports, so the check can load it under Node and the Worker can bundle it.
+ * The relay is bundled on its own and cannot import the game, so the game
+ * constants it bounds are restated here, loosely, as bounds rather than
+ * copies. `scripts/check-world.ts` fails if the game outgrows any of them.
+ * No imports: the checks load this under Node and the Worker bundles it.
  */
 
 /** `PLANET_RADIUS` in `src/globe.ts`. */
 export const PLANET_RADIUS = 16_000;
 
-/**
- * Under the lowest sea floor: nothing in the world stands this deep, and the
- * shore's lip and the waterline are a few units under the radius.
- */
+/** Below the lowest sea floor. */
 export const MIN_RADIUS = 15_000;
 
 /**
- * Over anything that flies. The plane's ceiling is an *altitude*,
- * `PLANET_RADIUS * 1.45` (23,200) over the sea, so a plane at it is at a
- * radius of 39,200; this is the radius plus twice that altitude (62,400),
- * room for the ceiling to be raised by half again and more. The same bound
- * holds a player and a vehicle, because a seated player is where his seat is.
+ * Above anything that flies: the radius plus twice the plane's ceiling
+ * altitude (`PLANET_RADIUS * 1.45`). Bounds players and vehicles alike.
  */
 export const MAX_RADIUS = PLANET_RADIUS + 2 * (PLANET_RADIUS * 1.45);
 
 // ---------------------------------------------------------------------------
-// The worlds
+// Worlds: one room per world; a state is bounded by its world's shell.
 // ---------------------------------------------------------------------------
-//
-// One room a world: a traveller on Mars and one on Earth never see each
-// other, and a state is bounded by the shell of the world it was sent on.
 
 /**
- * Every world the relay keeps a room for, and its walkable radius in units:
- * `surfaceRadiusOf` in `src/system/contract.ts` — the real radius in km over
- * `KM_PER_UNIT`, Earth's 6,371 km to its 16,000 units, the same scale on
- * every world because the traveller is the same size on every world — of
- * each body's `radiusKm`, rounded. A giant's is its cloud deck, at one bar.
- * `scripts/check-relay.ts` holds these to the bodies' own files; a world
- * missing here is a world whose players are refused a room.
+ * Every world the relay keeps a room for, and its walkable radius in units
+ * (`surfaceRadiusOf` in `src/system/contract.ts`, rounded; a giant's is its
+ * one-bar cloud deck). `scripts/check-relay.ts` holds these to the bodies'
+ * files. Players on a world missing here are refused a room.
  */
 export const BODY_RADII: Readonly<Record<string, number>> = {
   earth: PLANET_RADIUS,
@@ -59,7 +42,7 @@ export const BODY_RADII: Readonly<Record<string, number>> = {
   neptune: 61_835,
 };
 
-/** Each world's name as a line in the chat or a row on `Tab` says it, short: `'Moon'`, not `'The Moon'`. */
+/** Short world names for chat lines and the player list: `'Moon'`, not `'The Moon'`. */
 export const BODY_NAMES: Readonly<Record<string, string>> = {
   earth: 'Earth',
   mercury: 'Mercury',
@@ -79,12 +62,9 @@ export function cleanBody(raw: unknown): string {
 }
 
 /**
- * The shell a player or a vehicle can be in on a world: Earth's exactly
- * `MIN_RADIUS` to `MAX_RADIUS`; on another, the same depth under the surface
- * in proportion (a tenth of the radius, below any crater or deck the worlds
- * draw) and over it the larger of Earth's allowance over its own surface
- * (46,400 units, the plane's ceiling twice) and three tenths of the radius,
- * which a giant's sky needs.
+ * The radial shell a player or vehicle may occupy on a world. Elsewhere than
+ * Earth: a tenth of the radius below the surface, and above it the larger of
+ * Earth's allowance and three tenths of the radius (for a giant's sky).
  */
 export function shellOf(body: string): { min: number; max: number } {
   if (body === 'earth') return { min: MIN_RADIUS, max: MAX_RADIUS };
@@ -92,63 +72,43 @@ export function shellOf(body: string): { min: number; max: number } {
   return { min: radius * 0.9, max: radius + Math.max(MAX_RADIUS - PLANET_RADIUS, radius * 0.3) };
 }
 
-/**
- * About twice the fastest thing in the world. The plane at the ceiling, its
- * cruise of 3,400 with the stick and the throttle full on (`fly` in
- * `src/player.ts`), went 7,344 a second on 2026-09-24. A state or a pose
- * faster than this is not a game's.
- */
+/** Units per second; about twice the plane's top speed at its ceiling. */
 export const MAX_SPEED = 15_000;
 
 /**
- * How late a pose may arrive against the one before it: the client sends one
- * at most every 100 ms, and a network holds and releases them in bunches.
+ * How late a pose may arrive relative to the previous one: clients send at
+ * most every 100 ms, but networks deliver in bunches.
  */
 export const JITTER_MS = 1_000;
 
 /**
- * How far a driven vehicle may have gone in `elapsedMs` since its last known
- * pose: `MAX_SPEED` over that time and the jitter, plus `slack` (the claim's
- * reach, where the relay's pose is only as good as a claimer's word).
- *
- * A teleport on the wire is never a pose: `atlas.goTo`, the map's *join* and a
- * spawn from the menu all leave the vehicle where it was (the player's ride
- * ends, and the `up` that follows carries the pose it was left at), and the
- * player's own state is never bounded by a step, so a traveller can jump
- * anywhere and only a vehicle cannot. A pose past this is dropped rather than
- * answered; the bound grows with the time since the last one accepted, so a
- * client that lost a few catches up on its own.
+ * How far a driven vehicle may have moved in `elapsedMs` since its last known
+ * pose: `MAX_SPEED` over that time plus the jitter, plus `slack` (the claim's
+ * reach). Players may teleport; vehicles may not, since a teleport always ends
+ * the ride first. A pose past this is dropped, and because the bound grows
+ * with time a client that lost a few poses catches up by itself.
  */
 export function driveReach(elapsedMs: number, slack: number): number {
   return slack + (MAX_SPEED * (Math.max(0, elapsedMs) + JITTER_MS)) / 1000;
 }
 
 /**
- * How a traveller looks, as the relay passes it on: `encodeAppearance` in
- * `src/appearance.ts` writes thirteen characters, a version letter and one
- * base-36 digit a field, and this is looser than that on purpose — a short
- * run of lower-case letters and digits, with room for the fields a later
- * client appends. The relay never reads it; the game's `decodeAppearance` is
- * the one reader, and draws anything it cannot as the crowd. What this stops
- * is anything else riding along under the name: markup, a long string, a
- * number where text was expected. `pnpm people` holds every code the game can
- * write to it.
+ * A traveller's appearance code as the relay passes it on. `encodeAppearance`
+ * in `src/appearance.ts` writes 13 base-36 characters; this is deliberately
+ * looser to leave room for future fields. The relay never decodes it; the
+ * pattern only keeps markup and long strings out.
  */
 export const LOOK_PATTERN = /^[0-9a-z]{1,24}$/;
 
-/** A look as the relay keeps it, or `''` for none — whatever it was sent. */
+/** A look as the relay keeps it, or `''` if invalid. */
 export function cleanLook(raw: unknown): string {
   return typeof raw === 'string' && LOOK_PATTERN.test(raw) ? raw : '';
 }
 
 // ---------------------------------------------------------------------------
-// The chat
+// Chat: the game cleans and paces a line before sending it, and the relay
+// does the same again on receipt. `scripts/check-chat.ts` tests both ends.
 // ---------------------------------------------------------------------------
-//
-// One definition for both ends: the game cleans and paces a line with these
-// before it sends it, so what the field shows is what everybody else will
-// read, and the relay cleans and paces it again, because a client is only a
-// client's word. `scripts/check-chat.ts` holds both to them.
 
 /** The longest line, in characters (code points, so an emoji is one). */
 export const CHAT_MAX = 200;
@@ -160,22 +120,10 @@ export const CHAT_INTERVAL_MS = 1_500;
 export const CHAT_BURST = 3;
 
 /**
- * The most the network may stretch or squeeze the gap between two lines on
- * their way to the relay, in milliseconds, and the game's own interval with
- * it: the game paces itself `CHAT_JITTER_MS` slower than the relay does,
- * with the same burst, so a line the field lets through is never one the
- * relay drops for having arrived early.
- *
- * Why the margin is a sum and not a factor: a line the relay would refuse
- * is the `CHAT_BURST + 1`-th inside some window, and the game never lets
- * one go until a whole interval of its own after the window opened. Lines
- * sent `gap` apart arrive at least `gap - CHAT_JITTER_MS` apart (a socket
- * keeps their order, and no delay is shorter than the shortest), so the
- * relay has earned the line once `CHAT_CLIENT_INTERVAL_MS - CHAT_JITTER_MS`
- * is a whole `CHAT_INTERVAL_MS`. Nothing on the wire changes: the relay
- * reads `spendChat` as it always has, and only the game passes the slower
- * interval. `scripts/check-chat.ts` sends a sender who hammers the key
- * through a jittered socket and holds the relay to dropping nothing.
+ * The most the network may compress the gap between two lines, ms. The game
+ * paces itself this much slower than the relay (same burst), so lines sent
+ * `gap` apart arrive at least `gap - CHAT_JITTER_MS` apart, still one full
+ * `CHAT_INTERVAL_MS`, and the relay never drops a line the game let through.
  */
 export const CHAT_JITTER_MS = 500;
 export const CHAT_CLIENT_INTERVAL_MS = CHAT_INTERVAL_MS + CHAT_JITTER_MS;
@@ -184,12 +132,10 @@ export const CHAT_CLIENT_INTERVAL_MS = CHAT_INTERVAL_MS + CHAT_JITTER_MS;
 export const CHAT_HISTORY = 50;
 
 /**
- * What nobody types: control characters, unpaired surrogates, private-use
- * code points (not the unassigned: an engine with an older table would
- * strip an emoji newer than it), the bidirectional overrides and isolates
- * that turn the rest of a line — or the next one — backwards, zero-width
- * spaces and the line and paragraph separators. The zero-width joiner stays:
- * the family and flag emoji are built with it.
+ * Stripped from chat: control characters, unpaired surrogates, private-use
+ * code points, bidi overrides and isolates, zero-width spaces and line and
+ * paragraph separators. Unassigned code points are kept (an older engine
+ * would strip newer emoji), and so is the zero-width joiner, which emoji use.
  */
 const UNPRINTABLE = /[\p{Cc}\p{Cs}\p{Co}\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\u2028\u2029\uFEFF]/gu;
 
@@ -197,10 +143,9 @@ const UNPRINTABLE = /[\p{Cc}\p{Cs}\p{Co}\u200B\u200E\u200F\u202A-\u202E\u2060\u2
 const LINK = /\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/giu;
 
 /**
- * A line as it is sent and shown, or `''` for nothing worth sending: one line,
- * printable, no link, runs of spaces made one, at most `CHAT_MAX` characters.
- * The text is never markup — the game writes it with `textContent` — so angle
- * brackets are kept: `<3` is a heart, not a tag.
+ * A chat line as sent and shown, or `''` if empty: one line, printable, links
+ * replaced, whitespace collapsed, at most `CHAT_MAX` code points. Angle
+ * brackets are kept because the game renders with `textContent`.
  */
 export function cleanChat(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -217,11 +162,7 @@ export function cleanChat(raw: unknown): string {
 /** The outline code of the country a line was sent from (`Country.iso`), or `''` at sea. */
 export const COUNTRY_PATTERN = /^[A-Z0-9]{2,3}$/;
 
-/**
- * A nation on another world, as its key is written: `'<body>:<nation>'`
- * (`keyOf` in `src/system/geography.ts`), `'mars:tharsis'`. Its banner is
- * the flag a line carries there.
- */
+/** A nation on another world, `'<body>:<nation>'` (`keyOf` in `src/system/geography.ts`). */
 export const NATION_PATTERN = /^[a-z]+:[a-z0-9-]{1,32}$/;
 
 export function cleanCountry(raw: unknown): string {
@@ -239,12 +180,7 @@ export function cleanEmote(raw: unknown): Emote | '' {
 /** Between two gestures by one player. */
 export const EMOTE_INTERVAL_MS = 1_000;
 
-/**
- * The horns a driver can sound where others hear them, as the wire names
- * them: a car's two tones, a bus's deep one, a motorbike's beep, a bicycle's
- * bell, a tuk-tuk's rubber bulb, a boat's horn and a horse's whinny. Which
- * kind sounds which is `HORN_OF` in `src/craft/contract.ts`.
- */
+/** Horn sounds as the wire names them; which vehicle uses which is `HORN_OF` in `src/craft/contract.ts`. */
 export const HONKS = ['car', 'bus', 'beep', 'bell', 'squeak', 'ship', 'whinny'] as const;
 export type Honk = (typeof HONKS)[number];
 
@@ -252,27 +188,17 @@ export function cleanHonk(raw: unknown): Honk | '' {
   return typeof raw === 'string' && (HONKS as readonly string[]).includes(raw) ? (raw as Honk) : '';
 }
 
-/**
- * Between two horns by one player: a tap and a second tap, not a stuck key.
- * A held horn's refresh (`HONK_REFRESH_MS`) is paced by the same interval,
- * and a stop is never paced.
- */
+/** Minimum gap between horn starts (and refreshes) by one player; stops are not paced. */
 export const HONK_INTERVAL_MS = 350;
 
 /**
- * A horn is held as long as its key is: `{ t: 'honk', k, on: true }` when
- * the key goes down, again every `HONK_REFRESH_MS` while it stays down, and
- * `{ t: 'honk', k, on: false }` when it comes up. A peer that hears nothing
- * for `HONK_HOLD_MS` lets the horn go by itself, so a stop lost on the way,
- * or a player who closes the page with the key held, never leaves one stuck.
- * `HONK_HOLD_MS` is two and a half refreshes: one late refresh is not a gap.
+ * A held horn sends `on: true` on key down, again every `HONK_REFRESH_MS`,
+ * and `on: false` on key up. A peer releases it after `HONK_HOLD_MS` of
+ * silence (two and a half refreshes), so a lost stop never leaves it stuck.
  */
 export const HONK_REFRESH_MS = 1_000;
 export const HONK_HOLD_MS = 2_500;
-/**
- * How long a horn with no `on` sounds, the shape an older client sends: a
- * tap, about what the one-shot it expected lasted.
- */
+/** How long a honk without `on` (an older client's tap) sounds. */
 export const HONK_TAP_MS = 350;
 
 /** What `on` a honk carries: held (`true`), let go (`false`), a tap (`undefined`), or `null` for nonsense. */
@@ -290,11 +216,9 @@ export interface HonkState {
 export const freshHonk = (): HonkState => ({ at: -Infinity, on: false });
 
 /**
- * Whether a honk may go now, and the state after it. A start, a refresh or a
- * tap is paced by `HONK_INTERVAL_MS`; a stop goes whenever a start went
- * before it and nothing stopped it since, and never otherwise. The relay
- * passes on what this allows and the game sends only what it would, so the
- * two agree without a word about it.
+ * Whether a honk may go now, updating `state`. Starts, refreshes and taps are
+ * paced by `HONK_INTERVAL_MS`; a stop goes only if a start is outstanding.
+ * Both the game and the relay use this, so they agree.
  */
 export function spendHonk(state: HonkState, on: boolean | undefined, now: number): boolean {
   if (on === false) {
@@ -309,13 +233,9 @@ export function spendHonk(state: HonkState, on: boolean | undefined, now: number
 }
 
 /**
- * What a player is doing that the nine numbers of a state do not say, as
- * bits of one small integer, by their index here: under an open canopy after
- * jumping out of an aircraft, and sitting on a bench. Kept by the relay, so a
- * player who joins later sees them too, which a gesture (`EMOTES`) is not.
- * Anything else a peer is drawn doing is read off the state itself: a
- * rider's horse leaps when its driver's state is off the ground, and a
- * swimmer under the water's surface is diving.
+ * Persistent player conditions the state vector does not carry, as bits by
+ * index: under an open parachute, sitting on a bench. Unlike `EMOTES`, the
+ * relay keeps them so late joiners see them.
  */
 export const FLAGS = ['chute', 'sitting'] as const;
 export type Flag = (typeof FLAGS)[number];
@@ -328,7 +248,7 @@ export function cleanFlags(raw: unknown): number {
 /** Whether `flags` has `flag` set. */
 export const hasFlag = (flags: number, flag: Flag): boolean => (flags & (1 << FLAGS.indexOf(flag))) !== 0;
 
-/** Between two changes of flags by one player: a canopy opening and a landing are seconds apart. */
+/** Minimum gap between flag changes by one player. */
 export const FLAGS_INTERVAL_MS = 200;
 
 /** A sender's allowance: lines in hand, and when it was last topped up. */
@@ -340,10 +260,9 @@ export interface ChatBucket {
 export const freshBucket = (): ChatBucket => ({ tokens: CHAT_BURST, at: 0 });
 
 /**
- * Whether a line may go at `now`, spending it if so. The allowance refills
- * one line each `interval` up to `CHAT_BURST`; a clock that went backwards
- * refills nothing. The relay's interval is `CHAT_INTERVAL_MS`; the game
- * passes `CHAT_CLIENT_INTERVAL_MS`, which is the margin.
+ * Whether a line may go at `now`, spending it if so. The bucket refills one
+ * line per `interval` up to `CHAT_BURST`; a clock going backwards refills
+ * nothing. The relay uses `CHAT_INTERVAL_MS`, the game `CHAT_CLIENT_INTERVAL_MS`.
  */
 export function spendChat(bucket: ChatBucket, now: number, interval = CHAT_INTERVAL_MS): boolean {
   const earned = bucket.at === 0 ? CHAT_BURST : Math.max(0, now - bucket.at) / interval;

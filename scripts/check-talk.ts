@@ -1,16 +1,13 @@
 /**
- * The townsfolk's words, held to their contract: `pnpm people` runs all of it
- * over every language, and `node scripts/check-talk.ts es fr` runs it over a
- * few, in a fraction of a second, for whoever is writing them.
+ * The townsfolk's lines against their contract. `pnpm people` runs it over
+ * every language; `node scripts/check-talk.ts es fr` over a few.
  *
- * A language has every key with at least `MIN_VARIANTS` of it, each variant a
- * said line and its English meaning naming the same placeholders, and only
- * those its key may name; every country spoken to in it has its facts, each a
- * pair too; and no line, filled with the longest values it can meet, runs
- * longer than the bubble holds.
+ * Each language has every key with at least `MIN_VARIANTS` variants, each a
+ * said line and its English meaning naming the same placeholders (and only
+ * those the key allows); every country spoken to in it has its facts; and no
+ * line, filled with the longest values it can meet, overflows the bubble.
  *
- * `node scripts/check-talk.ts --sample` prints a few conversations in five
- * places instead, to be read.
+ * `node scripts/check-talk.ts --sample` prints a few conversations instead.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

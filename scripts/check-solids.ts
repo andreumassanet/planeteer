@@ -1,25 +1,19 @@
 /**
- * Headless assertions over `src/scenery/solids.ts` — the walls a body cannot
- * walk through.
+ * The walls a body cannot walk through (`scenery/solids.ts`), headless.
  *
- * **A collision bug is a position, not a picture.** A body that snags on a
- * party wall, tunnels through a thin one at a run or is spat out of a terrace
- * on the wrong side all look like a man walking in a screenshot; each of them
- * is one number here. The body is the player's own — `BODY_RADIUS` and
- * `RUN_SPEED` are imported, not restated — and the sub-step loop is `slide`,
- * the same function `player.ts` walks with, so what passes here is what the
- * player does in the plane.
+ * Collision bugs (snagging on a party wall, tunnelling through a thin one at a
+ * run, being pushed out on the wrong side) are positions, not pictures. The
+ * body is the player's own (`BODY_RADIUS`, `RUN_SPEED` imported) and the
+ * sub-step loop is `slide`, the function `player.ts` walks with.
  *
- * `freeSpot` is checked against a third party: a brute-force grid search
- * written here from the rectangles and discs alone, not from the file under
- * test.
+ * `freeSpot` is checked against a brute-force grid search written here from
+ * the rectangles and discs alone.
  *
- * And what outside a town is solid (`scenery/occupancy.ts`): the walls a
- * monument's own triangles make, measured on synthetic shapes whose answer is
- * known and on the real Arc de Triomphe and Eiffel Tower, walked through; the
- * trunk and boulder discs of the kit's trees and rocks; a farm building's walls
- * placed by a matrix, against Three placing the same corners; and what a query
- * costs in a forest and in a monument's plaza.
+ * Also what is solid outside towns (`scenery/occupancy.ts`): walls measured
+ * from a monument's triangles on synthetic shapes and on the real Arc de
+ * Triomphe and Eiffel Tower; tree trunks and boulders; a farm building's walls
+ * placed by a matrix against Three placing the same corners; and query cost in
+ * a forest and a plaza.
  *
  *   node scripts/check-solids.ts
  */
@@ -189,8 +183,8 @@ console.log('\nsliding');
 
 // --- tunnelling ---------------------------------------------------------------
 
-// Nine times the run: a person runs 2 units in a 0.1 s frame, which
-// no wall is thin enough to lose, so the subdivision is held to a speed that
+// Nine times the run speed: a run covers 2 units in a 0.1 s frame, which no
+// wall is thin enough to lose, so the sub-stepping is tested at a speed that
 // would cross one in a single step.
 const FAST = RUN_SPEED * 9;
 console.log(`\ntunnelling  (${FAST} units/s, dt 0.1, steps of ${STEP_FRACTION} R, at most ${MAX_STEPS})`);

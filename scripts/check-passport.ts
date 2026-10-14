@@ -1,10 +1,8 @@
 /**
- * The passport's book, headless: what is written is what is read back, a
- * damaged store reads as what it can still vouch for, a store that refuses
- * every read and write costs nothing but the memory, a stamp is taken on
- * the ground and never from the air, and every country of the outlines has a
- * place on exactly one continent's pages; and the other worlds' nations are
- * kept in the same book under their namespaced codes.
+ * The passport headless: round trip through storage, a damaged store reads as
+ * what it can still vouch for, a failing store costs only the session, stamps
+ * are taken on the ground and never from the air, every country sits on
+ * exactly one continent's pages, and other worlds' nations use namespaced codes.
  *
  *   node scripts/check-passport.ts
  */

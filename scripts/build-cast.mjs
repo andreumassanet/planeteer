@@ -7,12 +7,9 @@
 // ../.cache/assets/quaternius/modular/{men,women}/. Every outfit shares one
 // 62-joint rig ("CharacterArmature") and the same 24 clips.
 //
-// What this does, and why it is a bake rather than a copy:
-// - The packs ship .gltf with the buffer as base64, which is a third larger than
-//   binary. This writes GLB, gzipped into .bin the way public/data/*.bin is:
-//   no CDN compresses a binary it does not know, and the fifteen outfits and
-//   their clips were 9.9 MB as .glb and are 2.3 MB this way (2026-09-17).
-//   `src/cast.ts` inflates them.
+// What this does:
+// - Writes GLB gzipped into .bin like public/data/*.bin (the packs ship .gltf
+//   with a base64 buffer); `src/cast.ts` inflates them.
 // - Every outfit carries the same 24 clips. They are written once, into
 //   clips.bin, keeping only the ones the world plays, and stripped from the
 //   outfits — which is most of each file.

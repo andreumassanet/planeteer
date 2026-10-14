@@ -1,155 +1,40 @@
 /**
- * The space kit: CC0 creatures, colony buildings, craft, props and a ship's
- * bridge for the other worlds and the title screen -> public/models/space/
+ * Bakes the space kit: CC0 creatures, colony buildings, craft, props, flora
+ * and a ship's bridge for the other worlds and the title screen, into
+ * public/models/space/.
  *
  *   node scripts/build-space.ts          # write every file
  *   node scripts/build-space.ts --dry    # report and write nothing
  *
- * Sources, all CC0 1.0, downloaded to ../.cache/assets/ (INVENTORY.md says
- * from where and when; `scripts/sources.json` records each pack's URL and the
- * hash of what was baked):
+ * Sources (all CC0 1.0, under ../.cache/assets/, recorded in
+ * `scripts/sources.json`): Quaternius's Ultimate Space Kit and Ultimate
+ * Monsters (glTF, swatch atlases), Kenney's Space Kit (flat colours) and
+ * Space Station Kit (gradient colormap).
  *
- * - Quaternius, "Ultimate Space Kit" (glTF): the astronauts, the space kit's
- *   own aliens, the colony's buildings, rovers and spaceships, alien flora,
- *   rocks and pickups. One 512-pixel swatch atlas, 16-pixel swatches.
- * - Quaternius, "Ultimate Monsters" (glTF): the Big, Blob and Flying sets.
- *   One 1024-pixel swatch atlas, 32-pixel swatches.
- * - Kenney, "Space Kit" (GLB, flat material colours): craft, hangars, dishes,
- *   crystals, meteors, craters.
- * - Kenney, "Space Station Kit" (GLB, the City Kits' 16-by-4 gradient
- *   colormap): the ship's bridge — floor, walls, windows, consoles, seats.
- *
- * ## What a bake does
- *
- * The same as `build-kit.ts` does for the Earth's kit, so `src/models.ts`
- * reads the result with no new code: every node's transform applied, one
- * colour slot a material or an atlas swatch, creased normals for the fill and
- * a welded `outlineNormal` for the ink; a creature is one skinned body on its
- * own skeleton with only the clips the worlds play. The atlas packs are read
- * a swatch a triangle at its centroid, snapped to the middle of the swatch,
- * so a slot is one flat colour and the world's palette can replace it
- * (`onPalette`, applied by `src/space-kit.ts` unless asked for the pack's own).
- *
- * Every file is a gzipped GLB, like the kit's. `manifest.json` beside them
- * says what each holds — group, triangles, size, clips, source — so a loader
- * can list the kit without opening a file.
- *
- * The PNG decoder and the Node shims are the ones `build-kit.ts` carries; the
- * glTF loader here also reads images embedded in a `.gltf`'s data-URI buffer,
- * which is how both Quaternius packs ship their atlas.
+ * The bake does what `build-kit.ts` does, so `src/models.ts` reads the result
+ * unchanged. Atlas textures are read one swatch per triangle at its centroid,
+ * snapped to the swatch's middle, so each slot is one flat colour the world's
+ * palette can replace (`src/space-kit.ts`). Each file is a gzipped GLB;
+ * `manifest.json` lists what each holds.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { gzipSync, inflateSync } from 'node:zlib';
+import { gzipSync } from 'node:zlib';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { modelFrom, rigFrom, slotTable } from '../src/models.ts';
 import type { Model, Rig } from '../src/models.ts';
-
-const g = globalThis as Record<string, unknown>;
-g.ProgressEvent ??= class extends Event {
-  constructor(type: string, init: Record<string, unknown> = {}) {
-    super(type);
-    Object.assign(this, init);
-  }
-};
-g.self ??= globalThis;
-g.FileReader ??= class {
-  result: ArrayBuffer | string | null = null;
-  onloadend: (() => void) | null = null;
-  readAsArrayBuffer(blob: Blob) {
-    void blob.arrayBuffer().then((buffer) => {
-      this.result = buffer;
-      this.onloadend?.();
-    });
-  }
-  readAsDataURL(blob: Blob) {
-    void blob.arrayBuffer().then((buffer) => {
-      this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString('base64')}`;
-      this.onloadend?.();
-    });
-  }
-};
+import { decodePng } from './build-kit/images.ts';
+import type { Pixels } from './build-kit/images.ts';
+import './build-kit/node-shims.ts';
+import { BUILDINGS, CRAFT, CREATURES, FLORA, INTERIOR, PROPS, Q_GRID, packOf } from './build-space/manifest.ts';
+import type { CreatureKind, StaticEntry } from './build-space/manifest.ts';
 
 const CACHE = new URL('../../.cache/assets/', import.meta.url).pathname;
 const OUT = new URL('../public/models/space/', import.meta.url).pathname;
 const DRY = process.argv.includes('--dry');
-
-// ---------------------------------------------------------------------------
-// PNG: 8-bit greyscale, RGB, palette and RGBA, no interlace
-// ---------------------------------------------------------------------------
-
-interface Pixels {
-  width: number;
-  height: number;
-  rgba: Uint8Array;
-}
-
-function decodePng(label: string, bytes: Buffer): Pixels {
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let type = 0;
-  let palette: Buffer | null = null;
-  let alpha: Buffer | null = null;
-  const data: Buffer[] = [];
-  while (offset < bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    const kind = bytes.toString('ascii', offset + 4, offset + 8);
-    const chunk = bytes.subarray(offset + 8, offset + 8 + length);
-    if (kind === 'IHDR') {
-      width = chunk.readUInt32BE(0);
-      height = chunk.readUInt32BE(4);
-      if (chunk[8] !== 8 || chunk[12] !== 0) throw new Error(`${label}: only 8-bit, non-interlaced PNG`);
-      type = chunk[9]!;
-    } else if (kind === 'PLTE') palette = chunk;
-    else if (kind === 'tRNS') alpha = chunk;
-    else if (kind === 'IDAT') data.push(chunk);
-    offset += 12 + length;
-  }
-  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type as 0 | 2 | 3 | 4 | 6];
-  if (channels === undefined) throw new Error(`${label}: PNG colour type ${type}`);
-  const raw = inflateSync(Buffer.concat(data));
-  const stride = width * channels;
-  const out = new Uint8Array(width * height * channels);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)]!;
-    const row = y * stride;
-    for (let x = 0; x < stride; x++) {
-      const value = raw[y * (stride + 1) + 1 + x]!;
-      const left = x >= channels ? out[row + x - channels]! : 0;
-      const up = y > 0 ? out[row - stride + x]! : 0;
-      const corner = y > 0 && x >= channels ? out[row - stride + x - channels]! : 0;
-      let predicted = 0;
-      if (filter === 1) predicted = left;
-      else if (filter === 2) predicted = up;
-      else if (filter === 3) predicted = (left + up) >> 1;
-      else if (filter === 4) {
-        const p = left + up - corner;
-        const pa = Math.abs(p - left);
-        const pb = Math.abs(p - up);
-        const pc = Math.abs(p - corner);
-        predicted = pa <= pb && pa <= pc ? left : pb <= pc ? up : corner;
-      }
-      out[row + x] = (value + predicted) & 255;
-    }
-  }
-  const rgba = new Uint8Array(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    if (type === 6) rgba.set(out.subarray(i * 4, i * 4 + 4), i * 4);
-    else if (type === 2) rgba.set([out[i * 3]!, out[i * 3 + 1]!, out[i * 3 + 2]!, 255], i * 4);
-    else if (type === 3) {
-      const p = out[i]!;
-      rgba.set([palette![p * 3]!, palette![p * 3 + 1]!, palette![p * 3 + 2]!, alpha?.[p] ?? 255], i * 4);
-    } else {
-      const v = out[i * channels]!;
-      rgba.set([v, v, v, 255], i * 4);
-    }
-  }
-  return { width, height, rgba };
-}
 
 /** A swatch reader for an atlas of `grid` swatches, read at each swatch's middle. */
 function swatchReader(grid: [number, number] | undefined) {
@@ -172,7 +57,8 @@ function swatchReader(grid: [number, number] | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// glTF and GLB in Node, images decoded here rather than through a DOM
+// glTF and GLB in Node, with images decoded here rather than through a DOM.
+// Unlike the kit's loader, this one also reads images embedded in a buffer.
 // ---------------------------------------------------------------------------
 
 interface Loaded {
@@ -255,10 +141,9 @@ async function loadGltf(source: string): Promise<Loaded> {
 }
 
 /**
- * A textured mesh as one material a swatch: every triangle's colour read at
- * its centroid, the triangles sorted by it and grouped, each group a plain
- * material named `<material>#rrggbb`. What `modelFrom` does for a still
- * model, done ahead of `rigFrom` for a skinned one, which slots by material.
+ * Splits a textured mesh into one plain material per swatch colour
+ * (`<material>#rrggbb`), reading each triangle at its centroid. `modelFrom`
+ * does this for still models; skinned ones need it before `rigFrom`.
  */
 function swatchesToGroups(root: THREE.Object3D, read: ReturnType<typeof swatchReader>): void {
   const colour = new THREE.Color();
@@ -314,183 +199,6 @@ function swatchesToGroups(root: THREE.Object3D, read: ReturnType<typeof swatchRe
 }
 
 // ---------------------------------------------------------------------------
-// The manifest
-// ---------------------------------------------------------------------------
-
-const Q_SPACE = 'quaternius/ultimate-space-kit/';
-const Q_MONSTERS = 'quaternius/ultimate-monsters/';
-const K_SPACE = 'kenney/space-kit/Models/GLTF format/';
-const K_STATION = 'kenney/space-station-kit/Models/GLB format/';
-/** Quaternius's two atlases: 32 swatches a side (16 px of 512, 32 px of 1024). */
-const Q_GRID: [number, number] = [32, 32];
-/** Kenney's colormap: 16 swatches by 4, each shaded top to bottom. */
-const K_GRID: [number, number] = [16, 4];
-
-/** The pack a source belongs to, for the manifest and the licence. */
-function packOf(source: string): string {
-  if (source.startsWith(Q_SPACE)) return 'Quaternius, Ultimate Space Kit';
-  if (source.startsWith(Q_MONSTERS)) return 'Quaternius, Ultimate Monsters';
-  if (source.startsWith(K_STATION)) return 'Kenney, Space Station Kit';
-  if (source.startsWith(K_SPACE)) return 'Kenney, Space Kit';
-  throw new Error(`no pack for ${source}`);
-}
-
-interface StaticEntry {
-  id: string;
-  source: string;
-  /** Radians about Y that turn the pack's model to face +Z. */
-  yaw?: number;
-  grid?: [number, number];
-  /** Free words for a consumer to choose by: `dome`, `ice`, `lava`, `seat`... */
-  tags?: string[];
-}
-
-const q = (path: string, id: string, tags: string[] = [], yaw?: number): StaticEntry => ({ id, source: `${Q_SPACE}${path}.gltf`, grid: Q_GRID, tags, yaw });
-const k = (name: string, id: string, tags: string[] = [], yaw?: number): StaticEntry => ({ id, source: `${K_SPACE}${name}.glb`, tags, yaw });
-const st = (name: string, tags: string[] = []): StaticEntry => ({ id: name, source: `${K_STATION}${name}.glb`, grid: K_GRID, tags });
-
-/** The colony: modules, domes, a hangar, the masts and dishes round them. */
-const BUILDINGS: StaticEntry[] = [
-  q('Environment/GLTF/Base_Large', 'base-large', ['hub']),
-  q('Environment/GLTF/Building_L', 'building-l', ['module']),
-  q('Environment/GLTF/GeodesicDome', 'geodesic-dome', ['dome']),
-  q('Environment/GLTF/House_Cylinder', 'house-cylinder', ['module']),
-  q('Environment/GLTF/House_Long', 'house-long', ['module']),
-  q('Environment/GLTF/House_Open', 'house-open', ['module', 'door']),
-  q('Environment/GLTF/House_OpenBack', 'house-open-back', ['module', 'door']),
-  q('Environment/GLTF/House_Single', 'house-single', ['module']),
-  q('Environment/GLTF/House_Single_Support', 'house-single-support', ['module', 'stilts']),
-  q('Environment/GLTF/Connector', 'connector', ['tube']),
-  q('Environment/GLTF/MetalSupport', 'metal-support', ['frame']),
-  q('Environment/GLTF/Stairs', 'stairs', ['access']),
-  q('Environment/GLTF/Ramp', 'ramp', ['access']),
-  q('Environment/GLTF/Roof_Antenna', 'roof-antenna', ['roof']),
-  q('Environment/GLTF/Roof_Radar', 'roof-radar', ['roof']),
-  q('Environment/GLTF/Roof_Opening', 'roof-opening', ['roof']),
-  q('Environment/GLTF/SolarPanel_Ground', 'solar-ground', ['power']),
-  q('Environment/GLTF/SolarPanel_Structure', 'solar-array', ['power']),
-  k('hangar_largeA', 'hangar-large', ['hangar']),
-  k('hangar_roundA', 'hangar-round', ['hangar']),
-  k('hangar_roundGlass', 'hangar-glass', ['hangar', 'dome']),
-  k('hangar_smallA', 'hangar-small', ['hangar']),
-  k('gate_complex', 'gate', ['gate']),
-  k('satelliteDish_large', 'dish-large', ['mast']),
-  k('satelliteDish_detailed', 'dish', ['mast']),
-  k('machine_generatorLarge', 'generator', ['power']),
-  k('machine_wireless', 'beacon', ['mast']),
-  k('structure_detailed', 'scaffold', ['frame']),
-];
-
-/** What can be taken: rovers on the ground, ships for the sky. */
-const CRAFT: StaticEntry[] = [
-  q('Vehicles/GLTF/Rover_1', 'rover', ['ground']),
-  q('Vehicles/GLTF/Rover_2', 'rover-cab', ['ground']),
-  q('Vehicles/GLTF/Rover_Round', 'rover-round', ['ground']),
-  q('Vehicles/GLTF/Spaceship_BarbaraTheBee', 'ship-bee', ['air']),
-  q('Vehicles/GLTF/Spaceship_FernandoTheFlamingo', 'ship-flamingo', ['air']),
-  q('Vehicles/GLTF/Spaceship_FinnTheFrog', 'ship-frog', ['air']),
-  q('Vehicles/GLTF/Spaceship_RaeTheRedPanda', 'ship-panda', ['air']),
-  k('rover', 'buggy', ['ground']),
-  k('craft_speederA', 'speeder-a', ['air', 'hover']),
-  k('craft_speederB', 'speeder-b', ['air', 'hover']),
-  k('craft_speederD', 'speeder-d', ['air', 'hover']),
-  k('craft_racer', 'racer', ['air']),
-  k('craft_miner', 'miner', ['air', 'heavy']),
-  k('craft_cargoA', 'cargo-a', ['air', 'heavy']),
-  k('craft_cargoB', 'cargo-b', ['air', 'heavy']),
-];
-
-/** Rocks, crystals and the colony's clutter. */
-const PROPS: StaticEntry[] = [
-  ...['Rock_1', 'Rock_2', 'Rock_3', 'Rock_4'].map((n, i) => q(`Environment/GLTF/${n}`, `rock-${i + 1}`, ['rock'])),
-  ...['Rock_Large_1', 'Rock_Large_2', 'Rock_Large_3'].map((n, i) => q(`Environment/GLTF/${n}`, `rock-large-${i + 1}`, ['rock', 'large'])),
-  k('rock_crystals', 'crystals', ['crystal']),
-  k('rock_crystalsLargeA', 'crystals-large-a', ['crystal', 'large']),
-  k('rock_crystalsLargeB', 'crystals-large-b', ['crystal', 'large']),
-  k('meteor_detailed', 'meteor', ['rock', 'meteor']),
-  k('meteor_half', 'meteor-half', ['rock', 'meteor']),
-  k('craterLarge', 'crater-large', ['crater']),
-  k('crater', 'crater', ['crater']),
-  k('bones', 'bones', ['remains']),
-  k('barrels', 'barrels', ['clutter']),
-  k('machine_barrel', 'tank', ['clutter']),
-  q('Items/GLTF/Pickup_Crate', 'crate', ['clutter']),
-  q('Items/GLTF/Pickup_Jar', 'jar', ['clutter']),
-];
-
-/** Alien plants: the space kit's trees, bushes and grass. */
-const FLORA: StaticEntry[] = [
-  ...['Blob_3', 'Floating_1', 'Lava_1', 'Lava_2', 'Lava_3', 'Light_1', 'Light_2', 'Spikes_1', 'Spikes_2', 'Spiral_1', 'Spiral_2', 'Spiral_3', 'Swirl_1', 'Swirl_2'].map((n) =>
-    q(`Environment/GLTF/Tree_${n}`, `tree-${n.toLowerCase().replace('_', '-')}`, ['tree', n.split('_')[0]!.toLowerCase()]),
-  ),
-  ...['Bush_1', 'Bush_2', 'Bush_3', 'Plant_1', 'Plant_2', 'Plant_3', 'Grass_1', 'Grass_2', 'Grass_3'].map((n) =>
-    q(`Environment/GLTF/${n}`, n.toLowerCase().replace('_', '-'), [n.split('_')[0]!.toLowerCase()]),
-  ),
-];
-
-/** A ship's bridge: the Space Station Kit, and the Space Kit's desk seats. */
-const INTERIOR: StaticEntry[] = [
-  ...['floor', 'floor-detail', 'floor-corner', 'floor-panel', 'floor-panel-straight', 'floor-panel-end', 'floor-panel-corner'].map((n) => st(n, ['floor'])),
-  ...['wall', 'wall-detail', 'wall-banner', 'wall-corner', 'wall-corner-round', 'wall-pillar', 'wall-switch'].map((n) => st(n, ['wall'])),
-  ...['wall-window', 'wall-window-frame', 'wall-window-banner', 'wall-window-shutters'].map((n) => st(n, ['wall', 'window'])),
-  ...['wall-door', 'wall-door-wide', 'door-double', 'door-single'].map((n) => st(n, ['wall', 'door'])),
-  ...['computer', 'computer-screen', 'computer-system', 'computer-wide', 'display-wall', 'display-wall-wide'].map((n) => st(n, ['console'])),
-  ...['table-display', 'table-display-planet', 'table-display-small', 'table', 'table-inset'].map((n) => st(n, ['table'])),
-  ...['chair', 'chair-headrest', 'chair-armrest', 'chair-armrest-headrest', 'chair-cushion-headrest'].map((n) => st(n, ['seat'])),
-  ...['container', 'container-tall', 'container-wide', 'pipe', 'pipe-bend', 'pipe-ring-colored', 'structure-panel', 'rail', 'stairs', 'stairs-handrail'].map((n) => st(n, ['fitting'])),
-  k('desk_chairArms', 'desk-chair', ['seat']),
-  k('desk_computerCorner', 'desk-console-corner', ['console']),
-  k('desk_computerScreen', 'desk-console', ['console']),
-];
-
-/** `crew` are the astronauts; `walker`, `blob` and `flyer` the aliens, by how they move. */
-type CreatureKind = 'crew' | 'walker' | 'blob' | 'flyer';
-
-interface RigEntry {
-  id: string;
-  source: string;
-  kind: CreatureKind;
-  clips: RegExp;
-  tags?: string[];
-}
-
-const BIG_CLIPS = /^(Idle|Walk|Run|Wave|Yes|No|Jump)$/;
-const BLOB_CLIPS = /^(Idle|Walk|Dance|Yes|No|Jump)$/;
-const FLY_CLIPS = /^(Flying_Idle|Fast_Flying|Yes|No)$/;
-const CREW_CLIPS = /^(Idle|Walk|Run|Wave|Yes|No|Jump|Jump_Idle|Jump_Land)$/;
-
-const big = (name: string, tags: string[] = []): RigEntry => ({ id: name.toLowerCase(), source: `${Q_MONSTERS}Big/glTF/${name}.gltf`, kind: 'walker', clips: BIG_CLIPS, tags });
-const blob = (name: string, tags: string[] = []): RigEntry => ({ id: name.toLowerCase().replace('_', '-'), source: `${Q_MONSTERS}Blob/glTF/${name}.gltf`, kind: 'blob', clips: BLOB_CLIPS, tags });
-const flyer = (name: string, tags: string[] = []): RigEntry => ({ id: name.toLowerCase(), source: `${Q_MONSTERS}Flying/glTF/${name}.gltf`, kind: 'flyer', clips: FLY_CLIPS, tags });
-
-/**
- * The creatures. Chosen for shapes that read as another world's people and
- * not as Earth's fantasy: no orcs, ninjas, demons, wizards or skulls, which
- * the same packs carry.
- */
-const CREATURES: RigEntry[] = [
-  ...['BarbaraTheBee', 'FernandoTheFlamingo', 'FinnTheFrog', 'RaeTheRedPanda'].map(
-    (name): RigEntry => ({ id: `astronaut-${name.replace(/^(\w+?)The/, '').toLowerCase()}`, source: `${Q_SPACE}Characters/GLTF/Astronaut_${name}.gltf`, kind: 'crew', clips: CREW_CLIPS }),
-  ),
-  { id: 'greyling', source: `${Q_SPACE}Characters/GLTF/Enemy_Large.gltf`, kind: 'walker', clips: BIG_CLIPS, tags: ['alien'] },
-  { id: 'drifter', source: `${Q_SPACE}Characters/GLTF/Enemy_Flying.gltf`, kind: 'flyer', clips: FLY_CLIPS, tags: ['alien'] },
-  big('Alien', ['alien']),
-  big('Cactoro', ['desert']),
-  big('MushroomKing', ['fungus']),
-  big('Fish', ['water']),
-  big('Frog', ['water']),
-  big('Birb', ['feathered']),
-  big('Monkroose', ['furred']),
-  big('Yeti', ['ice']),
-  blob('GreenBlob', ['slime']),
-  blob('PinkBlob', ['slime']),
-  blob('Mushnub', ['fungus']),
-  flyer('Squidle', ['tentacled']),
-  flyer('Glub', ['water']),
-  flyer('Hywirl', ['wind']),
-];
-
-// ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
 
@@ -513,8 +221,7 @@ function indexed(model: Pick<Model, 'geometry' | 'slot'>): THREE.BufferGeometry 
 }
 
 async function exportGlb(scene: THREE.Object3D, animations: THREE.AnimationClip[] = []): Promise<Buffer> {
-  // The exporter renormalises every normal it writes and says so once a mesh;
-  // the creased normals are unit length already, so the message is noise.
+  // Silence the exporter's per-mesh normalisation warning; the normals are unit length.
   const warn = console.warn;
   console.warn = (...args: unknown[]) => {
     if (!String(args[0]).includes('normalized normal')) warn(...args);
@@ -599,7 +306,7 @@ async function bakeCreatures(): Promise<void> {
       clip.name = clip.name.replace(/^.*\|/, '');
       clip.optimize();
     }
-    // The astronauts carry a pistol in the right hand; nobody here is armed.
+    // Remove the astronauts' pistols.
     const weapons: THREE.Object3D[] = [];
     loaded.scene.traverse((object) => {
       if ((object as THREE.Mesh).isMesh && !(object as THREE.SkinnedMesh).isSkinnedMesh && /pistol|gun|weapon|sword/i.test(object.name)) weapons.push(object);

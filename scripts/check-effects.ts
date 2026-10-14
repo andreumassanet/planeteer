@@ -1,16 +1,11 @@
 /**
- * The effects, headless: the pools, not the pictures.
- *
- * `effects.ts` draws wakes, smoke, dust and debris out of fixed pools, and
- * what can go wrong with a pool is invisible in a screenshot and obvious in a
- * table: a cap that does not hold, a particle that never dies, an instance
- * matrix that is a reflection (the ink draws a mirrored hull as a solid
- * blob), foam that drifts off the water, a draw call more than the four the
- * design allows, a wake that is a trail at 120 frames a second and a scatter
- * at 10, a teleport that throws a burst. So this drives the real module with
- * a stand-in player — a launch at full boost, a car in the desert into a
- * wall, a plane, a balloon climbing, a swimmer, another player's boat — and
- * asks each of those.
+ * The effect pools headless. `effects.ts` draws wakes, smoke, dust and debris
+ * from fixed pools; this drives it with stand-in subjects (a launch at full
+ * boost, a car into a wall, a plane, a climbing balloon, a swimmer, another
+ * player's boat) and checks that caps hold, particles die, no instance matrix
+ * is a reflection (the outline would draw it as a solid blob), foam stays on
+ * the water, at most four draw calls are used, wakes look the same at 10 and
+ * 120 fps, and a teleport throws no burst.
  *
  *   node scripts/check-effects.ts
  */

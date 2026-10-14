@@ -2,40 +2,24 @@
  * Bakes a few facts about each drawn country out of GeoNames' `countryInfo.txt`
  * (CC BY 4.0, the same source and credit as the places) into
  * `public/data/countries-info.json`, for what the townsfolk say about their
- * country (`talk.ts`); until 2026-10-01 also for a card that named a country
- * as you crossed into it.
+ * country (`talk.ts`).
  *
  *   node scripts/build-country-info.mjs [countryInfo.txt]
  *
- * **What it was for.** The border card's fact line was geometry trivia — "the
- * prime meridian runs through it" — because the outlines carry a name, a code
- * and a continent and nothing a person would say about a country. GeoNames
- * carries the capital, the population, the area, the languages, the currency
- * and the continent, and `build-places.mjs` already reads this file to join
- * alpha-2 codes to alpha-3.
+ * Keyed by the code the outlines use: `ISO_A3` where Natural Earth gives one,
+ * `ADM0_A3` otherwise (see `build-countries.mjs`). GeoNames keys by ISO 3166,
+ * and the two disagree for twelve of the drawn features. Kosovo (`KOS`, GeoNames'
+ * `XK`) is joined by hand. The rest are not countries (Somaliland, Northern
+ * Cyprus, the Sovereign Base Areas, Guantanamo Bay, Baikonur, the Cyprus buffer
+ * zone, Bir Tawil, the Siachen Glacier, the Southern Patagonian Ice Field, the
+ * Indian Ocean Territories) and get no facts rather than a neighbour's. The
+ * bake prints the list, and `pnpm check` asserts every drawn country GeoNames
+ * has a row for has facts.
  *
- * **Keyed by the code the outlines use**, which is `ISO_A3` where Natural Earth
- * gives one and `ADM0_A3` where it does not (see `build-countries.mjs`), so a
- * caller looks a country up by the same `iso` the chip, the flags and the clock
- * already hold. GeoNames keys by ISO 3166, and the two disagree for twelve of
- * the 239 drawn features. One is a real country under a code ISO has not
- * assigned — **Kosovo, `KOS` to GeoNames' `XK`** — and is joined here by hand.
- * The rest are features that are not countries, and they get no facts rather
- * than a neighbour's: Somaliland and Northern Cyprus (unrecognised), the two
- * Sovereign Base Areas, Guantanamo Bay, Baikonur, the Cyprus buffer zone, Bir
- * Tawil, the Siachen Glacier, the Southern Patagonian Ice Field, and the
- * Indian Ocean Territories, which GeoNames splits into Christmas Island and the
- * Cocos where Natural Earth draws one feature. The bake prints the list, and
- * `pnpm check` asserts every drawn country GeoNames has a row for has facts.
- *
- * **Languages are names, not codes.** GeoNames lists them as BCP 47 tags in
- * order of use — `es-ES,ca,gl,eu,oc` — and `Intl.DisplayNames` turns each into
- * its English name at bake time, region dropped and duplicates folded, so the
- * client ships "Spanish, Catalan, Galician, Basque, Occitan" and carries no
- * locale data. A tag the platform cannot name is dropped rather than shown:
- * those are family codes and small languages — `sit` is Sino-Tibetan as a
- * whole, `inc` Indic — and a card reading "Sanskrit, French, Mizo, inc" is
- * worse than one that stops at Mizo. The bake prints how many went.
+ * Languages are names, not codes: GeoNames lists BCP 47 tags in order of use
+ * (`es-ES,ca,gl`) and `Intl.DisplayNames` turns each into its English name at
+ * bake time, region dropped and duplicates folded. A tag the platform cannot
+ * name (family codes such as `sit`, `inc`) is dropped; the bake prints how many.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

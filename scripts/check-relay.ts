@@ -1,17 +1,16 @@
 /**
- * The relay's protocol, against a running relay: the seats, the driven poses,
- * the parks that outlive a socket, the old player poses beside them, how
- * each player looks, the chat and its history, the gestures, the horn, and
- * a room a world. Before any of it, headless, the worlds' radii the relay
- * bounds a state by, against the bodies' own files.
+ * The relay protocol against a running relay: seats, driven poses, parked
+ * vehicles that outlive a socket, plain player poses, appearance, chat and its
+ * history, gestures, the horn, and one room per world. First, headless, the
+ * world radii the relay bounds states by, against the bodies' own files.
  *
- * It starts nothing. Run the relay first (`pnpm peers`, which is
- * `wrangler dev` on port 8787, or any port given to it) and point this at it:
+ * It starts nothing. Run the relay first (`pnpm peers`, `wrangler dev`) and
+ * point this at it:
  *
  *   RELAY_URL=ws://localhost:8791/ws node scripts/check-relay.ts
  *
- * Every vehicle id is new each run, so what a previous run parked in the
- * room's storage never answers for this one. Not in CI: it wants a relay.
+ * Vehicle ids are new each run, so vehicles parked by an earlier run never
+ * answer for this one. Not run in CI.
  */
 
 import {
@@ -226,11 +225,8 @@ async function rooms(): Promise<void> {
   await Promise.all([m1.close(), m2.close(), e1.close(), e2.close(), giant.close(), watcher.close(), late.close()]);
 }
 
-async function main(): Promise<void> {
-  await worlds();
-  console.log(`relay ${URL_}, run ${run}`);
-  await rooms();
-
+/** Joining, the nine-number pose and its state slot, and invalid messages. */
+async function joining(): Promise<{ a: Client; b: Client }> {
   // --- Joining ------------------------------------------------------------
   const a = await Client.join('Ada');
   const b = await Client.join('Bo');
@@ -262,6 +258,11 @@ async function main(): Promise<void> {
   check(a.inbox.length === 0, 'and are not answered', a.inbox);
   await sleep(300);
 
+  return { a, b };
+}
+
+/** Two claims on one seat, driving, the horn, and getting out. Returns the vehicle used. */
+async function claimAndDrive(a: Client, b: Client): Promise<string> {
   // --- Two claims on one seat ------------------------------------------------
   const v1 = vehicle(1);
   a.send({ t: 'sit', v: v1, seat: 0 });
@@ -326,6 +327,11 @@ async function main(): Promise<void> {
   const parked = await got('park', other.next((m) => m.t === 'park' && m.v === v1));
   check(near(parked?.p, pose(20)), 'the driver leaving parks it where they say', parked);
 
+  return v1;
+}
+
+/** A newcomer sees the parked vehicle; a driver who disconnects parks it; a passenger moves seats. */
+async function parkedAndPassengers(a: Client, b: Client, v1: string): Promise<void> {
   // --- A newcomer is told --------------------------------------------------
   const c = await Client.join('Cy');
   const row = (c.hi?.vehicles as unknown[][] | undefined)?.find((r) => r[0] === v1);
@@ -360,6 +366,10 @@ async function main(): Promise<void> {
   a.send({ t: 'up', v: v1 });
   await got('a out', b.next((m) => m.t === 'park' && m.v === v1));
 
+}
+
+/** Distant claims, silent drivers, claims at a site, and what a later newcomer is told. */
+async function farAndQuiet(a: Client, b: Client): Promise<Client> {
   // --- Too far to claim ----------------------------------------------------
   const v2 = vehicle(2);
   await sleep(300);
@@ -402,6 +412,11 @@ async function main(): Promise<void> {
   check(three !== undefined && (three[2] as unknown[])[0] === b.id, 'the quiet driver still holds the seat in hi', three);
   check(rows.some((r) => r[0] === v2 && near(r[1], pose(500))), 'every parked vehicle is in hi');
 
+  return d;
+}
+
+/** A dropped driver reconnecting with the same key gets the seat back; a stranger does not. */
+async function rejoining(d: Client): Promise<{ back: Client; stranger: Client }> {
   // --- A dropped driver's seat back, on a new socket with the same key ------
   const v5 = vehicle(5);
   const key = `check-relay-${run}-key`;
@@ -429,6 +444,11 @@ async function main(): Promise<void> {
   const refused = await got('stranger answered', stranger.next((m) => m.t === 'seat' && m.v === v5 && m.ask === 0));
   check(refused !== null && (refused.seats as unknown[])[0] !== stranger.id, 'and a stranger on another key does not', refused);
 
+  return { back, stranger };
+}
+
+/** Appearance codes on join and on change. */
+async function looks(a: Client): Promise<{ dressed: Client; late: Client; plain: Client }> {
   // --- How a player looks ------------------------------------------------------
   // Codes as `encodeAppearance` writes them; the relay checks their shape only.
   const dressed = await Client.join('Gi', undefined, 'a12030405060a');
@@ -447,6 +467,11 @@ async function main(): Promise<void> {
   const bare = await got('in without a look', a.next((m) => m.t === 'in' && m.id === plain.id));
   check(bare !== null && !('look' in bare), 'a join whose ?look= is not a code carries none', bare);
 
+  return { dressed, late, plain };
+}
+
+/** Chat lines, their pacing and history, and gestures. */
+async function chat(): Promise<{ talker: Client; listener: Client; newcomer: Client }> {
   // --- The chat -------------------------------------------------------------
   // Lines this run says carry its number, so a room's history from an
   // earlier run never answers for this one.
@@ -502,6 +527,20 @@ async function main(): Promise<void> {
   const sat = await got('sit', listener.next((m) => m.t === 'emote' && m.id === talker.id));
   check(sat?.e === 'sit', 'and the next one goes', sat);
 
+  return { talker, listener, newcomer };
+}
+
+async function main(): Promise<void> {
+  await worlds();
+  console.log(`relay ${URL_}, run ${run}`);
+  await rooms();
+  const { a, b } = await joining();
+  const v1 = await claimAndDrive(a, b);
+  await parkedAndPassengers(a, b, v1);
+  const d = await farAndQuiet(a, b);
+  const { back, stranger } = await rejoining(d);
+  const { dressed, late, plain } = await looks(a);
+  const { talker, listener, newcomer } = await chat();
   await Promise.all([a.close(), b.close(), d.close(), back.close(), stranger.close(), dressed.close(), late.close(), plain.close(), talker.close(), listener.close(), newcomer.close()]);
   console.log(failures === 0 ? '\nall relay checks pass' : `\n${failures} relay check(s) failed`);
   process.exit(failures === 0 ? 0 : 1);

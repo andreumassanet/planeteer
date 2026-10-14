@@ -1,21 +1,12 @@
 /**
- * The render distance, held to its word: every streamer's reach and the haze
- * grow with the knob, never shrink with it, and a value set by hand stays
- * where it was put.
+ * The render distance knob (`detail` in `view.ts`) against every streamer:
+ * each reach and the haze must grow with the knob, never shrink, and stop at
+ * the haze, at the altitudes the world is seen from (on foot, over a town, at
+ * the cloud base, at cruise and at the ceiling). A clamp applied after the
+ * knob, or a ceiling that binds everywhere, would make the setting do nothing.
  *
- * The knob (`detail` in `view.ts`) multiplies reach, budgets and caps, and
- * each streamer combines it with the haze (`fogFar`) and a ceiling of its own.
- * A combination that went flat — a clamp applied after the knob, a ceiling
- * that binds everywhere — is a setting that does nothing, which is invisible
- * in a screenshot of either end and obvious in a table. So the table is
- * worked out here, for every streamer whose reach is a pure function of the
- * altitude handed to it, at the altitudes the world is seen from: on foot
- * (`STREAM_FLOOR`), over a town, at the cloud base, at the plane's cruise and
- * at its ceiling.
- *
- * And the automatic knob (`sampleFrame`): fed a window of frames that would
- * move it, it moves while it is on and does not while the player has taken
- * the knob, which is the whole contract of the setting.
+ * Also: the automatic knob (`sampleFrame`) moves only while it is on, and far
+ * work is shared between streamers so none starves.
  *
  * `pnpm reach`. Headless, under a second, nothing is built.
  */
@@ -30,10 +21,9 @@ import { reachFor as landmarkReach } from '../src/placement.ts';
 import { moverReach } from '../src/life.ts';
 import { qualityFor } from '../src/grass.ts';
 
-// The towns and the wood reach the registries of the scenery, the traffic and
-// the fauna, each an eager `import.meta.glob`, which is a Vite transform: the
-// one call is rewritten into the static imports Vite would have made, as
-// `check-seated.ts` does. Nothing here builds from them; they only have to load.
+// The towns and the wood import the part registries, each an eager
+// `import.meta.glob` (a Vite transform). This hook rewrites it into the static
+// imports Vite would produce, so the modules load under Node.
 const here = dirname(fileURLToPath(import.meta.url));
 {
   const registries = ['/src/scenery/index.ts', '/src/traffic/index.ts', '/src/fauna/index.ts'];
@@ -101,28 +91,26 @@ for (const altitude of ALTITUDES) {
   const series = sweep(altitude);
   const lines: string[] = [];
   for (const [name, values] of Object.entries(series)) {
-    // Never smaller for a larger setting, which is what "the setting is
-    // honoured" means at the least.
+    // Never smaller for a larger setting.
     let shrank = -1;
     for (let k = 1; k < values.length; k++) if (values[k]! < values[k - 1]! - 1e-6) shrank = k;
     check(shrank < 0, `${name} at ${altitude} grows with the knob`, shrank < 0 ? '' : `${values[shrank - 1]!.toFixed(1)} at ${steps[shrank - 1]!.toFixed(2)} -> ${values[shrank]!.toFixed(1)} at ${steps[shrank]!.toFixed(2)}`);
-    // And something to show for it end to end, unless the family is switched
-    // off at this height by a ceiling of its own (a car seen from 3,000 up).
+    // And a real change end to end, unless a family is switched off at this
+    // height by its own ceiling (cars seen from 3,000 up).
     const first = values[0]!;
     const last = values[values.length - 1]!;
     if (last > 0 && name !== 'grass') check(last > first * 1.5, `${name} at ${altitude} moves across the range`, `${first.toFixed(0)} -> ${last.toFixed(0)}`);
     lines.push(`${name.padEnd(22)} ${values.map((v) => (name === 'grass' ? String(v) : v.toFixed(0))).join(' ')}`);
   }
-  // Nothing past the haze but a road's class reach, which is measured from
-  // the eye on purpose (`classReaches` in `roads.ts`).
+  // Nothing reaches past the haze except a road class, which is measured from
+  // the eye (`classReaches` in `roads.ts`).
   for (const [name, values] of Object.entries(series)) {
     if (name === 'haze' || name === 'grass' || name.startsWith('road class')) continue;
     const over = values.findIndex((v, k) => v > series.haze![k]! * 1.1 + 1e-6);
     check(over < 0, `${name} at ${altitude} stops at the haze`, over < 0 ? '' : `${values[over]!.toFixed(0)} against ${series.haze![over]!.toFixed(0)} at ${steps[over]!.toFixed(2)}`);
   }
-  // **What you set is what you see**: the haze moves in proportion to the
-  // knob, so each step of `]` is a quarter further, and the default's haze is
-  // the one the world was tuned under (`detailFog`).
+  // The haze moves in proportion to the knob, and at the default equals the
+  // haze the world is tuned for (`detailFog`).
   {
     const haze = series.haze!;
     const worst = Math.max(...haze.map((h, k) => Math.abs(h / haze[0]! - steps[k]! / steps[0]!) / (steps[k]! / steps[0]!)));
@@ -148,8 +136,7 @@ console.log('the top of the knob:');
 
 console.log('the hand on the knob:');
 {
-  // The automatic knob reads `performance.now`; a clock of our own walks it
-  // through minutes of frames in a moment.
+  // The automatic knob reads `performance.now`; a fake clock runs minutes of frames instantly.
   let clock = 0;
   const realNow = performance.now.bind(performance);
   performance.now = (): number => clock;
@@ -165,12 +152,11 @@ console.log('the hand on the knob:');
     setDetail(1.6);
     check(detailVersion() !== before, 'a setting changed by hand is announced to the streamers');
     check(!autoDetail(), 'a setting changed by hand turns the automatic knob off');
-    // Dropped frames for half a minute, which would step an automatic knob down
-    // eight times over.
+    // Half a minute of dropped frames, enough to step an automatic knob down several times.
     frames(16.7, 4, 1000);
     frames(45, 30, 30_000);
     check(detail() === 1.6, 'and the frames do not move it afterwards', `${detail()}`);
-    // And headroom for half a minute, which would step it up.
+    // Half a minute of headroom, enough to step it up.
     frames(16.7, 2, 30_000);
     check(detail() === 1.6, 'nor does headroom', `${detail()}`);
 
@@ -192,10 +178,9 @@ console.log('the hand on the knob:');
 
 console.log('the far work, from a plane:');
 {
-  // Three streamers with far work queued for ever, in the frame's order, as
-  // from the plane: the towns' builds dear (10 ms), the roads' cheap, the
-  // wood's between, each streamer under its own slice. Before the turns the
-  // towns took every frame's far share and the other two never built at all.
+  // Three streamers with endless far work, in frame order, as seen from a
+  // plane: expensive town builds (10 ms), cheap roads, wood in between, each
+  // under its own slice. Turn-taking must let all three build.
   let clock = 0;
   const realNow = performance.now.bind(performance);
   performance.now = (): number => clock;

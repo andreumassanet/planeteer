@@ -1,34 +1,23 @@
 #!/usr/bin/env node
-// The world's recorded sounds: a handful of CC0 one-shots from Kenney's audio
-// packs, trimmed, levelled and re-encoded into public/audio/.
+// Recorded one-shots: CC0 clips from Kenney's audio packs, trimmed, levelled and
+// re-encoded into public/audio/.
 //
 //   node scripts/build-audio.mjs
 //
-// **Only the one-shots are recordings.** The wind, the sea, the two engines,
-// the birds and the crickets are synthesised in `src/audio.ts`, because they
-// are loops that have to follow a number — altitude, speed, the distance to
-// the coast, the hour — and a recorded loop either repeats audibly or costs
-// megabytes to hide that it does. What a recording is better at is the thing
-// synthesis is worst at: a footstep, a click.
+// Only the one-shots are recordings; loops (wind, sea, engines, birds) are
+// synthesised in `src/audio.ts` because they follow a number.
 //
-// The sources are Kenney's CC0 packs, downloaded on 2026-09-21 into
-// ../.cache/assets/kenney-audio/ from
+// Sources, unpacked into ../.cache/assets/kenney-audio/<kenney_name>/ (each with
+// a License.txt):
 //   https://kenney.nl/assets/impact-sounds     (footsteps, the landing thud)
 //   https://kenney.nl/assets/interface-sounds  (the cards, the map, the toggles)
 //   https://kenney.nl/assets/rpg-audio         (footsteps on dirt and sand; the passport's
 //                                              book opening and closing, its pages, a stamp)
-// Each zip unpacks to its own `kenney_<name>/` folder with a License.txt.
 //
-// **MP3, not the packs' Ogg Vorbis**, because `decodeAudioData` has to decode
-// it on every browser the world runs in and Safari's Vorbis support is recent.
-// Mono at 64 kb/s: these are short, quiet and positional in nothing, and a
-// stereo image on a footstep is only the microphone's.
-//
-// **Every file is levelled to the same peak** (-1 dBFS) and the mix lives in
-// `src/audio.ts` as a gain per cue, so re-baking never moves the balance.
-// Silence is trimmed off both ends: a click with 200 ms of air in front of it
-// arrives 200 ms after the card it opens. (Two jingles, a landmark's and a
-// frontier's from Kenney's Music Jingles, went with their cards on 2026-10-01.)
+// Output is mono MP3 at 64 kb/s (decodeAudioData support is universal, unlike
+// Vorbis on older Safari). Every file is levelled to the same peak so the mix
+// lives in `src/audio.ts` as a gain per cue, and silence is trimmed from both
+// ends so a click does not arrive late.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';

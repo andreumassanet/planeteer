@@ -1,19 +1,11 @@
 /**
- * The small life round the camera, headless: where it lives, when, and that
- * where it is does not depend on how you got there.
- *
- * `ambient.ts` places every firefly, butterfly, leaf, fish and gull from a
- * fixed grid on the sphere and a clock, so the one promise worth a check is
- * that two runs ending at the same place and the same clock draw exactly the
- * same creatures — one that walked in from three hundred units off and one
- * that stood there all along. (Nothing is culled by the view, so turning
- * round cannot change them.) Around it, the habitat
- * and the weather: fireflies on a July night in France and none in the
- * Sahara, in the rain or on the ice; butterflies by day; leaves off the
- * crowns, a few in July and many in October, lying on the ground and never
- * under it, and litter under the trees that goes under lying snow; gulls over
- * a coast; a fish off the shore with its splash; and never more than the
- * three draw calls.
+ * The ambient creatures headless. `ambient.ts` places every firefly,
+ * butterfly, leaf, fish and gull from a fixed grid and the clock, so two runs
+ * ending at the same place and time must draw the same creatures however they
+ * got there. Also checks habitat and weather (fireflies on a summer night in
+ * France, none in the Sahara, rain or ice; butterflies by day; leaves by
+ * season, on the ground and under snow; gulls over coasts; a jumping fish
+ * offshore) and the draw-call cap.
  *
  *   node scripts/check-ambient.ts
  */
@@ -70,7 +62,7 @@ console.log('the grid');
       unitAt(rowLat(row, size), columnLon(column, columns), middle);
       const off = point.distanceTo(middle) * PLANET_RADIUS;
       if (off / size > worst) worst = off / size;
-      // The key is the cell's and nobody else's: its row and column come back out of it.
+      // The key round-trips to its row and column.
       const key = cellKey(row, column);
       if (Math.floor(key / 1048576) - 8192 !== row || key % 1048576 !== column) wrongKey++;
     }
@@ -95,11 +87,10 @@ interface Run {
 }
 
 /**
- * A wood of the check's own, as `vegetation.crownsNear` hands one over: a
- * crown every `WOOD_STEP` degrees on dry land short of the polar circles,
- * `CROWN_OVER` over the ground, a broadleaf's green, every fourth a bush that
- * sheds a third as much. A pure function of where it is asked, as the wood's
- * tiles are.
+ * A synthetic wood in the shape `vegetation.crownsNear` returns: a crown every
+ * `WOOD_STEP` degrees on dry land outside the polar circles, `CROWN_OVER` above
+ * the ground, every fourth a bush shedding a third as much. A pure function of
+ * position, like the real tiles.
  */
 const WOOD_STEP = 0.08;
 const CROWN_OVER = 8;
@@ -279,8 +270,8 @@ console.log('\nwhere the leaves are');
 
 console.log('\ndeterminism');
 {
-  // Two runs that end at the same place at the same clock: one walks in from
-  // 300 units east, one stands there the whole time. The creatures they draw at the end are the same, to the thousandth.
+  // Two runs ending at the same place and clock, one walking in from 300 units
+  // east, one standing still: the creatures drawn must match to the thousandth.
   for (const [label, when, daylight] of [
     ['a July night', julyNight, 0],
     ['an October noon', octoberNoon, 1],

@@ -4,27 +4,18 @@
  *   node scripts/build-rails.ts        # write public/data/rails.bin
  *   node scripts/build-rails.ts --dry  # report the network and write nothing
  *
- * **After `roads.bin`, and a function of it.** A line crosses a road only at
- * a level crossing, keeps off the fields the fleet lays out along the roads
- * (`fleet.ts`), and the check asserts the two files were baked together; so
- * a re-bake of the roads is a re-bake of this.
+ * Runs after `build-roads.ts`: a line crosses roads only at level crossings
+ * and keeps off the fleet's fields along them, so a road re-bake is a rail
+ * re-bake.
  *
- * Three decisions:
- *
- * 1. **Which cities.** Every built town of `RAIL_POP` or more has a station.
- * 2. **Which pairs.** The relative neighbourhood graph over those cities, no
- *    longer than `RAIL_MAX_LENGTH`: an edge is kept when no third city is
- *    nearer both its ends than they are to each other. A railway map is
- *    lines and junctions, not a lattice — the Gabriel graph the roads use
- *    joins everything to everything nearby — and the relative neighbourhood
- *    graph still holds the minimum spanning tree, so it reaches every city the
- *    lengths allow. Shortest first, so where two lines want the same ground
- *    beside a city, the short one has it.
- * 3. **Whether it can be laid**, on the stations and the course that will be
- *    drawn: `rail-trial.ts`, the walk `check-rails.ts` makes again. What the
- *    search may change is which way each station stands off its city
- *    (`STATION_TURN` steps), which side its platform is on, and the bow; a
- *    pair that none of those gets through is not joined.
+ * - Every built town of `RAIL_POP` or more has a station.
+ * - Candidate pairs are the relative neighbourhood graph over those cities,
+ *   up to `RAIL_MAX_LENGTH`: lines and junctions rather than a lattice, and
+ *   still holding the minimum spanning tree. Shortest first, so a short line
+ *   gets the ground beside a city first.
+ * - Each pair is walked by `rail-trial.ts` (repeated by `check-rails.ts`); the
+ *   search varies each station's bearing, platform side and distance, and the
+ *   bow. A pair nothing gets through is not joined.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -37,8 +28,9 @@ import { decodePlaces, decodeRoads, encodeRails, inflate, packedBend } from '../
 import { indexPlaces, isShown, radiusOf, terrainSiteOf } from '../src/places.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import { createSiteIndex } from '../src/fleet.ts';
-import { RAIL_MAX_LENGTH, RAIL_POP, STATION_BEARINGS, STATION_OUT, STATION_RUN, STATION_TURN, bearingToward, emptyStation, stationFor } from '../src/rails.ts';
-import type { RailLine } from '../src/rails.ts';
+import { RAIL_MAX_LENGTH, RAIL_POP, STATION_BEARINGS, STATION_OUT, STATION_RUN, STATION_TURN } from '../src/rails/line.ts';
+import type { RailLine } from '../src/rails/line.ts';
+import { bearingToward, emptyStation, stationFor } from '../src/rails/stations.ts';
 import { unitAt } from '../src/sphere.ts';
 import { createRailTrial } from './rail-trial.ts';
 import type { RailRefusal } from './rail-trial.ts';
@@ -75,7 +67,7 @@ for (let i = 0; i < places.length; i++) if (isShown(places[i]!) && places[i]!.po
 const at = places.map((place) => unitAt(place.lat, place.lon, new Vector3()));
 const distance = (i: number, j: number): number => at[i]!.angleTo(at[j]!) * PLANET_RADIUS;
 
-/** Every other station within `reach` of one: a sweep, which over two thousand cities is a second. */
+/** Every other station within `RAIL_MAX_LENGTH` of one. */
 const reachCos = Math.cos(RAIL_MAX_LENGTH / PLANET_RADIUS);
 function neighbours(i: number): number[] {
   const out: number[] = [];
@@ -85,10 +77,8 @@ function neighbours(i: number): number[] {
 
 const began = Date.now();
 /**
- * Whether two cities are far enough apart for a line at all: each station
- * stands `STATION_OUT` past its disc and runs `STATION_RUN` straight along its
- * platform, and the two runs need room to turn toward each other between
- * them. Nearer than this, two cities are one conurbation to a railway.
+ * Room two cities need for a line: each station stands `STATION_OUT` past its
+ * disc and runs `STATION_RUN` straight, and the runs need room to turn.
  */
 const ROOM = 2 * (STATION_OUT + STATION_RUN) + 80;
 const apart = (i: number, j: number): boolean => distance(i, j) >= radiusOf(places[i]!) + radiusOf(places[j]!) + ROOM;
@@ -98,8 +88,7 @@ for (const i of stations) {
   for (const j of near) {
     if (j <= i || !apart(i, j)) continue;
     const d = distance(i, j);
-    // The relative neighbourhood over the pairs a line can join: no third
-    // city nearer both ends that could itself be joined to both.
+    // Relative neighbourhood: no third city nearer both ends that could itself be joined to both.
     if (near.some((k) => k !== j && distance(i, k) < d && distance(j, k) < d && apart(i, k) && apart(j, k))) continue;
     candidates.push({ a: i, b: j, length: d });
   }
@@ -114,10 +103,9 @@ console.log(`stations: ${stations.length} cities of ${RAIL_POP.toLocaleString()}
 const trial = createRailTrial({ world, places, roads, fields });
 
 /**
- * The stations a city may have on a line: on each of `STATION_BEARINGS`
- * bearings round it within `TURN_MAX` steps of facing the other city, at
- * each of `REACHES` past its disc, the platform on either side; tried nearest
- * the facing and the city first.
+ * The stations a city may have on a line: bearings within `TURN_MAX` steps of
+ * facing the other city, each distance in `REACHES` past its disc, either
+ * platform side; nearest the facing and the city first.
  */
 const TURN_MAX = 12;
 const REACHES = [STATION_OUT, STATION_OUT + 40, STATION_OUT + 90, STATION_OUT + 150];
@@ -156,14 +144,17 @@ function standing(place: number, other: number): { bearing: number; out: number;
   return found;
 }
 
-for (const candidate of candidates) {
+/**
+ * A line that passes the walk for one candidate pair, trying each end's
+ * standing stations and the bows straight first; otherwise the last refusal.
+ */
+function searchLine(candidate: { a: number; b: number; length: number }): { line: RailLine | null; last: RailRefusal | null } {
   let spent = 0;
   let last: RailRefusal | null = null;
-  let found: RailLine | null = null;
   const ends = [standing(candidate.a, candidate.b), standing(candidate.b, candidate.a)];
   if (ends[0]!.length === 0 || ends[1]!.length === 0) last = 'station-road';
   const limit = Math.min(0.2, Math.max(0.06, 160 / candidate.length));
-  search: for (const endA of ends[0]!) {
+  for (const endA of ends[0]!) {
     for (const endB of ends[1]!) {
       for (let k = 0; k <= BEND_TRIES * 2; k++) {
         const bend = packedBend((k === 0 ? 0 : (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2)) * BEND_STEP);
@@ -178,19 +169,23 @@ for (const candidate of candidates) {
         const verdict = trial.line(line);
         walks++;
         if (verdict.refusal === null) {
-          found = line;
           crossings += verdict.crossings.length;
-          break search;
+          return { line, last };
         }
         last = verdict.refusal;
         if (last === 'turn' && k > 2) break;
-        if (++spent >= WALK_BUDGET) break search;
+        if (++spent >= WALK_BUDGET) return { line: null, last };
       }
     }
   }
-  if (found !== null) {
-    lines.push(found);
-    trial.accept(trial.lay(found));
+  return { line: null, last };
+}
+
+for (const candidate of candidates) {
+  const { line, last } = searchLine(candidate);
+  if (line !== null) {
+    lines.push(line);
+    trial.accept(trial.lay(line));
   } else if (last !== null) refusals.set(last, (refusals.get(last) ?? 0) + 1);
 }
 

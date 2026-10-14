@@ -2,41 +2,32 @@
  * Clips the cast's pack does not have, retargeted onto its rig from
  * Quaternius's Universal Animation Library (CC0 1.0, https://quaternius.com,
  * "Universal Animation Library [Standard]", `Unreal-Godot/UAL1_Standard.glb`,
- * downloaded to ../.cache/assets/quaternius/). Called by `build-cast.mjs`.
+ * in ../.cache/assets/quaternius/). Called by `build-cast.mjs`.
  *
- * **Two rigs, one motion.** The library animates a 65-bone skeleton named the
- * Unreal way (`pelvis`, `spine_01`, `thigh_l`) standing in a T-pose; the cast is
- * Quaternius's modular characters, 62 bones named their own way (`Hips`,
- * `Abdomen`, `UpperLeg.L`) bound in a pose of their own, with its feet as IK
- * controls hung off the root rather than off the shins. So nothing can be
- * copied: each mapped bone takes the source bone's **world rotation relative to
- * its own bind pose** and applies that change to the target bone's bind pose,
+ * The library animates a 65-bone Unreal-named skeleton in a T-pose; the cast
+ * has 62 bones named their own way, bound in a different pose, with its feet as
+ * IK controls hung off the root. Each mapped bone takes the source bone's world
+ * rotation relative to its own bind pose and applies that change to the target
+ * bone's bind pose,
  *
  *     target world = (source world * source bind world^-1) * target bind world,
  *
  * then goes back to local under a parent already solved the same way. Both rigs
- * face +Z with their left at +X, so no turn is needed between them. The pelvis
- * moves by the source pelvis's displacement scaled by the ratio of the two hip
- * heights, and each foot, having no parent in the leg, is put where its shin
- * now ends (the ankle measured in the shin's own frame at bind, as `limbsOf`
- * measures it) and turned by its source foot's change. Fingers, the root and
- * the pole targets keep their bind pose.
+ * face +Z with their left at +X, so no turn is needed. The pelvis moves by the
+ * source pelvis's displacement scaled by the ratio of the two hip heights; each
+ * foot is put where its shin now ends (the ankle in the shin's own frame at
+ * bind, as `limbsOf` measures it) and turned by its source foot's change.
+ * Fingers, the root and the pole targets keep their bind pose.
  *
- * **The cast's thighs are not children of its hips.** `Body`, under the root,
- * carries both `Hips` (and the spine above it) and the two `UpperLeg`s, and
- * the pack's own clips move the pelvis by moving `Body`. So the displacement
- * goes onto `Body`, held at its bind rotation, and `Hips` only turns. Until
- * 2026-09-24 it went onto `Hips`, which carried the torso away from legs that
- * stayed where they were bound: invisible in the jump, whose pelvis moves a
- * few centimetres, a body cut in two in any clip whose pelvis travels — the
- * landing's crouch, and the swim, which lies the whole body on the water.
- * And `Body` is keyed at its bind rotation rather than left unkeyed: its
- * node's own rest is turned 27 degrees about the vertical from its bind, and
- * an unkeyed bone plays its node's rest, which splayed both knees outwards
- * (every leg is solved in world space against `Body` at bind).
+ * The cast's thighs are not children of its hips: `Body`, under the root,
+ * carries both `Hips` (and the spine) and the two `UpperLeg`s. The displacement
+ * therefore goes onto `Body`, held at its bind rotation, and `Hips` only turns.
+ * `Body` is keyed at its bind rotation because its node's rest is turned 27
+ * degrees about the vertical, and an unkeyed bone plays its rest.
  *
- * Sampled at 30 or 15 frames a second (`FPS`) and written as a GLB whose scene is the cast's
- * bare skeleton, which is all a clip needs to bind by name.
+ * Clips are sampled at 30 or 15 frames a second (`FPS`) and written as a GLB
+ * whose scene is the cast's bare skeleton, which is all a clip needs to bind
+ * by name.
  */
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
@@ -93,14 +84,11 @@ const FEET: readonly [string, string, string][] = [
 ];
 
 /**
- * What the cast is given, under the names the world asks for: the jump, its
- * landing, a stroke and treading water (both authored with the waterline at
- * the origin, so a swimmer's frame is the surface), talking with the hands,
- * a second idle whose weight sits on one leg, and the two gestures a player
- * can make for the others to see that the pack has no clip for: a dance, and
- * sitting down (the library's is sat on a chair, so its seat is thin air at
- * the height of one). The library has 45 clips; these are the few the world
- * plays, and the rest are fights, weapons and props nobody here holds.
+ * What the cast is given, under the names the world asks for: jump, landing,
+ * swim and tread (authored with the waterline at the origin), talking, a
+ * second idle, a dance and sitting down (the library's sit is on a chair, so
+ * its seat is at chair height). The rest of the library's 45 clips are
+ * fights, weapons and props.
  */
 export const RETARGETED: readonly [string, string][] = [
   ['Jump_Start', 'Jump_Start'],
@@ -114,12 +102,7 @@ export const RETARGETED: readonly [string, string][] = [
   ['Sit', 'Sitting_Idle_Loop'],
 ];
 
-/**
- * Samples a second: the jump, the landing, the stroke and the dance at 30,
- * and the four slow loops at 15, which halves what they cost and moves nothing a frame
- * between two samples can show — a breath or a gesture is interpolated
- * across a fifteenth of a second.
- */
+/** Samples a second: 30 for the jump, landing, stroke and dance; 15 for the four slow loops. */
 const FPS = 30;
 const SLOW_FPS = 15;
 const SLOW: ReadonlySet<string> = new Set(['Swim_Idle', 'Talk', 'Idle_Shift', 'Sit']);

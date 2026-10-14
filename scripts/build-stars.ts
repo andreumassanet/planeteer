@@ -1,46 +1,20 @@
 /**
- * Bakes the Yale Bright Star Catalogue into the stars the night sky draws.
+ * Bakes the Yale Bright Star Catalogue (5th Revised Ed., CDS V/50) into
+ * `public/data/stars.bin`, the stars the night sky draws.
  *
  *   node scripts/build-stars.ts                 # from ../.cache/bsc5-catalog.dat
  *   node scripts/build-stars.ts path/to/catalog # from anywhere else
  *   node scripts/build-stars.ts --dry           # report, and write nothing
  *
- * The source is the Bright Star Catalogue, 5th Revised Ed. (Hoffleit & Warren,
- * 1991; CDS catalogue V/50), `catalog.gz` gunzipped: 9,110 fixed-width records
- * of 197 bytes, of which 9,096 are stars — the other fourteen are novae and
- * galaxies the 1908 edition numbered, kept to preserve the numbering and with
- * no position. `pnpm sources` fetches it; `scripts/sources.json` records where
- * from, under what terms and which copy this was last run against.
+ * Kept: every star of V 6.5 or brighter (the naked-eye sky), with its
+ * position, V and B-V. No names, proper motions or parallaxes.
  *
- * **What is kept is the naked-eye sky and nothing past it**: every star of V
- * 6.5 or brighter, which is the catalogue's own definition of its scope and a
- * dark site's limit. The 692 fainter records are stars the compilers carried
- * for completeness (a double's fainter half, a star since re-measured) and no
- * one has seen from a field. Three columns per star besides the position — V,
- * B-V, and nothing else: no names (this sky names nothing, like the menu's
- * "Where to look tonight"), no proper motions (a minute of arc since 2000 at
- * the very most) and no parallaxes.
- *
- * Three decisions, and the checks that hold them:
- *
- * 1. **A missing B-V is derived, and counted.** 310 records have no colour —
- *    mostly faint doubles — and a star with no colour would be drawn white,
- *    which is a colour. The spectral class says roughly what it is, so the
- *    typical dwarf colour of its letter and digit stands in (`TYPICAL`), and
- *    the bake prints how many it made up.
- * 2. **The galactic frame is checked against the file.** Every record carries
- *    its own galactic longitude and latitude, computed by the compilers from
- *    their positions, and the Milky Way in `sun.ts` is painted in
- *    `celestial.ts`'s `GALACTIC`. The two are different routes to the same
- *    direction, so every star is asked whether they agree, and the bake
- *    refuses to write if one does not — a transposed matrix would paint the
- *    Milky Way across the wrong half of the sky and nothing else would say so.
- * 3. **Brightest first**, then by HR number, so the file reads the same twice.
- *    See `StarCatalogue` in `src/pack.ts` for why the order is the format.
- *
- * The round trip is proved before a byte is written, as every bake here does:
- * the gzipped bytes are inflated and decoded by the client's own code and
- * compared with what was meant to be stored.
+ * - A missing B-V is derived from the spectral class (`TYPICAL`) and counted.
+ * - The galactic frame (`GALACTIC` in `celestial.ts`, which paints the Milky
+ *   Way) is checked against the galactic coordinates in every record; the
+ *   bake refuses to write if they disagree.
+ * - Stars are sorted brightest first, then by HR number (see `StarCatalogue`
+ *   in `src/pack.ts`), and the output is decoded and compared before writing.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -57,39 +31,27 @@ const dry = process.argv.includes('--dry');
 const SOURCE = process.argv.slice(2).find((arg) => !arg.startsWith('--')) ?? resolve(here, '../../.cache/bsc5-catalog.dat');
 const OUT = resolve(here, '../public/data/stars.bin');
 
-/** The catalogue's own limit, and a dark site's. See the header. */
+/** Faintest magnitude kept: the catalogue's own limit, and a dark site's. */
 const V_LIMIT = 6.5;
 
 /**
- * Degrees two routes to a star's galactic direction may disagree by.
- *
- * The catalogue prints its galactic coordinates to a hundredth of a degree, so
- * rounding alone is 0.007, and **they are of the star where it was in 1950**,
- * not in 2000: the galactic system is defined on B1950 positions and the
- * compilers computed `l, b` from those. Measured 2026-09-30 against the J2000
- * positions as given, the worst was 0.094 degrees, at HR 4550 — Groombridge
- * 1830, seven arcseconds a year of proper motion, 48 years of it — and the
- * eight worst were all the fastest movers in the file. Carried back fifty
- * years along their own proper motions the median is 0.0037 degrees, the
- * 99th percentile 0.0064 and the worst 0.023 (HR 7705, a star that barely
- * moves, so a digit in the record rather than a frame). A wrong matrix is
- * tens of degrees, a transposed one the whole Milky Way in the wrong half of
- * the sky, so this is loose by the one record and still a hundred times too
- * tight for a frame error to pass.
+ * Degrees a star's galactic direction may differ from the catalogue's own
+ * `l, b`. Those are printed to 0.01 degrees and computed from B1950
+ * positions, so stars are carried back along their proper motions first;
+ * the worst residual is then a fraction of this. A wrong or transposed matrix
+ * is off by tens of degrees.
  */
 const GALACTIC_TOLERANCE = 0.03;
-/** And the median, which is what says the frame is right rather than that no star is wrong. */
+/** Tolerance on the median difference, which tests the frame rather than single records. */
 const GALACTIC_MEDIAN = 0.005;
 /** Years from the epoch of the catalogue's galactic coordinates to its positions'. */
 const GALACTIC_EPOCH_GAP = 50;
 
 /**
- * B-V of a main-sequence star by spectral class, at digit 0 and 5 of each
- * letter (Schmidt-Kaler's intrinsic colours, rounded to the hundredth the
- * catalogue gives). A guess for a giant, whose colour at a given letter runs
- * redder, and it says so: this is the colour of a star the catalogue did not
- * measure, and the dwarf value is the honest middle of what it could be.
- * C, N, R and S are the carbon and zirconium stars, which are all deep red.
+ * B-V of a main-sequence star by spectral class, at digits 0 and 5 of each
+ * letter (Schmidt-Kaler's intrinsic colours). Used for stars the catalogue
+ * gives no colour; for a giant it runs a little blue. C, N, R and S are the
+ * carbon and zirconium stars, all deep red.
  */
 const TYPICAL: Record<string, readonly [number, number]> = {
   O: [-0.33, -0.33],

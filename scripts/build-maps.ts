@@ -1,21 +1,15 @@
 /**
- * The maps' planet-scale levels, pre-painted: `public/maps/<world>/z<k>.png`.
+ * Pre-paints the maps' planet-scale levels: `public/maps/<world>/z<k>.png`.
  *
- * The maps' paper (`src/map-tiles.ts`) is painted from the world's own
- * definitions, a tile at a time, in the frame's spare milliseconds. Its
- * first levels are the whole planet — 1, 2 and 12 tiles — and each of them
- * is the dearest kind of tile there is, every pixel land that asks
- * `groundColorAt` and the relief: 230 ms for the level-0 tile alone on this
- * machine (2026-10-04). They are the same for every player, so they are
- * painted here, once, by the same painter, ground only (`BAKED_LEVELS`), and
- * the sheet behind `M` opens on the planet with nothing to paint.
+ * The map paper (`src/map-tiles.ts`) paints tiles at runtime; its first levels
+ * (1, 2 and 12 tiles for the whole planet) are the dearest and identical for
+ * every player, so they are painted here with the same painter, ground only
+ * (`BAKED_LEVELS`).
  *
- * One PNG a level, its tiles side by side, quantised to 256 colours (a map
- * of flat fills under a stepped light has a few thousand, and the eye cannot
- * find the step; `png.ts`), and a `stamp.txt` beside them: the painter's
- * ground stamp (`MAP_STYLE`, the body, its outlines), which the browser
- * compares with its own before it trusts the images — a stale bake is
- * painted over rather than drawn.
+ * One PNG a level, tiles side by side, quantised to 256 colours (`png.ts`),
+ * and a `stamp.txt` beside them: the painter's ground stamp (`MAP_STYLE`, the
+ * body, its outlines), which the browser compares with its own before it
+ * trusts the images.
  *
  * `pnpm maps` (`node scripts/build-maps.ts`, or `-- mars` for one world).
  * Re-run after `pnpm data`, after a world's outlines or ground change, and

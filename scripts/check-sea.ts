@@ -1,27 +1,18 @@
 /**
- * The sea floor and what lives on it, headless.
+ * The sea floor and what lives on it, headless. `sea-floor.ts` is the one
+ * definition of depth; checked here:
  *
- * `sea-floor.ts` is the one definition of how deep the sea is, and three
- * things stand on it that could each go wrong without a screenshot showing
- * it: the floor itself (a step, or a floor above the water), what is placed
- * on it (a coral in the Arctic, kelp on the equator, a fish on dry land), and
- * the water drawn over it by `seabed.ts` (a sheet out of place with the
- * ribbon it replaces). And the submarine's moorings, which have to be in water
- * deep enough to float it.
- *
- * - **The profile**: the floor is `COAST_DEPTH` or so at the coast, the deep
- *   far out, continuous against distance and against position, and never
- *   above the water anywhere the outlines call sea.
- * - **The tiles**: a point is in the tile it says, neighbours share their
- *   edge vertices exactly — across a face of the cube as well — and a tile's
- *   life does not depend on how its building was sliced.
- * - **Where things live**: coral only where the sea is warm, kelp only where
- *   it is cold, and every school, swimmer and pod over water deep enough for
- *   it, for the whole of its round.
- * - **The drawn sea**: built over a reef, the floor is under the sea, the
- *   water on its ribbon's heights, the decor under the surface, the window
- *   opened; the fish in the water; the camera taken under the surface.
- * - **The submarine**: its sites are in the sea, deep enough, at big towns.
+ * - The profile: about `COAST_DEPTH` at the coast, deep far out, continuous
+ *   in distance and position, never above the water where the outlines say sea.
+ * - The tiles: a point is in the tile it reports, neighbours share edge
+ *   vertices exactly (across cube faces too), and a tile's contents do not
+ *   depend on how its build was sliced.
+ * - Habitat: coral only in warm water, kelp only in cold, and every school,
+ *   swimmer and pod over deep enough water for its whole round.
+ * - The drawn sea over a reef: floor under the surface, water on the ribbon's
+ *   heights, decor under the surface, the window open, fish in the water, the
+ *   camera underwater.
+ * - The submarine: its sites are in deep enough sea at big towns.
  *
  *   node scripts/check-sea.ts
  */
@@ -385,8 +376,7 @@ console.log('\nthe drawn sea');
     frames++;
   }
   // The window opens over tiles as they come ready and grows a little each
-  // frame, so the moment the last tile stands is not the moment it is whole:
-  // on a loaded runner that moment came at 200. Let it settle before judging.
+  // frame, so the last tile standing is not the window being whole. Let it settle.
   for (let settle = 0, last = -1; settle < 600 && sea.stats.window !== last; settle++) {
     last = sea.stats.window;
     for (let k = 0; k < 10; k++) sea.update(1 / 60, { player, camera, daylight: 1, fog });
@@ -435,9 +425,8 @@ console.log('\nthe drawn sea');
   }
   check(life.stats.fish > 0, 'fish swim off the reef', `${life.stats.fish} fish in ${life.stats.schools} schools, ${life.stats.calls} draw calls, ${life.stats.updateMs.toFixed(2)} ms`);
   check(wet && proper, 'every fish is in the water, over the floor, and none is mirrored');
-  // The 95th percentile, not the worst: on a shared CI runner one frame
-  // descheduled or caught by a collection read 1.17 ms against a usual 0.1,
-  // and that is the machine, not the swimmers.
+  // The 95th percentile, not the worst: a descheduled frame on a shared runner
+  // is the machine, not the swimmers.
   const lifeTimes: number[] = [];
   const lifeCamera = player.clone().setLength(PLANET_RADIUS - 3);
   for (let i = 0; i < 240; i++) {
@@ -474,14 +463,12 @@ console.log('\nthe drawn sea');
 
 console.log('\nthe decor, everywhere');
 {
-  // A piece of decor is loose triangles written into its tile's slot of one
-  // buffer drawn as a triangle list, so a slot has to start on a triangle: a
-  // slot a vertex off joins every piece's corners to its neighbour's, and to
-  // the planet's centre past the last, which draws as long slivers everywhere
-  // but in the slots that happen to fall on a multiple of three.
+  // Decor is loose triangles written into its tile's slot of one buffer drawn
+  // as a triangle list, so a slot must start on a triangle boundary; one vertex
+  // off joins neighbouring pieces' corners into long slivers.
   const { createSea, decorFrame, DECOR_CAP } = await import('../src/seabed.ts');
   check(DECOR_CAP % 3 === 0, 'a slot of the decor holds whole triangles', `${DECOR_CAP} vertices a slot`);
-  // Coasts on every face of the cube sphere, the Caribbean the one that looked right.
+  // Coasts on every face of the cube sphere.
   const COASTS: Record<string, readonly [number, number]> = {
     'Virgin Islands': [18.36, -64.93],
     Barcelona: [41.38, 2.2],

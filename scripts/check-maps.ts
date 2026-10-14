@@ -1,31 +1,21 @@
 /**
- * The maps' paper, headless (`src/map-tiles.ts`, `src/map-features.ts`,
- * `src/worlds/map-features.ts`): what a tile is, against the world it is
- * painted from.
+ * The map paper headless (`map-tiles.ts`, `map-features.ts`,
+ * `worlds/map-features.ts`), against the world it is painted from:
  *
- * - **Determinism.** A tile is a pure function of its key: two painters
- *   built apart paint the same bytes, at a ground level and at a street
- *   level with every building on it. A stored tile and a baked level are
- *   only worth keeping because this holds.
- * - **A third party says where the sea is.** Pixels of coastal tiles are
- *   classed land or water by colour and held to `countryAt` at each pixel's
- *   own latitude and longitude — the outlines' point-in-polygon, which never
- *   saw the painter — and the Atlantic is on Lisbon's west, by longitude.
- * - **A building is where its town says it is.** Buildings off a town's
- *   centre are found on the street-level tile at the point its own frame puts
- *   them (`normalize(up + across x + north z)`, through `sphere.ts` and the
- *   projection, not through the painter's affine), in their roof's colour —
- *   and not at their mirror image across the town, which is what a reflected
- *   affine would paint.
- * - **No frame waits on the paper.** A simulated walk across Paris paints the
- *   disc's tiles in `pump`'s slices, and no slice runs past its allowance by
- *   more than one step, measured.
- * - **The store is optional.** Without IndexedDB, or with one that throws,
- *   the store is nothing and every read resolves empty.
- * - **The bake is current and small.** Every world's `public/maps/` stamp is
- *   its painter's, and the whole bake is under `BAKE_LIMIT`.
- * - **A world is drawn by the same pipeline.** Mars: a grid town's building
- *   in its livery's roof where its frame puts it.
+ * - Determinism: two painters built apart paint the same bytes, at ground and
+ *   at street level.
+ * - Coasts: coastal pixels classed land or water by colour must agree with
+ *   `countryAt` at their own latitude and longitude (an independent witness),
+ *   and the Atlantic lies west of Lisbon.
+ * - Handedness: buildings appear where their town's frame puts them (computed
+ *   through `sphere.ts` and the projection, not the painter's affine), in
+ *   their roof colour, and not at their mirror image.
+ * - Frame allowance: a simulated walk across Paris paints tiles in `pump`
+ *   slices and no slice overruns by more than one step.
+ * - The store is optional: without IndexedDB, or with one that throws, every
+ *   read resolves empty.
+ * - The bake is current (stamp matches the painter) and under `BAKE_LIMIT`.
+ * - Other worlds use the same pipeline (a Mars grid town's building).
  *
  * `pnpm maps-check`.
  */
@@ -53,10 +43,8 @@ const check = (ok: boolean, label: string, detail = ''): void => {
 /** The whole bake's ceiling: every world's levels, bytes. */
 const BAKE_LIMIT = 4 * 1024 * 1024;
 /**
- * How far a slice of `pump` may run past its allowance: the dearest single
- * step a tile takes, ms, with room for a loaded machine — and three times
- * that on CI (`TIME_SCALE`), where a shared runner's pause landed on the
- * worst of 900 slices at 30 to 48 ms (2026-10-07) and failed the job.
+ * How far a `pump` slice may overrun its allowance: the most expensive single
+ * tile step, ms, with room for a loaded machine (and a shared CI runner).
  */
 const STEP_LIMIT_MS = 25 * TIME_SCALE;
 

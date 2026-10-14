@@ -1,9 +1,8 @@
 /**
- * The world as the map's bake and check read it, off disk: Earth's outlines,
- * places, roads, railway and landmarks (`loadEarth`), and, for the near
- * levels, the towns' plans and the countryside's (`loadEarthTowns`), which
- * need the scenery's registry and the baked kit — the same shim
- * `check-seated.ts` uses for Vite's `import.meta.glob`.
+ * Earth's data loaded off disk for the map bake and its check: outlines,
+ * places, roads, railway and landmarks (`loadEarth`), plus the town plans and
+ * countryside for the near levels (`loadEarthFeatures`), which need the part
+ * registries shimmed in place of Vite's `import.meta.glob`.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
@@ -114,7 +113,7 @@ export async function loadEarthFeatures() {
     stripsReady: (direction, radius, more) => sites.warm(direction, radius, more),
     pads: (direction, radius, out) => pads.padsWithin(direction, radius, out as never, () => true),
     countryside: () => countryside,
-    // Headless there is no frame to spread a plan over: worked out on the ask.
+    // Headless, plans are computed on demand rather than spread over frames.
     plans: (index) => settlements.townPlanNow(index),
   });
   return { ...data, settlements, countryside, sites, pads, features };

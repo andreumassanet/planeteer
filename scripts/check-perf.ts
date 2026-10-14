@@ -1,27 +1,17 @@
 /**
- * The hottest pure questions the world asks, timed, with bounds generous
- * enough for a slower machine and tight enough to catch the kind of change
- * that multiplies one of them.
- *
- * Every frame asks where it is (`countryAtPoint`), how high the ground is
- * (`elevationAt`, `reliefAt`), which town is nearest and what time it is
- * there; every streamed town, tile, herd, road and countryside plan asks the
- * same things thousands of times; and the world's load asks the coast of every
- * ring once. A regression in any of them is invisible in a screenshot and
- * shows as a frame rate somebody else measures.
+ * Times the hottest pure queries (country, elevation, relief, nearest town,
+ * clock, weather...) against bounds loose enough for a slower machine and
+ * tight enough to catch a change that multiplies one of them.
  *
  * Two kinds of assertion:
+ * - Agreement: `geo.ts`'s latitude-banded point-in-polygon (`bandIndex`) must
+ *   match `insideRing`, the full ring walk, at every vertex, beside it, at
+ *   every edge midpoint and at random points in each banded ring's box.
+ * - Cost: the median of several runs of each query against a bound several
+ *   times its typical value, plus one machine-independent ratio (banded
+ *   against walk).
  *
- * - **Agreement.** `geo.ts` answers point-in-polygon from each ring's edges
- *   bucketed by latitude (`bandIndex`); `insideRing`, the walk over the whole
- *   ring, is the definition, and the two are held to the same bit at every
- *   vertex, beside every vertex, at every edge's midpoint and at random points
- *   in every banded ring's box.
- * - **Cost.** The median of several runs of each question, against a bound
- *   set several times over what it measured on 2026-09-25, and one ratio that
- *   does not depend on the machine: the banded test against the walk.
- *
- * `pnpm perf`. Headless, a few seconds, and no mesh is built.
+ * `pnpm perf`. Headless, a few seconds, no mesh is built.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -79,26 +69,23 @@ let world!: Awaited<ReturnType<typeof loadWorld>>;
   const began = performance.now();
   world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
   const ms = performance.now() - began;
-  // 234 ms on 2026-09-25, from 1,343 before the rings were banded; most of
-  // it is `prepareTerrain`'s shore index asking `isLand` of every edge.
+  // Most of the load is `prepareTerrain`'s shore index asking `isLand` of every edge.
   check(ms < 1000, 'the world loads, terrain fields and all, in under a second', `${ms.toFixed(0)} ms`);
 }
 {
   const ms = timed(1, () => coastEdges(world));
-  // 81 ms on 2026-09-25, from 1,154: one `countryAt` either side of every edge.
+  // One `countryAt` either side of every edge.
   check(ms < 500, 'which edges face the sea, in under half a second', `${ms.toFixed(0)} ms`);
 }
 {
   const ms = timed(1, () => prepareSeaFloor(world));
-  // 46 ms on 2026-09-25. Built while the world loads (`createSea`), never in a frame.
+  // Built while the world loads (`createSea`), never in a frame.
   check(ms < 300, 'the sea floor\'s coast index, in under 300 ms', `${ms.toFixed(0)} ms`);
 }
 {
   const ms = timed(1, () => bakeCloudMap());
-  // 585 to 1,420 ms on 2026-09-30, the high end with two software renderers
-  // on the machine: 2 M texels of `coverageAt`. Never in one piece in the
-  // world — `clouds.ts` spends it four milliseconds a frame under the menu
-  // (`BAKE_MS`) — so this bounds how many frames that takes, not a stutter.
+  // 2 M texels of `coverageAt`. The game spreads it over frames under the
+  // menu (`BAKE_MS` in `clouds.ts`), so this bounds how many frames it takes.
   check(ms < 1500 * TIME_SCALE, `the deck's shade bakes in under ${1500 * TIME_SCALE} ms`, `${ms.toFixed(0)} ms`);
 }
 
@@ -148,7 +135,6 @@ console.log('\nthe banded point-in-polygon test is insideRing:');
     }
   }
   check(differ === 0, 'the same answer at every point asked', `${differ} of ${tested.toLocaleString()} points differ, over ${banded} banded rings`);
-  // 15x on 2026-09-25 (5,204 ms against 333, the timer's own cost in both).
   check(walkMs > bandMs * 4, 'and at least four times faster than the walk', `${(walkMs / bandMs).toFixed(1)}x`);
 }
 
@@ -173,21 +159,17 @@ function perCall(calls: number, ask: (i: number) => number): number {
     for (let i = 0; i < calls; i++) sink += ask(i);
   }) * 1000) / calls;
 }
-// Bounds several times what was measured on 2026-09-25 (in brackets), on a
-// machine running other work.
+// Each bound is several times the typical cost (`measured`, printed in brackets).
 const bounds: [string, number, number, (i: number) => number][] = [
-  // 3.4 us before the rings were banded.
   ['countryAtPoint', 1.5, 20_000, (i) => world.countryAtPoint(points[i % 10]!)],
-  // 4.2 us before; the relief is most of what is left.
   ['elevationAt', 6, 20_000, (i) => world.elevationAt(points[i % 10]!)],
   ['reliefAt', 4, 20_000, (i) => reliefAt(units[i % 10]!.x, units[i % 10]!.y, units[i % 10]!.z)],
   ['shoreDistance', 0.5, 50_000, (i) => shoreDistance(spots[i % 10]![0], spots[i % 10]![1])],
   ['biomeAt', 2, 20_000, (i) => biomeAt(units[i % 10]!.x, units[i % 10]!.y, units[i % 10]!.z, spots[i % 10]![0], spots[i % 10]![1], 10, biome).warmth],
   ['weatherAt', 10, 20_000, (i) => weatherAt(spots[i % 10]![0], spots[i % 10]![1], 10, now.getTime() + i * 1000, weather).cover],
-  // The shade's twin on the exact field, asked by the weather's readout four
-  // times a second: under a zenith sun, so every step of it runs.
+  // Asked by the weather readout four times a second; noon sun, so every step runs.
   ['cloudShadeAt', 2, 20_000, (i) => cloudShadeAt(points[i % 10]!, units[i % 10]!, now.getTime() + i * 1000, shade).cover],
-  // A scan of every built town, once a frame.
+  // Scans every built town, once a frame.
   ['places.nearest', 80, 5_000, (i) => places.nearest(points[i % 10]!).index],
   ['clockAt', 60, 5_000, (i) => {
     const near = places.nearest(points[i % 10]!);
@@ -195,6 +177,7 @@ const bounds: [string, number, number, (i: number) => number][] = [
     return clockAt(now, near.place.iso, at.lon, at.lat, near.place).length;
   }],
 ];
+/** Typical microseconds a call on a desk machine, for the report. */
 const measured: Record<string, number> = {
   countryAtPoint: 0.2, elevationAt: 1.1, reliefAt: 0.75, shoreDistance: 0.03, biomeAt: 0.25, weatherAt: 1.8, cloudShadeAt: 0.4, 'places.nearest': 15, clockAt: 12,
 };

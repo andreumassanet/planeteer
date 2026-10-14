@@ -1,18 +1,14 @@
 /**
- * Headless assertions over the music: the styles, the composer and the
- * synthesis, with no Web Audio anywhere.
+ * The music headless: styles, composer and synthesis, with no Web Audio.
  *
- * **A wrong note is invisible in a table and obvious to an ear, and nobody
- * listens to twenty styles after every edit.** So what an ear would catch
- * first is held here: every scale is a scale, every progression ends on a
- * cadence it declares, every note the composer writes is in its instrument's
- * range and in its style's scale or its chord, the outro lands on the tonic,
- * the theme comes back note for note, the same seed writes the same piece,
- * and the voices a phrase asks for fit the engine's budget. The synthesis is
- * held to arithmetic: every render is finite, normalised and ends in silence,
- * and a plucked string sounds at the pitch it was asked for, which is the
- * fractional delay the Karplus–Strong loop needs and the one thing in it
- * that fails without a sound anyone would call wrong — a quarter-tone flat.
+ * A wrong note is easy to hear and hard to see, so this holds what an ear
+ * would catch: every scale is a scale, every progression ends on its declared
+ * cadence, every note is in its instrument's range and in the scale or chord,
+ * the outro lands on the tonic, the theme returns note for note, the same seed
+ * writes the same piece, and the voices fit the engine's budget. Renders are
+ * finite, normalised and end in silence, and a plucked string sounds at the
+ * requested pitch (Karplus-Strong needs a fractional delay, or it is up to a
+ * quarter-tone flat).
  *
  * `node scripts/check-music.ts`, or `pnpm music`.
  */

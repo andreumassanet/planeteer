@@ -7,12 +7,9 @@
  *   node scripts/fetch-sources.mjs --force    fetch everything again
  *   node scripts/fetch-sources.mjs cities5000.txt ...   only the files named
  *
- * **A hash that differs is a warning, not a failure.** GeoNames rebuilds its
- * dumps every day and Natural Earth publishes new releases, so a fresh download
- * is expected to differ from the copy the committed bakes were made from; what
- * matters is knowing that it does, because re-baking from it is then a data
- * change and `pnpm check` is what has to say whether the world still holds.
- * A missing file after a fetch, or a download that failed, is the failure.
+ * A hash that differs is a warning, not a failure: the upstream dumps change,
+ * and re-baking from a different copy is a data change that `pnpm check` must
+ * judge. A missing file after a fetch, or a failed download, is the failure.
  *
  * A source is saved as it arrives, as the member of a zip named by its
  * `unzip`, or gunzipped when it says `gunzip` — the form each bake reads.

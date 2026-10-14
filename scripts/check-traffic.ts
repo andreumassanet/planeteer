@@ -1,19 +1,11 @@
 /**
- * Headless assertions over the traffic kit.
+ * Builds every traffic vehicle in every region and variant and holds each
+ * build to the traffic contract: budgets, determinism, distinct silhouettes,
+ * fit on the road classes, and that every vehicle is named by some region.
  *
- * `scripts/check-world.ts` is the model and the reason this is a second file
- * rather than a section of that one: `check-world.ts` is about **data** — the
- * bake, the mesh, where the monuments landed — and this is about a *kit*, which
- * has no baked artefact to check. It builds every vehicle in every region in
- * every variant and holds the result to the contract. 18 x 14 x 4 is 1,008
- * builds and it takes about a second.
- *
- * The one trick, and it is the same one `build-monuments.ts` needs: **the
- * registry cannot be used here.** `import.meta.glob` is a Vite transform and
- * does not exist in Node, so the parts are read off disk and imported by path.
- * The consequence is that a part which the registry would reject — a duplicate
- * id, a file named after the wrong vehicle — is caught by the registry in a browser
- * and not by this. Both checks are needed and neither subsumes the other.
+ * `import.meta.glob` does not exist in Node, so the parts are imported by path
+ * rather than through the registry; a duplicate id or misnamed file is caught
+ * here and by the registry in the browser.
  *
  * `node scripts/check-traffic.ts`, or `pnpm traffic`.
  */
@@ -41,7 +33,7 @@ import { TRAFFIC_STYLES } from '../src/traffic/regions.ts';
 import { ROAD_CLASSES } from '../src/roads.ts';
 import { registerModelsFromDisk } from './kit-node.ts';
 
-// The vehicles are baked CC0 models now (scripts/build-kit.ts): register them as main.ts does.
+// The vehicles are baked models (scripts/build-kit.ts): register them as main.ts does.
 await registerModelsFromDisk();
 
 const PARTS = resolve(import.meta.dirname, '../src/traffic/parts');
@@ -124,14 +116,10 @@ console.log(`\n  ${builds} builds, ${triangles} triangles across the kit`);
 // --- determinism, byte for byte ------------------------------------------
 
 /**
- * Every vertex of a built group, in group space, and the colour it is drawn in.
- *
- * **Not the silhouette raster**, which is what this check used first and which is
- * the wrong tool: at 0.2 units to a cell it cannot see a wheel moved by a tenth
- * of a unit or a colour shuffled, and those are exactly the shapes a stray
- * `Math.random()` takes. The order is deliberately not sorted — two builds that
- * place the same meshes in a different order are a different model to anything
- * that draws them.
+ * Every vertex of a built group, in group space, and its colour. Finer than
+ * the silhouette raster, which cannot see a wheel moved by a tenth of a unit or
+ * a shuffled colour. Deliberately unsorted: the same meshes in a different
+ * order are a different model to whatever draws them.
  */
 function fingerprint(group: { updateMatrixWorld(deep: boolean): void; traverse(fn: (o: never) => void): void }): string {
   group.updateMatrixWorld(true);
@@ -189,24 +177,10 @@ for (const [a, b, value] of pairs) {
 
 console.log('\n  what fits what, at the placed scale:');
 /**
- * **This table is now about the vehicle as *placed*, not as authored, and the
- * assertion at the bottom moved with it.**
- *
- * `src/life.ts` and `src/settlements.ts` put a vehicle down at `placedScale`,
- * cropped in length, so the widths that meet a carriageway are the placed ones.
- * Until 2026-09-24 that was twice the section, because a car at the authored
- * scale had its roof at the 6.8-unit avatar's knee, and `ROAD_CLASSES` and
- * `GroundStyle.street` were both widened by 1.5 to take it; since a person came
- * down to 3.77 units the section is placed at 1.35 (`PLACED_SECTION`).
- *
- * The old assertion was *every road vehicle fits the narrowest street on the
- * planet*, which was the 4.0-unit Maghrebi alley. That alley became 6.0 and a
- * city bus placed at twice its section was 6.60 wide, so it failed — **and it
- * should have**: a bus does not go down a medina alley, and the Maghrebi mix
- * weights the hand-cart at 4 for exactly that reason. What has to be true
- * instead is that every road vehicle fits the narrowest *road class*, because a
- * vehicle that cannot use a lane is a vehicle nothing can place anywhere; the
- * alley column is printed and not asserted.
+ * Widths as placed (`placedSize`, at `PLACED_SECTION`), since that is what
+ * meets a carriageway. Every road vehicle must fit the narrowest road class, or
+ * nothing can place it. The narrowest alley is printed, not asserted: a bus
+ * need not fit a medina alley, and regional mixes weight vehicles accordingly.
  */
 const alley = 6.0;
 const lane = ROAD_CLASSES[0]!.width;

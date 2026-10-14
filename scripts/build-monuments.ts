@@ -1,17 +1,12 @@
 /**
- * Turns the curated landmark list into placed positions the world can use.
+ * Places the curated landmarks (`monuments.source.json`) on the planet and
+ * writes `public/data/monuments.json`.
  *
- * Two jobs, and both are the kind of thing that is invisible until it is wrong:
- *
- * 1. **Snapping to land.** A coastline this side of a survey is not the real
- *    coastline, so a landmark on a shore, an island or a bridge lands in the
- *    sea: the Statue of Liberty is on an island Natural Earth does not draw at
- *    any published scale, and the Golden Gate spans water by definition.
- *    Placing them at runtime would mean every client redoing the same search,
- *    so it happens once, here.
- * 2. **Checking the country.** Each entry declares the country it should be in.
- *    If the outlines disagree, the coordinate is wrong — that is the only way to
- *    catch a landmark typed a degree off, short of looking at all 85 by hand.
+ * Each landmark is snapped onto land in its declared country (a coordinate
+ * that lands elsewhere is a typo), pushed clear of its neighbours, moved off
+ * the coast until its plan stands on dry ground, and finally either stood in
+ * a parcel of its town or walked out of the town altogether. The bake refuses
+ * to write if any landmark cannot be placed.
  *
  *   node scripts/build-monuments.ts
  */
@@ -34,15 +29,14 @@ import { decodePlaces, inflate } from '../src/pack.ts';
 import { BIGGEST_SETTLEMENT, isShown, radiusOf } from '../src/places.ts';
 import type { Place } from '../src/places.ts';
 import { APPROACH, MAX_ROAD_LENGTH, builtGraph, candidateGates, landmarkTakes } from '../src/roads.ts';
+import { DEG, SEAT_STEP, distanceKm, innermost, quarters, ringOf, step } from './build-monuments/geometry.ts';
+import { printReport } from './build-monuments/report.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const countriesPath = resolve(here, '../public/data/countries.bin');
 const outlines = readFileSync(countriesPath);
 const lakes = readFileSync(resolve(here, '../public/data/lakes.bin'));
-// The lakes are a second file and the stub has to know which one is being
-// asked for. It used to answer every URL with the outlines, which was fine
-// while there was one; handing `decodeLakes` the outlines throws on the magic
-// rather than misreading them, which is the whole reason the format carries it.
+// `loadWorld` and `loadLakes` fetch their files; serve them from disk.
 globalThis.fetch = (async (url: string) => ({
   ok: true,
   status: 200,
@@ -69,22 +63,10 @@ const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 const isoOf = (id: number): string => (id > 0 ? world.countries[id - 1]!.iso : '');
 const nameOf = (id: number): string => (id > 0 ? world.countries[id - 1]!.name : 'Open ocean');
 
-/** Great-circle distance in kilometres, for reporting only. */
-const EARTH_KM = 6371;
-function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const d = Math.PI / 180;
-  const h =
-    Math.sin(((bLat - aLat) * d) / 2) ** 2 +
-    Math.cos(aLat * d) * Math.cos(bLat * d) * Math.sin(((bLon - aLon) * d) / 2) ** 2;
-  return 2 * EARTH_KM * Math.asin(Math.sqrt(h));
-}
 
 /**
- * Nearest point that is land, searched outward in rings.
- *
- * Longitude steps are divided by cos(lat) so a ring is round on the ground
- * rather than on the chart; without that, a search near the poles would sweep a
- * band a few kilometres tall and thousands wide.
+ * Nearest land, searched outward in rings that are round on the ground
+ * (longitude steps divided by cos(lat)).
  */
 function snapToLand(lat: number, lon: number, wantIso: string): { lat: number; lon: number } | null {
   const preferred = (id: number): boolean => isoOf(id) === wantIso;
@@ -107,22 +89,11 @@ function snapToLand(lat: number, lon: number, wantIso: string): { lat: number; l
 }
 
 /**
- * Each monument's footprint radius and its **plan**, off its own model.
- *
- * The footprint used to be scanned out of the model file as text, because the
- * registry's `import.meta.glob` is Vite's; the model files themselves import
- * nothing Node cannot load (`pnpm solids` builds all of them headless), so
- * each is imported and built here, once, and measured. A landmark with no
- * model yet gets the largest footprint any tier allows and no plan, which is
- * the safe assumption — it reserves the room its model might turn out to need.
- *
- * The plan is the box the model's own triangles stand in, in its own north-up
- * frame (`landmark-ground.ts`), rounded out to half a unit. It leaves here in
- * `monuments.json`, because everything downstream that asks what ground a
- * landmark takes needs it and none of it can build a model: `terrain.ts` cuts
- * the level pad to it, the towns leave it unbuilt, the roads keep off it and
- * the seat pass below keeps it dry. The footprint still rides beside it for
- * the separation, whose result is only explicable next to the numbers it used.
+ * Each monument's footprint radius and plan, measured by building its model.
+ * The plan is the box its triangles stand in, in its own north-up frame,
+ * rounded out to half a unit; everything downstream (the terrain pad, towns,
+ * roads, the seat pass) reads it from `monuments.json`. A landmark with no
+ * model yet gets the largest footprint and no plan.
  */
 const footprints = new Map<string, number>();
 const plans = new Map<string, Plan>();
@@ -170,30 +141,21 @@ interface Placed {
   note?: string;
   snappedKm?: number;
   /**
-   * How much same-shelf ground the seat pass below found round the plan, in
-   * units past its edge and capped at `SHORE_CLEAR`: negative where the plan
-   * itself reaches the water, which only a `shore` landmark may.
+   * Same-shelf ground round the plan, in units past its edge, capped at
+   * `SHORE_CLEAR`; negative where the plan reaches the water (`shore` only).
    */
   clearance?: number;
   /** The model's plan; see `plans`. */
   plan?: Plan;
   /** Stands in or at the water by what it is; the source's `shore`. */
   shore?: true;
-  /**
-   * Stands in a paved square of its own, the source's `plazas`: `plaza` out
-   * in the country, `parcel` in a block of its town's own cells.
-   */
+  /** From the source's `plazas`: `plaza` in the country, `parcel` in a block of its town's cells. */
   setting?: 'plaza' | 'parcel';
 }
 
 const placed: Placed[] = [];
 const notes: string[] = [];
-/**
- * What makes the bake refuse to write. A landmark with no land within three
- * degrees used to be dropped with a note and the file written without it, and
- * one that snapped into the wrong country was written with a `!` beside it:
- * both reached `monuments.json`, and only `pnpm check` said so afterwards.
- */
+/** Reasons the bake refuses to write. */
 const refused: string[] = [];
 
 for (const m of source.monuments) {
@@ -236,36 +198,13 @@ for (const m of source.monuments) {
 }
 
 /**
- * Pushes monuments apart until their footprints stop overlapping.
- *
- * One world unit is 0.4 km here, so the planet is about 1:400 against Earth and
- * anything closer than a few tens of kilometres is, to the geometry, the same
- * point. The Sphinx stands 1.5 units from the Pyramids and Sydney's bridge 1.7
- * from its opera house — their models interpenetrate outright.
- *
- * This is a deliberate distortion and it is the same one every crop in the
- * monument contract makes: the compression that makes a planet walkable also
- * collapses a city into a point, and a landmark you cannot stand in front of
- * without standing inside another one is worse than a landmark a few kilometres
- * from where it really is. Pairs are separated along the great circle between
- * them, both ends moving equally, and each end is re-checked against the
- * outlines so nobody is pushed into the sea.
- *
- * **"Not in the sea" turned out to be the wrong test, and `settlements.ts` had
- * already written down why.** A push away from one obstacle is a push into the
- * next, and it fails silently because the thing you pushed away from is now
- * correctly clear. St Peter's declares the widest footprint the contract allows
- * and the Colosseum is 8.5 units away, so the pair wants 111 units between them
- * and each end walked 22 km: the Colosseum east into the Apennines and **St
- * Peter's west onto the beach at Fiumicino**, where it stood at the waterline
- * with 31 units of its footprint over the Tyrrhenian. It passed every test here
- * because Fiumicino is in Italy. Measured at the source coordinate against the
- * placed one, it was the only monument of the sixty-five that this pass took
- * from fully seated to overhanging — so the guard is that a step may not unseat
- * a monument the seat pass had seated, and the other end takes the whole
- * deficit on the pass after, which is what the twenty-four passes are for.
+ * Pushes monuments apart until their footprints clear. At this scale nearby
+ * landmarks (the Sphinx and the Pyramids) would interpenetrate, so pairs are
+ * separated along the great circle between them, both ends moving equally.
+ * A step is refused if it leaves the country, unseats a monument that was
+ * dry, or puts it on a town it had left standing; the other end then takes
+ * the deficit on a later pass.
  */
-const DEG = Math.PI / 180;
 const toVector = (lat: number, lon: number): number[] => {
   const v = [0, 0, 0];
   toUnit(lat, lon, v);
@@ -303,10 +242,9 @@ function separate(): string[] {
           const lon = ((point.lon + sign * step * unitLon + 540) % 360) - 180;
           // Only accept the move if it stays on the country it belongs to.
           if (isoOf(world.countryAt(lat, lon)) !== point.iso) continue;
-          // ...and if it does not walk a seated monument back onto the coast.
-          // Only a monument that *was* seated is protected: one the coastline
-          // never had room for has to stay movable, or a pair on a headland
-          // could not be separated at all.
+          // ...and does not walk a seated monument back onto the coast. One
+          // that was never seated stays movable, or a pair on a headland could
+          // not be separated.
           const need = needOf(point);
           if (dryTo(point.lat, point.lon, point.id, need) && !dryTo(lat, lon, point.id, need)) continue;
           // ...nor onto a town it had left standing.
@@ -325,69 +263,32 @@ function separate(): string[] {
 }
 
 /**
- * Moves a monument off the coastline until its plan and a margin stand on one
- * shelf — and, for a landmark defined by the water it stands in, only as far
- * as a short move will seat it.
+ * Moving landmarks off the coast. `snapToLand` lands on the coastline itself,
+ * and at this scale a building near the sea reaches into it, so:
  *
- * `snapToLand` above causes most of it and could not have avoided it: it takes
- * the *first* land it finds, which is by construction a point on the coastline
- * itself — the worst place on the planet to stand a 55-unit model. The rest are
- * landmarks that really are at the water's edge, and at 1:400 a building a
- * kilometre from the sea is a building whose model reaches into it: the
- * Sagrada Familia stood 30 units of its 38 over the Mediterranean.
+ * - A landmark on dry land is walked out in rings until its plan grown by
+ *   `DRY_MARGIN` (the terrain pad) stands on the shelf its centre stands on,
+ *   in its country, clear of other landmarks and of town gates, and a little
+ *   further (`SHORE_DETOUR`) for room to meet the shore as a slope. If no spot
+ *   within `SEAT_REACH` has the whole margin it takes the best it finds; if
+ *   none keeps even the plan dry the bake refuses.
+ * - A `shore` landmark (a bridge, a tidal island, a mosque over the sea) is
+ *   moved only if `SEAT_BUDGET` units seats its plan outright, since no
+ *   distance would seat it without walking it off what it is.
  *
- * **Two rules, and the source says which a landmark gets.**
- *
- * - **Every landmark on dry land is seated, however far that takes.** Its plan
- *   grown by `DRY_MARGIN` — the level pad `terrain.ts` cuts under it — has to
- *   stand on the shelf its centre stands on, so neither the model nor the
- *   ground levelled for it reaches the water. The search walks rings out from
- *   where the landmark stands, a few units at a time, to the first that holds
- *   a spot in its own country, clear of every other landmark's footprint and
- *   of every town's gates (`townTaken`), that seats it — and on a little
- *   further (`SHORE_DETOUR`) for one with room to meet the shore as a slope.
- *   Where no spot within `SEAT_REACH` has the whole margin it takes the most
- *   of it one has; where none has the plan itself dry the bake refuses,
- *   because a landmark that has to overhang the water is one to list as
- *   `shore`, not one to leave overhanging.
- * - **A `shore` landmark keeps the old all-or-nothing budget**: it is moved
- *   only if `SEAT_BUDGET` seats its plan outright, and left where it is
- *   otherwise. The Golden Gate spans a strait, Mont-Saint-Michel is a tidal
- *   island, the Hassan II Mosque is built out over the Atlantic and Easter
- *   Island is *narrower* than the moai standing on it: no distance exists that
- *   would seat them, and every distance that tried walked them off what they
- *   are. The budget is 20 units — three avatars when it was picked, while a
- *   person was 6.8 units — and it was picked by sweeping it (2026-09-09, over
- *   the circle the footprint used to be measured on): 19 overhung at 0, 14 at
- *   12, 13 at 20, 10 at 30 and 8 at 55, and what the tail buys was not worth
- *   what it cost — at 55 Mont-Saint-Michel walked 22 km inland off its island.
- *
- * **The plan and not the footprint's disc is what has to be dry.** The disc is
- * the furthest vertex in any direction, and for a model longer than it is deep
- * it holds a crescent of water the model never reaches: the Brandenburg Gate
- * is 86 units by 20.
+ * The plan, not the footprint disc, is what must be dry: the disc of a long,
+ * narrow model holds water the model never reaches.
  */
+/** How far a `shore` landmark may move to be seated, in units; chosen by sweeping. */
 const SEAT_BUDGET = 20;
-/**
- * The furthest the seat pass walks a landmark on dry land, in world units: 64
- * km. On the bake of 2026-09-25 the furthest any walked, from where the snap
- * and the separation had put it, was Table Mountain's 51 km, off the Cape
- * peninsula; the table this writes lists them all.
- */
+/** The furthest the seat pass walks a landmark on dry land, in units (64 km). */
 const SEAT_REACH = 160;
-/** Spacing of the probe rings, both round the plan and out from the landmark. */
-const SEAT_STEP = 4;
-/**
- * Dry ground past the plan a landmark on dry land has to have, in world units:
- * `PAD_MARGIN`, so the level pad under it is on land to its rim. `clearance`
- * is measured further, to `SHORE_CLEAR`, which is what `SHORE_DETOUR` buys.
- */
+/** Dry ground needed past the plan: `PAD_MARGIN`, so the level pad is on land to its rim. */
 const DRY_MARGIN = PAD_MARGIN;
 /**
- * How much further than the nearest spot that seats it a landmark that has to
- * move anyway may go for `SHORE_CLEAR` of dry ground, in world units: 13 km.
- * Its pad then meets the coast as the shore ramp does rather than as a bank.
- * A landmark that stands where it may is not moved for it.
+ * How much further than the nearest seating spot a landmark that must move
+ * anyway may go for `SHORE_CLEAR` of dry ground, in units (13 km), so its
+ * pad meets the coast as a slope rather than a bank.
  */
 const SHORE_DETOUR = 32;
 
@@ -401,17 +302,13 @@ const probe = new Vector3();
 const seam = { lat: 0, lon: 0 };
 
 /**
- * The shelf under a point: its ring's own cliff height, and 0 over water.
- *
- * `elevationAt` is the shelf plus the relief and there is no way to ask it for
- * either half, so the relief is subtracted back off — normalised exactly the
- * way `geo.ts` normalises it, or the two evaluations of the noise differ in
- * their last bits and every point on the planet reports a shelf of its own.
+ * The shelf under a point: its ring's cliff height, 0 over water. This is
+ * `elevationAt` minus the relief, normalised exactly as `geo.ts` does so the
+ * two noise evaluations agree to the last bit.
  */
 function shelfAtPoint(point: Vector3): number {
-  // A probe exactly on the antimeridian is asked a hair east of it: the rings
-  // are cut along it, and the seam itself belongs to neither side — which the
-  // South Pole's rings, every one of them crossing it, found.
+  // The rings are cut along the antimeridian, which belongs to neither side,
+  // so a probe exactly on it is nudged off.
   const { lat, lon } = latLonOf(point, seam);
   if (Math.abs(lon) === 180) unitAt(lat, 179.9999999, point);
   if (world.countryAtPoint(point) === 0) return 0;
@@ -424,73 +321,8 @@ function shelfAt(lat: number, lon: number): number {
   return shelfAtPoint(probe);
 }
 
-/**
- * A step smaller than this is not a step. Chosen while a person was 6.8 units
- * tall; a person is 3.77 since 2026-09-24, and a stair's riser 0.32.
- */
+/** Shelf differences under this many units count as the same shelf. */
 const SEAT_TOLERANCE = 0.5;
-
-/** Steps `distance` units along `bearing` (0 is north) from a coordinate. */
-function step(lat: number, lon: number, distance: number, bearing: number): [number, number] {
-  const degrees = distance / UNITS_PER_DEGREE;
-  const y = Math.max(-89.99, Math.min(89.99, lat + degrees * Math.cos(bearing)));
-  const x = ((lon + (degrees * Math.sin(bearing)) / Math.max(0.02, Math.cos(lat * DEG)) + 540) % 360) - 180;
-  return [y, x];
-}
-
-/**
- * The points of the plan grown by `d` — shrunk, for a negative `d` — at most
- * `SEAT_STEP` apart along its outline, in the landmark's frame. The plan is
- * the box and the disc together (`PlanShape`), so the outline is the part of
- * each one's that lies inside the other. The ring of the smallest `d` the pass
- * asks is the plan's own spine, so the rings from there out cover all of it.
- */
-function ringOf(shape: PlanShape, d: number): [number, number][] {
-  const inside = (x: number, z: number): boolean => {
-    if (Math.hypot(x, z) > shape.radius + d + 1e-6) return false;
-    if (d >= 0) {
-      return Math.hypot(Math.max(Math.abs(x - shape.cx) - shape.hx, 0), Math.max(Math.abs(z - shape.cz) - shape.hz, 0)) <= d + 1e-6;
-    }
-    return Math.abs(x - shape.cx) <= shape.hx + d + 1e-6 && Math.abs(z - shape.cz) <= shape.hz + d + 1e-6;
-  };
-  const points: [number, number][] = [];
-  const keep = (x: number, z: number): void => {
-    if (inside(x, z)) points.push([x, z]);
-  };
-  // The disc's outline.
-  const around = Math.max(0, shape.radius + d);
-  const n = Math.max(24, Math.ceil((2 * Math.PI * around) / SEAT_STEP));
-  for (let k = 0; k < n; k++) keep(Math.cos((k / n) * Math.PI * 2) * around, Math.sin((k / n) * Math.PI * 2) * around);
-  // The box's: four sides pushed out by `bend` and a quarter arc round each corner.
-  if (Number.isFinite(shape.hx)) {
-    const hx = Math.max(0, shape.hx + Math.min(d, 0));
-    const hz = Math.max(0, shape.hz + Math.min(d, 0));
-    const bend = Math.max(0, d);
-    const edge = (x0: number, z0: number, x1: number, z1: number): void => {
-      const count = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / SEAT_STEP));
-      for (let i = 0; i < count; i++) keep(x0 + ((x1 - x0) * i) / count, z0 + ((z1 - z0) * i) / count);
-    };
-    edge(shape.cx + hx + bend, shape.cz - hz, shape.cx + hx + bend, shape.cz + hz);
-    edge(shape.cx + hx, shape.cz + hz + bend, shape.cx - hx, shape.cz + hz + bend);
-    edge(shape.cx - hx - bend, shape.cz + hz, shape.cx - hx - bend, shape.cz - hz);
-    edge(shape.cx - hx, shape.cz - hz - bend, shape.cx + hx, shape.cz - hz - bend);
-    if (bend > 0) {
-      const arc = Math.max(2, Math.ceil((bend * Math.PI) / 2 / SEAT_STEP));
-      for (const [sx, sz, from] of [[1, 1, 0], [-1, 1, Math.PI / 2], [-1, -1, Math.PI], [1, -1, Math.PI * 1.5]] as const) {
-        for (let i = 1; i < arc; i++) {
-          const angle = from + ((Math.PI / 2) * i) / arc;
-          keep(shape.cx + sx * hx + Math.cos(angle) * bend, shape.cz + sz * hz + Math.sin(angle) * bend);
-        }
-      }
-    }
-  }
-  return points;
-}
-
-/** The offset the rings start from: the plan's own spine, a whole number of steps in. */
-function innermost(shape: PlanShape): number {
-  return -Math.floor(Math.min(shape.radius, shape.hx, shape.hz) / SEAT_STEP) * SEAT_STEP;
-}
 
 /** Whether every point of the ring at `d` stands on `shelf`. */
 function ringDry(lat: number, lon: number, shape: PlanShape, d: number, shelf: number): boolean {
@@ -504,9 +336,8 @@ function ringDry(lat: number, lon: number, shape: PlanShape, d: number, shelf: n
 }
 
 /**
- * How much same-shelf ground surrounds a landmark's plan, in units past its
- * edge and capped at `limit`: the last ring out from the plan's spine that
- * stood wholly on the centre's shelf. Negative where the plan itself does not.
+ * Same-shelf ground round a landmark's plan, in units past its edge, capped at
+ * `limit`; negative where the plan itself is not on one shelf.
  */
 function clearance(lat: number, lon: number, id: string, limit: number): number {
   const shape = shapeOf(id);
@@ -518,9 +349,8 @@ function clearance(lat: number, lon: number, id: string, limit: number): number 
 }
 
 /**
- * Whether the plan grown by `need` stands on one shelf. The outermost ring
- * first, because that is where the water is when there is any, so a spot on
- * the coast is refused on its first ring rather than its tenth.
+ * Whether the plan grown by `need` stands on one shelf. Tests the outermost
+ * ring first, where any water would be, so coastal spots fail fast.
  */
 function dryTo(lat: number, lon: number, id: string, need: number): boolean {
   const shape = shapeOf(id);
@@ -544,9 +374,9 @@ function clearOfOthers(point: Placed, lat: number, lon: number): boolean {
 }
 
 /**
- * The nearest spot that seats a landmark: rings out from where it stands, and
- * on the first ring that has any, the one with the most dry ground round it.
- * Null where none within `reach` does.
+ * The nearest spot that seats a landmark, searched in rings outward; among
+ * candidates, the one with the most dry ground round it. Null if none within
+ * `reach`.
  */
 function seatNear(point: Placed, need: number, reach: number): [number, number] | null {
   let best: [number, number] | null = null;
@@ -568,8 +398,7 @@ function seatNear(point: Placed, need: number, reach: number): [number, number] 
         best = [lat, lon];
       }
     }
-    // The first ring that seats it says how far it has to go; a little further
-    // may buy the room its pad needs to meet the shore as a slope.
+    // Once seated, search a little further for room to meet the shore as a slope.
     if (best !== null) until = Math.min(until, distance + SHORE_DETOUR);
     if (bestRoom >= Math.max(need, SHORE_CLEAR)) break;
   }
@@ -577,38 +406,22 @@ function seatNear(point: Placed, need: number, reach: number): [number, number] 
 }
 
 /**
- * The built towns, and the one a landmark standing at a spot would take the
- * middle or most of the gates of — or null.
- *
- * **A landmark stood wherever its coordinate said, and a town smaller than it
- * was its square**: Granada's whole square was the Alhambra's, Bilbao's the
- * Guggenheim's, Djenné's its mosque's, and the roads arrived at gates inside
- * the model. The road bake shuts a gate a landmark stands on
- * (`gateUnderLandmark`), which ends the roads in the walls and, where the
- * landmark held every gate, leaves the town with no road at all. So a landmark
- * may not take more than half a town's gates (`landmarkTakes`, the road bake's
- * own test), and one that would is moved to the nearest spot that leaves the
- * town the rest: beside its town, the way the Alhambra stands over Granada,
- * rather than on top of it. **Its middle is not asked about**: the Forbidden
- * City in the middle of Beijing, with every gate of the city free, is the
- * town wrapping round its landmark, and it is right.
+ * Built towns, for `townTaken`: a landmark may not take more than half a
+ * town's gates (`landmarkTakes`, the road bake's own test), nor every gate the
+ * town's roads would use; one that would is moved beside the town instead.
+ * Standing in the middle of a town with its gates free is fine.
  */
 const allPlaces = decodePlaces(await inflate(readFileSync(resolve(here, '../public/data/places.bin'))));
 const builtTowns = allPlaces.filter(isShown);
 const townUnit = builtTowns.map((place) => unitAt(place.lat, place.lon, new Vector3()));
 const takenAt = new Vector3();
 /**
- * The gates each town's roads would come in by with no landmark in the way:
- * `candidateGates` over the road bake's own candidate graph, the gates it
- * gives every pair before it tests one. **A landmark may not take all of
- * them**, whatever share of the town's gates they are: Mount Fuji, walked off
- * Suruga Bay, came down on the two gates Kofu's roads to Tokyo and Shizuoka
- * use, and Kofu was left with no road while three of its gates stood free
- * facing nobody. Taking some of them is the town wrapping round its landmark,
- * and the road bake sends those roads to the next gate round.
+ * The gates each town's roads would use with no landmark in the way
+ * (`candidateGates` over the road bake's candidate graph). A landmark may take
+ * some of them, and the road bake reroutes, but not all.
  */
 const wantedGates = new Map<Place, Set<number>>();
-/** Every pair of built towns the road bake will try to join, for the narrows a bridge may not stand in the way of. */
+/** Every pair of built towns the road bake will try to join. */
 const candidateRoads = builtGraph(allPlaces, 'gabriel', MAX_ROAD_LENGTH);
 {
   const candidates = candidateRoads;
@@ -641,7 +454,7 @@ function townTaken(id: string, lat: number, lon: number): string | null {
   return null;
 }
 
-/** Whether a landmark at a spot stands where it may: dry enough, and taking no town. */
+/** Whether a landmark at a spot is dry enough and takes no town. */
 function standsWell(point: Placed, lat: number, lon: number, need: number): boolean {
   return dryTo(lat, lon, point.id, need) && townTaken(point.id, lat, lon) === null;
 }
@@ -650,17 +463,14 @@ function seatAll(): { id: string; km: number }[] {
   const seated: { id: string; km: number }[] = [];
   for (const point of placed) {
     const shore = shoreIds.has(point.id);
-    // A shore landmark is held to no more water than it stands in now when a
-    // town moves it, so walking it off a town never walks it into the sea.
+    // A shore landmark moved off a town may not end up with more water under it.
     const now = shore ? Math.min(0, clearance(point.lat, point.lon, point.id, 0)) : 0;
     const need = shore ? now : needOf(point);
     if (standsWell(point, point.lat, point.lon, need)) continue;
     let spot = shore ? seatNear(point, 0, SEAT_BUDGET) : null;
     for (let less = shore ? now : need; spot === null && less >= (shore ? now : 0); less -= SEAT_STEP) {
-      // Where no spot within reach has the whole margin, the most of it one
-      // does — the plan itself dry, always, off the shore — rather than a
-      // landmark walked a hundred kilometres for the last few units of level
-      // ground round it.
+      // Accept a smaller margin rather than walking far for the last few units;
+      // the plan itself must always be dry off the shore.
       if (less < need && standsWell(point, point.lat, point.lon, less)) break;
       if (shore && townTaken(point.id, point.lat, point.lon) === null) break;
       spot = seatNear(point, less, SEAT_REACH);
@@ -675,14 +485,7 @@ function seatAll(): { id: string; km: number }[] {
 }
 
 const before = placed.map((p) => ({ id: p.id, lat: p.lat, lon: p.lon }));
-// Seating and separating pull against each other — a monument nudged inland can
-// walk into its neighbour, and a monument pushed off its neighbour can walk back
-// to the coast — so they take turns until neither has anything left to say.
-//
-// **Until neither, not until the seat pass is idle.** The loop used to stop the
-// first round seating moved nothing, which is also a round in which separation
-// may just have pushed a monument back onto its coast — and `separate` said
-// nothing either way, because the list it returned was never filled.
+// Seating and separating can undo each other, so alternate until neither moves anything.
 const seatedBy = new Map<string, number>();
 for (let round = 0; round < 4; round++) {
   const moved = seatAll();
@@ -693,32 +496,16 @@ for (let round = 0; round < 4; round++) {
 const seated = [...seatedBy].map(([id, km]) => ({ id, km }));
 
 /**
- * Where a landmark stands against the towns: **in a parcel of its own, or out
- * of the town altogether.**
+ * A landmark is either in a parcel of its town or out of it, never half in:
  *
- * A landmark used to stand wherever the passes above left it, and a town it
- * reached wrapped round it cell by cell: the cells under its plan were paved,
- * the streets ran on into its square and stopped at its kerb, a yard half
- * under it kept its lawn, and the square the landmark brought with it lay over
- * all of it at a height of its own. It read as a model dropped on a town. So
- * now there are two answers and nothing between them:
- *
- * - **A landmark that stands in a paved square** (the source's `plazas`) and
- *   fits in one quarter of its town — between the main streets and the edge,
- *   so no main street runs into it — is stood in the middle of a block of the
- *   town's own cells, with at least `PARCEL_KEEP` of ground round its plan and
- *   less than half a cell more (`landmarkParcel` in `scenery/grid.ts`, which
- *   the town and the road bake read). The town paves that block as one square
- *   and keeps the streets round it. Its `setting` becomes `parcel`.
- * - **Every other landmark that reaches a town** — one too big for a quarter
- *   of it, a mountain, a ruin, a bridge — is walked out of the town's square
- *   until its plan is `OUTSIDE_GAP` clear of it, to the nearest spot that is
- *   dry, in its country and clear of the others, and stands in the country
- *   beside the town.
- *
- * A `shore` landmark is walked out of a town too, but only to a spot with at
- * least as much water under its plan as it stands in now: the water is what
- * it is made of (`shoreOutsideNear`).
+ * - A `plazas` landmark that fits one quarter of its town (between the main
+ *   streets and the edge) is stood in the middle of a block of the town's
+ *   cells (`landmarkParcel` in `scenery/grid.ts`, which the town and the road
+ *   bake also read); its `setting` becomes `parcel`.
+ * - Any other landmark reaching a town is walked out until its plan is
+ *   `OUTSIDE_GAP` clear of the square.
+ * - A `shore` landmark is walked out only to a spot with at least as much
+ *   water under its plan (`shoreOutsideNear`).
  */
 const OUTSIDE_GAP = 10;
 /** How far a landmark may be walked out of a town, in world units, before it is left where it was. */
@@ -757,17 +544,6 @@ function hostsNear(id: string, lat: number, lon: number, within: number): Host[]
     if (gap < within) out.push({ place, grid, up, across, north, x, z, gap });
   }
   return out;
-}
-
-/** The runs of cells a parcel may take along one axis of a square: one quarter, either side of the main street. */
-function quarters(grid: TownGrid): [number, number][] {
-  const n = grid.cells;
-  if (n < 2) return [];
-  if (n % 2 === 1) {
-    const m = (n - 1) / 2;
-    return m > 0 ? [[0, m - 1], [m + 1, n - 1]] : [];
-  }
-  return [[0, n / 2 - 1], [n / 2, n - 1]];
 }
 
 /** Whether a spot is somewhere a landmark may stand at all: its country, dry, clear of the others, taking no town. */
@@ -814,10 +590,8 @@ function outOfTowns(id: string, lat: number, lon: number): boolean {
 }
 
 /**
- * The nearest spot out of every town where the landmark stands, rings out from
- * where it is: out of every road's way (`inTheWay`) if a spot that is lies
- * within `WAY_DETOUR` further out than the nearest, and the nearest otherwise.
- * Further was the Colosseum and St Peter's a hundred kilometres from Rome.
+ * The nearest spot out of every town where the landmark may stand, preferring
+ * one out of every road's way (`inTheWay`) within `WAY_DETOUR` further.
  */
 const WAY_DETOUR = 40;
 function outsideNear(point: Placed, need: number): [number, number] | null {
@@ -844,11 +618,7 @@ function outsideNear(point: Placed, need: number): [number, number] | null {
 const parcelled: { id: string; town: string; km: number }[] = [];
 const walkedOut: { id: string; town: string; km: number }[] = [];
 const leftIn: string[] = [];
-/**
- * The nearest spot out of every town for a `shore` landmark: one that keeps at
- * least the water it stands in now under its plan, so walking it off a town
- * never walks it off its shore.
- */
+/** The nearest spot out of every town for a `shore` landmark that keeps at least its current water. */
 function shoreOutsideNear(point: Placed): [number, number] | null {
   const wet = Math.min(0, clearance(point.lat, point.lon, point.id, 0));
   if (wet >= 0) return null;
@@ -869,14 +639,9 @@ function shoreOutsideNear(point: Placed): [number, number] | null {
 }
 
 /**
- * Whether a spot is on the way of a road the road bake will try to build: the
- * chord between two towns it joins passing within `ROAD_ROOM` of the plan
- * (a carriageway's clearance and `LANDMARK_KEEP` past it, and a little). The
- * road is a curve near that chord, and one that has to go round a landmark goes
- * the long way or not at all: on the Sacramento delta the Golden Gate took the
- * crossing Stockton's road to Fairfield was built over, and walked out of San
- * Francisco onto its neighbours' way it sent two of its roads round it to
- * cross each other on bridges of their own.
+ * Whether a spot is in the way of a road the road bake will try to build: the
+ * chord between two joined towns passes within `ROAD_ROOM` of the plan (a
+ * carriageway's clearance plus `LANDMARK_KEEP`, with a little to spare).
  */
 const ROAD_ROOM = 16;
 const chordA = new Vector3();
@@ -889,8 +654,7 @@ function inTheWay(id: string, lat: number, lon: number): boolean {
     unitAt(allPlaces[edge.a]!.lat, allPlaces[edge.a]!.lon, chordA);
     if (chordA.dot(site.up as Vector3) < Math.cos(edge.length / RADIUS + reach)) continue;
     unitAt(allPlaces[edge.b]!.lat, allPlaces[edge.b]!.lon, chordB);
-    // Along the chord a few units at a time, on the straight line between the
-    // two directions, which over a few hundred units is the great circle.
+    // Sample the chord every few units; over this length it is the great circle.
     const steps = Math.ceil(edge.length / 4);
     for (let k = 0; k <= steps; k++) {
       sample.copy(chordA).lerp(chordB, k / steps).normalize();
@@ -920,16 +684,14 @@ for (const point of placed) {
   if (hosts.length === 0) continue;
   const was = { lat: point.lat, lon: point.lon };
   const town = hosts.map((host) => host.place.name).join(', ');
-  // The ground a landmark that has been dry so far keeps; one the coast
-  // never had room for stands no worse than it does.
+  // Keep the margin if it already has it; otherwise stand no worse than now.
   const need = dryTo(point.lat, point.lon, point.id, needOf(point)) ? needOf(point) : 0;
   let done = false;
   if (point.setting === 'plaza' && hosts.length === 1) {
     for (const [lat, lon] of parcelSpots(point, hosts[0]!, point.lat, point.lon)) {
       // In this town's parcel and no other's.
       if (hostsNear(point.id, lat, lon, OUTSIDE_GAP).length !== 1) continue;
-      // In a town the town's own floor is the ground round the plan, so only
-      // the parcel has to be dry, not the pad's whole margin.
+      // Inside a town only the parcel has to be dry, not the pad's whole margin.
       if (!standsAt(point, lat, lon, Math.min(need, PARCEL_KEEP))) continue;
       point.lat = lat;
       point.lon = lon;
@@ -953,9 +715,7 @@ const spread = placed
   .map((p, i) => ({ id: p.id, km: distanceKm(before[i]!.lat, before[i]!.lon, p.lat, p.lon) }))
   .filter((p) => p.km > 0.05);
 
-// Recorded rather than recomputed by every reader: `check-world.ts` measures it
-// again from the outlines and fails if the two disagree, which is what says the
-// coastline or a model's footprint moved and the bake did not.
+// Recorded so `check-world.ts` can recompute it and catch a stale bake.
 for (const point of placed) {
   point.clearance = clearance(point.lat, point.lon, point.id, SHORE_CLEAR);
 }
@@ -972,46 +732,14 @@ if (refused.length > 0) {
 }
 writeFileSync(resolve(here, '../public/data/monuments.json'), JSON.stringify({ monuments: placed }, null, 1));
 
-console.log(`${placed.length} of ${source.monuments.length} monuments placed\n`);
-if (notes.length) {
-  console.log('snapped to land, each into the country it declares:');
-  for (const n of notes) console.log('  ' + n);
-}
-const far = placed.filter((p) => (p.snappedKm ?? 0) > 60);
-console.log(`\n${notes.length} needed snapping, ${far.length} moved more than 60 km`);
-
-if (spread.length > 0) {
-  console.log(`\nspread apart so their footprints clear (${spread.length} monuments):`);
-  for (const s of spread.sort((a, b) => b.km - a.km)) {
-    console.log(`  ${s.id.padEnd(24)} ${s.km.toFixed(1)} km`);
-  }
-}
-
-if (parcelled.length > 0) {
-  console.log(`\nstood in a parcel of their town (${parcelled.length}):`);
-  for (const s of parcelled) console.log(`  ${s.id.padEnd(24)} ${s.town.padEnd(20)} ${s.km.toFixed(1)} km`);
-}
-if (walkedOut.length > 0) {
-  console.log(`\nwalked out of a town into the country beside it (${walkedOut.length}):`);
-  for (const s of walkedOut.sort((a, b) => b.km - a.km)) console.log(`  ${s.id.padEnd(24)} ${s.town.padEnd(20)} ${s.km.toFixed(1)} km`);
-}
-if (leftIn.length > 0) console.log(`\nleft reaching a town, with no spot out of it within ${OUTSIDE_REACH} units: ${leftIn.join(', ')}`);
-
-if (seated.length > 0) {
-  console.log(`\nmoved off the coast until the plan and its margin stand on one shelf (${seated.length}):`);
-  for (const s of seated.sort((a, b) => b.km - a.km)) {
-    console.log(`  ${s.id.padEnd(24)} ${s.km.toFixed(1)} km`);
-  }
-}
-
-// The shore landmarks the coastline has no room for, and how far into their
-// plan the water comes. A table rather than a failure: the Golden Gate spans a
-// strait and Easter Island is narrower than its own moai, so this number is
-// never going to zero — but it is the number that must not quietly grow, and
-// only a landmark listed as `shore` may be on it at all.
-const overhanging = placed
-  .filter((p) => (p.clearance ?? 0) < 0)
-  .map((p) => ({ id: p.id, short: -(p.clearance ?? 0) }))
-  .sort((a, b) => b.short - a.short);
-console.log(`\nshore landmarks standing over the water (${overhanging.length}), the water this far into the plan:`);
-for (const o of overhanging) console.log(`  ${o.id.padEnd(24)} ${o.short.toFixed(0)} units`);
+printReport({
+  placed,
+  total: source.monuments.length,
+  notes,
+  spread,
+  parcelled,
+  walkedOut,
+  leftIn,
+  outsideReach: OUTSIDE_REACH,
+  seated,
+});

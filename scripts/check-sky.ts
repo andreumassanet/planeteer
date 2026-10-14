@@ -1,15 +1,13 @@
 /**
- * The sky's traffic, headless: the airliners, the circuits at the airstrips,
- * the helicopters, the balloons and the airships, as the timetable that
- * `air-traffic.ts` reads them off.
+ * The sky traffic headless: airliners, airstrip circuits, helicopters,
+ * balloons and airships, as the timetable `air-traffic.ts` reads.
  *
- * Every flight is a pure function of the clock and the baked world, so this
- * builds the timetable twice and asks for the same answer, then flies each
- * kind and asks what its medium asks: an airliner between two hubs at a sane
- * height and speed, a circuit that touches down on its own strip and nowhere
- * else, clears the parked plane and the land, a helicopter over its city's
- * roofs, a balloon that lands on land and out of every town, and nothing, at
- * any instant, under the ground or moving in jumps.
+ * Every flight is a pure function of the clock and the baked world, so the
+ * timetable is built twice and compared. Then each kind is flown: airliners
+ * between hubs at sane height and speed, circuits touching down only on their
+ * own strip and clearing the parked plane, helicopters over their city,
+ * balloons landing on land outside towns, and nothing ever underground or
+ * jumping.
  *
  *   node scripts/check-sky.ts
  */

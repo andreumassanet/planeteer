@@ -105,7 +105,7 @@ test('a country is an outline code or nothing, a gesture one of the list', () =>
   assert.equal(cleanCountry('<b>'), '');
   assert.equal(cleanCountry(12), '');
   for (const emote of EMOTES) assert.equal(cleanEmote(emote), emote);
-  // Sitting is a bench now, and still says so on the wire, old clients too.
+  // Sitting is a bench, but `sit` still goes on the wire for older clients.
   assert.equal(cleanEmote('sit'), 'sit');
   assert.equal(cleanEmote('moonwalk'), '');
   assert.equal(cleanEmote(undefined), '');
@@ -165,10 +165,9 @@ test(`a horn starts at most once each ${HONK_INTERVAL_MS} ms, and stops only wha
 });
 
 /**
- * Two minutes of a sender pressing Enter whenever `press` says, paced by the game's own
- * bucket at `interval`, each line it lets through delayed on its way by a
- * random `[0, jitter]` and kept in order, as a socket keeps it; and how many
- * of those the relay's bucket refuses.
+ * Two minutes of a sender pressing Enter whenever `press` says, paced by the
+ * game's bucket at `interval`, each line delayed by a random `[0, jitter]` and
+ * kept in order as a socket would; returns how many the relay's bucket refuses.
  */
 function dropped(interval: number, jitter: number, seed: number, press: (n: number) => number): { sent: number; lost: number } {
   let state = seed >>> 0;
@@ -357,8 +356,8 @@ test('/goto finds a built town, a name folded into one, and a country', async ()
   assert.equal(kobe?.name, 'Osaka');
   assert.equal(kobe?.via, 'Kobe');
   // A country is its capital.
-  // A town's own name before a name folded into a bigger one: a suburb of
-  // Bogotá called Madrid once outweighed Madrid by Bogotá's population.
+  // A town's own name ranks before a name folded into a bigger town, however
+  // big that town is.
   assert.equal(go('madrid')?.iso, 'ESP');
   assert.deepEqual(go('madrid')?.others, ['COL']);
   // The same name in two countries: where you stand first, a country after a comma.

@@ -1,14 +1,13 @@
 /**
- * The railway, headless: `rails.bin` against the world it was baked from, every
- * line walked again, and the trains run through a day.
+ * The railway headless: `rails.bin` against the world it was baked from.
  *
- * The file stores the least that decides a line — its two cities, which way
- * each station stands, the platform's side, how far out and the bow — and
- * `rails.ts` works the rest out; so this re-walks what the bake walked, with
- * the same walk (`rail-trial.ts`), in the bake's own order, and asks for the
- * same answer. Then what the lines promise the rest of the world: the crown
- * never under the ground's lift, the keepouts covering the track, and a
- * train that runs its timetable without a jump and stops at its platforms.
+ * The file stores only what decides a line (its two cities, each station's
+ * orientation and platform side, the bow); `rails.ts` derives the rest. So
+ * each line is re-walked with the bake's own walk (`rail-trial.ts`), in the
+ * bake's order, and must give the same answer. Then: the crown never under
+ * the ground's lift, the keepouts covering the track, trains running their
+ * timetable without jumps and stopping at platforms, and the streamer built
+ * headless.
  *
  *   node scripts/check-rails.ts
  */
@@ -304,10 +303,9 @@ console.log('\ndrawn:');
     const onScreen = beds.filter((bed) => frustum.intersectsObject(bed)).length;
     check(beds.length > 0 && hidden === 0 && unbounded === 0 && onScreen > 0, 'the track\'s chunks hang under the railway\'s group, shown, bounded, and in view', `${beds.length} chunks, ${onScreen} in the frustum`);
   }
-  // The program the browser compiles for the bed: every function the weather
-  // chunk calls is defined in it, every varying it reads is written, every
-  // uniform it declares is bound. A program that fails to link draws nothing,
-  // and nothing headless would say so.
+  // The bed's program: every function the weather chunk calls is defined,
+  // every varying it reads is written, every uniform it declares is bound. A
+  // program that fails to link draws nothing, and nothing headless would say so.
   {
     const { ShaderChunk, ShaderLib } = await import('three');
     let bed: InstanceType<typeof Mesh> | null = null;

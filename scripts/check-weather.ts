@@ -1,22 +1,17 @@
 /**
- * The weather, headless: the model, not the picture.
+ * The weather model headless. `weather.ts` is a pure function of place and
+ * instant; this loads the real world (coast field, biomes, relief) and checks
+ * determinism, continuity in space and time, climate (no drizzling Sahara, no
+ * snow at twenty degrees), and a plausible permanent snowline.
  *
- * `weather.ts` is a pure function of a place and an instant, and everything
- * that can go wrong with one is invisible in a screenshot and obvious in a
- * table: two clients disagreeing about the same storm, rain that jumps on as
- * you take a step, a Sahara that drizzles every afternoon, snow at twenty
- * degrees, a snowline that puts the Alps under ice to their feet or leaves the
- * Himalaya bare. So this loads the real world — the coast field, the biomes,
- * the relief — and asks the model the questions an atlas can answer, then
- * holds the drawing's two pieces of arithmetic to their contracts: every drop
- * stays inside the box round the camera, and every face of a lightning bolt
- * faces out, because its ink is a back-face hull. And the deck's shade on the
- * ground (`cloud-shade.ts`): its bake against the field, its ray, where it
- * falls against where it rains, its gates, the sun's budget it shares with the
- * old cut, and the patch it makes to three's light loop, compiled headless.
- * And the light shafts, which the weather gates: none at night, under a bank,
- * from orbit or under the sea, no pop anywhere in a real day, and the sun put
- * on the screen where it is.
+ * Also the drawing's arithmetic: every drop stays inside the box round the
+ * camera, and every face of a lightning bolt faces out (its ink is a back-face
+ * hull). The cloud shade on the ground (`cloud-shade.ts`): its bake against
+ * the field, its ray, where it falls against where it rains, its gates, the
+ * sun budget it shares with the overcast cut, and its patch to Three's light
+ * loop, compiled headless. And the light shafts: none at night, under a bank,
+ * from orbit or underwater, no pop over a real day, and the sun placed on
+ * screen where it is.
  *
  *   node scripts/check-weather.ts
  */
@@ -123,11 +118,9 @@ console.log('determinism');
 
 console.log('\ncontinuity');
 {
-  // A step and a tick: 0.004 degrees is 1.1 units, a third of a person, and a
-  // second is four of the view's samples. Neither may move the rain by more
-  // than a sliver or the temperature by more than a tenth of a degree. (The
-  // deck drifts 1.5 units a second at the equator, so a second of time is a
-  // step and a half of space; ten seconds move a bank's edge by a quarter.)
+  // A step of 0.004 degrees (1.1 units) and a tick of one second may move the
+  // rain by only a sliver and the temperature by a tenth of a degree. The deck
+  // drifts 1.5 units a second at the equator.
   let worstStep = 0;
   let worstTick = 0;
   let worstTemp = 0;
@@ -374,9 +367,9 @@ console.log('\ncloud shadows');
     check(Math.abs(underCut / day - 0.28) < 0.03, 'as much of the day\'s ground is under a bank as the deck covers', `${((underCut / day) * 100).toFixed(1)}% of ${day} sunlit points (the deck keeps 27.6% of its cells)`);
     check(underShade >= underCut && (underShade - underCut) / day < 0.07, 'and the shade reaches a little past the cut, as the puffs\' rims do', `${((underShade / day) * 100).toFixed(1)}% in shade`);
 
-    // A high sun: over 75 degrees the shade is at most 268 units off the
-    // point under the cloud, so where it rains — properly, away from the
-    // rain's own ragged edge — the ground is in its shade.
+    // A high sun (over 75 degrees puts the shade at most 268 units off the
+    // point under the cloud): where it rains, away from the rain's ragged
+    // edge, the ground is in shade.
     let raining = 0;
     let shadedRain = 0;
     const under = { lat: 0, lon: 0 };
@@ -477,10 +470,10 @@ console.log('\ncloud shadows');
     check(deep > 100 && high === 0 && low === 0, 'none over the shell, where the airliners cruise, and none off the planet', `${high} over, ${low} under, of ${deep} points deep in a bank`);
   }
 
-  // The sun's budget. Each forced sky, and each under a real bank as deep as
-  // its own: forced, or with the weather off, the old cut and nothing else;
-  // under a real bank, never the old cut and the shade together, never under
-  // a fifth of the sun, and a storm about where the old cut put it.
+  // The sun's budget, for each forced sky and under a real bank as deep: forced
+  // or with the weather off, the overcast cut (`SUN_CUT`) alone; under a real
+  // bank, never the cut and the shade together, never under a fifth of the
+  // sun, and a storm close to what the cut alone gives.
   {
     const lines: string[] = [];
     let forcedOff = 0;
@@ -834,14 +827,10 @@ console.log('\nthe light through the air');
   for (let o = 0; o < 1; o += 0.01) if (at({ overcast: o + 0.01 }) > at({ overcast: o }) + 1e-9) rises++;
   check(rises === 0, 'they never grow as the sun climbs past two degrees or the sky greys', `${rises} steps up`);
 
-  // A real day at Palma through `sun.ts` itself, in two-second steps: no step
-  // moves the strength by a pop, at the terminator, at the mood keys or
-  // anywhere else. The fastest fade there is the rise's, 0.0019 a step as the
-  // sun sets through it at 11.6 degrees an hour, so 0.005 is a jump and not a
-  // slope. Under a clear sky, because the weather's own steps are
-  // the continuity section's and the view eases them on top — a raw rain
-  // cell crossing Palma at 16:53 that day moves the rain by 0.04 in ten
-  // seconds, which is the model's business and not the shafts'.
+  // A real day at Palma through `sun.ts`, in two-second steps: no step moves
+  // the strength by a pop. The fastest fade is the sunrise's, 0.0019 a step,
+  // so 0.005 is a jump. Under a clear sky: the weather's own steps belong to
+  // the continuity section.
   const sky = createSky(new Scene(), new Fog(0xffffff, 1, 2));
   sky.setRate(0);
   const palma = unitAt(39.5696, 2.6502, new Vector3()).multiplyScalar(PLANET_RADIUS);

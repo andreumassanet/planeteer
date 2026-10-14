@@ -1,9 +1,7 @@
 /**
- * The baked kit, read off disk for the headless checks.
- *
- * `src/kit.ts` is the browser's reader and it runs in Node too, given the file's
- * bytes and the three globals `GLTFLoader` reaches for. This module supplies
- * both, so a check builds the same vehicles and animals the world draws.
+ * The baked kit read off disk for the headless checks. `src/kit.ts` runs in
+ * Node given the file bytes and the globals `GLTFLoader` expects; this module
+ * supplies both.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

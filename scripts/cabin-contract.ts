@@ -1,18 +1,13 @@
 /**
- * The contract a closed craft's inside is held to, on Earth (`check-craft.ts`)
- * and on the other worlds (`check-worlds.ts`) alike, so the two cannot hold
- * different things (`craft/cabin.ts` is the head of it):
+ * The contract a closed craft's interior is held to, shared by `check-craft.ts`
+ * (Earth) and `check-worlds.ts` (the other worlds):
  *
- * - the glass is see-through, drawn from both sides, **writes no depth** (it
- *   would hide every ink line behind it from the outline pass), carries no
- *   ink and casts no shadow (`glassFaults`);
- * - a driver's wheel clears the knees, the chest and the eye, and both its
- *   hand-holds are within the hero's reach of their shoulders, leaning in as
- *   a driver does, straight and at full lock either way (`wheelFaults`);
- * - and, where it is asked, the shell is **lined**: from the seated eye no
- *   ray meets the shell before it meets the lining, the furniture or the
- *   glass (`uncovered`), because what hides the far wall's ink hull through a
- *   window is the lining and never the glass.
+ * - glass is transparent, double-sided, writes no depth (or it would hide the
+ *   ink lines behind it), is not inked and casts no shadow (`glassFaults`);
+ * - a driver's wheel clears the knees, chest and eye, and its hand-holds are
+ *   within the hero's reach, straight and at full lock (`wheelFaults`);
+ * - where asked, the shell is lined: from the seated eye no ray meets the back
+ *   of the shell before the lining, furniture or glass (`uncovered`).
  */
 
 import * as THREE from 'three';
@@ -145,7 +140,7 @@ function firstHit(p: Float32Array, ox: number, oy: number, oz: number, dx: numbe
 
 /**
  * The share of rays from `eye`, spread evenly over the sphere, whose first
- * hit is the shell **from behind** rather than the lining, the furniture or
+ * hit is the shell from behind rather than the lining, the furniture or
  * a pane: where the eye would see past a culled face to the shell's ink hull.
  * A face of the shell met from the front is drawn and inked as it should be,
  * and counts as covered; rays that meet nothing do not count.

@@ -1,43 +1,23 @@
 /**
- * Headless assertions over the scenery kit.
+ * Builds every scenery part in every region and variant and holds each build
+ * to the contract. Beyond `validatePart`:
  *
- * `scripts/check-traffic.ts` is the model: a kit has no baked artefact, so the
- * check is to build every part in every region in every variant and hold each
- * one to the contract. 22 parts x 14 regions x 6 variants is 1,848 builds and
- * it takes a few seconds, most of them the two people.
+ * - Variety: a part whose six variants collapse onto three silhouettes in some
+ *   region is flagged.
+ * - Determinism: same seed, two builds, one fingerprint of every vertex and
+ *   colour (finer than a silhouette raster).
+ * - No NaN: a zero-area face gives `computeVertexNormals` a NaN normal, which
+ *   blacks out the whole mesh without changing its bounding box.
+ * - Tones: every variant of a `dwelling`, `block` or `civic` part draws at
+ *   least `TONE_MARGIN` more tones than palette colours; a flat colour per
+ *   surface reads as a box, and tones are free against the colour budget.
+ * - No two colours in one plane (`fightsIn`): a merged town would z-fight on
+ *   it whenever the camera moves.
+ * - The tables agree with the files: every id a region or biome names exists,
+ *   and every part that is not a person is named somewhere.
  *
- * What it holds a part to, beyond `validatePart`:
- *
- * - **The seed has to do something.** A part whose six variants collapse onto
- *   three silhouettes is flagged — per region, because a part can be varied in
- *   Norway and a rubber stamp in Mali.
- * - **Determinism, byte for byte.** Same seed, two builds, one fingerprint of
- *   every vertex and every colour. A silhouette raster cannot see a stray
- *   `Math.random()` that moves a lobe a tenth of a unit; this can.
- * - **No NaN.** A zero-area face gives `computeVertexNormals` a normal of
- *   `NaN`, which black-holes the whole mesh and nothing in the bounding box
- *   notices. Every position and normal is read.
- * - **A building has to be made of tones.** A `dwelling`, `block` or `civic`
- *   part drawing one flat colour a surface is the failure the whole kit was
- *   re-authored out of, because a flat colour is what a box looks like. Tones
- *   are free against the colour budget, so nothing else in the contract can
- *   catch a part that spends none: this asks that **every** variant draws at
- *   least `TONE_MARGIN` more tones than it has palette colours.
- * - **No two colours in one plane.** Two faces of different colours that lie
- *   in one plane, face the same way and overlap where something can see them
- *   are one surface drawn twice at one depth, and a merged town z-fights on it
- *   whenever the camera moves. A still frame shows one colour or the other and
- *   looks fine, which is how the roofs flickered for as long as they did. See
- *   `fightsIn`.
- * - **The tables agree with the files.** Every id a region or a biome names
- *   exists, and every part that is not a person is named by one of them —
- *   otherwise anything that asks the tables asks only half the world.
- *
- * The registry cannot be used here: `import.meta.glob` is a Vite transform and
- * does not exist in Node, so the parts are read off disk and imported by path.
- * Pass kinds or ids to check a subset —
- * `node scripts/check-scenery.ts tree scatter` — which is what rewriting one
- * family of parts wants while other files are mid-edit.
+ * `import.meta.glob` does not exist in Node, so parts are imported by path.
+ * Pass kinds or ids to check a subset: `node scripts/check-scenery.ts tree scatter`.
  *
  * `node scripts/check-scenery.ts`, or `pnpm scenery`.
  */
@@ -62,7 +42,7 @@ import { registerModelsFromDisk } from './kit-node.ts';
 import { fightsIn } from './z-fight.ts';
 import type { Fight } from './z-fight.ts';
 
-// The flora and the vehicles are baked CC0 models (scripts/build-kit.ts): register them as main.ts does.
+// The flora and the vehicles are baked models (scripts/build-kit.ts): register them as main.ts does.
 await registerModelsFromDisk();
 
 const PARTS = resolve(import.meta.dirname, '../src/scenery/parts');
@@ -114,11 +94,6 @@ type MeshLike = {
   geometry?: { getAttribute(name: string): Attribute | undefined; dispose(): void };
   matrixWorld: { elements: number[] };
 };
-/**
- * What these helpers need of a group: Three's own two methods. It was a
- * hand-written `traverse(fn: (o: never) => void)`, which Three's `Group` is not
- * assignable to — invisible while nothing typechecked `scripts/`.
- */
 type GroupLike = Pick<Object3D, 'updateMatrixWorld' | 'traverse'>;
 
 /** Every drawn colour in a group, as stamped — tones included, so 'green x0.85' and 'green' are two. */
@@ -126,8 +101,7 @@ function drawnColors(group: GroupLike): Set<number> {
   const seen = new Set<number>();
   group.traverse(((object: MeshLike) => {
     if (!object.isMesh) return;
-    // A painted part (a baked model) draws its tones as vertex colours, so they
-    // are read off the colour attribute rather than off the material's stamp.
+    // A painted part (a baked model) carries its tones as vertex colours.
     const painted = object.material?.userData.atlasPainted === true ? object.geometry?.getAttribute('color') : undefined;
     if (painted) {
       for (let i = 0; i < painted.count; i++) {
@@ -189,15 +163,9 @@ function dispose(group: GroupLike): void {
 // --- every variant against the contract ---------------------------------
 
 /**
- * How many more tones than colours every variant of a building has to draw.
- *
- * Three, and it is a floor rather than a target: a wall wants a darker base
- * course, a shadow band under its eaves and a lighter window surround before
- * anything else on it is considered, and those three are one palette colour
- * between them. Measured 2026-09-06 over the ten building parts, the leanest
- * variant in the kit clears it by one — `gabled-house` in `nordic` and
- * `tower-block` in `maghreb` both draw four more tones than colours — and there
- * is no reason for a new part to be leaner than the leanest one there is.
+ * How many more tones than palette colours every variant of a building must
+ * draw. A floor: a wall wants a darker base course, a shadow band under the
+ * eaves and a lighter window surround, all from one palette colour.
  */
 const TONE_MARGIN = 3;
 
@@ -269,9 +237,8 @@ for (const part of parts) {
       const tones = drawnColors(group).size;
       w.tones = Math.max(w.tones, tones);
       w.fewestTones = Math.min(w.fewestTones, tones);
-      // Per variant, not the fewest tones against the most colours: those are
-      // two different builds, and comparing them fails a part for a pairing
-      // that never happens.
+      // Per variant: the fewest tones and the most colours may come from
+      // different builds, and pairing them would fail a part spuriously.
       w.margin = Math.min(w.margin, tones - m.colors.length);
       w.reach = Math.max(w.reach, m.radius);
       w.low = Math.min(w.low, m.height);
@@ -282,8 +249,8 @@ for (const part of parts) {
       const variety = varietyOf(measurements);
       w.shapes = Math.min(w.shapes, variety.shapes);
       w.palettes = Math.min(w.palettes, variety.palettes);
-      // Per region: half the variants sharing a silhouette
-      // is a part that is not really parametric.
+      // Per region: half the variants sharing a silhouette means the part is
+      // not really parametric.
       if (variety.shapes * 2 <= variety.samples) {
         const problem = `only ${variety.shapes} distinct silhouettes across ${variety.samples} variants in ${style.id}`;
         if (!seen.has(problem)) {
@@ -356,9 +323,9 @@ for (const part of parts) {
 // --- the tones, by name ---------------------------------------------------
 
 /**
- * Which colours each part actually draws in one region, so a reviewer can see
- * that a conifer is three greens of one green and not one. Informational: the
- * budget is `colors`, and tones are free against it by design.
+ * Which colours each part draws in one region, for a reviewer (a conifer
+ * should be three tones of one green). Informational: tones are free against
+ * the `colors` budget.
  */
 const showcase = REGIONS['atlantic-europe'];
 console.log(`\n  what each part draws in ${showcase.id}, variant 0:`);
@@ -410,11 +377,9 @@ for (const plant of Object.keys(NATIVE_TO)) {
   if (!known.has(plant)) fail(`NATIVE_TO names '${plant}' and no such part exists`);
 }
 /**
- * Parts placed by code rather than by a table. The crowd places people, and
- * `settlements.ts` stands `street-lamp` along its own streets (`LAMP_PART`),
- * `traffic-light` at a city's middle crossing (`SIGNAL_PART`) and
- * `street-bench` beside some of its lamps (`BENCH_PART`); none is named by a
- * region or a biome and none is an orphan.
+ * Parts placed by code rather than by a table: the crowd places people, and
+ * `settlements.ts` places `street-lamp` (`LAMP_PART`), `traffic-light`
+ * (`SIGNAL_PART`) and `street-bench` (`BENCH_PART`).
  */
 const PLACED_BY_CODE = new Set(['street-lamp', 'traffic-light', 'street-bench']);
 for (const part of everything) {
@@ -424,17 +389,15 @@ for (const part of everything) {
 
 // --- the street dressing -------------------------------------------------
 //
-// What `scenery/street-dressing.ts` hangs on a near town's fronts and stands
-// on its building line is written as flat arrays, not as parts, so it is held
-// here to the same rules a part is: every piece of every region laid out by
-// `sampleDressing`, regrouped a mesh a colour (a colour and its glow, as the
-// town draws them) and asked for z-fights like any build; every normal a unit
-// and on the side its winding says; and the same buffer twice.
+// `scenery/street-dressing.ts` writes flat arrays rather than parts, so they
+// are held to the same rules here: every region's pieces laid out by
+// `sampleDressing`, regrouped one mesh per colour (and glow) and checked for
+// z-fights; every normal unit length and on its winding's side; determinism.
 {
   const THREE = await import('three');
   const { sampleDressing, pieceCost, propModels, DRESSING_REGIONS } = await import('../src/scenery/street-dressing.ts');
   const { createSceneryContext } = await import('../src/scenery/contract.ts');
-  // The CC0 pieces from the kit on disk, as a town draws them.
+  // The baked pieces from the kit on disk, as a town draws them.
   const models = propModels(createSceneryContext());
   console.log('\nthe street dressing:');
   const worst = new Map<string, number>();
@@ -470,7 +433,7 @@ for (const part of everything) {
         for (let k = 0; k < 9; k += 3) {
           const size = Math.hypot(n[t + k]!, n[t + k + 1]!, n[t + k + 2]!);
           if (!(Math.abs(size - 1) < 1e-4)) bent++;
-          // On the side the winding says: a CC0 piece's normals are creased, welded across its curves.
+          // On the side the winding says: a baked piece's normals are creased, welded across its curves.
           if (length > 0 && (cx * n[t + k]! + cy * n[t + k + 1]! + cz * n[t + k + 2]!) / length < 0.2) turned++;
         }
       }

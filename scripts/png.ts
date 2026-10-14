@@ -1,15 +1,10 @@
 /**
- * A PNG encoder for the map's bake and its check (`build-maps.ts`,
- * `check-maps.ts`): RGBA or, where an image has few enough colours, an
- * indexed palette, with each row's filter chosen by the smallest sum, and
- * zlib from Node. No dependency: the format is a signature and four chunk
- * types.
+ * Minimal PNG encoder for the map bake and its check: RGB or indexed colour,
+ * per-row filter chosen by smallest sum, zlib from Node.
  *
- * Indexed is what makes the bake small. A map tile is flat fills under a
- * stepped light, so a whole level has a few thousand colours where a photo
- * has a million; quantised to 256 by `quantise` (each channel's low bits
- * dropped until the colours fit, then the nearest kept colour for the rest),
- * a level's PNG is a third of its RGBA one, and the eye cannot find the step.
+ * Map tiles are flat fills under stepped light, so a level has only a few
+ * thousand colours; `quantise` reduces them to 256 and the indexed PNG comes
+ * out about a third the size of RGB with no visible loss.
  */
 import { deflateSync } from 'node:zlib';
 
